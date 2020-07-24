@@ -42,10 +42,8 @@ use common::*;
 use std::pin::Pin;
 use std::ptr;
 
-
-use inlinable_string::{InlinableString, StringExt};
-use ropey::Rope;
-use smallvec::SmallVec;
+use inlinable_string::InlinableString;
+// use smallvec::SmallVec;
 
 pub enum OpAction {
     Insert(InlinableString),
@@ -70,12 +68,12 @@ pub enum OpAction {
  * - Optional deleted sequence at that location. This sequence must be
  *   contiguous inserts from the client.
  */
-pub struct CRDTOpComponent {
-    location: CRDTLocation,
-    action: OpAction,
-}
+// pub struct CRDTOpComponent {
+//     location: CRDTLocation,
+//     action: OpAction,
+// }
 // Most operations only have 1 component.
-pub struct CRDTOp(SmallVec<[CRDTOpComponent; 1]>);
+// pub struct CRDTOp(SmallVec<[CRDTOpComponent; 1]>);
 
 // pub fn apply_ot_mut(rope: &mut Rope, op: &OTOp) {
 //     let loc = op.location as usize;
@@ -100,7 +98,7 @@ struct ClientData {
 }
 
 #[derive(Debug)]
-struct CRDTState {
+pub struct CRDTState {
     client_data: Vec<ClientData>,
 
     marker_tree: Pin<Box<MarkerTree>>,
