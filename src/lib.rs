@@ -117,20 +117,26 @@ impl CRDTState {
         }
     }
 
-    fn get_or_create_clientid(&mut self, name: ClientName) -> ClientID {
-        if let Some(id) = self.client_data.iter().position(|client_data| client_data.name == name) {
-            id as ClientID
+    fn get_or_create_clientid(&mut self, name: &ClientName) -> ClientID {
+        if let Some(id) = self.get_clientid(name) {
+            id
         } else {
             // Create a new id.
             self.client_data.push(ClientData {
-                name,
+                name: name.clone(),
                 ops: Vec::new()
             });
             (self.client_data.len() - 1) as ClientID
         }
     }
 
-    fn insert(&mut self, client_id: ClientID, pos: u32, text: InlinableString) -> CRDTLocation {
+    fn get_clientid(&self, name: &ClientName) -> Option<ClientID> {
+        self.client_data.iter()
+        .position(|client_data| &client_data.name == name)
+        .map(|id| id as ClientID)
+    }
+
+    pub fn insert(&mut self, client_id: ClientID, pos: u32, text: InlinableString) -> CRDTLocation {
         // First lookup and insert into the marker tree
         let ops = &mut self.client_data[client_id as usize].ops;
         let loc_base = CRDTLocation {
@@ -160,9 +166,24 @@ impl CRDTState {
         insert_location
     }
 
-    fn insert_name(&mut self, client_name: ClientName, pos: u32, text: InlinableString) -> CRDTLocation {
+    pub fn insert_name(&mut self, client_name: &ClientName, pos: u32, text: InlinableString) -> CRDTLocation {
         let id = self.get_or_create_clientid(client_name);
         self.insert(id, pos, text)
+    }
+
+    pub fn lookup_position(&self, loc: CRDTLocation) -> u32 {
+        if loc == CRDT_DOC_ROOT { return 0; }
+
+        let ops = &self.client_data[loc.client as usize].ops;
+        unsafe { MarkerTree::lookup_position(loc, ops[loc.seq as usize]) }
+    }
+
+    pub fn lookup_position_name(&self, client_name: &ClientName, seq: ClientSeq) -> u32 {
+        let id = self.get_clientid(client_name).expect("Invalid client name");
+        self.lookup_position(CRDTLocation {
+            client: id,
+            seq,
+        })
     }
 }
 
@@ -206,7 +227,17 @@ mod tests {
     #[test]
     fn foo() {
         let mut state = CRDTState::new();
-        eprintln!("{:#?}", state.insert_name(InlinableString::from("fred"), 0, InlinableString::from("hi there")));
+        let fred = InlinableString::from("fred");
+        let george = InlinableString::from("george");
+
+        eprintln!("{:#?}", state.insert_name(&fred, 0, InlinableString::from("hi there")));
+        eprintln!("state {:#?}", state);
+        
+        eprintln!("root position is {}", state.lookup_position(CRDT_DOC_ROOT));
+        eprintln!("position 1 is {}", state.lookup_position_name(&fred, 1));
+        eprintln!("fred position 7 is {}", state.lookup_position_name(&fred, 7));
+        eprintln!("{:#?}", state.insert_name(&george, 3, InlinableString::from("over "))); // hi over there
+        eprintln!("fred position 7 is {}", state.lookup_position_name(&fred, 7));
         eprintln!("state {:#?}", state);
     }
 

@@ -58,7 +58,8 @@ Then we have two main data structures internally:
 
 - [x] Basic btree structure implemented
 - [x] Check function to verify structure integrity
-- [x] Location -> CRDT location name
+- [x] Doc Location -> CRDT location name
+- [x] CRDT location -> Doc location
 - [x] Insert text
 - [ ] Remove text
 - [ ] Cleanup

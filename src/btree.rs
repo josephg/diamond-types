@@ -135,23 +135,43 @@ impl NodeLeaf {
         }
     }
 
-    pub fn find2(&self, loc: CRDTLocation) -> (ClientSeq, Option<usize>) {
-        let mut raw_pos: ClientSeq = 0;
+    // pub fn find2(&self, loc: CRDTLocation) -> (ClientSeq, Option<usize>) {
+    //     let mut raw_pos: ClientSeq = 0;
 
+    //     for i in 0..NUM_ENTRIES {
+    //         let entry = self.data[i];
+    //         if entry.is_invalid() { break; }
+
+    //         if entry.loc.client == loc.client && entry.get_seq_range().contains(&loc.seq) {
+    //             if entry.len > 0 {
+    //                 raw_pos += loc.seq - entry.loc.seq;
+    //             }
+    //             return (raw_pos, Some(i));
+    //         } else {
+    //             raw_pos += entry.get_text_len()
+    //         }
+    //     }
+    //     (raw_pos, None)
+    // }
+
+    pub fn find(&self, loc: CRDTLocation) -> Option<Cursor> {
         for i in 0..NUM_ENTRIES {
             let entry = self.data[i];
             if entry.is_invalid() { break; }
 
             if entry.loc.client == loc.client && entry.get_seq_range().contains(&loc.seq) {
-                if entry.len > 0 {
-                    raw_pos += loc.seq - entry.loc.seq;
-                }
-                return (raw_pos, Some(i));
-            } else {
-                raw_pos += entry.get_text_len()
+                let offset = if entry.len > 0 {
+                    loc.seq - entry.loc.seq
+                } else { 0 };
+
+                return Some(Cursor::new(
+                    unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
+                    i,
+                    offset
+                ))
             }
         }
-        (raw_pos, None)
+        None
     }
 
     // Find a given text offset within the node
@@ -438,6 +458,12 @@ pub struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
+    fn new(node: NonNull<NodeLeaf>, idx: usize, offset: u32) -> Self {
+        Cursor {
+            node, idx, offset, _marker: marker::PhantomData
+        }
+    }
+
     fn next_node(&mut self) -> Option<NodeLeaf> {
         unimplemented!();
     }
@@ -474,6 +500,7 @@ impl<'a> Cursor<'a> {
                             break;
                         } else {
                             // idx is 0. Keep climbing up the ladder.
+                            node_ptr = NodePtr::Internal(unsafe { NonNull::new_unchecked(node_ref as *const _ as *mut _) });
                             parent = node_ref.parent;
                         }
                     }
@@ -500,6 +527,45 @@ impl<'a> Cursor<'a> {
                 }
             }
         }
+    }
+
+    fn get_pos(&self) -> u32 {
+        let node = unsafe { self.node.as_ref() };
+        
+        let mut pos: u32 = 0;
+        // First find out where we are in the current node.
+        
+        // TODO: This is a bit redundant - we could find out the local position
+        // when we scan initially to initialize the cursor.
+        for e in &node.data[0..self.idx] {
+            pos += e.get_text_len();
+        }
+        let local_len = node.data[self.idx].len;
+        if local_len > 0 { pos += self.offset; }
+
+        // Ok, now iterate up to the root counting offsets as we go.
+
+        let mut parent = node.parent;
+        let mut node_ptr = NodePtr::Leaf(self.node);
+        loop {
+            match parent {
+                ParentPtr::Root(_) => { break; }, // done.
+
+                ParentPtr::Internal(n) => {
+                    let node_ref = unsafe { n.as_ref() };
+                    let idx = node_ref.find_child(node_ptr).unwrap();
+
+                    for (c, _) in &node_ref.data[0..idx] {
+                        pos += c;
+                    }
+
+                    node_ptr = NodePtr::Internal(unsafe { NonNull::new_unchecked(node_ref as *const _ as *mut _) });
+                    parent = node_ref.parent;
+                }
+            }
+        }
+
+        pos
     }
 
     fn get_entry(&self) -> &Entry {
@@ -795,6 +861,26 @@ impl MarkerTree {
             Node::Leaf(n) => { Self::check_leaf(&n, expected_parent) },
         };
         assert_eq!(self.count as usize, expected_size);
+    }
+
+    pub unsafe fn lookup_position(loc: CRDTLocation, ptr: NonNull<NodeLeaf>) -> u32 {
+        // First make a cursor to the specified item
+        let leaf = ptr.as_ref();
+        // let mut parent = leaf.parent;
+        // enum NodePtr {
+        //     Internal(NonNull<NodeInternal>),
+        //     Leaf(NonNull<NodeLeaf>),
+        // }
+        // let mut node = NodePtr::Leaf(ptr);
+
+        // First find the entry
+        // let (mut pos, idx) = leaf.find2(loc);
+        // idx.expect("Internal consistency violation - could not find leaf");
+
+        // let cursor = Cursor::new(ptr, idx, pos);
+        let cursor = leaf.find(loc).expect("Position not in named leaf");
+
+        cursor.get_pos()
     }
 
     // unsafe fn lookup_position(loc: CRDTLocation, ptr: NonNull<NodeLeaf>) -> usize {
