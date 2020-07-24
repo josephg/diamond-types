@@ -37,7 +37,11 @@
 mod btree;
 mod common;
 
+use btree::*;
 use common::*;
+use std::pin::Pin;
+use std::ptr;
+
 
 use inlinable_string::{InlinableString, StringExt};
 use ropey::Rope;
@@ -55,11 +59,6 @@ pub enum OpAction {
 //     action: OpAction,
 // }
 
-
-pub struct CRDTLocation {
-    client: ClientID,
-    seq: ClientSeq,
-}
 
 /**
  * A crdt operation is a set of small operation components at locations.
@@ -88,6 +87,7 @@ pub struct CRDTOp(SmallVec<[CRDTOpComponent; 1]>);
 //     }
 // }
 
+#[derive(Debug)]
 struct ClientData {
     // Used to map from client's name / hash to its numerical ID.
     name: ClientName,
@@ -96,14 +96,74 @@ struct ClientData {
     // Note for inserts which insert a lot of contiguous characters, this will
     // contain a lot of repeated pointers. I'm trading off memory for simplicity
     // here - which might or might not be the right approach.
-    ops: Vec<*const u32>
+    ops: Vec<ptr::NonNull<NodeLeaf>>
 }
 
+#[derive(Debug)]
 struct CRDTState {
     client_data: Vec<ClientData>,
 
+    marker_tree: Pin<Box<MarkerTree>>,
 
     // ops_from_client: Vec<Vec<
+}
+
+
+impl CRDTState {
+    pub fn new() -> Self {
+        CRDTState {
+            client_data: Vec::new(),
+            marker_tree: MarkerTree::new()
+        }
+    }
+
+    fn get_or_create_clientid(&mut self, name: ClientName) -> ClientID {
+        if let Some(id) = self.client_data.iter().position(|client_data| client_data.name == name) {
+            id as ClientID
+        } else {
+            // Create a new id.
+            self.client_data.push(ClientData {
+                name,
+                ops: Vec::new()
+            });
+            (self.client_data.len() - 1) as ClientID
+        }
+    }
+
+    fn insert(&mut self, client_id: ClientID, pos: u32, text: InlinableString) -> CRDTLocation {
+        // First lookup and insert into the marker tree
+        let ops = &mut self.client_data[client_id as usize].ops;
+        let loc_base = CRDTLocation {
+            client: client_id,
+            seq: ops.len() as ClientSeq
+        };
+        let inserted_length = text.chars().count();
+        // ops.reserve(inserted_length);
+        ops.resize(ops.len() + inserted_length, ptr::NonNull::dangling());
+
+        let client_data = &mut self.client_data;
+
+        let cursor = self.marker_tree.cursor_at_pos(pos, true);
+        let insert_location = if pos == 0 {
+            // This saves an awful lot of code needing to be executed.
+            CRDT_DOC_ROOT
+        } else { cursor.tell() };
+
+        self.marker_tree.insert(cursor, inserted_length as ClientSeq, loc_base, |loc, len, leaf| {
+            eprintln!("insert callback {:?} len {}", loc, len);
+            let ops = &mut client_data[loc.client as usize].ops;
+            for op in &mut ops[loc.seq as usize..(loc.seq+len) as usize] {
+                *op = leaf;
+            }
+        });
+
+        insert_location
+    }
+
+    fn insert_name(&mut self, client_name: ClientName, pos: u32, text: InlinableString) -> CRDTLocation {
+        let id = self.get_or_create_clientid(client_name);
+        self.insert(id, pos, text)
+    }
 }
 
 // impl CRDTOp {
@@ -118,13 +178,13 @@ struct CRDTState {
 
 #[cfg(test)]
 mod tests {
-    use ropey::Rope;
+    // use ropey::Rope;
     use super::*;
-    use inlinable_string::InlinableString;
+    // use inlinable_string::InlinableString;
 
     #[test]
     fn it_works() {
-        let mut r = Rope::new();
+        // let mut r = Rope::new();
         // apply_ot_mut(&mut r, &OTOp {
         //     location: 0,
         //     action: OpAction {
@@ -140,42 +200,37 @@ mod tests {
         //     }
         // });
         // r.insert(0, "hi");
-        println!("text: '{}'", r);
+        // println!("text: '{}'", r);
     }
 
     #[test]
     fn foo() {
-        use btree::*;
-        use common::*;
-
-        let mut tree = MarkerTree::new();
-
-        let notify = |loc, _ptr| {
-            dbg!(loc);
-        };
-
-        tree.insert(0, 2, CRDTLocation {
-            client: 0,
-            seq: 10
-        }, notify);
-        tree.insert(2, 3, CRDTLocation {
-            client: 0,
-            seq: 12
-        }, notify);
-
-        // type 2
-        tree.insert(5, 1, CRDTLocation {
-            client: 1,
-            seq: 100
-        }, notify);
-
-        tree.insert(5, 10, CRDTLocation {
-            client: 2,
-            seq: 100
-        }, notify);
-
-        // type 3
-        tree.insert(1, 5, CRDTLocation { client: 3, seq: 1000 }, notify);
-        dbg!(tree);
+        let mut state = CRDTState::new();
+        eprintln!("{:#?}", state.insert_name(InlinableString::from("fred"), 0, InlinableString::from("hi there")));
+        eprintln!("state {:#?}", state);
     }
+
+    // #[test]
+    // fn foo() {
+    //     use btree::*;
+    //     use common::*;
+
+    //     let mut tree = MarkerTree::new();
+
+    //     let notify = |loc, _ptr| {
+    //         dbg!(loc);
+    //     };
+
+    //     tree.insert(0, 2, CRDTLocation { client: 0, seq: 10 }, notify);
+    //     tree.insert(2, 3, CRDTLocation { client: 0, seq: 12 }, notify);
+
+    //     // type 2
+    //     tree.insert(5, 1, CRDTLocation { client: 1, seq: 100 }, notify);
+
+    //     tree.insert(5, 10, CRDTLocation { client: 2, seq: 100 }, notify);
+
+    //     // type 3
+    //     tree.insert(1, 5, CRDTLocation { client: 3, seq: 1000 }, notify);
+    //     dbg!(tree);
+    // }
 }

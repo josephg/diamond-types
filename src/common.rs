@@ -12,3 +12,17 @@ pub struct CRDTLocation {
     pub client: ClientID,
     pub seq: ClientSeq,
 }
+
+impl Default for CRDTLocation {
+    fn default() -> Self {
+        CRDTLocation {
+            client: CLIENT_INVALID,
+            seq: 0
+        }
+    }
+}
+
+pub const CRDT_DOC_ROOT: CRDTLocation = CRDTLocation {
+    client: CLIENT_INVALID,
+    seq: 0
+};
