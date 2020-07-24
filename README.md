@@ -47,3 +47,21 @@ Then we have two main data structures internally:
   These lists could also be run-length encoded - which would save memory, but
   then we'd need to binary search to find any given location instead of doing a
   simple array lookup.
+
+
+## Optimizations to perform
+
+- [ ] Cache the last 
+
+
+## Progress
+
+- [x] Basic btree structure implemented
+- [x] Check function to verify structure integrity
+- [x] Location -> CRDT location name
+- [x] Insert text
+- [ ] Remove text
+- [ ] Cleanup
+- [ ] Cache last location for each client
+- [ ] Tests
+- [ ] Benchmarks
