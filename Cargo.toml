@@ -1,5 +1,5 @@
 [package]
-name = "text-crdt-rust"
+name = "text_crdt_rust"
 version = "0.1.0"
 authors = ["Seph Gentle <me@josephg.com>"]
 edition = "2018"
@@ -10,3 +10,9 @@ edition = "2018"
 inlinable_string = "0.1.11"
 ropey = "1.1.0"
 smallvec = "1.4.0"
+criterion = "0.3.3"
+
+
+[[bench]]
+name = "benchmark"
+harness = false

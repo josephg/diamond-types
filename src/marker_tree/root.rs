@@ -72,8 +72,9 @@ impl MarkerTree {
         };
 
         if space_needed == 0 { return; } // 🤷‍♀️
+        // if space_needed == 0 || (cursor.idx == filled_entries && filled_entries + space_needed <= NUM_ENTRIES { return; } // 🤷‍♀️
 
-        let filled_entries = node.count_entries();
+        let mut filled_entries = node.count_entries();
         if filled_entries + space_needed > NUM_ENTRIES {
             // Split the entry in two. space_needed should always be 1 or 2, and
             // there needs to be room after splitting.
@@ -88,6 +89,7 @@ impl MarkerTree {
                 // move everything afterward to a new node.
                 let split_point = if cursor.offset == 0 { cursor.idx } else { cursor.idx + 1 };
                 node.split_at(split_point, filled_entries, notify);
+                filled_entries = split_point;
             } else {
                 // Split in the middle of the current node. This involves a
                 // little unnecessary copying - because we're copying the
@@ -98,6 +100,7 @@ impl MarkerTree {
                 // point and add padding into the new node to leave space.
                 cursor.node = node.split_at(NUM_ENTRIES/2, filled_entries, notify);
                 cursor.idx -= NUM_ENTRIES/2;
+                filled_entries = NUM_ENTRIES/2;
             }
 
             // unimplemented!("split");
@@ -192,8 +195,6 @@ impl MarkerTree {
         unimplemented!("delete");
     }
 
-
-
     // Returns size.
     fn check_leaf(leaf: &NodeLeaf, expected_parent: ParentPtr) -> usize {
         assert_eq!(leaf.parent, expected_parent);
@@ -201,7 +202,7 @@ impl MarkerTree {
         let mut count: usize = 0;
         let mut done = false;
 
-        for e in &leaf.data {
+        for e in &leaf.data[..] {
             if e.is_invalid() {
                 done = true;
             } else {
@@ -228,7 +229,7 @@ impl MarkerTree {
         let mut child_type = None; // Make sure all the children have the same type.
         let self_parent = ParentPtr::Internal(NonNull::new(node as *const _ as *mut _).unwrap());
 
-        for (child_count_expected, child) in &node.data {
+        for (child_count_expected, child) in &node.data[..] {
             if let Some(child) = child {
                 // Make sure there's no data after an invalid entry
                 assert!(done == false);
@@ -250,7 +251,10 @@ impl MarkerTree {
                 };
 
                 // Make sure all the individual counts match.
-                assert_eq!(*child_count_expected as usize, count_actual);
+                // if *child_count_expected as usize != count_actual {
+                //     eprintln!("xxx {:#?}", node);
+                // }
+                assert_eq!(*child_count_expected as usize, count_actual, "Child node count does not match");
                 count_total += count_actual;
             } else {
                 done = true;
@@ -278,7 +282,7 @@ impl MarkerTree {
             Node::Internal(n) => {
                 eprintln!("Internal {:?} (parent: {:?})", n as *const _, n.parent);
                 let mut unused = 0;
-                for (_, e) in &n.data {
+                for (_, e) in &n.data[..] {
                     if let Some(e) = e {
                         Self::print_node(e.as_ref().get_ref(), depth + 1);
                     } else { unused += 1; }
@@ -290,7 +294,7 @@ impl MarkerTree {
                 }
             },
             Node::Leaf(n) => {
-                eprintln!("Leaf {:?} (parent: {:?})", n as *const _, n.parent);
+                eprintln!("Leaf {:?} (parent: {:?}) - {} filled", n as *const _, n.parent, n.count_entries());
             }
         }
     }
@@ -303,69 +307,7 @@ impl MarkerTree {
     pub unsafe fn lookup_position(loc: CRDTLocation, ptr: NonNull<NodeLeaf>) -> u32 {
         // First make a cursor to the specified item
         let leaf = ptr.as_ref();
-        // let mut parent = leaf.parent;
-        // enum NodePtr {
-        //     Internal(NonNull<NodeInternal>),
-        //     Leaf(NonNull<NodeLeaf>),
-        // }
-        // let mut node = NodePtr::Leaf(ptr);
-
-        // First find the entry
-        // let (mut pos, idx) = leaf.find2(loc);
-        // idx.expect("Internal consistency violation - could not find leaf");
-
-        // let cursor = Cursor::new(ptr, idx, pos);
         let cursor = leaf.find(loc).expect("Position not in named leaf");
-
         cursor.get_pos()
     }
-
-    // unsafe fn lookup_position(loc: CRDTLocation, ptr: NonNull<NodeLeaf>) -> usize {
-    //     let leaf = ptr.as_ref();
-    //     let mut parent = leaf.parent;
-    //     // enum NodePtr {
-    //     //     Internal(NonNull<NodeInternal>),
-    //     //     Leaf(NonNull<NodeLeaf>),
-    //     // }
-    //     // let mut node = NodePtr::Leaf(ptr);
-
-    //     // First find the entry
-    //     let (mut pos, idx) = leaf.find2(loc);
-    //     idx.expect("Internal consistency violation - could not find leaf");
-        
-    //     // Ok now ascend up the tree.
-    //     loop {
-    //         // let parent = match node {
-    //         //     NodePtr::Internal(n) => n.as_ref().parent,
-    //         //     NodePtr::Leaf(n) => n.as_ref().parent,
-    //         // };
-
-    //         // let parent = match parent {
-    //         //     ParentPtr::Internal(ptr) => ptr.as_ref(),
-    //         //     ParentPtr::Root(_) => break // Hit the root.
-    //         // };
-            
-    //         // Scan the node to count the length.
-    //         for i in 0..MAX_CHILDREN {
-    //             let (count, elem) = &parent.data[i];
-                
-    //             if let Some(elem) = elem {
-    //                 if std::ptr::eq(elem.as_ref(), node) {
-    //                     // Found the child.
-    //                     break;
-    //                 } else {
-    //                     pos += count;
-    //                 }
-    //             } else {
-    //                 panic!("Could not find child in parent");
-    //             }
-    //         }
-
-    //         // Scan the internal 
-
-    //         node = parent;
-    //     }
-
-    //     pos as usize
-    // }
 }

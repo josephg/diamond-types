@@ -98,7 +98,7 @@ struct ClientData {
     ops: Vec<ptr::NonNull<NodeLeaf>>
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct CRDTState {
     client_data: Vec<ClientData>,
 
@@ -116,7 +116,7 @@ impl CRDTState {
         }
     }
 
-    fn get_or_create_clientid(&mut self, name: &str) -> ClientID {
+    pub fn get_or_create_clientid(&mut self, name: &str) -> ClientID {
         if let Some(id) = self.get_clientid(name) {
             id
         } else {
@@ -135,14 +135,14 @@ impl CRDTState {
         .map(|id| id as ClientID)
     }
 
-    pub fn insert(&mut self, client_id: ClientID, pos: u32, text: InlinableString) -> CRDTLocation {
+    pub fn insert(&mut self, client_id: ClientID, pos: u32, inserted_length: usize) -> CRDTLocation {
         // First lookup and insert into the marker tree
         let ops = &mut self.client_data[client_id as usize].ops;
         let loc_base = CRDTLocation {
             client: client_id,
             seq: ops.len() as ClientSeq
         };
-        let inserted_length = text.chars().count();
+        // let inserted_length = text.chars().count();
         // ops.reserve(inserted_length);
         let dangling_ptr = ptr::NonNull::dangling();
         ops.resize(ops.len() + inserted_length, dangling_ptr);
@@ -156,7 +156,7 @@ impl CRDTState {
         } else { cursor.tell() };
 
         self.marker_tree.insert(cursor, inserted_length as ClientSeq, loc_base, |loc, len, leaf| {
-            eprintln!("insert callback {:?} len {}", loc, len);
+            // eprintln!("insert callback {:?} len {}", loc, len);
             let ops = &mut client_data[loc.client as usize].ops;
             for op in &mut ops[loc.seq as usize..(loc.seq+len) as usize] {
                 *op = leaf;
@@ -176,7 +176,7 @@ impl CRDTState {
 
     pub fn insert_name(&mut self, client_name: &str, pos: u32, text: InlinableString) -> CRDTLocation {
         let id = self.get_or_create_clientid(client_name);
-        self.insert(id, pos, text)
+        self.insert(id, pos, text.chars().count())
     }
 
     pub fn lookup_crdt_position(&self, loc: CRDTLocation) -> u32 {
@@ -229,17 +229,18 @@ impl CRDTState {
 mod tests {
     // use ropey::Rope;
     use super::*;
+    
     // use inlinable_string::InlinableString;
 
-    fn fill_with_junk(state: &mut CRDTState) {
-        let mut pos = 0;
-        for _ in 0..10 {
-            state.insert_name("fred", pos, InlinableString::from("fred"));
-            state.insert_name("george", pos + 4, InlinableString::from("george"));
-            pos += 10;
-            state.check();
-        }
-    }
+    // fn fill_with_junk(state: &mut CRDTState) {
+    //     let mut pos = 0;
+    //     for _ in 0..10 {
+    //         state.insert_name("fred", pos, InlinableString::from("fred"));
+    //         state.insert_name("george", pos + 4, InlinableString::from("george"));
+    //         pos += 10;
+    //         state.check();
+    //     }
+    // }
 
     #[test]
     fn first_pos_returns_root() {
@@ -251,51 +252,42 @@ mod tests {
     }
 
 
-    // #[test]
-    // fn foo() {
-    //     let mut state = CRDTState::new();
-
-    //     eprintln!("{:#?}", state.insert_name("fred", 0, InlinableString::from("hi there")));
-    //     eprintln!("state {:#?}", state);
-        
-    //     eprintln!("root position is {}", state.lookup_crdt_position(CRDT_DOC_ROOT));
-    //     eprintln!("position 1 is {}", state.lookup_position_name("fred", 1));
-    //     eprintln!("fred position 7 is {}", state.lookup_position_name("fred", 7));
-    //     eprintln!("{:#?}", state.insert_name("george", 3, InlinableString::from("over "))); // hi over there
-    //     eprintln!("fred position 7 is {}", state.lookup_position_name("fred", 7));
-    //     eprintln!("state {:#?}", state);
-    // }
-
     #[test]
-    fn junk() {
+    fn junk_append() {
         let mut state = CRDTState::new();
-        fill_with_junk(&mut state);
+
+        // Fill the document with junk. We need to use 2 different users here so
+        // the content doesn't get merged.
+        let mut pos = 0;
+        for _ in 0..50 {
+            state.insert_name("fred", pos, InlinableString::from("fred"));
+            state.insert_name("george", pos + 4, InlinableString::from("george"));
+            pos += 10;
+            state.check();
+        }
         
-        eprintln!("state {:#?}", state);
+        // eprintln!("state {:#?}", state);
         state.check();
     }
 
-    // #[test]
-    // fn foo() {
-    //     use btree::*;
-    //     use common::*;
+    
+    #[test]
+    fn junk_prepend() {
+    //     use std::io::Write;
 
-    //     let mut tree = MarkerTree::new();
+        let mut state = CRDTState::new();
+        
+        // Repeatedly inserting at 0 will prevent all the nodes collapsing, so we don't
+        // need to worry about that.
+        for _ in 0..65 {
+            state.insert_name("fred", 0, InlinableString::from("fred"));
+            // state.check();
+            // state.marker_tree.print_ptr_tree();
+        }
+    
+        state.check();
 
-    //     let notify = |loc, _ptr| {
-    //         dbg!(loc);
-    //     };
-
-    //     tree.insert(0, 2, CRDTLocation { client: 0, seq: 10 }, notify);
-    //     tree.insert(2, 3, CRDTLocation { client: 0, seq: 12 }, notify);
-
-    //     // type 2
-    //     tree.insert(5, 1, CRDTLocation { client: 1, seq: 100 }, notify);
-
-    //     tree.insert(5, 10, CRDTLocation { client: 2, seq: 100 }, notify);
-
-    //     // type 3
-    //     tree.insert(1, 5, CRDTLocation { client: 3, seq: 1000 }, notify);
-    //     dbg!(tree);
-    // }
+        // std::io::stderr().flush().unwrap();
+    }
+    
 }

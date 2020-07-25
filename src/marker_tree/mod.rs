@@ -21,16 +21,16 @@ use std::pin::Pin;
 
 use super::common::*;
 
-const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
+const MAX_CHILDREN: usize = 32; // This needs to be minimum 8.
 // const MIN_CHILDREN: usize = MAX_CHILDREN / 2;
 
-const NUM_ENTRIES: usize = 4;
+const NUM_ENTRIES: usize = 32;
 
 
 // This is the root of the tree. There's a bit of double-deref going on when you
 // access the first node in the tree, but I can't think of a clean way around
 // it.
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct MarkerTree {
     count: CharCount,
     // This is only ever None when the tree is being destroyed.
@@ -39,7 +39,7 @@ pub struct MarkerTree {
     _pin: marker::PhantomPinned,
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 enum Node {
     Internal(NodeInternal),
     Leaf(NodeLeaf),
@@ -62,19 +62,21 @@ enum NodePtr {
 // impl<T> NodeT for NodeInternal<T> {}
 // impl NodeT for NodeLeaf {}
 
-#[derive(Debug)]
+// #[derive(Debug)]
 struct NodeInternal /*<T: NodeT>*/ {
     parent: ParentPtr,
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
     // data: [(CharCount, Option<Box<Node>>); MAX_CHILDREN]
-    data: [(CharCount, Option<Pin<Box<Node>>>); MAX_CHILDREN]
+    data: [(CharCount, Option<Pin<Box<Node>>>); MAX_CHILDREN],
+    _drop: PrintDropInternal,
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct NodeLeaf {
     parent: ParentPtr,
     data: [Entry; NUM_ENTRIES],
+    _drop: PrintDropLeaf
 }
 
 // struct NodeInternal {
@@ -97,12 +99,28 @@ pub struct Cursor<'a> {
 }
 
 
+#[derive(Clone, Debug)]
+struct PrintDropLeaf;
 
+// For debugging.
 
-fn pinbox_to_nonnull<T>(box_ref: &mut Pin<Box<T>>) -> NonNull<T> {
-    unsafe {
-        NonNull::new_unchecked(box_ref.as_mut().get_unchecked_mut())
-    }
+// impl Drop for PrintDropLeaf {
+//     fn drop(&mut self) {
+//         eprintln!("DROP LEAF {:?}", self);
+//     }
+// }
+
+#[derive(Clone, Debug)]
+struct PrintDropInternal;
+
+// impl Drop for PrintDropInternal {
+//     fn drop(&mut self) {
+//         eprintln!("DROP INTERNAL {:?}", self);
+//     }
+// }
+
+unsafe fn pinbox_to_nonnull<T>(box_ref: &Pin<Box<T>>) -> NonNull<T> {
+    NonNull::new_unchecked(box_ref.as_ref().get_ref() as *const _ as *mut _)
 }
 
 fn pinnode_to_nodeptr(box_ref: &Pin<Box<Node>>) -> NodePtr {

@@ -20,6 +20,7 @@ impl NodeInternal {
             data: unsafe {
                 mem::transmute::<_, [(CharCount, Option<Pin<Box<Node>>>); MAX_CHILDREN]>(children)
             },
+            _drop: PrintDropInternal,
         }
     }
 

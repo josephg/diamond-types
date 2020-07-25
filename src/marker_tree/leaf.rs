@@ -2,7 +2,6 @@ use super::*;
 use std::mem;
 use std::ptr::{self, NonNull};
 
-
 impl NodeLeaf {
     // fn new() -> MaybeUninit<Self> {
     //     let leaf: MaybeUninit<Self> = MaybeUninit::uninit();
@@ -22,7 +21,8 @@ impl NodeLeaf {
     pub(super) fn new_with_parent(parent: ParentPtr) -> Self {
         Self {
             parent,
-            data: [Entry::default(); NUM_ENTRIES]
+            data: [Entry::default(); NUM_ENTRIES],
+            _drop: PrintDropLeaf,
         }
     }
 
@@ -98,6 +98,7 @@ impl NodeLeaf {
     pub(super) fn update_parent_count(&mut self, amt: i32) {
         let mut child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self) });
         let mut parent = self.parent;
+
         loop {
             match parent {
                 ParentPtr::Root(mut r) => {
@@ -126,6 +127,10 @@ impl NodeLeaf {
             ptr::copy_nonoverlapping(&self.data[idx], &mut new_node.data[0], self_entries - idx);
             
             // "zero" out the old entries
+            // TODO(optimization): We're currently copying / moving everything
+            // *after* idx. If idx is small, we could instead move everything
+            // before idx - which would save a bunch of calls to notify and save
+            // us needing to fix up a bunch of parent pointers.
             let mut stolen_length = 0;
             for e in &mut self.data[idx..NUM_ENTRIES] {
                 if !e.is_invalid() {
@@ -194,7 +199,7 @@ impl NodeLeaf {
                         new_root_ref.data[0] = (count - stolen_length, Some(old_root));
                         new_root_ref.data[1] = (stolen_length, Some(inserted_node));
 
-                        // eprintln!("2");
+                        // r.as_mut().print_ptr_tree();
                         return new_leaf_ptr;
                     },
                     ParentPtr::Internal(mut n) => {
@@ -261,7 +266,6 @@ impl NodeLeaf {
                         }
 
                         old_node = NodePtr::Internal(n);
-                        // inserted_node = Box::pin(Node::Internal(right_sibling));
                         inserted_node = right_sibling_box;
                         stolen_length = new_stolen_length;
                         // And iterate up the tree.
