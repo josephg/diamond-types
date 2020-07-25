@@ -24,7 +24,7 @@ impl MarkerTree {
         let mut offset_remaining = raw_pos;
         unsafe {
             while let Node::Internal(data) = &*node {
-                let (offset, next) = data.get_child(offset_remaining).expect("Internal consistency violation");
+                let (offset, next) = data.get_child(offset_remaining, stick_end).expect("Internal consistency violation");
                 offset_remaining -= offset;
                 node = next.get_ref();
             };

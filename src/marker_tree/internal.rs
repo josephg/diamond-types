@@ -23,12 +23,12 @@ impl NodeInternal {
         }
     }
 
-    pub(super) fn get_child(&self, raw_pos: u32) -> Option<(u32, Pin<&Node>)> {
+    pub(super) fn get_child(&self, raw_pos: u32, stick_end: bool) -> Option<(u32, Pin<&Node>)> {
         let mut offset_remaining = raw_pos;
 
         self.data.iter().find_map(|(count, elem)| {
             if let Some(elem) = elem.as_ref() {
-                if offset_remaining < *count {
+                if offset_remaining < *count || (stick_end && offset_remaining == *count) {
                     // let elem_box = elem.unwrap();
                     Some((offset_remaining, elem.as_ref()))
                 } else {
