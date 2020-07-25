@@ -71,10 +71,13 @@ impl MarkerTree {
             gap
         };
 
-        if space_needed == 0 { return; } // 🤷‍♀️
-        // if space_needed == 0 || (cursor.idx == filled_entries && filled_entries + space_needed <= NUM_ENTRIES { return; } // 🤷‍♀️
-
+        // TODO(opt): Consider caching this in each leaf.
         let mut filled_entries = node.count_entries();
+
+        // Bail if we don't need to make space or we're trying to insert at the end.
+        if space_needed == 0
+            || (cursor.idx == filled_entries && filled_entries + space_needed <= NUM_ENTRIES) { return; } // 🤷‍♀️
+
         if filled_entries + space_needed > NUM_ENTRIES {
             // Split the entry in two. space_needed should always be 1 or 2, and
             // there needs to be room after splitting.
