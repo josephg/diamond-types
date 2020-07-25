@@ -7,14 +7,6 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    fn next_node(&mut self) -> Option<NodeLeaf> {
-        unimplemented!();
-    }
-    
-    fn prev_node(&mut self) -> Option<NodeLeaf> {
-        unimplemented!();
-    }
-
     // Move back to the previous entry. Returns true if it exists, otherwise
     // returns false if we're at the start of the doc already.
     fn prev_entry(&mut self) -> bool {

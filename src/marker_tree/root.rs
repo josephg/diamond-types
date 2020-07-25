@@ -108,14 +108,17 @@ impl MarkerTree {
         // There's room in the node itself now. We need to reshuffle.
         let src_idx = cursor.idx;
         let dest_idx = src_idx + space_needed;
+        let num_copied = filled_entries - src_idx;
 
-        ptr::copy(&node.data[src_idx], &mut node.data[dest_idx], filled_entries - src_idx);
+        if num_copied > 0 {
+            ptr::copy(&node.data[src_idx], &mut node.data[dest_idx], num_copied);
+        }
         
         // Tidy up the edges
-        node.data[dest_idx].keep_end(cursor.offset);
-        
         if cursor.offset > 0 {
+            debug_assert!(num_copied > 0);
             node.data[src_idx].keep_start(cursor.offset);
+            node.data[dest_idx].keep_end(cursor.offset);
             cursor.idx += 1;
             cursor.offset = 0;
         }
@@ -127,6 +130,8 @@ impl MarkerTree {
     pub fn insert<F>(self: &Pin<Box<Self>>, mut cursor: Cursor, len: ClientSeq, new_loc: CRDTLocation, mut notify: F)
         where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
     {
+        let expected_size = self.count + len;
+
         if cfg!(debug_assertions) {
             self.as_ref().get_ref().check();
         }
@@ -177,6 +182,9 @@ impl MarkerTree {
 
         if cfg!(debug_assertions) {
             self.as_ref().get_ref().check();
+
+            // And check the total size of the tree has grown by len.
+            assert_eq!(expected_size, self.count);
         }
     }
 
