@@ -5,6 +5,10 @@ pub type ClientName = InlinableString;
 pub type ClientID = u16;
 pub type ClientSeq = u32;
 
+
+// More common/correct to use usize here but this will be fine in practice and faster.
+pub type CharCount = u32;
+
 pub const CLIENT_INVALID: ClientID = ClientID::MAX;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
