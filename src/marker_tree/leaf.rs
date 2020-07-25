@@ -206,7 +206,9 @@ impl NodeLeaf {
                         parent = left_sibling.parent; // For next iteration through the loop.
                         debug_assert!(left_sibling.count_children() == MAX_CHILDREN);
 
-                        let mut right_sibling = NodeInternal::new_with_parent(parent);
+                        // let mut right_sibling = NodeInternal::new_with_parent(parent);
+                        let mut right_sibling_box = Box::pin(Node::Internal(NodeInternal::new_with_parent(parent)));
+                        let right_sibling = right_sibling_box.unwrap_internal_mut();
                         let old_idx = left_sibling.find_child(old_node).unwrap();
                         
                         let left_sibling = n.as_mut();
@@ -223,6 +225,7 @@ impl NodeLeaf {
                             }
 
                             let new_idx = old_idx + 1;
+                            *(inserted_node.get_parent_mut()) = ParentPtr::Internal(NonNull::new_unchecked(left_sibling));
                             left_sibling.splice_in(new_idx, stolen_length, inserted_node);
                         } else {
                             // The new element is in the second half of the
@@ -230,6 +233,7 @@ impl NodeLeaf {
                             let new_idx = old_idx - MAX_CHILDREN/2 + 1;
 
                             let mut dest = 0;
+                            *(inserted_node.get_parent_mut()) = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
                             let mut new_entry = (stolen_length, Some(inserted_node));
                             for src in MAX_CHILDREN/2..MAX_CHILDREN {
                                 if dest == new_idx {
@@ -245,7 +249,8 @@ impl NodeLeaf {
                         }
 
                         old_node = NodePtr::Internal(n);
-                        inserted_node = Box::pin(Node::Internal(right_sibling));
+                        // inserted_node = Box::pin(Node::Internal(right_sibling));
+                        inserted_node = right_sibling_box;
                         // And iterate up the tree.
                     },
                 };
