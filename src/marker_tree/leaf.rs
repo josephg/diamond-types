@@ -22,6 +22,7 @@ impl NodeLeaf {
         Self {
             parent,
             data: [Entry::default(); NUM_ENTRIES],
+            len: 0,
             _drop: PrintDropLeaf,
         }
     }
@@ -46,9 +47,8 @@ impl NodeLeaf {
     // }
 
     pub fn find(&self, loc: CRDTLocation) -> Option<Cursor> {
-        for i in 0..NUM_ENTRIES {
+        for i in 0..(self.len as usize) {
             let entry = self.data[i];
-            if entry.is_invalid() { break; }
 
             if entry.loc.client == loc.client && entry.get_seq_range().contains(&loc.seq) {
                 let offset = if entry.len > 0 {
@@ -68,10 +68,10 @@ impl NodeLeaf {
     // Find a given text offset within the node
     // Returns (index, offset within entry)
     pub fn find_offset(&self, mut offset: u32, stick_end: bool) -> Option<(usize, u32)> {
-        for i in 0..NUM_ENTRIES {
-            if offset == 0 { // Need to specialcase this for the first inserted element.
-                return Some((i, 0));
-            }
+        for i in 0..(self.len as usize) {
+            // if offset == 0 {
+            //     return Some((i, 0));
+            // }
 
             let entry = self.data[i];
             if entry.loc.client == CLIENT_INVALID { break; }
@@ -84,17 +84,23 @@ impl NodeLeaf {
                 offset -= text_len
             }
         }
-        None
+
+        if offset == 0 { // Specialcase for the first inserted element - we may never enter the loop.
+            Some((self.len as usize, 0))
+        } else { None }
     }
 
+    // pub(super) fn actually_count_entries(&self) -> usize {
+    //     self.data.iter()
+    //     .position(|e| e.loc.client == CLIENT_INVALID)
+    //     .unwrap_or(NUM_ENTRIES)
+    // }
     pub(super) fn count_entries(&self) -> usize {
-        self.data.iter()
-        .position(|e| e.loc.client == CLIENT_INVALID)
-        .unwrap_or(NUM_ENTRIES)
+        self.len as usize
     }
 
     // Recursively (well, iteratively) ascend and update all the counts along
-    // the way up.
+    // the way up. TODO: Make this private.
     pub(super) fn update_parent_count(&mut self, amt: i32) {
         let mut child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self) });
         let mut parent = self.parent;
@@ -119,12 +125,14 @@ impl NodeLeaf {
         }
     }
 
-    pub(super) fn split_at<F>(&mut self, idx: usize, self_entries: usize, notify: &mut F) -> NonNull<NodeLeaf>
+    pub(super) fn split_at<F>(&mut self, idx: usize, notify: &mut F) -> NonNull<NodeLeaf>
         where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
     {
         unsafe {
             let mut new_node = Self::new(); // The new node has a danging parent pointer
-            ptr::copy_nonoverlapping(&self.data[idx], &mut new_node.data[0], self_entries - idx);
+            let new_len = self.len as usize - idx;
+            ptr::copy_nonoverlapping(&self.data[idx], &mut new_node.data[0], new_len);
+            new_node.len = new_len as u8;
             
             // "zero" out the old entries
             // TODO(optimization): We're currently copying / moving everything
@@ -132,12 +140,11 @@ impl NodeLeaf {
             // before idx - which would save a bunch of calls to notify and save
             // us needing to fix up a bunch of parent pointers.
             let mut stolen_length = 0;
-            for e in &mut self.data[idx..NUM_ENTRIES] {
-                if !e.is_invalid() {
-                    stolen_length += e.get_text_len();
-                    *e = Entry::default();
-                }
+            for e in &mut self.data[idx..self.len as usize] {
+                stolen_length += e.get_text_len();
+                *e = Entry::default();
             }
+            self.len = idx as u8;
 
             // eprintln!("split_at idx {} self_entries {} stolel_len {} self {:?}", idx, self_entries, stolen_length, &self);
 
@@ -145,7 +152,7 @@ impl NodeLeaf {
             // Ultimately ret is the pointer to the new item we'll end up returning.
             let new_leaf_ptr = NonNull::new_unchecked(inserted_node.unwrap_leaf_mut());
 
-            for e in &inserted_node.unwrap_leaf().data[0..self_entries-idx] {
+            for e in &inserted_node.unwrap_leaf().data[0..new_len] {
                 notify(e.loc, e.get_seq_len(), new_leaf_ptr);
             }
 

@@ -49,7 +49,7 @@ impl MarkerTree {
     unsafe fn make_space_in_leaf<F>(cursor: &mut Cursor, gap: usize, notify: &mut F)
         where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
     {
-        let node = cursor.node.as_mut();
+        let mut node = cursor.node.as_mut();
         
         {
             // let mut entry = &mut node.0[cursor.idx];
@@ -72,13 +72,19 @@ impl MarkerTree {
         };
 
         // TODO(opt): Consider caching this in each leaf.
-        let mut filled_entries = node.count_entries();
+        // let mut filled_entries = node.count_entries();
+        let num_filled = node.len as usize;
 
         // Bail if we don't need to make space or we're trying to insert at the end.
-        if space_needed == 0
-            || (cursor.idx == filled_entries && filled_entries + space_needed <= NUM_ENTRIES) { return; } // 🤷‍♀️
+        if space_needed == 0 { return; }
+        if cursor.idx == num_filled && num_filled + space_needed <= NUM_ENTRIES {
+            // There's room at the end of the leaf.
+            debug_assert!(cursor.offset == 0);
+            node.len += gap as u8;
+            return;
+        }
 
-        if filled_entries + space_needed > NUM_ENTRIES {
+        if num_filled + space_needed > NUM_ENTRIES {
             // Split the entry in two. space_needed should always be 1 or 2, and
             // there needs to be room after splitting.
             debug_assert!(space_needed == 1 || space_needed == 2);
@@ -91,8 +97,7 @@ impl MarkerTree {
                 // Put the new items at the end of the current node and
                 // move everything afterward to a new node.
                 let split_point = if cursor.offset == 0 { cursor.idx } else { cursor.idx + 1 };
-                node.split_at(split_point, filled_entries, notify);
-                filled_entries = split_point;
+                node.split_at(split_point, notify);
             } else {
                 // Split in the middle of the current node. This involves a
                 // little unnecessary copying - because we're copying the
@@ -101,20 +106,17 @@ impl MarkerTree {
 
                 // The other option here would be to use the index as a split
                 // point and add padding into the new node to leave space.
-                cursor.node = node.split_at(NUM_ENTRIES/2, filled_entries, notify);
+                cursor.node = node.split_at(NUM_ENTRIES/2, notify);
+                node = cursor.node.as_mut();
                 cursor.idx -= NUM_ENTRIES/2;
-                filled_entries = NUM_ENTRIES/2;
             }
-
-            // unimplemented!("split");
         }
-
-        let node = cursor.node.as_mut();
 
         // There's room in the node itself now. We need to reshuffle.
         let src_idx = cursor.idx;
         let dest_idx = src_idx + space_needed;
-        let num_copied = filled_entries - src_idx;
+        let num_copied = node.len as usize - src_idx;
+        node.len += space_needed as u8;
 
         if num_copied > 0 {
             ptr::copy(&node.data[src_idx], &mut node.data[dest_idx], num_copied);
@@ -155,38 +157,40 @@ impl MarkerTree {
             //   split the entry and insert a new entry in the middle. We need
             //   to add 2 new entries.
 
+            let old_len = cursor.node.as_ref().len;
             let old_entry = &mut cursor.node.as_mut().data[cursor.idx];
 
             // We also want case 2 if the node is brand new...
-            if cursor.idx == 0 && old_entry.loc.client == CLIENT_INVALID {
+            if cursor.idx == 0 && old_len == 0 /*old_entry.loc.client == CLIENT_INVALID*/ {
                 *old_entry = Entry {
                     loc: new_loc,
                     len: len as i32,
                 };
+                cursor.node.as_mut().len = 1;
                 cursor.node.as_mut().update_parent_count(len as i32);
                 notify(new_loc, len, cursor.node);
             } else if old_entry.len > 0 && old_entry.len as u32 == cursor.offset
                     && old_entry.loc.client == new_loc.client
                     && old_entry.loc.seq + old_entry.len as u32 == new_loc.seq {
-                // Case 1 - extend the entry.
+                // Case 1 - Extend the entry.
                 old_entry.len += len as i32;
                 cursor.node.as_mut().update_parent_count(len as i32);
                 notify(new_loc, len, cursor.node);
             } else {
                 // Case 2 and 3.
-                Self::make_space_in_leaf(&mut cursor, 1, &mut notify);
+                Self::make_space_in_leaf(&mut cursor, 1, &mut notify); // This will update len for us
                 cursor.node.as_mut().data[cursor.idx] = Entry {
                     loc: new_loc,
                     len: len as i32
                 };
-                // eprintln!("3 update_parent_count {} {:?}", len, &self);
+                debug_assert!(cursor.node.as_ref().len >= 1);
                 cursor.node.as_mut().update_parent_count(len as i32);
-                // eprintln!("3 ->date_parent_count {} {:?}", len, &self);
                 notify(new_loc, len, cursor.node);
             }
         }
 
         if cfg!(debug_assertions) {
+            // eprintln!("{:#?}", self.as_ref().get_ref());
             self.as_ref().get_ref().check();
 
             // And check the total size of the tree has grown by len.
@@ -204,21 +208,25 @@ impl MarkerTree {
         
         let mut count: usize = 0;
         let mut done = false;
+        let mut num: usize = 0;
 
         for e in &leaf.data[..] {
             if e.is_invalid() {
                 done = true;
             } else {
                 // Make sure there's no data after an invalid entry
-                assert!(done == false);
+                assert!(done == false, "Leaf contains gaps");
                 count += e.get_text_len() as usize;
+                num += 1;
             }
         }
 
         // An empty leaf is only valid if we're the root element.
         if let ParentPtr::Internal(_) = leaf.parent {
-            assert!(count > 0);
+            assert!(count > 0, "Non-root leaf is empty");
         }
+
+        assert_eq!(num, leaf.len as usize, "Cached leaf len does not match");
 
         count
     }

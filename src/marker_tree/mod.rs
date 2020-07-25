@@ -24,13 +24,14 @@ use super::common::*;
 const MAX_CHILDREN: usize = 32; // This needs to be minimum 8.
 // const MIN_CHILDREN: usize = MAX_CHILDREN / 2;
 
+// const NUM_ENTRIES: usize = 2;
 const NUM_ENTRIES: usize = 32;
 
 
 // This is the root of the tree. There's a bit of double-deref going on when you
 // access the first node in the tree, but I can't think of a clean way around
 // it.
-// #[derive(Debug)]
+#[derive(Debug)]
 pub struct MarkerTree {
     count: CharCount,
     // This is only ever None when the tree is being destroyed.
@@ -39,7 +40,7 @@ pub struct MarkerTree {
     _pin: marker::PhantomPinned,
 }
 
-// #[derive(Debug)]
+#[derive(Debug)]
 enum Node {
     Internal(NodeInternal),
     Leaf(NodeLeaf),
@@ -62,7 +63,7 @@ enum NodePtr {
 // impl<T> NodeT for NodeInternal<T> {}
 // impl NodeT for NodeLeaf {}
 
-// #[derive(Debug)]
+#[derive(Debug)]
 struct NodeInternal /*<T: NodeT>*/ {
     parent: ParentPtr,
     // Pairs of (count of subtree elements, subtree contents).
@@ -72,9 +73,10 @@ struct NodeInternal /*<T: NodeT>*/ {
     _drop: PrintDropInternal,
 }
 
-// #[derive(Debug)]
+#[derive(Debug)]
 pub struct NodeLeaf {
     parent: ParentPtr,
+    len: u8, // Number of entries which have been populated
     data: [Entry; NUM_ENTRIES],
     _drop: PrintDropLeaf
 }

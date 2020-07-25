@@ -1,3 +1,4 @@
+// #![feature(core_intrinsics)]
 /**
  * This CRDT is loosely based of the list CRDT in automerge.
  * 
