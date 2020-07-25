@@ -24,8 +24,8 @@ impl MarkerTree {
         let mut offset_remaining = raw_pos;
         unsafe {
             while let Node::Internal(data) = &*node {
-                let (offset, next) = data.get_child(offset_remaining, stick_end).expect("Internal consistency violation");
-                offset_remaining -= offset;
+                let (new_offset_remaining, next) = data.get_child(offset_remaining, stick_end).expect("Internal consistency violation");
+                offset_remaining = new_offset_remaining;
                 node = next.get_ref();
             };
 
@@ -237,7 +237,7 @@ impl MarkerTree {
 
                 let actual_type = match child_ref {
                     Node::Internal(_) => 1,
-                    Node::Leaf(_) => 2
+                    Node::Leaf(_) => 2,
                 };
                 // Make sure all children have the same type.
                 if child_type.is_none() { child_type = Some(actual_type) }
@@ -270,6 +270,34 @@ impl MarkerTree {
             Node::Leaf(n) => { Self::check_leaf(&n, expected_parent) },
         };
         assert_eq!(self.count as usize, expected_size);
+    }
+
+    fn print_node(node: &Node, depth: usize) {
+        for _ in 0..depth { eprint!("  "); }
+        match node {
+            Node::Internal(n) => {
+                eprintln!("Internal {:?} (parent: {:?})", n as *const _, n.parent);
+                let mut unused = 0;
+                for (_, e) in &n.data {
+                    if let Some(e) = e {
+                        Self::print_node(e.as_ref().get_ref(), depth + 1);
+                    } else { unused += 1; }
+                }
+
+                if unused > 0 {
+                    for _ in 0..=depth { eprint!("  "); }
+                    eprintln!("({} empty places)", unused);
+                }
+            },
+            Node::Leaf(n) => {
+                eprintln!("Leaf {:?} (parent: {:?})", n as *const _, n.parent);
+            }
+        }
+    }
+
+    pub fn print_ptr_tree(&self) {
+        eprintln!("Tree count {} ptr {:?}", self.count, self as *const _);
+        Self::print_node(self.root.as_ref().get_ref(), 1);
     }
 
     pub unsafe fn lookup_position(loc: CRDTLocation, ptr: NonNull<NodeLeaf>) -> u32 {

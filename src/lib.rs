@@ -116,20 +116,20 @@ impl CRDTState {
         }
     }
 
-    fn get_or_create_clientid(&mut self, name: &ClientName) -> ClientID {
+    fn get_or_create_clientid(&mut self, name: &str) -> ClientID {
         if let Some(id) = self.get_clientid(name) {
             id
         } else {
             // Create a new id.
             self.client_data.push(ClientData {
-                name: name.clone(),
+                name: InlinableString::from(name),
                 ops: Vec::new()
             });
             (self.client_data.len() - 1) as ClientID
         }
     }
 
-    fn get_clientid(&self, name: &ClientName) -> Option<ClientID> {
+    fn get_clientid(&self, name: &str) -> Option<ClientID> {
         self.client_data.iter()
         .position(|client_data| &client_data.name == name)
         .map(|id| id as ClientID)
@@ -144,7 +144,8 @@ impl CRDTState {
         };
         let inserted_length = text.chars().count();
         // ops.reserve(inserted_length);
-        ops.resize(ops.len() + inserted_length, ptr::NonNull::dangling());
+        let dangling_ptr = ptr::NonNull::dangling();
+        ops.resize(ops.len() + inserted_length, dangling_ptr);
 
         let client_data = &mut self.client_data;
 
@@ -162,27 +163,55 @@ impl CRDTState {
             }
         });
 
+        if cfg!(debug_assertions) {
+            // Check all the pointers have been assigned.
+            let ops = &mut self.client_data[client_id as usize].ops;
+            for e in &ops[ops.len() - inserted_length..] {
+                assert_ne!(*e, dangling_ptr);
+            }
+        }
+
         insert_location
     }
 
-    pub fn insert_name(&mut self, client_name: &ClientName, pos: u32, text: InlinableString) -> CRDTLocation {
+    pub fn insert_name(&mut self, client_name: &str, pos: u32, text: InlinableString) -> CRDTLocation {
         let id = self.get_or_create_clientid(client_name);
         self.insert(id, pos, text)
     }
 
-    pub fn lookup_position(&self, loc: CRDTLocation) -> u32 {
+    pub fn lookup_crdt_position(&self, loc: CRDTLocation) -> u32 {
         if loc == CRDT_DOC_ROOT { return 0; }
 
         let ops = &self.client_data[loc.client as usize].ops;
         unsafe { MarkerTree::lookup_position(loc, ops[loc.seq as usize]) }
     }
 
-    pub fn lookup_position_name(&self, client_name: &ClientName, seq: ClientSeq) -> u32 {
+    pub fn lookup_num_position(&self, pos: usize) -> CRDTLocation {
+        // let insert_location = if pos == 0 {
+        //     // This saves an awful lot of code needing to be executed.
+        //     CRDT_DOC_ROOT
+        // } else { cursor.tell() };
+
+        let cursor = self.marker_tree.cursor_at_pos(pos as u32, true);
+        cursor.tell()
+    }
+
+    pub fn lookup_position_name(&self, client_name: &str, seq: ClientSeq) -> u32 {
         let id = self.get_clientid(client_name).expect("Invalid client name");
-        self.lookup_position(CRDTLocation {
+        self.lookup_crdt_position(CRDTLocation {
             client: id,
             seq,
         })
+    }
+
+    pub fn check(&self) {
+        self.marker_tree.check();
+
+        // TODO: Iterate through the tree / through the ops and make sure all
+        // the CRDT locations make sense.
+
+        // Maybe also scan the ops to make sure none of them are dangling
+        // pointers?
     }
 }
 
@@ -202,42 +231,48 @@ mod tests {
     use super::*;
     // use inlinable_string::InlinableString;
 
-    #[test]
-    fn it_works() {
-        // let mut r = Rope::new();
-        // apply_ot_mut(&mut r, &OTOp {
-        //     location: 0,
-        //     action: OpAction {
-        //         delete: None,
-        //         insert: Some(InlinableString::from("asdf")),
-        //     }
-        // });
-        // apply_ot_mut(&mut r, &OTOp {
-        //     location: 0,
-        //     action: OpAction {
-        //         delete: Some(InlinableString::from("as")),
-        //         insert: Some(InlinableString::from("xy")),
-        //     }
-        // });
-        // r.insert(0, "hi");
-        // println!("text: '{}'", r);
+    fn fill_with_junk(state: &mut CRDTState) {
+        let mut pos = 0;
+        for _ in 0..10 {
+            state.insert_name("fred", pos, InlinableString::from("fred"));
+            state.insert_name("george", pos + 4, InlinableString::from("george"));
+            pos += 10;
+            state.check();
+        }
     }
 
     #[test]
-    fn foo() {
+    fn first_pos_returns_root() {
         let mut state = CRDTState::new();
-        let fred = InlinableString::from("fred");
-        let george = InlinableString::from("george");
 
-        eprintln!("{:#?}", state.insert_name(&fred, 0, InlinableString::from("hi there")));
-        eprintln!("state {:#?}", state);
+        assert_eq!(state.lookup_num_position(0), CRDT_DOC_ROOT);
+        state.insert_name("fred", 0, InlinableString::from("hi there"));
+        assert_eq!(state.lookup_num_position(0), CRDT_DOC_ROOT);
+    }
+
+
+    // #[test]
+    // fn foo() {
+    //     let mut state = CRDTState::new();
+
+    //     eprintln!("{:#?}", state.insert_name("fred", 0, InlinableString::from("hi there")));
+    //     eprintln!("state {:#?}", state);
         
-        eprintln!("root position is {}", state.lookup_position(CRDT_DOC_ROOT));
-        eprintln!("position 1 is {}", state.lookup_position_name(&fred, 1));
-        eprintln!("fred position 7 is {}", state.lookup_position_name(&fred, 7));
-        eprintln!("{:#?}", state.insert_name(&george, 3, InlinableString::from("over "))); // hi over there
-        eprintln!("fred position 7 is {}", state.lookup_position_name(&fred, 7));
+    //     eprintln!("root position is {}", state.lookup_crdt_position(CRDT_DOC_ROOT));
+    //     eprintln!("position 1 is {}", state.lookup_position_name("fred", 1));
+    //     eprintln!("fred position 7 is {}", state.lookup_position_name("fred", 7));
+    //     eprintln!("{:#?}", state.insert_name("george", 3, InlinableString::from("over "))); // hi over there
+    //     eprintln!("fred position 7 is {}", state.lookup_position_name("fred", 7));
+    //     eprintln!("state {:#?}", state);
+    // }
+
+    #[test]
+    fn junk() {
+        let mut state = CRDTState::new();
+        fill_with_junk(&mut state);
+        
         eprintln!("state {:#?}", state);
+        state.check();
     }
 
     // #[test]

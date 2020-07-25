@@ -54,6 +54,8 @@ impl NodeInternal {
     //     })
     // }
 
+    // Insert a new item in the tree. This DOES NOT update the child counts in
+    // the parents.
     pub(super) fn splice_in(&mut self, idx: usize, count: u32, elem: Pin<Box<Node>>) {
         let mut buffer = (count, Some(elem));
         for i in idx..MAX_CHILDREN {

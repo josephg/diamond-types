@@ -157,7 +157,7 @@ impl NodeLeaf {
                     if count < MAX_CHILDREN {
                         // Great. Insert the new node into the parent and
                         // return.
-                        *(inserted_node.get_parent_mut()) = ParentPtr::Internal(n);
+                        *inserted_node.get_parent_mut() = ParentPtr::Internal(n);
                         
                         let old_idx = parent_ref.find_child(old_node).unwrap();
                         let new_idx = old_idx + 1;
@@ -181,15 +181,15 @@ impl NodeLeaf {
                         let new_root = Box::pin(Node::Internal(NodeInternal::new_with_parent(ParentPtr::Root(r))));
                         let mut old_root = mem::replace(&mut r.as_mut().root, new_root);
                         
-                        // *(inserted_node.get_parent_mut()) = parent_ptr;
+                        // *inserted_node.get_parent_mut() = parent_ptr;
                         
                         let count = r.as_ref().count;
                         let new_root_ref = r.as_mut().root.unwrap_internal_mut();
                         let parent_ptr = ParentPtr::Internal(NonNull::new_unchecked(new_root_ref));
                         
                         // Reassign parents for each node
-                        *(inserted_node.get_parent_mut()) = parent_ptr;
-                        *(old_root.get_parent_mut()) = parent_ptr;
+                        *old_root.get_parent_mut() = parent_ptr;
+                        *inserted_node.get_parent_mut() = parent_ptr;
                         
                         new_root_ref.data[0] = (count - stolen_length, Some(old_root));
                         new_root_ref.data[1] = (stolen_length, Some(inserted_node));
@@ -213,6 +213,7 @@ impl NodeLeaf {
                         
                         let left_sibling = n.as_mut();
                         left_sibling.data[old_idx].0 -= stolen_length;
+                        let mut new_stolen_length = 0;
                         // Dividing this into cases makes it easier to reason
                         // about.
                         if old_idx < MAX_CHILDREN/2 {
@@ -220,37 +221,49 @@ impl NodeLeaf {
                             // into right_sibling, then splice inserted_node into
                             // old_parent.
                             for i in 0..MAX_CHILDREN/2 {
-                                let element = mem::replace(&mut left_sibling.data[i + MAX_CHILDREN/2], (0, None));
-                                right_sibling.data[i] = element;
+                                let (c, e) = mem::replace(&mut left_sibling.data[i + MAX_CHILDREN/2], (0, None));
+                                if let Some(mut e) = e {
+                                    *e.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
+                                    new_stolen_length += c;
+                                    right_sibling.data[i] = (c, Some(e));
+                                }
+
                             }
 
                             let new_idx = old_idx + 1;
-                            *(inserted_node.get_parent_mut()) = ParentPtr::Internal(NonNull::new_unchecked(left_sibling));
+                            *inserted_node.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(left_sibling));
                             left_sibling.splice_in(new_idx, stolen_length, inserted_node);
                         } else {
                             // The new element is in the second half of the
                             // group.
                             let new_idx = old_idx - MAX_CHILDREN/2 + 1;
 
-                            let mut dest = 0;
-                            *(inserted_node.get_parent_mut()) = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
+                            *inserted_node.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
                             let mut new_entry = (stolen_length, Some(inserted_node));
-                            for src in MAX_CHILDREN/2..MAX_CHILDREN {
+                            new_stolen_length = stolen_length;
+
+                            let mut src = MAX_CHILDREN/2;
+                            for dest in 0..=MAX_CHILDREN/2 {
                                 if dest == new_idx {
                                     right_sibling.data[dest] = mem::take(&mut new_entry);
-                                    dest += 1;
+                                } else {
+                                    let (c, e) = mem::replace(&mut left_sibling.data[src], (0, None));
+                                    
+                                    if let Some(mut e) = e {
+                                        *e.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
+                                        new_stolen_length += c;
+                                        right_sibling.data[dest] = (c, Some(e));
+                                        src += 1;
+                                    } else { break; }
                                 }
-
-                                let element = mem::replace(&mut left_sibling.data[src], (0, None));
-                                right_sibling.data[dest] = element;
-
-                                dest += 1;
                             }
+                            debug_assert!(new_entry.1.is_none());
                         }
 
                         old_node = NodePtr::Internal(n);
                         // inserted_node = Box::pin(Node::Internal(right_sibling));
                         inserted_node = right_sibling_box;
+                        stolen_length = new_stolen_length;
                         // And iterate up the tree.
                     },
                 };
