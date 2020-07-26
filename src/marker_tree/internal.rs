@@ -78,16 +78,5 @@ impl NodeInternal {
             .map_or(false, |n| n.ptr_eq(child))
         )
     }
-
-    // fn find_child(&self, child: &Node) -> Option<usize> {
-    //     let mut pos = 0;
-    //     self.data.iter().find_map(|(count, elem)| {
-    //         if let Some(elem) = elem.as_ref() {
-    //             if ptr::eq(elem.as_ref(), child) { Some(pos) } else { None }
-    //         } else {
-    //             None
-    //         }
-    //     })
-    // }
 }
 

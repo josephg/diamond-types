@@ -1,6 +1,7 @@
 use super::*;
 
 use std::ptr;
+use std::mem;
 
 impl MarkerTree {
     pub fn new() -> Pin<Box<Self>> {
@@ -19,7 +20,6 @@ impl MarkerTree {
     }
 
     pub fn cursor_at_pos<'a>(self: &'a Pin<Box<Self>>, raw_pos: u32, stick_end: bool) -> Cursor<'a> {
-        // let mut node: *const Node = &*self.root.as_ref().unwrap().as_ref();
         let mut node: *const Node = &*self.root.as_ref();
         let mut offset_remaining = raw_pos;
         unsafe {
@@ -310,6 +310,7 @@ impl MarkerTree {
         }
     }
 
+    #[allow(dead_code)]
     pub fn print_ptr_tree(&self) {
         eprintln!("Tree count {} ptr {:?}", self.count, self as *const _);
         Self::print_node(self.root.as_ref().get_ref(), 1);
@@ -320,5 +321,135 @@ impl MarkerTree {
         let leaf = ptr.as_ref();
         let cursor = leaf.find(loc).expect("Position not in named leaf");
         cursor.get_pos()
+    }
+}
+
+// I'm really not sure where to put this method. Its not really associated with
+// any of the tree implementation methods. This seems like a hidden spot. Maybe
+// mod.rs? I could put it in impl ParentPtr? I dunno...
+pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Node>>, mut insert_after: NodePtr, mut stolen_length: u32) {
+    unsafe {
+        // Ok now we need to walk up the tree trying to insert. At each step
+        // we will try and insert inserted_node into parent next to old_node
+        // (topping out at the head).
+        loop {
+            // First try and simply emplace in the new element in the parent.
+            if let ParentPtr::Internal(mut n) = parent {
+                let parent_ref = n.as_ref();
+                let count = parent_ref.count_children();
+                if count < MAX_CHILDREN {
+                    // Great. Insert the new node into the parent and
+                    // return.
+                    *inserted_node.get_parent_mut() = ParentPtr::Internal(n);
+                    
+                    let old_idx = parent_ref.find_child(insert_after).unwrap();
+                    let new_idx = old_idx + 1;
+
+                    let parent_ref = n.as_mut();
+                    parent_ref.data[old_idx].0 -= stolen_length;
+                    parent_ref.splice_in(new_idx, stolen_length, inserted_node);
+
+                    // eprintln!("1");
+                    return;
+                }
+            }
+
+            // Ok so if we've gotten here we need to make a new internal
+            // node filled with inserted_node, then move and all the goodies
+            // from ParentPtr.
+            match parent {
+                ParentPtr::Root(mut r) => {
+                    // This is the simpler case. The new root will be a new
+                    // internal node containing old_node and inserted_node.
+                    let new_root = Box::pin(Node::Internal(NodeInternal::new_with_parent(ParentPtr::Root(r))));
+                    let mut old_root = mem::replace(&mut r.as_mut().root, new_root);
+                    
+                    // *inserted_node.get_parent_mut() = parent_ptr;
+                    
+                    let count = r.as_ref().count;
+                    let new_root_ref = r.as_mut().root.unwrap_internal_mut();
+                    let parent_ptr = ParentPtr::Internal(NonNull::new_unchecked(new_root_ref));
+                    
+                    // Reassign parents for each node
+                    *old_root.get_parent_mut() = parent_ptr;
+                    *inserted_node.get_parent_mut() = parent_ptr;
+                    
+                    new_root_ref.data[0] = (count - stolen_length, Some(old_root));
+                    new_root_ref.data[1] = (stolen_length, Some(inserted_node));
+
+                    // r.as_mut().print_ptr_tree();
+                    return;
+                },
+
+                ParentPtr::Internal(mut n) => {
+                    // And this is the complex case. We have MAX_CHILDREN+1
+                    // items (in some order) to distribute between two
+                    // internal nodes (one old, one new). Then we iterate up
+                    // the tree.
+                    let left_sibling = n.as_ref();
+                    parent = left_sibling.parent; // For next iteration through the loop.
+                    debug_assert!(left_sibling.count_children() == MAX_CHILDREN);
+
+                    // let mut right_sibling = NodeInternal::new_with_parent(parent);
+                    let mut right_sibling_box = Box::pin(Node::Internal(NodeInternal::new_with_parent(parent)));
+                    let right_sibling = right_sibling_box.unwrap_internal_mut();
+                    let old_idx = left_sibling.find_child(insert_after).unwrap();
+                    
+                    let left_sibling = n.as_mut();
+                    left_sibling.data[old_idx].0 -= stolen_length;
+                    let mut new_stolen_length = 0;
+                    // Dividing this into cases makes it easier to reason
+                    // about.
+                    if old_idx < MAX_CHILDREN/2 {
+                        // Move all items from MAX_CHILDREN/2..MAX_CHILDREN
+                        // into right_sibling, then splice inserted_node into
+                        // old_parent.
+                        for i in 0..MAX_CHILDREN/2 {
+                            let (c, e) = mem::replace(&mut left_sibling.data[i + MAX_CHILDREN/2], (0, None));
+                            if let Some(mut e) = e {
+                                *e.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
+                                new_stolen_length += c;
+                                right_sibling.data[i] = (c, Some(e));
+                            }
+
+                        }
+
+                        let new_idx = old_idx + 1;
+                        *inserted_node.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(left_sibling));
+                        left_sibling.splice_in(new_idx, stolen_length, inserted_node);
+                    } else {
+                        // The new element is in the second half of the
+                        // group.
+                        let new_idx = old_idx - MAX_CHILDREN/2 + 1;
+
+                        *inserted_node.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
+                        let mut new_entry = (stolen_length, Some(inserted_node));
+                        new_stolen_length = stolen_length;
+
+                        let mut src = MAX_CHILDREN/2;
+                        for dest in 0..=MAX_CHILDREN/2 {
+                            if dest == new_idx {
+                                right_sibling.data[dest] = mem::take(&mut new_entry);
+                            } else {
+                                let (c, e) = mem::replace(&mut left_sibling.data[src], (0, None));
+                                
+                                if let Some(mut e) = e {
+                                    *e.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
+                                    new_stolen_length += c;
+                                    right_sibling.data[dest] = (c, Some(e));
+                                    src += 1;
+                                } else { break; }
+                            }
+                        }
+                        debug_assert!(new_entry.1.is_none());
+                    }
+
+                    insert_after = NodePtr::Internal(n);
+                    inserted_node = right_sibling_box;
+                    stolen_length = new_stolen_length;
+                    // And iterate up the tree.
+                },
+            };
+        }
     }
 }

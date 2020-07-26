@@ -1,5 +1,5 @@
 use text_crdt_rust::*;
-use inlinable_string::InlinableString;
+// use inlinable_string::InlinableString;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
