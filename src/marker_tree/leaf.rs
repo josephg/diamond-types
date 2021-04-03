@@ -102,6 +102,7 @@ impl NodeLeaf {
     // Recursively (well, iteratively) ascend and update all the counts along
     // the way up. TODO: Make this private.
     pub(super) fn update_parent_count(&mut self, amt: i32) {
+        if amt == 0 { return; }
         let mut child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self) });
         let mut parent = self.parent;
 

@@ -21,11 +21,11 @@ use std::pin::Pin;
 
 use super::common::*;
 
-const MAX_CHILDREN: usize = 32; // This needs to be minimum 8.
-// const MIN_CHILDREN: usize = MAX_CHILDREN / 2;
+const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
+// const MAX_CHILDREN: usize = 32; // This needs to be minimum 8.
 
-// const NUM_ENTRIES: usize = 2;
-const NUM_ENTRIES: usize = 32;
+const NUM_ENTRIES: usize = 4;
+// const NUM_ENTRIES: usize = 32;
 
 
 // This is the root of the tree. There's a bit of double-deref going on when you
@@ -93,11 +93,12 @@ struct Entry {
 
 
 #[derive(Copy, Clone, Debug)]
-pub struct Cursor<'a> {
+// pub struct Cursor<'a> {
+pub struct Cursor {
     node: NonNull<NodeLeaf>,
     idx: usize,
     offset: u32, // usize? ??. This is the offset into the item at idx.
-    _marker: marker::PhantomData<&'a Node>,
+    // _marker: marker::PhantomData<&'a Node>,
 }
 
 
@@ -159,6 +160,11 @@ impl Entry {
 
     fn is_invalid(&self) -> bool {
         self.loc.client == CLIENT_INVALID
+    }
+
+    fn is_insert(&self) -> bool {
+        debug_assert!(self.len != 0);
+        self.len > 0
     }
 }
 

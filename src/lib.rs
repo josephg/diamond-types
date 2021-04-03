@@ -291,4 +291,24 @@ mod tests {
         // std::io::stderr().flush().unwrap();
     }
     
+    
+    #[test]
+    fn delete() {
+        let mut state = CRDTState::new();
+        
+        state.insert_name("fred", 0, InlinableString::from("a"));
+        state.insert_name("george", 1, InlinableString::from("b"));
+        
+        state.insert_name("fred", 2, InlinableString::from("a"));
+        state.insert_name("george", 3, InlinableString::from("abcd"));
+        
+        let cursor = state.marker_tree.cursor_at_pos(5, true);
+        MarkerTree::local_delete(&state.marker_tree, cursor, 4, |loc, seq, _ptr| {
+            eprintln!("notify {:?} / {}", loc, seq);
+        });
+    
+        eprintln!("tree {:#?}", state.marker_tree);
+        state.check();
+    }
+    
 }

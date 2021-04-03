@@ -1,10 +1,17 @@
 use super::*;
 
-impl<'a> Cursor<'a> {
+// impl<'a> Cursor<'a> {
+impl Cursor {
     pub(super) fn new(node: NonNull<NodeLeaf>, idx: usize, offset: u32) -> Self {
         Cursor {
-            node, idx, offset, _marker: marker::PhantomData
+            node, idx, offset, //_marker: marker::PhantomData
         }
+    }
+
+    // The lifetime of the leaf is associated with the tree, not the cursor.
+    // There might be a way to express this but I'm not sure what it is.
+    pub(super) unsafe fn get_node_mut(&self) -> &'static mut NodeLeaf {
+        &mut *self.node.as_ptr()
     }
 
     // Move back to the previous entry. Returns true if it exists, otherwise
@@ -64,6 +71,19 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    pub(super) fn next_entry(&mut self) -> bool {
+        unsafe {
+            if self.idx + 1 < self.node.as_ref().len as usize {
+                self.idx += 1;
+                self.offset = 0;
+                true
+            } else {
+                // Do a whole traversal like above. Ugh.
+                unimplemented!()
+            }
+        }
+    }
+
     pub(super) fn get_pos(&self) -> u32 {
         let node = unsafe { self.node.as_ref() };
         
@@ -103,9 +123,14 @@ impl<'a> Cursor<'a> {
         pos
     }
 
-    fn get_entry(&self) -> &Entry {
+    pub(super) fn get_entry(&self) -> &Entry {
         let node = unsafe { self.node.as_ref() };
         &node.data[self.idx]
+    }
+
+    pub(super) fn get_entry_mut(&mut self) -> &mut Entry {
+        let node = unsafe { self.node.as_mut() };
+        &mut node.data[self.idx]
     }
     
     pub fn tell(mut self) -> CRDTLocation {
@@ -118,6 +143,29 @@ impl<'a> Cursor<'a> {
         CRDTLocation {
             client: entry.loc.client,
             seq: entry.loc.seq + self.offset
+        }
+    }
+
+    // This is a terrible name. This method modifies a cursor at the end of a
+    // span to be a cursor to the start of the next span.
+    pub(super) fn roll_to_next(&mut self, stick_end: bool) {
+        unsafe {
+            let node = self.node.as_ref();
+            let seq_len = node.data[self.idx].get_seq_len();
+
+            debug_assert!(self.offset <= seq_len);
+
+            // If we're at the end of the current entry, skip it.
+            if self.offset == seq_len {
+                self.offset = 0;
+                self.idx += 1;
+                // entry = &mut node.0[cursor.idx];
+
+                if !stick_end && self.idx >= node.len as usize {
+                    self.next_entry();
+                }
+            }
+
         }
     }
 }

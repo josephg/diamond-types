@@ -1,7 +1,13 @@
 use super::*;
 
+use smallvec::SmallVec;
 use std::ptr;
 use std::mem;
+
+// Placeholders for delete
+pub struct Op;
+pub type Change = SmallVec<[Op; 2]>;
+
 
 impl MarkerTree {
     pub fn new() -> Pin<Box<Self>> {
@@ -19,7 +25,7 @@ impl MarkerTree {
         tree
     }
 
-    pub fn cursor_at_pos<'a>(self: &'a Pin<Box<Self>>, raw_pos: u32, stick_end: bool) -> Cursor<'a> {
+    pub fn cursor_at_pos(self: &Pin<Box<Self>>, raw_pos: u32, stick_end: bool) -> Cursor {
         let mut node: *const Node = &*self.root.as_ref();
         let mut offset_remaining = raw_pos;
         unsafe {
@@ -37,7 +43,7 @@ impl MarkerTree {
                 node: NonNull::new_unchecked(node as *const _ as *mut _),
                 idx,
                 offset: offset_remaining,
-                _marker: marker::PhantomData
+                // _marker: marker::PhantomData
             }
         }
     }
@@ -198,8 +204,164 @@ impl MarkerTree {
         }
     }
 
-    pub fn delete(&mut self, _raw_pos: u32) {
-        unimplemented!("delete");
+    // We need two delete methods because there's different use cases in "a user
+    // deletes X characters" and "we're processing a delete operation". (In the
+    // second case there may be local inserts inside the range that should be
+    // preserved).
+    pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor, deleted_len: ClientSeq, mut notify: F) -> Change
+        where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
+    {
+        let expected_size = self.count - deleted_len;
+
+        if cfg!(debug_assertions) {
+            self.as_ref().get_ref().check();
+        }
+
+        // TODO: This method should also merge adjacent deletes.
+        let mut result: Change = SmallVec::default();
+        unsafe {
+            let mut current_leaf_length_delta: i32 = 0;
+
+            let flush_count = |node: &mut NodeLeaf, del_len: &mut i32| {
+                node.update_parent_count(*del_len);
+                *del_len = 0;
+            };
+            let next_entry = |cursor: &mut Cursor, del_len: &mut i32| {
+                if cursor.idx + 1 >= cursor.node.as_ref().len as usize {
+                    flush_count(cursor.node.as_mut(), del_len);
+                }
+                if cursor.next_entry() == false {
+                    // Actualy I'm not sure what to do in this case. Early return maybe?
+                    panic!("Local delete past the end of the document");
+                }
+            };
+
+            cursor.roll_to_next(false);
+
+            let mut delete_remaining = deleted_len;
+            while delete_remaining > 0 {
+                // let mut entry;
+                while !cursor.get_entry().is_insert() {
+                    next_entry(&mut cursor, &mut current_leaf_length_delta);
+                }
+
+                // Delete as many characters as we can in the document. There's
+                // a couple cases here:
+                // - The entire span at cursor can be deleted. Mark it as such
+                //   and iterate.
+                // - The deleted range is entirely inside the current span.
+                //   We'll need to split the current node and mark the deleted
+                //   region as such.
+                let node = cursor.get_node_mut();
+                let mut entry = &mut node.data[cursor.idx];
+                let entry_len = entry.get_text_len();
+                debug_assert!(entry_len > 0); // We should have skipped already deleted nodes.
+
+                // There's 4 semi-overlapping cases here. <xxx> marks deleted characters
+                // 1. <xxx>
+                // 2. <xxx>text
+                // 3. text<xxx>
+                // 4. te<xxx>xt
+                //
+                // In cases 2, 3 and 4 we will need to split the current node.
+
+                if cursor.offset == 0 {
+                    // Cases 1 and 2
+                    if delete_remaining >= entry_len {
+                        // Case 1. Delete the whole entry and iterate.
+                        entry.len = -entry.len;
+                        delete_remaining -= entry_len;
+                        current_leaf_length_delta -= entry_len as i32;
+                        next_entry(&mut cursor, &mut current_leaf_length_delta);
+                    } else {
+                        // Case 2
+                        
+                        // So this seems is a bit weird. We need to split the
+                        // node, and mark the region before the split as
+                        // deleted. I considered for awhile having
+                        // make_space_in_leaf return two cursors, then we could
+                        // modify the data behind the prev cursor but that was
+                        // kinda janky and complicated. So instead in this case
+                        // I'm going to mark the whole entry as deleted, then
+                        // split it, and then undelete the second part of the entry.
+                        current_leaf_length_delta -= entry.len;
+                        entry.len = -entry.len;
+                        // This is less performant than it could be. I'm doing
+                        // this because cursor node could change in
+                        // make_space_in_leaf. The deopt here is probably less
+                        // of a big deal due to CPU caching.
+                        flush_count(cursor.node.as_mut(), &mut current_leaf_length_delta);
+                        
+                        cursor.offset = delete_remaining;
+                        Self::make_space_in_leaf(&mut cursor, 0, &mut notify);
+
+                        // Cursor now points to the next (non-deleted) content
+                        // which might be in a subsequent btree node. Undelete it.
+                        
+                        let next_entry = cursor.get_entry_mut();
+                        current_leaf_length_delta -= next_entry.len;
+                        next_entry.len = -next_entry.len;
+
+                        delete_remaining = 0;
+                    }
+                } else {
+                    // Case 3 and 4 - text<xxx> or te<xxx>xt.
+                    let start_offset = cursor.offset;
+                    let (gap, deleted_len_here) = if start_offset + delete_remaining >= entry_len {
+                        (0, entry_len - start_offset) // case 3
+                    } else {
+                        (1, delete_remaining) // case 4
+                    };
+
+                    Self::make_space_in_leaf(&mut cursor, gap, &mut notify);
+
+                    // The cursor now points to the gap (if any) or the
+                    // newly split off content.
+                    let prev_entry = prev_cursor.get_entry_mut();
+                    debug_assert_eq!(prev_entry.len, start_offset as i32);
+
+                    // The deleted entry, which might be the gap!
+                    *cursor.get_entry_mut() = Entry {
+                        loc: CRDTLocation {
+                            client: prev_entry.loc.client,
+                            seq: prev_entry.loc.seq + start_offset,
+                        },
+                        len: -(deleted_len_here as i32),
+                    };
+
+                    if prev_cursor.node != cursor.node {
+                        flush_count(prev_cursor.node.as_mut(), &mut current_leaf_length_delta);
+                    }
+
+                    cursor.idx += 1;
+                    cursor.offset = 0;
+                    if gap == 1 {
+                        // case 3. We need to trim the deleted content from
+                        // the subsequent node. This is safe because
+                        // make_space_in_leaf always makes the next item in
+                        // the same node as the gap.
+                        let remainder_entry = cursor.get_entry_mut();
+                        remainder_entry.loc.seq += deleted_len_here;
+                        remainder_entry.len -= deleted_len_here as i32;
+                    }
+
+                    current_leaf_length_delta += deleted_len_here;
+                    delete_remaining -= deleted_len_here;
+                }
+
+            }
+            flush_count(cursor.node.as_mut(), &mut current_leaf_length_delta);
+        }
+
+        if cfg!(debug_assertions) {
+            // eprintln!("{:#?}", self.as_ref().get_ref());
+            self.as_ref().get_ref().check();
+
+            // And check the total size of the tree has grown by len.
+            assert_eq!(expected_size, self.count);
+        }
+
+        result
     }
 
     // Returns size.
@@ -215,7 +377,8 @@ impl MarkerTree {
                 done = true;
             } else {
                 // Make sure there's no data after an invalid entry
-                assert!(done == false, "Leaf contains gaps");
+                assert_eq!(done, false, "Leaf contains gaps");
+                assert_ne!(e.len, 0, "Invalid leaf - 0 length");
                 count += e.get_text_len() as usize;
                 num += 1;
             }
