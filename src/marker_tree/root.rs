@@ -39,6 +39,10 @@ impl MarkerTree {
         tree
     }
 
+    pub fn len(&self) -> usize {
+        self.count as _
+    }
+
     unsafe fn to_parent_ptr(&mut self) -> ParentPtr {
         ParentPtr::Root(NonNull::new_unchecked(self))
     }
@@ -188,6 +192,7 @@ impl MarkerTree {
 
             // We also want case 2 if the node is brand new...
             if cursor.idx == 0 && old_len == 0 /*old_entry.loc.client == CLIENT_INVALID*/ {
+                // println!("insert case 0");
                 *old_entry = Entry {
                     loc: new_loc,
                     len: len as i32,
@@ -199,11 +204,13 @@ impl MarkerTree {
                     && old_entry.loc.client == new_loc.client
                     && old_entry.loc.seq + old_entry.len as u32 == new_loc.seq {
                 // Case 1 - Extend the entry.
+                // println!("insert case 1");
                 old_entry.len += len as i32;
                 cursor.node.as_mut().update_parent_count(len as i32);
                 notify(new_loc, len, cursor.node);
             } else {
                 // Case 2 and 3.
+                // println!("insert case 2 and 3");
                 Self::make_space_in_leaf(&mut cursor, 1, &mut notify); // This will update len for us
                 cursor.node.as_mut().data[cursor.idx] = Entry {
                     loc: new_loc,
@@ -266,7 +273,7 @@ impl MarkerTree {
 
             let mut delete_remaining = deleted_len;
             while delete_remaining > 0 {
-                println!("Delete remaining: {}", delete_remaining);
+                // println!("Delete remaining: {}", delete_remaining);
                 // let mut entry;
                 while cursor.get_entry().is_delete() {
                     next_entry(&mut cursor, &mut current_leaf_length_delta);
@@ -304,7 +311,14 @@ impl MarkerTree {
                         entry.len = -entry.len;
                         delete_remaining -= entry_len;
                         current_leaf_length_delta -= entry_len as i32;
-                        next_entry(&mut cursor, &mut current_leaf_length_delta);
+
+                        if delete_remaining > 0 {
+                            // This will panic if we move past the end of the document
+                            next_entry(&mut cursor, &mut current_leaf_length_delta);
+                        } else {
+                            // It probably doesn't matter, but this feels clean.
+                            cursor.offset = -entry.len as u32;
+                        }
                     } else {
                         // Case 2 - <xxx>test
                         // println!("case 2");

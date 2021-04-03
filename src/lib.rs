@@ -118,8 +118,12 @@ impl CRDTState {
         }
     }
 
-    pub fn get_or_create_clientid(&mut self, name: &str) -> ClientID {
-        if let Some(id) = self.get_clientid(name) {
+    pub fn len(&self) -> usize {
+        self.marker_tree.len()
+    }
+
+    pub fn get_or_create_client_id(&mut self, name: &str) -> ClientID {
+        if let Some(id) = self.get_client_id(name) {
             id
         } else {
             // Create a new id.
@@ -131,7 +135,7 @@ impl CRDTState {
         }
     }
 
-    fn get_clientid(&self, name: &str) -> Option<ClientID> {
+    fn get_client_id(&self, name: &str) -> Option<ClientID> {
         self.client_data.iter()
         .position(|client_data| &client_data.name == name)
         .map(|id| id as ClientID)
@@ -160,6 +164,7 @@ impl CRDTState {
         let client_data = &mut self.client_data;
 
         let cursor = self.marker_tree.cursor_at_pos(pos, true);
+        // println!("root {:#?}", self.marker_tree);
         let insert_location = if pos == 0 {
             // This saves an awful lot of code needing to be executed.
             CRDT_DOC_ROOT
@@ -186,7 +191,7 @@ impl CRDTState {
     }
 
     pub fn insert_name(&mut self, client_name: &str, pos: u32, text: InlinableString) -> CRDTLocation {
-        let id = self.get_or_create_clientid(client_name);
+        let id = self.get_or_create_client_id(client_name);
         self.insert(id, pos, text.chars().count())
     }
 
@@ -196,13 +201,13 @@ impl CRDTState {
         // println!("{:?}", cursor);
         let client_data = &mut self.client_data;
         MarkerTree::local_delete(&self.marker_tree, cursor, len, |loc, len, leaf| {
-            eprintln!("notify {:?} / {}", loc, len);
+            // eprintln!("notify {:?} / {}", loc, len);
             CRDTState::notify(client_data, loc, len, leaf);
         })
     }
 
     pub fn delete_name(&mut self, client_name: &str, pos: u32, len: u32) -> DeleteResult {
-        let id = self.get_or_create_clientid(client_name);
+        let id = self.get_or_create_client_id(client_name);
         self.delete(id, pos, len)
     }
 
@@ -224,7 +229,7 @@ impl CRDTState {
     }
 
     pub fn lookup_position_name(&self, client_name: &str, seq: ClientSeq) -> u32 {
-        let id = self.get_clientid(client_name).expect("Invalid client name");
+        let id = self.get_client_id(client_name).expect("Invalid client name");
         self.lookup_crdt_position(CRDTLocation {
             client: id,
             seq,
@@ -256,7 +261,7 @@ impl CRDTState {
 mod tests {
     // use ropey::Rope;
     use super::*;
-    
+
     // use inlinable_string::InlinableString;
 
     // fn fill_with_junk(state: &mut CRDTState) {
@@ -335,11 +340,10 @@ mod tests {
         //     eprintln!("notify {:?} / {}", loc, seq);
         // });
 
-        let result = state.delete_name("amanda", 2, 4);
+        let result = state.delete_name("amanda", 2, 5);
         eprintln!("delete result {:#?}", result);
     
         // eprintln!("tree {:#?}", state.marker_tree);
         state.check();
     }
-    
 }
