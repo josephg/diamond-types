@@ -24,13 +24,13 @@ use std::marker::PhantomPinned;
 
 pub use root::DeleteResult;
 
-const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
-// const MAX_CHILDREN: usize = 32; // This needs to be minimum 8.
+// const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
+const MAX_CHILDREN: usize = 32; // This needs to be minimum 8.
 
 
 // Must fit in u8.
-const NUM_ENTRIES: usize = 4;
-// const NUM_ENTRIES: usize = 32;
+// const NUM_ENTRIES: usize = 4;
+const NUM_ENTRIES: usize = 32;
 
 
 // This is the root of the tree. There's a bit of double-deref going on when you

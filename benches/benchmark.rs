@@ -5,7 +5,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 
 fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("martin stuff", |b| {
+    c.bench_function("automerge-perf dataset", |b| {
         use serde::Deserialize;
         use serde_json::Result;
         use std::fs::File;
