@@ -45,6 +45,7 @@ use std::pin::Pin;
 use std::ptr;
 
 use inlinable_string::InlinableString;
+use std::ptr::NonNull;
 // use smallvec::SmallVec;
 
 pub enum OpAction {
@@ -136,6 +137,14 @@ impl CRDTState {
         .map(|id| id as ClientID)
     }
 
+    fn notify(client_data: &mut Vec<ClientData>, loc: CRDTLocation, len: u32, leaf: NonNull<NodeLeaf>) {
+        // eprintln!("insert callback {:?} len {}", loc, len);
+        let ops = &mut client_data[loc.client as usize].ops;
+        for op in &mut ops[loc.seq as usize..(loc.seq+len) as usize] {
+            *op = leaf;
+        }
+    }
+
     pub fn insert(&mut self, client_id: ClientID, pos: u32, inserted_length: usize) -> CRDTLocation {
         // First lookup and insert into the marker tree
         let ops = &mut self.client_data[client_id as usize].ops;
@@ -158,10 +167,11 @@ impl CRDTState {
 
         self.marker_tree.insert(cursor, inserted_length as ClientSeq, loc_base, |loc, len, leaf| {
             // eprintln!("insert callback {:?} len {}", loc, len);
-            let ops = &mut client_data[loc.client as usize].ops;
-            for op in &mut ops[loc.seq as usize..(loc.seq+len) as usize] {
-                *op = leaf;
-            }
+            CRDTState::notify(client_data, loc, len, leaf);
+            // let ops = &mut client_data[loc.client as usize].ops;
+            // for op in &mut ops[loc.seq as usize..(loc.seq+len) as usize] {
+            //     *op = leaf;
+            // }
         });
 
         if cfg!(debug_assertions) {
@@ -178,6 +188,22 @@ impl CRDTState {
     pub fn insert_name(&mut self, client_name: &str, pos: u32, text: InlinableString) -> CRDTLocation {
         let id = self.get_or_create_clientid(client_name);
         self.insert(id, pos, text.chars().count())
+    }
+
+    pub fn delete(&mut self, client_id: ClientID, pos: u32, len: u32) -> DeleteResult {
+        let cursor = self.marker_tree.cursor_at_pos(pos, true);
+        // println!("{:#?}", state.marker_tree);
+        // println!("{:?}", cursor);
+        let client_data = &mut self.client_data;
+        MarkerTree::local_delete(&self.marker_tree, cursor, len, |loc, len, leaf| {
+            eprintln!("notify {:?} / {}", loc, len);
+            CRDTState::notify(client_data, loc, len, leaf);
+        })
+    }
+
+    pub fn delete_name(&mut self, client_name: &str, pos: u32, len: u32) -> DeleteResult {
+        let id = self.get_or_create_clientid(client_name);
+        self.delete(id, pos, len)
     }
 
     pub fn lookup_crdt_position(&self, loc: CRDTLocation) -> u32 {
@@ -300,16 +326,19 @@ mod tests {
         state.insert_name("george", 1, InlinableString::from("b"));
         
         state.insert_name("fred", 2, InlinableString::from("a"));
-        state.insert_name("george", 3, InlinableString::from("abcd"));
+        state.insert_name("george", 3, InlinableString::from("ABCD"));
         
-        let cursor = state.marker_tree.cursor_at_pos(5, true);
+        // let cursor = state.marker_tree.cursor_at_pos(2, true);
         // println!("{:#?}", state.marker_tree);
         // println!("{:?}", cursor);
-        MarkerTree::local_delete(&state.marker_tree, cursor, 1, |loc, seq, _ptr| {
-            eprintln!("notify {:?} / {}", loc, seq);
-        });
+        // let result = MarkerTree::local_delete(&state.marker_tree, cursor, 2, |loc, seq, _ptr| {
+        //     eprintln!("notify {:?} / {}", loc, seq);
+        // });
+
+        let result = state.delete_name("amanda", 2, 4);
+        eprintln!("delete result {:#?}", result);
     
-        eprintln!("tree {:#?}", state.marker_tree);
+        // eprintln!("tree {:#?}", state.marker_tree);
         state.check();
     }
     

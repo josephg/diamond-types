@@ -5,8 +5,20 @@ use std::ptr;
 use std::mem;
 
 // Placeholders for delete
-pub struct Op;
-pub type Change = SmallVec<[Op; 2]>;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct DeleteOp {
+    loc: CRDTLocation,
+    len: u32
+}
+pub type DeleteResult = SmallVec<[DeleteOp; 2]>;
+pub fn extend_delete(delete: &mut DeleteResult, op: DeleteOp) {
+    if let Some(last) = delete.last_mut() {
+        if last.loc.client == op.loc.client && last.loc.seq + last.len == op.loc.seq {
+            // Extend!
+            last.len += op.len
+        } else { delete.push(op); }
+    } else { delete.push(op); }
+}
 
 
 impl MarkerTree {
@@ -216,7 +228,7 @@ impl MarkerTree {
     // deletes X characters" and "we're processing a remote delete operation". (In the
     // second case there may be local inserts inside the range that should be
     // preserved).
-    pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor, deleted_len: ClientSeq, mut notify: F) -> Change
+    pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor, deleted_len: ClientSeq, mut notify: F) -> DeleteResult
         where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
     {
         let expected_size = self.count - deleted_len;
@@ -226,7 +238,7 @@ impl MarkerTree {
         }
 
         // TODO: This method should also merge adjacent deletes.
-        let mut result: Change = SmallVec::default();
+        let mut result: DeleteResult = SmallVec::default();
         unsafe {
             let mut current_leaf_length_delta: i32 = 0;
 
@@ -285,13 +297,22 @@ impl MarkerTree {
                     if delete_remaining >= entry_len {
                         // Case 1. Delete the whole entry and iterate.
                         // println!("case 1");
+                        extend_delete(&mut result, DeleteOp {
+                            loc: entry.loc,
+                            len: entry.len as _
+                        });
                         entry.len = -entry.len;
                         delete_remaining -= entry_len;
                         current_leaf_length_delta -= entry_len as i32;
                         next_entry(&mut cursor, &mut current_leaf_length_delta);
                     } else {
-                        // Case 2
+                        // Case 2 - <xxx>test
                         // println!("case 2");
+                        extend_delete(&mut result, DeleteOp {
+                            loc: entry.loc,
+                            len: delete_remaining
+                        });
+
                         // So this seems is a bit weird. We need to split the node, and mark the
                         // region before the split as deleted. I considered for awhile having
                         // make_space_in_leaf return two cursors, then we could modify the data
@@ -330,6 +351,14 @@ impl MarkerTree {
                         // println!("case 4");
                         (1, delete_remaining) // case 4
                     };
+
+                    extend_delete(&mut result, DeleteOp {
+                        loc: CRDTLocation {
+                            client: entry.loc.client,
+                            seq: entry.loc.seq + cursor.offset
+                        },
+                        len: deleted_len_here
+                    });
 
                     // TODO: As above, only if we're going to spill.
                     flush_count(cursor.node.as_mut(), &mut current_leaf_length_delta);

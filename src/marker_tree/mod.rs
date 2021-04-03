@@ -22,6 +22,8 @@ use std::pin::Pin;
 use super::common::*;
 use std::marker::PhantomPinned;
 
+pub use root::DeleteResult;
+
 const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
 // const MAX_CHILDREN: usize = 32; // This needs to be minimum 8.
 
