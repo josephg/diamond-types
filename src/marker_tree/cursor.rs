@@ -4,7 +4,8 @@ use super::*;
 impl Cursor {
     pub(super) fn new(node: NonNull<NodeLeaf>, idx: usize, offset: u32) -> Self {
         Cursor {
-            node, idx, offset, //_marker: marker::PhantomData
+            node, idx, offset,
+            //_marker: marker::PhantomData
         }
     }
 
@@ -15,7 +16,7 @@ impl Cursor {
     }
 
     /// Internal method for prev_entry and next_entry when we need to move laterally.
-    fn traverse(&mut self, traverse_next: bool) -> bool {
+    fn traverse(&mut self, direction_forward: bool) -> bool {
         // println!("** traverse called {:?} {}", self, traverse_next);
         // idx is 0. Go up as far as we can until we get to an index that has room, or we hit the
         // root.
@@ -32,7 +33,7 @@ impl Cursor {
                     let idx = node_ref.find_child(node_ptr).unwrap();
                     // println!("found myself at {}", idx);
 
-                    let next_idx: Option<usize> = if traverse_next {
+                    let next_idx: Option<usize> = if direction_forward {
                         let next_idx = idx + 1;
                         // This would be much cleaner if I put a len field in NodeInternal instead.
                         // TODO: Consider using node_ref.count_children() instead of this mess.
@@ -67,7 +68,7 @@ impl Cursor {
             match node_ptr {
                 NodePtr::Internal(n) => {
                     let node_ref = unsafe { n.as_ref() };
-                    let next_idx = if traverse_next {
+                    let next_idx = if direction_forward {
                         0
                     } else {
                         let num_children = node_ref.count_children();
@@ -82,7 +83,7 @@ impl Cursor {
                     assert!(node_ref.len > 0);
                     // println!("landed in leaf {:#?}", node_ref);
                     self.node = n;
-                    if traverse_next {
+                    if direction_forward {
                         self.idx = 0;
                         self.offset = 0;
                     } else {
@@ -98,28 +99,42 @@ impl Cursor {
 
     /// Move back to the previous entry. Returns true if it exists, otherwise
     /// returns false if we're at the start of the doc already.
-    fn prev_entry(&mut self) -> bool {
+    fn prev_entry_marker(&mut self, marker: Option<&mut FlushMarker>) -> bool {
         if self.idx > 0 {
             self.idx -= 1;
             self.offset = self.get_entry().get_seq_len();
             // println!("prev_entry get_entry returns {:?}", self.get_entry());
             true
         } else {
+            if let Some(marker) = marker {
+                marker.flush(unsafe { self.node.as_mut() });
+            }
             self.traverse(false)
         }
     }
 
-    pub(super) fn next_entry(&mut self) -> bool {
+    fn prev_entry(&mut self) -> bool {
+        self.prev_entry_marker(None)
+    }
+
+    pub(super) fn next_entry_marker(&mut self, marker: Option<&mut FlushMarker>) -> bool {
+        // TODO: Do this without code duplication.
         unsafe {
             if self.idx + 1 < self.node.as_ref().len as usize {
                 self.idx += 1;
                 self.offset = 0;
                 true
             } else {
-                // Do a whole traversal like above. Ugh.
+                if let Some(marker) = marker {
+                    marker.flush(self.node.as_mut());
+                }
                 self.traverse(true)
             }
         }
+    }
+
+    pub(super) fn next_entry(&mut self) -> bool {
+        self.next_entry_marker(None)
     }
 
     pub(super) fn get_pos(&self) -> u32 {

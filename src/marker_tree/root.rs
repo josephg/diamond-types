@@ -20,7 +20,6 @@ pub fn extend_delete(delete: &mut DeleteResult, op: DeleteOp) {
     } else { delete.push(op); }
 }
 
-
 impl MarkerTree {
     pub fn new() -> Pin<Box<Self>> {
         let mut tree = Box::pin(unsafe { Self {
@@ -76,7 +75,7 @@ impl MarkerTree {
     /// overwritten, else the tree is in an invalid state.
     ///
     /// The location of the gap is returned via the cursor.
-    unsafe fn make_space_in_leaf<F>(cursor: &mut Cursor, gap: usize, notify: &mut F)
+    unsafe fn make_space_in_leaf<F>(cursor: &mut Cursor, flush_marker: Option<&mut FlushMarker>, gap: usize, notify: &mut F)
         where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
     {
         let mut node = cursor.node.as_mut();
@@ -119,7 +118,11 @@ impl MarkerTree {
             // there needs to be room after splitting.
             debug_assert!(space_needed == 1 || space_needed == 2);
             debug_assert!(space_needed <= NUM_ENTRIES/2); // unnecessary but simplifies things.
-            
+
+            if let Some(marker) = flush_marker {
+                marker.flush(node);
+            }
+
             // By conventional btree rules, we should make sure each side of the
             // split has at least n/2 elements but in this case I don't think it
             // really matters. I'll do something reasonable that is clean and clear.
@@ -211,7 +214,7 @@ impl MarkerTree {
             } else {
                 // Case 2 and 3.
                 // println!("insert case 2 and 3");
-                Self::make_space_in_leaf(&mut cursor, 1, &mut notify); // This will update len for us
+                Self::make_space_in_leaf(&mut cursor, None, 1, &mut notify); // This will update len for us
                 cursor.node.as_mut().data[cursor.idx] = Entry {
                     loc: new_loc,
                     len: len as i32
@@ -235,6 +238,7 @@ impl MarkerTree {
     // deletes X characters" and "we're processing a remote delete operation". (In the
     // second case there may be local inserts inside the range that should be
     // preserved).
+    // TODO: Should we pass cursor by val or by ref?
     pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor, deleted_len: ClientSeq, mut notify: F) -> DeleteResult
         where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
     {
@@ -247,22 +251,23 @@ impl MarkerTree {
         // TODO: This method should also merge adjacent deletes.
         let mut result: DeleteResult = SmallVec::default();
         unsafe {
-            let mut current_leaf_length_delta: i32 = 0;
+            let mut flush_marker = FlushMarker(0);
+            // let mut current_leaf_length_delta: i32 = 0;
 
-            let flush_count = |node: &mut NodeLeaf, del_len: &mut i32| {
-                node.update_parent_count(*del_len);
-                *del_len = 0;
-            };
-            let next_entry = |cursor: &mut Cursor, del_len: &mut i32| {
+            // let flush_count = |node: &mut NodeLeaf, del_len: &mut i32| {
+            //     node.update_parent_count(*del_len);
+            //     *del_len = 0;
+            // };
+            let next_entry = |cursor: &mut Cursor| {
                 // So this is arguably a bit inefficient. If the deleted range spans two nodes,
                 // we're traversing all the way up the tree twice. But the extra code complexity to
                 // handle that in a clever way *probably* isn't worth the trouble.
                 //
                 // I mean, maybe. Something to think about for future optimization I guess. Most
                 // deletes only delete a single item.
-                if cursor.idx + 1 >= cursor.node.as_ref().len_entries() {
-                    flush_count(cursor.node.as_mut(), del_len);
-                }
+                // if cursor.idx + 1 >= cursor.node.as_ref().len_entries() {
+                //     flush_count(cursor.node.as_mut(), del_len);
+                // }
                 if cursor.next_entry() == false {
                     // Actually I'm not sure what to do in this case. Early return maybe?
                     panic!("Local delete past the end of the document");
@@ -276,21 +281,15 @@ impl MarkerTree {
                 // println!("Delete remaining: {}", delete_remaining);
                 // let mut entry;
                 while cursor.get_entry().is_delete() {
-                    next_entry(&mut cursor, &mut current_leaf_length_delta);
+                    next_entry(&mut cursor);
                 }
 
-                // Delete as many characters as we can in the document. There's
-                // a couple cases here:
-                // - The entire span at cursor can be deleted. Mark it as such
-                //   and iterate.
-                // - The deleted range is entirely inside the current span.
-                //   We'll need to split the current node and mark the deleted
-                //   region as such.
                 let node = cursor.get_node_mut();
                 let mut entry = &mut node.data[cursor.idx];
                 let entry_len = entry.get_content_len();
                 debug_assert!(entry_len > 0); // We should have skipped already deleted nodes.
 
+                // Delete as many characters as we can in the document each time through this loop.
                 // There's 4 semi-overlapping cases here. <xxx> marks deleted characters
                 // 1. <xxx>
                 // 2. <xxx>text
@@ -310,13 +309,14 @@ impl MarkerTree {
                         });
                         entry.len = -entry.len;
                         delete_remaining -= entry_len;
-                        current_leaf_length_delta -= entry_len as i32;
+                        flush_marker.0 -= entry_len as i32;
 
                         if delete_remaining > 0 {
                             // This will panic if we move past the end of the document
-                            next_entry(&mut cursor, &mut current_leaf_length_delta);
+                            next_entry(&mut cursor);
                         } else {
-                            // It probably doesn't matter, but this feels clean.
+                            // It probably doesn't matter, but its cleaner to leave the cursor in a
+                            // consistent position after this method is called.
                             cursor.offset = -entry.len as u32;
                         }
                     } else {
@@ -334,23 +334,23 @@ impl MarkerTree {
                         // instead in this case I'm going to mark the whole entry as deleted, then
                         // split it, and then undelete the second part of the entry. Which is also
                         // weird.
-                        current_leaf_length_delta -= entry.len;
+                        flush_marker.0 -= entry.len;
                         entry.len = -entry.len;
                         // This is less performant than it could be. I'm doing this because cursor
                         // node could change in make_space_in_leaf. The deopt here is probably less
                         // of a big deal due to CPU caching.
 
                         // TODO: Only flush_count if cursor.node doesn't have room.
-                        flush_count(cursor.node.as_mut(), &mut current_leaf_length_delta);
+                        // flush_count(cursor.node.as_mut(), &mut current_leaf_length_delta);
                         
                         cursor.offset = delete_remaining;
-                        Self::make_space_in_leaf(&mut cursor, 0, &mut notify);
+                        Self::make_space_in_leaf(&mut cursor, Some(&mut flush_marker), 0, &mut notify);
 
                         // Cursor now points to the next (non-deleted) content
                         // which might be in a subsequent btree node. Undelete it.
                         
                         let next_entry = cursor.get_entry_mut();
-                        current_leaf_length_delta -= next_entry.len;
+                        flush_marker.0 -= next_entry.len;
                         next_entry.len = -next_entry.len;
 
                         delete_remaining = 0;
@@ -375,10 +375,10 @@ impl MarkerTree {
                     });
 
                     // TODO: As above, only if we're going to spill.
-                    flush_count(cursor.node.as_mut(), &mut current_leaf_length_delta);
+                    // flush_count(cursor.node.as_mut(), &mut current_leaf_length_delta);
 
                     let prev_entry = *cursor.get_entry();
-                    Self::make_space_in_leaf(&mut cursor, gap, &mut notify);
+                    Self::make_space_in_leaf(&mut cursor, Some(&mut flush_marker), gap, &mut notify);
 
                     // The cursor now points to the gap (if any) or the
                     // newly split off content.
@@ -405,12 +405,11 @@ impl MarkerTree {
                         remainder_entry.len -= deleted_len_here as i32;
                     }
 
-                    current_leaf_length_delta -= deleted_len_here as i32;
+                    flush_marker.0 -= deleted_len_here as i32;
                     delete_remaining -= deleted_len_here;
                 }
-
             }
-            flush_count(cursor.node.as_mut(), &mut current_leaf_length_delta);
+            flush_marker.flush(cursor.node.as_mut());
         }
 
         if cfg!(debug_assertions) {
@@ -446,7 +445,7 @@ impl MarkerTree {
 
         // An empty leaf is only valid if we're the root element.
         if let ParentPtr::Internal(_) = leaf.parent {
-            assert!(count > 0, "Non-root leaf is empty");
+            assert!(num > 0, "Non-root leaf is empty");
         }
 
         assert_eq!(num, leaf.len as usize, "Cached leaf len does not match");
@@ -501,6 +500,7 @@ impl MarkerTree {
     pub fn check(&self) {
         // Check the parent of each node is its correct parent
         // Check the size of each node is correct up and down the tree
+        // println!("check tree {:#?}", self);
         let root = self.root.as_ref().get_ref();
         let expected_parent = ParentPtr::Root(NonNull::new(self as *const _ as *mut Self).unwrap());
         let expected_size = match root {

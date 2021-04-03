@@ -24,12 +24,16 @@ use std::marker::PhantomPinned;
 
 pub use root::DeleteResult;
 
-// const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
-const MAX_CHILDREN: usize = 32; // This needs to be minimum 8.
+#[cfg(debug_assertions)]
+const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
+#[cfg(not(debug_assertions))]
+const MAX_CHILDREN: usize = 32;
 
 
 // Must fit in u8.
-// const NUM_ENTRIES: usize = 4;
+#[cfg(debug_assertions)]
+const NUM_ENTRIES: usize = 4;
+#[cfg(not(debug_assertions))]
 const NUM_ENTRIES: usize = 32;
 
 
@@ -107,6 +111,24 @@ pub struct Cursor {
     // _marker: marker::PhantomData<&'a Node>,
 }
 
+/// Helper struct to track pending size changes in the document which need to be propagated
+#[derive(Debug)]
+pub struct FlushMarker(i32);
+
+impl Drop for FlushMarker {
+    fn drop(&mut self) {
+        if self.0 != 0 {
+            panic!("Flush marker dropped without being flushed");
+        }
+    }
+}
+
+impl FlushMarker {
+    fn flush(&mut self, node: &mut NodeLeaf) {
+        node.update_parent_count(self.0);
+        self.0 = 0;
+    }
+}
 
 #[derive(Clone, Debug)]
 struct PrintDropLeaf;

@@ -168,7 +168,7 @@ impl CRDTState {
         let insert_location = if pos == 0 {
             // This saves an awful lot of code needing to be executed.
             CRDT_DOC_ROOT
-        } else { cursor.tell() };
+        } else { cursor.clone().tell() };
 
         self.marker_tree.insert(cursor, inserted_length as ClientSeq, loc_base, |loc, len, leaf| {
             // eprintln!("insert callback {:?} len {}", loc, len);
@@ -195,7 +195,7 @@ impl CRDTState {
         self.insert(id, pos, text.chars().count())
     }
 
-    pub fn delete(&mut self, client_id: ClientID, pos: u32, len: u32) -> DeleteResult {
+    pub fn delete(&mut self, _client_id: ClientID, pos: u32, len: u32) -> DeleteResult {
         let cursor = self.marker_tree.cursor_at_pos(pos, true);
         // println!("{:#?}", state.marker_tree);
         // println!("{:?}", cursor);
@@ -345,5 +345,47 @@ mod tests {
     
         // eprintln!("tree {:#?}", state.marker_tree);
         state.check();
+    }
+
+    #[test]
+    #[ignore]
+    fn automerge_perf() {
+        // This test also shows up in the benchmarks. Its included here as well because run as part
+        // of the test suite it checks a lot of invariants throughout the run.
+        use serde::Deserialize;
+        use serde_json::Result;
+        use std::fs::File;
+        use std::io::BufReader;
+        use std::result;
+
+        #[derive(Debug, Clone, Deserialize)]
+        struct Edit(usize, usize, String);
+
+        #[derive(Debug, Clone, Deserialize)]
+        struct TestData {
+            edits: Vec<Edit>,
+            finalText: String,
+        }
+
+        let file = File::open("automerge-trace.json").unwrap();
+        let reader = BufReader::new(file);
+        let u: TestData = serde_json::from_reader(reader).unwrap();
+        println!("final length: {}, edits {}", u.finalText.len(), u.edits.len());
+
+        let mut state = CRDTState::new();
+        let id = state.get_or_create_client_id("jeremy");
+        for (i, Edit(pos, del_len, ins_content)) in u.edits.iter().enumerate() {
+            if i % 1000 == 0 {
+                println!("i {}", i);
+            }
+            // println!("iter {} pos {} del {} ins '{}'", i, pos, del_len, ins_content);
+            if *del_len > 0 {
+                state.delete(id, *pos as _, *del_len as _);
+            } else {
+                state.insert(id, *pos as _, ins_content.len());
+            }
+        }
+        // println!("len {}", state.len());
+        assert_eq!(state.len(), u.finalText.len());
     }
 }
