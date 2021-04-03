@@ -18,11 +18,17 @@ impl MarkerTree {
         } });
 
         unsafe {
+            // What a mess. I'm sure there's a nicer way to write this, somehow O_o.
             let ptr = tree.as_mut().get_unchecked_mut();
-            *ptr.root.get_parent_mut() = ParentPtr::Root(NonNull::new_unchecked(ptr));
+            let parent_ref = ptr.to_parent_ptr();
+            ptr.root.set_parent(parent_ref);
         }
 
         tree
+    }
+
+    unsafe fn to_parent_ptr(&mut self) -> ParentPtr {
+        ParentPtr::Root(NonNull::new_unchecked(self))
     }
 
     pub fn cursor_at_pos(self: &Pin<Box<Self>>, raw_pos: u32, stick_end: bool) -> Cursor {
@@ -48,10 +54,12 @@ impl MarkerTree {
         }
     }
 
-    // Make room at the current cursor location, splitting the current element
-    // if necessary (and recursively splitting the btree node if there's no
-    // room). The gap will be filled with junk and must be immediately
-    // overwritten. (The location of the gap is returned via the cursor.)
+    /// Make room at the current cursor location, splitting the current element
+    /// if necessary (and recursively splitting the btree node if there's no
+    /// room). The gap will be filled with junk and must be immediately
+    /// overwritten, else the tree is in an invalid state.
+    ///
+    /// The location of the gap is returned via the cursor.
     unsafe fn make_space_in_leaf<F>(cursor: &mut Cursor, gap: usize, notify: &mut F)
         where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
     {
@@ -205,7 +213,7 @@ impl MarkerTree {
     }
 
     // We need two delete methods because there's different use cases in "a user
-    // deletes X characters" and "we're processing a delete operation". (In the
+    // deletes X characters" and "we're processing a remote delete operation". (In the
     // second case there may be local inserts inside the range that should be
     // preserved).
     pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor, deleted_len: ClientSeq, mut notify: F) -> Change
@@ -227,11 +235,17 @@ impl MarkerTree {
                 *del_len = 0;
             };
             let next_entry = |cursor: &mut Cursor, del_len: &mut i32| {
-                if cursor.idx + 1 >= cursor.node.as_ref().len as usize {
+                // So this is arguably a bit inefficient. If the deleted range spans two nodes,
+                // we're traversing all the way up the tree twice. But the extra code complexity to
+                // handle that in a clever way *probably* isn't worth the trouble.
+                //
+                // I mean, maybe. Something to think about for future optimization I guess. Most
+                // deletes only delete a single item.
+                if cursor.idx + 1 >= cursor.node.as_ref().len_entries() {
                     flush_count(cursor.node.as_mut(), del_len);
                 }
                 if cursor.next_entry() == false {
-                    // Actualy I'm not sure what to do in this case. Early return maybe?
+                    // Actually I'm not sure what to do in this case. Early return maybe?
                     panic!("Local delete past the end of the document");
                 }
             };
@@ -240,8 +254,9 @@ impl MarkerTree {
 
             let mut delete_remaining = deleted_len;
             while delete_remaining > 0 {
+                println!("Delete remaining: {}", delete_remaining);
                 // let mut entry;
-                while !cursor.get_entry().is_insert() {
+                while cursor.get_entry().is_delete() {
                     next_entry(&mut cursor, &mut current_leaf_length_delta);
                 }
 
@@ -254,7 +269,7 @@ impl MarkerTree {
                 //   region as such.
                 let node = cursor.get_node_mut();
                 let mut entry = &mut node.data[cursor.idx];
-                let entry_len = entry.get_text_len();
+                let entry_len = entry.get_content_len();
                 debug_assert!(entry_len > 0); // We should have skipped already deleted nodes.
 
                 // There's 4 semi-overlapping cases here. <xxx> marks deleted characters
@@ -269,27 +284,28 @@ impl MarkerTree {
                     // Cases 1 and 2
                     if delete_remaining >= entry_len {
                         // Case 1. Delete the whole entry and iterate.
+                        // println!("case 1");
                         entry.len = -entry.len;
                         delete_remaining -= entry_len;
                         current_leaf_length_delta -= entry_len as i32;
                         next_entry(&mut cursor, &mut current_leaf_length_delta);
                     } else {
                         // Case 2
-                        
-                        // So this seems is a bit weird. We need to split the
-                        // node, and mark the region before the split as
-                        // deleted. I considered for awhile having
-                        // make_space_in_leaf return two cursors, then we could
-                        // modify the data behind the prev cursor but that was
-                        // kinda janky and complicated. So instead in this case
-                        // I'm going to mark the whole entry as deleted, then
-                        // split it, and then undelete the second part of the entry.
+                        // println!("case 2");
+                        // So this seems is a bit weird. We need to split the node, and mark the
+                        // region before the split as deleted. I considered for awhile having
+                        // make_space_in_leaf return two cursors, then we could modify the data
+                        // behind the prev cursor but that was kinda janky and complicated. So
+                        // instead in this case I'm going to mark the whole entry as deleted, then
+                        // split it, and then undelete the second part of the entry. Which is also
+                        // weird.
                         current_leaf_length_delta -= entry.len;
                         entry.len = -entry.len;
-                        // This is less performant than it could be. I'm doing
-                        // this because cursor node could change in
-                        // make_space_in_leaf. The deopt here is probably less
+                        // This is less performant than it could be. I'm doing this because cursor
+                        // node could change in make_space_in_leaf. The deopt here is probably less
                         // of a big deal due to CPU caching.
+
+                        // TODO: Only flush_count if cursor.node doesn't have room.
                         flush_count(cursor.node.as_mut(), &mut current_leaf_length_delta);
                         
                         cursor.offset = delete_remaining;
@@ -308,17 +324,21 @@ impl MarkerTree {
                     // Case 3 and 4 - text<xxx> or te<xxx>xt.
                     let start_offset = cursor.offset;
                     let (gap, deleted_len_here) = if start_offset + delete_remaining >= entry_len {
+                        // println!("case 3");
                         (0, entry_len - start_offset) // case 3
                     } else {
+                        // println!("case 4");
                         (1, delete_remaining) // case 4
                     };
 
+                    // TODO: As above, only if we're going to spill.
+                    flush_count(cursor.node.as_mut(), &mut current_leaf_length_delta);
+
+                    let prev_entry = *cursor.get_entry();
                     Self::make_space_in_leaf(&mut cursor, gap, &mut notify);
 
                     // The cursor now points to the gap (if any) or the
                     // newly split off content.
-                    let prev_entry = prev_cursor.get_entry_mut();
-                    debug_assert_eq!(prev_entry.len, start_offset as i32);
 
                     // The deleted entry, which might be the gap!
                     *cursor.get_entry_mut() = Entry {
@@ -329,23 +349,20 @@ impl MarkerTree {
                         len: -(deleted_len_here as i32),
                     };
 
-                    if prev_cursor.node != cursor.node {
-                        flush_count(prev_cursor.node.as_mut(), &mut current_leaf_length_delta);
-                    }
-
+                    // TODO: Is this right? Shouldn't we call next_entry()?
                     cursor.idx += 1;
                     cursor.offset = 0;
                     if gap == 1 {
-                        // case 3. We need to trim the deleted content from
-                        // the subsequent node. This is safe because
-                        // make_space_in_leaf always makes the next item in
-                        // the same node as the gap.
+                        // case 4. We need to trim the deleted content from the subsequent node.
+                        // This is safe because make_space_in_leaf always makes the next item in the
+                        // same node as the gap.
                         let remainder_entry = cursor.get_entry_mut();
+                        debug_assert!(remainder_entry.is_insert());
                         remainder_entry.loc.seq += deleted_len_here;
                         remainder_entry.len -= deleted_len_here as i32;
                     }
 
-                    current_leaf_length_delta += deleted_len_here;
+                    current_leaf_length_delta -= deleted_len_here as i32;
                     delete_remaining -= deleted_len_here;
                 }
 
@@ -379,7 +396,7 @@ impl MarkerTree {
                 // Make sure there's no data after an invalid entry
                 assert_eq!(done, false, "Leaf contains gaps");
                 assert_ne!(e.len, 0, "Invalid leaf - 0 length");
-                count += e.get_text_len() as usize;
+                count += e.get_content_len() as usize;
                 num += 1;
             }
         }
@@ -406,7 +423,7 @@ impl MarkerTree {
         for (child_count_expected, child) in &node.data[..] {
             if let Some(child) = child {
                 // Make sure there's no data after an invalid entry
-                assert!(done == false);
+                assert_eq!(done, false);
 
                 let child_ref = child.as_ref().get_ref();
 
@@ -420,8 +437,8 @@ impl MarkerTree {
 
                 // Recurse
                 let count_actual = match child_ref {
-                    Node::Leaf(n) => { Self::check_leaf(n, self_parent) },
-                    Node::Internal(n) => { Self::check_internal(n, self_parent) },
+                    Node::Leaf(ref n) => { Self::check_leaf(n, self_parent) },
+                    Node::Internal(ref n) => { Self::check_internal(n, self_parent) },
                 };
 
                 // Make sure all the individual counts match.
@@ -468,7 +485,7 @@ impl MarkerTree {
                 }
             },
             Node::Leaf(n) => {
-                eprintln!("Leaf {:?} (parent: {:?}) - {} filled", n as *const _, n.parent, n.count_entries());
+                eprintln!("Leaf {:?} (parent: {:?}) - {} filled", n as *const _, n.parent, n.len_entries());
             }
         }
     }
@@ -501,10 +518,9 @@ pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Nod
                 let parent_ref = n.as_ref();
                 let count = parent_ref.count_children();
                 if count < MAX_CHILDREN {
-                    // Great. Insert the new node into the parent and
-                    // return.
-                    *inserted_node.get_parent_mut() = ParentPtr::Internal(n);
-                    
+                    // Great. Insert the new node into the parent and return.
+                    inserted_node.set_parent(ParentPtr::Internal(n));
+
                     let old_idx = parent_ref.find_child(insert_after).unwrap();
                     let new_idx = old_idx + 1;
 
@@ -530,13 +546,13 @@ pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Nod
                     // *inserted_node.get_parent_mut() = parent_ptr;
                     
                     let count = r.as_ref().count;
-                    let new_root_ref = r.as_mut().root.unwrap_internal_mut();
+                    let new_root_ref = r.as_mut().root.unwrap_internal_mut_pin();
                     let parent_ptr = ParentPtr::Internal(NonNull::new_unchecked(new_root_ref));
                     
                     // Reassign parents for each node
-                    *old_root.get_parent_mut() = parent_ptr;
-                    *inserted_node.get_parent_mut() = parent_ptr;
-                    
+                    old_root.set_parent(parent_ptr);
+                    inserted_node.set_parent(parent_ptr);
+
                     new_root_ref.data[0] = (count - stolen_length, Some(old_root));
                     new_root_ref.data[1] = (stolen_length, Some(inserted_node));
 
@@ -555,7 +571,7 @@ pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Nod
 
                     // let mut right_sibling = NodeInternal::new_with_parent(parent);
                     let mut right_sibling_box = Box::pin(Node::Internal(NodeInternal::new_with_parent(parent)));
-                    let right_sibling = right_sibling_box.unwrap_internal_mut();
+                    let right_sibling = right_sibling_box.unwrap_internal_mut_pin();
                     let old_idx = left_sibling.find_child(insert_after).unwrap();
                     
                     let left_sibling = n.as_mut();
@@ -570,7 +586,7 @@ pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Nod
                         for i in 0..MAX_CHILDREN/2 {
                             let (c, e) = mem::replace(&mut left_sibling.data[i + MAX_CHILDREN/2], (0, None));
                             if let Some(mut e) = e {
-                                *e.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
+                                *e.as_mut().get_unchecked_mut().get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
                                 new_stolen_length += c;
                                 right_sibling.data[i] = (c, Some(e));
                             }
@@ -578,14 +594,14 @@ pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Nod
                         }
 
                         let new_idx = old_idx + 1;
-                        *inserted_node.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(left_sibling));
+                        inserted_node.set_parent(ParentPtr::Internal(NonNull::new_unchecked(left_sibling)));
                         left_sibling.splice_in(new_idx, stolen_length, inserted_node);
                     } else {
                         // The new element is in the second half of the
                         // group.
                         let new_idx = old_idx - MAX_CHILDREN/2 + 1;
 
-                        *inserted_node.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
+                        inserted_node.set_parent(ParentPtr::Internal(NonNull::new_unchecked(right_sibling)));
                         let mut new_entry = (stolen_length, Some(inserted_node));
                         new_stolen_length = stolen_length;
 
@@ -597,7 +613,7 @@ pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Nod
                                 let (c, e) = mem::replace(&mut left_sibling.data[src], (0, None));
                                 
                                 if let Some(mut e) = e {
-                                    *e.get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
+                                    e.set_parent(ParentPtr::Internal(NonNull::new_unchecked(right_sibling)));
                                     new_stolen_length += c;
                                     right_sibling.data[dest] = (c, Some(e));
                                     src += 1;

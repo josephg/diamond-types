@@ -20,10 +20,13 @@ use std::marker;
 use std::pin::Pin;
 
 use super::common::*;
+use std::marker::PhantomPinned;
 
 const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
 // const MAX_CHILDREN: usize = 32; // This needs to be minimum 8.
 
+
+// Must fit in u8.
 const NUM_ENTRIES: usize = 4;
 // const NUM_ENTRIES: usize = 32;
 
@@ -33,10 +36,8 @@ const NUM_ENTRIES: usize = 4;
 // it.
 #[derive(Debug)]
 pub struct MarkerTree {
-    count: CharCount,
-    // This is only ever None when the tree is being destroyed.
+    count: ItemCount,
     root: Pin<Box<Node>>,
-    // root: Option<Pin<Box<Node>>>,
     _pin: marker::PhantomPinned,
 }
 
@@ -68,8 +69,10 @@ struct NodeInternal /*<T: NodeT>*/ {
     parent: ParentPtr,
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
-    // data: [(CharCount, Option<Box<Node>>); MAX_CHILDREN]
-    data: [(CharCount, Option<Pin<Box<Node>>>); MAX_CHILDREN],
+    // ItemCount only includes items which haven't been deleted.
+    // data: [(ItemCount, Option<Box<Node>>); MAX_CHILDREN]
+    data: [(ItemCount, Option<Pin<Box<Node>>>); MAX_CHILDREN],
+    _pin: PhantomPinned, // Needed because children have parent pointers here.
     _drop: PrintDropInternal,
 }
 
@@ -78,6 +81,7 @@ pub struct NodeLeaf {
     parent: ParentPtr,
     len: u8, // Number of entries which have been populated
     data: [Entry; NUM_ENTRIES],
+    _pin: PhantomPinned, // Needed because cursors point here.
     _drop: PrintDropLeaf
 }
 
@@ -88,12 +92,12 @@ pub struct NodeLeaf {
 #[derive(Debug, Copy, Clone, Default)]
 struct Entry {
     loc: CRDTLocation,
-    len: i32, // negative if the chunk was deleted.
+    len: i32, // negative if the chunk was deleted. Never 0 - TODO: could use NonZeroI32
 }
 
 
 #[derive(Copy, Clone, Debug)]
-// pub struct Cursor<'a> {
+// pub struct Cursor<'a> { // TODO: Add this lifetime parameter back.
 pub struct Cursor {
     node: NonNull<NodeLeaf>,
     idx: usize,
@@ -140,7 +144,7 @@ impl Entry {
         self.loc.seq .. self.loc.seq + (self.len.abs() as ClientSeq)
     }
 
-    fn get_text_len(&self) -> u32 {
+    fn get_content_len(&self) -> u32 {
         if self.len < 0 { 0 } else { self.len as u32 }
     }
 
@@ -148,7 +152,6 @@ impl Entry {
         self.len.abs() as u32
     }
 
-    // These two methods would be cleaner if I wrote a split() function or something.
     fn keep_start(&mut self, cut_at: u32) {
         self.len = if self.len < 0 { -(cut_at as i32) } else { cut_at as i32 };
     }
@@ -165,6 +168,10 @@ impl Entry {
     fn is_insert(&self) -> bool {
         debug_assert!(self.len != 0);
         self.len > 0
+    }
+
+    fn is_delete(&self) -> bool {
+        !self.is_insert()
     }
 }
 
@@ -183,6 +190,13 @@ impl Node {
             Node::Internal(i) => &mut i.parent,
         }
     }
+    // fn unwrap_internal_mut_pin<'a>(self: &'a mut Pin<Box<Self>>) -> &'a mut NodeInternal {
+
+    fn set_parent(self: &mut Pin<Box<Self>>, parent: ParentPtr) {
+        unsafe {
+            *self.as_mut().get_unchecked_mut().get_parent_mut() = parent;
+        }
+    }
 
     // pub fn get_parent(&self) -> ParentPtr {
     //     match self {
@@ -197,6 +211,9 @@ impl Node {
             Node::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
+    // fn foo(this: Pin<Box<Self>>) -> NonNull<NodeLeaf> {
+    //
+    // }
     fn unwrap_leaf_mut(&mut self) -> &mut NodeLeaf {
         match self {
             Node::Leaf(l) => l,
@@ -213,6 +230,13 @@ impl Node {
         match self {
             Node::Internal(n) => n,
             Node::Leaf(_) => panic!("Expected internal node"),
+        }
+    }
+
+    // TODO: These methods should probably return Pin<&mut NodeInternal>, with projections for fields.
+    fn unwrap_internal_mut_pin<'a>(self: &'a mut Pin<Box<Self>>) -> &'a mut NodeInternal {
+        unsafe {
+            self.as_mut().get_unchecked_mut().unwrap_internal_mut()
         }
     }
 

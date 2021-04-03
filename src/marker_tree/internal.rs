@@ -9,8 +9,8 @@ impl NodeInternal {
     pub(super) fn new_with_parent(parent: ParentPtr) -> Self {
         // From the example in the docs:
         // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#initializing-an-array-element-by-element
-        let mut children: [MaybeUninit<(CharCount, Option<Pin<Box<Node>>>)>; MAX_CHILDREN] = unsafe {
-            MaybeUninit::uninit().assume_init()
+        let mut children: [MaybeUninit<(ItemCount, Option<Pin<Box<Node>>>)>; MAX_CHILDREN] = unsafe {
+            MaybeUninit::uninit().assume_init() // Safe because `MaybeUninit`s don't require init.
         };
         for elem in &mut children[..] {
             *elem = MaybeUninit::new((0, None));
@@ -18,8 +18,9 @@ impl NodeInternal {
         Self {
             parent,
             data: unsafe {
-                mem::transmute::<_, [(CharCount, Option<Pin<Box<Node>>>); MAX_CHILDREN]>(children)
+                mem::transmute::<_, [(ItemCount, Option<Pin<Box<Node>>>); MAX_CHILDREN]>(children)
             },
+            _pin: PhantomPinned,
             _drop: PrintDropInternal,
         }
     }
@@ -27,17 +28,19 @@ impl NodeInternal {
     pub(super) fn get_child(&self, raw_pos: u32, stick_end: bool) -> Option<(u32, Pin<&Node>)> {
         let mut offset_remaining = raw_pos;
 
-        self.data.iter().find_map(|(count, elem)| {
+        for (count, elem) in self.data.iter() {
+            let count = *count;
             if let Some(elem) = elem.as_ref() {
-                if offset_remaining < *count || (stick_end && offset_remaining == *count) {
+                if offset_remaining < count || (stick_end && offset_remaining == count) {
                     // let elem_box = elem.unwrap();
-                    Some((offset_remaining, elem.as_ref()))
+                    return Some((offset_remaining, elem.as_ref()))
                 } else {
-                    offset_remaining -= *count;
-                    None
+                    offset_remaining -= count;
+                    // And continue.
                 }
-            } else { None }
-        })
+            } else { return None }
+        }
+        None
     }
 
     // pub(super) fn get_child_mut(&mut self, raw_pos: u32) -> Option<(u32, Pin<&mut Node>)> {
@@ -55,8 +58,8 @@ impl NodeInternal {
     //     })
     // }
 
-    // Insert a new item in the tree. This DOES NOT update the child counts in
-    // the parents.
+    /// Insert a new item in the tree. This DOES NOT update the child counts in
+    /// the parents. (So the tree will be in an invalid state after this has been called.)
     pub(super) fn splice_in(&mut self, idx: usize, count: u32, elem: Pin<Box<Node>>) {
         let mut buffer = (count, Some(elem));
         for i in idx..MAX_CHILDREN {
@@ -77,6 +80,10 @@ impl NodeInternal {
         .position(|(_, c)| c.as_ref()
             .map_or(false, |n| n.ptr_eq(child))
         )
+    }
+
+    unsafe fn to_parent_ptr(&mut self) -> ParentPtr {
+        ParentPtr::Internal(NonNull::new_unchecked(self))
     }
 }
 

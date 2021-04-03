@@ -303,7 +303,9 @@ mod tests {
         state.insert_name("george", 3, InlinableString::from("abcd"));
         
         let cursor = state.marker_tree.cursor_at_pos(5, true);
-        MarkerTree::local_delete(&state.marker_tree, cursor, 4, |loc, seq, _ptr| {
+        // println!("{:#?}", state.marker_tree);
+        // println!("{:?}", cursor);
+        MarkerTree::local_delete(&state.marker_tree, cursor, 1, |loc, seq, _ptr| {
             eprintln!("notify {:?} / {}", loc, seq);
         });
     

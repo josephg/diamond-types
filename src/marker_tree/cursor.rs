@@ -14,12 +14,12 @@ impl Cursor {
         &mut *self.node.as_ptr()
     }
 
-    // Move back to the previous entry. Returns true if it exists, otherwise
-    // returns false if we're at the start of the doc already.
+    /// Move back to the previous entry. Returns true if it exists, otherwise
+    /// returns false if we're at the start of the doc already.
     fn prev_entry(&mut self) -> bool {
         if self.idx > 0 {
             self.idx -= 1;
-            self.offset = self.get_entry().len as u32;
+            self.offset = self.get_entry().get_seq_len();
             true
         } else {
             // idx is 0. Go up as far as we can until we get to an index thats
@@ -62,8 +62,9 @@ impl Cursor {
                     NodePtr::Leaf(n) => {
                         // Finally.
                         let node_ref = unsafe { n.as_ref() };
-                        self.idx = node_ref.count_entries();
-                        self.offset = node_ref.data[self.idx].get_seq_len();
+                        assert!(node_ref.len > 0);
+                        self.idx = node_ref.len_entries() - 1;
+                        self.offset = node_ref.data[self.idx - 1].get_seq_len();
                         return true;
                     }
                 }
@@ -93,7 +94,7 @@ impl Cursor {
         // TODO: This is a bit redundant - we could find out the local position
         // when we scan initially to initialize the cursor.
         for e in &node.data[0..self.idx] {
-            pos += e.get_text_len();
+            pos += e.get_content_len();
         }
         let local_len = node.data[self.idx].len;
         if local_len > 0 { pos += self.offset; }
@@ -125,11 +126,13 @@ impl Cursor {
 
     pub(super) fn get_entry(&self) -> &Entry {
         let node = unsafe { self.node.as_ref() };
+        println!("entry {:?}", self);
         &node.data[self.idx]
     }
 
     pub(super) fn get_entry_mut(&mut self) -> &mut Entry {
         let node = unsafe { self.node.as_mut() };
+        debug_assert!(self.idx < node.len_entries());
         &mut node.data[self.idx]
     }
     
