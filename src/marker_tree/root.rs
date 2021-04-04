@@ -235,6 +235,12 @@ impl MarkerTree {
         }
     }
 
+    fn next_entry_or_panic(cursor: &mut Cursor, marker: &mut FlushMarker) {
+        if cursor.next_entry_marker(Some(marker)) == false {
+            panic!("Local delete past the end of the document");
+        }
+    }
+
     // We need two delete methods because there's different use cases in "a user
     // deletes X characters" and "we're processing a remote delete operation". (In the
     // second case there may be local inserts inside the range that should be
@@ -249,39 +255,23 @@ impl MarkerTree {
             self.as_ref().get_ref().check();
         }
 
-        // TODO: This method should also merge adjacent deletes.
+        // The output from this method is a list of deleted ranges
         let mut result: DeleteResult = SmallVec::default();
+
+        // This tracks how much we need to increment the document size by, recursively up the
+        // tree
+        let mut flush_marker = FlushMarker(0);
+
+        // If the cursor is at the end of the current item, advance to the start of the next item.
+        cursor.roll_to_next(false);
+
+        let mut delete_remaining = deleted_len;
+
         unsafe {
-            let mut flush_marker = FlushMarker(0);
-            // let mut current_leaf_length_delta: i32 = 0;
-
-            // let flush_count = |node: &mut NodeLeaf, del_len: &mut i32| {
-            //     node.update_parent_count(*del_len);
-            //     *del_len = 0;
-            // };
-            let next_entry = |cursor: &mut Cursor, marker: &mut FlushMarker| {
-                // So this is arguably a bit inefficient. If the deleted range spans two nodes,
-                // we're traversing all the way up the tree twice. But the extra code complexity to
-                // handle that in a clever way *probably* isn't worth the trouble.
-                //
-                // I mean, maybe. Something to think about for future optimization I guess. Most
-                // deletes only delete a single item.
-                // if cursor.idx + 1 >= cursor.node.as_ref().len_entries() {
-                //     flush_count(cursor.node.as_mut(), del_len);
-                // }
-                if cursor.next_entry_marker(Some(marker)) == false {
-                    // Actually I'm not sure what to do in this case. Early return maybe?
-                    panic!("Local delete past the end of the document");
-                }
-            };
-
-            cursor.roll_to_next(false);
-
-            let mut delete_remaining = deleted_len;
             while delete_remaining > 0 {
                 // let mut entry;
                 while cursor.get_entry().is_delete() {
-                    next_entry(&mut cursor, &mut flush_marker);
+                    Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
                 }
                 // println!("current node {:#?}", cursor.get_node_mut());
                 // println!("Tree {:#?}", self);
@@ -317,7 +307,7 @@ impl MarkerTree {
 
                         if delete_remaining > 0 {
                             // This will panic if we move past the end of the document
-                            next_entry(&mut cursor, &mut flush_marker);
+                            Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
                         } else {
                             // It probably doesn't matter, but its cleaner to leave the cursor in a
                             // consistent position after this method is called.
@@ -396,12 +386,15 @@ impl MarkerTree {
                     };
 
                     flush_marker.0 -= deleted_len_here as i32;
-                    next_entry(&mut cursor, &mut flush_marker);
-                    // cursor.next_entry_marker(Some(&mut flush_marker));
+
+                    // I'm only advancing the cursor to the next element in case 4. In case 3, the
+                    // next loop iteration will do it. But this does leave the cursor in a dirty
+                    // place after this loop.
                     if gap == 1 {
                         // case 4. We need to trim the deleted content from the subsequent node.
                         // This is safe because make_space_in_leaf always makes the next item in the
                         // same node as the gap.
+                        Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
                         let remainder_entry = cursor.get_entry_mut();
                         debug_assert!(remainder_entry.is_insert());
                         remainder_entry.loc.seq += deleted_len_here;
