@@ -18,6 +18,7 @@ use std::ops::Range;
 use std::ptr::NonNull;
 use std::marker;
 use std::pin::Pin;
+// use pin_project::pin_project;
 
 use super::common::*;
 use std::marker::PhantomPinned;
@@ -43,40 +44,44 @@ const NUM_ENTRIES: usize = 32;
 #[derive(Debug)]
 pub struct MarkerTree {
     count: ItemCount,
-    root: Pin<Box<Node>>,
+    root: Node,
     _pin: marker::PhantomPinned,
 }
 
 #[derive(Debug)]
 enum Node {
-    Internal(NodeInternal),
-    Leaf(NodeLeaf),
+    Internal(Pin<Box<NodeInternal>>),
+    Leaf(Pin<Box<NodeLeaf>>),
 }
 
+// I hate that I need this, but its used all over the place when traversing the tree.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum NodePtr {
+    Internal(NonNull<NodeInternal>),
+    Leaf(NonNull<NodeLeaf>),
+}
+
+// TODO: Consider just reusing NodePtr for this.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum ParentPtr {
     Root(NonNull<MarkerTree>),
     Internal(NonNull<NodeInternal>)
 }
 
-// Ugh I hate that I need this.
-#[derive(Copy, Clone, Debug)]
-enum NodePtr {
-    Internal(NonNull<NodeInternal>),
-    Leaf(NonNull<NodeLeaf>),
-}
-
+/// An internal node in the B-tree
 #[derive(Debug)]
 struct NodeInternal /*<T: NodeT>*/ {
     parent: ParentPtr,
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
     // ItemCount only includes items which haven't been deleted.
-    data: [(ItemCount, Option<Pin<Box<Node>>>); MAX_CHILDREN],
+    data: [(ItemCount, Option<Node>); MAX_CHILDREN],
     _pin: PhantomPinned, // Needed because children have parent pointers here.
     _drop: PrintDropInternal,
 }
 
+/// A leaf node in the B-tree. Except the root, each child stores MAX_CHILDREN/2 - MAX_CHILDREN
+/// entries.
 #[derive(Debug)]
 pub struct NodeLeaf {
     parent: ParentPtr,
@@ -85,10 +90,6 @@ pub struct NodeLeaf {
     _pin: PhantomPinned, // Needed because cursors point here.
     _drop: PrintDropLeaf
 }
-
-// struct NodeInternal {
-//     children: [Box<Node>; MAX_CHILDREN],
-// }
 
 #[derive(Debug, Copy, Clone, Default)]
 struct Entry {
@@ -152,14 +153,9 @@ unsafe fn pinbox_to_nonnull<T>(box_ref: &Pin<Box<T>>) -> NonNull<T> {
     NonNull::new_unchecked(box_ref.as_ref().get_ref() as *const _ as *mut _)
 }
 
-fn pinnode_to_nodeptr(box_ref: &Pin<Box<Node>>) -> NodePtr {
-    let node_ref = box_ref.as_ref().get_ref();
-    match node_ref {
-        Node::Internal(n) => NodePtr::Internal(unsafe { NonNull::new_unchecked(n as *const _ as *mut _) }),
-        Node::Leaf(n) => NodePtr::Leaf(unsafe { NonNull::new_unchecked(n as *const _ as *mut _) }),
-    }
+unsafe fn ref_to_nonnull<T>(val: &T) -> NonNull<T> {
+    NonNull::new_unchecked(val as *const _ as *mut _)
 }
-
 
 impl Entry {
     fn get_seq_range(self) -> Range<ClientSeq> {
@@ -200,24 +196,20 @@ impl Entry {
 
 
 impl Node {
-    pub unsafe fn new() -> Self {
-        Node::Leaf(NodeLeaf::new())
+    /// Unsafe: Created leaf has a dangling parent pointer. Must be set after initialization.
+    unsafe fn new_leaf() -> Self {
+        Node::Leaf(Box::pin(NodeLeaf::new()))
     }
-    pub unsafe fn new_with_parent(parent: ParentPtr) -> Self {
-        Node::Leaf(NodeLeaf::new_with_parent(parent))
+    fn new_with_parent(parent: ParentPtr) -> Self {
+        Node::Leaf(Box::pin(NodeLeaf::new_with_parent(parent)))
     }
 
-    fn get_parent_mut(&mut self) -> &mut ParentPtr {
-        match self {
-            Node::Leaf(l) => &mut l.parent,
-            Node::Internal(i) => &mut i.parent,
-        }
-    }
-    // fn unwrap_internal_mut_pin<'a>(self: &'a mut Pin<Box<Self>>) -> &'a mut NodeInternal {
-
-    fn set_parent(self: &mut Pin<Box<Self>>, parent: ParentPtr) {
+    fn set_parent(&mut self, parent: ParentPtr) {
         unsafe {
-            *self.as_mut().get_unchecked_mut().get_parent_mut() = parent;
+            match self {
+                Node::Leaf(l) => l.as_mut().get_unchecked_mut().parent = parent,
+                Node::Internal(i) => i.as_mut().get_unchecked_mut().parent = parent,
+            }
         }
     }
 
@@ -230,41 +222,59 @@ impl Node {
 
     fn unwrap_leaf(&self) -> &NodeLeaf {
         match self {
-            Node::Leaf(l) => l,
+            Node::Leaf(l) => l.as_ref().get_ref(),
             Node::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
-    fn unwrap_leaf_mut(&mut self) -> &mut NodeLeaf {
+    fn unwrap_leaf_mut(&mut self) -> Pin<&mut NodeLeaf> {
         match self {
-            Node::Leaf(l) => l,
+            Node::Leaf(l) => l.as_mut(),
             Node::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
     fn unwrap_internal(&self) -> &NodeInternal {
         match self {
-            Node::Internal(n) => n,
+            Node::Internal(n) => n.as_ref().get_ref(),
             Node::Leaf(_) => panic!("Expected internal node"),
         }
     }
-    fn unwrap_internal_mut(&mut self) -> &mut NodeInternal {
+    fn unwrap_internal_mut(&mut self) -> Pin<&mut NodeInternal> {
         match self {
-            Node::Internal(n) => n,
+            Node::Internal(n) => n.as_mut(),
             Node::Leaf(_) => panic!("Expected internal node"),
         }
     }
 
-    // TODO: These methods should probably return Pin<&mut NodeInternal>, with projections for fields.
-    fn unwrap_internal_mut_pin<'a>(self: &'a mut Pin<Box<Self>>) -> &'a mut NodeInternal {
-        unsafe {
-            self.as_mut().get_unchecked_mut().unwrap_internal_mut()
+    /// Unsafe: The resulting NodePtr is mutable and doesn't have an associated lifetime.
+    unsafe fn as_ptr(&self) -> NodePtr {
+        match self {
+            Node::Internal(n) => {
+                NodePtr::Internal(ref_to_nonnull(n.as_ref().get_ref()))
+            },
+            Node::Leaf(n) => {
+                NodePtr::Leaf(ref_to_nonnull(n.as_ref().get_ref()))
+            },
         }
     }
 
     fn ptr_eq(&self, ptr: NodePtr) -> bool {
         match (self, ptr) {
-            (Node::Internal(n), NodePtr::Internal(ptr)) => std::ptr::eq(n, ptr.as_ptr()),
-            (Node::Leaf(n), NodePtr::Leaf(ptr)) => std::ptr::eq(n, ptr.as_ptr()),
+            (Node::Internal(n), NodePtr::Internal(ptr)) => {
+                std::ptr::eq(n.as_ref().get_ref(), ptr.as_ptr())
+            },
+            (Node::Leaf(n), NodePtr::Leaf(ptr)) => {
+                std::ptr::eq(n.as_ref().get_ref(), ptr.as_ptr())
+            },
             _ => panic!("Pointer type does not match")
+        }
+    }
+}
+
+impl NodePtr {
+    fn unwrap_leaf(self) -> NonNull<NodeLeaf> {
+        match self {
+            NodePtr::Leaf(l) => l,
+            NodePtr::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
 }

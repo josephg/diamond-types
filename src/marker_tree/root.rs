@@ -23,46 +23,51 @@ pub fn extend_delete(delete: &mut DeleteResult, op: DeleteOp) {
 
 impl MarkerTree {
     pub fn new() -> Pin<Box<Self>> {
-        let mut tree = Box::pin(unsafe { Self {
+        let mut tree = Box::pin(Self {
             count: 0,
-            root: Box::pin(Node::new()),
+            root: unsafe { Node::new_leaf() },
             _pin: marker::PhantomPinned,
-        } });
+        });
 
-        unsafe {
-            // What a mess. I'm sure there's a nicer way to write this, somehow O_o.
-            let ptr = tree.as_mut().get_unchecked_mut();
-            let parent_ref = ptr.to_parent_ptr();
-            ptr.root.set_parent(parent_ref);
-        }
+        // What a mess. I'm sure there's a nicer way to write this, somehow O_o.
+        let parent_ref = unsafe { tree.as_ref().get_ref().to_parent_ptr() };
+        tree.as_mut().root_ref_mut().set_parent(parent_ref);
 
         tree
+    }
+
+    fn root_ref_mut(self: Pin<&mut Self>) -> &mut Node {
+        unsafe {
+            &mut self.get_unchecked_mut().root
+        }
     }
 
     pub fn len(&self) -> usize {
         self.count as _
     }
 
-    unsafe fn to_parent_ptr(&mut self) -> ParentPtr {
-        ParentPtr::Root(NonNull::new_unchecked(self))
+    unsafe fn to_parent_ptr(&self) -> ParentPtr {
+        ParentPtr::Root(ref_to_nonnull(self))
     }
 
-    pub fn cursor_at_pos<'a>(self: &'a Pin<Box<Self>>, raw_pos: u32, stick_end: bool) -> Cursor<'a> {
-        let mut node: *const Node = &*self.root.as_ref();
-        let mut offset_remaining = raw_pos;
+    pub fn cursor_at_pos(self: Pin<&Self>, raw_pos: u32, stick_end: bool) -> Cursor {
         unsafe {
-            while let Node::Internal(data) = &*node {
-                let (new_offset_remaining, next) = data.get_child(offset_remaining, stick_end).expect("Internal consistency violation");
+            let mut node = self.root.as_ptr();
+            let mut offset_remaining = raw_pos;
+            while let NodePtr::Internal(data) = node {
+                let (new_offset_remaining, next) = data.as_ref()
+                    .get_child_ptr(offset_remaining, stick_end)
+                    .expect("Internal consistency violation");
                 offset_remaining = new_offset_remaining;
-                node = next.get_ref();
+                node = next;
             };
 
-            let node = (*node).unwrap_leaf();
-            let (idx, offset_remaining) = node.find_offset(offset_remaining, stick_end)
+            let leaf_ptr = node.unwrap_leaf();
+            let (idx, offset_remaining) = leaf_ptr.as_ref().find_offset(offset_remaining, stick_end)
             .expect("Element does not contain entry");
 
             Cursor {
-                node: NonNull::new_unchecked(node as *const _ as *mut _),
+                node: leaf_ptr,
                 idx,
                 offset: offset_remaining,
                 _marker: marker::PhantomData
@@ -458,14 +463,15 @@ impl MarkerTree {
         let mut count_total: usize = 0;
         let mut done = false;
         let mut child_type = None; // Make sure all the children have the same type.
-        let self_parent = ParentPtr::Internal(NonNull::new(node as *const _ as *mut _).unwrap());
+        // let self_parent = ParentPtr::Internal(NonNull::new(node as *const _ as *mut _).unwrap());
+        let self_parent = unsafe { node.to_parent_ptr() };
 
         for (child_count_expected, child) in &node.data[..] {
             if let Some(child) = child {
                 // Make sure there's no data after an invalid entry
                 assert_eq!(done, false);
 
-                let child_ref = child.as_ref().get_ref();
+                let child_ref = child;
 
                 let actual_type = match child_ref {
                     Node::Internal(_) => 1,
@@ -477,8 +483,8 @@ impl MarkerTree {
 
                 // Recurse
                 let count_actual = match child_ref {
-                    Node::Leaf(ref n) => { Self::check_leaf(n, self_parent) },
-                    Node::Internal(ref n) => { Self::check_internal(n, self_parent) },
+                    Node::Leaf(ref n) => { Self::check_leaf(n.as_ref().get_ref(), self_parent) },
+                    Node::Internal(ref n) => { Self::check_internal(n.as_ref().get_ref(), self_parent) },
                 };
 
                 // Make sure all the individual counts match.
@@ -499,8 +505,8 @@ impl MarkerTree {
         // Check the parent of each node is its correct parent
         // Check the size of each node is correct up and down the tree
         // println!("check tree {:#?}", self);
-        let root = self.root.as_ref().get_ref();
-        let expected_parent = ParentPtr::Root(NonNull::new(self as *const _ as *mut Self).unwrap());
+        let root = &self.root;
+        let expected_parent = ParentPtr::Root(unsafe { ref_to_nonnull(self) });
         let expected_size = match root {
             Node::Internal(n) => { Self::check_internal(&n, expected_parent) },
             Node::Leaf(n) => { Self::check_leaf(&n, expected_parent) },
@@ -512,11 +518,12 @@ impl MarkerTree {
         for _ in 0..depth { eprint!("  "); }
         match node {
             Node::Internal(n) => {
+                let n = n.as_ref().get_ref();
                 eprintln!("Internal {:?} (parent: {:?})", n as *const _, n.parent);
                 let mut unused = 0;
                 for (_, e) in &n.data[..] {
                     if let Some(e) = e {
-                        Self::print_node(e.as_ref().get_ref(), depth + 1);
+                        Self::print_node(e, depth + 1);
                     } else { unused += 1; }
                 }
 
@@ -534,7 +541,7 @@ impl MarkerTree {
     #[allow(dead_code)]
     pub fn print_ptr_tree(&self) {
         eprintln!("Tree count {} ptr {:?}", self.count, self as *const _);
-        Self::print_node(self.root.as_ref().get_ref(), 1);
+        Self::print_node(&self.root, 1);
     }
 
     pub unsafe fn lookup_position(loc: CRDTLocation, ptr: NonNull<NodeLeaf>) -> u32 {
@@ -548,7 +555,7 @@ impl MarkerTree {
 // I'm really not sure where to put this method. Its not really associated with
 // any of the tree implementation methods. This seems like a hidden spot. Maybe
 // mod.rs? I could put it in impl ParentPtr? I dunno...
-pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Node>>, mut insert_after: NodePtr, mut stolen_length: u32) {
+pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Node, mut insert_after: NodePtr, mut stolen_length: u32) {
     unsafe {
         // Ok now we need to walk up the tree trying to insert. At each step
         // we will try and insert inserted_node into parent next to old_node
@@ -581,21 +588,23 @@ pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Nod
                 ParentPtr::Root(mut r) => {
                     // This is the simpler case. The new root will be a new
                     // internal node containing old_node and inserted_node.
-                    let new_root = Box::pin(Node::Internal(NodeInternal::new_with_parent(ParentPtr::Root(r))));
+                    let new_root = Node::Internal(NodeInternal::new_with_parent(ParentPtr::Root(r)));
                     let mut old_root = mem::replace(&mut r.as_mut().root, new_root);
                     
                     // *inserted_node.get_parent_mut() = parent_ptr;
-                    
-                    let count = r.as_ref().count;
-                    let new_root_ref = r.as_mut().root.unwrap_internal_mut_pin();
-                    let parent_ptr = ParentPtr::Internal(NonNull::new_unchecked(new_root_ref));
-                    
+
+                    let root = r.as_mut();
+                    let count = root.count;
+                    let mut new_root_ref = root.root.unwrap_internal_mut();
+                    // let parent_ptr = ParentPtr::Internal(NonNull::new_unchecked(new_root_ref));
+                    let parent_ptr = new_root_ref.as_ref().to_parent_ptr();
+
                     // Reassign parents for each node
                     old_root.set_parent(parent_ptr);
                     inserted_node.set_parent(parent_ptr);
 
-                    new_root_ref.data[0] = (count - stolen_length, Some(old_root));
-                    new_root_ref.data[1] = (stolen_length, Some(inserted_node));
+                    new_root_ref.as_mut().project_data_mut()[0] = (count - stolen_length, Some(old_root));
+                    new_root_ref.as_mut().project_data_mut()[1] = (stolen_length, Some(inserted_node));
 
                     // r.as_mut().print_ptr_tree();
                     return;
@@ -611,8 +620,8 @@ pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Nod
                     debug_assert!(left_sibling.count_children() == MAX_CHILDREN);
 
                     // let mut right_sibling = NodeInternal::new_with_parent(parent);
-                    let mut right_sibling_box = Box::pin(Node::Internal(NodeInternal::new_with_parent(parent)));
-                    let right_sibling = right_sibling_box.unwrap_internal_mut_pin();
+                    let mut right_sibling_box = Node::Internal(NodeInternal::new_with_parent(parent));
+                    let mut right_sibling = right_sibling_box.unwrap_internal_mut();
                     let old_idx = left_sibling.find_child(insert_after).unwrap();
                     
                     let left_sibling = n.as_mut();
@@ -627,9 +636,9 @@ pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Nod
                         for i in 0..MAX_CHILDREN/2 {
                             let (c, e) = mem::replace(&mut left_sibling.data[i + MAX_CHILDREN/2], (0, None));
                             if let Some(mut e) = e {
-                                *e.as_mut().get_unchecked_mut().get_parent_mut() = ParentPtr::Internal(NonNull::new_unchecked(right_sibling));
+                                e.set_parent(right_sibling.as_ref().to_parent_ptr());
                                 new_stolen_length += c;
-                                right_sibling.data[i] = (c, Some(e));
+                                right_sibling.as_mut().project_data_mut()[i] = (c, Some(e));
                             }
 
                         }
@@ -642,21 +651,21 @@ pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Pin<Box<Nod
                         // group.
                         let new_idx = old_idx - MAX_CHILDREN/2 + 1;
 
-                        inserted_node.set_parent(ParentPtr::Internal(NonNull::new_unchecked(right_sibling)));
+                        inserted_node.set_parent(right_sibling.as_ref().to_parent_ptr());
                         let mut new_entry = (stolen_length, Some(inserted_node));
                         new_stolen_length = stolen_length;
 
                         let mut src = MAX_CHILDREN/2;
                         for dest in 0..=MAX_CHILDREN/2 {
                             if dest == new_idx {
-                                right_sibling.data[dest] = mem::take(&mut new_entry);
+                                right_sibling.as_mut().project_data_mut()[dest] = mem::take(&mut new_entry);
                             } else {
                                 let (c, e) = mem::replace(&mut left_sibling.data[src], (0, None));
                                 
                                 if let Some(mut e) = e {
-                                    e.set_parent(ParentPtr::Internal(NonNull::new_unchecked(right_sibling)));
+                                    e.set_parent(right_sibling.as_ref().to_parent_ptr());
                                     new_stolen_length += c;
-                                    right_sibling.data[dest] = (c, Some(e));
+                                    right_sibling.as_mut().project_data_mut()[dest] = (c, Some(e));
                                     src += 1;
                                 } else { break; }
                             }

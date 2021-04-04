@@ -119,7 +119,7 @@ impl CRDTState {
     }
 
     pub fn len(&self) -> usize {
-        self.marker_tree.len()
+        self.marker_tree.as_ref().len()
     }
 
     pub fn get_or_create_client_id(&mut self, name: &str) -> ClientID {
@@ -163,7 +163,7 @@ impl CRDTState {
 
         let client_data = &mut self.client_data;
 
-        let cursor = self.marker_tree.cursor_at_pos(pos, true);
+        let cursor = self.marker_tree.as_ref().cursor_at_pos(pos, true);
         // println!("root {:#?}", self.marker_tree);
         let insert_location = if pos == 0 {
             // This saves an awful lot of code needing to be executed.
@@ -196,7 +196,7 @@ impl CRDTState {
     }
 
     pub fn delete(&mut self, _client_id: ClientID, pos: u32, len: u32) -> DeleteResult {
-        let cursor = self.marker_tree.cursor_at_pos(pos, true);
+        let cursor = self.marker_tree.as_ref().cursor_at_pos(pos, true);
         // println!("{:#?}", state.marker_tree);
         // println!("{:?}", cursor);
         let client_data = &mut self.client_data;
@@ -224,7 +224,7 @@ impl CRDTState {
         //     CRDT_DOC_ROOT
         // } else { cursor.tell() };
 
-        let cursor = self.marker_tree.cursor_at_pos(pos as u32, true);
+        let cursor = self.marker_tree.as_ref().cursor_at_pos(pos as u32, true);
         cursor.tell()
     }
 
@@ -340,6 +340,16 @@ mod tests {
         assert_eq!(state.len(), 4);
 
         // println!("tree {:#?}", state.marker_tree);
+        state.check();
+    }
+
+    #[test]
+    fn delete_end() {
+        let mut state = CRDTState::new();
+
+        state.insert_name("fred", 0, InlinableString::from("abc"));
+        let result = state.delete_name("amanda", 1, 2);
+        assert_eq!(state.len(), 1);
         state.check();
     }
 

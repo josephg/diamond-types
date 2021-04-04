@@ -48,7 +48,7 @@ impl<'a> Cursor<'a> {
                     if let Some(next_idx) = next_idx {
                         // Whew - now we can descend down from here.
                         // println!("traversing laterally to {}", next_idx);
-                        node_ptr = pinnode_to_nodeptr(node_ref.data[next_idx].1.as_ref().unwrap());
+                        node_ptr = unsafe { node_ref.data[next_idx].1.as_ref().unwrap().as_ptr() };
                         break;
                     } else {
                         // idx is 0. Keep climbing that ladder!
@@ -73,7 +73,7 @@ impl<'a> Cursor<'a> {
                         assert!(num_children > 0);
                         num_children - 1
                     };
-                    node_ptr = pinnode_to_nodeptr(node_ref.data[next_idx].1.as_ref().unwrap());
+                    node_ptr = unsafe { node_ref.data[next_idx].1.as_ref().unwrap().as_ptr() };
                 },
                 NodePtr::Leaf(n) => {
                     // Finally.
@@ -165,7 +165,8 @@ impl<'a> Cursor<'a> {
                         pos += c;
                     }
 
-                    node_ptr = NodePtr::Internal(unsafe { NonNull::new_unchecked(node_ref as *const _ as *mut _) });
+                    // node_ptr = NodePtr::Internal(unsafe { NonNull::new_unchecked(node_ref as *const _ as *mut _) });
+                    node_ptr = NodePtr::Internal(n);
                     parent = node_ref.parent;
                 }
             }

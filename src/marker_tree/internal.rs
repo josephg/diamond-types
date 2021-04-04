@@ -2,30 +2,26 @@ use super::*;
 use std::mem::{self, MaybeUninit};
 
 impl NodeInternal {
-    // pub(super) unsafe fn new() -> Self {
-    //     Self::new_with_parent(ParentPtr::Root(NonNull::dangling()))
-    // }
-
-    pub(super) fn new_with_parent(parent: ParentPtr) -> Self {
+    pub(super) fn new_with_parent(parent: ParentPtr) -> Pin<Box<Self>> {
         // From the example in the docs:
         // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#initializing-an-array-element-by-element
-        let mut children: [MaybeUninit<(ItemCount, Option<Pin<Box<Node>>>)>; MAX_CHILDREN] = unsafe {
+        let mut children: [MaybeUninit<(ItemCount, Option<Node>)>; MAX_CHILDREN] = unsafe {
             MaybeUninit::uninit().assume_init() // Safe because `MaybeUninit`s don't require init.
         };
         for elem in &mut children[..] {
             *elem = MaybeUninit::new((0, None));
         }
-        Self {
+        Box::pin(Self {
             parent,
             data: unsafe {
-                mem::transmute::<_, [(ItemCount, Option<Pin<Box<Node>>>); MAX_CHILDREN]>(children)
+                mem::transmute::<_, [(ItemCount, Option<Node>); MAX_CHILDREN]>(children)
             },
             _pin: PhantomPinned,
             _drop: PrintDropInternal,
-        }
+        })
     }
 
-    pub(super) fn get_child(&self, raw_pos: u32, stick_end: bool) -> Option<(u32, Pin<&Node>)> {
+    pub(super) fn get_child_ptr(&self, raw_pos: u32, stick_end: bool) -> Option<(u32, NodePtr)> {
         let mut offset_remaining = raw_pos;
 
         for (count, elem) in self.data.iter() {
@@ -33,7 +29,7 @@ impl NodeInternal {
             if let Some(elem) = elem.as_ref() {
                 if offset_remaining < count || (stick_end && offset_remaining == count) {
                     // let elem_box = elem.unwrap();
-                    return Some((offset_remaining, elem.as_ref()))
+                    return Some((offset_remaining, unsafe { elem.as_ptr() }))
                 } else {
                     offset_remaining -= count;
                     // And continue.
@@ -43,24 +39,15 @@ impl NodeInternal {
         None
     }
 
-    // pub(super) fn get_child_mut(&mut self, raw_pos: u32) -> Option<(u32, Pin<&mut Node>)> {
-    //     let mut offset_remaining = raw_pos;
-
-    //     self.data.iter_mut().find_map(|(count, elem)| {
-    //         if let Some(elem) = elem.as_mut() {
-    //             if offset_remaining < *count {
-    //                 Some((offset_remaining, elem.as_mut()))
-    //             } else {
-    //                 offset_remaining -= *count;
-    //                 None
-    //             }
-    //         } else { None }
-    //     })
-    // }
+    pub(super) fn project_data_mut(self: Pin<&mut Self>) -> &mut [(ItemCount, Option<Node>); MAX_CHILDREN] {
+        unsafe {
+            &mut self.get_unchecked_mut().data
+        }
+    }
 
     /// Insert a new item in the tree. This DOES NOT update the child counts in
     /// the parents. (So the tree will be in an invalid state after this has been called.)
-    pub(super) fn splice_in(&mut self, idx: usize, count: u32, elem: Pin<Box<Node>>) {
+    pub(super) fn splice_in(&mut self, idx: usize, count: u32, elem: Node) {
         let mut buffer = (count, Some(elem));
         for i in idx..MAX_CHILDREN {
             mem::swap(&mut buffer, &mut self.data[i]);
@@ -82,8 +69,8 @@ impl NodeInternal {
         )
     }
 
-    unsafe fn to_parent_ptr(&mut self) -> ParentPtr {
-        ParentPtr::Internal(NonNull::new_unchecked(self))
+    pub(super) unsafe fn to_parent_ptr(&self) -> ParentPtr {
+        ParentPtr::Internal(ref_to_nonnull(self))
     }
 }
 

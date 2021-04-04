@@ -153,10 +153,9 @@ impl NodeLeaf {
 
             // eprintln!("split_at idx {} self_entries {} stolel_len {} self {:?}", idx, self_entries, stolen_length, &self);
 
-            let mut inserted_node = Box::pin(Node::Leaf(new_node));
-            // Ultimately ret is the pointer to the new item we'll end up returning.
-            let new_leaf_ptr = NonNull::new_unchecked(inserted_node.as_mut().get_unchecked_mut().unwrap_leaf_mut());
-
+            let mut inserted_node = Node::Leaf(Box::pin(new_node));
+            // This is the pointer to the new item we'll end up returning.
+            let new_leaf_ptr = NonNull::new_unchecked(inserted_node.unwrap_leaf_mut().get_unchecked_mut());
             for e in &inserted_node.unwrap_leaf().data[0..new_len] {
                 notify(e.loc, e.get_seq_len(), new_leaf_ptr);
             }
