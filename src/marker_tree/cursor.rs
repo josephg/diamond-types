@@ -1,17 +1,15 @@
 use super::*;
 
-// impl<'a> Cursor<'a> {
-impl Cursor {
+impl<'a> Cursor<'a> {
     pub(super) fn new(node: NonNull<NodeLeaf>, idx: usize, offset: u32) -> Self {
+        // TODO: This is creating a cursor with 'static lifetime, which isn't really what we want.
         Cursor {
             node, idx, offset,
-            //_marker: marker::PhantomData
+            _marker: marker::PhantomData
         }
     }
 
-    // The lifetime of the leaf is associated with the tree, not the cursor.
-    // There might be a way to express this but I'm not sure what it is.
-    pub(super) unsafe fn get_node_mut(&self) -> &'static mut NodeLeaf {
+    pub(super) unsafe fn get_node_mut(&self) -> &mut NodeLeaf {
         &mut *self.node.as_ptr()
     }
 

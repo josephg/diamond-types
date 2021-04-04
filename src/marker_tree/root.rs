@@ -12,6 +12,7 @@ pub struct DeleteOp {
 }
 pub type DeleteResult = SmallVec<[DeleteOp; 2]>;
 pub fn extend_delete(delete: &mut DeleteResult, op: DeleteOp) {
+    // println!("extend_delete {:?}", op);
     if let Some(last) = delete.last_mut() {
         if last.loc.client == op.loc.client && last.loc.seq + last.len == op.loc.seq {
             // Extend!
@@ -46,7 +47,7 @@ impl MarkerTree {
         ParentPtr::Root(NonNull::new_unchecked(self))
     }
 
-    pub fn cursor_at_pos(self: &Pin<Box<Self>>, raw_pos: u32, stick_end: bool) -> Cursor {
+    pub fn cursor_at_pos<'a>(self: &'a Pin<Box<Self>>, raw_pos: u32, stick_end: bool) -> Cursor<'a> {
         let mut node: *const Node = &*self.root.as_ref();
         let mut offset_remaining = raw_pos;
         unsafe {
@@ -64,7 +65,7 @@ impl MarkerTree {
                 node: NonNull::new_unchecked(node as *const _ as *mut _),
                 idx,
                 offset: offset_remaining,
-                // _marker: marker::PhantomData
+                _marker: marker::PhantomData
             }
         }
     }
@@ -158,8 +159,8 @@ impl MarkerTree {
         // Tidy up the edges
         if cursor.offset > 0 {
             debug_assert!(num_copied > 0);
-            node.data[src_idx].keep_start(cursor.offset);
-            node.data[dest_idx].keep_end(cursor.offset);
+            node.data[src_idx].trim_keeping_start(cursor.offset);
+            node.data[dest_idx].trim_keeping_end(cursor.offset);
             cursor.idx += 1;
             cursor.offset = 0;
         }
@@ -258,7 +259,7 @@ impl MarkerTree {
             //     node.update_parent_count(*del_len);
             //     *del_len = 0;
             // };
-            let next_entry = |cursor: &mut Cursor| {
+            let next_entry = |cursor: &mut Cursor, marker: &mut FlushMarker| {
                 // So this is arguably a bit inefficient. If the deleted range spans two nodes,
                 // we're traversing all the way up the tree twice. But the extra code complexity to
                 // handle that in a clever way *probably* isn't worth the trouble.
@@ -268,7 +269,7 @@ impl MarkerTree {
                 // if cursor.idx + 1 >= cursor.node.as_ref().len_entries() {
                 //     flush_count(cursor.node.as_mut(), del_len);
                 // }
-                if cursor.next_entry() == false {
+                if cursor.next_entry_marker(Some(marker)) == false {
                     // Actually I'm not sure what to do in this case. Early return maybe?
                     panic!("Local delete past the end of the document");
                 }
@@ -278,11 +279,14 @@ impl MarkerTree {
 
             let mut delete_remaining = deleted_len;
             while delete_remaining > 0 {
-                // println!("Delete remaining: {}", delete_remaining);
                 // let mut entry;
                 while cursor.get_entry().is_delete() {
-                    next_entry(&mut cursor);
+                    next_entry(&mut cursor, &mut flush_marker);
                 }
+                // println!("current node {:#?}", cursor.get_node_mut());
+                // println!("Tree {:#?}", self);
+                // println!("Delete remaining: {} cursor {:?} entry {:?}", delete_remaining, cursor, cursor.get_entry());
+                // println!("Flush {:?}", flush_marker);
 
                 let node = cursor.get_node_mut();
                 let mut entry = &mut node.data[cursor.idx];
@@ -302,7 +306,7 @@ impl MarkerTree {
                     // Cases 1 and 2
                     if delete_remaining >= entry_len {
                         // Case 1. Delete the whole entry and iterate.
-                        // println!("case 1");
+                        // println!("case 1 <xxx>");
                         extend_delete(&mut result, DeleteOp {
                             loc: entry.loc,
                             len: entry.len as _
@@ -313,7 +317,7 @@ impl MarkerTree {
 
                         if delete_remaining > 0 {
                             // This will panic if we move past the end of the document
-                            next_entry(&mut cursor);
+                            next_entry(&mut cursor, &mut flush_marker);
                         } else {
                             // It probably doesn't matter, but its cleaner to leave the cursor in a
                             // consistent position after this method is called.
@@ -321,7 +325,7 @@ impl MarkerTree {
                         }
                     } else {
                         // Case 2 - <xxx>test
-                        // println!("case 2");
+                        // println!("case 2 <xxx>test");
                         extend_delete(&mut result, DeleteOp {
                             loc: entry.loc,
                             len: delete_remaining
@@ -359,10 +363,10 @@ impl MarkerTree {
                     // Case 3 and 4 - text<xxx> or te<xxx>xt.
                     let start_offset = cursor.offset;
                     let (gap, deleted_len_here) = if start_offset + delete_remaining >= entry_len {
-                        // println!("case 3");
+                        // println!("case 3 test<xxx>");
                         (0, entry_len - start_offset) // case 3
                     } else {
-                        // println!("case 4");
+                        // println!("case 4 te<xxx>st");
                         (1, delete_remaining) // case 4
                     };
 
@@ -374,11 +378,10 @@ impl MarkerTree {
                         len: deleted_len_here
                     });
 
-                    // TODO: As above, only if we're going to spill.
-                    // flush_count(cursor.node.as_mut(), &mut current_leaf_length_delta);
-
                     let prev_entry = *cursor.get_entry();
                     Self::make_space_in_leaf(&mut cursor, Some(&mut flush_marker), gap, &mut notify);
+
+                    // println!("Space made. Node now {:#?} cursor {:?} entry {:?}", cursor.get_node_mut(), cursor, cursor.get_entry());
 
                     // The cursor now points to the gap (if any) or the
                     // newly split off content.
@@ -392,9 +395,9 @@ impl MarkerTree {
                         len: -(deleted_len_here as i32),
                     };
 
-                    // TODO: Is this right? Shouldn't we call next_entry()?
-                    cursor.idx += 1;
-                    cursor.offset = 0;
+                    flush_marker.0 -= deleted_len_here as i32;
+                    next_entry(&mut cursor, &mut flush_marker);
+                    // cursor.next_entry_marker(Some(&mut flush_marker));
                     if gap == 1 {
                         // case 4. We need to trim the deleted content from the subsequent node.
                         // This is safe because make_space_in_leaf always makes the next item in the
@@ -405,10 +408,12 @@ impl MarkerTree {
                         remainder_entry.len -= deleted_len_here as i32;
                     }
 
-                    flush_marker.0 -= deleted_len_here as i32;
                     delete_remaining -= deleted_len_here;
                 }
             }
+            // println!("current node {:#?}", cursor.get_node_mut());
+            // println!("Delete remaining: {} cursor {:?} entry {:?}", delete_remaining, cursor, cursor.get_entry());
+
             flush_marker.flush(cursor.node.as_mut());
         }
 

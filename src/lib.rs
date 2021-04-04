@@ -328,22 +328,18 @@ mod tests {
         let mut state = CRDTState::new();
         
         state.insert_name("fred", 0, InlinableString::from("a"));
-        state.insert_name("george", 1, InlinableString::from("b"));
+        state.insert_name("george", 1, InlinableString::from("bC"));
         
-        state.insert_name("fred", 2, InlinableString::from("a"));
-        state.insert_name("george", 3, InlinableString::from("ABCD"));
-        
-        // let cursor = state.marker_tree.cursor_at_pos(2, true);
-        // println!("{:#?}", state.marker_tree);
-        // println!("{:?}", cursor);
-        // let result = MarkerTree::local_delete(&state.marker_tree, cursor, 2, |loc, seq, _ptr| {
-        //     eprintln!("notify {:?} / {}", loc, seq);
-        // });
+        state.insert_name("fred", 3, InlinableString::from("D"));
+        state.insert_name("george", 4, InlinableString::from("EFgh"));
 
-        let result = state.delete_name("amanda", 2, 5);
-        eprintln!("delete result {:#?}", result);
-    
-        // eprintln!("tree {:#?}", state.marker_tree);
+        // println!("tree {:#?}", state.marker_tree);
+        // Delete CDEF
+        let result = state.delete_name("amanda", 2, 4);
+        // eprintln!("delete result {:#?}", result);
+        assert_eq!(state.len(), 4);
+
+        // println!("tree {:#?}", state.marker_tree);
         state.check();
     }
 
@@ -353,15 +349,14 @@ mod tests {
         // This test also shows up in the benchmarks. Its included here as well because run as part
         // of the test suite it checks a lot of invariants throughout the run.
         use serde::Deserialize;
-        use serde_json::Result;
         use std::fs::File;
         use std::io::BufReader;
-        use std::result;
 
         #[derive(Debug, Clone, Deserialize)]
         struct Edit(usize, usize, String);
 
         #[derive(Debug, Clone, Deserialize)]
+        #[allow(non_snake_case)] // field names match JSON.
         struct TestData {
             edits: Vec<Edit>,
             finalText: String,

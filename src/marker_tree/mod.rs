@@ -27,7 +27,7 @@ pub use root::DeleteResult;
 #[cfg(debug_assertions)]
 const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
 #[cfg(not(debug_assertions))]
-const MAX_CHILDREN: usize = 32;
+const MAX_CHILDREN: usize = 16;
 
 
 // Must fit in u8.
@@ -66,17 +66,12 @@ enum NodePtr {
     Leaf(NonNull<NodeLeaf>),
 }
 
-// trait NodeT: std::fmt::Debug {}
-// impl<T> NodeT for NodeInternal<T> {}
-// impl NodeT for NodeLeaf {}
-
 #[derive(Debug)]
 struct NodeInternal /*<T: NodeT>*/ {
     parent: ParentPtr,
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
     // ItemCount only includes items which haven't been deleted.
-    // data: [(ItemCount, Option<Box<Node>>); MAX_CHILDREN]
     data: [(ItemCount, Option<Pin<Box<Node>>>); MAX_CHILDREN],
     _pin: PhantomPinned, // Needed because children have parent pointers here.
     _drop: PrintDropInternal,
@@ -103,12 +98,12 @@ struct Entry {
 
 
 #[derive(Copy, Clone, Debug)]
-// pub struct Cursor<'a> { // TODO: Add this lifetime parameter back.
-pub struct Cursor {
+pub struct Cursor<'a> { // TODO: Add this lifetime parameter back.
+// pub struct Cursor {
     node: NonNull<NodeLeaf>,
     idx: usize,
     offset: u32, // usize? ??. This is the offset into the item at idx.
-    // _marker: marker::PhantomData<&'a Node>,
+    _marker: marker::PhantomData<&'a MarkerTree>,
 }
 
 /// Helper struct to track pending size changes in the document which need to be propagated
@@ -118,13 +113,16 @@ pub struct FlushMarker(i32);
 impl Drop for FlushMarker {
     fn drop(&mut self) {
         if self.0 != 0 {
-            panic!("Flush marker dropped without being flushed");
+            if !std::thread::panicking() {
+                panic!("Flush marker dropped without being flushed");
+            }
         }
     }
 }
 
 impl FlushMarker {
     fn flush(&mut self, node: &mut NodeLeaf) {
+        // println!("Flush marker flushing {}", self.0);
         node.update_parent_count(self.0);
         self.0 = 0;
     }
@@ -176,15 +174,16 @@ impl Entry {
         self.len.abs() as u32
     }
 
-    fn keep_start(&mut self, cut_at: u32) {
+    fn trim_keeping_start(&mut self, cut_at: u32) {
         self.len = if self.len < 0 { -(cut_at as i32) } else { cut_at as i32 };
     }
 
-    fn keep_end(&mut self, cut_at: u32) {
+    fn trim_keeping_end(&mut self, cut_at: u32) {
         self.loc.seq += cut_at;
         self.len += if self.len < 0 { cut_at as i32 } else { -(cut_at as i32) };
     }
 
+    // Confusingly CLIENT_INVALID is used both for empty entries and the root entry :/
     fn is_invalid(&self) -> bool {
         self.loc.client == CLIENT_INVALID
     }
@@ -235,9 +234,6 @@ impl Node {
             Node::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
-    // fn foo(this: Pin<Box<Self>>) -> NonNull<NodeLeaf> {
-    //
-    // }
     fn unwrap_leaf_mut(&mut self) -> &mut NodeLeaf {
         match self {
             Node::Leaf(l) => l,

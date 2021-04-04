@@ -21,7 +21,7 @@ impl Default for CRDTLocation {
     fn default() -> Self {
         CRDTLocation {
             client: CLIENT_INVALID,
-            seq: 0
+            seq: ClientSeq::MAX
         }
     }
 }
