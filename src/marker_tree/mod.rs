@@ -182,7 +182,7 @@ impl Entry {
     // Confusingly CLIENT_INVALID is used both for empty entries and the root entry. But the root
     // entry will never be a valid entry in the marker tree, so it doesn't matter.
     fn is_invalid(&self) -> bool {
-        self.loc.client == CLIENT_INVALID
+        self.loc.agent == CLIENT_INVALID
     }
 
     fn is_insert(&self) -> bool {

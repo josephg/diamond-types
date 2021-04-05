@@ -14,7 +14,7 @@ pub type DeleteResult = SmallVec<[DeleteOp; 2]>;
 pub fn extend_delete(delete: &mut DeleteResult, op: DeleteOp) {
     // println!("extend_delete {:?}", op);
     if let Some(last) = delete.last_mut() {
-        if last.loc.client == op.loc.client && last.loc.seq + last.len == op.loc.seq {
+        if last.loc.agent == op.loc.agent && last.loc.seq + last.len == op.loc.seq {
             // Extend!
             last.len += op.len
         } else { delete.push(op); }
@@ -178,7 +178,7 @@ impl MarkerTree {
         where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
     {
         let expected_size = self.count + len;
-        assert_ne!(new_loc.client, CLIENT_INVALID, "Cannot insert root node into marker tree");
+        assert_ne!(new_loc.agent, CLIENT_INVALID, "Cannot insert root node into marker tree");
 
         // if cfg!(debug_assertions) {
         //     self.as_ref().get_ref().check();
@@ -211,7 +211,7 @@ impl MarkerTree {
                 cursor.node.as_mut().update_parent_count(len as i32);
                 notify(new_loc, len, cursor.node);
             } else if old_entry.len > 0 && old_entry.len as u32 == cursor.offset
-                    && old_entry.loc.client == new_loc.client
+                    && old_entry.loc.agent == new_loc.agent
                     && old_entry.loc.seq + old_entry.len as u32 == new_loc.seq {
                 // Case 1 - Extend the entry.
                 // println!("insert case 1");
@@ -368,7 +368,7 @@ impl MarkerTree {
 
                     extend_delete(&mut result, DeleteOp {
                         loc: CRDTLocation {
-                            client: entry.loc.client,
+                            agent: entry.loc.agent,
                             seq: entry.loc.seq + cursor.offset
                         },
                         len: deleted_len_here
@@ -385,7 +385,7 @@ impl MarkerTree {
                     // The deleted entry, which might be the gap!
                     *cursor.get_entry_mut() = Entry {
                         loc: CRDTLocation {
-                            client: prev_entry.loc.client,
+                            agent: prev_entry.loc.agent,
                             seq: prev_entry.loc.seq + start_offset,
                         },
                         len: -(deleted_len_here as i32),

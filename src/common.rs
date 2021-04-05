@@ -2,31 +2,31 @@
 use inlinable_string::InlinableString;
 
 pub type ClientName = InlinableString;
-pub type ClientID = u16;
+pub type AgentId = u16;
 pub type ClientSeq = u32;
 
 
 // More common/correct to use usize here but this will be fine in practice and faster.
 pub type ItemCount = u32;
 
-pub const CLIENT_INVALID: ClientID = ClientID::MAX;
+pub const CLIENT_INVALID: AgentId = AgentId::MAX;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct CRDTLocation {
-    pub client: ClientID,
+    pub agent: AgentId,
     pub seq: ClientSeq,
 }
 
 impl Default for CRDTLocation {
     fn default() -> Self {
         CRDTLocation {
-            client: CLIENT_INVALID,
+            agent: CLIENT_INVALID,
             seq: ClientSeq::MAX
         }
     }
 }
 
 pub const CRDT_DOC_ROOT: CRDTLocation = CRDTLocation {
-    client: CLIENT_INVALID,
+    agent: CLIENT_INVALID,
     seq: 0
 };

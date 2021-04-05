@@ -122,7 +122,7 @@ impl CRDTState {
         self.marker_tree.as_ref().len()
     }
 
-    pub fn get_or_create_client_id(&mut self, name: &str) -> ClientID {
+    pub fn get_or_create_client_id(&mut self, name: &str) -> AgentId {
         if let Some(id) = self.get_client_id(name) {
             id
         } else {
@@ -131,29 +131,29 @@ impl CRDTState {
                 name: InlinableString::from(name),
                 ops: Vec::new()
             });
-            (self.client_data.len() - 1) as ClientID
+            (self.client_data.len() - 1) as AgentId
         }
     }
 
-    fn get_client_id(&self, name: &str) -> Option<ClientID> {
+    fn get_client_id(&self, name: &str) -> Option<AgentId> {
         self.client_data.iter()
         .position(|client_data| &client_data.name == name)
-        .map(|id| id as ClientID)
+        .map(|id| id as AgentId)
     }
 
     fn notify(client_data: &mut Vec<ClientData>, loc: CRDTLocation, len: u32, leaf: NonNull<NodeLeaf>) {
         // eprintln!("insert callback {:?} len {}", loc, len);
-        let ops = &mut client_data[loc.client as usize].ops;
+        let ops = &mut client_data[loc.agent as usize].ops;
         for op in &mut ops[loc.seq as usize..(loc.seq+len) as usize] {
             *op = leaf;
         }
     }
 
-    pub fn insert(&mut self, client_id: ClientID, pos: u32, inserted_length: usize) -> CRDTLocation {
+    pub fn insert(&mut self, client_id: AgentId, pos: u32, inserted_length: usize) -> CRDTLocation {
         // First lookup and insert into the marker tree
         let ops = &mut self.client_data[client_id as usize].ops;
         let loc_base = CRDTLocation {
-            client: client_id,
+            agent: client_id,
             seq: ops.len() as ClientSeq
         };
         // let inserted_length = text.chars().count();
@@ -195,7 +195,7 @@ impl CRDTState {
         self.insert(id, pos, text.chars().count())
     }
 
-    pub fn delete(&mut self, _client_id: ClientID, pos: u32, len: u32) -> DeleteResult {
+    pub fn delete(&mut self, _client_id: AgentId, pos: u32, len: u32) -> DeleteResult {
         let cursor = self.marker_tree.as_ref().cursor_at_pos(pos, true);
         // println!("{:#?}", state.marker_tree);
         // println!("{:?}", cursor);
@@ -214,7 +214,7 @@ impl CRDTState {
     pub fn lookup_crdt_position(&self, loc: CRDTLocation) -> u32 {
         if loc == CRDT_DOC_ROOT { return 0; }
 
-        let ops = &self.client_data[loc.client as usize].ops;
+        let ops = &self.client_data[loc.agent as usize].ops;
         unsafe { MarkerTree::lookup_position(loc, ops[loc.seq as usize]) }
     }
 
@@ -231,7 +231,7 @@ impl CRDTState {
     pub fn lookup_position_name(&self, client_name: &str, seq: ClientSeq) -> u32 {
         let id = self.get_client_id(client_name).expect("Invalid client name");
         self.lookup_crdt_position(CRDTLocation {
-            client: id,
+            agent: id,
             seq,
         })
     }

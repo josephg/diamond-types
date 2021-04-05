@@ -198,7 +198,7 @@ impl<'a> Cursor<'a> {
 
         let entry = self.get_entry(); // Shame this is called twice but eh.
         CRDTLocation {
-            client: entry.loc.client,
+            agent: entry.loc.agent,
             seq: entry.loc.seq + self.offset
         }
     }

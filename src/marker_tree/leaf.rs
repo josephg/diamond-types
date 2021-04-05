@@ -42,7 +42,7 @@ impl NodeLeaf {
         for i in 0..self.len_entries() {
             let entry = self.data[i];
 
-            if entry.loc.client == loc.client && entry.get_seq_range().contains(&loc.seq) {
+            if entry.loc.agent == loc.agent && entry.get_seq_range().contains(&loc.seq) {
                 let offset = if entry.len > 0 {
                     loc.seq - entry.loc.seq
                 } else { 0 };
@@ -66,7 +66,7 @@ impl NodeLeaf {
             // }
 
             let entry = self.data[i];
-            if entry.loc.client == CLIENT_INVALID { break; }
+            if entry.loc.agent == CLIENT_INVALID { break; }
 
             let text_len = entry.get_content_len();
             if offset < text_len || (stick_end && text_len == offset) {
