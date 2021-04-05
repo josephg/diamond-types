@@ -354,6 +354,43 @@ mod tests {
     }
 
     #[test]
+    fn random_inserts_deletes() {
+        use rand::{Rng, SeedableRng};
+        use rand::rngs::SmallRng;
+
+        let mut doc_len = 0;
+        let mut state = CRDTState::new();
+        state.get_or_create_client_id("seph"); // Create client id 0.
+
+        // Stable between runs for reproducing bugs.
+        let mut rng = SmallRng::seed_from_u64(1234);
+
+        for i in 0..10000 {
+            if i % 1000 == 0 {
+                println!("i {} doc len {}", i, doc_len);
+            }
+
+            let insert_weight = if doc_len < 1000 { 0.55 } else { 0.45 };
+            if doc_len == 0 || rng.gen_bool(insert_weight) {
+                // Insert something.
+                let pos = rng.gen_range(0..=doc_len);
+                let len: u32 = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
+                state.insert(0, pos, len as _);
+                doc_len += len;
+            } else {
+                // Delete something
+                let pos = rng.gen_range(0..doc_len);
+                // println!("range {}", u32::min(10, doc_len - pos));
+                let len = rng.gen_range(1..=u32::min(10, doc_len - pos));
+                state.delete(0, pos, len);
+                doc_len -= len;
+            }
+            state.check();
+            assert_eq!(state.len(), doc_len as usize);
+        }
+    }
+
+    #[test]
     #[ignore]
     fn automerge_perf() {
         // This test also shows up in the benchmarks. Its included here as well because run as part

@@ -15,6 +15,18 @@ smallvec = "1.4.0"
 serde = { version = "^1", features = ["derive"] }
 serde_json = "^1"
 criterion = "^0.3"
+rand = { version = "^0.8", features = ["small_rng"] }
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+    "-C", "link-arg=-fuse-ld=lld",
+]
+
+[profile.release]
+lto = true
+opt-level = "s"
+codegen-units = 1
+#panic = 'abort'
 
 [[bench]]
 name = "benchmark"

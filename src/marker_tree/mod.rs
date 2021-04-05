@@ -18,7 +18,6 @@ use std::ops::Range;
 use std::ptr::NonNull;
 use std::marker;
 use std::pin::Pin;
-// use pin_project::pin_project;
 
 use super::common::*;
 use std::marker::PhantomPinned;
