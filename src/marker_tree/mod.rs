@@ -228,12 +228,12 @@ impl Node {
             Node::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
-    fn unwrap_internal(&self) -> &NodeInternal {
-        match self {
-            Node::Internal(n) => n.as_ref().get_ref(),
-            Node::Leaf(_) => panic!("Expected internal node"),
-        }
-    }
+    // fn unwrap_internal(&self) -> &NodeInternal {
+    //     match self {
+    //         Node::Internal(n) => n.as_ref().get_ref(),
+    //         Node::Leaf(_) => panic!("Expected internal node"),
+    //     }
+    // }
     fn unwrap_internal_mut(&mut self) -> Pin<&mut NodeInternal> {
         match self {
             Node::Internal(n) => n.as_mut(),

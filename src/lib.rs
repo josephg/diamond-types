@@ -43,10 +43,11 @@ mod split_list;
 use marker_tree::*;
 use common::*;
 use std::pin::Pin;
-use std::ptr;
 
 use inlinable_string::InlinableString;
 use std::ptr::NonNull;
+use crate::split_list::{SplitListEntry, SplitList};
+use std::ops::Index;
 // use smallvec::SmallVec;
 
 pub enum OpAction {
@@ -89,6 +90,46 @@ pub enum OpAction {
 //     }
 // }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+struct MarkerEntry {
+    len: u32,
+    ptr: NonNull<NodeLeaf>
+}
+
+impl SplitListEntry for MarkerEntry {
+    type Item = NonNull<NodeLeaf>;
+
+    fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    fn truncate(&mut self, at: usize) -> Self {
+        let remainder_len = self.len - at as u32;
+        self.len = at as u32;
+        return MarkerEntry {
+            len: remainder_len,
+            ptr: self.ptr
+        }
+    }
+
+    fn can_append(&self, other: &Self) -> bool {
+        self.ptr == other.ptr
+    }
+
+    fn append(&mut self, other: Self) {
+        self.len += other.len;
+    }
+}
+
+impl Index<usize> for MarkerEntry {
+    type Output = NonNull<NodeLeaf>;
+
+    fn index(&self, _index: usize) -> &Self::Output {
+        &self.ptr
+    }
+}
+
+
 #[derive(Debug)]
 struct ClientData {
     // Used to map from client's name / hash to its numerical ID.
@@ -98,7 +139,8 @@ struct ClientData {
     // Note for inserts which insert a lot of contiguous characters, this will
     // contain a lot of repeated pointers. I'm trading off memory for simplicity
     // here - which might or might not be the right approach.
-    ops: Vec<ptr::NonNull<NodeLeaf>>
+    // ops: SplitList<MarkerEntry>,
+    ops: Vec<NonNull<NodeLeaf>>
 }
 
 // #[derive(Debug)]
@@ -130,6 +172,7 @@ impl CRDTState {
             // Create a new id.
             self.client_data.push(ClientData {
                 name: InlinableString::from(name),
+                // ops: SplitList::new()
                 ops: Vec::new()
             });
             (self.client_data.len() - 1) as AgentId
@@ -142,12 +185,14 @@ impl CRDTState {
         .map(|id| id as AgentId)
     }
 
-    fn notify(client_data: &mut Vec<ClientData>, loc: CRDTLocation, len: u32, leaf: NonNull<NodeLeaf>) {
+    fn notify(client_data: &mut Vec<ClientData>, loc: CRDTLocation, len: u32, ptr: NonNull<NodeLeaf>) {
         // eprintln!("insert callback {:?} len {}", loc, len);
-        let ops = &mut client_data[loc.agent as usize].ops;
-        for op in &mut ops[loc.seq as usize..(loc.seq+len) as usize] {
-            *op = leaf;
+        let markers = &mut client_data[loc.agent as usize].ops;
+        for op in &mut markers[loc.seq as usize..(loc.seq+len) as usize] {
+            *op = ptr;
         }
+
+        // markers.replace_range(loc.seq as usize, MarkerEntry { ptr, len });
     }
 
     pub fn insert(&mut self, client_id: AgentId, pos: u32, inserted_length: usize) -> CRDTLocation {
@@ -158,8 +203,7 @@ impl CRDTState {
             seq: ops.len() as ClientSeq
         };
         // let inserted_length = text.chars().count();
-        // ops.reserve(inserted_length);
-        let dangling_ptr = ptr::NonNull::dangling();
+        let dangling_ptr = NonNull::dangling();
         ops.resize(ops.len() + inserted_length, dangling_ptr);
 
         let client_data = &mut self.client_data;
@@ -172,7 +216,7 @@ impl CRDTState {
         } else { cursor.clone().tell() };
 
         self.marker_tree.insert(cursor, inserted_length as ClientSeq, loc_base, |loc, len, leaf| {
-            // eprintln!("insert callback {:?} len {}", loc, len);
+            // println!("insert callback {:?} len {}", loc, len);
             CRDTState::notify(client_data, loc, len, leaf);
             // let ops = &mut client_data[loc.client as usize].ops;
             // for op in &mut ops[loc.seq as usize..(loc.seq+len) as usize] {
@@ -182,10 +226,10 @@ impl CRDTState {
 
         if cfg!(debug_assertions) {
             // Check all the pointers have been assigned.
-            let ops = &mut self.client_data[client_id as usize].ops;
-            for e in &ops[ops.len() - inserted_length..] {
-                assert_ne!(*e, dangling_ptr);
-            }
+            // let markers = &mut self.client_data[client_id as usize].ops;
+            // for e in &markers[markers.len() - inserted_length..] {
+            //     assert_ne!(*e, dangling_ptr);
+            // }
         }
 
         insert_location
@@ -215,8 +259,8 @@ impl CRDTState {
     pub fn lookup_crdt_position(&self, loc: CRDTLocation) -> u32 {
         if loc == CRDT_DOC_ROOT { return 0; }
 
-        let ops = &self.client_data[loc.agent as usize].ops;
-        unsafe { MarkerTree::lookup_position(loc, ops[loc.seq as usize]) }
+        let markers = &self.client_data[loc.agent as usize].ops;
+        unsafe { MarkerTree::lookup_position(loc, markers[loc.seq as usize]) }
     }
 
     pub fn lookup_num_position(&self, pos: usize) -> CRDTLocation {
