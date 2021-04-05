@@ -3,17 +3,8 @@ use super::*;
 use std::ptr::{self, NonNull};
 
 impl NodeLeaf {
-    // fn new() -> MaybeUninit<Self> {
-    //     let leaf: MaybeUninit<Self> = MaybeUninit::uninit();
-    //     unsafe { (*leaf.as_mut_ptr()).data = [INVALID_ENTRY; NUM_ENTRIES]; }
-    //     leaf
-    // }
-
-    // unsafe fn bake_parent(leaf: MaybeUninit<Self>, parent: ParentPtr) -> Self {
-    //     (*leaf.as_mut_ptr()).parent = parent;
-    //     leaf.assume_init()
-    // }
-
+    // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
+    // no reason for this object to be pinned. (Is that a bad idea? I'm not sure.)
     pub(super) unsafe fn new() -> Self {
         Self::new_with_parent(ParentPtr::Root(NonNull::dangling()))
     }

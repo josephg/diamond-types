@@ -305,21 +305,17 @@ mod tests {
     
     #[test]
     fn junk_prepend() {
-    //     use std::io::Write;
-
         let mut state = CRDTState::new();
         
         // Repeatedly inserting at 0 will prevent all the nodes collapsing, so we don't
         // need to worry about that.
         for _ in 0..65 {
             state.insert_name("fred", 0, InlinableString::from("fred"));
-            // state.check();
+            state.check();
             // state.marker_tree.print_ptr_tree();
         }
     
         state.check();
-
-        // std::io::stderr().flush().unwrap();
     }
     
     
@@ -385,7 +381,10 @@ mod tests {
                 state.delete(0, pos, len);
                 doc_len -= len;
             }
-            state.check();
+
+            // Calling check gets slow as the document grows. There's a tradeoff here between
+            // iterations and check() calls.
+            if i % 100 == 0 { state.check(); }
             assert_eq!(state.len(), doc_len as usize);
         }
     }

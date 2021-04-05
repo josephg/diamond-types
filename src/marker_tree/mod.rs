@@ -148,10 +148,11 @@ struct PrintDropInternal;
 //     }
 // }
 
-unsafe fn pinbox_to_nonnull<T>(box_ref: &Pin<Box<T>>) -> NonNull<T> {
-    NonNull::new_unchecked(box_ref.as_ref().get_ref() as *const _ as *mut _)
-}
+// unsafe fn pinbox_to_nonnull<T>(box_ref: &Pin<Box<T>>) -> NonNull<T> {
+//     NonNull::new_unchecked(box_ref.as_ref().get_ref() as *const _ as *mut _)
+// }
 
+/// Unsafe because NonNull wraps a mutable pointer. Callers must take care of mutability!
 unsafe fn ref_to_nonnull<T>(val: &T) -> NonNull<T> {
     NonNull::new_unchecked(val as *const _ as *mut _)
 }
@@ -178,7 +179,8 @@ impl Entry {
         self.len += if self.len < 0 { cut_at as i32 } else { -(cut_at as i32) };
     }
 
-    // Confusingly CLIENT_INVALID is used both for empty entries and the root entry :/
+    // Confusingly CLIENT_INVALID is used both for empty entries and the root entry. But the root
+    // entry will never be a valid entry in the marker tree, so it doesn't matter.
     fn is_invalid(&self) -> bool {
         self.loc.client == CLIENT_INVALID
     }
@@ -199,9 +201,9 @@ impl Node {
     unsafe fn new_leaf() -> Self {
         Node::Leaf(Box::pin(NodeLeaf::new()))
     }
-    fn new_with_parent(parent: ParentPtr) -> Self {
-        Node::Leaf(Box::pin(NodeLeaf::new_with_parent(parent)))
-    }
+    // fn new_with_parent(parent: ParentPtr) -> Self {
+    //     Node::Leaf(Box::pin(NodeLeaf::new_with_parent(parent)))
+    // }
 
     fn set_parent(&mut self, parent: ParentPtr) {
         unsafe {

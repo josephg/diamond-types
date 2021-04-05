@@ -178,10 +178,11 @@ impl MarkerTree {
         where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
     {
         let expected_size = self.count + len;
+        assert_ne!(new_loc.client, CLIENT_INVALID, "Cannot insert root node into marker tree");
 
-        if cfg!(debug_assertions) {
-            self.as_ref().get_ref().check();
-        }
+        // if cfg!(debug_assertions) {
+        //     self.as_ref().get_ref().check();
+        // }
 
         // First walk down the tree to find the location.
         // let mut node = self;
@@ -233,7 +234,7 @@ impl MarkerTree {
 
         if cfg!(debug_assertions) {
             // eprintln!("{:#?}", self.as_ref().get_ref());
-            self.as_ref().get_ref().check();
+            // self.as_ref().get_ref().check();
 
             // And check the total size of the tree has grown by len.
             assert_eq!(expected_size, self.count);
@@ -256,9 +257,9 @@ impl MarkerTree {
     {
         let expected_size = self.count - deleted_len;
 
-        if cfg!(debug_assertions) {
-            self.as_ref().get_ref().check();
-        }
+        // if cfg!(debug_assertions) {
+        //     self.as_ref().get_ref().check();
+        // }
 
         // The output from this method is a list of deleted ranges
         let mut result: DeleteResult = SmallVec::default();
@@ -417,7 +418,7 @@ impl MarkerTree {
 
         if cfg!(debug_assertions) {
             // eprintln!("{:#?}", self.as_ref().get_ref());
-            self.as_ref().get_ref().check();
+            // self.as_ref().get_ref().check();
 
             // And check the total size of the tree has grown by len.
             assert_eq!(expected_size, self.count);
