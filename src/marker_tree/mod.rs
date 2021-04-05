@@ -1,12 +1,7 @@
 // The btree here is used to map character -> document positions. It could also
 // be extended to inline a rope, but I haven't done that here.
 
-// The btree implementation here is based off ropey
-// (https://github.com/cessen/ropey/) since that has pretty good performance in
-// most cases.
-
-// The common data structures are 
-
+// The common data structures are:
 mod cursor;
 mod root;
 mod leaf;

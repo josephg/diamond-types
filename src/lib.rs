@@ -38,6 +38,7 @@
 // mod btree;
 mod common;
 mod marker_tree;
+mod split_list;
 
 use marker_tree::*;
 use common::*;
@@ -332,7 +333,9 @@ mod tests {
         // println!("tree {:#?}", state.marker_tree);
         // Delete CDEF
         let result = state.delete_name("amanda", 2, 4);
+        assert_eq!(result.len(), 3); // TODO: More thorough equality checks here.
         // eprintln!("delete result {:#?}", result);
+
         assert_eq!(state.len(), 4);
 
         // println!("tree {:#?}", state.marker_tree);
