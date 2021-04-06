@@ -29,8 +29,8 @@ pub trait SplitListEntry {
     fn append(&mut self, other: Self);
 }
 
-const DEFAULT_BUCKET_SIZE: usize = 50;
-const BUCKET_INLINED_SIZE: usize = 10;
+const DEFAULT_BUCKET_SIZE: usize = 10;
+const BUCKET_INLINED_SIZE: usize = 13;
 
 // At the high level, we've got a vector of items
 #[derive(Clone, Debug)]
@@ -252,7 +252,7 @@ impl<Entry, Item> SplitList<Entry> where Entry: SplitListEntry<Item=Item>, Entry
 
             // Step 1: We'll insert the actual content we have at the current cursor position.
             // This may truncate an existing entry, and if so it'll be returned as remainder.
-            let mut bucket = &mut self.content[bucket_idx];
+            let bucket = &mut self.content[bucket_idx];
 
             let remainder = Self::insert_at(bucket, entry, &mut cursor);
             // println!("Inserted remainder at - {:?} {:#?}", remainder, &self);
@@ -326,11 +326,12 @@ impl<Entry, Item> SplitList<Entry> where Entry: SplitListEntry<Item=Item>, Entry
         // self.check();
     }
 
+    #[allow(unused)]
     pub fn append_entry(&mut self, entry: Entry) {
         self.replace_range(self.total_len, entry);
     }
 
-
+    #[allow(unused)]
     pub(super) fn check(&self) {
         let mut counted_len = 0;
 
@@ -349,6 +350,35 @@ impl<Entry, Item> SplitList<Entry> where Entry: SplitListEntry<Item=Item>, Entry
         }
 
         assert_eq!(counted_len, self.total_len, "Total length does not match item count");
+    }
+
+    #[allow(unused)]
+    pub fn print_stats(&self) {
+        let mut size_counts = vec!();
+        let mut bucket_item_counts = vec!();
+        for bucket in &self.content {
+            let bucket_count = bucket.len();
+            if bucket_count >= bucket_item_counts.len() {
+                bucket_item_counts.resize(bucket_count + 1, 0);
+            }
+            bucket_item_counts[bucket_count] += 1;
+
+            for entry in bucket {
+                let len = entry.len();
+                if len >= size_counts.len() {
+                    size_counts.resize(len + 1, 0);
+                }
+                size_counts[len] += 1;
+            }
+        }
+
+        println!("bucket item counts {:#?}", bucket_item_counts);
+        println!("size counts {:#?}", size_counts);
+        for (i, len) in size_counts.iter().enumerate() {
+            println!("{} count: {}", i, len);
+        }
+
+
     }
 }
 

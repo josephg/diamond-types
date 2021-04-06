@@ -48,20 +48,44 @@ use inlinable_string::InlinableString;
 use std::ptr::NonNull;
 use crate::split_list::{SplitListEntry, SplitList};
 use std::ops::Index;
-// use smallvec::SmallVec;
+use smallvec::SmallVec;
 
-pub enum OpAction {
-    Insert(InlinableString),
+use ropey::Rope;
+
+#[derive(Clone, Debug)]
+pub enum Op {
+    Insert {
+        content: InlinableString,
+        predecessor: CRDTLocation,
+    },
     // Deleted characters in sequence. In a CRDT these characters must be
     // contiguous from a single client.
-    Delete(u32)
+    Delete {
+        target: CRDTLocation,
+        len: ItemCount,
+    }
 }
 
-// pub struct OTOpComponent {
-//     location: i32,
-//     action: OpAction,
-// }
+#[derive(Clone, Debug)]
+pub struct Txn {
+    id: CRDTLocation,
+    parents: SmallVec<[CRDTLocation; 2]>,
+    ops: SmallVec<[Op; 1]>,
+}
 
+#[derive(Clone, Debug)]
+struct TxnInternal {
+    raw: Txn,
+
+    order: usize,
+
+    /// usize::max if this txn dominates everything with a lower order that we know about
+    dominates: usize,
+    /// usize::max if this txn is an ancestor
+    submits: usize,
+
+    parents: SmallVec<[usize; 2]>,
+}
 
 /**
  * A crdt operation is a set of small operation components at locations.
@@ -139,8 +163,8 @@ struct ClientData {
     // Note for inserts which insert a lot of contiguous characters, this will
     // contain a lot of repeated pointers. I'm trading off memory for simplicity
     // here - which might or might not be the right approach.
-    // ops: SplitList<MarkerEntry>,
-    ops: Vec<NonNull<NodeLeaf>>
+    markers: SplitList<MarkerEntry>,
+    // markers: Vec<NonNull<NodeLeaf>>
 }
 
 // #[derive(Debug)]
@@ -148,6 +172,9 @@ pub struct CRDTState {
     client_data: Vec<ClientData>,
 
     marker_tree: Pin<Box<MarkerTree>>,
+
+    // Probably temporary, eventually.
+    text_content: Rope,
 
     // ops_from_client: Vec<Vec<
 }
@@ -157,7 +184,8 @@ impl CRDTState {
     pub fn new() -> Self {
         CRDTState {
             client_data: Vec::new(),
-            marker_tree: MarkerTree::new()
+            marker_tree: MarkerTree::new(),
+            text_content: Rope::new(),
         }
     }
 
@@ -172,8 +200,8 @@ impl CRDTState {
             // Create a new id.
             self.client_data.push(ClientData {
                 name: InlinableString::from(name),
-                // ops: SplitList::new()
-                ops: Vec::new()
+                markers: SplitList::new()
+                // markers: Vec::new()
             });
             (self.client_data.len() - 1) as AgentId
         }
@@ -187,24 +215,25 @@ impl CRDTState {
 
     fn notify(client_data: &mut Vec<ClientData>, loc: CRDTLocation, len: u32, ptr: NonNull<NodeLeaf>) {
         // eprintln!("insert callback {:?} len {}", loc, len);
-        let markers = &mut client_data[loc.agent as usize].ops;
-        for op in &mut markers[loc.seq as usize..(loc.seq+len) as usize] {
-            *op = ptr;
-        }
+        let markers = &mut client_data[loc.agent as usize].markers;
+        // for op in &mut markers[loc.seq as usize..(loc.seq+len) as usize] {
+        //     *op = ptr;
+        // }
 
-        // markers.replace_range(loc.seq as usize, MarkerEntry { ptr, len });
+        markers.replace_range(loc.seq as usize, MarkerEntry { ptr, len });
     }
 
-    pub fn insert(&mut self, client_id: AgentId, pos: u32, inserted_length: usize) -> CRDTLocation {
+    pub fn insert(&mut self, client_id: AgentId, pos: u32, text: &str) -> CRDTLocation {
+        let inserted_length = text.chars().count();
         // First lookup and insert into the marker tree
-        let ops = &mut self.client_data[client_id as usize].ops;
+        let markers = &mut self.client_data[client_id as usize].markers;
         let loc_base = CRDTLocation {
             agent: client_id,
-            seq: ops.len() as ClientSeq
+            seq: markers.len() as ClientSeq
         };
-        // let inserted_length = text.chars().count();
-        let dangling_ptr = NonNull::dangling();
-        ops.resize(ops.len() + inserted_length, dangling_ptr);
+
+        // let dangling_ptr = NonNull::dangling();
+        // markers.resize(markers.len() + inserted_length, dangling_ptr);
 
         let client_data = &mut self.client_data;
 
@@ -224,20 +253,24 @@ impl CRDTState {
             // }
         });
 
+        self.text_content.insert(pos as usize, text);
+
         if cfg!(debug_assertions) {
             // Check all the pointers have been assigned.
             // let markers = &mut self.client_data[client_id as usize].ops;
             // for e in &markers[markers.len() - inserted_length..] {
             //     assert_ne!(*e, dangling_ptr);
             // }
+            assert_eq!(self.text_content.len_chars(), self.marker_tree.len());
         }
+
 
         insert_location
     }
 
-    pub fn insert_name(&mut self, client_name: &str, pos: u32, text: InlinableString) -> CRDTLocation {
+    pub fn insert_name(&mut self, client_name: &str, pos: u32, text: &str) -> CRDTLocation {
         let id = self.get_or_create_client_id(client_name);
-        self.insert(id, pos, text.chars().count())
+        self.insert(id, pos, text)
     }
 
     pub fn delete(&mut self, _client_id: AgentId, pos: u32, len: u32) -> DeleteResult {
@@ -245,10 +278,13 @@ impl CRDTState {
         // println!("{:#?}", state.marker_tree);
         // println!("{:?}", cursor);
         let client_data = &mut self.client_data;
-        MarkerTree::local_delete(&self.marker_tree, cursor, len, |loc, len, leaf| {
+        let result = MarkerTree::local_delete(&self.marker_tree, cursor, len, |loc, len, leaf| {
             // eprintln!("notify {:?} / {}", loc, len);
             CRDTState::notify(client_data, loc, len, leaf);
-        })
+        });
+        self.text_content.remove(pos as usize..pos as usize + len as usize); // vomit.
+        assert_eq!(self.text_content.len_chars(), self.marker_tree.len());
+        result
     }
 
     pub fn delete_name(&mut self, client_name: &str, pos: u32, len: u32) -> DeleteResult {
@@ -259,7 +295,7 @@ impl CRDTState {
     pub fn lookup_crdt_position(&self, loc: CRDTLocation) -> u32 {
         if loc == CRDT_DOC_ROOT { return 0; }
 
-        let markers = &self.client_data[loc.agent as usize].ops;
+        let markers = &self.client_data[loc.agent as usize].markers;
         unsafe { MarkerTree::lookup_position(loc, markers[loc.seq as usize]) }
     }
 
@@ -304,8 +340,21 @@ impl CRDTState {
 
 #[cfg(test)]
 mod tests {
+    use rand::{Rng, SeedableRng};
+    use rand::rngs::SmallRng;
+
+
     // use ropey::Rope;
     use super::*;
+
+    fn random_str(len: usize, rng: &mut SmallRng) -> String {
+        let mut str = String::new();
+        let alphabet: Vec<char> = "abcdefghijklmnop ".chars().collect();
+        for _ in 0..len {
+            str.push(alphabet[rng.gen_range(0..alphabet.len())]);
+        }
+        str
+    }
 
     // use inlinable_string::InlinableString;
 
@@ -324,7 +373,7 @@ mod tests {
         let mut state = CRDTState::new();
 
         assert_eq!(state.lookup_num_position(0), CRDT_DOC_ROOT);
-        state.insert_name("fred", 0, InlinableString::from("hi there"));
+        state.insert_name("fred", 0, "hi there");
         assert_eq!(state.lookup_num_position(0), CRDT_DOC_ROOT);
     }
 
@@ -337,8 +386,8 @@ mod tests {
         // the content doesn't get merged.
         let mut pos = 0;
         for _ in 0..50 {
-            state.insert_name("fred", pos, InlinableString::from("fred"));
-            state.insert_name("george", pos + 4, InlinableString::from("george"));
+            state.insert_name("fred", pos, "fred");
+            state.insert_name("george", pos + 4, "george");
             pos += 10;
             state.check();
         }
@@ -355,7 +404,7 @@ mod tests {
         // Repeatedly inserting at 0 will prevent all the nodes collapsing, so we don't
         // need to worry about that.
         for _ in 0..65 {
-            state.insert_name("fred", 0, InlinableString::from("fred"));
+            state.insert_name("fred", 0, "fred");
             state.check();
             // state.marker_tree.print_ptr_tree();
         }
@@ -368,11 +417,11 @@ mod tests {
     fn delete() {
         let mut state = CRDTState::new();
         
-        state.insert_name("fred", 0, InlinableString::from("a"));
-        state.insert_name("george", 1, InlinableString::from("bC"));
+        state.insert_name("fred", 0, "a");
+        state.insert_name("george", 1, "bC");
         
-        state.insert_name("fred", 3, InlinableString::from("D"));
-        state.insert_name("george", 4, InlinableString::from("EFgh"));
+        state.insert_name("fred", 3, "D");
+        state.insert_name("george", 4, "EFgh");
 
         // println!("tree {:#?}", state.marker_tree);
         // Delete CDEF
@@ -390,17 +439,14 @@ mod tests {
     fn delete_end() {
         let mut state = CRDTState::new();
 
-        state.insert_name("fred", 0, InlinableString::from("abc"));
-        let result = state.delete_name("amanda", 1, 2);
+        state.insert_name("fred", 0, "abc");
+        let _result = state.delete_name("amanda", 1, 2);
         assert_eq!(state.len(), 1);
         state.check();
     }
 
     #[test]
     fn random_inserts_deletes() {
-        use rand::{Rng, SeedableRng};
-        use rand::rngs::SmallRng;
-
         let mut doc_len = 0;
         let mut state = CRDTState::new();
         state.get_or_create_client_id("seph"); // Create client id 0.
@@ -418,7 +464,7 @@ mod tests {
                 // Insert something.
                 let pos = rng.gen_range(0..=doc_len);
                 let len: u32 = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
-                state.insert(0, pos, len as _);
+                state.insert(0, pos, random_str(len as usize, &mut rng).as_str());
                 doc_len += len;
             } else {
                 // Delete something
@@ -470,10 +516,12 @@ mod tests {
             if *del_len > 0 {
                 state.delete(id, *pos as _, *del_len as _);
             } else {
-                state.insert(id, *pos as _, ins_content.len());
+                state.insert(id, *pos as _, ins_content);
             }
         }
         // println!("len {}", state.len());
         assert_eq!(state.len(), u.finalText.len());
+
+        state.client_data[0].markers.print_stats();
     }
 }

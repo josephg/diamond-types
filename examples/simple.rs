@@ -1,10 +1,18 @@
 use text_crdt_rust::CRDTState;
-use inlinable_string::InlinableString;
+use rand::{Rng, SeedableRng};
+use rand::rngs::SmallRng;
+
+
+fn random_str(len: usize, rng: &mut SmallRng) -> String {
+    let mut str = String::new();
+    let alphabet: Vec<char> = "abcdefghijklmnop ".chars().collect();
+    for _ in 0..len {
+        str.push(alphabet[rng.gen_range(0..alphabet.len())]);
+    }
+    str
+}
 
 fn random_inserts_deletes() {
-    use rand::{Rng, SeedableRng};
-    use rand::rngs::SmallRng;
-
     let mut doc_len = 0;
     let mut state = CRDTState::new();
     state.get_or_create_client_id("seph"); // Create client id 0.
@@ -22,7 +30,7 @@ fn random_inserts_deletes() {
             // Insert something.
             let pos = rng.gen_range(0..=doc_len);
             let len: u32 = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
-            state.insert(0, pos, len as _);
+            state.insert(0, pos, random_str(len as usize, &mut rng).as_str());
             doc_len += len;
         } else {
             // Delete something
@@ -45,15 +53,15 @@ fn main() {
     return;
     let mut state = CRDTState::new();
 
-    state.insert_name("fred", 0, InlinableString::from("a"));
-    state.insert_name("george", 1, InlinableString::from("bC"));
+    state.insert_name("fred", 0, "a");
+    state.insert_name("george", 1, "bC");
 
-    state.insert_name("fred", 3, InlinableString::from("D"));
-    state.insert_name("george", 4, InlinableString::from("EFgh"));
+    state.insert_name("fred", 3, "D");
+    state.insert_name("george", 4, "EFgh");
 
     // println!("tree {:#?}", state.marker_tree);
     // Delete CDEF
-    let result = state.delete_name("amanda", 2, 4);
+    let _result = state.delete_name("amanda", 2, 4);
     // eprintln!("delete result {:#?}", result);
     assert_eq!(state.len(), 4);
 }
