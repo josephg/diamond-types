@@ -18,6 +18,7 @@ use super::common::*;
 use std::marker::PhantomPinned;
 
 pub use root::DeleteResult;
+use crate::splitable_span::SplitableSpan;
 
 #[cfg(debug_assertions)]
 const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
@@ -86,7 +87,7 @@ pub struct NodeLeaf {
 }
 
 #[derive(Debug, Copy, Clone, Default)]
-struct Entry {
+pub struct Entry {
     loc: CRDTLocation,
     len: i32, // negative if the chunk was deleted. Never 0 - TODO: could use NonZeroI32
 }
@@ -120,6 +121,25 @@ impl FlushMarker {
         // println!("Flush marker flushing {}", self.0);
         node.update_parent_count(self.0);
         self.0 = 0;
+    }
+}
+
+
+impl Iterator for Cursor<'_> {
+    type Item = Entry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // I'll set idx to an invalid value
+        if self.idx == usize::MAX {
+            None
+        } else {
+            let current = *self.get_entry();
+            let has_next = self.next_entry();
+            if !has_next {
+                self.idx = usize::MAX;
+            }
+            Some(current)
+        }
     }
 }
 
@@ -190,6 +210,25 @@ impl Entry {
     }
 }
 
+impl SplitableSpan for Entry {
+    // type Item = (); // Eh, this won't be used so its ok.
+
+    fn len(&self) -> usize {
+        todo!()
+    }
+
+    fn truncate(&mut self, at: usize) -> Self {
+        todo!()
+    }
+
+    fn can_append(&self, other: &Self) -> bool {
+        todo!()
+    }
+
+    fn append(&mut self, other: Self) {
+        todo!()
+    }
+}
 
 impl Node {
     /// Unsafe: Created leaf has a dangling parent pointer. Must be set after initialization.

@@ -50,7 +50,7 @@ impl MarkerTree {
         ParentPtr::Root(ref_to_nonnull(self))
     }
 
-    pub fn cursor_at_pos(self: Pin<&Self>, raw_pos: u32, stick_end: bool) -> Cursor {
+    pub fn cursor_at_pos(&self, raw_pos: u32, stick_end: bool) -> Cursor {
         unsafe {
             let mut node = self.root.as_ptr();
             let mut offset_remaining = raw_pos;
@@ -73,6 +73,10 @@ impl MarkerTree {
                 _marker: marker::PhantomData
             }
         }
+    }
+
+    pub fn iter(&self) -> Cursor {
+        self.cursor_at_pos(0, false)
     }
 
     /// Make room at the current cursor location, splitting the current element
@@ -550,6 +554,22 @@ impl MarkerTree {
         let leaf = ptr.as_ref();
         let cursor = leaf.find(loc).expect("Position not in named leaf");
         cursor.get_pos()
+    }
+
+    pub fn print_stats(&self) {
+        // We'll get the distribution of entry sizes
+        let mut size_counts = vec!();
+
+        for entry in self.iter() {
+            // println!("entry {:?}", entry);
+            let bucket = entry.get_seq_len() as usize;
+            if bucket >= size_counts.len() {
+                size_counts.resize(bucket + 1, 0);
+            }
+            size_counts[bucket] += 1;
+        }
+
+        println!("Entry distribution {:?}", size_counts);
     }
 }
 

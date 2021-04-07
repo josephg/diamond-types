@@ -1,33 +1,7 @@
 use smallvec::SmallVec;
 use std::ops::Index;
 use std::fmt::Debug;
-
-// An entry is expected to contain multiple items.
-pub trait SplitListEntry {
-    /// A single item, returned by indexing into the entry. Many implementations will just have this
-    /// also return a SplitListEntry.
-    type Item;
-
-    /// The number of child items in the entry
-    fn len(&self) -> usize;
-
-    /// Split the entry, returning the part of the entry which was jettisoned. After truncating at
-    /// `pos`, self.len() == `pos` and the returned value contains the rest of the items.
-    ///
-    /// ```ignore
-    /// let initial_len = entry.len();
-    /// let rest = entry.truncate(truncate_at);
-    /// assert!(initial_len == truncate_at + rest.len());
-    /// ```
-    ///
-    /// `at` parameter must obey *0 < at < entry.len()*
-    fn truncate(&mut self, at: usize) -> Self;
-
-    /// See if the other item can be appended to self. `can_append` will always be called
-    /// immediately before `append`.
-    fn can_append(&self, other: &Self) -> bool;
-    fn append(&mut self, other: Self);
-}
+use crate::splitable_span::SplitableSpan;
 
 const DEFAULT_BUCKET_SIZE: usize = 10;
 const BUCKET_INLINED_SIZE: usize = 13;
@@ -35,7 +9,7 @@ const BUCKET_INLINED_SIZE: usize = 13;
 // At the high level, we've got a vector of items
 #[derive(Clone, Debug)]
 // struct SplitList<Entry: SplitListEntry<Item=Item>, Item> where Entry: Index<usize, Output=Item> {
-pub struct SplitList<Entry> where Entry: SplitListEntry {
+pub struct SplitList<Entry> where Entry: SplitableSpan {
     /// The number of items in each bucket. Fixed at list creation time.
     // TODO: Consider making this a static type parameter.
     bucket_size: usize,
@@ -69,7 +43,7 @@ struct BucketCursor {
 }
 
 impl BucketCursor {
-    fn roll_next<Entry>(&mut self, bucket: &Bucket<Entry>) where Entry: SplitListEntry {
+    fn roll_next<Entry>(&mut self, bucket: &Bucket<Entry>) where Entry: SplitableSpan {
         let entry = &bucket[self.idx];
         if self.offset == entry.len() {
             self.idx += 1;
@@ -82,7 +56,7 @@ impl BucketCursor {
     }
 }
 
-impl<Entry, Item> SplitList<Entry> where Entry: SplitListEntry<Item=Item>, Entry: Debug {
+impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
     pub fn new() -> Self {
         Self::new_with_bucket_size(DEFAULT_BUCKET_SIZE)
     }
@@ -382,7 +356,7 @@ impl<Entry, Item> SplitList<Entry> where Entry: SplitListEntry<Item=Item>, Entry
     }
 }
 
-impl<Entry, Item> Index<usize> for SplitList<Entry> where Entry: SplitListEntry<Item=Item> + Index<usize, Output=Item>, Entry: Debug {
+impl<Entry, Item> Index<usize> for SplitList<Entry> where Entry: SplitableSpan + Index<usize, Output=Item>, Entry: Debug {
     type Output = Item;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -396,8 +370,8 @@ mod tests {
     use super::*;
 
     /// Simple example where entries are runs of positive or negative items.
-    impl SplitListEntry for i32 {
-        type Item = bool; // Negative runs = false, positive = true.
+    impl SplitableSpan for i32 {
+        // type Item = bool; // Negative runs = false, positive = true.
 
         fn len(&self) -> usize {
             return self.abs() as usize;

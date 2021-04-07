@@ -39,6 +39,8 @@
 mod common;
 mod marker_tree;
 mod split_list;
+mod txn_simple;
+mod splitable_span;
 
 use marker_tree::*;
 use common::*;
@@ -46,14 +48,15 @@ use std::pin::Pin;
 
 use inlinable_string::InlinableString;
 use std::ptr::NonNull;
-use crate::split_list::{SplitListEntry, SplitList};
+use crate::split_list::SplitList;
 use std::ops::Index;
 use smallvec::SmallVec;
 
 use ropey::Rope;
+use crate::splitable_span::SplitableSpan;
 
 #[derive(Clone, Debug)]
-pub enum Op {
+pub enum ExternalOp {
     Insert {
         content: InlinableString,
         predecessor: CRDTLocation,
@@ -67,24 +70,10 @@ pub enum Op {
 }
 
 #[derive(Clone, Debug)]
-pub struct Txn {
+pub struct ExternalTxn {
     id: CRDTLocation,
     parents: SmallVec<[CRDTLocation; 2]>,
-    ops: SmallVec<[Op; 1]>,
-}
-
-#[derive(Clone, Debug)]
-struct TxnInternal {
-    raw: Txn,
-
-    order: usize,
-
-    /// usize::max if this txn dominates everything with a lower order that we know about
-    dominates: usize,
-    /// usize::max if this txn is an ancestor
-    submits: usize,
-
-    parents: SmallVec<[usize; 2]>,
+    ops: SmallVec<[ExternalOp; 1]>,
 }
 
 /**
@@ -120,8 +109,8 @@ struct MarkerEntry {
     ptr: NonNull<NodeLeaf>
 }
 
-impl SplitListEntry for MarkerEntry {
-    type Item = NonNull<NodeLeaf>;
+impl SplitableSpan for MarkerEntry {
+    // type Item = NonNull<NodeLeaf>;
 
     fn len(&self) -> usize {
         self.len as usize
@@ -237,7 +226,7 @@ impl CRDTState {
 
         let client_data = &mut self.client_data;
 
-        let cursor = self.marker_tree.as_ref().cursor_at_pos(pos, true);
+        let cursor = self.marker_tree.cursor_at_pos(pos, true);
         // println!("root {:#?}", self.marker_tree);
         let insert_location = if pos == 0 {
             // This saves an awful lot of code needing to be executed.
@@ -274,7 +263,7 @@ impl CRDTState {
     }
 
     pub fn delete(&mut self, _client_id: AgentId, pos: u32, len: u32) -> DeleteResult {
-        let cursor = self.marker_tree.as_ref().cursor_at_pos(pos, true);
+        let cursor = self.marker_tree.cursor_at_pos(pos, true);
         // println!("{:#?}", state.marker_tree);
         // println!("{:?}", cursor);
         let client_data = &mut self.client_data;
@@ -305,7 +294,7 @@ impl CRDTState {
         //     CRDT_DOC_ROOT
         // } else { cursor.tell() };
 
-        let cursor = self.marker_tree.as_ref().cursor_at_pos(pos as u32, true);
+        let cursor = self.marker_tree.cursor_at_pos(pos as u32, true);
         cursor.tell()
     }
 
@@ -433,6 +422,7 @@ mod tests {
 
         // println!("tree {:#?}", state.marker_tree);
         state.check();
+        // state.marker_tree.print_stats();
     }
 
     #[test]
@@ -508,10 +498,10 @@ mod tests {
 
         let mut state = CRDTState::new();
         let id = state.get_or_create_client_id("jeremy");
-        for (i, Edit(pos, del_len, ins_content)) in u.edits.iter().enumerate() {
-            if i % 1000 == 0 {
-                println!("i {}", i);
-            }
+        for (_i, Edit(pos, del_len, ins_content)) in u.edits.iter().enumerate() {
+            // if i % 1000 == 0 {
+            //     println!("i {}", i);
+            // }
             // println!("iter {} pos {} del {} ins '{}'", i, pos, del_len, ins_content);
             if *del_len > 0 {
                 state.delete(id, *pos as _, *del_len as _);
@@ -521,7 +511,9 @@ mod tests {
         }
         // println!("len {}", state.len());
         assert_eq!(state.len(), u.finalText.len());
+        assert!(state.text_content.eq(&u.finalText));
 
         state.client_data[0].markers.print_stats();
+        state.marker_tree.print_stats();
     }
 }
