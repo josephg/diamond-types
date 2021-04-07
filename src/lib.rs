@@ -41,6 +41,7 @@ mod marker_tree;
 mod split_list;
 mod txn_simple;
 mod splitable_span;
+mod alloc;
 
 use marker_tree::*;
 use common::*;
@@ -335,6 +336,8 @@ mod tests {
 
     // use ropey::Rope;
     use super::*;
+    use crate::alloc::ALLOCATED;
+    use std::sync::atomic::Ordering;
 
     fn random_str(len: usize, rng: &mut SmallRng) -> String {
         let mut str = String::new();
@@ -480,6 +483,7 @@ mod tests {
         use serde::Deserialize;
         use std::fs::File;
         use std::io::BufReader;
+        println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
 
         #[derive(Debug, Clone, Deserialize)]
         struct Edit(usize, usize, String);
@@ -513,7 +517,8 @@ mod tests {
         assert_eq!(state.len(), u.finalText.len());
         assert!(state.text_content.eq(&u.finalText));
 
-        state.client_data[0].markers.print_stats();
-        state.marker_tree.print_stats();
+        // state.client_data[0].markers.print_stats();
+        // state.marker_tree.print_stats();
+        println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
     }
 }
