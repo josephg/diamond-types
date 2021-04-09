@@ -2,18 +2,18 @@ use super::*;
 // use std::mem;
 use std::ptr::{self, NonNull};
 
-impl NodeLeaf {
+impl<E: EntryTraits> NodeLeaf<E> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
     // no reason for this object to be pinned. (Is that a bad idea? I'm not sure.)
     pub(super) unsafe fn new() -> Self {
         Self::new_with_parent(ParentPtr::Root(NonNull::dangling()))
     }
 
-    pub(super) fn new_with_parent(parent: ParentPtr) -> Self {
+    pub(super) fn new_with_parent(parent: ParentPtr<E>) -> Self {
         Self {
             parent,
-            data: [Entry::default(); NUM_ENTRIES],
-            len: 0,
+            data: [E::default(); NUM_ENTRIES],
+            num_entries: 0,
             _pin: PhantomPinned,
             _drop: PrintDropLeaf,
         }
@@ -38,14 +38,12 @@ impl NodeLeaf {
     //     (raw_pos, None)
     // }
 
-    pub fn find(&self, loc: CRDTLocation) -> Option<Cursor> {
+    pub fn find(&self, loc: CRDTLocation) -> Option<Cursor<'_, E>> {
         for i in 0..self.len_entries() {
-            let entry = self.data[i];
+            let entry: E = self.data[i];
 
-            if entry.loc.agent == loc.agent && entry.get_seq_range().contains(&loc.seq) {
-                let offset = if entry.len > 0 {
-                    loc.seq - entry.loc.seq
-                } else { 0 };
+            if let Some(entry_offset) = entry.contains(loc) {
+                let offset = if entry.is_insert() { entry_offset } else { 0 };
 
                 return Some(Cursor::new(
                     unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
@@ -59,16 +57,16 @@ impl NodeLeaf {
 
     // Find a given text offset within the node
     // Returns (index, offset within entry)
-    pub fn find_offset(&self, mut offset: u32, stick_end: bool) -> Option<(usize, u32)> {
+    pub fn find_offset(&self, mut offset: usize, stick_end: bool) -> Option<(usize, usize)> {
         for i in 0..self.len_entries() {
             // if offset == 0 {
             //     return Some((i, 0));
             // }
 
-            let entry = self.data[i];
-            if entry.loc.agent == CLIENT_INVALID { break; }
+            let entry: E = self.data[i];
+            if entry.is_invalid() { break; }
 
-            let text_len = entry.get_content_len();
+            let text_len = entry.content_len();
             if offset < text_len || (stick_end && text_len == offset) {
                 // Found it.
                 return Some((i, offset));
@@ -88,7 +86,7 @@ impl NodeLeaf {
     //     .unwrap_or(NUM_ENTRIES)
     // }
     pub(super) fn len_entries(&self) -> usize {
-        self.len as usize
+        self.num_entries as usize
     }
 
     // Recursively (well, iteratively) ascend and update all the counts along
@@ -101,7 +99,7 @@ impl NodeLeaf {
         loop {
             match parent {
                 ParentPtr::Root(mut r) => {
-                    unsafe { r.as_mut().count = r.as_ref().count.wrapping_add(amt as u32); }
+                    unsafe { r.as_mut().count = r.as_ref().count.wrapping_add(amt as usize); }
                     break;
                 },
                 ParentPtr::Internal(mut n) => {
@@ -121,14 +119,14 @@ impl NodeLeaf {
     /// Split this leaf node at the specified index, so 0..idx stays and idx.. moves to a new node.
     ///
     /// The new leaf node is not inserted into the tree by this method. It is returned.
-    pub(super) fn split_at<F>(&mut self, idx: usize, notify: &mut F) -> NonNull<NodeLeaf>
-        where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
+    pub(super) fn split_at<F>(&mut self, idx: usize, notify: &mut F) -> NonNull<NodeLeaf<E>>
+        where F: FnMut(E, NonNull<NodeLeaf<E>>)
     {
         unsafe {
             let mut new_node = Self::new(); // The new node has a danging parent pointer
             let new_len = self.len_entries() - idx;
             ptr::copy_nonoverlapping(&self.data[idx], &mut new_node.data[0], new_len);
-            new_node.len = new_len as u8;
+            new_node.num_entries = new_len as u8;
             
             // "zero" out the old entries
             // TODO(optimization): We're currently copying / moving everything
@@ -136,11 +134,11 @@ impl NodeLeaf {
             // before idx - which would save a bunch of calls to notify and save
             // us needing to fix up a bunch of parent pointers.
             let mut stolen_length = 0;
-            for e in &mut self.data[idx..self.len as usize] {
-                stolen_length += e.get_content_len();
-                *e = Entry::default();
+            for e in &mut self.data[idx..self.num_entries as usize] {
+                stolen_length += e.content_len();
+                *e = E::default();
             }
-            self.len = idx as u8;
+            self.num_entries = idx as u8;
 
             // eprintln!("split_at idx {} self_entries {} stolel_len {} self {:?}", idx, self_entries, stolen_length, &self);
 
@@ -148,10 +146,10 @@ impl NodeLeaf {
             // This is the pointer to the new item we'll end up returning.
             let new_leaf_ptr = NonNull::new_unchecked(inserted_node.unwrap_leaf_mut().get_unchecked_mut());
             for e in &inserted_node.unwrap_leaf().data[0..new_len] {
-                notify(e.loc, e.get_seq_len(), new_leaf_ptr);
+                notify(*e, new_leaf_ptr);
             }
 
-            root::insert_after(self.parent, inserted_node, NodePtr::Leaf(NonNull::new_unchecked(self)), stolen_length);
+            root::insert_after(self.parent, inserted_node, NodePtr::Leaf(NonNull::new_unchecked(self)), stolen_length as _);
 
             new_leaf_ptr
         }

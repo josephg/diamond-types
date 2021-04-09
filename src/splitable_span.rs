@@ -1,11 +1,7 @@
 
 // An entry is expected to contain multiple items.
 pub trait SplitableSpan {
-    /// A single item, returned by indexing into the entry. Many implementations will just have this
-    /// also return a SplitListEntry.
-    // type Item;
-
-    /// The number of child items in the entry
+    /// The number of child items in the entry. This is indexed with the size used in truncate.
     fn len(&self) -> usize;
 
     /// Split the entry, returning the part of the entry which was jettisoned. After truncating at

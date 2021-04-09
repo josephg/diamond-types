@@ -56,6 +56,8 @@ use smallvec::SmallVec;
 use ropey::Rope;
 use crate::splitable_span::SplitableSpan;
 
+pub use alloc::ALLOCATED;
+
 #[derive(Clone, Debug)]
 pub enum ExternalOp {
     Insert {
@@ -107,7 +109,7 @@ pub struct ExternalTxn {
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 struct MarkerEntry {
     len: u32,
-    ptr: NonNull<NodeLeaf>
+    ptr: NonNull<NodeLeaf<Entry>>
 }
 
 impl SplitableSpan for MarkerEntry {
@@ -136,7 +138,7 @@ impl SplitableSpan for MarkerEntry {
 }
 
 impl Index<usize> for MarkerEntry {
-    type Output = NonNull<NodeLeaf>;
+    type Output = NonNull<NodeLeaf<Entry>>;
 
     fn index(&self, _index: usize) -> &Self::Output {
         &self.ptr
@@ -161,7 +163,7 @@ struct ClientData {
 pub struct CRDTState {
     client_data: Vec<ClientData>,
 
-    marker_tree: Pin<Box<MarkerTree>>,
+    marker_tree: Pin<Box<MarkerTree<Entry>>>,
 
     // Probably temporary, eventually.
     text_content: Rope,
@@ -203,23 +205,23 @@ impl CRDTState {
         .map(|id| id as AgentId)
     }
 
-    fn notify(client_data: &mut Vec<ClientData>, loc: CRDTLocation, len: u32, ptr: NonNull<NodeLeaf>) {
+    fn notify(client_data: &mut Vec<ClientData>, entry: Entry, ptr: NonNull<NodeLeaf<Entry>>) {
         // eprintln!("insert callback {:?} len {}", loc, len);
-        let markers = &mut client_data[loc.agent as usize].markers;
+        let markers = &mut client_data[entry.loc.agent as usize].markers;
         // for op in &mut markers[loc.seq as usize..(loc.seq+len) as usize] {
         //     *op = ptr;
         // }
 
-        markers.replace_range(loc.seq as usize, MarkerEntry { ptr, len });
+        markers.replace_range(entry.loc.seq as usize, MarkerEntry { ptr, len: entry.len() as u32 });
     }
 
-    pub fn insert(&mut self, client_id: AgentId, pos: u32, text: &str) -> CRDTLocation {
+    pub fn insert(&mut self, client_id: AgentId, pos: usize, text: &str) -> CRDTLocation {
         let inserted_length = text.chars().count();
         // First lookup and insert into the marker tree
         let markers = &mut self.client_data[client_id as usize].markers;
         let loc_base = CRDTLocation {
             agent: client_id,
-            seq: markers.len() as ClientSeq
+            seq: markers.len() as _
         };
 
         // let dangling_ptr = NonNull::dangling();
@@ -232,11 +234,15 @@ impl CRDTState {
         let insert_location = if pos == 0 {
             // This saves an awful lot of code needing to be executed.
             CRDT_DOC_ROOT
-        } else { cursor.clone().tell() };
+        } else { cursor.clone().tell_predecessor() };
 
-        self.marker_tree.insert(cursor, inserted_length as ClientSeq, loc_base, |loc, len, leaf| {
+        let new_entry = Entry {
+            loc: loc_base,
+            len: inserted_length as i32
+        };
+        self.marker_tree.insert(cursor, new_entry, |entry, leaf| {
             // println!("insert callback {:?} len {}", loc, len);
-            CRDTState::notify(client_data, loc, len, leaf);
+            CRDTState::notify(client_data, entry, leaf);
             // let ops = &mut client_data[loc.client as usize].ops;
             // for op in &mut ops[loc.seq as usize..(loc.seq+len) as usize] {
             //     *op = leaf;
@@ -258,26 +264,26 @@ impl CRDTState {
         insert_location
     }
 
-    pub fn insert_name(&mut self, client_name: &str, pos: u32, text: &str) -> CRDTLocation {
+    pub fn insert_name(&mut self, client_name: &str, pos: usize, text: &str) -> CRDTLocation {
         let id = self.get_or_create_client_id(client_name);
         self.insert(id, pos, text)
     }
 
-    pub fn delete(&mut self, _client_id: AgentId, pos: u32, len: u32) -> DeleteResult {
+    pub fn delete(&mut self, _client_id: AgentId, pos: usize, len: usize) -> DeleteResult {
         let cursor = self.marker_tree.cursor_at_pos(pos, true);
         // println!("{:#?}", state.marker_tree);
         // println!("{:?}", cursor);
         let client_data = &mut self.client_data;
-        let result = MarkerTree::local_delete(&self.marker_tree, cursor, len, |loc, len, leaf| {
+        let result = MarkerTree::local_delete(&self.marker_tree, cursor, len, |entry, leaf| {
             // eprintln!("notify {:?} / {}", loc, len);
-            CRDTState::notify(client_data, loc, len, leaf);
+            CRDTState::notify(client_data, entry, leaf);
         });
         self.text_content.remove(pos as usize..pos as usize + len as usize); // vomit.
         assert_eq!(self.text_content.len_chars(), self.marker_tree.len());
         result
     }
 
-    pub fn delete_name(&mut self, client_name: &str, pos: u32, len: u32) -> DeleteResult {
+    pub fn delete_name(&mut self, client_name: &str, pos: usize, len: usize) -> DeleteResult {
         let id = self.get_or_create_client_id(client_name);
         self.delete(id, pos, len)
     }
@@ -295,15 +301,15 @@ impl CRDTState {
         //     CRDT_DOC_ROOT
         // } else { cursor.tell() };
 
-        let cursor = self.marker_tree.cursor_at_pos(pos as u32, true);
-        cursor.tell()
+        let cursor = self.marker_tree.cursor_at_pos(pos, true);
+        cursor.tell_predecessor()
     }
 
-    pub fn lookup_position_name(&self, client_name: &str, seq: ClientSeq) -> u32 {
+    pub fn lookup_position_name(&self, client_name: &str, seq: usize) -> u32 {
         let id = self.get_client_id(client_name).expect("Invalid client name");
         self.lookup_crdt_position(CRDTLocation {
             agent: id,
-            seq,
+            seq: seq as u32,
         })
     }
 
@@ -456,14 +462,14 @@ mod tests {
             if doc_len == 0 || rng.gen_bool(insert_weight) {
                 // Insert something.
                 let pos = rng.gen_range(0..=doc_len);
-                let len: u32 = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
+                let len: usize = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
                 state.insert(0, pos, random_str(len as usize, &mut rng).as_str());
                 doc_len += len;
             } else {
                 // Delete something
                 let pos = rng.gen_range(0..doc_len);
                 // println!("range {}", u32::min(10, doc_len - pos));
-                let len = rng.gen_range(1..=u32::min(10, doc_len - pos));
+                let len = rng.gen_range(1..=usize::min(10, doc_len - pos));
                 state.delete(0, pos, len);
                 doc_len -= len;
             }
@@ -483,7 +489,6 @@ mod tests {
         use serde::Deserialize;
         use std::fs::File;
         use std::io::BufReader;
-        println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
 
         #[derive(Debug, Clone, Deserialize)]
         struct Edit(usize, usize, String);
@@ -499,6 +504,8 @@ mod tests {
         let reader = BufReader::new(file);
         let u: TestData = serde_json::from_reader(reader).unwrap();
         println!("final length: {}, edits {}", u.finalText.len(), u.edits.len());
+
+        println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
 
         let mut state = CRDTState::new();
         let id = state.get_or_create_client_id("jeremy");

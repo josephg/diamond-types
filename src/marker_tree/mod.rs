@@ -6,10 +6,10 @@ mod cursor;
 mod root;
 mod leaf;
 mod internal;
+mod entry;
 
 // pub(crate) use cursor::Cursor;
 
-use std::ops::Range;
 use std::ptr::NonNull;
 use std::marker;
 use std::pin::Pin;
@@ -18,7 +18,9 @@ use super::common::*;
 use std::marker::PhantomPinned;
 
 pub use root::DeleteResult;
-use crate::splitable_span::SplitableSpan;
+use std::fmt::Debug;
+use crate::marker_tree::entry::EntryTraits;
+pub use entry::Entry;
 
 #[cfg(debug_assertions)]
 const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
@@ -37,40 +39,41 @@ const NUM_ENTRIES: usize = 32;
 // access the first node in the tree, but I can't think of a clean way around
 // it.
 #[derive(Debug)]
-pub struct MarkerTree {
-    count: ItemCount,
-    root: Node,
+pub struct MarkerTree<E: EntryTraits> {
+    count: usize,
+    root: Node<E>,
+    _marker: marker::PhantomData<E>, // I don't know why this is needed but it is.
     _pin: marker::PhantomPinned,
 }
 
 #[derive(Debug)]
-enum Node {
-    Internal(Pin<Box<NodeInternal>>),
-    Leaf(Pin<Box<NodeLeaf>>),
+enum Node<E: EntryTraits> {
+    Internal(Pin<Box<NodeInternal<E>>>),
+    Leaf(Pin<Box<NodeLeaf<E>>>),
 }
 
 // I hate that I need this, but its used all over the place when traversing the tree.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum NodePtr {
-    Internal(NonNull<NodeInternal>),
-    Leaf(NonNull<NodeLeaf>),
+enum NodePtr<E: EntryTraits> {
+    Internal(NonNull<NodeInternal<E>>),
+    Leaf(NonNull<NodeLeaf<E>>),
 }
 
 // TODO: Consider just reusing NodePtr for this.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum ParentPtr {
-    Root(NonNull<MarkerTree>),
-    Internal(NonNull<NodeInternal>)
+enum ParentPtr<E: EntryTraits> {
+    Root(NonNull<MarkerTree<E>>),
+    Internal(NonNull<NodeInternal<E>>)
 }
 
 /// An internal node in the B-tree
 #[derive(Debug)]
-struct NodeInternal /*<T: NodeT>*/ {
-    parent: ParentPtr,
+struct NodeInternal<E: EntryTraits> {
+    parent: ParentPtr<E>,
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
     // ItemCount only includes items which haven't been deleted.
-    data: [(ItemCount, Option<Node>); MAX_CHILDREN],
+    data: [(ItemCount, Option<Node<E>>); MAX_CHILDREN],
     _pin: PhantomPinned, // Needed because children have parent pointers here.
     _drop: PrintDropInternal,
 }
@@ -78,28 +81,22 @@ struct NodeInternal /*<T: NodeT>*/ {
 /// A leaf node in the B-tree. Except the root, each child stores MAX_CHILDREN/2 - MAX_CHILDREN
 /// entries.
 #[derive(Debug)]
-pub struct NodeLeaf {
-    parent: ParentPtr,
-    len: u8, // Number of entries which have been populated
-    data: [Entry; NUM_ENTRIES],
+pub struct NodeLeaf<E: EntryTraits> {
+    parent: ParentPtr<E>,
+    num_entries: u8, // Number of entries which have been populated
+    // data: [Entry; NUM_ENTRIES],
+    data: [E; NUM_ENTRIES],
     _pin: PhantomPinned, // Needed because cursors point here.
     _drop: PrintDropLeaf
 }
 
-#[derive(Debug, Copy, Clone, Default)]
-pub struct Entry {
-    loc: CRDTLocation,
-    len: i32, // negative if the chunk was deleted. Never 0 - TODO: could use NonZeroI32
-}
-
-
 #[derive(Copy, Clone, Debug)]
-pub struct Cursor<'a> { // TODO: Add this lifetime parameter back.
+pub struct Cursor<'a, E: EntryTraits> {
 // pub struct Cursor {
-    node: NonNull<NodeLeaf>,
+    node: NonNull<NodeLeaf<E>>,
     idx: usize,
-    offset: u32, // usize? ??. This is the offset into the item at idx.
-    _marker: marker::PhantomData<&'a MarkerTree>,
+    offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
+    _marker: marker::PhantomData<&'a MarkerTree<E>>,
 }
 
 /// Helper struct to track pending size changes in the document which need to be propagated
@@ -117,7 +114,7 @@ impl Drop for FlushMarker {
 }
 
 impl FlushMarker {
-    fn flush(&mut self, node: &mut NodeLeaf) {
+    fn flush<E: EntryTraits>(&mut self, node: &mut NodeLeaf<E>) where E: Copy + Debug {
         // println!("Flush marker flushing {}", self.0);
         node.update_parent_count(self.0);
         self.0 = 0;
@@ -125,15 +122,15 @@ impl FlushMarker {
 }
 
 
-impl Iterator for Cursor<'_> {
-    type Item = Entry;
+impl<E: EntryTraits> Iterator for Cursor<'_, E> {
+    type Item = E;
 
     fn next(&mut self) -> Option<Self::Item> {
         // I'll set idx to an invalid value
         if self.idx == usize::MAX {
             None
         } else {
-            let current = *self.get_entry();
+            let current = self.get_entry();
             let has_next = self.next_entry();
             if !has_next {
                 self.idx = usize::MAX;
@@ -172,65 +169,9 @@ unsafe fn ref_to_nonnull<T>(val: &T) -> NonNull<T> {
     NonNull::new_unchecked(val as *const _ as *mut _)
 }
 
-impl Entry {
-    fn get_seq_range(self) -> Range<ClientSeq> {
-        self.loc.seq .. self.loc.seq + (self.len.abs() as ClientSeq)
-    }
 
-    fn get_content_len(&self) -> u32 {
-        if self.len < 0 { 0 } else { self.len as u32 }
-    }
 
-    fn get_seq_len(&self) -> u32 {
-        self.len.abs() as u32
-    }
-
-    fn trim_keeping_start(&mut self, cut_at: u32) {
-        self.len = if self.len < 0 { -(cut_at as i32) } else { cut_at as i32 };
-    }
-
-    fn trim_keeping_end(&mut self, cut_at: u32) {
-        self.loc.seq += cut_at;
-        self.len += if self.len < 0 { cut_at as i32 } else { -(cut_at as i32) };
-    }
-
-    // Confusingly CLIENT_INVALID is used both for empty entries and the root entry. But the root
-    // entry will never be a valid entry in the marker tree, so it doesn't matter.
-    fn is_invalid(&self) -> bool {
-        self.loc.agent == CLIENT_INVALID
-    }
-
-    fn is_insert(&self) -> bool {
-        debug_assert!(self.len != 0);
-        self.len > 0
-    }
-
-    fn is_delete(&self) -> bool {
-        !self.is_insert()
-    }
-}
-
-impl SplitableSpan for Entry {
-    // type Item = (); // Eh, this won't be used so its ok.
-
-    fn len(&self) -> usize {
-        todo!()
-    }
-
-    fn truncate(&mut self, at: usize) -> Self {
-        todo!()
-    }
-
-    fn can_append(&self, other: &Self) -> bool {
-        todo!()
-    }
-
-    fn append(&mut self, other: Self) {
-        todo!()
-    }
-}
-
-impl Node {
+impl<E: EntryTraits> Node<E> {
     /// Unsafe: Created leaf has a dangling parent pointer. Must be set after initialization.
     unsafe fn new_leaf() -> Self {
         Node::Leaf(Box::pin(NodeLeaf::new()))
@@ -239,7 +180,7 @@ impl Node {
     //     Node::Leaf(Box::pin(NodeLeaf::new_with_parent(parent)))
     // }
 
-    fn set_parent(&mut self, parent: ParentPtr) {
+    fn set_parent(&mut self, parent: ParentPtr<E>) {
         unsafe {
             match self {
                 Node::Leaf(l) => l.as_mut().get_unchecked_mut().parent = parent,
@@ -255,13 +196,13 @@ impl Node {
     //     }
     // }
 
-    fn unwrap_leaf(&self) -> &NodeLeaf {
+    fn unwrap_leaf(&self) -> &NodeLeaf<E> {
         match self {
             Node::Leaf(l) => l.as_ref().get_ref(),
             Node::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
-    fn unwrap_leaf_mut(&mut self) -> Pin<&mut NodeLeaf> {
+    fn unwrap_leaf_mut(&mut self) -> Pin<&mut NodeLeaf<E>> {
         match self {
             Node::Leaf(l) => l.as_mut(),
             Node::Internal(_) => panic!("Expected leaf - found internal node"),
@@ -273,7 +214,7 @@ impl Node {
     //         Node::Leaf(_) => panic!("Expected internal node"),
     //     }
     // }
-    fn unwrap_internal_mut(&mut self) -> Pin<&mut NodeInternal> {
+    fn unwrap_internal_mut(&mut self) -> Pin<&mut NodeInternal<E>> {
         match self {
             Node::Internal(n) => n.as_mut(),
             Node::Leaf(_) => panic!("Expected internal node"),
@@ -281,7 +222,7 @@ impl Node {
     }
 
     /// Unsafe: The resulting NodePtr is mutable and doesn't have an associated lifetime.
-    unsafe fn as_ptr(&self) -> NodePtr {
+    unsafe fn as_ptr(&self) -> NodePtr<E> {
         match self {
             Node::Internal(n) => {
                 NodePtr::Internal(ref_to_nonnull(n.as_ref().get_ref()))
@@ -292,7 +233,7 @@ impl Node {
         }
     }
 
-    fn ptr_eq(&self, ptr: NodePtr) -> bool {
+    fn ptr_eq(&self, ptr: NodePtr<E>) -> bool {
         match (self, ptr) {
             (Node::Internal(n), NodePtr::Internal(ptr)) => {
                 std::ptr::eq(n.as_ref().get_ref(), ptr.as_ptr())
@@ -305,8 +246,8 @@ impl Node {
     }
 }
 
-impl NodePtr {
-    fn unwrap_leaf(self) -> NonNull<NodeLeaf> {
+impl<E: EntryTraits> NodePtr<E> {
+    fn unwrap_leaf(self) -> NonNull<NodeLeaf<E>> {
         match self {
             NodePtr::Leaf(l) => l,
             NodePtr::Internal(_) => panic!("Expected leaf - found internal node"),

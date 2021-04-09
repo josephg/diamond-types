@@ -21,11 +21,12 @@ pub fn extend_delete(delete: &mut DeleteResult, op: DeleteOp) {
     } else { delete.push(op); }
 }
 
-impl MarkerTree {
+impl<E: EntryTraits> MarkerTree<E> {
     pub fn new() -> Pin<Box<Self>> {
         let mut tree = Box::pin(Self {
             count: 0,
             root: unsafe { Node::new_leaf() },
+            _marker: marker::PhantomData,
             _pin: marker::PhantomPinned,
         });
 
@@ -36,7 +37,7 @@ impl MarkerTree {
         tree
     }
 
-    fn root_ref_mut(self: Pin<&mut Self>) -> &mut Node {
+    fn root_ref_mut(self: Pin<&mut Self>) -> &mut Node<E> {
         unsafe {
             &mut self.get_unchecked_mut().root
         }
@@ -46,11 +47,11 @@ impl MarkerTree {
         self.count as _
     }
 
-    unsafe fn to_parent_ptr(&self) -> ParentPtr {
+    unsafe fn to_parent_ptr(&self) -> ParentPtr<E> {
         ParentPtr::Root(ref_to_nonnull(self))
     }
 
-    pub fn cursor_at_pos(&self, raw_pos: u32, stick_end: bool) -> Cursor {
+    pub fn cursor_at_pos(&self, raw_pos: usize, stick_end: bool) -> Cursor<E> {
         unsafe {
             let mut node = self.root.as_ptr();
             let mut offset_remaining = raw_pos;
@@ -58,7 +59,7 @@ impl MarkerTree {
                 let (new_offset_remaining, next) = data.as_ref()
                     .get_child_ptr(offset_remaining, stick_end)
                     .expect("Internal consistency violation");
-                offset_remaining = new_offset_remaining;
+                offset_remaining = new_offset_remaining as usize;
                 node = next;
             };
 
@@ -75,7 +76,7 @@ impl MarkerTree {
         }
     }
 
-    pub fn iter(&self) -> Cursor {
+    pub fn iter(&self) -> Cursor<E> {
         self.cursor_at_pos(0, false)
     }
 
@@ -85,15 +86,15 @@ impl MarkerTree {
     /// overwritten, else the tree is in an invalid state.
     ///
     /// The location of the gap is returned via the cursor.
-    unsafe fn make_space_in_leaf<F>(cursor: &mut Cursor, flush_marker: Option<&mut FlushMarker>, gap: usize, notify: &mut F)
-        where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
+    unsafe fn make_space_in_leaf<F>(cursor: &mut Cursor<E>, flush_marker: Option<&mut FlushMarker>, gap: usize, notify: &mut F) -> Option<E>
+        where F: FnMut(E, NonNull<NodeLeaf<E>>)
     {
         let mut node = cursor.node.as_mut();
         
         {
             // let mut entry = &mut node.0[cursor.idx];
             // let seq_len = entry.get_seq_len();
-            let seq_len = node.data[cursor.idx].get_seq_len();
+            let seq_len = node.data[cursor.idx].len();
 
             // If we're at the end of the current entry, skip it.
             if cursor.offset == seq_len {
@@ -112,15 +113,15 @@ impl MarkerTree {
 
         // TODO(opt): Consider caching this in each leaf.
         // let mut filled_entries = node.count_entries();
-        let num_filled = node.len as usize;
+        let num_filled = node.num_entries as usize;
 
         // Bail if we don't need to make space or we're trying to insert at the end.
-        if space_needed == 0 { return; }
+        if space_needed == 0 { return None; }
         if cursor.idx == num_filled && num_filled + space_needed <= NUM_ENTRIES {
             // There's room at the end of the leaf.
             debug_assert!(cursor.offset == 0);
-            node.len += gap as u8;
-            return;
+            node.num_entries += gap as u8;
+            return None;
         }
 
         if num_filled + space_needed > NUM_ENTRIES {
@@ -158,31 +159,36 @@ impl MarkerTree {
         // There's room in the node itself now. We need to reshuffle.
         let src_idx = cursor.idx;
         let dest_idx = src_idx + space_needed;
-        let num_copied = node.len as usize - src_idx;
-        node.len += space_needed as u8;
+        let num_copied = node.num_entries as usize - src_idx;
+        node.num_entries += space_needed as u8;
 
         if num_copied > 0 {
             ptr::copy(&node.data[src_idx], &mut node.data[dest_idx], num_copied);
         }
         
         // Tidy up the edges
-        if cursor.offset > 0 {
+        return if cursor.offset > 0 {
             debug_assert!(num_copied > 0);
-            node.data[src_idx].trim_keeping_start(cursor.offset);
-            node.data[dest_idx].trim_keeping_end(cursor.offset);
+            // node.data[src_idx].trim_keeping_start(cursor.offset);
+            // node.data[dest_idx].trim_keeping_end(cursor.offset);
+            let remainder = node.data[src_idx].truncate(cursor.offset);
+            node.data[dest_idx] = node.data[dest_idx].truncate(cursor.offset);
             cursor.idx += 1;
             cursor.offset = 0;
-        }
+            Some(remainder)
+        } else { None }
     }
 
     /**
      * Insert a new CRDT insert / delete at some raw position in the document
      */
-    pub fn insert<F>(self: &Pin<Box<Self>>, mut cursor: Cursor, len: ClientSeq, new_loc: CRDTLocation, mut notify: F)
-        where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
+    // pub fn insert<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, len: usize, new_loc: CRDTLocation, mut notify: F)
+    pub fn insert<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, new_entry: E, mut notify: F)
+        where F: FnMut(E, NonNull<NodeLeaf<E>>)
     {
+        let len = new_entry.content_len();
         let expected_size = self.count + len;
-        assert_ne!(new_loc.agent, CLIENT_INVALID, "Cannot insert root node into marker tree");
+        // assert_ne!(new_loc.agent, CLIENT_INVALID, "Cannot insert root node into marker tree");
 
         // if cfg!(debug_assertions) {
         //     self.as_ref().get_ref().check();
@@ -193,46 +199,39 @@ impl MarkerTree {
 
         // let mut cursor = self.cursor_at_pos(raw_pos, true);
         unsafe {
-            // Insert has 3 cases:
-            // - 1. The entry can be extended. We can do this inline.
-            // - 2. The inserted text is at the end an entry, but the entry cannot
+            // Insert has 4 cases:
+            // 0. The leaf is empty, because the tree is new. Just insert at the start.
+            // 1. The entry can be extended. We can do this inline.
+            // 2. The inserted text is at the end an entry, but the entry cannot
             //   be extended. We need to add 1 new entry to the leaf.
-            // - 3. The inserted text is in the middle of an entry. We need to
+            // 3. The inserted text is in the middle of an entry. We need to
             //   split the entry and insert a new entry in the middle. We need
             //   to add 2 new entries.
 
-            let old_len = cursor.node.as_ref().len;
+            let old_num_entries = cursor.node.as_ref().num_entries;
             let old_entry = &mut cursor.node.as_mut().data[cursor.idx];
 
             // We also want case 2 if the node is brand new...
-            if cursor.idx == 0 && old_len == 0 /*old_entry.loc.client == CLIENT_INVALID*/ {
+            if cursor.idx == 0 && old_num_entries == 0 /*old_entry.loc.client == CLIENT_INVALID*/ {
                 // println!("insert case 0");
-                *old_entry = Entry {
-                    loc: new_loc,
-                    len: len as i32,
-                };
-                cursor.node.as_mut().len = 1;
+                *old_entry = new_entry;
+                cursor.node.as_mut().num_entries = 1;
                 cursor.node.as_mut().update_parent_count(len as i32);
-                notify(new_loc, len, cursor.node);
-            } else if old_entry.len > 0 && old_entry.len as u32 == cursor.offset
-                    && old_entry.loc.agent == new_loc.agent
-                    && old_entry.loc.seq + old_entry.len as u32 == new_loc.seq {
+                notify(new_entry, cursor.node);
+            } else if old_entry.can_append(&new_entry) {
                 // Case 1 - Extend the entry.
                 // println!("insert case 1");
-                old_entry.len += len as i32;
+                old_entry.append(new_entry);
                 cursor.node.as_mut().update_parent_count(len as i32);
-                notify(new_loc, len, cursor.node);
+                notify(new_entry, cursor.node);
             } else {
                 // Case 2 and 3.
                 // println!("insert case 2 and 3");
                 Self::make_space_in_leaf(&mut cursor, None, 1, &mut notify); // This will update len for us
-                cursor.node.as_mut().data[cursor.idx] = Entry {
-                    loc: new_loc,
-                    len: len as i32
-                };
-                debug_assert!(cursor.node.as_ref().len >= 1);
+                cursor.node.as_mut().data[cursor.idx] = new_entry;
+                debug_assert!(cursor.node.as_ref().num_entries >= 1);
                 cursor.node.as_mut().update_parent_count(len as i32);
-                notify(new_loc, len, cursor.node);
+                notify(new_entry, cursor.node);
             }
         }
 
@@ -245,7 +244,7 @@ impl MarkerTree {
         }
     }
 
-    fn next_entry_or_panic(cursor: &mut Cursor, marker: &mut FlushMarker) {
+    fn next_entry_or_panic(cursor: &mut Cursor<E>, marker: &mut FlushMarker) {
         if cursor.next_entry_marker(Some(marker)) == false {
             panic!("Local delete past the end of the document");
         }
@@ -256,8 +255,8 @@ impl MarkerTree {
     // second case there may be local inserts inside the range that should be
     // preserved).
     // TODO: Should we pass cursor by val or by ref?
-    pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor, deleted_len: ClientSeq, mut notify: F) -> DeleteResult
-        where F: FnMut(CRDTLocation, ClientSeq, NonNull<NodeLeaf>)
+    pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, deleted_len: usize, mut notify: F) -> DeleteResult
+        where F: FnMut(E, NonNull<NodeLeaf<E>>)
     {
         let expected_size = self.count - deleted_len;
 
@@ -289,9 +288,9 @@ impl MarkerTree {
                 // println!("Flush {:?}", flush_marker);
 
                 let node = cursor.get_node_mut();
-                let mut entry = &mut node.data[cursor.idx];
-                let entry_len = entry.get_content_len();
-                debug_assert!(entry_len > 0); // We should have skipped already deleted nodes.
+                let mut entry: &mut E = &mut node.data[cursor.idx];
+                let entry_len = entry.content_len();
+                debug_assert!(entry.is_insert()); // We should have skipped already deleted nodes.
 
                 // Delete as many characters as we can in the document each time through this loop.
                 // There's 4 semi-overlapping cases here. <xxx> marks deleted characters
@@ -308,10 +307,10 @@ impl MarkerTree {
                         // Case 1. Delete the whole entry and iterate.
                         // println!("case 1 <xxx>");
                         extend_delete(&mut result, DeleteOp {
-                            loc: entry.loc,
-                            len: entry.len as _
+                            loc: entry.at_offset(0),
+                            len: entry.len() as _
                         });
-                        entry.len = -entry.len;
+                        entry.toggle_deleted();
                         delete_remaining -= entry_len;
                         flush_marker.0 -= entry_len as i32;
 
@@ -321,14 +320,15 @@ impl MarkerTree {
                         } else {
                             // It probably doesn't matter, but its cleaner to leave the cursor in a
                             // consistent position after this method is called.
-                            cursor.offset = -entry.len as u32;
+                            // EDit: No it doesn't - we're taking cursor byval.
+                            // cursor.offset = -entry.len as u32;
                         }
                     } else {
                         // Case 2 - <xxx>test
                         // println!("case 2 <xxx>test");
                         extend_delete(&mut result, DeleteOp {
-                            loc: entry.loc,
-                            len: delete_remaining
+                            loc: entry.at_offset(0),
+                            len: delete_remaining as _
                         });
 
                         // So this seems is a bit weird. We need to split the node, and mark the
@@ -338,8 +338,8 @@ impl MarkerTree {
                         // instead in this case I'm going to mark the whole entry as deleted, then
                         // split it, and then undelete the second part of the entry. Which is also
                         // weird.
-                        flush_marker.0 -= entry.len;
-                        entry.len = -entry.len;
+                        flush_marker.0 -= entry.content_len() as i32;
+                        entry.toggle_deleted();
                         // This is less performant than it could be. I'm doing this because cursor
                         // node could change in make_space_in_leaf. The deopt here is probably less
                         // of a big deal due to CPU caching.
@@ -354,8 +354,8 @@ impl MarkerTree {
                         // which might be in a subsequent btree node. Undelete it.
                         
                         let next_entry = cursor.get_entry_mut();
-                        flush_marker.0 -= next_entry.len;
-                        next_entry.len = -next_entry.len;
+                        flush_marker.0 += next_entry.len() as i32;
+                        next_entry.toggle_deleted();
 
                         delete_remaining = 0;
                     }
@@ -371,15 +371,20 @@ impl MarkerTree {
                     };
 
                     extend_delete(&mut result, DeleteOp {
-                        loc: CRDTLocation {
-                            agent: entry.loc.agent,
-                            seq: entry.loc.seq + cursor.offset
-                        },
-                        len: deleted_len_here
+                        loc: entry.at_offset(cursor.offset),
+                        len: deleted_len_here as _
                     });
 
-                    let prev_entry = *cursor.get_entry();
-                    Self::make_space_in_leaf(&mut cursor, Some(&mut flush_marker), gap, &mut notify);
+                    let prev_entry = cursor.get_entry();
+                    let remainder = Self::make_space_in_leaf(&mut cursor, Some(&mut flush_marker), gap, &mut notify);
+
+                    // Since we cut in the middle of an element (cases 3/4), this is safe.
+                    let mut remainder = remainder.unwrap();
+                    debug_assert!(remainder.is_insert());
+                    // dbg!(remainder.len(), deleted_len_here);
+                    debug_assert!(remainder.len() >= deleted_len_here); // Should be the same in case 3, less in case 4.
+                    remainder.toggle_deleted();
+                    remainder.truncate(deleted_len_here);
 
                     // println!("Space made. Node now {:#?} cursor {:?} entry {:?}", cursor.get_node_mut(), cursor, cursor.get_entry());
 
@@ -387,13 +392,14 @@ impl MarkerTree {
                     // newly split off content.
 
                     // The deleted entry, which might be the gap!
-                    *cursor.get_entry_mut() = Entry {
-                        loc: CRDTLocation {
-                            agent: prev_entry.loc.agent,
-                            seq: prev_entry.loc.seq + start_offset,
-                        },
-                        len: -(deleted_len_here as i32),
-                    };
+                    *cursor.get_entry_mut() = remainder;
+                    // *cursor.get_entry_mut() = Entry {
+                    //     loc: CRDTLocation {
+                    //         agent: prev_entry.loc.agent,
+                    //         seq: prev_entry.loc.seq + start_offset,
+                    //     },
+                    //     len: -(deleted_len_here as i32),
+                    // };
 
                     flush_marker.0 -= deleted_len_here as i32;
 
@@ -407,8 +413,9 @@ impl MarkerTree {
                         Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
                         let remainder_entry = cursor.get_entry_mut();
                         debug_assert!(remainder_entry.is_insert());
-                        remainder_entry.loc.seq += deleted_len_here;
-                        remainder_entry.len -= deleted_len_here as i32;
+                        *remainder_entry = remainder_entry.truncate(deleted_len_here);
+                        // remainder_entry.loc.seq += deleted_len_here;
+                        // remainder_entry.len -= deleted_len_here as i32;
                     }
 
                     delete_remaining -= deleted_len_here;
@@ -432,7 +439,7 @@ impl MarkerTree {
     }
 
     // Returns size.
-    fn check_leaf(leaf: &NodeLeaf, expected_parent: ParentPtr) -> usize {
+    fn check_leaf(leaf: &NodeLeaf<E>, expected_parent: ParentPtr<E>) -> usize {
         assert_eq!(leaf.parent, expected_parent);
         
         let mut count: usize = 0;
@@ -445,8 +452,8 @@ impl MarkerTree {
             } else {
                 // Make sure there's no data after an invalid entry
                 assert_eq!(done, false, "Leaf contains gaps");
-                assert_ne!(e.len, 0, "Invalid leaf - 0 length");
-                count += e.get_content_len() as usize;
+                assert_ne!(e.len(), 0, "Invalid leaf - 0 length");
+                count += e.content_len() as usize;
                 num += 1;
             }
         }
@@ -456,13 +463,13 @@ impl MarkerTree {
             assert!(num > 0, "Non-root leaf is empty");
         }
 
-        assert_eq!(num, leaf.len as usize, "Cached leaf len does not match");
+        assert_eq!(num, leaf.num_entries as usize, "Cached leaf len does not match");
 
         count
     }
     
     // Returns size.
-    fn check_internal(node: &NodeInternal, expected_parent: ParentPtr) -> usize {
+    fn check_internal(node: &NodeInternal<E>, expected_parent: ParentPtr<E>) -> usize {
         assert_eq!(node.parent, expected_parent);
         
         let mut count_total: usize = 0;
@@ -519,7 +526,7 @@ impl MarkerTree {
         assert_eq!(self.count as usize, expected_size);
     }
 
-    fn print_node(node: &Node, depth: usize) {
+    fn print_node(node: &Node<E>, depth: usize) {
         for _ in 0..depth { eprint!("  "); }
         match node {
             Node::Internal(n) => {
@@ -549,11 +556,11 @@ impl MarkerTree {
         Self::print_node(&self.root, 1);
     }
 
-    pub unsafe fn lookup_position(loc: CRDTLocation, ptr: NonNull<NodeLeaf>) -> u32 {
+    pub unsafe fn lookup_position(loc: CRDTLocation, ptr: NonNull<NodeLeaf<E>>) -> u32 {
         // First make a cursor to the specified item
         let leaf = ptr.as_ref();
         let cursor = leaf.find(loc).expect("Position not in named leaf");
-        cursor.get_pos()
+        cursor.get_pos() as _
     }
 
     pub fn print_stats(&self) {
@@ -562,7 +569,7 @@ impl MarkerTree {
 
         for entry in self.iter() {
             // println!("entry {:?}", entry);
-            let bucket = entry.get_seq_len() as usize;
+            let bucket = entry.len() as usize;
             if bucket >= size_counts.len() {
                 size_counts.resize(bucket + 1, 0);
             }
@@ -576,7 +583,7 @@ impl MarkerTree {
 // I'm really not sure where to put this method. Its not really associated with
 // any of the tree implementation methods. This seems like a hidden spot. Maybe
 // mod.rs? I could put it in impl ParentPtr? I dunno...
-pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Node, mut insert_after: NodePtr, mut stolen_length: u32) {
+pub(super) fn insert_after<E: EntryTraits>(mut parent: ParentPtr<E>, mut inserted_node: Node<E>, mut insert_after: NodePtr<E>, mut stolen_length: u32) {
     unsafe {
         // Ok now we need to walk up the tree trying to insert. At each step
         // we will try and insert inserted_node into parent next to old_node
@@ -615,7 +622,7 @@ pub(super) fn insert_after(mut parent: ParentPtr, mut inserted_node: Node, mut i
                     // *inserted_node.get_parent_mut() = parent_ptr;
 
                     let root = r.as_mut();
-                    let count = root.count;
+                    let count = root.count as u32;
                     let mut new_root_ref = root.root.unwrap_internal_mut();
                     // let parent_ptr = ParentPtr::Internal(NonNull::new_unchecked(new_root_ref));
                     let parent_ptr = new_root_ref.as_ref().to_parent_ptr();

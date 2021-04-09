@@ -29,14 +29,14 @@ fn random_inserts_deletes() {
         if doc_len == 0 || rng.gen_bool(insert_weight) {
             // Insert something.
             let pos = rng.gen_range(0..=doc_len);
-            let len: u32 = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
+            let len: usize = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
             state.insert(0, pos, random_str(len as usize, &mut rng).as_str());
             doc_len += len;
         } else {
             // Delete something
             let pos = rng.gen_range(0..doc_len);
             // println!("range {}", u32::min(10, doc_len - pos));
-            let len = rng.gen_range(1..=u32::min(10, doc_len - pos));
+            let len = rng.gen_range(1..=usize::min(10, doc_len - pos));
             state.delete(0, pos, len);
             doc_len -= len;
         }

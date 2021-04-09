@@ -5,6 +5,7 @@ use text_crdt_rust::*;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::BufReader;
+use std::sync::atomic::Ordering;
 
 #[derive(Debug, Clone, Deserialize)]
 struct Edit(usize, usize, String);
@@ -43,10 +44,12 @@ pub fn automerge_perf_benchmarks(c: &mut Criterion) {
         let u = get_data();
 
         b.iter(|| {
+            // println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
             let mut state = CRDTState::new();
             apply_edits(&mut state, &u.edits);
             // println!("len {}", state.len());
             assert_eq!(state.len(), u.finalText.len());
+            // println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
             black_box(state.len());
         })
     });
@@ -56,12 +59,16 @@ pub fn automerge_perf_benchmarks(c: &mut Criterion) {
             let u = get_data();
 
             b.iter(|| {
+                // println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
+
                 let mut state = CRDTState::new();
                 for _ in 0..100 {
                     apply_edits(&mut state, &u.edits);
                 }
                 // println!("len {}", state.len());
                 assert_eq!(state.len(), u.finalText.len() * 100);
+                // println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
+
                 black_box(state.len());
             })
         });
