@@ -96,7 +96,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
         //     return (idx, BucketCursor { idx: bucket_idx, offset: bucket[bucket_idx].len() });
         // }
 
-        // assert!(index < self.total_len, "Item past end of list");
+        assert!(index <= self.total_len, "Item past end of list");
         // Not sure what we should do if the requested position is the last element...
 
         let bucket_id = index / self.bucket_size;

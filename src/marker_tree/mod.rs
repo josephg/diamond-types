@@ -7,6 +7,7 @@ mod root;
 mod leaf;
 mod internal;
 mod entry;
+mod root2;
 
 // pub(crate) use cursor::Cursor;
 
@@ -21,18 +22,19 @@ pub use root::DeleteResult;
 use std::fmt::Debug;
 use crate::marker_tree::entry::EntryTraits;
 pub use entry::Entry;
+use std::cell::Cell;
 
 #[cfg(debug_assertions)]
-const MAX_CHILDREN: usize = 8; // This needs to be minimum 8.
+const NUM_NODE_CHILDREN: usize = 8; // This needs to be minimum 8.
 #[cfg(not(debug_assertions))]
-const MAX_CHILDREN: usize = 16;
+const NUM_NODE_CHILDREN: usize = 16;
 
 
-// Must fit in u8.
+// Must fit in u8, and must be >= 4 due to limitations in splice_insert.
 #[cfg(debug_assertions)]
-const NUM_ENTRIES: usize = 4;
+const NUM_LEAF_ENTRIES: usize = 4;
 #[cfg(not(debug_assertions))]
-const NUM_ENTRIES: usize = 32;
+const NUM_LEAF_ENTRIES: usize = 32;
 
 
 // This is the root of the tree. There's a bit of double-deref going on when you
@@ -42,7 +44,12 @@ const NUM_ENTRIES: usize = 32;
 pub struct MarkerTree<E: EntryTraits> {
     count: usize,
     root: Node<E>,
-    _marker: marker::PhantomData<E>, // I don't know why this is needed but it is.
+
+    // Usually inserts and deletes are followed by more inserts / deletes at the same location.
+    // We cache the last cursor position so we can reuse cursors between edits.
+    // TODO: Currently unused.
+    last_cursor: Cell<Option<(usize, Cursor<E>)>>,
+
     _pin: marker::PhantomPinned,
 }
 
@@ -73,7 +80,7 @@ struct NodeInternal<E: EntryTraits> {
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
     // ItemCount only includes items which haven't been deleted.
-    data: [(ItemCount, Option<Node<E>>); MAX_CHILDREN],
+    data: [(ItemCount, Option<Node<E>>); NUM_NODE_CHILDREN],
     _pin: PhantomPinned, // Needed because children have parent pointers here.
     _drop: PrintDropInternal,
 }
@@ -85,23 +92,24 @@ pub struct NodeLeaf<E: EntryTraits> {
     parent: ParentPtr<E>,
     num_entries: u8, // Number of entries which have been populated
     // data: [Entry; NUM_ENTRIES],
-    data: [E; NUM_ENTRIES],
+    data: [E; NUM_LEAF_ENTRIES],
     _pin: PhantomPinned, // Needed because cursors point here.
     _drop: PrintDropLeaf
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct Cursor<'a, E: EntryTraits> {
+// pub struct Cursor<'a, E: EntryTraits> {
+pub struct Cursor<E: EntryTraits> {
 // pub struct Cursor {
     node: NonNull<NodeLeaf<E>>,
     idx: usize,
     offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
-    _marker: marker::PhantomData<&'a MarkerTree<E>>,
+    // _marker: marker::PhantomData<&'a MarkerTree<E>>,
 }
 
 /// Helper struct to track pending size changes in the document which need to be propagated
 #[derive(Debug)]
-pub struct FlushMarker(i32);
+pub struct FlushMarker(isize);
 
 impl Drop for FlushMarker {
     fn drop(&mut self) {
@@ -114,15 +122,24 @@ impl Drop for FlushMarker {
 }
 
 impl FlushMarker {
-    fn flush<E: EntryTraits>(&mut self, node: &mut NodeLeaf<E>) where E: Copy + Debug {
+    // TODO: This should take a Pin<> or be unsafe or something. This is unsound because we could
+    // move node.
+    fn flush<E: EntryTraits>(&mut self, node: &mut NodeLeaf<E>) {
         // println!("Flush marker flushing {}", self.0);
-        node.update_parent_count(self.0);
+        node.update_parent_count(self.0 as i32);
         self.0 = 0;
+    }
+
+    fn flush_opt<E: EntryTraits>(opt: &mut Option<&mut Self>, node: &mut NodeLeaf<E>) {
+        if let Some(marker) = opt {
+            marker.flush(node);
+        }
     }
 }
 
 
-impl<E: EntryTraits> Iterator for Cursor<'_, E> {
+// impl<E: EntryTraits> Iterator for Cursor<'_, E> {
+impl<E: EntryTraits> Iterator for Cursor<E> {
     type Item = E;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -1,20 +1,24 @@
 use super::*;
 
-impl<'a, E: EntryTraits> Cursor<'a, E> {
+// impl<'a, E: EntryTraits> Cursor<'a, E> {
+impl<E: EntryTraits> Cursor<E> {
     pub(super) fn new(node: NonNull<NodeLeaf<E>>, idx: usize, offset: usize) -> Self {
         // TODO: This is creating a cursor with 'static lifetime, which isn't really what we want.
         Cursor {
             node, idx, offset,
-            _marker: marker::PhantomData
+            // _marker: marker::PhantomData
         }
     }
 
     pub(super) unsafe fn get_node_mut(&self) -> &mut NodeLeaf<E> {
         &mut *self.node.as_ptr()
     }
+    pub(super) fn get_node(&self) -> &NodeLeaf<E> {
+        unsafe { self.node.as_ref() }
+    }
 
     /// Internal method for prev_entry and next_entry when we need to move laterally.
-    fn traverse(&mut self, direction_forward: bool) -> bool {
+    pub fn traverse(&mut self, direction_forward: bool) -> bool {
         // println!("** traverse called {:?} {}", self, traverse_next);
         // idx is 0. Go up as far as we can until we get to an index that has room, or we hit the
         // root.
@@ -35,7 +39,7 @@ impl<'a, E: EntryTraits> Cursor<'a, E> {
                         let next_idx = idx + 1;
                         // This would be much cleaner if I put a len field in NodeInternal instead.
                         // TODO: Consider using node_ref.count_children() instead of this mess.
-                        if (next_idx < MAX_CHILDREN) && node_ref.data[next_idx].1.is_some() {
+                        if (next_idx < NUM_NODE_CHILDREN) && node_ref.data[next_idx].1.is_some() {
                             Some(next_idx)
                         } else { None }
                     } else {
@@ -111,12 +115,12 @@ impl<'a, E: EntryTraits> Cursor<'a, E> {
         }
     }
 
-    fn prev_entry(&mut self) -> bool {
+    pub(super) fn prev_entry(&mut self) -> bool {
         self.prev_entry_marker(None)
     }
 
     pub(super) fn next_entry_marker(&mut self, marker: Option<&mut FlushMarker>) -> bool {
-        // TODO: Do this without code duplication.
+        // TODO: Do this without code duplication of next/prev entry marker.
         unsafe {
             if self.idx + 1 < self.node.as_ref().num_entries as usize {
                 self.idx += 1;
@@ -135,7 +139,7 @@ impl<'a, E: EntryTraits> Cursor<'a, E> {
         self.next_entry_marker(None)
     }
 
-    pub(super) fn get_pos(&self) -> usize {
+    pub(super) fn count_pos(&self) -> usize {
         let node = unsafe { self.node.as_ref() };
         
         let mut pos: usize = 0;

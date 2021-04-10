@@ -1,8 +1,11 @@
 use crate::marker_tree::entry::EntryTraits;
-use crate::marker_tree::{MarkerTree, Cursor, NodeLeaf, FlushMarker, NUM_LEAF_ENTRIES};
+use crate::marker_tree::{MarkerTree, Cursor, NodeLeaf, FlushMarker, NUM_LEAF_ENTRIES, DeleteResult};
 use std::ptr::NonNull;
 use std::ptr;
 use std::pin::Pin;
+use smallvec::SmallVec;
+use crate::marker_tree::root::{extend_delete, DeleteOp};
+use std::mem::swap;
 
 impl<E: EntryTraits> MarkerTree<E> {
 
@@ -63,21 +66,11 @@ impl<E: EntryTraits> MarkerTree<E> {
                 } else { break; }
             }
             if items_idx == items.len() && remainder.is_none() {
-                return; // WE're done here.
+                return; // WE're done here. Cursor is at the end of the previous entry.
             }
             items = &items[items_idx..];
+            debug_assert!(items.len() >= 1);
 
-            // roll_next, but don't skip empty entries in the node.
-            // if cursor.idx + 1 == NUM_LEAF_ENTRIES {
-            //     flush_marker.flush(node);
-            //     dbg!(cursor.traverse(true));
-            //     assert_eq!(cursor.offset, 0);
-            //     // cursor.offset = 0;
-            //     // cursor.next_entry_marker(flush_marker);
-            // } else {
-            //     cursor.offset = 0;
-            //     cursor.idx += 1;
-            // }
             cursor.offset = 0;
             cursor.idx += 1; // NOTE: Cursor might point past the end of the node.
         }
@@ -133,10 +126,10 @@ impl<E: EntryTraits> MarkerTree<E> {
             notify(*e, cursor.node);
         }
         node.data[cursor.idx..cursor.idx + items.len()].copy_from_slice(items);
-        cursor.idx += items.len();
 
-        // cursor.offset = node.data[idx].len();
-        cursor.offset = 0; // Mmm might be better to roll back to the end of the prev element here.
+        // Point the cursor to the end of the last inserted item.
+        cursor.idx += items.len() - 1;
+        cursor.offset = items[items.len() - 1].len();
 
         // The cursor isn't updated to point after remainder.
         if let Some(e) = remainder {
@@ -144,8 +137,27 @@ impl<E: EntryTraits> MarkerTree<E> {
             if remainder_moved {
                 notify(e, cursor.node);
             }
-            node.data[cursor.idx] = e;
+            node.data[cursor.idx + 1] = e;
         }
+    }
+
+    /// Replace the item at the cursor position with the new items provided by items.
+    ///
+    /// Items must have a maximum length of 3, due to limitations in split_insert above.
+    /// The cursor's offset is ignored. The cursor ends up at the end of the inserted items.
+    pub fn replace_entry<F>(self: &Pin<Box<Self>>, cursor: &mut Cursor<E>, mut items: &[E], flush_marker: &mut FlushMarker, notify: &mut F)
+        where F: FnMut(E, NonNull<NodeLeaf<E>>) {
+        assert!(items.len() >= 1 && items.len() <= 3);
+
+        let entry = cursor.get_entry_mut();
+        // println!("replace_entry {:?} {:?} with {:?}", flush_marker.0, &entry, items);
+        flush_marker.0 -= entry.content_len() as isize;
+        *entry = items[0];
+        flush_marker.0 += entry.content_len() as isize;
+        cursor.offset = entry.len();
+
+        // And insert the rest.
+        self.splice_insert(&items[1..], cursor, flush_marker, notify);
     }
 
     pub fn insert<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, new_entry: E, mut notify: F)
@@ -170,6 +182,186 @@ impl<E: EntryTraits> MarkerTree<E> {
             assert_eq!(expected_size, self.count);
         }
     }
+
+    pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, deleted_len: usize, mut notify: F) -> DeleteResult
+        where F: FnMut(E, NonNull<NodeLeaf<E>>) {
+        // println!("local_delete len: {} at cursor {:?}", deleted_len, cursor);
+
+        let cursor_pos = cursor.count_pos();
+        assert!(cursor_pos + deleted_len <= self.count);
+        // dbg!(cursor_pos, self.count);
+
+        let expected_size = self.count - deleted_len;
+        let mut result: DeleteResult = SmallVec::default();
+        let mut flush_marker = FlushMarker(0);
+        let mut delete_remaining = deleted_len;
+        cursor.roll_to_next(false);
+
+        while delete_remaining > 0 {
+            // Mark as much as we can for delete in the current node.
+            // dbg!(cursor, delete_remaining);
+            // dbg!(cursor.get_node());
+            debug_assert!(!cursor.get_entry().is_invalid());
+            // dbg!(cursor.get_entry());
+
+            while cursor.get_entry().is_delete() {
+                Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
+            }
+
+            let node = unsafe { cursor.get_node_mut() };
+            let mut entry: E = node.data[cursor.idx];
+            let mut entry_len = entry.content_len();
+            debug_assert!(entry.is_insert()); // We should have skipped already deleted nodes.
+
+            // dbg!(cursor, entry);
+            assert!(cursor.offset < entry_len);
+
+            // Delete as many characters as we can in the document each time through this loop.
+            // There's 1-3 parts here - part1<part2>part3
+
+            // Trim off the first part
+            let a = if cursor.offset > 0 {
+                entry_len -= cursor.offset;
+                Some(entry.truncate_keeping_right(cursor.offset))
+            } else { None };
+
+            // Trim off the last part
+            let (c, deleted_here) = if delete_remaining < entry_len {
+                (Some(entry.truncate(delete_remaining)), delete_remaining)
+            } else { (None, entry_len) };
+
+            entry.mark_deleted();
+            extend_delete(&mut result, DeleteOp {
+                loc: entry.at_offset(0),
+                len: deleted_here as _
+            });
+
+            if let Some(a) = a {
+                if let Some(c) = c {
+                    self.replace_entry(&mut cursor, &[a, entry, c], &mut flush_marker, &mut notify);
+                } else {
+                    self.replace_entry(&mut cursor, &[a, entry], &mut flush_marker, &mut notify);
+                }
+            } else {
+                if let Some(c) = c {
+                    self.replace_entry(&mut cursor, &[entry, c], &mut flush_marker, &mut notify);
+                } else {
+                    // self.replace_entry(&mut cursor, &[entry], &mut flush_marker, &mut notify);
+                    node.data[cursor.idx] = entry;
+                    cursor.offset = deleted_here;
+                    flush_marker.0 -= deleted_here as isize;
+                }
+            }
+            delete_remaining -= deleted_here;
+        }
+
+        // The cursor is potentially after any remainder.
+        flush_marker.flush(unsafe { cursor.get_node_mut() });
+
+        result
+    }
+
+    pub fn local_delete2<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, deleted_len: usize, mut notify: F) -> DeleteResult
+        where F: FnMut(E, NonNull<NodeLeaf<E>>) {
+        let expected_size = self.count - deleted_len;
+        let mut result: DeleteResult = SmallVec::default();
+        let mut flush_marker = FlushMarker(0);
+        cursor.roll_to_next(false);
+        let mut delete_remaining = deleted_len;
+
+        while delete_remaining > 0 {
+            // Mark as much as we can for delete in the current node.
+            while cursor.get_entry().is_delete() {
+                Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
+            }
+
+            let node = unsafe { cursor.get_node_mut() };
+            let mut entry: &mut E = &mut node.data[cursor.idx];
+            let entry_len = entry.content_len();
+            debug_assert!(entry.is_insert()); // We should have skipped already deleted nodes.
+
+
+            // Delete as many characters as we can in the document each time through this loop.
+            // There's 4 semi-overlapping cases here. <xxx> marks deleted characters
+            // 1. <xxx>
+            // 2. <xxx>text
+            // 3. text<xxx>
+            // 4. te<xxx>xt
+            //
+            // In cases 2, 3 and 4 we will need to split the current node.
+
+            if cursor.offset == 0 {
+                // dbg!(&entry, delete_remaining);
+                // Cases 1 and 2. We'll mark the entry for delete
+
+                // First trim off any remaining inserts that should be unaffected.
+
+                // We'll pull the remainder off, and mark the rest deleted. It all ends up in
+                // flush_marker anyway.
+                flush_marker.0 -= entry_len as isize;
+
+                let (remainder, deleted_here) = if delete_remaining < entry_len {
+                    // Case 2 - <xxx>text
+                    let remainder = entry.truncate(delete_remaining);
+                    (Some(remainder), delete_remaining)
+                } else { (None, entry_len) };
+
+                extend_delete(&mut result, DeleteOp {
+                    loc: entry.at_offset(0),
+                    len: deleted_here as _
+                });
+                entry.mark_deleted();
+                cursor.offset = deleted_here; // Move to the end of entry.
+                // And re-insert remainder.
+                if let Some(remainder) = remainder {
+                    // dbg!(&remainder);
+                    // This will update flush_marker for us, and move the cursor after remainder.
+                    self.splice_insert(&[remainder], &mut cursor, &mut flush_marker, &mut notify);
+                }
+
+                delete_remaining -= deleted_here;
+            } else {
+                // Cases 3 and 4. We need to first split the content we want to leave in place.
+
+                // There's 2 or 3 parts here - part1<part2>part3. middle is parts 2 and 3.
+                debug_assert!(cursor.offset < entry_len);
+                let middle_len = entry_len - cursor.offset; // <xxx>aaa or <xxx>
+                flush_marker.0 -= middle_len as isize;
+                let mut middle = entry.truncate(cursor.offset);
+                debug_assert_eq!(middle.len(), middle_len);
+
+                // Peel off part 3.
+                let (remainder, deleted_here) = if delete_remaining < middle_len {
+                    // Case 4 - te<xxx>st
+                    let remainder = middle.truncate(delete_remaining);
+                    (Some(remainder), delete_remaining)
+                } else {
+                    (None, middle_len)
+                };
+                // Now middle is just part 2, and remainder is part 3.
+                extend_delete(&mut result, DeleteOp {
+                    loc: middle.at_offset(0),
+                    len: deleted_here as _
+                });
+
+                // Mark middle for deletion and insert back.
+                middle.mark_deleted();
+                if let Some(r) = remainder {
+                    self.splice_insert(&[middle, r], &mut cursor, &mut flush_marker, &mut notify);
+                } else {
+                    self.splice_insert(&[middle], &mut cursor, &mut flush_marker, &mut notify);
+                }
+
+                delete_remaining -= deleted_here;
+            }
+        }
+
+        // The cursor is potentially after any remainder.
+        flush_marker.flush(unsafe { cursor.get_node_mut() });
+
+        result
+    }
+
 }
 
 

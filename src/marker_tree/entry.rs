@@ -14,7 +14,12 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
     fn is_delete(&self) -> bool {
         !self.is_insert()
     }
+
+    fn truncate_keeping_right(&mut self, at: usize) -> Self;
+
+    // TODO: Remove this.
     fn toggle_deleted(&mut self);
+    fn mark_deleted(&mut self);
 
     fn contains(&self, loc: CRDTLocation) -> Option<usize>;
     fn is_invalid(&self) -> bool;
@@ -83,8 +88,22 @@ impl EntryTraits for Entry {
         self.len > 0
     }
 
+    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        let other = Entry {
+            loc: self.loc,
+            len: at as i32 * self.len.signum()
+        };
+        self.loc.seq += at as u32;
+        self.len += if self.len < 0 { at as i32 } else { -(at as i32) };
+        other
+    }
+
     // Bleh..
     fn toggle_deleted(&mut self) {
+        self.len = -self.len
+    }
+    fn mark_deleted(&mut self) {
+        debug_assert!(self.is_insert());
         self.len = -self.len
     }
 
@@ -122,6 +141,8 @@ impl SplitableSpan for Entry {
     }
 
     fn truncate(&mut self, at: usize) -> Self {
+        debug_assert!(at < self.len());
+
         let sign = self.len.signum();
 
         let other = Entry {

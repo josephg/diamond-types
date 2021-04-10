@@ -5,7 +5,7 @@ impl<E: EntryTraits> NodeInternal<E> {
     pub(super) fn new_with_parent(parent: ParentPtr<E>) -> Pin<Box<Self>> {
         // From the example in the docs:
         // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#initializing-an-array-element-by-element
-        let mut children: [MaybeUninit<(ItemCount, Option<Node<E>>)>; MAX_CHILDREN] = unsafe {
+        let mut children: [MaybeUninit<(ItemCount, Option<Node<E>>)>; NUM_NODE_CHILDREN] = unsafe {
             MaybeUninit::uninit().assume_init() // Safe because `MaybeUninit`s don't require init.
         };
         for elem in &mut children[..] {
@@ -14,7 +14,7 @@ impl<E: EntryTraits> NodeInternal<E> {
         Box::pin(Self {
             parent,
             data: unsafe {
-                mem::transmute::<_, [(ItemCount, Option<Node<E>>); MAX_CHILDREN]>(children)
+                mem::transmute::<_, [(ItemCount, Option<Node<E>>); NUM_NODE_CHILDREN]>(children)
             },
             _pin: PhantomPinned,
             _drop: PrintDropInternal,
@@ -39,7 +39,7 @@ impl<E: EntryTraits> NodeInternal<E> {
         None
     }
 
-    pub(super) fn project_data_mut(self: Pin<&mut Self>) -> &mut [(ItemCount, Option<Node<E>>); MAX_CHILDREN] {
+    pub(super) fn project_data_mut(self: Pin<&mut Self>) -> &mut [(ItemCount, Option<Node<E>>); NUM_NODE_CHILDREN] {
         unsafe {
             &mut self.get_unchecked_mut().data
         }
@@ -48,18 +48,29 @@ impl<E: EntryTraits> NodeInternal<E> {
     /// Insert a new item in the tree. This DOES NOT update the child counts in
     /// the parents. (So the tree will be in an invalid state after this has been called.)
     pub(super) fn splice_in(&mut self, idx: usize, count: u32, elem: Node<E>) {
-        let mut buffer = (count, Some(elem));
-        for i in idx..MAX_CHILDREN {
+        let mut buffer = (count as u32, Some(elem));
+
+        // TODO: Is this actually any better than the equivalent code below??
+        // dbg!(idx);
+        // println!("self data {:#?}", self.data);
+        // Doing this with a memcpy seems better but this is buggy, and I'm not sure why.
+        // let old_len = self.count_children();
+        // unsafe {
+        //     std::ptr::copy(&self.data[idx], &mut self.data[idx + 1], old_len - idx);
+        // }
+        // self.data[idx] = buffer;
+        for i in idx..NUM_NODE_CHILDREN {
             mem::swap(&mut buffer, &mut self.data[i]);
             if buffer.1.is_none() { break; }
         }
         debug_assert!(buffer.1.is_none(), "tried to splice in to a node that was full");
+        // println!("self data {:#?}", self.data);
     }
 
     pub(super) fn count_children(&self) -> usize {
         self.data.iter()
         .position(|(_, c)| c.is_none())
-        .unwrap_or(MAX_CHILDREN)
+        .unwrap_or(NUM_NODE_CHILDREN)
     }
 
     pub(super) fn find_child(&self, child: NodePtr<E>) -> Option<usize> {
