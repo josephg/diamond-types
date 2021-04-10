@@ -159,7 +159,8 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
     /// Insert the entry into the bucket, ignoring sizes.
     ///
     /// Return any truncated content, and the index at which it should be inserted.
-    fn insert_at(bucket: &mut Bucket<Entry>, entry: Entry, cursor: &mut BucketCursor) -> Option<Entry> {
+    fn slice_insert(bucket: &mut Bucket<Entry>, entry: Entry, cursor: &mut BucketCursor) -> Option<Entry> {
+        // println!("insert_at {:?} {:?}", entry, cursor);
         // TODO: Make this an associated function on Bucket or something.
         if cursor.offset == 0 {
             cursor.offset = entry.len();
@@ -183,20 +184,40 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
         if item.can_append(&entry) {
             cursor.offset += entry.len();
             item.append(entry);
-            remainder
         } else {
-            // Cursor at the end of the inserted element.
+            // The new item is inserted here no matter what. And the cursor always ends up at the
+            // end of the inserted element.
             cursor.idx += 1;
             cursor.offset = entry.len();
+
+            // Try to prepend at the front of the subsequent element
+            if cursor.idx < bucket.len() {
+                let next = &mut bucket[cursor.idx];
+                if entry.can_append(next) {
+                    next.prepend(entry);
+                    // Ugly logic, but we need an else to both of these if's.
+                    return remainder;
+                }
+            }
+
             bucket.insert(cursor.idx, entry); // TODO: Does this work past the end of the list?
-            remainder
+        }
+        remainder
+    }
+
+    /// Like slice_insert above but any remainder returned is automatically inserted.
+    fn insert_at(bucket: &mut Bucket<Entry>, mut entry: Entry, cursor: &mut BucketCursor) {
+        loop {
+            if let Some(remainder) = Self::slice_insert(bucket, entry, cursor) {
+                entry = remainder
+            } else { break; }
         }
     }
 
     pub(super) fn replace_range(&mut self, index: usize, mut entry: Entry) {
         // self.check();
-
         // println!("replace_range called. Index {} entry {:?} into set {:#?}", index, entry, self);
+
         let (mut bucket_idx, bucket_offset, mut cursor) = self.get_internal_idx(index, true);
         let new_entry_len = entry.len();
         let mut remaining_entry_len = new_entry_len;
@@ -205,6 +226,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
         let mut room_in_bucket = self.bucket_size - bucket_offset;
 
         loop {
+            // Do all the replacing we can in bucket_idx.
             assert!(bucket_idx <= self.content.len());
 
             // Allow sneaky appending to the end of the list.
@@ -228,7 +250,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
             // This may truncate an existing entry, and if so it'll be returned as remainder.
             let bucket = &mut self.content[bucket_idx];
 
-            let remainder = Self::insert_at(bucket, entry, &mut cursor);
+            let remainder = Self::slice_insert(bucket, entry, &mut cursor);
             // println!("Inserted remainder at - {:?} {:#?}", remainder, &self);
             // let mut bucket = &mut self.content[bucket_idx];
 
@@ -243,10 +265,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
                 if remainder_len > len_replaced_here {
                     // Chop chop! Discard the start of remainder and insert the rest with insert_at.
                     let remainder = remainder.truncate(len_replaced_here);
-                    let r2 = Self::insert_at(bucket, remainder, &mut cursor);
-                    // The cursor should be at the end of the existing element, so we should never
-                    // be truncating anything else in turn in insert_at.
-                    assert!(r2.is_none());
+                    Self::insert_at(bucket, remainder, &mut cursor);
                     debug_assert!(remainder_for_next_bucket.is_none());
                     break; // I mean, we're done here now, right??
                 } else {
@@ -262,8 +281,6 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
                 if cursor.idx >= bucket.len() {
                     // We have more to remove, but we're at the end of the list and there's nothing
                     // here.
-                    // dbg!(len_replaced_here, cursor, bucket_idx);
-                    // dbg!(&self);
                     debug_assert_eq!(bucket_idx + 1, self.content.len());
                     break;
                 }
@@ -351,8 +368,15 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
         for (i, len) in size_counts.iter().enumerate() {
             println!("{} count: {}", i, len);
         }
+    }
 
-
+    // Mostly for testing.
+    pub fn count_entries(&self) -> usize {
+        let mut count = 0;
+        for bucket in &self.content {
+            count += bucket.len();
+        }
+        count
     }
 }
 
@@ -397,6 +421,10 @@ mod tests {
             assert!(self.can_append(&other));
             *self += other;
         }
+
+        fn prepend(&mut self, other: Self) {
+            self.append(other);
+        }
     }
 
     #[test]
@@ -432,5 +460,18 @@ mod tests {
         list.replace_range(8, 4);
         list.check();
         // dbg!(list);
+    }
+
+    #[test]
+    fn list_prepends() {
+        let mut list: SplitList<i32> = SplitList::new_with_bucket_size(50);
+
+        list.append_entry(-5);
+        list.append_entry(10);
+        println!("----");
+        list.replace_range(3, 2);
+        list.check();
+        dbg!(&list);
+        assert_eq!(list.count_entries(), 2);
     }
 }

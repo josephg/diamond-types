@@ -135,6 +135,8 @@ impl SplitableSpan for MarkerEntry {
     fn append(&mut self, other: Self) {
         self.len += other.len;
     }
+
+    fn prepend(&mut self, other: Self) { self.len += other.len; }
 }
 
 impl Index<usize> for MarkerEntry {
@@ -543,5 +545,9 @@ mod tests {
         println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
 
         println!("final node total {}", state.marker_tree.count_entries());
+        println!("marker entries {}", state.client_data[0].markers.count_entries());
+        // state.marker_tree = MarkerTree::new();
+        // state.client_data.clear();
+        // println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
     }
 }

@@ -20,4 +20,9 @@ pub trait SplitableSpan {
     /// immediately before `append`.
     fn can_append(&self, other: &Self) -> bool;
     fn append(&mut self, other: Self);
+    fn prepend(&mut self, other: Self);
+    // fn prepend(&mut self, mut other: Self) {
+    //     other.append(*self);
+    //     *self = other;
+    // }
 }
