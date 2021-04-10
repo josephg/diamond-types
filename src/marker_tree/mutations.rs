@@ -52,6 +52,7 @@ impl<E: EntryTraits> MarkerTree<E> {
         // dbg!(&remainder);
 
         if cursor.offset != 0 {
+            // We're at the end of an element. Try and append as much as we can here.
             debug_assert_eq!(cursor.offset, node.data[cursor.idx].len());
             // Try and append as much as we can after the current entry
             let mut items_idx = 0;
@@ -75,6 +76,32 @@ impl<E: EntryTraits> MarkerTree<E> {
 
             cursor.offset = 0;
             cursor.idx += 1; // NOTE: Cursor might point past the end of the node.
+
+            if remainder.is_none() && cursor.idx < NUM_LEAF_ENTRIES {
+                // We'll also try to *prepend* some content on the front of the subsequent element
+                // I'm sure there's a way to do this using iterators, but I'm not sure it would be
+                // cleaner.
+
+                // This optimization improves performance when the user hits backspace. We end up
+                // merging all the deleted elements together. This adds complexity in exchange for
+                // making the tree simpler. For real edit sequences (like the automerge-perf data
+                // set) this gives about an 8% performance increase.
+                let mut end_idx = items.len() - 1;
+                let cur_entry = &mut node.data[cursor.idx];
+                loop {
+                    let next = items[end_idx];
+                    if next.can_append(cur_entry) {
+                        flush_marker.0 += next.content_len() as isize;
+                        notify(next, cursor.node);
+                        cur_entry.prepend(next);
+                    } else { break; }
+
+                    if end_idx == 0 {
+                        return; // We've prepended everything.
+                    } else { end_idx -= 1; }
+                }
+                items = &items[..=end_idx];
+            }
         }
         // debug_assert_eq!(cursor.offset, 0);
 
@@ -467,7 +494,7 @@ mod tests {
 
     #[test]
     fn splice_insert_test() {
-        let tree: Pin<Box<MarkerTree<Entry>>> = MarkerTree::new();
+        let tree = MarkerTree::new();
         let entry = Entry {
             loc: CRDTLocation {agent: 0, seq: 1000},
             len: 100
@@ -488,5 +515,28 @@ mod tests {
         println!("{:#?}", tree);
 
         tree.check();
+    }
+
+    #[test]
+    fn backspace_collapses() {
+        let tree = MarkerTree::new();
+
+        let cursor = tree.cursor_at_pos(0, false);
+        let entry = Entry {
+            loc: CRDTLocation {agent: 0, seq: 1000},
+            len: 100
+        };
+        tree.insert(cursor, entry, &mut |_, _| {});
+        assert_eq!(tree.count_entries(), 1);
+
+        // Ok now I'm going to delete the last and second-last elements. We should end up with
+        // two entries.
+        let cursor = tree.cursor_at_pos(99, false);
+        tree.local_delete(cursor, 1, &mut |_, _| {});
+        assert_eq!(tree.count_entries(), 2);
+
+        let cursor = tree.cursor_at_pos(98, false);
+        tree.local_delete(cursor, 1, &mut |_, _| {});
+        assert_eq!(tree.count_entries(), 2);
     }
 }

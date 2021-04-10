@@ -25,6 +25,9 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
     // I'd use Index for this but the index trait returns a reference.
     // fn at_offset(&self, offset: usize) -> Self::Item;
     fn at_offset(&self, offset: usize) -> CRDTLocation;
+
+    // Also not necessary given we have append, but again it makes code cleaner.
+    fn prepend(&mut self, other: Self);
 }
 // impl<T> EntryTraits for T where T: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default + Index<usize, Output = CRDTLocation> {}
 
@@ -124,6 +127,11 @@ impl EntryTraits for Entry {
             // So gross.
             seq: (self.loc.seq as i32 + (offset as i32 * self.len.signum())) as u32
         }
+    }
+
+    fn prepend(&mut self, other: Self) {
+        self.loc.seq = other.loc.seq;
+        self.len += other.len;
     }
 }
 

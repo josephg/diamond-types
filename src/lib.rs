@@ -541,5 +541,7 @@ mod tests {
         // state.client_data[0].markers.print_stats();
         // state.marker_tree.print_stats();
         println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
+
+        println!("final node total {}", state.marker_tree.count_entries());
     }
 }

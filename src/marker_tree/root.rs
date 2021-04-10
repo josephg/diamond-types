@@ -212,7 +212,7 @@ impl<E: EntryTraits> MarkerTree<E> {
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(unused)]
     pub fn print_ptr_tree(&self) {
         eprintln!("Tree count {} ptr {:?}", self.count, self as *const _);
         Self::print_node_tree(&self.root, 1);
@@ -240,5 +240,10 @@ impl<E: EntryTraits> MarkerTree<E> {
         }
 
         println!("Entry distribution {:?}", size_counts);
+    }
+
+    #[allow(unused)]
+    pub(crate) fn count_entries(&self) -> usize {
+        self.iter().fold(0, |a, _| a + 1)
     }
 }
