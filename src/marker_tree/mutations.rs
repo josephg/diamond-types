@@ -1,7 +1,7 @@
 use crate::marker_tree::entry::EntryTraits;
-use crate::marker_tree::{MarkerTree, Cursor, NodeLeaf, FlushMarker, NUM_LEAF_ENTRIES, DeleteResult};
+use crate::marker_tree::{MarkerTree, Cursor, NodeLeaf, FlushMarker, NUM_LEAF_ENTRIES, DeleteResult, ParentPtr, Node, NodePtr, NUM_NODE_CHILDREN, NodeInternal};
 use std::ptr::NonNull;
-use std::ptr;
+use std::{ptr, mem};
 use std::pin::Pin;
 use smallvec::SmallVec;
 use crate::marker_tree::root::{extend_delete, DeleteOp};
@@ -11,7 +11,7 @@ impl<E: EntryTraits> MarkerTree<E> {
 
     /// Insert item at the position pointed to by the cursor. If the item is split, the remainder is
     /// returned. The cursor is modified in-place.
-    pub fn splice_insert<F>(self: &Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E>, flush_marker: &mut FlushMarker, notify: &mut F)
+    pub(super) fn splice_insert<F>(self: &Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E>, flush_marker: &mut FlushMarker, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E>>)
     {
         // dbg!(items, &cursor);
@@ -145,7 +145,7 @@ impl<E: EntryTraits> MarkerTree<E> {
     ///
     /// Items must have a maximum length of 3, due to limitations in split_insert above.
     /// The cursor's offset is ignored. The cursor ends up at the end of the inserted items.
-    pub fn replace_entry<F>(self: &Pin<Box<Self>>, cursor: &mut Cursor<E>, mut items: &[E], flush_marker: &mut FlushMarker, notify: &mut F)
+    pub(super) fn replace_entry<F>(self: &Pin<Box<Self>>, cursor: &mut Cursor<E>, mut items: &[E], flush_marker: &mut FlushMarker, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E>>) {
         assert!(items.len() >= 1 && items.len() <= 3);
 
@@ -260,108 +260,192 @@ impl<E: EntryTraits> MarkerTree<E> {
 
         result
     }
+}
 
-    pub fn local_delete2<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, deleted_len: usize, mut notify: F) -> DeleteResult
-        where F: FnMut(E, NonNull<NodeLeaf<E>>) {
-        let expected_size = self.count - deleted_len;
-        let mut result: DeleteResult = SmallVec::default();
-        let mut flush_marker = FlushMarker(0);
-        cursor.roll_to_next(false);
-        let mut delete_remaining = deleted_len;
+impl<E: EntryTraits> NodeLeaf<E> {
 
-        while delete_remaining > 0 {
-            // Mark as much as we can for delete in the current node.
-            while cursor.get_entry().is_delete() {
-                Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
+    /// Split this leaf node at the specified index, so 0..idx stays and idx.. moves to a new node.
+    ///
+    /// The new node has additional `padding` empty items at the start of its list.
+    fn split_at<F>(&mut self, idx: usize, padding: usize, notify: &mut F) -> NonNull<NodeLeaf<E>>
+        where F: FnMut(E, NonNull<NodeLeaf<E>>)
+    {
+        // println!("split_at {} {}", idx, padding);
+        unsafe {
+            // TODO(optimization): We're currently copying / moving everything *after* idx. If idx
+            // is small, we could instead move everything before idx - which would save a bunch of
+            // calls to notify and save us needing to fix up a bunch of parent pointers. More work
+            // here, but probably less work overall.
+
+            let mut new_node = Self::new(); // The new node has a danging parent pointer
+            let new_filled_len = self.len_entries() - idx;
+            let new_len = new_filled_len + padding;
+            debug_assert!(new_len <= NUM_LEAF_ENTRIES);
+
+            if new_filled_len > 0 {
+                ptr::copy_nonoverlapping(&self.data[idx], &mut new_node.data[padding], new_filled_len);
             }
 
-            let node = unsafe { cursor.get_node_mut() };
-            let mut entry: &mut E = &mut node.data[cursor.idx];
-            let entry_len = entry.content_len();
-            debug_assert!(entry.is_insert()); // We should have skipped already deleted nodes.
+            new_node.num_entries = new_len as u8; // Not including padding!
 
-
-            // Delete as many characters as we can in the document each time through this loop.
-            // There's 4 semi-overlapping cases here. <xxx> marks deleted characters
-            // 1. <xxx>
-            // 2. <xxx>text
-            // 3. text<xxx>
-            // 4. te<xxx>xt
-            //
-            // In cases 2, 3 and 4 we will need to split the current node.
-
-            if cursor.offset == 0 {
-                // dbg!(&entry, delete_remaining);
-                // Cases 1 and 2. We'll mark the entry for delete
-
-                // First trim off any remaining inserts that should be unaffected.
-
-                // We'll pull the remainder off, and mark the rest deleted. It all ends up in
-                // flush_marker anyway.
-                flush_marker.0 -= entry_len as isize;
-
-                let (remainder, deleted_here) = if delete_remaining < entry_len {
-                    // Case 2 - <xxx>text
-                    let remainder = entry.truncate(delete_remaining);
-                    (Some(remainder), delete_remaining)
-                } else { (None, entry_len) };
-
-                extend_delete(&mut result, DeleteOp {
-                    loc: entry.at_offset(0),
-                    len: deleted_here as _
-                });
-                entry.mark_deleted();
-                cursor.offset = deleted_here; // Move to the end of entry.
-                // And re-insert remainder.
-                if let Some(remainder) = remainder {
-                    // dbg!(&remainder);
-                    // This will update flush_marker for us, and move the cursor after remainder.
-                    self.splice_insert(&[remainder], &mut cursor, &mut flush_marker, &mut notify);
-                }
-
-                delete_remaining -= deleted_here;
-            } else {
-                // Cases 3 and 4. We need to first split the content we want to leave in place.
-
-                // There's 2 or 3 parts here - part1<part2>part3. middle is parts 2 and 3.
-                debug_assert!(cursor.offset < entry_len);
-                let middle_len = entry_len - cursor.offset; // <xxx>aaa or <xxx>
-                flush_marker.0 -= middle_len as isize;
-                let mut middle = entry.truncate(cursor.offset);
-                debug_assert_eq!(middle.len(), middle_len);
-
-                // Peel off part 3.
-                let (remainder, deleted_here) = if delete_remaining < middle_len {
-                    // Case 4 - te<xxx>st
-                    let remainder = middle.truncate(delete_remaining);
-                    (Some(remainder), delete_remaining)
-                } else {
-                    (None, middle_len)
-                };
-                // Now middle is just part 2, and remainder is part 3.
-                extend_delete(&mut result, DeleteOp {
-                    loc: middle.at_offset(0),
-                    len: deleted_here as _
-                });
-
-                // Mark middle for deletion and insert back.
-                middle.mark_deleted();
-                if let Some(r) = remainder {
-                    self.splice_insert(&[middle, r], &mut cursor, &mut flush_marker, &mut notify);
-                } else {
-                    self.splice_insert(&[middle], &mut cursor, &mut flush_marker, &mut notify);
-                }
-
-                delete_remaining -= deleted_here;
+            // zero out the old entries
+            let mut stolen_length: usize = 0;
+            for e in &mut self.data[idx..self.num_entries as usize] {
+                stolen_length += e.content_len();
+                *e = E::default();
             }
+            self.num_entries = idx as u8;
+
+            // eprintln!("split_at idx {} self_entries {} stolel_len {} self {:?}", idx, self_entries, stolen_length, &self);
+
+            let mut inserted_node = Node::Leaf(Box::pin(new_node));
+            // This is the pointer to the new item we'll end up returning.
+            let new_leaf_ptr = NonNull::new_unchecked(inserted_node.unwrap_leaf_mut().get_unchecked_mut());
+            for e in &inserted_node.unwrap_leaf().data[padding..new_len] {
+                notify(*e, new_leaf_ptr);
+            }
+
+            insert_after(self.parent, inserted_node, NodePtr::Leaf(NonNull::new_unchecked(self)), stolen_length as _);
+
+            // TODO: It would be cleaner to return a Pin<&mut NodeLeaf> here instead of the pointer.
+            new_leaf_ptr
         }
-
-        // The cursor is potentially after any remainder.
-        flush_marker.flush(unsafe { cursor.get_node_mut() });
-
-        result
     }
+}
 
+// I'm really not sure where to put this method. Its not really associated with
+// any of the tree implementation methods. This seems like a hidden spot. Maybe
+// mod.rs? I could put it in impl ParentPtr? I dunno...
+fn insert_after<E: EntryTraits>(
+    mut parent: ParentPtr<E>,
+    mut inserted_node: Node<E>,
+    mut insert_after: NodePtr<E>,
+    mut stolen_length: u32) {
+    unsafe {
+        // Ok now we need to walk up the tree trying to insert. At each step
+        // we will try and insert inserted_node into parent next to old_node
+        // (topping out at the head).
+        loop {
+            // First try and simply emplace in the new element in the parent.
+            if let ParentPtr::Internal(mut n) = parent {
+                let parent_ref = n.as_ref();
+                let count = parent_ref.count_children();
+                if count < NUM_NODE_CHILDREN {
+                    // Great. Insert the new node into the parent and return.
+                    inserted_node.set_parent(ParentPtr::Internal(n));
+
+                    let old_idx = parent_ref.find_child(insert_after).unwrap();
+                    let new_idx = old_idx + 1;
+
+                    let parent_ref = n.as_mut();
+                    parent_ref.data[old_idx].0 -= stolen_length;
+                    parent_ref.splice_in(new_idx, stolen_length, inserted_node);
+
+                    // eprintln!("1");
+                    return;
+                }
+            }
+
+            // Ok so if we've gotten here we need to make a new internal
+            // node filled with inserted_node, then move and all the goodies
+            // from ParentPtr.
+            match parent {
+                ParentPtr::Root(mut r) => {
+                    // This is the simpler case. The new root will be a new
+                    // internal node containing old_node and inserted_node.
+                    let new_root = Node::Internal(NodeInternal::new_with_parent(ParentPtr::Root(r)));
+                    let mut old_root = mem::replace(&mut r.as_mut().root, new_root);
+
+                    // *inserted_node.get_parent_mut() = parent_ptr;
+
+                    let root = r.as_mut();
+                    let count = root.count as u32;
+                    let mut new_root_ref = root.root.unwrap_internal_mut();
+                    // let parent_ptr = ParentPtr::Internal(NonNull::new_unchecked(new_root_ref));
+                    let parent_ptr = new_root_ref.as_ref().to_parent_ptr();
+
+                    // Reassign parents for each node
+                    old_root.set_parent(parent_ptr);
+                    inserted_node.set_parent(parent_ptr);
+
+                    new_root_ref.as_mut().project_data_mut()[0] = (count - stolen_length, Some(old_root));
+                    new_root_ref.as_mut().project_data_mut()[1] = (stolen_length, Some(inserted_node));
+
+                    // r.as_mut().print_ptr_tree();
+                    return;
+                },
+
+                ParentPtr::Internal(mut n) => {
+                    // And this is the complex case. We have MAX_CHILDREN+1
+                    // items (in some order) to distribute between two
+                    // internal nodes (one old, one new). Then we iterate up
+                    // the tree.
+                    let left_sibling = n.as_ref();
+                    parent = left_sibling.parent; // For next iteration through the loop.
+                    debug_assert!(left_sibling.count_children() == NUM_NODE_CHILDREN);
+
+                    // let mut right_sibling = NodeInternal::new_with_parent(parent);
+                    let mut right_sibling_box = Node::Internal(NodeInternal::new_with_parent(parent));
+                    let mut right_sibling = right_sibling_box.unwrap_internal_mut();
+                    let old_idx = left_sibling.find_child(insert_after).unwrap();
+
+                    let left_sibling = n.as_mut();
+                    left_sibling.data[old_idx].0 -= stolen_length;
+                    let mut new_stolen_length = 0;
+                    // Dividing this into cases makes it easier to reason
+                    // about.
+                    if old_idx < NUM_NODE_CHILDREN /2 {
+                        // Move all items from MAX_CHILDREN/2..MAX_CHILDREN
+                        // into right_sibling, then splice inserted_node into
+                        // old_parent.
+                        for i in 0..NUM_NODE_CHILDREN /2 {
+                            let (c, e) = mem::replace(&mut left_sibling.data[i + NUM_NODE_CHILDREN /2], (0, None));
+                            if let Some(mut e) = e {
+                                e.set_parent(right_sibling.as_ref().to_parent_ptr());
+                                new_stolen_length += c;
+                                right_sibling.as_mut().project_data_mut()[i] = (c, Some(e));
+                            }
+
+                        }
+
+                        let new_idx = old_idx + 1;
+                        inserted_node.set_parent(ParentPtr::Internal(NonNull::new_unchecked(left_sibling)));
+                        left_sibling.splice_in(new_idx, stolen_length, inserted_node);
+                    } else {
+                        // The new element is in the second half of the
+                        // group.
+                        let new_idx = old_idx - NUM_NODE_CHILDREN /2 + 1;
+
+                        inserted_node.set_parent(right_sibling.as_ref().to_parent_ptr());
+                        let mut new_entry = (stolen_length, Some(inserted_node));
+                        new_stolen_length = stolen_length;
+
+                        let mut src = NUM_NODE_CHILDREN /2;
+                        for dest in 0..=NUM_NODE_CHILDREN /2 {
+                            if dest == new_idx {
+                                right_sibling.as_mut().project_data_mut()[dest] = mem::take(&mut new_entry);
+                            } else {
+                                let (c, e) = mem::replace(&mut left_sibling.data[src], (0, None));
+
+                                if let Some(mut e) = e {
+                                    e.set_parent(right_sibling.as_ref().to_parent_ptr());
+                                    new_stolen_length += c;
+                                    right_sibling.as_mut().project_data_mut()[dest] = (c, Some(e));
+                                    src += 1;
+                                } else { break; }
+                            }
+                        }
+                        debug_assert!(new_entry.1.is_none());
+                    }
+
+                    insert_after = NodePtr::Internal(n);
+                    inserted_node = right_sibling_box;
+                    stolen_length = new_stolen_length;
+                    // And iterate up the tree.
+                },
+            };
+        }
+    }
 }
 
 
