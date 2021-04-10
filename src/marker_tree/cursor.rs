@@ -13,6 +13,8 @@ impl<E: EntryTraits> Cursor<E> {
     pub(super) unsafe fn get_node_mut(&self) -> &mut NodeLeaf<E> {
         &mut *self.node.as_ptr()
     }
+
+    #[allow(unused)]
     pub(super) fn get_node(&self) -> &NodeLeaf<E> {
         unsafe { self.node.as_ref() }
     }

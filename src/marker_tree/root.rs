@@ -1,8 +1,6 @@
 use super::*;
 
 use smallvec::SmallVec;
-use std::ptr;
-use std::mem;
 
 // Placeholders for delete
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -227,6 +225,7 @@ impl<E: EntryTraits> MarkerTree<E> {
         cursor.count_pos() as _
     }
 
+    #[allow(unused)]
     pub fn print_stats(&self) {
         // We'll get the distribution of entry sizes
         let mut size_counts = vec!();

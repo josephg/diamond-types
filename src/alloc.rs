@@ -1,5 +1,3 @@
-#![feature(allocator_api)]
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::alloc::{GlobalAlloc, Layout, System};
 

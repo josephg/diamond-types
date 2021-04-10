@@ -129,12 +129,6 @@ impl FlushMarker {
         node.update_parent_count(self.0 as i32);
         self.0 = 0;
     }
-
-    fn flush_opt<E: EntryTraits>(opt: &mut Option<&mut Self>, node: &mut NodeLeaf<E>) {
-        if let Some(marker) = opt {
-            marker.flush(node);
-        }
-    }
 }
 
 

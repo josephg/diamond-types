@@ -1,6 +1,6 @@
 use super::*;
 // use std::mem;
-use std::ptr::{self, NonNull};
+use std::ptr::NonNull;
 
 impl<E: EntryTraits> NodeLeaf<E> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's

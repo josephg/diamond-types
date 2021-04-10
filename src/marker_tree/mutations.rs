@@ -5,12 +5,14 @@ use std::{ptr, mem};
 use std::pin::Pin;
 use smallvec::SmallVec;
 use crate::marker_tree::root::{extend_delete, DeleteOp};
-use std::mem::swap;
 
 impl<E: EntryTraits> MarkerTree<E> {
-
-    /// Insert item at the position pointed to by the cursor. If the item is split, the remainder is
-    /// returned. The cursor is modified in-place.
+    /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
+    /// is returned. The cursor is modified in-place to point after the inserted items.
+    ///
+    /// If the cursor points in the middle of an item, the item is split.
+    ///
+    /// TODO: Add support for item prepending to this method, for backspace operations.
     pub(super) fn splice_insert<F>(self: &Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E>, flush_marker: &mut FlushMarker, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E>>)
     {
@@ -145,7 +147,7 @@ impl<E: EntryTraits> MarkerTree<E> {
     ///
     /// Items must have a maximum length of 3, due to limitations in split_insert above.
     /// The cursor's offset is ignored. The cursor ends up at the end of the inserted items.
-    pub(super) fn replace_entry<F>(self: &Pin<Box<Self>>, cursor: &mut Cursor<E>, mut items: &[E], flush_marker: &mut FlushMarker, notify: &mut F)
+    pub(super) fn replace_entry<F>(self: &Pin<Box<Self>>, cursor: &mut Cursor<E>, items: &[E], flush_marker: &mut FlushMarker, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E>>) {
         assert!(items.len() >= 1 && items.len() <= 3);
 
@@ -257,6 +259,14 @@ impl<E: EntryTraits> MarkerTree<E> {
 
         // The cursor is potentially after any remainder.
         flush_marker.flush(unsafe { cursor.get_node_mut() });
+
+        if cfg!(debug_assertions) {
+            // self.print_ptr_tree();
+            // self.as_ref().get_ref().check();
+
+            // Check the total size of the tree has grown by len.
+            assert_eq!(expected_size, self.count);
+        }
 
         result
     }
@@ -457,7 +467,7 @@ mod tests {
 
     #[test]
     fn splice_insert_test() {
-        let mut tree: Pin<Box<MarkerTree<Entry>>> = MarkerTree::new();
+        let tree: Pin<Box<MarkerTree<Entry>>> = MarkerTree::new();
         let entry = Entry {
             loc: CRDTLocation {agent: 0, seq: 1000},
             len: 100

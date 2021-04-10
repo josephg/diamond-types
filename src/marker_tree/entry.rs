@@ -1,5 +1,4 @@
 use crate::common::{CRDTLocation, CLIENT_INVALID};
-use std::ops::{Index};
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 
@@ -15,10 +14,9 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
         !self.is_insert()
     }
 
+    // This is strictly unnecessary given truncate(), but it makes some code cleaner.
     fn truncate_keeping_right(&mut self, at: usize) -> Self;
 
-    // TODO: Remove this.
-    fn toggle_deleted(&mut self);
     fn mark_deleted(&mut self);
 
     fn contains(&self, loc: CRDTLocation) -> Option<usize>;
@@ -98,10 +96,6 @@ impl EntryTraits for Entry {
         other
     }
 
-    // Bleh..
-    fn toggle_deleted(&mut self) {
-        self.len = -self.len
-    }
     fn mark_deleted(&mut self) {
         debug_assert!(self.is_insert());
         self.len = -self.len

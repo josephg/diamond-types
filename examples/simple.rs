@@ -50,18 +50,18 @@ fn random_inserts_deletes() {
 
 fn main() {
     random_inserts_deletes();
-    return;
-    let mut state = CRDTState::new();
 
-    state.insert_name("fred", 0, "a");
-    state.insert_name("george", 1, "bC");
-
-    state.insert_name("fred", 3, "D");
-    state.insert_name("george", 4, "EFgh");
-
-    // println!("tree {:#?}", state.marker_tree);
-    // Delete CDEF
-    let _result = state.delete_name("amanda", 2, 4);
-    // eprintln!("delete result {:#?}", result);
-    assert_eq!(state.len(), 4);
+    // let mut state = CRDTState::new();
+    //
+    // state.insert_name("fred", 0, "a");
+    // state.insert_name("george", 1, "bC");
+    //
+    // state.insert_name("fred", 3, "D");
+    // state.insert_name("george", 4, "EFgh");
+    //
+    // // println!("tree {:#?}", state.marker_tree);
+    // // Delete CDEF
+    // let _result = state.delete_name("amanda", 2, 4);
+    // // eprintln!("delete result {:#?}", result);
+    // assert_eq!(state.len(), 4);
 }

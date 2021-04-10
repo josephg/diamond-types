@@ -159,6 +159,9 @@ struct ClientData {
     // markers: Vec<NonNull<NodeLeaf>>
 }
 
+// Toggleable for testing.
+const USE_INNER_ROPE: bool = true;
+
 // #[derive(Debug)]
 pub struct CRDTState {
     client_data: Vec<ClientData>,
@@ -206,7 +209,7 @@ impl CRDTState {
     }
 
     fn notify(client_data: &mut Vec<ClientData>, entry: Entry, ptr: NonNull<NodeLeaf<Entry>>) {
-        // eprintln!("insert callback {:?} len {}", loc, len);
+        // eprintln!("notify callback {:?} {:?}", entry, ptr);
         let markers = &mut client_data[entry.loc.agent as usize].markers;
         // for op in &mut markers[loc.seq as usize..(loc.seq+len) as usize] {
         //     *op = ptr;
@@ -240,8 +243,10 @@ impl CRDTState {
             loc: loc_base,
             len: inserted_length as i32
         };
+
+        // self.marker_tree.insert(pos, cursor, new_entry, |entry, leaf| {
         self.marker_tree.insert(cursor, new_entry, |entry, leaf| {
-            // println!("insert callback {:?} len {}", loc, len);
+            // println!("insert callback {:?}", entry);
             CRDTState::notify(client_data, entry, leaf);
             // let ops = &mut client_data[loc.client as usize].ops;
             // for op in &mut ops[loc.seq as usize..(loc.seq+len) as usize] {
@@ -249,7 +254,10 @@ impl CRDTState {
             // }
         });
 
-        self.text_content.insert(pos as usize, text);
+        if USE_INNER_ROPE {
+            self.text_content.insert(pos as usize, text);
+            assert_eq!(self.text_content.len_chars(), self.marker_tree.len());
+        }
 
         if cfg!(debug_assertions) {
             // Check all the pointers have been assigned.
@@ -257,9 +265,7 @@ impl CRDTState {
             // for e in &markers[markers.len() - inserted_length..] {
             //     assert_ne!(*e, dangling_ptr);
             // }
-            assert_eq!(self.text_content.len_chars(), self.marker_tree.len());
         }
-
 
         insert_location
     }
@@ -274,12 +280,17 @@ impl CRDTState {
         // println!("{:#?}", state.marker_tree);
         // println!("{:?}", cursor);
         let client_data = &mut self.client_data;
+        // dbg!("delete list", &self.client_data[0].markers);
         let result = MarkerTree::local_delete(&self.marker_tree, cursor, len, |entry, leaf| {
             // eprintln!("notify {:?} / {}", loc, len);
             CRDTState::notify(client_data, entry, leaf);
         });
-        self.text_content.remove(pos as usize..pos as usize + len as usize); // vomit.
-        assert_eq!(self.text_content.len_chars(), self.marker_tree.len());
+
+        if USE_INNER_ROPE {
+            self.text_content.remove(pos as usize..pos as usize + len as usize); // vomit.
+            assert_eq!(self.text_content.len_chars(), self.marker_tree.len());
+        }
+
         result
     }
 
@@ -398,13 +409,15 @@ mod tests {
     #[test]
     fn junk_prepend() {
         let mut state = CRDTState::new();
-        
+
         // Repeatedly inserting at 0 will prevent all the nodes collapsing, so we don't
         // need to worry about that.
         for _ in 0..65 {
             state.insert_name("fred", 0, "fred");
             state.check();
+
             // state.marker_tree.print_ptr_tree();
+            // dbg!(&state.marker_tree);
         }
     
         state.check();
@@ -427,10 +440,10 @@ mod tests {
         assert_eq!(result.len(), 3); // TODO: More thorough equality checks here.
         // eprintln!("delete result {:#?}", result);
 
+        println!("tree {:#?}", state.marker_tree);
+        state.check();
         assert_eq!(state.len(), 4);
 
-        // println!("tree {:#?}", state.marker_tree);
-        state.check();
         // state.marker_tree.print_stats();
     }
 
@@ -477,6 +490,7 @@ mod tests {
             // Calling check gets slow as the document grows. There's a tradeoff here between
             // iterations and check() calls.
             if i % 100 == 0 { state.check(); }
+            // state.check();
             assert_eq!(state.len(), doc_len as usize);
         }
     }
@@ -522,7 +536,7 @@ mod tests {
         }
         // println!("len {}", state.len());
         assert_eq!(state.len(), u.finalText.len());
-        assert!(state.text_content.eq(&u.finalText));
+        // assert!(state.text_content.eq(&u.finalText));
 
         // state.client_data[0].markers.print_stats();
         // state.marker_tree.print_stats();
