@@ -1,12 +1,12 @@
-use crate::marker_tree::entry::EntryTraits;
-use crate::marker_tree::{MarkerTree, Cursor, NodeLeaf, FlushMarker, NUM_LEAF_ENTRIES, DeleteResult, ParentPtr, Node, NodePtr, NUM_NODE_CHILDREN, NodeInternal};
+use crate::range_tree::entry::EntryTraits;
+use crate::range_tree::{RangeTree, Cursor, NodeLeaf, FlushMarker, NUM_LEAF_ENTRIES, DeleteResult, ParentPtr, Node, NodePtr, NUM_NODE_CHILDREN, NodeInternal};
 use std::ptr::NonNull;
 use std::{ptr, mem};
 use std::pin::Pin;
 use smallvec::SmallVec;
-use crate::marker_tree::root::{extend_delete};
+use crate::range_tree::root::{extend_delete};
 
-impl<E: EntryTraits> MarkerTree<E> {
+impl<E: EntryTraits> RangeTree<E> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
     /// is returned. The cursor is modified in-place to point after the inserted items.
     ///
@@ -379,7 +379,7 @@ impl<E: EntryTraits> NodeLeaf<E> {
 
 // I'm really not sure where to put this method. Its not really associated with
 // any of the tree implementation methods. This seems like a hidden spot. Maybe
-// mod.rs? I could put it in impl ParentPtr? I dunno...
+// range_tree? I could put it in impl ParentPtr? I dunno...
 fn insert_after<E: EntryTraits>(
     mut parent: ParentPtr<E>,
     mut inserted_node: Node<E>,
@@ -516,12 +516,12 @@ fn insert_after<E: EntryTraits>(
 #[cfg(test)]
 mod tests {
     // use std::pin::Pin;
-    use crate::marker_tree::{MarkerTree, Entry, FlushMarker};
+    use crate::range_tree::{RangeTree, Entry, FlushMarker};
     use crate::common::CRDTLocation;
 
     #[test]
     fn splice_insert_test() {
-        let tree = MarkerTree::new();
+        let tree = RangeTree::new();
         let entry = Entry {
             loc: CRDTLocation {agent: 0, seq: 1000},
             len: 100
@@ -546,7 +546,7 @@ mod tests {
 
     #[test]
     fn backspace_collapses() {
-        let tree = MarkerTree::new();
+        let tree = RangeTree::new();
 
         let cursor = tree.cursor_at_pos(0, false);
         let entry = Entry {

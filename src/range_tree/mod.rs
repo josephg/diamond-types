@@ -20,7 +20,7 @@ use std::marker::PhantomPinned;
 
 pub use root::DeleteResult;
 use std::fmt::Debug;
-pub use crate::marker_tree::entry::EntryTraits;
+pub use crate::range_tree::entry::EntryTraits;
 pub use entry::Entry;
 use std::cell::Cell;
 
@@ -41,7 +41,7 @@ const NUM_LEAF_ENTRIES: usize = 32;
 // access the first node in the tree, but I can't think of a clean way around
 // it.
 #[derive(Debug)]
-pub struct MarkerTree<E: EntryTraits> {
+pub struct RangeTree<E: EntryTraits> {
     count: usize,
     root: Node<E>,
 
@@ -69,7 +69,7 @@ enum NodePtr<E: EntryTraits> {
 // TODO: Consider just reusing NodePtr for this.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum ParentPtr<E: EntryTraits> {
-    Root(NonNull<MarkerTree<E>>),
+    Root(NonNull<RangeTree<E>>),
     Internal(NonNull<NodeInternal<E>>)
 }
 

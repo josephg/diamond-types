@@ -13,7 +13,7 @@ pub fn extend_delete<E: EntryTraits>(delete: &mut DeleteResult<E>, entry: E) {
     } else { delete.push(entry); }
 }
 
-impl<E: EntryTraits> MarkerTree<E> {
+impl<E: EntryTraits> RangeTree<E> {
     pub fn new() -> Pin<Box<Self>> {
         let mut tree = Box::pin(Self {
             count: 0,

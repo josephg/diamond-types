@@ -37,12 +37,12 @@
 
 // mod btree;
 mod common;
-mod marker_tree;
+mod range_tree;
 mod split_list;
 mod splitable_span;
 mod alloc;
 
-use marker_tree::*;
+use range_tree::*;
 use common::*;
 use std::pin::Pin;
 
@@ -161,13 +161,13 @@ struct ClientData {
 }
 
 // Toggleable for testing.
-const USE_INNER_ROPE: bool = true;
+const USE_INNER_ROPE: bool = false;
 
 // #[derive(Debug)]
 pub struct CRDTState {
     client_data: Vec<ClientData>,
 
-    marker_tree: Pin<Box<MarkerTree<Entry>>>,
+    marker_tree: Pin<Box<RangeTree<Entry>>>,
 
     // Probably temporary, eventually.
     text_content: Rope,
@@ -180,7 +180,7 @@ impl CRDTState {
     pub fn new() -> Self {
         CRDTState {
             client_data: Vec::new(),
-            marker_tree: MarkerTree::new(),
+            marker_tree: RangeTree::new(),
             text_content: Rope::new(),
         }
     }
@@ -234,7 +234,7 @@ impl CRDTState {
         let client_data = &mut self.client_data;
 
         let cursor = self.marker_tree.cursor_at_pos(pos, true);
-        // println!("root {:#?}", self.marker_tree);
+        // println!("root {:#?}", self.range_tree);
         let insert_location = if pos == 0 {
             // This saves an awful lot of code needing to be executed.
             CRDT_DOC_ROOT
@@ -245,7 +245,7 @@ impl CRDTState {
             len: inserted_length as i32
         };
 
-        // self.marker_tree.insert(pos, cursor, new_entry, |entry, leaf| {
+        // self.range_tree.insert(pos, cursor, new_entry, |entry, leaf| {
         self.marker_tree.insert(cursor, new_entry, |entry, leaf| {
             // println!("insert callback {:?}", entry);
             CRDTState::notify(client_data, entry, leaf);
@@ -278,11 +278,11 @@ impl CRDTState {
 
     pub fn delete(&mut self, _client_id: AgentId, pos: usize, len: usize) -> DeleteResult<Entry> {
         let cursor = self.marker_tree.cursor_at_pos(pos, true);
-        // println!("{:#?}", state.marker_tree);
+        // println!("{:#?}", state.range_tree);
         // println!("{:?}", cursor);
         let client_data = &mut self.client_data;
         // dbg!("delete list", &self.client_data[0].markers);
-        let result = MarkerTree::local_delete(&self.marker_tree, cursor, len, |entry, leaf| {
+        let result = RangeTree::local_delete(&self.marker_tree, cursor, len, |entry, leaf| {
             // eprintln!("notify {:?} / {}", loc, len);
             CRDTState::notify(client_data, entry, leaf);
         });
@@ -304,7 +304,7 @@ impl CRDTState {
         if loc == CRDT_DOC_ROOT { return 0; }
 
         let markers = &self.client_data[loc.agent as usize].markers;
-        unsafe { MarkerTree::cursor_at_marker(loc, markers[loc.seq as usize]).count_pos() as u32 }
+        unsafe { RangeTree::cursor_at_marker(loc, markers[loc.seq as usize]).count_pos() as u32 }
     }
 
     pub fn lookup_num_position(&self, pos: usize) -> CRDTLocation {
@@ -417,8 +417,8 @@ mod tests {
             state.insert_name("fred", 0, "fred");
             state.check();
 
-            // state.marker_tree.print_ptr_tree();
-            // dbg!(&state.marker_tree);
+            // state.range_tree.print_ptr_tree();
+            // dbg!(&state.range_tree);
         }
     
         state.check();
@@ -435,7 +435,7 @@ mod tests {
         state.insert_name("fred", 3, "D");
         state.insert_name("george", 4, "EFgh");
 
-        // println!("tree {:#?}", state.marker_tree);
+        // println!("tree {:#?}", state.range_tree);
         // Delete CDEF
         let result = state.delete_name("amanda", 2, 4);
         assert_eq!(result.len(), 3); // TODO: More thorough equality checks here.
@@ -445,7 +445,7 @@ mod tests {
         state.check();
         assert_eq!(state.len(), 4);
 
-        // state.marker_tree.print_stats();
+        // state.range_tree.print_stats();
     }
 
     #[test]
@@ -540,12 +540,12 @@ mod tests {
         // assert!(state.text_content.eq(&u.finalText));
 
         // state.client_data[0].markers.print_stats();
-        // state.marker_tree.print_stats();
+        // state.range_tree.print_stats();
         println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
 
         println!("final node total {}", state.marker_tree.count_entries());
         println!("marker entries {}", state.client_data[0].markers.count_entries());
-        // state.marker_tree = MarkerTree::new();
+        // state.range_tree = MarkerTree::new();
         // state.client_data.clear();
         // println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
     }

@@ -1,4 +1,4 @@
-// Should this be called mod.rs?
+// Should this be called range_tree?
 use inlinable_string::InlinableString;
 
 pub type ClientName = InlinableString;

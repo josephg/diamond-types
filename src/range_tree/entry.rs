@@ -6,7 +6,7 @@ use std::fmt::Debug;
 pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default {
     type Item: Copy + Debug;
 
-    /// User specific content length. Used by marker_tree for character counts.
+    /// User specific content length. Used by range_tree for character counts.
     fn content_len(&self) -> usize;
 
     fn is_insert(&self) -> bool;

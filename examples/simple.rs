@@ -59,7 +59,7 @@ fn main() {
     // state.insert_name("fred", 3, "D");
     // state.insert_name("george", 4, "EFgh");
     //
-    // // println!("tree {:#?}", state.marker_tree);
+    // // println!("tree {:#?}", state.range_tree);
     // // Delete CDEF
     // let _result = state.delete_name("amanda", 2, 4);
     // // eprintln!("delete result {:#?}", result);
