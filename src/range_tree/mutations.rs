@@ -210,6 +210,54 @@ impl<E: EntryTraits> RangeTree<E> {
             assert_eq!(expected_size, self.count);
         }
     }
+
+    /// Replace as much of the current entry from cursor onwards as we can
+    fn replace_range<MapFn, N>(self: &Pin<Box<Self>>, map_fn: MapFn, cursor: &mut Cursor<E>, replace_max: usize, flush_marker: &mut FlushMarker, notify: &mut N) -> usize
+        where N: FnMut(E, NonNull<NodeLeaf<E>>), MapFn: FnOnce(&mut E) {
+
+        let node = unsafe { cursor.get_node_mut() };
+        let mut entry: E = node.data[cursor.idx];
+        let mut entry_len = entry.content_len();
+
+        assert!(cursor.offset < entry_len);
+
+        // There's 1-3 parts here - part1<part2>part3
+
+        // Trim off the first part
+        let a = if cursor.offset > 0 {
+            entry_len -= cursor.offset;
+            Some(entry.truncate_keeping_right(cursor.offset))
+        } else { None };
+
+        // Trim off the last part
+        let (c, replaced_here) = if replace_max < entry_len {
+            (Some(entry.truncate(replace_max)), replace_max)
+        } else { (None, entry_len) };
+
+        // extend_delete(&mut result, entry);
+        // entry.mark_deleted();
+        // entry = map_fn(entry);
+        map_fn(&mut entry);
+
+        if let Some(a) = a {
+            if let Some(c) = c {
+                self.replace_entry(cursor, &[a, entry, c], flush_marker, notify);
+            } else {
+                self.replace_entry(cursor, &[a, entry], flush_marker, notify);
+            }
+        } else {
+            if let Some(c) = c {
+                self.replace_entry(cursor, &[entry, c], flush_marker, notify);
+            } else {
+                // self.replace_entry(&mut cursor, &[entry], &mut flush_marker, &mut notify);
+                node.data[cursor.idx] = entry;
+                cursor.offset = replaced_here;
+                flush_marker.0 -= replaced_here as isize;
+            }
+        }
+
+        replaced_here
+    }
 }
 
 impl<E: EntryTraits + CRDTItem> RangeTree<E> {
@@ -217,7 +265,6 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
         where F: FnMut(E, NonNull<NodeLeaf<E>>) {
         // println!("local_delete len: {} at cursor {:?}", deleted_len, cursor);
 
-        // TODO: Benchmark this.
         if cfg!(debug_assertions) {
             let cursor_pos = cursor.count_pos();
             assert!(cursor_pos + deleted_len <= self.count);
@@ -231,7 +278,7 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
         cursor.roll_to_next(false);
 
         while delete_remaining > 0 {
-            // Mark as much as we can for delete in the current node.
+            // We're iterating through entries, marking entries for delete along the way.
             // dbg!(cursor, delete_remaining);
             // dbg!(cursor.get_node());
             debug_assert!(!cursor.get_entry().is_invalid());
@@ -241,48 +288,10 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
                 Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
             }
 
-            let node = unsafe { cursor.get_node_mut() };
-            let mut entry: E = node.data[cursor.idx];
-            let mut entry_len = entry.content_len();
-            debug_assert!(entry.is_insert()); // We should have skipped already deleted nodes.
-
-            // dbg!(cursor, entry);
-            assert!(cursor.offset < entry_len);
-
-            // Delete as many characters as we can in the document each time through this loop.
-            // There's 1-3 parts here - part1<part2>part3
-
-            // Trim off the first part
-            let a = if cursor.offset > 0 {
-                entry_len -= cursor.offset;
-                Some(entry.truncate_keeping_right(cursor.offset))
-            } else { None };
-
-            // Trim off the last part
-            let (c, deleted_here) = if delete_remaining < entry_len {
-                (Some(entry.truncate(delete_remaining)), delete_remaining)
-            } else { (None, entry_len) };
-
-            extend_delete(&mut result, entry);
-            entry.mark_deleted();
-
-            if let Some(a) = a {
-                if let Some(c) = c {
-                    self.replace_entry(&mut cursor, &[a, entry, c], &mut flush_marker, &mut notify);
-                } else {
-                    self.replace_entry(&mut cursor, &[a, entry], &mut flush_marker, &mut notify);
-                }
-            } else {
-                if let Some(c) = c {
-                    self.replace_entry(&mut cursor, &[entry, c], &mut flush_marker, &mut notify);
-                } else {
-                    // self.replace_entry(&mut cursor, &[entry], &mut flush_marker, &mut notify);
-                    node.data[cursor.idx] = entry;
-                    cursor.offset = deleted_here;
-                    flush_marker.0 -= deleted_here as isize;
-                }
-            }
-            delete_remaining -= deleted_here;
+            delete_remaining -= self.replace_range(|e| {
+                extend_delete(&mut result, *e);
+                e.mark_deleted();
+            }, &mut cursor, delete_remaining, &mut flush_marker, &mut notify);
         }
 
         // The cursor is potentially after any remainder.
@@ -303,13 +312,11 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
     /// We will always delete at least one item. Consumers of this API should call this in a loop.
     ///
     /// Returns the number of items marked for deletion.
-    pub fn remote_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, max_deleted_len: usize, notify: F) -> usize
+    pub fn remote_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, max_deleted_len: usize, mut notify: F) -> usize
         where F: FnMut(E, NonNull<NodeLeaf<E>>) {
 
         cursor.roll_to_next(false);
         let entry = cursor.get_entry();
-        let len = entry.len();
-        let amt_deleted = usize::min(len - cursor.offset, max_deleted_len);
 
         // If the entry is already marked as deleted, we do nothing. This is needed because
         // local_delete will skip deletes and go delete something else.
@@ -320,10 +327,24 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
             //
             // Even though we're just editing an item here, the item could be split by the delete,
             // so notify may end up called.
-            self.local_delete(cursor, amt_deleted, notify);
-        }
+            // let len = entry.len();
+            // let amt_deleted = usize::min(len - cursor.offset, max_deleted_len);
+            // self.local_delete(cursor, amt_deleted, notify);
 
-        amt_deleted
+            // TODO: This is cleaner than using the commented code above, but might result in
+            // unnecessarily larger binary size because of monomorphization. Check if this makes any
+            // difference.
+            let mut flush_marker = FlushMarker(0);
+            let amt_deleted = self.replace_range(|e| {
+                e.mark_deleted()
+            }, &mut cursor, max_deleted_len, &mut flush_marker, &mut notify);
+
+            if flush_marker.0 != 0 {
+                flush_marker.flush(unsafe { cursor.get_node_mut() });
+            }
+
+            amt_deleted
+        } else { 0 }
     }
 }
 
