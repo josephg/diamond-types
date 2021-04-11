@@ -2,21 +2,15 @@ use super::*;
 
 use smallvec::SmallVec;
 
-// Placeholders for delete
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct DeleteOp {
-    pub loc: CRDTLocation,
-    pub len: u32
-}
-pub type DeleteResult = SmallVec<[DeleteOp; 2]>;
-pub fn extend_delete(delete: &mut DeleteResult, op: DeleteOp) {
+pub type DeleteResult<E> = SmallVec<[E; 2]>;
+pub fn extend_delete<E: EntryTraits>(delete: &mut DeleteResult<E>, entry: E) {
     // println!("extend_delete {:?}", op);
     if let Some(last) = delete.last_mut() {
-        if last.loc.agent == op.loc.agent && last.loc.seq + last.len == op.loc.seq {
+        if last.can_append(&entry) {
             // Extend!
-            last.len += op.len
-        } else { delete.push(op); }
-    } else { delete.push(op); }
+            last.append(entry);
+        } else { delete.push(entry); }
+    } else { delete.push(entry); }
 }
 
 impl<E: EntryTraits> MarkerTree<E> {
@@ -218,11 +212,12 @@ impl<E: EntryTraits> MarkerTree<E> {
         Self::print_node_tree(&self.root, 1);
     }
 
-    pub unsafe fn lookup_position(loc: CRDTLocation, ptr: NonNull<NodeLeaf<E>>) -> u32 {
+    pub unsafe fn cursor_at_marker(loc: E::Item, ptr: NonNull<NodeLeaf<E>>) -> Cursor<E> {
         // First make a cursor to the specified item
         let leaf = ptr.as_ref();
         let cursor = leaf.find(loc).expect("Position not in named leaf");
-        cursor.count_pos() as _
+        // cursor.count_pos() as _
+        cursor
     }
 
     #[allow(unused)]

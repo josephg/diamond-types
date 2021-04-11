@@ -39,7 +39,6 @@
 mod common;
 mod marker_tree;
 mod split_list;
-mod txn_simple;
 mod splitable_span;
 mod alloc;
 
@@ -239,7 +238,7 @@ impl CRDTState {
         let insert_location = if pos == 0 {
             // This saves an awful lot of code needing to be executed.
             CRDT_DOC_ROOT
-        } else { cursor.clone().tell_predecessor() };
+        } else { cursor.clone().tell_predecessor().unwrap() };
 
         let new_entry = Entry {
             loc: loc_base,
@@ -277,7 +276,7 @@ impl CRDTState {
         self.insert(id, pos, text)
     }
 
-    pub fn delete(&mut self, _client_id: AgentId, pos: usize, len: usize) -> DeleteResult {
+    pub fn delete(&mut self, _client_id: AgentId, pos: usize, len: usize) -> DeleteResult<Entry> {
         let cursor = self.marker_tree.cursor_at_pos(pos, true);
         // println!("{:#?}", state.marker_tree);
         // println!("{:?}", cursor);
@@ -296,7 +295,7 @@ impl CRDTState {
         result
     }
 
-    pub fn delete_name(&mut self, client_name: &str, pos: usize, len: usize) -> DeleteResult {
+    pub fn delete_name(&mut self, client_name: &str, pos: usize, len: usize) -> DeleteResult<Entry> {
         let id = self.get_or_create_client_id(client_name);
         self.delete(id, pos, len)
     }
@@ -305,7 +304,7 @@ impl CRDTState {
         if loc == CRDT_DOC_ROOT { return 0; }
 
         let markers = &self.client_data[loc.agent as usize].markers;
-        unsafe { MarkerTree::lookup_position(loc, markers[loc.seq as usize]) }
+        unsafe { MarkerTree::cursor_at_marker(loc, markers[loc.seq as usize]).count_pos() as u32 }
     }
 
     pub fn lookup_num_position(&self, pos: usize) -> CRDTLocation {
@@ -315,7 +314,7 @@ impl CRDTState {
         // } else { cursor.tell() };
 
         let cursor = self.marker_tree.cursor_at_pos(pos, true);
-        cursor.tell_predecessor()
+        cursor.tell_predecessor().unwrap_or(CRDT_DOC_ROOT)
     }
 
     pub fn lookup_position_name(&self, client_name: &str, seq: usize) -> u32 {

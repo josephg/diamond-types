@@ -20,7 +20,7 @@ use std::marker::PhantomPinned;
 
 pub use root::DeleteResult;
 use std::fmt::Debug;
-use crate::marker_tree::entry::EntryTraits;
+pub use crate::marker_tree::entry::EntryTraits;
 pub use entry::Entry;
 use std::cell::Cell;
 
@@ -102,8 +102,8 @@ pub struct NodeLeaf<E: EntryTraits> {
 pub struct Cursor<E: EntryTraits> {
 // pub struct Cursor {
     node: NonNull<NodeLeaf<E>>,
-    idx: usize,
-    offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
+    pub idx: usize,
+    pub offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
     // _marker: marker::PhantomData<&'a MarkerTree<E>>,
 }
 

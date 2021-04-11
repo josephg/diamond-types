@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 //  + Index<usize, Output = CRDTLocation>
 pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default {
-    // type Item;
+    type Item: Copy + Debug;
 
     /// User specific content length. Used by marker_tree for character counts.
     fn content_len(&self) -> usize;
@@ -19,12 +19,12 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
 
     fn mark_deleted(&mut self);
 
-    fn contains(&self, loc: CRDTLocation) -> Option<usize>;
+    fn contains(&self, loc: Self::Item) -> Option<usize>;
     fn is_invalid(&self) -> bool;
 
     // I'd use Index for this but the index trait returns a reference.
     // fn at_offset(&self, offset: usize) -> Self::Item;
-    fn at_offset(&self, offset: usize) -> CRDTLocation;
+    fn at_offset(&self, offset: usize) -> Self::Item;
 }
 // impl<T> EntryTraits for T where T: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default + Index<usize, Output = CRDTLocation> {}
 
@@ -75,7 +75,7 @@ pub struct Entry {
 // }
 
 impl EntryTraits for Entry {
-    // type Item = CRDTLocation;
+    type Item = CRDTLocation;
 
     fn content_len(&self) -> usize {
         if self.len < 0 { 0 } else { self.len as _ }

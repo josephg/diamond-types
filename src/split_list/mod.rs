@@ -380,7 +380,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
     }
 }
 
-impl<Entry, Item> Index<usize> for SplitList<Entry> where Entry: SplitableSpan + Index<usize, Output=Item>, Entry: Debug {
+impl<Entry, Item> Index<usize> for SplitList<Entry> where Entry: SplitableSpan + Index<usize, Output=Item> + Debug {
     type Output = Item;
 
     fn index(&self, index: usize) -> &Self::Output {

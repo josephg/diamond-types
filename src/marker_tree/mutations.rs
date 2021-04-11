@@ -4,7 +4,7 @@ use std::ptr::NonNull;
 use std::{ptr, mem};
 use std::pin::Pin;
 use smallvec::SmallVec;
-use crate::marker_tree::root::{extend_delete, DeleteOp};
+use crate::marker_tree::root::{extend_delete};
 
 impl<E: EntryTraits> MarkerTree<E> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
@@ -212,16 +212,19 @@ impl<E: EntryTraits> MarkerTree<E> {
         }
     }
 
-    pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, deleted_len: usize, mut notify: F) -> DeleteResult
+    pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
         where F: FnMut(E, NonNull<NodeLeaf<E>>) {
         // println!("local_delete len: {} at cursor {:?}", deleted_len, cursor);
 
-        let cursor_pos = cursor.count_pos();
-        assert!(cursor_pos + deleted_len <= self.count);
+        // TODO: Benchmark this.
+        if cfg!(debug_assertions) {
+            let cursor_pos = cursor.count_pos();
+            assert!(cursor_pos + deleted_len <= self.count);
+        }
         // dbg!(cursor_pos, self.count);
 
         let expected_size = self.count - deleted_len;
-        let mut result: DeleteResult = SmallVec::default();
+        let mut result: DeleteResult<E> = SmallVec::default();
         let mut flush_marker = FlushMarker(0);
         let mut delete_remaining = deleted_len;
         cursor.roll_to_next(false);
@@ -259,11 +262,8 @@ impl<E: EntryTraits> MarkerTree<E> {
                 (Some(entry.truncate(delete_remaining)), delete_remaining)
             } else { (None, entry_len) };
 
+            extend_delete(&mut result, entry);
             entry.mark_deleted();
-            extend_delete(&mut result, DeleteOp {
-                loc: entry.at_offset(0),
-                len: deleted_here as _
-            });
 
             if let Some(a) = a {
                 if let Some(c) = c {
@@ -296,6 +296,33 @@ impl<E: EntryTraits> MarkerTree<E> {
         }
 
         result
+    }
+
+    /// Delete up to max_deleted_len from the marker tree, at the location specified by cursor.
+    /// We will always delete at least one item. Consumers of this API should call this in a loop.
+    ///
+    /// Returns the number of items marked for deletion.
+    pub fn remote_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, max_deleted_len: usize, notify: F) -> usize
+        where F: FnMut(E, NonNull<NodeLeaf<E>>) {
+
+        cursor.roll_to_next(false);
+        let entry = cursor.get_entry();
+        let len = entry.len();
+        let amt_deleted = usize::min(len - cursor.offset, max_deleted_len);
+
+        // If the entry is already marked as deleted, we do nothing. This is needed because
+        // local_delete will skip deletes and go delete something else.
+        if entry.is_insert() {
+            // The deleted region could be in the middle of an item and that has all sorts of
+            // complexity. Just delegate to local_delete above, which will take care of all that
+            // jazz.
+            //
+            // Even though we're just editing an item here, the item could be split by the delete,
+            // so notify may end up called.
+            self.local_delete(cursor, amt_deleted, notify);
+        }
+
+        amt_deleted
     }
 }
 
@@ -488,7 +515,7 @@ fn insert_after<E: EntryTraits>(
 
 #[cfg(test)]
 mod tests {
-    use std::pin::Pin;
+    // use std::pin::Pin;
     use crate::marker_tree::{MarkerTree, Entry, FlushMarker};
     use crate::common::CRDTLocation;
 

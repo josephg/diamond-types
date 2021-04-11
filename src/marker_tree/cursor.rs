@@ -141,7 +141,7 @@ impl<E: EntryTraits> Cursor<E> {
         self.next_entry_marker(None)
     }
 
-    pub(super) fn count_pos(&self) -> usize {
+    pub fn count_pos(&self) -> usize {
         let node = unsafe { self.node.as_ref() };
         
         let mut pos: usize = 0;
@@ -197,17 +197,17 @@ impl<E: EntryTraits> Cursor<E> {
 
     /// Calculate and return the predecessor ID at the cursor. This is used to calculate the CRDT
     /// location for an insert position.
-    pub fn tell_predecessor(mut self) -> CRDTLocation {
+    pub fn tell_predecessor(mut self) -> Option<E::Item> {
         while (self.offset == 0 && self.idx == 0) || self.get_entry().is_delete() {
             // println!("\nentry {:?}", self);
             let exists = self.prev_entry();
-            if !exists { return CRDT_DOC_ROOT; }
+            if !exists { return None; }
             // println!("-> prev {:?} inside {:#?}", self, unsafe { self.node.as_ref() });
             // println!();
         }
 
         let entry = self.get_entry(); // Shame this is called twice but eh.
-        entry.at_offset(self.offset - 1)
+        Some(entry.at_offset(self.offset - 1))
     }
 
     // This is a terrible name. This method modifies a cursor at the end of a
