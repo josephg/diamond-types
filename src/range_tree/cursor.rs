@@ -1,4 +1,5 @@
 use super::*;
+use crate::range_tree::entry::CRDTItem;
 
 // impl<'a, E: EntryTraits> Cursor<'a, E> {
 impl<E: EntryTraits> Cursor<E> {
@@ -195,21 +196,6 @@ impl<E: EntryTraits> Cursor<E> {
         &mut node.data[self.idx]
     }
 
-    /// Calculate and return the predecessor ID at the cursor. This is used to calculate the CRDT
-    /// location for an insert position.
-    pub fn tell_predecessor(mut self) -> Option<E::Item> {
-        while (self.offset == 0 && self.idx == 0) || self.get_entry().is_delete() {
-            // println!("\nentry {:?}", self);
-            let exists = self.prev_entry();
-            if !exists { return None; }
-            // println!("-> prev {:?} inside {:#?}", self, unsafe { self.node.as_ref() });
-            // println!();
-        }
-
-        let entry = self.get_entry(); // Shame this is called twice but eh.
-        Some(entry.at_offset(self.offset - 1))
-    }
-
     // This is a terrible name. This method modifies a cursor at the end of a
     // span to be a cursor to the start of the next span.
     pub(super) fn roll_to_next(&mut self, stick_end: bool) {
@@ -231,5 +217,22 @@ impl<E: EntryTraits> Cursor<E> {
             }
 
         }
+    }
+}
+
+impl<E: EntryTraits + CRDTItem> Cursor<E> {
+    /// Calculate and return the predecessor ID at the cursor. This is used to calculate the CRDT
+    /// location for an insert position.
+    pub fn tell_predecessor(mut self) -> Option<E::Item> {
+        while (self.offset == 0 && self.idx == 0) || self.get_entry().is_delete() {
+            // println!("\nentry {:?}", self);
+            let exists = self.prev_entry();
+            if !exists { return None; }
+            // println!("-> prev {:?} inside {:#?}", self, unsafe { self.node.as_ref() });
+            // println!();
+        }
+
+        let entry = self.get_entry(); // Shame this is called twice but eh.
+        Some(entry.at_offset(self.offset - 1))
     }
 }

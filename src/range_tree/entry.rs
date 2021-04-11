@@ -9,15 +9,8 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
     /// User specific content length. Used by range_tree for character counts.
     fn content_len(&self) -> usize;
 
-    fn is_insert(&self) -> bool;
-    fn is_delete(&self) -> bool {
-        !self.is_insert()
-    }
-
     // This is strictly unnecessary given truncate(), but it makes some code cleaner.
     fn truncate_keeping_right(&mut self, at: usize) -> Self;
-
-    fn mark_deleted(&mut self);
 
     fn contains(&self, loc: Self::Item) -> Option<usize>;
     fn is_invalid(&self) -> bool;
@@ -26,8 +19,14 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
     // fn at_offset(&self, offset: usize) -> Self::Item;
     fn at_offset(&self, offset: usize) -> Self::Item;
 }
-// impl<T> EntryTraits for T where T: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default + Index<usize, Output = CRDTLocation> {}
 
+pub trait CRDTItem {
+    fn is_insert(&self) -> bool;
+    fn is_delete(&self) -> bool {
+        !self.is_insert()
+    }
+    fn mark_deleted(&mut self);
+}
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 pub struct Entry {
@@ -74,16 +73,12 @@ pub struct Entry {
 //     }
 // }
 
+
 impl EntryTraits for Entry {
     type Item = CRDTLocation;
 
     fn content_len(&self) -> usize {
         if self.len < 0 { 0 } else { self.len as _ }
-    }
-
-    fn is_insert(&self) -> bool {
-        debug_assert!(self.len != 0);
-        self.len > 0
     }
 
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
@@ -94,11 +89,6 @@ impl EntryTraits for Entry {
         self.loc.seq += at as u32;
         self.len += if self.len < 0 { at as i32 } else { -(at as i32) };
         other
-    }
-
-    fn mark_deleted(&mut self) {
-        debug_assert!(self.is_insert());
-        self.len = -self.len
     }
 
     fn contains(&self, loc: CRDTLocation) -> Option<usize> {
@@ -165,5 +155,18 @@ impl SplitableSpan for Entry {
     fn prepend(&mut self, other: Self) {
         self.loc.seq = other.loc.seq;
         self.len += other.len;
+    }
+}
+
+
+impl CRDTItem for Entry {
+    fn is_insert(&self) -> bool {
+        debug_assert!(self.len != 0);
+        self.len > 0
+    }
+
+    fn mark_deleted(&mut self) {
+        debug_assert!(self.is_insert());
+        self.len = -self.len
     }
 }

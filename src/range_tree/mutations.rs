@@ -1,4 +1,4 @@
-use crate::range_tree::entry::EntryTraits;
+use crate::range_tree::entry::{EntryTraits, CRDTItem};
 use crate::range_tree::{RangeTree, Cursor, NodeLeaf, FlushMarker, NUM_LEAF_ENTRIES, DeleteResult, ParentPtr, Node, NodePtr, NUM_NODE_CHILDREN, NodeInternal};
 use std::ptr::NonNull;
 use std::{ptr, mem};
@@ -191,7 +191,6 @@ impl<E: EntryTraits> RangeTree<E> {
 
     pub fn insert<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, new_entry: E, mut notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E>>) {
-
         let len = new_entry.content_len();
         let expected_size = self.count + len;
 
@@ -211,7 +210,9 @@ impl<E: EntryTraits> RangeTree<E> {
             assert_eq!(expected_size, self.count);
         }
     }
+}
 
+impl<E: EntryTraits + CRDTItem> RangeTree<E> {
     pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
         where F: FnMut(E, NonNull<NodeLeaf<E>>) {
         // println!("local_delete len: {} at cursor {:?}", deleted_len, cursor);
