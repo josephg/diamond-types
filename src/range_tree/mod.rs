@@ -1,6 +1,20 @@
 // The btree here is used to map character -> document positions. It could also
 // be extended to inline a rope, but I haven't done that here.
 
+use std::cell::Cell;
+use std::fmt::Debug;
+use std::marker;
+use std::marker::PhantomPinned;
+use std::pin::Pin;
+use std::ptr::NonNull;
+
+pub use entry::Entry;
+pub use root::DeleteResult;
+
+pub use crate::range_tree::entry::{CRDTItem, EntryTraits};
+
+use super::common::*;
+
 // The common data structures are:
 mod cursor;
 mod root;
@@ -10,19 +24,6 @@ mod entry;
 mod mutations;
 
 // pub(crate) use cursor::Cursor;
-
-use std::ptr::NonNull;
-use std::marker;
-use std::pin::Pin;
-
-use super::common::*;
-use std::marker::PhantomPinned;
-
-pub use root::DeleteResult;
-use std::fmt::Debug;
-pub use crate::range_tree::entry::EntryTraits;
-pub use entry::Entry;
-use std::cell::Cell;
 
 #[cfg(debug_assertions)]
 const NUM_NODE_CHILDREN: usize = 8; // This needs to be minimum 8.

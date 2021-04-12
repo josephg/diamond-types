@@ -13,7 +13,7 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
     fn truncate_keeping_right(&mut self, at: usize) -> Self;
 
     fn contains(&self, loc: Self::Item) -> Option<usize>;
-    fn is_invalid(&self) -> bool;
+    fn is_valid(&self) -> bool;
 
     // I'd use Index for this but the index trait returns a reference.
     // fn at_offset(&self, offset: usize) -> Self::Item;
@@ -101,8 +101,8 @@ impl EntryTraits for Entry {
         } else { None }
     }
 
-    fn is_invalid(&self) -> bool {
-        self.loc.agent == CLIENT_INVALID
+    fn is_valid(&self) -> bool {
+        self.loc.agent != CLIENT_INVALID
     }
 
     // fn at_offset(&self, offset: usize) -> Self::Item {

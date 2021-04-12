@@ -103,14 +103,14 @@ impl<E: EntryTraits> RangeTree<E> {
         let mut num: usize = 0;
 
         for e in &leaf.data[..] {
-            if e.is_invalid() {
-                done = true;
-            } else {
+            if e.is_valid() {
                 // Make sure there's no data after an invalid entry
                 assert_eq!(done, false, "Leaf contains gaps");
                 assert_ne!(e.len(), 0, "Invalid leaf - 0 length");
                 count += e.content_len() as usize;
                 num += 1;
+            } else {
+                done = true;
             }
         }
 

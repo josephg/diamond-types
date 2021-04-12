@@ -281,7 +281,7 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
             // We're iterating through entries, marking entries for delete along the way.
             // dbg!(cursor, delete_remaining);
             // dbg!(cursor.get_node());
-            debug_assert!(!cursor.get_entry().is_invalid());
+            debug_assert!(cursor.get_entry().is_valid());
             // dbg!(cursor.get_entry());
 
             while cursor.get_entry().is_delete() {

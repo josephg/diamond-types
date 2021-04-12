@@ -65,7 +65,7 @@ impl<E: EntryTraits> NodeLeaf<E> {
             // }
 
             let entry: E = self.data[i];
-            if entry.is_invalid() { break; }
+            if !entry.is_valid() { break; }
 
             let text_len = entry.content_len();
             if offset < text_len || (stick_end && text_len == offset) {

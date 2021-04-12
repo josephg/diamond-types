@@ -57,26 +57,8 @@ use crate::splitable_span::SplitableSpan;
 
 pub use alloc::ALLOCATED;
 
-#[derive(Clone, Debug)]
-pub enum ExternalOp {
-    Insert {
-        content: InlinableString,
-        predecessor: CRDTLocation,
-    },
-    // Deleted characters in sequence. In a CRDT these characters must be
-    // contiguous from a single client.
-    Delete {
-        target: CRDTLocation,
-        len: ItemCount,
-    }
-}
 
-#[derive(Clone, Debug)]
-pub struct ExternalTxn {
-    id: CRDTLocation,
-    parents: SmallVec<[CRDTLocation; 2]>,
-    ops: SmallVec<[ExternalOp; 1]>,
-}
+// *** Basically all the code below is being replaced by new code in mod document
 
 /**
  * A crdt operation is a set of small operation components at locations.
