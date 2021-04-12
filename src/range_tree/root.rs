@@ -39,6 +39,11 @@ impl<E: EntryTraits> RangeTree<E> {
         self.count as _
     }
 
+    pub fn get(&self, pos: usize) -> Option<E::Item> {
+        let cursor = self.cursor_at_pos(pos, false);
+        cursor.get_item()
+    }
+
     unsafe fn to_parent_ptr(&self) -> ParentPtr<E> {
         ParentPtr::Root(ref_to_nonnull(self))
     }
@@ -75,6 +80,20 @@ impl<E: EntryTraits> RangeTree<E> {
                 // _marker: marker::PhantomData
             }
         }
+    }
+
+    pub fn cursor_at_end(&self) -> Cursor<E> {
+        // There's ways to write this to be faster, but its rare enough it should be fine.
+        let cursor = self.cursor_at_pos(self.count, true);
+
+        if cfg!(debug_assertions) {
+            // Make sure nothing went wrong while we're here.
+            let mut cursor = cursor;
+            assert_eq!(cursor.get_entry().len(), cursor.offset);
+            assert_eq!(cursor.next_entry(), false);
+        }
+
+        cursor
     }
 
     // pub fn clear_cursor_cache(self: &Pin<Box<Self>>) {
@@ -212,11 +231,11 @@ impl<E: EntryTraits> RangeTree<E> {
         Self::print_node_tree(&self.root, 1);
     }
 
-    pub unsafe fn cursor_at_marker(loc: E::Item, ptr: NonNull<NodeLeaf<E>>) -> Cursor<E> {
+    /// Returns a cursor right before the named location, referenced by the pointer.
+    pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E>>) -> Cursor<E> {
         // First make a cursor to the specified item
         let leaf = ptr.as_ref();
         let cursor = leaf.find(loc).expect("Position not in named leaf");
-        // cursor.count_pos() as _
         cursor
     }
 

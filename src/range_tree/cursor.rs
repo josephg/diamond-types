@@ -196,9 +196,12 @@ impl<E: EntryTraits> Cursor<E> {
         &mut node.data[self.idx]
     }
 
-    // This is a terrible name. This method modifies a cursor at the end of a
-    // span to be a cursor to the start of the next span.
-    pub(super) fn roll_to_next(&mut self, stick_end: bool) {
+    // This is a terrible name. This method modifies a cursor at the end of an entry
+    // to be a cursor to the start of the next entry - potentially in the following leaf.
+    //
+    // Returns false if the new location points past the end of the tree.
+    // (Or if stick_end = true, past the end of the current leaf.)
+    pub(super) fn roll_to_next_entry(&mut self, stick_end: bool) -> bool {
         unsafe {
             let node = self.node.as_ref();
             let seq_len = node.data[self.idx].len();
@@ -211,12 +214,22 @@ impl<E: EntryTraits> Cursor<E> {
                 self.idx += 1;
                 // entry = &mut node.0[cursor.idx];
 
-                if !stick_end && self.idx >= node.num_entries as usize {
-                    self.next_entry();
+                if self.idx >= node.num_entries as usize {
+                    return if !stick_end { self.next_entry() }
+                    else { false };
                 }
             }
 
+            true
         }
+    }
+
+    pub fn get_item(&self) -> Option<E::Item> {
+        // TODO: Optimize this or take a copy.
+        let mut cursor = *self;
+        if cursor.roll_to_next_entry(false) {
+            Some(cursor.get_entry().at_offset(cursor.offset))
+        } else { None }
     }
 }
 

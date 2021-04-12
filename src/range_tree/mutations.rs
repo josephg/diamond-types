@@ -275,7 +275,7 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
         let mut result: DeleteResult<E> = SmallVec::default();
         let mut flush_marker = FlushMarker(0);
         let mut delete_remaining = deleted_len;
-        cursor.roll_to_next(false);
+        cursor.roll_to_next_entry(false);
 
         while delete_remaining > 0 {
             // We're iterating through entries, marking entries for delete along the way.
@@ -315,7 +315,7 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
     pub fn remote_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, max_deleted_len: usize, mut notify: F) -> usize
         where F: FnMut(E, NonNull<NodeLeaf<E>>) {
 
-        cursor.roll_to_next(false);
+        cursor.roll_to_next_entry(false);
         let entry = cursor.get_entry();
 
         // If the entry is already marked as deleted, we do nothing. This is needed because

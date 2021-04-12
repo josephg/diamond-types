@@ -2,7 +2,7 @@ use crate::common::{CRDTLocation, CLIENT_INVALID};
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 
-//  + Index<usize, Output = CRDTLocation>
+// TODO: Consider renaming this "RangeEntry" or something.
 pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default {
     type Item: Copy + Debug;
 

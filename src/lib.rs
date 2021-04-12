@@ -41,6 +41,7 @@ mod range_tree;
 mod split_list;
 mod splitable_span;
 mod alloc;
+// mod document;
 
 use range_tree::*;
 use common::*;
@@ -286,7 +287,7 @@ impl CRDTState {
         if loc == CRDT_DOC_ROOT { return 0; }
 
         let markers = &self.client_data[loc.agent as usize].markers;
-        unsafe { RangeTree::cursor_at_marker(loc, markers[loc.seq as usize]).count_pos() as u32 }
+        unsafe { RangeTree::cursor_before_item(loc, markers[loc.seq as usize]).count_pos() as u32 }
     }
 
     pub fn lookup_num_position(&self, pos: usize) -> CRDTLocation {

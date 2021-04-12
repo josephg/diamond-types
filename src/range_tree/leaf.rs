@@ -38,12 +38,12 @@ impl<E: EntryTraits> NodeLeaf<E> {
     //     (raw_pos, None)
     // }
 
-    // pub fn find(&self, loc: CRDTLocation) -> Option<Cursor<'_, E>> {
     pub fn find(&self, loc: E::Item) -> Option<Cursor<E>> {
         for i in 0..self.len_entries() {
             let entry: E = self.data[i];
 
             if let Some(offset) = entry.contains(loc) {
+                debug_assert!(offset < entry.len());
                 // let offset = if entry.is_insert() { entry_offset } else { 0 };
 
                 return Some(Cursor::new(
