@@ -1,11 +1,11 @@
 use super::*;
 use std::mem::{self, MaybeUninit};
 
-impl<E: EntryTraits> NodeInternal<E> {
-    pub(super) fn new_with_parent(parent: ParentPtr<E>) -> Pin<Box<Self>> {
+impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
+    pub(super) fn new_with_parent(parent: ParentPtr<E, I>) -> Pin<Box<Self>> {
         // From the example in the docs:
         // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#initializing-an-array-element-by-element
-        let mut children: [MaybeUninit<(ItemCount, Option<Node<E>>)>; NUM_NODE_CHILDREN] = unsafe {
+        let mut children: [MaybeUninit<(ItemCount, Option<Node<E, I>>)>; NUM_NODE_CHILDREN] = unsafe {
             MaybeUninit::uninit().assume_init() // Safe because `MaybeUninit`s don't require init.
         };
         for elem in &mut children[..] {
@@ -14,14 +14,14 @@ impl<E: EntryTraits> NodeInternal<E> {
         Box::pin(Self {
             parent,
             data: unsafe {
-                mem::transmute::<_, [(ItemCount, Option<Node<E>>); NUM_NODE_CHILDREN]>(children)
+                mem::transmute::<_, [(ItemCount, Option<Node<E, I>>); NUM_NODE_CHILDREN]>(children)
             },
             _pin: PhantomPinned,
             _drop: PrintDropInternal,
         })
     }
 
-    pub(super) fn get_child_ptr(&self, raw_pos: usize, stick_end: bool) -> Option<(ItemCount, NodePtr<E>)> {
+    pub(super) fn get_child_ptr(&self, raw_pos: usize, stick_end: bool) -> Option<(ItemCount, NodePtr<E, I>)> {
         let mut offset_remaining = raw_pos as ItemCount;
 
         for (count, elem) in self.data.iter() {
@@ -39,7 +39,7 @@ impl<E: EntryTraits> NodeInternal<E> {
         None
     }
 
-    pub(super) fn project_data_mut(self: Pin<&mut Self>) -> &mut [(ItemCount, Option<Node<E>>); NUM_NODE_CHILDREN] {
+    pub(super) fn project_data_mut(self: Pin<&mut Self>) -> &mut [(ItemCount, Option<Node<E, I>>); NUM_NODE_CHILDREN] {
         unsafe {
             &mut self.get_unchecked_mut().data
         }
@@ -47,7 +47,7 @@ impl<E: EntryTraits> NodeInternal<E> {
 
     /// Insert a new item in the tree. This DOES NOT update the child counts in
     /// the parents. (So the tree will be in an invalid state after this has been called.)
-    pub(super) fn splice_in(&mut self, idx: usize, count: u32, elem: Node<E>) {
+    pub(super) fn splice_in(&mut self, idx: usize, count: u32, elem: Node<E, I>) {
         let mut buffer = (count as u32, Some(elem));
 
         // TODO: Is this actually any better than the equivalent code below??
@@ -73,14 +73,14 @@ impl<E: EntryTraits> NodeInternal<E> {
         .unwrap_or(NUM_NODE_CHILDREN)
     }
 
-    pub(super) fn find_child(&self, child: NodePtr<E>) -> Option<usize> {
+    pub(super) fn find_child(&self, child: NodePtr<E, I>) -> Option<usize> {
         self.data.iter()
         .position(|(_, c)| c.as_ref()
             .map_or(false, |n| n.ptr_eq(child))
         )
     }
 
-    pub(super) unsafe fn to_parent_ptr(&self) -> ParentPtr<E> {
+    pub(super) unsafe fn to_parent_ptr(&self) -> ParentPtr<E, I> {
         ParentPtr::Internal(ref_to_nonnull(self))
     }
 }

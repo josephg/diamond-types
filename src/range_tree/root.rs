@@ -1,6 +1,7 @@
 use super::*;
 
 use smallvec::SmallVec;
+use crate::range_tree::index::ContentFlushMarker;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 pub fn extend_delete<E: EntryTraits>(delete: &mut DeleteResult<E>, entry: E) {
@@ -13,7 +14,7 @@ pub fn extend_delete<E: EntryTraits>(delete: &mut DeleteResult<E>, entry: E) {
     } else { delete.push(entry); }
 }
 
-impl<E: EntryTraits> RangeTree<E> {
+impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     pub fn new() -> Pin<Box<Self>> {
         let mut tree = Box::pin(Self {
             count: 0,
@@ -29,7 +30,7 @@ impl<E: EntryTraits> RangeTree<E> {
         tree
     }
 
-    fn root_ref_mut(self: Pin<&mut Self>) -> &mut Node<E> {
+    fn root_ref_mut(self: Pin<&mut Self>) -> &mut Node<E, I> {
         unsafe {
             &mut self.get_unchecked_mut().root
         }
@@ -44,11 +45,11 @@ impl<E: EntryTraits> RangeTree<E> {
         cursor.get_item()
     }
 
-    unsafe fn to_parent_ptr(&self) -> ParentPtr<E> {
+    unsafe fn to_parent_ptr(&self) -> ParentPtr<E, I> {
         ParentPtr::Root(ref_to_nonnull(self))
     }
 
-    pub fn cursor_at_pos(&self, raw_pos: usize, stick_end: bool) -> Cursor<E> {
+    pub fn cursor_at_pos(&self, raw_pos: usize, stick_end: bool) -> Cursor<E, I> {
         // if let Some((pos, mut cursor)) = self.last_cursor.get() {
         //     if pos == raw_pos {
         //         if cursor.offset == 0 {
@@ -82,7 +83,7 @@ impl<E: EntryTraits> RangeTree<E> {
         }
     }
 
-    pub fn cursor_at_end(&self) -> Cursor<E> {
+    pub fn cursor_at_end(&self) -> Cursor<E, I> {
         // There's ways to write this to be faster, but its rare enough it should be fine.
         let cursor = self.cursor_at_pos(self.count, true);
 
@@ -103,18 +104,18 @@ impl<E: EntryTraits> RangeTree<E> {
     //     self.as_ref().last_cursor.set(Some((pos, cursor)));
     // }
 
-    pub fn iter(&self) -> Cursor<E> {
+    pub fn iter(&self) -> Cursor<E, I> {
         self.cursor_at_pos(0, false)
     }
 
-    pub fn next_entry_or_panic(cursor: &mut Cursor<E>, marker: &mut FlushMarker) {
+    pub fn next_entry_or_panic(cursor: &mut Cursor<E, I>, marker: &mut ContentFlushMarker) {
         if cursor.next_entry_marker(Some(marker)) == false {
             panic!("Local delete past the end of the document");
         }
     }
 
     // Returns size.
-    fn check_leaf(leaf: &NodeLeaf<E>, expected_parent: ParentPtr<E>) -> usize {
+    fn check_leaf(leaf: &NodeLeaf<E, I>, expected_parent: ParentPtr<E, I>) -> usize {
         assert_eq!(leaf.parent, expected_parent);
         
         let mut count: usize = 0;
@@ -144,7 +145,7 @@ impl<E: EntryTraits> RangeTree<E> {
     }
     
     // Returns size.
-    fn check_internal(node: &NodeInternal<E>, expected_parent: ParentPtr<E>) -> usize {
+    fn check_internal(node: &NodeInternal<E, I>, expected_parent: ParentPtr<E, I>) -> usize {
         assert_eq!(node.parent, expected_parent);
         
         let mut count_total: usize = 0;
@@ -201,7 +202,7 @@ impl<E: EntryTraits> RangeTree<E> {
         assert_eq!(self.count as usize, expected_size, "tree.count is incorrect");
     }
 
-    fn print_node_tree(node: &Node<E>, depth: usize) {
+    fn print_node_tree(node: &Node<E, I>, depth: usize) {
         for _ in 0..depth { eprint!("  "); }
         match node {
             Node::Internal(n) => {
@@ -232,7 +233,7 @@ impl<E: EntryTraits> RangeTree<E> {
     }
 
     /// Returns a cursor right before the named location, referenced by the pointer.
-    pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E>>) -> Cursor<E> {
+    pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I>>) -> Cursor<E, I> {
         // First make a cursor to the specified item
         let leaf = ptr.as_ref();
         let cursor = leaf.find(loc).expect("Position not in named leaf");

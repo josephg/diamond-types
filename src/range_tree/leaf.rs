@@ -2,14 +2,14 @@ use super::*;
 // use std::mem;
 use std::ptr::NonNull;
 
-impl<E: EntryTraits> NodeLeaf<E> {
+impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
     // no reason for this object to be pinned. (Is that a bad idea? I'm not sure.)
     pub(super) unsafe fn new() -> Self {
         Self::new_with_parent(ParentPtr::Root(NonNull::dangling()))
     }
 
-    pub(super) fn new_with_parent(parent: ParentPtr<E>) -> Self {
+    pub(super) fn new_with_parent(parent: ParentPtr<E, I>) -> Self {
         Self {
             parent,
             data: [E::default(); NUM_LEAF_ENTRIES],
@@ -38,7 +38,7 @@ impl<E: EntryTraits> NodeLeaf<E> {
     //     (raw_pos, None)
     // }
 
-    pub fn find(&self, loc: E::Item) -> Option<Cursor<E>> {
+    pub fn find(&self, loc: E::Item) -> Option<Cursor<E, I>> {
         for i in 0..self.len_entries() {
             let entry: E = self.data[i];
 

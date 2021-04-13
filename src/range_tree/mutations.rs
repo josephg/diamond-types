@@ -1,20 +1,21 @@
 use crate::range_tree::entry::{EntryTraits, CRDTItem};
-use crate::range_tree::{RangeTree, Cursor, NodeLeaf, FlushMarker, NUM_LEAF_ENTRIES, DeleteResult, ParentPtr, Node, NodePtr, NUM_NODE_CHILDREN, NodeInternal};
+use crate::range_tree::{RangeTree, Cursor, NodeLeaf, NUM_LEAF_ENTRIES, DeleteResult, ParentPtr, Node, NodePtr, NUM_NODE_CHILDREN, NodeInternal};
 use std::ptr::NonNull;
 use std::{ptr, mem};
 use std::pin::Pin;
 use smallvec::SmallVec;
 use crate::range_tree::root::{extend_delete};
+use crate::range_tree::index::{ContentFlushMarker, TreeIndex};
 
-impl<E: EntryTraits> RangeTree<E> {
+impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
     /// is returned. The cursor is modified in-place to point after the inserted items.
     ///
     /// If the cursor points in the middle of an item, the item is split.
     ///
     /// TODO: Add support for item prepending to this method, for backspace operations.
-    pub(super) fn splice_insert<F>(self: &Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E>, flush_marker: &mut FlushMarker, notify: &mut F)
-        where F: FnMut(E, NonNull<NodeLeaf<E>>)
+    pub(super) fn splice_insert<F>(self: &Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E, I>, flush_marker: &mut ContentFlushMarker, notify: &mut F)
+        where F: FnMut(E, NonNull<NodeLeaf<E, I>>)
     {
         // dbg!(items, &cursor);
         if items.len() == 0 { return; }
@@ -43,6 +44,7 @@ impl<E: EntryTraits> RangeTree<E> {
             // splice the item into the current cursor location.
             let entry: &mut E = &mut node.data[cursor.idx];
             let remainder = entry.truncate(cursor.offset);
+            // TODO: This is wrong.
             flush_marker.0 -= (seq_len - cursor.offset) as isize;
             // We don't need to update cursor since its already where it needs to be.
 
@@ -174,8 +176,8 @@ impl<E: EntryTraits> RangeTree<E> {
     ///
     /// Items must have a maximum length of 3, due to limitations in split_insert above.
     /// The cursor's offset is ignored. The cursor ends up at the end of the inserted items.
-    pub(super) fn replace_entry<F>(self: &Pin<Box<Self>>, cursor: &mut Cursor<E>, items: &[E], flush_marker: &mut FlushMarker, notify: &mut F)
-        where F: FnMut(E, NonNull<NodeLeaf<E>>) {
+    pub(super) fn replace_entry<F>(self: &Pin<Box<Self>>, cursor: &mut Cursor<E, I>, items: &[E], flush_marker: &mut ContentFlushMarker, notify: &mut F)
+        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         assert!(items.len() >= 1 && items.len() <= 3);
 
         let entry = cursor.get_entry_mut();
@@ -189,12 +191,12 @@ impl<E: EntryTraits> RangeTree<E> {
         self.splice_insert(&items[1..], cursor, flush_marker, notify);
     }
 
-    pub fn insert<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, new_entry: E, mut notify: F)
-        where F: FnMut(E, NonNull<NodeLeaf<E>>) {
+    pub fn insert<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E, I>, new_entry: E, mut notify: F)
+        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         let len = new_entry.content_len();
         let expected_size = self.count + len;
 
-        let mut marker = FlushMarker(0);
+        let mut marker = ContentFlushMarker(0);
         self.splice_insert(&[new_entry], &mut cursor, &mut marker, &mut notify);
         marker.flush(unsafe { cursor.get_node_mut() });
         // println!("tree after insert {:#?}", self);
@@ -212,8 +214,8 @@ impl<E: EntryTraits> RangeTree<E> {
     }
 
     /// Replace as much of the current entry from cursor onwards as we can
-    fn replace_range<MapFn, N>(self: &Pin<Box<Self>>, map_fn: MapFn, cursor: &mut Cursor<E>, replace_max: usize, flush_marker: &mut FlushMarker, notify: &mut N) -> usize
-        where N: FnMut(E, NonNull<NodeLeaf<E>>), MapFn: FnOnce(&mut E) {
+    fn replace_range<MapFn, N>(self: &Pin<Box<Self>>, map_fn: MapFn, cursor: &mut Cursor<E, I>, replace_max: usize, flush_marker: &mut ContentFlushMarker, notify: &mut N) -> usize
+        where N: FnMut(E, NonNull<NodeLeaf<E, I>>), MapFn: FnOnce(&mut E) {
 
         let node = unsafe { cursor.get_node_mut() };
         let mut entry: E = node.data[cursor.idx];
@@ -260,9 +262,9 @@ impl<E: EntryTraits> RangeTree<E> {
     }
 }
 
-impl<E: EntryTraits + CRDTItem> RangeTree<E> {
-    pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
-        where F: FnMut(E, NonNull<NodeLeaf<E>>) {
+impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
+    pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E, I>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
+        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         // println!("local_delete len: {} at cursor {:?}", deleted_len, cursor);
 
         if cfg!(debug_assertions) {
@@ -273,7 +275,7 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
 
         let expected_size = self.count - deleted_len;
         let mut result: DeleteResult<E> = SmallVec::default();
-        let mut flush_marker = FlushMarker(0);
+        let mut flush_marker = ContentFlushMarker(0);
         let mut delete_remaining = deleted_len;
         cursor.roll_to_next_entry(false);
 
@@ -312,8 +314,8 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
     /// We will always delete at least one item. Consumers of this API should call this in a loop.
     ///
     /// Returns the number of items marked for deletion.
-    pub fn remote_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E>, max_deleted_len: usize, mut notify: F) -> usize
-        where F: FnMut(E, NonNull<NodeLeaf<E>>) {
+    pub fn remote_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_deleted_len: usize, mut notify: F) -> usize
+        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
 
         cursor.roll_to_next_entry(false);
         let entry = cursor.get_entry();
@@ -334,7 +336,7 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
             // TODO: This is cleaner than using the commented code above, but might result in
             // unnecessarily larger binary size because of monomorphization. Check if this makes any
             // difference.
-            let mut flush_marker = FlushMarker(0);
+            let mut flush_marker = ContentFlushMarker(0);
             let amt_deleted = self.replace_range(|e| {
                 e.mark_deleted()
             }, &mut cursor, max_deleted_len, &mut flush_marker, &mut notify);
@@ -348,13 +350,13 @@ impl<E: EntryTraits + CRDTItem> RangeTree<E> {
     }
 }
 
-impl<E: EntryTraits> NodeLeaf<E> {
+impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
 
     /// Split this leaf node at the specified index, so 0..idx stays and idx.. moves to a new node.
     ///
     /// The new node has additional `padding` empty items at the start of its list.
-    fn split_at<F>(&mut self, idx: usize, padding: usize, notify: &mut F) -> NonNull<NodeLeaf<E>>
-        where F: FnMut(E, NonNull<NodeLeaf<E>>)
+    fn split_at<F>(&mut self, idx: usize, padding: usize, notify: &mut F) -> NonNull<NodeLeaf<E, I>>
+        where F: FnMut(E, NonNull<NodeLeaf<E, I>>)
     {
         // println!("split_at {} {}", idx, padding);
         unsafe {
@@ -402,10 +404,10 @@ impl<E: EntryTraits> NodeLeaf<E> {
 // I'm really not sure where to put this method. Its not really associated with
 // any of the tree implementation methods. This seems like a hidden spot. Maybe
 // range_tree? I could put it in impl ParentPtr? I dunno...
-fn insert_after<E: EntryTraits>(
-    mut parent: ParentPtr<E>,
-    mut inserted_node: Node<E>,
-    mut insert_after: NodePtr<E>,
+fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
+    mut parent: ParentPtr<E, I>,
+    mut inserted_node: Node<E, I>,
+    mut insert_after: NodePtr<E, I>,
     mut stolen_length: u32) {
     unsafe {
         // Ok now we need to walk up the tree trying to insert. At each step
@@ -538,18 +540,19 @@ fn insert_after<E: EntryTraits>(
 #[cfg(test)]
 mod tests {
     // use std::pin::Pin;
-    use crate::range_tree::{RangeTree, Entry, FlushMarker};
+    use crate::range_tree::{RangeTree, Entry, ContentIndex};
     use crate::common::CRDTLocation;
+    use crate::range_tree::index::ContentFlushMarker;
 
     #[test]
     fn splice_insert_test() {
-        let tree = RangeTree::new();
+        let tree = RangeTree::<Entry, ContentIndex>::new();
         let entry = Entry {
             loc: CRDTLocation {agent: 0, seq: 1000},
             len: 100
         };
         let mut cursor = tree.cursor_at_pos(0, false);
-        let mut marker = FlushMarker(0);
+        let mut marker = ContentFlushMarker(0);
         tree.splice_insert(&[entry], &mut cursor, &mut marker, &mut |_e, _x| {});
         marker.flush(unsafe {cursor.get_node_mut() });
 
@@ -568,7 +571,7 @@ mod tests {
 
     #[test]
     fn backspace_collapses() {
-        let tree = RangeTree::new();
+        let tree = RangeTree::<Entry, ContentIndex>::new();
 
         let cursor = tree.cursor_at_pos(0, false);
         let entry = Entry {

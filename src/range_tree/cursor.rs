@@ -1,9 +1,10 @@
 use super::*;
 use crate::range_tree::entry::CRDTItem;
+use crate::range_tree::index::ContentFlushMarker;
 
 // impl<'a, E: EntryTraits> Cursor<'a, E> {
-impl<E: EntryTraits> Cursor<E> {
-    pub(super) fn new(node: NonNull<NodeLeaf<E>>, idx: usize, offset: usize) -> Self {
+impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
+    pub(super) fn new(node: NonNull<NodeLeaf<E,I>>, idx: usize, offset: usize) -> Self {
         // TODO: This is creating a cursor with 'static lifetime, which isn't really what we want.
         Cursor {
             node, idx, offset,
@@ -11,12 +12,12 @@ impl<E: EntryTraits> Cursor<E> {
         }
     }
 
-    pub(super) unsafe fn get_node_mut(&self) -> &mut NodeLeaf<E> {
+    pub(super) unsafe fn get_node_mut(&self) -> &mut NodeLeaf<E, I> {
         &mut *self.node.as_ptr()
     }
 
     #[allow(unused)]
-    pub(super) fn get_node(&self) -> &NodeLeaf<E> {
+    pub(super) fn get_node(&self) -> &NodeLeaf<E, I> {
         unsafe { self.node.as_ref() }
     }
 
@@ -104,7 +105,7 @@ impl<E: EntryTraits> Cursor<E> {
 
     /// Move back to the previous entry. Returns true if it exists, otherwise
     /// returns false if we're at the start of the doc already.
-    fn prev_entry_marker(&mut self, marker: Option<&mut FlushMarker>) -> bool {
+    fn prev_entry_marker(&mut self, marker: Option<&mut ContentFlushMarker>) -> bool {
         if self.idx > 0 {
             self.idx -= 1;
             self.offset = self.get_entry().len();
@@ -122,7 +123,7 @@ impl<E: EntryTraits> Cursor<E> {
         self.prev_entry_marker(None)
     }
 
-    pub(super) fn next_entry_marker(&mut self, marker: Option<&mut FlushMarker>) -> bool {
+    pub(super) fn next_entry_marker(&mut self, marker: Option<&mut ContentFlushMarker>) -> bool {
         // TODO: Do this without code duplication of next/prev entry marker.
         unsafe {
             if self.idx + 1 < self.node.as_ref().num_entries as usize {
@@ -233,7 +234,7 @@ impl<E: EntryTraits> Cursor<E> {
     }
 }
 
-impl<E: EntryTraits + CRDTItem> Cursor<E> {
+impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> Cursor<E, I> {
     /// Calculate and return the predecessor ID at the cursor. This is used to calculate the CRDT
     /// location for an insert position.
     pub fn tell_predecessor(mut self) -> Option<E::Item> {
