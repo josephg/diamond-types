@@ -1,6 +1,7 @@
 use super::*;
 // use std::mem;
 use std::ptr::NonNull;
+use std::mem::replace;
 
 impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
@@ -58,7 +59,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
 
     // Find a given text offset within the node
     // Returns (index, offset within entry)
-    pub fn find_offset(&self, mut offset: usize, stick_end: bool) -> Option<(usize, usize)> {
+    pub fn find_offset<F>(&self, mut offset: usize, stick_end: bool, entry_to_num: F) -> Option<(usize, usize)>
+        where F: Fn(E) -> usize {
         for i in 0..self.len_entries() {
             // if offset == 0 {
             //     return Some((i, 0));
@@ -67,12 +69,13 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
             let entry: E = self.data[i];
             if !entry.is_valid() { break; }
 
-            let text_len = entry.content_len();
-            if offset < text_len || (stick_end && text_len == offset) {
+            // let text_len = entry.content_len();
+            let entry_len = entry_to_num(entry);
+            if offset < entry_len || (stick_end && entry_len == offset) {
                 // Found it.
                 return Some((i, offset));
             } else {
-                offset -= text_len
+                offset -= entry_len
             }
         }
 
@@ -92,22 +95,27 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
 
     // Recursively (well, iteratively) ascend and update all the counts along
     // the way up. TODO: Move this - This method shouldn't be in NodeLeaf.
-    pub(super) fn update_parent_count(&mut self, amt: i32) {
-        if amt == 0 { return; }
+    pub(super) fn update_parent_count(&mut self, amt: I::FlushMarker) {
+        if amt == I::FlushMarker::default() { return; }
+
         let mut child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self) });
         let mut parent = self.parent;
 
         loop {
             match parent {
                 ParentPtr::Root(mut r) => {
-                    unsafe { r.as_mut().count = r.as_ref().count.wrapping_add(amt as usize); }
+                    unsafe {
+                        I::update_offset_by_marker(&mut r.as_mut().count, &amt);
+                        // r.as_mut().count = r.as_ref().count.wrapping_add(amt as usize); }
+                    }
                     break;
                 },
                 ParentPtr::Internal(mut n) => {
                     let idx = unsafe { n.as_mut() }.find_child(child).unwrap();
                     let c = &mut unsafe { n.as_mut() }.data[idx].0;
                     // :(
-                    *c = c.wrapping_add(amt as u32);
+                    I::update_offset_by_marker(c, &amt);
+                    // *c = c.wrapping_add(amt as u32);
 
                     // And recurse.
                     child = NodePtr::Internal(n);
@@ -115,5 +123,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
                 },
             };
         }
+    }
+
+    pub(super) fn flush(&mut self, marker: &mut I::FlushMarker) {
+        // println!("flush {:?}", marker);
+        let amt = replace(marker, I::FlushMarker::default());
+        self.update_parent_count(amt);
     }
 }

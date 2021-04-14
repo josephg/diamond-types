@@ -1,6 +1,5 @@
 use super::*;
 use crate::range_tree::entry::CRDTItem;
-use crate::range_tree::index::ContentFlushMarker;
 
 // impl<'a, E: EntryTraits> Cursor<'a, E> {
 impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
@@ -105,7 +104,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
 
     /// Move back to the previous entry. Returns true if it exists, otherwise
     /// returns false if we're at the start of the doc already.
-    fn prev_entry_marker(&mut self, marker: Option<&mut ContentFlushMarker>) -> bool {
+    fn prev_entry_marker(&mut self, marker: Option<&mut I::FlushMarker>) -> bool {
         if self.idx > 0 {
             self.idx -= 1;
             self.offset = self.get_entry().len();
@@ -113,7 +112,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
             true
         } else {
             if let Some(marker) = marker {
-                marker.flush(unsafe { self.node.as_mut() });
+                unsafe { self.node.as_mut() }.flush(marker);
             }
             self.traverse(false)
         }
@@ -123,7 +122,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         self.prev_entry_marker(None)
     }
 
-    pub(super) fn next_entry_marker(&mut self, marker: Option<&mut ContentFlushMarker>) -> bool {
+    pub(super) fn next_entry_marker(&mut self, marker: Option<&mut I::FlushMarker>) -> bool {
         // TODO: Do this without code duplication of next/prev entry marker.
         unsafe {
             if self.idx + 1 < self.node.as_ref().num_entries as usize {
@@ -132,7 +131,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                 true
             } else {
                 if let Some(marker) = marker {
-                    marker.flush(self.node.as_mut());
+                    unsafe { self.node.as_mut() }.flush(marker);
                 }
                 self.traverse(true)
             }
@@ -143,20 +142,24 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         self.next_entry_marker(None)
     }
 
-    pub fn count_pos(&self) -> usize {
+    pub fn count_pos(&self) -> I::IndexOffset {
         let node = unsafe { self.node.as_ref() };
         
-        let mut pos: usize = 0;
+        // let mut pos: usize = 0;
+        let mut pos = I::IndexOffset::default();
         // First find out where we are in the current node.
         
         // TODO: This is a bit redundant - we could find out the local position
         // when we scan initially to initialize the cursor.
         for e in &node.data[0..self.idx] {
-            pos += e.content_len();
+            I::increment_offset(&mut pos, &e);
+            // pos += e.content_len();
         }
+
         // This is pretty idiosyncratic.
-        let local_len = node.data[self.idx].content_len();
-        if local_len > 0 { pos += self.offset; }
+        // let local_len = node.data[self.idx].content_len();
+        // if local_len > 0 { pos += self.offset; }
+        I::increment_offset_partial(&mut pos, &node.data[self.idx], self.offset);
 
         // Ok, now iterate up to the root counting offsets as we go.
 
@@ -171,7 +174,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                     let idx = node_ref.find_child(node_ptr).unwrap();
 
                     for (c, _) in &node_ref.data[0..idx] {
-                        pos += *c as usize;
+                        pos += *c;
                     }
 
                     // node_ptr = NodePtr::Internal(unsafe { NonNull::new_unchecked(node_ref as *const _ as *mut _) });

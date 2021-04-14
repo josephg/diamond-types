@@ -5,28 +5,34 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
     pub(super) fn new_with_parent(parent: ParentPtr<E, I>) -> Pin<Box<Self>> {
         // From the example in the docs:
         // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#initializing-an-array-element-by-element
-        let mut children: [MaybeUninit<(ItemCount, Option<Node<E, I>>)>; NUM_NODE_CHILDREN] = unsafe {
+        let mut children: [MaybeUninit<(I::IndexOffset, Option<Node<E, I>>)>; NUM_NODE_CHILDREN] = unsafe {
             MaybeUninit::uninit().assume_init() // Safe because `MaybeUninit`s don't require init.
         };
         for elem in &mut children[..] {
-            *elem = MaybeUninit::new((0, None));
+            *elem = MaybeUninit::new((I::IndexOffset::default(), None));
         }
         Box::pin(Self {
             parent,
+            // data: [(I::IndexOffset::default(), None); NUM_NODE_CHILDREN],
             data: unsafe {
-                mem::transmute::<_, [(ItemCount, Option<Node<E, I>>); NUM_NODE_CHILDREN]>(children)
+                // Using transmute_copy because otherwise we run into a nonsense compiler error.
+                mem::transmute_copy::<_, [(I::IndexOffset, Option<Node<E, I>>); NUM_NODE_CHILDREN]>(&children)
             },
             _pin: PhantomPinned,
             _drop: PrintDropInternal,
         })
     }
 
-    pub(super) fn get_child_ptr(&self, raw_pos: usize, stick_end: bool) -> Option<(ItemCount, NodePtr<E, I>)> {
-        let mut offset_remaining = raw_pos as ItemCount;
+    /// Finds the child at some given offset. Returns the remaining offset within the found child.
+    pub(super) fn find_child_at_offset<F>(&self, raw_pos: usize, stick_end: bool, offset_to_num: &F)
+        -> Option<(usize, NodePtr<E, I>)>
+            where F: Fn(I::IndexOffset) -> usize {
+
+        let mut offset_remaining = raw_pos;
 
         for (count, elem) in self.data.iter() {
-            let count = *count;
             if let Some(elem) = elem.as_ref() {
+                let count = offset_to_num(*count);
                 if offset_remaining < count || (stick_end && offset_remaining == count) {
                     // let elem_box = elem.unwrap();
                     return Some((offset_remaining, unsafe { elem.as_ptr() }))
@@ -39,7 +45,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
         None
     }
 
-    pub(super) fn project_data_mut(self: Pin<&mut Self>) -> &mut [(ItemCount, Option<Node<E, I>>); NUM_NODE_CHILDREN] {
+    pub(super) fn project_data_mut(self: Pin<&mut Self>) -> &mut [(I::IndexOffset, Option<Node<E, I>>); NUM_NODE_CHILDREN] {
         unsafe {
             &mut self.get_unchecked_mut().data
         }
@@ -47,8 +53,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
 
     /// Insert a new item in the tree. This DOES NOT update the child counts in
     /// the parents. (So the tree will be in an invalid state after this has been called.)
-    pub(super) fn splice_in(&mut self, idx: usize, count: u32, elem: Node<E, I>) {
-        let mut buffer = (count as u32, Some(elem));
+    pub(super) fn splice_in(&mut self, idx: usize, count: I::IndexOffset, elem: Node<E, I>) {
+        let mut buffer = (count, Some(elem));
 
         // TODO: Is this actually any better than the equivalent code below??
         // dbg!(idx);
@@ -71,6 +77,17 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
         self.data.iter()
         .position(|(_, c)| c.is_none())
         .unwrap_or(NUM_NODE_CHILDREN)
+    }
+
+    /// This will panic if there aren't any children, but any node in the tree *must* have children
+    /// so this should be fine in practice.
+    // pub(super) fn last_child(&self) -> (I::IndexOffset, NodePtr<E, I>) {
+    //     let last = &self.data[self.count_children() - 1];
+    //     unsafe { (last.0, last.1.unwrap().as_ptr()) }
+    // }
+    pub(super) fn last_child(&self) -> NodePtr<E, I> {
+        let last = &self.data[self.count_children() - 1];
+        unsafe { last.1.as_ref().unwrap().as_ptr() }
     }
 
     pub(super) fn find_child(&self, child: NodePtr<E, I>) -> Option<usize> {

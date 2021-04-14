@@ -47,7 +47,8 @@ const NUM_LEAF_ENTRIES: usize = 32;
 // it.
 #[derive(Debug)]
 pub struct RangeTree<E: EntryTraits, I: TreeIndex<E>> {
-    count: usize,
+    // count: usize,
+    count: I::IndexOffset,
     root: Node<E, I>,
 
     // Usually inserts and deletes are followed by more inserts / deletes at the same location.
@@ -85,7 +86,7 @@ struct NodeInternal<E: EntryTraits, I: TreeIndex<E>> {
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
     // ItemCount only includes items which haven't been deleted.
-    data: [(ItemCount, Option<Node<E, I>>); NUM_NODE_CHILDREN],
+    data: [(I::IndexOffset, Option<Node<E, I>>); NUM_NODE_CHILDREN],
     _pin: PhantomPinned, // Needed because children have parent pointers here.
     _drop: PrintDropInternal,
 }

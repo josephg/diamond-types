@@ -51,7 +51,7 @@ use inlinable_string::InlinableString;
 use std::ptr::NonNull;
 use crate::split_list::SplitList;
 use std::ops::Index;
-use smallvec::SmallVec;
+// use smallvec::SmallVec;
 
 use ropey::Rope;
 use crate::splitable_span::SplitableSpan;
@@ -91,7 +91,7 @@ pub use alloc::ALLOCATED;
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 struct MarkerEntry {
     len: u32,
-    ptr: NonNull<NodeLeaf<Entry>>
+    ptr: NonNull<NodeLeaf<Entry, ContentIndex>>
 }
 
 impl SplitableSpan for MarkerEntry {
@@ -122,7 +122,7 @@ impl SplitableSpan for MarkerEntry {
 }
 
 impl Index<usize> for MarkerEntry {
-    type Output = NonNull<NodeLeaf<Entry>>;
+    type Output = NonNull<NodeLeaf<Entry, ContentIndex>>;
 
     fn index(&self, _index: usize) -> &Self::Output {
         &self.ptr
@@ -150,7 +150,7 @@ const USE_INNER_ROPE: bool = false;
 pub struct CRDTState {
     client_data: Vec<ClientData>,
 
-    marker_tree: Pin<Box<RangeTree<Entry>>>,
+    marker_tree: Pin<Box<RangeTree<Entry, ContentIndex>>>,
 
     // Probably temporary, eventually.
     text_content: Rope,
@@ -169,7 +169,7 @@ impl CRDTState {
     }
 
     pub fn len(&self) -> usize {
-        self.marker_tree.as_ref().len()
+        self.marker_tree.as_ref().len() as usize
     }
 
     pub fn get_or_create_client_id(&mut self, name: &str) -> AgentId {
@@ -192,7 +192,7 @@ impl CRDTState {
         .map(|id| id as AgentId)
     }
 
-    fn notify(client_data: &mut Vec<ClientData>, entry: Entry, ptr: NonNull<NodeLeaf<Entry>>) {
+    fn notify(client_data: &mut Vec<ClientData>, entry: Entry, ptr: NonNull<NodeLeaf<Entry, ContentIndex>>) {
         // eprintln!("notify callback {:?} {:?}", entry, ptr);
         let markers = &mut client_data[entry.loc.agent as usize].markers;
         // for op in &mut markers[loc.seq as usize..(loc.seq+len) as usize] {
@@ -201,6 +201,12 @@ impl CRDTState {
 
         markers.replace_range(entry.loc.seq as usize, MarkerEntry { ptr, len: entry.len() as u32 });
     }
+
+    // fn marker_cursor_at_pos(&self, pos: usize, stick_end: bool) -> Cursor<Entry, ContentIndex> {
+    //     self.marker_tree.cursor_at_query(pos, stick_end,
+    //         |i| i as usize,
+    //         |e| e.content_len())
+    // }
 
     pub fn insert(&mut self, client_id: AgentId, pos: usize, text: &str) -> CRDTLocation {
         let inserted_length = text.chars().count();
@@ -214,10 +220,10 @@ impl CRDTState {
         // let dangling_ptr = NonNull::dangling();
         // markers.resize(markers.len() + inserted_length, dangling_ptr);
 
-        let client_data = &mut self.client_data;
 
         let cursor = self.marker_tree.cursor_at_pos(pos, true);
         // println!("root {:#?}", self.range_tree);
+        let client_data = &mut self.client_data;
         let insert_location = if pos == 0 {
             // This saves an awful lot of code needing to be executed.
             CRDT_DOC_ROOT
@@ -240,7 +246,7 @@ impl CRDTState {
 
         if USE_INNER_ROPE {
             self.text_content.insert(pos as usize, text);
-            assert_eq!(self.text_content.len_chars(), self.marker_tree.len());
+            assert_eq!(self.text_content.len_chars(), self.marker_tree.len() as usize);
         }
 
         if cfg!(debug_assertions) {
@@ -272,7 +278,7 @@ impl CRDTState {
 
         if USE_INNER_ROPE {
             self.text_content.remove(pos as usize..pos as usize + len as usize); // vomit.
-            assert_eq!(self.text_content.len_chars(), self.marker_tree.len());
+            assert_eq!(self.text_content.len_chars(), self.marker_tree.len() as usize);
         }
 
         result
@@ -467,6 +473,7 @@ mod tests {
                 let pos = rng.gen_range(0..doc_len);
                 // println!("range {}", u32::min(10, doc_len - pos));
                 let len = rng.gen_range(1..=usize::min(10, doc_len - pos));
+                // dbg!(&state.marker_tree, pos, len);
                 state.delete(0, pos, len);
                 doc_len -= len;
             }

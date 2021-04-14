@@ -5,7 +5,7 @@ use std::{ptr, mem};
 use std::pin::Pin;
 use smallvec::SmallVec;
 use crate::range_tree::root::{extend_delete};
-use crate::range_tree::index::{ContentFlushMarker, TreeIndex};
+use crate::range_tree::index::{TreeIndex};
 
 impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
@@ -14,9 +14,10 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     /// If the cursor points in the middle of an item, the item is split.
     ///
     /// TODO: Add support for item prepending to this method, for backspace operations.
-    pub(super) fn splice_insert<F>(self: &Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E, I>, flush_marker: &mut ContentFlushMarker, notify: &mut F)
+    pub(super) fn splice_insert<F>(self: &Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E, I>, flush_marker: &mut I::FlushMarker, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>)
     {
+        // dbg!("splice_insert", &flush_marker);
         // dbg!(items, &cursor);
         if items.len() == 0 { return; }
 
@@ -44,8 +45,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             // splice the item into the current cursor location.
             let entry: &mut E = &mut node.data[cursor.idx];
             let remainder = entry.truncate(cursor.offset);
-            // TODO: This is wrong.
-            flush_marker.0 -= (seq_len - cursor.offset) as isize;
+            I::decrement_marker(flush_marker, &remainder);
+            // flush_marker -= (seq_len - cursor.offset) as isize;
             // We don't need to update cursor since its already where it needs to be.
 
             Some(remainder)
@@ -62,7 +63,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             while items_idx < items.len() { // There's probably a cleaner way to write this loop.
                 let next = items[items_idx];
                 if cur_entry.can_append(&next) {
-                    flush_marker.0 += next.content_len() as isize;
+                    I::increment_marker(flush_marker, &next);
+                    // flush_marker += next.content_len() as isize;
                     notify(next, cursor.node);
                     cur_entry.append(next);
 
@@ -93,7 +95,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 loop {
                     let next = items[end_idx];
                     if next.can_append(cur_entry) {
-                        flush_marker.0 += next.content_len() as isize;
+                        I::increment_marker(flush_marker, &next);
+                        // flush_marker.0 += next.content_len() as isize;
                         notify(next, cursor.node);
                         cur_entry.prepend(next);
                     } else { break; }
@@ -125,7 +128,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             // afterwards.
 
             // We have to flush regardless, because we might have truncated the current element.
-            flush_marker.flush(node);
+            node.flush(flush_marker);
+            // flush_marker.flush(node);
 
             if cursor.idx < NUM_LEAF_ENTRIES / 2 {
                 // Split then elements go in left branch, so the cursor isn't updated.
@@ -153,7 +157,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         // println!("items {:?} cursor {:?}", items, cursor);
         // node.num_entries += space_needed as u8;
         for e in items {
-            flush_marker.0 += e.content_len() as isize;
+            I::increment_marker(flush_marker, e);
+            // flush_marker.0 += e.content_len() as isize;
             notify(*e, cursor.node);
         }
         node.data[cursor.idx..cursor.idx + items.len()].copy_from_slice(items);
@@ -164,7 +169,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
         // The cursor isn't updated to point after remainder.
         if let Some(e) = remainder {
-            flush_marker.0 += e.content_len() as isize;
+            I::increment_marker(flush_marker, &e);
+            // flush_marker.0 += e.content_len() as isize;
             if remainder_moved {
                 notify(e, cursor.node);
             }
@@ -176,15 +182,17 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     ///
     /// Items must have a maximum length of 3, due to limitations in split_insert above.
     /// The cursor's offset is ignored. The cursor ends up at the end of the inserted items.
-    pub(super) fn replace_entry<F>(self: &Pin<Box<Self>>, cursor: &mut Cursor<E, I>, items: &[E], flush_marker: &mut ContentFlushMarker, notify: &mut F)
+    pub(super) fn replace_entry<F>(self: &Pin<Box<Self>>, cursor: &mut Cursor<E, I>, items: &[E], flush_marker: &mut I::FlushMarker, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         assert!(items.len() >= 1 && items.len() <= 3);
 
         let entry = cursor.get_entry_mut();
         // println!("replace_entry {:?} {:?} with {:?}", flush_marker.0, &entry, items);
-        flush_marker.0 -= entry.content_len() as isize;
+        I::decrement_marker(flush_marker, &entry);
+        // flush_marker.0 -= entry.content_len() as isize;
         *entry = items[0];
-        flush_marker.0 += entry.content_len() as isize;
+        I::increment_marker(flush_marker, &entry);
+        // flush_marker.0 += entry.content_len() as isize;
         cursor.offset = entry.len();
 
         // And insert the rest.
@@ -193,12 +201,14 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
     pub fn insert<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E, I>, new_entry: E, mut notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
-        let len = new_entry.content_len();
-        let expected_size = self.count + len;
+        // TODO: This check is useful, but awful to code in with all the index stuff :(
+        // let len = new_entry.content_len();
+        // let expected_size = self.count + len;
 
-        let mut marker = ContentFlushMarker(0);
+        let mut marker = I::FlushMarker::default();
         self.splice_insert(&[new_entry], &mut cursor, &mut marker, &mut notify);
-        marker.flush(unsafe { cursor.get_node_mut() });
+
+        unsafe { cursor.get_node_mut() }.flush(&mut marker);
         // println!("tree after insert {:#?}", self);
 
         // self.cache_cursor(pos + new_entry.content_len(), cursor);
@@ -209,17 +219,18 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             // self.as_ref().get_ref().check();
 
             // Check the total size of the tree has grown by len.
-            assert_eq!(expected_size, self.count);
+            // assert_eq!(expected_size, self.count);
         }
     }
 
     /// Replace as much of the current entry from cursor onwards as we can
-    fn replace_range<MapFn, N>(self: &Pin<Box<Self>>, map_fn: MapFn, cursor: &mut Cursor<E, I>, replace_max: usize, flush_marker: &mut ContentFlushMarker, notify: &mut N) -> usize
+    fn replace_range<MapFn, N>(self: &Pin<Box<Self>>, map_fn: MapFn, cursor: &mut Cursor<E, I>, replace_max: usize, flush_marker: &mut I::FlushMarker, notify: &mut N) -> usize
         where N: FnMut(E, NonNull<NodeLeaf<E, I>>), MapFn: FnOnce(&mut E) {
 
         let node = unsafe { cursor.get_node_mut() };
         let mut entry: E = node.data[cursor.idx];
-        let mut entry_len = entry.content_len();
+        // let mut entry_len = entry.content_len();
+        let mut entry_len = entry.len();
 
         assert!(cursor.offset < entry_len);
 
@@ -252,9 +263,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 self.replace_entry(cursor, &[entry, c], flush_marker, notify);
             } else {
                 // self.replace_entry(&mut cursor, &[entry], &mut flush_marker, &mut notify);
+                I::decrement_marker(flush_marker, &node.data[cursor.idx]);
                 node.data[cursor.idx] = entry;
                 cursor.offset = replaced_here;
-                flush_marker.0 -= replaced_here as isize;
+                I::increment_marker(flush_marker, &entry);
+                // flush_marker.0 -= replaced_here as isize;
             }
         }
 
@@ -269,13 +282,16 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
 
         if cfg!(debug_assertions) {
             let cursor_pos = cursor.count_pos();
-            assert!(cursor_pos + deleted_len <= self.count);
+            // assert!(cursor_pos + deleted_len <= self.count);
+            // TODO: Restore this.
         }
         // dbg!(cursor_pos, self.count);
 
-        let expected_size = self.count - deleted_len;
+        // TODO: And this.
+        // let expected_size = self.count - deleted_len;
+
         let mut result: DeleteResult<E> = SmallVec::default();
-        let mut flush_marker = ContentFlushMarker(0);
+        let mut flush_marker = I::FlushMarker::default();
         let mut delete_remaining = deleted_len;
         cursor.roll_to_next_entry(false);
 
@@ -290,6 +306,8 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
                 Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
             }
 
+            // dbg!(self, delete_remaining, &flush_marker);
+
             delete_remaining -= self.replace_range(|e| {
                 extend_delete(&mut result, *e);
                 e.mark_deleted();
@@ -297,14 +315,14 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
         }
 
         // The cursor is potentially after any remainder.
-        flush_marker.flush(unsafe { cursor.get_node_mut() });
+        unsafe { cursor.get_node_mut() }.flush(&mut flush_marker);
 
         if cfg!(debug_assertions) {
             // self.print_ptr_tree();
             // self.as_ref().get_ref().check();
 
             // Check the total size of the tree has grown by len.
-            assert_eq!(expected_size, self.count);
+            // assert_eq!(expected_size, self.count);
         }
 
         result
@@ -336,14 +354,12 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
             // TODO: This is cleaner than using the commented code above, but might result in
             // unnecessarily larger binary size because of monomorphization. Check if this makes any
             // difference.
-            let mut flush_marker = ContentFlushMarker(0);
+            let mut flush_marker = I::FlushMarker::default();
             let amt_deleted = self.replace_range(|e| {
                 e.mark_deleted()
             }, &mut cursor, max_deleted_len, &mut flush_marker, &mut notify);
 
-            if flush_marker.0 != 0 {
-                flush_marker.flush(unsafe { cursor.get_node_mut() });
-            }
+            unsafe { cursor.get_node_mut() }.flush(&mut flush_marker);
 
             amt_deleted
         } else { 0 }
@@ -377,14 +393,17 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
             new_node.num_entries = new_len as u8; // Not including padding!
 
             // zero out the old entries
-            let mut stolen_length: usize = 0;
+            // let mut stolen_length: usize = 0;
+            let mut stolen_length = I::IndexOffset::default();
+            // dbg!(&self.data);
             for e in &mut self.data[idx..self.num_entries as usize] {
-                stolen_length += e.content_len();
+                I::increment_offset(&mut stolen_length, e);
+                // stolen_length += e.content_len();
                 *e = E::default();
             }
             self.num_entries = idx as u8;
 
-            // eprintln!("split_at idx {} self_entries {} stolel_len {} self {:?}", idx, self_entries, stolen_length, &self);
+            // eprintln!("split_at idx {} stolen_length {:?} self {:?}", idx, stolen_length, &self);
 
             let mut inserted_node = Node::Leaf(Box::pin(new_node));
             // This is the pointer to the new item we'll end up returning.
@@ -393,7 +412,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
                 notify(*e, new_leaf_ptr);
             }
 
-            insert_after(self.parent, inserted_node, NodePtr::Leaf(NonNull::new_unchecked(self)), stolen_length as _);
+            insert_after(self.parent, inserted_node, NodePtr::Leaf(NonNull::new_unchecked(self)), stolen_length);
 
             // TODO: It would be cleaner to return a Pin<&mut NodeLeaf> here instead of the pointer.
             new_leaf_ptr
@@ -406,9 +425,10 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
 // range_tree? I could put it in impl ParentPtr? I dunno...
 fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
     mut parent: ParentPtr<E, I>,
-    mut inserted_node: Node<E, I>,
+    mut inserted_leaf_node: Node<E, I>,
     mut insert_after: NodePtr<E, I>,
-    mut stolen_length: u32) {
+    mut stolen_length: I::IndexOffset) {
+    // println!("insert_after {:?} leaf {:#?} parent {:#?}", stolen_length, inserted_leaf_node, parent);
     unsafe {
         // Ok now we need to walk up the tree trying to insert. At each step
         // we will try and insert inserted_node into parent next to old_node
@@ -420,14 +440,15 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
                 let count = parent_ref.count_children();
                 if count < NUM_NODE_CHILDREN {
                     // Great. Insert the new node into the parent and return.
-                    inserted_node.set_parent(ParentPtr::Internal(n));
+                    inserted_leaf_node.set_parent(ParentPtr::Internal(n));
 
                     let old_idx = parent_ref.find_child(insert_after).unwrap();
                     let new_idx = old_idx + 1;
 
                     let parent_ref = n.as_mut();
+                    // dbg!(&parent_ref.data[old_idx].0, stolen_length);
                     parent_ref.data[old_idx].0 -= stolen_length;
-                    parent_ref.splice_in(new_idx, stolen_length, inserted_node);
+                    parent_ref.splice_in(new_idx, stolen_length, inserted_leaf_node);
 
                     // eprintln!("1");
                     return;
@@ -447,17 +468,18 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
                     // *inserted_node.get_parent_mut() = parent_ptr;
 
                     let root = r.as_mut();
-                    let count = root.count as u32;
-                    let mut new_root_ref = root.root.unwrap_internal_mut();
+                    let mut count = root.count;
+                    let mut new_internal_root = root.root.unwrap_internal_mut();
                     // let parent_ptr = ParentPtr::Internal(NonNull::new_unchecked(new_root_ref));
-                    let parent_ptr = new_root_ref.as_ref().to_parent_ptr();
+                    let parent_ptr = new_internal_root.as_ref().to_parent_ptr();
 
                     // Reassign parents for each node
                     old_root.set_parent(parent_ptr);
-                    inserted_node.set_parent(parent_ptr);
+                    inserted_leaf_node.set_parent(parent_ptr);
 
-                    new_root_ref.as_mut().project_data_mut()[0] = (count - stolen_length, Some(old_root));
-                    new_root_ref.as_mut().project_data_mut()[1] = (stolen_length, Some(inserted_node));
+                    count -= stolen_length;
+                    new_internal_root.as_mut().project_data_mut()[0] = (count, Some(old_root));
+                    new_internal_root.as_mut().project_data_mut()[1] = (stolen_length, Some(inserted_leaf_node));
 
                     // r.as_mut().print_ptr_tree();
                     return;
@@ -479,7 +501,7 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
 
                     let left_sibling = n.as_mut();
                     left_sibling.data[old_idx].0 -= stolen_length;
-                    let mut new_stolen_length = 0;
+                    let mut new_stolen_length = I::IndexOffset::default();
                     // Dividing this into cases makes it easier to reason
                     // about.
                     if old_idx < NUM_NODE_CHILDREN /2 {
@@ -487,7 +509,7 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
                         // into right_sibling, then splice inserted_node into
                         // old_parent.
                         for i in 0..NUM_NODE_CHILDREN /2 {
-                            let (c, e) = mem::replace(&mut left_sibling.data[i + NUM_NODE_CHILDREN /2], (0, None));
+                            let (c, e) = mem::replace(&mut left_sibling.data[i + NUM_NODE_CHILDREN /2], (I::IndexOffset::default(), None));
                             if let Some(mut e) = e {
                                 e.set_parent(right_sibling.as_ref().to_parent_ptr());
                                 new_stolen_length += c;
@@ -497,15 +519,15 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
                         }
 
                         let new_idx = old_idx + 1;
-                        inserted_node.set_parent(ParentPtr::Internal(NonNull::new_unchecked(left_sibling)));
-                        left_sibling.splice_in(new_idx, stolen_length, inserted_node);
+                        inserted_leaf_node.set_parent(ParentPtr::Internal(NonNull::new_unchecked(left_sibling)));
+                        left_sibling.splice_in(new_idx, stolen_length, inserted_leaf_node);
                     } else {
                         // The new element is in the second half of the
                         // group.
                         let new_idx = old_idx - NUM_NODE_CHILDREN /2 + 1;
 
-                        inserted_node.set_parent(right_sibling.as_ref().to_parent_ptr());
-                        let mut new_entry = (stolen_length, Some(inserted_node));
+                        inserted_leaf_node.set_parent(right_sibling.as_ref().to_parent_ptr());
+                        let mut new_entry = (stolen_length, Some(inserted_leaf_node));
                         new_stolen_length = stolen_length;
 
                         let mut src = NUM_NODE_CHILDREN /2;
@@ -513,7 +535,7 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
                             if dest == new_idx {
                                 right_sibling.as_mut().project_data_mut()[dest] = mem::take(&mut new_entry);
                             } else {
-                                let (c, e) = mem::replace(&mut left_sibling.data[src], (0, None));
+                                let (c, e) = mem::replace(&mut left_sibling.data[src], (I::IndexOffset::default(), None));
 
                                 if let Some(mut e) = e {
                                     e.set_parent(right_sibling.as_ref().to_parent_ptr());
@@ -527,7 +549,7 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
                     }
 
                     insert_after = NodePtr::Internal(n);
-                    inserted_node = right_sibling_box;
+                    inserted_leaf_node = right_sibling_box;
                     stolen_length = new_stolen_length;
                     // And iterate up the tree.
                 },
@@ -542,7 +564,6 @@ mod tests {
     // use std::pin::Pin;
     use crate::range_tree::{RangeTree, Entry, ContentIndex};
     use crate::common::CRDTLocation;
-    use crate::range_tree::index::ContentFlushMarker;
 
     #[test]
     fn splice_insert_test() {
@@ -552,9 +573,9 @@ mod tests {
             len: 100
         };
         let mut cursor = tree.cursor_at_pos(0, false);
-        let mut marker = ContentFlushMarker(0);
+        let mut marker = 0;
         tree.splice_insert(&[entry], &mut cursor, &mut marker, &mut |_e, _x| {});
-        marker.flush(unsafe {cursor.get_node_mut() });
+        unsafe {cursor.get_node_mut() }.flush(&mut marker);
 
         let entry = Entry {
             loc: CRDTLocation {agent: 0, seq: 1100},
@@ -562,9 +583,9 @@ mod tests {
         };
         cursor = tree.cursor_at_pos(15, false);
         tree.splice_insert(&[entry], &mut cursor, &mut marker, &mut |_e, _x| {});
-        marker.flush(unsafe {cursor.get_node_mut() });
+        unsafe {cursor.get_node_mut() }.flush(&mut marker);
 
-        println!("{:#?}", tree);
+        // println!("{:#?}", tree);
 
         tree.check();
     }

@@ -1,7 +1,6 @@
 use super::*;
 
 use smallvec::SmallVec;
-use crate::range_tree::index::ContentFlushMarker;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 pub fn extend_delete<E: EntryTraits>(delete: &mut DeleteResult<E>, entry: E) {
@@ -17,7 +16,7 @@ pub fn extend_delete<E: EntryTraits>(delete: &mut DeleteResult<E>, entry: E) {
 impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     pub fn new() -> Pin<Box<Self>> {
         let mut tree = Box::pin(Self {
-            count: 0,
+            count: I::IndexOffset::default(),
             root: unsafe { Node::new_leaf() },
             last_cursor: Cell::new(None),
             _pin: marker::PhantomPinned,
@@ -36,20 +35,21 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.count as _
+    pub fn len(&self) -> I::IndexOffset {
+        self.count
     }
 
-    pub fn get(&self, pos: usize) -> Option<E::Item> {
-        let cursor = self.cursor_at_pos(pos, false);
-        cursor.get_item()
-    }
+    // pub fn get(&self, pos: usize) -> Option<E::Item> {
+    //     let cursor = self.cursor_at_pos(pos, false);
+    //     cursor.get_item()
+    // }
 
     unsafe fn to_parent_ptr(&self) -> ParentPtr<E, I> {
         ParentPtr::Root(ref_to_nonnull(self))
     }
 
-    pub fn cursor_at_pos(&self, raw_pos: usize, stick_end: bool) -> Cursor<E, I> {
+    pub fn cursor_at_query<F, G>(&self, raw_pos: usize, stick_end: bool, offset_to_num: F, entry_to_num: G) -> Cursor<E, I>
+            where F: Fn(I::IndexOffset) -> usize, G: Fn(E) -> usize {
         // if let Some((pos, mut cursor)) = self.last_cursor.get() {
         //     if pos == raw_pos {
         //         if cursor.offset == 0 {
@@ -64,15 +64,16 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             let mut offset_remaining = raw_pos;
             while let NodePtr::Internal(data) = node {
                 let (new_offset_remaining, next) = data.as_ref()
-                    .get_child_ptr(offset_remaining, stick_end)
+                    .find_child_at_offset(offset_remaining, stick_end, &offset_to_num)
                     .expect("Internal consistency violation");
-                offset_remaining = new_offset_remaining as usize;
+                offset_remaining = new_offset_remaining;
                 node = next;
             };
 
             let leaf_ptr = node.unwrap_leaf();
-            let (idx, offset_remaining) = leaf_ptr.as_ref().find_offset(offset_remaining, stick_end)
-            .expect("Element does not contain entry");
+            let (idx, offset_remaining) = leaf_ptr
+                .as_ref().find_offset(offset_remaining, stick_end, entry_to_num)
+                .expect("Element does not contain entry");
 
             Cursor {
                 node: leaf_ptr,
@@ -83,9 +84,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
-    pub fn cursor_at_end(&self) -> Cursor<E, I> {
-        // There's ways to write this to be faster, but its rare enough it should be fine.
-        let cursor = self.cursor_at_pos(self.count, true);
+    pub fn cursor_at_end<F, G>(&self, offset_to_num: F, entry_to_num: G) -> Cursor<E, I>
+        where F: Fn(I::IndexOffset) -> usize, G: Fn(E) -> usize {
+        // There's ways to write this to be faster, but this method is called rarely enough that it
+        // should be fine.
+        let cursor = self.cursor_at_query(offset_to_num(self.count), true, offset_to_num, entry_to_num);
 
         if cfg!(debug_assertions) {
             // Make sure nothing went wrong while we're here.
@@ -105,20 +108,36 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     // }
 
     pub fn iter(&self) -> Cursor<E, I> {
-        self.cursor_at_pos(0, false)
+        // self.cursor_at_pos(0, false)
+
+        unsafe {
+            let mut node = self.root.as_ptr();
+            while let NodePtr::Internal(data) = node {
+                node = data.as_ref().data[0].1.as_ref().unwrap().as_ptr()
+            };
+
+            let leaf_ptr = node.unwrap_leaf();
+            Cursor {
+                node: leaf_ptr,
+                idx: 0,
+                offset: 0,
+                // _marker: marker::PhantomData
+            }
+        }
     }
 
-    pub fn next_entry_or_panic(cursor: &mut Cursor<E, I>, marker: &mut ContentFlushMarker) {
+    pub fn next_entry_or_panic(cursor: &mut Cursor<E, I>, marker: &mut I::FlushMarker) {
         if cursor.next_entry_marker(Some(marker)) == false {
             panic!("Local delete past the end of the document");
         }
     }
 
     // Returns size.
-    fn check_leaf(leaf: &NodeLeaf<E, I>, expected_parent: ParentPtr<E, I>) -> usize {
+    fn check_leaf(leaf: &NodeLeaf<E, I>, expected_parent: ParentPtr<E, I>) -> I::IndexOffset {
         assert_eq!(leaf.parent, expected_parent);
         
-        let mut count: usize = 0;
+        // let mut count: usize = 0;
+        let mut count = I::IndexOffset::default();
         let mut done = false;
         let mut num: usize = 0;
 
@@ -127,7 +146,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 // Make sure there's no data after an invalid entry
                 assert_eq!(done, false, "Leaf contains gaps");
                 assert_ne!(e.len(), 0, "Invalid leaf - 0 length");
-                count += e.content_len() as usize;
+                // count += e.content_len() as usize;
+                I::increment_offset(&mut count, &e);
                 num += 1;
             } else {
                 done = true;
@@ -145,10 +165,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     }
     
     // Returns size.
-    fn check_internal(node: &NodeInternal<E, I>, expected_parent: ParentPtr<E, I>) -> usize {
+    fn check_internal(node: &NodeInternal<E, I>, expected_parent: ParentPtr<E, I>) -> I::IndexOffset {
         assert_eq!(node.parent, expected_parent);
         
-        let mut count_total: usize = 0;
+        // let mut count_total: usize = 0;
+        let mut count_total = I::IndexOffset::default();
         let mut done = false;
         let mut child_type = None; // Make sure all the children have the same type.
         // let self_parent = ParentPtr::Internal(NonNull::new(node as *const _ as *mut _).unwrap());
@@ -179,7 +200,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 // if *child_count_expected as usize != count_actual {
                 //     eprintln!("xxx {:#?}", node);
                 // }
-                assert_eq!(*child_count_expected as usize, count_actual, "Child node count does not match");
+                assert_eq!(*child_count_expected, count_actual, "Child node count does not match");
                 count_total += count_actual;
             } else {
                 done = true;
@@ -199,7 +220,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             Node::Internal(n) => { Self::check_internal(&n, expected_parent) },
             Node::Leaf(n) => { Self::check_leaf(&n, expected_parent) },
         };
-        assert_eq!(self.count as usize, expected_size, "tree.count is incorrect");
+        assert_eq!(self.count, expected_size, "tree.count is incorrect");
     }
 
     fn print_node_tree(node: &Node<E, I>, depth: usize) {
@@ -228,7 +249,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
     #[allow(unused)]
     pub fn print_ptr_tree(&self) {
-        eprintln!("Tree count {} ptr {:?}", self.count, self as *const _);
+        eprintln!("Tree count {:?} ptr {:?}", self.count, self as *const _);
         Self::print_node_tree(&self.root, 1);
     }
 
@@ -260,5 +281,13 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     #[allow(unused)]
     pub(crate) fn count_entries(&self) -> usize {
         self.iter().fold(0, |a, _| a + 1)
+    }
+}
+
+impl<E: EntryTraits> RangeTree<E, ContentIndex> {
+    pub fn cursor_at_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, ContentIndex> {
+        self.cursor_at_query(pos, stick_end,
+                                         |i| i as usize,
+                                         |e| e.content_len())
     }
 }
