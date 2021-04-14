@@ -323,6 +323,11 @@ impl CRDTState {
         // Maybe also scan the ops to make sure none of them are dangling
         // pointers?
     }
+
+    pub fn print_stats(&self) {
+        println!("Total items: {:?}", self.marker_tree.len());
+        println!("internal nodes {} entries {}", self.marker_tree.count_internal_nodes(), self.marker_tree.count_entries());
+    }
 }
 
 // impl CRDTOp {

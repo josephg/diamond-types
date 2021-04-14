@@ -277,11 +277,36 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
 
         println!("Entry distribution {:?}", size_counts);
+
+        println!("Internal node size {}", std::mem::size_of::<NodeInternal<E, I>>());
+        println!("Node entry size {} alignment {}",
+                 std::mem::size_of::<Option<Node<E, I>>>(),
+                 std::mem::align_of::<Option<Node<E, I>>>());
+        println!("Leaf size {}", std::mem::size_of::<NodeLeaf<E, I>>());
     }
 
     #[allow(unused)]
     pub(crate) fn count_entries(&self) -> usize {
         self.iter().fold(0, |a, _| a + 1)
+    }
+
+    fn count_internal_nodes_internal(node: &Node<E, I>, num: &mut usize) {
+        if let Node::Internal(n) = node {
+            *num += 1;
+
+            for (_, e) in &n.data[..] {
+                if let Some(e) = e {
+                    Self::count_internal_nodes_internal(e, num);
+                }
+            }
+        }
+    }
+
+    #[allow(unused)]
+    pub(crate) fn count_internal_nodes(&self) -> usize {
+        let mut num = 0;
+        Self::count_internal_nodes_internal(&self.root, &mut num);
+        num
     }
 }
 
@@ -301,5 +326,23 @@ impl<E: EntryTraits> RangeTree<E, FullIndex> {
         self.cursor_at_query(pos, stick_end,
                                          |i| i.content as usize,
                                          |e| e.content_len())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::range_tree::{RangeTree, Entry, ContentIndex, FullIndex, TreeIndex};
+    use std::mem::size_of;
+
+    #[test]
+    fn print_memory_stats() {
+        let x = RangeTree::<Entry, ContentIndex>::new();
+        x.print_stats();
+        let x = RangeTree::<Entry, FullIndex>::new();
+        x.print_stats();
+
+        println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<Entry>>::IndexOffset>());
+        println!("sizeof FullIndex offset {}", size_of::<<FullIndex as TreeIndex<Entry>>::IndexOffset>());
     }
 }

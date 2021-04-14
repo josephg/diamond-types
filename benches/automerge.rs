@@ -44,22 +44,23 @@ pub fn automerge_perf_benchmarks(c: &mut Criterion) {
         let u = get_data();
 
         b.iter(|| {
-            // println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
+            // let start = ALLOCATED.load(Ordering::Acquire);
             let mut state = CRDTState::new();
             apply_edits(&mut state, &u.edits);
             // println!("len {}", state.len());
             assert_eq!(state.len(), u.finalText.len());
-            // println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
+            // println!("alloc {}", ALLOCATED.load(Ordering::Acquire) - start);
+            // state.print_stats();
             black_box(state.len());
         })
     });
 
-    if false {
+    // if false {
         c.bench_function("automerge-perf x100", |b| {
             let u = get_data();
 
             b.iter(|| {
-                // println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
+                // let start = ALLOCATED.load(Ordering::Acquire);
 
                 let mut state = CRDTState::new();
                 for _ in 0..100 {
@@ -67,10 +68,11 @@ pub fn automerge_perf_benchmarks(c: &mut Criterion) {
                 }
                 // println!("len {}", state.len());
                 assert_eq!(state.len(), u.finalText.len() * 100);
-                // println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
+                // println!("alloc {}", ALLOCATED.load(Ordering::Acquire) - start);
+                // state.print_stats();
 
                 black_box(state.len());
             })
         });
-    }
+    // }
 }

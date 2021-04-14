@@ -25,7 +25,7 @@ unsafe impl GlobalAlloc for TracingAlloc {
 }
 
 
-#[cfg(test)]
+// #[cfg(test)]
 mod trace_alloc {
     use crate::alloc::TracingAlloc;
 
