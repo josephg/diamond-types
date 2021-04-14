@@ -16,7 +16,7 @@ pub use crate::range_tree::entry::{CRDTItem, EntryTraits};
 use super::common::*;
 use crate::range_tree::index::TreeIndex;
 
-pub use index::ContentIndex;
+pub use index::*;
 
 // The common data structures are:
 mod cursor;

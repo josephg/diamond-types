@@ -572,7 +572,7 @@ mod tests {
             loc: CRDTLocation {agent: 0, seq: 1000},
             len: 100
         };
-        let mut cursor = tree.cursor_at_pos(0, false);
+        let mut cursor = tree.cursor_at_content_pos(0, false);
         let mut marker = 0;
         tree.splice_insert(&[entry], &mut cursor, &mut marker, &mut |_e, _x| {});
         unsafe {cursor.get_node_mut() }.flush(&mut marker);
@@ -581,7 +581,7 @@ mod tests {
             loc: CRDTLocation {agent: 0, seq: 1100},
             len: 20
         };
-        cursor = tree.cursor_at_pos(15, false);
+        cursor = tree.cursor_at_content_pos(15, false);
         tree.splice_insert(&[entry], &mut cursor, &mut marker, &mut |_e, _x| {});
         unsafe {cursor.get_node_mut() }.flush(&mut marker);
 
@@ -594,7 +594,7 @@ mod tests {
     fn backspace_collapses() {
         let tree = RangeTree::<Entry, ContentIndex>::new();
 
-        let cursor = tree.cursor_at_pos(0, false);
+        let cursor = tree.cursor_at_content_pos(0, false);
         let entry = Entry {
             loc: CRDTLocation {agent: 0, seq: 1000},
             len: 100
@@ -604,11 +604,11 @@ mod tests {
 
         // Ok now I'm going to delete the last and second-last elements. We should end up with
         // two entries.
-        let cursor = tree.cursor_at_pos(99, false);
+        let cursor = tree.cursor_at_content_pos(99, false);
         tree.local_delete(cursor, 1, &mut |_, _| {});
         assert_eq!(tree.count_entries(), 2);
 
-        let cursor = tree.cursor_at_pos(98, false);
+        let cursor = tree.cursor_at_content_pos(98, false);
         tree.local_delete(cursor, 1, &mut |_, _| {});
         assert_eq!(tree.count_entries(), 2);
     }

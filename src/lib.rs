@@ -91,7 +91,7 @@ pub use alloc::ALLOCATED;
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 struct MarkerEntry {
     len: u32,
-    ptr: NonNull<NodeLeaf<Entry, ContentIndex>>
+    ptr: NonNull<NodeLeaf<Entry, FullIndex>>
 }
 
 impl SplitableSpan for MarkerEntry {
@@ -122,7 +122,7 @@ impl SplitableSpan for MarkerEntry {
 }
 
 impl Index<usize> for MarkerEntry {
-    type Output = NonNull<NodeLeaf<Entry, ContentIndex>>;
+    type Output = NonNull<NodeLeaf<Entry, FullIndex>>;
 
     fn index(&self, _index: usize) -> &Self::Output {
         &self.ptr
@@ -150,7 +150,7 @@ const USE_INNER_ROPE: bool = false;
 pub struct CRDTState {
     client_data: Vec<ClientData>,
 
-    marker_tree: Pin<Box<RangeTree<Entry, ContentIndex>>>,
+    marker_tree: Pin<Box<RangeTree<Entry, FullIndex>>>,
 
     // Probably temporary, eventually.
     text_content: Rope,
@@ -169,7 +169,7 @@ impl CRDTState {
     }
 
     pub fn len(&self) -> usize {
-        self.marker_tree.as_ref().len() as usize
+        self.marker_tree.as_ref().content_len()
     }
 
     pub fn get_or_create_client_id(&mut self, name: &str) -> AgentId {
@@ -192,7 +192,7 @@ impl CRDTState {
         .map(|id| id as AgentId)
     }
 
-    fn notify(client_data: &mut Vec<ClientData>, entry: Entry, ptr: NonNull<NodeLeaf<Entry, ContentIndex>>) {
+    fn notify(client_data: &mut Vec<ClientData>, entry: Entry, ptr: NonNull<NodeLeaf<Entry, FullIndex>>) {
         // eprintln!("notify callback {:?} {:?}", entry, ptr);
         let markers = &mut client_data[entry.loc.agent as usize].markers;
         // for op in &mut markers[loc.seq as usize..(loc.seq+len) as usize] {
@@ -221,7 +221,7 @@ impl CRDTState {
         // markers.resize(markers.len() + inserted_length, dangling_ptr);
 
 
-        let cursor = self.marker_tree.cursor_at_pos(pos, true);
+        let cursor = self.marker_tree.cursor_at_content_pos(pos, true);
         // println!("root {:#?}", self.range_tree);
         let client_data = &mut self.client_data;
         let insert_location = if pos == 0 {
@@ -246,7 +246,7 @@ impl CRDTState {
 
         if USE_INNER_ROPE {
             self.text_content.insert(pos as usize, text);
-            assert_eq!(self.text_content.len_chars(), self.marker_tree.len() as usize);
+            assert_eq!(self.text_content.len_chars(), self.marker_tree.content_len());
         }
 
         if cfg!(debug_assertions) {
@@ -266,7 +266,7 @@ impl CRDTState {
     }
 
     pub fn delete(&mut self, _client_id: AgentId, pos: usize, len: usize) -> DeleteResult<Entry> {
-        let cursor = self.marker_tree.cursor_at_pos(pos, true);
+        let cursor = self.marker_tree.cursor_at_content_pos(pos, true);
         // println!("{:#?}", state.range_tree);
         // println!("{:?}", cursor);
         let client_data = &mut self.client_data;
@@ -278,7 +278,7 @@ impl CRDTState {
 
         if USE_INNER_ROPE {
             self.text_content.remove(pos as usize..pos as usize + len as usize); // vomit.
-            assert_eq!(self.text_content.len_chars(), self.marker_tree.len() as usize);
+            assert_eq!(self.text_content.len_chars(), self.marker_tree.content_len());
         }
 
         result
@@ -293,7 +293,7 @@ impl CRDTState {
         if loc == CRDT_DOC_ROOT { return 0; }
 
         let markers = &self.client_data[loc.agent as usize].markers;
-        unsafe { RangeTree::cursor_before_item(loc, markers[loc.seq as usize]).count_pos() as u32 }
+        unsafe { RangeTree::cursor_before_item(loc, markers[loc.seq as usize]).count_pos().content as u32 }
     }
 
     pub fn lookup_num_position(&self, pos: usize) -> CRDTLocation {
@@ -302,7 +302,7 @@ impl CRDTState {
         //     CRDT_DOC_ROOT
         // } else { cursor.tell() };
 
-        let cursor = self.marker_tree.cursor_at_pos(pos, true);
+        let cursor = self.marker_tree.cursor_at_content_pos(pos, true);
         cursor.tell_predecessor().unwrap_or(CRDT_DOC_ROOT)
     }
 
@@ -415,7 +415,7 @@ mod tests {
     
     
     #[test]
-    fn delete() {
+    fn delete_simple() {
         let mut state = CRDTState::new();
         
         state.insert_name("fred", 0, "a");
@@ -430,7 +430,6 @@ mod tests {
         assert_eq!(result.len(), 3); // TODO: More thorough equality checks here.
         // eprintln!("delete result {:#?}", result);
 
-        println!("tree {:#?}", state.marker_tree);
         state.check();
         assert_eq!(state.len(), 4);
 

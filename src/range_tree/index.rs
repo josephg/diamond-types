@@ -84,3 +84,62 @@ impl<E: EntryTraits> TreeIndex<E> for ContentIndex {
         *offset += by.content_len().min(at) as u32;
     }
 }
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct FullIndex;
+
+#[derive(Default, Debug, PartialEq, Eq)]
+pub struct FullMarker {
+    pub len: i32,
+    pub content: i32
+}
+
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq)]
+pub struct FullOffset {
+    pub len: ItemCount, // Number of items ever inserted
+    pub content: ItemCount, // Number of items not currently deleted
+}
+
+impl AddAssign for FullOffset {
+    fn add_assign(&mut self, rhs: Self) {
+        self.len += rhs.len;
+        self.content += rhs.content;
+    }
+}
+
+impl SubAssign for FullOffset {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.len -= rhs.len;
+        self.content -= rhs.content;
+    }
+}
+
+impl<E: EntryTraits> TreeIndex<E> for FullIndex {
+    type FlushMarker = FullMarker;
+    type IndexOffset = FullOffset;
+
+    fn increment_marker(marker: &mut Self::FlushMarker, entry: &E) {
+        marker.len += entry.len() as i32;
+        marker.content += entry.content_len() as i32;
+    }
+
+    fn decrement_marker(marker: &mut Self::FlushMarker, entry: &E) {
+        marker.len -= entry.len() as i32;
+        marker.content -= entry.content_len() as i32;
+    }
+
+    fn update_offset_by_marker(offset: &mut Self::IndexOffset, by: &Self::FlushMarker) {
+        offset.len = offset.len.wrapping_add(by.len as u32);
+        offset.content = offset.content.wrapping_add(by.content as u32);
+    }
+
+    fn increment_offset(offset: &mut Self::IndexOffset, entry: &E) {
+        offset.len += entry.len() as u32;
+        offset.content += entry.content_len() as u32;
+    }
+
+    fn increment_offset_partial(offset: &mut Self::IndexOffset, by: &E, at: usize) {
+        offset.len += at as u32;
+        offset.content += by.content_len().min(at) as u32;
+    }
+}
