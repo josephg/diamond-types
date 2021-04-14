@@ -8,12 +8,9 @@ use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::ptr::NonNull;
 
-pub use entry::Entry;
+pub use entry::*;
 pub use root::DeleteResult;
 
-pub use crate::range_tree::entry::{CRDTItem, EntryTraits};
-
-use super::common::*;
 use crate::range_tree::index::TreeIndex;
 
 pub use index::*;

@@ -6,9 +6,6 @@ use std::fmt::Debug;
 pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default {
     type Item: Copy + Debug;
 
-    /// User specific content length. Used by range_tree for character counts.
-    fn content_len(&self) -> usize;
-
     // This is strictly unnecessary given truncate(), but it makes some code cleaner.
     fn truncate_keeping_right(&mut self, at: usize) -> Self;
 
@@ -18,6 +15,11 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
     // I'd use Index for this but the index trait returns a reference.
     // fn at_offset(&self, offset: usize) -> Self::Item;
     fn at_offset(&self, offset: usize) -> Self::Item;
+}
+
+pub trait EntryWithContent {
+    /// User specific content length. Used by range_tree for character counts.
+    fn content_len(&self) -> usize;
 }
 
 pub trait CRDTItem {
@@ -34,52 +36,8 @@ pub struct Entry {
     pub len: i32, // negative if the chunk was deleted. Never 0 - TODO: could use NonZeroI32
 }
 
-
-// impl Entry {
-//     fn get_seq_range(self) -> Range<usize> {
-//         self.loc.seq .. self.loc.seq + (self.len.abs() as usize)
-//     }
-//
-//     fn get_content_len(&self) -> u32 {
-//         if self.len < 0 { 0 } else { self.len as u32 }
-//     }
-//
-//     fn get_seq_len(&self) -> u32 {
-//         self.len.abs() as u32
-//     }
-//
-//     fn trim_keeping_start(&mut self, cut_at: u32) {
-//         self.len = if self.len < 0 { -(cut_at as i32) } else { cut_at as i32 };
-//     }
-//
-//     fn trim_keeping_end(&mut self, cut_at: u32) {
-//         self.loc.seq += cut_at;
-//         self.len += if self.len < 0 { cut_at as i32 } else { -(cut_at as i32) };
-//     }
-//
-//     // Confusingly CLIENT_INVALID is used both for empty entries and the root entry. But the root
-//     // entry will never be a valid entry in the marker tree, so it doesn't matter.
-//     fn is_invalid(&self) -> bool {
-//         self.loc.agent == CLIENT_INVALID
-//     }
-//
-//     fn is_insert(&self) -> bool {
-//         debug_assert!(self.len != 0);
-//         self.len > 0
-//     }
-//
-//     fn is_delete(&self) -> bool {
-//         !self.is_insert()
-//     }
-// }
-
-
 impl EntryTraits for Entry {
     type Item = CRDTLocation;
-
-    fn content_len(&self) -> usize {
-        if self.len < 0 { 0 } else { self.len as _ }
-    }
 
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
         let other = Entry {
@@ -114,6 +72,12 @@ impl EntryTraits for Entry {
             // So gross.
             seq: (self.loc.seq as i32 + (offset as i32 * self.len.signum())) as u32
         }
+    }
+}
+
+impl EntryWithContent for Entry {
+    fn content_len(&self) -> usize {
+        if self.len < 0 { 0 } else { self.len as _ }
     }
 }
 

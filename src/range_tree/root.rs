@@ -310,14 +310,14 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     }
 }
 
-impl<E: EntryTraits> RangeTree<E, ContentIndex> {
+impl<E: EntryTraits + EntryWithContent> RangeTree<E, ContentIndex> {
     pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, ContentIndex> {
         self.cursor_at_query(pos, stick_end,
                                          |i| i as usize,
                                          |e| e.content_len())
     }
 }
-impl<E: EntryTraits> RangeTree<E, FullIndex> {
+impl<E: EntryTraits + EntryWithContent> RangeTree<E, FullIndex> {
     pub fn content_len(&self) -> usize {
         self.count.content as usize
     }
@@ -326,6 +326,12 @@ impl<E: EntryTraits> RangeTree<E, FullIndex> {
         self.cursor_at_query(pos, stick_end,
                                          |i| i.content as usize,
                                          |e| e.content_len())
+    }
+
+    pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, FullIndex> {
+        self.cursor_at_query(pos, stick_end,
+                                         |i| i.len as usize,
+                                         |e| e.len())
     }
 }
 
