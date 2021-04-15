@@ -41,7 +41,7 @@ mod range_tree;
 mod split_list;
 mod splitable_span;
 mod alloc;
-// mod document;
+mod document;
 
 use range_tree::*;
 use common::*;

@@ -11,7 +11,7 @@ use std::ptr::NonNull;
 pub use entry::*;
 pub use root::DeleteResult;
 
-use crate::range_tree::index::TreeIndex;
+pub use crate::range_tree::index::TreeIndex;
 
 pub use index::*;
 

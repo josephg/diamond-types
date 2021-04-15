@@ -85,16 +85,36 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
-    pub fn cursor_at_end<F, G>(&self, offset_to_num: F, entry_to_num: G) -> Cursor<E, I>
-        where F: Fn(I::IndexOffset) -> usize, G: Fn(E) -> usize {
+    pub fn cursor_at_end(&self) -> Cursor<E, I> {
         // There's ways to write this to be faster, but this method is called rarely enough that it
         // should be fine.
-        let cursor = self.cursor_at_query(offset_to_num(self.count), true, offset_to_num, entry_to_num);
+        // let cursor = self.cursor_at_query(offset_to_num(self.count), true, offset_to_num, entry_to_num);
+
+        let cursor = unsafe {
+            let mut node = self.root.as_ptr();
+            while let NodePtr::Internal(ptr) = node {
+                node = ptr.as_ref().last_child();
+            };
+
+            // Now scan to the end of the leaf
+            let leaf_ptr = node.unwrap_leaf();
+            let leaf = leaf_ptr.as_ref();
+            let idx = leaf.len_entries() - 1;
+            let offset = leaf.data[idx].len();
+
+            Cursor {
+                node: leaf_ptr,
+                idx,
+                offset
+            }
+        };
 
         if cfg!(debug_assertions) {
             // Make sure nothing went wrong while we're here.
             let mut cursor = cursor;
+            let node = unsafe { cursor.node.as_ref() };
             assert_eq!(cursor.get_entry().len(), cursor.offset);
+            assert_eq!(cursor.idx, node.len_entries() - 1);
             assert_eq!(cursor.next_entry(), false);
         }
 
@@ -310,6 +330,13 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     }
 }
 
+impl<E: EntryTraits> RangeTree<E, RawPositionIndex> {
+    pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, RawPositionIndex> {
+        self.cursor_at_query(pos, stick_end,
+                             |i| i as usize,
+                             |e| e.len())
+    }
+}
 impl<E: EntryTraits + EntryWithContent> RangeTree<E, ContentIndex> {
     pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, ContentIndex> {
         self.cursor_at_query(pos, stick_end,
