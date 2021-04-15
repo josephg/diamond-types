@@ -107,6 +107,8 @@ impl DocumentState {
     
     pub fn get_or_create_client_id(&mut self, name: &str) -> AgentId {
         // Probably a nicer way to write this.
+        if name == "ROOT" { return AgentId::MAX; }
+
         if let Some(id) = self.get_client_id(name) {
             id
         } else {
@@ -120,16 +122,27 @@ impl DocumentState {
     }
 
     fn get_client_id(&self, name: &str) -> Option<AgentId> {
-        self.client_data.iter()
-            .position(|client_data| &client_data.name == name)
-            .map(|id| id as AgentId)
+        if name == "ROOT" { Some(AgentId::MAX) }
+        else {
+            self.client_data.iter()
+                .position(|client_data| &client_data.name == name)
+                .map(|id| id as AgentId)
+        }
     }
+
+    // fn map_external_crdt_location(&mut self, loc: &CRDTLocationExternal) -> CRDTLocation {
+    //     CRDTLocation {
+    //         agent: self.get_or_create_client_id(&loc.agent),
+    //         seq: loc.seq
+    //     }
+    // }
 
     pub fn len(&self) -> usize {
         self.range_tree.as_ref().content_len()
     }
 
     fn branch_contains_version(&self, target: Order, branch: &[Order]) -> bool {
+        println!("branch_contains_versions target: {} branch: {:?}", target, branch);
         // Order matters between these two lines because of how this is used in applyBackwards.
         if branch.len() == 0 { return false; }
         if target == ROOT_ORDER || branch.contains(&target) { return true; }
@@ -206,14 +219,18 @@ impl DocumentState {
     }
 
     fn next_txn_with_inserts(&self, mut txn_order: usize) -> &TxnInternal {
-        loop {
-            let txn = &self.txns[txn_order];
-            if txn.num_inserts == 0 {
-                txn_order += 1;
-            } else {
-                return txn;
-            }
+        for txn in &self.txns[txn_order..] {
+            if txn.num_inserts > 0 { return txn; }
         }
+        unreachable!()
+        // loop {
+        //     let txn = &self.txns[txn_order];
+        //     if txn.num_inserts == 0 {
+        //         txn_order += 1;
+        //     } else {
+        //         return txn;
+        //     }
+        // }
     }
 
     fn get_item_order(&self, item_loc: CRDTLocation) -> usize {
@@ -261,14 +278,18 @@ impl DocumentState {
     }
 
     fn get_txn_containing_item(&self, item_order: Order) -> &TxnInternal {
+        // println!("get_txn_containing_item {}", item_order);
         match self.txns.binary_search_by_key(&item_order, |txn| {
             txn.insert_order_start
         }) {
             Ok(txn_order) => {
+                // dbg!("-> OK", txn_order);
                 self.next_txn_with_inserts(txn_order)
             }
-            Err(next_order) => {
-                &self.txns[next_order - 1]
+            Err(txn_order) => {
+                // dbg!("-> Err", txn_order);
+                // &self.txns[next_order - 1]
+                &self.txns[txn_order]
             }
         }
     }
@@ -313,34 +334,40 @@ impl DocumentState {
     /// Compare two item orders to see the order in which they should end up in the resulting
     /// document. The ordering follows the resulting positions - so a<b implies a earlier than b in
     /// the document.
-    fn cmp_item_order(&self, a: Order, b: Order) -> Ordering {
+    fn cmp_item_order2(&self, a: Order, txn_a: &TxnInternal, b: Order, txn_b: &TxnInternal) -> Ordering {
         if a == b { return Ordering::Equal; }
 
-        // TODO: We often have these transactions when we call this method. Maybe pass them in if we know them?
-        let txn_a = self.get_txn_containing_item(a);
-        let txn_b = self.get_txn_containing_item(b);
+        dbg!(txn_a, txn_b);
         if txn_a.id.agent == txn_b.id.agent {
             // We can just compare the sequence numbers to see which is newer.
             // Newer (higher seq) -> earlier in the document.
             txn_b.id.seq.cmp(&txn_a.id.seq)
         } else {
-            let cmp = self.compare_versions(a, b);
+            let cmp = self.compare_versions(txn_a.order, txn_b.order);
             cmp.unwrap_or_else(|| {
                 // Do'h - they're concurrent. Order based on sorting the agent strings.
                 let a_name = &self.client_data[txn_a.id.agent as usize].name;
-                let b_name = &self.client_data[txn_a.id.agent as usize].name;
+                let b_name = &self.client_data[txn_b.id.agent as usize].name;
                 a_name.cmp(&b_name)
             })
         }
     }
 
-    fn get_cursor_before(&mut self, item: Order) -> Cursor<OrderMarker, FullIndex> {
+    fn cmp_item_order(&self, a: Order, b: Order) -> Ordering {
+        if a == b { return Ordering::Equal; }
+
+        let txn_a = self.get_txn_containing_item(a);
+        let txn_b = self.get_txn_containing_item(b);
+        self.cmp_item_order2(a, txn_a, b, txn_b)
+    }
+
+    fn get_cursor_before(&self, item: Order) -> Cursor<OrderMarker, FullIndex> {
         assert_ne!(item, ROOT_ORDER);
         let marker: NonNull<NodeLeaf<OrderMarker, FullIndex>> = self.markers[item];
         unsafe { RangeTree::cursor_before_item(item, marker) }
     }
 
-    fn get_cursor_after(&mut self, parent: Order) -> Cursor<OrderMarker, FullIndex> {
+    fn get_cursor_after(&self, parent: Order) -> Cursor<OrderMarker, FullIndex> {
         if parent == ROOT_ORDER {
             self.range_tree.iter()
         } else {
@@ -356,7 +383,8 @@ impl DocumentState {
         }
     }
 
-    fn internal_apply_ops(&mut self, txn: &TxnInternal) {
+    fn internal_apply_ops(&mut self, txn_order: Order) {
+        let txn = &self.txns[txn_order];
         // Apply the operation to the marker tree & document
         // TODO: Use iter on ops instead of unrolling it here.
         let mut item_order = txn.insert_order_start;
@@ -398,8 +426,8 @@ impl DocumentState {
                             // doesn't match, this is the sibling of one of our parents and we've
                             // reached the end of our parents' children, and we can just insert
                             // here.
-                            let txn = self.get_txn_containing_item(sibling_order);
-                            let sibling_parent = txn.get_item_parent(sibling_order);
+                            let sibling_txn = self.get_txn_containing_item(sibling_order);
+                            let sibling_parent = sibling_txn.get_item_parent(sibling_order);
 
                             // ?? I think so...
                             assert!(sibling_parent <= parent);
@@ -407,7 +435,8 @@ impl DocumentState {
                             // This is not one of our siblings. Insert here.
                             if sibling_parent != parent { break; }
 
-                            let order = self.cmp_item_order(sibling_order, item_order);
+                            dbg!(sibling_order, item_order);
+                            let order = self.cmp_item_order2(sibling_order, sibling_txn, item_order, txn);
                             assert_ne!(order, Ordering::Equal);
                             // We go before our sibling. Insert here.
                             if order == Ordering::Less { break; }
@@ -498,6 +527,7 @@ impl DocumentState {
     }
 
     fn handle_transaction(&mut self, txn_ext: TxnExternal) -> usize {
+        // let id = self.map_external_crdt_location(&txn_ext.id);
         let id = txn_ext.id;
 
         if let Some(existing) = self.try_get_txn_order(id) {
@@ -505,24 +535,26 @@ impl DocumentState {
         }
 
         let parents: SmallVec<[usize; 2]> = txn_ext.parents.iter().map(|p| {
+            // self.get_txn_order(self.map_external_crdt_location(p))
             self.get_txn_order(*p)
         }).collect();
 
         // Go through the ops and count the number of inserted items
         let mut num_inserts = 0;
-        let ops = txn_ext.ops.into_iter().map(|op_ext: OpExternal| {
+        let ops = txn_ext.ops.iter().map(|op_ext: &OpExternal| {
             match op_ext {
-                OpExternal::Insert { content, parent: predecessor } => {
+                OpExternal::Insert { content, parent } => {
                     num_inserts += content.chars().count();
                     Op::Insert {
-                        content,
-                        parent: self.get_item_order(predecessor)
+                        content: content.clone(),
+                        // parent: self.get_item_order(self.map_external_crdt_location(predecessor))
+                        parent: self.get_item_order(*parent)
                     }
                 }
                 OpExternal::Delete { target, span } => {
                     Op::Delete {
-                        target: self.get_item_order(target),
-                        span
+                        target: self.get_item_order(*target),
+                        span: *span
                     }
                 }
             }
@@ -537,6 +569,7 @@ impl DocumentState {
 
         let txn = TxnInternal {
             id,
+            order, // TODO: Remove me!
             parents,
             insert_seq_start: txn_ext.insert_seq_start,
             insert_order_start: self.next_item_order(),
@@ -546,10 +579,11 @@ impl DocumentState {
             ops,
         };
 
-        self.internal_apply_ops(&txn);
-
         // Last because we need to access the transaction above.
         self.txns.push(txn);
+
+        // internal_apply_ops depends on the transaction being in self.txns.
+        self.internal_apply_ops(order);
 
         self.check();
 
@@ -572,6 +606,7 @@ mod tests {
     use crate::common::{CRDTLocation, CRDT_DOC_ROOT};
     use inlinable_string::InlinableString;
     use smallvec::smallvec;
+}
 
     #[test]
     fn insert_stuff() {
@@ -629,4 +664,42 @@ mod tests {
 
         dbg!(state);
     }
-}
+
+    #[test]
+    fn concurrent_writes() {
+        let seph = TxnExternal {
+            id: CRDTLocation {
+                agent: 0,
+                seq: 0
+            },
+            insert_seq_start: 0,
+            parents: smallvec![CRDT_DOC_ROOT],
+            ops: smallvec![OpExternal::Insert {
+                content: InlinableString::from("hi from seph"),
+                parent: CRDT_DOC_ROOT
+            }]
+        };
+
+        let mike = TxnExternal {
+            id: CRDTLocation {
+                agent: 1,
+                seq: 0
+            },
+            insert_seq_start: 0,
+            parents: smallvec![CRDT_DOC_ROOT],
+            ops: smallvec![OpExternal::Insert {
+                content: InlinableString::from("hi from mike"),
+                parent: CRDT_DOC_ROOT
+            }]
+        };
+
+        let mut state1 = DocumentState::new();
+        let agent0 = state1.get_or_create_client_id("seph");
+        let agent1 = state1.get_or_create_client_id("mike");
+
+        state1.handle_transaction(seph);
+        state1.handle_transaction(mike);
+
+        // What happens !?
+        dbg!(state1);
+    }

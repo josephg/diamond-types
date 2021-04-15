@@ -19,10 +19,23 @@ mod txn;
 mod order;
 mod sibling_range;
 
+// Not currently used.
+// #[derive(Debug, Clone)]
+// pub struct CRDTLocationExternal {
+//     pub agent: InlinableString,
+//     pub seq: u32,
+// }
+//
+// pub const CRDT_DOC_ROOT_EXTERNAL: CRDTLocationExternal = CRDTLocationExternal {
+//     agent: InlinableString::from("ROOT"),
+//     seq: 0
+// };
+
 #[derive(Clone, Debug)]
 pub enum OpExternal {
     Insert {
         content: InlinableString,
+        // parent: CRDTLocationExternal,
         parent: CRDTLocation,
     },
     // Deleted characters in sequence. In a CRDT these characters must be
@@ -59,6 +72,7 @@ pub enum Op {
 #[derive(Clone, Debug)]
 pub struct TxnInternal {
     id: CRDTLocation,
+    order: Order, // TODO: Remove this.
     parents: SmallVec<[Order; 2]>,
 
     insert_seq_start: u32, // From external op.
