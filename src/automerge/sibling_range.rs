@@ -1,6 +1,6 @@
 use crate::splitable_span::SplitableSpan;
 use crate::range_tree::EntryTraits;
-use crate::document::{Order, ROOT_ORDER};
+use crate::automerge::{Order, ROOT_ORDER};
 
 /// The sibling tree optimizes lookups to find insert positions after concurrent writes.
 ///

@@ -8,11 +8,11 @@ use smallvec::SmallVec;
 pub use markers::MarkerEntry;
 
 use crate::common::{ClientName, CRDTLocation};
-use crate::document::order::OrderMarker;
+use crate::automerge::order::OrderMarker;
 use crate::range_tree::{RangeTree, FullIndex, ContentIndex, RawPositionIndex};
 use crate::split_list::SplitList;
 use crate::splitable_span::SplitableSpan;
-use crate::document::sibling_range::SiblingRange;
+use crate::automerge::sibling_range::SiblingRange;
 
 mod markers;
 mod txn;

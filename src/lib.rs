@@ -41,7 +41,8 @@ mod range_tree;
 mod split_list;
 mod splitable_span;
 mod alloc;
-mod document;
+mod automerge;
+// mod yjs;
 
 use range_tree::*;
 use common::*;

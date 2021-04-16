@@ -1,4 +1,4 @@
-use crate::document::{TxnInternal, Op, TxnExternal, DocumentState, OpExternal, ClientData, MarkerEntry, Order, ROOT_ORDER};
+use crate::automerge::{TxnInternal, Op, TxnExternal, DocumentState, OpExternal, ClientData, MarkerEntry, Order, ROOT_ORDER};
 use crate::range_tree::{RangeTree, NodeLeaf, Cursor, FullIndex};
 use ropey::Rope;
 use crate::common::{CRDTLocation, AgentId, CRDT_DOC_ROOT};
@@ -7,10 +7,10 @@ use std::collections::BTreeSet;
 use crate::split_list::SplitList;
 use std::ptr::NonNull;
 use crate::splitable_span::SplitableSpan;
-use crate::document::order::OrderMarker;
+use crate::automerge::order::OrderMarker;
 use inlinable_string::InlinableString;
 use std::cmp::Ordering;
-use crate::document::sibling_range::SiblingRange;
+use crate::automerge::sibling_range::SiblingRange;
 
 pub(crate) struct OpIterator<'a> {
     txn: &'a TxnInternal,
@@ -602,7 +602,7 @@ impl DocumentState {
 
 #[cfg(test)]
 mod tests {
-    use crate::document::{DocumentState, TxnExternal, OpExternal};
+    use crate::automerge::{DocumentState, TxnExternal, OpExternal};
     use crate::common::{CRDTLocation, CRDT_DOC_ROOT};
     use inlinable_string::InlinableString;
     use smallvec::smallvec;
