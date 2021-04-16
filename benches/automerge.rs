@@ -44,12 +44,12 @@ pub fn automerge_perf_benchmarks(c: &mut Criterion) {
         let u = get_data();
 
         b.iter(|| {
-            // let start = ALLOCATED.load(Ordering::Acquire);
+            // let start = get_thread_memory_usage();
             let mut state = CRDTState::new();
             apply_edits(&mut state, &u.edits);
             // println!("len {}", state.len());
             assert_eq!(state.len(), u.finalText.len());
-            // println!("alloc {}", ALLOCATED.load(Ordering::Acquire) - start);
+            // println!("alloc {} count {}", get_thread_memory_usage() - start, get_thread_num_allocations());
             // state.print_stats();
             black_box(state.len());
         })

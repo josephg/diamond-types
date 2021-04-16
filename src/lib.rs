@@ -56,9 +56,7 @@ use std::ops::Index;
 
 use ropey::Rope;
 use crate::splitable_span::SplitableSpan;
-
-pub use alloc::ALLOCATED;
-
+pub use alloc::*; // For debugging.
 
 // *** Basically all the code below is being replaced by new code in mod document
 
@@ -349,7 +347,7 @@ mod tests {
 
     // use ropey::Rope;
     use super::*;
-    use crate::alloc::ALLOCATED;
+    use crate::alloc::{get_thread_memory_usage, get_thread_num_allocations};
     use std::sync::atomic::Ordering;
 
     fn random_str(len: usize, rng: &mut SmallRng) -> String {
@@ -515,7 +513,7 @@ mod tests {
         let u: TestData = serde_json::from_reader(reader).unwrap();
         println!("final length: {}, edits {}", u.finalText.len(), u.edits.len());
 
-        println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
+        let start_alloc = get_thread_memory_usage();
 
         let mut state = CRDTState::new();
         let id = state.get_or_create_client_id("jeremy");
@@ -536,7 +534,8 @@ mod tests {
 
         // state.client_data[0].markers.print_stats();
         // state.range_tree.print_stats();
-        println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
+        println!("alloc {}", get_thread_memory_usage() - start_alloc);
+        println!("alloc count {}", get_thread_num_allocations());
 
         println!("final node total {}", state.marker_tree.count_entries());
         println!("marker entries {}", state.client_data[0].markers.count_entries());

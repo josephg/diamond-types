@@ -41,7 +41,7 @@ fn random_inserts_deletes() {
             doc_len -= len;
         }
 
-        // Calling check gets slow as the document grows. There's a tradeoff here between
+        // Calling check gets slow as the automerge grows. There's a tradeoff here between
         // iterations and check() calls.
         // if i % 1000 == 0 { state.check(); }
         assert_eq!(state.len(), doc_len as usize);
