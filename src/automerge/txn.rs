@@ -1,5 +1,5 @@
 use crate::automerge::{TxnInternal, Op, TxnExternal, DocumentState, OpExternal, ClientData, MarkerEntry, Order, ROOT_ORDER};
-use crate::range_tree::{RangeTree, NodeLeaf, Cursor, FullIndex};
+use crate::range_tree::{RangeTree, NodeLeaf, Cursor, FullIndex, ContentIndex};
 use ropey::Rope;
 use crate::common::{CRDTLocation, AgentId, CRDT_DOC_ROOT};
 use smallvec::{SmallVec, smallvec};
@@ -70,14 +70,19 @@ impl TxnInternal {
     }
 
     fn get_item_parent(&self, item_order: Order) -> Order {
+        debug_assert!(self.contains_item(item_order));
         // Scan the txn looking for the insert
         for (op, order) in self.iter() {
             if let Op::Insert { parent, .. } = op {
-                // TODO: Add a field for content length. This is super inefficient.
-                if item_order >= order { return *parent; }
+                if item_order == order { return *parent; }
+                else if item_order > order { return item_order - 1; }
             }
         }
         unreachable!("Failed invariant - txn does not contain item")
+    }
+
+    fn contains_item(&self, item_order: Order) -> bool {
+        self.insert_order_start <= item_order && item_order < self.insert_order_start + self.num_inserts
     }
 }
 
@@ -90,6 +95,14 @@ fn ordering_from(x: isize) -> Ordering {
     else { Ordering::Equal }
 }
 
+// Needed because otherwise ROOT_ORDER > everything else.
+fn cmp_order(a: Order, b: Order) -> Ordering {
+    if a == b { Ordering::Equal }
+    else if a == ROOT_ORDER { Ordering::Less }
+    else if b == ROOT_ORDER { Ordering::Greater }
+    else { ordering_from(a as isize - b as isize) }
+}
+
 impl DocumentState {
     fn new() -> Self {
         Self {
@@ -99,7 +112,7 @@ impl DocumentState {
 
             range_tree: RangeTree::new(),
             markers: SplitList::new(),
-            next_sibling_tree: RangeTree::new(),
+            // next_sibling_tree: RangeTree::new(),
 
             text_content: Rope::new()
         }
@@ -206,13 +219,7 @@ impl DocumentState {
     }
 
 
-    fn notify(markers: &mut SplitList<MarkerEntry<OrderMarker, FullIndex>>, entry: OrderMarker, ptr: NonNull<NodeLeaf<OrderMarker, FullIndex>>) {
-        // eprintln!("notify callback {:?} {:?}", entry, ptr);
-        // let markers = &mut client_data[entry.loc.agent as usize].markers;
-        // for op in &mut markers[loc.seq as usize..(loc.seq+len) as usize] {
-        //     *op = ptr;
-        // }
-
+    fn notify(markers: &mut SplitList<MarkerEntry<OrderMarker, ContentIndex>>, entry: OrderMarker, ptr: NonNull<NodeLeaf<OrderMarker, ContentIndex>>) {
         markers.replace_range(entry.order as usize, MarkerEntry {
             ptr, len: entry.len() as u32
         });
@@ -223,18 +230,10 @@ impl DocumentState {
             if txn.num_inserts > 0 { return txn; }
         }
         unreachable!()
-        // loop {
-        //     let txn = &self.txns[txn_order];
-        //     if txn.num_inserts == 0 {
-        //         txn_order += 1;
-        //     } else {
-        //         return txn;
-        //     }
-        // }
     }
 
     fn get_item_order(&self, item_loc: CRDTLocation) -> usize {
-        dbg!(item_loc);
+        // dbg!(item_loc);
         if item_loc == CRDT_DOC_ROOT {
             return ROOT_ORDER
         }
@@ -288,8 +287,8 @@ impl DocumentState {
             }
             Err(txn_order) => {
                 // dbg!("-> Err", txn_order);
-                // &self.txns[next_order - 1]
-                &self.txns[txn_order]
+                &self.txns[txn_order - 1]
+                // &self.txns[txn_order]
             }
         }
     }
@@ -335,9 +334,14 @@ impl DocumentState {
     /// document. The ordering follows the resulting positions - so a<b implies a earlier than b in
     /// the document.
     fn cmp_item_order2(&self, a: Order, txn_a: &TxnInternal, b: Order, txn_b: &TxnInternal) -> Ordering {
+        if cfg!(debug_assertions) {
+            assert!(txn_a.contains_item(a));
+            assert!(txn_b.contains_item(b));
+        }
+
         if a == b { return Ordering::Equal; }
 
-        dbg!(txn_a, txn_b);
+        // dbg!(txn_a, txn_b);
         if txn_a.id.agent == txn_b.id.agent {
             // We can just compare the sequence numbers to see which is newer.
             // Newer (higher seq) -> earlier in the document.
@@ -361,17 +365,17 @@ impl DocumentState {
         self.cmp_item_order2(a, txn_a, b, txn_b)
     }
 
-    fn get_cursor_before(&self, item: Order) -> Cursor<OrderMarker, FullIndex> {
+    fn get_cursor_before(&self, item: Order) -> Cursor<OrderMarker, ContentIndex> {
         assert_ne!(item, ROOT_ORDER);
-        let marker: NonNull<NodeLeaf<OrderMarker, FullIndex>> = self.markers[item];
+        let marker: NonNull<NodeLeaf<OrderMarker, ContentIndex>> = self.markers[item];
         unsafe { RangeTree::cursor_before_item(item, marker) }
     }
 
-    fn get_cursor_after(&self, parent: Order) -> Cursor<OrderMarker, FullIndex> {
+    fn get_cursor_after(&self, parent: Order) -> Cursor<OrderMarker, ContentIndex> {
         if parent == ROOT_ORDER {
             self.range_tree.iter()
         } else {
-            let marker: NonNull<NodeLeaf<OrderMarker, FullIndex>> = self.markers[parent];
+            let marker: NonNull<NodeLeaf<OrderMarker, ContentIndex>> = self.markers[parent];
             // self.range_tree.
             let mut cursor = unsafe {
                 RangeTree::cursor_before_item(parent, marker)
@@ -403,69 +407,61 @@ impl DocumentState {
                     // This cursor points to the desired insert location; which might contain
                     // a sibling to skip.
                     let mut marker_cursor = self.get_cursor_after(parent);
-                    dbg!(&marker_cursor);
-                    let mut pos = marker_cursor.count_pos();
 
-                    // Next sibling tree is indexed by raw length (not including deletes)
-                    // This is outside of the loop because we need to modify the sibling tree here.
-                    let mut sibling_cursor = self.next_sibling_tree.cursor_at_offset_pos(pos.len as usize, false);
-
-                    // Twin cursors. We walk them both forward until we find the correct insert
-                    // position.
-
-                    // let next_sibling = self.next_sibling_tree.get(pos).unwrap();
-
-                    // If this returns None, we're inserting into the end of the document. The
-                    // cursors are fine.
-                    // let mut prev_sibling = None;
+                    // Scan items until we find the right insert location.
                     loop {
-                        if let Some(mut sibling_order) = marker_cursor.get_item() {
-                            // Scan siblings to find the insert position.
+                        // This takes O(n log n) time but its a rare operation. I could optimize
+                        // it further by storing the parents in the marker tree, but this is
+                        // probably rare enough not to matter.
+                        let sibling = marker_cursor.get_item();
+                        let mut last_txn: Option<&TxnInternal> = None;
+                        if let Some(sibling) = sibling {
+                            let sibling_txn = match last_txn {
+                                Some(t) => {
+                                    if !t.contains_item(sibling) {
+                                        self.get_txn_containing_item(sibling)
+                                    } else { t }
+                                },
+                                None => self.get_txn_containing_item(sibling)
+                            };
+                            // dbg!(sibling_txn, sibling);
+                            let sibling_parent = sibling_txn.get_item_parent(sibling);
 
-                            // 1. Check that the adjacent item is actually a sibling. If the parent
-                            // doesn't match, this is the sibling of one of our parents and we've
-                            // reached the end of our parents' children, and we can just insert
-                            // here.
-                            let sibling_txn = self.get_txn_containing_item(sibling_order);
-                            let sibling_parent = sibling_txn.get_item_parent(sibling_order);
+                            // 3 cases:
+                            // - If the parent > our parent, this is part of a sibling's
+                            //   subtree. Its guaranteed this won't happen on the first loop
+                            //   iteration. Skip.
+                            // - If the parent < our parent, we've reached the end of our
+                            //   siblings. Insert here.
+                            // - If the parents match, we have concurrent changes. Compare
+                            //   versions.
 
-                            // ?? I think so...
-                            assert!(sibling_parent <= parent);
+                            // This is past the end of the subtree. Insert here.
+                            // dbg!(sibling_parent, parent);
+                            match cmp_order(sibling_parent, parent) {
+                                Ordering::Less => { break; }
+                                Ordering::Equal => {
+                                    let order = self.cmp_item_order2(sibling, sibling_txn, item_order, txn);
+                                    assert_ne!(order, Ordering::Equal);
 
-                            // This is not one of our siblings. Insert here.
-                            if sibling_parent != parent { break; }
-
-                            dbg!(sibling_order, item_order);
-                            let order = self.cmp_item_order2(sibling_order, sibling_txn, item_order, txn);
-                            assert_ne!(order, Ordering::Equal);
-                            // We go before our sibling. Insert here.
-                            if order == Ordering::Less { break; }
-
-                            // Skip to the next item.
-                            // This should always exist in next_sibling_tree.
-                            let next_sibling = sibling_cursor.get_item().unwrap();
-                            if next_sibling == Order::MAX {
-                                // The new item should be inserted at the very end of the document.
-                                marker_cursor = self.range_tree.cursor_at_end();
-                                sibling_cursor = self.next_sibling_tree.cursor_at_end();
-                                break;
-                            } else {
-                                marker_cursor = self.get_cursor_before(next_sibling);
-                                pos = marker_cursor.count_pos();
-                                sibling_cursor = self.next_sibling_tree.cursor_at_offset_pos(pos.len as usize, false);
+                                    // We go before our sibling. Insert here.
+                                    if order == Ordering::Less { break; }
+                                }
+                                Ordering::Greater => {
+                                    // Keep scanning children.
+                                }
                             }
-                        } else {
-                            // We've reached the end of the document.
-                            break;
-                        }
+
+                            if !marker_cursor.next() {
+                                break; // Reached the end of the document. Its gross this condition is repeated.
+                            }
+                            last_txn = Some(sibling_txn);
+                        } else { break; } // Insert at the end of the document.
                     }
 
-                    println!("predecessor order {}", parent);
+                    // println!("parent order {}", parent);
 
                     // Ok now we'll update the marker tree and sibling tree.
-
-                    // let cursor_pos = cursor.count_pos();
-                    dbg!(pos);
 
                     let inserted_len = content.chars().count();
                     let markers = &mut self.markers;
@@ -476,14 +472,10 @@ impl DocumentState {
                         DocumentState::notify(markers, entry, leaf);
                     });
 
-                    // TODO: This is wrong.
-                    self.next_sibling_tree.insert(sibling_cursor, SiblingRange {
-                        len: inserted_len,
-                        next_sibling: ROOT_ORDER
-                    }, |_e, _l| {});
+                    let pos = marker_cursor.count_pos();
 
                     if USE_INNER_ROPE {
-                        self.text_content.insert(pos.content as usize, content);
+                        self.text_content.insert(pos as usize, content);
                         assert_eq!(self.text_content.len_chars(), self.range_tree.content_len());
                     }
 
@@ -498,11 +490,7 @@ impl DocumentState {
                     // We'll loop through deleting as much as we can each time from the document.
                     while span > 0 {
                         let cursor = self.get_cursor_before(target);
-                        // dbg!(&cursor);
-
-                        let cursor_pos = cursor.count_pos().content as usize;
-                        // dbg!(cursor_pos);
-
+                        let cursor_pos = cursor.count_pos() as usize;
                         let markers = &mut self.markers;
 
                         let deleted_here = self.range_tree.remote_delete(cursor, span, |entry, leaf| {
@@ -523,10 +511,9 @@ impl DocumentState {
                 }
             }
         }
-
     }
 
-    fn handle_transaction(&mut self, txn_ext: TxnExternal) -> usize {
+    fn add_external_txn(&mut self, txn_ext: &TxnExternal) -> usize {
         // let id = self.map_external_crdt_location(&txn_ext.id);
         let id = txn_ext.id;
 
@@ -563,8 +550,6 @@ impl DocumentState {
         // TODO: Check the external item's insert_seq_start is correct.
 
         let order = self.txns.len();
-        self.advance_frontier(order, &parents);
-        // self.crdt_to_order.insert(id, order);
         self.client_data[id.agent as usize].txn_orders.push(order);
 
         let txn = TxnInternal {
@@ -579,19 +564,25 @@ impl DocumentState {
             ops,
         };
 
+        // Not sure if this should be here or in integrate_external...
+        self.advance_frontier(order, &txn.parents);
+
         // Last because we need to access the transaction above.
         self.txns.push(txn);
-
-        // internal_apply_ops depends on the transaction being in self.txns.
-        self.internal_apply_ops(order);
-
-        self.check();
 
         order
     }
 
+    fn integrate_external_txn(&mut self, txn_ext: &TxnExternal) -> usize {
+        let order = self.add_external_txn(txn_ext);
+
+        // internal_apply_ops depends on the transaction being in self.txns.
+        self.internal_apply_ops(order);
+        self.check();
+        order
+    }
+
     fn check(&self) {
-        assert_eq!(self.range_tree.len().len, self.next_sibling_tree.len());
         if USE_INNER_ROPE {
             assert_eq!(self.text_content.len_chars(), self.range_tree.content_len());
         }
@@ -606,13 +597,12 @@ mod tests {
     use crate::common::{CRDTLocation, CRDT_DOC_ROOT};
     use inlinable_string::InlinableString;
     use smallvec::smallvec;
-}
 
     #[test]
     fn insert_stuff() {
         let mut state = DocumentState::new();
         let agent = state.get_or_create_client_id("seph");
-        state.handle_transaction(TxnExternal {
+        state.integrate_external_txn(&TxnExternal {
             id: CRDTLocation {
                 agent,
                 seq: 0
@@ -625,7 +615,7 @@ mod tests {
             }]
         });
 
-        state.handle_transaction(TxnExternal {
+        state.integrate_external_txn(&TxnExternal {
             id: CRDTLocation {
                 agent,
                 seq: 1
@@ -643,7 +633,7 @@ mod tests {
                 }
             }]
         });
-        state.handle_transaction(TxnExternal {
+        state.integrate_external_txn(&TxnExternal {
             id: CRDTLocation {
                 agent,
                 seq: 2
@@ -667,22 +657,29 @@ mod tests {
 
     #[test]
     fn concurrent_writes() {
-        let seph = TxnExternal {
+        let mut state1 = DocumentState::new();
+        let mut state2 = DocumentState::new();
+        let seph = state1.get_or_create_client_id("seph");
+        let mike = state1.get_or_create_client_id("mike");
+        state2.get_or_create_client_id("seph"); // gross.
+        state2.get_or_create_client_id("mike");
+
+        let seph_txn = TxnExternal {
             id: CRDTLocation {
-                agent: 0,
+                agent: seph,
                 seq: 0
             },
             insert_seq_start: 0,
             parents: smallvec![CRDT_DOC_ROOT],
             ops: smallvec![OpExternal::Insert {
-                content: InlinableString::from("hi from seph"),
+                content: InlinableString::from("yooo from seph"),
                 parent: CRDT_DOC_ROOT
             }]
         };
 
-        let mike = TxnExternal {
+        let mike_txn = TxnExternal {
             id: CRDTLocation {
-                agent: 1,
+                agent: mike,
                 seq: 0
             },
             insert_seq_start: 0,
@@ -693,13 +690,15 @@ mod tests {
             }]
         };
 
-        let mut state1 = DocumentState::new();
-        let agent0 = state1.get_or_create_client_id("seph");
-        let agent1 = state1.get_or_create_client_id("mike");
+        state1.integrate_external_txn(&seph_txn);
+        state1.integrate_external_txn(&mike_txn);
 
-        state1.handle_transaction(seph);
-        state1.handle_transaction(mike);
+        // State 2 gets the operations in the opposite order
+        state2.integrate_external_txn(&mike_txn);
+        state2.integrate_external_txn(&seph_txn);
 
-        // What happens !?
-        dbg!(state1);
+        assert_eq!(state1.text_content, state2.text_content);
+
+        dbg!(state1.text_content);
     }
+}

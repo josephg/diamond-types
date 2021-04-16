@@ -235,6 +235,15 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
             Some(cursor.get_entry().at_offset(cursor.offset))
         } else { None }
     }
+
+    // TODO: This is inefficient in a loop.
+    pub fn next(&mut self) -> bool {
+        if !self.roll_to_next_entry(false) {
+            return false;
+        }
+        self.offset += 1;
+        true
+    }
 }
 
 impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> Cursor<E, I> {

@@ -338,6 +338,10 @@ impl<E: EntryTraits> RangeTree<E, RawPositionIndex> {
     }
 }
 impl<E: EntryTraits + EntryWithContent> RangeTree<E, ContentIndex> {
+    pub fn content_len(&self) -> usize {
+        self.count as usize
+    }
+
     pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, ContentIndex> {
         self.cursor_at_query(pos, stick_end,
                                          |i| i as usize,

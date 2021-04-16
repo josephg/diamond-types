@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::pin::Pin;
 
 use inlinable_string::InlinableString;
@@ -9,7 +8,7 @@ pub use markers::MarkerEntry;
 
 use crate::common::{ClientName, CRDTLocation};
 use crate::automerge::order::OrderMarker;
-use crate::range_tree::{RangeTree, FullIndex, ContentIndex, RawPositionIndex};
+use crate::range_tree::{RangeTree, ContentIndex, RawPositionIndex};
 use crate::split_list::SplitList;
 use crate::splitable_span::SplitableSpan;
 use crate::automerge::sibling_range::SiblingRange;
@@ -117,17 +116,16 @@ pub struct DocumentState {
 
     /// The marker tree maps from order positions to btree entries, so we can map between orders and
     /// document locations.
-    range_tree: Pin<Box<RangeTree<OrderMarker, FullIndex>>>,
+    range_tree: Pin<Box<RangeTree<OrderMarker, ContentIndex>>>,
 
     // We need to be able to map each location to an item in the associated BST.
     // Note for inserts which insert a lot of contiguous characters, this will
     // contain a lot of repeated pointers. I'm trading off memory for simplicity
     // here - which might or might not be the right approach.
     // markers: Vec<NonNull<NodeLeaf>>
-    markers: SplitList<MarkerEntry<OrderMarker, FullIndex>>,
+    markers: SplitList<MarkerEntry<OrderMarker, ContentIndex>>,
 
-    /// So here's the deal kids:
-    next_sibling_tree: Pin<Box<RangeTree<SiblingRange, RawPositionIndex>>>,
+    // next_sibling_tree: Pin<Box<RangeTree<SiblingRange, RawPositionIndex>>>,
 
     // Probably temporary, eventually.
     text_content: Rope,
