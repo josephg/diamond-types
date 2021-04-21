@@ -31,6 +31,9 @@ lto = true
 codegen-units = 1
 #panic = 'abort'
 
+[features]
+memusage = []
+
 [[bench]]
 name = "benchmark"
 harness = false

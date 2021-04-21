@@ -52,13 +52,15 @@ pub fn am_benchmarks(c: &mut Criterion) {
         assert_eq!(test_data.start_content.len(), 0);
 
         b.iter(|| {
-            // let start = get_thread_memory_usage();
+            #[cfg(feature = "memusage")]
+            let start = get_thread_memory_usage();
             let mut state = DocumentState::new();
             apply_edits(&mut state, &test_data.txns);
             // apply_edits_fast(&mut state, &patches);
             // println!("len {}", state.len());
             assert_eq!(state.len(), test_data.end_content.len());
-            // println!("alloc {} count {}", get_thread_memory_usage() - start, get_thread_num_allocations());
+            #[cfg(feature = "memusage")]
+            println!("alloc {} count {}", get_thread_memory_usage() - start, get_thread_num_allocations());
             // state.print_stats();
             black_box(state.len());
         })

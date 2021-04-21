@@ -49,7 +49,7 @@ pub fn get_thread_memory_usage() -> isize {
     })
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "memusage"))]
 mod trace_alloc {
     use crate::alloc::TracingAlloc;
 
