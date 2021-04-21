@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-inlinable_string = "0.1.11"
+smartstring = "0.2.6"
 ropey = "1.1.0"
 smallvec = "1.4.0"
 

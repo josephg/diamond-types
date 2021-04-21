@@ -8,7 +8,7 @@ use crate::split_list::SplitList;
 use std::ptr::NonNull;
 use crate::splitable_span::SplitableSpan;
 use crate::automerge::order::OrderMarker;
-use inlinable_string::InlinableString;
+use smartstring::alias::{String as SmartString};
 use std::cmp::Ordering;
 use crate::automerge::sibling_range::SiblingRange;
 
@@ -127,7 +127,7 @@ impl DocumentState {
         } else {
             // Create a new id.
             self.client_data.push(ClientData {
-                name: InlinableString::from(name),
+                name: SmartString::from(name),
                 txn_orders: Vec::new(),
             });
             (self.client_data.len() - 1) as AgentId
@@ -314,7 +314,7 @@ impl DocumentState {
         let txn = self.get_txn_containing_item(item_order);
         CRDTLocation {
             agent: txn.id.agent,
-            seq: txn.insert_seq_start + item_order - txn.insert_order_start
+            seq: txn.insert_seq_start + item_order as u32 - txn.insert_order_start as u32
         }
     }
 
@@ -692,14 +692,14 @@ impl DocumentState {
         order
     }
 
-    fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: InlinableString) -> Order {
+    fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) -> Order {
         self.internal_txn(agent, &[LocalOp {
             ins_content, pos, del_span: 0
         }])
     }
     fn internal_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Order {
         self.internal_txn(agent, &[LocalOp {
-            ins_content: InlinableString::default(), pos, del_span
+            ins_content: SmartString::default(), pos, del_span
         }])
     }
 
@@ -725,7 +725,7 @@ impl DocumentState {
 mod tests {
     use crate::automerge::{DocumentState, TxnExternal, OpExternal, LocalOp};
     use crate::common::{CRDTLocation, CRDT_DOC_ROOT};
-    use inlinable_string::InlinableString;
+    use smartstring::SmartString;
     use smallvec::smallvec;
     use std::time::SystemTime;
     use std::io::Read;
@@ -745,7 +745,7 @@ mod tests {
             insert_seq_start: 0,
             parents: smallvec![CRDT_DOC_ROOT],
             ops: smallvec![OpExternal::Insert {
-                content: InlinableString::from("oh hai"),
+                content: SmartString::from("oh hai"),
                 parent: CRDT_DOC_ROOT
             }]
         });
@@ -761,7 +761,7 @@ mod tests {
                 seq: 0
             }],
             ops: smallvec![OpExternal::Insert {
-                content: InlinableString::from("yooo"),
+                content: SmartString::from("yooo"),
                 parent: CRDTLocation {
                     agent: 0,
                     seq: 5
@@ -807,7 +807,7 @@ mod tests {
             insert_seq_start: 0,
             parents: smallvec![CRDT_DOC_ROOT],
             ops: smallvec![OpExternal::Insert {
-                content: InlinableString::from("yooo from seph"),
+                content: SmartString::from("yooo from seph"),
                 parent: CRDT_DOC_ROOT
             }]
         };
@@ -820,7 +820,7 @@ mod tests {
             insert_seq_start: 0,
             parents: smallvec![CRDT_DOC_ROOT],
             ops: smallvec![OpExternal::Insert {
-                content: InlinableString::from("hi from mike"),
+                content: SmartString::from("hi from mike"),
                 parent: CRDT_DOC_ROOT
             }]
         };
@@ -859,7 +859,7 @@ mod tests {
                 LocalOp {
                     pos: *pos,
                     del_span: *del_span,
-                    ins_content: InlinableString::from(ins_content.as_str())
+                    ins_content: SmartString::from(ins_content.as_str())
                 }
             }));
 

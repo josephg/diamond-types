@@ -1,6 +1,6 @@
 use std::pin::Pin;
 
-use inlinable_string::InlinableString;
+use smartstring::alias::{String as SmartString};
 use ropey::Rope;
 use smallvec::SmallVec;
 
@@ -33,7 +33,7 @@ mod sibling_range;
 #[derive(Clone, Debug)]
 pub enum OpExternal {
     Insert {
-        content: InlinableString,
+        content: SmartString,
         // parent: CRDTLocationExternal,
         parent: CRDTLocation,
     },
@@ -59,7 +59,7 @@ pub type Order = usize; // Feeling cute, might change later to u48 for less ram 
 #[derive(Clone, Debug)]
 pub enum Op {
     Insert {
-        content: InlinableString,
+        content: SmartString,
         parent: Order,
     },
     Delete {
@@ -145,6 +145,6 @@ pub const ROOT_ORDER: usize = usize::MAX;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalOp {
     pub pos: usize,
-    pub ins_content: InlinableString,
+    pub ins_content: SmartString,
     pub del_span: usize
 }

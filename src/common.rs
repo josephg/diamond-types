@@ -1,8 +1,8 @@
 // Should this be called range_tree?
-use inlinable_string::InlinableString;
 use std::cmp::Ordering;
+use smartstring::alias::{String as SmartString};
 
-pub type ClientName = InlinableString;
+pub type ClientName = SmartString;
 pub type AgentId = u16;
 // pub type ClientSeq = u32;
 

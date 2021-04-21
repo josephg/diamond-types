@@ -4,7 +4,7 @@ use criterion::{black_box, Criterion};
 use text_crdt_rust::*;
 use text_crdt_rust::testdata::{load_testing_data, TestPatch, TestTxn};
 use text_crdt_rust::automerge::{DocumentState, LocalOp};
-use inlinable_string::InlinableString;
+use smartstring::alias::{String as SmartString};
 
 fn apply_edits(state: &mut DocumentState, txns: &Vec<TestTxn>) {
     let id = state.get_or_create_client_id("jeremy");
@@ -18,7 +18,7 @@ fn apply_edits(state: &mut DocumentState, txns: &Vec<TestTxn>) {
             LocalOp {
                 pos: *pos,
                 del_span: *del_span,
-                ins_content: InlinableString::from(ins_content.as_str())
+                ins_content: SmartString::from(ins_content.as_str())
             }
         }));
 

@@ -51,7 +51,7 @@ use range_tree::*;
 use common::*;
 use std::pin::Pin;
 
-use inlinable_string::InlinableString;
+use smartstring::SmartString;
 use std::ptr::NonNull;
 use crate::split_list::SplitList;
 use std::ops::Index;
@@ -180,7 +180,7 @@ impl CRDTState {
         } else {
             // Create a new id.
             self.client_data.push(ClientData {
-                name: InlinableString::from(name),
+                name: SmartString::from(name),
                 markers: SplitList::new()
                 // markers: Vec::new()
             });
