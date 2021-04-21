@@ -6,6 +6,7 @@ pub struct OrderMarker {
     // TODO: Not sure what the right sizes of these two should be.
     pub order: u32,
     pub len: i32, // i16?
+    // pub parent: usize,
 }
 
 impl Default for OrderMarker {
@@ -13,7 +14,8 @@ impl Default for OrderMarker {
         OrderMarker {
             // Super invalid.
             order: u32::MAX,
-            len: 0
+            len: 0,
+            // parent: usize
         }
     }
 }

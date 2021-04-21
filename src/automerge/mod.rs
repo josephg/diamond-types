@@ -78,13 +78,20 @@ pub struct TxnInternal {
     insert_order_start: Order,
     num_inserts: usize, // Cached from ops.
 
-    dominates: Order,
-    submits: Order,
+    // dominates: Order,
+    // submits: Order,
 
     ops: SmallVec<[Op; 1]>,
 }
 
-
+// /// A run of inserts either describe a lot of inserts at a single location
+// #[derive(Clone, Debug)]
+// struct InsertRun {
+//     // TODO: IS this the best way to do this?
+//     content: InlinableString,
+//
+//     length: usize,
+// }
 
 #[derive(Debug)]
 struct ClientData {
@@ -104,6 +111,8 @@ struct ClientData {
 pub struct DocumentState {
     /// All transactions we've seen, indexed by txn order.
     txns: Vec<TxnInternal>,
+
+    // inserts: Vec<
 
     /// The set of txn orders with no children in the document. With a single writer this will
     /// always just be the last order we've seen.

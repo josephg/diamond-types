@@ -305,6 +305,19 @@ impl DocumentState {
         unreachable!("Failed invariant - txn does not contain item")
     }
 
+    fn get_txn_id(&self, txn_order: Order) -> CRDTLocation {
+        // Ok that's really easy
+        self.txns[txn_order].id
+    }
+
+    fn get_item_id(&self, item_order: Order) -> CRDTLocation {
+        let txn = self.get_txn_containing_item(item_order);
+        CRDTLocation {
+            agent: txn.id.agent,
+            seq: txn.insert_seq_start + item_order - txn.insert_order_start
+        }
+    }
+
     fn advance_frontier(&mut self, order: usize, parents: &SmallVec<[usize; 2]>) {
         // TODO: Port these javascript checks in debug mode.
         // assert(!this.branchContainsVersion(txn.order, this.frontier), 'doc already contains version')
@@ -559,8 +572,8 @@ impl DocumentState {
             insert_seq_start: txn_ext.insert_seq_start,
             insert_order_start: self.next_item_order(),
             num_inserts,
-            dominates: 0,
-            submits: 0,
+            // dominates: 0,
+            // submits: 0,
             ops,
         };
 
@@ -608,6 +621,7 @@ impl DocumentState {
         let mut num_inserts: usize = 0;
 
         for LocalOp { pos, ins_content, del_span } in local_ops {
+            // TODO: Consider reusing the cursor if we can for replaces.
             if *del_span > 0 {
                 let cursor = self.range_tree.cursor_at_content_pos(*pos, false);
                 let markers = &mut self.markers;
@@ -665,8 +679,8 @@ impl DocumentState {
             insert_seq_start,
             insert_order_start,
             num_inserts,
-            dominates: 0, // unused
-            submits: 0, // unused
+            // dominates: 0, // unused
+            // submits: 0, // unused
             ops
         };
         self.txns.push(txn);
