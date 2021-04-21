@@ -133,15 +133,9 @@ pub struct DocumentState {
 
 pub const ROOT_ORDER: usize = usize::MAX;
 
-// This is used as part of the API for local editors to describe local changes to the data.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LocalOp {
-    Insert {
-        content: InlinableString,
-        pos: usize,
-    },
-    Delete {
-        pos: usize,
-        span: usize
-    }
+pub struct LocalOp {
+    pos: usize,
+    ins_content: InlinableString,
+    del_span: usize
 }

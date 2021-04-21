@@ -607,52 +607,52 @@ impl DocumentState {
         let mut ops: SmallVec<[Op; 1]> = SmallVec::new();
         let mut num_inserts: usize = 0;
 
-        for op in local_ops {
-            match op {
-                LocalOp::Insert { content, pos } => {
-                    let len = content.chars().count();
-                    let cursor = self.range_tree.cursor_at_content_pos(*pos, true);
-                    let parent = cursor.tell_predecessor().unwrap_or(ROOT_ORDER);
-                    let markers = &mut self.markers;
-
-                    self.range_tree.insert(cursor, OrderMarker {
-                        order: insert_order_start as u32 + num_inserts as u32,
-                        len: len as i32
-                    }, |entry, leaf| {
-                        DocumentState::notify(markers, entry, leaf);
+        for LocalOp { pos, ins_content, del_span } in local_ops {
+            if *del_span > 0 {
+                let cursor = self.range_tree.cursor_at_content_pos(*pos, false);
+                let markers = &mut self.markers;
+                let deleted_items = self.range_tree.local_delete(cursor, *del_span, |entry, leaf| {
+                    DocumentState::notify(markers, entry, leaf);
+                });
+                for item in deleted_items {
+                    assert!(item.len > 0);
+                    ops.push(Op::Delete {
+                        target: item.order as _,
+                        span: item.len.abs() as _
                     });
-
-                    ops.push(Op::Insert {
-                        // TODO: Somehow move instead of clone here
-                        content: content.clone(),
-                        parent
-                    });
-
-                    if USE_INNER_ROPE {
-                        self.text_content.insert(*pos, content);
-                    }
-
-                    num_inserts += len;
                 }
-                LocalOp::Delete { pos, span } => {
-                    let cursor = self.range_tree.cursor_at_content_pos(*pos, false);
-                    let markers = &mut self.markers;
-                    let deleted_items = self.range_tree.local_delete(cursor, *span, |entry, leaf| {
-                        DocumentState::notify(markers, entry, leaf);
-                    });
-                    for item in deleted_items {
-                        assert!(item.len > 0);
-                        ops.push(Op::Delete {
-                            target: item.order as _,
-                            span: item.len.abs() as _
-                        });
-                    }
 
-                    if USE_INNER_ROPE {
-                        self.text_content.remove(*pos..*pos + *span);
-                    }
+                if USE_INNER_ROPE {
+                    self.text_content.remove(*pos..*pos + *del_span);
                 }
             }
+
+            if !ins_content.is_empty() {
+                let len = ins_content.chars().count();
+                let cursor = self.range_tree.cursor_at_content_pos(*pos, true);
+                let parent = cursor.tell_predecessor().unwrap_or(ROOT_ORDER);
+                let markers = &mut self.markers;
+
+                self.range_tree.insert(cursor, OrderMarker {
+                    order: insert_order_start as u32 + num_inserts as u32,
+                    len: len as i32
+                }, |entry, leaf| {
+                    DocumentState::notify(markers, entry, leaf);
+                });
+
+                ops.push(Op::Insert {
+                    // TODO: Somehow move instead of clone here
+                    content: ins_content.clone(),
+                    parent
+                });
+
+                if USE_INNER_ROPE {
+                    self.text_content.insert(*pos, ins_content);
+                }
+
+                num_inserts += len;
+            }
+
         }
 
         let txn = TxnInternal {
@@ -678,14 +678,14 @@ impl DocumentState {
         order
     }
 
-    fn internal_insert(&mut self, agent: AgentId, pos: usize, content: InlinableString) -> Order {
-        self.internal_txn(agent, &[LocalOp::Insert {
-            content, pos
+    fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: InlinableString) -> Order {
+        self.internal_txn(agent, &[LocalOp {
+            ins_content, pos, del_span: 0
         }])
     }
-    fn internal_delete(&mut self, agent: AgentId, pos: usize, span: usize) -> Order {
-        self.internal_txn(agent, &[LocalOp::Delete {
-            pos, span
+    fn internal_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Order {
+        self.internal_txn(agent, &[LocalOp {
+            ins_content: InlinableString::default(), pos, del_span
         }])
     }
 
@@ -839,32 +839,19 @@ mod tests {
         let mut local_ops: Vec<LocalOp> = Vec::new();
 
         for (_i, txn) in test_data.txns.iter().enumerate() {
-            for TestPatch(pos, del_len, ins_content) in txn.patches.iter() {
-                // if _i % 1000 == 0 {
-                //     println!("i {}", _i);
-                // }
-                // println!("iter {} pos {} del {} ins '{}'", _i, pos, del_len, ins_content);
+            local_ops.clear();
+            local_ops.extend(txn.patches.iter().map(|TestPatch(pos, del_span, ins_content)| {
                 assert!(*pos <= state.len());
-                if *del_len > 0 {
-                    local_ops.push(LocalOp::Delete {
-                        pos: *pos,
-                        span: *del_len
-                    });
+                LocalOp {
+                    pos: *pos,
+                    del_span: *del_span,
+                    ins_content: InlinableString::from(ins_content.as_str())
                 }
-
-                if !ins_content.is_empty() {
-                    local_ops.push(LocalOp::Insert {
-                        pos: *pos,
-                        content: InlinableString::from(ins_content.as_str())
-                    });
-                }
-                // println!("after {} len {}", _i, state.len());
-            }
+            }));
 
             state.internal_txn(id, local_ops.as_slice());
-            local_ops.clear();
         }
-        // println!("len {}", state.len());
+
         assert_eq!(state.len(), test_data.end_content.len());
 
         if USE_INNER_ROPE {
