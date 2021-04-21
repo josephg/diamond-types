@@ -87,7 +87,7 @@ impl TxnInternal {
 }
 
 // Toggleable for testing.
-const USE_INNER_ROPE: bool = true;
+const USE_INNER_ROPE: bool = false;
 
 fn ordering_from(x: isize) -> Ordering {
     if x < 0 { Ordering::Less }
@@ -104,7 +104,7 @@ fn cmp_order(a: Order, b: Order) -> Ordering {
 }
 
 impl DocumentState {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             frontier: smallvec![ROOT_ORDER],
             txns: vec![],
@@ -583,7 +583,7 @@ impl DocumentState {
     }
 
 
-    fn internal_txn(&mut self, agent: AgentId, local_ops: &[LocalOp]) -> Order {
+    pub fn internal_txn(&mut self, agent: AgentId, local_ops: &[LocalOp]) -> Order {
         // This could be implemented by creating an external transaction then calling
         // add_external_txn, but that would be pretty inefficient. Instead we can take a lot of
         // shortcuts.

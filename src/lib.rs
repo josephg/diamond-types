@@ -41,9 +41,9 @@ mod range_tree;
 mod split_list;
 mod splitable_span;
 mod alloc;
-mod automerge;
+pub mod automerge;
 
-#[cfg(test)]
+// #[any(cfg(test), cfg(benchmark))]
 pub mod testdata;
 // mod yjs;
 

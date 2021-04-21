@@ -135,7 +135,7 @@ pub const ROOT_ORDER: usize = usize::MAX;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalOp {
-    pos: usize,
-    ins_content: InlinableString,
-    del_span: usize
+    pub pos: usize,
+    pub ins_content: InlinableString,
+    pub del_span: usize
 }

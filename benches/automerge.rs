@@ -3,20 +3,26 @@
 use criterion::{black_box, Criterion};
 use text_crdt_rust::*;
 use text_crdt_rust::testdata::{load_testing_data, TestPatch, TestTxn};
+use text_crdt_rust::automerge::{DocumentState, LocalOp};
+use inlinable_string::InlinableString;
 
-fn apply_edits(state: &mut CRDTState, txns: &Vec<TestTxn>) {
+fn apply_edits(state: &mut DocumentState, txns: &Vec<TestTxn>) {
     let id = state.get_or_create_client_id("jeremy");
-    for txn in txns.iter() {
-        for TestPatch(pos, del_len, ins_content) in txn.patches.iter() {
-            debug_assert!(*pos <= state.len());
-            if *del_len > 0 {
-                state.delete(id, *pos as _, *del_len as _);
-            }
 
-            if !ins_content.is_empty() {
-                state.insert(id, *pos as _, ins_content);
+    let mut local_ops: Vec<LocalOp> = Vec::new();
+
+    for (_i, txn) in txns.iter().enumerate() {
+        local_ops.clear();
+        local_ops.extend(txn.patches.iter().map(|TestPatch(pos, del_span, ins_content)| {
+            assert!(*pos <= state.len());
+            LocalOp {
+                pos: *pos,
+                del_span: *del_span,
+                ins_content: InlinableString::from(ins_content.as_str())
             }
-        }
+        }));
+
+        state.internal_txn(id, local_ops.as_slice());
     }
 }
 
@@ -35,48 +41,26 @@ fn apply_edits_fast(state: &mut CRDTState, patches: &[TestPatch]) {
     }
 }
 
-pub fn automerge_perf_benchmarks(c: &mut Criterion) {
-    c.bench_function("automerge-perf dataset", |b| {
-        let u = load_testing_data("benchmark_data/automerge-paper.json.gz");
+pub fn am_benchmarks(c: &mut Criterion) {
+    c.bench_function("am automerge-perf set", |b| {
+        let test_data = load_testing_data("benchmark_data/automerge-paper.json.gz");
 
         // let mut patches: Vec<TestPatch> = Vec::new();
         // for mut v in u.txns.iter() {
         //     patches.extend_from_slice(v.patches.as_slice());
         // }
-        assert_eq!(u.start_content.len(), 0);
+        assert_eq!(test_data.start_content.len(), 0);
 
         b.iter(|| {
             // let start = get_thread_memory_usage();
-            let mut state = CRDTState::new();
-            apply_edits(&mut state, &u.txns);
+            let mut state = DocumentState::new();
+            apply_edits(&mut state, &test_data.txns);
             // apply_edits_fast(&mut state, &patches);
             // println!("len {}", state.len());
-            assert_eq!(state.len(), u.end_content.len());
+            assert_eq!(state.len(), test_data.end_content.len());
             // println!("alloc {} count {}", get_thread_memory_usage() - start, get_thread_num_allocations());
             // state.print_stats();
             black_box(state.len());
         })
     });
-
-    if false {
-        c.bench_function("automerge-perf x100", |b| {
-            let u = load_testing_data("benchmark_data/automerge-paper.json.gz");
-            assert_eq!(u.start_content.len(), 0);
-
-            b.iter(|| {
-                // let start = ALLOCATED.load(Ordering::Acquire);
-
-                let mut state = CRDTState::new();
-                for _ in 0..100 {
-                    apply_edits(&mut state, &u.txns);
-                }
-                // println!("len {}", state.len());
-                assert_eq!(state.len(), u.end_content.len() * 100);
-                // println!("alloc {}", ALLOCATED.load(Ordering::Acquire) - start);
-                // state.print_stats();
-
-                black_box(state.len());
-            })
-        });
-    }
 }
