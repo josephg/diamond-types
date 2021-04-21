@@ -582,11 +582,119 @@ impl DocumentState {
         order
     }
 
+
+    fn internal_txn(&mut self, agent: AgentId, inserts: &[(usize, InlinableString)], deletes: &[(usize, usize)]) -> Order {
+        // This could be implemented by creating an external transaction then calling
+        // add_external_txn, but that would be pretty inefficient. Instead we can take a lot of
+        // shortcuts.
+        let txns = &self.txns;
+        let order = txns.len();
+
+        let client_data = &mut self.client_data[agent as usize];
+        let seq = client_data.txn_orders.len() as u32;
+
+        let insert_seq_start = client_data.txn_orders.last().map(|order| {
+            let txn = &txns[*order];
+            txn.insert_seq_start + txn.num_inserts as u32
+        }).unwrap_or(0);
+
+        let insert_order_start = txns.last().map(|txn| {
+            txn.insert_order_start + txn.num_inserts
+        }).unwrap_or(0);
+
+        client_data.txn_orders.push(order);
+
+        let mut ops: SmallVec<[Op; 1]> = SmallVec::new();
+        let mut num_inserts: usize = 0;
+        for (pos, content) in inserts {
+            let len = content.chars().count();
+            let cursor = self.range_tree.cursor_at_content_pos(*pos, true);
+            let parent = cursor.tell_predecessor().unwrap_or(ROOT_ORDER);
+            let markers = &mut self.markers;
+
+            self.range_tree.insert(cursor, OrderMarker {
+                order: insert_order_start as u32 + num_inserts as u32,
+                len: len as i32
+            }, |entry, leaf| {
+                DocumentState::notify(markers, entry, leaf);
+            });
+
+            ops.push(Op::Insert {
+                // TODO: Somehow move instead of clone here
+                content: content.clone(),
+                parent
+            });
+
+            if USE_INNER_ROPE {
+                self.text_content.insert(*pos, content);
+            }
+
+            num_inserts += len;
+        }
+
+        for (pos, del_len) in deletes {
+            let cursor = self.range_tree.cursor_at_content_pos(*pos, false);
+            let markers = &mut self.markers;
+            let deleted_items = self.range_tree.local_delete(cursor, *del_len, |entry, leaf| {
+                DocumentState::notify(markers, entry, leaf);
+            });
+            for item in deleted_items {
+                assert!(item.len > 0);
+                ops.push(Op::Delete {
+                    target: item.order as _,
+                    span: item.len.abs() as _
+                });
+            }
+
+            if USE_INNER_ROPE {
+                self.text_content.remove(*pos..*pos + *del_len);
+            }
+        }
+
+        let txn = TxnInternal {
+            id: CRDTLocation {
+                agent,
+                seq,
+            },
+            order,
+            parents: SmallVec::from(self.frontier.as_slice()),
+            insert_seq_start,
+            insert_order_start,
+            num_inserts,
+            dominates: 0, // unused
+            submits: 0, // unused
+            ops
+        };
+        self.txns.push(txn);
+
+        // The frontier is now just this element.
+        self.frontier.truncate(1);
+        self.frontier[0] = order;
+
+        order
+    }
+
+    fn internal_insert(&mut self, agent: AgentId, pos: usize, content: InlinableString) -> Order {
+        self.internal_txn(agent, &[(pos, content)], &[])
+    }
+    fn internal_delete(&mut self, agent: AgentId, pos: usize, deleted_len: usize) -> Order {
+        self.internal_txn(agent, &[], &[(pos, deleted_len)])
+    }
+
     fn check(&self) {
         if USE_INNER_ROPE {
             assert_eq!(self.text_content.len_chars(), self.range_tree.content_len());
         }
         // ... TODO: More invasive checks here. There's a *lot* of invariants we're maintaining!
+    }
+
+    pub fn print_stats(&self) {
+        // For debugging
+        println!("Document length {:?}", self.range_tree.len());
+        println!("Number of transactions {}", self.txns.len());
+        println!("Number of nodes {}", self.range_tree.count_entries());
+        // println!("marker entries {}", state.client_data[0].txn_orders.len());
+
     }
 }
 
@@ -597,6 +705,10 @@ mod tests {
     use crate::common::{CRDTLocation, CRDT_DOC_ROOT};
     use inlinable_string::InlinableString;
     use smallvec::smallvec;
+    use std::time::SystemTime;
+    use std::io::Read;
+    use crate::{get_thread_memory_usage, get_thread_num_allocations};
+    use crate::testdata::{load_testing_data, TestPatch};
 
     #[test]
     fn insert_stuff() {
@@ -700,5 +812,54 @@ mod tests {
         assert_eq!(state1.text_content, state2.text_content);
 
         dbg!(state1.text_content);
+    }
+
+
+    #[test]
+    fn txn_real_world_data() {
+        let u = load_testing_data("benchmark_data/sveltecomponent.json.gz");
+
+        assert_eq!(u.start_content.len(), 0);
+        println!("final length: {}, txns {} patches {}", u.end_content.len(), u.txns.len(),
+                 u.txns.iter().fold(0, |x, i| x + i.patches.len()));
+
+        let start_alloc = get_thread_memory_usage();
+
+        let mut state = DocumentState::new();
+        let id = state.get_or_create_client_id("jeremy");
+        let mut inserts: Vec<(usize, InlinableString)> = Vec::new();
+        let mut deletes: Vec<(usize, usize)> = Vec::new();
+
+        for (_i, txn) in u.txns.iter().enumerate() {
+            for TestPatch(pos, del_len, ins_content) in txn.patches.iter() {
+                // if _i % 1000 == 0 {
+                //     println!("i {}", _i);
+                // }
+                // println!("iter {} pos {} del {} ins '{}'", _i, pos, del_len, ins_content);
+                assert!(*pos <= state.len());
+                if *del_len > 0 {
+                    deletes.push((*pos, *del_len));
+                }
+
+                if !ins_content.is_empty() {
+                    inserts.push((*pos, InlinableString::from(ins_content.as_str())));
+                }
+                // println!("after {} len {}", _i, state.len());
+            }
+
+            state.internal_txn(id, inserts.as_slice(), deletes.as_slice());
+            inserts.clear();
+            deletes.clear();
+        }
+        // println!("len {}", state.len());
+        assert_eq!(state.len(), u.end_content.len());
+        // assert!(state.text_content.eq(&u.finalText));
+
+        // state.client_data[0].markers.print_stats();
+        // state.range_tree.print_stats();
+        println!("alloc {}", get_thread_memory_usage() - start_alloc);
+        println!("alloc count {}", get_thread_num_allocations());
+
+        state.print_stats();
     }
 }

@@ -109,7 +109,7 @@ pub struct DocumentState {
     /// always just be the last order we've seen.
     ///
     /// Never empty. Starts at usize::max (which is the root order).
-    frontier: SmallVec<[usize; 4]>,
+    frontier: SmallVec<[Order; 4]>,
 
     /// For each client, we store some data (above). This is indexed by AgentId.
     client_data: Vec<ClientData>,

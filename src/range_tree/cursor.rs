@@ -249,6 +249,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
 impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> Cursor<E, I> {
     /// Calculate and return the predecessor ID at the cursor. This is used to calculate the CRDT
     /// location for an insert position.
+    ///
+    /// The cursor is not moved backwards (? mistake?) - so it must be stick_end: true.
     pub fn tell_predecessor(mut self) -> Option<E::Item> {
         while (self.offset == 0 && self.idx == 0) || self.get_entry().is_delete() {
             // println!("\nentry {:?}", self);

@@ -42,6 +42,9 @@ mod split_list;
 mod splitable_span;
 mod alloc;
 mod automerge;
+
+#[cfg(test)]
+pub mod testdata;
 // mod yjs;
 
 use range_tree::*;
@@ -351,6 +354,7 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::io::Read;
     use std::time::SystemTime;
+    use crate::testdata::{load_testing_data, TestPatch};
 
     fn random_str(len: usize, rng: &mut SmallRng) -> String {
         let mut str = String::new();
@@ -495,57 +499,17 @@ mod tests {
     fn real_world_data() {
         // This test also shows up in the benchmarks. Its included here as well because run as part
         // of the test suite it checks a lot of invariants throughout the run.
-        use serde::Deserialize;
-        use std::fs::File;
-        use std::io::BufReader;
-        use flate2::read::GzDecoder;
+        let data = load_testing_data("benchmark_data/sveltecomponent.json.gz");
+        println!("final length: {}, txns {} patches {}", data.end_content.len(), data.txns.len(),
+                 data.txns.iter().fold(0, |x, i| x + i.patches.len()));
 
-        #[derive(Debug, Clone, Deserialize)]
-        struct Patch(usize, usize, String);
-
-        #[derive(Debug, Clone, Deserialize)]
-        struct Txn {
-            // time: String, // ISO String. Unused.
-            patches: Vec<Patch>
-        }
-
-        #[derive(Debug, Clone, Deserialize)]
-        struct TestData {
-            #[serde(rename = "startContent")]
-            start_content: String,
-            #[serde(rename = "endContent")]
-            end_content: String,
-
-            txns: Vec<Txn>,
-        }
-
-        let start = SystemTime::now();
-        // let mut file = File::open("benchmark_data/automerge-paper.json.gz").unwrap();
-        let file = File::open("benchmark_data/sveltecomponent.json.gz").unwrap();
-
-        let reader = BufReader::new(file);
-        // We could pass the GzDecoder straight to serde, but it makes it way slower to parse for
-        // some reason.
-        let mut reader = GzDecoder::new(reader);
-        let mut raw_json = vec!();
-        reader.read_to_end(&mut raw_json).unwrap();
-
-        println!("uncompress time {}", start.elapsed().unwrap().as_millis());
-
-        let start = SystemTime::now();
-        let u: TestData = serde_json::from_reader(raw_json.as_slice()).unwrap();
-        println!("JSON parse time {}", start.elapsed().unwrap().as_millis());
-
-        assert_eq!(u.start_content.len(), 0);
-        println!("final length: {}, txns {} patches {}", u.end_content.len(), u.txns.len(),
-                 u.txns.iter().fold(0, |x, i| x + i.patches.len()));
-
+        assert_eq!(data.start_content.len(), 0);
         let start_alloc = get_thread_memory_usage();
 
         let mut state = CRDTState::new();
         let id = state.get_or_create_client_id("jeremy");
-        for (_i, txn) in u.txns.iter().enumerate() {
-            for Patch(pos, del_len, ins_content) in txn.patches.iter() {
+        for (_i, txn) in data.txns.iter().enumerate() {
+            for TestPatch(pos, del_len, ins_content) in txn.patches.iter() {
                 // if i % 1000 == 0 {
                 //     println!("i {}", i);
                 // }
@@ -562,7 +526,7 @@ mod tests {
             }
         }
         // println!("len {}", state.len());
-        assert_eq!(state.len(), u.end_content.len());
+        assert_eq!(state.len(), data.end_content.len());
         // assert!(state.text_content.eq(&u.finalText));
 
         // state.client_data[0].markers.print_stats();

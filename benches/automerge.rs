@@ -2,38 +2,34 @@
 // https://github.com/automerge/automerge-perf/
 use criterion::{black_box, Criterion};
 use text_crdt_rust::*;
-use serde::Deserialize;
-use std::fs::File;
-use std::io::BufReader;
-use std::sync::atomic::Ordering;
+use text_crdt_rust::testdata::{load_testing_data, TestPatch, TestTxn};
 
-#[derive(Debug, Clone, Deserialize)]
-struct Edit(usize, usize, String);
-
-#[derive(Debug, Clone, Deserialize)]
-#[allow(non_snake_case)] // field names match JSON.
-struct TestData {
-    edits: Vec<Edit>,
-    finalText: String,
-}
-
-fn get_data() -> TestData {
-
-    let file = File::open("automerge-trace.json").unwrap();
-    let reader = BufReader::new(file);
-    let u: TestData = serde_json::from_reader(reader).unwrap();
-    // println!("final: {}, edits {}", u.finalText.len(), u.edits.len());
-
-    return u;
-}
-
-fn apply_edits(state: &mut CRDTState, edits: &Vec<Edit>) {
+fn apply_edits(state: &mut CRDTState, txns: &Vec<TestTxn>) {
     let id = state.get_or_create_client_id("jeremy");
-    for Edit(pos, del_len, ins_content) in edits.iter() {
-        // println!("pos {} del {} ins {}", pos, del_len, ins_content);
+    for txn in txns.iter() {
+        for TestPatch(pos, del_len, ins_content) in txn.patches.iter() {
+            debug_assert!(*pos <= state.len());
+            if *del_len > 0 {
+                state.delete(id, *pos as _, *del_len as _);
+            }
+
+            if !ins_content.is_empty() {
+                state.insert(id, *pos as _, ins_content);
+            }
+        }
+    }
+}
+
+fn apply_edits_fast(state: &mut CRDTState, patches: &[TestPatch]) {
+    let id = state.get_or_create_client_id("jeremy");
+
+    for TestPatch(pos, del_len, ins_content) in patches {
+        debug_assert!(*pos <= state.len());
         if *del_len > 0 {
             state.delete(id, *pos as _, *del_len as _);
-        } else {
+        }
+
+        if !ins_content.is_empty() {
             state.insert(id, *pos as _, ins_content);
         }
     }
@@ -41,38 +37,46 @@ fn apply_edits(state: &mut CRDTState, edits: &Vec<Edit>) {
 
 pub fn automerge_perf_benchmarks(c: &mut Criterion) {
     c.bench_function("automerge-perf dataset", |b| {
-        let u = get_data();
+        let u = load_testing_data("benchmark_data/automerge-paper.json.gz");
+
+        // let mut patches: Vec<TestPatch> = Vec::new();
+        // for mut v in u.txns.iter() {
+        //     patches.extend_from_slice(v.patches.as_slice());
+        // }
+        assert_eq!(u.start_content.len(), 0);
 
         b.iter(|| {
             // let start = get_thread_memory_usage();
             let mut state = CRDTState::new();
-            apply_edits(&mut state, &u.edits);
+            apply_edits(&mut state, &u.txns);
+            // apply_edits_fast(&mut state, &patches);
             // println!("len {}", state.len());
-            assert_eq!(state.len(), u.finalText.len());
+            assert_eq!(state.len(), u.end_content.len());
             // println!("alloc {} count {}", get_thread_memory_usage() - start, get_thread_num_allocations());
             // state.print_stats();
             black_box(state.len());
         })
     });
 
-    // if false {
+    if false {
         c.bench_function("automerge-perf x100", |b| {
-            let u = get_data();
+            let u = load_testing_data("benchmark_data/automerge-paper.json.gz");
+            assert_eq!(u.start_content.len(), 0);
 
             b.iter(|| {
                 // let start = ALLOCATED.load(Ordering::Acquire);
 
                 let mut state = CRDTState::new();
                 for _ in 0..100 {
-                    apply_edits(&mut state, &u.edits);
+                    apply_edits(&mut state, &u.txns);
                 }
                 // println!("len {}", state.len());
-                assert_eq!(state.len(), u.finalText.len() * 100);
+                assert_eq!(state.len(), u.end_content.len() * 100);
                 // println!("alloc {}", ALLOCATED.load(Ordering::Acquire) - start);
                 // state.print_stats();
 
                 black_box(state.len());
             })
         });
-    // }
+    }
 }
