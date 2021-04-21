@@ -347,13 +347,8 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use rand::rngs::SmallRng;
 
-
-    // use ropey::Rope;
     use super::*;
     use crate::alloc::{get_thread_memory_usage, get_thread_num_allocations};
-    use std::sync::atomic::Ordering;
-    use std::io::Read;
-    use std::time::SystemTime;
     use crate::testdata::{load_testing_data, TestPatch};
 
     fn random_str(len: usize, rng: &mut SmallRng) -> String {
