@@ -349,6 +349,8 @@ mod tests {
     use super::*;
     use crate::alloc::{get_thread_memory_usage, get_thread_num_allocations};
     use std::sync::atomic::Ordering;
+    use std::io::Read;
+    use std::time::SystemTime;
 
     fn random_str(len: usize, rng: &mut SmallRng) -> String {
         let mut str = String::new();
@@ -490,46 +492,75 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn automerge_perf() {
+    fn real_world_data() {
         // This test also shows up in the benchmarks. Its included here as well because run as part
         // of the test suite it checks a lot of invariants throughout the run.
         use serde::Deserialize;
         use std::fs::File;
         use std::io::BufReader;
+        use flate2::read::GzDecoder;
 
         #[derive(Debug, Clone, Deserialize)]
-        struct Edit(usize, usize, String);
+        struct Patch(usize, usize, String);
+
+        #[derive(Debug, Clone, Deserialize)]
+        struct Txn {
+            time: String, // ISO String. Unused.
+            patches: Vec<Patch>
+        }
 
         #[derive(Debug, Clone, Deserialize)]
         #[allow(non_snake_case)] // field names match JSON.
         struct TestData {
-            edits: Vec<Edit>,
-            finalText: String,
+            startContent: String,
+            txns: Vec<Txn>,
+            endContent: String,
         }
 
-        let file = File::open("automerge-trace.json").unwrap();
+        let start = SystemTime::now();
+        // let mut file = File::open("benchmark_data/automerge-paper.json.gz").unwrap();
+        let file = File::open("benchmark_data/sveltecomponent.json.gz").unwrap();
+
         let reader = BufReader::new(file);
-        let u: TestData = serde_json::from_reader(reader).unwrap();
-        println!("final length: {}, edits {}", u.finalText.len(), u.edits.len());
+        // We could pass the GzDecoder straight to serde, but it makes it 5x slower to parse for
+        // some reason.
+        let mut reader = GzDecoder::new(reader);
+        let mut raw_json = vec!();
+        reader.read_to_end(&mut raw_json).unwrap();
+
+        println!("uncompress time {}", start.elapsed().unwrap().as_millis());
+
+        let start = SystemTime::now();
+        let u: TestData = serde_json::from_reader(raw_json.as_slice()).unwrap();
+        println!("JSON parse time {}", start.elapsed().unwrap().as_millis());
+
+        assert_eq!(u.startContent.len(), 0);
+        println!("final length: {}, txns {} patches {}", u.endContent.len(), u.txns.len(),
+                 u.txns.iter().fold(0, |x, i| x + i.patches.len()));
 
         let start_alloc = get_thread_memory_usage();
 
         let mut state = CRDTState::new();
         let id = state.get_or_create_client_id("jeremy");
-        for (_i, Edit(pos, del_len, ins_content)) in u.edits.iter().enumerate() {
-            // if i % 1000 == 0 {
-            //     println!("i {}", i);
-            // }
-            // println!("iter {} pos {} del {} ins '{}'", i, pos, del_len, ins_content);
-            if *del_len > 0 {
-                state.delete(id, *pos as _, *del_len as _);
-            } else {
-                state.insert(id, *pos as _, ins_content);
+        for (_i, txn) in u.txns.iter().enumerate() {
+            for Patch(pos, del_len, ins_content) in txn.patches.iter() {
+                // if i % 1000 == 0 {
+                //     println!("i {}", i);
+                // }
+                // println!("iter {} pos {} del {} ins '{}'", _i, pos, del_len, ins_content);
+                assert!(*pos <= state.len());
+                if *del_len > 0 {
+                    state.delete(id, *pos as _, *del_len as _);
+                }
+
+                if !ins_content.is_empty() {
+                    state.insert(id, *pos as _, ins_content);
+                }
+                // println!("after {} len {}", _i, state.len());
             }
         }
         // println!("len {}", state.len());
-        assert_eq!(state.len(), u.finalText.len());
+        assert_eq!(state.len(), u.endContent.len());
         // assert!(state.text_content.eq(&u.finalText));
 
         // state.client_data[0].markers.print_stats();
@@ -539,8 +570,5 @@ mod tests {
 
         println!("final node total {}", state.marker_tree.count_entries());
         println!("marker entries {}", state.client_data[0].markers.count_entries());
-        // state.range_tree = MarkerTree::new();
-        // state.client_data.clear();
-        // println!("alloc {}", ALLOCATED.load(Ordering::Acquire));
     }
 }
