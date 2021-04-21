@@ -505,16 +505,18 @@ mod tests {
 
         #[derive(Debug, Clone, Deserialize)]
         struct Txn {
-            time: String, // ISO String. Unused.
+            // time: String, // ISO String. Unused.
             patches: Vec<Patch>
         }
 
         #[derive(Debug, Clone, Deserialize)]
-        #[allow(non_snake_case)] // field names match JSON.
         struct TestData {
-            startContent: String,
+            #[serde(rename = "startContent")]
+            start_content: String,
+            #[serde(rename = "endContent")]
+            end_content: String,
+
             txns: Vec<Txn>,
-            endContent: String,
         }
 
         let start = SystemTime::now();
@@ -522,7 +524,7 @@ mod tests {
         let file = File::open("benchmark_data/sveltecomponent.json.gz").unwrap();
 
         let reader = BufReader::new(file);
-        // We could pass the GzDecoder straight to serde, but it makes it 5x slower to parse for
+        // We could pass the GzDecoder straight to serde, but it makes it way slower to parse for
         // some reason.
         let mut reader = GzDecoder::new(reader);
         let mut raw_json = vec!();
@@ -534,8 +536,8 @@ mod tests {
         let u: TestData = serde_json::from_reader(raw_json.as_slice()).unwrap();
         println!("JSON parse time {}", start.elapsed().unwrap().as_millis());
 
-        assert_eq!(u.startContent.len(), 0);
-        println!("final length: {}, txns {} patches {}", u.endContent.len(), u.txns.len(),
+        assert_eq!(u.start_content.len(), 0);
+        println!("final length: {}, txns {} patches {}", u.end_content.len(), u.txns.len(),
                  u.txns.iter().fold(0, |x, i| x + i.patches.len()));
 
         let start_alloc = get_thread_memory_usage();
@@ -560,7 +562,7 @@ mod tests {
             }
         }
         // println!("len {}", state.len());
-        assert_eq!(state.len(), u.endContent.len());
+        assert_eq!(state.len(), u.end_content.len());
         // assert!(state.text_content.eq(&u.finalText));
 
         // state.client_data[0].markers.print_stats();
