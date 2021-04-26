@@ -1,5 +1,5 @@
 use text_crdt_rust::*;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::Criterion;
 
 pub fn baseline_random_benchmark(c: &mut Criterion) {
 

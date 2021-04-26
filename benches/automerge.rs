@@ -1,8 +1,10 @@
 // This benchmark interacts with the automerge-perf data set from here:
 // https://github.com/automerge/automerge-perf/
+// mod testdata;
+
 use criterion::{black_box, Criterion};
 use text_crdt_rust::*;
-use text_crdt_rust::testdata::{load_testing_data, TestPatch, TestTxn};
+use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use text_crdt_rust::automerge::{DocumentState, LocalOp};
 use smartstring::alias::{String as SmartString};
 

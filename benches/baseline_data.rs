@@ -1,8 +1,9 @@
 // This benchmark interacts with the automerge-perf data set from here:
 // https://github.com/automerge/automerge-perf/
+
 use criterion::{black_box, Criterion};
 use text_crdt_rust::*;
-use text_crdt_rust::testdata::{load_testing_data, TestPatch, TestTxn};
+use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 
 fn apply_edits(state: &mut CRDTState, txns: &Vec<TestTxn>) {
     let id = state.get_or_create_client_id("jeremy");

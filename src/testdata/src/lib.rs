@@ -46,3 +46,14 @@ pub fn load_testing_data(filename: &str) -> TestData {
 
     data
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::load_testing_data;
+
+    #[test]
+    fn it_works() {
+        let data = load_testing_data("../sveltecomponent.json.gz");
+        assert!(data.txns.len() > 0);
+    }
+}

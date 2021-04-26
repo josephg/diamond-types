@@ -1,7 +1,5 @@
 use text_crdt_rust::{get_thread_memory_usage, CRDTState, get_thread_num_allocations};
-
-mod testdata;
-use testdata::{load_testing_data, TestPatch};
+use crdt_testdata::{load_testing_data, TestPatch};
 
 #[test]
 fn real_world_data() {

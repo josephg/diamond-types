@@ -1,9 +1,7 @@
-mod testdata;
-
 use smartstring::SmartString;
 use text_crdt_rust::{get_thread_memory_usage, get_thread_num_allocations};
 use text_crdt_rust::automerge::{DocumentState, LocalOp};
-use testdata::{load_testing_data, TestPatch};
+use crdt_testdata::{load_testing_data, TestPatch};
 
 #[test]
 fn txn_real_world_data() {
