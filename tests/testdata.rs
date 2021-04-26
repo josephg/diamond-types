@@ -1,9 +1,8 @@
-use std::time::SystemTime;
+// use std::time::SystemTime;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use flate2::bufread::GzDecoder;
 use serde::Deserialize;
-use smallvec::SmallVec;
 
 /// This file contains some simple helpers for loading test data. Its used by benchmarking and
 /// testing code.

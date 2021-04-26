@@ -346,7 +346,6 @@ mod tests {
     use rand::rngs::SmallRng;
 
     use super::*;
-    use crate::alloc::{get_thread_memory_usage, get_thread_num_allocations};
 
     fn random_str(len: usize, rng: &mut SmallRng) -> String {
         let mut str = String::new();

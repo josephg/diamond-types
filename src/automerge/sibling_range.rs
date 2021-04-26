@@ -83,7 +83,7 @@ impl EntryTraits for SiblingRange {
         left
     }
 
-    fn contains(&self, loc: Self::Item) -> Option<usize> {
+    fn contains(&self, _loc: Self::Item) -> Option<usize> {
         // self.next_sibling == Order
         unimplemented!("Can't search by sibling_range")
     }
@@ -92,7 +92,7 @@ impl EntryTraits for SiblingRange {
         self.len > 0
     }
 
-    fn at_offset(&self, offset: usize) -> Self::Item {
+    fn at_offset(&self, _offset: usize) -> Self::Item {
         self.next_sibling
     }
 }

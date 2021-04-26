@@ -8,10 +8,8 @@ pub use markers::MarkerEntry;
 
 use crate::common::{ClientName, CRDTLocation};
 use crate::automerge::order::OrderMarker;
-use crate::range_tree::{RangeTree, ContentIndex, RawPositionIndex};
+use crate::range_tree::{RangeTree, ContentIndex};
 use crate::split_list::SplitList;
-use crate::splitable_span::SplitableSpan;
-use crate::automerge::sibling_range::SiblingRange;
 
 mod markers;
 mod txn;

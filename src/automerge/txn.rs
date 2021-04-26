@@ -1,5 +1,5 @@
 use crate::automerge::{TxnInternal, Op, TxnExternal, DocumentState, OpExternal, ClientData, MarkerEntry, Order, ROOT_ORDER, LocalOp};
-use crate::range_tree::{RangeTree, NodeLeaf, Cursor, FullIndex, ContentIndex};
+use crate::range_tree::{RangeTree, NodeLeaf, Cursor, ContentIndex};
 use ropey::Rope;
 use crate::common::{CRDTLocation, AgentId, CRDT_DOC_ROOT};
 use smallvec::{SmallVec, smallvec};
@@ -10,7 +10,6 @@ use crate::splitable_span::SplitableSpan;
 use crate::automerge::order::OrderMarker;
 use smartstring::alias::{String as SmartString};
 use std::cmp::Ordering;
-use crate::automerge::sibling_range::SiblingRange;
 
 pub(crate) struct OpIterator<'a> {
     txn: &'a TxnInternal,
@@ -225,7 +224,7 @@ impl DocumentState {
         });
     }
 
-    fn next_txn_with_inserts(&self, mut txn_order: usize) -> &TxnInternal {
+    fn next_txn_with_inserts(&self, txn_order: usize) -> &TxnInternal {
         for txn in &self.txns[txn_order..] {
             if txn.num_inserts > 0 { return txn; }
         }
@@ -247,7 +246,7 @@ impl DocumentState {
             Ok(seq) => {
                 // If there's a delete followed by an insert, we might have landed in the delete
                 // and not found the subsequent insert (which is the one we're interested in).
-                let mut txn_order: Order = client_data.txn_orders[seq];
+                let txn_order: Order = client_data.txn_orders[seq];
                 self.next_txn_with_inserts(txn_order)
             }
             Err(next_seq) => {
@@ -405,11 +404,11 @@ impl DocumentState {
         // Apply the operation to the marker tree & document
         // TODO: Use iter on ops instead of unrolling it here.
         let mut item_order = txn.insert_order_start;
-        let next_doc_item_order = self.next_item_order();
+        // let next_doc_item_order = self.next_item_order();
 
         for op in txn.ops.iter() {
             match op {
-                Op::Insert { content, mut parent } => {
+                Op::Insert { content, parent } => {
                     // We need to figure out the insert position. Usually this is right after our
                     // parent, but if the parent already has children, we need to check where
                     // amongst our parents' children we fit in.
@@ -419,15 +418,15 @@ impl DocumentState {
 
                     // This cursor points to the desired insert location; which might contain
                     // a sibling to skip.
-                    let mut marker_cursor = self.get_cursor_after(parent);
+                    let mut marker_cursor = self.get_cursor_after(*parent);
 
                     // Scan items until we find the right insert location.
+                    let mut last_txn: Option<&TxnInternal> = None;
                     loop {
                         // This takes O(n log n) time but its a rare operation. I could optimize
                         // it further by storing the parents in the marker tree, but this is
                         // probably rare enough not to matter.
                         let sibling = marker_cursor.get_item();
-                        let mut last_txn: Option<&TxnInternal> = None;
                         if let Some(sibling) = sibling {
                             let sibling_txn = match last_txn {
                                 Some(t) => {
@@ -451,7 +450,7 @@ impl DocumentState {
 
                             // This is past the end of the subtree. Insert here.
                             // dbg!(sibling_parent, parent);
-                            match cmp_order(sibling_parent, parent) {
+                            match cmp_order(sibling_parent, *parent) {
                                 Ordering::Less => { break; }
                                 Ordering::Equal => {
                                     let order = self.cmp_item_order2(sibling, sibling_txn, item_order, txn);
@@ -731,14 +730,10 @@ impl DocumentState {
 
 #[cfg(test)]
 mod tests {
-    use crate::automerge::{DocumentState, TxnExternal, OpExternal, LocalOp};
+    use crate::automerge::{DocumentState, TxnExternal, OpExternal};
     use crate::common::{CRDTLocation, CRDT_DOC_ROOT};
     use smartstring::SmartString;
     use smallvec::smallvec;
-    use std::time::SystemTime;
-    use std::io::Read;
-    use crate::{get_thread_memory_usage, get_thread_num_allocations};
-    use crate::automerge::txn::USE_INNER_ROPE;
 
     #[test]
     fn insert_stuff() {

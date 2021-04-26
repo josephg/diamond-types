@@ -281,9 +281,9 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
         // println!("local_delete len: {} at cursor {:?}", deleted_len, cursor);
 
         if cfg!(debug_assertions) {
-            let cursor_pos = cursor.count_pos();
-            // assert!(cursor_pos + deleted_len <= self.count);
             // TODO: Restore this.
+            // let cursor_pos = cursor.count_pos();
+            // assert!(cursor_pos + deleted_len <= self.count);
         }
         // dbg!(cursor_pos, self.count);
 

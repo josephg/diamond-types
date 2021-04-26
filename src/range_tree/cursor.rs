@@ -131,7 +131,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                 true
             } else {
                 if let Some(marker) = marker {
-                    unsafe { self.node.as_mut() }.flush(marker);
+                    self.node.as_mut().flush(marker);
                 }
                 self.traverse(true)
             }

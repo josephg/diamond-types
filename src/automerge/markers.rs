@@ -1,6 +1,6 @@
 use crate::splitable_span::SplitableSpan;
 use std::ptr::NonNull;
-use crate::range_tree::{NodeLeaf, EntryTraits, FullIndex, TreeIndex};
+use crate::range_tree::{NodeLeaf, EntryTraits, TreeIndex};
 use std::ops::Index;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
