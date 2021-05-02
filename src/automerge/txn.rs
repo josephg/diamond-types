@@ -1,4 +1,4 @@
-use crate::automerge::{TxnInternal, Op, TxnExternal, DocumentState, OpExternal, ClientData, MarkerEntry, Order, ROOT_ORDER, LocalOp};
+use crate::automerge::{TxnInternal, Op, TxnExternal, DocumentState, OpExternal, ClientData, MarkerEntry, Order, ROOT_ORDER, LocalOp, CRDTLocationExternal, CRDT_DOC_ROOT_EXTERNAL};
 use crate::range_tree::{RangeTree, NodeLeaf, Cursor, ContentIndex};
 use ropey::Rope;
 use crate::common::{CRDTLocation, AgentId, CRDT_DOC_ROOT};
@@ -139,6 +139,33 @@ impl DocumentState {
             self.client_data.iter()
                 .position(|client_data| &client_data.name == name)
                 .map(|id| id as AgentId)
+        }
+    }
+
+    fn location_ext_to_int_mut(&mut self, id: &CRDTLocationExternal) -> CRDTLocation {
+        CRDTLocation {
+            agent: self.get_or_create_client_id(id.agent.as_str()),
+            seq: id.seq
+        }
+    }
+
+    fn location_ext_to_int(&self, id: &CRDTLocationExternal) -> Option<CRDTLocation> {
+        self.get_client_id(id.agent.as_str()).map(|agent| {
+            CRDTLocation {
+                agent,
+                seq: id.seq
+            }
+        })
+    }
+
+    fn location_int_to_ext(&self, id: CRDTLocation) -> CRDTLocationExternal {
+        if id == CRDT_DOC_ROOT {
+            CRDT_DOC_ROOT_EXTERNAL.clone()
+        } else {
+            CRDTLocationExternal {
+                agent: self.client_data[id.agent as usize].name.clone(),
+                seq: id.seq
+            }
         }
     }
 
@@ -531,7 +558,7 @@ impl DocumentState {
 
     fn add_external_txn(&mut self, txn_ext: &TxnExternal) -> usize {
         // let id = self.map_external_crdt_location(&txn_ext.id);
-        let id = txn_ext.id;
+        let id = self.location_ext_to_int_mut(&txn_ext.id);
 
         if let Some(existing) = self.try_get_txn_order(id) {
             return existing;
@@ -539,7 +566,7 @@ impl DocumentState {
 
         let parents: SmallVec<[usize; 2]> = txn_ext.parents.iter().map(|p| {
             // self.get_txn_order(self.map_external_crdt_location(p))
-            self.get_txn_order(*p)
+            self.get_txn_order(self.location_ext_to_int(p).unwrap())
         }).collect();
 
         // Go through the ops and count the number of inserted items
@@ -551,12 +578,12 @@ impl DocumentState {
                     Op::Insert {
                         content: content.clone(),
                         // parent: self.get_item_order(self.map_external_crdt_location(predecessor))
-                        parent: self.get_item_order(*parent)
+                        parent: self.get_item_order(self.location_ext_to_int(parent).unwrap())
                     }
                 }
                 OpExternal::Delete { target, span } => {
                     Op::Delete {
-                        target: self.get_item_order(*target),
+                        target: self.get_item_order(self.location_ext_to_int(target).unwrap()),
                         span: *span
                     }
                 }
@@ -593,20 +620,22 @@ impl DocumentState {
         let txn = &self.txns[order];
 
         TxnExternal {
-            id: txn.id,
+            id: self.location_int_to_ext(txn.id),
             insert_seq_start: txn.insert_seq_start,
-            parents: txn.parents.iter().map(|p| { self.get_txn_id(*p) }).collect(),
+            parents: txn.parents.iter().map(|p| {
+                self.location_int_to_ext(self.get_txn_id(*p))
+            }).collect(),
             ops: txn.ops.iter().map(|op| {
                 match op {
                     Op::Insert { content, parent } => {
                         OpExternal::Insert {
                             content: content.clone(),
-                            parent: self.get_item_id(*parent)
+                            parent: self.location_int_to_ext(self.get_item_id(*parent))
                         }
                     },
                     Op::Delete { target, span } => {
                         OpExternal::Delete {
-                            target: self.get_item_id(*target),
+                            target: self.location_int_to_ext(self.get_item_id(*target)),
                             span: *span
                         }
                     }
@@ -617,6 +646,7 @@ impl DocumentState {
 
     fn integrate_external_txn(&mut self, txn_ext: &TxnExternal) -> usize {
         let order = self.add_external_txn(txn_ext);
+        // dbg!(order);
 
         // internal_apply_ops depends on the transaction being in self.txns.
         self.internal_apply_ops(order);
@@ -791,7 +821,7 @@ impl DocumentState {
 
 #[cfg(test)]
 mod tests {
-    use crate::automerge::{DocumentState, TxnExternal, OpExternal};
+    use crate::automerge::{DocumentState, TxnExternal, OpExternal, CRDTLocationExternal, CRDT_DOC_ROOT_EXTERNAL};
     use crate::common::{CRDTLocation, CRDT_DOC_ROOT};
     use smartstring::SmartString;
     use smallvec::smallvec;
@@ -799,51 +829,50 @@ mod tests {
     #[test]
     fn insert_stuff() {
         let mut state = DocumentState::new();
-        let agent = state.get_or_create_client_id("seph");
         state.integrate_external_txn(&TxnExternal {
-            id: CRDTLocation {
-                agent,
+            id: CRDTLocationExternal {
+                agent: "seph".into(),
                 seq: 0
             },
             insert_seq_start: 0,
-            parents: smallvec![CRDT_DOC_ROOT],
+            parents: smallvec![CRDT_DOC_ROOT_EXTERNAL.clone()],
             ops: smallvec![OpExternal::Insert {
                 content: SmartString::from("oh hai"),
-                parent: CRDT_DOC_ROOT
+                parent: CRDT_DOC_ROOT_EXTERNAL.clone()
             }]
         });
 
         state.integrate_external_txn(&TxnExternal {
-            id: CRDTLocation {
-                agent,
+            id: CRDTLocationExternal {
+                agent: "seph".into(),
                 seq: 1
             },
             insert_seq_start: 5,
-            parents: smallvec![CRDTLocation {
-                agent,
+            parents: smallvec![CRDTLocationExternal {
+                agent: "seph".into(),
                 seq: 0
             }],
             ops: smallvec![OpExternal::Insert {
                 content: SmartString::from("yooo"),
-                parent: CRDTLocation {
-                    agent: 0,
+                parent: CRDTLocationExternal {
+                    agent: "seph".into(),
                     seq: 5
                 }
             }]
         });
         state.integrate_external_txn(&TxnExternal {
-            id: CRDTLocation {
-                agent,
+            id: CRDTLocationExternal {
+                agent: "seph".into(),
                 seq: 2
             },
             insert_seq_start: 9,
-            parents: smallvec![CRDTLocation {
-                agent,
+            parents: smallvec![CRDTLocationExternal {
+                agent: "seph".into(),
                 seq: 1
             }],
             ops: smallvec![OpExternal::Delete {
-                target: CRDTLocation {
-                    agent: 0,
+                target: CRDTLocationExternal {
+                    agent: "seph".into(),
                     seq: 3,
                 },
                 span: 3
@@ -857,34 +886,34 @@ mod tests {
     fn concurrent_writes() {
         let mut state1 = DocumentState::new();
         let mut state2 = DocumentState::new();
-        let seph = state1.get_or_create_client_id("seph");
-        let mike = state1.get_or_create_client_id("mike");
-        state2.get_or_create_client_id("seph"); // gross.
-        state2.get_or_create_client_id("mike");
+        // let seph = state1.get_or_create_client_id("seph");
+        // let mike = state1.get_or_create_client_id("mike");
+        // state2.get_or_create_client_id("seph"); // gross.
+        // state2.get_or_create_client_id("mike");
 
         let seph_txn = TxnExternal {
-            id: CRDTLocation {
-                agent: seph,
+            id: CRDTLocationExternal {
+                agent: "seph".into(),
                 seq: 0
             },
             insert_seq_start: 0,
-            parents: smallvec![CRDT_DOC_ROOT],
+            parents: smallvec![CRDT_DOC_ROOT_EXTERNAL.clone()],
             ops: smallvec![OpExternal::Insert {
                 content: SmartString::from("yooo from seph"),
-                parent: CRDT_DOC_ROOT
+                parent: CRDT_DOC_ROOT_EXTERNAL.clone()
             }]
         };
 
         let mike_txn = TxnExternal {
-            id: CRDTLocation {
-                agent: mike,
+            id: CRDTLocationExternal {
+                agent: "mike".into(),
                 seq: 0
             },
             insert_seq_start: 0,
-            parents: smallvec![CRDT_DOC_ROOT],
+            parents: smallvec![CRDT_DOC_ROOT_EXTERNAL.clone()],
             ops: smallvec![OpExternal::Insert {
                 content: SmartString::from("hi from mike"),
-                parent: CRDT_DOC_ROOT
+                parent: CRDT_DOC_ROOT_EXTERNAL.clone()
             }]
         };
 
@@ -905,12 +934,17 @@ mod tests {
         let mut a = DocumentState::new();
         let mut b = DocumentState::new();
 
-        let seph = a.get_or_create_client_id("seph");
-        a.internal_insert(seph, 0, "hey from seph".into());
+        let a_seph = a.get_or_create_client_id("seph");
+        a.internal_insert(a_seph, 0, "hey from seph".into());
+
+        let b_mike = b.get_or_create_client_id("mike");
+        b.internal_insert(b_mike, 0, "hey from mike".into());
 
         dbg!(&a);
         b.merge_from(&a);
         dbg!(&b);
+        a.merge_from(&b);
+
 
         assert_eq!(a.text_content, b.text_content);
     }

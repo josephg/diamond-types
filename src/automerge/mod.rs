@@ -16,38 +16,42 @@ mod txn;
 mod order;
 mod sibling_range;
 
-// Not currently used.
-// #[derive(Debug, Clone)]
-// pub struct CRDTLocationExternal {
-//     pub agent: InlinableString,
-//     pub seq: u32,
-// }
-//
-// pub const CRDT_DOC_ROOT_EXTERNAL: CRDTLocationExternal = CRDTLocationExternal {
-//     agent: InlinableString::from("ROOT"),
-//     seq: 0
-// };
+use lazy_static::lazy_static;
+
+#[derive(Debug, Clone)]
+pub struct CRDTLocationExternal {
+    pub agent: SmartString,
+    pub seq: u32,
+}
+
+lazy_static! {
+    pub static ref CRDT_DOC_ROOT_EXTERNAL: CRDTLocationExternal = CRDTLocationExternal {
+        agent: SmartString::from("ROOT"),
+        seq: 0
+    };
+}
 
 #[derive(Clone, Debug)]
 pub enum OpExternal {
     Insert {
         content: SmartString,
-        // parent: CRDTLocationExternal,
-        parent: CRDTLocation,
+        parent: CRDTLocationExternal,
+        // parent: CRDTLocation,
     },
     // Deleted characters in sequence. In a CRDT these characters must be
     // contiguous from a single client.
     Delete {
-        target: CRDTLocation,
+        target: CRDTLocationExternal,
+        // target: CRDTLocation,
         span: usize,
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct TxnExternal {
-    id: CRDTLocation,
+    id: CRDTLocationExternal,
     insert_seq_start: u32,
-    parents: SmallVec<[CRDTLocation; 2]>,
+    parents: SmallVec<[CRDTLocationExternal; 2]>,
     ops: SmallVec<[OpExternal; 1]>,
 }
 
