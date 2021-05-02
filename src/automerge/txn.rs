@@ -232,7 +232,7 @@ impl DocumentState {
     }
 
     fn get_item_order(&self, item_loc: CRDTLocation) -> usize {
-        // dbg!(item_loc);
+        // dbg!(item_loc, CRDT_DOC_ROOT);
         if item_loc == CRDT_DOC_ROOT {
             return ROOT_ORDER
         }
@@ -306,14 +306,18 @@ impl DocumentState {
 
     fn get_txn_id(&self, txn_order: Order) -> CRDTLocation {
         // Ok that's really easy
-        self.txns[txn_order].id
+        if txn_order == ROOT_ORDER { CRDT_DOC_ROOT }
+        else { self.txns[txn_order].id }
     }
 
     fn get_item_id(&self, item_order: Order) -> CRDTLocation {
-        let txn = self.get_txn_containing_item(item_order);
-        CRDTLocation {
-            agent: txn.id.agent,
-            seq: txn.insert_seq_start + item_order as u32 - txn.insert_order_start as u32
+        if item_order == ROOT_ORDER { CRDT_DOC_ROOT }
+        else {
+            let txn = self.get_txn_containing_item(item_order);
+            CRDTLocation {
+                agent: txn.id.agent,
+                seq: txn.insert_seq_start + item_order as u32 - txn.insert_order_start as u32
+            }
         }
     }
 
@@ -585,6 +589,32 @@ impl DocumentState {
         order
     }
 
+    fn export_txn(&self, order: Order) -> TxnExternal {
+        let txn = &self.txns[order];
+
+        TxnExternal {
+            id: txn.id,
+            insert_seq_start: txn.insert_seq_start,
+            parents: txn.parents.iter().map(|p| { self.get_txn_id(*p) }).collect(),
+            ops: txn.ops.iter().map(|op| {
+                match op {
+                    Op::Insert { content, parent } => {
+                        OpExternal::Insert {
+                            content: content.clone(),
+                            parent: self.get_item_id(*parent)
+                        }
+                    },
+                    Op::Delete { target, span } => {
+                        OpExternal::Delete {
+                            target: self.get_item_id(*target),
+                            span: *span
+                        }
+                    }
+                }
+            }).collect()
+        }
+    }
+
     fn integrate_external_txn(&mut self, txn_ext: &TxnExternal) -> usize {
         let order = self.add_external_txn(txn_ext);
 
@@ -700,6 +730,37 @@ impl DocumentState {
         self.internal_txn(agent, &[LocalOp {
             ins_content: SmartString::default(), pos, del_span
         }])
+    }
+
+    // fn merge(a: &mut Self, b: &mut Self) {
+    fn merge_from(&mut self, other: &Self) {
+        // Locally merge all the operations which are present in other but missing locally.
+        // TODO: This is horribly written - for now its just for testing. The real procedure here
+        // would implement export and import for binary operations.
+
+        let mut new_txn_orders = Vec::new();
+
+        for other_client in other.client_data.iter() {
+            let other_len = other_client.txn_orders.len();
+
+            let self_id = self.get_or_create_client_id(&other_client.name);
+            let self_client = &self.client_data[self_id as usize];
+            let self_len = self_client.txn_orders.len();
+
+            if other_len > self_len {
+                new_txn_orders.extend_from_slice(&other_client.txn_orders[self_len..]);
+            }
+        }
+
+        if new_txn_orders.len() == 0 { return; }
+
+        // Sort by order. The other peer will have a reasonable order.
+        new_txn_orders.sort();
+
+        for order in new_txn_orders {
+            let txn = other.export_txn(order);
+            self.integrate_external_txn(&txn);
+        }
     }
 
     pub fn check(&self) {
@@ -837,5 +898,20 @@ mod tests {
         assert_eq!(state1.text_content, state2.text_content);
 
         dbg!(state1.text_content);
+    }
+
+    #[test]
+    fn merging() {
+        let mut a = DocumentState::new();
+        let mut b = DocumentState::new();
+
+        let seph = a.get_or_create_client_id("seph");
+        a.internal_insert(seph, 0, "hey from seph".into());
+
+        dbg!(&a);
+        b.merge_from(&a);
+        dbg!(&b);
+
+        assert_eq!(a.text_content, b.text_content);
     }
 }
