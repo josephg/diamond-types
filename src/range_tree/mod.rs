@@ -100,7 +100,7 @@ pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>> {
     _drop: PrintDropLeaf
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 // pub struct Cursor<'a, E: EntryTraits> {
 pub struct Cursor<E: EntryTraits, I: TreeIndex<E>> {
 // pub struct Cursor {

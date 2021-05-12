@@ -1,22 +1,20 @@
 use std::pin::Pin;
 
-use smartstring::alias::{String as SmartString};
+use lazy_static::lazy_static;
 use ropey::Rope;
 use smallvec::SmallVec;
+use smartstring::alias::String as SmartString;
 
 pub use markers::MarkerEntry;
 
 use crate::common::{ClientName, CRDTLocation};
-use crate::automerge::order::OrderMarker;
-use crate::range_tree::{RangeTree, ContentIndex};
+use crate::order::OrderMarker;
+use crate::range_tree::{ContentIndex, RangeTree};
 use crate::split_list::SplitList;
 
 mod markers;
 mod txn;
-mod order;
 mod sibling_range;
-
-use lazy_static::lazy_static;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CRDTLocationExternal {
@@ -149,14 +147,6 @@ pub struct DocumentState {
 }
 
 pub const ROOT_ORDER: usize = usize::MAX;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalOp {
-    pub pos: usize,
-    pub ins_content: SmartString,
-    pub del_span: usize
-}
-
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct ItemDebugInfo {

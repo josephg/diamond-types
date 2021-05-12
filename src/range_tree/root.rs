@@ -128,7 +128,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     //     self.as_ref().last_cursor.set(Some((pos, cursor)));
     // }
 
-    pub fn iter(&self) -> Cursor<E, I> {
+    pub fn cursor_at_start(&self) -> Cursor<E, I> {
         // self.cursor_at_pos(0, false)
 
         unsafe {
@@ -146,6 +146,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             }
         }
     }
+
+    pub fn iter(&self) -> Cursor<E, I> { self.cursor_at_start() }
 
     pub fn item_iter(&self) -> ItemIterator<E, I> {
         ItemIterator(self.iter())

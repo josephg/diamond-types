@@ -3,20 +3,20 @@
 // mod testdata;
 
 use criterion::{black_box, Criterion};
-use text_crdt_rust::*;
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
-use text_crdt_rust::automerge::DocumentState;
 use smartstring::alias::{String as SmartString};
+use text_crdt_rust::*;
+use text_crdt_rust::yjs::*;
 
-fn apply_edits(state: &mut DocumentState, txns: &Vec<TestTxn>) {
-    let id = state.get_or_create_client_id("jeremy");
+fn apply_edits(doc: &mut YjsDoc, txns: &Vec<TestTxn>) {
+    let id = doc.get_or_create_client_id("jeremy");
 
     let mut local_ops: Vec<LocalOp> = Vec::new();
 
     for (_i, txn) in txns.iter().enumerate() {
         local_ops.clear();
         local_ops.extend(txn.patches.iter().map(|TestPatch(pos, del_span, ins_content)| {
-            assert!(*pos <= state.len());
+            assert!(*pos <= doc.len());
             LocalOp {
                 pos: *pos,
                 del_span: *del_span,
@@ -24,7 +24,7 @@ fn apply_edits(state: &mut DocumentState, txns: &Vec<TestTxn>) {
             }
         }));
 
-        state.internal_txn(id, local_ops.as_slice());
+        doc.local_txn(id, local_ops.as_slice());
     }
 }
 
@@ -43,8 +43,8 @@ fn apply_edits_fast(state: &mut CRDTState, patches: &[TestPatch]) {
     }
 }
 
-pub fn am_benchmarks(c: &mut Criterion) {
-    c.bench_function("am automerge-perf set", |b| {
+pub fn yjs_benchmarks(c: &mut Criterion) {
+    c.bench_function("yjs automerge-perf set", |b| {
         let test_data = load_testing_data("benchmark_data/automerge-paper.json.gz");
 
         // let mut patches: Vec<TestPatch> = Vec::new();
@@ -56,15 +56,15 @@ pub fn am_benchmarks(c: &mut Criterion) {
         b.iter(|| {
             #[cfg(feature = "memusage")]
             let start = get_thread_memory_usage();
-            let mut state = DocumentState::new();
-            apply_edits(&mut state, &test_data.txns);
+            let mut doc = YjsDoc::new();
+            apply_edits(&mut doc, &test_data.txns);
             // apply_edits_fast(&mut state, &patches);
             // println!("len {}", state.len());
-            assert_eq!(state.len(), test_data.end_content.len());
+            assert_eq!(doc.len(), test_data.end_content.len());
             #[cfg(feature = "memusage")]
             println!("alloc {} count {}", get_thread_memory_usage() - start, get_thread_num_allocations());
             // state.print_stats();
-            black_box(state.len());
+            black_box(doc.len());
         })
     });
 }

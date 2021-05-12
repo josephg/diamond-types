@@ -41,3 +41,10 @@ impl PartialOrd for CRDTLocation {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalOp {
+    pub pos: usize,
+    pub ins_content: SmartString,
+    pub del_span: usize
+}

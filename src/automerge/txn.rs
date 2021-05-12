@@ -1,13 +1,13 @@
-use crate::automerge::{TxnInternal, Op, TxnExternal, DocumentState, OpExternal, ClientData, MarkerEntry, Order, ROOT_ORDER, LocalOp, CRDTLocationExternal, CRDT_DOC_ROOT_EXTERNAL, ItemDebugInfo};
+use crate::automerge::*;
 use crate::range_tree::{RangeTree, NodeLeaf, Cursor, ContentIndex};
 use ropey::Rope;
-use crate::common::{CRDTLocation, AgentId, CRDT_DOC_ROOT};
+use crate::common::{CRDTLocation, AgentId, CRDT_DOC_ROOT, LocalOp};
 use smallvec::{SmallVec, smallvec};
 use std::collections::BTreeSet;
 use crate::split_list::SplitList;
 use std::ptr::NonNull;
 use crate::splitable_span::SplitableSpan;
-use crate::automerge::order::OrderMarker;
+use crate::order::OrderMarker;
 use smartstring::alias::{String as SmartString};
 use std::cmp::Ordering;
 
@@ -427,7 +427,7 @@ impl DocumentState {
 
     fn get_cursor_after(&self, parent: Order) -> Cursor<OrderMarker, ContentIndex> {
         if parent == ROOT_ORDER {
-            self.range_tree.iter()
+            self.range_tree.cursor_at_start()
         } else {
             let marker: NonNull<NodeLeaf<OrderMarker, ContentIndex>> = self.markers[parent];
             // self.range_tree.

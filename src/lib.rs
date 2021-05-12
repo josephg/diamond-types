@@ -1,3 +1,19 @@
+use std::ops::Index;
+use std::pin::Pin;
+use std::ptr::NonNull;
+
+use ropey::Rope;
+use smartstring::SmartString;
+
+pub use alloc::*;
+use common::*;
+use range_tree::*;
+
+use crate::split_list::SplitList;
+use crate::splitable_span::SplitableSpan;
+
+pub use common::LocalOp;
+
 // #![feature(core_intrinsics)]
 /**
  * This CRDT is loosely based of the list CRDT in automerge.
@@ -42,22 +58,14 @@ mod split_list;
 mod splitable_span;
 mod alloc;
 pub mod automerge;
+pub mod yjs;
+mod order;
 
 // mod yjs;
 
-use range_tree::*;
-use common::*;
-use std::pin::Pin;
-
-use smartstring::SmartString;
-use std::ptr::NonNull;
-use crate::split_list::SplitList;
-use std::ops::Index;
 // use smallvec::SmallVec;
 
-use ropey::Rope;
-use crate::splitable_span::SplitableSpan;
-pub use alloc::*; // For debugging.
+// For debugging.
 
 // *** Basically all the code below is being replaced by new code in mod document
 
