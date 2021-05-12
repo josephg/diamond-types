@@ -1,4 +1,4 @@
-use crate::automerge::{TxnInternal, Op, TxnExternal, DocumentState, OpExternal, ClientData, MarkerEntry, Order, ROOT_ORDER, LocalOp, CRDTLocationExternal, CRDT_DOC_ROOT_EXTERNAL};
+use crate::automerge::{TxnInternal, Op, TxnExternal, DocumentState, OpExternal, ClientData, MarkerEntry, Order, ROOT_ORDER, LocalOp, CRDTLocationExternal, CRDT_DOC_ROOT_EXTERNAL, ItemDebugInfo};
 use crate::range_tree::{RangeTree, NodeLeaf, Cursor, ContentIndex};
 use ropey::Rope;
 use crate::common::{CRDTLocation, AgentId, CRDT_DOC_ROOT};
@@ -86,7 +86,7 @@ impl TxnInternal {
 }
 
 // Toggleable for testing.
-const USE_INNER_ROPE: bool = false;
+const USE_INNER_ROPE: bool = true;
 
 fn ordering_from(x: isize) -> Ordering {
     if x < 0 { Ordering::Less }
@@ -169,6 +169,10 @@ impl DocumentState {
         }
     }
 
+    fn item_order_to_ext(&self, item: Order) -> CRDTLocationExternal {
+        self.location_int_to_ext(self.get_item_id(item))
+    }
+
     // fn map_external_crdt_location(&mut self, loc: &CRDTLocationExternal) -> CRDTLocation {
     //     CRDTLocation {
     //         agent: self.get_or_create_client_id(&loc.agent),
@@ -246,6 +250,7 @@ impl DocumentState {
 
 
     fn notify(markers: &mut SplitList<MarkerEntry<OrderMarker, ContentIndex>>, entry: OrderMarker, ptr: NonNull<NodeLeaf<OrderMarker, ContentIndex>>) {
+        // println!("NOTIFY {:?} {:?}", entry, ptr);
         markers.replace_range(entry.order as usize, MarkerEntry {
             ptr, len: entry.len() as u32
         });
@@ -286,7 +291,7 @@ impl DocumentState {
 
         // Yikes the code above is complex. Make sure we found the right element.
         debug_assert!(txn.num_inserts > 0);
-        assert!(item_loc.seq >= txn.id.seq && item_loc.seq < txn.id.seq + txn.num_inserts as u32);
+        assert!(item_loc.seq >= txn.insert_seq_start && item_loc.seq < txn.insert_seq_start + txn.num_inserts as u32);
         txn.insert_order_start + (item_loc.seq - txn.insert_seq_start) as usize
     }
 
@@ -388,14 +393,19 @@ impl DocumentState {
         if txn_a.id.agent == txn_b.id.agent {
             // We can just compare the sequence numbers to see which is newer.
             // Newer (higher seq) -> earlier in the document.
-            txn_b.id.seq.cmp(&txn_a.id.seq)
+            txn_a.id.seq.cmp(&txn_b.id.seq)
+            // txn_b.id.seq.cmp(&txn_a.id.seq)
         } else {
             let cmp = self.compare_versions(txn_a.order, txn_b.order);
             cmp.unwrap_or_else(|| {
                 // Do'h - they're concurrent. Order based on sorting the agent strings.
                 let a_name = &self.client_data[txn_a.id.agent as usize].name;
                 let b_name = &self.client_data[txn_b.id.agent as usize].name;
-                a_name.cmp(&b_name)
+                dbg!(a_name);
+                dbg!(b_name);
+                // Smaller agent comes first. (Unlike other tests)
+                b_name.cmp(&a_name)
+                // a_name.cmp(&b_name)
             })
         }
     }
@@ -411,6 +421,7 @@ impl DocumentState {
     fn get_cursor_before(&self, item: Order) -> Cursor<OrderMarker, ContentIndex> {
         assert_ne!(item, ROOT_ORDER);
         let marker: NonNull<NodeLeaf<OrderMarker, ContentIndex>> = self.markers[item];
+        dbg!(item, self.get_item_id(item), marker);
         unsafe { RangeTree::cursor_before_item(item, marker) }
     }
 
@@ -438,6 +449,7 @@ impl DocumentState {
         // let next_doc_item_order = self.next_item_order();
 
         for op in txn.ops.iter() {
+            println!("Applying op {:?}", op);
             match op {
                 Op::Insert { content, parent } => {
                     // We need to figure out the insert position. Usually this is right after our
@@ -540,19 +552,26 @@ impl DocumentState {
                             DocumentState::notify(markers, entry, leaf);
                         });
 
+                        assert_ne!(deleted_here, 0);
+
                         // We don't need to update the sibling tree.
 
-                        if USE_INNER_ROPE {
-                            self.text_content.remove(cursor_pos..cursor_pos + deleted_here);
+                        if deleted_here > 0 && USE_INNER_ROPE {
+                            dbg!(&self.text_content);
+
+                            println!("internal Removing '{}'", self.text_content.slice(cursor_pos..cursor_pos + deleted_here as usize));
+                            self.text_content.remove(cursor_pos..cursor_pos + deleted_here as usize);
                             assert_eq!(self.text_content.len_chars(), self.range_tree.content_len());
                         }
 
+                        let deleted_here = deleted_here.abs() as usize;
                         span -= deleted_here;
                         // This is safe because the deleted span is guaranteed to be order-contiguous.
                         target += deleted_here;
                     }
                 }
             }
+            println!("-> {}", self.text_content);
         }
     }
 
@@ -619,28 +638,48 @@ impl DocumentState {
     fn export_txn(&self, order: Order) -> TxnExternal {
         let txn = &self.txns[order];
 
+        // It would be nice to just map the ops across from the internal txn, but internal deletes
+        // express spans via contiguous item orders. We might actually need multiple OpExternal
+        // instances to express them!
+        let mut ops: SmallVec<[OpExternal; 1]> = SmallVec::new();
+
+        for op in txn.ops.iter() {
+            match op {
+                Op::Insert { content, parent } => {
+                    ops.push(OpExternal::Insert {
+                        content: content.clone(),
+                        parent: self.location_int_to_ext(self.get_item_id(*parent))
+                    });
+                },
+                Op::Delete { mut target, mut span } => {
+                    while span > 0 {
+                        // Take as much as we can from the transaction and append to ops.
+                        let txn = self.get_txn_containing_item(target);
+                        let offset = target - txn.insert_order_start;
+                        // let base_seq = txn.insert_seq_start as usize + *target - txn.insert_order_start;
+                        debug_assert!(offset < txn.num_inserts);
+                        let delete_here = span.min(txn.num_inserts - offset);
+                        ops.push(OpExternal::Delete {
+                            target: CRDTLocationExternal {
+                                agent: self.client_data[txn.id.agent as usize].name.clone(),
+                                seq: txn.insert_seq_start + offset as u32
+                            },
+                            span: delete_here
+                        });
+                        target += delete_here;
+                        span -= delete_here;
+                    }
+                }
+            }
+        }
+
         TxnExternal {
             id: self.location_int_to_ext(txn.id),
             insert_seq_start: txn.insert_seq_start,
             parents: txn.parents.iter().map(|p| {
                 self.location_int_to_ext(self.get_txn_id(*p))
             }).collect(),
-            ops: txn.ops.iter().map(|op| {
-                match op {
-                    Op::Insert { content, parent } => {
-                        OpExternal::Insert {
-                            content: content.clone(),
-                            parent: self.location_int_to_ext(self.get_item_id(*parent))
-                        }
-                    },
-                    Op::Delete { target, span } => {
-                        OpExternal::Delete {
-                            target: self.location_int_to_ext(self.get_item_id(*target)),
-                            span: *span
-                        }
-                    }
-                }
-            }).collect()
+            ops
         }
     }
 
@@ -689,6 +728,8 @@ impl DocumentState {
                 });
                 for item in deleted_items {
                     assert!(item.len > 0);
+                    // NOTE: Its totally possible (and likely in some tests) for the deleted span
+                    // to cross transaction boundaries. This Op::Delete might span multiple peers!
                     ops.push(Op::Delete {
                         target: item.order as _,
                         span: item.len.abs() as _
@@ -701,6 +742,10 @@ impl DocumentState {
             }
 
             if !ins_content.is_empty() {
+                // If there's deleted characters at this point in the document, we have a choice to
+                // make here around whether the inserted characters should go before or after the
+                // deleted range. Before is marginally better because it will give us more chance
+                // to prune the tree later.
                 let len = ins_content.chars().count();
                 let cursor = self.range_tree.cursor_at_content_pos(*pos, true);
                 let parent = cursor.tell_predecessor().unwrap_or(ROOT_ORDER);
@@ -751,19 +796,19 @@ impl DocumentState {
         order
     }
 
-    fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) -> Order {
+    pub fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) -> Order {
         self.internal_txn(agent, &[LocalOp {
             ins_content, pos, del_span: 0
         }])
     }
-    fn internal_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Order {
+    pub fn internal_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Order {
         self.internal_txn(agent, &[LocalOp {
             ins_content: SmartString::default(), pos, del_span
         }])
     }
 
     // fn merge(a: &mut Self, b: &mut Self) {
-    fn merge_from(&mut self, other: &Self) {
+    pub fn merge_from(&mut self, other: &Self) {
         // Locally merge all the operations which are present in other but missing locally.
         // TODO: This is horribly written - for now its just for testing. The real procedure here
         // would implement export and import for binary operations.
@@ -786,12 +831,59 @@ impl DocumentState {
 
         // Sort by order. The other peer will have a reasonable order.
         new_txn_orders.sort();
-
         for order in new_txn_orders {
             let txn = other.export_txn(order);
+            dbg!(order, &txn);
             self.integrate_external_txn(&txn);
+            dbg!(&self.text_content);
+
+            if USE_INNER_ROPE {
+                debug_assert_eq!(self.text_content.len_chars(), self.range_tree.content_len());
+            }
         }
     }
+
+    fn tell_item_position_order(&self, item: Order) -> usize {
+        let cursor = self.get_cursor_before(item);
+        cursor.count_pos() as _
+    }
+
+    fn tell_item_position_from_txn(&self, txn: Order, item_offset: Order) -> usize {
+        let txn = &self.txns[txn];
+        assert!(item_offset < txn.num_inserts);
+        self.tell_item_position_order(txn.insert_order_start + item_offset)
+    }
+
+    pub fn document_items_iter(&self) -> impl Iterator<Item=CRDTLocationExternal> + '_ {
+        self.range_tree.item_iter().map(move |item| {
+            self.item_order_to_ext(item)
+        })
+    }
+    pub fn document_items_with_parents_iter(&self) -> impl Iterator<Item=ItemDebugInfo> + '_ {
+        self.range_tree.item_iter().map(move |item| {
+            let id = self.item_order_to_ext(item);
+            let txn = self.get_txn_containing_item(item);
+            let parent_order = txn.get_item_parent(item);
+
+            let parents: Vec<_> = txn.parents.iter().map(|p| {
+                self.location_int_to_ext(self.get_txn_id(*p))
+            }).collect();
+            // (id, self.item_order_to_ext(parent_order), parents)
+            ItemDebugInfo {
+                item: id,
+                insert_parent: self.item_order_to_ext(parent_order),
+                txn_id: self.location_int_to_ext(txn.id),
+                parents
+            }
+        }).filter(|item| {
+            item.insert_parent == *CRDT_DOC_ROOT_EXTERNAL
+        })
+    }
+
+    // fn tell_item_position_loc(&self, item: CRD) -> usize {
+    //     let cursor = self.get_cursor_before(item);
+    //     cursor.count_pos() as _
+    // }
 
     pub fn check(&self) {
         if USE_INNER_ROPE {
@@ -821,10 +913,12 @@ impl DocumentState {
 
 #[cfg(test)]
 mod tests {
-    use crate::automerge::{DocumentState, TxnExternal, OpExternal, CRDTLocationExternal, CRDT_DOC_ROOT_EXTERNAL};
-    use crate::common::{CRDTLocation, CRDT_DOC_ROOT};
+    use crate::automerge::{DocumentState, TxnExternal, OpExternal, CRDTLocationExternal, CRDT_DOC_ROOT_EXTERNAL, Order};
+    use crate::common::{CRDTLocation, CRDT_DOC_ROOT, AgentId};
     use smartstring::SmartString;
     use smallvec::smallvec;
+    use rand::prelude::*;
+    use rand::Rng;
 
     #[test]
     fn insert_stuff() {
@@ -945,7 +1039,229 @@ mod tests {
         dbg!(&b);
         a.merge_from(&b);
 
-
         assert_eq!(a.text_content, b.text_content);
+    }
+
+
+    fn random_str(len: usize, rng: &mut SmallRng) -> String {
+        let mut str = String::new();
+        let alphabet: Vec<char> = "abcdefghijklmnop_".chars().collect();
+        for _ in 0..len {
+            str.push(alphabet[rng.gen_range(0..alphabet.len())]);
+        }
+        str
+    }
+
+    fn make_random_change(doc: &mut DocumentState, agent: AgentId, rng: &mut SmallRng) -> Order {
+        let doc_len = doc.len();
+        let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
+        if doc_len == 0 || rng.gen_bool(insert_weight) {
+            // Insert something.
+            let pos = rng.gen_range(0..=doc_len);
+            let len: usize = rng.gen_range(1..2); // Ideally skew toward smaller inserts.
+            // let len: usize = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
+
+            let content = random_str(len as usize, rng);
+            println!("Inserting '{}' at position {}", content, pos);
+            doc.internal_insert(agent, pos, content.into())
+        } else {
+            // Delete something
+            let pos = rng.gen_range(0..doc_len);
+            // println!("range {}", u32::min(10, doc_len - pos));
+            let span = rng.gen_range(1..=usize::min(10, doc_len - pos));
+            // dbg!(&state.marker_tree, pos, len);
+            println!("deleting {} at position {}", span, pos);
+            doc.internal_delete(agent, pos, span)
+        }
+    }
+
+    #[test]
+    fn internal_external_consistency() {
+        // In this test we generate random operations on one document and replay them on another.
+        // Document states should always exactly match.
+
+        let mut rng = SmallRng::seed_from_u64(7);
+        let mut doc1 = DocumentState::new();
+        let mut doc2 = DocumentState::new();
+
+        let agent = doc1.get_or_create_client_id("seph");
+
+        for _i in 0..1000 {
+            let order = make_random_change(&mut doc1, agent, &mut rng);
+            let txn = doc1.export_txn(order);
+            // dbg!(&txn);
+            doc2.integrate_external_txn(&txn);
+
+            assert_eq!(doc1.text_content, doc2.text_content);
+            assert_eq!(doc1.frontier, doc2.frontier);
+
+            // dbg!(&doc1.range_tree, &doc2.range_tree);
+        }
+    }
+
+    fn make_ordering_test_doc() -> DocumentState {
+        let mut doc = DocumentState::new();
+        doc.integrate_external_txn(&TxnExternal {
+            id: CRDTLocationExternal { agent: "z".into(), seq: 0 },
+            insert_seq_start: 0,
+            parents: smallvec![CRDT_DOC_ROOT_EXTERNAL.clone()],
+            ops: smallvec![OpExternal::Insert {content: "zzz".into(), parent: CRDT_DOC_ROOT_EXTERNAL.clone()}]
+        });
+        doc
+    }
+
+    // If two concurrent inserts happen at the same place, how should they be ordered?
+    fn ordering_from_base(base: &CRDTLocationExternal, base_loc: usize) {
+        // TODO: Find a better way to express this sort of test case that's not so big!
+
+        // 1. If they come from the same agent, the later seq comes first
+        {
+            let mut doc = make_ordering_test_doc();
+            let txn_a = doc.integrate_external_txn(&TxnExternal {
+                id: CRDTLocationExternal { agent: "a".into(), seq: 0 },
+                insert_seq_start: 0,
+                parents: smallvec![CRDT_DOC_ROOT_EXTERNAL.clone()],
+                ops: smallvec![OpExternal::Insert {content: "x".into(), parent: base.clone()}]
+            });
+
+            let txn_b = doc.integrate_external_txn(&TxnExternal {
+                id: CRDTLocationExternal { agent: "a".into(), seq: 1 },
+                insert_seq_start: 0,
+                parents: smallvec![CRDTLocationExternal { agent: "a".into(), seq: 0 }],
+                ops: smallvec![OpExternal::Insert {content: "y".into(), parent: base.clone()}]
+            });
+
+            assert_eq!(base_loc+1, doc.tell_item_position_from_txn(txn_a, 0));
+            assert_eq!(base_loc+0, doc.tell_item_position_from_txn(txn_b, 0));
+        }
+
+        // 2. If they come from different agents but the second op depends on the first...
+        {
+            let mut doc = make_ordering_test_doc();
+            let txn_a = doc.integrate_external_txn(&TxnExternal {
+                id: CRDTLocationExternal { agent: "a".into(), seq: 0 },
+                insert_seq_start: 0,
+                parents: smallvec![CRDT_DOC_ROOT_EXTERNAL.clone()],
+                ops: smallvec![OpExternal::Insert {content: "x".into(), parent: base.clone()}]
+            });
+
+            let txn_b = doc.integrate_external_txn(&TxnExternal {
+                id: CRDTLocationExternal { agent: "b".into(), seq: 0 },
+                insert_seq_start: 0,
+                parents: smallvec![CRDTLocationExternal { agent: "a".into(), seq: 0 }],
+                ops: smallvec![OpExternal::Insert {content: "y".into(), parent: base.clone()}]
+            });
+
+            assert_eq!(base_loc+1, doc.tell_item_position_from_txn(txn_a, 0));
+            assert_eq!(base_loc+0, doc.tell_item_position_from_txn(txn_b, 0));
+        }
+
+        // 3. If they come from different agents but the second op *does not* depend on the first
+        //    then they should be ordered based on their agent IDs.
+        {
+            let mut doc = make_ordering_test_doc();
+            let txn_a = doc.integrate_external_txn(&TxnExternal {
+                id: CRDTLocationExternal { agent: "a".into(), seq: 0 },
+                insert_seq_start: 0,
+                parents: smallvec![CRDT_DOC_ROOT_EXTERNAL.clone()],
+                ops: smallvec![OpExternal::Insert {content: "x".into(), parent: base.clone()}]
+            });
+
+            let txn_b = doc.integrate_external_txn(&TxnExternal {
+                id: CRDTLocationExternal { agent: "b".into(), seq: 0 },
+                insert_seq_start: 0,
+                parents: smallvec![CRDT_DOC_ROOT_EXTERNAL.clone()],
+                ops: smallvec![OpExternal::Insert {content: "y".into(), parent: base.clone()}]
+            });
+
+            assert_eq!(base_loc+0, doc.tell_item_position_from_txn(txn_a, 0));
+            assert_eq!(base_loc+1, doc.tell_item_position_from_txn(txn_b, 0));
+
+            // And we'll insert them in the other order too to make sure that works as well.
+
+            let mut doc = make_ordering_test_doc();
+            let txn_b = doc.integrate_external_txn(&TxnExternal {
+                id: CRDTLocationExternal { agent: "b".into(), seq: 0 },
+                insert_seq_start: 0,
+                parents: smallvec![CRDT_DOC_ROOT_EXTERNAL.clone()],
+                ops: smallvec![OpExternal::Insert {content: "y".into(), parent: base.clone()}]
+            });
+
+            let txn_a = doc.integrate_external_txn(&TxnExternal {
+                id: CRDTLocationExternal { agent: "a".into(), seq: 0 },
+                insert_seq_start: 0,
+                parents: smallvec![CRDT_DOC_ROOT_EXTERNAL.clone()],
+                ops: smallvec![OpExternal::Insert {content: "x".into(), parent: base.clone()}]
+            });
+
+            assert_eq!(base_loc+0, doc.tell_item_position_from_txn(txn_a, 0));
+            assert_eq!(base_loc+1, doc.tell_item_position_from_txn(txn_b, 0));
+        }
+    }
+
+    #[test]
+    fn ordering() {
+        ordering_from_base(&CRDT_DOC_ROOT_EXTERNAL, 0);
+        ordering_from_base(&CRDTLocationExternal {
+            agent: "z".into(), seq: 0
+        }, 1);
+    }
+
+    #[test]
+    #[ignore]
+    fn random_concurrency() {
+        let mut rng = SmallRng::seed_from_u64(34124);
+
+        let mut docs = [DocumentState::new(), DocumentState::new(), DocumentState::new()];
+
+        // Each document will have a different local agent ID. I'm cheating here - just making agent
+        // 0 for all of them.
+        for (i, doc) in docs.iter_mut().enumerate() {
+            doc.get_or_create_client_id(format!("agent {}", i).as_str());
+        }
+
+        for i in 0..100 {
+            println!("\n\n{}", i);
+
+            // Generate some operations
+            for _j in 0..3 {
+                let doc_idx = rng.gen_range(0..docs.len());
+                let doc = &mut docs[doc_idx];
+
+                println!("editing doc {} (content '{}')", doc_idx, doc.text_content);
+                make_random_change(doc, 0, &mut rng);
+                println!("doc {} -> '{}'", doc_idx, doc.text_content);
+            }
+
+            // Then merge 2 documents at random
+            let a = rng.gen_range(0..docs.len());
+            let b = rng.gen_range(0..docs.len());
+
+            if a != b {
+                println!("Merging {} and {}", a, b);
+                // Oh god this is awful. I can't take mutable references to two array items.
+                let (a, b) = if a > b { (a, b) } else { (b, a) };
+                // a>b.
+                let (start, end) = docs[..].split_at_mut(a);
+                let b = &mut start[b];
+                let a = &mut end[0];
+
+                dbg!(&a.text_content, &b.text_content);
+                // dbg!(&a.range_tree, &b.range_tree);
+
+                a.merge_from(&b);
+                b.merge_from(&a);
+
+                let a_items: Vec<_> = a.document_items_with_parents_iter().collect();
+                let b_items: Vec<_> = b.document_items_with_parents_iter().collect();
+                if a_items != b_items {
+                    dbg!(&a_items, &b_items);
+                }
+                assert_eq!(a_items, b_items);
+
+                assert_eq!(a.text_content, b.text_content);
+                println!("Post merge content {}", a.text_content);
+            }
+        }
     }
 }

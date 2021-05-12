@@ -18,7 +18,7 @@ mod sibling_range;
 
 use lazy_static::lazy_static;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CRDTLocationExternal {
     pub agent: SmartString,
     pub seq: u32,
@@ -86,13 +86,19 @@ pub struct TxnInternal {
     ops: SmallVec<[Op; 1]>,
 }
 
-// /// A run of inserts either describe a lot of inserts at a single location
+// /// A run of inserts.
+// ///
+// /// There are 3 cases here:
+// /// 1. A transaction is large and contains multiple separable inserts. In this case, the transaction
+// ///    contains multiple InsertRuns, all with the same txn_order.
+// /// 2. A series of single-character inserts
 // #[derive(Clone, Debug)]
 // struct InsertRun {
-//     // TODO: IS this the best way to do this?
-//     content: InlinableString,
+//     txn_order: Order,
+//     // length: usize,
 //
-//     length: usize,
+//     // TODO: IS this the best way to do this?
+//     content: SmartString,
 // }
 
 #[derive(Debug)]
@@ -149,4 +155,13 @@ pub struct LocalOp {
     pub pos: usize,
     pub ins_content: SmartString,
     pub del_span: usize
+}
+
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct ItemDebugInfo {
+    item: CRDTLocationExternal,
+    insert_parent: CRDTLocationExternal,
+    txn_id: CRDTLocationExternal,
+    parents: Vec<CRDTLocationExternal>,
 }

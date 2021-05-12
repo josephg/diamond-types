@@ -331,8 +331,11 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
     /// Delete up to max_deleted_len from the marker tree, at the location specified by cursor.
     /// We will always delete at least one item. Consumers of this API should call this in a loop.
     ///
-    /// Returns the number of items marked for deletion.
-    pub fn remote_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_deleted_len: usize, mut notify: F) -> usize
+    /// Returns either the number of items marked for deletion if positive, or the number of items
+    /// which have already been deleted at this location if negative.
+    ///
+    /// TODO: It might be cleaner to make the caller check for deleted items if we return 0.
+    pub fn remote_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_deleted_len: usize, mut notify: F) -> isize
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
 
         cursor.roll_to_next_entry(false);
@@ -361,8 +364,13 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
 
             unsafe { cursor.get_node_mut() }.flush(&mut flush_marker);
 
-            amt_deleted
-        } else { 0 }
+            amt_deleted as isize
+        } else {
+            // The range has already been deleted. This operation is
+            // idempotent, so we just pretend we deleted some content
+            // when nothing of the sort happened.
+            -(max_deleted_len.min(entry.len() - cursor.offset) as isize)
+        }
     }
 }
 

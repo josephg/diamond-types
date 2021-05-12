@@ -9,8 +9,9 @@
             "request": "launch",
             "name": "Launch",
             "program": "${workspaceFolder}/target/debug/deps/text_crdt_rust-899d31645cc1cbb6",
-            "args": ["--nocapture", "delete_simple"],
-            "cwd": "${workspaceFolder}"
+            "args": ["--nocapture", "random_concurrency"],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": ["rust"],
         }
     ]
 }

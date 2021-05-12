@@ -147,6 +147,10 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
+    pub fn item_iter(&self) -> ItemIterator<E, I> {
+        ItemIterator(self.iter())
+    }
+
     pub fn next_entry_or_panic(cursor: &mut Cursor<E, I>, marker: &mut I::FlushMarker) {
         if cursor.next_entry_marker(Some(marker)) == false {
             panic!("Local delete past the end of the document");

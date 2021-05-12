@@ -5,7 +5,7 @@ use std::ops::Index;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct MarkerEntry<E: EntryTraits, I: TreeIndex<E>> {
-    // The order / seq is implicit from the location inthe list.
+    // The order / seq is implicit from the location in the list.
     pub len: u32,
     pub ptr: NonNull<NodeLeaf<E, I>>
 }

@@ -9,6 +9,8 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
     // This is strictly unnecessary given truncate(), but it makes some code cleaner.
     fn truncate_keeping_right(&mut self, at: usize) -> Self;
 
+    /// Checks if the entry contains the specified item. If it does, returns the offset into the
+    /// item.
     fn contains(&self, loc: Self::Item) -> Option<usize>;
     fn is_valid(&self) -> bool;
 

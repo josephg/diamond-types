@@ -129,6 +129,37 @@ impl<E: EntryTraits, I: TreeIndex<E>> Iterator for Cursor<E, I> {
     }
 }
 
+/// Iterator for all the items inside the entries. Unlike entry iteration we use the offset here.
+#[derive(Debug)]
+pub struct ItemIterator<E: EntryTraits, I: TreeIndex<E>>(Cursor<E, I>);
+
+impl<E: EntryTraits, I: TreeIndex<E>> Iterator for ItemIterator<E, I> {
+    type Item = E::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // I'll set idx to an invalid value
+        if self.0.idx == usize::MAX {
+            None
+        } else {
+            let entry = self.0.get_entry();
+            let len = entry.len();
+            let item = entry.at_offset(self.0.offset);
+            self.0.offset += 1;
+
+            if self.0.offset >= len {
+                // Skip to the next entry for the next query.
+                let has_next = self.0.next_entry();
+                if !has_next {
+                    // We're done.
+                    self.0.idx = usize::MAX;
+                }
+            }
+            Some(item)
+        }
+    }
+}
+
+
 #[derive(Clone, Debug)]
 struct PrintDropLeaf;
 

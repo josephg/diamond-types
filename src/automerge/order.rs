@@ -1,6 +1,8 @@
 use crate::splitable_span::SplitableSpan;
 use crate::range_tree::{EntryTraits, CRDTItem, EntryWithContent};
 
+/// An OrderMarker defines a span of item orders, with a base and length.
+/// If the length is negative, the span has been deleted in the document.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct OrderMarker {
     // TODO: Not sure what the right sizes of these two should be.
@@ -26,14 +28,14 @@ impl SplitableSpan for OrderMarker {
     }
 
     fn truncate(&mut self, at: usize) -> Self {
-        let sign = self.len.signum();
+        let at_signed = at as i32 * self.len.signum();
 
         let other = OrderMarker {
             order: self.order + at as u32,
-            len: self.len - (at as i32) * sign
+            len: self.len - at_signed
         };
 
-        self.len = at as i32 * sign;
+        self.len = at_signed;
         other
     }
 
