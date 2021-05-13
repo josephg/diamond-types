@@ -2,7 +2,7 @@ use crate::yjs::*;
 use crate::split_list::SplitList;
 use crate::range_tree::{RangeTree, Cursor, NodeLeaf};
 use crate::common::{AgentId, LocalOp};
-use smallvec::{SmallVec, smallvec};
+use smallvec::smallvec;
 use std::ptr::NonNull;
 use crate::splitable_span::SplitableSpan;
 
@@ -98,7 +98,7 @@ impl YjsDoc {
         });
 
         // Ok now thats out of the way, lets integrate!
-        let mut cursor = cursor_hint.unwrap_or_else(|| {
+        let cursor = cursor_hint.unwrap_or_else(|| {
             self.get_cursor_after(item.origin_left)
         });
 
@@ -205,7 +205,7 @@ mod tests {
     use crate::yjs::YjsDoc;
 
     #[test]
-    fn foo() {
+    fn smoke() {
         let mut doc = YjsDoc::new();
         doc.get_or_create_client_id("seph");
         doc.local_insert(0, 0, "hi".into());

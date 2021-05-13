@@ -1,5 +1,6 @@
 use super::*;
 use crate::range_tree::entry::CRDTItem;
+use std::cmp::Ordering;
 
 // impl<'a, E: EntryTraits> Cursor<'a, E> {
 impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
@@ -262,5 +263,78 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> Cursor<E, I> {
 
         let entry = self.get_entry(); // Shame this is called twice but eh.
         Some(entry.at_offset(self.offset - 1))
+    }
+}
+
+/// NOTE: This comparator will panic when cursors from different range trees are compared.
+///
+/// Also beware: A cursor pointing to the end of an entry will be considered less than a cursor
+/// pointing to the subsequent entry.
+impl<E: EntryTraits, I: TreeIndex<E>> Ord for Cursor<E, I> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.node == other.node {
+            // We'll compare cursors directly.
+            if self.idx == other.idx { self.offset.cmp(&other.offset) }
+            else { self.idx.cmp(&other.idx) }
+        } else {
+            // Recursively walk up the trees to find the common ancestor.
+            unsafe {
+                let mut n1 = NodePtr::Leaf(self.node);
+                let mut n2 = NodePtr::Leaf(other.node);
+                loop {
+                    // Look at the parents
+                    let p1 = n1.get_parent().unwrap_internal();
+                    let p2 = n2.get_parent().unwrap_internal();
+
+                    if p1 == p2 {
+                        let node = p1.as_ref();
+                        let idx1 = node.find_child(n1).unwrap();
+                        let idx2 = node.find_child(n2).unwrap();
+                        return idx1.cmp(&idx2);
+                    }
+
+                    // Otherwise keep traversing upwards!
+                    n1 = NodePtr::Internal(p1);
+                    n2 = NodePtr::Internal(p2);
+                }
+            }
+        }
+    }
+}
+
+impl<E: EntryTraits, I: TreeIndex<E>> PartialOrd for Cursor<E, I> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::range_tree::*;
+    use crate::order::OrderMarker;
+    use std::cmp::Ordering;
+
+    #[test]
+    fn compare_cursors() {
+        let mut tree = RangeTree::<OrderMarker, ContentIndex>::new();
+
+        let cursor = tree.cursor_at_start();
+        assert_eq!(cursor, cursor);
+
+        tree.insert(cursor, OrderMarker { order: 0, len: 1 }, |_a, _b| {});
+
+        let c1 = tree.cursor_at_start();
+        let c2 = tree.cursor_at_end();
+        assert!(c1 < c2);
+
+        // Ok now lets add a bunch of junk to make sure the tree has a bunch of internal nodes
+        for i in 0..1000 {
+            tree.insert(tree.cursor_at_start(), OrderMarker { order: i, len: 1 }, |_a, _b| {});
+        }
+
+        let c1 = tree.cursor_at_start();
+        let c2 = tree.cursor_at_end();
+        assert!(c1 < c2);
     }
 }

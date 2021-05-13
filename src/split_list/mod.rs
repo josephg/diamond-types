@@ -388,6 +388,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
     }
 
     // Mostly for testing.
+    #[allow(unused)]
     pub fn count_entries(&self) -> usize {
         let mut count = 0;
         for bucket in &self.content {

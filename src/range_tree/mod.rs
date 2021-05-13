@@ -273,4 +273,20 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodePtr<E, I> {
             NodePtr::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
+
+    unsafe fn get_parent(&self) -> ParentPtr<E, I> {
+        match self {
+            NodePtr::Internal(n) => { n.as_ref().parent }
+            NodePtr::Leaf(n) => { n.as_ref().parent }
+        }
+    }
+}
+
+impl<E: EntryTraits, I: TreeIndex<E>> ParentPtr<E, I> {
+    fn unwrap_internal(self) -> NonNull<NodeInternal<E, I>> {
+        match self {
+            ParentPtr::Root(_) => { panic!("Expected internal node"); }
+            ParentPtr::Internal(ptr) => { ptr }
+        }
+    }
 }
