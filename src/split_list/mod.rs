@@ -2,8 +2,9 @@ use smallvec::SmallVec;
 use std::ops::Index;
 use std::fmt::Debug;
 use crate::splitable_span::SplitableSpan;
+use std::mem::{size_of_val, size_of};
 
-const DEFAULT_BUCKET_SIZE: usize = 10;
+const DEFAULT_BUCKET_SIZE: usize = 100;
 const BUCKET_INLINED_SIZE: usize = 13;
 
 // At the high level, we've got a vector of items
@@ -347,7 +348,19 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
     pub fn print_stats(&self) {
         let mut size_counts = vec!();
         let mut bucket_item_counts = vec!();
+        let mut num_inline_buckets = 0;
+        let mut num_heap_buckets = 0;
+        let mut mem_size = size_of_val(self);
+
         for bucket in &self.content {
+            // TODO: This doesn't include the size of any spilled buckets.
+            mem_size += size_of_val(bucket);
+            if bucket.spilled() {
+                num_heap_buckets += 1;
+                mem_size += bucket.capacity() * size_of::<Entry>();
+            }
+            else { num_inline_buckets += 1; }
+
             let bucket_count = bucket.len();
             if bucket_count >= bucket_item_counts.len() {
                 bucket_item_counts.resize(bucket_count + 1, 0);
@@ -363,8 +376,12 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
             }
         }
 
-        println!("bucket item counts {:#?}", bucket_item_counts);
-        println!("size counts {:#?}", size_counts);
+        println!("-------- Split list stats --------");
+        println!("number of buckets {}", self.content.len());
+        println!("bucket item counts {:?}", bucket_item_counts);
+        println!("size counts {:?}", size_counts);
+        println!("spilled {} / inline {}", num_heap_buckets, num_inline_buckets);
+        println!("Total split list memory usage {}", mem_size);
         for (i, len) in size_counts.iter().enumerate() {
             println!("{} count: {}", i, len);
         }

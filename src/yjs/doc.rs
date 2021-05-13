@@ -126,7 +126,6 @@ impl YjsDoc {
     }
 
     pub fn local_txn(&mut self, agent: AgentId, local_ops: &[LocalOp]) {
-
         for LocalOp { pos, ins_content, del_span } in local_ops {
             let pos = *pos;
             if *del_span > 0 {
@@ -193,6 +192,11 @@ impl YjsDoc {
 
     pub fn len(&self) -> usize {
         self.range_tree.content_len()
+    }
+
+    pub fn print_stats(&self) {
+        self.range_tree.print_stats();
+        self.markers.print_stats();
     }
 }
 

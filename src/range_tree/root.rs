@@ -2,6 +2,7 @@ use super::*;
 
 use smallvec::SmallVec;
 use crate::range_tree::index::FullIndex;
+use std::mem::size_of;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 pub fn extend_delete<E: EntryTraits>(delete: &mut DeleteResult<E>, entry: E) {
@@ -302,13 +303,30 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             size_counts[bucket] += 1;
         }
 
+        println!("-------- Range tree stats --------");
         println!("Entry distribution {:?}", size_counts);
+        println!("Number of entries {}", self.count_entries());
+        println!("Number of internal nodes {}", self.count_internal_nodes());
+        println!("Depth {}", self.get_depth());
+        println!("Total range tree memory usage {}", self.count_total_memory());
 
         println!("Internal node size {}", std::mem::size_of::<NodeInternal<E, I>>());
         println!("Node entry size {} alignment {}",
                  std::mem::size_of::<Option<Node<E, I>>>(),
                  std::mem::align_of::<Option<Node<E, I>>>());
         println!("Leaf size {}", std::mem::size_of::<NodeLeaf<E, I>>());
+    }
+
+    fn get_depth(&self) -> usize {
+        unsafe {
+            let mut depth = 0;
+            let mut node = self.root.as_ptr();
+            while let NodePtr::Internal(data) = node {
+                depth += 1;
+                node = data.as_ref().data[0].1.as_ref().unwrap().as_ptr()
+            };
+            depth
+        }
     }
 
     #[allow(unused)]
@@ -333,6 +351,30 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         let mut num = 0;
         Self::count_internal_nodes_internal(&self.root, &mut num);
         num
+    }
+
+    fn count_memory_internal(node: &Node<E, I>, size: &mut usize) {
+        match node {
+            Node::Internal(n) => {
+                *size += size_of::<NodeInternal<E, I>>();
+
+                for (_, e) in &n.data[..] {
+                    if let Some(e) = e {
+                        Self::count_memory_internal(e, size);
+                    }
+                }
+            }
+            Node::Leaf(_) => {
+                *size += std::mem::size_of::<NodeLeaf<E, I>>();
+            }
+        }
+    }
+
+    #[allow(unused)]
+    pub(crate) fn count_total_memory(&self) -> usize {
+        let mut size = size_of::<RangeTree<E, I>>();
+        Self::count_memory_internal(&self.root, &mut size);
+        size
     }
 }
 
