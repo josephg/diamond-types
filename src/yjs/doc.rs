@@ -5,10 +5,11 @@ use crate::common::{AgentId, LocalOp};
 use smallvec::smallvec;
 use std::ptr::NonNull;
 use crate::splitable_span::SplitableSpan;
+use std::cmp::Ordering;
 
-// #[cfg(inlinerope)]
-// const USE_INNER_ROPE: bool = true;
-// #[cfg(not(inlinerope))]
+#[cfg(inlinerope)]
+const USE_INNER_ROPE: bool = true;
+#[cfg(not(inlinerope))]
 const USE_INNER_ROPE: bool = false;
 
 impl ClientData {
@@ -56,6 +57,10 @@ impl YjsDoc {
         }
     }
 
+    fn get_agent_name(&self, agent: AgentId) -> &str {
+        self.client_data[agent as usize].name.as_str()
+    }
+
     fn get_next_order(&self) -> Order {
         if let Some((base, y)) = self.client_with_order.last() {
             base + y.len as u32
@@ -97,10 +102,13 @@ impl YjsDoc {
             len: item.len
         });
 
-        // Ok now thats out of the way, lets integrate!
-        let cursor = cursor_hint.unwrap_or_else(|| {
+        // Ok now that's out of the way, lets integrate!
+        let mut cursor = cursor_hint.unwrap_or_else(|| {
             self.get_cursor_after(item.origin_left)
         });
+        let left_cursor = cursor;
+        let mut scan_start = cursor;
+        let mut scanning = false;
 
         loop {
             let other_order = match cursor.get_item() {
@@ -110,8 +118,36 @@ impl YjsDoc {
 
             if other_order == item.origin_right { break; }
 
-            panic!("Concurrent edit!");
+            // This code could be better optimized, but its already O(n * log n), and its extremely
+            // rare that you actually get concurrent inserts at the same location in the document
+            // anyway.
+
+            let other_entry = cursor.get_entry();
+            let other_left_order = other_entry.origin_left_at_offset(cursor.offset as u32);
+            let other_left_cursor = self.get_cursor_after(other_left_order);
+
+            match std::cmp::Ord::cmp(&other_left_cursor, &left_cursor) {
+                Ordering::Less => { break; } // Top row
+                Ordering::Greater => { } // Bottom row. Continue.
+                Ordering::Equal => {
+                    // These items might be concurrent.
+                    let my_name = self.get_agent_name(loc.agent);
+                    let other_loc = self.client_with_order.get(other_entry.order);
+                    let other_name = self.get_agent_name(other_loc.agent);
+                    if my_name > other_name {
+                        scanning = false;
+                    } else if item.origin_right == other_entry.origin_right {
+                        break;
+                    } else {
+                        scanning = true;
+                        scan_start = cursor;
+                    }
+                }
+            }
+
+            cursor.next_entry();
         }
+        if scanning { cursor = scan_start; }
 
         // Now insert here.
         let markers = &mut self.markers;
@@ -212,7 +248,10 @@ impl Default for YjsDoc {
 
 #[cfg(test)]
 mod tests {
-    use crate::yjs::YjsDoc;
+    use crate::yjs::*;
+    use rand::prelude::*;
+    use crate::common::*;
+    use crate::yjs::doc::USE_INNER_ROPE;
 
     #[test]
     fn smoke() {
@@ -224,4 +263,54 @@ mod tests {
         dbg!(doc);
     }
 
+
+    fn random_str(len: usize, rng: &mut SmallRng) -> String {
+        let mut str = String::new();
+        let alphabet: Vec<char> = "abcdefghijklmnop_".chars().collect();
+        for _ in 0..len {
+            str.push(alphabet[rng.gen_range(0..alphabet.len())]);
+        }
+        str
+    }
+
+    fn make_random_change(doc: &mut YjsDoc, rope: &mut Rope, agent: AgentId, rng: &mut SmallRng) {
+        let doc_len = doc.len();
+        let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
+        if doc_len == 0 || rng.gen_bool(insert_weight) {
+            // Insert something.
+            let pos = rng.gen_range(0..=doc_len);
+            let len: usize = rng.gen_range(1..2); // Ideally skew toward smaller inserts.
+            // let len: usize = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
+
+            let content = random_str(len as usize, rng);
+            println!("Inserting '{}' at position {}", content, pos);
+            rope.insert(pos, content.as_str());
+            doc.local_insert(agent, pos, content.into())
+        } else {
+            // Delete something
+            let pos = rng.gen_range(0..doc_len);
+            // println!("range {}", u32::min(10, doc_len - pos));
+            let span = rng.gen_range(1..=usize::min(10, doc_len - pos));
+            // dbg!(&state.marker_tree, pos, len);
+            println!("deleting {} at position {}", span, pos);
+            rope.remove(pos..pos+span);
+            doc.local_delete(agent, pos, span)
+        }
+    }
+
+    #[test]
+    fn random_single_document() {
+        let mut rng = SmallRng::seed_from_u64(7);
+        let mut doc = YjsDoc::new();
+
+        let agent = doc.get_or_create_client_id("seph");
+        let mut expected_content = Rope::new();
+
+        for _i in 0..1000 {
+            make_random_change(&mut doc, &mut expected_content, agent, &mut rng);
+            if USE_INNER_ROPE {
+                assert_eq!(doc.text_content, expected_content);
+            }
+        }
+    }
 }

@@ -14,7 +14,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     /// If the cursor points in the middle of an item, the item is split.
     ///
     /// TODO: Add support for item prepending to this method, for backspace operations.
-    pub(super) fn splice_insert<F>(self: &Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E, I>, flush_marker: &mut I::FlushMarker, notify: &mut F)
+    pub(super) fn splice_insert<F>(self: &mut Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E, I>, flush_marker: &mut I::FlushMarker, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>)
     {
         // dbg!("splice_insert", &flush_marker);
@@ -182,7 +182,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     ///
     /// Items must have a maximum length of 3, due to limitations in split_insert above.
     /// The cursor's offset is ignored. The cursor ends up at the end of the inserted items.
-    pub(super) fn replace_entry<F>(self: &Pin<Box<Self>>, cursor: &mut Cursor<E, I>, items: &[E], flush_marker: &mut I::FlushMarker, notify: &mut F)
+    pub(super) fn replace_entry<F>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I>, items: &[E], flush_marker: &mut I::FlushMarker, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         assert!(items.len() >= 1 && items.len() <= 3);
 
@@ -199,7 +199,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         self.splice_insert(&items[1..], cursor, flush_marker, notify);
     }
 
-    pub fn insert<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E, I>, new_entry: E, mut notify: F)
+    pub fn insert<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, new_entry: E, mut notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         // TODO: This check is useful, but awful to code in with all the index stuff :(
         // let len = new_entry.content_len();
@@ -224,7 +224,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     }
 
     /// Replace as much of the current entry from cursor onwards as we can
-    fn replace_range<MapFn, N>(self: &Pin<Box<Self>>, map_fn: MapFn, cursor: &mut Cursor<E, I>, replace_max: usize, flush_marker: &mut I::FlushMarker, notify: &mut N) -> usize
+    fn replace_range<MapFn, N>(self: &mut Pin<Box<Self>>, map_fn: MapFn, cursor: &mut Cursor<E, I>, replace_max: usize, flush_marker: &mut I::FlushMarker, notify: &mut N) -> usize
         where N: FnMut(E, NonNull<NodeLeaf<E, I>>), MapFn: FnOnce(&mut E) {
 
         let node = unsafe { cursor.get_node_mut() };
@@ -274,7 +274,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 }
 
 impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
-    pub fn local_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E, I>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
+    pub fn local_delete<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         // println!("local_delete len: {} at cursor {:?}", deleted_len, cursor);
 
@@ -333,7 +333,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
     /// which have already been deleted at this location if negative.
     ///
     /// TODO: It might be cleaner to make the caller check for deleted items if we return 0.
-    pub fn remote_delete<F>(self: &Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_deleted_len: usize, mut notify: F) -> isize
+    pub fn remote_delete<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_deleted_len: usize, mut notify: F) -> isize
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
 
         cursor.roll_to_next_entry(false);
@@ -573,7 +573,7 @@ mod tests {
 
     #[test]
     fn splice_insert_test() {
-        let tree = RangeTree::<Entry, ContentIndex>::new();
+        let mut tree = RangeTree::<Entry, ContentIndex>::new();
         let entry = Entry {
             loc: CRDTLocation {agent: 0, seq: 1000},
             len: 100
@@ -598,7 +598,7 @@ mod tests {
 
     #[test]
     fn backspace_collapses() {
-        let tree = RangeTree::<Entry, ContentIndex>::new();
+        let mut tree = RangeTree::<Entry, ContentIndex>::new();
 
         let cursor = tree.cursor_at_content_pos(0, false);
         let entry = Entry {

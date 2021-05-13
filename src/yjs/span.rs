@@ -20,6 +20,13 @@ pub struct YjsSpan {
     pub len: i32, // negative if deleted.
 }
 
+impl YjsSpan {
+    pub fn origin_left_at_offset(&self, at: u32) -> Order {
+        if at == 0 { self.origin_left }
+        else { self.order + at - 1 }
+    }
+}
+
 impl SplitableSpan for YjsSpan {
     fn len(&self) -> usize { self.len.abs() as usize }
 

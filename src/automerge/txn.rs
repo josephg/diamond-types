@@ -915,8 +915,8 @@ impl DocumentState {
 
 #[cfg(test)]
 mod tests {
-    use crate::automerge::{DocumentState, TxnExternal, OpExternal, CRDTLocationExternal, CRDT_DOC_ROOT_EXTERNAL, Order};
-    use crate::common::{CRDTLocation, CRDT_DOC_ROOT, AgentId};
+    use crate::automerge::*;
+    use crate::common::*;
     use smartstring::SmartString;
     use smallvec::smallvec;
     use rand::prelude::*;

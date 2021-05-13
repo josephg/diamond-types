@@ -138,7 +138,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         }
     }
 
-    pub(super) fn next_entry(&mut self) -> bool {
+    pub fn next_entry(&mut self) -> bool {
         self.next_entry_marker(None)
     }
 
@@ -188,7 +188,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
     }
 
     // TODO: Check if its faster if this returns by copy or byref.
-    pub(super) fn get_entry(&self) -> E {
+    pub fn get_entry(&self) -> E {
         let node = unsafe { self.node.as_ref() };
         // println!("entry {:?}", self);
         node.data[self.idx]
@@ -312,7 +312,6 @@ impl<E: EntryTraits, I: TreeIndex<E>> PartialOrd for Cursor<E, I> {
 mod tests {
     use crate::range_tree::*;
     use crate::order::OrderMarker;
-    use std::cmp::Ordering;
 
     #[test]
     fn compare_cursors() {

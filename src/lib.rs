@@ -182,6 +182,8 @@ impl CRDTState {
         self.marker_tree.as_ref().content_len()
     }
 
+    pub fn is_empty(&self) -> bool { self.len() == 0 } // For you, clippy.
+
     pub fn get_or_create_client_id(&mut self, name: &str) -> AgentId {
         if let Some(id) = self.get_client_id(name) {
             id
@@ -281,7 +283,7 @@ impl CRDTState {
         // println!("{:?}", cursor);
         let client_data = &mut self.client_data;
         // dbg!("delete list", &self.client_data[0].markers);
-        let result = RangeTree::local_delete(&self.marker_tree, cursor, len, |entry, leaf| {
+        let result = RangeTree::local_delete(&mut self.marker_tree, cursor, len, |entry, leaf| {
             // eprintln!("notify {:?} / {}", loc, len);
             CRDTState::notify(client_data, entry, leaf);
         });
