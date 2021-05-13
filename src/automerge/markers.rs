@@ -20,7 +20,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
     fn truncate(&mut self, at: usize) -> Self {
         let remainder_len = self.len - at as u32;
         self.len = at as u32;
-        return MarkerEntry {
+        MarkerEntry {
             len: remainder_len,
             ptr: self.ptr
         }

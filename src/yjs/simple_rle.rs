@@ -7,10 +7,10 @@ type RLEKey = u32;
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Clone, Eq, PartialEq, Debug)]
 // pub struct RLE<K: Copy + Eq + Ord, V: Copy + Eq>(Vec<(Range<K>, V)>);
-pub struct RLE<V: SplitableSpan + Copy + Debug + Sized>(Vec<(RLEKey, V)>);
+pub struct Rle<V: SplitableSpan + Copy + Debug + Sized>(Vec<(RLEKey, V)>);
 
 // impl<K: Copy + Eq + Ord + Add<Output = K> + Sub<Output = K> + AddAssign, V: Copy + Eq> RLE<K, V> {
-impl<V: SplitableSpan + Copy + Debug + Sized> RLE<V> {
+impl<V: SplitableSpan + Copy + Debug + Sized> Rle<V> {
     pub fn new() -> Self { Self(Vec::new()) }
 
     // Returns (found value, at offset) if found.
@@ -49,7 +49,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized> RLE<V> {
     }
 }
 
-impl<V: EntryTraits> RLE<V> {
+impl<V: EntryTraits> Rle<V> {
     pub fn get(&self, idx: RLEKey) -> V::Item {
         let (v, offset) = self.find(idx).unwrap();
         v.at_offset(offset as usize)
@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn rle_finds_at_offset() {
-        let mut rle: RLE<OrderMarker> = RLE::new();
+        let mut rle: Rle<OrderMarker> = Rle::new();
 
         rle.append(1, OrderMarker { order: 1000, len: 2 });
         assert_eq!(rle.find(1), Some((OrderMarker { order: 1000, len: 2 }, 0)));

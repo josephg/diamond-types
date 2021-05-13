@@ -22,7 +22,7 @@ impl ClientData {
 impl YjsDoc {
     pub fn new() -> Self {
         YjsDoc {
-            client_with_order: RLE::new(),
+            client_with_order: Rle::new(),
             frontier: smallvec![ROOT_ORDER],
             client_data: vec![],
             markers: SplitList::new(),
@@ -41,7 +41,7 @@ impl YjsDoc {
             // Create a new id.
             self.client_data.push(ClientData {
                 name: SmartString::from(name),
-                item_orders: RLE::new()
+                item_orders: Rle::new()
             });
             (self.client_data.len() - 1) as AgentId
         }
@@ -51,7 +51,7 @@ impl YjsDoc {
         if name == "ROOT" { Some(AgentId::MAX) }
         else {
             self.client_data.iter()
-                .position(|client_data| &client_data.name == name)
+                .position(|client_data| client_data.name == name)
                 .map(|id| id as AgentId)
         }
     }
@@ -194,9 +194,19 @@ impl YjsDoc {
         self.range_tree.content_len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.range_tree.len() != 0
+    }
+
     pub fn print_stats(&self) {
         self.range_tree.print_stats();
         self.markers.print_stats();
+    }
+}
+
+impl Default for YjsDoc {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

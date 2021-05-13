@@ -1,7 +1,6 @@
 use super::*;
-// use std::mem;
 use std::ptr::NonNull;
-use std::mem::replace;
+use std::mem::take;
 
 impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
@@ -127,7 +126,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
 
     pub(super) fn flush(&mut self, marker: &mut I::FlushMarker) {
         // println!("flush {:?}", marker);
-        let amt = replace(marker, I::FlushMarker::default());
+        let amt = take(marker);
         self.update_parent_count(amt);
     }
 }

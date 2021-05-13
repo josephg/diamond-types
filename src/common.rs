@@ -12,7 +12,7 @@ pub type ItemCount = u32;
 
 pub const CLIENT_INVALID: AgentId = AgentId::MAX;
 
-#[derive(Debug, Copy, Clone, Ord, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct CRDTLocation {
     pub agent: AgentId,
     pub seq: u32,

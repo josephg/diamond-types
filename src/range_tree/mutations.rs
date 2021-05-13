@@ -19,7 +19,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     {
         // dbg!("splice_insert", &flush_marker);
         // dbg!(items, &cursor);
-        if items.len() == 0 { return; }
+        if items.is_empty() { return; }
 
         // let mut items_content_len = items.iter().fold(0, |a, b| {
         //     a + b.content_len()
@@ -76,7 +76,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 return; // WE're done here. Cursor is at the end of the previous entry.
             }
             items = &items[items_idx..];
-            debug_assert!(items.len() >= 1);
+            debug_assert!(!items.is_empty());
 
             cursor.offset = 0;
             cursor.idx += 1; // NOTE: Cursor might point past the end of the node.
@@ -258,17 +258,15 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             } else {
                 self.replace_entry(cursor, &[a, entry], flush_marker, notify);
             }
+        } else if let Some(c) = c {
+            self.replace_entry(cursor, &[entry, c], flush_marker, notify);
         } else {
-            if let Some(c) = c {
-                self.replace_entry(cursor, &[entry, c], flush_marker, notify);
-            } else {
-                // self.replace_entry(&mut cursor, &[entry], &mut flush_marker, &mut notify);
-                I::decrement_marker(flush_marker, &node.data[cursor.idx]);
-                node.data[cursor.idx] = entry;
-                cursor.offset = replaced_here;
-                I::increment_marker(flush_marker, &entry);
-                // flush_marker.0 -= replaced_here as isize;
-            }
+            // self.replace_entry(&mut cursor, &[entry], &mut flush_marker, &mut notify);
+            I::decrement_marker(flush_marker, &node.data[cursor.idx]);
+            node.data[cursor.idx] = entry;
+            cursor.offset = replaced_here;
+            I::increment_marker(flush_marker, &entry);
+            // flush_marker.0 -= replaced_here as isize;
         }
 
         replaced_here

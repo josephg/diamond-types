@@ -89,9 +89,7 @@ impl TxnInternal {
 const USE_INNER_ROPE: bool = true;
 
 fn ordering_from(x: isize) -> Ordering {
-    if x < 0 { Ordering::Less }
-    else if x > 0 { Ordering::Greater }
-    else { Ordering::Equal }
+    x.cmp(&0)
 }
 
 // Needed because otherwise ROOT_ORDER > everything else.
@@ -137,7 +135,7 @@ impl DocumentState {
         if name == "ROOT" { Some(AgentId::MAX) }
         else {
             self.client_data.iter()
-                .position(|client_data| &client_data.name == name)
+                .position(|client_data| client_data.name == name)
                 .map(|id| id as AgentId)
         }
     }
@@ -184,10 +182,14 @@ impl DocumentState {
         self.range_tree.as_ref().content_len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     fn branch_contains_version(&self, target: Order, branch: &[Order]) -> bool {
         println!("branch_contains_versions target: {} branch: {:?}", target, branch);
         // Order matters between these two lines because of how this is used in applyBackwards.
-        if branch.len() == 0 { return false; }
+        if branch.is_empty() { return false; }
         if target == ROOT_ORDER || branch.contains(&target) { return true; }
 
         // This works is via a DFS from the operation with a higher localOrder looking
@@ -827,10 +829,10 @@ impl DocumentState {
             }
         }
 
-        if new_txn_orders.len() == 0 { return; }
+        if new_txn_orders.is_empty() { return; }
 
         // Sort by order. The other peer will have a reasonable order.
-        new_txn_orders.sort();
+        new_txn_orders.sort_unstable();
         for order in new_txn_orders {
             let txn = other.export_txn(order);
             dbg!(order, &txn);

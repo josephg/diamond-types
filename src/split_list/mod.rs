@@ -106,7 +106,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
         if bucket_offset == 0 {
             // This might return past the end of the collection.
             // This will hit when the collection is empty, or an index exactly divides bucket_size.
-            return (bucket_id, 0, BucketCursor::zero());
+            (bucket_id, 0, BucketCursor::zero())
         } else {
             debug_assert!(bucket_id < self.content.len());
             let mut offset = bucket_offset;
@@ -208,10 +208,8 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
 
     /// Like slice_insert above but any remainder returned is automatically inserted.
     fn insert_at(bucket: &mut Bucket<Entry>, mut entry: Entry, cursor: &mut BucketCursor) {
-        loop {
-            if let Some(remainder) = Self::slice_insert(bucket, entry, cursor) {
-                entry = remainder
-            } else { break; }
+        while let Some(remainder) = Self::slice_insert(bucket, entry, cursor) {
+            entry = remainder
         }
     }
 
@@ -328,7 +326,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
         let mut counted_len = 0;
 
         for (idx, bucket) in self.content.iter().enumerate() {
-            assert!(bucket.len() > 0, "Found empty bucket, which is invalid.");
+            assert!(!bucket.is_empty(), "Found empty bucket, which is invalid.");
 
             let mut bucket_len = 0;
             for entry in bucket {

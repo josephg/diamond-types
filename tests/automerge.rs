@@ -1,6 +1,6 @@
 use smartstring::SmartString;
-use text_crdt_rust::{get_thread_memory_usage, get_thread_num_allocations};
-use text_crdt_rust::automerge::{DocumentState, LocalOp};
+use text_crdt_rust::{get_thread_memory_usage, get_thread_num_allocations, LocalOp};
+use text_crdt_rust::automerge::DocumentState;
 use crdt_testdata::{load_testing_data, TestPatch};
 
 #[test]

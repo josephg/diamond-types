@@ -5,7 +5,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
     pub(super) fn new_with_parent(parent: ParentPtr<E, I>) -> Pin<Box<Self>> {
         // From the example in the docs:
         // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#initializing-an-array-element-by-element
-        let mut children: [MaybeUninit<(I::IndexOffset, Option<Node<E, I>>)>; NUM_NODE_CHILDREN] = unsafe {
+        let mut children: [MaybeUninit<InternalEntry<E, I>>; NUM_NODE_CHILDREN] = unsafe {
             MaybeUninit::uninit().assume_init() // Safe because `MaybeUninit`s don't require init.
         };
         for elem in &mut children[..] {
@@ -16,7 +16,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
             // data: [(I::IndexOffset::default(), None); NUM_NODE_CHILDREN],
             data: unsafe {
                 // Using transmute_copy because otherwise we run into a nonsense compiler error.
-                mem::transmute_copy::<_, [(I::IndexOffset, Option<Node<E, I>>); NUM_NODE_CHILDREN]>(&children)
+                mem::transmute_copy::<_, [InternalEntry<E, I>; NUM_NODE_CHILDREN]>(&children)
             },
             _pin: PhantomPinned,
             _drop: PrintDropInternal,
@@ -45,7 +45,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
         None
     }
 
-    pub(super) fn project_data_mut(self: Pin<&mut Self>) -> &mut [(I::IndexOffset, Option<Node<E, I>>); NUM_NODE_CHILDREN] {
+    pub(super) fn project_data_mut(self: Pin<&mut Self>) -> &mut [InternalEntry<E, I>; NUM_NODE_CHILDREN] {
         unsafe {
             &mut self.get_unchecked_mut().data
         }

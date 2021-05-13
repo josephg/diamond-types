@@ -12,6 +12,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         }
     }
 
+    #[allow(clippy::mut_from_ref)] // Dirty.
     pub(super) unsafe fn get_node_mut(&self) -> &mut NodeLeaf<E, I> {
         &mut *self.node.as_ptr()
     }
@@ -46,11 +47,9 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                         if (next_idx < NUM_NODE_CHILDREN) && node_ref.data[next_idx].1.is_some() {
                             Some(next_idx)
                         } else { None }
-                    } else {
-                        if idx > 0 {
-                            Some(idx - 1)
-                        } else { None }
-                    };
+                    } else if idx > 0 {
+                        Some(idx - 1)
+                    } else { None };
                     // println!("index {:?}", next_idx);
 
                     if let Some(next_idx) = next_idx {

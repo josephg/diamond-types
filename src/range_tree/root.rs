@@ -155,7 +155,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     }
 
     pub fn next_entry_or_panic(cursor: &mut Cursor<E, I>, marker: &mut I::FlushMarker) {
-        if cursor.next_entry_marker(Some(marker)) == false {
+        if !cursor.next_entry_marker(Some(marker)) {
             panic!("Local delete past the end of the document");
         }
     }
@@ -285,8 +285,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I>>) -> Cursor<E, I> {
         // First make a cursor to the specified item
         let leaf = ptr.as_ref();
-        let cursor = leaf.find(loc).expect("Position not in named leaf");
-        cursor
+        leaf.find(loc).expect("Position not in named leaf")
     }
 
     #[allow(unused)]

@@ -11,7 +11,7 @@ use crate::split_list::SplitList;
 use crate::automerge::MarkerEntry;
 use smartstring::alias::{String as SmartString};
 use crate::order::OrderMarker;
-use crate::yjs::simple_rle::RLE;
+use crate::yjs::simple_rle::Rle;
 use ropey::Rope;
 
 pub type Order = u32;
@@ -27,14 +27,14 @@ struct ClientData {
     /// This contains a set of (CRDT location range -> item orders).
     ///
     /// The OrderMarkers here always have positive len.
-    item_orders: RLE<OrderMarker>,
+    item_orders: Rle<OrderMarker>,
 }
 
 #[derive(Debug)]
 pub struct YjsDoc {
     /// This is a bunch of ranges of (item order -> CRDT location span).
     /// The entries always have positive len.
-    client_with_order: RLE<Entry>,
+    client_with_order: Rle<Entry>,
 
     /// The set of txn orders with no children in the document. With a single writer this will
     /// always just be the last order we've seen.

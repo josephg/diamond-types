@@ -1,3 +1,5 @@
+#![allow(dead_code)] // TODO: turn this off and clean up before releasing.
+
 use std::ops::Index;
 use std::pin::Pin;
 use std::ptr::NonNull;
@@ -112,7 +114,7 @@ impl SplitableSpan for MarkerEntry {
     fn truncate(&mut self, at: usize) -> Self {
         let remainder_len = self.len - at as u32;
         self.len = at as u32;
-        return MarkerEntry {
+        MarkerEntry {
             len: remainder_len,
             ptr: self.ptr
         }
@@ -196,7 +198,7 @@ impl CRDTState {
 
     fn get_client_id(&self, name: &str) -> Option<AgentId> {
         self.client_data.iter()
-        .position(|client_data| &client_data.name == name)
+        .position(|client_data| client_data.name == name)
         .map(|id| id as AgentId)
     }
 
