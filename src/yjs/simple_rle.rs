@@ -47,6 +47,8 @@ impl<V: SplitableSpan + Copy + Debug + Sized> Rle<V> {
     pub fn last(&self) -> Option<&(RLEKey, V)> {
         self.0.last()
     }
+
+    pub fn num_entries(&self) -> usize { self.0.len() }
 }
 
 impl<V: EntryTraits> Rle<V> {

@@ -187,7 +187,7 @@ impl DocumentState {
     }
 
     fn branch_contains_version(&self, target: Order, branch: &[Order]) -> bool {
-        println!("branch_contains_versions target: {} branch: {:?}", target, branch);
+        // println!("branch_contains_versions target: {} branch: {:?}", target, branch);
         // Order matters between these two lines because of how this is used in applyBackwards.
         if branch.is_empty() { return false; }
         if target == ROOT_ORDER || branch.contains(&target) { return true; }
@@ -403,8 +403,8 @@ impl DocumentState {
                 // Do'h - they're concurrent. Order based on sorting the agent strings.
                 let a_name = &self.client_data[txn_a.id.agent as usize].name;
                 let b_name = &self.client_data[txn_b.id.agent as usize].name;
-                dbg!(a_name);
-                dbg!(b_name);
+                // dbg!(a_name);
+                // dbg!(b_name);
                 // Smaller agent comes first. (Unlike other tests)
                 b_name.cmp(&a_name)
                 // a_name.cmp(&b_name)
@@ -423,7 +423,7 @@ impl DocumentState {
     fn get_cursor_before(&self, item: Order) -> Cursor<OrderMarker, ContentIndex> {
         assert_ne!(item, ROOT_ORDER);
         let marker: NonNull<NodeLeaf<OrderMarker, ContentIndex>> = self.markers[item];
-        dbg!(item, self.get_item_id(item), marker);
+        // dbg!(item, self.get_item_id(item), marker);
         unsafe { RangeTree::cursor_before_item(item, marker) }
     }
 
@@ -451,7 +451,7 @@ impl DocumentState {
         // let next_doc_item_order = self.next_item_order();
 
         for op in txn.ops.iter() {
-            println!("Applying op {:?}", op);
+            // println!("Applying op {:?}", op);
             match op {
                 Op::Insert { content, parent } => {
                     // We need to figure out the insert position. Usually this is right after our
@@ -559,11 +559,11 @@ impl DocumentState {
                         // We don't need to update the sibling tree.
 
                         if deleted_here > 0 && USE_INNER_ROPE {
-                            dbg!(&self.text_content);
+                            // dbg!(&self.text_content);
 
-                            println!("internal Removing '{}'", self.text_content.slice(cursor_pos..cursor_pos + deleted_here as usize));
+                            // println!("internal Removing '{}'", self.text_content.slice(cursor_pos..cursor_pos + deleted_here as usize));
                             self.text_content.remove(cursor_pos..cursor_pos + deleted_here as usize);
-                            assert_eq!(self.text_content.len_chars(), self.range_tree.content_len());
+                            // assert_eq!(self.text_content.len_chars(), self.range_tree.content_len());
                         }
 
                         let deleted_here = deleted_here.abs() as usize;
@@ -573,7 +573,7 @@ impl DocumentState {
                     }
                 }
             }
-            println!("-> {}", self.text_content);
+            // println!("-> {}", self.text_content);
         }
     }
 
@@ -835,9 +835,9 @@ impl DocumentState {
         new_txn_orders.sort_unstable();
         for order in new_txn_orders {
             let txn = other.export_txn(order);
-            dbg!(order, &txn);
+            // dbg!(order, &txn);
             self.integrate_external_txn(&txn);
-            dbg!(&self.text_content);
+            // dbg!(&self.text_content);
 
             if USE_INNER_ROPE {
                 debug_assert_eq!(self.text_content.len_chars(), self.range_tree.content_len());
@@ -975,7 +975,7 @@ mod tests {
             }]
         });
 
-        dbg!(state);
+        // dbg!(state);
     }
 
     #[test]
@@ -1064,7 +1064,7 @@ mod tests {
             // let len: usize = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
 
             let content = random_str(len as usize, rng);
-            println!("Inserting '{}' at position {}", content, pos);
+            // println!("Inserting '{}' at position {}", content, pos);
             doc.internal_insert(agent, pos, content.into())
         } else {
             // Delete something
@@ -1072,7 +1072,7 @@ mod tests {
             // println!("range {}", u32::min(10, doc_len - pos));
             let span = rng.gen_range(1..=usize::min(10, doc_len - pos));
             // dbg!(&state.marker_tree, pos, len);
-            println!("deleting {} at position {}", span, pos);
+            // println!("deleting {} at position {}", span, pos);
             doc.internal_delete(agent, pos, span)
         }
     }
@@ -1223,16 +1223,16 @@ mod tests {
         }
 
         for i in 0..100 {
-            println!("\n\n{}", i);
+            // println!("\n\n{}", i);
 
             // Generate some operations
             for _j in 0..3 {
                 let doc_idx = rng.gen_range(0..docs.len());
                 let doc = &mut docs[doc_idx];
 
-                println!("editing doc {} (content '{}')", doc_idx, doc.text_content);
+                // println!("editing doc {} (content '{}')", doc_idx, doc.text_content);
                 make_random_change(doc, 0, &mut rng);
-                println!("doc {} -> '{}'", doc_idx, doc.text_content);
+                // println!("doc {} -> '{}'", doc_idx, doc.text_content);
             }
 
             // Then merge 2 documents at random
@@ -1240,7 +1240,7 @@ mod tests {
             let b = rng.gen_range(0..docs.len());
 
             if a != b {
-                println!("Merging {} and {}", a, b);
+                // println!("Merging {} and {}", a, b);
                 // Oh god this is awful. I can't take mutable references to two array items.
                 let (a, b) = if a > b { (a, b) } else { (b, a) };
                 // a>b.
@@ -1248,7 +1248,7 @@ mod tests {
                 let b = &mut start[b];
                 let a = &mut end[0];
 
-                dbg!(&a.text_content, &b.text_content);
+                // dbg!(&a.text_content, &b.text_content);
                 // dbg!(&a.range_tree, &b.range_tree);
 
                 a.merge_from(&b);
@@ -1262,7 +1262,7 @@ mod tests {
                 assert_eq!(a_items, b_items);
 
                 assert_eq!(a.text_content, b.text_content);
-                println!("Post merge content {}", a.text_content);
+                // println!("Post merge content {}", a.text_content);
             }
         }
     }
