@@ -69,7 +69,7 @@ impl EntryTraits for OrderMarker {
 
 
     fn contains(&self, loc: Self::Item) -> Option<usize> {
-        debug_assert!(loc < self.len());
+        // debug_assert!(loc < self.len());
         let loc = loc as u32;
         if (loc >= self.order) && (loc < self.order + self.len.abs() as u32) {
             Some((loc - self.order) as usize)
