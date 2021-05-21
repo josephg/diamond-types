@@ -7,10 +7,10 @@ use std::ptr::NonNull;
 use crate::splitable_span::SplitableSpan;
 use std::cmp::Ordering;
 
-#[cfg(inlinerope)]
+// #[cfg(inlinerope)]
 const USE_INNER_ROPE: bool = true;
-#[cfg(not(inlinerope))]
-const USE_INNER_ROPE: bool = false;
+// #[cfg(not(inlinerope))]
+// const USE_INNER_ROPE: bool = false;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
@@ -237,6 +237,12 @@ impl YjsDoc {
     pub fn print_stats(&self) {
         self.range_tree.print_stats();
         self.markers.print_stats();
+    }
+}
+
+impl ToString for YjsDoc {
+    fn to_string(&self) -> String {
+        self.text_content.to_string()
     }
 }
 
