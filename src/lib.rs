@@ -60,10 +60,10 @@ mod split_list;
 mod splitable_span;
 mod alloc;
 pub mod automerge;
-pub mod yjs;
+pub mod universal;
 mod order;
 
-// mod yjs;
+// mod universal;
 
 // use smallvec::SmallVec;
 

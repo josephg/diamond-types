@@ -4,6 +4,15 @@ version = "0.1.0"
 authors = ["Seph Gentle <me@josephg.com>"]
 edition = "2018"
 
+# I can't get this working.
+
+#[build]
+#rustflags = ["-C", "linker-flavor=lld-link"]
+
+#[target.x86_64-unknown-linux-gnu]
+#rustflags = ["-C", "linker-flavor=lld-link"]
+#linker = "lld"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -16,11 +25,6 @@ lazy_static = "1.4.0"
 criterion = "^0.3"
 rand = { version = "^0.8", features = ["small_rng"] }
 crdt-testdata = { path = "src/testdata" }
-
-[target.x86_64-unknown-linux-gnu]
-rustflags = [
-    "-C", "link-arg=-fuse-ld=lld",
-]
 
 [profile.release]
 #debug = true

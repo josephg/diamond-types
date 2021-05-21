@@ -1,4 +1,4 @@
-use crate::yjs::Order;
+use crate::universal::Order;
 use crate::range_tree::{EntryTraits, EntryWithContent, CRDTItem};
 use crate::splitable_span::SplitableSpan;
 

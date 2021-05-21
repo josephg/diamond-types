@@ -68,7 +68,7 @@ impl<V: EntryTraits> Rle<V> {
 
 #[cfg(test)]
 mod tests {
-    use crate::yjs::simple_rle::*;
+    use crate::universal::simple_rle::*;
     use crate::order::OrderMarker;
 
     #[test]

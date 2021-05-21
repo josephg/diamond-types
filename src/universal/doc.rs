@@ -1,4 +1,4 @@
-use crate::yjs::*;
+use crate::universal::*;
 use crate::split_list::SplitList;
 use crate::range_tree::{RangeTree, Cursor, NodeLeaf};
 use crate::common::{AgentId, LocalOp};
@@ -254,10 +254,10 @@ impl Default for YjsDoc {
 
 #[cfg(test)]
 mod tests {
-    use crate::yjs::*;
+    use crate::universal::*;
     use rand::prelude::*;
     use crate::common::*;
-    use crate::yjs::doc::USE_INNER_ROPE;
+    use crate::universal::doc::USE_INNER_ROPE;
 
     #[test]
     fn smoke() {
@@ -265,6 +265,7 @@ mod tests {
         doc.get_or_create_client_id("seph");
         doc.local_insert(0, 0, "hi".into());
         doc.local_insert(0, 1, "yooo".into());
+        // "hyoooi"
 
         dbg!(doc);
     }
@@ -320,5 +321,16 @@ mod tests {
         }
         assert_eq!(doc.client_data[0].item_orders.num_entries(), 1);
         assert_eq!(doc.client_with_order.num_entries(), 1);
+    }
+
+    #[test]
+    fn kevin() {
+        let mut doc = YjsDoc::new();
+
+        let agent = doc.get_or_create_client_id("seph");
+
+        for _i in 0..5000000 {
+            doc.local_insert(agent, 0, " ".into());
+        }
     }
 }

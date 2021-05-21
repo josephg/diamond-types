@@ -1222,8 +1222,8 @@ mod tests {
             doc.get_or_create_client_id(format!("agent {}", i).as_str());
         }
 
-        for i in 0..100 {
-            // println!("\n\n{}", i);
+        for _i in 0..100 {
+            // println!("\n\n{}", _i);
 
             // Generate some operations
             for _j in 0..3 {

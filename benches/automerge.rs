@@ -28,21 +28,6 @@ fn apply_edits(state: &mut DocumentState, txns: &Vec<TestTxn>) {
     }
 }
 
-fn apply_edits_fast(state: &mut CRDTState, patches: &[TestPatch]) {
-    let id = state.get_or_create_client_id("jeremy");
-
-    for TestPatch(pos, del_len, ins_content) in patches {
-        debug_assert!(*pos <= state.len());
-        if *del_len > 0 {
-            state.delete(id, *pos as _, *del_len as _);
-        }
-
-        if !ins_content.is_empty() {
-            state.insert(id, *pos as _, ins_content);
-        }
-    }
-}
-
 pub fn am_benchmarks(c: &mut Criterion) {
     c.bench_function("am automerge-perf set", |b| {
         let test_data = load_testing_data("benchmark_data/automerge-paper.json.gz");

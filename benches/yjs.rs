@@ -6,7 +6,7 @@ use criterion::{black_box, Criterion};
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use smartstring::alias::{String as SmartString};
 use text_crdt_rust::*;
-use text_crdt_rust::yjs::*;
+use text_crdt_rust::universal::*;
 
 fn apply_edits(doc: &mut YjsDoc, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_client_id("jeremy");
@@ -49,6 +49,19 @@ pub fn yjs_benchmarks(c: &mut Criterion) {
             #[cfg(feature = "memusage")]
             println!("alloc {} count {}", get_thread_memory_usage() - start, get_thread_num_allocations());
             // doc.print_stats();
+            black_box(doc.len());
+        })
+    });
+
+    c.bench_function("kevin", |b| {
+        b.iter(|| {
+            let mut doc = YjsDoc::new();
+
+            let agent = doc.get_or_create_client_id("seph");
+
+            for _i in 0..5000000 {
+                doc.local_insert(agent, 0, " ".into());
+            }
             black_box(doc.len());
         })
     });

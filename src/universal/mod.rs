@@ -6,12 +6,12 @@ use crate::common::{CRDTLocation, ClientName};
 use smallvec::SmallVec;
 use std::pin::Pin;
 use crate::range_tree::{RangeTree, ContentIndex, Entry};
-use crate::yjs::span::YjsSpan;
+use crate::universal::span::YjsSpan;
 use crate::split_list::SplitList;
 use crate::automerge::MarkerEntry;
 use smartstring::alias::{String as SmartString};
 use crate::order::OrderMarker;
-use crate::yjs::simple_rle::Rle;
+use crate::universal::simple_rle::Rle;
 use ropey::Rope;
 
 pub type Order = u32;
