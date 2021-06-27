@@ -39,16 +39,11 @@ pub fn yjs_benchmarks(c: &mut Criterion) {
         assert_eq!(test_data.start_content.len(), 0);
 
         b.iter(|| {
-            #[cfg(feature = "memusage")]
-            let start = get_thread_memory_usage();
             let mut doc = YjsDoc::new();
             apply_edits(&mut doc, &test_data.txns);
             // apply_edits_fast(&mut state, &patches);
             // println!("len {}", state.len());
             assert_eq!(doc.len(), test_data.end_content.len());
-            #[cfg(feature = "memusage")]
-            println!("alloc {} count {}", get_thread_memory_usage() - start, get_thread_num_allocations());
-            // doc.print_stats();
             black_box(doc.len());
         })
     });
