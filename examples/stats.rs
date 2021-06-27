@@ -12,6 +12,7 @@ use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use smartstring::alias::{String as SmartString};
 use text_crdt_rust::universal::YjsDoc;
 use criterion::black_box;
+use humansize::{FileSize, file_size_opts};
 
 fn apply_edits(doc: &mut YjsDoc, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_client_id("jeremy");
@@ -53,10 +54,10 @@ fn main() {
     assert_eq!(doc.len(), test_data.end_content.len());
 
     #[cfg(feature = "memusage")]
-    println!("bytes allocated: {} alloc block count: {}",
-             get_thread_memory_usage() - start_bytes,
-             get_thread_num_allocations() - start_count);
+    println!("allocated {} bytes in {} blocks",
+        (get_thread_memory_usage() - start_bytes).file_size(file_size_opts::CONVENTIONAL).unwrap(),
+         get_thread_num_allocations() - start_count);
 
-    // doc.print_stats();
+    doc.print_stats(false);
     black_box(doc);
 }

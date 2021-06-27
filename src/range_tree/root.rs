@@ -289,7 +289,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     }
 
     #[allow(unused)]
-    pub fn print_stats(&self) {
+    pub fn print_stats(&self, detailed: bool) {
         // We'll get the distribution of entry sizes
         let mut size_counts = vec!();
 
@@ -303,17 +303,19 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
 
         println!("-------- Range tree stats --------");
-        println!("Entry distribution {:?}", size_counts);
         println!("Number of entries {}", self.count_entries());
         println!("Number of internal nodes {}", self.count_internal_nodes());
         println!("Depth {}", self.get_depth());
         println!("Total range tree memory usage {}", self.count_total_memory());
 
-        println!("Internal node size {}", std::mem::size_of::<NodeInternal<E, I>>());
-        println!("Node entry size {} alignment {}",
-                 std::mem::size_of::<Option<Node<E, I>>>(),
-                 std::mem::align_of::<Option<Node<E, I>>>());
-        println!("Leaf size {}", std::mem::size_of::<NodeLeaf<E, I>>());
+        if detailed {
+            println!("Entry distribution {:?}", size_counts);
+            println!("Internal node size {}", std::mem::size_of::<NodeInternal<E, I>>());
+            println!("Node entry size {} alignment {}",
+                     std::mem::size_of::<Option<Node<E, I>>>(),
+                     std::mem::align_of::<Option<Node<E, I>>>());
+            println!("Leaf size {}", std::mem::size_of::<NodeLeaf<E, I>>());
+        }
     }
 
     fn get_depth(&self) -> usize {

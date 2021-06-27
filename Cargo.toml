@@ -25,6 +25,7 @@ lazy_static = "1.4.0"
 criterion = "^0.3"
 rand = { version = "^0.8", features = ["small_rng"] }
 crdt-testdata = { path = "src/testdata" }
+humansize = "1.1.1"
 
 [profile.release]
 #debug = true

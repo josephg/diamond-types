@@ -343,7 +343,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
     }
 
     #[allow(unused)]
-    pub fn print_stats(&self) {
+    pub fn print_stats(&self, detailed: bool) {
         let mut size_counts = vec!();
         let mut bucket_item_counts = vec!();
         let mut num_inline_buckets = 0;
@@ -376,12 +376,14 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
 
         println!("-------- Split list stats --------");
         println!("number of buckets {}", self.content.len());
-        println!("bucket item counts {:?}", bucket_item_counts);
-        println!("size counts {:?}", size_counts);
         println!("spilled {} / inline {}", num_heap_buckets, num_inline_buckets);
         println!("Total split list memory usage {}", mem_size);
-        for (i, len) in size_counts.iter().enumerate() {
-            println!("{} count: {}", i, len);
+        if detailed {
+            println!("bucket item counts {:?}", bucket_item_counts);
+            println!("size counts {:?}", size_counts);
+            for (i, len) in size_counts.iter().enumerate() {
+                println!("{} count: {}", i, len);
+            }
         }
     }
 

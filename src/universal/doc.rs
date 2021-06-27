@@ -234,9 +234,9 @@ impl YjsDoc {
         self.range_tree.len() != 0
     }
 
-    pub fn print_stats(&self) {
-        self.range_tree.print_stats();
-        self.markers.print_stats();
+    pub fn print_stats(&self, detailed: bool) {
+        self.range_tree.print_stats(detailed);
+        self.markers.print_stats(detailed);
     }
 }
 
