@@ -3,7 +3,9 @@
 
 // This benchmark interacts with the automerge-perf data set from here:
 // https://github.com/automerge/automerge-perf/
-// mod testdata;
+
+// Run with:
+// $ cargo run --release --features memusage --example stats
 
 use text_crdt_rust::*;
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
@@ -38,8 +40,7 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    // let test_data = load_testing_data("benchmark_data/automerge-paper.json.gz");
-    let test_data = load_testing_data("/home/seph/src/text-crdt-rust/benchmark_data/automerge-paper.json.gz");
+    let test_data = load_testing_data("benchmark_data/automerge-paper.json.gz");
     assert_eq!(test_data.start_content.len(), 0);
 
     #[cfg(feature = "memusage")]
@@ -52,7 +53,7 @@ fn main() {
     assert_eq!(doc.len(), test_data.end_content.len());
 
     #[cfg(feature = "memusage")]
-    println!("alloc {} count {}",
+    println!("bytes allocated: {} alloc block count: {}",
              get_thread_memory_usage() - start_bytes,
              get_thread_num_allocations() - start_count);
 
