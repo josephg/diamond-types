@@ -12,6 +12,8 @@ use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use smartstring::alias::{String as SmartString};
 use text_crdt_rust::universal::YjsDoc;
 use criterion::black_box;
+
+#[cfg(feature = "memusage")]
 use humansize::{FileSize, file_size_opts};
 
 fn apply_edits(doc: &mut YjsDoc, txns: &Vec<TestTxn>) {

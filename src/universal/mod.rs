@@ -30,6 +30,9 @@ struct ClientData {
     item_orders: Rle<OrderMarker>,
 }
 
+// pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
+pub type MarkerTree = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
+
 #[derive(Debug)]
 pub struct YjsDoc {
     /// This is a bunch of ranges of (item order -> CRDT location span).
@@ -53,7 +56,8 @@ pub struct YjsDoc {
     /// Note for inserts which insert a lot of contiguous characters, this will
     /// contain a lot of repeated pointers. I'm trading off memory for simplicity
     /// here - which might or might not be the right approach.
-    markers: SplitList<MarkerEntry<YjsSpan, ContentIndex>>,
+    // markers: SplitList<MarkerEntry<YjsSpan, ContentIndex>>,
+    markers: MarkerTree,
 
     // Probably temporary, eventually.
     text_content: Rope,

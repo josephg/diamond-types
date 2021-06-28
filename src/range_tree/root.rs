@@ -385,6 +385,11 @@ impl<E: EntryTraits> RangeTree<E, RawPositionIndex> {
                              |i| i as usize,
                              |e| e.len())
     }
+
+    pub fn at(&self, pos: usize) -> Option<E::Item> {
+        let cursor = self.cursor_at_offset_pos(pos, false);
+        cursor.get_item()
+    }
 }
 impl<E: EntryTraits + EntryWithContent> RangeTree<E, ContentIndex> {
     pub fn content_len(&self) -> usize {
@@ -424,9 +429,9 @@ mod tests {
     #[test]
     fn print_memory_stats() {
         let x = RangeTree::<Entry, ContentIndex>::new();
-        x.print_stats();
+        x.print_stats(false);
         let x = RangeTree::<Entry, FullIndex>::new();
-        x.print_stats();
+        x.print_stats(false);
 
         println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<Entry>>::IndexOffset>());
         println!("sizeof FullIndex offset {}", size_of::<<FullIndex as TreeIndex<Entry>>::IndexOffset>());

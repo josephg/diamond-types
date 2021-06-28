@@ -1,6 +1,6 @@
 
 // An entry is expected to contain multiple items.
-pub trait SplitableSpan {
+pub trait SplitableSpan: Clone {
     /// The number of child items in the entry. This is indexed with the size used in truncate.
     fn len(&self) -> usize;
 

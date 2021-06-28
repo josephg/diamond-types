@@ -550,7 +550,7 @@ impl DocumentState {
                         let cursor_pos = cursor.count_pos() as usize;
                         let markers = &mut self.markers;
 
-                        let deleted_here = self.range_tree.remote_delete(cursor, span, |entry, leaf| {
+                        let deleted_here = self.range_tree.remote_mark_deleted(cursor, span, |entry, leaf| {
                             DocumentState::notify(markers, entry, leaf);
                         });
 
@@ -725,7 +725,7 @@ impl DocumentState {
             if *del_span > 0 {
                 let cursor = self.range_tree.cursor_at_content_pos(*pos, false);
                 let markers = &mut self.markers;
-                let deleted_items = self.range_tree.local_delete(cursor, *del_span, |entry, leaf| {
+                let deleted_items = self.range_tree.local_mark_deleted(cursor, *del_span, |entry, leaf| {
                     DocumentState::notify(markers, entry, leaf);
                 });
                 for item in deleted_items {

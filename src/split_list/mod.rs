@@ -321,6 +321,12 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
         self.replace_range(self.total_len, entry);
     }
 
+    pub fn last(&self) -> Option<&Entry> {
+        self.content.last().and_then(|bucket| {
+            bucket.last()
+        })
+    }
+
     #[allow(unused)]
     pub(super) fn check(&self) {
         let mut counted_len = 0;
@@ -349,6 +355,10 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
         let mut num_inline_buckets = 0;
         let mut num_heap_buckets = 0;
         let mut mem_size = size_of_val(self);
+        let mut num_entries = 0;
+
+        let mut compact_num_entries = 0;
+        let mut last: Option<Entry> = None;
 
         for bucket in &self.content {
             // TODO: This doesn't include the size of any spilled buckets.
@@ -371,13 +381,22 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
                     size_counts.resize(len + 1, 0);
                 }
                 size_counts[len] += 1;
+
+                if let Some(e) = last {
+                    if !e.can_append(entry) { compact_num_entries += 1; }
+                } else { compact_num_entries += 1; }
+                last = Some(entry.clone());
             }
+
+            num_entries += bucket.len();
         }
 
         println!("-------- Split list stats --------");
+        println!("number of entries: {}", num_entries);
         println!("number of buckets {}", self.content.len());
         println!("spilled {} / inline {}", num_heap_buckets, num_inline_buckets);
         println!("Total split list memory usage {}", mem_size);
+        println!("Entries, compacted: {} ({} bytes)", compact_num_entries, compact_num_entries * size_of::<Entry>());
         if detailed {
             println!("bucket item counts {:?}", bucket_item_counts);
             println!("size counts {:?}", size_counts);

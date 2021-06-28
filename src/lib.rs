@@ -283,7 +283,7 @@ impl CRDTState {
         // println!("{:?}", cursor);
         let client_data = &mut self.client_data;
         // dbg!("delete list", &self.client_data[0].markers);
-        let result = RangeTree::local_delete(&mut self.marker_tree, cursor, len, |entry, leaf| {
+        let result = RangeTree::local_mark_deleted(&mut self.marker_tree, cursor, len, |entry, leaf| {
             // eprintln!("notify {:?} / {}", loc, len);
             CRDTState::notify(client_data, entry, leaf);
         });

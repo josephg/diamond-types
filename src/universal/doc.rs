@@ -1,5 +1,5 @@
 use crate::universal::*;
-use crate::split_list::SplitList;
+// use crate::split_list::SplitList;
 use crate::range_tree::{RangeTree, Cursor, NodeLeaf};
 use crate::common::{AgentId, LocalOp};
 use smallvec::smallvec;
@@ -26,7 +26,8 @@ impl YjsDoc {
             client_with_order: Rle::new(),
             frontier: smallvec![ROOT_ORDER],
             client_data: vec![],
-            markers: SplitList::new(),
+            // markers: SplitList::new(),
+            markers: MarkerTree::new(),
             range_tree: RangeTree::new(),
             text_content: Rope::new(),
         }
@@ -72,6 +73,7 @@ impl YjsDoc {
             self.range_tree.cursor_at_start()
         } else {
             let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers[order as usize];
+            // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
             // self.range_tree.
             let mut cursor = unsafe {
                 RangeTree::cursor_before_item(order, marker)
@@ -83,7 +85,9 @@ impl YjsDoc {
         }
     }
 
-    fn notify(markers: &mut SplitList<MarkerEntry<YjsSpan, ContentIndex>>, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
+    fn notify(markers: &mut MarkerTree, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
+        // let cursor = markers.cursor_at_offset_pos(entry.order as usize, false);
+        // panic!("blarh");
         markers.replace_range(entry.order as usize, MarkerEntry {
             ptr, len: entry.len() as u32
         });
@@ -126,6 +130,7 @@ impl YjsDoc {
             let other_left_order = other_entry.origin_left_at_offset(cursor.offset as u32);
             let other_left_cursor = self.get_cursor_after(other_left_order);
 
+            // Yjs semantics.
             match std::cmp::Ord::cmp(&other_left_cursor, &left_cursor) {
                 Ordering::Less => { break; } // Top row
                 Ordering::Greater => { } // Bottom row. Continue.
@@ -167,7 +172,7 @@ impl YjsDoc {
             if *del_span > 0 {
                 let cursor = self.range_tree.cursor_at_content_pos(pos, false);
                 let markers = &mut self.markers;
-                let _deleted_items = self.range_tree.local_delete(cursor, *del_span, |entry, leaf| {
+                let _deleted_items = self.range_tree.local_mark_deleted(cursor, *del_span, |entry, leaf| {
                     Self::notify(markers, entry, leaf);
                 });
 
@@ -321,16 +326,5 @@ mod tests {
         }
         assert_eq!(doc.client_data[0].item_orders.num_entries(), 1);
         assert_eq!(doc.client_with_order.num_entries(), 1);
-    }
-
-    #[test]
-    fn kevin() {
-        let mut doc = YjsDoc::new();
-
-        let agent = doc.get_or_create_client_id("seph");
-
-        for _i in 0..5000000 {
-            doc.local_insert(agent, 0, " ".into());
-        }
     }
 }
