@@ -10,6 +10,7 @@ use crate::splitable_span::SplitableSpan;
 use crate::order::OrderMarker;
 use smartstring::alias::{String as SmartString};
 use std::cmp::Ordering;
+use crate::universal::markers::MarkerOp;
 
 pub(crate) struct OpIterator<'a> {
     txn: &'a TxnInternal,
@@ -254,7 +255,7 @@ impl DocumentState {
     fn notify(markers: &mut SplitList<MarkerEntry<OrderMarker, ContentIndex>>, entry: OrderMarker, ptr: NonNull<NodeLeaf<OrderMarker, ContentIndex>>) {
         // println!("NOTIFY {:?} {:?}", entry, ptr);
         markers.replace_range(entry.order as usize, MarkerEntry {
-            ptr, len: entry.len() as u32
+            op: MarkerOp::Ins(ptr), len: entry.len() as u32
         });
     }
 
@@ -422,7 +423,7 @@ impl DocumentState {
 
     fn get_cursor_before(&self, item: Order) -> Cursor<OrderMarker, ContentIndex> {
         assert_ne!(item, ROOT_ORDER);
-        let marker: NonNull<NodeLeaf<OrderMarker, ContentIndex>> = self.markers[item];
+        let marker: NonNull<NodeLeaf<OrderMarker, ContentIndex>> = self.markers.entry_at(item).unwrap_ptr();
         // dbg!(item, self.get_item_id(item), marker);
         unsafe { RangeTree::cursor_before_item(item, marker) }
     }
@@ -431,7 +432,7 @@ impl DocumentState {
         if parent == ROOT_ORDER {
             self.range_tree.cursor_at_start()
         } else {
-            let marker: NonNull<NodeLeaf<OrderMarker, ContentIndex>> = self.markers[parent];
+            let marker: NonNull<NodeLeaf<OrderMarker, ContentIndex>> = self.markers.entry_at(parent).unwrap_ptr();
             // self.range_tree.
             let mut cursor = unsafe {
                 RangeTree::cursor_before_item(parent, marker)

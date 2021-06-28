@@ -3,6 +3,7 @@ use std::ops::Index;
 use std::fmt::Debug;
 use crate::splitable_span::SplitableSpan;
 use std::mem::{size_of_val, size_of};
+use crate::common::IndexGet;
 
 const DEFAULT_BUCKET_SIZE: usize = 100;
 const BUCKET_INLINED_SIZE: usize = 13;
@@ -392,7 +393,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
         }
 
         println!("-------- Split list stats --------");
-        println!("number of entries: {}", num_entries);
+        println!("number of {} byte entries: {}", size_of::<Entry>(), num_entries);
         println!("number of buckets {}", self.content.len());
         println!("spilled {} / inline {}", num_heap_buckets, num_inline_buckets);
         println!("Total split list memory usage {}", mem_size);
@@ -415,6 +416,11 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
         }
         count
     }
+
+    pub fn entry_at(&self, index: usize) -> &Entry {
+        let (bucket_idx, _, cursor) = self.get_internal_idx(index, false);
+        &self.content[bucket_idx][cursor.idx]
+    }
 }
 
 impl<Entry, Item> Index<usize> for SplitList<Entry> where Entry: SplitableSpan + Index<usize, Output=Item> + Debug {
@@ -423,6 +429,15 @@ impl<Entry, Item> Index<usize> for SplitList<Entry> where Entry: SplitableSpan +
     fn index(&self, index: usize) -> &Self::Output {
         let (bucket_idx, _, cursor) = self.get_internal_idx(index, false);
         &self.content[bucket_idx][cursor.idx][cursor.offset]
+    }
+}
+
+impl<Entry, Item> IndexGet<usize> for SplitList<Entry> where Entry: SplitableSpan + IndexGet<usize, Output=Item> + Debug {
+    type Output = Item;
+
+    fn index_get(&self, index: usize) -> Self::Output {
+        let (bucket_idx, _, cursor) = self.get_internal_idx(index, false);
+        self.content[bucket_idx][cursor.idx].index_get(cursor.offset)
     }
 }
 

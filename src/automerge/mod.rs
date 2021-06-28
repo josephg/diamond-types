@@ -5,14 +5,12 @@ use ropey::Rope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
-pub use markers::MarkerEntry;
-
 use crate::common::{ClientName, CRDTLocation};
 use crate::order::OrderMarker;
 use crate::range_tree::{ContentIndex, RangeTree};
 use crate::split_list::SplitList;
+pub use crate::universal::markers::MarkerEntry;
 
-mod markers;
 mod txn;
 mod sibling_range;
 

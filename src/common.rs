@@ -48,3 +48,9 @@ pub struct LocalOp {
     pub ins_content: SmartString,
     pub del_span: usize
 }
+
+// From https://github.com/rust-lang/rfcs/issues/997:
+pub trait IndexGet<Idx: ?Sized> {
+    type Output;
+    fn index_get(&self, index: Idx) -> Self::Output;
+}

@@ -1,4 +1,4 @@
-use crate::common::{CRDTLocation, CLIENT_INVALID};
+use crate::common::{CRDTLocation, CLIENT_INVALID, IndexGet};
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 
@@ -22,6 +22,14 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
 pub trait EntryWithContent {
     /// User specific content length. Used by range_tree for character counts.
     fn content_len(&self) -> usize;
+}
+
+impl<T: EntryTraits> IndexGet<usize> for T {
+    type Output = T::Item;
+
+    fn index_get(&self, index: usize) -> Self::Output {
+        self.at_offset(index)
+    }
 }
 
 pub trait CRDTItem {

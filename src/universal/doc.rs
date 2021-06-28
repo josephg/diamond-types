@@ -68,11 +68,15 @@ impl YjsDoc {
         } else { 0 }
     }
 
+    fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, ContentIndex>> {
+        self.markers.entry_at(order as usize).unwrap_ptr()
+    }
+
     fn get_cursor_after(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
         if order == ROOT_ORDER {
             self.range_tree.cursor_at_start()
         } else {
-            let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers[order as usize];
+            let marker = self.marker_at(order);
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
             // self.range_tree.
             let mut cursor = unsafe {
@@ -88,7 +92,7 @@ impl YjsDoc {
     fn notify(markers: &mut MarkerTree, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
         // let cursor = markers.cursor_at_offset_pos(entry.order as usize, false);
         // panic!("blarh");
-        markers.replace_range(entry.order as usize, MarkerEntry {
+        markers.replace_range(entry.order as usize, MarkerEntry::Ins {
             ptr, len: entry.len() as u32
         });
     }
@@ -170,13 +174,34 @@ impl YjsDoc {
         for LocalOp { pos, ins_content, del_span } in local_ops {
             let pos = *pos;
             if *del_span > 0 {
+                let loc = CRDTLocation {
+                    agent,
+                    seq: self.client_data[agent as usize].get_next_seq()
+                };
+                let order = self.get_next_order();
+                self.client_with_order.append(order, Entry { loc, len: *del_span as i32 });
+
+                self.client_data[loc.agent as usize].item_orders.append(loc.seq, OrderMarker {
+                    order,
+                    len: *del_span as i32
+                });
+
                 let cursor = self.range_tree.cursor_at_content_pos(pos, false);
                 let markers = &mut self.markers;
-                let _deleted_items = self.range_tree.local_mark_deleted(cursor, *del_span, |entry, leaf| {
+                let deleted_items = self.range_tree.local_mark_deleted(cursor, *del_span, |entry, leaf| {
                     Self::notify(markers, entry, leaf);
                 });
 
-                // ...
+                let mut deleted_length = 0; // To check.
+                for item in deleted_items {
+                    self.markers.append_entry(MarkerEntry::Del {
+                        len: item.len as u32,
+                        order: item.order
+                    });
+                    deleted_length += item.len as usize;
+                }
+                // I might be able to relax this, but we'd need to change del_span above.
+                assert_eq!(deleted_length, *del_span);
 
                 if USE_INNER_ROPE {
                     self.text_content.remove(pos..pos + *del_span);
@@ -326,5 +351,20 @@ mod tests {
         }
         assert_eq!(doc.client_data[0].item_orders.num_entries(), 1);
         assert_eq!(doc.client_with_order.num_entries(), 1);
+    }
+
+    #[test]
+    fn deletes_merged() {
+        let mut doc = YjsDoc::new();
+        doc.get_or_create_client_id("seph");
+        doc.local_insert(0, 0, "abc".into());
+        // doc.local_delete(0, 2, 1);
+        // doc.local_delete(0, 1, 1);
+        // doc.local_delete(0, 0, 1);
+        doc.local_delete(0, 0, 1);
+        doc.local_delete(0, 0, 1);
+        doc.local_delete(0, 0, 1);
+        dbg!(doc);
+
     }
 }

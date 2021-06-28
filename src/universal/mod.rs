@@ -1,18 +1,21 @@
+use std::pin::Pin;
+
+use ropey::Rope;
+use smallvec::SmallVec;
+use smartstring::alias::String as SmartString;
+
+use crate::common::{ClientName, CRDTLocation};
+use crate::order::OrderMarker;
+use crate::range_tree::{ContentIndex, Entry, RangeTree, RawPositionIndex};
+use crate::split_list::SplitList;
+use crate::universal::simple_rle::Rle;
+use crate::universal::span::YjsSpan;
+use crate::universal::markers::MarkerEntry;
+
 mod span;
 mod doc;
 mod simple_rle;
-
-use crate::common::{CRDTLocation, ClientName};
-use smallvec::SmallVec;
-use std::pin::Pin;
-use crate::range_tree::{RangeTree, ContentIndex, Entry};
-use crate::universal::span::YjsSpan;
-use crate::split_list::SplitList;
-use crate::automerge::MarkerEntry;
-use smartstring::alias::{String as SmartString};
-use crate::order::OrderMarker;
-use crate::universal::simple_rle::Rle;
-use ropey::Rope;
+mod markers;
 
 pub type Order = u32;
 pub const ROOT_ORDER: Order = Order::MAX;
