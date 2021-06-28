@@ -8,14 +8,16 @@ use crate::common::{ClientName, CRDTLocation};
 use crate::order::OrderMarker;
 use crate::range_tree::{ContentIndex, Entry, RangeTree, RawPositionIndex};
 use crate::split_list::SplitList;
-use crate::universal::simple_rle::Rle;
+use crate::universal::simple_rle::{Rle, RLEPair};
 use crate::universal::span::YjsSpan;
 use crate::universal::markers::MarkerEntry;
+use crate::universal::delete::DeleteEntry;
 
 mod span;
 mod doc;
 mod simple_rle;
 mod markers;
+mod delete;
 
 pub type Order = u32;
 pub const ROOT_ORDER: Order = Order::MAX;
@@ -30,7 +32,7 @@ struct ClientData {
     /// This contains a set of (CRDT location range -> item orders).
     ///
     /// The OrderMarkers here always have positive len.
-    item_orders: Rle<OrderMarker>,
+    item_orders: Rle<RLEPair<OrderMarker>>,
 }
 
 // pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
@@ -40,7 +42,7 @@ pub type MarkerTree = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
 pub struct YjsDoc {
     /// This is a bunch of ranges of (item order -> CRDT location span).
     /// The entries always have positive len.
-    client_with_order: Rle<Entry>,
+    client_with_order: Rle<RLEPair<Entry>>,
 
     /// The set of txn orders with no children in the document. With a single writer this will
     /// always just be the last order we've seen.
@@ -61,6 +63,8 @@ pub struct YjsDoc {
     /// here - which might or might not be the right approach.
     // markers: SplitList<MarkerEntry<YjsSpan, ContentIndex>>,
     markers: MarkerTree,
+
+    deletes: Rle<DeleteEntry>,
 
     // Probably temporary, eventually.
     text_content: Rope,

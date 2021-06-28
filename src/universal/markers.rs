@@ -65,7 +65,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
                 *len = at as u32;
                 Del {
                     len: remainder_len,
-                    order: at as u32
+                    order: *order + at as u32
                 }
             }
         }

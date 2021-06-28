@@ -14,7 +14,7 @@ const USE_INNER_ROPE: bool = true;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
-        if let Some((loc, range)) = self.item_orders.last() {
+        if let Some(RLEPair(loc, range)) = self.item_orders.last() {
             loc + range.len as u32
         } else { 0 }
     }
@@ -30,6 +30,7 @@ impl YjsDoc {
             markers: MarkerTree::new(),
             range_tree: RangeTree::new(),
             text_content: Rope::new(),
+            deletes: Rle::new(),
         }
     }
 
@@ -63,7 +64,7 @@ impl YjsDoc {
     }
 
     fn get_next_order(&self) -> Order {
-        if let Some((base, y)) = self.client_with_order.last() {
+        if let Some(RLEPair (base, y)) = self.client_with_order.last() {
             base + y.len as u32
         } else { 0 }
     }
@@ -103,12 +104,12 @@ impl YjsDoc {
             assert_eq!(item.order, next_order);
         }
 
-        self.client_with_order.append(item.order, Entry { loc, len: item.len });
+        self.client_with_order.append(RLEPair (item.order, Entry { loc, len: item.len }));
 
-        self.client_data[loc.agent as usize].item_orders.append(loc.seq, OrderMarker {
+        self.client_data[loc.agent as usize].item_orders.append(RLEPair (loc.seq, OrderMarker {
             order: item.order,
             len: item.len
-        });
+        }));
 
         // Ok now that's out of the way, lets integrate!
         let mut cursor = cursor_hint.unwrap_or_else(|| {
@@ -179,12 +180,12 @@ impl YjsDoc {
                     seq: self.client_data[agent as usize].get_next_seq()
                 };
                 let order = self.get_next_order();
-                self.client_with_order.append(order, Entry { loc, len: *del_span as i32 });
+                self.client_with_order.append(RLEPair (order, Entry { loc, len: *del_span as i32 }));
 
-                self.client_data[loc.agent as usize].item_orders.append(loc.seq, OrderMarker {
+                self.client_data[loc.agent as usize].item_orders.append(RLEPair (loc.seq, OrderMarker {
                     order,
                     len: *del_span as i32
-                });
+                }));
 
                 let cursor = self.range_tree.cursor_at_content_pos(pos, false);
                 let markers = &mut self.markers;
@@ -192,12 +193,18 @@ impl YjsDoc {
                     Self::notify(markers, entry, leaf);
                 });
 
+                self.markers.append_entry(self.markers.last().map_or(MarkerEntry::default(), |m| {
+                    MarkerEntry::Ins { len: *del_span as u32, ptr: m.unwrap_ptr() }
+                }));
+
                 let mut deleted_length = 0; // To check.
                 for item in deleted_items {
-                    self.markers.append_entry(MarkerEntry::Del {
-                        len: item.len as u32,
-                        order: item.order
-                    });
+                    // self.markers.append_entry(MarkerEntry::Del {
+                    //     len: item.len as u32,
+                    //     order: item.order
+                    // });
+
+                    self.deletes.append(DeleteEntry { order: item.order, len: item.len as u32 });
                     deleted_length += item.len as usize;
                 }
                 // I might be able to relax this, but we'd need to change del_span above.
@@ -267,6 +274,8 @@ impl YjsDoc {
     pub fn print_stats(&self, detailed: bool) {
         self.range_tree.print_stats(detailed);
         self.markers.print_stats(detailed);
+        self.deletes.print_stats(detailed);
+
     }
 }
 
