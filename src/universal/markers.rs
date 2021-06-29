@@ -3,116 +3,63 @@ use std::ptr::NonNull;
 use crate::range_tree::{NodeLeaf, EntryTraits, TreeIndex};
 use std::fmt::Debug;
 use crate::common::IndexGet;
-use crate::universal::Order;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum MarkerEntry<E: EntryTraits, I: TreeIndex<E>> {
+pub struct MarkerEntry<E: EntryTraits, I: TreeIndex<E>> {
     // This is cleaner as a separate enum and struct, but doing it that way
     // bumps it from 16 to 24 bytes per entry because of alignment.
-    Ins { len: u32, ptr: NonNull<NodeLeaf<E, I>> },
-    Del { len: u32, order: Order },
+    pub len: u32,
+    pub ptr: NonNull<NodeLeaf<E, I>>,
 }
-use self::MarkerEntry::*;
 
-// impl<E: EntryTraits, I: TreeIndex<E>> IndexGet<usize> for MarkerOp<E, I> {
-//     type Output = Self;
-//
-//     fn index_get(&self, offset: usize) -> Self {
-//         match self {
-//             Ins { ptr, .. } => Ins { len: 1, ptr: *ptr },
-//             Del { order, .. } => Del { len: 1, order: order + offset as u32 }
-//         }
-//     }
-// }
-
-impl<E: EntryTraits, I: TreeIndex<E>> MarkerEntry<E, I> {
-    fn len_mut(&mut self) -> &mut u32 {
-        match self {
-            // Go go gadget optimizer
-            Ins { len, .. } => len,
-            Del { len, .. } => len,
-        }
-    }
-
-    pub fn unwrap_ptr(&self) -> NonNull<NodeLeaf<E, I>> {
-        match self {
-            Ins { ptr, .. } => *ptr,
-            _ => panic!("Expected ptr in MarkerEntry")
-        }
-    }
-}
 
 impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
+    // type Item = NonNull<NodeLeaf>;
+
     fn len(&self) -> usize {
-        match self {
-            Ins { len, .. } => *len as usize,
-            Del { len, .. } => *len as usize,
-        }
+        self.len as usize
     }
 
     fn truncate(&mut self, at: usize) -> Self {
-        match self {
-            Ins { len, ptr } => {
-                let remainder_len = *len - at as u32;
-                *len = at as u32;
-                Ins {
-                    len: remainder_len,
-                    ptr: *ptr
-                }
-            }
-            Del { len, order } => {
-                let remainder_len = *len - at as u32;
-                *len = at as u32;
-                Del {
-                    len: remainder_len,
-                    order: *order + at as u32
-                }
-            }
+        let remainder_len = self.len - at as u32;
+        self.len = at as u32;
+        MarkerEntry {
+            len: remainder_len,
+            ptr: self.ptr
         }
     }
 
     fn can_append(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Ins { ptr: ptr1, .. }, Ins { ptr: ptr2, .. })
-                => ptr1 == ptr2,
-            (Del { len, order: o1 }, Del { order: o2, .. }) => { o1 + len == *o2 }
-            _ => false
-        }
+        self.ptr == other.ptr
     }
 
     fn append(&mut self, other: Self) {
-        *self.len_mut() += other.len() as u32;
+        self.len += other.len;
     }
 
-    fn prepend(&mut self, other: Self) {
-        match (self, other) {
-            (Ins { len, .. }, Ins { len: len2, .. }) => { *len += len2; },
-            (Del { len, order: o1 }, Del { len: len2, order: o2 }) => {
-                *o1 = o2;
-                *len += len2;
-            }
-            _ => panic!("Unexpected prepend")
-        }
-    }
+    fn prepend(&mut self, other: Self) { self.len += other.len; }
 }
 
-// impl<E: EntryTraits, I: TreeIndex<E>> Index<usize> for MarkerEntry<E, I> {
-//     type Output = MarkerOp<E, I>;
-//
-//     fn index(&self, index: usize) -> &Self::Output {
-//         match self.op {
-//             Ins(ptr) => Ins(ptr),
-//             Del(order) => { Del(order + index as u32) }
-//         }
-//         // &self.ptr
-//     }
-// }
+impl<E: EntryTraits, I: TreeIndex<E>> IndexGet<usize> for MarkerEntry<E, I> {
+    type Output = NonNull<NodeLeaf<E, I>>;
+
+    fn index_get(&self, _index: usize) -> Self::Output {
+        self.ptr
+    }
+}
 
 
 
 impl<E: EntryTraits, I: TreeIndex<E>> Default for MarkerEntry<E, I> {
     fn default() -> Self {
-        MarkerEntry::Ins { ptr: NonNull::dangling(), len: 0}
+        MarkerEntry {ptr: NonNull::dangling(), len: 0}
+    }
+}
+
+
+impl<E: EntryTraits, I: TreeIndex<E>> MarkerEntry<E, I> {
+    pub fn unwrap_ptr(&self) -> NonNull<NodeLeaf<E, I>> {
+        self.ptr
     }
 }
 

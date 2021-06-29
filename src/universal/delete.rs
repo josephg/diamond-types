@@ -1,8 +1,6 @@
 use crate::universal::Order;
 use crate::splitable_span::SplitableSpan;
-use crate::universal::simple_rle::RLEEntry;
 use std::fmt::Debug;
-use std::ops::{Deref, DerefMut};
 
 // TODO: Consider just reusing OrderMarker.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -12,21 +10,9 @@ pub struct DeleteEntry {
     pub len: u32,
 }
 
-impl RLEEntry for DeleteEntry {
-    type Value = DeleteEntry;
-
-    fn get_key(&self) -> u32 { self.order }
-}
-impl Deref for DeleteEntry {
-    type Target = Self;
-    fn deref(&self) -> &Self::Target { self }
-}
-impl DerefMut for DeleteEntry {
-    fn deref_mut(&mut self) -> &mut Self::Target { self }
-}
-
 impl SplitableSpan for DeleteEntry {
     fn len(&self) -> usize {
+        // self.len.abs() as usize
         self.len as usize
     }
 

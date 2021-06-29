@@ -43,8 +43,15 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    let test_data = load_testing_data("benchmark_data/automerge-paper.json.gz");
+    // let test_filename = "benchmark_data/automerge-paper.json.gz";
+    let test_filename = "benchmark_data/rustcode.json.gz";
+    let test_data = load_testing_data(test_filename);
     assert_eq!(test_data.start_content.len(), 0);
+    println!("Loaded testing data with {} txns and {} patches",
+             test_data.txns.len(),
+             test_data.txns.iter()
+                 .fold(0, |acc, txn| { acc + txn.patches.len() })
+    );
 
     #[cfg(feature = "memusage")]
     let start_bytes = get_thread_memory_usage();

@@ -53,21 +53,14 @@ pub use common::LocalOp;
  */
 #[allow(dead_code)]
 
-// mod btree;
 mod common;
 mod range_tree;
 mod split_list;
 mod splitable_span;
 mod alloc;
-pub mod automerge;
 pub mod universal;
 mod order;
-
-// mod universal;
-
-// use smallvec::SmallVec;
-
-// For debugging.
+mod rle;
 
 // *** Basically all the code below is being replaced by new code in mod document
 

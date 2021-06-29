@@ -307,6 +307,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         println!("Number of internal nodes {}", self.count_internal_nodes());
         println!("Depth {}", self.get_depth());
         println!("Total range tree memory usage {}", self.count_total_memory());
+        println!("(efficient size: {})", self.count_entries() * size_of::<E>());
 
         if detailed {
             println!("Entry distribution {:?}", size_counts);

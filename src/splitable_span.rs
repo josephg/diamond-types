@@ -16,6 +16,15 @@ pub trait SplitableSpan: Clone {
     /// `at` parameter must obey *0 < at < entry.len()*
     fn truncate(&mut self, at: usize) -> Self;
 
+    // This is pretty gross. Hopefully the optimizer can sort this out.
+    // #[inline]
+    // fn truncate_keeping_right(&mut self, at: usize) -> Self {
+    //     let b = self.truncate(at);
+    //     let remainder = self;
+    //     *self = b;
+    //     remainder
+    // }
+
     /// See if the other item can be appended to self. `can_append` will always be called
     /// immediately before `append`.
     fn can_append(&self, other: &Self) -> bool;
