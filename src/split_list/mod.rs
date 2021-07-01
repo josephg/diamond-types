@@ -5,7 +5,7 @@ use crate::splitable_span::SplitableSpan;
 use std::mem::{size_of_val, size_of};
 use crate::common::IndexGet;
 // use std::borrow::{BorrowMut, Borrow};
-use crate::rle::simple_rle::Rle;
+use crate::rle::Rle;
 
 const DEFAULT_BUCKET_SIZE: usize = 100;
 const BUCKET_INLINED_SIZE: usize = 13;
@@ -59,6 +59,12 @@ impl BucketCursor {
         BucketCursor { idx: 0, offset: 0 }
     }
 }
+
+
+thread_local! {
+    static SHUFFLES: std::cell::RefCell<usize> = std::cell::RefCell::new(0);
+}
+
 
 impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
     pub fn new() -> Self {
@@ -211,8 +217,16 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
 
     /// Like slice_insert above but any remainder returned is automatically inserted.
     fn insert_at(bucket: &mut Bucket<Entry>, mut entry: Entry, cursor: &mut BucketCursor) {
+        let mut x = false;
         while let Some(remainder) = Self::slice_insert(bucket, entry, cursor) {
+            x = true;
             entry = remainder
+        }
+        if x {
+            SHUFFLES.with(|s| {
+                *s.borrow_mut() += 1;
+            });
+
         }
     }
 
@@ -407,6 +421,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
                 println!("{} count: {}", i, len);
             }
         }
+        dbg!(SHUFFLES.with(|x| {*x.borrow()}));
     }
 
     // Mostly for testing.

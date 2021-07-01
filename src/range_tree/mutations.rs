@@ -223,6 +223,85 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
+    /// Delete the specified number of items from the b-tree at the cursor.
+    // pub fn delete<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, mut del_items: usize, mut notify: F)
+    //     where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
+
+        // This method is incomplete.
+        // unimplemented!();
+
+        // if del_items == 0 { return; }
+        // cursor.roll_to_next_entry(false);
+        //
+        // // This is partially copied / modified from mutate_entry (below). There's probably a way to
+        // // merge them but perfect is the enemy of good.
+        //
+        // // Trim the remainder of the current entry.
+        // let node = unsafe { cursor.get_node_mut() };
+        // let mut entry: E = node.data[cursor.idx];
+        // // let mut entry_len = entry.content_len();
+        // let mut entry_len = entry.len();
+        //
+        // // Trim off the first part
+        // let a = if cursor.offset > 0 {
+        //     entry_len -= cursor.offset;
+        //     Some(entry.truncate_keeping_right(cursor.offset))
+        // } else { None };
+        //
+        // let mut flush_marker = I::FlushMarker::default();
+        //
+        // let c = loop {
+        //     // if del_items == 0 { break None; }
+        //     if del_items < entry_len {
+        //         let discarded = entry.truncate_keeping_right(del_items);
+        //         I::decrement_marker(&mut flush_marker, &discarded);
+        //         break Some(entry);
+        //     } else {
+        //         del_items -= entry_len;
+        //         cursor.idx += 1;
+        //     };
+        // };
+        // drop(del_items);
+        //
+        // // Trim off the last part
+        // let c = if del_items < entry_len {
+        //     del_items = 0;
+        //     Some(entry.truncate(del_items))
+        // } else {
+        //     del_items -= entry_len;
+        //     None
+        // };
+        //
+        // I::decrement_marker(&mut flush_marker, &entry);
+        //
+        // match (a, c) {
+        //     (Some(a), Some(c)) => {
+        //         self.replace_entry(&mut cursor, &[a, c], &mut flush_marker, notify);
+        //     },
+        //     (Some(a), None) => {
+        //         self.replace_entry(&mut cursor, &[a], &mut flush_marker, notify);
+        //     },
+        //     (None, Some(c)) => {
+        //         self.replace_entry(&mut cursor, &[c], &mut flush_marker, notify);
+        //     },
+        //     (None, None) => {
+        //         // self.replace_entry(&mut cursor, &[entry], &mut flush_marker, &mut notify);
+        //         I::decrement_marker(flush_marker, &node.data[cursor.idx]);
+        //         node.data[cursor.idx] = entry;
+        //         cursor.offset = replaced_here;
+        //         I::increment_marker(flush_marker, &entry);
+        //         // flush_marker.0 -= replaced_here as isize;
+        //     }
+        // }
+        //
+        //
+        // if del_items == 0 {
+        //     // unsafe { cursor.get_node_mut() }.flush(&mut flush_marker);
+        //     node.flush(&mut flush_marker);
+        //     return;
+        // }
+    // }
+
     /// Replace as much of the current entry from cursor onwards as we can
     fn mutate_entry<MapFn, N>(self: &mut Pin<Box<Self>>, map_fn: MapFn, cursor: &mut Cursor<E, I>, replace_max: usize, flush_marker: &mut I::FlushMarker, notify: &mut N) -> usize
         where N: FnMut(E, NonNull<NodeLeaf<E, I>>), MapFn: FnOnce(&mut E) {
@@ -273,6 +352,33 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
         replaced_here
     }
+
+    // pub fn replace_range<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, mut replaced_len: usize, with: E, mut notify: F)
+    //     where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
+    //
+    //     let mut flush_marker = I::FlushMarker::default();
+    //     cursor.roll_to_next_entry(false);
+    //
+    //     while replaced_len > 0 {
+    //         debug_assert!(cursor.get_entry().is_valid());
+    //         // dbg!(cursor.get_entry());
+    //
+    //         while cursor.get_entry().is_delete() {
+    //             Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
+    //         }
+    //
+    //         // dbg!(self, delete_remaining, &flush_marker);
+    //
+    //         delete_remaining -= self.mutate_entry(|e| {
+    //             extend_delete(&mut result, *e);
+    //             e.mark_deleted();
+    //         }, &mut cursor, delete_remaining, &mut flush_marker, &mut notify);
+    //     }
+    //
+    //     // The cursor is potentially after any remainder.
+    //     unsafe { cursor.get_node_mut() }.flush(&mut flush_marker);
+    //
+    // }
 }
 
 impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {

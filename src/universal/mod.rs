@@ -7,11 +7,11 @@ use smartstring::alias::String as SmartString;
 use crate::common::{ClientName, CRDTLocation};
 use crate::order::OrderMarker;
 use crate::range_tree::{ContentIndex, Entry, RangeTree};
-use crate::split_list::SplitList;
+// use crate::split_list::SplitList;
 use crate::universal::span::YjsSpan;
 use crate::universal::markers::MarkerEntry;
 use crate::universal::delete::DeleteEntry;
-use crate::rle::simple_rle::Rle;
+use crate::rle::{Rle, MutRle};
 
 mod span;
 mod doc;
@@ -35,7 +35,8 @@ struct ClientData {
 }
 
 // pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
-pub type MarkerTree = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
+// pub type MarkerTree = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
+pub type MarkerTree = MutRle<MarkerEntry<YjsSpan, ContentIndex>>;
 
 #[derive(Debug)]
 pub struct YjsDoc {

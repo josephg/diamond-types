@@ -4,7 +4,7 @@
 use crate::range_tree::EntryTraits;
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
-use crate::rle::RLEKey;
+use crate::rle::{RLEKey, Rle};
 use std::mem;
 
 const GAP: u32 = u32::MAX;
@@ -20,6 +20,7 @@ pub struct MutRle<V: SplitableSpan + Copy + Debug + Sized> {
     next_gap: u8,
 
     shuffles: usize,
+    num_appends: usize,
 }
 
 impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
@@ -30,6 +31,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
             next_gap: gap_frequency,
 
             shuffles: 0,
+            num_appends: 0,
         }
     }
 
@@ -83,17 +85,33 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
 
     /// Inserts the passed entry into the (start of) the specified index. Shuffles subsequent
     /// entries forward in the list until the next gap.
-    fn shuffle_insert_before(&mut self, mut new_entry: (RLEKey, V), mut idx: usize) {
+    fn shuffle_insert_before(&mut self, mut new_entry: (RLEKey, V), mut idx: usize, allow_prepend: bool) -> usize {
+        let inserted_idx = idx;
         // TODO: Consider rewriting this to scan and use ptr::copy instead.
+
+        // First scan to see if we can prepend the new item.
+        if allow_prepend && idx != 0 {
+            let mut scan_idx = idx;
+            while scan_idx < self.content.len() {
+                let old_entry = &mut self.content[scan_idx];
+                if old_entry.0 == GAP {
+                    scan_idx += 1;
+                } else {
+                    // This is the first non gap. Try to prepend here.
+                    if new_entry.0 + new_entry.1.len() as u32 == old_entry.0 && new_entry.1.can_append(&old_entry.1) {
+                        new_entry.1.append(old_entry.1);
+                        *old_entry = new_entry;
+                        return scan_idx;
+                    } else { break; }
+                }
+            }
+        }
+
         while idx < self.content.len() {
             let old_entry = &mut self.content[idx];
             if old_entry.0 == GAP {
                 *old_entry = new_entry;
-                return;
-            } else if new_entry.0 + new_entry.1.len() as u32 == old_entry.0 && new_entry.1.can_append(&old_entry.1) {
-                new_entry.1.append(old_entry.1);
-                *old_entry = new_entry;
-                return;
+                return inserted_idx;
             } else {
                 // shuffle shuffle
                 mem::swap(old_entry, &mut new_entry);
@@ -102,18 +120,30 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
             }
         }
         self.content.push(new_entry);
+        return inserted_idx;
     }
 
     /// Wrapper around shuffle_insert_before which tries to prepend before scanning.
     /// Returns index at which item was actually inserted.
-    fn shuffle_insert_after(&mut self, mut new_entry: (RLEKey, V), mut idx: usize) -> usize {
-        let old_entry = &mut self.content[idx];
-        if old_entry.0 + old_entry.1.len() as u32 == new_entry.0 && old_entry.1.can_append(&new_entry.1) {
-            old_entry.1.append(new_entry.1);
-            idx
+    fn shuffle_insert_after(&mut self, new_entry: (RLEKey, V), idx: usize, allow_prepend: bool) -> usize {
+        if idx >= self.content.len() {
+            self.append(new_entry.0, new_entry.1);
+            self.content.len() - 1
         } else {
-            self.shuffle_insert_before(new_entry, idx + 1);
-            idx + 1
+            let old_entry = &mut self.content[idx];
+            if old_entry.0 != GAP && old_entry.0 + old_entry.1.len() as u32 == new_entry.0 && old_entry.1.can_append(&new_entry.1) {
+                old_entry.1.append(new_entry.1);
+                idx
+            } else {
+                let idx = if old_entry.0 == GAP { idx } else { idx + 1 };
+                self.shuffle_insert_before(new_entry, idx, allow_prepend)
+            }
+        }
+    }
+
+    fn trim(&mut self) {
+        while self.content.len() > 0 && self.content[self.content.len() - 1].0 == GAP {
+            self.content.pop();
         }
     }
 
@@ -124,6 +154,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
             if entry.0 >= clear_end_key { break; }
 
             let mut remainder = if offset > 0 {
+                // This will only happen the first time through the loop.
                 (entry.0 + offset, entry.1.truncate(offset as _))
             } else {
                 let k = entry.0;
@@ -140,29 +171,41 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
                 // Delete a portion of remainder, and re-insert the rest.
                 remainder.1 = remainder.1.truncate((clear_end_key - remainder.0) as usize);
                 remainder.0 = clear_end_key;
+                self.trim();
                 return Some(remainder);
             }
         }
+        self.trim();
         None
     }
 
     pub fn replace_range(&mut self, base: RLEKey, val: V) {
+        self.check();
         match self.find_idx(base) {
             None => {
+                // println!("insert {} {:?}", base, val);
                 // This is currently only supported if we're appending.
-                if let Some(entry) = self.content.last() {
-                    assert!(entry.0 + entry.1.len() as u32 <= base);
-                }
+                // if let Some(entry) = self.content.last() {
+                //     assert_ne!(entry.0, GAP);
+                //     assert!(entry.0 + entry.1.len() as u32 <= base);
+                // }
                 self.append(base, val);
             }
-            Some((mut idx, mut offset)) => {
+            Some((mut idx, offset)) => {
                 let remainder = self.clear_range(idx, offset, base + val.len() as u32);
-                idx = self.shuffle_insert_after((base, val), idx);
+                // println!("replace_range {} {:?} idx {} off {} r {:?}", base, val, idx, offset, remainder);
+                if offset == 0 && idx > 0 { idx -= 1; }
+                // dbg!(remainder, idx, &self.content);
                 if let Some(remainder) = remainder {
-                    self.shuffle_insert_after(remainder, idx);
+                    idx = self.shuffle_insert_after((base, val), idx, false);
+                    self.shuffle_insert_after(remainder, idx, true);
+                } else {
+                    self.shuffle_insert_after((base, val), idx, true);
                 }
             }
         }
+        // dbg!(&self.content, base, val);
+        self.check();
     }
 
     pub fn append(&mut self, base: RLEKey, val: V) {
@@ -180,6 +223,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
             self.next_gap -= 1;
         }
 
+        self.num_appends += 1;
         self.content.push((base, val));
     }
 
@@ -198,21 +242,55 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
         // The first and last entries (if they exist) must never be gaps.
         if !self.content.is_empty() {
             assert_ne!(self.content[0].0, GAP);
-            assert_ne!(self.content.last().unwrap().0, GAP);
+
+            // if self.content.last().unwrap().0 == GAP {
+            //     dbg!(&self.content);
+            // }
+            // assert_ne!(self.content.last().unwrap().0, GAP);
         }
     }
 
-    pub fn print_stats(&self, _detailed: bool) {
+    pub fn print_stats(&self, detailed: bool) {
         let size = std::mem::size_of::<(RLEKey, V)>();
         println!("-------- Mutable RLE --------");
         println!("number of {} byte entries: {}", size, self.content.len());
-        println!("size: {}", self.content.capacity() * size);
+        println!("allocated size: {}", self.content.capacity() * size);
         println!("shuffles: {}", self.shuffles);
+        println!("raw appends: {}", self.num_appends);
 
         let filled = self.content.iter().fold(0, |acc, x| {
             if x.0 == GAP { acc } else { acc + 1 }
         });
+        println!("filled {} / gaps {}", filled, self.content.len() - filled);
         println!("(efficient size: {})", filled * size);
+
+        if detailed {
+            let mut largest_run = 0;
+            let mut current_run = 0;
+            for entry in self.content.iter() {
+                if entry.0 == GAP {
+                    largest_run = largest_run.max(current_run);
+                    current_run = 0;
+                } else {
+                    current_run += 1;
+                }
+            }
+            largest_run = largest_run.max(current_run);
+            println!("Largest run without gaps {}", largest_run);
+
+
+            // for item in self.content[..100].iter() {
+            //     println!("{:?}", item);
+            // }
+
+            let mut r = Rle::new();
+            for entry in self.content.iter() {
+                if entry.0 != GAP {
+                    r.append(entry.0, entry.1);
+                }
+            }
+            r.print_stats(false);
+        }
     }
 }
 
@@ -277,6 +355,20 @@ mod tests {
         assert_eq!(rle.content[0], (0, OrderMarker { order: 1000, len: 1 }));
         assert_eq!(rle.content[1], (1, OrderMarker { order: 2000, len: 1 }));
         assert_eq!(rle.content[2], (2, OrderMarker { order: 3000, len: 3 }));
+
+        // dbg!(&rle);
+    }
+
+    #[test]
+    fn append() {
+        let mut rle: MutRle<OrderMarker> = MutRle::new(10);
+        rle.append(0, OrderMarker { order: 1000, len: 5 });
+        rle.append(5, OrderMarker { order: 2000, len: 5 });
+        rle.replace_range(5, OrderMarker { order: 1005, len: 2 });
+
+        assert_eq!(rle.content.len(), 2);
+        assert_eq!(rle.content[0], (0, OrderMarker { order: 1000, len: 7 }));
+        assert_eq!(rle.content[1], (7, OrderMarker { order: 2002, len: 3 }));
 
         // dbg!(&rle);
     }

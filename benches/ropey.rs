@@ -5,6 +5,7 @@
 use criterion::{black_box, Criterion};
 use crdt_testdata::{load_testing_data, TestPatch};
 use ropey::Rope;
+#[cfg(feature = "memusage")]
 use text_crdt_rust::{get_thread_memory_usage, get_thread_num_allocations};
 
 pub fn ropey_benchmarks(c: &mut Criterion) {
