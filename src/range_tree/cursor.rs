@@ -122,6 +122,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         self.prev_entry_marker(None)
     }
 
+    /// Go to the next entry marker and update the (optional) flush marker.
+    /// Returns true if successful, or false if we've reached the end of the document.
     pub(super) fn next_entry_marker(&mut self, marker: Option<&mut I::FlushMarker>) -> bool {
         // TODO: Do this without code duplication of next/prev entry marker.
         unsafe {
