@@ -24,6 +24,11 @@ pub trait EntryWithContent {
     fn content_len(&self) -> usize;
 }
 
+pub trait AbsolutelyPositioned {
+    // Consider making the position an output type parameter.
+    fn pos(&self) -> u32;
+}
+
 impl<T: EntryTraits> IndexGet<usize> for T {
     type Output = T::Item;
 

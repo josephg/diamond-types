@@ -71,7 +71,7 @@ impl YjsDoc {
     }
 
     fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, ContentIndex>> {
-        let cursor = self.markers.cursor_at_offset_pos(order as usize, false);
+        let cursor = self.markers.cursor_at_position(order as usize, false);
         cursor.get_item().unwrap()
         // self.markers.find(order).unwrap().0.ptr
         // self.markers.entry_at(order as usize).unwrap_ptr()
@@ -95,10 +95,18 @@ impl YjsDoc {
     }
 
     fn notify(markers: &mut MarkerTree, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
-        let cursor = markers.cursor_at_offset_pos(entry.order as usize, true);
-        markers.replace_range(cursor, entry.len(), MarkerEntry {
-            ptr, len: entry.len() as u32
+        let cursor = markers.cursor_at_position(entry.order as usize, true);
+        markers.check_abs();
+        dbg!(MarkerEntry {
+            order: entry.order, ptr, len: entry.len() as u32
+        }, &markers);
+        markers.replace_range(cursor, MarkerEntry {
+            order: entry.order, ptr, len: entry.len() as u32
         }, |_,_| {});
+        dbg!(MarkerEntry {
+            order: entry.order, ptr, len: entry.len() as u32
+        }, &markers);
+        markers.check_abs();
         // markers.replace_range(entry.order, MarkerEntry {
         //     ptr, len: entry.len() as u32
         // });
@@ -366,6 +374,7 @@ mod tests {
             if USE_INNER_ROPE {
                 assert_eq!(doc.text_content, expected_content);
             }
+            doc.markers.check_abs();
         }
         assert_eq!(doc.client_data[0].item_orders.num_entries(), 1);
         assert_eq!(doc.client_with_order.num_entries(), 1);

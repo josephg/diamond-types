@@ -23,6 +23,7 @@ mod internal;
 mod entry;
 mod mutations;
 mod index;
+mod tests;
 
 // pub(crate) use cursor::Cursor;
 
@@ -45,7 +46,7 @@ const NUM_LEAF_ENTRIES: usize = 32;
 #[derive(Debug)]
 pub struct RangeTree<E: EntryTraits, I: TreeIndex<E>> {
     // count: usize,
-    count: I::IndexOffset,
+    count: I::IndexEntry,
     root: Node<E, I>,
 
     // Usually inserts and deletes are followed by more inserts / deletes at the same location.
@@ -78,7 +79,7 @@ enum ParentPtr<E: EntryTraits, I: TreeIndex<E>> {
 
 // The warning here is an error - the bound can't be removed.
 #[allow(type_alias_bounds)]
-type InternalEntry<E, I: TreeIndex<E>> = (I::IndexOffset, Option<Node<E, I>>);
+type InternalEntry<E, I: TreeIndex<E>> = (I::IndexEntry, Option<Node<E, I>>);
 
 /// An internal node in the B-tree
 #[derive(Debug)]

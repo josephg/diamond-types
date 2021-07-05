@@ -9,7 +9,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
             MaybeUninit::uninit().assume_init() // Safe because `MaybeUninit`s don't require init.
         };
         for elem in &mut children[..] {
-            *elem = MaybeUninit::new((I::IndexOffset::default(), None));
+            *elem = MaybeUninit::new((I::IndexEntry::default(), None));
         }
         Box::pin(Self {
             parent,
@@ -26,7 +26,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
     /// Finds the child at some given offset. Returns the remaining offset within the found child.
     pub(super) fn find_child_at_offset<F>(&self, raw_pos: usize, stick_end: bool, offset_to_num: &F)
         -> Option<(usize, NodePtr<E, I>)>
-            where F: Fn(I::IndexOffset) -> usize {
+            where F: Fn(I::IndexEntry) -> usize {
 
         let mut offset_remaining = raw_pos;
 
@@ -53,7 +53,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
 
     /// Insert a new item in the tree. This DOES NOT update the child counts in
     /// the parents. (So the tree will be in an invalid state after this has been called.)
-    pub(super) fn splice_in(&mut self, idx: usize, count: I::IndexOffset, elem: Node<E, I>) {
+    pub(super) fn splice_in(&mut self, idx: usize, count: I::IndexEntry, elem: Node<E, I>) {
         let mut buffer = (count, Some(elem));
 
         // TODO: Is this actually any better than the equivalent code below??
@@ -102,3 +102,20 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
     }
 }
 
+
+impl<E: EntryTraits + AbsolutelyPositioned> NodeInternal<E, AbsPositionIndex> {
+    pub(super) fn find_child_at_position(&self, target_pos: usize, stick_end: bool)
+                                          -> Option<NodePtr<E, AbsPositionIndex>> {
+
+        let target_pos = target_pos as u32;
+        debug_assert!(self.data[0].1.is_some());
+        assert!(self.data[0].0 <= target_pos); // Could just return None here.
+
+        for (idx, (pivot, elem)) in self.data[1..].iter().enumerate() {
+            if *pivot > target_pos || elem.is_none() {
+                return Some(unsafe { self.data[idx - 1].1.as_ref().unwrap().as_ptr() });
+            }
+        }
+        None
+    }
+}

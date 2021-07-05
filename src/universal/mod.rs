@@ -6,11 +6,11 @@ use smartstring::alias::String as SmartString;
 
 use crate::common::{ClientName, CRDTLocation};
 use crate::order::OrderMarker;
-use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree, RawPositionIndex};
+use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree, AbsPositionIndex};
 use crate::universal::span::YjsSpan;
 use crate::universal::markers::MarkerEntry;
 use crate::universal::delete::DeleteEntry;
-use crate::rle::{Rle, MutRle};
+use crate::rle::Rle;
 
 mod span;
 mod doc;
@@ -33,7 +33,7 @@ struct ClientData {
     item_orders: Rle<OrderMarker>,
 }
 
-pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
+pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, AbsPositionIndex>>>;
 // pub type MarkerTree = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
 // pub type MarkerTree = MutRle<MarkerEntry<YjsSpan, ContentIndex>>;
 

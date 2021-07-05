@@ -1,13 +1,13 @@
 use crate::splitable_span::SplitableSpan;
 use std::ptr::NonNull;
-use crate::range_tree::{NodeLeaf, EntryTraits, TreeIndex};
+use crate::range_tree::{NodeLeaf, EntryTraits, TreeIndex, AbsolutelyPositioned};
 use std::fmt::Debug;
 use crate::common::IndexGet;
+use crate::universal::{ROOT_ORDER, Order};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct MarkerEntry<E: EntryTraits, I: TreeIndex<E>> {
-    // This is cleaner as a separate enum and struct, but doing it that way
-    // bumps it from 16 to 24 bytes per entry because of alignment.
+    pub order: u32,
     pub len: u32,
     pub ptr: NonNull<NodeLeaf<E, I>>,
 }
@@ -24,6 +24,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
         let remainder_len = self.len - at as u32;
         self.len = at as u32;
         MarkerEntry {
+            order: self.order + at as Order,
             len: remainder_len,
             ptr: self.ptr
         }
@@ -52,7 +53,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
 
 impl<E: EntryTraits, I: TreeIndex<E>> Default for MarkerEntry<E, I> {
     fn default() -> Self {
-        MarkerEntry {ptr: NonNull::dangling(), len: 0}
+        MarkerEntry {order: ROOT_ORDER, ptr: NonNull::dangling(), len: 0}
     }
 }
 
@@ -68,9 +69,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> EntryTraits for MarkerEntry<E, I> {
 
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
         let left = Self {
+            order: self.order,
             len: at as _,
             ptr: self.ptr
         };
+        self.order += at as u32;
         self.len -= at as u32;
         left
     }
@@ -87,6 +90,12 @@ impl<E: EntryTraits, I: TreeIndex<E>> EntryTraits for MarkerEntry<E, I> {
 
     fn at_offset(&self, _offset: usize) -> Self::Item {
         self.ptr
+    }
+}
+
+impl<E: EntryTraits, I: TreeIndex<E>> AbsolutelyPositioned for MarkerEntry<E, I> {
+    fn pos(&self) -> u32 {
+        self.order
     }
 }
 

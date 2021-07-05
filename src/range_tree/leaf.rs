@@ -1,6 +1,6 @@
 use super::*;
 use std::ptr::NonNull;
-use std::mem::take;
+use std::mem::replace;
 
 impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
@@ -60,6 +60,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
     // Returns (index, offset within entry)
     pub fn find_offset<F>(&self, mut offset: usize, stick_end: bool, entry_to_num: F) -> Option<(usize, usize)>
         where F: Fn(E) -> usize {
+        // dbg!(&self, offset, stick_end);
         for i in 0..self.len_entries() {
             // if offset == 0 {
             //     return Some((i, 0));
@@ -94,9 +95,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
 
     // Recursively (well, iteratively) ascend and update all the counts along
     // the way up. TODO: Move this - This method shouldn't be in NodeLeaf.
-    pub(super) fn update_parent_count(&mut self, amt: I::FlushMarker) {
-        if amt == I::FlushMarker::default() { return; }
-
+    fn update_indexes(&mut self, idx_update: I::IndexUpdate) {
         let mut child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self) });
         let mut parent = self.parent;
 
@@ -104,19 +103,22 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
             match parent {
                 ParentPtr::Root(mut r) => {
                     unsafe {
-                        I::update_offset_by_marker(&mut r.as_mut().count, &amt);
-                        // r.as_mut().count = r.as_ref().count.wrapping_add(amt as usize); }
+                        // This doesn't matter for pivot updates. Its just going to store the
+                        // minimum position at the root for no reason.
+                        I::update_index_by(&mut r.as_mut().count, &idx_update);
                     }
                     break;
                 },
                 ParentPtr::Internal(mut n) => {
                     let idx = unsafe { n.as_mut() }.find_child(child).unwrap();
                     let c = &mut unsafe { n.as_mut() }.data[idx].0;
-                    // :(
-                    I::update_offset_by_marker(c, &amt);
-                    // *c = c.wrapping_add(amt as u32);
+                    I::update_index_by(c, &idx_update);
 
-                    // And recurse.
+                    // For pivot updates, we only propagate the update if the index is 0.
+                    // Note if you wanted a duel index type thing, this approach wouldn't work.
+                    if !I::needs_span_update() && idx != 0 { break; }
+
+                    // And iterate.
                     child = NodePtr::Internal(n);
                     parent = unsafe { n.as_mut() }.parent;
                 },
@@ -124,9 +126,52 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
         }
     }
 
-    pub(super) fn flush(&mut self, marker: &mut I::FlushMarker) {
+    pub(super) fn flush_index_update(&mut self, marker: &mut I::IndexUpdate) {
         // println!("flush {:?}", marker);
-        let amt = take(marker);
-        self.update_parent_count(amt);
+        let amt = replace(marker, I::new_update());
+        if !I::update_is_needed(&amt) { return; }
+        self.update_indexes(amt);
+    }
+}
+
+impl<E: EntryTraits + AbsolutelyPositioned> NodeLeaf<E, AbsPositionIndex> {
+    pub fn find_at_position(&self, target_pos: usize, stick_end: bool) -> (usize, usize) {
+        println!("find_at_position {} {:#?}", target_pos, self);
+        // dbg!(&self, offset, stick_end);
+
+        // Could binary search here. I don't think it makes much difference given the data fits
+        // in a cache line.
+        // let target_pos = target_pos as u32;
+        // debug_assert!(self.num_entries >= 1);
+        // debug_assert!(self.data[0].pos() <= target_pos as u32);
+
+        // This could be implemented using iter().position(), but I think this is cleaner.
+        // self.data.iter().position(|&entry| {
+        //     debug_assert!(entry.is_valid());
+        //
+        //     let cur_pos = entry.pos() as usize;
+        //     let cur_len = entry.len();
+        //     cur_pos <= target_pos && target_pos < cur_len + cur_len
+        // }).map(|i|
+        for i in 0..self.len_entries() {
+            let entry = self.data[i];
+            debug_assert!(entry.is_valid());
+
+            let cur_pos = entry.pos() as usize;
+            let cur_len = entry.len();
+
+            // Should we try to stick_end here?
+            if target_pos < cur_pos { return (i, 0); }
+
+            let offset = target_pos - cur_pos;
+            if offset >= 0 && offset < cur_len {
+                return (i, offset);
+            } else if offset == cur_len {
+                return if stick_end { (i, cur_len) }
+                else { (i + 1, 0) }
+            }
+        }
+
+        (self.len_entries(), 0)
     }
 }

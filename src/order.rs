@@ -1,5 +1,5 @@
 use crate::splitable_span::SplitableSpan;
-use crate::range_tree::{EntryTraits, CRDTItem, EntryWithContent};
+use crate::range_tree::{EntryTraits, CRDTItem, EntryWithContent, AbsolutelyPositioned};
 
 /// An OrderMarker defines a span of item orders, with a base and length.
 /// If the length is negative, the span has been deleted in the document.
@@ -103,4 +103,11 @@ impl CRDTItem for OrderMarker {
         debug_assert!(self.len > 0);
         self.len = -self.len;
     }
+}
+
+// Really just for tests. Note this might be dangerous - the order in each item here might not name
+// its position when used!
+#[cfg(test)]
+impl AbsolutelyPositioned for OrderMarker {
+    fn pos(&self) -> u32 { self.order as u32 }
 }
