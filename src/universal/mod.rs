@@ -6,8 +6,7 @@ use smartstring::alias::String as SmartString;
 
 use crate::common::{ClientName, CRDTLocation};
 use crate::order::OrderMarker;
-use crate::range_tree::{ContentIndex, Entry, RangeTree};
-// use crate::split_list::SplitList;
+use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree, RawPositionIndex};
 use crate::universal::span::YjsSpan;
 use crate::universal::markers::MarkerEntry;
 use crate::universal::delete::DeleteEntry;
@@ -34,15 +33,15 @@ struct ClientData {
     item_orders: Rle<OrderMarker>,
 }
 
-// pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
+pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
 // pub type MarkerTree = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
-pub type MarkerTree = MutRle<MarkerEntry<YjsSpan, ContentIndex>>;
+// pub type MarkerTree = MutRle<MarkerEntry<YjsSpan, ContentIndex>>;
 
 #[derive(Debug)]
 pub struct YjsDoc {
     /// This is a bunch of ranges of (item order -> CRDT location span).
     /// The entries always have positive len.
-    client_with_order: Rle<Entry>,
+    client_with_order: Rle<CRDTSpan>,
 
     /// The set of txn orders with no children in the document. With a single writer this will
     /// always just be the last order we've seen.

@@ -41,16 +41,16 @@ pub trait CRDTItem {
 }
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
-pub struct Entry {
+pub struct CRDTSpan {
     pub loc: CRDTLocation,
     pub len: i32, // negative if the chunk was deleted. Never 0 - TODO: could use NonZeroI32
 }
 
-impl EntryTraits for Entry {
+impl EntryTraits for CRDTSpan {
     type Item = CRDTLocation;
 
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        let other = Entry {
+        let other = CRDTSpan {
             loc: self.loc,
             len: at as i32 * self.len.signum()
         };
@@ -85,13 +85,13 @@ impl EntryTraits for Entry {
     }
 }
 
-impl EntryWithContent for Entry {
+impl EntryWithContent for CRDTSpan {
     fn content_len(&self) -> usize {
         if self.len < 0 { 0 } else { self.len as _ }
     }
 }
 
-impl SplitableSpan for Entry {
+impl SplitableSpan for CRDTSpan {
     /// this length refers to the length that we'll use when we call truncate(). So this does count
     /// deletes.
     fn len(&self) -> usize {
@@ -103,7 +103,7 @@ impl SplitableSpan for Entry {
 
         let sign = self.len.signum();
 
-        let other = Entry {
+        let other = CRDTSpan {
             loc: CRDTLocation {
                 agent: self.loc.agent,
                 seq: self.loc.seq + at as u32,
@@ -133,7 +133,7 @@ impl SplitableSpan for Entry {
 }
 
 
-impl CRDTItem for Entry {
+impl CRDTItem for CRDTSpan {
     fn is_insert(&self) -> bool {
         debug_assert!(self.len != 0);
         self.len > 0

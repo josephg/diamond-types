@@ -40,13 +40,13 @@ impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
     fn prepend(&mut self, other: Self) { self.len += other.len; }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>> IndexGet<usize> for MarkerEntry<E, I> {
-    type Output = NonNull<NodeLeaf<E, I>>;
-
-    fn index_get(&self, _index: usize) -> Self::Output {
-        self.ptr
-    }
-}
+// impl<E: EntryTraits, I: TreeIndex<E>> IndexGet<usize> for MarkerEntry<E, I> {
+//     type Output = NonNull<NodeLeaf<E, I>>;
+//
+//     fn index_get(&self, _index: usize) -> Self::Output {
+//         self.ptr
+//     }
+// }
 
 
 
@@ -63,32 +63,32 @@ impl<E: EntryTraits, I: TreeIndex<E>> MarkerEntry<E, I> {
     }
 }
 
-// impl<E: EntryTraits, I: TreeIndex<E>> EntryTraits for MarkerEntry<E, I> {
-//     type Item = NonNull<NodeLeaf<E, I>>;
-//
-//     fn truncate_keeping_right(&mut self, at: usize) -> Self {
-//         let left = Self {
-//             len: at as _,
-//             ptr: self.ptr
-//         };
-//         self.len -= at as u32;
-//         left
-//     }
-//
-//     fn contains(&self, _loc: Self::Item) -> Option<usize> {
-//         panic!("Should never be used")
-//         // if self.ptr == loc { Some(0) } else { None }
-//     }
-//
-//     fn is_valid(&self) -> bool {
-//         // TODO: Replace this with a real nullptr.
-//         self.ptr != NonNull::dangling()
-//     }
-//
-//     fn at_offset(&self, _offset: usize) -> Self::Item {
-//         self.ptr
-//     }
-// }
+impl<E: EntryTraits, I: TreeIndex<E>> EntryTraits for MarkerEntry<E, I> {
+    type Item = NonNull<NodeLeaf<E, I>>;
+
+    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        let left = Self {
+            len: at as _,
+            ptr: self.ptr
+        };
+        self.len -= at as u32;
+        left
+    }
+
+    fn contains(&self, _loc: Self::Item) -> Option<usize> {
+        panic!("Should never be used")
+        // if self.ptr == loc { Some(0) } else { None }
+    }
+
+    fn is_valid(&self) -> bool {
+        // TODO: Replace this with a real nullptr.
+        self.ptr != NonNull::dangling()
+    }
+
+    fn at_offset(&self, _offset: usize) -> Self::Item {
+        self.ptr
+    }
+}
 
 #[cfg(test)]
 mod tests {
