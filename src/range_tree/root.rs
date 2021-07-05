@@ -424,17 +424,17 @@ impl<E: EntryTraits + EntryWithContent> RangeTree<E, FullIndex> {
 
 #[cfg(test)]
 mod tests {
-    use crate::range_tree::{RangeTree, Entry, ContentIndex, FullIndex, TreeIndex};
+    use crate::range_tree::{RangeTree, CRDTSpan, ContentIndex, FullIndex, TreeIndex};
     use std::mem::size_of;
 
     #[test]
     fn print_memory_stats() {
-        let x = RangeTree::<Entry, ContentIndex>::new();
+        let x = RangeTree::<CRDTSpan, ContentIndex>::new();
         x.print_stats(false);
-        let x = RangeTree::<Entry, FullIndex>::new();
+        let x = RangeTree::<CRDTSpan, FullIndex>::new();
         x.print_stats(false);
 
-        println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<Entry>>::IndexOffset>());
-        println!("sizeof FullIndex offset {}", size_of::<<FullIndex as TreeIndex<Entry>>::IndexOffset>());
+        println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<CRDTSpan>>::IndexOffset>());
+        println!("sizeof FullIndex offset {}", size_of::<<FullIndex as TreeIndex<CRDTSpan>>::IndexOffset>());
     }
 }

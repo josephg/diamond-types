@@ -289,6 +289,14 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         where N: FnMut(E, NonNull<NodeLeaf<E, I>>) {
 
         let mut node = unsafe { cursor.node.as_mut() };
+
+        // Dirty.
+        // if node.num_entries >= cursor.idx as u8 {
+        //     // The only way this can happen normally is by creating a cursor at the end of the
+        //     // document. So we're inserting, not replacing.
+        //     self.insert_internal(&[new_entry], &mut cursor, flush_marker, &mut notify);
+        // }
+
         let mut entry = &mut node.data[cursor.idx];
         let mut entry_len = entry.len();
 
@@ -850,14 +858,14 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
 #[cfg(test)]
 mod tests {
     // use std::pin::Pin;
-    use crate::range_tree::{RangeTree, Entry, ContentIndex};
+    use crate::range_tree::{RangeTree, CRDTSpan, ContentIndex};
     use crate::common::CRDTLocation;
     use crate::order::OrderMarker;
 
     #[test]
     fn splice_insert_test() {
-        let mut tree = RangeTree::<Entry, ContentIndex>::new();
-        let entry = Entry {
+        let mut tree = RangeTree::<CRDTSpan, ContentIndex>::new();
+        let entry = CRDTSpan {
             loc: CRDTLocation {agent: 0, seq: 1000},
             len: 100
         };
@@ -866,7 +874,7 @@ mod tests {
         tree.insert_internal(&[entry], &mut cursor, &mut marker, &mut |_e, _x| {});
         unsafe {cursor.get_node_mut() }.flush(&mut marker);
 
-        let entry = Entry {
+        let entry = CRDTSpan {
             loc: CRDTLocation {agent: 0, seq: 1100},
             len: 20
         };
@@ -881,10 +889,10 @@ mod tests {
 
     #[test]
     fn backspace_collapses() {
-        let mut tree = RangeTree::<Entry, ContentIndex>::new();
+        let mut tree = RangeTree::<CRDTSpan, ContentIndex>::new();
 
         let cursor = tree.cursor_at_content_pos(0, false);
-        let entry = Entry {
+        let entry = CRDTSpan {
             loc: CRDTLocation {agent: 0, seq: 1000},
             len: 100
         };

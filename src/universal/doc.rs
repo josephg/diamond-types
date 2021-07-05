@@ -27,8 +27,8 @@ impl YjsDoc {
             client_with_order: Rle::new(),
             frontier: smallvec![ROOT_ORDER],
             client_data: vec![],
-            // markers: SplitList::new(),
-            markers: MutRle::new(3),
+            // markers: MutRle::new(3),
+            markers: RangeTree::new(),
             range_tree: RangeTree::new(),
             text_content: Rope::new(),
             deletes: Rle::new(),
@@ -71,7 +71,9 @@ impl YjsDoc {
     }
 
     fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, ContentIndex>> {
-        self.markers.find(order).unwrap().0.ptr
+        let cursor = self.markers.cursor_at_offset_pos(order as usize, false);
+        cursor.get_item().unwrap()
+        // self.markers.find(order).unwrap().0.ptr
         // self.markers.entry_at(order as usize).unwrap_ptr()
     }
 
@@ -93,11 +95,13 @@ impl YjsDoc {
     }
 
     fn notify(markers: &mut MarkerTree, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
-        // let cursor = markers.cursor_at_offset_pos(entry.order as usize, false);
-        // panic!("blarh");
-        markers.replace_range(entry.order, MarkerEntry {
+        let cursor = markers.cursor_at_offset_pos(entry.order as usize, true);
+        markers.replace_range(cursor, entry.len(), MarkerEntry {
             ptr, len: entry.len() as u32
-        });
+        }, |_,_| {});
+        // markers.replace_range(entry.order, MarkerEntry {
+        //     ptr, len: entry.len() as u32
+        // });
     }
 
     fn integrate(&mut self, loc: CRDTLocation, item: YjsSpan, ins_content: &str, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
@@ -106,7 +110,7 @@ impl YjsDoc {
             assert_eq!(item.order, next_order);
         }
 
-        self.client_with_order.append(item.order, Entry { loc, len: item.len });
+        self.client_with_order.append(item.order, CRDTSpan { loc, len: item.len });
 
         self.client_data[loc.agent as usize].item_orders.append(loc.seq, OrderMarker {
             order: item.order,
@@ -182,7 +186,7 @@ impl YjsDoc {
                     seq: self.client_data[agent as usize].get_next_seq()
                 };
                 let order = self.get_next_order();
-                self.client_with_order.append(order, Entry { loc, len: *del_span as i32 });
+                self.client_with_order.append(order, CRDTSpan { loc, len: *del_span as i32 });
 
                 self.client_data[loc.agent as usize].item_orders.append(loc.seq, OrderMarker {
                     order,

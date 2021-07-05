@@ -94,7 +94,7 @@ mod rle;
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 struct MarkerEntry {
     len: u32,
-    ptr: NonNull<NodeLeaf<Entry, FullIndex>>
+    ptr: NonNull<NodeLeaf<CRDTSpan, FullIndex>>
 }
 
 impl SplitableSpan for MarkerEntry {
@@ -125,7 +125,7 @@ impl SplitableSpan for MarkerEntry {
 }
 
 impl Index<usize> for MarkerEntry {
-    type Output = NonNull<NodeLeaf<Entry, FullIndex>>;
+    type Output = NonNull<NodeLeaf<CRDTSpan, FullIndex>>;
 
     fn index(&self, _index: usize) -> &Self::Output {
         &self.ptr
@@ -153,7 +153,7 @@ const USE_INNER_ROPE: bool = false;
 pub struct CRDTState {
     client_data: Vec<ClientData>,
 
-    marker_tree: Pin<Box<RangeTree<Entry, FullIndex>>>,
+    marker_tree: Pin<Box<RangeTree<CRDTSpan, FullIndex>>>,
 
     // Probably temporary, eventually.
     text_content: Rope,
@@ -197,7 +197,7 @@ impl CRDTState {
         .map(|id| id as AgentId)
     }
 
-    fn notify(client_data: &mut Vec<ClientData>, entry: Entry, ptr: NonNull<NodeLeaf<Entry, FullIndex>>) {
+    fn notify(client_data: &mut Vec<ClientData>, entry: CRDTSpan, ptr: NonNull<NodeLeaf<CRDTSpan, FullIndex>>) {
         // eprintln!("notify callback {:?} {:?}", entry, ptr);
         let markers = &mut client_data[entry.loc.agent as usize].markers;
         // for op in &mut markers[loc.seq as usize..(loc.seq+len) as usize] {
@@ -234,7 +234,7 @@ impl CRDTState {
             CRDT_DOC_ROOT
         } else { cursor.clone().tell_predecessor().unwrap() };
 
-        let new_entry = Entry {
+        let new_entry = CRDTSpan {
             loc: loc_base,
             len: inserted_length as i32
         };
@@ -270,7 +270,7 @@ impl CRDTState {
         self.insert(id, pos, text)
     }
 
-    pub fn delete(&mut self, _client_id: AgentId, pos: usize, len: usize) -> DeleteResult<Entry> {
+    pub fn delete(&mut self, _client_id: AgentId, pos: usize, len: usize) -> DeleteResult<CRDTSpan> {
         let cursor = self.marker_tree.cursor_at_content_pos(pos, true);
         // println!("{:#?}", state.range_tree);
         // println!("{:?}", cursor);
@@ -289,7 +289,7 @@ impl CRDTState {
         result
     }
 
-    pub fn delete_name(&mut self, client_name: &str, pos: usize, len: usize) -> DeleteResult<Entry> {
+    pub fn delete_name(&mut self, client_name: &str, pos: usize, len: usize) -> DeleteResult<CRDTSpan> {
         let id = self.get_or_create_client_id(client_name);
         self.delete(id, pos, len)
     }
