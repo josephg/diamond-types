@@ -11,6 +11,7 @@ use crate::universal::span::YjsSpan;
 use crate::universal::markers::MarkerEntry;
 use crate::universal::delete::DeleteEntry;
 use crate::rle::{Rle, MutRle};
+use crate::split_list::SplitList;
 
 mod span;
 mod doc;
@@ -33,8 +34,8 @@ struct ClientData {
     item_orders: Rle<OrderMarker>,
 }
 
-pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
-// pub type MarkerTree = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
+// pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
+pub type MarkerTree = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
 // pub type MarkerTree = MutRle<MarkerEntry<YjsSpan, ContentIndex>>;
 
 #[derive(Debug)]

@@ -28,7 +28,8 @@ impl YjsDoc {
             frontier: smallvec![ROOT_ORDER],
             client_data: vec![],
             // markers: MutRle::new(3),
-            markers: RangeTree::new(),
+            // markers: RangeTree::new(),
+            markers: SplitList::new(),
             range_tree: RangeTree::new(),
             text_content: Rope::new(),
             deletes: Rle::new(),
@@ -71,10 +72,10 @@ impl YjsDoc {
     }
 
     fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, ContentIndex>> {
-        let cursor = self.markers.cursor_at_offset_pos(order as usize, false);
-        cursor.get_item().unwrap()
+        // let cursor = self.markers.cursor_at_offset_pos(order as usize, false);
+        // cursor.get_item().unwrap()
         // self.markers.find(order).unwrap().0.ptr
-        // self.markers.entry_at(order as usize).unwrap_ptr()
+        self.markers.entry_at(order as usize).unwrap_ptr()
     }
 
     fn get_cursor_after(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
@@ -95,13 +96,13 @@ impl YjsDoc {
     }
 
     fn notify(markers: &mut MarkerTree, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
-        let cursor = markers.cursor_at_offset_pos(entry.order as usize, true);
-        markers.replace_range(cursor, entry.len(), MarkerEntry {
-            ptr, len: entry.len() as u32
-        }, |_,_| {});
-        // markers.replace_range(entry.order, MarkerEntry {
+        // let cursor = markers.cursor_at_offset_pos(entry.order as usize, true);
+        // markers.replace_range(cursor, entry.len(), MarkerEntry {
         //     ptr, len: entry.len() as u32
-        // });
+        // }, |_,_| {});
+        markers.replace_range(entry.order as usize, MarkerEntry {
+            ptr, len: entry.len() as u32
+        });
     }
 
     fn integrate(&mut self, loc: CRDTLocation, item: YjsSpan, ins_content: &str, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
@@ -199,9 +200,16 @@ impl YjsDoc {
                     Self::notify(markers, entry, leaf);
                 });
 
-                // self.markers.append_entry(self.markers.last().map_or(MarkerEntry::default(), |m| {
-                //     MarkerEntry { len: *del_span as u32, ptr: m.unwrap_ptr() }
-                // }));
+                // TODO: Remove me.
+                self.markers.append_entry(self.markers.last().map_or(MarkerEntry::default(), |m| {
+                    MarkerEntry { len: *del_span as u32, ptr: m.unwrap_ptr() }
+                }));
+
+                // let cursor = self.markers.cursor_at_end();
+                // self.markers.insert(cursor, MarkerEntry {
+                //     len: *del_span as u32,
+                //     ptr: NonNull::dangling()
+                // }, |_, _| {});
 
                 let mut deleted_length = 0; // To check.
                 for item in deleted_items {
@@ -279,8 +287,7 @@ impl YjsDoc {
 
     pub fn print_stats(&self, detailed: bool) {
         self.range_tree.print_stats(detailed);
-        // self.markers.print_stats(detailed);
-        self.markers.print_stats(true);
+        self.markers.print_stats(detailed);
         // self.markers.print_rle_size();
         self.deletes.print_stats(detailed);
     }
