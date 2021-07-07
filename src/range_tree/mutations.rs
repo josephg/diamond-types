@@ -575,7 +575,6 @@ mod tests {
     // use std::pin::Pin;
     use crate::range_tree::{RangeTree, CRDTSpan, ContentIndex};
     use crate::common::CRDTLocation;
-    use crate::order::OrderMarker;
 
     #[test]
     fn splice_insert_test() {

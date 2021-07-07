@@ -2,7 +2,7 @@ use crate::splitable_span::SplitableSpan;
 use std::ptr::NonNull;
 use crate::range_tree::{NodeLeaf, EntryTraits, TreeIndex};
 use std::fmt::Debug;
-use crate::common::IndexGet;
+// use crate::common::IndexGet;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct MarkerEntry<E: EntryTraits, I: TreeIndex<E>> {

@@ -6,17 +6,18 @@ use smartstring::alias::String as SmartString;
 
 use crate::common::{ClientName, CRDTLocation};
 use crate::order::OrderMarker;
-use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree, RawPositionIndex};
+use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree};
 use crate::universal::span::YjsSpan;
 use crate::universal::markers::MarkerEntry;
 use crate::universal::delete::DeleteEntry;
-use crate::rle::{Rle, MutRle};
+use crate::rle::Rle;
 use crate::split_list::SplitList;
 
 mod span;
 mod doc;
 mod markers;
 mod delete;
+mod txn;
 
 pub type Order = u32;
 pub const ROOT_ORDER: Order = Order::MAX;
