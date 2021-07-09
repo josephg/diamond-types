@@ -7,6 +7,8 @@ use std::ptr::NonNull;
 use crate::splitable_span::SplitableSpan;
 use std::cmp::Ordering;
 use crate::rle::Rle;
+use std::iter::FromIterator;
+use std::mem::replace;
 
 // #[cfg(inlinerope)]
 // const USE_INNER_ROPE: bool = true;
@@ -33,6 +35,7 @@ impl YjsDoc {
             range_tree: RangeTree::new(),
             text_content: Rope::new(),
             deletes: Rle::new(),
+            txns: Rle::new(),
         }
     }
 
@@ -179,6 +182,9 @@ impl YjsDoc {
     }
 
     pub fn local_txn(&mut self, agent: AgentId, local_ops: &[LocalOp]) {
+        let first_order = self.get_next_order();
+        let mut next_order = first_order;
+
         for LocalOp { pos, ins_content, del_span } in local_ops {
             let pos = *pos;
             if *del_span > 0 {
@@ -186,7 +192,9 @@ impl YjsDoc {
                     agent,
                     seq: self.client_data[agent as usize].get_next_seq()
                 };
-                let order = self.get_next_order();
+                let order = next_order;
+                next_order += *del_span as u32;
+
                 self.client_with_order.append(order, CRDTSpan { loc, len: *del_span as i32 });
 
                 self.client_data[loc.agent as usize].item_orders.append(loc.seq, OrderMarker {
@@ -200,7 +208,7 @@ impl YjsDoc {
                     Self::notify(markers, entry, leaf);
                 });
 
-                // TODO: Remove me.
+                // TODO: Remove me. This is only needed because Rle doesn't support gaps.
                 self.markers.append_entry(self.markers.last().map_or(MarkerEntry::default(), |m| {
                     MarkerEntry { len: *del_span as u32, ptr: m.unwrap_ptr() }
                 }));
@@ -235,9 +243,10 @@ impl YjsDoc {
                     agent,
                     seq: self.client_data[agent as usize].get_next_seq()
                 };
-                let order = self.get_next_order();
-
                 let ins_len = ins_content.chars().count();
+
+                let order = next_order;
+                next_order += ins_len as u32;
 
                 // Find the preceeding item and successor
                 let (origin_left, cursor) = if pos == 0 {
@@ -262,6 +271,21 @@ impl YjsDoc {
                 self.integrate(loc, item, ins_content.as_str(), Some(cursor));
             }
         }
+
+        let txn_len = next_order - first_order;
+        let parents = replace(&mut self.frontier, smallvec![next_order - 1]);
+        let mut min_succeeds = first_order;
+        while min_succeeds >= 1 && parents.contains(&(min_succeeds - 1)) {
+            min_succeeds -= 1;
+        }
+
+        let txn = TxnSpan {
+            order: first_order,
+            len: txn_len,
+            succeeds: 0,
+            parents: SmallVec::from_iter(parents.into_iter())
+        };
+        self.txns.append(first_order, txn);
     }
 
     // pub fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) -> Order {

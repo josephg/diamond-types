@@ -12,6 +12,7 @@ use crate::universal::markers::MarkerEntry;
 use crate::universal::delete::DeleteEntry;
 use crate::rle::Rle;
 use crate::split_list::SplitList;
+use crate::universal::txn::TxnSpan;
 
 mod span;
 mod doc;
@@ -62,10 +63,16 @@ pub struct YjsDoc {
     /// Note for inserts which insert a lot of contiguous characters, this will
     /// contain a lot of repeated pointers. I'm trading off memory for simplicity
     /// here - which might or might not be the right approach.
-    // markers: SplitList<MarkerEntry<YjsSpan, ContentIndex>>,
     markers: MarkerTree,
 
+    /// This is a set of all deletes. Each delete names the set of orders of inserts which were
+    /// deleted.
     deletes: Rle<DeleteEntry>,
+
+    /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
+    /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
+    /// remote changes.
+    txns: Rle<TxnSpan>,
 
     // Probably temporary, eventually.
     text_content: Rope,

@@ -12,7 +12,6 @@ pub struct MarkerEntry<E: EntryTraits, I: TreeIndex<E>> {
     pub ptr: NonNull<NodeLeaf<E, I>>,
 }
 
-
 impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
     // type Item = NonNull<NodeLeaf>;
 
@@ -119,5 +118,8 @@ mod tests {
             Del(u32, Order, bool),
         }
         dbg!(std::mem::size_of::<MarkerEntry2>());
+
+        pub type MarkerEntry3 = (u64, Option<NonNull<usize>>);
+        dbg!(std::mem::size_of::<MarkerEntry3>());
     }
 }

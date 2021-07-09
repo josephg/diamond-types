@@ -6,15 +6,15 @@ use crate::splitable_span::SplitableSpan;
 ///
 /// Both individual inserts and deletes will use up txn numbers.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct TxnSpan {
-    order: Order,
-    len: u32, // Length of the span
+pub struct TxnSpan {
+    pub order: Order,
+    pub len: u32, // Length of the span
 
     /// All txns in this span are direct descendants of all operations from order down to succeeds.
-    succeeds: Order,
+    pub succeeds: Order,
 
     /// The parents vector of the first txn in this span
-    parents: SmallVec<[Order; 2]>
+    pub parents: SmallVec<[Order; 2]>
 }
 
 impl SplitableSpan for TxnSpan {

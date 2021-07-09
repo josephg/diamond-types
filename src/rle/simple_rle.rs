@@ -7,14 +7,14 @@ use crate::rle::RLEKey;
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Clone, Eq, PartialEq, Debug)]
 // pub struct RLE<K: Copy + Eq + Ord, V: Copy + Eq>(Vec<(Range<K>, V)>);
-pub struct Rle<V: SplitableSpan + Copy + Debug + Sized>(Vec<(RLEKey, V)>);
+pub struct Rle<V: SplitableSpan + Clone + Debug + Sized>(Vec<(RLEKey, V)>);
 
 // impl<K: Copy + Eq + Ord + Add<Output = K> + Sub<Output = K> + AddAssign, V: Copy + Eq> RLE<K, V> {
-impl<V: SplitableSpan + Copy + Debug + Sized> Rle<V> {
+impl<V: SplitableSpan + Clone + Debug + Sized> Rle<V> {
     pub fn new() -> Self { Self(Vec::new()) }
 
     // Returns (found value, at offset) if found.
-    pub fn find(&self, needle: RLEKey) -> Option<(V, RLEKey)> {
+    pub fn find(&self, needle: RLEKey) -> Option<(&V, RLEKey)> {
         // TODO: This seems to still work correctly if I change Greater to Less and vice versa.
         // Make sure I'm returning the right values here!!
         self.0.binary_search_by(|entry| {
@@ -23,7 +23,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized> Rle<V> {
             else { Equal }
         }).ok().map(|idx| {
             let entry = &self.0[idx];
-            (entry.1, needle - entry.0)
+            (&entry.1, needle - entry.0)
         })
     }
 
@@ -82,13 +82,13 @@ mod tests {
         let mut rle: Rle<OrderMarker> = Rle::new();
 
         rle.append(1, OrderMarker { order: 1000, len: 2 });
-        assert_eq!(rle.find(1), Some((OrderMarker { order: 1000, len: 2 }, 0)));
-        assert_eq!(rle.find(2), Some((OrderMarker { order: 1000, len: 2 }, 1)));
+        assert_eq!(rle.find(1), Some((&OrderMarker { order: 1000, len: 2 }, 0)));
+        assert_eq!(rle.find(2), Some((&OrderMarker { order: 1000, len: 2 }, 1)));
         assert_eq!(rle.find(3), None);
 
         // This should get appended.
         rle.append(3, OrderMarker { order: 1002, len: 1 });
-        assert_eq!(rle.find(3), Some((OrderMarker { order: 1000, len: 3 }, 2)));
+        assert_eq!(rle.find(3), Some((&OrderMarker { order: 1000, len: 3 }, 2)));
         assert_eq!(rle.0.len(), 1);
     }
 
