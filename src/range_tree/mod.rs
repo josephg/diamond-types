@@ -293,4 +293,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> ParentPtr<E, I> {
             ParentPtr::Internal(ptr) => { ptr }
         }
     }
+
+    fn is_root(&self) -> bool {
+        match self {
+            ParentPtr::Root(_) => { true }
+            ParentPtr::Internal(_) => { false }
+        }
+    }
 }

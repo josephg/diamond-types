@@ -94,8 +94,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
 
     // Recursively (well, iteratively) ascend and update all the counts along
     // the way up. TODO: Move this - This method shouldn't be in NodeLeaf.
-    pub(super) fn update_parent_count(&mut self, amt: I::FlushMarker) {
-        if amt == I::FlushMarker::default() { return; }
+    pub(super) fn update_parent_count(&mut self, amt: I::IndexUpdate) {
+        if amt == I::IndexUpdate::default() { return; }
 
         let mut child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self) });
         let mut parent = self.parent;
@@ -124,9 +124,31 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
         }
     }
 
-    pub(super) fn flush(&mut self, marker: &mut I::FlushMarker) {
+    pub(super) fn flush_index_update(&mut self, marker: &mut I::IndexUpdate) {
         // println!("flush {:?}", marker);
         let amt = take(marker);
         self.update_parent_count(amt);
+    }
+
+    pub(super) fn count_items(&self) -> usize {
+        if I::can_count_items() {
+            // Optimization using the index. TODO: check if this is actually faster.
+            let offset = match self.parent {
+                ParentPtr::Root(root) => {
+                    unsafe { root.as_ref() }.count
+                }
+                ParentPtr::Internal(node) => {
+                    let mut child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self as *const _ as *mut _) });
+                    let idx = unsafe { node.as_ref() }.find_child(child).unwrap();
+                    unsafe { node.as_ref() }.data[idx].0
+                }
+            };
+            I::count_items(offset)
+        } else {
+            // Count items the boring way. Hopefully this will optimize tightly.
+            self.data[..self.num_entries as usize].iter().fold(0, |sum, elem| {
+                sum + elem.len()
+            })
+        }
     }
 }

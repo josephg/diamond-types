@@ -104,7 +104,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
 
     /// Move back to the previous entry. Returns true if it exists, otherwise
     /// returns false if we're at the start of the doc already.
-    fn prev_entry_marker(&mut self, marker: Option<&mut I::FlushMarker>) -> bool {
+    fn prev_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
         if self.idx > 0 {
             self.idx -= 1;
             self.offset = self.get_entry().len();
@@ -112,7 +112,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
             true
         } else {
             if let Some(marker) = marker {
-                unsafe { self.node.as_mut() }.flush(marker);
+                unsafe { self.node.as_mut() }.flush_index_update(marker);
             }
             self.traverse(false)
         }
@@ -124,7 +124,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
 
     /// Go to the next entry marker and update the (optional) flush marker.
     /// Returns true if successful, or false if we've reached the end of the document.
-    pub(super) fn next_entry_marker(&mut self, marker: Option<&mut I::FlushMarker>) -> bool {
+    pub(super) fn next_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
         // TODO: Do this without code duplication of next/prev entry marker.
         unsafe {
             if self.idx + 1 < self.node.as_ref().num_entries as usize {
@@ -133,7 +133,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                 true
             } else {
                 if let Some(marker) = marker {
-                    self.node.as_mut().flush(marker);
+                    self.node.as_mut().flush_index_update(marker);
                 }
                 self.traverse(true)
             }

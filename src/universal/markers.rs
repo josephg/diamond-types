@@ -9,12 +9,10 @@ pub struct MarkerEntry<E: EntryTraits, I: TreeIndex<E>> {
     // This is cleaner as a separate enum and struct, but doing it that way
     // bumps it from 16 to 24 bytes per entry because of alignment.
     pub len: u32,
-    pub ptr: NonNull<NodeLeaf<E, I>>,
+    pub ptr: Option<NonNull<NodeLeaf<E, I>>>,
 }
 
 impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
-    // type Item = NonNull<NodeLeaf>;
-
     fn len(&self) -> usize {
         self.len as usize
     }
@@ -51,19 +49,19 @@ impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
 
 impl<E: EntryTraits, I: TreeIndex<E>> Default for MarkerEntry<E, I> {
     fn default() -> Self {
-        MarkerEntry {ptr: NonNull::dangling(), len: 0}
+        MarkerEntry {ptr: None, len: 0}
     }
 }
 
 
 impl<E: EntryTraits, I: TreeIndex<E>> MarkerEntry<E, I> {
     pub fn unwrap_ptr(&self) -> NonNull<NodeLeaf<E, I>> {
-        self.ptr
+        self.ptr.unwrap()
     }
 }
 
 impl<E: EntryTraits, I: TreeIndex<E>> EntryTraits for MarkerEntry<E, I> {
-    type Item = NonNull<NodeLeaf<E, I>>;
+    type Item = Option<NonNull<NodeLeaf<E, I>>>;
 
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
         let left = Self {
@@ -81,7 +79,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> EntryTraits for MarkerEntry<E, I> {
 
     fn is_valid(&self) -> bool {
         // TODO: Replace this with a real nullptr.
-        self.ptr != NonNull::dangling()
+        // self.ptr != NonNull::dangling()
+        self.len > 0
     }
 
     fn at_offset(&self, _offset: usize) -> Self::Item {
