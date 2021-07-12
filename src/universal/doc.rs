@@ -17,7 +17,7 @@ const USE_INNER_ROPE: bool = false;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
-        if let Some(RlePair(loc, range)) = self.item_orders.last() {
+        if let Some(KVPair(loc, range)) = self.item_orders.last() {
             loc + range.len as u32
         } else { 0 }
     }
@@ -30,7 +30,7 @@ impl YjsDoc {
             frontier: smallvec![ROOT_ORDER],
             client_data: vec![],
             // markers: RangeTree::new(),
-            markers: SplitList::new(),
+            index: SplitList::new(),
             range_tree: RangeTree::new(),
             text_content: Rope::new(),
             deletes: Rle::new(),
@@ -68,8 +68,7 @@ impl YjsDoc {
     }
 
     fn get_next_order(&self) -> Order {
-        if let Some(RlePair(base, entry)) = self.client_with_order.last() {
-            debug_assert!(entry.len > 0);
+        if let Some(KVPair(base, entry)) = self.client_with_order.last() {
             base + entry.len as u32
         } else { 0 }
     }
@@ -79,7 +78,7 @@ impl YjsDoc {
         // cursor.get_item().unwrap().unwrap()
         // self.markers.find(order).unwrap().0.ptr
 
-        self.markers.entry_at(order as usize).unwrap_ptr()
+        self.index.entry_at(order as usize).unwrap_ptr()
     }
 
     fn get_cursor_after(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
@@ -99,7 +98,7 @@ impl YjsDoc {
         }
     }
 
-    fn notify(markers: &mut MarkerTree, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
+    fn notify(markers: &mut SpaceIndex, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
         // println!("notify {:?}", &entry);
 
         // let cursor = markers.cursor_at_offset_pos(entry.order as usize, true);
@@ -117,12 +116,12 @@ impl YjsDoc {
             assert_eq!(item.order, next_order);
         }
 
-        self.client_with_order.append(RlePair(item.order, CRDTSpan {
+        self.client_with_order.append(KVPair(item.order, CRDTSpan {
             loc,
-            len: item.len
+            len: item.len as u32
         }));
 
-        self.client_data[loc.agent as usize].item_orders.append(RlePair(loc.seq, OrderMarker {
+        self.client_data[loc.agent as usize].item_orders.append(KVPair(loc.seq, OrderMarker {
             order: item.order,
             len: item.len
         }));
@@ -176,7 +175,7 @@ impl YjsDoc {
         if scanning { cursor = scan_start; }
 
         // Now insert here.
-        let markers = &mut self.markers;
+        let markers = &mut self.index;
         self.range_tree.insert(cursor, item, |entry, leaf| {
             Self::notify(markers, entry, leaf);
         });
@@ -201,21 +200,21 @@ impl YjsDoc {
                 let order = next_order;
                 next_order += *del_span as u32;
 
-                self.client_with_order.append(RlePair(order, CRDTSpan { loc, len: *del_span as i32 }));
+                self.client_with_order.append(KVPair(order, CRDTSpan { loc, len: *del_span as u32 }));
 
-                self.client_data[loc.agent as usize].item_orders.append(RlePair(loc.seq, OrderMarker {
+                self.client_data[loc.agent as usize].item_orders.append(KVPair(loc.seq, OrderMarker {
                     order,
                     len: *del_span as i32
                 }));
 
                 let cursor = self.range_tree.cursor_at_content_pos(pos, false);
-                let markers = &mut self.markers;
+                let markers = &mut self.index;
                 let deleted_items = self.range_tree.local_mark_deleted(cursor, *del_span, |entry, leaf| {
                     Self::notify(markers, entry, leaf);
                 });
 
                 // TODO: Remove me. This is only needed because Rle doesn't support gaps.
-                self.markers.append_entry(self.markers.last().map_or(MarkerEntry::default(), |m| {
+                self.index.append_entry(self.index.last().map_or(MarkerEntry::default(), |m| {
                     MarkerEntry { len: *del_span as u32, ptr: Some(m.unwrap_ptr()) }
                 }));
 
@@ -232,7 +231,7 @@ impl YjsDoc {
                     //     order: item.order
                     // });
 
-                    self.deletes.append(RlePair(order, DeleteEntry {
+                    self.deletes.append(KVPair(order, DeleteEntry {
                         order: item.order,
                         len: item.len as u32
                     }));
@@ -320,7 +319,7 @@ impl YjsDoc {
 
     pub fn print_stats(&self, detailed: bool) {
         self.range_tree.print_stats(detailed);
-        self.markers.print_stats(detailed);
+        self.index.print_stats(detailed);
         // self.markers.print_rle_size();
         self.deletes.print_stats("deletes", detailed);
         self.txns.print_stats("txns", detailed);
@@ -391,7 +390,7 @@ mod tests {
             doc.local_delete(agent, pos, span)
         }
         // dbg!(&doc.markers);
-        doc.markers.check();
+        doc.index.check();
     }
 
     #[test]

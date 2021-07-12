@@ -2,33 +2,31 @@
 pub type RleKey = u32;
 
 mod simple_rle;
-// mod mutable_rle;
 
 pub use simple_rle::Rle;
 use crate::splitable_span::SplitableSpan;
 use crate::range_tree::EntryTraits;
 use std::fmt::Debug;
-// pub use mutable_rle::MutRle;
 
 pub trait RleKeyed {
     fn get_rle_key(&self) -> RleKey;
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct RlePair<V>(pub RleKey, pub V);
+pub struct KVPair<V>(pub RleKey, pub V);
 
-impl<V> RleKeyed for RlePair<V> {
+impl<V> RleKeyed for KVPair<V> {
     fn get_rle_key(&self) -> u32 {
         self.0
     }
 }
 
-impl<V: SplitableSpan> SplitableSpan for RlePair<V> {
+impl<V: SplitableSpan> SplitableSpan for KVPair<V> {
     fn len(&self) -> usize { self.1.len() }
 
     fn truncate(&mut self, at: usize) -> Self {
         let remainder = self.1.truncate(at);
-        RlePair(self.0 + at as u32, remainder)
+        KVPair(self.0 + at as u32, remainder)
     }
 
     fn can_append(&self, other: &Self) -> bool {
@@ -45,14 +43,14 @@ impl<V: SplitableSpan> SplitableSpan for RlePair<V> {
     }
 }
 
-impl<V: EntryTraits> EntryTraits for RlePair<V> {
+impl<V: EntryTraits> EntryTraits for KVPair<V> {
     type Item = V::Item;
 
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
         let old_key = self.0;
         self.0 += at as u32;
         let trimmed = self.1.truncate_keeping_right(at);
-        RlePair(old_key, trimmed)
+        KVPair(old_key, trimmed)
     }
 
     fn contains(&self, loc: Self::Item) -> Option<usize> { self.1.contains(loc) }
@@ -60,8 +58,8 @@ impl<V: EntryTraits> EntryTraits for RlePair<V> {
     fn at_offset(&self, offset: usize) -> Self::Item { self.1.at_offset(offset) }
 }
 
-impl<V: Default> Default for RlePair<V> {
+impl<V: Default> Default for KVPair<V> {
     fn default() -> Self {
-        RlePair(0, V::default())
+        KVPair(0, V::default())
     }
 }

@@ -43,19 +43,20 @@ pub trait CRDTItem {
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 pub struct CRDTSpan {
     pub loc: CRDTLocation,
-    pub len: i32, // negative if the chunk was deleted. Never 0 - TODO: could use NonZeroI32
+    pub len: u32,
 }
 
 impl EntryTraits for CRDTSpan {
     type Item = CRDTLocation;
 
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        let at = at as u32;
         let other = CRDTSpan {
             loc: self.loc,
-            len: at as i32 * self.len.signum()
+            len: at
         };
-        self.loc.seq += at as u32;
-        self.len += if self.len < 0 { at as i32 } else { -(at as i32) };
+        self.loc.seq += at;
+        self.len -= at;
         other
     }
 
@@ -64,7 +65,7 @@ impl EntryTraits for CRDTSpan {
         // self.loc.agent == loc.agent && entry.get_seq_range().contains(&loc.seq)
         if self.loc.agent == loc.agent
             && loc.seq >= self.loc.seq
-            && loc.seq < self.loc.seq + self.len() as u32 {
+            && loc.seq < self.loc.seq + self.len {
             Some((loc.seq - self.loc.seq) as usize)
         } else { None }
     }
@@ -73,21 +74,18 @@ impl EntryTraits for CRDTSpan {
         self.loc.agent != CLIENT_INVALID
     }
 
-    // fn at_offset(&self, offset: usize) -> Self::Item {
     fn at_offset(&self, offset: usize) -> CRDTLocation {
         assert!(offset < self.len());
         CRDTLocation {
             agent: self.loc.agent,
-            // seq: if self.len < 0 { self.loc.seq - self.len } else { self.loc.seq + self.len }
-            // So gross.
-            seq: (self.loc.seq as i32 + (offset as i32 * self.len.signum())) as u32
+            seq: self.loc.seq + offset as u32
         }
     }
 }
 
 impl EntryWithContent for CRDTSpan {
     fn content_len(&self) -> usize {
-        if self.len < 0 { 0 } else { self.len as _ }
+        self.len as _
     }
 }
 
@@ -95,31 +93,29 @@ impl SplitableSpan for CRDTSpan {
     /// this length refers to the length that we'll use when we call truncate(). So this does count
     /// deletes.
     fn len(&self) -> usize {
-        self.len.abs() as _
+        self.len as _
     }
 
     fn truncate(&mut self, at: usize) -> Self {
-        debug_assert!(at < self.len());
-
-        let sign = self.len.signum();
+        let at = at as u32;
+        debug_assert!(at < self.len);
 
         let other = CRDTSpan {
             loc: CRDTLocation {
                 agent: self.loc.agent,
-                seq: self.loc.seq + at as u32,
+                seq: self.loc.seq + at,
             },
-            len: self.len - (at as i32) * sign
+            len: self.len - at
         };
 
-        self.len = at as i32 * sign;
+        self.len = at;
 
         other
     }
 
     fn can_append(&self, other: &Self) -> bool {
         other.loc.agent == self.loc.agent
-            && self.is_insert() == other.is_insert()
-            && other.loc.seq == self.loc.seq + self.len() as u32
+            && other.loc.seq == self.loc.seq + self.len
     }
 
     fn append(&mut self, other: Self) {
@@ -129,18 +125,5 @@ impl SplitableSpan for CRDTSpan {
     fn prepend(&mut self, other: Self) {
         self.loc.seq = other.loc.seq;
         self.len += other.len;
-    }
-}
-
-
-impl CRDTItem for CRDTSpan {
-    fn is_insert(&self) -> bool {
-        debug_assert!(self.len != 0);
-        self.len > 0
-    }
-
-    fn mark_deleted(&mut self) {
-        debug_assert!(self.is_insert());
-        self.len = -self.len
     }
 }

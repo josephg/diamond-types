@@ -10,7 +10,7 @@ use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree};
 use crate::universal::span::YjsSpan;
 use crate::universal::markers::MarkerEntry;
 use crate::universal::delete::DeleteEntry;
-use crate::rle::{Rle, RlePair};
+use crate::rle::{Rle, KVPair};
 use crate::split_list::SplitList;
 use crate::universal::txn::TxnSpan;
 
@@ -36,24 +36,24 @@ struct ClientData {
     /// This contains a set of (CRDT location range -> item orders).
     ///
     /// The OrderMarkers here always have positive len.
-    item_orders: Rle<RlePair<OrderMarker>>,
+    item_orders: Rle<KVPair<OrderMarker>>,
 }
 
 // pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
-pub type MarkerTree = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
+pub type SpaceIndex = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
 // pub type MarkerTree = MutRle<MarkerEntry<YjsSpan, ContentIndex>>;
 
 #[derive(Debug)]
 pub struct YjsDoc {
-    /// This is a bunch of ranges of (item order -> CRDT location span).
-    /// The entries always have positive len.
-    client_with_order: Rle<RlePair<CRDTSpan>>,
-
     /// The set of txn orders with no children in the document. With a single writer this will
     /// always just be the last order we've seen.
     ///
     /// Never empty. Starts at usize::max (which is the root order).
     frontier: SmallVec<[Order; 4]>,
+
+    /// This is a bunch of ranges of (item order -> CRDT location span).
+    /// The entries always have positive len.
+    client_with_order: Rle<KVPair<CRDTSpan>>,
 
     /// For each client, we store some data (above). This is indexed by AgentId.
     client_data: Vec<ClientData>,
@@ -66,11 +66,11 @@ pub struct YjsDoc {
     /// Note for inserts which insert a lot of contiguous characters, this will
     /// contain a lot of repeated pointers. I'm trading off memory for simplicity
     /// here - which might or might not be the right approach.
-    markers: MarkerTree,
+    index: SpaceIndex,
 
     /// This is a set of all deletes. Each delete names the set of orders of inserts which were
     /// deleted.
-    deletes: Rle<RlePair<DeleteEntry>>,
+    deletes: Rle<KVPair<DeleteEntry>>,
 
     /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
     /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge

@@ -78,20 +78,20 @@ impl<V: EntryTraits + RleKeyed> Rle<V> {
 mod tests {
     use crate::order::OrderMarker;
     use crate::rle::simple_rle::Rle;
-    use crate::rle::RlePair;
+    use crate::rle::KVPair;
 
     #[test]
     fn rle_finds_at_offset() {
-        let mut rle: Rle<RlePair<OrderMarker>> = Rle::new();
+        let mut rle: Rle<KVPair<OrderMarker>> = Rle::new();
 
-        rle.append(RlePair(1, OrderMarker { order: 1000, len: 2 }));
-        assert_eq!(rle.find(1), Some((&RlePair(1, OrderMarker { order: 1000, len: 2 }), 0)));
-        assert_eq!(rle.find(2), Some((&RlePair(1, OrderMarker { order: 1000, len: 2 }), 1)));
+        rle.append(KVPair(1, OrderMarker { order: 1000, len: 2 }));
+        assert_eq!(rle.find(1), Some((&KVPair(1, OrderMarker { order: 1000, len: 2 }), 0)));
+        assert_eq!(rle.find(2), Some((&KVPair(1, OrderMarker { order: 1000, len: 2 }), 1)));
         assert_eq!(rle.find(3), None);
 
         // This should get appended.
-        rle.append(RlePair(3, OrderMarker { order: 1002, len: 1 }));
-        assert_eq!(rle.find(3), Some((&RlePair(1, OrderMarker { order: 1000, len: 3 }), 2)));
+        rle.append(KVPair(3, OrderMarker { order: 1002, len: 1 }));
+        assert_eq!(rle.find(3), Some((&KVPair(1, OrderMarker { order: 1000, len: 3 }), 2)));
         assert_eq!(rle.0.len(), 1);
     }
 
