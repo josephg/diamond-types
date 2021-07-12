@@ -11,9 +11,9 @@ use std::iter::FromIterator;
 use std::mem::replace;
 
 // #[cfg(inlinerope)]
-const USE_INNER_ROPE: bool = true;
+// const USE_INNER_ROPE: bool = true;
 // #[cfg(not(inlinerope))]
-// const USE_INNER_ROPE: bool = false;
+const USE_INNER_ROPE: bool = false;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
@@ -29,9 +29,8 @@ impl YjsDoc {
             client_with_order: Rle::new(),
             frontier: smallvec![ROOT_ORDER],
             client_data: vec![],
-            // markers: MutRle::new(3),
-            markers: RangeTree::new(),
-            // markers: SplitList::new(),
+            // markers: RangeTree::new(),
+            markers: SplitList::new(),
             range_tree: RangeTree::new(),
             text_content: Rope::new(),
             deletes: Rle::new(),
@@ -75,11 +74,11 @@ impl YjsDoc {
     }
 
     fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, ContentIndex>> {
-        let cursor = self.markers.cursor_at_offset_pos(order as usize, false);
-        cursor.get_item().unwrap().unwrap()
+        // let cursor = self.markers.cursor_at_offset_pos(order as usize, false);
+        // cursor.get_item().unwrap().unwrap()
         // self.markers.find(order).unwrap().0.ptr
 
-        // self.markers.entry_at(order as usize).unwrap_ptr()
+        self.markers.entry_at(order as usize).unwrap_ptr()
     }
 
     fn get_cursor_after(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
@@ -102,13 +101,13 @@ impl YjsDoc {
     fn notify(markers: &mut MarkerTree, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
         // println!("notify {:?}", &entry);
 
-        let cursor = markers.cursor_at_offset_pos(entry.order as usize, true);
-        markers.replace_range(cursor, MarkerEntry {
-            ptr: Some(ptr), len: entry.len() as u32
-        }, |_,_| {});
-        // markers.replace_range(entry.order as usize, MarkerEntry {
+        // let cursor = markers.cursor_at_offset_pos(entry.order as usize, true);
+        // markers.replace_range(cursor, MarkerEntry {
         //     ptr: Some(ptr), len: entry.len() as u32
-        // });
+        // }, |_,_| {});
+        markers.replace_range(entry.order as usize, MarkerEntry {
+            ptr: Some(ptr), len: entry.len() as u32
+        });
     }
 
     fn integrate(&mut self, loc: CRDTLocation, item: YjsSpan, ins_content: &str, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
@@ -212,15 +211,15 @@ impl YjsDoc {
                 });
 
                 // TODO: Remove me. This is only needed because Rle doesn't support gaps.
-                // self.markers.append_entry(self.markers.last().map_or(MarkerEntry::default(), |m| {
-                //     MarkerEntry { len: *del_span as u32, ptr: Some(m.unwrap_ptr()) }
-                // }));
+                self.markers.append_entry(self.markers.last().map_or(MarkerEntry::default(), |m| {
+                    MarkerEntry { len: *del_span as u32, ptr: Some(m.unwrap_ptr()) }
+                }));
 
-                let cursor = self.markers.cursor_at_end();
-                self.markers.insert(cursor, MarkerEntry {
-                    ptr: None,
-                    len: *del_span as u32,
-                }, |_, _| {});
+                // let cursor = self.markers.cursor_at_end();
+                // self.markers.insert(cursor, MarkerEntry {
+                //     ptr: None,
+                //     len: *del_span as u32,
+                // }, |_, _| {});
 
                 let mut deleted_length = 0; // To check.
                 for item in deleted_items {

@@ -117,3 +117,14 @@ impl CRDTItem for YjsSpan {
         self.len = -self.len
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::mem::size_of;
+    use crate::universal::span::YjsSpan;
+
+    #[test]
+    fn print_span_sizes() {
+        println!("size of YjsSpan {}", size_of::<YjsSpan>());
+    }
+}
