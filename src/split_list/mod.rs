@@ -7,6 +7,8 @@ use crate::common::IndexGet;
 // use std::borrow::{BorrowMut, Borrow};
 use crate::rle::{Rle, RleKeyed};
 
+use humansize::{FileSize, file_size_opts};
+
 const DEFAULT_BUCKET_SIZE: usize = 100;
 const BUCKET_INLINED_SIZE: usize = 13;
 
@@ -366,7 +368,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
     }
 
     #[allow(unused)]
-    pub fn print_stats(&self, detailed: bool) {
+    pub fn print_stats(&self, name: &str, detailed: bool) {
         let mut size_counts = vec!();
         let mut bucket_item_counts = vec!();
         let mut num_inline_buckets = 0;
@@ -408,12 +410,13 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
             num_entries += bucket.len();
         }
 
-        println!("-------- Split list stats --------");
+        println!("-------- {} (Split list) stats --------", name);
         println!("number of {} byte entries: {}", size_of::<Entry>(), num_entries);
         println!("number of buckets {}", self.content.len());
         println!("spilled {} / inline {}", num_heap_buckets, num_inline_buckets);
-        println!("Total split list memory usage {}", mem_size);
-        println!("Entries, compacted: {} ({} bytes)", compact_num_entries, compact_num_entries * size_of::<Entry>());
+        println!("Total split list memory usage {}", mem_size.file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("Compacts to {} entries ({})", compact_num_entries,
+                 (compact_num_entries * size_of::<Entry>()).file_size(file_size_opts::CONVENTIONAL).unwrap());
         if detailed {
             println!("bucket item counts {:?}", bucket_item_counts);
             println!("size counts {:?}", size_counts);
@@ -421,7 +424,7 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
                 println!("{} count: {}", i, len);
             }
         }
-        dbg!(SHUFFLES.with(|x| {*x.borrow()}));
+        println!("Shuffles {}", SHUFFLES.with(|x| {*x.borrow()}));
     }
 
     // Mostly for testing.

@@ -319,7 +319,7 @@ impl YjsDoc {
 
     pub fn print_stats(&self, detailed: bool) {
         self.range_tree.print_stats(detailed);
-        self.index.print_stats(detailed);
+        self.index.print_stats("index", detailed);
         // self.markers.print_rle_size();
         self.deletes.print_stats("deletes", detailed);
         self.txns.print_stats("txns", detailed);

@@ -3,6 +3,7 @@ use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 use std::cmp::Ordering::*;
 use crate::rle::{RleKey, RleKeyed};
+use humansize::{FileSize, file_size_opts};
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -50,8 +51,8 @@ impl<V: SplitableSpan + RleKeyed + Clone + Debug + Sized> Rle<V> {
         let size = std::mem::size_of::<V>();
         println!("-------- {} RLE --------", name);
         println!("number of {} byte entries: {}", size, self.0.len());
-        println!("size: {}", self.0.capacity() * size);
-        println!("(efficient size: {})", self.0.len() * size);
+        println!("size: {}", (self.0.capacity() * size).file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("(efficient size: {})", (self.0.len() * size).file_size(file_size_opts::CONVENTIONAL).unwrap());
 
         // for item in self.0[..100].iter() {
         //     println!("{:?}", item);

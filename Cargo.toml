@@ -21,11 +21,13 @@ ropey = "1.1.0"
 smallvec = "1.4.0"
 lazy_static = "1.4.0"
 
+# Only used for printing stats. TODO: Move me to dev-dependencies!
+humansize = "1.1.1"
+
 [dev-dependencies]
 criterion = "^0.3"
 rand = { version = "^0.8", features = ["small_rng"] }
 crdt-testdata = { path = "src/testdata" }
-humansize = "1.1.1"
 
 [profile.release]
 #debug = true

@@ -3,6 +3,7 @@ use super::*;
 use smallvec::SmallVec;
 use crate::range_tree::index::FullIndex;
 use std::mem::size_of;
+use humansize::{FileSize, file_size_opts};
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 pub fn extend_delete<E: EntryTraits>(delete: &mut DeleteResult<E>, entry: E) {
@@ -302,12 +303,17 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             size_counts[bucket] += 1;
         }
 
+        let num_internal_nodes = self.count_internal_nodes();
+
         println!("-------- Range tree stats --------");
         println!("Number of entries {}", self.count_entries());
-        println!("Number of internal nodes {}", self.count_internal_nodes());
+        println!("Number of internal nodes {}", num_internal_nodes);
+        println!("(Size of internal nodes {})",
+            (num_internal_nodes * size_of::<NodeInternal<E, I>>()).file_size(file_size_opts::CONVENTIONAL).unwrap());
         println!("Depth {}", self.get_depth());
-        println!("Total range tree memory usage {}", self.count_total_memory());
-        println!("(efficient size: {})", self.count_entries() * size_of::<E>());
+        println!("Total range tree memory usage {}", self.count_total_memory().file_size(file_size_opts::CONVENTIONAL).unwrap());
+
+        println!("(efficient size: {})", (self.count_entries() * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap());
 
         if detailed {
             println!("Entry distribution {:?}", size_counts);

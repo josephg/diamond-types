@@ -53,13 +53,19 @@ pub struct YjsDoc {
 
     /// This is a bunch of ranges of (item order -> CRDT location span).
     /// The entries always have positive len.
+    ///
+    /// This is used to map Order -> External CRDT locations.
     client_with_order: Rle<KVPair<CRDTSpan>>,
 
     /// For each client, we store some data (above). This is indexed by AgentId.
+    ///
+    /// This is used to map external CRDT locations -> Order numbers.
     client_data: Vec<ClientData>,
 
     /// The marker tree maps from order positions to btree entries, so we can map between orders and
     /// document locations.
+    ///
+    /// This is the CRDT chum for the space DAG.
     range_tree: Pin<Box<RangeTree<YjsSpan, ContentIndex>>>,
 
     /// We need to be able to map each location to an item in the associated BST.
@@ -75,9 +81,11 @@ pub struct YjsDoc {
     /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
     /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
     /// remote changes.
+    ///
+    /// Along with deletes, this essentially contains the time DAG.
     txns: Rle<TxnSpan>,
 
-    // Probably temporary, eventually.
+    // Temporary.
     text_content: Rope,
 }
 
