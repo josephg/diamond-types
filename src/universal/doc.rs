@@ -17,7 +17,7 @@ const USE_INNER_ROPE: bool = false;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
-        if let Some((loc, range)) = self.item_orders.last() {
+        if let Some(RlePair(loc, range)) = self.item_orders.last() {
             loc + range.len as u32
         } else { 0 }
     }
@@ -68,8 +68,9 @@ impl YjsDoc {
     }
 
     fn get_next_order(&self) -> Order {
-        if let Some((base, y)) = self.client_with_order.last() {
-            base + y.len as u32
+        if let Some(RlePair(base, entry)) = self.client_with_order.last() {
+            debug_assert!(entry.len > 0);
+            base + entry.len as u32
         } else { 0 }
     }
 
@@ -116,12 +117,15 @@ impl YjsDoc {
             assert_eq!(item.order, next_order);
         }
 
-        self.client_with_order.append(item.order, CRDTSpan { loc, len: item.len });
+        self.client_with_order.append(RlePair(item.order, CRDTSpan {
+            loc,
+            len: item.len
+        }));
 
-        self.client_data[loc.agent as usize].item_orders.append(loc.seq, OrderMarker {
+        self.client_data[loc.agent as usize].item_orders.append(RlePair(loc.seq, OrderMarker {
             order: item.order,
             len: item.len
-        });
+        }));
 
         // Ok now that's out of the way, lets integrate!
         let mut cursor = cursor_hint.unwrap_or_else(|| {
@@ -197,12 +201,12 @@ impl YjsDoc {
                 let order = next_order;
                 next_order += *del_span as u32;
 
-                self.client_with_order.append(order, CRDTSpan { loc, len: *del_span as i32 });
+                self.client_with_order.append(RlePair(order, CRDTSpan { loc, len: *del_span as i32 }));
 
-                self.client_data[loc.agent as usize].item_orders.append(loc.seq, OrderMarker {
+                self.client_data[loc.agent as usize].item_orders.append(RlePair(loc.seq, OrderMarker {
                     order,
                     len: *del_span as i32
-                });
+                }));
 
                 let cursor = self.range_tree.cursor_at_content_pos(pos, false);
                 let markers = &mut self.markers;
@@ -228,7 +232,10 @@ impl YjsDoc {
                     //     order: item.order
                     // });
 
-                    self.deletes.append(order, DeleteEntry { order: item.order, len: item.len as u32 });
+                    self.deletes.append(RlePair(order, DeleteEntry {
+                        order: item.order,
+                        len: item.len as u32
+                    }));
                     deleted_length += item.len as usize;
                 }
                 // I might be able to relax this, but we'd need to change del_span above.
@@ -287,7 +294,7 @@ impl YjsDoc {
             succeeds: 0,
             parents: SmallVec::from_iter(parents.into_iter())
         };
-        self.txns.append(first_order, txn);
+        self.txns.append(txn);
     }
 
     // pub fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) -> Order {
@@ -315,7 +322,8 @@ impl YjsDoc {
         self.range_tree.print_stats(detailed);
         self.markers.print_stats(detailed);
         // self.markers.print_rle_size();
-        self.deletes.print_stats(detailed);
+        self.deletes.print_stats("deletes", detailed);
+        self.txns.print_stats("txns", detailed);
     }
 }
 

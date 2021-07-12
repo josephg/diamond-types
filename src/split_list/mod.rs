@@ -5,7 +5,7 @@ use crate::splitable_span::SplitableSpan;
 use std::mem::{size_of_val, size_of};
 use crate::common::IndexGet;
 // use std::borrow::{BorrowMut, Borrow};
-use crate::rle::Rle;
+use crate::rle::{Rle, RleKeyed};
 
 const DEFAULT_BUCKET_SIZE: usize = 100;
 const BUCKET_INLINED_SIZE: usize = 13;
@@ -440,18 +440,18 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
     }
 }
 
-impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Copy + Debug + Sized {
+impl<Entry> SplitList<Entry> where Entry: SplitableSpan + RleKeyed + Copy + Debug + Sized {
     pub(crate) fn print_rle_size(&self) {
         let mut rle = Rle::new();
 
-        let mut pos = 0;
+        // let mut pos = 0;
         for bucket in &self.content {
             for entry in bucket {
-                rle.append(pos, *entry);
-                pos += entry.len() as u32;
+                rle.append(*entry);
+                // pos += entry.len() as u32;
             }
         }
-        rle.print_stats(false);
+        rle.print_stats("", false);
     }
 }
 

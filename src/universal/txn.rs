@@ -1,6 +1,7 @@
 use crate::universal::Order;
 use smallvec::{SmallVec, smallvec};
 use crate::splitable_span::SplitableSpan;
+use crate::rle::RleKeyed;
 
 /// This type stores metadata for a run of transactions created by the users.
 ///
@@ -49,6 +50,12 @@ impl SplitableSpan for TxnSpan {
         self.len += other.len;
         self.parents = other.parents;
         debug_assert_eq!(self.succeeds, other.succeeds);
+    }
+}
+
+impl RleKeyed for TxnSpan {
+    fn get_rle_key(&self) -> u32 {
+        self.order
     }
 }
 

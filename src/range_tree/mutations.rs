@@ -807,7 +807,7 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
     }
 }
 
-fn delete_leaves<E: EntryTraits, I: TreeIndex<E>>(cursor: &mut Cursor<E, I>, del_items: usize, flush_marker: &mut I::IndexUpdate) -> usize {
+fn delete_leaves<E: EntryTraits, I: TreeIndex<E>>(_cursor: &mut Cursor<E, I>, _del_items: usize, _flush_marker: &mut I::IndexUpdate) -> usize {
     // Try and delete some leaves.
     if !I::can_count_items() {
         unimplemented!("Cannot delete leaves when not using raw position index");

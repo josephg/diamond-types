@@ -4,7 +4,7 @@
 use crate::range_tree::EntryTraits;
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
-use crate::rle::{RLEKey, Rle};
+use crate::rle::{RleKey, Rle};
 use std::mem;
 
 const GAP: u32 = u32::MAX;
@@ -13,7 +13,7 @@ const GAP: u32 = u32::MAX;
 // Gaps are identified by a key which is set to GAP (u32::MAX).
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct MutRle<V: SplitableSpan + Copy + Debug + Sized> {
-    content: Vec<(RLEKey, V)>,
+    content: Vec<(RleKey, V)>,
     /// We'll insert a gap every X entries
     gap_frequency: u8,
     /// The number of appends remaining before the next gap is inserted in the data structure
@@ -38,7 +38,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
     /// Stolen and modified from the standard library:
     /// https://doc.rust-lang.org/std/vec/struct.Vec.html#method.binary_search_by -> src.
     /// Returns (idx, offset into item at idx).
-    pub fn find_idx(&self, needle: RLEKey) -> Option<(usize, RLEKey)>
+    pub fn find_idx(&self, needle: RleKey) -> Option<(usize, RleKey)>
     {
         // println!("---- {}", needle);
         let mut size = self.content.len();
@@ -77,7 +77,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
         None
     }
 
-    pub fn find(&self, needle: RLEKey) -> Option<(V, RLEKey)> {
+    pub fn find(&self, needle: RleKey) -> Option<(V, RleKey)> {
         self.find_idx(needle).map(|(idx, offset)| {
             (self.content[idx].1, offset)
         })
@@ -85,7 +85,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
 
     /// Inserts the passed entry into the (start of) the specified index. Shuffles subsequent
     /// entries forward in the list until the next gap.
-    fn shuffle_insert_before(&mut self, mut new_entry: (RLEKey, V), mut idx: usize, allow_prepend: bool) -> usize {
+    fn shuffle_insert_before(&mut self, mut new_entry: (RleKey, V), mut idx: usize, allow_prepend: bool) -> usize {
         let inserted_idx = idx;
         // TODO: Consider rewriting this to scan and use ptr::copy instead.
 
@@ -125,7 +125,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
 
     /// Wrapper around shuffle_insert_before which tries to prepend before scanning.
     /// Returns index at which item was actually inserted.
-    fn shuffle_insert_after(&mut self, new_entry: (RLEKey, V), idx: usize, allow_prepend: bool) -> usize {
+    fn shuffle_insert_after(&mut self, new_entry: (RleKey, V), idx: usize, allow_prepend: bool) -> usize {
         if idx >= self.content.len() {
             self.append(new_entry.0, new_entry.1);
             self.content.len() - 1
@@ -148,7 +148,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
     }
 
     // Returns remainder, which should be re-inserted by caller.
-    fn clear_range(&mut self, mut idx: usize, mut offset: RLEKey, clear_end_key: RLEKey) -> Option<(RLEKey, V)> {
+    fn clear_range(&mut self, mut idx: usize, mut offset: RleKey, clear_end_key: RleKey) -> Option<(RleKey, V)> {
         while idx < self.content.len() {
             let entry = &mut self.content[idx];
             if entry.0 >= clear_end_key { break; }
@@ -179,7 +179,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
         None
     }
 
-    pub fn replace_range(&mut self, base: RLEKey, val: V) {
+    pub fn replace_range(&mut self, base: RleKey, val: V) {
         self.check();
         match self.find_idx(base) {
             None => {
@@ -208,7 +208,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
         self.check();
     }
 
-    pub fn append(&mut self, base: RLEKey, val: V) {
+    pub fn append(&mut self, base: RleKey, val: V) {
         if let Some((ref last_base, ref mut v)) = self.content.last_mut() {
             if base == *last_base + v.len() as u32 && v.can_append(&val) {
                 v.append(val);
@@ -227,7 +227,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
         self.content.push((base, val));
     }
 
-    pub fn last(&self) -> Option<&(RLEKey, V)> {
+    pub fn last(&self) -> Option<&(RleKey, V)> {
         self.content.last()
         // if self.content.len() == 0 { return None; }
         //
@@ -251,7 +251,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
     }
 
     pub fn print_stats(&self, detailed: bool) {
-        let size = std::mem::size_of::<(RLEKey, V)>();
+        let size = std::mem::size_of::<(RleKey, V)>();
         println!("-------- Mutable RLE --------");
         println!("number of {} byte entries: {}", size, self.content.len());
         println!("allocated size: {}", self.content.capacity() * size);
@@ -295,7 +295,7 @@ impl<V: SplitableSpan + Copy + Debug + Sized + Default> MutRle<V> {
 }
 
 impl<V: EntryTraits> MutRle<V> {
-    pub fn get(&self, idx: RLEKey) -> V::Item {
+    pub fn get(&self, idx: RleKey) -> V::Item {
         let (v, offset) = self.find(idx).unwrap();
         v.at_offset(offset as usize)
     }
