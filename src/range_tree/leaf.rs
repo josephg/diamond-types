@@ -138,7 +138,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
                     unsafe { root.as_ref() }.count
                 }
                 ParentPtr::Internal(node) => {
-                    let mut child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self as *const _ as *mut _) });
+                    let child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self as *const _ as *mut _) });
                     let idx = unsafe { node.as_ref() }.find_child(child).unwrap();
                     unsafe { node.as_ref() }.data[idx].0
                 }

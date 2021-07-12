@@ -27,7 +27,7 @@ pub trait TreeIndex<E: EntryTraits> where Self: Debug + Copy + Clone + PartialEq
     }
 
     fn can_count_items() -> bool { false }
-    fn count_items(idx: Self::IndexOffset) -> usize { panic!("Index cannot count items") }
+    fn count_items(_idx: Self::IndexOffset) -> usize { panic!("Index cannot count items") }
 }
 
 /// Content index - which just indexes based on the resulting size. Deletes are not counted.

@@ -475,7 +475,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         // Ok, we're at the start of an entry. Scan and delete entire entries from this leaf.
         // let mut node = unsafe { cursor.get_node_mut() };
         // So dirty.
-        let mut node = unsafe { &mut *cursor.node.as_ptr() };
+        let node = unsafe { &mut *cursor.node.as_ptr() };
         // TODO: node.count_items() here could be written better...
         if cursor.idx > 0 {
             del_items = self.delete_entry_range(cursor, del_items, flush_marker);
@@ -813,22 +813,23 @@ fn delete_leaves<E: EntryTraits, I: TreeIndex<E>>(cursor: &mut Cursor<E, I>, del
         unimplemented!("Cannot delete leaves when not using raw position index");
     }
 
-    let leaf = unsafe { cursor.node.as_ref() };
-    match leaf.parent {
-        ParentPtr::Root(_) => {
-            // Do not delete the last leaf no matter how many or how few items it contains.
-            return del_items;
-        }
-        ParentPtr::Internal(node) => {
-            let mut child = NodePtr::Leaf(unsafe { cursor.node });
-            let idx = unsafe { node.as_ref() }.find_child(child).unwrap();
-            let child_count = I::count_items(unsafe { node.as_ref() }.data[idx].0);
-            todo!();
-        }
-    };
-
-
-    del_items
+    todo!()
+    // let leaf = unsafe { cursor.node.as_ref() };
+    // match leaf.parent {
+    //     ParentPtr::Root(_) => {
+    //         // Do not delete the last leaf no matter how many or how few items it contains.
+    //         return del_items;
+    //     }
+    //     ParentPtr::Internal(node) => {
+    //         let mut child = NodePtr::Leaf(unsafe { cursor.node });
+    //         let idx = unsafe { node.as_ref() }.find_child(child).unwrap();
+    //         let child_count = I::count_items(unsafe { node.as_ref() }.data[idx].0);
+    //         todo!();
+    //     }
+    // };
+    //
+    //
+    // del_items
 }
 
 
