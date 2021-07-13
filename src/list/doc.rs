@@ -34,6 +34,7 @@ impl ListCRDT {
             range_tree: RangeTree::new(),
             text_content: Rope::new(),
             deletes: Rle::new(),
+            double_deletes: Rle::new(),
             txns: Rle::new(),
         }
     }
@@ -140,6 +141,7 @@ impl ListCRDT {
                 Some(o) => { o }
             };
 
+            // Almost always true.
             if other_order == item.origin_right { break; }
 
             // This code could be better optimized, but its already O(n * log n), and its extremely
@@ -268,6 +270,7 @@ impl ListCRDT {
                     (origin_left, cursor)
                 };
 
+                /// TODO: This should scan & skip past deleted items!
                 let origin_right = cursor.get_item().unwrap_or(ROOT_ORDER);
 
                 let item = YjsSpan {

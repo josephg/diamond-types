@@ -13,12 +13,14 @@ use crate::list::delete::DeleteEntry;
 use crate::rle::{Rle, KVPair};
 use crate::split_list::SplitList;
 use crate::list::txn::TxnSpan;
+use crate::list::double_delete::DoubleDelete;
 
 mod span;
 mod doc;
 mod markers;
 mod delete;
 mod txn;
+mod double_delete;
 
 // #[cfg(test)]
 // mod tests;
@@ -75,8 +77,12 @@ pub struct ListCRDT {
     index: SpaceIndex,
 
     /// This is a set of all deletes. Each delete names the set of orders of inserts which were
-    /// deleted.
+    /// deleted. Keyed by the delete order, NOT the order of the item *being* deleted.
     deletes: Rle<KVPair<DeleteEntry>>,
+
+    /// List of document items which have been deleted more than once. Usually empty. Keyed by the
+    /// item *being* deleted (like range_tree, unlike deletes).
+    double_deletes: Rle<KVPair<DoubleDelete>>,
 
     /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
     /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
