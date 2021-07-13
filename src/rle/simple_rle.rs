@@ -15,23 +15,33 @@ pub struct Rle<V: SplitableSpan + RleKeyed + Clone + Debug + Sized>(Vec<V>);
 impl<V: SplitableSpan + RleKeyed + Clone + Debug + Sized> Rle<V> {
     pub fn new() -> Self { Self(Vec::new()) }
 
-    // Returns (found value, at offset) if found.
-    pub fn find(&self, needle: RleKey) -> Option<(&V, RleKey)> {
-        // TODO: This seems to still work correctly if I change Greater to Less and vice versa.
-        // Make sure I'm returning the right values here!!
+    fn search(&self, needle: RleKey) -> Result<usize, usize> {
         self.0.binary_search_by(|entry| {
             let key = entry.get_rle_key();
             if needle < key { Greater }
             else if needle >= key + entry.len() as u32 { Less }
             else { Equal }
-        }).ok().map(|idx| {
+        })
+    }
+
+    /// Find an entry in the list with the specified key using binary search.
+    ///
+    /// If found returns Some((found value, internal offset))
+    pub fn find(&self, needle: RleKey) -> Option<(&V, RleKey)> {
+        // TODO: This seems to still work correctly if I change Greater to Less and vice versa.
+        // Make sure I'm returning the right values here!!
+        self.search(needle).ok().map(|idx| {
             let entry = &self.0[idx];
             (entry, needle - entry.get_rle_key())
         })
     }
 
+    /// Append a new value to the end of the RLE list. This method is fast - O(1) average time.
+    /// The new item will extend the last entry in the list if possible.
     pub fn append(&mut self, val: V) {
         if let Some(v) = self.0.last_mut() {
+            debug_assert!(val.get_rle_key() > v.get_rle_key());
+
             if v.can_append(&val) {
                 v.append(val);
                 return;
@@ -39,6 +49,31 @@ impl<V: SplitableSpan + RleKeyed + Clone + Debug + Sized> Rle<V> {
         }
 
         self.0.push(val);
+    }
+
+    pub fn insert(&mut self, val: V) {
+        let idx = self.search(val.get_rle_key()).expect_err("Item already exists");
+
+        // Extend the next / previous item if possible
+        if idx >= 1 {
+            let prev = &mut self.0[idx - 1];
+            if prev.can_append(&val) {
+                prev.append(val);
+                return;
+            }
+        }
+
+        if idx < self.0.len() {
+            let next = &mut self.0[idx];
+            debug_assert!(val.get_rle_key() + val.len() as u32 <= next.get_rle_key(), "Items overlap");
+
+            if val.can_append(next) {
+                next.prepend(val);
+                return
+            }
+        }
+
+        self.0.insert(idx, val);
     }
 
     pub fn last(&self) -> Option<&V> {
@@ -94,6 +129,29 @@ mod tests {
         rle.append(KVPair(3, OrderMarker { order: 1002, len: 1 }));
         assert_eq!(rle.find(3), Some((&KVPair(1, OrderMarker { order: 1000, len: 3 }), 2)));
         assert_eq!(rle.0.len(), 1);
+    }
+
+    #[test]
+    fn insert_inside() {
+        let mut rle: Rle<KVPair<OrderMarker>> = Rle::new();
+
+        rle.insert(KVPair(5, OrderMarker { order: 1000, len: 2}));
+        // Prepend
+        rle.insert(KVPair(3, OrderMarker { order: 998, len: 2}));
+        assert_eq!(rle.0.len(), 1);
+
+        // Append
+        rle.insert(KVPair(7, OrderMarker { order: 1002, len: 5}));
+        assert_eq!(rle.0.len(), 1);
+
+        // Items which cannot be merged
+        rle.insert(KVPair(1, OrderMarker { order: 1, len: 1}));
+        assert_eq!(rle.0.len(), 2);
+
+        rle.insert(KVPair(100, OrderMarker { order: 40, len: 1}));
+        assert_eq!(rle.0.len(), 3);
+
+        // dbg!(&rle);
     }
 
     // #[test]

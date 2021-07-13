@@ -224,7 +224,7 @@ impl ListCRDT {
                 //     len: *del_span as u32,
                 // }, |_, _| {});
 
-                dbg!(&deleted_items);
+                // dbg!(&deleted_items);
                 let mut deleted_length = 0; // To check.
                 for item in deleted_items {
                     // self.markers.append_entry(MarkerEntry::Del {
@@ -379,7 +379,7 @@ mod tests {
             // let len: usize = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
 
             let content = random_str(len as usize, rng);
-            println!("Inserting '{}' at position {}", content, pos);
+            // println!("Inserting '{}' at position {}", content, pos);
             rope.insert(pos, content.as_str());
             doc.local_insert(agent, pos, content.into())
         } else {
@@ -388,7 +388,7 @@ mod tests {
             // println!("range {}", u32::min(10, doc_len - pos));
             let span = rng.gen_range(1..=usize::min(10, doc_len - pos));
             // dbg!(&state.marker_tree, pos, len);
-            println!("deleting {} at position {}", span, pos);
+            // println!("deleting {} at position {}", span, pos);
             rope.remove(pos..pos+span);
             doc.local_delete(agent, pos, span)
         }
