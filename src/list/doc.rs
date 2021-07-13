@@ -197,13 +197,13 @@ impl ListCRDT {
                     agent,
                     seq: self.client_data[agent as usize].get_next_seq()
                 };
-                let order = next_order;
-                next_order += *del_span as u32;
+                // let mut order = next_order;
+                // next_order += *del_span as u32;
 
-                self.client_with_order.append(KVPair(order, CRDTSpan { loc, len: *del_span as u32 }));
+                self.client_with_order.append(KVPair(next_order, CRDTSpan { loc, len: *del_span as u32 }));
 
                 self.client_data[loc.agent as usize].item_orders.append(KVPair(loc.seq, OrderMarker {
-                    order,
+                    order: next_order,
                     len: *del_span as i32
                 }));
 
@@ -224,6 +224,7 @@ impl ListCRDT {
                 //     len: *del_span as u32,
                 // }, |_, _| {});
 
+                dbg!(&deleted_items);
                 let mut deleted_length = 0; // To check.
                 for item in deleted_items {
                     // self.markers.append_entry(MarkerEntry::Del {
@@ -231,11 +232,12 @@ impl ListCRDT {
                     //     order: item.order
                     // });
 
-                    self.deletes.append(KVPair(order, DeleteEntry {
+                    self.deletes.append(KVPair(next_order, DeleteEntry {
                         order: item.order,
                         len: item.len as u32
                     }));
                     deleted_length += item.len as usize;
+                    next_order += item.len as u32;
                 }
                 // I might be able to relax this, but we'd need to change del_span above.
                 assert_eq!(deleted_length, *del_span);
