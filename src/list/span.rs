@@ -1,4 +1,4 @@
-use crate::universal::Order;
+use crate::list::Order;
 use crate::range_tree::{EntryTraits, EntryWithContent, CRDTItem};
 use crate::splitable_span::SplitableSpan;
 
@@ -121,7 +121,7 @@ impl CRDTItem for YjsSpan {
 #[cfg(test)]
 mod tests {
     use std::mem::size_of;
-    use crate::universal::span::YjsSpan;
+    use crate::list::span::YjsSpan;
 
     #[test]
     fn print_span_sizes() {

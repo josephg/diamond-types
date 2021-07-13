@@ -6,9 +6,9 @@ use criterion::{black_box, Criterion};
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use smartstring::alias::{String as SmartString};
 use text_crdt_rust::*;
-use text_crdt_rust::universal::*;
+use text_crdt_rust::list::*;
 
-fn apply_edits(doc: &mut YjsDoc, txns: &Vec<TestTxn>) {
+fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_client_id("jeremy");
 
     let mut local_ops: Vec<LocalOp> = Vec::new();
@@ -39,7 +39,7 @@ pub fn yjs_benchmarks(c: &mut Criterion) {
         assert_eq!(test_data.start_content.len(), 0);
 
         b.iter(|| {
-            let mut doc = YjsDoc::new();
+            let mut doc = ListCRDT::new();
             apply_edits(&mut doc, &test_data.txns);
             // apply_edits_fast(&mut state, &patches);
             // println!("len {}", state.len());
@@ -50,7 +50,7 @@ pub fn yjs_benchmarks(c: &mut Criterion) {
 
     c.bench_function("kevin", |b| {
         b.iter(|| {
-            let mut doc = YjsDoc::new();
+            let mut doc = ListCRDT::new();
 
             let agent = doc.get_or_create_client_id("seph");
 

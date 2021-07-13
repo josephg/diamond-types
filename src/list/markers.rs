@@ -91,7 +91,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> EntryTraits for MarkerEntry<E, I> {
 #[cfg(test)]
 mod tests {
     use std::ptr::NonNull;
-    use crate::universal::Order;
+    use crate::list::Order;
 
     #[test]
     fn test_sizes() {

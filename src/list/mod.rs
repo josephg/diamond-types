@@ -7,12 +7,12 @@ use smartstring::alias::String as SmartString;
 use crate::common::{ClientName, CRDTLocation};
 use crate::order::OrderMarker;
 use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree};
-use crate::universal::span::YjsSpan;
-use crate::universal::markers::MarkerEntry;
-use crate::universal::delete::DeleteEntry;
+use crate::list::span::YjsSpan;
+use crate::list::markers::MarkerEntry;
+use crate::list::delete::DeleteEntry;
 use crate::rle::{Rle, KVPair};
 use crate::split_list::SplitList;
-use crate::universal::txn::TxnSpan;
+use crate::list::txn::TxnSpan;
 
 mod span;
 mod doc;
@@ -44,7 +44,7 @@ pub type SpaceIndex = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
 // pub type MarkerTree = MutRle<MarkerEntry<YjsSpan, ContentIndex>>;
 
 #[derive(Debug)]
-pub struct YjsDoc {
+pub struct ListCRDT {
     /// The set of txn orders with no children in the document. With a single writer this will
     /// always just be the last order we've seen.
     ///

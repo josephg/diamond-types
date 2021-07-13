@@ -1,4 +1,4 @@
-use crate::universal::Order;
+use crate::list::Order;
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 

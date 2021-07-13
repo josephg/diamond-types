@@ -1,4 +1,4 @@
-use crate::universal::Order;
+use crate::list::Order;
 use smallvec::{SmallVec, smallvec};
 use crate::splitable_span::SplitableSpan;
 use crate::rle::RleKeyed;
@@ -61,7 +61,7 @@ impl RleKeyed for TxnSpan {
 
 #[cfg(test)]
 mod tests {
-    use crate::universal::txn::TxnSpan;
+    use crate::list::txn::TxnSpan;
     use crate::splitable_span::SplitableSpan;
     use smallvec::smallvec;
 

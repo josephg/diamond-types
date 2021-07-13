@@ -1,4 +1,4 @@
-use crate::universal::*;
+use crate::list::*;
 // use crate::split_list::SplitList;
 use crate::range_tree::{RangeTree, Cursor, NodeLeaf};
 use crate::common::{AgentId, LocalOp};
@@ -23,9 +23,9 @@ impl ClientData {
     }
 }
 
-impl YjsDoc {
+impl ListCRDT {
     pub fn new() -> Self {
-        YjsDoc {
+        ListCRDT {
             client_with_order: Rle::new(),
             frontier: smallvec![ROOT_ORDER],
             client_data: vec![],
@@ -326,13 +326,13 @@ impl YjsDoc {
     }
 }
 
-impl ToString for YjsDoc {
+impl ToString for ListCRDT {
     fn to_string(&self) -> String {
         self.text_content.to_string()
     }
 }
 
-impl Default for YjsDoc {
+impl Default for ListCRDT {
     fn default() -> Self {
         Self::new()
     }
@@ -340,17 +340,18 @@ impl Default for YjsDoc {
 
 #[cfg(test)]
 mod tests {
-    use crate::universal::*;
+    use crate::list::*;
     use rand::prelude::*;
     use crate::common::*;
-    use crate::universal::doc::USE_INNER_ROPE;
+    use crate::list::doc::USE_INNER_ROPE;
 
     #[test]
     fn smoke() {
-        let mut doc = YjsDoc::new();
-        doc.get_or_create_client_id("seph");
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_client_id("seph"); // 0
         doc.local_insert(0, 0, "hi".into());
         doc.local_insert(0, 1, "yooo".into());
+        doc.local_delete(0, 0, 3);
         // "hyoooi"
 
         dbg!(doc);
@@ -366,7 +367,7 @@ mod tests {
         str
     }
 
-    fn make_random_change(doc: &mut YjsDoc, rope: &mut Rope, agent: AgentId, rng: &mut SmallRng) {
+    fn make_random_change(doc: &mut ListCRDT, rope: &mut Rope, agent: AgentId, rng: &mut SmallRng) {
         let doc_len = doc.len();
         let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
         if doc_len == 0 || rng.gen_bool(insert_weight) {
@@ -396,7 +397,7 @@ mod tests {
     #[test]
     fn random_single_document() {
         let mut rng = SmallRng::seed_from_u64(7);
-        let mut doc = YjsDoc::new();
+        let mut doc = ListCRDT::new();
 
         let agent = doc.get_or_create_client_id("seph");
         let mut expected_content = Rope::new();
@@ -413,7 +414,7 @@ mod tests {
 
     #[test]
     fn deletes_merged() {
-        let mut doc = YjsDoc::new();
+        let mut doc = ListCRDT::new();
         doc.get_or_create_client_id("seph");
         doc.local_insert(0, 0, "abc".into());
         // doc.local_delete(0, 2, 1);

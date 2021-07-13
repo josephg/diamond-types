@@ -1,6 +1,6 @@
 use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
-use text_crdt_rust::universal::YjsDoc;
+use text_crdt_rust::list::ListCRDT;
 
 fn random_str(len: usize, rng: &mut SmallRng) -> String {
     let mut str = String::new();
@@ -12,7 +12,7 @@ fn random_str(len: usize, rng: &mut SmallRng) -> String {
 }
 
 fn random_inserts_deletes() {
-    let mut doc = YjsDoc::new();
+    let mut doc = ListCRDT::new();
     let agent = doc.get_or_create_client_id("seph"); // agent 0
 
     // Stable between runs for reproducing bugs.

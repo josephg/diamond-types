@@ -10,13 +10,13 @@
 use text_crdt_rust::*;
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use smartstring::alias::{String as SmartString};
-use text_crdt_rust::universal::YjsDoc;
+use text_crdt_rust::list::ListCRDT;
 use criterion::black_box;
 
 #[cfg(feature = "memusage")]
 use humansize::{FileSize, file_size_opts};
 
-fn apply_edits(doc: &mut YjsDoc, txns: &Vec<TestTxn>) {
+fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_client_id("jeremy");
 
     let mut local_ops: Vec<LocalOp> = Vec::new();
@@ -59,7 +59,7 @@ fn main() {
     #[cfg(feature = "memusage")]
     let start_count = get_thread_num_allocations();
 
-    let mut doc = YjsDoc::new();
+    let mut doc = ListCRDT::new();
     apply_edits(&mut doc, &test_data.txns);
     assert_eq!(doc.len(), test_data.end_content.len());
 
