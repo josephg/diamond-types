@@ -108,11 +108,11 @@ impl EntryWithContent for YjsSpan {
 }
 
 impl CRDTItem for YjsSpan {
-    fn is_insert(&self) -> bool {
+    fn is_activated(&self) -> bool {
         self.len > 0
     }
 
-    fn mark_deleted(&mut self) {
+    fn mark_deactivated(&mut self) {
         debug_assert!(self.len > 0);
         self.len = -self.len
     }

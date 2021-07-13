@@ -33,11 +33,11 @@ impl<T: EntryTraits> IndexGet<usize> for T {
 }
 
 pub trait CRDTItem {
-    fn is_insert(&self) -> bool;
-    fn is_delete(&self) -> bool {
-        !self.is_insert()
+    fn is_activated(&self) -> bool;
+    fn is_deactivated(&self) -> bool {
+        !self.is_activated()
     }
-    fn mark_deleted(&mut self);
+    fn mark_deactivated(&mut self);
 }
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]

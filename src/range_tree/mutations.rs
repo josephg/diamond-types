@@ -517,7 +517,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 }
 
 impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
-    pub fn local_mark_deleted<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
+    pub fn local_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         // println!("local_delete len: {} at cursor {:?}", deleted_len, cursor);
 
@@ -543,7 +543,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
             debug_assert!(cursor.get_entry().is_valid());
             // dbg!(cursor.get_entry());
 
-            while cursor.get_entry().is_delete() {
+            while cursor.get_entry().is_deactivated() {
                 Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
             }
 
@@ -551,7 +551,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
 
             delete_remaining -= self.mutate_entry(|e| {
                 extend_delete(&mut result, *e);
-                e.mark_deleted();
+                e.mark_deactivated();
             }, &mut cursor, delete_remaining, &mut flush_marker, &mut notify);
         }
 
@@ -576,7 +576,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
     /// which have already been deleted at this location if negative.
     ///
     /// TODO: It might be cleaner to make the caller check for deleted items if we return 0.
-    pub fn remote_mark_deleted<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_deleted_len: usize, mut notify: F) -> isize
+    pub fn remote_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_deleted_len: usize, mut notify: F) -> isize
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
 
         cursor.roll_to_next_entry(false);
@@ -584,7 +584,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
 
         // If the entry is already marked as deleted, we do nothing. This is needed because
         // local_delete will skip deletes and go delete something else.
-        if entry.is_insert() {
+        if entry.is_activated() {
             // The deleted region could be in the middle of an item and that has all sorts of
             // complexity. Just delegate to local_delete above, which will take care of all that
             // jazz.
@@ -600,7 +600,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
             // difference.
             let mut flush_marker = I::IndexUpdate::default();
             let amt_deleted = self.mutate_entry(|e| {
-                e.mark_deleted()
+                e.mark_deactivated()
             }, &mut cursor, max_deleted_len, &mut flush_marker, &mut notify);
 
             unsafe { cursor.get_node_mut() }.flush_index_update(&mut flush_marker);

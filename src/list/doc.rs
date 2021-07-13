@@ -209,7 +209,7 @@ impl ListCRDT {
 
                 let cursor = self.range_tree.cursor_at_content_pos(pos, false);
                 let markers = &mut self.index;
-                let deleted_items = self.range_tree.local_mark_deleted(cursor, *del_span, |entry, leaf| {
+                let deleted_items = self.range_tree.local_deactivate(cursor, *del_span, |entry, leaf| {
                     Self::notify(markers, entry, leaf);
                 });
 

@@ -254,7 +254,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> Cursor<E, I> {
     ///
     /// The cursor is not moved backwards (? mistake?) - so it must be stick_end: true.
     pub fn tell_predecessor(mut self) -> Option<E::Item> {
-        while (self.offset == 0 && self.idx == 0) || self.get_entry().is_delete() {
+        while (self.offset == 0 && self.idx == 0) || self.get_entry().is_deactivated() {
             // println!("\nentry {:?}", self);
             let exists = self.prev_entry();
             if !exists { return None; }
