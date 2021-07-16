@@ -15,6 +15,12 @@ pub trait RleKeyed {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct KVPair<V>(pub RleKey, pub V);
 
+impl<V: SplitableSpan> KVPair<V> {
+    pub fn end(&self) -> u32 {
+        self.0 + self.1.len() as u32
+    }
+}
+
 impl<V> RleKeyed for KVPair<V> {
     fn get_rle_key(&self) -> u32 {
         self.0
@@ -25,12 +31,15 @@ impl<V: SplitableSpan> SplitableSpan for KVPair<V> {
     fn len(&self) -> usize { self.1.len() }
 
     fn truncate(&mut self, at: usize) -> Self {
+        debug_assert!(at > 0);
+        debug_assert!(at < self.1.len());
+
         let remainder = self.1.truncate(at);
         KVPair(self.0 + at as u32, remainder)
     }
 
     fn can_append(&self, other: &Self) -> bool {
-        other.0 == self.0 + self.1.len() as u32 && self.1.can_append(&other.1)
+        other.0 == self.end() && self.1.can_append(&other.1)
     }
 
     fn append(&mut self, other: Self) {

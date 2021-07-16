@@ -303,6 +303,8 @@ impl ListCRDT {
 
                     let mut remaining_len = *len;
                     while remaining_len > 0 {
+                        // We need to loop here because the deleted items may not be in a run
+                        // in the local range tree. They usually will be though.
                         let cursor = self.get_cursor_before(target_order);
 
                         let markers = &mut self.index;
@@ -313,12 +315,7 @@ impl ListCRDT {
                         let deleted_here = amt_deactivated.abs() as u32;
                         if amt_deactivated < 0 {
                             // This span was already deleted by a different peer. Mark duplicate delete.
-                            // TODO: Fix this - this is wrong.
-                            todo!();
-                            // self.double_deletes.insert(KVPair(target_order, DoubleDelete {
-                            //     len: amt_deactivated.abs() as _,
-                            //     excess_deletes: 1
-                            // }))
+                            self.double_deletes.increment_delete_range(target_order, deleted_here);
                         }
                         remaining_len -= deleted_here;
                         target_order += deleted_here;

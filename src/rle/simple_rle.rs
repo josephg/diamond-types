@@ -9,13 +9,13 @@ use humansize::{FileSize, file_size_opts};
 #[derive(Clone, Eq, PartialEq, Debug)]
 // pub struct RLE<K: Copy + Eq + Ord, V: Copy + Eq>(Vec<(Range<K>, V)>);
 // pub struct Rle<V: SplitableSpan + Clone + Debug + Sized>(Vec<(RleKey, V)>);
-pub struct Rle<V: SplitableSpan + RleKeyed + Clone + Debug + Sized>(Vec<V>);
+pub struct Rle<V: SplitableSpan + RleKeyed + Clone + Debug + Sized>(pub(crate) Vec<V>);
 
 // impl<K: Copy + Eq + Ord + Add<Output = K> + Sub<Output = K> + AddAssign, V: Copy + Eq> RLE<K, V> {
 impl<V: SplitableSpan + RleKeyed + Clone + Debug + Sized> Rle<V> {
     pub fn new() -> Self { Self(Vec::new()) }
 
-    fn search(&self, needle: RleKey) -> Result<usize, usize> {
+    pub(crate) fn search(&self, needle: RleKey) -> Result<usize, usize> {
         self.0.binary_search_by(|entry| {
             let key = entry.get_rle_key();
             if needle < key { Greater }
