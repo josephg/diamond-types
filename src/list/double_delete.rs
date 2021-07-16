@@ -8,7 +8,7 @@ use crate::splitable_span::SplitableSpan;
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct DoubleDelete {
     pub len: u32,
-    pub num_deletes: u32, // u16 would do but it doesn't matter - we'll pad out anyway.
+    pub excess_deletes: u32, // u16 would do but it doesn't matter - we'll pad out anyway.
 }
 
 impl SplitableSpan for DoubleDelete {
@@ -20,14 +20,14 @@ impl SplitableSpan for DoubleDelete {
         let trimmed = DoubleDelete {
             // order: self.order + at as _,
             len: self.len - at as u32,
-            num_deletes: self.num_deletes
+            excess_deletes: self.excess_deletes
         };
         self.len = at as u32;
         trimmed
     }
 
     fn can_append(&self, other: &Self) -> bool {
-        other.num_deletes == self.num_deletes
+        other.excess_deletes == self.excess_deletes
     }
 
     fn append(&mut self, other: Self) { self.len += other.len; }

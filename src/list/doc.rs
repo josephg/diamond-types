@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 use crate::rle::Rle;
 use std::iter::FromIterator;
 use std::mem::replace;
+use crate::list::external_txn::{RemoteTxn, RemoteOp, RemoteId};
 
 // #[cfg(inlinerope)]
 // const USE_INNER_ROPE: bool = true;
@@ -21,6 +22,29 @@ impl ClientData {
             loc + range.len as u32
         } else { 0 }
     }
+
+    pub fn seq_to_order(&self, seq: u32) -> Order {
+        let (x, offset) = self.item_orders.find(seq).unwrap();
+        x.1.order + offset
+    }
+}
+
+/// Advance branch frontier by a transaction. This is written creating a new branch, which is
+/// somewhat inefficient (especially if the frontier is spilled).
+fn advance_branch_by(branch: &mut Branch, txn_parents: &Branch, first_order: Order, len: u32) {
+    // TODO: Check the branch contains everything in txn_parents, but not txn_id:
+    // Check the operation fits. The operation should not be in the branch, but
+    // all the operation's parents should be.
+    // From braid-kernel:
+    // assert(!branchContainsVersion(db, order, branch), 'db already contains version')
+    // for (const parent of op.parents) {
+    //    assert(branchContainsVersion(db, parent, branch), 'operation in the future')
+    // }
+    assert!(!branch.contains(&first_order)); // Remove this when branch_contains_version works.
+
+    // TODO: Consider sorting the branch after we do this.
+    branch.retain(|o| !txn_parents.contains(o)); // Usually removes all elements.
+    branch.push(first_order + len - 1);
 }
 
 impl ListCRDT {
@@ -39,11 +63,11 @@ impl ListCRDT {
         }
     }
 
-    pub fn get_or_create_client_id(&mut self, name: &str) -> AgentId {
+    pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
         // Probably a nicer way to write this.
         if name == "ROOT" { return AgentId::MAX; }
 
-        if let Some(id) = self.get_client_id(name) {
+        if let Some(id) = self.get_agent_id(name) {
             id
         } else {
             // Create a new id.
@@ -55,7 +79,7 @@ impl ListCRDT {
         }
     }
 
-    fn get_client_id(&self, name: &str) -> Option<AgentId> {
+    fn get_agent_id(&self, name: &str) -> Option<AgentId> {
         if name == "ROOT" { Some(AgentId::MAX) }
         else {
             self.client_data.iter()
@@ -82,6 +106,18 @@ impl ListCRDT {
         self.index.entry_at(order as usize).unwrap_ptr()
     }
 
+    fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
+        if order == ROOT_ORDER {
+            // Or maybe we should just abort?
+            self.range_tree.cursor_at_end()
+        } else {
+            let marker = self.marker_at(order);
+            unsafe {
+                RangeTree::cursor_before_item(order, marker)
+            }
+        }
+    }
+
     fn get_cursor_after(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
         if order == ROOT_ORDER {
             self.range_tree.cursor_at_start()
@@ -99,6 +135,11 @@ impl ListCRDT {
         }
     }
 
+    // fn time_diff(&self, a: Branch, b: Branch) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
+    //
+    //
+    // }
+
     fn notify(markers: &mut SpaceIndex, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
         // println!("notify {:?}", &entry);
 
@@ -111,21 +152,25 @@ impl ListCRDT {
         });
     }
 
-    fn integrate(&mut self, loc: CRDTLocation, item: YjsSpan, ins_content: &str, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
-        if cfg!(debug_assertions) {
-            let next_order = self.get_next_order();
-            assert_eq!(item.order, next_order);
-        }
-
-        self.client_with_order.append(KVPair(item.order, CRDTSpan {
+    fn assign_order_to_client(&mut self, loc: CRDTLocation, order: Order, len: usize) {
+        self.client_with_order.append(KVPair(order, CRDTSpan {
             loc,
-            len: item.len as u32
+            len: len as _
         }));
 
-        self.client_data[loc.agent as usize].item_orders.append(KVPair(loc.seq, OrderMarker {
-            order: item.order,
-            len: item.len
+        self.client_data[loc.agent as usize].item_orders.append(KVPair(loc.seq, OrderSpan {
+            order,
+            len: len as _
         }));
+    }
+
+    fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: &str, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
+        // if cfg!(debug_assertions) {
+        //     let next_order = self.get_next_order();
+        //     assert_eq!(item.order, next_order);
+        // }
+
+        // self.assign_order_to_client(loc, item.order, item.len as _);
 
         // Ok now that's out of the way, lets integrate!
         let mut cursor = cursor_hint.unwrap_or_else(|| {
@@ -158,7 +203,7 @@ impl ListCRDT {
                 Ordering::Greater => { } // Bottom row. Continue.
                 Ordering::Equal => {
                     // These items might be concurrent.
-                    let my_name = self.get_agent_name(loc.agent);
+                    let my_name = self.get_agent_name(agent);
                     let other_loc = self.client_with_order.get(other_entry.order);
                     let other_name = self.get_agent_name(other_loc.agent);
                     if my_name > other_name {
@@ -188,36 +233,170 @@ impl ListCRDT {
         }
     }
 
-    pub fn local_txn(&mut self, agent: AgentId, local_ops: &[LocalOp]) {
+    fn remote_id_to_order(&self, id: &RemoteId) -> Order {
+        let agent = self.get_agent_id(id.agent.as_str()).unwrap();
+        self.client_data[agent as usize].seq_to_order(id.seq)
+    }
+
+    pub fn apply_remote_txn(&mut self, txn: &RemoteTxn) {
+        let agent = self.get_or_create_agent_id(txn.id.agent.as_str());
+        let client = &self.client_data[agent as usize];
+        let next_seq = client.get_next_seq();
+        // If the seq does not match we either need to skip or buffer the transaction.
+        assert_eq!(next_seq, txn.id.seq);
+
         let first_order = self.get_next_order();
         let mut next_order = first_order;
+
+        // Figure out the order range for this txn and assign
+        let mut txn_len = 0;
+        for op in txn.ops.iter() {
+            match op {
+                RemoteOp::Ins { ins_content, .. } => {
+                    txn_len += ins_content.chars().count();
+                }
+                RemoteOp::Del { len, .. } => {
+                    txn_len += *len as usize;
+                }
+            }
+        }
+
+        // TODO: This may be premature - we may be left in an invalid state if the txn is invalid.
+        self.assign_order_to_client(CRDTLocation {
+            agent,
+            seq: txn.id.seq,
+        }, first_order, txn_len);
+
+        // Apply the changes.
+        for op in txn.ops.iter() {
+            match op {
+                RemoteOp::Ins { origin_left, origin_right, ins_content } => {
+                    let ins_len = ins_content.chars().count();
+
+                    let order = next_order;
+                    next_order += ins_len as u32;
+
+                    // Convert origin left and right to order numbers
+                    let origin_left = self.remote_id_to_order(&origin_left);
+                    let origin_right = self.remote_id_to_order(&origin_right);
+
+                    let item = YjsSpan {
+                        order,
+                        origin_left,
+                        origin_right,
+                        len: ins_len as i32
+                    };
+                    // dbg!(item);
+
+                    self.integrate(agent, item, ins_content.as_str(), None);
+                }
+
+                RemoteOp::Del { id, len } => {
+                    // The order of this delete operation
+                    let order = next_order;
+                    next_order += len;
+
+                    // The order of the item we're deleting
+                    let mut target_order = self.remote_id_to_order(&id);
+
+                    // We're deleting a span of target_order..target_order+len.
+
+                    let mut remaining_len = *len;
+                    while remaining_len > 0 {
+                        let cursor = self.get_cursor_before(target_order);
+
+                        let markers = &mut self.index;
+                        let amt_deactivated = self.range_tree.remote_deactivate(cursor, remaining_len as _, |entry, leaf| {
+                            Self::notify(markers, entry, leaf);
+                        });
+
+                        let deleted_here = amt_deactivated.abs() as u32;
+                        if amt_deactivated < 0 {
+                            // This span was already deleted by a different peer. Mark duplicate delete.
+                            // TODO: Fix this - this is wrong.
+                            todo!();
+                            // self.double_deletes.insert(KVPair(target_order, DoubleDelete {
+                            //     len: amt_deactivated.abs() as _,
+                            //     excess_deletes: 1
+                            // }))
+                        }
+                        remaining_len -= deleted_here;
+                        target_order += deleted_here;
+                    }
+
+                    // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
+                    self.index.append_entry(self.index.last().map_or(MarkerEntry::default(), |m| {
+                        MarkerEntry { len: *len, ptr: m.ptr }
+                    }));
+
+                    self.deletes.append(KVPair(order, DeleteEntry {
+                        order: target_order,
+                        len: *len
+                    }));
+
+                    if USE_INNER_ROPE {
+                        todo!()
+                        // self.text_content.remove(pos..pos + *del_span);
+                    }
+                }
+            }
+        }
+    }
+
+    fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
+        let last_order = first_order + len - 1;
+        let txn_parents = if let Some(txn_parents) = txn_parents {
+            advance_branch_by(&mut self.frontier, &txn_parents, first_order, len);
+            txn_parents
+        } else {
+            // Local change - Use the current frontier as the txn's parents.
+            // The new frontier points to the last order in the txn.
+            replace(&mut self.frontier, smallvec![last_order])
+        };
+        // let parents = replace(&mut self.frontier, txn_parents);
+        let mut shadow = first_order;
+        while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
+            shadow = self.txns.find(shadow - 1).unwrap().0.shadow;
+        }
+
+        let txn = TxnSpan {
+            order: first_order,
+            len,
+            shadow,
+            parents: SmallVec::from_iter(txn_parents.into_iter())
+        };
+
+        self.txns.append(txn);
+    }
+
+    pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[LocalOp]) {
+        let first_order = self.get_next_order();
+        let mut next_order = first_order;
+
+        let mut txn_span = 0;
+        for LocalOp { pos: _, ins_content, del_span } in local_ops {
+            txn_span += *del_span;
+            txn_span += ins_content.chars().count();
+        }
+
+        self.assign_order_to_client(CRDTLocation {
+            agent,
+            seq: self.client_data[agent as usize].get_next_seq()
+        }, first_order, txn_span);
+
 
         for LocalOp { pos, ins_content, del_span } in local_ops {
             let pos = *pos;
             if *del_span > 0 {
-                let loc = CRDTLocation {
-                    agent,
-                    seq: self.client_data[agent as usize].get_next_seq()
-                };
-                // let mut order = next_order;
-                // next_order += *del_span as u32;
-
-                self.client_with_order.append(KVPair(next_order, CRDTSpan { loc, len: *del_span as u32 }));
-
-                self.client_data[loc.agent as usize].item_orders.append(KVPair(loc.seq, OrderMarker {
-                    order: next_order,
-                    len: *del_span as i32
-                }));
-
                 let cursor = self.range_tree.cursor_at_content_pos(pos, false);
                 let markers = &mut self.index;
                 let deleted_items = self.range_tree.local_deactivate(cursor, *del_span, |entry, leaf| {
                     Self::notify(markers, entry, leaf);
                 });
 
-                // TODO: Remove me. This is only needed because Rle doesn't support gaps.
+                // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
                 self.index.append_entry(self.index.last().map_or(MarkerEntry::default(), |m| {
-                    MarkerEntry { len: *del_span as u32, ptr: Some(m.unwrap_ptr()) }
+                    MarkerEntry { len: *del_span as u32, ptr: m.ptr }
                 }));
 
                 // let cursor = self.markers.cursor_at_end();
@@ -251,10 +430,6 @@ impl ListCRDT {
 
             if !ins_content.is_empty() {
                 // First we need the insert's base order
-                let loc = CRDTLocation {
-                    agent,
-                    seq: self.client_data[agent as usize].get_next_seq()
-                };
                 let ins_len = ins_content.chars().count();
 
                 let order = next_order;
@@ -270,7 +445,7 @@ impl ListCRDT {
                     (origin_left, cursor)
                 };
 
-                /// TODO: This should scan & skip past deleted items!
+                // TODO: This should scan & skip past deleted items!
                 let origin_right = cursor.get_item().unwrap_or(ROOT_ORDER);
 
                 let item = YjsSpan {
@@ -281,35 +456,23 @@ impl ListCRDT {
                 };
                 // dbg!(item);
 
-                self.integrate(loc, item, ins_content.as_str(), Some(cursor));
+                self.integrate(agent, item, ins_content.as_str(), Some(cursor));
             }
         }
 
-        let txn_len = next_order - first_order;
-        let parents = replace(&mut self.frontier, smallvec![next_order - 1]);
-        let mut min_succeeds = first_order;
-        while min_succeeds >= 1 && parents.contains(&(min_succeeds - 1)) {
-            min_succeeds -= 1;
-        }
-
-        let txn = TxnSpan {
-            order: first_order,
-            len: txn_len,
-            succeeds: 0,
-            parents: SmallVec::from_iter(parents.into_iter())
-        };
-        self.txns.append(txn);
+        self.insert_txn(None, first_order, next_order - first_order);
+        debug_assert_eq!(next_order, self.get_next_order());
     }
 
     // pub fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) -> Order {
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) {
-        self.local_txn(agent, &[LocalOp {
+        self.apply_local_txn(agent, &[LocalOp {
             ins_content, pos, del_span: 0
         }])
     }
 
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) {
-        self.local_txn(agent, &[LocalOp {
+        self.apply_local_txn(agent, &[LocalOp {
             ins_content: SmartString::default(), pos, del_span
         }])
     }
@@ -353,7 +516,7 @@ mod tests {
     #[test]
     fn smoke() {
         let mut doc = ListCRDT::new();
-        doc.get_or_create_client_id("seph"); // 0
+        doc.get_or_create_agent_id("seph"); // 0
         doc.local_insert(0, 0, "hi".into());
         doc.local_insert(0, 1, "yooo".into());
         doc.local_delete(0, 0, 3);
@@ -404,7 +567,7 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(7);
         let mut doc = ListCRDT::new();
 
-        let agent = doc.get_or_create_client_id("seph");
+        let agent = doc.get_or_create_agent_id("seph");
         let mut expected_content = Rope::new();
 
         for _i in 0..1000 {
@@ -420,7 +583,7 @@ mod tests {
     #[test]
     fn deletes_merged() {
         let mut doc = ListCRDT::new();
-        doc.get_or_create_client_id("seph");
+        doc.get_or_create_agent_id("seph");
         doc.local_insert(0, 0, "abc".into());
         // doc.local_delete(0, 2, 1);
         // doc.local_delete(0, 1, 1);
@@ -429,6 +592,15 @@ mod tests {
         doc.local_delete(0, 0, 1);
         doc.local_delete(0, 0, 1);
         dbg!(doc);
-
     }
+
+    // #[test]
+    // fn shadow() {
+    //     let mut doc = ListCRDT::new();
+    //     let seph = doc.get_or_create_client_id("seph");
+    //     let mike = doc.get_or_create_client_id("mike");
+    //
+    //     doc.local_insert(seph, 0, "a".into());
+    //     assert_eq!(doc.txns.find(0).unwrap().0.shadow, 0);
+    // }
 }

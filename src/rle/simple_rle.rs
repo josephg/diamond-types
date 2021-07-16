@@ -112,43 +112,43 @@ impl<V: EntryTraits + RleKeyed> Rle<V> {
 
 #[cfg(test)]
 mod tests {
-    use crate::order::OrderMarker;
+    use crate::order::OrderSpan;
     use crate::rle::simple_rle::Rle;
     use crate::rle::KVPair;
 
     #[test]
     fn rle_finds_at_offset() {
-        let mut rle: Rle<KVPair<OrderMarker>> = Rle::new();
+        let mut rle: Rle<KVPair<OrderSpan>> = Rle::new();
 
-        rle.append(KVPair(1, OrderMarker { order: 1000, len: 2 }));
-        assert_eq!(rle.find(1), Some((&KVPair(1, OrderMarker { order: 1000, len: 2 }), 0)));
-        assert_eq!(rle.find(2), Some((&KVPair(1, OrderMarker { order: 1000, len: 2 }), 1)));
+        rle.append(KVPair(1, OrderSpan { order: 1000, len: 2 }));
+        assert_eq!(rle.find(1), Some((&KVPair(1, OrderSpan { order: 1000, len: 2 }), 0)));
+        assert_eq!(rle.find(2), Some((&KVPair(1, OrderSpan { order: 1000, len: 2 }), 1)));
         assert_eq!(rle.find(3), None);
 
         // This should get appended.
-        rle.append(KVPair(3, OrderMarker { order: 1002, len: 1 }));
-        assert_eq!(rle.find(3), Some((&KVPair(1, OrderMarker { order: 1000, len: 3 }), 2)));
+        rle.append(KVPair(3, OrderSpan { order: 1002, len: 1 }));
+        assert_eq!(rle.find(3), Some((&KVPair(1, OrderSpan { order: 1000, len: 3 }), 2)));
         assert_eq!(rle.0.len(), 1);
     }
 
     #[test]
     fn insert_inside() {
-        let mut rle: Rle<KVPair<OrderMarker>> = Rle::new();
+        let mut rle: Rle<KVPair<OrderSpan>> = Rle::new();
 
-        rle.insert(KVPair(5, OrderMarker { order: 1000, len: 2}));
+        rle.insert(KVPair(5, OrderSpan { order: 1000, len: 2}));
         // Prepend
-        rle.insert(KVPair(3, OrderMarker { order: 998, len: 2}));
+        rle.insert(KVPair(3, OrderSpan { order: 998, len: 2}));
         assert_eq!(rle.0.len(), 1);
 
         // Append
-        rle.insert(KVPair(7, OrderMarker { order: 1002, len: 5}));
+        rle.insert(KVPair(7, OrderSpan { order: 1002, len: 5}));
         assert_eq!(rle.0.len(), 1);
 
         // Items which cannot be merged
-        rle.insert(KVPair(1, OrderMarker { order: 1, len: 1}));
+        rle.insert(KVPair(1, OrderSpan { order: 1, len: 1}));
         assert_eq!(rle.0.len(), 2);
 
-        rle.insert(KVPair(100, OrderMarker { order: 40, len: 1}));
+        rle.insert(KVPair(100, OrderSpan { order: 40, len: 1}));
         assert_eq!(rle.0.len(), 3);
 
         // dbg!(&rle);

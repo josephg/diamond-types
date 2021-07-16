@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
 use crate::common::{ClientName, CRDTLocation};
-use crate::order::OrderMarker;
+use crate::order::OrderSpan;
 use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree};
 use crate::list::span::YjsSpan;
 use crate::list::markers::MarkerEntry;
@@ -21,6 +21,7 @@ mod markers;
 mod delete;
 mod txn;
 mod double_delete;
+mod external_txn;
 
 // #[cfg(test)]
 // mod tests;
@@ -38,12 +39,14 @@ struct ClientData {
     /// This contains a set of (CRDT location range -> item orders).
     ///
     /// The OrderMarkers here always have positive len.
-    item_orders: Rle<KVPair<OrderMarker>>,
+    item_orders: Rle<KVPair<OrderSpan>>,
 }
 
 // pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
 pub type SpaceIndex = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
 // pub type MarkerTree = MutRle<MarkerEntry<YjsSpan, ContentIndex>>;
+
+pub type Branch = SmallVec<[Order; 4]>;
 
 #[derive(Debug)]
 pub struct ListCRDT {
@@ -51,7 +54,7 @@ pub struct ListCRDT {
     /// always just be the last order we've seen.
     ///
     /// Never empty. Starts at usize::max (which is the root order).
-    frontier: SmallVec<[Order; 4]>,
+    frontier: Branch,
 
     /// This is a bunch of ranges of (item order -> CRDT location span).
     /// The entries always have positive len.

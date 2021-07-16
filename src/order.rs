@@ -4,16 +4,15 @@ use crate::range_tree::{EntryTraits, CRDTItem, EntryWithContent};
 /// An OrderMarker defines a span of item orders, with a base and length.
 /// If the length is negative, the span has been deleted in the document.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct OrderMarker {
-    // TODO: Not sure what the right sizes of these two should be.
+pub struct OrderSpan {
     pub order: u32,
-    pub len: i32, // i16?
-    // pub parent: usize,
+    // TODO: Make this u32 instead of i32.
+    pub len: i32,
 }
 
-impl Default for OrderMarker {
+impl Default for OrderSpan {
     fn default() -> Self {
-        OrderMarker {
+        OrderSpan {
             // Super invalid.
             order: u32::MAX,
             len: 0,
@@ -22,7 +21,7 @@ impl Default for OrderMarker {
     }
 }
 
-impl SplitableSpan for OrderMarker {
+impl SplitableSpan for OrderSpan {
     fn len(&self) -> usize {
         self.len.abs() as usize
     }
@@ -30,7 +29,7 @@ impl SplitableSpan for OrderMarker {
     fn truncate(&mut self, at: usize) -> Self {
         let at_signed = at as i32 * self.len.signum();
 
-        let other = OrderMarker {
+        let other = OrderSpan {
             order: self.order + at as u32,
             len: self.len - at_signed
         };
@@ -54,11 +53,11 @@ impl SplitableSpan for OrderMarker {
     }
 }
 
-impl EntryTraits for OrderMarker {
+impl EntryTraits for OrderSpan {
     type Item = usize; // Order.
 
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        let other = OrderMarker {
+        let other = OrderSpan {
             order: self.order,
             len: at as i32 * self.len.signum()
         };
@@ -87,13 +86,13 @@ impl EntryTraits for OrderMarker {
     }
 }
 
-impl EntryWithContent for OrderMarker {
+impl EntryWithContent for OrderSpan {
     fn content_len(&self) -> usize {
         self.len.max(0) as usize
     }
 }
 
-impl CRDTItem for OrderMarker {
+impl CRDTItem for OrderSpan {
     fn is_activated(&self) -> bool {
         debug_assert!(self.len != 0);
         self.len > 0

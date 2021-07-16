@@ -9,7 +9,7 @@ use text_crdt_rust::*;
 use text_crdt_rust::list::*;
 
 fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
-    let id = doc.get_or_create_client_id("jeremy");
+    let id = doc.get_or_create_agent_id("jeremy");
 
     let mut local_ops: Vec<LocalOp> = Vec::new();
 
@@ -24,7 +24,7 @@ fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
             }
         }));
 
-        doc.local_txn(id, local_ops.as_slice());
+        doc.apply_local_txn(id, local_ops.as_slice());
     }
 }
 
@@ -52,7 +52,7 @@ pub fn yjs_benchmarks(c: &mut Criterion) {
         b.iter(|| {
             let mut doc = ListCRDT::new();
 
-            let agent = doc.get_or_create_client_id("seph");
+            let agent = doc.get_or_create_agent_id("seph");
 
             for _i in 0..5000000 {
                 doc.local_insert(agent, 0, " ".into());

@@ -515,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn foo() {
+    fn replace_range_tests() {
         let mut list: SplitList<i32> = SplitList::new_with_bucket_size(50);
 
         list.append_entry(123);
@@ -535,10 +535,12 @@ mod tests {
         list.replace_range(0, 4);
         list.replace_range(0, 5);
         // dbg!(list);
+        list.check();
+        // TODO: check the list contents match expected value afterwards.
     }
 
     #[test]
-    fn foo2() {
+    fn replace_regression() {
         // Regression.
         let mut list: SplitList<i32> = SplitList::new_with_bucket_size(50);
 

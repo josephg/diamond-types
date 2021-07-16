@@ -17,7 +17,7 @@ use criterion::black_box;
 use humansize::{FileSize, file_size_opts};
 
 fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
-    let id = doc.get_or_create_client_id("jeremy");
+    let id = doc.get_or_create_agent_id("jeremy");
 
     let mut local_ops: Vec<LocalOp> = Vec::new();
 
@@ -32,7 +32,7 @@ fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
             }
         }));
 
-        doc.local_txn(id, local_ops.as_slice());
+        doc.apply_local_txn(id, local_ops.as_slice());
     }
 }
 

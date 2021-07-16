@@ -13,7 +13,7 @@ fn random_str(len: usize, rng: &mut SmallRng) -> String {
 
 fn random_inserts_deletes() {
     let mut doc = ListCRDT::new();
-    let agent = doc.get_or_create_client_id("seph"); // agent 0
+    let agent = doc.get_or_create_agent_id("seph"); // agent 0
 
     // Stable between runs for reproducing bugs.
     let mut rng = SmallRng::seed_from_u64(1234);

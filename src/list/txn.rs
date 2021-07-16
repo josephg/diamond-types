@@ -12,7 +12,7 @@ pub struct TxnSpan {
     pub len: u32, // Length of the span
 
     /// All txns in this span are direct descendants of all operations from order down to succeeds.
-    pub succeeds: Order,
+    pub shadow: Order,
 
     /// The parents vector of the first txn in this span
     pub parents: SmallVec<[Order; 2]>
@@ -28,7 +28,7 @@ impl SplitableSpan for TxnSpan {
         let other = Self {
             order: self.order + at as Order,
             len: self.len - at as u32,
-            succeeds: self.succeeds,
+            shadow: self.shadow,
             parents: smallvec![at as u32 - 1],
         };
         self.len = at as u32;
@@ -38,7 +38,7 @@ impl SplitableSpan for TxnSpan {
     fn can_append(&self, other: &Self) -> bool {
         other.parents.len() == 1
             && other.parents[0] == self.order + self.len - 1
-            && other.succeeds == self.succeeds
+            && other.shadow == self.shadow
     }
 
     fn append(&mut self, other: Self) {
@@ -49,7 +49,7 @@ impl SplitableSpan for TxnSpan {
         self.order = other.order;
         self.len += other.len;
         self.parents = other.parents;
-        debug_assert_eq!(self.succeeds, other.succeeds);
+        debug_assert_eq!(self.shadow, other.shadow);
     }
 }
 
@@ -70,13 +70,13 @@ mod tests {
         let mut txn_a = TxnSpan {
             order: 1000,
             len: 10,
-            succeeds: 500,
+            shadow: 500,
             parents: smallvec![999]
         };
         let txn_b = TxnSpan {
             order: 1010,
             len: 5,
-            succeeds: 500,
+            shadow: 500,
             parents: smallvec![1009]
         };
 
@@ -86,7 +86,7 @@ mod tests {
         assert_eq!(txn_a, TxnSpan {
             order: 1000,
             len: 15,
-            succeeds: 500,
+            shadow: 500,
             parents: smallvec![999]
         })
     }

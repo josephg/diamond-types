@@ -313,16 +313,16 @@ impl<E: EntryTraits, I: TreeIndex<E>> PartialOrd for Cursor<E, I> {
 #[cfg(test)]
 mod tests {
     use crate::range_tree::*;
-    use crate::order::OrderMarker;
+    use crate::order::OrderSpan;
 
     #[test]
     fn compare_cursors() {
-        let mut tree = RangeTree::<OrderMarker, ContentIndex>::new();
+        let mut tree = RangeTree::<OrderSpan, ContentIndex>::new();
 
         let cursor = tree.cursor_at_start();
         assert_eq!(cursor, cursor);
 
-        tree.insert(cursor, OrderMarker { order: 0, len: 1 }, |_a, _b| {});
+        tree.insert(cursor, OrderSpan { order: 0, len: 1 }, |_a, _b| {});
 
         let c1 = tree.cursor_at_start();
         let c2 = tree.cursor_at_end();
@@ -330,7 +330,7 @@ mod tests {
 
         // Ok now lets add a bunch of junk to make sure the tree has a bunch of internal nodes
         for i in 0..1000 {
-            tree.insert(tree.cursor_at_start(), OrderMarker { order: i, len: 1 }, |_a, _b| {});
+            tree.insert(tree.cursor_at_start(), OrderSpan { order: i, len: 1 }, |_a, _b| {});
         }
 
         let c1 = tree.cursor_at_start();
