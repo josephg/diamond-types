@@ -235,7 +235,8 @@ impl ListCRDT {
 
     fn remote_id_to_order(&self, id: &RemoteId) -> Order {
         let agent = self.get_agent_id(id.agent.as_str()).unwrap();
-        self.client_data[agent as usize].seq_to_order(id.seq)
+        if agent == AgentId::MAX { ROOT_ORDER }
+        else { self.client_data[agent as usize].seq_to_order(id.seq) }
     }
 
     pub fn apply_remote_txn(&mut self, txn: &RemoteTxn) {
@@ -301,6 +302,11 @@ impl ListCRDT {
 
                     // We're deleting a span of target_order..target_order+len.
 
+                    self.deletes.append(KVPair(order, DeleteEntry {
+                        order: target_order,
+                        len: *len
+                    }));
+
                     let mut remaining_len = *len;
                     while remaining_len > 0 {
                         // We need to loop here because the deleted items may not be in a run
@@ -319,25 +325,26 @@ impl ListCRDT {
                         }
                         remaining_len -= deleted_here;
                         target_order += deleted_here;
+
+                        if USE_INNER_ROPE {
+                            // Use cursor to figure out the position + span.
+                            todo!()
+                            // self.text_content.remove(pos..pos + *del_span);
+                        }
                     }
 
                     // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
                     self.index.append_entry(self.index.last().map_or(MarkerEntry::default(), |m| {
                         MarkerEntry { len: *len, ptr: m.ptr }
                     }));
-
-                    self.deletes.append(KVPair(order, DeleteEntry {
-                        order: target_order,
-                        len: *len
-                    }));
-
-                    if USE_INNER_ROPE {
-                        todo!()
-                        // self.text_content.remove(pos..pos + *del_span);
-                    }
                 }
             }
         }
+
+        let parents: Branch = SmallVec::from_iter(txn.parents.iter().map(|remote_id| {
+            self.remote_id_to_order(remote_id)
+        }));
+        self.insert_txn(Some(parents), first_order, txn_len as u32);
     }
 
     fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
@@ -509,6 +516,8 @@ mod tests {
     use rand::prelude::*;
     use crate::common::*;
     use crate::list::doc::USE_INNER_ROPE;
+    use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteOp};
+    use smallvec::smallvec;
 
     #[test]
     fn smoke() {
@@ -600,4 +609,69 @@ mod tests {
     //     doc.local_insert(seph, 0, "a".into());
     //     assert_eq!(doc.txns.find(0).unwrap().0.shadow, 0);
     // }
+
+    fn root_id() -> RemoteId {
+        RemoteId {
+            agent: "ROOT".into(),
+            seq: u32::MAX
+        }
+    }
+
+    #[test]
+    fn remote_txns() {
+        let mut doc_remote = ListCRDT::new();
+        doc_remote.apply_remote_txn(&RemoteTxn {
+            id: RemoteId {
+                agent: "seph".into(),
+                seq: 0
+            },
+            parents: smallvec![root_id()],
+            ops: smallvec![
+                RemoteOp::Ins {
+                    origin_left: root_id(),
+                    origin_right: root_id(),
+                    ins_content: "hi".into()
+                }
+            ]
+        });
+
+        let mut doc_local = ListCRDT::new();
+        doc_local.get_or_create_agent_id("seph");
+        doc_local.local_insert(0, 0, "hi".into());
+        // dbg!(&doc_remote);
+        assert_eq!(doc_remote.frontier, doc_local.frontier);
+        assert_eq!(doc_remote.txns, doc_local.txns);
+        assert_eq!(doc_remote.text_content, doc_local.text_content);
+        assert_eq!(doc_remote.deletes, doc_local.deletes);
+
+        doc_remote.apply_remote_txn(&RemoteTxn {
+            id: RemoteId {
+                agent: "seph".into(),
+                seq: 2
+            },
+            parents: smallvec![RemoteId {
+                agent: "seph".into(),
+                seq: 1
+            }],
+            ops: smallvec![
+                RemoteOp::Del {
+                    id: RemoteId {
+                        agent: "seph".into(),
+                        seq: 0
+                    },
+                    len: 2,
+                }
+            ]
+        });
+
+        // dbg!(&doc_remote);
+        doc_local.local_delete(0, 0, 2);
+        // dbg!(&doc_local);
+
+        assert_eq!(doc_remote.frontier, doc_local.frontier);
+        assert_eq!(doc_remote.txns, doc_local.txns);
+        assert_eq!(doc_remote.text_content, doc_local.text_content);
+        assert_eq!(doc_remote.deletes, doc_local.deletes);
+
+    }
 }

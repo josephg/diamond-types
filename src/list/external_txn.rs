@@ -36,3 +36,9 @@ pub struct RemoteTxn {
 //     pub ops: SmallVec<[LocalOp; 2]> // usually 1-2 entries.
 // }
 
+// thread_local! {
+// const REMOTE_ROOT: RemoteId = RemoteId {
+//     agent: "ROOT".into(),
+//     seq: u32::MAX
+// };
+// }
