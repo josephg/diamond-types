@@ -18,6 +18,22 @@ pub struct TxnSpan {
     pub parents: SmallVec<[Order; 2]>
 }
 
+impl TxnSpan {
+    pub fn parent_at_offset(&self, at: usize) -> Option<Order> {
+        if at > 0 {
+            Some(self.order + at as u32 - 1)
+        } else { None } // look at .parents field.
+    }
+    // pub fn parents_at_offset(&self, at: usize) -> SmallVec<[Order; 2]> {
+    //     if at > 0 {
+    //         smallvec![self.order + at as u32 - 1]
+    //     } else {
+    //         // I don't like this clone here, but it'll be pretty rare anyway.
+    //         self.parents.clone()
+    //     }
+    // }
+}
+
 impl SplitableSpan for TxnSpan {
     fn len(&self) -> usize {
         self.len as usize
@@ -25,11 +41,12 @@ impl SplitableSpan for TxnSpan {
 
     fn truncate(&mut self, at: usize) -> Self {
         debug_assert!(at >= 1);
+        let at = at as u32;
         let other = Self {
-            order: self.order + at as Order,
-            len: self.len - at as u32,
+            order: self.order + at,
+            len: self.len - at,
             shadow: self.shadow,
-            parents: smallvec![at as u32 - 1],
+            parents: smallvec![self.order + at - 1],
         };
         self.len = at as u32;
         other

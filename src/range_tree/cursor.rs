@@ -190,6 +190,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
     }
 
     // TODO: Check if its faster if this returns by copy or byref.
+    /// Note this ignores the cursor's offset.
     pub fn get_entry(&self) -> E {
         let node = unsafe { self.node.as_ref() };
         // println!("entry {:?}", self);

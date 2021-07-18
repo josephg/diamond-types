@@ -9,7 +9,7 @@ use crate::order::OrderSpan;
 use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree};
 use crate::list::span::YjsSpan;
 use crate::list::markers::MarkerEntry;
-use crate::list::delete::DeleteEntry;
+// use crate::list::delete::DeleteEntry;
 use crate::rle::{Rle, KVPair};
 use crate::split_list::SplitList;
 use crate::list::txn::TxnSpan;
@@ -18,7 +18,6 @@ use crate::list::double_delete::DoubleDelete;
 mod span;
 mod doc;
 mod markers;
-mod delete;
 mod txn;
 mod double_delete;
 mod external_txn;
@@ -82,7 +81,7 @@ pub struct ListCRDT {
 
     /// This is a set of all deletes. Each delete names the set of orders of inserts which were
     /// deleted. Keyed by the delete order, NOT the order of the item *being* deleted.
-    deletes: Rle<KVPair<DeleteEntry>>,
+    deletes: Rle<KVPair<OrderSpan>>,
 
     /// List of document items which have been deleted more than once. Usually empty. Keyed by the
     /// item *being* deleted (like range_tree, unlike deletes).

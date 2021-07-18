@@ -1,10 +1,12 @@
 use smartstring::alias::{String as SmartString};
-use smallvec::SmallVec;
-use crate::list::{ListCRDT, Order};
+use smallvec::{SmallVec, smallvec};
+use crate::list::{ListCRDT, Order, ROOT_ORDER};
 use crate::order::OrderSpan;
 use std::collections::BinaryHeap;
 use std::cmp::{Ordering, Reverse};
 use crate::rle::{Rle, KVPair};
+use crate::common::{AgentId, CRDT_DOC_ROOT, CRDTLocation};
+use crate::splitable_span::SplitableSpan;
 // use crate::LocalOp;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,6 +59,33 @@ pub struct RemoteTxn {
 type VectorClock = Vec<RemoteId>;
 
 impl ListCRDT {
+    pub(crate) fn remote_id_to_order(&self, id: &RemoteId) -> Order {
+        let agent = self.get_agent_id(id.agent.as_str()).unwrap();
+        if agent == AgentId::MAX { ROOT_ORDER }
+        else { self.client_data[agent as usize].seq_to_order(id.seq) }
+    }
+
+    fn crdt_loc_to_remote_id(&self, loc: CRDTLocation) -> RemoteId {
+        RemoteId {
+            agent: if loc.agent == CRDT_DOC_ROOT.agent {
+                "ROOT".into()
+            } else {
+                self.client_data[loc.agent as usize].name.clone()
+            },
+            seq: loc.seq
+        }
+    }
+
+    pub(crate) fn order_to_remote_id(&self, order: Order) -> RemoteId {
+        let crdt_loc = self.get_crdt_location(order);
+        self.crdt_loc_to_remote_id(crdt_loc)
+    }
+
+    pub(crate) fn order_to_remote_id_span(&self, order: Order, max_size: u32) -> (RemoteId, u32) {
+        let crdt_span = self.get_crdt_span(order, max_size);
+        (self.crdt_loc_to_remote_id(crdt_span.loc), crdt_span.len)
+    }
+
     pub fn get_vector_clock(&self) -> VectorClock {
         self.client_data.iter()
             .filter(|c| !c.item_orders.is_empty())
@@ -142,6 +171,65 @@ impl ListCRDT {
 
         result
     }
+
+    /// This function is used to build an iterator for converting internal txns to remote
+    /// transactions.
+    pub fn next_txn_from_order(&self, span: OrderSpan) -> (RemoteTxn, u32) {
+        let (txn, offset) = self.txns.find(span.order).unwrap();
+
+        let parents = if let Some(order) = txn.parent_at_offset(offset as _) {
+            smallvec![self.order_to_remote_id(order)]
+        } else {
+            txn.parents.iter().map(|order| self.order_to_remote_id(*order))
+                .collect()
+        };
+
+        let len = u32::min(span.len, txn.len - offset);
+        assert!(len > 0);
+
+        let mut ops = SmallVec::new();
+        let mut order = span.order;
+        let mut len_remaining = len;
+        while len_remaining > 0 {
+            // Look up the change at order and append a span with maximum size len_remaining.
+            dbg!(order, len_remaining);
+
+            // Each entry has its length limited by 4 things:
+            // - the requested span length (span.len)
+            // - The length of this txn entry (related to contiguous user edits)
+            // - The length of the delete or insert operation
+            // - For deletes, the contiguous section of items deleted which have the same agent id
+            if let Some((d, offset)) = self.deletes.find(order) {
+                // Its a delete.
+
+                let len_limit_2 = u32::min(d.1.len - offset, len_remaining);
+                let (id, len) = self.order_to_remote_id_span(d.1.order + offset, len_limit_2);
+                ops.push(RemoteOp::Del { id, len });
+                len_remaining -= len;
+                order += len;
+            } else {
+                // It must be an insert. Fish information out of the range tree.
+                let cursor = self.get_cursor_before(order);
+                let entry = cursor.get_entry();
+                let len = u32::min((entry.len() - cursor.offset) as u32, len_remaining);
+                // We need to fetch the inserted CRDT span ID to limit the length.
+                // let len = self.get_crdt_span(entry.order + cursor.offset as u32, len_limit_2).len;
+                ops.push(RemoteOp::Ins {
+                    origin_left: self.order_to_remote_id(entry.origin_left_at_offset(cursor.offset as u32)),
+                    origin_right: self.order_to_remote_id(entry.origin_right),
+                    len
+                });
+                len_remaining -= len;
+                order += len;
+            }
+        }
+
+        (RemoteTxn {
+            id: self.order_to_remote_id(span.order),
+            parents,
+            ops,
+        }, len)
+    }
 }
 
 
@@ -193,5 +281,16 @@ mod tests {
             seq: 100
         }]);
         assert_eq!(vs.0, vec![]);
+    }
+
+    #[test]
+    fn external_txns() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("seph"); // 0
+        doc.local_insert(0, 0, "hi".into());
+        doc.local_delete(0, 0, 2);
+
+        // dbg!(&doc);
+        dbg!(doc.next_txn_from_order(OrderSpan { order: 0, len: 40 }));
     }
 }

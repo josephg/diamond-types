@@ -1,7 +1,7 @@
 use crate::list::*;
 // use crate::split_list::SplitList;
-use crate::range_tree::{RangeTree, Cursor, NodeLeaf};
-use crate::common::{AgentId, LocalOp};
+use crate::range_tree::{RangeTree, Cursor, NodeLeaf, EntryTraits};
+use crate::common::{AgentId, LocalOp, CRDT_DOC_ROOT};
 use smallvec::smallvec;
 use std::ptr::NonNull;
 use crate::splitable_span::SplitableSpan;
@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 use crate::rle::Rle;
 use std::iter::FromIterator;
 use std::mem::replace;
-use crate::list::external_txn::{RemoteTxn, RemoteOp, RemoteId};
+use crate::list::external_txn::{RemoteTxn, RemoteOp};
 
 // #[cfg(inlinerope)]
 // const USE_INNER_ROPE: bool = true;
@@ -92,6 +92,28 @@ impl ListCRDT {
         self.client_data[agent as usize].name.as_str()
     }
 
+    pub(crate) fn get_crdt_location(&self, order: Order) -> CRDTLocation {
+        if order == ROOT_ORDER { CRDT_DOC_ROOT }
+        else {
+            let (loc, offset) = self.client_with_order.find(order).unwrap();
+            loc.1.at_offset(offset as usize)
+        }
+    }
+
+    pub(crate) fn get_crdt_span(&self, order: Order, max_size: u32) -> CRDTSpan {
+        if order == ROOT_ORDER { CRDTSpan { loc: CRDT_DOC_ROOT, len: 0 } }
+        else {
+            let (loc, offset) = self.client_with_order.find(order).unwrap();
+            CRDTSpan {
+                loc: CRDTLocation {
+                    agent: loc.1.loc.agent,
+                    seq: loc.1.loc.seq + offset,
+                },
+                len: u32::min(loc.1.len - offset, max_size)
+            }
+        }
+    }
+
     fn get_next_order(&self) -> Order {
         if let Some(KVPair(base, entry)) = self.client_with_order.last() {
             base + entry.len as u32
@@ -106,7 +128,7 @@ impl ListCRDT {
         self.index.entry_at(order as usize).unwrap_ptr()
     }
 
-    fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
+    pub(crate) fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
         if order == ROOT_ORDER {
             // Or maybe we should just abort?
             self.range_tree.cursor_at_end()
@@ -235,10 +257,30 @@ impl ListCRDT {
         }
     }
 
-    fn remote_id_to_order(&self, id: &RemoteId) -> Order {
-        let agent = self.get_agent_id(id.agent.as_str()).unwrap();
-        if agent == AgentId::MAX { ROOT_ORDER }
-        else { self.client_data[agent as usize].seq_to_order(id.seq) }
+    fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
+        let last_order = first_order + len - 1;
+        let txn_parents = if let Some(txn_parents) = txn_parents {
+            advance_branch_by(&mut self.frontier, &txn_parents, first_order, len);
+            txn_parents
+        } else {
+            // Local change - Use the current frontier as the txn's parents.
+            // The new frontier points to the last order in the txn.
+            replace(&mut self.frontier, smallvec![last_order])
+        };
+        // let parents = replace(&mut self.frontier, txn_parents);
+        let mut shadow = first_order;
+        while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
+            shadow = self.txns.find(shadow - 1).unwrap().0.shadow;
+        }
+
+        let txn = TxnSpan {
+            order: first_order,
+            len,
+            shadow,
+            parents: SmallVec::from_iter(txn_parents.into_iter())
+        };
+
+        self.txns.append(txn);
     }
 
     pub fn apply_remote_txn(&mut self, txn: &RemoteTxn) {
@@ -306,7 +348,7 @@ impl ListCRDT {
 
                     // We're deleting a span of target_order..target_order+len.
 
-                    self.deletes.append(KVPair(order, DeleteEntry {
+                    self.deletes.append(KVPair(order, OrderSpan {
                         order: target_order,
                         len: *len
                     }));
@@ -349,32 +391,6 @@ impl ListCRDT {
             self.remote_id_to_order(remote_id)
         }));
         self.insert_txn(Some(parents), first_order, txn_len as u32);
-    }
-
-    fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
-        let last_order = first_order + len - 1;
-        let txn_parents = if let Some(txn_parents) = txn_parents {
-            advance_branch_by(&mut self.frontier, &txn_parents, first_order, len);
-            txn_parents
-        } else {
-            // Local change - Use the current frontier as the txn's parents.
-            // The new frontier points to the last order in the txn.
-            replace(&mut self.frontier, smallvec![last_order])
-        };
-        // let parents = replace(&mut self.frontier, txn_parents);
-        let mut shadow = first_order;
-        while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
-            shadow = self.txns.find(shadow - 1).unwrap().0.shadow;
-        }
-
-        let txn = TxnSpan {
-            order: first_order,
-            len,
-            shadow,
-            parents: SmallVec::from_iter(txn_parents.into_iter())
-        };
-
-        self.txns.append(txn);
     }
 
     pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[LocalOp]) {
@@ -421,7 +437,7 @@ impl ListCRDT {
                     //     order: item.order
                     // });
 
-                    self.deletes.append(KVPair(next_order, DeleteEntry {
+                    self.deletes.append(KVPair(next_order, OrderSpan {
                         order: item.order,
                         len: item.len as u32
                     }));
@@ -443,7 +459,7 @@ impl ListCRDT {
                 let order = next_order;
                 next_order += ins_len as u32;
 
-                // Find the preceeding item and successor
+                // Find the preceding item and successor
                 let (origin_left, cursor) = if pos == 0 {
                     (ROOT_ORDER, self.range_tree.cursor_at_start())
                 } else {
@@ -680,5 +696,69 @@ mod tests {
         assert_eq!(doc_remote.deletes, doc_local.deletes);
 
         // dbg!(doc_remote.get_version_vector());
+    }
+
+    #[test]
+    fn remote_txns_fork() {
+        // Two users concurrently type into an empty document
+        let mut doc = ListCRDT::new();
+        doc.apply_remote_txn(&RemoteTxn {
+            id: RemoteId {
+                agent: "seph".into(),
+                seq: 0
+            },
+            parents: smallvec![root_id()],
+            ops: smallvec![
+                RemoteOp::Ins {
+                    origin_left: root_id(),
+                    origin_right: root_id(),
+                    len: 2,
+                    // ins_content: "hi".into()
+                }
+            ]
+        });
+
+        doc.apply_remote_txn(&RemoteTxn {
+            id: RemoteId {
+                agent: "mike".into(),
+                seq: 0
+            },
+            parents: smallvec![root_id()],
+            ops: smallvec![
+                RemoteOp::Ins {
+                    origin_left: root_id(),
+                    origin_right: root_id(),
+                    len: 5,
+                    // ins_content: "abcde".into()
+                }
+            ]
+        });
+
+        // The frontier is split
+        assert_eq!(doc.frontier.as_slice(), &[1, 6]);
+
+        // The transactions shouldn't be merged.
+        assert_eq!(doc.txns.num_entries(), 2);
+
+        // Merge the two branches.
+        doc.local_insert(0, 7, "x".into());
+        assert_eq!(doc.frontier.as_slice(), &[7]);
+
+        // The new txn entry should have both items in the split as parents.
+        assert_eq!(doc.txns.0[2].parents.as_slice(), &[1, 6]);
+
+        // dbg!(&doc);
+
+        // Mike is missing all the changes from seph.
+        assert_eq!(doc.get_versions_since(&vec![RemoteId {
+            agent: "mike".into(),
+            seq: 5
+        }]), Rle(vec![OrderSpan {
+            order: 0,
+            len: 2
+        }, OrderSpan {
+            order: 7,
+            len: 1
+        }]));
     }
 }
