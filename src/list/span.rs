@@ -57,8 +57,10 @@ impl SplitableSpan for YjsSpan {
     }
 
     fn prepend(&mut self, other: Self) {
+        debug_assert!(other.can_append(self));
         self.order = other.order;
         self.len += other.len;
+        self.origin_left = other.origin_left;
     }
 }
 

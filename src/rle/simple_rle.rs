@@ -9,12 +9,53 @@ use humansize::{FileSize, file_size_opts};
 #[derive(Clone, Eq, PartialEq, Debug)]
 // pub struct RLE<K: Copy + Eq + Ord, V: Copy + Eq>(Vec<(Range<K>, V)>);
 // pub struct Rle<V: SplitableSpan + Clone + Debug + Sized>(Vec<(RleKey, V)>);
-pub struct Rle<V: SplitableSpan + RleKeyed + Clone + Debug + Sized>(pub(crate) Vec<V>);
+pub struct Rle<V: SplitableSpan + Clone + Debug + Sized>(pub(crate) Vec<V>);
+
+impl<V: SplitableSpan + Clone + Debug + Sized> Rle<V> {
+    pub fn new() -> Self { Self(Vec::new()) }
+
+    /// Append a new value to the end of the RLE list. This method is fast - O(1) average time.
+    /// The new item will extend the last entry in the list if possible.
+    pub fn append(&mut self, val: V) {
+        if let Some(v) = self.0.last_mut() {
+            // debug_assert!(val.get_rle_key() > v.get_rle_key());
+
+            if v.can_append(&val) {
+                v.append(val);
+                return;
+            }
+        }
+
+        self.0.push(val);
+    }
+
+    pub fn last(&self) -> Option<&V> {
+        self.0.last()
+    }
+
+    pub fn num_entries(&self) -> usize { self.0.len() }
+
+    pub fn print_stats(&self, name: &str, _detailed: bool) {
+        let size = std::mem::size_of::<V>();
+        println!("-------- {} RLE --------", name);
+        println!("number of {} byte entries: {}", size, self.0.len());
+        println!("size: {}", (self.0.capacity() * size).file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("(efficient size: {})", (self.0.len() * size).file_size(file_size_opts::CONVENTIONAL).unwrap());
+
+        // for item in self.0[..100].iter() {
+        //     println!("{:?}", item);
+        // }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
+}
 
 // impl<K: Copy + Eq + Ord + Add<Output = K> + Sub<Output = K> + AddAssign, V: Copy + Eq> RLE<K, V> {
 impl<V: SplitableSpan + RleKeyed + Clone + Debug + Sized> Rle<V> {
-    pub fn new() -> Self { Self(Vec::new()) }
-
     pub(crate) fn search(&self, needle: RleKey) -> Result<usize, usize> {
         self.0.binary_search_by(|entry| {
             let key = entry.get_rle_key();
@@ -34,21 +75,6 @@ impl<V: SplitableSpan + RleKeyed + Clone + Debug + Sized> Rle<V> {
             let entry = &self.0[idx];
             (entry, needle - entry.get_rle_key())
         })
-    }
-
-    /// Append a new value to the end of the RLE list. This method is fast - O(1) average time.
-    /// The new item will extend the last entry in the list if possible.
-    pub fn append(&mut self, val: V) {
-        if let Some(v) = self.0.last_mut() {
-            debug_assert!(val.get_rle_key() > v.get_rle_key());
-
-            if v.can_append(&val) {
-                v.append(val);
-                return;
-            }
-        }
-
-        self.0.push(val);
     }
 
     pub fn insert(&mut self, val: V) {
@@ -74,28 +100,6 @@ impl<V: SplitableSpan + RleKeyed + Clone + Debug + Sized> Rle<V> {
         }
 
         self.0.insert(idx, val);
-    }
-
-    pub fn last(&self) -> Option<&V> {
-        self.0.last()
-    }
-
-    pub fn num_entries(&self) -> usize { self.0.len() }
-
-    pub fn print_stats(&self, name: &str, _detailed: bool) {
-        let size = std::mem::size_of::<V>();
-        println!("-------- {} RLE --------", name);
-        println!("number of {} byte entries: {}", size, self.0.len());
-        println!("size: {}", (self.0.capacity() * size).file_size(file_size_opts::CONVENTIONAL).unwrap());
-        println!("(efficient size: {})", (self.0.len() * size).file_size(file_size_opts::CONVENTIONAL).unwrap());
-
-        // for item in self.0[..100].iter() {
-        //     println!("{:?}", item);
-        // }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 }
 

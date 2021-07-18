@@ -4,7 +4,7 @@ use ropey::Rope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
-use crate::common::{ClientName, CRDTLocation};
+use crate::common::{ClientName, CRDTLocation, AgentId};
 use crate::order::OrderSpan;
 use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree};
 use crate::list::span::YjsSpan;
@@ -21,12 +21,14 @@ mod markers;
 mod txn;
 mod double_delete;
 mod external_txn;
+mod eq;
 
 // #[cfg(test)]
 // mod tests;
 
 pub type Order = u32;
 pub const ROOT_ORDER: Order = Order::MAX;
+pub const ROOT_AGENT: AgentId = AgentId::MAX;
 
 #[derive(Clone, Debug)]
 struct ClientData {

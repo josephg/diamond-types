@@ -338,4 +338,13 @@ mod tests {
         let c2 = tree.cursor_at_end();
         assert!(c1 < c2);
     }
+
+    #[test]
+    fn empty_tree_has_empty_iter() {
+        // Regression.
+        let tree = RangeTree::<OrderSpan, RawPositionIndex>::new();
+        for _item in tree.iter() {
+            panic!("Found spurious item");
+        }
+    }
 }

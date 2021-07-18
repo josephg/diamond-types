@@ -100,6 +100,11 @@ impl ListCRDT {
         }
     }
 
+    pub(crate) fn get_order(&self, loc: CRDTLocation) -> Order {
+        if loc.agent == ROOT_AGENT { ROOT_ORDER }
+        else { self.client_data[loc.agent as usize].seq_to_order(loc.seq) }
+    }
+
     pub(crate) fn get_crdt_span(&self, order: Order, max_size: u32) -> CRDTSpan {
         if order == ROOT_ORDER { CRDTSpan { loc: CRDT_DOC_ROOT, len: 0 } }
         else {
@@ -196,6 +201,7 @@ impl ListCRDT {
         // self.assign_order_to_client(loc, item.order, item.len as _);
 
         // Ok now that's out of the way, lets integrate!
+        // println!("item {:?}", item);
         let mut cursor = cursor_hint.unwrap_or_else(|| {
             self.get_cursor_after(item.origin_left)
         });
@@ -240,7 +246,14 @@ impl ListCRDT {
                 }
             }
 
-            cursor.next_entry();
+            // Break and insert here if we reach the end of the document.
+            if !cursor.next_entry() {
+                // This is dirty. If the cursor can't move to the next entry, we still need to move
+                // it to the end of the current element or we'll prepend. next_entry() doesn't do
+                // that for some reason. TODO: Clean this up.
+                cursor.offset = other_entry.len();
+                break;
+            }
         }
         if scanning { cursor = scan_start; }
 
@@ -535,7 +548,6 @@ impl Default for ListCRDT {
 mod tests {
     use crate::list::*;
     use rand::prelude::*;
-    use crate::common::*;
     use crate::list::doc::USE_INNER_ROPE;
     use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteOp};
     use smallvec::smallvec;
@@ -605,6 +617,27 @@ mod tests {
         }
         assert_eq!(doc.client_data[0].item_orders.num_entries(), 1);
         assert_eq!(doc.client_with_order.num_entries(), 1);
+    }
+
+    #[test]
+    fn random_single_replicate() {
+        let mut rng = SmallRng::seed_from_u64(20);
+        let mut doc = ListCRDT::new();
+
+        let agent = doc.get_or_create_agent_id("seph");
+        let mut expected_content = Rope::new();
+
+        // This takes a long time to do 1000 operations. (Like 3 seconds).
+        for _i in 0..10 {
+            for _ in 0..100 {
+                make_random_change(&mut doc, &mut expected_content, agent, &mut rng);
+            }
+            let mut doc_2 = ListCRDT::new();
+
+            // dbg!(&doc.range_tree);
+            doc.replicate_into(&mut doc_2);
+            assert_eq!(doc, doc_2);
+        }
     }
 
     #[test]

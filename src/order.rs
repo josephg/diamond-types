@@ -11,6 +11,13 @@ pub struct OrderSpan {
     pub len: u32,
 }
 
+impl OrderSpan {
+    pub fn consume_start(&mut self, amt: u32) {
+        self.order += amt;
+        self.len -= amt;
+    }
+}
+
 impl Default for OrderSpan {
     fn default() -> Self {
         OrderSpan {

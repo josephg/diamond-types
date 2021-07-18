@@ -174,7 +174,7 @@ impl ListCRDT {
 
     /// This function is used to build an iterator for converting internal txns to remote
     /// transactions.
-    pub fn next_txn_from_order(&self, span: OrderSpan) -> (RemoteTxn, u32) {
+    pub fn next_remote_txn_from_order(&self, span: OrderSpan) -> (RemoteTxn, u32) {
         let (txn, offset) = self.txns.find(span.order).unwrap();
 
         let parents = if let Some(order) = txn.parent_at_offset(offset as _) {
@@ -192,7 +192,7 @@ impl ListCRDT {
         let mut len_remaining = len;
         while len_remaining > 0 {
             // Look up the change at order and append a span with maximum size len_remaining.
-            dbg!(order, len_remaining);
+            // dbg!(order, len_remaining);
 
             // Each entry has its length limited by 4 things:
             // - the requested span length (span.len)
@@ -229,6 +229,26 @@ impl ListCRDT {
             parents,
             ops,
         }, len)
+    }
+
+    // This isn't the final form of this, but its good enough for now.
+    pub(crate) fn copy_txn_range_into(&self, dest: &mut Self, mut span: OrderSpan) {
+        while span.len > 0 {
+            let (txn, len) = self.next_remote_txn_from_order(span);
+            // dbg!(&txn, len);
+            debug_assert!(len > 0);
+            debug_assert!(len <= span.len);
+            span.consume_start(len);
+            dest.apply_remote_txn(&txn);
+        }
+    }
+
+    pub fn replicate_into(&self, dest: &mut Self) {
+        let clock = dest.get_vector_clock();
+        let order_ranges = self.get_versions_since(&clock);
+        for span in order_ranges.iter() {
+            self.copy_txn_range_into(dest, *span);
+        }
     }
 }
 
@@ -291,6 +311,6 @@ mod tests {
         doc.local_delete(0, 0, 2);
 
         // dbg!(&doc);
-        dbg!(doc.next_txn_from_order(OrderSpan { order: 0, len: 40 }));
+        dbg!(doc.next_remote_txn_from_order(OrderSpan { order: 0, len: 40 }));
     }
 }

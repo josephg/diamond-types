@@ -119,17 +119,29 @@ impl<E: EntryTraits, I: TreeIndex<E>> Iterator for Cursor<E, I> {
     type Item = E;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // I'll set idx to an invalid value
+        // When the cursor is past the end, idx is an invalid value.
         if self.idx == usize::MAX {
-            None
-        } else {
-            let current = self.get_entry();
+            return None;
+        }
+
+        // The cursor is at the end of the current element. Its a bit dirty doing this twice but
+        // This will happen for a fresh cursor in an empty document, or when iterating using a
+        // cursor made by some other means.
+        if self.idx >= unsafe { self.node.as_ref() }.len_entries() {
             let has_next = self.next_entry();
             if !has_next {
                 self.idx = usize::MAX;
+                return None;
             }
-            Some(current)
         }
+
+        let current = self.get_entry();
+        // Move the cursor forward preemptively for the next call to next().
+        let has_next = self.next_entry();
+        if !has_next {
+            self.idx = usize::MAX;
+        }
+        Some(current)
     }
 }
 
