@@ -36,7 +36,8 @@ struct ClientData {
 
     /// This is a run-length-encoded in-order list of all items inserted by this client.
     ///
-    /// This contains a set of (CRDT location range -> item orders).
+    /// Each entry in this list internally has (seq base, {order base, len}). This maps CRDT
+    /// location range -> item orders
     ///
     /// The OrderMarkers here always have positive len.
     item_orders: Rle<KVPair<OrderSpan>>,

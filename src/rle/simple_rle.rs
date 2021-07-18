@@ -93,6 +93,10 @@ impl<V: SplitableSpan + RleKeyed + Clone + Debug + Sized> Rle<V> {
         //     println!("{:?}", item);
         // }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl<V: EntryTraits + RleKeyed> Rle<V> {

@@ -79,7 +79,7 @@ impl ListCRDT {
         }
     }
 
-    fn get_agent_id(&self, name: &str) -> Option<AgentId> {
+    pub(crate) fn get_agent_id(&self, name: &str) -> Option<AgentId> {
         if name == "ROOT" { Some(AgentId::MAX) }
         else {
             self.client_data.iter()
@@ -164,7 +164,8 @@ impl ListCRDT {
         }));
     }
 
-    fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: &str, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
+    // fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: &str, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
+    fn integrate(&mut self, agent: AgentId, item: YjsSpan, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
         //     assert_eq!(item.order, next_order);
@@ -228,8 +229,9 @@ impl ListCRDT {
         });
 
         if USE_INNER_ROPE {
-            let pos = cursor.count_pos() as usize;
-            self.text_content.insert(pos, ins_content);
+            unimplemented!("Integrate not current passed inserted content");
+        //     let pos = cursor.count_pos() as usize;
+        //     self.text_content.insert(pos, ins_content);
         }
     }
 
@@ -253,8 +255,9 @@ impl ListCRDT {
         let mut txn_len = 0;
         for op in txn.ops.iter() {
             match op {
-                RemoteOp::Ins { ins_content, .. } => {
-                    txn_len += ins_content.chars().count();
+                RemoteOp::Ins { len, .. } => {
+                    // txn_len += ins_content.chars().count();
+                    txn_len += *len as usize;
                 }
                 RemoteOp::Del { len, .. } => {
                     txn_len += *len as usize;
@@ -271,11 +274,11 @@ impl ListCRDT {
         // Apply the changes.
         for op in txn.ops.iter() {
             match op {
-                RemoteOp::Ins { origin_left, origin_right, ins_content } => {
-                    let ins_len = ins_content.chars().count();
+                RemoteOp::Ins { origin_left, origin_right, len } => {
+                    // let ins_len = ins_content.chars().count();
 
                     let order = next_order;
-                    next_order += ins_len as u32;
+                    next_order += len;
 
                     // Convert origin left and right to order numbers
                     let origin_left = self.remote_id_to_order(&origin_left);
@@ -285,11 +288,12 @@ impl ListCRDT {
                         order,
                         origin_left,
                         origin_right,
-                        len: ins_len as i32
+                        len: *len as i32,
                     };
                     // dbg!(item);
 
-                    self.integrate(agent, item, ins_content.as_str(), None);
+                    // self.integrate(agent, item, ins_content.as_str(), None);
+                    self.integrate(agent, item, None);
                 }
 
                 RemoteOp::Del { id, len } => {
@@ -460,7 +464,8 @@ impl ListCRDT {
                 };
                 // dbg!(item);
 
-                self.integrate(agent, item, ins_content.as_str(), Some(cursor));
+                // self.integrate(agent, item, ins_content.as_str(), Some(cursor));
+                self.integrate(agent, item, Some(cursor));
             }
         }
 
@@ -630,7 +635,8 @@ mod tests {
                 RemoteOp::Ins {
                     origin_left: root_id(),
                     origin_right: root_id(),
-                    ins_content: "hi".into()
+                    len: 2,
+                    // ins_content: "hi".into()
                 }
             ]
         });
@@ -673,5 +679,6 @@ mod tests {
         assert_eq!(doc_remote.text_content, doc_local.text_content);
         assert_eq!(doc_remote.deletes, doc_local.deletes);
 
+        // dbg!(doc_remote.get_version_vector());
     }
 }
