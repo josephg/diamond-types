@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn compare_cursors() {
-        let mut tree = RangeTree::<OrderSpan, ContentIndex>::new();
+        let mut tree = RangeTree::<OrderSpan, RawPositionIndex>::new();
 
         let cursor = tree.cursor_at_start();
         assert_eq!(cursor, cursor);
