@@ -18,7 +18,7 @@ edition = "2018"
 [dependencies]
 smartstring = "0.2.6"
 ropey = "1.1.0"
-smallvec = "1.4.0"
+smallvec = { version = "1.6.1", features = ["union"] }
 lazy_static = "1.4.0"
 
 # Only used for printing stats. TODO: Move me to dev-dependencies!
