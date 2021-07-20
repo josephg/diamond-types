@@ -5,6 +5,9 @@ use crate::list::{ListCRDT, Order, ROOT_AGENT, Branch};
 use crate::common::{CRDTLocation, AgentId};
 use crate::rle::Rle;
 use crate::list::span::YjsSpan;
+use crate::splitable_span::SplitableSpan;
+use std::fs::File;
+use std::io::Write;
 // use smallvec::smallvec;
 
 type AgentMap = Vec<Option<AgentId>>;
@@ -35,6 +38,8 @@ fn set_eq(a: &[Order], b: &[Order]) -> bool {
     true
 }
 
+const DEBUG_EQ: bool = true;
+
 impl PartialEq for ListCRDT {
     fn eq(&self, other: &Self) -> bool {
         // There's a few ways list CRDT objects can end up using different bytes to represent the
@@ -59,7 +64,10 @@ impl PartialEq for ListCRDT {
 
         for order in self.frontier.iter() {
             let other_order = a_to_b_order(*order);
-            if !other.frontier.contains(&other_order) { return false; }
+            if !other.frontier.contains(&other_order) {
+                if DEBUG_EQ { eprintln!("Frontier does not match"); }
+                return false;
+            }
         }
 
         // 2. Compare the range trees. This is the money subject, right here.
@@ -69,21 +77,53 @@ impl PartialEq for ListCRDT {
         let mut a_items: Rle<YjsSpan> = Rle::new();
         let mut b_items: Rle<YjsSpan> = Rle::new();
 
-        for entry in self.range_tree.iter() {
+        for mut entry in self.range_tree.iter() {
             // dbg!(entry);
-            // Map the entry to a.
-            a_items.append(YjsSpan {
-                order: a_to_b_order(entry.order),
-                origin_left: a_to_b_order(entry.origin_left),
-                origin_right: a_to_b_order(entry.origin_right),
-                len: entry.len
-            });
+            // Map the entry to a. The entry could be a mix from multiple user agents. Split it
+            // up if so.
+            loop {
+                let span_length = self.max_span_length(entry.order);
+                let (e, remainder) = if entry.len() <= span_length as usize {
+                    (entry, None)
+                } else {
+                    let remainder = entry.truncate(span_length as usize);
+                    (entry, Some(remainder))
+                };
+                entry = e;
+                a_items.append(YjsSpan {
+                    order: a_to_b_order(entry.order),
+                    origin_left: a_to_b_order(entry.origin_left),
+                    origin_right: a_to_b_order(entry.origin_right),
+                    len: entry.len
+                });
+                if let Some(r) = remainder {
+                    entry = r;
+                } else { break; }
+            }
         }
         for entry in other.range_tree.iter() {
             b_items.append(entry);
         }
         // dbg!(&a_items, &b_items);
-        if a_items != b_items { return false; }
+        if a_items != b_items {
+            if DEBUG_EQ {
+                println!("Items do not match:");
+                self.debug_print_segments();
+                println!("\n ----- \n");
+                other.debug_print_segments();
+                // println!("a {:#?}", &a_items);
+                // println!("b {:#?}", &b_items);
+
+                let mut a = File::create("a").unwrap();
+                a.write_fmt(format_args!("{:#?}", &a_items));
+                let mut b = File::create("b").unwrap();
+                b.write_fmt(format_args!("{:#?}", &b_items));
+                println!("Item lists written to 'a' and 'b'");
+
+                // dbg!(&self);
+            }
+            return false;
+        }
 
         // 3. Compare the delete lists
         // let mut mapped = Rle::new();

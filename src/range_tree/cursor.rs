@@ -107,7 +107,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
     fn prev_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
         if self.idx > 0 {
             self.idx -= 1;
-            self.offset = self.get_entry().len();
+            self.offset = self.get_raw_entry().len();
             // println!("prev_entry get_entry returns {:?}", self.get_entry());
             true
         } else {
@@ -191,57 +191,54 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
 
     // TODO: Check if its faster if this returns by copy or byref.
     /// Note this ignores the cursor's offset.
-    pub fn get_entry(&self) -> E {
+    pub fn get_raw_entry(&self) -> E {
         let node = unsafe { self.node.as_ref() };
         // println!("entry {:?}", self);
         node.data[self.idx]
     }
 
-    pub(super) fn get_entry_mut(&mut self) -> &mut E {
+    pub(super) fn get_raw_entry_mut(&mut self) -> &mut E {
         let node = unsafe { self.node.as_mut() };
         debug_assert!(self.idx < node.len_entries());
         &mut node.data[self.idx]
     }
 
-    // This is a terrible name. This method modifies a cursor at the end of an entry
-    // to be a cursor to the start of the next entry - potentially in the following leaf.
-    //
-    // Returns false if the new location points past the end of the tree.
-    // (Or if stick_end = true, past the end of the current leaf.)
-    pub(super) fn roll_to_next_entry(&mut self, stick_end: bool) -> bool {
+    /// This is a terrible name. This method modifies a cursor at the end of an entry
+    /// to be a cursor to the start of the next entry - potentially in the following leaf.
+    ///
+    /// Returns false if the resulting cursor location points past the end of the tree.
+    pub(crate) fn roll_to_next_entry(&mut self) -> bool {
         unsafe {
             let node = self.node.as_ref();
-            let seq_len = node.data[self.idx].len();
 
-            debug_assert!(self.offset <= seq_len);
+            if self.idx >= node.num_entries as usize {
+                self.next_entry()
+            } else {
+                let seq_len = node.data[self.idx].len();
 
-            // If we're at the end of the current entry, skip it.
-            if self.offset == seq_len {
+                debug_assert!(self.offset <= seq_len);
+
+                if self.offset < seq_len { return true; }
                 self.offset = 0;
                 self.idx += 1;
-                // entry = &mut node.0[cursor.idx];
-
                 if self.idx >= node.num_entries as usize {
-                    return if !stick_end { self.next_entry() }
-                    else { false };
-                }
+                    self.next_entry()
+                } else { true }
             }
-
-            true
         }
     }
 
     pub fn get_item(&self) -> Option<E::Item> {
-        // TODO: Optimize this or take a copy.
+        // TODO: Optimize this. This is gross.
         let mut cursor = *self;
-        if cursor.roll_to_next_entry(false) {
-            Some(cursor.get_entry().at_offset(cursor.offset))
+        if cursor.roll_to_next_entry() {
+            Some(cursor.get_raw_entry().at_offset(cursor.offset))
         } else { None }
     }
 
     // TODO: This is inefficient in a loop.
     pub fn next(&mut self) -> bool {
-        if !self.roll_to_next_entry(false) {
+        if !self.roll_to_next_entry() {
             return false;
         }
         self.offset += 1;
@@ -255,7 +252,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> Cursor<E, I> {
     ///
     /// The cursor is not moved backwards (? mistake?) - so it must be stick_end: true.
     pub fn tell_predecessor(mut self) -> Option<E::Item> {
-        while (self.offset == 0 && self.idx == 0) || self.get_entry().is_deactivated() {
+        while (self.offset == 0 && self.idx == 0) || self.get_raw_entry().is_deactivated() {
             // println!("\nentry {:?}", self);
             let exists = self.prev_entry();
             if !exists { return None; }
@@ -263,7 +260,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> Cursor<E, I> {
             // println!();
         }
 
-        let entry = self.get_entry(); // Shame this is called twice but eh.
+        let entry = self.get_raw_entry(); // Shame this is called twice but eh.
         Some(entry.at_offset(self.offset - 1))
     }
 }

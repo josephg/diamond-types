@@ -175,6 +175,13 @@ impl ListCRDT {
     /// This function is used to build an iterator for converting internal txns to remote
     /// transactions.
     pub fn next_remote_txn_from_order(&self, span: OrderSpan) -> (RemoteTxn, u32) {
+        // Each entry we return has its length limited by 5 different things (!)
+        // 1. the requested span length (span.len)
+        // 2. The length of this txn entry (the number of items we know about in a run)
+        // 3. The number of contiguous items by *this userid*
+        // 4. The length of the delete or insert operation
+        // 5. (For deletes) the contiguous section of items deleted which have the same agent id
+
         let (txn, offset) = self.txns.find(span.order).unwrap();
 
         let parents = if let Some(order) = txn.parent_at_offset(offset as _) {
@@ -184,8 +191,12 @@ impl ListCRDT {
                 .collect()
         };
 
+        // Limit by 1 and 2
         let len = u32::min(span.len, txn.len - offset);
         assert!(len > 0);
+
+        // Limit by 3
+        let (id, len) = self.order_to_remote_id_span(span.order, len);
 
         let mut ops = SmallVec::new();
         let mut order = span.order;
@@ -194,23 +205,22 @@ impl ListCRDT {
             // Look up the change at order and append a span with maximum size len_remaining.
             // dbg!(order, len_remaining);
 
-            // Each entry has its length limited by 4 things:
-            // - the requested span length (span.len)
-            // - The length of this txn entry (related to contiguous user edits)
-            // - The length of the delete or insert operation
-            // - For deletes, the contiguous section of items deleted which have the same agent id
             if let Some((d, offset)) = self.deletes.find(order) {
+                dbg!((d, offset));
                 // Its a delete.
 
+                // Limit by 4
                 let len_limit_2 = u32::min(d.1.len - offset, len_remaining);
+                // Limit by 5
                 let (id, len) = self.order_to_remote_id_span(d.1.order + offset, len_limit_2);
+                dbg!((&id, len));
                 ops.push(RemoteOp::Del { id, len });
                 len_remaining -= len;
                 order += len;
             } else {
                 // It must be an insert. Fish information out of the range tree.
                 let cursor = self.get_cursor_before(order);
-                let entry = cursor.get_entry();
+                let entry = cursor.get_raw_entry();
                 let len = u32::min((entry.len() - cursor.offset) as u32, len_remaining);
                 // We need to fetch the inserted CRDT span ID to limit the length.
                 // let len = self.get_crdt_span(entry.order + cursor.offset as u32, len_limit_2).len;
@@ -224,8 +234,10 @@ impl ListCRDT {
             }
         }
 
+        dbg!((&id, &ops));
+
         (RemoteTxn {
-            id: self.order_to_remote_id(span.order),
+            id,
             parents,
             ops,
         }, len)

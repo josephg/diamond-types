@@ -186,7 +186,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         assert!(items.len() >= 1 && items.len() <= 3);
 
-        let entry = cursor.get_entry_mut();
+        let entry = cursor.get_raw_entry_mut();
         // println!("replace_entry {:?} {:?} with {:?}", flush_marker.0, &entry, items);
         I::decrement_marker(flush_marker, &entry);
         // flush_marker.0 -= entry.content_len() as isize;
@@ -293,7 +293,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
         if cursor.idx >= node.len_entries() {
             // The cursor already points past the end of the entry.
-            cursor.roll_to_next_entry(false);
+            cursor.roll_to_next_entry();
             self.insert_internal(&[new_entry], cursor, flush_marker, &mut notify);
             return;
         }
@@ -322,7 +322,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             return;
         }
 
-        if !cursor.roll_to_next_entry(false) { // Only valid because flush_marker is empty here.
+        if !cursor.roll_to_next_entry() { // Only valid because flush_marker is empty here.
             debug_assert_eq!(*flush_marker, I::IndexUpdate::default());
 
             // We've reached the end of the tree. Can't replace more, so we just insert here.
@@ -376,7 +376,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             I::decrement_marker(flush_marker, &entry);
             I::increment_marker(flush_marker, &new_entry);
             notify(new_entry, cursor.node);
-            *cursor.get_entry_mut() = new_entry;
+            *cursor.get_raw_entry_mut() = new_entry;
 
             if replaced_len > entry_len {
                 // Delete any extra trailing length.
@@ -534,16 +534,16 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
         let mut result: DeleteResult<E> = SmallVec::default();
         let mut flush_marker = I::IndexUpdate::default();
         let mut delete_remaining = deleted_len;
-        cursor.roll_to_next_entry(false);
+        cursor.roll_to_next_entry();
 
         while delete_remaining > 0 {
             // We're iterating through entries, marking entries for delete along the way.
             // dbg!(cursor, delete_remaining);
             // dbg!(cursor.get_node());
-            debug_assert!(cursor.get_entry().is_valid());
+            debug_assert!(cursor.get_raw_entry().is_valid());
             // dbg!(cursor.get_entry());
 
-            while cursor.get_entry().is_deactivated() {
+            while cursor.get_raw_entry().is_deactivated() {
                 Self::next_entry_or_panic(&mut cursor, &mut flush_marker);
             }
 
@@ -579,8 +579,8 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
     pub fn remote_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_deleted_len: usize, mut notify: F) -> isize
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
 
-        cursor.roll_to_next_entry(false);
-        let entry = cursor.get_entry();
+        cursor.roll_to_next_entry();
+        let entry = cursor.get_raw_entry();
 
         // If the entry is already marked as deleted, we do nothing. This is needed because
         // local_delete will skip deletes and go delete something else.

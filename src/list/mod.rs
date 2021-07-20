@@ -23,6 +23,12 @@ mod double_delete;
 mod external_txn;
 mod eq;
 
+
+// #[cfg(inlinerope)]
+// pub const USE_INNER_ROPE: bool = true;
+// #[cfg(not(inlinerope))]
+pub const USE_INNER_ROPE: bool = false;
+
 // #[cfg(test)]
 // mod tests;
 
@@ -97,7 +103,7 @@ pub struct ListCRDT {
     txns: Rle<TxnSpan>,
 
     // Temporary.
-    text_content: Rope,
+    pub text_content: Rope,
 }
 
 // #[derive(Clone, Debug)]

@@ -115,7 +115,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             // Make sure nothing went wrong while we're here.
             let mut cursor = cursor;
             let node = unsafe { cursor.node.as_ref() };
-            assert_eq!(cursor.get_entry().len(), cursor.offset);
+            assert_eq!(cursor.get_raw_entry().len(), cursor.offset);
             assert_eq!(cursor.idx, node.len_entries() - 1);
             assert_eq!(cursor.next_entry(), false);
         }

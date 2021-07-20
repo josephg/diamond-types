@@ -11,10 +11,6 @@ use std::iter::FromIterator;
 use std::mem::replace;
 use crate::list::external_txn::{RemoteTxn, RemoteOp};
 
-// #[cfg(inlinerope)]
-// const USE_INNER_ROPE: bool = true;
-// #[cfg(not(inlinerope))]
-const USE_INNER_ROPE: bool = false;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
@@ -24,8 +20,16 @@ impl ClientData {
     }
 
     pub fn seq_to_order(&self, seq: u32) -> Order {
-        let (x, offset) = self.item_orders.find(seq).unwrap();
-        x.1.order + offset
+        let (entry, offset) = self.item_orders.find(seq).unwrap();
+        entry.1.order + offset
+    }
+
+    pub fn seq_to_order_span(&self, seq: u32, max_len: u32) -> OrderSpan {
+        let (entry, offset) = self.item_orders.find(seq).unwrap();
+        OrderSpan {
+            order: entry.1.order + offset,
+            len: max_len.min(entry.1.len - offset),
+        }
     }
 }
 
@@ -145,6 +149,7 @@ impl ListCRDT {
         }
     }
 
+    // This does not stick_end to the found item.
     fn get_cursor_after(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
         if order == ROOT_ORDER {
             self.range_tree.cursor_at_start()
@@ -158,6 +163,7 @@ impl ListCRDT {
             // The cursor points to parent. This is safe because of guarantees provided by
             // cursor_before_item.
             cursor.offset += 1;
+            cursor.roll_to_next_entry();
             cursor
         }
     }
@@ -191,8 +197,19 @@ impl ListCRDT {
         }));
     }
 
+    pub(crate) fn max_span_length(&self, order: Order) -> u32 {
+        let (span, span_offset) = self.client_with_order.find(order).unwrap();
+        span.1.len - span_offset
+    }
+
     // fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: &str, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
     fn integrate(&mut self, agent: AgentId, item: YjsSpan, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
+        // if item.order == 117 || item.order == 108 {
+        if item.order == 33 || item.order == 30 {
+            println!("order {}", item.order);
+
+        }
+
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
         //     assert_eq!(item.order, next_order);
@@ -205,6 +222,7 @@ impl ListCRDT {
         let mut cursor = cursor_hint.unwrap_or_else(|| {
             self.get_cursor_after(item.origin_left)
         });
+
         let left_cursor = cursor;
         let mut scan_start = cursor;
         let mut scanning = false;
@@ -215,6 +233,10 @@ impl ListCRDT {
                 Some(o) => { o }
             };
 
+            if (item.order == 117 && other_order == 108) || (item.order == 108 && other_order == 117) {
+                println!("berp");
+            }
+
             // Almost always true.
             if other_order == item.origin_right { break; }
 
@@ -222,38 +244,67 @@ impl ListCRDT {
             // rare that you actually get concurrent inserts at the same location in the document
             // anyway.
 
-            let other_entry = cursor.get_entry();
+            let other_entry = cursor.get_raw_entry();
+            // let other_order = other_entry.order + cursor.offset as u32;
+
             let other_left_order = other_entry.origin_left_at_offset(cursor.offset as u32);
             let other_left_cursor = self.get_cursor_after(other_left_order);
 
-            // Yjs semantics.
+            // YjsMod semantics
             match std::cmp::Ord::cmp(&other_left_cursor, &left_cursor) {
                 Ordering::Less => { break; } // Top row
                 Ordering::Greater => { } // Bottom row. Continue.
                 Ordering::Equal => {
-                    // These items might be concurrent.
-                    let my_name = self.get_agent_name(agent);
-                    let other_loc = self.client_with_order.get(other_entry.order);
-                    let other_name = self.get_agent_name(other_loc.agent);
-                    if my_name > other_name {
-                        scanning = false;
-                    } else if item.origin_right == other_entry.origin_right {
-                        break;
+                    if item.origin_right == other_entry.origin_right {
+                        // Origin_right matches. Items are concurrent. Order by agent names.
+                        let my_name = self.get_agent_name(agent);
+                        let other_loc = self.client_with_order.get(other_order);
+                        let other_name = self.get_agent_name(other_loc.agent);
+                        assert_ne!(my_name, other_name);
+
+                        if my_name < other_name {
+                            // Insert here.
+                            break;
+                        } else {
+                            scanning = false;
+                        }
                     } else {
-                        scanning = true;
-                        scan_start = cursor;
+                        // Set scanning based on how the origin_right entries are ordered.
+                        let my_right_cursor = self.get_cursor_before(item.origin_right);
+                        let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
+
+                        if other_right_cursor < my_right_cursor {
+                            if !scanning {
+                                scanning = true;
+                                scan_start = cursor;
+                            }
+                        } else {
+                            scanning = false;
+                        }
                     }
                 }
             }
 
-            // Break and insert here if we reach the end of the document.
-            if !cursor.next_entry() {
-                // This is dirty. If the cursor can't move to the next entry, we still need to move
-                // it to the end of the current element or we'll prepend. next_entry() doesn't do
-                // that for some reason. TODO: Clean this up.
-                cursor.offset = other_entry.len();
-                break;
+            // TODO: Check if all this is actually needed.
+            // Now we simply want to advance the cursor to the next boundary, but its a bit tricky:
+            // The span in the range tree might span operations from multiple agentids. If so,
+            // we need to only advance to the min of the next range tree entry or this user's
+            // entry.
+            let span_remaining = self.max_span_length(other_order);
+            debug_assert!(span_remaining > 0);
+            if other_entry.len() - cursor.offset <= span_remaining as usize {
+                if !cursor.next_entry() {
+                    // This is dirty. If the cursor can't move to the next entry, we still need to move
+                    // it to the end of the current element or we'll prepend. next_entry() doesn't do
+                    // that for some reason. TODO: Clean this up.
+                    cursor.offset = other_entry.len();
+                    break;
+                }
+            } else {
+                println!("cursor off {} adv by {} entry {:?}", cursor.offset, span_remaining, other_entry);
+                cursor.offset += span_remaining as usize;
             }
+
         }
         if scanning { cursor = scan_start; }
 
@@ -321,6 +372,11 @@ impl ListCRDT {
         }
 
         // TODO: This may be premature - we may be left in an invalid state if the txn is invalid.
+        println!("Assign order to client {:?}", (CRDTLocation {
+            agent,
+            seq: txn.id.seq,
+        }, first_order, txn_len));
+
         self.assign_order_to_client(CRDTLocation {
             agent,
             seq: txn.id.seq,
@@ -352,28 +408,41 @@ impl ListCRDT {
                 }
 
                 RemoteOp::Del { id, len } => {
-                    // The order of this delete operation
-                    let order = next_order;
-                    next_order += len;
-
                     // The order of the item we're deleting
-                    let mut target_order = self.remote_id_to_order(&id);
+                    println!("handling remote delete of id {:?} len {}", id, len);
+                    let agent = self.get_agent_id(id.agent.as_str()).unwrap();
+                    let client = &self.client_data[agent as usize];
+
+                    // let mut target_order = self.remote_id_to_order(&id);
 
                     // We're deleting a span of target_order..target_order+len.
 
-                    self.deletes.append(KVPair(order, OrderSpan {
-                        order: target_order,
-                        len: *len
-                    }));
-
+                    let mut target_seq = id.seq;
                     let mut remaining_len = *len;
                     while remaining_len > 0 {
-                        // We need to loop here because the deleted items may not be in a run
-                        // in the local range tree. They usually will be though.
+                        // We need to loop here because the deleted items may not be in a run in the
+                        // local range tree. They usually will be though. We might also have been
+                        // asked to delete a run of sequences which don't match to a run of order
+                        // numbers.
+
+                        // So to be clear, each iteration we delete the minimum of:
+                        // 1. `len` (passed in from the RemoteTxn above) via remaining_len
+                        // 2. The length of the span returned by seq_to_order_span
+                        // 3. The contiguous region of items in the range tree
+                        let OrderSpan {
+                            order: target_order,
+                            len, // min(1 and 2)
+                        } = client.seq_to_order_span(target_seq, remaining_len);
+
+                        // I could break this into two loops - and here enter an inner loop,
+                        // deleting len items. It seems a touch excessive though.
+
+                        println!("Deleting order {} len {}", target_order, len);
+                        // dbg!(&self);
                         let cursor = self.get_cursor_before(target_order);
 
                         let markers = &mut self.index;
-                        let amt_deactivated = self.range_tree.remote_deactivate(cursor, remaining_len as _, |entry, leaf| {
+                        let amt_deactivated = self.range_tree.remote_deactivate(cursor, len as _, |entry, leaf| {
                             Self::notify(markers, entry, leaf);
                         });
 
@@ -382,8 +451,16 @@ impl ListCRDT {
                             // This span was already deleted by a different peer. Mark duplicate delete.
                             self.double_deletes.increment_delete_range(target_order, deleted_here);
                         }
+                        println!(" -> managed to delete {}", deleted_here);
                         remaining_len -= deleted_here;
-                        target_order += deleted_here;
+                        target_seq += deleted_here;
+
+                        // This span is locked in once we find the contiguous region of seq numbers.
+                        self.deletes.append(KVPair(next_order, OrderSpan {
+                            order: target_order,
+                            len: deleted_here
+                        }));
+                        next_order += deleted_here;
 
                         if USE_INNER_ROPE {
                             // Use cursor to figure out the position + span.
@@ -530,6 +607,27 @@ impl ListCRDT {
         self.deletes.print_stats("deletes", detailed);
         self.txns.print_stats("txns", detailed);
     }
+
+    // Used for testing.
+    #[allow(unused)]
+    pub fn check(&self) {
+        self.index.check();
+    }
+
+    #[allow(unused)]
+    pub fn check_all_changes_rle_merged(&self) {
+        assert_eq!(self.client_data[0].item_orders.num_entries(), 1);
+        assert_eq!(self.client_with_order.num_entries(), 1);
+        assert_eq!(self.txns.num_entries(), 1);
+    }
+
+    #[allow(unused)]
+    pub fn debug_print_segments(&self) {
+        for entry in self.range_tree.iter() {
+            let loc = self.get_crdt_location(entry.order);
+            println!("order {} l{} from {} / {} <-> {}", entry.order, entry.len(), loc.agent, entry.origin_left, entry.origin_right);
+        }
+    }
 }
 
 impl ToString for ListCRDT {
@@ -562,82 +660,6 @@ mod tests {
         // "hyoooi"
 
         dbg!(doc);
-    }
-
-
-    fn random_str(len: usize, rng: &mut SmallRng) -> String {
-        let mut str = String::new();
-        let alphabet: Vec<char> = "abcdefghijklmnop_".chars().collect();
-        for _ in 0..len {
-            str.push(alphabet[rng.gen_range(0..alphabet.len())]);
-        }
-        str
-    }
-
-    fn make_random_change(doc: &mut ListCRDT, rope: &mut Rope, agent: AgentId, rng: &mut SmallRng) {
-        let doc_len = doc.len();
-        let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
-        if doc_len == 0 || rng.gen_bool(insert_weight) {
-            // Insert something.
-            let pos = rng.gen_range(0..=doc_len);
-            let len: usize = rng.gen_range(1..2); // Ideally skew toward smaller inserts.
-            // let len: usize = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
-
-            let content = random_str(len as usize, rng);
-            // println!("Inserting '{}' at position {}", content, pos);
-            rope.insert(pos, content.as_str());
-            doc.local_insert(agent, pos, content.into())
-        } else {
-            // Delete something
-            let pos = rng.gen_range(0..doc_len);
-            // println!("range {}", u32::min(10, doc_len - pos));
-            let span = rng.gen_range(1..=usize::min(10, doc_len - pos));
-            // dbg!(&state.marker_tree, pos, len);
-            // println!("deleting {} at position {}", span, pos);
-            rope.remove(pos..pos+span);
-            doc.local_delete(agent, pos, span)
-        }
-        // dbg!(&doc.markers);
-        doc.index.check();
-    }
-
-    #[test]
-    fn random_single_document() {
-        let mut rng = SmallRng::seed_from_u64(7);
-        let mut doc = ListCRDT::new();
-
-        let agent = doc.get_or_create_agent_id("seph");
-        let mut expected_content = Rope::new();
-
-        for _i in 0..1000 {
-            make_random_change(&mut doc, &mut expected_content, agent, &mut rng);
-            if USE_INNER_ROPE {
-                assert_eq!(doc.text_content, expected_content);
-            }
-        }
-        assert_eq!(doc.client_data[0].item_orders.num_entries(), 1);
-        assert_eq!(doc.client_with_order.num_entries(), 1);
-    }
-
-    #[test]
-    fn random_single_replicate() {
-        let mut rng = SmallRng::seed_from_u64(20);
-        let mut doc = ListCRDT::new();
-
-        let agent = doc.get_or_create_agent_id("seph");
-        let mut expected_content = Rope::new();
-
-        // This takes a long time to do 1000 operations. (Like 3 seconds).
-        for _i in 0..10 {
-            for _ in 0..100 {
-                make_random_change(&mut doc, &mut expected_content, agent, &mut rng);
-            }
-            let mut doc_2 = ListCRDT::new();
-
-            // dbg!(&doc.range_tree);
-            doc.replicate_into(&mut doc_2);
-            assert_eq!(doc, doc_2);
-        }
     }
 
     #[test]

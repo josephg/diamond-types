@@ -1,7 +1,7 @@
 #![allow(dead_code)] // TODO: turn this off and clean up before releasing.
 
 pub use alloc::*;
-pub use common::LocalOp;
+pub use common::{LocalOp, AgentId};
 
 pub mod list;
 

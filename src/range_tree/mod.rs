@@ -135,7 +135,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Iterator for Cursor<E, I> {
             }
         }
 
-        let current = self.get_entry();
+        let current = self.get_raw_entry();
         // Move the cursor forward preemptively for the next call to next().
         let has_next = self.next_entry();
         if !has_next {
@@ -157,7 +157,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Iterator for ItemIterator<E, I> {
         if self.0.idx == usize::MAX {
             None
         } else {
-            let entry = self.0.get_entry();
+            let entry = self.0.get_raw_entry();
             let len = entry.len();
             let item = entry.at_offset(self.0.offset);
             self.0.offset += 1;
