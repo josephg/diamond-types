@@ -206,14 +206,14 @@ impl ListCRDT {
             // dbg!(order, len_remaining);
 
             if let Some((d, offset)) = self.deletes.find(order) {
-                dbg!((d, offset));
+                // dbg!((d, offset));
                 // Its a delete.
 
                 // Limit by 4
                 let len_limit_2 = u32::min(d.1.len - offset, len_remaining);
                 // Limit by 5
                 let (id, len) = self.order_to_remote_id_span(d.1.order + offset, len_limit_2);
-                dbg!((&id, len));
+                // dbg!((&id, len));
                 ops.push(RemoteOp::Del { id, len });
                 len_remaining -= len;
                 order += len;
@@ -234,7 +234,7 @@ impl ListCRDT {
             }
         }
 
-        dbg!((&id, &ops));
+        // dbg!((&id, &ops));
 
         (RemoteTxn {
             id,

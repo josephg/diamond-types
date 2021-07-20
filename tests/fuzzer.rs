@@ -23,7 +23,7 @@ fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentI
         // let len: usize = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
 
         let content = random_str(len as usize, rng);
-        println!("Inserting '{}' at position {}", content, pos);
+        // println!("Inserting '{}' at position {}", content, pos);
         if let Some(rope) = rope {
             rope.insert(pos, content.as_str());
         }
@@ -34,7 +34,7 @@ fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentI
         // println!("range {}", u32::min(10, doc_len - pos));
         let span = rng.gen_range(1..=usize::min(10, doc_len - pos));
         // dbg!(&state.marker_tree, pos, len);
-        println!("deleting {} at position {}", span, pos);
+        // println!("deleting {} at position {}", span, pos);
         if let Some(rope) = rope {
             rope.remove(pos..pos + span);
         }
@@ -86,69 +86,73 @@ fn random_single_replicate() {
 #[test]
 fn fuzz_concurrency() {
     // 1: 99
-    // 9: 4 not in leaf
-    let mut rng = SmallRng::seed_from_u64(9);
-    let mut docs = [ListCRDT::new(), ListCRDT::new(), ListCRDT::new()];
+    let mut rng = SmallRng::seed_from_u64(6);
+    for _k in 0..1000 {
+        println!("{}", _k);
 
-    // Each document will have a different local agent ID. I'm cheating here - just making agent
-    // 0 for all of them.
-    // for (i, doc) in docs.iter_mut().enumerate() {
-    //     doc.get_or_create_agent_id(format!("agent {}", i).as_str());
-    // }
-    for (_i, doc) in docs.iter_mut().enumerate() {
-        for a in 0..3 {
-            doc.get_or_create_agent_id(format!("agent {}", a).as_str());
-        }
-    }
+        let mut docs = [ListCRDT::new(), ListCRDT::new(), ListCRDT::new()];
 
-    for _i in 0..10000 {
-        println!("\n\n{}", _i);
-
-        // Generate some operations
-        for _j in 0..3 {
-            let doc_idx = rng.gen_range(0..docs.len());
-            let doc = &mut docs[doc_idx];
-
-            println!("editing doc {}:", doc_idx);
-            make_random_change(doc, None, doc_idx as AgentId, &mut rng);
-            // make_random_change(doc, None, 0, &mut rng);
-            // println!("doc {} -> '{}'", doc_idx, doc.text_content);
+        // Each document will have a different local agent ID. I'm cheating here - just making agent
+        // 0 for all of them.
+        // for (i, doc) in docs.iter_mut().enumerate() {
+        //     doc.get_or_create_agent_id(format!("agent {}", i).as_str());
+        // }
+        for (_i, doc) in docs.iter_mut().enumerate() {
+            for a in 0..3 {
+                doc.get_or_create_agent_id(format!("agent {}", a).as_str());
+            }
         }
 
-        // Then merge 2 documents at random
-        let a_idx = rng.gen_range(0..docs.len());
-        let b_idx = rng.gen_range(0..docs.len());
+        for _i in 0..1000 {
+            // if _i % 1000 == 0 { println!("{}", _i); }
+            // println!("\n\n{}", _i);
 
-        if a_idx != b_idx {
-            println!("Merging {} and {}", a_idx, b_idx);
-            // Oh god this is awful. I can't take mutable references to two array items.
-            let (a_idx, b_idx) = if a_idx < b_idx { (a_idx, b_idx) } else { (b_idx, a_idx) };
-            // a<b.
-            let (start, end) = docs[..].split_at_mut(b_idx);
-            let a = &mut start[a_idx];
-            let b = &mut end[0];
+            // Generate some operations
+            for _j in 0..3 {
+                let doc_idx = rng.gen_range(0..docs.len());
+                let doc = &mut docs[doc_idx];
 
-            // dbg!(&a.text_content, &b.text_content);
-            // dbg!(&a.range_tree, &b.range_tree);
+                // println!("editing doc {}:", doc_idx);
+                make_random_change(doc, None, doc_idx as AgentId, &mut rng);
+                // make_random_change(doc, None, 0, &mut rng);
+                // println!("doc {} -> '{}'", doc_idx, doc.text_content);
+            }
 
-            // if a_idx == 1 && b_idx == 2 {
-            //     dbg!(&a, &b);
-            // }
+            // Then merge 2 documents at random
+            let a_idx = rng.gen_range(0..docs.len());
+            let b_idx = rng.gen_range(0..docs.len());
 
-            println!("{} -> {}", a_idx, b_idx);
-            a.replicate_into(b);
-            println!("{} -> {}", b_idx, a_idx);
-            b.replicate_into(a);
+            if a_idx != b_idx {
+                // println!("Merging {} and {}", a_idx, b_idx);
+                // Oh god this is awful. I can't take mutable references to two array items.
+                let (a_idx, b_idx) = if a_idx < b_idx { (a_idx, b_idx) } else { (b_idx, a_idx) };
+                // a<b.
+                let (start, end) = docs[..].split_at_mut(b_idx);
+                let a = &mut start[a_idx];
+                let b = &mut end[0];
 
-            // if a_idx == 1 && b_idx == 2 {
-            //     dbg!(&a, &b);
-            // }
+                // dbg!(&a.text_content, &b.text_content);
+                // dbg!(&a.range_tree, &b.range_tree);
 
-            if a != b {
-                println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);
-                // dbg!(&a);
-                // dbg!(&b);
-                panic!("Documents do not match");
+                // if a_idx == 1 && b_idx == 2 {
+                //     dbg!(&a, &b);
+                // }
+
+                // println!("{} -> {}", a_idx, b_idx);
+                a.replicate_into(b);
+                // println!("{} -> {}", b_idx, a_idx);
+                b.replicate_into(a);
+
+                // if a_idx == 1 && b_idx == 2 {
+                //     dbg!(&a, &b);
+                // }
+
+                if a != b {
+                    println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);
+                    // dbg!(&a);
+                    // dbg!(&b);
+                    panic!("Documents do not match");
+                }
             }
         }
     }

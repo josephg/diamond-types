@@ -8,6 +8,8 @@ use crate::list::span::YjsSpan;
 use crate::splitable_span::SplitableSpan;
 use std::fs::File;
 use std::io::Write;
+use crate::range_tree::{CRDTSpan, EntryTraits};
+use crate::order::OrderSpan;
 // use smallvec::smallvec;
 
 type AgentMap = Vec<Option<AgentId>>;
@@ -62,6 +64,12 @@ impl PartialEq for ListCRDT {
             other.get_order(b_loc)
         };
 
+        let a_to_b_span = |order: Order, max: u32| {
+            let a_span = self.get_crdt_span(order, max);
+            let b_loc = map_crdt_location(&agent_a_to_b, a_span.loc);
+            other.get_order_span(b_loc, a_span.len)
+        };
+
         for order in self.frontier.iter() {
             let other_order = a_to_b_order(*order);
             if !other.frontier.contains(&other_order) {
@@ -82,23 +90,23 @@ impl PartialEq for ListCRDT {
             // Map the entry to a. The entry could be a mix from multiple user agents. Split it
             // up if so.
             loop {
-                let span_length = self.max_span_length(entry.order);
-                let (e, remainder) = if entry.len() <= span_length as usize {
-                    (entry, None)
-                } else {
-                    let remainder = entry.truncate(span_length as usize);
-                    (entry, Some(remainder))
-                };
-                entry = e;
+                let OrderSpan {
+                    order, len
+                } = a_to_b_span(entry.order, entry.len() as u32);
+
                 a_items.append(YjsSpan {
-                    order: a_to_b_order(entry.order),
+                    order,
                     origin_left: a_to_b_order(entry.origin_left),
                     origin_right: a_to_b_order(entry.origin_right),
-                    len: entry.len
+                    len: len as i32 * entry.len.signum()
                 });
-                if let Some(r) = remainder {
-                    entry = r;
-                } else { break; }
+
+                if len == entry.len() as u32 {
+                    break;
+                } else {
+                    // Trim from entry and iterate
+                    entry.truncate_keeping_right(len as usize);
+                }
             }
         }
         for entry in other.range_tree.iter() {
@@ -121,6 +129,11 @@ impl PartialEq for ListCRDT {
                 println!("Item lists written to 'a' and 'b'");
 
                 // dbg!(&self);
+                dbg!(a_to_b_order(84));
+                dbg!(a_to_b_order(85));
+                dbg!(self.client_with_order.find(84));
+                dbg!(self.client_with_order.find(85));
+                dbg!(a_to_b_span(84, 2));
             }
             return false;
         }

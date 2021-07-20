@@ -104,11 +104,6 @@ impl ListCRDT {
         }
     }
 
-    pub(crate) fn get_order(&self, loc: CRDTLocation) -> Order {
-        if loc.agent == ROOT_AGENT { ROOT_ORDER }
-        else { self.client_data[loc.agent as usize].seq_to_order(loc.seq) }
-    }
-
     pub(crate) fn get_crdt_span(&self, order: Order, max_size: u32) -> CRDTSpan {
         if order == ROOT_ORDER { CRDTSpan { loc: CRDT_DOC_ROOT, len: 0 } }
         else {
@@ -121,6 +116,16 @@ impl ListCRDT {
                 len: u32::min(loc.1.len - offset, max_size)
             }
         }
+    }
+
+    pub(crate) fn get_order(&self, loc: CRDTLocation) -> Order {
+        if loc.agent == ROOT_AGENT { ROOT_ORDER }
+        else { self.client_data[loc.agent as usize].seq_to_order(loc.seq) }
+    }
+
+    pub(crate) fn get_order_span(&self, loc: CRDTLocation, max_len: u32) -> OrderSpan {
+        assert_ne!(loc.agent, ROOT_AGENT);
+        self.client_data[loc.agent as usize].seq_to_order_span(loc.seq, max_len)
     }
 
     fn get_next_order(&self) -> Order {
@@ -205,10 +210,10 @@ impl ListCRDT {
     // fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: &str, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
     fn integrate(&mut self, agent: AgentId, item: YjsSpan, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
         // if item.order == 117 || item.order == 108 {
-        if item.order == 33 || item.order == 30 {
-            println!("order {}", item.order);
-
-        }
+        // if item.order == 33 || item.order == 30 {
+        //     // println!("order {}", item.order);
+        //
+        // }
 
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
@@ -233,9 +238,9 @@ impl ListCRDT {
                 Some(o) => { o }
             };
 
-            if (item.order == 117 && other_order == 108) || (item.order == 108 && other_order == 117) {
-                println!("berp");
-            }
+            // if (item.order == 117 && other_order == 108) || (item.order == 108 && other_order == 117) {
+            //     println!("berp");
+            // }
 
             // Almost always true.
             if other_order == item.origin_right { break; }
@@ -301,7 +306,7 @@ impl ListCRDT {
                     break;
                 }
             } else {
-                println!("cursor off {} adv by {} entry {:?}", cursor.offset, span_remaining, other_entry);
+                // println!("cursor off {} adv by {} entry {:?}", cursor.offset, span_remaining, other_entry);
                 cursor.offset += span_remaining as usize;
             }
 
@@ -372,10 +377,10 @@ impl ListCRDT {
         }
 
         // TODO: This may be premature - we may be left in an invalid state if the txn is invalid.
-        println!("Assign order to client {:?}", (CRDTLocation {
-            agent,
-            seq: txn.id.seq,
-        }, first_order, txn_len));
+        // println!("Assign order to client {:?}", (CRDTLocation {
+        //     agent,
+        //     seq: txn.id.seq,
+        // }, first_order, txn_len));
 
         self.assign_order_to_client(CRDTLocation {
             agent,
@@ -409,7 +414,7 @@ impl ListCRDT {
 
                 RemoteOp::Del { id, len } => {
                     // The order of the item we're deleting
-                    println!("handling remote delete of id {:?} len {}", id, len);
+                    // println!("handling remote delete of id {:?} len {}", id, len);
                     let agent = self.get_agent_id(id.agent.as_str()).unwrap();
                     let client = &self.client_data[agent as usize];
 
@@ -437,7 +442,7 @@ impl ListCRDT {
                         // I could break this into two loops - and here enter an inner loop,
                         // deleting len items. It seems a touch excessive though.
 
-                        println!("Deleting order {} len {}", target_order, len);
+                        // println!("Deleting order {} len {}", target_order, len);
                         // dbg!(&self);
                         let cursor = self.get_cursor_before(target_order);
 
@@ -451,7 +456,7 @@ impl ListCRDT {
                             // This span was already deleted by a different peer. Mark duplicate delete.
                             self.double_deletes.increment_delete_range(target_order, deleted_here);
                         }
-                        println!(" -> managed to delete {}", deleted_here);
+                        // println!(" -> managed to delete {}", deleted_here);
                         remaining_len -= deleted_here;
                         target_seq += deleted_here;
 
