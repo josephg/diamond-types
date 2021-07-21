@@ -49,7 +49,7 @@ impl Rle<KVPair<DoubleDelete>> {
             // The gap case is most common. We'll handle the gap, then flow to handle the modify
             // case each iteration.
 
-            if idx == self.0.len() || self.0[idx].0 > base {
+            if idx == self.0.len() || self.0[idx].0 > next_entry.0 {
                 // We're in a gap. Insert as much as we can here.
                 let mut this_entry = next_entry;
                 let done_here = if idx < self.0.len() && next_entry.end() > self.0[idx].0 {
@@ -133,6 +133,22 @@ mod tests {
             KVPair(6, DoubleDelete { len: 1, excess_deletes: 2 }),
             KVPair(7, DoubleDelete { len: 1, excess_deletes: 3 }),
             KVPair(8, DoubleDelete { len: 2, excess_deletes: 1 }),
+        ]);
+
+        // dbg!(&deletes);
+    }
+
+    #[test]
+    fn delete_regression() {
+        // Regression. This bug was found by the fuzzer.
+        let mut deletes: Rle<KVPair<DoubleDelete>> = Rle::new();
+        deletes.increment_delete_range(5, 2);
+        deletes.increment_delete_range(5, 1);
+        deletes.increment_delete_range(5, 2);
+
+        assert_eq!(deletes.0, vec![
+            KVPair(5, DoubleDelete { len: 1, excess_deletes: 3 }),
+            KVPair(6, DoubleDelete { len: 1, excess_deletes: 2 }),
         ]);
 
         // dbg!(&deletes);

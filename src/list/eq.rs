@@ -6,9 +6,9 @@ use crate::common::{CRDTLocation, AgentId};
 use crate::rle::Rle;
 use crate::list::span::YjsSpan;
 use crate::splitable_span::SplitableSpan;
-use std::fs::File;
-use std::io::Write;
-use crate::range_tree::{CRDTSpan, EntryTraits};
+// use std::fs::File;
+// use std::io::Write;
+use crate::range_tree::EntryTraits;
 use crate::order::OrderSpan;
 // use smallvec::smallvec;
 
@@ -40,7 +40,7 @@ fn set_eq(a: &[Order], b: &[Order]) -> bool {
     true
 }
 
-const DEBUG_EQ: bool = true;
+const DEBUG_EQ: bool = false;
 
 impl PartialEq for ListCRDT {
     fn eq(&self, other: &Self) -> bool {
@@ -122,11 +122,12 @@ impl PartialEq for ListCRDT {
                 // println!("a {:#?}", &a_items);
                 // println!("b {:#?}", &b_items);
 
-                let mut a = File::create("a").unwrap();
-                a.write_fmt(format_args!("{:#?}", &a_items));
-                let mut b = File::create("b").unwrap();
-                b.write_fmt(format_args!("{:#?}", &b_items));
-                println!("Item lists written to 'a' and 'b'");
+                // For debugging.
+                // let mut a = File::create("a").unwrap();
+                // a.write_fmt(format_args!("{:#?}", &a_items)).unwrap();
+                // let mut b = File::create("b").unwrap();
+                // b.write_fmt(format_args!("{:#?}", &b_items)).unwrap();
+                // println!("Item lists written to 'a' and 'b'");
 
                 // dbg!(&self);
                 dbg!(a_to_b_order(84));

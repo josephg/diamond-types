@@ -98,7 +98,6 @@ struct NodeInternal<E: EntryTraits, I: TreeIndex<E>> {
 pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>> {
     parent: ParentPtr<E, I>,
     num_entries: u8, // Number of entries which have been populated
-    // data: [Entry; NUM_ENTRIES],
     data: [E; NUM_LEAF_ENTRIES],
     _pin: PhantomPinned, // Needed because cursors point here.
     _drop: PrintDropLeaf

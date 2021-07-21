@@ -193,7 +193,6 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
     /// Note this ignores the cursor's offset.
     pub fn get_raw_entry(&self) -> E {
         let node = unsafe { self.node.as_ref() };
-        // println!("entry {:?}", self);
         node.data[self.idx]
     }
 
@@ -209,6 +208,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
     /// Returns false if the resulting cursor location points past the end of the tree.
     pub(crate) fn roll_to_next_entry(&mut self) -> bool {
         unsafe {
+            // This is pretty dirty to handle the case where the cursor already points past the end
+            // of the document when this method is called.
             let node = self.node.as_ref();
 
             if self.idx >= node.num_entries as usize {

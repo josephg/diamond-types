@@ -1,5 +1,7 @@
 # Split list
 
+> Will be removed in a future version - this structure makes bad use of RAM. I intend to move the usage of this to range_tree.
+
 This is a simple data structure for efficiently storing run-length-encoded node pointers in a way which allows these operations to be fast:
 
 - Append to the end of the list

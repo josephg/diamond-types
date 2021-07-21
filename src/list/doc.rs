@@ -209,12 +209,6 @@ impl ListCRDT {
 
     // fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: &str, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
     fn integrate(&mut self, agent: AgentId, item: YjsSpan, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
-        // if item.order == 117 || item.order == 108 {
-        // if item.order == 33 || item.order == 30 {
-        //     // println!("order {}", item.order);
-        //
-        // }
-
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
         //     assert_eq!(item.order, next_order);
@@ -223,7 +217,6 @@ impl ListCRDT {
         // self.assign_order_to_client(loc, item.order, item.len as _);
 
         // Ok now that's out of the way, lets integrate!
-        // println!("item {:?}", item);
         let mut cursor = cursor_hint.unwrap_or_else(|| {
             self.get_cursor_after(item.origin_left)
         });
@@ -237,10 +230,6 @@ impl ListCRDT {
                 None => { break; } // End of the document
                 Some(o) => { o }
             };
-
-            // if (item.order == 117 && other_order == 108) || (item.order == 108 && other_order == 117) {
-            //     println!("berp");
-            // }
 
             // Almost always true.
             if other_order == item.origin_right { break; }
@@ -290,26 +279,22 @@ impl ListCRDT {
                 }
             }
 
-            // TODO: Check if all this is actually needed.
-            // Now we simply want to advance the cursor to the next boundary, but its a bit tricky:
-            // The span in the range tree might span operations from multiple agentids. If so,
-            // we need to only advance to the min of the next range tree entry or this user's
-            // entry.
-            let span_remaining = self.max_span_length(other_order);
-            debug_assert!(span_remaining > 0);
-            if other_entry.len() - cursor.offset <= span_remaining as usize {
-                if !cursor.next_entry() {
-                    // This is dirty. If the cursor can't move to the next entry, we still need to move
-                    // it to the end of the current element or we'll prepend. next_entry() doesn't do
-                    // that for some reason. TODO: Clean this up.
-                    cursor.offset = other_entry.len();
-                    break;
-                }
-            } else {
-                // println!("cursor off {} adv by {} entry {:?}", cursor.offset, span_remaining, other_entry);
-                cursor.offset += span_remaining as usize;
+            // This looks wrong. The entry in the range tree is a run with:
+            // - Incrementing orders (maybe from different peers)
+            // - With incrementing origin_left.
+            // Q: Is it possible that we get different behaviour if we don't separate out each
+            // internal run within the entry and visit each one separately?
+            //
+            // The fuzzer says no, we don't need to do that. I assume its because internal entries
+            // have higher origin_left, and thus they can't be peers with the newly inserted item
+            // (which has a lower origin_left).
+            if !cursor.next_entry() {
+                // This is dirty. If the cursor can't move to the next entry, we still need to move
+                // it to the end of the current element or we'll prepend. next_entry() doesn't do
+                // that for some reason. TODO: Clean this up.
+                cursor.offset = other_entry.len();
+                break;
             }
-
         }
         if scanning { cursor = scan_start; }
 
@@ -377,11 +362,6 @@ impl ListCRDT {
         }
 
         // TODO: This may be premature - we may be left in an invalid state if the txn is invalid.
-        // println!("Assign order to client {:?}", (CRDTLocation {
-        //     agent,
-        //     seq: txn.id.seq,
-        // }, first_order, txn_len));
-
         self.assign_order_to_client(CRDTLocation {
             agent,
             seq: txn.id.seq,
@@ -406,7 +386,6 @@ impl ListCRDT {
                         origin_right,
                         len: *len as i32,
                     };
-                    // dbg!(item);
 
                     // self.integrate(agent, item, ins_content.as_str(), None);
                     self.integrate(agent, item, None);
@@ -442,8 +421,6 @@ impl ListCRDT {
                         // I could break this into two loops - and here enter an inner loop,
                         // deleting len items. It seems a touch excessive though.
 
-                        // println!("Deleting order {} len {}", target_order, len);
-                        // dbg!(&self);
                         let cursor = self.get_cursor_before(target_order);
 
                         let markers = &mut self.index;
@@ -518,20 +495,9 @@ impl ListCRDT {
                     MarkerEntry { len: *del_span as u32, ptr: m.ptr }
                 }));
 
-                // let cursor = self.markers.cursor_at_end();
-                // self.markers.insert(cursor, MarkerEntry {
-                //     ptr: None,
-                //     len: *del_span as u32,
-                // }, |_, _| {});
-
                 // dbg!(&deleted_items);
                 let mut deleted_length = 0; // To check.
                 for item in deleted_items {
-                    // self.markers.append_entry(MarkerEntry::Del {
-                    //     len: item.len as u32,
-                    //     order: item.order
-                    // });
-
                     self.deletes.append(KVPair(next_order, OrderSpan {
                         order: item.order,
                         len: item.len as u32
@@ -650,8 +616,6 @@ impl Default for ListCRDT {
 #[cfg(test)]
 mod tests {
     use crate::list::*;
-    use rand::prelude::*;
-    use crate::list::doc::USE_INNER_ROPE;
     use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteOp};
     use smallvec::smallvec;
 

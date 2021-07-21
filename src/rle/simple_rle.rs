@@ -7,8 +7,6 @@ use humansize::{FileSize, file_size_opts};
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Clone, Eq, PartialEq, Debug)]
-// pub struct RLE<K: Copy + Eq + Ord, V: Copy + Eq>(Vec<(Range<K>, V)>);
-// pub struct Rle<V: SplitableSpan + Clone + Debug + Sized>(Vec<(RleKey, V)>);
 pub struct Rle<V: SplitableSpan + Clone + Debug + Sized>(pub(crate) Vec<V>);
 
 impl<V: SplitableSpan + Clone + Debug + Sized> Rle<V> {

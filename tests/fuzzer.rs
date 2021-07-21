@@ -1,8 +1,19 @@
+/// This fuzzer is a simple test which simulates 3 peers. Each iteration:
+///
+/// - We generate a set of changes from one or more peers
+/// - We pick two peers and:
+///   - Sync all changes to the document state
+///   - Verify the two peers have identical document states afterwards
+///
+/// Any viable CRDT should be able to run this test indefinitely.
+///
+/// Run with:
+/// RUST_BACKTRACE=1 cargo test fuzz_concurrency_forever -- --nocapture --ignored
+
 use rand::prelude::*;
 use text_crdt_rust::list::{ListCRDT, USE_INNER_ROPE};
 use ropey::Rope;
 use text_crdt_rust::AgentId;
-
 
 fn random_str(len: usize, rng: &mut SmallRng) -> String {
     let mut str = String::new();
@@ -83,77 +94,79 @@ fn random_single_replicate() {
     }
 }
 
+fn run_fuzzer_iteration(seed: u64) {
+    let mut rng = SmallRng::seed_from_u64(seed);
+
+    let mut docs = [ListCRDT::new(), ListCRDT::new(), ListCRDT::new()];
+
+    // Each document will have a different local agent ID. I'm cheating here - just making agent
+    // 0 for all of them.
+    for (i, doc) in docs.iter_mut().enumerate() {
+        doc.get_or_create_agent_id(format!("agent {}", i).as_str());
+    }
+    // for (_i, doc) in docs.iter_mut().enumerate() {
+    //     for a in 0..3 {
+    //         doc.get_or_create_agent_id(format!("agent {}", a).as_str());
+    //     }
+    // }
+
+    for _i in 0..300 {
+        // if _i % 1000 == 0 { println!("{}", _i); }
+        // println!("\n\n{}", _i);
+
+        // Generate some operations
+        for _j in 0..5 {
+            let doc_idx = rng.gen_range(0..docs.len());
+            let doc = &mut docs[doc_idx];
+
+            // println!("editing doc {}:", doc_idx);
+            make_random_change(doc, None, 0, &mut rng);
+            // make_random_change(doc, None, doc_idx as AgentId, &mut rng);
+            // println!("doc {} -> '{}'", doc_idx, doc.text_content);
+        }
+
+        // Then merge 2 documents at random
+        let a_idx = rng.gen_range(0..docs.len());
+        let b_idx = rng.gen_range(0..docs.len());
+
+        if a_idx != b_idx {
+            // println!("Merging {} and {}", a_idx, b_idx);
+            // Oh god this is awful. I can't take mutable references to two array items.
+            let (a_idx, b_idx) = if a_idx < b_idx { (a_idx, b_idx) } else { (b_idx, a_idx) };
+            // a<b.
+            let (start, end) = docs[..].split_at_mut(b_idx);
+            let a = &mut start[a_idx];
+            let b = &mut end[0];
+
+            // dbg!(&a.text_content, &b.text_content);
+            // dbg!(&a.range_tree, &b.range_tree);
+
+            // println!("{} -> {}", a_idx, b_idx);
+            a.replicate_into(b);
+            // println!("{} -> {}", b_idx, a_idx);
+            b.replicate_into(a);
+
+            if a != b {
+                println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);
+                // dbg!(&a);
+                // dbg!(&b);
+                panic!("Documents do not match");
+            }
+        }
+    }
+}
+
 #[test]
-fn fuzz_concurrency() {
-    // 1: 99
-    let mut rng = SmallRng::seed_from_u64(6);
-    for _k in 0..1000 {
-        println!("{}", _k);
+fn fuzz_quick() {
+    run_fuzzer_iteration(0);
+}
 
-        let mut docs = [ListCRDT::new(), ListCRDT::new(), ListCRDT::new()];
+#[test]
+#[ignore]
+fn fuzz_concurrency_forever() {
+    for k in 0u64.. {
+        println!("{}", k);
 
-        // Each document will have a different local agent ID. I'm cheating here - just making agent
-        // 0 for all of them.
-        // for (i, doc) in docs.iter_mut().enumerate() {
-        //     doc.get_or_create_agent_id(format!("agent {}", i).as_str());
-        // }
-        for (_i, doc) in docs.iter_mut().enumerate() {
-            for a in 0..3 {
-                doc.get_or_create_agent_id(format!("agent {}", a).as_str());
-            }
-        }
-
-        for _i in 0..1000 {
-            // if _i % 1000 == 0 { println!("{}", _i); }
-            // println!("\n\n{}", _i);
-
-            // Generate some operations
-            for _j in 0..3 {
-                let doc_idx = rng.gen_range(0..docs.len());
-                let doc = &mut docs[doc_idx];
-
-                // println!("editing doc {}:", doc_idx);
-                make_random_change(doc, None, doc_idx as AgentId, &mut rng);
-                // make_random_change(doc, None, 0, &mut rng);
-                // println!("doc {} -> '{}'", doc_idx, doc.text_content);
-            }
-
-            // Then merge 2 documents at random
-            let a_idx = rng.gen_range(0..docs.len());
-            let b_idx = rng.gen_range(0..docs.len());
-
-            if a_idx != b_idx {
-                // println!("Merging {} and {}", a_idx, b_idx);
-                // Oh god this is awful. I can't take mutable references to two array items.
-                let (a_idx, b_idx) = if a_idx < b_idx { (a_idx, b_idx) } else { (b_idx, a_idx) };
-                // a<b.
-                let (start, end) = docs[..].split_at_mut(b_idx);
-                let a = &mut start[a_idx];
-                let b = &mut end[0];
-
-                // dbg!(&a.text_content, &b.text_content);
-                // dbg!(&a.range_tree, &b.range_tree);
-
-                // if a_idx == 1 && b_idx == 2 {
-                //     dbg!(&a, &b);
-                // }
-
-                // println!("{} -> {}", a_idx, b_idx);
-                a.replicate_into(b);
-                // println!("{} -> {}", b_idx, a_idx);
-                b.replicate_into(a);
-
-                // if a_idx == 1 && b_idx == 2 {
-                //     dbg!(&a, &b);
-                // }
-
-                if a != b {
-                    println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);
-                    // dbg!(&a);
-                    // dbg!(&b);
-                    panic!("Documents do not match");
-                }
-            }
-        }
+        run_fuzzer_iteration(k as u64);
     }
 }
