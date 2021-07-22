@@ -576,6 +576,7 @@ impl ListCRDT {
         self.index.print_stats("index", detailed);
         // self.markers.print_rle_size();
         self.deletes.print_stats("deletes", detailed);
+        self.double_deletes.print_stats("double deletes", detailed);
         self.txns.print_stats("txns", detailed);
     }
 

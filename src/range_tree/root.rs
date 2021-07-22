@@ -306,7 +306,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         let num_internal_nodes = self.count_internal_nodes();
 
         println!("-------- Range tree stats --------");
-        println!("Number of entries {}", self.count_entries());
+        println!("Number of {} byte entries: {}", size_of::<E>(), self.count_entries());
         println!("Number of internal nodes {}", num_internal_nodes);
         println!("(Size of internal nodes {})",
             (num_internal_nodes * size_of::<NodeInternal<E, I>>()).file_size(file_size_opts::CONVENTIONAL).unwrap());
