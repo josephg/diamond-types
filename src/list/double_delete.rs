@@ -45,6 +45,8 @@ impl Rle<KVPair<DoubleDelete>> {
         let start = self.search(base);
         let mut idx = start.unwrap_or_else(|idx| idx);
         loop {
+            debug_assert!(next_entry.1.len > 0);
+
             // There's essentially 2 cases here: We're in a gap, or we landed in an existing entry.
             // The gap case is most common. We'll handle the gap, then flow to handle the modify
             // case each iteration.
@@ -62,7 +64,7 @@ impl Rle<KVPair<DoubleDelete>> {
                 };
 
                 if idx >= 1 && self.0[idx - 1].can_append(&this_entry) {
-                    &mut self.0[idx - 1].append(this_entry);
+                    self.0[idx - 1].append(this_entry);
                 } else {
                     // Insert here.
                     self.0.insert(idx, this_entry);
