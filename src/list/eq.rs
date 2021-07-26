@@ -163,6 +163,13 @@ impl PartialEq for ListCRDT {
             }
         }
 
+        // 5. The contained text content should also match. If we've gotten this far and it doesn't
+        // match, its probably due to an error - it might be worth panicking instead of returning
+        // false.
+        if let (Some(a), Some(b)) = (&self.text_content, &other.text_content) {
+            if a != b { return false; }
+        }
+
         true
     }
 }

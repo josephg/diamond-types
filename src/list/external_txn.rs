@@ -7,6 +7,7 @@ use std::cmp::{Ordering, Reverse};
 use crate::rle::{Rle, KVPair};
 use crate::common::{AgentId, CRDT_DOC_ROOT, CRDTLocation};
 use crate::splitable_span::SplitableSpan;
+use crate::range_tree::CRDTItem;
 // use crate::LocalOp;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -22,6 +23,13 @@ pub enum RemoteOp {
         origin_right: RemoteId,
         // ins_content: SmartString, // ?? Or just length?
         len: u32,
+
+        // If the content has been deleted in a subsequent change, we might not know what it says.
+        // I'm not too happy with this, but I'm not sure what a better solution would look like.
+        //
+        // Note: We could bind this into len (and make len +/- based on whether we know the content)
+        // but in-memory compaction here isn't that important.
+        content_known: bool,
     },
 
     Del {
@@ -36,7 +44,7 @@ pub struct RemoteTxn {
     pub parents: SmallVec<[RemoteId; 2]>, // usually 1 entry
     pub ops: SmallVec<[RemoteOp; 2]>, // usually 1-2 entries.
 
-    // pub ins_content: SmartString;
+    pub ins_content: SmartString,
 }
 
 // #[derive(Clone, Debug, Eq, PartialEq)]
@@ -191,6 +199,8 @@ impl ListCRDT {
                 .collect()
         };
 
+        let mut ins_content = SmartString::new();
+
         // Limit by 1 and 2
         let len = u32::min(span.len, txn.len - offset);
         assert!(len > 0);
@@ -222,15 +232,29 @@ impl ListCRDT {
                 let cursor = self.get_cursor_before(order);
                 let entry = cursor.get_raw_entry();
                 let len = u32::min((entry.len() - cursor.offset) as u32, len_remaining);
+
+                let content_known = if entry.is_activated() {
+                    if let Some(ref text) = self.text_content {
+                        let pos = cursor.count_pos() as usize;
+                        let content = text.chars_at(pos).take(len as usize);
+                        ins_content.extend(content);
+                        true
+                    } else { false }
+                } else { false };
+
                 // We need to fetch the inserted CRDT span ID to limit the length.
                 // let len = self.get_crdt_span(entry.order + cursor.offset as u32, len_limit_2).len;
                 ops.push(RemoteOp::Ins {
                     origin_left: self.order_to_remote_id(entry.origin_left_at_offset(cursor.offset as u32)),
                     origin_right: self.order_to_remote_id(entry.origin_right),
-                    len
+                    len,
+                    content_known,
                 });
                 len_remaining -= len;
                 order += len;
+
+                // And put content into txn. If the content was deleted, we'll need to fish it out
+                // of deletes.
             }
         }
 
@@ -240,6 +264,7 @@ impl ListCRDT {
             id,
             parents,
             ops,
+            ins_content,
         }, len)
     }
 

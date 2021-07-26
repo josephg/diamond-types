@@ -11,7 +11,7 @@
 /// RUST_BACKTRACE=1 cargo test fuzz_concurrency_forever -- --nocapture --ignored
 
 use rand::prelude::*;
-use text_crdt_rust::list::{ListCRDT, USE_INNER_ROPE};
+use text_crdt_rust::list::ListCRDT;
 use ropey::Rope;
 use text_crdt_rust::AgentId;
 
@@ -65,8 +65,8 @@ fn random_single_document() {
 
     for _i in 0..1000 {
         make_random_change(&mut doc, Some(&mut expected_content), agent, &mut rng);
-        if USE_INNER_ROPE {
-            assert_eq!(doc.text_content, expected_content);
+        if let Some(ref text) = doc.text_content {
+            assert_eq!(*text, expected_content);
         }
     }
 
@@ -145,6 +145,9 @@ fn run_fuzzer_iteration(seed: u64) {
             a.replicate_into(b);
             // println!("{} -> {}", b_idx, a_idx);
             b.replicate_into(a);
+
+            a.check();
+            b.check();
 
             if a != b {
                 println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);

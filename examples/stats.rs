@@ -69,5 +69,7 @@ fn main() {
          get_thread_num_allocations() - start_count);
 
     doc.print_stats(false);
+
+    // doc.write_encoding_stats();
     black_box(doc);
 }

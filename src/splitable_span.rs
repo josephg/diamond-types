@@ -35,3 +35,38 @@ pub trait SplitableSpan: Clone {
     //     *self = other;
     // }
 }
+
+/// Simple example where entries are runs of positive or negative items. This is used for testing
+/// and for the encoder.
+impl SplitableSpan for i32 {
+    // type Item = bool; // Negative runs = false, positive = true.
+
+    fn len(&self) -> usize {
+        return self.abs() as usize;
+    }
+
+    fn truncate(&mut self, at: usize) -> Self {
+        let at = at as i32;
+        // dbg!(at, *self);
+        debug_assert!(at > 0 && at < self.abs());
+        debug_assert_ne!(*self, 0);
+
+        let abs = self.abs();
+        let sign = self.signum();
+        *self = at * sign;
+        return (abs - at) * sign;
+    }
+
+    fn can_append(&self, other: &Self) -> bool {
+        self.signum() == other.signum()
+    }
+
+    fn append(&mut self, other: Self) {
+        debug_assert!(self.can_append(&other));
+        *self += other;
+    }
+
+    fn prepend(&mut self, other: Self) {
+        self.append(other);
+    }
+}

@@ -161,7 +161,9 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         // This is pretty idiosyncratic.
         // let local_len = node.data[self.idx].content_len();
         // if local_len > 0 { pos += self.offset; }
-        I::increment_offset_partial(&mut pos, &node.data[self.idx], self.offset);
+        if self.offset != 0 { // The cursor might be pointing past the end of the last element.
+            I::increment_offset_partial(&mut pos, &node.data[self.idx], self.offset);
+        }
 
         // Ok, now iterate up to the root counting offsets as we go.
 

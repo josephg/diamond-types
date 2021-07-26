@@ -480,40 +480,6 @@ impl<Entry, Item> IndexGet<usize> for SplitList<Entry> where Entry: SplitableSpa
 mod tests {
     use super::*;
 
-    /// Simple example where entries are runs of positive or negative items.
-    impl SplitableSpan for i32 {
-        // type Item = bool; // Negative runs = false, positive = true.
-
-        fn len(&self) -> usize {
-            return self.abs() as usize;
-        }
-
-        fn truncate(&mut self, at: usize) -> Self {
-            let at = at as i32;
-            // dbg!(at, *self);
-            assert!(at > 0 && at < self.abs());
-            assert_ne!(*self, 0);
-
-            let abs = self.abs();
-            let sign = self.signum();
-            *self = at * sign;
-            return (abs - at) * sign;
-        }
-
-        fn can_append(&self, other: &Self) -> bool {
-            self.signum() == other.signum()
-        }
-
-        fn append(&mut self, other: Self) {
-            assert!(self.can_append(&other));
-            *self += other;
-        }
-
-        fn prepend(&mut self, other: Self) {
-            self.append(other);
-        }
-    }
-
     #[test]
     fn replace_range_tests() {
         let mut list: SplitList<i32> = SplitList::new_with_bucket_size(50);

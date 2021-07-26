@@ -10,6 +10,7 @@ use crate::rle::Rle;
 use std::iter::FromIterator;
 use std::mem::replace;
 use crate::list::external_txn::{RemoteTxn, RemoteOp};
+use crate::unicount::split_at_char;
 
 
 impl ClientData {
@@ -60,11 +61,18 @@ impl ListCRDT {
             // markers: RangeTree::new(),
             index: SplitList::new(),
             range_tree: RangeTree::new(),
-            text_content: Rope::new(),
             deletes: Rle::new(),
             double_deletes: Rle::new(),
             txns: Rle::new(),
+            deleted_content: None,
+
+            text_content: Some(Rope::new()),
+            // deleted_content: Some(String::new()),
         }
+    }
+
+    pub fn has_content(&self) -> bool {
+        self.text_content.is_some()
     }
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
@@ -207,12 +215,13 @@ impl ListCRDT {
         span.1.len - span_offset
     }
 
-    // fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: &str, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
-    fn integrate(&mut self, agent: AgentId, item: YjsSpan, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
+    fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
         //     assert_eq!(item.order, next_order);
         // }
+
+        assert!(item.len > 0);
 
         // self.assign_order_to_client(loc, item.order, item.len as _);
 
@@ -298,17 +307,39 @@ impl ListCRDT {
         }
         if scanning { cursor = scan_start; }
 
+        if cfg!(debug_assertions) {
+            let pos = cursor.count_pos() as usize;
+            let len = self.range_tree.len() as usize;
+            assert!(pos <= len);
+        }
+
+        if let Some(text) = self.text_content.as_mut() {
+            let pos = cursor.count_pos() as usize;
+            if let Some(ins_content) = ins_content {
+                debug_assert_eq!(ins_content.chars().count(), item.len as usize);
+                text.insert(pos, ins_content);
+            } else {
+                // todo!("Figure out what to do when inserted content not present");
+                // This is really dirty. This will happen when we're integrating remote txns which
+                // are missing inserted content - usually because the remote peer hasn't kept
+                // deleted text.
+                //
+                // In that case, we're inserting content which is about to be deleted by another
+                // incoming operation.
+                //
+                // Ideally it would be nice to flag the range here and cancel it out with the
+                // corresponding incoming delete. But thats really awkward, and this hack is super
+                // simple.
+                let content = SmartString::from("x").repeat(item.len as usize);
+                text.insert(pos, content.as_str());
+            }
+        }
+
         // Now insert here.
         let markers = &mut self.index;
         self.range_tree.insert(cursor, item, |entry, leaf| {
             Self::notify(markers, entry, leaf);
         });
-
-        if USE_INNER_ROPE {
-            unimplemented!("Integrate not current passed inserted content");
-        //     let pos = cursor.count_pos() as usize;
-        //     self.text_content.insert(pos, ins_content);
-        }
     }
 
     fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
@@ -349,17 +380,24 @@ impl ListCRDT {
 
         // Figure out the order range for this txn and assign
         let mut txn_len = 0;
+        let mut expected_content_len = 0;
         for op in txn.ops.iter() {
             match op {
-                RemoteOp::Ins { len, .. } => {
+                RemoteOp::Ins { len, content_known, .. } => {
                     // txn_len += ins_content.chars().count();
                     txn_len += *len as usize;
+                    if *content_known {
+                        expected_content_len += *len;
+                    }
                 }
                 RemoteOp::Del { len, .. } => {
                     txn_len += *len as usize;
                 }
             }
         }
+
+        assert_eq!(txn.ins_content.chars().count(), expected_content_len as usize);
+        let mut content = txn.ins_content.as_str();
 
         // TODO: This may be premature - we may be left in an invalid state if the txn is invalid.
         self.assign_order_to_client(CRDTLocation {
@@ -370,7 +408,7 @@ impl ListCRDT {
         // Apply the changes.
         for op in txn.ops.iter() {
             match op {
-                RemoteOp::Ins { origin_left, origin_right, len } => {
+                RemoteOp::Ins { origin_left, origin_right, len, content_known } => {
                     // let ins_len = ins_content.chars().count();
 
                     let order = next_order;
@@ -387,8 +425,15 @@ impl ListCRDT {
                         len: *len as i32,
                     };
 
-                    // self.integrate(agent, item, ins_content.as_str(), None);
-                    self.integrate(agent, item, None);
+                    let ins_content = if *content_known {
+                        let (ins_here, remainder) = split_at_char(content, *len as usize);
+                        content = remainder;
+                        Some(ins_here)
+                    } else {
+                        None
+                    };
+
+                    self.integrate(agent, item, ins_content, None);
                 }
 
                 RemoteOp::Del { id, len } => {
@@ -432,6 +477,11 @@ impl ListCRDT {
                         if amt_deactivated < 0 {
                             // This span was already deleted by a different peer. Mark duplicate delete.
                             self.double_deletes.increment_delete_range(target_order, deleted_here);
+                        } else {
+                            if let Some(ref mut text) = self.text_content {
+                                let pos = cursor.count_pos() as usize;
+                                text.remove(pos..pos + deleted_here as usize);
+                            }
                         }
                         // println!(" -> managed to delete {}", deleted_here);
                         remaining_len -= deleted_here;
@@ -444,11 +494,6 @@ impl ListCRDT {
                         }));
                         next_order += deleted_here;
 
-                        if USE_INNER_ROPE {
-                            // Use cursor to figure out the position + span.
-                            todo!()
-                            // self.text_content.remove(pos..pos + *del_span);
-                        }
                     }
 
                     // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
@@ -458,6 +503,8 @@ impl ListCRDT {
                 }
             }
         }
+
+        assert!(content.is_empty());
 
         let parents: Branch = SmallVec::from_iter(txn.parents.iter().map(|remote_id| {
             self.remote_id_to_order(remote_id)
@@ -508,8 +555,12 @@ impl ListCRDT {
                 // I might be able to relax this, but we'd need to change del_span above.
                 assert_eq!(deleted_length, *del_span);
 
-                if USE_INNER_ROPE {
-                    self.text_content.remove(pos..pos + *del_span);
+                if let Some(ref mut text) = self.text_content {
+                    if let Some(deleted_content) = self.deleted_content.as_mut() {
+                        let chars = text.chars_at(pos).take(*del_span);
+                        deleted_content.extend(chars);
+                    }
+                    text.remove(pos..pos + *del_span);
                 }
             }
 
@@ -541,8 +592,7 @@ impl ListCRDT {
                 };
                 // dbg!(item);
 
-                // self.integrate(agent, item, ins_content.as_str(), Some(cursor));
-                self.integrate(agent, item, Some(cursor));
+                self.integrate(agent, item, Some(ins_content.as_str()), Some(cursor));
             }
         }
 
@@ -572,6 +622,7 @@ impl ListCRDT {
     }
 
     pub fn print_stats(&self, detailed: bool) {
+        println!("Document of length {}", self.len());
         self.range_tree.print_stats(detailed);
         self.index.print_stats("index", detailed);
         // self.markers.print_rle_size();
@@ -584,6 +635,15 @@ impl ListCRDT {
     #[allow(unused)]
     pub fn check(&self) {
         self.index.check();
+
+        if let Some(text) = self.text_content.as_ref() {
+            assert_eq!(self.range_tree.len() as usize, text.len_chars());
+            
+            let num_deleted_items = self.deletes.iter().fold(0, |x, y| x + y.len());
+            if let Some(del_content) = self.deleted_content.as_ref() {
+                assert_eq!(del_content.chars().count(), num_deleted_items);
+            }
+        }
     }
 
     #[allow(unused)]
@@ -604,7 +664,7 @@ impl ListCRDT {
 
 impl ToString for ListCRDT {
     fn to_string(&self) -> String {
-        self.text_content.to_string()
+        self.text_content.as_ref().unwrap().to_string()
     }
 }
 
@@ -626,9 +686,10 @@ mod tests {
         doc.get_or_create_agent_id("seph"); // 0
         doc.local_insert(0, 0, "hi".into());
         doc.local_insert(0, 1, "yooo".into());
-        doc.local_delete(0, 0, 3);
         // "hyoooi"
+        doc.local_delete(0, 1, 3);
 
+        doc.check();
         dbg!(doc);
     }
 
@@ -677,9 +738,11 @@ mod tests {
                     origin_left: root_id(),
                     origin_right: root_id(),
                     len: 2,
+                    content_known: true,
                     // ins_content: "hi".into()
                 }
-            ]
+            ],
+            ins_content: "hi".into(),
         });
 
         let mut doc_local = ListCRDT::new();
@@ -708,7 +771,8 @@ mod tests {
                     },
                     len: 2,
                 }
-            ]
+            ],
+            ins_content: SmartString::new(),
         });
 
         // dbg!(&doc_remote);
@@ -738,9 +802,11 @@ mod tests {
                     origin_left: root_id(),
                     origin_right: root_id(),
                     len: 2,
+                    content_known: true,
                     // ins_content: "hi".into()
                 }
-            ]
+            ],
+            ins_content: "aa".into(),
         });
 
         doc.apply_remote_txn(&RemoteTxn {
@@ -754,9 +820,11 @@ mod tests {
                     origin_left: root_id(),
                     origin_right: root_id(),
                     len: 5,
+                    content_known: true,
                     // ins_content: "abcde".into()
                 }
-            ]
+            ],
+            ins_content: "bbbbb".into(),
         });
 
         // The frontier is split
