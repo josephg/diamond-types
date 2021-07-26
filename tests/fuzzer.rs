@@ -11,9 +11,9 @@
 /// RUST_BACKTRACE=1 cargo test fuzz_concurrency_forever -- --nocapture --ignored
 
 use rand::prelude::*;
-use text_crdt_rust::list::ListCRDT;
+use diamond_types::list::ListCRDT;
 use ropey::Rope;
-use text_crdt_rust::AgentId;
+use diamond_types::AgentId;
 
 fn random_str(len: usize, rng: &mut SmallRng) -> String {
     let mut str = String::new();

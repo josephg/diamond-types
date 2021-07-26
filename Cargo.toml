@@ -1,11 +1,10 @@
 [package]
-name = "text_crdt_rust"
+name = "diamond-types"
 version = "0.1.0"
 authors = ["Seph Gentle <me@josephg.com>"]
 edition = "2018"
 
 # I can't get this working.
-
 #[build]
 #rustflags = ["-C", "linker-flavor=lld-link"]
 

@@ -7,10 +7,10 @@
 // Run with:
 // $ cargo run --release --features memusage --example stats
 
-use text_crdt_rust::*;
+use diamond_types::*;
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use smartstring::alias::{String as SmartString};
-use text_crdt_rust::list::ListCRDT;
+use diamond_types::list::ListCRDT;
 use criterion::black_box;
 
 #[cfg(feature = "memusage")]
