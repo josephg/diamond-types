@@ -22,12 +22,13 @@ mod txn;
 mod double_delete;
 mod external_txn;
 mod eq;
+mod encoding;
 
 
 // #[cfg(inlinerope)]
 // pub const USE_INNER_ROPE: bool = true;
 // #[cfg(not(inlinerope))]
-pub const USE_INNER_ROPE: bool = false;
+// pub const USE_INNER_ROPE: bool = false;
 
 // #[cfg(test)]
 // mod tests;
