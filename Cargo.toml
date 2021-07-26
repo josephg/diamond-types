@@ -3,6 +3,8 @@ name = "diamond-types"
 version = "0.1.0"
 authors = ["Seph Gentle <me@josephg.com>"]
 edition = "2018"
+license = "ISC OR Apache-2.0"
+description = "Small and fast CRDT data types for collaborative editing"
 
 # I can't get this working.
 #[build]
