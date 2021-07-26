@@ -64,10 +64,10 @@ impl ListCRDT {
             deletes: Rle::new(),
             double_deletes: Rle::new(),
             txns: Rle::new(),
-            deleted_content: None,
 
             text_content: Some(Rope::new()),
-            // deleted_content: Some(String::new()),
+            // text_content: None,
+            deleted_content: None,
         }
     }
 
