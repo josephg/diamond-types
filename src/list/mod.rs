@@ -20,7 +20,7 @@ mod doc;
 mod markers;
 mod txn;
 mod double_delete;
-mod external_txn;
+pub mod external_txn;
 mod eq;
 mod encoding;
 

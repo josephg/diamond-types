@@ -48,7 +48,7 @@ fn txn_real_world_data() {
              test_data.txns.iter().fold(0, |x, i| x + i.patches.len()));
 
     let start_alloc = get_thread_memory_usage();
-    let doc = load_into_doc(test_data);
+    load_into_doc(test_data);
 
     println!("alloc {}", get_thread_memory_usage() - start_alloc);
     println!("alloc count {}", get_thread_num_allocations());

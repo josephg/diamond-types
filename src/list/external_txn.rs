@@ -10,13 +10,18 @@ use crate::splitable_span::SplitableSpan;
 use crate::range_tree::CRDTItem;
 // use crate::LocalOp;
 
+#[cfg(feature = "serde")]
+use serde_crate::{Deserialize, Serialize};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct RemoteId {
     pub agent: SmartString,
     pub seq: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub enum RemoteOp {
     Ins {
         origin_left: RemoteId,
@@ -39,6 +44,7 @@ pub enum RemoteOp {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct RemoteTxn {
     pub id: RemoteId,
     pub parents: SmallVec<[RemoteId; 2]>, // usually 1 entry
@@ -64,7 +70,7 @@ pub struct RemoteTxn {
 /// A vector clock names the *next* expected sequence number for each client in the document.
 /// Any entry missing from a vector clock is implicitly 0 - which is to say, the next expected
 /// sequence number is 0.
-type VectorClock = Vec<RemoteId>;
+pub type VectorClock = Vec<RemoteId>;
 
 impl ListCRDT {
     pub(crate) fn remote_id_to_order(&self, id: &RemoteId) -> Order {
@@ -280,12 +286,27 @@ impl ListCRDT {
         }
     }
 
+
     pub fn replicate_into(&self, dest: &mut Self) {
         let clock = dest.get_vector_clock();
         let order_ranges = self.get_versions_since(&clock);
         for span in order_ranges.iter() {
             self.copy_txn_range_into(dest, *span);
         }
+    }
+
+    pub fn get_all_txns_since(&self, clock: &VectorClock) -> Vec<RemoteTxn> {
+        let mut result = Vec::new();
+        // TODO: This loop is copied from the methods below. Make an Iterator.
+        for span in self.get_versions_since(&clock).iter() {
+            let mut span = *span;
+            while span.len > 0 {
+                let (txn, len) = self.next_remote_txn_from_order(span);
+                span.consume_start(len);
+                result.push(txn);
+            }
+        }
+        result
     }
 }
 
@@ -350,4 +371,14 @@ mod tests {
         // dbg!(&doc);
         dbg!(doc.next_remote_txn_from_order(OrderSpan { order: 0, len: 40 }));
     }
+
+    // #[test]
+    // fn foo() {
+    //     if cfg!(serde) {
+    //         println!("serde enabled");
+    //     } else {
+    //         println!("serde disabled");
+    //
+    //     }
+    // }
 }

@@ -20,6 +20,7 @@ smartstring = "0.2.6"
 ropey = "1.1.0"
 smallvec = { version = "1.6.1", features = ["union"] }
 lazy_static = "1.4.0"
+serde_crate = { package = "serde", version = "1.0.126", features = ["derive"], optional = true }
 
 # Only used for printing stats. TODO: Move me to dev-dependencies!
 humansize = "1.1.1"
@@ -39,6 +40,7 @@ codegen-units = 1
 [features]
 memusage = []
 inlinerope = []
+serde = ["serde_crate", "smallvec/serde", "smartstring/serde"]
 
 [[bench]]
 name = "benchmark"
