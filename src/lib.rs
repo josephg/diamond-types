@@ -12,3 +12,4 @@ mod splitable_span;
 mod alloc;
 mod order;
 mod rle;
+mod unicount;
