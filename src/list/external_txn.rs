@@ -39,8 +39,57 @@ pub enum RemoteOp {
     },
 
     Del {
+        /// The id of the item *being deleted*.
         id: RemoteId,
         len: u32,
+    }
+}
+
+impl RemoteOp {
+    fn len(&self) -> u32 {
+        match self {
+            Ins { len, .. } => { *len }
+            Del { len, .. } => { *len }
+        }
+    }
+
+    // This *almost* matches the API for SplitableSpan. The problem is RemoteOp objects don't know
+    // their own agent, and that's needed to infer internal origin_left values.
+    //
+    // The agent and base_seq provided are the RemoteID of other.
+    fn can_append(&self, other: &Self, agent: &SmartString, other_seq: u32) -> bool {
+        match (self, other) {
+            (Ins {
+                origin_right: or1,
+                content_known: ck1,
+                ..
+            }, Ins {
+                origin_left: ol2,
+                origin_right: or2,
+                content_known: ck2,
+                ..
+            }) => {
+                or1 == or2
+                    && ck1 == ck2
+                    && ol2.agent == *agent
+                    && ol2.seq == other_seq - 1
+            }
+            (Del {id: id1, len: len1}, Del {id: id2, ..}) => {
+                // This is correct according to the fuzzer, but I can't figure out how to
+                // artificially hit this case.
+                id1.agent == id2.agent
+                    && id1.seq + len1 == id2.seq
+            }
+            (_, _) => { false }
+        }
+    }
+
+    fn append(&mut self, other: Self) {
+        match (self, other) {
+            (Ins { len: len1, .. }, Ins { len: len2, .. }) => { *len1 += len2; }
+            (Del { len: len1, .. }, Del { len: len2, .. }) => { *len1 += len2; }
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -53,7 +102,6 @@ pub struct RemoteTxn {
 
     pub ins_content: SmartString,
 }
-
 
 /// An iterator over the RemoteTxn objects. This allows RemoteTxns to be created lazily.
 #[derive(Debug)]
@@ -253,14 +301,15 @@ impl ListCRDT {
         // Limit by 3
         let (id, len) = self.order_to_remote_id_span(span.order, len);
 
-        let mut ops = SmallVec::new();
+        // let mut seq = id.seq;
+        let mut ops: SmallVec<[RemoteOp; 2]> = SmallVec::new();
         let mut order = span.order;
         let mut len_remaining = len;
         while len_remaining > 0 {
             // Look up the change at order and append a span with maximum size len_remaining.
             // dbg!(order, len_remaining);
 
-            if let Some((d, offset)) = self.deletes.find(order) {
+            let next = if let Some((d, offset)) = self.deletes.find(order) {
                 // dbg!((d, offset));
                 // Its a delete.
 
@@ -269,9 +318,9 @@ impl ListCRDT {
                 // Limit by 5
                 let (id, len) = self.order_to_remote_id_span(d.1.order + offset, len_limit_2);
                 // dbg!((&id, len));
-                ops.push(RemoteOp::Del { id, len });
                 len_remaining -= len;
                 order += len;
+                RemoteOp::Del { id, len }
             } else {
                 // It must be an insert. Fish information out of the range tree.
                 let cursor = self.get_cursor_before(order);
@@ -289,18 +338,26 @@ impl ListCRDT {
 
                 // We need to fetch the inserted CRDT span ID to limit the length.
                 // let len = self.get_crdt_span(entry.order + cursor.offset as u32, len_limit_2).len;
-                ops.push(RemoteOp::Ins {
-                    origin_left: self.order_to_remote_id(entry.origin_left_at_offset(cursor.offset as u32)),
-                    origin_right: self.order_to_remote_id(entry.origin_right),
-                    len,
-                    content_known,
-                });
                 len_remaining -= len;
                 order += len;
 
                 // And put content into txn. If the content was deleted, we'll need to fish it out
                 // of deletes.
-            }
+                RemoteOp::Ins {
+                    origin_left: self.order_to_remote_id(entry.origin_left_at_offset(cursor.offset as u32)),
+                    origin_right: self.order_to_remote_id(entry.origin_right),
+                    len,
+                    content_known,
+                }
+            };
+
+            if let Some(op) = ops.last_mut() {
+                // Would it be better to track another variable instead of calculating this monster?
+                let next_seq = order - span.order - next.len() + id.seq;
+                if op.can_append(&next, &id.agent, next_seq) {
+                    op.append(next);
+                } else { ops.push(next); }
+            } else { ops.push(next); }
         }
 
         // dbg!((&id, &ops));
@@ -417,8 +474,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn external_txns_merged() {
+    fn external_txn_inserts_merged() {
         // Regression
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph"); // 0
