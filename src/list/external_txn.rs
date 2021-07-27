@@ -183,8 +183,7 @@ impl ListCRDT {
             })
             .collect()
     }
-
-    // -> SmallVec<[OrderSpan; 4]>
+    
     /// This method returns the list of spans of orders which will bring a client up to date
     /// from the specified vector clock version.
     pub fn get_versions_since(&self, vv: &VectorClock) -> Rle<OrderSpan> {
@@ -294,39 +293,43 @@ impl ListCRDT {
 
         let mut ins_content = SmartString::new();
 
-        // Limit by 1 and 2
-        let len = u32::min(span.len, txn.len - offset);
-        assert!(len > 0);
+        // Limit by #1 and #2
+        let txn_len = u32::min(span.len, txn.len - offset);
+        assert!(txn_len > 0);
 
-        // Limit by 3
-        let (id, len) = self.order_to_remote_id_span(span.order, len);
+        // Limit by #3
+        let (id, txn_len) = self.order_to_remote_id_span(span.order, txn_len);
 
         // let mut seq = id.seq;
         let mut ops: SmallVec<[RemoteOp; 2]> = SmallVec::new();
-        let mut order = span.order;
-        let mut len_remaining = len;
-        while len_remaining > 0 {
+        let mut txn_offset = 0; // Offset into the txn.
+        // let mut order = span.order;
+        // let mut len_remaining = len;
+        while txn_offset < txn_len {
             // Look up the change at order and append a span with maximum size len_remaining.
             // dbg!(order, len_remaining);
 
-            let next = if let Some((d, offset)) = self.deletes.find(order) {
+            let order = span.order + txn_offset;
+            let len_remaining = txn_len - txn_offset;
+            let (next, len) = if let Some((d, offset)) = self.deletes.find(order) {
                 // dbg!((d, offset));
                 // Its a delete.
 
-                // Limit by 4
+                // Limit by #4
                 let len_limit_2 = u32::min(d.1.len - offset, len_remaining);
-                // Limit by 5
+                // Limit by #5
                 let (id, len) = self.order_to_remote_id_span(d.1.order + offset, len_limit_2);
                 // dbg!((&id, len));
-                len_remaining -= len;
-                order += len;
-                RemoteOp::Del { id, len }
+                (RemoteOp::Del { id, len }, len)
             } else {
                 // It must be an insert. Fish information out of the range tree.
                 let cursor = self.get_cursor_before(order);
                 let entry = cursor.get_raw_entry();
+                // Limit by #4
                 let len = u32::min((entry.len() - cursor.offset) as u32, len_remaining);
 
+                // I'm not fishing out the deleted content at the moment, for any reason.
+                // This might be simpler if I just make up content for deleted items O_o
                 let content_known = if entry.is_activated() {
                     if let Some(ref text) = self.text_content {
                         let pos = cursor.count_pos() as usize;
@@ -336,38 +339,36 @@ impl ListCRDT {
                     } else { false }
                 } else { false };
 
-                // We need to fetch the inserted CRDT span ID to limit the length.
-                // let len = self.get_crdt_span(entry.order + cursor.offset as u32, len_limit_2).len;
-                len_remaining -= len;
-                order += len;
+                // We don't need to fetch the inserted CRDT span ID and limit the length based on
+                // that. I thought we did, but it works without that test.
 
-                // And put content into txn. If the content was deleted, we'll need to fish it out
-                // of deletes.
-                RemoteOp::Ins {
+                (RemoteOp::Ins {
                     origin_left: self.order_to_remote_id(entry.origin_left_at_offset(cursor.offset as u32)),
                     origin_right: self.order_to_remote_id(entry.origin_right),
                     len,
                     content_known,
-                }
+                }, len)
             };
 
             if let Some(op) = ops.last_mut() {
                 // Would it be better to track another variable instead of calculating this monster?
-                let next_seq = order - span.order - next.len() + id.seq;
+                // dbg!(txn_offset, next.len());
+                let next_seq = txn_offset + id.seq;
+
                 if op.can_append(&next, &id.agent, next_seq) {
                     op.append(next);
                 } else { ops.push(next); }
             } else { ops.push(next); }
-        }
 
-        // dbg!((&id, &ops));
+            txn_offset += len;
+        }
 
         (RemoteTxn {
             id,
             parents,
             ops,
             ins_content,
-        }, len)
+        }, txn_len)
     }
 
     fn iter_remote_txns<'a>(&'a self, spans: &'a Rle<OrderSpan>) -> impl Iterator<Item=RemoteTxn> + 'a {
