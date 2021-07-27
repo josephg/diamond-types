@@ -12,6 +12,7 @@ use crate::range_tree::CRDTItem;
 
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
+use crate::list::external_txn::RemoteOp::{Ins, Del};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
@@ -51,6 +52,29 @@ pub struct RemoteTxn {
     pub ops: SmallVec<[RemoteOp; 2]>, // usually 1-2 entries.
 
     pub ins_content: SmartString,
+}
+
+
+/// An iterator over the RemoteTxn objects. This allows RemoteTxns to be created lazily.
+#[derive(Debug)]
+struct RemoteTxnsIter<'a> {
+    doc: &'a ListCRDT,
+    span: OrderSpan,
+}
+
+impl<'a> Iterator for RemoteTxnsIter<'a> {
+    type Item = RemoteTxn;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.span.len == 0 { None }
+        else {
+            let (txn, len) = self.doc.next_remote_txn_from_order(self.span);
+            debug_assert!(len > 0);
+            debug_assert!(len <= self.span.len);
+            self.span.consume_start(len);
+            Some(txn)
+        }
+    }
 }
 
 // #[derive(Clone, Debug, Eq, PartialEq)]
@@ -186,9 +210,24 @@ impl ListCRDT {
         result
     }
 
+    /// Gets the order spans information for the whole document. Always equivalent to
+    /// get_versions_since(vec![]).
+    pub fn get_all_spans(&self) -> Rle<OrderSpan> {
+        let mut result = Rle::new();
+        if !self.client_with_order.is_empty() {
+            result.0.push(OrderSpan {
+                order: 0,
+                // This is correct but it feels somewhat brittle.
+                len: self.get_next_order()
+            });
+        }
+
+        result
+    }
+
     /// This function is used to build an iterator for converting internal txns to remote
     /// transactions.
-    pub fn next_remote_txn_from_order(&self, span: OrderSpan) -> (RemoteTxn, u32) {
+    fn next_remote_txn_from_order(&self, span: OrderSpan) -> (RemoteTxn, u32) {
         // Each entry we return has its length limited by 5 different things (!)
         // 1. the requested span length (span.len)
         // 2. The length of this txn entry (the number of items we know about in a run)
@@ -274,39 +313,27 @@ impl ListCRDT {
         }, len)
     }
 
-    // This isn't the final form of this, but its good enough for now.
-    pub(crate) fn copy_txn_range_into(&self, dest: &mut Self, mut span: OrderSpan) {
-        while span.len > 0 {
-            let (txn, len) = self.next_remote_txn_from_order(span);
-            // dbg!(&txn, len);
-            debug_assert!(len > 0);
-            debug_assert!(len <= span.len);
-            span.consume_start(len);
-            dest.apply_remote_txn(&txn);
-        }
+    fn iter_remote_txns<'a>(&'a self, spans: &'a Rle<OrderSpan>) -> impl Iterator<Item=RemoteTxn> + 'a {
+        spans
+            .iter()
+            .flat_map(move |s| RemoteTxnsIter { doc: self, span: *s })
     }
-
 
     pub fn replicate_into(&self, dest: &mut Self) {
         let clock = dest.get_vector_clock();
         let order_ranges = self.get_versions_since(&clock);
-        for span in order_ranges.iter() {
-            self.copy_txn_range_into(dest, *span);
+        for txn in self.iter_remote_txns(&order_ranges) {
+            dest.apply_remote_txn(&txn);
         }
     }
 
+    /// This is a simplified API for exporting txns to remote peers.
     pub fn get_all_txns_since(&self, clock: &VectorClock) -> Vec<RemoteTxn> {
-        let mut result = Vec::new();
-        // TODO: This loop is copied from the methods below. Make an Iterator.
-        for span in self.get_versions_since(&clock).iter() {
-            let mut span = *span;
-            while span.len > 0 {
-                let (txn, len) = self.next_remote_txn_from_order(span);
-                span.consume_start(len);
-                result.push(txn);
-            }
-        }
-        result
+        self.iter_remote_txns(&self.get_versions_since(clock)).collect()
+    }
+
+    pub fn get_all_txns(&self) -> Vec<RemoteTxn> {
+        self.iter_remote_txns(&self.get_all_spans()).collect()
     }
 }
 
@@ -320,7 +347,6 @@ mod tests {
     #[test]
     fn version_vector() {
         let mut doc = ListCRDT::new();
-        assert_eq!(doc.get_vector_clock(), vec![]);
         doc.get_or_create_agent_id("seph"); // 0
         assert_eq!(doc.get_vector_clock(), vec![]);
         doc.local_insert(0, 0, "hi".into());
@@ -362,6 +388,23 @@ mod tests {
     }
 
     #[test]
+    fn all_spans() {
+        let mut doc = ListCRDT::new();
+        assert_eq!(doc.get_all_spans(), doc.get_versions_since(&vec![]));
+
+        doc.get_or_create_agent_id("seph"); // 0
+        doc.get_or_create_agent_id("mike"); // 0
+
+        doc.local_insert(0, 0, "hi".into());
+        assert_eq!(doc.get_all_spans(), doc.get_versions_since(&vec![]));
+        doc.local_delete(0, 1, 1);
+        assert_eq!(doc.get_all_spans(), doc.get_versions_since(&vec![]));
+
+        doc.local_insert(1, 0, "yooo".into());
+        assert_eq!(doc.get_all_spans(), doc.get_versions_since(&vec![]));
+    }
+
+    #[test]
     fn external_txns() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph"); // 0
@@ -370,15 +413,25 @@ mod tests {
 
         // dbg!(&doc);
         dbg!(doc.next_remote_txn_from_order(OrderSpan { order: 0, len: 40 }));
+        // assert_eq!(doc.next_remote_txn_from_order(OrderSpan { order: 0, len: 40 }), )
     }
 
-    // #[test]
-    // fn foo() {
-    //     if cfg!(serde) {
-    //         println!("serde enabled");
-    //     } else {
-    //         println!("serde disabled");
-    //
-    //     }
-    // }
+    #[test]
+    #[ignore]
+    fn external_txns_merged() {
+        // Regression
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("seph"); // 0
+
+        // This first insert is spatially split by the second insert, but they should still be
+        // merged in the output.
+        doc.local_insert(0, 0, "aaaa".into());
+        doc.local_insert(0, 1, "b".into());
+
+        // dbg!(doc.get_all_txns_since(None));
+        let txns = doc.get_all_txns();
+        dbg!(&txns);
+        assert_eq!(txns.len(), 1);
+        assert_eq!(txns[0].ops.len(), 2);
+    }
 }
