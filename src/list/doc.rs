@@ -181,11 +181,6 @@ impl ListCRDT {
         }
     }
 
-    // fn time_diff(&self, a: Branch, b: Branch) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
-    //
-    //
-    // }
-
     fn notify(markers: &mut SpaceIndex, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
         // println!("notify {:?}", &entry);
 

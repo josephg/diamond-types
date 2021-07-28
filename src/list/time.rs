@@ -4,15 +4,8 @@ use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
 use crate::rle::AppendRLE;
 
-/// This file creates a view of a document which simply streams a linearized sequence of operations.
-///
-/// This is useful for simple clients - eg web browsers which don't need to store a full copy of
-/// history, and which can be hydrated by a simple document snapshot.
-///
-/// The advantage of this approach is client simplicity (no need for a CRDT on the remote peer) and
-/// lower network overhead (the peer doesn't need all the CRDT chum). The downside is the peer isn't
-/// a full node, doesn't have history and can't connect to other peers.
-
+/// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
+/// about branches, find diffs and move between branches.
 impl ListCRDT {
     fn shadow_of(&self, order: Order) -> Order {
         assert_ne!(order, ROOT_ORDER); // The root doesn't have a shadow at all.
@@ -46,10 +39,10 @@ impl ListCRDT {
             let a = a[0];
             let b = b[0];
             if a < b && self.shadow_of(b) <= a {
-                return (smallvec![], smallvec![OrderSpan {order: a, len: b - a}]);
+                return (smallvec![], smallvec![OrderSpan {order: a + 1, len: b - a}]);
             }
             if b < a && self.shadow_of(a) <= b {
-                return (smallvec![OrderSpan {order: b, len: a - b}], smallvec![]);
+                return (smallvec![OrderSpan {order: b + 1, len: a - b}], smallvec![]);
             }
         }
 
@@ -57,6 +50,7 @@ impl ListCRDT {
         self.diff_slow(a, b)
     }
 
+    // Split out for testing.
     fn diff_slow(&self, a: &Branch, b: &Branch) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
         // We need to tag each entry in the queue based on whether its part of a's history or b's
         // history or both, and do so without changing the sort order for the heap.
@@ -187,6 +181,13 @@ mod test {
         assert_diff_eq(&doc1, &b1, &b1, &[], &[]);
         assert_diff_eq(&doc1, &smallvec![ROOT_ORDER], &smallvec![ROOT_ORDER], &[], &[]);
         // dbg!(&doc1.frontier);
+
+        // There are 4 items in doc1 - "Saaa". Frontier is [3].
+        // dbg!(&doc1.frontier);
+        assert_diff_eq(&doc1, &smallvec![1], &smallvec![3], &[], &[OrderSpan {
+            order: 2,
+            len: 2
+        }]);
 
         doc2.local_insert(0, 1, "bbb".into());
 
