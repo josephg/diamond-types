@@ -4,8 +4,8 @@ use std::ptr::NonNull;
 use std::{ptr, mem};
 use std::pin::Pin;
 use smallvec::SmallVec;
-use crate::range_tree::root::{extend_delete};
 use crate::range_tree::index::{TreeIndex};
+use crate::rle::AppendRLE;
 
 impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
@@ -550,7 +550,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
             // dbg!(self, delete_remaining, &flush_marker);
 
             delete_remaining -= self.mutate_entry(|e| {
-                extend_delete(&mut result, *e);
+                result.append_rle(*e);
                 e.mark_deactivated();
             }, &mut cursor, delete_remaining, &mut flush_marker, &mut notify);
         }

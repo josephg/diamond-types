@@ -4,7 +4,7 @@ use crate::list::{ListCRDT, Order, ROOT_ORDER};
 use crate::order::OrderSpan;
 use std::collections::BinaryHeap;
 use std::cmp::{Ordering, Reverse};
-use crate::rle::{Rle, KVPair};
+use crate::rle::{KVPair, AppendRLE};
 use crate::common::{AgentId, CRDT_DOC_ROOT, CRDTLocation};
 use crate::splitable_span::SplitableSpan;
 use crate::range_tree::CRDTItem;
@@ -13,6 +13,7 @@ use crate::range_tree::CRDTItem;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 use crate::list::external_txn::RemoteOp::{Ins, Del};
+use std::iter::FromIterator;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
@@ -186,7 +187,9 @@ impl ListCRDT {
 
     /// This method returns the list of spans of orders which will bring a client up to date
     /// from the specified vector clock version.
-    pub(super) fn get_order_spans_since(&self, vv: &VectorClock) -> Rle<OrderSpan> {
+    pub(super) fn get_order_spans_since<B>(&self, vv: &VectorClock) -> B
+    where B: Default + AppendRLE<OrderSpan>
+    {
         #[derive(Clone, Copy, Debug, Eq)]
         struct OpSpan {
             agent_id: usize,
@@ -232,13 +235,13 @@ impl ListCRDT {
             }
         }
 
-        let mut result = Rle::new();
+        let mut result = B::default();
 
         while let Some(Reverse(e)) = heap.pop() {
             // Append a span of orders from here and requeue.
             let c = &self.client_data[e.agent_id];
             let KVPair(_, span) = c.item_orders.0[e.idx];
-            result.append(OrderSpan {
+            result.append_rle(OrderSpan {
                 // Kinda gross but at least its branchless.
                 order: span.order.max(e.next_order),
                 len: span.len - (e.next_order - span.order),
@@ -259,17 +262,16 @@ impl ListCRDT {
 
     /// Gets the order spans information for the whole document. Always equivalent to
     /// get_versions_since(vec![]).
-    pub(super) fn get_all_order_spans(&self) -> Rle<OrderSpan> {
-        let mut result = Rle::new();
-        if !self.client_with_order.is_empty() {
-            result.0.push(OrderSpan {
+    pub(super) fn get_all_order_spans(&self) -> Option<OrderSpan> {
+        if self.client_with_order.is_empty() {
+            None
+        } else {
+            Some(OrderSpan {
                 order: 0,
                 // This is correct but it feels somewhat brittle.
                 len: self.get_next_order()
-            });
+            })
         }
-
-        result
     }
 
     /// This function is used to build an iterator for converting internal txns to remote
@@ -348,6 +350,7 @@ impl ListCRDT {
                 }, len)
             };
 
+            // Unfortunately we can't use append_rle because of the funky can_append signature
             if let Some(op) = ops.last_mut() {
                 if op.can_append(&next, &id.agent, id.seq + txn_offset) {
                     op.append(next);
@@ -367,27 +370,33 @@ impl ListCRDT {
         }, txn_len)
     }
 
-    fn iter_remote_txns<'a>(&'a self, spans: &'a Rle<OrderSpan>) -> impl Iterator<Item=RemoteTxn> + 'a {
-        spans
-            .iter()
-            .flat_map(move |s| RemoteTxnsIter { doc: self, span: *s })
+    fn iter_remote_txns<'a, I>(&'a self, spans: I) -> impl Iterator<Item=RemoteTxn> + 'a
+    where I: Iterator<Item=&'a OrderSpan> + 'a
+    {
+        spans.flat_map(move |s| RemoteTxnsIter { doc: self, span: *s })
     }
 
     pub fn replicate_into(&self, dest: &mut Self) {
         let clock = dest.get_vector_clock();
-        let order_ranges = self.get_order_spans_since(&clock);
-        for txn in self.iter_remote_txns(&order_ranges) {
+        // TODO: Do something other than Vec<_> here.
+        let order_ranges = self.get_order_spans_since::<Vec<_>>(&clock);
+        for txn in self.iter_remote_txns(order_ranges.iter()) {
             dest.apply_remote_txn(&txn);
         }
     }
 
     /// This is a simplified API for exporting txns to remote peers.
-    pub fn get_all_txns_since(&self, clock: &VectorClock) -> Vec<RemoteTxn> {
-        self.iter_remote_txns(&self.get_order_spans_since(clock)).collect()
+    pub fn get_all_txns_since<B: FromIterator<RemoteTxn>>(&self, clock: &VectorClock) -> B {
+        let spans = self.get_order_spans_since::<Vec<_>>(clock);
+        self.iter_remote_txns(spans.iter()).collect()
     }
 
-    pub fn get_all_txns(&self) -> Vec<RemoteTxn> {
-        self.iter_remote_txns(&self.get_all_order_spans()).collect()
+    pub fn get_all_txns<B: FromIterator<RemoteTxn>>(&self) -> B {
+        // Using a smallvec instead of a vec here means a couple small methods get monomorphized in
+        // the compiler output. One less allocation, but 500 more bytes.
+        let spans = self.get_all_order_spans();
+        // let spans = self.get_all_order_spans::<Vec<_>>();
+        self.iter_remote_txns(spans.iter()).collect()
     }
 }
 
@@ -422,40 +431,47 @@ mod tests {
         doc.local_insert(0, 4, "a".into());
 
         // When passed an empty vector clock, we fetch all versions from the start.
-        let vs = doc.get_order_spans_since(&VectorClock::new());
-        assert_eq!(vs.0, vec![OrderSpan { order: 0, len: 5 }]);
+        let vs = doc.get_order_spans_since::<Vec<_>>(&VectorClock::new());
+        assert_eq!(vs, vec![OrderSpan { order: 0, len: 5 }]);
 
-        let vs = doc.get_order_spans_since(&vec![RemoteId {
+        let vs = doc.get_order_spans_since::<Vec<_>>(&vec![RemoteId {
             agent: "seph".into(),
             seq: 2
         }]);
-        assert_eq!(vs.0, vec![OrderSpan { order: 2, len: 3 }]);
+        assert_eq!(vs, vec![OrderSpan { order: 2, len: 3 }]);
 
-        let vs = doc.get_order_spans_since(&vec![RemoteId {
+        let vs = doc.get_order_spans_since::<Vec<_>>(&vec![RemoteId {
             agent: "seph".into(),
             seq: 100
         }, RemoteId {
             agent: "mike".into(),
             seq: 100
         }]);
-        assert_eq!(vs.0, vec![]);
+        assert_eq!(vs, vec![]);
     }
 
     #[test]
     fn all_spans() {
         let mut doc = ListCRDT::new();
-        assert_eq!(doc.get_all_order_spans(), doc.get_order_spans_since(&vec![]));
+
+        let check = |doc: &ListCRDT| {
+            let a = doc.get_all_order_spans();
+            let b = doc.get_order_spans_since::<Vec<_>>(&vec![]);
+            // Hilariously awful. Doesn't matter for testing though.
+            assert_eq!(a.into_iter().collect::<Vec<_>>(), b);
+        };
+        check(&doc);
 
         doc.get_or_create_agent_id("seph"); // 0
         doc.get_or_create_agent_id("mike"); // 0
 
         doc.local_insert(0, 0, "hi".into());
-        assert_eq!(doc.get_all_order_spans(), doc.get_order_spans_since(&vec![]));
+        check(&doc);
         doc.local_delete(0, 1, 1);
-        assert_eq!(doc.get_all_order_spans(), doc.get_order_spans_since(&vec![]));
+        check(&doc);
 
         doc.local_insert(1, 0, "yooo".into());
-        assert_eq!(doc.get_all_order_spans(), doc.get_order_spans_since(&vec![]));
+        check(&doc);
     }
 
     #[test]
@@ -482,7 +498,7 @@ mod tests {
         doc.local_insert(0, 1, "b".into());
 
         // dbg!(doc.get_all_txns_since(None));
-        let txns = doc.get_all_txns();
+        let txns: Vec<_> = doc.get_all_txns();
         dbg!(&txns);
         assert_eq!(txns.len(), 1);
         assert_eq!(txns[0].ops.len(), 2);

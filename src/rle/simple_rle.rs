@@ -2,7 +2,7 @@ use crate::range_tree::EntryTraits;
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 use std::cmp::Ordering::*;
-use crate::rle::{RleKey, RleKeyed};
+use crate::rle::{RleKey, RleKeyed, AppendRLE};
 use humansize::{FileSize, file_size_opts};
 
 // Each entry has a key (which we search by), a span and a value at that key.
@@ -15,23 +15,14 @@ impl<V: SplitableSpan + Clone + Debug + Sized> Rle<V> {
     /// Append a new value to the end of the RLE list. This method is fast - O(1) average time.
     /// The new item will extend the last entry in the list if possible.
     pub fn append(&mut self, val: V) {
-        if let Some(v) = self.0.last_mut() {
-            // debug_assert!(val.get_rle_key() > v.get_rle_key());
-
-            if v.can_append(&val) {
-                v.append(val);
-                return;
-            }
-        }
-
-        self.0.push(val);
+        self.0.append_rle(val);
     }
 
-    pub fn last(&self) -> Option<&V> {
-        self.0.last()
-    }
-
+    // Forward to vec.
+    pub fn last(&self) -> Option<&V> { self.0.last() }
     pub fn num_entries(&self) -> usize { self.0.len() }
+    pub fn is_empty(&self) -> bool { self.0.is_empty() }
+    pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
 
     pub fn print_stats(&self, name: &str, _detailed: bool) {
         let size = std::mem::size_of::<V>();
@@ -44,12 +35,6 @@ impl<V: SplitableSpan + Clone + Debug + Sized> Rle<V> {
         //     println!("{:?}", item);
         // }
     }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
 }
 
 // impl<K: Copy + Eq + Ord + Add<Output = K> + Sub<Output = K> + AddAssign, V: Copy + Eq> RLE<K, V> {
@@ -106,6 +91,11 @@ impl<V: EntryTraits + RleKeyed> Rle<V> {
         let (v, offset) = self.find(idx).unwrap();
         v.at_offset(offset as usize)
     }
+}
+
+// Seems kinda redundant but eh.
+impl<V: SplitableSpan + Clone + Debug + Sized> AppendRLE<V> for Rle<V> {
+    fn append_rle(&mut self, item: V) { self.append(item); }
 }
 
 // impl<V: EntryTraits> Index<usize> for RLE<V> {

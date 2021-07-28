@@ -821,15 +821,15 @@ mod tests {
         // dbg!(&doc);
 
         // Mike is missing all the changes from seph.
-        assert_eq!(doc.get_order_spans_since(&vec![RemoteId {
+        assert_eq!(doc.get_order_spans_since::<Vec<_>>(&vec![RemoteId {
             agent: "mike".into(),
             seq: 5
-        }]), Rle(vec![OrderSpan {
+        }]), vec![OrderSpan {
             order: 0,
             len: 2
         }, OrderSpan {
             order: 7,
             len: 1
-        }]));
+        }]);
     }
 }

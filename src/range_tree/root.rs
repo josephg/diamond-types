@@ -6,15 +6,6 @@ use std::mem::size_of;
 use humansize::{FileSize, file_size_opts};
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
-pub fn extend_delete<E: EntryTraits>(delete: &mut DeleteResult<E>, entry: E) {
-    // println!("extend_delete {:?}", op);
-    if let Some(last) = delete.last_mut() {
-        if last.can_append(&entry) {
-            // Extend!
-            last.append(entry);
-        } else { delete.push(entry); }
-    } else { delete.push(entry); }
-}
 
 impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     pub fn new() -> Pin<Box<Self>> {
