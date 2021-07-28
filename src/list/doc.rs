@@ -631,28 +631,6 @@ impl ListCRDT {
         self.txns.print_stats("txns", detailed);
     }
 
-    // Used for testing.
-    #[allow(unused)]
-    pub fn check(&self) {
-        self.index.check();
-
-        if let Some(text) = self.text_content.as_ref() {
-            assert_eq!(self.range_tree.len() as usize, text.len_chars());
-            
-            let num_deleted_items = self.deletes.iter().fold(0, |x, y| x + y.len());
-            if let Some(del_content) = self.deleted_content.as_ref() {
-                assert_eq!(del_content.chars().count(), num_deleted_items);
-            }
-        }
-    }
-
-    #[allow(unused)]
-    pub fn check_all_changes_rle_merged(&self) {
-        assert_eq!(self.client_data[0].item_orders.num_entries(), 1);
-        assert_eq!(self.client_with_order.num_entries(), 1);
-        assert_eq!(self.txns.num_entries(), 1);
-    }
-
     #[allow(unused)]
     pub fn debug_print_segments(&self) {
         for entry in self.range_tree.iter() {
@@ -689,7 +667,7 @@ mod tests {
         // "hyoooi"
         doc.local_delete(0, 1, 3);
 
-        doc.check();
+        doc.check(true);
         dbg!(doc);
     }
 
@@ -843,7 +821,7 @@ mod tests {
         // dbg!(&doc);
 
         // Mike is missing all the changes from seph.
-        assert_eq!(doc.get_versions_since(&vec![RemoteId {
+        assert_eq!(doc.get_order_spans_since(&vec![RemoteId {
             agent: "mike".into(),
             seq: 5
         }]), Rle(vec![OrderSpan {

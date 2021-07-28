@@ -52,7 +52,7 @@ fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentI
         doc.local_delete(agent, pos, span)
     }
     // dbg!(&doc.markers);
-    doc.check();
+    doc.check(false);
 }
 
 #[test]
@@ -65,9 +65,7 @@ fn random_single_document() {
 
     for _i in 0..1000 {
         make_random_change(&mut doc, Some(&mut expected_content), agent, &mut rng);
-        if let Some(ref text) = doc.text_content {
-            assert_eq!(*text, expected_content);
-        }
+        doc.dbg_assert_content_eq(&expected_content);
     }
 
     doc.check_all_changes_rle_merged();
@@ -146,8 +144,8 @@ fn run_fuzzer_iteration(seed: u64) {
             // println!("{} -> {}", b_idx, a_idx);
             b.replicate_into(a);
 
-            a.check();
-            b.check();
+            a.check(false);
+            b.check(false);
 
             if a != b {
                 println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);
@@ -155,6 +153,10 @@ fn run_fuzzer_iteration(seed: u64) {
                 // dbg!(&b);
                 panic!("Documents do not match");
             }
+        }
+
+        for doc in &docs {
+            doc.check(true);
         }
     }
 }

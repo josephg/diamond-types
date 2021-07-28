@@ -31,7 +31,7 @@ fn load_into_doc(test_data: TestData) -> ListCRDT {
     // println!("len {}", state.len());
     assert_eq!(doc.len(), test_data.end_content.len());
 
-    doc.check();
+    doc.check(true);
     if doc.has_content() {
         assert_eq!(doc.to_string(), test_data.end_content.as_str());
     }

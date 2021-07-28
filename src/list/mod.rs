@@ -23,6 +23,8 @@ mod double_delete;
 pub mod external_txn;
 mod eq;
 mod encoding;
+mod external_linear;
+mod check;
 
 
 // #[cfg(inlinerope)]
@@ -104,9 +106,9 @@ pub struct ListCRDT {
     txns: Rle<TxnSpan>,
 
     // Temporary. This will be moved out into a reference to another data structure I think.
-    pub text_content: Option<Rope>,
+    text_content: Option<Rope>,
     /// This is a big ol' string containing everything that's been deleted (self.deletes) in order.
-    pub deleted_content: Option<String>,
+    deleted_content: Option<String>,
 }
 
 // #[derive(Clone, Debug)]

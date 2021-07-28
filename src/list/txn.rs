@@ -14,7 +14,9 @@ pub struct TxnSpan {
     /// All txns in this span are direct descendants of all operations from order down to succeeds.
     pub shadow: Order,
 
-    /// The parents vector of the first txn in this span
+    /// The parents vector of the first txn in this span. Must contain at least 1 entry (and will
+    /// almost always contain exactly 1 entry - the only exception being in the case of concurrent
+    /// changes).
     pub parents: SmallVec<[Order; 2]>
 }
 

@@ -183,10 +183,10 @@ impl ListCRDT {
             })
             .collect()
     }
-    
+
     /// This method returns the list of spans of orders which will bring a client up to date
     /// from the specified vector clock version.
-    pub fn get_versions_since(&self, vv: &VectorClock) -> Rle<OrderSpan> {
+    pub(super) fn get_order_spans_since(&self, vv: &VectorClock) -> Rle<OrderSpan> {
         #[derive(Clone, Copy, Debug, Eq)]
         struct OpSpan {
             agent_id: usize,
@@ -259,7 +259,7 @@ impl ListCRDT {
 
     /// Gets the order spans information for the whole document. Always equivalent to
     /// get_versions_since(vec![]).
-    pub fn get_all_spans(&self) -> Rle<OrderSpan> {
+    pub(super) fn get_all_order_spans(&self) -> Rle<OrderSpan> {
         let mut result = Rle::new();
         if !self.client_with_order.is_empty() {
             result.0.push(OrderSpan {
@@ -284,7 +284,7 @@ impl ListCRDT {
 
         let (txn, offset) = self.txns.find(span.order).unwrap();
 
-        let parents = if let Some(order) = txn.parent_at_offset(offset as _) {
+        let parents: SmallVec<[RemoteId; 2]> = if let Some(order) = txn.parent_at_offset(offset as _) {
             smallvec![self.order_to_remote_id(order)]
         } else {
             txn.parents.iter().map(|order| self.order_to_remote_id(*order))
@@ -300,11 +300,9 @@ impl ListCRDT {
         // Limit by #3
         let (id, txn_len) = self.order_to_remote_id_span(span.order, txn_len);
 
-        // let mut seq = id.seq;
         let mut ops: SmallVec<[RemoteOp; 2]> = SmallVec::new();
         let mut txn_offset = 0; // Offset into the txn.
-        // let mut order = span.order;
-        // let mut len_remaining = len;
+
         while txn_offset < txn_len {
             // Look up the change at order and append a span with maximum size len_remaining.
             // dbg!(order, len_remaining);
@@ -351,17 +349,15 @@ impl ListCRDT {
             };
 
             if let Some(op) = ops.last_mut() {
-                // Would it be better to track another variable instead of calculating this monster?
-                // dbg!(txn_offset, next.len());
-                let next_seq = txn_offset + id.seq;
-
-                if op.can_append(&next, &id.agent, next_seq) {
+                if op.can_append(&next, &id.agent, id.seq + txn_offset) {
                     op.append(next);
                 } else { ops.push(next); }
             } else { ops.push(next); }
 
             txn_offset += len;
         }
+
+        debug_assert_eq!(txn_offset, txn_len);
 
         (RemoteTxn {
             id,
@@ -379,7 +375,7 @@ impl ListCRDT {
 
     pub fn replicate_into(&self, dest: &mut Self) {
         let clock = dest.get_vector_clock();
-        let order_ranges = self.get_versions_since(&clock);
+        let order_ranges = self.get_order_spans_since(&clock);
         for txn in self.iter_remote_txns(&order_ranges) {
             dest.apply_remote_txn(&txn);
         }
@@ -387,11 +383,11 @@ impl ListCRDT {
 
     /// This is a simplified API for exporting txns to remote peers.
     pub fn get_all_txns_since(&self, clock: &VectorClock) -> Vec<RemoteTxn> {
-        self.iter_remote_txns(&self.get_versions_since(clock)).collect()
+        self.iter_remote_txns(&self.get_order_spans_since(clock)).collect()
     }
 
     pub fn get_all_txns(&self) -> Vec<RemoteTxn> {
-        self.iter_remote_txns(&self.get_all_spans()).collect()
+        self.iter_remote_txns(&self.get_all_order_spans()).collect()
     }
 }
 
@@ -426,16 +422,16 @@ mod tests {
         doc.local_insert(0, 4, "a".into());
 
         // When passed an empty vector clock, we fetch all versions from the start.
-        let vs = doc.get_versions_since(&VectorClock::new());
+        let vs = doc.get_order_spans_since(&VectorClock::new());
         assert_eq!(vs.0, vec![OrderSpan { order: 0, len: 5 }]);
 
-        let vs = doc.get_versions_since(&vec![RemoteId {
+        let vs = doc.get_order_spans_since(&vec![RemoteId {
             agent: "seph".into(),
             seq: 2
         }]);
         assert_eq!(vs.0, vec![OrderSpan { order: 2, len: 3 }]);
 
-        let vs = doc.get_versions_since(&vec![RemoteId {
+        let vs = doc.get_order_spans_since(&vec![RemoteId {
             agent: "seph".into(),
             seq: 100
         }, RemoteId {
@@ -448,18 +444,18 @@ mod tests {
     #[test]
     fn all_spans() {
         let mut doc = ListCRDT::new();
-        assert_eq!(doc.get_all_spans(), doc.get_versions_since(&vec![]));
+        assert_eq!(doc.get_all_order_spans(), doc.get_order_spans_since(&vec![]));
 
         doc.get_or_create_agent_id("seph"); // 0
         doc.get_or_create_agent_id("mike"); // 0
 
         doc.local_insert(0, 0, "hi".into());
-        assert_eq!(doc.get_all_spans(), doc.get_versions_since(&vec![]));
+        assert_eq!(doc.get_all_order_spans(), doc.get_order_spans_since(&vec![]));
         doc.local_delete(0, 1, 1);
-        assert_eq!(doc.get_all_spans(), doc.get_versions_since(&vec![]));
+        assert_eq!(doc.get_all_order_spans(), doc.get_order_spans_since(&vec![]));
 
         doc.local_insert(1, 0, "yooo".into());
-        assert_eq!(doc.get_all_spans(), doc.get_versions_since(&vec![]));
+        assert_eq!(doc.get_all_order_spans(), doc.get_order_spans_since(&vec![]));
     }
 
     #[test]
