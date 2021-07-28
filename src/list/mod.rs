@@ -23,8 +23,9 @@ mod double_delete;
 pub mod external_txn;
 mod eq;
 mod encoding;
-mod external_linear;
+mod time;
 mod check;
+mod external_linear;
 
 
 // #[cfg(inlinerope)]

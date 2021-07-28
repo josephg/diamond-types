@@ -71,6 +71,7 @@ impl PartialEq for ListCRDT {
         };
 
         for order in self.frontier.iter() {
+            // O(n^2). Could do better by sorting each, but n is very small so its nbd.
             let other_order = a_to_b_order(*order);
             if !other.frontier.contains(&other_order) {
                 if DEBUG_EQ { eprintln!("Frontier does not match"); }

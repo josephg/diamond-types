@@ -70,3 +70,19 @@ impl SplitableSpan for i32 {
         self.append(other);
     }
 }
+
+// /// A splitablespan in reverse. This is useful for lists made in descending order.
+// #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+// pub struct ReverseSpan<S: SplitableSpan + Clone>(pub S);
+//
+// impl<S: SplitableSpan + Clone> SplitableSpan for ReverseSpan<S> {
+//     fn len(&self) -> usize { self.0.len() }
+//
+//     fn truncate(&mut self, at: usize) -> Self {
+//         panic!("Cannot truncate ReverseSpan");
+//     }
+//
+//     fn can_append(&self, other: &Self) -> bool { other.0.can_append(&self.0) }
+//     fn append(&mut self, other: Self) { self.0.prepend(other.0); }
+//     fn prepend(&mut self, other: Self) { self.0.append(other.0); }
+// }

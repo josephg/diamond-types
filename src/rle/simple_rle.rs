@@ -96,6 +96,7 @@ impl<V: EntryTraits + RleKeyed> Rle<V> {
 // Seems kinda redundant but eh.
 impl<V: SplitableSpan + Clone + Debug + Sized> AppendRLE<V> for Rle<V> {
     fn append_rle(&mut self, item: V) { self.append(item); }
+    fn append_reversed_rle(&mut self, _item: V) { unimplemented!(); }
 }
 
 // impl<V: EntryTraits> Index<usize> for RLE<V> {

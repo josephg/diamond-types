@@ -11,6 +11,8 @@ use crate::list::external_txn::RemoteId;
 /// a full node, doesn't have history and can't connect to other peers.
 
 impl ListCRDT {
+
+
     fn spans_since(&self, _id: &RemoteId) {
         // This will almost always be a
     }

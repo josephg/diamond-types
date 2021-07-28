@@ -702,6 +702,15 @@ mod tests {
         }
     }
 
+    // fn assert_frontier_eq(doc: &ListCRDT, expected: &Branch) {
+    //     // The order of frontier is not currently guaranteed.
+    //     let mut a = doc.frontier.clone();
+    //     a.sort();
+    //     let mut b = expected.clone();
+    //     b.sort();
+    //     assert_eq!(a, b);
+    // }
+
     #[test]
     fn remote_txns() {
         let mut doc_remote = ListCRDT::new();
@@ -727,10 +736,8 @@ mod tests {
         doc_local.get_or_create_agent_id("seph");
         doc_local.local_insert(0, 0, "hi".into());
         // dbg!(&doc_remote);
-        assert_eq!(doc_remote.frontier, doc_local.frontier);
-        assert_eq!(doc_remote.txns, doc_local.txns);
-        assert_eq!(doc_remote.text_content, doc_local.text_content);
-        assert_eq!(doc_remote.deletes, doc_local.deletes);
+        assert_eq!(doc_remote, doc_local);
+        assert_eq!(doc_remote.deletes, doc_local.deletes); // Not currently checked by Eq.
 
         doc_remote.apply_remote_txn(&RemoteTxn {
             id: RemoteId {
@@ -757,10 +764,8 @@ mod tests {
         doc_local.local_delete(0, 0, 2);
         // dbg!(&doc_local);
 
-        assert_eq!(doc_remote.frontier, doc_local.frontier);
-        assert_eq!(doc_remote.txns, doc_local.txns);
-        assert_eq!(doc_remote.text_content, doc_local.text_content);
-        assert_eq!(doc_remote.deletes, doc_local.deletes);
+        assert_eq!(doc_remote, doc_local);
+        assert_eq!(doc_remote.deletes, doc_local.deletes); // Not currently checked by Eq.
 
         // dbg!(doc_remote.get_version_vector());
     }
@@ -769,6 +774,8 @@ mod tests {
     fn remote_txns_fork() {
         // Two users concurrently type into an empty document
         let mut doc = ListCRDT::new();
+        assert_eq!(doc.frontier.as_slice(), &[ROOT_ORDER]);
+
         doc.apply_remote_txn(&RemoteTxn {
             id: RemoteId {
                 agent: "seph".into(),
@@ -786,6 +793,7 @@ mod tests {
             ],
             ins_content: "aa".into(),
         });
+        assert_eq!(doc.frontier.as_slice(), &[1]);
 
         doc.apply_remote_txn(&RemoteTxn {
             id: RemoteId {
