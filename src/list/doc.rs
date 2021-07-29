@@ -348,7 +348,6 @@ impl ListCRDT {
             replace(&mut self.frontier, smallvec![last_order])
         };
 
-        // TODO: Make this work. It has a big impact on performance.
         // Fast path. The code below is weirdly slow, but most txns just append.
         if let Some(last) = self.txns.0.last_mut() {
             if txn_parents.len() == 1
