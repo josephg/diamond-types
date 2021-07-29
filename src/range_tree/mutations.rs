@@ -569,14 +569,19 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
         result
     }
 
-    /// Delete up to max_deleted_len from the marker tree, at the location specified by cursor.
-    /// We will always delete at least one item. Consumers of this API should call this in a loop.
+    /// Deactivate up to max_deleted_len from the marker tree, at the location specified by cursor.
+    /// We will always process at least one item. Consumers of this API should call this in a loop.
     ///
-    /// Returns either the number of items marked for deletion if positive, or the number of items
-    /// which have already been deleted at this location if negative.
+    /// Returns the number of items we tried to deactivate, and whether we were successful.
+    /// (eg (1, true) means we marked 1 item for deletion. (2, false) means we skipped past 2 items
+    /// which were already deactivated.
     ///
     /// TODO: It might be cleaner to make the caller check for deleted items if we return 0.
-    pub fn remote_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_deleted_len: usize, mut notify: F) -> isize
+    ///
+    /// TODO: Consider returning / mutating the cursor. Subsequent items will probably be in this
+    /// node. It would be marginally faster to find a cursor using a hint, and subsequent deletes
+    /// in the txn we're applying will usually be in this node (usually the next item in this node).
+    pub fn remote_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_deleted_len: usize, mut notify: F) -> (usize, bool)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
 
         cursor.roll_to_next_entry();
@@ -605,12 +610,12 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
 
             unsafe { cursor.get_node_mut() }.flush_index_update(&mut flush_marker);
 
-            amt_deleted as isize
+            (amt_deleted, true)
         } else {
             // The range has already been deleted. This operation is
             // idempotent, so we just pretend we deleted some content
             // when nothing of the sort happened.
-            -(max_deleted_len.min(entry.len() - cursor.offset) as isize)
+            (max_deleted_len.min(entry.len() - cursor.offset), false)
         }
     }
 }

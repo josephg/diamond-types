@@ -464,12 +464,12 @@ impl ListCRDT {
                         let cursor = self.get_cursor_before(target_order);
 
                         let markers = &mut self.index;
-                        let amt_deactivated = self.range_tree.remote_deactivate(cursor, len as _, |entry, leaf| {
+                        let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, len as _, |entry, leaf| {
                             Self::notify(markers, entry, leaf);
                         });
+                        let deleted_here = deleted_here as u32;
 
-                        let deleted_here = amt_deactivated.abs() as u32;
-                        if amt_deactivated < 0 {
+                        if !succeeded {
                             // This span was already deleted by a different peer. Mark duplicate delete.
                             self.double_deletes.increment_delete_range(target_order, deleted_here);
                         } else {
