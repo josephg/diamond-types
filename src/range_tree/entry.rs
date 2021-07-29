@@ -37,6 +37,7 @@ pub trait CRDTItem {
     fn is_deactivated(&self) -> bool {
         !self.is_activated()
     }
+    fn mark_activated(&mut self);
     fn mark_deactivated(&mut self);
 }
 

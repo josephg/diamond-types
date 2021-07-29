@@ -569,8 +569,37 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
         result
     }
 
+    fn set_enabled<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_len: usize, want_enabled: bool, mut notify: F) -> (usize, bool)
+        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
+
+        cursor.roll_to_next_entry();
+        let entry = cursor.get_raw_entry();
+
+        if entry.is_activated() != want_enabled {
+            // The region could be in the middle of an item and that has all sorts of complexity.
+            // Just delegate to mutate_entry above, which will take care of all that jazz.
+            //
+            // Even though we're just editing an item here, the item could be split as a result,
+            // so notify may end up called.
+            let mut flush_marker = I::IndexUpdate::default();
+            let amt_modified = self.mutate_entry(|e| {
+                if want_enabled { e.mark_activated(); } else { e.mark_deactivated(); }
+            }, &mut cursor, max_len, &mut flush_marker, &mut notify);
+
+            unsafe { cursor.get_node_mut() }.flush_index_update(&mut flush_marker);
+
+            (amt_modified, true)
+        } else {
+            // The range has already been activated / deactivated.
+            (max_len.min(entry.len() - cursor.offset), false)
+        }
+    }
+
     /// Deactivate up to max_deleted_len from the marker tree, at the location specified by cursor.
     /// We will always process at least one item. Consumers of this API should call this in a loop.
+    ///
+    /// If the entry is already marked as deleted, unlike local_deactivate, this method does
+    /// nothing. local_deactivate will skip over deleted items and delete something else.
     ///
     /// Returns the number of items we tried to deactivate, and whether we were successful.
     /// (eg (1, true) means we marked 1 item for deletion. (2, false) means we skipped past 2 items
@@ -581,42 +610,16 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
     /// TODO: Consider returning / mutating the cursor. Subsequent items will probably be in this
     /// node. It would be marginally faster to find a cursor using a hint, and subsequent deletes
     /// in the txn we're applying will usually be in this node (usually the next item in this node).
-    pub fn remote_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, max_deleted_len: usize, mut notify: F) -> (usize, bool)
-        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
+    pub fn remote_deactivate<F>(self: &mut Pin<Box<Self>>, cursor: Cursor<E, I>, max_deleted_len: usize, notify: F) -> (usize, bool)
+    where F: FnMut(E, NonNull<NodeLeaf<E, I>>)
+    {
+        self.set_enabled(cursor, max_deleted_len, false, notify)
+    }
 
-        cursor.roll_to_next_entry();
-        let entry = cursor.get_raw_entry();
-
-        // If the entry is already marked as deleted, we do nothing. This is needed because
-        // local_delete will skip deletes and go delete something else.
-        if entry.is_activated() {
-            // The deleted region could be in the middle of an item and that has all sorts of
-            // complexity. Just delegate to local_delete above, which will take care of all that
-            // jazz.
-            //
-            // Even though we're just editing an item here, the item could be split by the delete,
-            // so notify may end up called.
-            // let len = entry.len();
-            // let amt_deleted = usize::min(len - cursor.offset, max_deleted_len);
-            // self.local_delete(cursor, amt_deleted, notify);
-
-            // TODO: This is cleaner than using the commented code above, but might result in
-            // unnecessarily larger binary size because of monomorphization. Check if this makes any
-            // difference.
-            let mut flush_marker = I::IndexUpdate::default();
-            let amt_deleted = self.mutate_entry(|e| {
-                e.mark_deactivated()
-            }, &mut cursor, max_deleted_len, &mut flush_marker, &mut notify);
-
-            unsafe { cursor.get_node_mut() }.flush_index_update(&mut flush_marker);
-
-            (amt_deleted, true)
-        } else {
-            // The range has already been deleted. This operation is
-            // idempotent, so we just pretend we deleted some content
-            // when nothing of the sort happened.
-            (max_deleted_len.min(entry.len() - cursor.offset), false)
-        }
+    pub fn remote_reactivate<F>(self: &mut Pin<Box<Self>>, cursor: Cursor<E, I>, max_len: usize, notify: F) -> (usize, bool)
+    where F: FnMut(E, NonNull<NodeLeaf<E, I>>)
+    {
+        self.set_enabled(cursor, max_len, true, notify)
     }
 }
 

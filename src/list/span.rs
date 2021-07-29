@@ -114,6 +114,11 @@ impl CRDTItem for YjsSpan {
         self.len > 0
     }
 
+    fn mark_activated(&mut self) {
+        debug_assert!(self.len < 0);
+        self.len = -self.len;
+    }
+
     fn mark_deactivated(&mut self) {
         debug_assert!(self.len > 0);
         self.len = -self.len

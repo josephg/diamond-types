@@ -145,6 +145,103 @@ impl ListCRDT {
 
         (only_a, only_b)
     }
+
+    /// Safety: This method only unapplies changes to the internal indexes. It does not update
+    /// other metadata. Calling doc.check() after this will fail.
+    /// Also the passed span is not checked, and must be valid with respect to what else has been
+    /// applied / unapplied.
+    unsafe fn partially_unapply_changes(&mut self, mut span: OrderSpan) {
+        while span.len > 0 {
+            // Note: This sucks, but we obviously ("obviously") have to unapply the span backwards.
+            // So instead of searching for span.offset, we start with span.offset + span.len - 1.
+
+            // First check if the change was a delete or an insert.
+            let span_last_order = span.end() - 1;
+            if let Some((d, d_offset)) = self.deletes.find(span_last_order) {
+                // Its a delete. We need to try to undelete the item, unless the item was deleted
+                // multiple times (in which case, it stays deleted.)
+                let mut base = u32::max(span.order, d.0);
+                let mut undelete_here = span_last_order + 1 - base;
+                debug_assert!(undelete_here > 0);
+
+                // d_offset -= span_last_order - base; // equivalent to d_offset -= undelete_here - 1;
+
+                // Ok, undelete here. There's two approaches this implementation could take:
+                // 1. Undelete backwards from base + len_here - 1, undeleting as much as we can.
+                //    Rely on the outer loop to iterate to the next section
+                // 2. Undelete len_here items. The order that we undelete an item in doesn't matter,
+                //    so although this approach needs another inner loop, we can go through this
+                //    range forwards. This makes the logic simpler, but longer.
+
+                // I'm going with 2.
+                span.len -= undelete_here; // equivalent to span.len = base - span.order;
+
+                while undelete_here > 0 {
+                    let mut len_here = self.double_deletes.find_zero_range(base, undelete_here);
+
+                    if len_here == 0 { // Unlikely.
+                        // We're looking at an item which has been deleted multiple times. Decrement
+                        // the deleted count by 1 in double_deletes and advance.
+                        let len_dd_here = self.double_deletes.decrement_delete_range(base, undelete_here);
+                        debug_assert!(len_dd_here > 0);
+
+                        // What a minefield. O_o
+                        undelete_here -= len_dd_here;
+                        base += len_dd_here;
+
+                        if undelete_here == 0 { break; } // The entire range was undeleted.
+
+                        len_here = self.double_deletes.find_zero_range(base, undelete_here);
+                        debug_assert!(len_here > 0);
+                    }
+
+                    // Ok now undelete from the range tree.
+                    let base_item = d.1.order + d_offset + 1 - undelete_here;
+                    // dbg!(base_item, d.1.order, d_offset, undelete_here, base);
+                    let cursor = self.get_cursor_before(base_item);
+                    let markers = &mut self.index;
+                    let (len_here, succeeded) = self.range_tree.remote_reactivate(cursor, len_here as _, |entry, leaf| {
+                        Self::notify(markers, entry, leaf);
+                    });
+                    assert!(succeeded); // If they're active in the range_tree, we're in trouble.
+                    undelete_here -= len_here as u32;
+                }
+            } else {
+                // The operation was an insert operation, not a delete operation. Mark as
+                // deactivated.
+                let mut cursor = self.get_cursor_before(span_last_order);
+                cursor.offset += 1; // Dirty. Essentially get_cursor_after(span_last_order) without rolling over.
+
+                // Check how much we can reactivate in one go.
+                // let base = u32::min(span.order, span_last_order + 1 - cursor.offset);
+                let len_here = u32::min(span.len, cursor.offset as _); // usize? u32? blehh
+                debug_assert_ne!(len_here, 0);
+                // let base = span_last_order + 1 - len_here; // not needed.
+                // let base = u32::max(span.order, span_last_order + 1 - cursor.offset);
+                // dbg!(&cursor, len_here);
+                cursor.offset -= len_here as usize;
+
+                let markers = &mut self.index;
+                let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, len_here as _, |entry, leaf| {
+                    Self::notify(markers, entry, leaf);
+                });
+                // let len_here = deleted_here as u32;
+                debug_assert_eq!(deleted_here, len_here as usize);
+                // Deletes of an item have to be chronologically after any insert of that same item.
+                // By the time we've gotten to unwinding an insert, all the deletes must be cleared
+                // out.
+                assert!(succeeded);
+                span.len -= len_here;
+            }
+        }
+    }
+    
+    fn linear_changes_since(&self, order: Order) -> OrderSpan {
+        OrderSpan {
+            order,
+            len: self.get_next_order() - order
+        }
+    }
 }
 
 #[cfg(test)]
@@ -220,5 +317,18 @@ mod test {
 
         // doc1.replicate_into(&mut doc2); // Also "Saaabbb" but different txns.
         // dbg!(&doc1.txns, &doc2.txns);
+    }
+
+    #[test]
+    fn unapply() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("seph");
+        doc.local_insert(0, 0, "aaaa".into()); // [0,4)
+        doc.local_delete(0, 1, 2); // [4,6)
+        unsafe {
+            // doc.partially_unapply_changes(OrderSpan { order: 4, len: 2 });
+            doc.partially_unapply_changes(doc.linear_changes_since(0));
+        }
+        dbg!(&doc);
     }
 }

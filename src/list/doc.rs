@@ -163,7 +163,7 @@ impl ListCRDT {
     }
 
     // This does not stick_end to the found item.
-    fn get_cursor_after(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
+    pub(super) fn get_cursor_after(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
         if order == ROOT_ORDER {
             self.range_tree.cursor_at_start()
         } else {
@@ -181,7 +181,7 @@ impl ListCRDT {
         }
     }
 
-    fn notify(markers: &mut SpaceIndex, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
+    pub(super) fn notify(markers: &mut SpaceIndex, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
         // println!("notify {:?}", &entry);
 
         // let cursor = markers.cursor_at_offset_pos(entry.order as usize, true);

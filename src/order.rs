@@ -16,6 +16,10 @@ impl OrderSpan {
         self.order += amt;
         self.len -= amt;
     }
+
+    pub fn end(&self) -> u32 {
+        self.order + self.len
+    }
 }
 
 impl Default for OrderSpan {
@@ -46,10 +50,12 @@ impl SplitableSpan for OrderSpan {
         other
     }
 
+    // #[inline]
     fn can_append(&self, other: &Self) -> bool {
         other.order == self.order + self.len
     }
 
+    // #[inline]
     fn append(&mut self, other: Self) {
         self.len += other.len;
     }
@@ -63,6 +69,7 @@ impl SplitableSpan for OrderSpan {
 impl EntryTraits for OrderSpan {
     type Item = usize; // Order.
 
+    #[inline]
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
         let at = at as u32;
         let other = OrderSpan {

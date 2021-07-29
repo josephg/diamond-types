@@ -1,6 +1,8 @@
 use crate::splitable_span::SplitableSpan;
 use crate::rle::{Rle, KVPair};
 use crate::list::Order;
+use crate::order::OrderSpan;
+use crate::range_tree::EntryTraits;
 // use crate::range_tree::EntryTraits;
 
 /// Sometimes the same item is removed by multiple peers. This is really rare, but necessary to
@@ -38,30 +40,49 @@ impl SplitableSpan for DoubleDelete {
 }
 
 impl Rle<KVPair<DoubleDelete>> {
-    pub fn increment_delete_range(&mut self, base: Order, len: u32) {
+    // TODO: Consider changing all these methods to take an OrderSpan instead.
+
+    /// Internal function to add / subtract from a range of double deleted entries.
+    /// Returns the number of items modified. (Always == len when incrementing).
+    fn modify_delete_range(&mut self, base: Order, len: u32, update_by: i32) -> u32 {
         debug_assert!(len > 0);
-        let mut next_entry = KVPair(base, DoubleDelete { len, excess_deletes: 1 });
+        debug_assert_ne!(update_by, 0);
+        debug_assert_eq!(update_by.abs(), 1);
+
+        let mut modified = 0;
+
+        let mut next_span = OrderSpan { order: base, len };
+        // let mut next_entry = KVPair(base, DoubleDelete { len, excess_deletes: 1 });
 
         let start = self.search(base);
         let mut idx = start.unwrap_or_else(|idx| idx);
         loop {
-            debug_assert!(next_entry.1.len > 0);
+            debug_assert!(next_span.len > 0);
 
             // There's essentially 2 cases here: We're in a gap, or we landed in an existing entry.
-            // The gap case is most common. We'll handle the gap, then flow to handle the modify
-            // case each iteration.
-
-            if idx == self.0.len() || self.0[idx].0 > next_entry.0 {
-                // We're in a gap. Insert as much as we can here.
-                let mut this_entry = next_entry;
-                let done_here = if idx < self.0.len() && next_entry.end() > self.0[idx].0 {
+            // The gap case is most common when incrementing, but when decrementing we'll *only*
+            // land on entries. We'll handle the gap, then flow to handle the modify case each
+            // iteration.
+            if idx == self.0.len() || self.0[idx].0 > next_span.order {
+                if update_by < 0 { break; }
+                // We're in a gap.
+                // let mut this_span = next_entry;
+                let (done_here, this_entry) = if idx < self.0.len() && next_span.end() > self.0[idx].0 {
                     // The gap isn't big enough.
-                    next_entry = this_entry.truncate((self.0[idx].0 - this_entry.0) as usize);
-                    false
+                    let this_span = next_span.truncate_keeping_right((self.0[idx].0 - next_span.order) as usize);
+                    (false, KVPair(this_span.order, DoubleDelete {
+                        len: this_span.len,
+                        excess_deletes: update_by as u32
+                    }))
                 } else {
                     // Plenty of room.
-                    true
+                    (true, KVPair(next_span.order, DoubleDelete {
+                        len: next_span.len,
+                        excess_deletes: update_by as u32
+                    }))
                 };
+
+                modified += this_entry.1.len;
 
                 if idx >= 1 && self.0[idx - 1].can_append(&this_entry) {
                     self.0[idx - 1].append(this_entry);
@@ -76,38 +97,80 @@ impl Rle<KVPair<DoubleDelete>> {
 
             // Ok we still have stuff to increment, and we're inside an entry now.
             let entry = &mut self.0[idx];
-            debug_assert!(entry.0 <= next_entry.0);
-            debug_assert!(next_entry.0 < entry.end());
+            debug_assert!(entry.0 <= next_span.order);
+            debug_assert!(next_span.order < entry.end());
 
-            if entry.0 < next_entry.0 {
+            if entry.0 < next_span.order {
                 // Split into 2 entries. This approach will result in more memcpys but it shouldn't
                 // matter much in practice.
-                let remainder = entry.truncate((next_entry.0 - entry.0) as usize);
+                let remainder = entry.truncate((next_span.order - entry.0) as usize);
                 idx += 1;
                 self.0.insert(idx, remainder);
             }
 
             let entry = &mut self.0[idx];
-            debug_assert!(entry.0 == next_entry.0);
+            debug_assert!(entry.0 == next_span.order);
 
-            if entry.len() <= next_entry.len() {
-                entry.1.excess_deletes += 1;
-                next_entry.0 += entry.1.len;
-                next_entry.1.len -= entry.1.len;
-                if next_entry.1.len == 0 { break; }
+            // Note that we're leaving in entries with excess_deletes of 0. The reason for this is
+            // that decrement_delete_range is used when bouncing between versions. Usually we'll
+            // come right back to the branch in which the item was deleted twice, and in that case
+            // its more efficient not to need to slide entries around all over the place.
+
+            // Logic only correct because |update_by| == 1.
+            if update_by < 0 && entry.1.excess_deletes == 0 {
+                // We can't decrement an entry with 0. We're done here.
+                break;
+            }
+
+            if entry.len() <= next_span.len() {
+                entry.1.excess_deletes = entry.1.excess_deletes.wrapping_add(update_by as u32);
+                next_span.truncate_keeping_right(entry.1.len as usize);
+                modified += entry.1.len;
+                if next_span.len == 0 { break; }
                 idx += 1;
             } else {
                 // entry.len > next_entry.len. Split entry into 2 parts, increment excess_deletes
                 // and we're done.
-                let remainder = entry.truncate(next_entry.len());
-                entry.1.excess_deletes += 1;
+                let remainder = entry.truncate(next_span.len());
+                entry.1.excess_deletes = entry.1.excess_deletes.wrapping_add(update_by as u32);
+                modified += entry.1.len;
                 self.0.insert(idx + 1, remainder);
                 break;
             }
         }
+
+        modified
+    }
+
+    pub fn increment_delete_range(&mut self, base: Order, len: u32) {
+        self.modify_delete_range(base, len, 1);
+    }
+
+    pub fn decrement_delete_range(&mut self, base: Order, max_len: u32) -> u32 {
+        self.modify_delete_range(base, max_len, -1)
+    }
+
+    /// Find the range of items which have (implied or explicit) 0 double deletes
+    pub(crate) fn find_zero_range(&self, base: Order, max_len: u32) -> u32 {
+        // let mut span = OrderSpan { order: base, len: max_len };
+
+        for idx in self.search(base).unwrap_or_else(|idx| idx)..self.0.len() {
+            let e = &self.0[idx];
+            debug_assert_ne!(e.1.len, 0);
+
+            if e.0 >= base + max_len {
+                return max_len;
+            } else if e.1.excess_deletes != 0 {
+                // The element overlaps and its non-zero.
+                return if e.0 <= base { 0 } else { e.0 - base }
+            }
+        }
+        max_len
     }
 }
 
+// Note this code is more heavily tested because its rarely called in practice. Rare bugs are worst
+// bugs.
 #[cfg(test)]
 mod tests {
     use crate::rle::{Rle, KVPair};
@@ -154,5 +217,53 @@ mod tests {
         ]);
 
         // dbg!(&deletes);
+    }
+
+    #[test]
+    fn dec_delete_range() {
+        // This is mostly the same code is inc_delete_range so we don't need too much testing.
+        let mut deletes: Rle<KVPair<DoubleDelete>> = Rle::new();
+        assert_eq!(deletes.decrement_delete_range(5, 10), 0);
+
+        deletes.increment_delete_range(5, 3);
+        assert_eq!(deletes.decrement_delete_range(5, 5), 3);
+        assert_eq!(deletes.0, vec![KVPair(5, DoubleDelete { len: 3, excess_deletes: 0 })]);
+
+
+        deletes.increment_delete_range(6, 3);
+        // dbg!(&deletes);
+        assert_eq!(deletes.0, vec![
+            KVPair(5, DoubleDelete { len: 1, excess_deletes: 0 }),
+            KVPair(6, DoubleDelete { len: 3, excess_deletes: 1 }),
+        ]);
+        assert_eq!(deletes.decrement_delete_range(5, 3), 0);
+        assert_eq!(deletes.decrement_delete_range(7, 3), 2);
+    }
+
+    #[test]
+    fn zero_range() {
+        let mut deletes: Rle<KVPair<DoubleDelete>> = Rle::new();
+        assert_eq!(deletes.find_zero_range(10, 100), 100);
+
+        deletes.increment_delete_range(5, 3);
+        assert_eq!(deletes.find_zero_range(10, 100), 100);
+        assert_eq!(deletes.find_zero_range(8, 100), 100);
+        assert_eq!(deletes.find_zero_range(7, 100), 0);
+        assert_eq!(deletes.find_zero_range(5, 100), 0);
+        assert_eq!(deletes.find_zero_range(0, 100), 5);
+
+        deletes.decrement_delete_range(5, 3);
+        assert_eq!(deletes.find_zero_range(0, 100), 100);
+        assert_eq!(deletes.find_zero_range(5, 100), 100);
+        assert_eq!(deletes.find_zero_range(8, 100), 100);
+        assert_eq!(deletes.find_zero_range(10, 100), 100);
+
+        deletes.increment_delete_range(7, 3);
+        assert_eq!(deletes.find_zero_range(0, 100), 7);
+        assert_eq!(deletes.find_zero_range(5, 100), 2);
+        assert_eq!(deletes.find_zero_range(7, 100), 0);
+        assert_eq!(deletes.find_zero_range(8, 100), 0);
+        assert_eq!(deletes.find_zero_range(9, 100), 0);
+        assert_eq!(deletes.find_zero_range(10, 100), 100);
     }
 }
