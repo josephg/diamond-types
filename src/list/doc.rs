@@ -347,6 +347,19 @@ impl ListCRDT {
             // The new frontier points to the last order in the txn.
             replace(&mut self.frontier, smallvec![last_order])
         };
+
+        // TODO: Make this work. It has a big impact on performance.
+        // Fast path. The code below is weirdly slow, but most txns just append.
+        if let Some(last) = self.txns.0.last_mut() {
+            if txn_parents.len() == 1
+                && txn_parents[0] == last.order + last.len - 1
+                && last.order + last.len == first_order
+            {
+                last.len += len;
+                return;
+            }
+        }
+
         // let parents = replace(&mut self.frontier, txn_parents);
         let mut shadow = first_order;
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
