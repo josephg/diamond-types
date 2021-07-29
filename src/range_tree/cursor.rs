@@ -208,27 +208,6 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
     /// to be a cursor to the start of the next entry - potentially in the following leaf.
     ///
     /// Returns false if the resulting cursor location points past the end of the tree.
-    pub(crate) fn roll_to_next_entry_2(&mut self) -> bool {
-        unsafe {
-            // This is pretty dirty to handle the case where the cursor already points past the end
-            // of the document when this method is called.
-            let node = self.node.as_ref();
-
-            if self.idx < node.num_entries as usize {
-                let seq_len = node.data[self.idx].len();
-
-                debug_assert!(self.offset <= seq_len);
-
-                if self.offset < seq_len { return true; }
-                self.offset = 0;
-                self.idx += 1;
-            }
-
-            if self.idx >= node.num_entries as usize {
-                self.next_entry()
-            } else { true }
-        }
-    }
     pub(crate) fn roll_to_next_entry(&mut self) -> bool {
         unsafe {
             // This is pretty dirty to handle the case where the cursor already points past the end
@@ -251,29 +230,6 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
             }
         }
     }
-
-    pub(crate) fn roll_to_next_entry_old(&mut self) -> bool {
-        unsafe {
-            let node = self.node.as_ref();
-            let seq_len = node.data[self.idx].len();
-
-            debug_assert!(self.offset <= seq_len);
-
-            // If we're at the end of the current entry, skip it.
-            if self.offset == seq_len {
-                self.offset = 0;
-                self.idx += 1;
-                // entry = &mut node.0[cursor.idx];
-
-                if self.idx >= node.num_entries as usize {
-                    return self.next_entry();
-                }
-            }
-
-            true
-        }
-    }
-
 
     pub fn get_item(&self) -> Option<E::Item> {
         // TODO: Optimize this. This is gross.
