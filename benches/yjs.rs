@@ -5,8 +5,8 @@
 use criterion::{black_box, Criterion};
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use smartstring::alias::{String as SmartString};
-use text_crdt_rust::*;
-use text_crdt_rust::list::*;
+use diamond_types::*;
+use diamond_types::list::*;
 
 fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
