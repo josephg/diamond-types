@@ -4,12 +4,13 @@ use std::fmt::Debug;
 use std::cmp::Ordering::*;
 use crate::rle::{RleKey, RleKeyed, AppendRLE};
 use humansize::{FileSize, file_size_opts};
+use std::iter::FromIterator;
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct Rle<V: SplitableSpan + Clone + Debug + Sized>(pub(crate) Vec<V>);
+pub struct Rle<V: SplitableSpan + Clone + Sized>(pub(crate) Vec<V>);
 
-impl<V: SplitableSpan + Clone + Debug + Sized> Rle<V> {
+impl<V: SplitableSpan + Clone + Sized> Rle<V> {
     pub fn new() -> Self { Self(Vec::new()) }
 
     /// Append a new value to the end of the RLE list. This method is fast - O(1) average time.
@@ -38,7 +39,7 @@ impl<V: SplitableSpan + Clone + Debug + Sized> Rle<V> {
 }
 
 // impl<K: Copy + Eq + Ord + Add<Output = K> + Sub<Output = K> + AddAssign, V: Copy + Eq> RLE<K, V> {
-impl<V: SplitableSpan + RleKeyed + Clone + Debug + Sized> Rle<V> {
+impl<V: SplitableSpan + RleKeyed + Clone + Sized> Rle<V> {
     pub(crate) fn search(&self, needle: RleKey) -> Result<usize, usize> {
         self.0.binary_search_by(|entry| {
             let key = entry.get_rle_key();
@@ -85,6 +86,26 @@ impl<V: SplitableSpan + RleKeyed + Clone + Debug + Sized> Rle<V> {
         self.0.insert(idx, val);
     }
 }
+
+impl<V: SplitableSpan + Clone + Sized> FromIterator<V> for Rle<V> {
+    fn from_iter<T: IntoIterator<Item=V>>(iter: T) -> Self {
+        let mut rle = Self::new();
+        for item in iter {
+            rle.append(item);
+        }
+        rle
+    }
+}
+
+// impl<'a, V: 'a + SplitableSpan + Clone + Sized> FromIterator<&'a V> for Rle<V> {
+//     fn from_iter<T: IntoIterator<Item=&'a V>>(iter: T) -> Self {
+//         let mut rle = Self::new();
+//         for item in iter {
+//             rle.append(item.clone());
+//         }
+//         rle
+//     }
+// }
 
 impl<V: EntryTraits + RleKeyed> Rle<V> {
     pub fn get(&self, idx: RleKey) -> V::Item {

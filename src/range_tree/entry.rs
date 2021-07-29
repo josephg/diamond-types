@@ -19,6 +19,7 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
     fn at_offset(&self, offset: usize) -> Self::Item;
 }
 
+// TODO: Fold this into CRDTItem.
 pub trait EntryWithContent {
     /// User specific content length. Used by range_tree for character counts.
     fn content_len(&self) -> usize;

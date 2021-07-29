@@ -4,6 +4,8 @@ use smallvec::SmallVec;
 use crate::range_tree::index::FullIndex;
 use std::mem::size_of;
 use humansize::{FileSize, file_size_opts};
+use crate::rle::Rle;
+use std::iter::FromIterator;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 
@@ -295,16 +297,38 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
 
         let num_internal_nodes = self.count_internal_nodes();
+        let internal_node_size = num_internal_nodes * size_of::<NodeInternal<E, I>>();
+        let num_entries = self.count_entries();
 
         println!("-------- Range tree stats --------");
-        println!("Number of {} byte entries: {}", size_of::<E>(), self.count_entries());
+        println!("Number of {} byte entries: {} ({} bytes of entries)",
+             size_of::<E>(),
+             num_entries,
+             (num_entries * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap()
+        );
         println!("Number of internal nodes {}", num_internal_nodes);
-        println!("(Size of internal nodes {})",
-            (num_internal_nodes * size_of::<NodeInternal<E, I>>()).file_size(file_size_opts::CONVENTIONAL).unwrap());
-        println!("Depth {}", self.get_depth());
-        println!("Total range tree memory usage {}", self.count_total_memory().file_size(file_size_opts::CONVENTIONAL).unwrap());
 
-        println!("(efficient size: {})", (self.count_entries() * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("(Size of internal nodes {})",
+            internal_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("Depth {}", self.get_depth());
+        println!("Total range tree memory usage {}",
+             self.count_total_memory().file_size(file_size_opts::CONVENTIONAL).unwrap());
+
+        let compacted = Rle::<E>::from_iter(self.iter());
+        // println!("(efficient size: {})", (self.count_entries() * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("Compacts to {} entries / {} bytes",
+             compacted.num_entries(),
+             (compacted.num_entries() * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap()
+        );
+
+        // This prints the first 100 items of the real entries, and maximally compacted entries:
+        // for e in self.iter().take(100) {
+        //     println!("{:?}", e);
+        // }
+        // println!("\n\n");
+        // for e in compacted.iter().take(100) {
+        //     println!("{:?}", e);
+        // }
 
         if detailed {
             println!("Entry distribution {:?}", size_counts);

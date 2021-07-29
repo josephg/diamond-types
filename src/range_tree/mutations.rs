@@ -186,17 +186,49 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         assert!(items.len() >= 1 && items.len() <= 3);
 
-        let entry = cursor.get_raw_entry_mut();
-        // println!("replace_entry {:?} {:?} with {:?}", flush_marker.0, &entry, items);
-        I::decrement_marker(flush_marker, &entry);
-        // flush_marker.0 -= entry.content_len() as isize;
-        *entry = items[0];
-        I::increment_marker(flush_marker, &entry);
-        // flush_marker.0 += entry.content_len() as isize;
-        cursor.offset = entry.len();
+        // Essentially here we want to:
+        // 1. Concatenate as much from items as we can into the previous element
+        // 2. With the rest:
+        //   - If we run out of items, slide back (deleting the item under the cursor)
+        //   - If we have 1 item left, replace inline
+        //   - If we have more than 1 item left, replace then insert.
+        // Even though we can delete items here, we will never end up with an empty node. So no
+        // need to worry about the complex cases of delete.
 
-        // And insert the rest.
-        self.insert_internal(&items[1..], cursor, flush_marker, notify);
+        // Before anything else, we'll give a token effort trying to concatenate the item onto the
+        // previous item.
+        let mut items_idx = 0;
+        let node = unsafe { cursor.node.as_mut() };
+        if cursor.idx >= 1 {
+            let elem = &mut node.data[cursor.idx - 1];
+            loop { // This is a crap for / while loop.
+                let item = &items[items_idx];
+                if elem.can_append(item) {
+                    I::increment_marker(flush_marker, item);
+                    elem.append(*item);
+                    items_idx += 1;
+                    if items_idx >= items.len() { break; }
+                } else { break; }
+            }
+        }
+
+        let entry = cursor.get_raw_entry_mut();
+        I::decrement_marker(flush_marker, entry);
+
+        // Ok, 3 cases:
+        if items_idx >= items.len() {
+            // Nuke the item under the cursor and shuffle everything back.
+            node.splice_out(cursor.idx);
+        } else {
+            // First replace the item directly.
+            *entry = items[items_idx];
+            I::increment_marker(flush_marker, entry);
+
+            cursor.offset = entry.len();
+
+            // And insert the rest, if there are any.
+            self.insert_internal(&items[items_idx + 1..], cursor, flush_marker, notify);
+        }
     }
 
     pub fn insert<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, new_entry: E, mut notify: F)
@@ -844,8 +876,10 @@ fn delete_leaves<E: EntryTraits, I: TreeIndex<E>>(_cursor: &mut Cursor<E, I>, _d
 #[cfg(test)]
 mod tests {
     // use std::pin::Pin;
-    use crate::range_tree::{RangeTree, CRDTSpan, ContentIndex};
+    use crate::range_tree::{RangeTree, CRDTSpan, ContentIndex, CRDTItem, EntryTraits, EntryWithContent};
     use crate::common::CRDTLocation;
+    use crate::list::Order;
+    use crate::splitable_span::SplitableSpan;
 
     #[test]
     fn splice_insert_test() {
@@ -872,26 +906,133 @@ mod tests {
         tree.check();
     }
 
-    // #[test]
-    // fn backspace_collapses() {
-    //     let mut tree = RangeTree::<CRDTSpan, ContentIndex>::new();
-    //
-    //     let cursor = tree.cursor_at_content_pos(0, false);
-    //     let entry = CRDTSpan {
-    //         loc: CRDTLocation {agent: 0, seq: 1000},
-    //         len: 100
-    //     };
-    //     tree.insert(cursor, entry, &mut |_, _| {});
-    //     assert_eq!(tree.count_entries(), 1);
-    //
-    //     // Ok now I'm going to delete the last and second-last elements. We should end up with
-    //     // two entries.
-    //     let cursor = tree.cursor_at_content_pos(99, false);
-    //     tree.local_mark_deleted(cursor, 1, &mut |_, _| {});
-    //     assert_eq!(tree.count_entries(), 2);
-    //
-    //     let cursor = tree.cursor_at_content_pos(98, false);
-    //     tree.local_mark_deleted(cursor, 1, &mut |_, _| {});
-    //     assert_eq!(tree.count_entries(), 2);
-    // }
+    /// This is a simple span object for testing.
+    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+    struct TestRange {
+        order: Order,
+        len: u32,
+        is_activated: bool,
+    }
+
+    impl Default for TestRange {
+        fn default() -> Self {
+            Self {
+                order: Order::MAX,
+                len: u32::MAX,
+                is_activated: false
+            }
+        }
+    }
+
+    impl SplitableSpan for TestRange {
+        fn len(&self) -> usize { self.len as usize }
+        fn truncate(&mut self, at: usize) -> Self {
+            let other = Self {
+                order: self.order + at as u32,
+                len: self.len - at as u32,
+                is_activated: self.is_activated
+            };
+            self.len = at as u32;
+            other
+        }
+        fn can_append(&self, other: &Self) -> bool {
+            other.order == self.order + self.len && other.is_activated == self.is_activated
+        }
+
+        fn append(&mut self, other: Self) {
+            assert!(self.can_append(&other));
+            self.len += other.len;
+        }
+
+        fn prepend(&mut self, other: Self) {
+            assert!(other.can_append(&self));
+            self.len += other.len;
+            self.order = other.order;
+        }
+    }
+
+    impl EntryTraits for TestRange {
+        type Item = ();
+
+        fn truncate_keeping_right(&mut self, at: usize) -> Self {
+            let mut other = *self;
+            *self = other.truncate(at);
+            other
+        }
+
+        fn contains(&self, _loc: Self::Item) -> Option<usize> { unimplemented!() }
+        fn is_valid(&self) -> bool { self.order != Order::MAX }
+        fn at_offset(&self, _offset: usize) -> Self::Item { () }
+    }
+
+    impl CRDTItem for TestRange {
+        fn is_activated(&self) -> bool {
+            self.is_activated
+        }
+
+        fn mark_activated(&mut self) {
+            assert!(!self.is_activated);
+            self.is_activated = true;
+        }
+
+        fn mark_deactivated(&mut self) {
+            assert!(self.is_activated);
+            self.is_activated = false;
+        }
+    }
+
+    impl EntryWithContent for TestRange {
+        fn content_len(&self) -> usize {
+            if self.is_activated { self.len() } else { 0 }
+        }
+    }
+
+    #[test]
+    fn delete_collapses() {
+        let mut tree = RangeTree::<TestRange, ContentIndex>::new();
+
+        let cursor = tree.cursor_at_content_pos(0, false);
+        let entry = TestRange {
+            order: 1000,
+            len: 100,
+            is_activated: true,
+        };
+        tree.insert(cursor, entry, &mut |_, _| {});
+        assert_eq!(tree.count_entries(), 1);
+
+        // I'm going to delete two items in the middle.
+        let cursor = tree.cursor_at_content_pos(50, false);
+        tree.local_deactivate(cursor, 1, &mut |_, _| {});
+        assert_eq!(tree.count_entries(), 3);
+
+        let cursor = tree.cursor_at_content_pos(50, false);
+        dbg!(&tree);
+        tree.local_deactivate(cursor, 1, &mut |_, _| {});
+        dbg!(&tree);
+        assert_eq!(tree.count_entries(), 3);
+    }
+
+    #[test]
+    fn backspace_collapses() {
+        let mut tree = RangeTree::<TestRange, ContentIndex>::new();
+
+        let cursor = tree.cursor_at_content_pos(0, false);
+        let entry = TestRange {
+            order: 1000,
+            len: 100,
+            is_activated: true,
+        };
+        tree.insert(cursor, entry, &mut |_, _| {});
+        assert_eq!(tree.count_entries(), 1);
+
+        // Ok now I'm going to delete the last and second-last elements. We should end up with
+        // two entries.
+        let cursor = tree.cursor_at_content_pos(99, false);
+        tree.local_deactivate(cursor, 1, &mut |_, _| {});
+        assert_eq!(tree.count_entries(), 2);
+
+        let cursor = tree.cursor_at_content_pos(98, false);
+        tree.local_deactivate(cursor, 1, &mut |_, _| {});
+        assert_eq!(tree.count_entries(), 2);
+    }
 }

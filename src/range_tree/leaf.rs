@@ -151,4 +151,10 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
             })
         }
     }
+
+    /// Remove a single item from the node
+    pub(super) fn splice_out(&mut self, idx: usize) {
+        self.data.copy_within(idx + 1..self.num_entries as usize, idx);
+        self.num_entries -= 1;
+    }
 }
