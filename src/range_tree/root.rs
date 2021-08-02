@@ -296,7 +296,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             size_counts[bucket] += 1;
         }
 
-        let num_internal_nodes = self.count_internal_nodes();
+        let (num_internal_nodes, num_leaf_nodes) = self.count_nodes();
+        let leaf_node_size = num_leaf_nodes * size_of::<NodeLeaf<E, I>>();
         let internal_node_size = num_internal_nodes * size_of::<NodeInternal<E, I>>();
         let num_entries = self.count_entries();
 
@@ -306,10 +307,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
              num_entries,
              (num_entries * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap()
         );
-        println!("Number of internal nodes {}", num_internal_nodes);
-
-        println!("(Size of internal nodes {})",
+        println!("Number of internal nodes {} ({})", num_internal_nodes,
             internal_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("Number of leaf nodes {} ({})", num_leaf_nodes,
+            leaf_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap());
+
         println!("Depth {}", self.get_depth());
         println!("Total range tree memory usage {}",
              self.count_total_memory().file_size(file_size_opts::CONVENTIONAL).unwrap());
@@ -357,22 +359,23 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         self.iter().fold(0, |a, _| a + 1)
     }
 
-    fn count_internal_nodes_internal(node: &Node<E, I>, num: &mut usize) {
+    // Passing (num internal nodes, num leaf nodes).
+    fn count_nodes_internal(node: &Node<E, I>, num: &mut (usize, usize)) {
         if let Node::Internal(n) = node {
-            *num += 1;
+            num.0 += 1;
 
             for (_, e) in &n.data[..] {
                 if let Some(e) = e {
-                    Self::count_internal_nodes_internal(e, num);
+                    Self::count_nodes_internal(e, num);
                 }
             }
-        }
+        } else { num.1 += 1; }
     }
 
     #[allow(unused)]
-    pub(crate) fn count_internal_nodes(&self) -> usize {
-        let mut num = 0;
-        Self::count_internal_nodes_internal(&self.root, &mut num);
+    pub(crate) fn count_nodes(&self) -> (usize, usize) {
+        let mut num = (0, 0);
+        Self::count_nodes_internal(&self.root, &mut num);
         num
     }
 
