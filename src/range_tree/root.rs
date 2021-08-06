@@ -309,8 +309,10 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         );
         println!("Number of internal nodes {} ({})", num_internal_nodes,
             internal_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap());
-        println!("Number of leaf nodes {} ({})", num_leaf_nodes,
-            leaf_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("Number of leaf nodes {} ({}) (space for {} entries)", num_leaf_nodes,
+            leaf_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap(),
+            num_leaf_nodes * NUM_LEAF_ENTRIES
+        );
 
         println!("Depth {}", self.get_depth());
         println!("Total range tree memory usage {}",
