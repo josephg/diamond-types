@@ -187,7 +187,7 @@ impl ListCRDT {
 
     /// This method returns the list of spans of orders which will bring a client up to date
     /// from the specified vector clock version.
-    pub(super) fn get_order_spans_since<B>(&self, vv: &VectorClock) -> B
+    pub(super) fn get_order_spans_since<B>(&self, vv: &[RemoteId]) -> B
     where B: Default + AppendRLE<OrderSpan>
     {
         #[derive(Clone, Copy, Debug, Eq)]
@@ -386,7 +386,7 @@ impl ListCRDT {
     }
 
     /// This is a simplified API for exporting txns to remote peers.
-    pub fn get_all_txns_since<B: FromIterator<RemoteTxn>>(&self, clock: &VectorClock) -> B {
+    pub fn get_all_txns_since<B: FromIterator<RemoteTxn>>(&self, clock: &[RemoteId]) -> B {
         let spans = self.get_order_spans_since::<Vec<_>>(clock);
         self.iter_remote_txns(spans.iter()).collect()
     }

@@ -5,7 +5,6 @@ use crate::range_tree::index::FullIndex;
 use std::mem::size_of;
 use humansize::{FileSize, file_size_opts};
 use crate::rle::Rle;
-use std::iter::FromIterator;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 
@@ -110,7 +109,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             let node = unsafe { cursor.node.as_ref() };
             assert_eq!(cursor.get_raw_entry().len(), cursor.offset);
             assert_eq!(cursor.idx, node.len_entries() - 1);
-            assert_eq!(cursor.next_entry(), false);
+            assert!(!cursor.next_entry());
         }
 
         cursor
@@ -166,10 +165,10 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         for e in &leaf.data[..] {
             if e.is_valid() {
                 // Make sure there's no data after an invalid entry
-                assert_eq!(done, false, "Leaf contains gaps");
+                assert!(!done, "Leaf contains gaps");
                 assert_ne!(e.len(), 0, "Invalid leaf - 0 length");
                 // count += e.content_len() as usize;
-                I::increment_offset(&mut count, &e);
+                I::increment_offset(&mut count, e);
                 num += 1;
             } else {
                 done = true;
@@ -200,7 +199,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         for (child_count_expected, child) in &node.data[..] {
             if let Some(child) = child {
                 // Make sure there's no data after an invalid entry
-                assert_eq!(done, false);
+                assert!(!done);
 
                 let child_ref = child;
 
@@ -239,8 +238,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         let root = &self.root;
         let expected_parent = ParentPtr::Root(unsafe { ref_to_nonnull(self) });
         let expected_size = match root {
-            Node::Internal(n) => { Self::check_internal(&n, expected_parent) },
-            Node::Leaf(n) => { Self::check_leaf(&n, expected_parent) },
+            Node::Internal(n) => { Self::check_internal(n, expected_parent) },
+            Node::Leaf(n) => { Self::check_leaf(n, expected_parent) },
         };
         assert_eq!(self.count, expected_size, "tree.count is incorrect");
     }
@@ -318,7 +317,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         println!("Total range tree memory usage {}",
              self.count_total_memory().file_size(file_size_opts::CONVENTIONAL).unwrap());
 
-        let compacted = Rle::<E>::from_iter(self.iter());
+        let compacted: Rle<E> = self.iter().collect();
         // println!("(efficient size: {})", (self.count_entries() * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap());
         println!("Compacts to {} entries / {} bytes",
              compacted.num_entries(),

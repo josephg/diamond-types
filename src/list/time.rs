@@ -17,20 +17,20 @@ impl ListCRDT {
 
     // Returns (spans only in a, spans only in b).
     pub(crate) fn diff(&self, a: &Branch, b: &Branch) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
-        assert!(a.len() > 0);
-        assert!(b.len() > 0);
+        assert!(!a.is_empty());
+        assert!(!b.is_empty());
 
         // First some simple short circuit checks to avoid needless work in common cases.
         // Note most of the time this method is called, one of these early short circuit cases will
         // fire.
         if a == b { return (smallvec![], smallvec![]); }
         // let root_branch: Branch = smallvec![ROOT_ORDER];
-        if a.as_slice() == &[ROOT_ORDER] {
+        if a.as_slice() == [ROOT_ORDER] {
             // TODO: b or b + 1?
             let max_b = b.iter().max().unwrap();
             return (smallvec![], smallvec![OrderSpan {order: 0, len: max_b + 1}]);
         }
-        if b.as_slice() == &[ROOT_ORDER] {
+        if b.as_slice() == [ROOT_ORDER] {
             let max_a = a.iter().max().unwrap();
             return (smallvec![OrderSpan {order: 0, len: max_a + 1}], smallvec![]);
         }

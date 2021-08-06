@@ -7,7 +7,6 @@ use std::ptr::NonNull;
 use crate::splitable_span::SplitableSpan;
 use std::cmp::Ordering;
 use crate::rle::Rle;
-use std::iter::FromIterator;
 use std::mem::replace;
 use crate::list::external_txn::{RemoteTxn, RemoteOp};
 use crate::unicount::split_at_char;
@@ -369,7 +368,7 @@ impl ListCRDT {
             order: first_order,
             len,
             shadow,
-            parents: SmallVec::from_iter(txn_parents.into_iter())
+            parents: txn_parents.into_iter().collect()
         };
 
         self.txns.append(txn);
@@ -384,12 +383,10 @@ impl ListCRDT {
         if !succeeded {
             // This span was already deleted by a different peer. Mark duplicate delete.
             self.double_deletes.increment_delete_range(order, deleted_here);
-        } else {
-            if let Some(ref mut text) = self.text_content {
-                if update_content {
-                    let pos = cursor.count_pos() as usize;
-                    text.remove(pos..pos + deleted_here as usize);
-                }
+        } else if let Some(ref mut text) = self.text_content {
+            if update_content {
+                let pos = cursor.count_pos() as usize;
+                text.remove(pos..pos + deleted_here as usize);
             }
         }
 
@@ -443,8 +440,8 @@ impl ListCRDT {
                     next_order += len;
 
                     // Convert origin left and right to order numbers
-                    let origin_left = self.remote_id_to_order(&origin_left);
-                    let origin_right = self.remote_id_to_order(&origin_right);
+                    let origin_left = self.remote_id_to_order(origin_left);
+                    let origin_right = self.remote_id_to_order(origin_right);
 
                     let item = YjsSpan {
                         order,
@@ -519,9 +516,9 @@ impl ListCRDT {
 
         assert!(content.is_empty());
 
-        let parents: Branch = SmallVec::from_iter(txn.parents.iter().map(|remote_id| {
+        let parents: Branch = txn.parents.iter().map(|remote_id| {
             self.remote_id_to_order(remote_id)
-        }));
+        }).collect();
         self.insert_txn(Some(parents), first_order, txn_len as u32);
     }
 

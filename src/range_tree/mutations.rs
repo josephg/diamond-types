@@ -405,7 +405,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             // Replace this item inline.
             // Note that even if the size hasn't changed, they might have different character
             // sizes or something like that.
-            I::decrement_marker(flush_marker, &entry);
+            I::decrement_marker(flush_marker, entry);
             I::increment_marker(flush_marker, &new_entry);
             notify(new_entry, cursor.node);
             *cursor.get_raw_entry_mut() = new_entry;

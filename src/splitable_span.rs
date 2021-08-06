@@ -42,7 +42,7 @@ impl SplitableSpan for i32 {
     // type Item = bool; // Negative runs = false, positive = true.
 
     fn len(&self) -> usize {
-        return self.abs() as usize;
+        self.abs() as usize
     }
 
     fn truncate(&mut self, at: usize) -> Self {
@@ -54,7 +54,8 @@ impl SplitableSpan for i32 {
         let abs = self.abs();
         let sign = self.signum();
         *self = at * sign;
-        return (abs - at) * sign;
+
+        (abs - at) * sign
     }
 
     fn can_append(&self, other: &Self) -> bool {

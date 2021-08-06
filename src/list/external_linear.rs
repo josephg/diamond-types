@@ -10,6 +10,9 @@ use crate::list::external_txn::RemoteId;
 /// lower network overhead (the peer doesn't need all the CRDT chum). The downside is the peer isn't
 /// a full node, doesn't have history and can't connect to other peers.
 
+
+// struct
+
 impl ListCRDT {
 
 

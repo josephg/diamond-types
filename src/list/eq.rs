@@ -159,9 +159,7 @@ impl PartialEq for ListCRDT {
             let (other_txn, offset) = other.txns.find(other_order).unwrap();
             if let Some(actual_parent) = other_txn.parent_at_offset(offset as usize) {
                 if expect_parents.len() != 1 || expect_parents[0] != actual_parent { return false; }
-            } else {
-                if !set_eq(&expect_parents, &other_txn.parents) { return false; }
-            }
+            } else if !set_eq(&expect_parents, &other_txn.parents) { return false; }
         }
 
         // 5. The contained text content should also match. If we've gotten this far and it doesn't

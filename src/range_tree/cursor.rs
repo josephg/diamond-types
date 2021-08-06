@@ -154,7 +154,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         // TODO: This is a bit redundant - we could find out the local position
         // when we scan initially to initialize the cursor.
         for e in &node.data[0..self.idx] {
-            I::increment_offset(&mut pos, &e);
+            I::increment_offset(&mut pos, e);
             // pos += e.content_len();
         }
 

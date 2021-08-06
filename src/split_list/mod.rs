@@ -67,7 +67,6 @@ thread_local! {
     static SHUFFLES: std::cell::RefCell<usize> = std::cell::RefCell::new(0);
 }
 
-
 impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
     pub fn new() -> Self {
         Self::new_with_bucket_size(DEFAULT_BUCKET_SIZE)
@@ -441,6 +440,10 @@ impl<Entry> SplitList<Entry> where Entry: SplitableSpan + Debug {
         let (bucket_idx, _, cursor) = self.get_internal_idx(index, false);
         &self.content[bucket_idx][cursor.idx]
     }
+}
+
+impl<Entry> Default for SplitList<Entry> where Entry: SplitableSpan + Debug  {
+    fn default() -> Self { Self::new() }
 }
 
 impl<Entry> SplitList<Entry> where Entry: SplitableSpan + RleKeyed + Copy + Debug + Sized {
