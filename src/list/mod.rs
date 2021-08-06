@@ -27,10 +27,6 @@ mod time;
 mod check;
 mod external_linear;
 
-#[cfg(test)]
-pub mod fuzzer_utils;
-
-
 // #[cfg(inlinerope)]
 // pub const USE_INNER_ROPE: bool = true;
 // #[cfg(not(inlinerope))]
