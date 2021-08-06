@@ -34,6 +34,21 @@ impl ClientData {
     }
 }
 
+pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, ContentIndex>>) + '_ {
+    move |entry: YjsSpan, leaf| {
+        // println!("notify {:?}", &entry);
+
+        // let cursor = markers.cursor_at_offset_pos(entry.order as usize, true);
+        // markers.replace_range(cursor, MarkerEntry {
+        //     ptr: Some(ptr), len: entry.len() as u32
+        // }, |_,_| {});
+
+        index.replace_range(entry.order as usize, MarkerEntry {
+            ptr: Some(leaf), len: entry.len() as u32
+        });
+    }
+}
+
 /// Advance branch frontier by a transaction. This is written creating a new branch, which is
 /// somewhat inefficient (especially if the frontier is spilled).
 fn advance_branch_by(branch: &mut Branch, txn_parents: &Branch, first_order: Order, len: u32) {
@@ -181,18 +196,6 @@ impl ListCRDT {
         }
     }
 
-    pub(super) fn notify(markers: &mut SpaceIndex, entry: YjsSpan, ptr: NonNull<NodeLeaf<YjsSpan, ContentIndex>>) {
-        // println!("notify {:?}", &entry);
-
-        // let cursor = markers.cursor_at_offset_pos(entry.order as usize, true);
-        // markers.replace_range(cursor, MarkerEntry {
-        //     ptr: Some(ptr), len: entry.len() as u32
-        // }, |_,_| {});
-        markers.replace_range(entry.order as usize, MarkerEntry {
-            ptr: Some(ptr), len: entry.len() as u32
-        });
-    }
-
     fn assign_order_to_client(&mut self, loc: CRDTLocation, order: Order, len: usize) {
         self.client_with_order.append(KVPair(order, CRDTSpan {
             loc,
@@ -331,10 +334,7 @@ impl ListCRDT {
         }
 
         // Now insert here.
-        let markers = &mut self.index;
-        self.range_tree.insert(cursor, item, |entry, leaf| {
-            Self::notify(markers, entry, leaf);
-        });
+        self.range_tree.insert(cursor, item, notify_for(&mut self.index));
     }
 
     fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
@@ -475,10 +475,7 @@ impl ListCRDT {
 
                         let cursor = self.get_cursor_before(target_order);
 
-                        let markers = &mut self.index;
-                        let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, len as _, |entry, leaf| {
-                            Self::notify(markers, entry, leaf);
-                        });
+                        let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, len as _, notify_for(&mut self.index));
                         let deleted_here = deleted_here as u32;
 
                         if !succeeded {
@@ -523,26 +520,23 @@ impl ListCRDT {
         let first_order = self.get_next_order();
         let mut next_order = first_order;
 
-        let mut txn_span = 0;
+        let mut txn_len = 0;
         for LocalOp { pos: _, ins_content, del_span } in local_ops {
-            txn_span += *del_span;
-            txn_span += ins_content.chars().count();
+            txn_len += *del_span;
+            txn_len += ins_content.chars().count();
         }
 
         self.assign_order_to_client(CRDTLocation {
             agent,
             seq: self.client_data[agent as usize].get_next_seq()
-        }, first_order, txn_span);
+        }, first_order, txn_len);
 
 
         for LocalOp { pos, ins_content, del_span } in local_ops {
             let pos = *pos;
             if *del_span > 0 {
                 let cursor = self.range_tree.cursor_at_content_pos(pos, false);
-                let markers = &mut self.index;
-                let deleted_items = self.range_tree.local_deactivate(cursor, *del_span, |entry, leaf| {
-                    Self::notify(markers, entry, leaf);
-                });
+                let deleted_items = self.range_tree.local_deactivate(cursor, *del_span, notify_for(&mut self.index));
 
                 // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
                 self.index.append_entry(self.index.last().map_or(MarkerEntry::default(), |m| {

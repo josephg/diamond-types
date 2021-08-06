@@ -3,6 +3,7 @@ use crate::order::OrderSpan;
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
 use crate::rle::AppendRLE;
+use crate::list::doc::notify_for;
 
 /// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
 /// about branches, find diffs and move between branches.
@@ -199,10 +200,7 @@ impl ListCRDT {
                     let base_item = d.1.order + d_offset + 1 - undelete_here;
                     // dbg!(base_item, d.1.order, d_offset, undelete_here, base);
                     let cursor = self.get_cursor_before(base_item);
-                    let markers = &mut self.index;
-                    let (len_here, succeeded) = self.range_tree.remote_reactivate(cursor, len_here as _, |entry, leaf| {
-                        Self::notify(markers, entry, leaf);
-                    });
+                    let (len_here, succeeded) = self.range_tree.remote_reactivate(cursor, len_here as _, notify_for(&mut self.index));
                     assert!(succeeded); // If they're active in the range_tree, we're in trouble.
                     undelete_here -= len_here as u32;
                 }
@@ -221,10 +219,7 @@ impl ListCRDT {
                 // dbg!(&cursor, len_here);
                 cursor.offset -= len_here as usize;
 
-                let markers = &mut self.index;
-                let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, len_here as _, |entry, leaf| {
-                    Self::notify(markers, entry, leaf);
-                });
+                let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, len_here as _, notify_for(&mut self.index));
                 // let len_here = deleted_here as u32;
                 debug_assert_eq!(deleted_here, len_here as usize);
                 // Deletes of an item have to be chronologically after any insert of that same item.
