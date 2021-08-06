@@ -4,6 +4,7 @@ use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
 use crate::rle::AppendRLE;
 use crate::list::doc::notify_for;
+use crate::range_tree::EntryTraits;
 
 /// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
 /// about branches, find diffs and move between branches.
@@ -151,7 +152,7 @@ impl ListCRDT {
     /// other metadata. Calling doc.check() after this will fail.
     /// Also the passed span is not checked, and must be valid with respect to what else has been
     /// applied / unapplied.
-    unsafe fn partially_unapply_changes(&mut self, mut span: OrderSpan) {
+    pub(super) unsafe fn partially_unapply_changes(&mut self, mut span: OrderSpan) {
         while span.len > 0 {
             // Note: This sucks, but we obviously ("obviously") have to unapply the span backwards.
             // So instead of searching for span.offset, we start with span.offset + span.len - 1.
@@ -230,8 +231,45 @@ impl ListCRDT {
             }
         }
     }
-    
-    fn linear_changes_since(&self, order: Order) -> OrderSpan {
+
+    /// Pair of partially_unapply_changes. After changes are unapplied and reapplied, the document
+    /// contents should be identical.
+    ///
+    /// Safety: This method only unapplies changes to the internal indexes. It does not update
+    /// other metadata. Calling doc.check() after this will fail. Also the passed span is not
+    /// checked, and must be valid with respect to what else has been applied / unapplied.
+    pub(super) unsafe fn partially_reapply_changes(&mut self, mut span: OrderSpan) {
+        while span.len > 0 {
+            // First check if the change was a delete or an insert.
+            if let Some((d, d_offset)) = self.deletes.find(span.order) {
+                // Re-delete the item.
+                let delete_here = u32::min(span.len, d.1.len - d_offset);
+                debug_assert!(delete_here > 0);
+
+                // Note the order in span is the order of the *delete*, not the order of the item
+                // being deleted.
+                let del_target_order = d.at_offset(d_offset as usize) as u32;
+
+                let delete_here = self.internal_mark_deleted(del_target_order, delete_here, false);
+                debug_assert!(delete_here > 0);
+                span.truncate_keeping_right(delete_here as usize);
+
+            } else {
+                // The operation was an insert operation. Re-insert the content.
+                let cursor = self.get_cursor_before(span.order);
+                let (ins_here, succeeded) = self.range_tree.remote_reactivate(cursor, span.len as _, notify_for(&mut self.index));
+                assert!(succeeded); // If they're active in the range_tree, we're in trouble.
+                debug_assert!(ins_here > 0);
+                span.truncate_keeping_right(ins_here);
+            }
+        }
+    }
+
+    pub fn num_ops(&self) -> Order {
+        self.get_next_order()
+    }
+
+    pub fn linear_changes_since(&self, order: Order) -> OrderSpan {
         OrderSpan {
             order,
             len: self.get_next_order() - order
@@ -320,9 +358,14 @@ mod test {
         doc.get_or_create_agent_id("seph");
         doc.local_insert(0, 0, "aaaa".into()); // [0,4)
         doc.local_delete(0, 1, 2); // [4,6)
+        dbg!(&doc);
         unsafe {
             // doc.partially_unapply_changes(OrderSpan { order: 4, len: 2 });
             doc.partially_unapply_changes(doc.linear_changes_since(0));
+        }
+
+        unsafe {
+            doc.partially_reapply_changes(doc.linear_changes_since(0));
         }
         dbg!(&doc);
     }

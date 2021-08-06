@@ -1,6 +1,8 @@
-use crate::list::{ListCRDT, ROOT_ORDER};
+use crate::list::{ListCRDT, ROOT_ORDER, Order};
 use ropey::Rope;
 use crate::splitable_span::SplitableSpan;
+use crate::rle::Rle;
+use std::iter::FromIterator;
 
 /// This file contains debugging assertions to validate the document's internal state.
 ///
@@ -78,5 +80,22 @@ impl ListCRDT {
         assert_eq!(self.client_data[0].item_orders.num_entries(), 1);
         assert_eq!(self.client_with_order.num_entries(), 1);
         assert_eq!(self.txns.num_entries(), 1);
+    }
+
+    pub fn check_timetravel(&mut self, point: Order) {
+        let double_deletes = self.double_deletes.clone();
+        let expect_range_tree = Rle::from_iter(self.range_tree.iter());
+
+        // Ok now unapply- and reapply- changes back to the specified point.
+        let span = self.linear_changes_since(point);
+        unsafe {
+            self.partially_unapply_changes(span);
+            self.partially_reapply_changes(span);
+        }
+        self.check(false);
+
+        assert_eq!(double_deletes, self.double_deletes);
+        let actual_range_tree = Rle::from_iter(self.range_tree.iter());
+        assert_eq!(expect_range_tree, actual_range_tree);
     }
 }

@@ -375,6 +375,27 @@ impl ListCRDT {
         self.txns.append(txn);
     }
 
+    pub(super) fn internal_mark_deleted(&mut self, order: Order, max_len: u32, update_content: bool) -> u32 {
+        let cursor = self.get_cursor_before(order);
+
+        let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, max_len as _, notify_for(&mut self.index));
+        let deleted_here = deleted_here as u32;
+
+        if !succeeded {
+            // This span was already deleted by a different peer. Mark duplicate delete.
+            self.double_deletes.increment_delete_range(order, deleted_here);
+        } else {
+            if let Some(ref mut text) = self.text_content {
+                if update_content {
+                    let pos = cursor.count_pos() as usize;
+                    text.remove(pos..pos + deleted_here as usize);
+                }
+            }
+        }
+
+        deleted_here
+    }
+
     pub fn apply_remote_txn(&mut self, txn: &RemoteTxn) {
         let agent = self.get_or_create_agent_id(txn.id.agent.as_str());
         let client = &self.client_data[agent as usize];
@@ -446,8 +467,8 @@ impl ListCRDT {
                 RemoteOp::Del { id, len } => {
                     // The order of the item we're deleting
                     // println!("handling remote delete of id {:?} len {}", id, len);
-                    let agent = self.get_agent_id(id.agent.as_str()).unwrap();
-                    let client = &self.client_data[agent as usize];
+                    let agent = self.get_agent_id(id.agent.as_str()).unwrap() as usize;
+                    // let client = &self.client_data[agent as usize];
 
                     // let mut target_order = self.remote_id_to_order(&id);
 
@@ -468,25 +489,13 @@ impl ListCRDT {
                         let OrderSpan {
                             order: target_order,
                             len, // min(1 and 2)
-                        } = client.seq_to_order_span(target_seq, remaining_len);
+                        } = self.client_data[agent].seq_to_order_span(target_seq, remaining_len);
 
                         // I could break this into two loops - and here enter an inner loop,
                         // deleting len items. It seems a touch excessive though.
 
-                        let cursor = self.get_cursor_before(target_order);
+                        let deleted_here = self.internal_mark_deleted(target_order, len, true);
 
-                        let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, len as _, notify_for(&mut self.index));
-                        let deleted_here = deleted_here as u32;
-
-                        if !succeeded {
-                            // This span was already deleted by a different peer. Mark duplicate delete.
-                            self.double_deletes.increment_delete_range(target_order, deleted_here);
-                        } else {
-                            if let Some(ref mut text) = self.text_content {
-                                let pos = cursor.count_pos() as usize;
-                                text.remove(pos..pos + deleted_here as usize);
-                            }
-                        }
                         // println!(" -> managed to delete {}", deleted_here);
                         remaining_len -= deleted_here;
                         target_seq += deleted_here;
