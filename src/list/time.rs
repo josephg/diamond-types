@@ -6,6 +6,27 @@ use crate::rle::AppendRLE;
 use crate::list::doc::notify_for;
 use crate::range_tree::EntryTraits;
 
+struct LinearIter<'a> {
+    list: &'a mut ListCRDT,
+    span: OrderSpan,
+}
+
+impl<'a> Iterator for LinearIter<'a> {
+    type Item = ();
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.span.len > 0 {
+            unsafe {
+                let len = self.list.partially_reapply_change(&mut self.span);
+                self.span.truncate_keeping_right(len as usize);
+            }
+            Some(())
+        } else {
+            None
+        }
+    }
+}
+
 /// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
 /// about branches, find diffs and move between branches.
 impl ListCRDT {
@@ -232,6 +253,32 @@ impl ListCRDT {
         }
     }
 
+    pub(super) unsafe fn partially_reapply_change(&mut self, span: &mut OrderSpan) -> u32 {
+        // First check if the change was a delete or an insert.
+        if let Some((d, d_offset)) = self.deletes.find(span.order) {
+            // Re-delete the item.
+            let delete_here = u32::min(span.len, d.1.len - d_offset);
+            debug_assert!(delete_here > 0);
+
+            // Note the order in span is the order of the *delete*, not the order of the item
+            // being deleted.
+            let del_target_order = d.at_offset(d_offset as usize) as u32;
+
+            let delete_here = self.internal_mark_deleted(del_target_order, delete_here, false);
+            debug_assert!(delete_here > 0);
+            // span.truncate_keeping_right(delete_here as usize);
+            delete_here
+        } else {
+            // The operation was an insert operation. Re-insert the content.
+            let cursor = self.get_cursor_before(span.order);
+            let (ins_here, succeeded) = self.range_tree.remote_reactivate(cursor, span.len as _, notify_for(&mut self.index));
+            assert!(succeeded); // If they're active in the range_tree, we're in trouble.
+            debug_assert!(ins_here > 0);
+            // span.truncate_keeping_right(ins_here);
+            ins_here as u32
+        }
+    }
+
     /// Pair of partially_unapply_changes. After changes are unapplied and reapplied, the document
     /// contents should be identical.
     ///
@@ -240,28 +287,15 @@ impl ListCRDT {
     /// checked, and must be valid with respect to what else has been applied / unapplied.
     pub(super) unsafe fn partially_reapply_changes(&mut self, mut span: OrderSpan) {
         while span.len > 0 {
-            // First check if the change was a delete or an insert.
-            if let Some((d, d_offset)) = self.deletes.find(span.order) {
-                // Re-delete the item.
-                let delete_here = u32::min(span.len, d.1.len - d_offset);
-                debug_assert!(delete_here > 0);
+            let len = self.partially_reapply_change(&mut span);
+            span.truncate_keeping_right(len as usize);
+        }
+    }
 
-                // Note the order in span is the order of the *delete*, not the order of the item
-                // being deleted.
-                let del_target_order = d.at_offset(d_offset as usize) as u32;
-
-                let delete_here = self.internal_mark_deleted(del_target_order, delete_here, false);
-                debug_assert!(delete_here > 0);
-                span.truncate_keeping_right(delete_here as usize);
-
-            } else {
-                // The operation was an insert operation. Re-insert the content.
-                let cursor = self.get_cursor_before(span.order);
-                let (ins_here, succeeded) = self.range_tree.remote_reactivate(cursor, span.len as _, notify_for(&mut self.index));
-                assert!(succeeded); // If they're active in the range_tree, we're in trouble.
-                debug_assert!(ins_here > 0);
-                span.truncate_keeping_right(ins_here);
-            }
+    fn foo_iter(&mut self, span: OrderSpan) -> LinearIter<'_> {
+        LinearIter {
+            list: self,
+            span
         }
     }
 

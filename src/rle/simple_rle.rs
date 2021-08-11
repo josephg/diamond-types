@@ -97,6 +97,14 @@ impl<V: SplitableSpan + Clone + Sized> FromIterator<V> for Rle<V> {
     }
 }
 
+impl<V: SplitableSpan + Clone + Sized> Extend<V> for Rle<V> {
+    fn extend<T: IntoIterator<Item=V>>(&mut self, iter: T) {
+        for item in iter {
+            self.append(item);
+        }
+    }
+}
+
 // impl<'a, V: 'a + SplitableSpan + Clone + Sized> FromIterator<&'a V> for Rle<V> {
 //     fn from_iter<T: IntoIterator<Item=&'a V>>(iter: T) -> Self {
 //         let mut rle = Self::new();
