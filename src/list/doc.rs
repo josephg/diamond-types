@@ -348,6 +348,7 @@ impl ListCRDT {
         };
 
         // Fast path. The code below is weirdly slow, but most txns just append.
+        // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
         if let Some(last) = self.txns.0.last_mut() {
             if txn_parents.len() == 1
                 && txn_parents[0] == last.order + last.len - 1
@@ -383,11 +384,9 @@ impl ListCRDT {
         if !succeeded {
             // This span was already deleted by a different peer. Mark duplicate delete.
             self.double_deletes.increment_delete_range(order, deleted_here);
-        } else if let Some(ref mut text) = self.text_content {
-            if update_content {
-                let pos = cursor.count_pos() as usize;
-                text.remove(pos..pos + deleted_here as usize);
-            }
+        } else if let (Some(text), true) = (&mut self.text_content, update_content) {
+            let pos = cursor.count_pos() as usize;
+            text.remove(pos..pos + deleted_here as usize);
         }
 
         deleted_here
