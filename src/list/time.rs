@@ -182,7 +182,7 @@ impl ListCRDT {
     /// other metadata. Calling doc.check() after this will fail.
     /// Also the passed span is not checked, and must be valid with respect to what else has been
     /// applied / unapplied.
-    #[deprecated(note="Moving this logic into OT code")]
+    // #[deprecated(note="Moving this logic into OT code")]
     pub(super) unsafe fn partially_unapply_changes(&mut self, mut span: OrderSpan) {
         while span.len > 0 {
             // Note: This sucks, but we obviously ("obviously") have to unapply the span backwards.
