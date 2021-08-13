@@ -44,7 +44,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                         let next_idx = idx + 1;
                         // This would be much cleaner if I put a len field in NodeInternal instead.
                         // TODO: Consider using node_ref.count_children() instead of this mess.
-                        if (next_idx < NUM_NODE_CHILDREN) && node_ref.data[next_idx].1.is_some() {
+                        if (next_idx < NUM_NODE_CHILDREN) && node_ref.children[next_idx].is_some() {
                             Some(next_idx)
                         } else { None }
                     } else if idx > 0 {
@@ -55,7 +55,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                     if let Some(next_idx) = next_idx {
                         // Whew - now we can descend down from here.
                         // println!("traversing laterally to {}", next_idx);
-                        node_ptr = unsafe { node_ref.data[next_idx].1.as_ref().unwrap().as_ptr() };
+                        node_ptr = unsafe { node_ref.children[next_idx].as_ref().unwrap().as_ptr() };
                         break;
                     } else {
                         // idx is 0. Keep climbing that ladder!
@@ -80,7 +80,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                         assert!(num_children > 0);
                         num_children - 1
                     };
-                    node_ptr = unsafe { node_ref.data[next_idx].1.as_ref().unwrap().as_ptr() };
+                    node_ptr = unsafe { node_ref.children[next_idx].as_ref().unwrap().as_ptr() };
                 },
                 NodePtr::Leaf(n) => {
                     // Finally.
@@ -177,7 +177,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                     let node_ref = unsafe { n.as_ref() };
                     let idx = node_ref.find_child(node_ptr).unwrap();
 
-                    for (c, _) in &node_ref.data[0..idx] {
+                    for c in &node_ref.index[0..idx] {
                         pos += *c;
                     }
 

@@ -128,7 +128,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         unsafe {
             let mut node = self.root.as_ptr();
             while let NodePtr::Internal(data) = node {
-                node = data.as_ref().data[0].1.as_ref().unwrap().as_ptr()
+                node = data.as_ref().children[0].as_ref().unwrap().as_ptr()
             };
 
             let leaf_ptr = node.unwrap_leaf();
@@ -196,7 +196,10 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         // let self_parent = ParentPtr::Internal(NonNull::new(node as *const _ as *mut _).unwrap());
         let self_parent = unsafe { node.to_parent_ptr() };
 
-        for (child_count_expected, child) in &node.data[..] {
+        for idx in 0..node.index.len() {
+            let child_count_expected = node.index[idx];
+            let child = &node.children[idx];
+
             if let Some(child) = child {
                 // Make sure there's no data after an invalid entry
                 assert!(!done);
@@ -221,7 +224,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 // if *child_count_expected as usize != count_actual {
                 //     eprintln!("xxx {:#?}", node);
                 // }
-                assert_eq!(*child_count_expected, count_actual, "Child node count does not match");
+                assert_eq!(child_count_expected, count_actual, "Child node count does not match");
                 count_total += count_actual;
             } else {
                 done = true;
@@ -251,7 +254,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 let n = n.as_ref().get_ref();
                 eprintln!("Internal {:?} (parent: {:?})", n as *const _, n.parent);
                 let mut unused = 0;
-                for (_, e) in &n.data[..] {
+                for e in &n.children[..] {
                     if let Some(e) = e {
                         Self::print_node_tree(e, depth + 1);
                     } else { unused += 1; }
@@ -306,11 +309,15 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
              num_entries,
              (num_entries * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap()
         );
-        println!("Number of internal nodes {} ({})", num_internal_nodes,
-            internal_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap());
-        println!("Number of leaf nodes {} ({}) (space for {} entries)", num_leaf_nodes,
-            leaf_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap(),
-            num_leaf_nodes * NUM_LEAF_ENTRIES
+        println!("Number of {} byte internal nodes {} ({})",
+             size_of::<NodeInternal<E, I>>(),
+             num_internal_nodes,
+             internal_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("Number of {} byte leaf nodes {} ({}) (space for {} entries)",
+             size_of::<NodeLeaf<E, I>>(),
+             num_leaf_nodes,
+             leaf_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap(),
+             num_leaf_nodes * NUM_LEAF_ENTRIES
         );
 
         println!("Depth {}", self.get_depth());
@@ -349,7 +356,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             let mut node = self.root.as_ptr();
             while let NodePtr::Internal(data) = node {
                 depth += 1;
-                node = data.as_ref().data[0].1.as_ref().unwrap().as_ptr()
+                node = data.as_ref().children[0].as_ref().unwrap().as_ptr()
             };
             depth
         }
@@ -365,7 +372,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         if let Node::Internal(n) = node {
             num.0 += 1;
 
-            for (_, e) in &n.data[..] {
+            for e in &n.children[..] {
                 if let Some(e) = e {
                     Self::count_nodes_internal(e, num);
                 }
@@ -385,7 +392,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             Node::Internal(n) => {
                 *size += size_of::<NodeInternal<E, I>>();
 
-                for (_, e) in &n.data[..] {
+                for e in &n.children[..] {
                     if let Some(e) = e {
                         Self::count_memory_internal(e, size);
                     }

@@ -743,7 +743,7 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
 
                     let parent_ref = n.as_mut();
                     // dbg!(&parent_ref.data[old_idx].0, stolen_length);
-                    parent_ref.data[old_idx].0 -= stolen_length;
+                    parent_ref.index[old_idx] -= stolen_length;
                     parent_ref.splice_in(new_idx, stolen_length, inserted_leaf_node);
 
                     // eprintln!("1");
@@ -774,8 +774,8 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
                     inserted_leaf_node.set_parent(parent_ptr);
 
                     count -= stolen_length;
-                    new_internal_root.as_mut().project_data_mut()[0] = (count, Some(old_root));
-                    new_internal_root.as_mut().project_data_mut()[1] = (stolen_length, Some(inserted_leaf_node));
+                    new_internal_root.as_mut().set_entry(0, count, Some(old_root));
+                    new_internal_root.as_mut().set_entry(1, stolen_length, Some(inserted_leaf_node));
 
                     // r.as_mut().print_ptr_tree();
                     return;
@@ -796,7 +796,7 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
                     let old_idx = left_sibling.find_child(insert_after).unwrap();
 
                     let left_sibling = n.as_mut();
-                    left_sibling.data[old_idx].0 -= stolen_length;
+                    left_sibling.index[old_idx] -= stolen_length;
                     let mut new_stolen_length = I::IndexOffset::default();
                     // Dividing this into cases makes it easier to reason
                     // about.
@@ -805,11 +805,15 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
                         // into right_sibling, then splice inserted_node into
                         // old_parent.
                         for i in 0..NUM_NODE_CHILDREN /2 {
-                            let (c, e) = mem::replace(&mut left_sibling.data[i + NUM_NODE_CHILDREN /2], (I::IndexOffset::default(), None));
+                            let ii = i + NUM_NODE_CHILDREN /2;
+                            // let c = mem::replace(&mut left_sibling.index[ii], I::IndexOffset::default());
+                            let c = mem::take(&mut left_sibling.index[ii]);
+                            // let e = mem::replace(&mut left_sibling.children[ii], None);
+                            let e = mem::take(&mut left_sibling.children[ii]);
                             if let Some(mut e) = e {
                                 e.set_parent(right_sibling.as_ref().to_parent_ptr());
                                 new_stolen_length += c;
-                                right_sibling.as_mut().project_data_mut()[i] = (c, Some(e));
+                                right_sibling.as_mut().set_entry(i, c, Some(e));
                             }
 
                         }
@@ -829,14 +833,16 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
                         let mut src = NUM_NODE_CHILDREN /2;
                         for dest in 0..=NUM_NODE_CHILDREN /2 {
                             if dest == new_idx {
-                                right_sibling.as_mut().project_data_mut()[dest] = mem::take(&mut new_entry);
+                                right_sibling.as_mut().set_entry(dest, mem::take(&mut new_entry.0), mem::take(&mut new_entry.1));
                             } else {
-                                let (c, e) = mem::replace(&mut left_sibling.data[src], (I::IndexOffset::default(), None));
+                                let c = mem::take(&mut left_sibling.index[src]);
+                                let e = mem::take(&mut left_sibling.children[src]);
+                                // let (c, e) = mem::replace(&mut left_sibling.data[src], (I::IndexOffset::default(), None));
 
                                 if let Some(mut e) = e {
                                     e.set_parent(right_sibling.as_ref().to_parent_ptr());
                                     new_stolen_length += c;
-                                    right_sibling.as_mut().project_data_mut()[dest] = (c, Some(e));
+                                    right_sibling.as_mut().set_entry(dest, c, Some(e));
                                     src += 1;
                                 } else { break; }
                             }

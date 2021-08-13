@@ -111,7 +111,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
                 },
                 ParentPtr::Internal(mut n) => {
                     let idx = unsafe { n.as_mut() }.find_child(child).unwrap();
-                    let c = &mut unsafe { n.as_mut() }.data[idx].0;
+                    let c = &mut unsafe { n.as_mut() }.index[idx];
                     // :(
                     I::update_offset_by_marker(c, &amt);
                     // *c = c.wrapping_add(amt as u32);
@@ -140,7 +140,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
                 ParentPtr::Internal(node) => {
                     let child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self as *const _ as *mut _) });
                     let idx = unsafe { node.as_ref() }.find_child(child).unwrap();
-                    unsafe { node.as_ref() }.data[idx].0
+                    unsafe { node.as_ref() }.index[idx]
                 }
             };
             I::count_items(offset)

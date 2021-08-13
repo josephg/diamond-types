@@ -76,8 +76,8 @@ enum ParentPtr<E: EntryTraits, I: TreeIndex<E>> {
 }
 
 // The warning here is an error - the bound can't be removed.
-#[allow(type_alias_bounds)]
-type InternalEntry<E, I: TreeIndex<E>> = (I::IndexOffset, Option<Node<E, I>>);
+// #[allow(type_alias_bounds)]
+// type InternalEntry<E, I: TreeIndex<E>> = (I::IndexOffset, Option<Node<E, I>>);
 
 /// An internal node in the B-tree
 #[derive(Debug)]
@@ -86,7 +86,8 @@ struct NodeInternal<E: EntryTraits, I: TreeIndex<E>> {
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
     // ItemCount only includes items which haven't been deleted.
-    data: [InternalEntry<E, I>; NUM_NODE_CHILDREN],
+    index: [I::IndexOffset; NUM_NODE_CHILDREN],
+    children: [Option<Node<E, I>>; NUM_NODE_CHILDREN],
     _pin: PhantomPinned, // Needed because children have parent pointers here.
     _drop: PrintDropInternal,
 }
