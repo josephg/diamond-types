@@ -9,11 +9,10 @@ use std::pin::Pin;
 use std::ptr::NonNull;
 
 pub use entry::*;
+pub use index::*;
 pub use root::DeleteResult;
 
 pub use crate::range_tree::index::TreeIndex;
-
-pub use index::*;
 
 // The common data structures are:
 mod cursor;
@@ -204,7 +203,8 @@ unsafe fn ref_to_nonnull<T>(val: &T) -> NonNull<T> {
     NonNull::new_unchecked(val as *const _ as *mut _)
 }
 
-
+/// Helper when a notify function is not needed
+pub fn null_notify<E, Node>(_e: E, _node: Node) {}
 
 impl<E: EntryTraits, I: TreeIndex<E>> Node<E, I> {
     /// Unsafe: Created leaf has a dangling parent pointer. Must be set after initialization.

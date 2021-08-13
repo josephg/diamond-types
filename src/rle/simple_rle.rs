@@ -53,11 +53,20 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> Rle<V> {
     ///
     /// If found returns Some((found value, internal offset))
     pub fn find(&self, needle: RleKey) -> Option<(&V, RleKey)> {
-        // TODO: This seems to still work correctly if I change Greater to Less and vice versa.
-        // Make sure I'm returning the right values here!!
         self.search(needle).ok().map(|idx| {
             let entry = &self.0[idx];
             (entry, needle - entry.get_rle_key())
+        })
+    }
+
+    /// Find an entry in the list with the specified key using binary search.
+    ///
+    /// If found, item is returned by mutable reference as Some((&mut item, offset)).
+    pub fn find_mut(&mut self, needle: RleKey) -> Option<(&mut V, RleKey)> {
+        self.search(needle).ok().map(move |idx| {
+            let entry = &mut self.0[idx];
+            let offset = needle - entry.get_rle_key();
+            (entry, offset)
         })
     }
 

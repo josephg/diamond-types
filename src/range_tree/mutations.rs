@@ -255,6 +255,13 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
+    pub fn insert_at_start<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
+        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
+
+        let cursor = self.cursor_at_start();
+        self.insert(cursor, new_entry, notify)
+    }
+
     /// Replace as much of the current entry from cursor onwards as we can
     fn mutate_entry<MapFn, N>(self: &mut Pin<Box<Self>>, map_fn: MapFn, cursor: &mut Cursor<E, I>, replace_max: usize, flush_marker: &mut I::IndexUpdate, notify: &mut N) -> usize
         where N: FnMut(E, NonNull<NodeLeaf<E, I>>), MapFn: FnOnce(&mut E) {

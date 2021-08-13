@@ -5,6 +5,7 @@ use std::collections::BinaryHeap;
 use crate::rle::AppendRLE;
 use crate::list::doc::notify_for;
 use crate::range_tree::EntryTraits;
+// use smartstring::alias::{String as SmartString};
 
 struct LinearIter<'a> {
     list: &'a mut ListCRDT,
@@ -26,6 +27,14 @@ impl<'a> Iterator for LinearIter<'a> {
         }
     }
 }
+
+// #[derive(Debug, PartialEq, Eq, Clone, Default)]
+// pub struct OpComponent {
+//     skip: u32,
+//     del: u32,
+//     ins: SmartString,
+// }
+
 
 /// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
 /// about branches, find diffs and move between branches.
@@ -173,6 +182,7 @@ impl ListCRDT {
     /// other metadata. Calling doc.check() after this will fail.
     /// Also the passed span is not checked, and must be valid with respect to what else has been
     /// applied / unapplied.
+    #[deprecated(note="Moving this logic into OT code")]
     pub(super) unsafe fn partially_unapply_changes(&mut self, mut span: OrderSpan) {
         while span.len > 0 {
             // Note: This sucks, but we obviously ("obviously") have to unapply the span backwards.
@@ -253,7 +263,7 @@ impl ListCRDT {
         }
     }
 
-    pub(super) unsafe fn partially_reapply_change(&mut self, span: &mut OrderSpan) -> u32 {
+    pub(super) unsafe fn partially_reapply_change(&mut self, span: &OrderSpan) -> u32 {
         // First check if the change was a delete or an insert.
         if let Some((d, d_offset)) = self.deletes.find(span.order) {
             // Re-delete the item.
@@ -264,7 +274,7 @@ impl ListCRDT {
             // being deleted.
             let del_target_order = d.at_offset(d_offset as usize) as u32;
 
-            let delete_here = self.internal_mark_deleted(del_target_order, delete_here, false);
+            let (delete_here, _) = self.internal_mark_deleted(del_target_order, delete_here, false);
             debug_assert!(delete_here > 0);
             // span.truncate_keeping_right(delete_here as usize);
             delete_here
@@ -331,11 +341,11 @@ mod test {
         let mut doc1 = ListCRDT::new();
         assert_diff_eq(&doc1, &doc1.frontier, &doc1.frontier, &[], &[]);
 
-        doc1.get_or_create_agent_id("a".into());
+        doc1.get_or_create_agent_id("a");
         doc1.local_insert(0, 0, "S".into()); // Shared history.
 
         let mut doc2 = ListCRDT::new();
-        doc2.get_or_create_agent_id("b".into());
+        doc2.get_or_create_agent_id("b");
         doc1.replicate_into(&mut doc2); // "S".
 
         // Ok now make some concurrent history.

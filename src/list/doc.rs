@@ -375,7 +375,7 @@ impl ListCRDT {
         self.txns.append(txn);
     }
 
-    pub(super) fn internal_mark_deleted(&mut self, order: Order, max_len: u32, update_content: bool) -> u32 {
+    pub(super) fn internal_mark_deleted(&mut self, order: Order, max_len: u32, update_content: bool) -> (u32, bool) {
         let cursor = self.get_cursor_before(order);
 
         let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, max_len as _, notify_for(&mut self.index));
@@ -389,7 +389,7 @@ impl ListCRDT {
             text.remove(pos..pos + deleted_here as usize);
         }
 
-        deleted_here
+        (deleted_here, succeeded)
     }
 
     pub fn apply_remote_txn(&mut self, txn: &RemoteTxn) {
@@ -490,7 +490,7 @@ impl ListCRDT {
                         // I could break this into two loops - and here enter an inner loop,
                         // deleting len items. It seems a touch excessive though.
 
-                        let deleted_here = self.internal_mark_deleted(target_order, len, true);
+                        let (deleted_here, _) = self.internal_mark_deleted(target_order, len, true);
 
                         // println!(" -> managed to delete {}", deleted_here);
                         remaining_len -= deleted_here;

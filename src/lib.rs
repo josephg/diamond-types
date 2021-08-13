@@ -13,3 +13,12 @@ mod alloc;
 mod order;
 mod rle;
 mod unicount;
+
+#[cfg(test)]
+mod tests {
+    // As per smartstring's documentation.
+    #[test]
+    fn validate_smartstring() {
+        smartstring::validate();
+    }
+}

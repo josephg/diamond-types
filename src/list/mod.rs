@@ -4,16 +4,16 @@ use ropey::Rope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
-use crate::common::{ClientName, CRDTLocation, AgentId};
+use crate::common::{AgentId, ClientName, CRDTLocation};
+use crate::list::double_delete::DoubleDelete;
+use crate::list::markers::MarkerEntry;
+use crate::list::span::YjsSpan;
+use crate::list::txn::TxnSpan;
 use crate::order::OrderSpan;
 use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree};
-use crate::list::span::YjsSpan;
-use crate::list::markers::MarkerEntry;
 // use crate::list::delete::DeleteEntry;
-use crate::rle::{Rle, KVPair};
+use crate::rle::{KVPair, Rle};
 use crate::split_list::SplitList;
-use crate::list::txn::TxnSpan;
-use crate::list::double_delete::DoubleDelete;
 
 mod span;
 mod doc;
@@ -26,6 +26,7 @@ mod encoding;
 mod time;
 mod check;
 mod external_linear;
+mod ot;
 
 // #[cfg(inlinerope)]
 // pub const USE_INNER_ROPE: bool = true;
@@ -56,6 +57,8 @@ struct ClientData {
 // pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
 pub type SpaceIndex = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
 // pub type MarkerTree = MutRle<MarkerEntry<YjsSpan, ContentIndex>>;
+
+pub type DoubleDeleteList = Rle<KVPair<DoubleDelete>>;
 
 pub type Branch = SmallVec<[Order; 4]>;
 
@@ -96,7 +99,7 @@ pub struct ListCRDT {
 
     /// List of document items which have been deleted more than once. Usually empty. Keyed by the
     /// item *being* deleted (like range_tree, unlike deletes).
-    double_deletes: Rle<KVPair<DoubleDelete>>,
+    double_deletes: DoubleDeleteList,
 
     /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
     /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge

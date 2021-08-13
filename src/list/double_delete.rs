@@ -43,8 +43,8 @@ impl Rle<KVPair<DoubleDelete>> {
     // TODO: Consider changing all these methods to take an OrderSpan instead.
 
     /// Internal function to add / subtract from a range of double deleted entries.
-    /// Returns the number of items modified. (Always == len when incrementing).
-    fn modify_delete_range(&mut self, base: Order, len: u32, update_by: i32) -> u32 {
+    /// Returns the number of items modified.
+    fn modify_delete_range(&mut self, base: Order, len: u32, update_by: i32, max_value: u32) -> u32 {
         debug_assert!(len > 0);
         debug_assert_ne!(update_by, 0);
         debug_assert_eq!(update_by.abs(), 1);
@@ -117,8 +117,8 @@ impl Rle<KVPair<DoubleDelete>> {
             // its more efficient not to need to slide entries around all over the place.
 
             // Logic only correct because |update_by| == 1.
-            if update_by < 0 && entry.1.excess_deletes == 0 {
-                // We can't decrement an entry with 0. We're done here.
+            if update_by < 0 && entry.1.excess_deletes == 0 || update_by > 0 && entry.1.excess_deletes == max_value {
+                // We can't decrement an entry with 0 or past max_value. We're done here.
                 break;
             }
 
@@ -143,11 +143,15 @@ impl Rle<KVPair<DoubleDelete>> {
     }
 
     pub fn increment_delete_range(&mut self, base: Order, len: u32) {
-        self.modify_delete_range(base, len, 1);
+        self.modify_delete_range(base, len, 1, u32::MAX);
+    }
+
+    pub fn increment_delete_range_to(&mut self, base: Order, max_len: u32, max_value: u32) -> u32 {
+        self.modify_delete_range(base, max_len, 1, max_value)
     }
 
     pub fn decrement_delete_range(&mut self, base: Order, max_len: u32) -> u32 {
-        self.modify_delete_range(base, max_len, -1)
+        self.modify_delete_range(base, max_len, -1, u32::MAX)
     }
 
     /// Find the range of items which have (implied or explicit) 0 double deletes
