@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 use crate::range_tree::index::FullIndex;
 use std::mem::size_of;
 use humansize::{FileSize, file_size_opts};
-use crate::rle::Rle;
+use crate::merge_iter::merge_items;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 
@@ -324,11 +324,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         println!("Total range tree memory usage {}",
              self.count_total_memory().file_size(file_size_opts::CONVENTIONAL).unwrap());
 
-        let compacted: Rle<E> = self.iter().collect();
+        let compacted_entries = merge_items(self.iter()).count();
         // println!("(efficient size: {})", (self.count_entries() * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap());
         println!("Compacts to {} entries / {} bytes",
-             compacted.num_entries(),
-             (compacted.num_entries() * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap()
+             compacted_entries,
+             (compacted_entries * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap()
         );
 
         // This prints the first 100 items of the real entries, and maximally compacted entries:

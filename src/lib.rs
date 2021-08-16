@@ -13,6 +13,7 @@ mod alloc;
 mod order;
 mod rle;
 mod unicount;
+mod merge_iter;
 
 #[cfg(test)]
 mod tests {
