@@ -177,7 +177,7 @@ impl ListCRDT {
     }
 
     // This does not stick_end to the found item.
-    pub(super) fn get_cursor_after(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
+    pub(super) fn get_cursor_after(&self, order: Order, stick_end: bool) -> Cursor<YjsSpan, ContentIndex> {
         if order == ROOT_ORDER {
             self.range_tree.cursor_at_start()
         } else {
@@ -190,7 +190,7 @@ impl ListCRDT {
             // The cursor points to parent. This is safe because of guarantees provided by
             // cursor_before_item.
             cursor.offset += 1;
-            cursor.roll_to_next_entry();
+            if !stick_end { cursor.roll_to_next_entry(); }
             cursor
         }
     }
@@ -224,7 +224,7 @@ impl ListCRDT {
 
         // Ok now that's out of the way, lets integrate!
         let mut cursor = cursor_hint.unwrap_or_else(|| {
-            self.get_cursor_after(item.origin_left)
+            self.get_cursor_after(item.origin_left, false)
         });
 
         let left_cursor = cursor;
@@ -248,7 +248,7 @@ impl ListCRDT {
             // let other_order = other_entry.order + cursor.offset as u32;
 
             let other_left_order = other_entry.origin_left_at_offset(cursor.offset as u32);
-            let other_left_cursor = self.get_cursor_after(other_left_order);
+            let other_left_cursor = self.get_cursor_after(other_left_order, false);
 
             // YjsMod semantics
             match std::cmp::Ord::cmp(&other_left_cursor, &left_cursor) {

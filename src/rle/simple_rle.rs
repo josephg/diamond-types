@@ -7,7 +7,7 @@ use humansize::{FileSize, file_size_opts};
 use std::iter::FromIterator;
 
 // Each entry has a key (which we search by), a span and a value at that key.
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Default, Clone, Eq, PartialEq, Debug)]
 pub struct Rle<V: SplitableSpan + Clone + Sized>(pub(crate) Vec<V>);
 
 impl<V: SplitableSpan + Clone + Sized> Rle<V> {
@@ -57,6 +57,27 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> Rle<V> {
             let entry = &self.0[idx];
             (entry, needle - entry.get_rle_key())
         })
+    }
+
+    /// This method is similar to find, except instead of returning None when the value doesn't
+    /// exist in the RLE list, we return the position in the empty span.
+    ///
+    /// This method assumes the "base" of the RLE is 0.
+    pub fn find_sparse(&self, needle: RleKey) -> (Result<&V, RleKey>, RleKey) {
+        match self.search(needle) {
+            Ok(idx) => {
+                let entry = &self.0[idx];
+                (Ok(entry), needle - entry.get_rle_key())
+            }
+            Err(idx) => {
+                if idx == 0 {
+                    (Err(0), needle)
+                } else {
+                    let end = self.0[idx - 1].end();
+                    (Err(end), needle - end)
+                }
+            }
+        }
     }
 
     /// Find an entry in the list with the specified key using binary search.
@@ -187,6 +208,21 @@ mod tests {
         assert_eq!(rle.0.len(), 3);
 
         // dbg!(&rle);
+    }
+
+    #[test]
+    fn test_find_sparse() {
+        let mut rle: Rle<KVPair<OrderSpan>> = Rle::new();
+
+        assert_eq!(rle.find_sparse(0), (Err(0), 0));
+        assert_eq!(rle.find_sparse(10), (Err(0), 10));
+
+        rle.insert(KVPair(15, OrderSpan { order: 40, len: 2}));
+        assert_eq!(rle.find_sparse(10), (Err(0), 10));
+        assert_eq!(rle.find_sparse(15), (Ok(&rle.0[0]), 0));
+        assert_eq!(rle.find_sparse(16), (Ok(&rle.0[0]), 1));
+        assert_eq!(rle.find_sparse(17), (Err(17), 0));
+        assert_eq!(rle.find_sparse(20), (Err(17), 3));
     }
 
     // #[test]

@@ -5,6 +5,8 @@ use OpTag::*;
 use crate::order::OrderSpan;
 use std::pin::Pin;
 use std::ops::{AddAssign, SubAssign};
+use crate::list::double_delete::DoubleDelete;
+use crate::rle::{KVPair, RleKey, RleSpanHelpers};
 
 // Length of the item before and after the operation sequence has been applied.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -156,11 +158,100 @@ impl RangeTree<PositionMapEntry, PrePostIndex> {
     }
 }
 
+/// This is a simple struct designed to pull some self contained complexity out of
+/// make_position_map.
+///
+/// The way this works is that the list stays empty, and each time a double-delete range in the
+/// origin document is visited we increment the corresponding range here in the visitor.
+#[derive(Debug, Clone, Default)]
+struct DoubleDeleteVisitor(DoubleDeleteList); // TODO: Make allocation lazy here
+
+impl DoubleDeleteVisitor {
+    fn new() -> Self { Self::default() }
+
+    // fn swap_index(idx: RleKey) -> RleKey { RleKey::MAX - idx }
+
+    fn find_edit_range(&self, needle: RleKey) -> Result<(&KVPair<DoubleDelete>, usize), (RleKey, usize)> {
+        match self.0.search(needle) {
+            Ok(idx) => {
+                Ok((&self.0.0[idx], idx))
+            }
+            Err(idx) => {
+                if idx == 0 {
+                    Err((0, idx))
+                } else {
+                    Err((self.0.0[idx - 1].end(), idx))
+                }
+            }
+        }
+    }
+
+    /// Find the safe range from last_order backwards.
+    fn mark_range(&mut self, double_deletes: &DoubleDeleteList, last_order: Order, min_base: u32) -> (bool, u32) {
+        match double_deletes.find_sparse(last_order).0 {
+            // Most likely case. Indicates there's no double-delete to deal with in this span.
+            Err(base) => (true, base.max(min_base)),
+            Ok(dd_entry) => {
+                let dd_val = dd_entry.1.excess_deletes;
+                let (local_base, local_val, idx) = match self.find_edit_range(last_order) {
+                    Err((base, idx)) => (base, 0, idx),
+                    Ok((e, idx)) => (e.0, e.1.excess_deletes, idx),
+                };
+
+                let safe_base = dd_entry.0.max(local_base);
+                if dd_val == local_val {
+                    // We've visited it the correct number of times already. This delete is allowed.
+                    (true, safe_base)
+                } else {
+                    // Increment the entry and disallow this delete.
+                    let len = last_order - safe_base + 1;
+                    // Its kinda overkill to use modify_delete_range_idx. Works though!
+                    let modified = self.0.modify_delete_range_idx(safe_base, len, idx, 1, len);
+                    assert_eq!(len, modified);
+                    (false, safe_base)
+                }
+            }
+        }
+    }
+}
 
 impl ListCRDT {
     pub(super) fn make_position_map<V>(&self, mut span: OrderSpan, mut visit: V) -> PositionMap
     where V: FnMut(u32, u32, PositionMapEntry, bool) {
-        // For now.
+        // I've gone through a lot of potential designs for this code and settled on this one.
+        //
+        // Other options:
+        //
+        // 1. Scan the changes, make position map by iterating backwards then iterate forwards again
+        // re-applying changes, and emit / visit on the way forward. The downside of this is it'd be
+        // slower and require more code (going backwards is enough, combined with a reverse()). But
+        // it might be less memory intensive if the run of changes is large. It might also be
+        // valuable to write that code anyway so we can make an operation stream from the document's
+        // start.
+        //
+        // 2. Add a 'actually delete' flag somewhere for delete operations. This would almost always
+        // be true, which would let it RLE very well. This would in turn make the code here simpler
+        // when dealing with deleted items. But we would incur a permanent memory cost, and make it
+        // so we can't backtrack to arbitrary version vectors in a general way. So OT peers with
+        // pending changes would be stuck talking to their preferred peer. This would in turn make
+        // networking code more complex. (Not that I'm supporting that now, but I want the code to
+        // be extensible.
+        //
+        // 3. Change to a TP2 OT style, where we assume the OT algorithm understands tombstones. The
+        // benefit of this is that order would no longer really matter here. No matter how the
+        // operation stream is generated, we could compose all the operations into a single change.
+        // This would make the code here simpler and faster, but at the expense of a more complex OT
+        // system to implement for web peers. I'm not going down that road because the whole point
+        // of using OT for peers is that they need a very small, simple amount of code to
+        // interoperate with the rest of the system. If we're asking remote peers (web clients and
+        // apps) to include complex merging code, I may as well just push them to bundle full CRDT
+        // implementations.
+        //
+        // The result is that this code is very complex. It also probably adds a lot to binary size
+        // because of the monomorphized range_tree calls. The upside is that this complexity is
+        // entirely self contained, and the complexity here allows other systems to work
+        // "naturally". But its not perfect.
+
         assert_eq!(span.end(), self.get_next_order());
 
         let mut map: PositionMap = RangeTree::new();
@@ -172,10 +263,14 @@ impl ListCRDT {
 
         // So the way this works is if we find an item has been double-deleted, we'll mark in this
         // empty range until marked_deletes equals self.double_deletes.
-        let mut marked_deletes = DoubleDeleteList::new();
+        // let mut marked_deletes = DoubleDeleteList::new();
+        let mut marked_deletes = DoubleDeleteVisitor::new();
 
-        // Now we go back through history in reverse order. We need to go in reverse order because
-        // of duplicate deletes. If an item has been deleted multiple times, we only want to visit
+        // Now we go back through history in reverse order. We need to go in reverse order for a few reasons:
+        //
+        // - Because of duplicate deletes. If an item has been deleted multiple times, we only want
+        // to visit it the "first" time chronologically based on the OrderSpan passed in here.
+        // - We need to generate the position map anyway. I
         // it for deletion the *first* time it was deleted chronologically according to span.
         // Another approach would be to store in double_deletes the order of the first delete for
         // each entry, but at some point we might want to generate this map from a different time
@@ -190,106 +285,54 @@ impl ListCRDT {
             // First check if the change was a delete or an insert.
             let span_last_order = span.end() - 1;
 
-            if let Some((d, _d_offset)) = self.deletes.find(span_last_order) {
+            // TODO: Replace with a search iterator. We're binary searching with ordered search keys.
+            if let Some((d, d_offset)) = self.deletes.find(span_last_order) {
                 // Its a delete. We need to try to undelete the item, unless the item was deleted
-                // multiple times (in which case, it stays deleted.)
-                let mut base = u32::max(span.order, d.0);
-                let mut del_span_size = span_last_order + 1 - base;
+                // multiple times (in which case, it stays deleted for now).
+                let base = u32::max(span.order, d.0);
+                let del_span_size = span_last_order + 1 - base; // TODO: Clean me up
                 debug_assert!(del_span_size > 0);
 
                 // d_offset -= span_last_order - base; // equivalent to d_offset -= undelete_here - 1;
 
-                // Ok, undelete here. There's two approaches this implementation could take:
-                // 1. Undelete backwards from base + len_here - 1, undeleting as much as we can.
-                //    Rely on the outer loop to iterate to the next section
-                // 2. Undelete len_here items. The order that we undelete an item in doesn't matter,
-                //    so although this approach needs another inner loop, we can go through this
-                //    range forwards. This makes the logic simpler, but longer.
+                // Ok, undelete here. An earlier version of this code iterated *forwards* amongst
+                // the deleted span. This worked correctly and was slightly simpler, but it was a
+                // confusing API to use and test because delete changes in particular were sometimes
+                // arbitrarily reordered.
 
-                // I'm going with 2.
-                span.len -= del_span_size; // equivalent to span.len = base - span.order;
+                let last_del_target = d.1.order + d_offset;
 
-                while del_span_size > 0 {
-                    // dbg!((base, del_span_size));
-                    let delete_target_base = d.1.order + base - d.0;
-                    let mut len_here = self.double_deletes.find_zero_range(delete_target_base, del_span_size);
-                    // dbg!((delete_target_base, del_span_size, len_here));
+                // I'm also going to limit what we visit each iteration by the size of the visited
+                // item in the range tree. For performance I could hold off looking this up until
+                // we've got the go ahead from marked_deletes, but given how rare double deletes
+                // are, this is fine.
 
-                    if len_here == 0 { // Unlikely.
-                        // We're looking at an item which has been deleted multiple times.
-                        // There's two cases here:
-                        // 1. We have no equivalent entry in marked_deletes. Increment
-                        // marked_deletes and continue. Or
-                        // 2. We've marked this delete in marked_deletes. Proceed.
+                let rt_cursor = self.get_cursor_after(last_del_target, true);
+                // Cap the number of items to undelete each iteration based on the span in range_tree.
+                let entry = rt_cursor.get_raw_entry();
+                debug_assert!(entry.is_deactivated());
+                let first_del_target = u32::max(entry.order, last_del_target - del_span_size + 1);
 
-                        // Note this code is pretty inefficient. We're doing multiple binary
-                        // searches in a row and not caching anything. But this case is really rare
-                        // in practice, so ... eh, its probably fine.
+                let (allowed, first_order) = marked_deletes.mark_range(&self.double_deletes, last_del_target, first_del_target);
+                let len_here = last_del_target - first_order + 1;
 
-                        let (dd, dd_offset) = self.double_deletes.find(delete_target_base).unwrap();
-                        let dd_range = u32::min(dd.1.len - dd_offset, del_span_size);
-
-                        let (del_here, len_dd_here) = if let Some((entry, entry_offset)) = marked_deletes.find(delete_target_base) {
-                            let local_len = entry.1.len - entry_offset;
-                            let mark_range = u32::min(local_len, dd_range);
-                            debug_assert!(mark_range > 0);
-
-                            if entry.1.excess_deletes == dd.1.excess_deletes {
-                                (true, mark_range)
-                            } else {
-                                (false, mark_range)
-                            }
-                        } else {
-                            (false, dd_range)
-                        };
-
-                        // dbg!(del_here);
-
-                        // What a minefield. O_o
-                        if !del_here {
-                            let len = marked_deletes.increment_delete_range_to(delete_target_base, len_dd_here, dd.1.excess_deletes);
-                            debug_assert!(len > 0);
-                            del_span_size -= len;
-                            base += len;
-
-                            // dbg!(&marked_deletes);
-                            continue;
-                        }
-
-                        // len_here = self.double_deletes.find_zero_range(base, undelete_here);
-                        len_here = len_dd_here;
-                        debug_assert!(len_here > 0);
-                    }
-
-                    // Ok now undelete from the range tree.
-                    // let base_item = d.1.order + d_offset + 1 - del_span_size;
-                    // d.1.order + base + d_offset - span_last_order
-
-                    // dbg!(base_item, d.1.order, d_offset, undelete_here, base);
-
-                    let rt_cursor = self.get_cursor_before(delete_target_base);
-                    // Cap the number of items to undelete each iteration based on the span in range_tree.
-                    let entry = rt_cursor.get_raw_entry();
-                    len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
-
+                if allowed {
+                    // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
                     let post_pos = rt_cursor.count_pos();
+                    let map_cursor = map.cursor_at_post(post_pos as _, true);
+                    // We call insert instead of replace_range here because the delete doesn't
+                    // consume "space".
                     let entry = PositionMapEntry {
                         tag: OpTag::Delete,
                         len: len_here
                     };
-                    let map_cursor = map.cursor_at_post(post_pos as _, true);
-                    // We call insert instead of replace_range here because the delete doesn't
-                    // consume "space".
                     map.insert(map_cursor, entry, null_notify);
 
                     // The content might have later been deleted.
                     visit(post_pos, map_cursor.count_pos().0, entry, false);
-
-                    // let (len_here, succeeded) = self.range_tree.remote_reactivate(cursor, len_here as _, notify_for(&mut self.index));
-                    // assert!(succeeded); // If they're active in the range_tree, we're in trouble.
-                    del_span_size -= len_here as u32;
-                    base += len_here;
                 }
+
+                span.len -= len_here;
             } else {
                 // The operation was an insert operation, not a delete operation.
                 let mut rt_cursor = self.get_cursor_before(span_last_order);
@@ -376,6 +419,7 @@ mod test {
         doc2.local_delete(0, 4, 3); // -> 'hi te'
 
         doc2.replicate_into(&mut doc1); // 'hie'
+        doc1.replicate_into(&mut doc2); // 'hie'
 
         // "hi there" -> "hiere" -> "hie"
 
@@ -384,8 +428,8 @@ mod test {
         dbg!(&doc1.double_deletes);
 
         let mut changes = Vec::new();
-        let map = doc1.make_position_map(doc1.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
-            // dbg!((post_pos, pre_pos, e, has_content));
+        let map = doc2.make_position_map(doc2.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
+            dbg!((post_pos, pre_pos, e, has_content));
             // if e.tag == OpTag::Insert {pre_pos -= e.len;}
             changes.push((post_pos, pre_pos, e, has_content));
         });

@@ -7,10 +7,9 @@ use crate::range_tree::EntryTraits;
 
 /// Sometimes the same item is removed by multiple peers. This is really rare, but necessary to
 /// track for correctness when we're activating and deactivating entries.
-
+///
 /// "Double" delete entries can track any number of duplicate deletes to the same entry.
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub struct DoubleDelete {
     pub len: u32,
     pub excess_deletes: u32, // u16 would do but it doesn't matter - we'll pad out anyway.
@@ -44,7 +43,9 @@ impl Rle<KVPair<DoubleDelete>> {
 
     /// Internal function to add / subtract from a range of double deleted entries.
     /// Returns the number of items modified.
-    fn modify_delete_range(&mut self, base: Order, len: u32, update_by: i32, max_value: u32) -> u32 {
+    ///
+    /// Idx must be the index where the target item should be, as is returned by search.
+    pub(crate) fn modify_delete_range_idx(&mut self, base: Order, len: u32, mut idx: usize, update_by: i32, max_value: u32) -> u32 {
         debug_assert!(len > 0);
         debug_assert_ne!(update_by, 0);
         debug_assert_eq!(update_by.abs(), 1);
@@ -54,8 +55,6 @@ impl Rle<KVPair<DoubleDelete>> {
         let mut next_span = OrderSpan { order: base, len };
         // let mut next_entry = KVPair(base, DoubleDelete { len, excess_deletes: 1 });
 
-        let start = self.search(base);
-        let mut idx = start.unwrap_or_else(|idx| idx);
         loop {
             debug_assert!(next_span.len > 0);
 
@@ -140,6 +139,12 @@ impl Rle<KVPair<DoubleDelete>> {
         }
 
         modified
+    }
+
+    pub(crate) fn modify_delete_range(&mut self, base: Order, len: u32, update_by: i32, max_value: u32) -> u32 {
+        let start = self.search(base);
+        let idx = start.unwrap_or_else(|idx| idx);
+        self.modify_delete_range_idx(base, len, idx, update_by, max_value)
     }
 
     pub fn increment_delete_range(&mut self, base: Order, len: u32) {
