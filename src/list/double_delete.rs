@@ -1,5 +1,5 @@
 use crate::splitable_span::SplitableSpan;
-use crate::rle::{Rle, KVPair};
+use crate::rle::{Rle, KVPair, RleSpanHelpers};
 use crate::list::Order;
 use crate::order::OrderSpan;
 use crate::range_tree::EntryTraits;
@@ -98,7 +98,7 @@ impl Rle<KVPair<DoubleDelete>> {
             // Ok we still have stuff to increment, and we're inside an entry now.
             let entry = &mut self.0[idx];
             debug_assert!(entry.0 <= next_span.order);
-            debug_assert!(next_span.order < entry.end());
+            debug_assert!(next_span.order < entry.end() as u32);
 
             if entry.0 < next_span.order {
                 // Split into 2 entries. This approach will result in more memcpys but it shouldn't

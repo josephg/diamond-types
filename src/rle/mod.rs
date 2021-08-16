@@ -13,14 +13,22 @@ pub trait RleKeyed {
     fn get_rle_key(&self) -> RleKey;
 }
 
+pub trait RleSpanHelpers: RleKeyed + SplitableSpan {
+    fn end(&self) -> u32 {
+        self.get_rle_key() + self.len() as u32
+    }
+}
+
+impl<V: RleKeyed + SplitableSpan> RleSpanHelpers for V {}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct KVPair<V>(pub RleKey, pub V);
 
-impl<V: SplitableSpan> KVPair<V> {
-    pub fn end(&self) -> u32 {
-        self.0 + self.1.len() as u32
-    }
-}
+// impl<V: SplitableSpan> KVPair<V> {
+//     pub fn end(&self) -> u32 {
+//         self.0 + self.1.len() as u32
+//     }
+// }
 
 impl<V> RleKeyed for KVPair<V> {
     fn get_rle_key(&self) -> u32 {

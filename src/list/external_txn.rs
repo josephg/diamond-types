@@ -4,7 +4,7 @@ use crate::list::{ListCRDT, Order, ROOT_ORDER};
 use crate::order::OrderSpan;
 use std::collections::BinaryHeap;
 use std::cmp::{Ordering, Reverse};
-use crate::rle::{KVPair, AppendRLE};
+use crate::rle::{KVPair, AppendRLE, RleSpanHelpers};
 use crate::common::{AgentId, CRDT_DOC_ROOT, CRDTLocation};
 use crate::splitable_span::SplitableSpan;
 use crate::range_tree::CRDTItem;

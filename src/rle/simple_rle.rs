@@ -2,7 +2,7 @@ use crate::range_tree::EntryTraits;
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 use std::cmp::Ordering::*;
-use crate::rle::{RleKey, RleKeyed, AppendRLE};
+use crate::rle::{RleKey, RleKeyed, AppendRLE, RleSpanHelpers};
 use humansize::{FileSize, file_size_opts};
 use std::iter::FromIterator;
 
