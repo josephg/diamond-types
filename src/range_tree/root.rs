@@ -442,7 +442,7 @@ impl<E: EntryTraits + EntryWithContent> RangeTree<E, FullIndex> {
 
     pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, FullIndex> {
         self.cursor_at_query(pos, stick_end,
-                                         |i| i.1 as usize,
+                                         |i| i.0 as usize,
                                          |e| e.len())
     }
 }

@@ -448,8 +448,14 @@ mod test {
 
         let mut ops2 = vec![];
         doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
-            let content = if has_content && e.tag == OpTag::Insert {
-                doc.text_content.as_ref().unwrap().chars_at(post_pos as usize).take(e.len as usize).collect::<SmartString>()
+            let content = if e.tag == OpTag::Insert {
+                if has_content {
+                    doc.text_content.as_ref().unwrap()
+                        .chars_at(post_pos as usize).take(e.len as usize)
+                        .collect::<SmartString>()
+                } else {
+                    std::iter::repeat('X').take(e.len as usize).collect::<SmartString>()
+                }
             } else { SmartString::default() };
 
             let c = LocalOp {
@@ -459,7 +465,7 @@ mod test {
             };
             ops2.push(c);
         });
-
+        ops2.reverse();
         dbg!(ops2);
     }
 }

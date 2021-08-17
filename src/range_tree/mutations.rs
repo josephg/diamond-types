@@ -76,12 +76,12 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 return; // WE're done here. Cursor is at the end of the previous entry.
             }
             items = &items[items_idx..];
-            debug_assert!(!items.is_empty());
+            // Note items might be empty now. We might just have remainder left.
 
             cursor.offset = 0;
             cursor.idx += 1; // NOTE: Cursor might point past the end of the node.
 
-            if remainder.is_none() && cursor.idx < node.len_entries() {
+            if remainder.is_none() && !items.is_empty() && cursor.idx < node.len_entries() {
                 // We'll also try to *prepend* some content on the front of the subsequent element
                 // I'm sure there's a way to do this using iterators, but I'm not sure it would be
                 // cleaner.
@@ -155,17 +155,21 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
         // Step 3: There's space now, so we can just insert.
         // println!("items {:?} cursor {:?}", items, cursor);
-        // node.num_entries += space_needed as u8;
-        for e in items {
-            I::increment_marker(flush_marker, e);
-            // flush_marker.0 += e.content_len() as isize;
-            notify(*e, cursor.node);
-        }
-        node.data[cursor.idx..cursor.idx + items.len()].copy_from_slice(items);
 
-        // Point the cursor to the end of the last inserted item.
-        cursor.idx += items.len() - 1;
-        cursor.offset = items[items.len() - 1].len();
+        let remainder_idx = cursor.idx + items.len();
+
+        if !items.is_empty() {
+            for e in items {
+                I::increment_marker(flush_marker, e);
+                // flush_marker.0 += e.content_len() as isize;
+                notify(*e, cursor.node);
+            }
+            node.data[cursor.idx..cursor.idx + items.len()].copy_from_slice(items);
+
+            // Point the cursor to the end of the last inserted item.
+            cursor.idx += items.len() - 1;
+            cursor.offset = items[items.len() - 1].len();
+        }
 
         // The cursor isn't updated to point after remainder.
         if let Some(e) = remainder {
@@ -174,7 +178,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             if remainder_moved {
                 notify(e, cursor.node);
             }
-            node.data[cursor.idx + 1] = e;
+            node.data[remainder_idx] = e;
         }
     }
 
@@ -962,10 +966,9 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
 #[cfg(test)]
 mod tests {
     // use std::pin::Pin;
-    use crate::range_tree::{RangeTree, CRDTSpan, ContentIndex, CRDTItem, EntryTraits, EntryWithContent, null_notify, NUM_LEAF_ENTRIES};
+    use crate::range_tree::*;
     use crate::common::CRDTLocation;
-    use crate::list::Order;
-    use crate::splitable_span::SplitableSpan;
+    use crate::range_tree::fuzzer::TestRange;
 
     #[test]
     fn splice_insert_test() {
@@ -990,87 +993,6 @@ mod tests {
         // println!("{:#?}", tree);
 
         tree.check();
-    }
-
-    /// This is a simple span object for testing.
-    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-    struct TestRange {
-        order: Order,
-        len: u32,
-        is_activated: bool,
-    }
-
-    impl Default for TestRange {
-        fn default() -> Self {
-            Self {
-                order: Order::MAX,
-                len: u32::MAX,
-                is_activated: false
-            }
-        }
-    }
-
-    impl SplitableSpan for TestRange {
-        fn len(&self) -> usize { self.len as usize }
-        fn truncate(&mut self, at: usize) -> Self {
-            let other = Self {
-                order: self.order + at as u32,
-                len: self.len - at as u32,
-                is_activated: self.is_activated
-            };
-            self.len = at as u32;
-            other
-        }
-        fn can_append(&self, other: &Self) -> bool {
-            other.order == self.order + self.len && other.is_activated == self.is_activated
-        }
-
-        fn append(&mut self, other: Self) {
-            assert!(self.can_append(&other));
-            self.len += other.len;
-        }
-
-        fn prepend(&mut self, other: Self) {
-            assert!(other.can_append(&self));
-            self.len += other.len;
-            self.order = other.order;
-        }
-    }
-
-    impl EntryTraits for TestRange {
-        type Item = ();
-
-        fn truncate_keeping_right(&mut self, at: usize) -> Self {
-            let mut other = *self;
-            *self = other.truncate(at);
-            other
-        }
-
-        fn contains(&self, _loc: Self::Item) -> Option<usize> { unimplemented!() }
-        fn is_valid(&self) -> bool { self.order != Order::MAX }
-        fn at_offset(&self, _offset: usize) -> Self::Item { () }
-    }
-
-    impl CRDTItem for TestRange {
-        fn is_activated(&self) -> bool {
-            self.is_activated
-        }
-
-        fn mark_activated(&mut self) {
-            assert!(!self.is_activated);
-            self.is_activated = true;
-        }
-
-        fn mark_deactivated(&mut self) {
-            assert!(self.is_activated);
-            self.is_activated = false;
-        }
-    }
-
-    impl EntryWithContent for TestRange {
-        fn content_len(&self) -> usize {
-            if self.is_activated { self.len() } else { 0 }
-        }
     }
 
     #[test]

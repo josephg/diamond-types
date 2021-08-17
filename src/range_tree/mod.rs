@@ -23,6 +23,9 @@ mod entry;
 mod mutations;
 mod index;
 
+#[cfg(test)]
+mod fuzzer;
+
 // pub(crate) use cursor::Cursor;
 
 #[cfg(debug_assertions)]
