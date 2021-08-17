@@ -786,16 +786,20 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
             // self_ref.children.copy_within(idx + 1..num_children, idx);
             // dbg!(self.index[idx]); // Should be 0.
             // ptr::drop_in_place(&mut self.children[idx]);
-            ptr::copy(
-                &mut self.children[idx + 1],
-                &mut self.children[idx],
-                num_children - idx - 1
-            );
+            let count = num_children - idx - 1;
+            if count > 0 {
+                ptr::copy(
+                    &mut self.children[idx + 1],
+                    &mut self.children[idx],
+                    count
+                );
+
+                // self.children[num_children - 1] = None;
+                self.index.copy_within(idx + 1..num_children, idx);
+            }
+
             // This pointer has been moved. We need to set its entry to None without dropping it.
             std::mem::forget(self.children[num_children - 1].take());
-
-            // self.children[num_children - 1] = None;
-            self.index.copy_within(idx + 1..num_children, idx);
 
             removed
         }

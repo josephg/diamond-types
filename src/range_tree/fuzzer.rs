@@ -3,6 +3,7 @@ use crate::splitable_span::SplitableSpan;
 use crate::range_tree::*;
 use rand::prelude::*;
 use crate::merge_iter::merge_items;
+use std::ops::Range;
 
 /// This is a simple span object for testing.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -161,7 +162,6 @@ fn replace_in_list(list: &mut Vec<TestRange>, pos: usize, entry: TestRange) {
 }
 
 #[test]
-#[ignore]
 fn random_edits() {
     let mut rng = SmallRng::seed_from_u64(20);
 
@@ -176,7 +176,7 @@ fn random_edits() {
         let mut expected_len = 0;
 
         for _j in 0..100 {
-            println!("j {}", _j);
+            // println!("j {}", _j);
             if list.is_empty() || rng.gen_bool(0.33) {
                 // Insert something.
                 let pos = rng.gen_range(0..=tree.len().0);
@@ -194,18 +194,28 @@ fn random_edits() {
                 let item = random_entry(&mut rng);
                 let pos = rng.gen_range(0..tree.count.0 - item.len);
 
-                println!("Replacing {} entries at position {} with {:?}", item.len(), pos, item);
+                // println!("Replacing {} entries at position {} with {:?}", item.len(), pos, item);
                 let cursor = tree.cursor_at_offset_pos(pos as usize, true);
                 tree.replace_range(cursor, item, null_notify);
-
                 replace_in_list(&mut list, pos as usize, item);
+            } else {
+                // Delete something
+                assert!(tree.count.0 > 0);
+
+                // Delete up to 20 items, but not more than we have in the document!
+                let del_span = rng.gen_range(1..=u32::min(tree.count.0, 20));
+                let pos = rng.gen_range(0..=tree.count.0 - del_span);
+
+                let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
+                tree.delete(&mut cursor, del_span as _, null_notify);
+                delete_in_list(&mut list, pos as usize, del_span as usize);
+
+                expected_len -= del_span as usize;
             }
 
-
-            // if _j >= 51 {
+            // if _i == 41 && _j >= 74 {
             //     dbg!(&tree);
             // }
-            // dbg!(&tree);
             tree.check();
 
             let list_len = list.iter().fold(0usize, |sum, item| sum + item.len());
