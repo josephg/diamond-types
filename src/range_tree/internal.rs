@@ -14,7 +14,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
         Box::pin(Self {
             parent,
             // data: [(I::IndexOffset::default(), None); NUM_NODE_CHILDREN],
-            index: [I::IndexOffset::default(); NUM_NODE_CHILDREN],
+            index: [I::IndexValue::default(); NUM_NODE_CHILDREN],
             children: unsafe {
                 // Using transmute_copy because otherwise we run into a nonsense compiler error.
                 mem::transmute_copy::<_, [Option<Node<E, I>>; NUM_NODE_CHILDREN]>(&children)
@@ -27,7 +27,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
     /// Finds the child at some given offset. Returns the remaining offset within the found child.
     pub(super) fn find_child_at_offset<F>(&self, raw_pos: usize, stick_end: bool, offset_to_num: &F)
         -> Option<(usize, NodePtr<E, I>)>
-            where F: Fn(I::IndexOffset) -> usize {
+            where F: Fn(I::IndexValue) -> usize {
 
         let mut offset_remaining = raw_pos;
 
@@ -47,7 +47,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
         None
     }
 
-    pub(super) fn set_entry(self: Pin<&mut Self>, idx: usize, count: I::IndexOffset, child: Option<Node<E, I>>) {
+    pub(super) fn set_entry(self: Pin<&mut Self>, idx: usize, count: I::IndexValue, child: Option<Node<E, I>>) {
         unsafe {
             let ptr = self.get_unchecked_mut();
             ptr.index[idx] = count;
@@ -63,7 +63,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
 
     /// Insert a new item in the tree. This DOES NOT update the child counts in
     /// the parents. (So the tree will be in an invalid state after this has been called.)
-    pub(super) fn splice_in(&mut self, idx: usize, mut count: I::IndexOffset, elem: Node<E, I>) {
+    pub(super) fn splice_in(&mut self, idx: usize, mut count: I::IndexValue, elem: Node<E, I>) {
         // let mut buffer = (count, Some(elem));
         let mut elem_buffer = Some(elem);
 

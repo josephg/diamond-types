@@ -10,8 +10,10 @@ pub type DeleteResult<E> = SmallVec<[E; 2]>;
 
 impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     pub fn new() -> Pin<Box<Self>> {
+        assert!(!E::default().is_valid());
+
         let mut tree = Box::pin(Self {
-            count: I::IndexOffset::default(),
+            count: I::IndexValue::default(),
             root: unsafe { Node::new_leaf() },
             last_cursor: Cell::new(None),
             _pin: marker::PhantomPinned,
@@ -30,7 +32,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
-    pub fn len(&self) -> I::IndexOffset {
+    pub fn len(&self) -> I::IndexValue {
         self.count
     }
 
@@ -39,12 +41,12 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     //     cursor.get_item()
     // }
 
-    unsafe fn to_parent_ptr(&self) -> ParentPtr<E, I> {
+    pub(super) unsafe fn to_parent_ptr(&self) -> ParentPtr<E, I> {
         ParentPtr::Root(ref_to_nonnull(self))
     }
 
     pub fn cursor_at_query<F, G>(&self, raw_pos: usize, stick_end: bool, offset_to_num: F, entry_to_num: G) -> Cursor<E, I>
-            where F: Fn(I::IndexOffset) -> usize, G: Fn(E) -> usize {
+            where F: Fn(I::IndexValue) -> usize, G: Fn(E) -> usize {
         // if let Some((pos, mut cursor)) = self.last_cursor.get() {
         //     if pos == raw_pos {
         //         if cursor.offset == 0 {
@@ -154,43 +156,35 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     }
 
     // Returns size.
-    fn check_leaf(leaf: &NodeLeaf<E, I>, expected_parent: ParentPtr<E, I>) -> I::IndexOffset {
+    fn check_leaf(leaf: &NodeLeaf<E, I>, expected_parent: ParentPtr<E, I>) -> I::IndexValue {
         assert_eq!(leaf.parent, expected_parent);
         
         // let mut count: usize = 0;
-        let mut count = I::IndexOffset::default();
-        let mut done = false;
-        let mut num: usize = 0;
+        let mut count = I::IndexValue::default();
 
-        for e in &leaf.data[..] {
-            if e.is_valid() {
-                // Make sure there's no data after an invalid entry
-                assert!(!done, "Leaf contains gaps");
-                assert_ne!(e.len(), 0, "Invalid leaf - 0 length");
-                // count += e.content_len() as usize;
-                I::increment_offset(&mut count, e);
-                num += 1;
-            } else {
-                done = true;
-            }
+        for e in &leaf.data[..leaf.num_entries as usize] {
+            assert!(e.is_valid());
+
+            // Make sure there's no data after an invalid entry
+            assert_ne!(e.len(), 0, "Invalid leaf - 0 length");
+            // count += e.content_len() as usize;
+            I::increment_offset(&mut count, e);
         }
 
         // An empty leaf is only valid if we're the root element.
         if let ParentPtr::Internal(_) = leaf.parent {
-            assert!(num > 0, "Non-root leaf is empty");
+            assert_ne!(leaf.num_entries, 0, "Non-root leaf is empty");
         }
-
-        assert_eq!(num, leaf.num_entries as usize, "Cached leaf len does not match");
 
         count
     }
     
     // Returns size.
-    fn check_internal(node: &NodeInternal<E, I>, expected_parent: ParentPtr<E, I>) -> I::IndexOffset {
+    fn check_internal(node: &NodeInternal<E, I>, expected_parent: ParentPtr<E, I>) -> I::IndexValue {
         assert_eq!(node.parent, expected_parent);
         
         // let mut count_total: usize = 0;
-        let mut count_total = I::IndexOffset::default();
+        let mut count_total = I::IndexValue::default();
         let mut done = false;
         let mut child_type = None; // Make sure all the children have the same type.
         // let self_parent = ParentPtr::Internal(NonNull::new(node as *const _ as *mut _).unwrap());
@@ -437,18 +431,18 @@ impl<E: EntryTraits + EntryWithContent> RangeTree<E, ContentIndex> {
 }
 impl<E: EntryTraits + EntryWithContent> RangeTree<E, FullIndex> {
     pub fn content_len(&self) -> usize {
-        self.count.content as usize
+        self.count.1 as usize
     }
 
     pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, FullIndex> {
         self.cursor_at_query(pos, stick_end,
-                                         |i| i.content as usize,
+                                         |i| i.1 as usize,
                                          |e| e.content_len())
     }
 
     pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, FullIndex> {
         self.cursor_at_query(pos, stick_end,
-                                         |i| i.len as usize,
+                                         |i| i.1 as usize,
                                          |e| e.len())
     }
 }
@@ -465,7 +459,7 @@ mod tests {
         let x = RangeTree::<CRDTSpan, FullIndex>::new();
         x.print_stats(false);
 
-        println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<CRDTSpan>>::IndexOffset>());
-        println!("sizeof FullIndex offset {}", size_of::<<FullIndex as TreeIndex<CRDTSpan>>::IndexOffset>());
+        println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<CRDTSpan>>::IndexValue>());
+        println!("sizeof FullIndex offset {}", size_of::<<FullIndex as TreeIndex<CRDTSpan>>::IndexValue>());
     }
 }

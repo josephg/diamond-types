@@ -44,7 +44,7 @@ const NUM_LEAF_ENTRIES: usize = 32;
 #[derive(Debug)]
 pub struct RangeTree<E: EntryTraits, I: TreeIndex<E>> {
     // count: usize,
-    count: I::IndexOffset,
+    count: I::IndexValue,
     root: Node<E, I>,
 
     // Usually inserts and deletes are followed by more inserts / deletes at the same location.
@@ -53,6 +53,34 @@ pub struct RangeTree<E: EntryTraits, I: TreeIndex<E>> {
     last_cursor: Cell<Option<(usize, Cursor<E, I>)>>,
 
     _pin: marker::PhantomPinned,
+}
+
+// The warning here is an error - the bound can't be removed.
+// #[allow(type_alias_bounds)]
+// type InternalEntry<E, I: TreeIndex<E>> = (I::IndexOffset, Option<Node<E, I>>);
+
+/// An internal node in the B-tree
+#[derive(Debug)]
+struct NodeInternal<E: EntryTraits, I: TreeIndex<E>> {
+    parent: ParentPtr<E, I>,
+    // Pairs of (count of subtree elements, subtree contents).
+    // Left packed. The nodes are all the same type.
+    // ItemCount only includes items which haven't been deleted.
+    index: [I::IndexValue; NUM_NODE_CHILDREN],
+    children: [Option<Node<E, I>>; NUM_NODE_CHILDREN],
+    _pin: PhantomPinned, // Needed because children have parent pointers here.
+    _drop: PrintDropInternal,
+}
+
+/// A leaf node in the B-tree. Except the root, each child stores MAX_CHILDREN/2 - MAX_CHILDREN
+/// entries.
+#[derive(Debug)]
+pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>> {
+    parent: ParentPtr<E, I>,
+    num_entries: u8, // Number of entries which have been populated
+    data: [E; NUM_LEAF_ENTRIES],
+    _pin: PhantomPinned, // Needed because cursors point here.
+    _drop: PrintDropLeaf
 }
 
 #[derive(Debug)]
@@ -73,34 +101,6 @@ enum NodePtr<E: EntryTraits, I: TreeIndex<E>> {
 enum ParentPtr<E: EntryTraits, I: TreeIndex<E>> {
     Root(NonNull<RangeTree<E, I>>),
     Internal(NonNull<NodeInternal<E, I>>)
-}
-
-// The warning here is an error - the bound can't be removed.
-// #[allow(type_alias_bounds)]
-// type InternalEntry<E, I: TreeIndex<E>> = (I::IndexOffset, Option<Node<E, I>>);
-
-/// An internal node in the B-tree
-#[derive(Debug)]
-struct NodeInternal<E: EntryTraits, I: TreeIndex<E>> {
-    parent: ParentPtr<E, I>,
-    // Pairs of (count of subtree elements, subtree contents).
-    // Left packed. The nodes are all the same type.
-    // ItemCount only includes items which haven't been deleted.
-    index: [I::IndexOffset; NUM_NODE_CHILDREN],
-    children: [Option<Node<E, I>>; NUM_NODE_CHILDREN],
-    _pin: PhantomPinned, // Needed because children have parent pointers here.
-    _drop: PrintDropInternal,
-}
-
-/// A leaf node in the B-tree. Except the root, each child stores MAX_CHILDREN/2 - MAX_CHILDREN
-/// entries.
-#[derive(Debug)]
-pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>> {
-    parent: ParentPtr<E, I>,
-    num_entries: u8, // Number of entries which have been populated
-    data: [E; NUM_LEAF_ENTRIES],
-    _pin: PhantomPinned, // Needed because cursors point here.
-    _drop: PrintDropLeaf
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -232,12 +232,27 @@ impl<E: EntryTraits, I: TreeIndex<E>> Node<E, I> {
     //     }
     // }
 
+    pub(super) fn is_leaf(&self) -> bool {
+        match self {
+            Node::Leaf(_) => true,
+            Node::Internal(_) => false,
+        }
+    }
+
     fn unwrap_leaf(&self) -> &NodeLeaf<E, I> {
         match self {
             Node::Leaf(l) => l.as_ref().get_ref(),
             Node::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
+
+    fn unwrap_into_leaf(self) -> Pin<Box<NodeLeaf<E, I>>> {
+        match self {
+            Node::Leaf(l) => l,
+            Node::Internal(_) => panic!("Expected leaf - found internal node"),
+        }
+    }
+
     fn unwrap_leaf_mut(&mut self) -> Pin<&mut NodeLeaf<E, I>> {
         match self {
             Node::Leaf(l) => l.as_mut(),
@@ -311,5 +326,25 @@ impl<E: EntryTraits, I: TreeIndex<E>> ParentPtr<E, I> {
             ParentPtr::Root(_) => { true }
             ParentPtr::Internal(_) => { false }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::mem::size_of;
+    use crate::range_tree::*;
+    use crate::order::OrderSpan;
+    // use std::pin::Pin;
+
+    #[test]
+    fn option_node_size_is_transparent() {
+        let node_size = size_of::<Node<OrderSpan, RawPositionIndex>>();
+        let opt_node_size = size_of::<Option<Node<OrderSpan, RawPositionIndex>>>();
+        assert_eq!(node_size, opt_node_size);
+
+        // TODO: This fails, which means we're burning 8 bytes to simply store tags for each
+        // pointer in a node. Despite all the items inside a node being the same type.
+        // let item_size = size_of::<Pin<Box<NodeInternal<OrderSpan, RawPositionIndex>>>>();
+        // assert_eq!(node_size, item_size);
     }
 }

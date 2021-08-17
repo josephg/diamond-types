@@ -4,7 +4,6 @@ use crate::splitable_span::SplitableSpan;
 use OpTag::*;
 use crate::order::OrderSpan;
 use std::pin::Pin;
-use std::ops::{AddAssign, SubAssign};
 use crate::list::double_delete::DoubleDelete;
 use crate::rle::{KVPair, RleKey, RleSpanHelpers};
 
@@ -97,28 +96,9 @@ impl EntryTraits for PositionMapEntry {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
 
-// Not sure why tuples of integers don't have AddAssign and SubAssign.
-#[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
-pub struct Pair<V: Copy + Clone + Default + AddAssign + SubAssign + PartialEq + Eq>(V, V);
-
-impl<V: Copy + Clone + Default + AddAssign + SubAssign + PartialEq + Eq> AddAssign for Pair<V> {
-    #[inline]
-    fn add_assign(&mut self, rhs: Self) {
-        self.0 += rhs.0;
-        self.1 += rhs.1;
-    }
-}
-impl<V: Copy + Clone + Default + AddAssign + SubAssign + PartialEq + Eq> SubAssign for Pair<V> {
-    #[inline]
-    fn sub_assign(&mut self, rhs: Self) {
-        self.0 -= rhs.0;
-        self.1 -= rhs.1;
-    }
-}
-
 impl TreeIndex<PositionMapEntry> for PrePostIndex {
     type IndexUpdate = Pair<i32>;
-    type IndexOffset = Pair<u32>;
+    type IndexValue = Pair<u32>;
 
     fn increment_marker(marker: &mut Self::IndexUpdate, entry: &PositionMapEntry) {
         marker.0 += entry.pre_len() as i32;
@@ -130,12 +110,17 @@ impl TreeIndex<PositionMapEntry> for PrePostIndex {
         marker.1 -= entry.post_len() as i32;
     }
 
-    fn update_offset_by_marker(offset: &mut Self::IndexOffset, by: &Self::IndexUpdate) {
+    fn decrement_marker_by_val(marker: &mut Self::IndexUpdate, val: &Self::IndexValue) {
+        marker.0 -= val.0 as i32;
+        marker.1 -= val.1 as i32;
+    }
+
+    fn update_offset_by_marker(offset: &mut Self::IndexValue, by: &Self::IndexUpdate) {
         offset.0 = offset.0.wrapping_add(by.0 as u32);
         offset.1 = offset.1.wrapping_add(by.1 as u32);
     }
 
-    fn increment_offset(offset: &mut Self::IndexOffset, by: &PositionMapEntry) {
+    fn increment_offset(offset: &mut Self::IndexValue, by: &PositionMapEntry) {
         offset.0 += by.pre_len();
         offset.1 += by.post_len();
     }
@@ -216,7 +201,7 @@ impl DoubleDeleteVisitor {
 }
 
 impl ListCRDT {
-    pub(super) fn make_position_map<V>(&self, mut span: OrderSpan, mut visit: V) -> PositionMap
+    pub(super) fn ot_changes_since<V>(&self, mut span: OrderSpan, mut visit: V) -> PositionMap
     where V: FnMut(u32, u32, PositionMapEntry, bool) {
         // I've gone through a lot of potential designs for this code and settled on this one.
         //
@@ -311,10 +296,10 @@ impl ListCRDT {
                 // Cap the number of items to undelete each iteration based on the span in range_tree.
                 let entry = rt_cursor.get_raw_entry();
                 debug_assert!(entry.is_deactivated());
-                let first_del_target = u32::max(entry.order, last_del_target - del_span_size + 1);
+                let first_del_target = u32::max(entry.order, last_del_target + 1 - del_span_size);
 
                 let (allowed, first_order) = marked_deletes.mark_range(&self.double_deletes, last_del_target, first_del_target);
-                let len_here = last_del_target - first_order + 1;
+                let len_here = last_del_target + 1 - first_order;
 
                 if allowed {
                     // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
@@ -391,6 +376,12 @@ impl ListCRDT {
 #[cfg(test)]
 mod test {
     use crate::list::ListCRDT;
+    use rand::prelude::SmallRng;
+    use rand::SeedableRng;
+    use crate::fuzz_helpers::make_random_change;
+    use smartstring::alias::{String as SmartString};
+    use crate::list::ot::positionmap::OpTag;
+    use crate::LocalOp;
 
     #[test]
     fn simple_position_map() {
@@ -399,7 +390,7 @@ mod test {
         doc.local_insert(0, 0, "hi there".into()); // 0-7
         doc.local_delete(0, 2, 3); // "hiere" 8-11
 
-        doc.make_position_map(doc.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
+        doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
             dbg!((post_pos, pre_pos, e, has_content));
         });
     }
@@ -428,7 +419,7 @@ mod test {
         dbg!(&doc1.double_deletes);
 
         let mut changes = Vec::new();
-        let map = doc2.make_position_map(doc2.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
+        let map = doc2.ot_changes_since(doc2.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
             dbg!((post_pos, pre_pos, e, has_content));
             // if e.tag == OpTag::Insert {pre_pos -= e.len;}
             changes.push((post_pos, pre_pos, e, has_content));
@@ -436,5 +427,39 @@ mod test {
         changes.reverse();
         dbg!(&changes);
         dbg!(&map);
+    }
+
+    #[test]
+    fn single_document_random() {
+        // Check that when we query all the changes from a single document, the result is the same
+        // (same values, same order) as we get from ot_changes_since.
+
+        let mut rng = SmallRng::seed_from_u64(7);
+        let mut doc = ListCRDT::new();
+
+        let agent = doc.get_or_create_agent_id("seph");
+
+        let mut ops = vec![];
+        for _i in 0..3 {
+            let op = make_random_change(&mut doc, None, agent, &mut rng);
+            ops.push(op);
+        }
+        dbg!(ops);
+
+        let mut ops2 = vec![];
+        doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
+            let content = if has_content && e.tag == OpTag::Insert {
+                doc.text_content.as_ref().unwrap().chars_at(post_pos as usize).take(e.len as usize).collect::<SmartString>()
+            } else { SmartString::default() };
+
+            let c = LocalOp {
+                pos: pre_pos as usize,
+                ins_content: content,
+                del_span: if e.tag == OpTag::Delete { e.len as usize } else { 0 },
+            };
+            ops2.push(c);
+        });
+
+        dbg!(ops2);
     }
 }

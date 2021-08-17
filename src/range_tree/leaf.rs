@@ -130,10 +130,14 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
         self.update_parent_count(amt);
     }
 
-    pub(super) fn count_items(&self) -> usize {
+    pub(super) fn has_root_as_parent(&self) -> bool {
+        self.parent.is_root()
+    }
+
+    pub(super) fn count_items(&self) -> I::IndexValue {
         if I::can_count_items() {
             // Optimization using the index. TODO: check if this is actually faster.
-            let offset = match self.parent {
+            match self.parent {
                 ParentPtr::Root(root) => {
                     unsafe { root.as_ref() }.count
                 }
@@ -142,13 +146,14 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
                     let idx = unsafe { node.as_ref() }.find_child(child).unwrap();
                     unsafe { node.as_ref() }.index[idx]
                 }
-            };
-            I::count_items(offset)
+            }
         } else {
             // Count items the boring way. Hopefully this will optimize tightly.
-            self.data[..self.num_entries as usize].iter().fold(0, |sum, elem| {
-                sum + elem.len()
-            })
+            let mut val = I::IndexValue::default();
+            for elem in self.data[..self.num_entries as usize].iter() {
+                I::increment_offset(&mut val, elem);
+            }
+            val
         }
     }
 
@@ -156,5 +161,10 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
     pub(super) fn splice_out(&mut self, idx: usize) {
         self.data.copy_within(idx + 1..self.num_entries as usize, idx);
         self.num_entries -= 1;
+    }
+
+    pub(super) fn clear_all(&mut self) {
+        // self.data[0..self.num_entries as usize].fill(E::default());
+        self.num_entries = 0;
     }
 }

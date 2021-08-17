@@ -144,11 +144,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         self.next_entry_marker(None)
     }
 
-    pub fn count_pos(&self) -> I::IndexOffset {
+    pub fn count_pos(&self) -> I::IndexValue {
         let node = unsafe { self.node.as_ref() };
         
         // let mut pos: usize = 0;
-        let mut pos = I::IndexOffset::default();
+        let mut pos = I::IndexValue::default();
         // First find out where we are in the current node.
         
         // TODO: This is a bit redundant - we could find out the local position

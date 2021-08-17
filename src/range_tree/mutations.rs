@@ -430,17 +430,42 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
-    /// Internal method to delete a range of entries inside the current node. Could be moved into
-    /// Leaf. It doesn't really make sense to take &self here.
-    fn delete_entry_range(self: &mut Pin<Box<Self>>, cursor: &Cursor<E, I>, mut del_items: usize, flush_marker: &mut I::IndexUpdate) -> usize {
+    /// Internal method to remove whole entries inside the current leaf. Could be moved into Leaf.
+    /// It doesn't really make sense to take a &Self here.
+    ///
+    /// This method requires that the passed cursor is at the start of an item. (cursor.offset = 0).
+    ///
+    /// We return a tuple of (should_iterate, the number of remaining items to delete).
+    /// If should_iterate is true, keep calling this in a loop. (Eh I need a better name for that
+    /// variable).
+    fn delete_entry_range(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I>, mut del_items: usize, flush_marker: &mut I::IndexUpdate) -> (bool, usize) {
+        // This method only deletes whole items.
+        debug_assert_eq!(cursor.offset, 0);
+
         let start_range = cursor.idx;
         let mut end_range = cursor.idx;
+
         let mut node = unsafe { cursor.get_node_mut() };
+
+        if I::can_count_items() && start_range == 0 && !node.has_root_as_parent() {
+            // Try and short circuit deleting the entire range. This will speed up large deletes.
+            let item_count = node.count_items();
+            if I::count_items(item_count) >= del_items {
+                I::decrement_marker_by_val(flush_marker, &item_count);
+                let node = cursor.node;
+                cursor.traverse(true);
+                unsafe { NodeLeaf::remove(node); }
+                return (true, del_items - I::count_items(item_count));
+            }
+        }
+
+        // 1. Find the end index to remove
+        let len_entries = node.len_entries();
         // let mut node = unsafe { &mut *cursor.node.as_ptr() };
-        while end_range < node.len_entries() && del_items > 0 {
-            let entry = node.data[cursor.idx];
+        while end_range < len_entries && del_items > 0 {
+            let entry = node.data[end_range];
             let entry_len = entry.len();
-            if entry_len >= del_items {
+            if entry_len <= del_items {
                 I::decrement_marker(flush_marker, &entry);
                 del_items -= entry_len;
                 end_range += 1;
@@ -449,28 +474,37 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             }
         }
 
-        // Delete from [start_range..end_range)
-
+        // 2. Delete from [start_range..end_range)
         if end_range > start_range {
-            // println!("Delete entry range from {} to {} (m: {:?})", start_range, end_range, flush_marker);
-            let len_entries = node.len_entries();
-            let tail_count = len_entries - end_range;
-            if tail_count > 0 {
-                node.data.copy_within(end_range..len_entries, start_range);
+            if start_range == 0 && end_range == len_entries && !node.has_root_as_parent() {
+                // Remove the entire leaf from the tree.
+                let node = cursor.node;
+                cursor.traverse(true);
+                unsafe { NodeLeaf::remove(node); }
+                (true, del_items)
+            } else {
+                // println!("Delete entry range from {} to {} (m: {:?})", start_range, end_range, flush_marker);
+                let len_entries = node.len_entries();
+                let tail_count = len_entries - end_range;
+                if tail_count > 0 {
+                    node.data.copy_within(end_range..len_entries, start_range);
+                }
+                node.num_entries = (start_range + tail_count) as u8;
+
+                // If the result is to remove all entries, the leaf should have been removed instead.
+                debug_assert!(node.num_entries > 0 || node.parent.is_root());
+
+                // Is this worth doing? It keeps things tidier but its unnecessary and I don't like
+                // debug mode and prod mode drifting too far.
+                // #[cfg(debug_assertions)]
+                node.data[start_range + tail_count..].fill(E::default());
+
+                // TODO: And rebalance if the node is now less than half full.
+                (false, del_items)
             }
-            node.num_entries = (start_range + tail_count) as u8;
-
-            // If the result is to remove all entries, the leaf should have been removed instead.
-            debug_assert!(node.num_entries > 0 || node.parent.is_root());
-
-            // Is this worth doing? It keeps things tidier but its unnecessary and I don't like
-            // debug mode and prod mode drifting too far.
-            // #[cfg(debug_assertions)]
-            node.data[start_range + tail_count..].fill(E::default());
+        } else {
+            (false, del_items)
         }
-
-        // TODO: And try to rebalanced if the node is now less than half full.
-        del_items
     }
 
     fn delete_internal<N>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I>, mut del_items: usize, flush_marker: &mut I::IndexUpdate, notify: &mut N)
@@ -512,33 +546,19 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         debug_assert_eq!(cursor.offset, 0);
 
         // Ok, we're at the start of an entry. Scan and delete entire entries from this leaf.
-        // let mut node = unsafe { cursor.get_node_mut() };
-        // So dirty.
-        let node = unsafe { &mut *cursor.node.as_ptr() };
-        // TODO: node.count_items() here could be written better...
-        if cursor.idx > 0 {
-            del_items = self.delete_entry_range(cursor, del_items, flush_marker);
 
-            if del_items == 0 { return; }
-            if cursor.idx >= node.len_entries() { // Actually it'll be ==.
-                // We've trimmed the end of this node. Advance.
-                if !cursor.next_entry_marker(Some(flush_marker)) { return; }
-            }
+        while del_items > 0 {
+            let (iterate, num) = self.delete_entry_range(cursor, del_items, flush_marker);
+            del_items = num;
+            if !iterate { break; }
         }
-
-        if cursor.idx == 0 {
-            // Try to delete a run of leaf nodes entirely.
-            todo!();
-            // node = unsafe { cursor.get_node_mut() };
-        }
-
-        // Delete entire items if we can.
-        del_items = self.delete_entry_range(cursor, del_items, flush_marker);
-        debug_assert!(cursor.idx < node.len_entries());
 
         if del_items > 0 {
             // Trim the final entry.
+            let node = unsafe { cursor.get_node_mut() };
+            debug_assert!(cursor.idx < node.len_entries());
             debug_assert!(node.data[cursor.idx].len() > del_items);
+
             let trimmed = node.data[cursor.idx].truncate_keeping_right(del_items);
             I::decrement_marker(flush_marker, &trimmed);
         }
@@ -690,7 +710,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
 
             // zero out the old entries
             // let mut stolen_length: usize = 0;
-            let mut stolen_length = I::IndexOffset::default();
+            let mut stolen_length = I::IndexValue::default();
             // dbg!(&self.data);
             for e in &mut self.data[idx..self.num_entries as usize] {
                 I::increment_offset(&mut stolen_length, e);
@@ -714,7 +734,86 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeLeaf<E, I> {
             new_leaf_ptr
         }
     }
+
+    /// Remove this leaf from the tree. Cursor positioned after leaf.
+    ///
+    /// It is invalid to call this on the last node in the tree - which will have the parent as a
+    /// root.
+    unsafe fn remove(self_ptr: NonNull<NodeLeaf<E, I>>) {
+        // I'm really not sure what sort of self reference this method should take. We could take a
+        // Pin<*mut Self> - which feels more correct. Using NonNull<Self> is convenient because of
+        // cursor, though we'll dereference it anyway so maybe Pin<&mut Self>? O_o
+        //
+        // Function is unsafe.
+        let leaf = self_ptr.as_ref();
+        debug_assert!(!leaf.has_root_as_parent());
+
+        NodeInternal::remove_leaf(leaf.parent.unwrap_internal(), self_ptr);
+    }
 }
+
+impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
+    unsafe fn slice_out(&mut self, child: NodePtr<E, I>) -> Node<E, I> {
+        if self.children[1].is_none() {
+            // short circuit.
+
+            // If we're in this situation, children[0] must be Some(child).
+            debug_assert_eq!(self.find_child(child).unwrap(), 0);
+
+            self.children[0].take().unwrap()
+        } else {
+            let idx = self.find_child(child).unwrap();
+            let num_children = self.count_children();
+
+            let removed = self.children[idx].take().unwrap();
+            // self_ref.children.copy_within(idx + 1..num_children, idx);
+            ptr::copy(
+                &mut self.children[idx + 1],
+                &mut self.children[idx],
+                num_children
+            );
+            self.children[num_children - 1] = None;
+            self.index.copy_within(idx + 1..num_children, idx);
+
+            removed
+        }
+    }
+
+    unsafe fn remove_leaf(mut self_ptr: NonNull<NodeInternal<E, I>>, child: NonNull<NodeLeaf<E, I>>) {
+        let spare = self_ptr.as_mut().slice_out(NodePtr::Leaf(child));
+        Self::ripple_delete(self_ptr, spare);
+    }
+
+    unsafe fn ripple_delete(mut self_ptr: NonNull<NodeInternal<E, I>>, mut spare_leaf: Node<E, I>) {
+        debug_assert!(spare_leaf.is_leaf());
+
+        let self_ref = self_ptr.as_mut();
+
+        if self_ref.children[0].is_none() {
+            // This child is empty. Remove it from its parent.
+            match self_ref.parent {
+                ParentPtr::Root(mut root) => {
+                    // We're removing the last item from the tree. The tree must always have at
+                    // least 1 item, so we need to replace the single child. We could replace it
+                    // with a fresh node, which would be simpler, but doing that would mess up the
+                    // cursor (which we don't have access to here). And it would require an
+                    // additional allocation - though this is rare anyway.
+                    let mut root = root.as_mut();
+                    spare_leaf.set_parent(root.to_parent_ptr());
+                    // spare_leaf.unwrap_leaf_mut().get_unchecked_mut().num_entries = 0;
+                    spare_leaf.unwrap_leaf_mut().get_unchecked_mut().clear_all();
+                    root.root = spare_leaf;
+                }
+                ParentPtr::Internal(mut parent) => {
+                    // Remove recursively.
+                    parent.as_mut().slice_out(NodePtr::Internal(self_ptr));
+                    Self::ripple_delete(parent, spare_leaf);
+                }
+            }
+        }
+    }
+}
+
 
 // I'm really not sure where to put these methods. Its not really associated with
 // any of the tree implementation methods. This seems like a hidden spot. Maybe
@@ -723,7 +822,7 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
     mut parent: ParentPtr<E, I>,
     mut inserted_leaf_node: Node<E, I>,
     mut insert_after: NodePtr<E, I>,
-    mut stolen_length: I::IndexOffset) {
+    mut stolen_length: I::IndexValue) {
     // println!("insert_after {:?} leaf {:#?} parent {:#?}", stolen_length, inserted_leaf_node, parent);
     unsafe {
         // Ok now we need to walk up the tree trying to insert. At each step
@@ -797,7 +896,7 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
 
                     let left_sibling = n.as_mut();
                     left_sibling.index[old_idx] -= stolen_length;
-                    let mut new_stolen_length = I::IndexOffset::default();
+                    let mut new_stolen_length = I::IndexValue::default();
                     // Dividing this into cases makes it easier to reason
                     // about.
                     if old_idx < NUM_NODE_CHILDREN /2 {
@@ -860,36 +959,10 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>>(
     }
 }
 
-fn delete_leaves<E: EntryTraits, I: TreeIndex<E>>(_cursor: &mut Cursor<E, I>, _del_items: usize, _flush_marker: &mut I::IndexUpdate) -> usize {
-    // Try and delete some leaves.
-    if !I::can_count_items() {
-        unimplemented!("Cannot delete leaves when not using raw position index");
-    }
-
-    todo!()
-    // let leaf = unsafe { cursor.node.as_ref() };
-    // match leaf.parent {
-    //     ParentPtr::Root(_) => {
-    //         // Do not delete the last leaf no matter how many or how few items it contains.
-    //         return del_items;
-    //     }
-    //     ParentPtr::Internal(node) => {
-    //         let mut child = NodePtr::Leaf(unsafe { cursor.node });
-    //         let idx = unsafe { node.as_ref() }.find_child(child).unwrap();
-    //         let child_count = I::count_items(unsafe { node.as_ref() }.data[idx].0);
-    //         todo!();
-    //     }
-    // };
-    //
-    //
-    // del_items
-}
-
-
 #[cfg(test)]
 mod tests {
     // use std::pin::Pin;
-    use crate::range_tree::{RangeTree, CRDTSpan, ContentIndex, CRDTItem, EntryTraits, EntryWithContent};
+    use crate::range_tree::{RangeTree, CRDTSpan, ContentIndex, CRDTItem, EntryTraits, EntryWithContent, null_notify, NUM_LEAF_ENTRIES};
     use crate::common::CRDTLocation;
     use crate::list::Order;
     use crate::splitable_span::SplitableSpan;
@@ -903,7 +976,7 @@ mod tests {
         };
         let mut cursor = tree.cursor_at_content_pos(0, false);
         let mut marker = 0;
-        tree.insert_internal(&[entry], &mut cursor, &mut marker, &mut |_e, _x| {});
+        tree.insert_internal(&[entry], &mut cursor, &mut marker, &mut null_notify);
         unsafe {cursor.get_node_mut() }.flush_index_update(&mut marker);
 
         let entry = CRDTSpan {
@@ -911,7 +984,7 @@ mod tests {
             len: 20
         };
         cursor = tree.cursor_at_content_pos(15, false);
-        tree.insert_internal(&[entry], &mut cursor, &mut marker, &mut |_e, _x| {});
+        tree.insert_internal(&[entry], &mut cursor, &mut marker, &mut null_notify);
         unsafe {cursor.get_node_mut() }.flush_index_update(&mut marker);
 
         // println!("{:#?}", tree);
@@ -1010,17 +1083,17 @@ mod tests {
             len: 100,
             is_activated: true,
         };
-        tree.insert(cursor, entry, &mut |_, _| {});
+        tree.insert(cursor, entry, null_notify);
         assert_eq!(tree.count_entries(), 1);
 
         // I'm going to delete two items in the middle.
         let cursor = tree.cursor_at_content_pos(50, false);
-        tree.local_deactivate(cursor, 1, &mut |_, _| {});
+        tree.local_deactivate(cursor, 1, null_notify);
         assert_eq!(tree.count_entries(), 3);
 
         let cursor = tree.cursor_at_content_pos(50, false);
         dbg!(&tree);
-        tree.local_deactivate(cursor, 1, &mut |_, _| {});
+        tree.local_deactivate(cursor, 1, null_notify);
         dbg!(&tree);
         assert_eq!(tree.count_entries(), 3);
     }
@@ -1035,17 +1108,44 @@ mod tests {
             len: 100,
             is_activated: true,
         };
-        tree.insert(cursor, entry, &mut |_, _| {});
+        tree.insert(cursor, entry, null_notify);
         assert_eq!(tree.count_entries(), 1);
 
         // Ok now I'm going to delete the last and second-last elements. We should end up with
         // two entries.
         let cursor = tree.cursor_at_content_pos(99, false);
-        tree.local_deactivate(cursor, 1, &mut |_, _| {});
+        tree.local_deactivate(cursor, 1, null_notify);
         assert_eq!(tree.count_entries(), 2);
 
         let cursor = tree.cursor_at_content_pos(98, false);
-        tree.local_deactivate(cursor, 1, &mut |_, _| {});
+        tree.local_deactivate(cursor, 1, null_notify);
         assert_eq!(tree.count_entries(), 2);
+    }
+
+    #[test]
+    fn delete_single_item() {
+        let mut tree = RangeTree::<TestRange, ContentIndex>::new();
+        tree.insert_at_start(TestRange { order: 0, len: 10, is_activated: true }, null_notify);
+
+        let mut cursor = tree.cursor_at_start();
+        tree.delete(&mut cursor, 10, null_notify);
+        assert_eq!(tree.len(), 0);
+        tree.check();
+    }
+
+    #[test]
+    fn delete_all_items() {
+        let mut tree = RangeTree::<TestRange, ContentIndex>::new();
+        let num = NUM_LEAF_ENTRIES + 1;
+        for i in 0..num {
+            tree.insert_at_start(TestRange { order: i as _, len: 10, is_activated: true }, null_notify);
+        }
+        // dbg!(&tree);
+        assert!(!tree.root.is_leaf());
+
+        let mut cursor = tree.cursor_at_start();
+        tree.delete(&mut cursor, 10 * num, null_notify);
+        assert_eq!(tree.len(), 0);
+        tree.check();
     }
 }
