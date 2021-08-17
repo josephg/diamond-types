@@ -423,7 +423,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
             if replaced_len > entry_len {
                 // Delete any extra trailing length.
-                cursor.next_entry();
+                cursor.next_entry_marker(Some(flush_marker));
                 self.delete_internal(cursor, replaced_len - entry_len, flush_marker, &mut notify);
             } // Otherwise we're done.
         } else { // replaced_len < entry_len
@@ -445,17 +445,27 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     fn delete_entry_range(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I>, mut del_items: usize, flush_marker: &mut I::IndexUpdate) -> (bool, usize) {
         // This method only deletes whole items.
         debug_assert_eq!(cursor.offset, 0);
+        debug_assert!(del_items > 0);
+
+        let mut node = unsafe { cursor.get_node_mut() };
+        // If the cursor is at the end of the leaf, flush and roll.
+        if cursor.idx >= node.num_entries as usize {
+            node.flush_index_update(flush_marker);
+            // If we reach the end of the tree, discard trailing deletes.
+            if !cursor.traverse(true) { return (false, 0); }
+            node = unsafe { cursor.get_node_mut() };
+        }
 
         let start_range = cursor.idx;
         let mut end_range = cursor.idx;
 
-        let mut node = unsafe { cursor.get_node_mut() };
 
         if I::can_count_items() && start_range == 0 && !node.has_root_as_parent() {
             // Try and short circuit deleting the entire range. This will speed up large deletes.
             let item_count = node.count_items();
             if I::count_items(item_count) >= del_items {
                 I::decrement_marker_by_val(flush_marker, &item_count);
+                node.flush_index_update(flush_marker);
                 let node = cursor.node;
                 cursor.traverse(true);
                 unsafe { NodeLeaf::remove(node); }
@@ -482,6 +492,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         if end_range > start_range {
             if start_range == 0 && end_range == len_entries && !node.has_root_as_parent() {
                 // Remove the entire leaf from the tree.
+                node.flush_index_update(flush_marker);
+
                 let node = cursor.node;
                 cursor.traverse(true);
                 unsafe { NodeLeaf::remove(node); }
@@ -504,7 +516,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 node.data[start_range + tail_count..].fill(E::default());
 
                 // TODO: And rebalance if the node is now less than half full.
-                (false, del_items)
+                (true, del_items)
             }
         } else {
             (false, del_items)
@@ -555,6 +567,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             let (iterate, num) = self.delete_entry_range(cursor, del_items, flush_marker);
             del_items = num;
             if !iterate { break; }
+            // delete_entry_range only deletes from the current item each iteration.
         }
 
         if del_items > 0 {
@@ -771,12 +784,17 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
 
             let removed = self.children[idx].take().unwrap();
             // self_ref.children.copy_within(idx + 1..num_children, idx);
+            // dbg!(self.index[idx]); // Should be 0.
+            // ptr::drop_in_place(&mut self.children[idx]);
             ptr::copy(
                 &mut self.children[idx + 1],
                 &mut self.children[idx],
-                num_children
+                num_children - idx - 1
             );
-            self.children[num_children - 1] = None;
+            // This pointer has been moved. We need to set its entry to None without dropping it.
+            std::mem::forget(self.children[num_children - 1].take());
+
+            // self.children[num_children - 1] = None;
             self.index.copy_within(idx + 1..num_children, idx);
 
             removed

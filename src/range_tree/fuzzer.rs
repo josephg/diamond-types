@@ -1,6 +1,6 @@
 use crate::list::Order;
 use crate::splitable_span::SplitableSpan;
-use crate::range_tree::{EntryTraits, CRDTItem, EntryWithContent, RangeTree, RawPositionIndex, FullIndex, null_notify};
+use crate::range_tree::*;
 use rand::prelude::*;
 use crate::merge_iter::merge_items;
 
@@ -25,6 +25,7 @@ impl Default for TestRange {
 impl SplitableSpan for TestRange {
     fn len(&self) -> usize { self.len as usize }
     fn truncate(&mut self, at: usize) -> Self {
+        assert!(at > 0 && at < self.len as usize);
         let other = Self {
             order: self.order + at as u32,
             len: self.len - at as u32,
@@ -118,7 +119,49 @@ fn insert_into_list(list: &mut Vec<TestRange>, pos: usize, entry: TestRange) {
     }
 }
 
+fn delete_in_list(list: &mut Vec<TestRange>, pos: usize, mut del_span: usize) {
+    let mut idx = 0;
+    let mut cur_pos = 0;
+
+    while del_span > 0 {
+        let e_len = list[idx].len();
+        if cur_pos == pos {
+            if e_len > del_span {
+                list[idx].truncate_keeping_right(del_span);
+                break;
+            } else {
+                del_span -= e_len;
+                list.remove(idx);
+                // And continue keeping the current index.
+            }
+        } else {
+            if cur_pos + e_len > pos {
+                // Split the item.
+                let mut remainder = list[idx].truncate(pos - cur_pos);
+                if del_span < remainder.len() {
+                    remainder.truncate_keeping_right(del_span);
+                    list.insert(idx + 1, remainder);
+                    return;
+                } else {
+                    // Discard r1.
+                    del_span -= remainder.len();
+                }
+            }
+
+            cur_pos += list[idx].len();
+            idx += 1;
+        }
+    }
+}
+
+fn replace_in_list(list: &mut Vec<TestRange>, pos: usize, entry: TestRange) {
+    // Wheee testing laziness!
+    delete_in_list(list, pos, entry.len());
+    insert_into_list(list, pos, entry);
+}
+
 #[test]
+#[ignore]
 fn random_edits() {
     let mut rng = SmallRng::seed_from_u64(20);
 
@@ -130,11 +173,11 @@ fn random_edits() {
         // TestRange is overkill for this, but eh.
         let mut tree = RangeTree::<TestRange, FullIndex>::new();
         let mut list = vec![];
+        let mut expected_len = 0;
 
         for _j in 0..100 {
-            // println!("j {}", _j);
-            // if list.is_empty() || rng.gen_bool(0.33) {
-            if list.is_empty() || true {
+            println!("j {}", _j);
+            if list.is_empty() || rng.gen_bool(0.33) {
                 // Insert something.
                 let pos = rng.gen_range(0..=tree.len().0);
                 let item = random_entry(&mut rng);
@@ -144,13 +187,30 @@ fn random_edits() {
                 let cursor = tree.cursor_at_offset_pos(pos as usize, true);
                 tree.insert(cursor, item, null_notify);
                 insert_into_list(&mut list, pos as usize, item);
+
+                expected_len += item.len();
+            } else if tree.count.0 > 10 && rng.gen_bool(0.5) {
+                // Modify something.
+                let item = random_entry(&mut rng);
+                let pos = rng.gen_range(0..tree.count.0 - item.len);
+
+                println!("Replacing {} entries at position {} with {:?}", item.len(), pos, item);
+                let cursor = tree.cursor_at_offset_pos(pos as usize, true);
+                tree.replace_range(cursor, item, null_notify);
+
+                replace_in_list(&mut list, pos as usize, item);
             }
 
+
+            // if _j >= 51 {
+            //     dbg!(&tree);
+            // }
             // dbg!(&tree);
             tree.check();
 
             let list_len = list.iter().fold(0usize, |sum, item| sum + item.len());
-            assert_eq!(list_len, tree.count.0 as usize);
+            assert_eq!(expected_len, list_len);
+            assert_eq!(expected_len, tree.count.0 as usize);
 
             let list_content = list.iter().fold(0usize, |sum, item| sum + item.content_len());
             assert_eq!(list_content, tree.count.1 as usize);
