@@ -1,7 +1,7 @@
 // The btree here is used to map character -> document positions. It could also
 // be extended to inline a rope, but I haven't done that here.
 
-use std::cell::Cell;
+// use std::cell::Cell;
 use std::fmt::Debug;
 use std::marker;
 use std::marker::PhantomPinned;
@@ -53,7 +53,7 @@ pub struct RangeTree<E: EntryTraits, I: TreeIndex<E>> {
     // Usually inserts and deletes are followed by more inserts / deletes at the same location.
     // We cache the last cursor position so we can reuse cursors between edits.
     // TODO: Currently unused.
-    last_cursor: Cell<Option<(usize, Cursor<E, I>)>>,
+    // last_cursor: Cell<Option<(usize, Cursor<E, I>)>>,
 
     _pin: marker::PhantomPinned,
 }
@@ -106,7 +106,7 @@ enum ParentPtr<E: EntryTraits, I: TreeIndex<E>> {
     Internal(NonNull<NodeInternal<E, I>>)
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 // pub struct Cursor<'a, E: EntryTraits> {
 pub struct Cursor<E: EntryTraits, I: TreeIndex<E>> {
 // pub struct Cursor {

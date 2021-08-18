@@ -227,8 +227,9 @@ impl ListCRDT {
             self.get_cursor_after(item.origin_left, false)
         });
 
-        let left_cursor = cursor;
-        let mut scan_start = cursor;
+        // These are almost never used. Could avoid the clone here... though its pretty cheap.
+        let left_cursor = cursor.clone();
+        let mut scan_start = cursor.clone();
         let mut scanning = false;
 
         loop {
@@ -237,7 +238,7 @@ impl ListCRDT {
                 Some(o) => { o }
             };
 
-            // Almost always true.
+            // Almost always true. Could move this short circuit earlier?
             if other_order == item.origin_right { break; }
 
             // This code could be better optimized, but its already O(n * log n), and its extremely
@@ -276,7 +277,7 @@ impl ListCRDT {
                         if other_right_cursor < my_right_cursor {
                             if !scanning {
                                 scanning = true;
-                                scan_start = cursor;
+                                scan_start = cursor.clone();
                             }
                         } else {
                             scanning = false;
@@ -378,7 +379,7 @@ impl ListCRDT {
     pub(super) fn internal_mark_deleted(&mut self, order: Order, max_len: u32, update_content: bool) -> (u32, bool) {
         let cursor = self.get_cursor_before(order);
 
-        let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, max_len as _, notify_for(&mut self.index));
+        let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor.clone(), max_len as _, notify_for(&mut self.index));
         let deleted_here = deleted_here as u32;
 
         if !succeeded {

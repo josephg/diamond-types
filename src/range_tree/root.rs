@@ -15,7 +15,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         let mut tree = Box::pin(Self {
             count: I::IndexValue::default(),
             root: unsafe { Node::new_leaf() },
-            last_cursor: Cell::new(None),
+            // last_cursor: Cell::new(None),
             _pin: marker::PhantomPinned,
         });
 
@@ -107,7 +107,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
         if cfg!(debug_assertions) {
             // Make sure nothing went wrong while we're here.
-            let mut cursor = cursor;
+            let mut cursor = cursor.clone();
             let node = unsafe { cursor.node.as_ref() };
             assert_eq!(cursor.get_raw_entry().len(), cursor.offset);
             assert_eq!(cursor.idx, node.len_entries() - 1);

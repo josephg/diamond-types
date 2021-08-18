@@ -207,7 +207,10 @@ fn random_edits() {
                 let pos = rng.gen_range(0..=tree.count.0 - del_span);
 
                 let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
+
                 tree.delete(&mut cursor, del_span as _, null_notify);
+                assert_eq!(cursor.count_pos().0, pos);
+
                 delete_in_list(&mut list, pos as usize, del_span as usize);
 
                 expected_len -= del_span as usize;

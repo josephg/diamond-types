@@ -495,7 +495,18 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 node.flush_index_update(flush_marker);
 
                 let node = cursor.node;
-                cursor.traverse(true);
+                if !cursor.traverse(true) {
+                    // This is weird and hacky but - this is the last item in the tree. If the
+                    // cursor is still pointing to this element afterwards, the cursor will be
+                    // invalid. So instead I'll move the cursor to the end of the previous item.
+                    //
+                    // If this is the only item, the cursor will stay here. But the item itself
+                    // will end up being reused by the NodeLeaf::remove() logic.
+                    //
+                    // The resulting behaviour of all this is tested by the fuzzer. If any of these
+                    // assumptions break later, the tests should catch it.
+                    cursor.traverse(false);
+                }
                 unsafe { NodeLeaf::remove(node); }
                 (true, del_items)
             } else {
@@ -542,14 +553,22 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                     del_items -= remaining_len;
                     if del_items == 0 { return; }
                 } else { // remaining_len > del_items
-                    // Replace this entry with [a, c].
-                    let mut a = *entry;
-                    a.truncate(cursor.offset);
+                    let mut remainder = entry.truncate(cursor.offset);
+                    I::decrement_marker(flush_marker, &remainder);
 
-                    let mut c = *entry;
-                    c.truncate_keeping_right(cursor.offset + del_items);
+                    remainder.truncate_keeping_right(del_items);
 
-                    self.replace_entry(cursor, &[a, c], flush_marker, notify);
+                    // And insert the rest, if there are any. I'm using insert() to do this because
+                    // we don't want our cursor changed as a result of the insert. This also makes
+                    // a fresh flush marker, but thats not a big deal.
+
+                    // The code below is equivalent to, but marginally faster than:
+                    // self.insert(cursor.clone(), remainder, notify);
+
+                    let mut c2 = cursor.clone();
+                    self.insert_internal(&[remainder], &mut c2, flush_marker, notify);
+                    unsafe { c2.get_node_mut() }.flush_index_update(flush_marker);
+
                     return;
                 }
             }

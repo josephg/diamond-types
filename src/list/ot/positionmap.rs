@@ -6,7 +6,6 @@ use crate::order::OrderSpan;
 use std::pin::Pin;
 use crate::list::double_delete::DoubleDelete;
 use crate::rle::{KVPair, RleKey, RleSpanHelpers};
-use crate::merge_iter::merge_items;
 
 // Length of the item before and after the operation sequence has been applied.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -199,6 +198,7 @@ impl DoubleDeleteVisitor {
 impl ListCRDT {
     pub(super) fn ot_changes_since<V>(&self, mut span: OrderSpan, mut visit: V) -> PositionMap
     where V: FnMut(u32, u32, PositionMapEntry, bool) {
+        // println!("ot_changes_since {:?}", span);
         // I've gone through a lot of potential designs for this code and settled on this one.
         //
         // Other options:
@@ -296,7 +296,7 @@ impl ListCRDT {
 
                 let (allowed, first_del_target) = marked_deletes.mark_range(&self.double_deletes, last_del_target, first_del_target);
                 let len_here = last_del_target + 1 - first_del_target;
-                println!("Delete from {} to {}", first_del_target, last_del_target);
+                // println!("Delete from {} to {}", first_del_target, last_del_target);
 
                 if allowed {
                     // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
@@ -308,14 +308,16 @@ impl ListCRDT {
                         tag: OpTag::Delete,
                         len: len_here
                     };
+                    let pre_pos = map_cursor.count_pos().0;
                     map.insert(map_cursor, entry, null_notify);
 
                     // The content might have later been deleted.
-                    visit(post_pos, map_cursor.count_pos().0, entry, false);
+                    visit(post_pos, pre_pos, entry, false);
                 }
 
                 span.len -= len_here;
             } else {
+                // println!("Insert at {:?} (last order: {})", span, span_last_order);
                 // The operation was an insert operation, not a delete operation.
                 let mut rt_cursor = self.get_cursor_after(span_last_order, true);
 
@@ -337,7 +339,6 @@ impl ListCRDT {
 
                 // So this is also dirty. We need to skip any deletes, which have a size of 0.
                 let has_content = rt_cursor.get_raw_entry().is_activated();
-                // dbg!((&entry, has_content));
 
                 // There's two cases here. Either we're inserting something fresh, or we're
                 // cancelling out a delete we found earlier.
@@ -346,14 +347,12 @@ impl ListCRDT {
                     // location which has the right position.
                     let mut map_cursor = map.cursor_at_post(post_pos as usize + 1, true);
                     map_cursor.offset -= 1;
-                    // dbg!(&map_cursor);
+                    let pre_pos = map_cursor.count_pos().0;
                     map.replace_range(map_cursor, entry, null_notify);
-                    map_cursor.count_pos().0
+                    pre_pos
                 } else {
                     let mut map_cursor = map.cursor_at_post(post_pos as usize, true);
                     map_cursor.roll_to_next_entry();
-                    // dbg!(&map_cursor, len_here);
-                    assert_eq!(map_cursor.get_raw_entry().tag, Delete);
                     map.delete(&mut map_cursor, len_here as usize, null_notify);
                     map_cursor.count_pos().0
                 };
@@ -448,37 +447,44 @@ mod test {
         // (same values, same order) as we get from ot_changes_since.
 
         let mut rng = SmallRng::seed_from_u64(7);
-        let mut doc = ListCRDT::new();
 
-        let agent = doc.get_or_create_agent_id("seph");
+        for _j in 0..100 {
+            println!("{}", _j);
+            let mut doc = ListCRDT::new();
 
-        let mut ops = vec![];
-        for _i in 0..35 {
-            let op = make_random_change(&mut doc, None, agent, &mut rng);
-            ops.push(op);
+            let agent = doc.get_or_create_agent_id("seph");
+
+            let mut ops = vec![];
+            for _i in 0..30 {
+                let op = make_random_change(&mut doc, None, agent, &mut rng);
+                ops.push(op);
+            }
+            // dbg!(ops);
+
+            let mut ops2 = vec![];
+            let map = doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
+                let content = if e.tag == OpTag::Insert {
+                    if has_content {
+                        doc.text_content.as_ref().unwrap()
+                            .chars_at(post_pos as usize).take(e.len as usize)
+                            .collect::<SmartString>()
+                    } else {
+                        std::iter::repeat('X').take(e.len as usize).collect::<SmartString>()
+                    }
+                } else { SmartString::default() };
+
+                let c = LocalOp {
+                    pos: pre_pos as usize,
+                    ins_content: content,
+                    del_span: if e.tag == OpTag::Delete { e.len as usize } else { 0 },
+                };
+                ops2.push(c);
+            });
+            ops2.reverse();
+            // dbg!(ops2);
+
+            assert_eq!(map.len().1 as usize, doc.len());
+            // dbg!(&map);
         }
-        dbg!(ops);
-
-        let mut ops2 = vec![];
-        doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
-            let content = if e.tag == OpTag::Insert {
-                if has_content {
-                    doc.text_content.as_ref().unwrap()
-                        .chars_at(post_pos as usize).take(e.len as usize)
-                        .collect::<SmartString>()
-                } else {
-                    std::iter::repeat('X').take(e.len as usize).collect::<SmartString>()
-                }
-            } else { SmartString::default() };
-
-            let c = LocalOp {
-                pos: pre_pos as usize,
-                ins_content: content,
-                del_span: if e.tag == OpTag::Delete { e.len as usize } else { 0 },
-            };
-            ops2.push(c);
-        });
-        ops2.reverse();
-        dbg!(ops2);
     }
 }

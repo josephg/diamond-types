@@ -233,7 +233,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
 
     pub fn get_item(&self) -> Option<E::Item> {
         // TODO: Optimize this. This is gross.
-        let mut cursor = *self;
+        let mut cursor = self.clone();
         if cursor.roll_to_next_entry() {
             Some(cursor.get_raw_entry().at_offset(cursor.offset))
         } else { None }
