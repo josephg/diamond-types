@@ -176,7 +176,7 @@ fn random_edits() {
         let mut expected_len = 0;
 
         for _j in 0..100 {
-            // println!("j {}", _j);
+            println!("  j {}", _j);
             if list.is_empty() || rng.gen_bool(0.33) {
                 // Insert something.
                 let pos = rng.gen_range(0..=tree.len().0);
@@ -185,7 +185,9 @@ fn random_edits() {
                 // println!("inserting {:?} at {}", item, pos);
                 // dbg!(&tree);
                 let cursor = tree.cursor_at_offset_pos(pos as usize, true);
-                tree.insert(cursor, item, null_notify);
+                tree.insert(cursor.clone(), item, null_notify);
+                assert_eq!(cursor.count_pos().0, pos);
+
                 insert_into_list(&mut list, pos as usize, item);
 
                 expected_len += item.len();
@@ -195,8 +197,10 @@ fn random_edits() {
                 let pos = rng.gen_range(0..tree.count.0 - item.len);
 
                 // println!("Replacing {} entries at position {} with {:?}", item.len(), pos, item);
-                let cursor = tree.cursor_at_offset_pos(pos as usize, true);
-                tree.replace_range(cursor, item, null_notify);
+                let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
+                assert_eq!(cursor.count_pos().0, pos);
+                tree.replace_range(&mut cursor, item, null_notify);
+                assert_eq!(cursor.count_pos().0, pos + item.len);
                 replace_in_list(&mut list, pos as usize, item);
             } else {
                 // Delete something

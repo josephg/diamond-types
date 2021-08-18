@@ -54,6 +54,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
         // dbg!(&remainder);
 
+        let mut trailing_offset = 0;
+
         if cursor.offset != 0 {
             // We're at the end of an element. Try and append as much as we can here.
             debug_assert_eq!(cursor.offset, node.data[cursor.idx].len());
@@ -96,12 +98,13 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                     let next = items[end_idx];
                     if next.can_append(cur_entry) {
                         I::increment_marker(flush_marker, &next);
-                        // flush_marker.0 += next.content_len() as isize;
                         notify(next, cursor.node);
+                        trailing_offset += next.len();
                         cur_entry.prepend(next);
                     } else { break; }
 
                     if end_idx == 0 {
+                        cursor.offset = trailing_offset;
                         return; // We've prepended everything.
                     } else { end_idx -= 1; }
                 }
@@ -169,6 +172,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             // Point the cursor to the end of the last inserted item.
             cursor.idx += items.len() - 1;
             cursor.offset = items[items.len() - 1].len();
+
+            if trailing_offset > 0 {
+                cursor.roll_to_next_entry();
+                cursor.offset = trailing_offset;
+            }
         }
 
         // The cursor isn't updated to point after remainder.
@@ -219,7 +227,6 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         let entry = cursor.get_raw_entry_mut();
         I::decrement_marker(flush_marker, entry);
 
-        // Ok, 3 cases:
         if items_idx >= items.len() {
             // Nuke the item under the cursor and shuffle everything back.
             node.splice_out(cursor.idx);
@@ -321,11 +328,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
 
     /// Replace the range from cursor..cursor + replaced_len with new_entry.
-    pub fn replace_range<N>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, new_entry: E, notify: N)
+    pub fn replace_range<N>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I>, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I>>) {
 
         let mut flush_marker = I::IndexUpdate::default();
-        self.replace_range_internal(&mut cursor, new_entry.len(), new_entry, &mut flush_marker, notify);
+        self.replace_range_internal(cursor, new_entry.len(), new_entry, &mut flush_marker, notify);
         unsafe { cursor.get_node_mut() }.flush_index_update(&mut flush_marker);
     }
 
@@ -385,9 +392,13 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
                 let mut c = *entry;
                 c.truncate_keeping_right(cursor.offset + replaced_len);
+                let c_len = c.len();
 
                 // This will update flush_marker for us.
                 self.replace_entry(cursor, &[a, new_entry, c], flush_marker, &mut notify);
+
+                // Move the cursor back to be pointing at the end of new_entry.
+                cursor.move_back_by(c_len, flush_marker);
                 return;
             } else {
                 // Remove (truncate) the remainder of this entry. Then continue.
@@ -419,6 +430,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             I::decrement_marker(flush_marker, entry);
             I::increment_marker(flush_marker, &new_entry);
             notify(new_entry, cursor.node);
+            cursor.offset = new_entry.len();
             *cursor.get_raw_entry_mut() = new_entry;
 
             if replaced_len > entry_len {
@@ -430,7 +442,9 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             // Replace this item with [new, remainder].
             let mut remainder = *entry;
             let remainder = remainder.truncate(replaced_len);
+            let rem_len = remainder.len();
             self.replace_entry(cursor, &[new_entry, remainder], flush_marker, &mut notify);
+            cursor.move_back_by(rem_len, flush_marker);
         }
     }
 

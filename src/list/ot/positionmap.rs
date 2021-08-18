@@ -348,7 +348,7 @@ impl ListCRDT {
                     let mut map_cursor = map.cursor_at_post(post_pos as usize + 1, true);
                     map_cursor.offset -= 1;
                     let pre_pos = map_cursor.count_pos().0;
-                    map.replace_range(map_cursor, entry, null_notify);
+                    map.replace_range(&mut map_cursor, entry, null_notify);
                     pre_pos
                 } else {
                     let mut map_cursor = map.cursor_at_post(post_pos as usize, true);

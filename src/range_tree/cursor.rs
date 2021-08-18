@@ -247,6 +247,18 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         self.offset += 1;
         true
     }
+
+    // How widely useful is this?
+    pub fn move_back_by(&mut self, mut amt: usize, marker: &mut I::IndexUpdate) {
+        while self.offset < amt {
+            amt -= self.offset;
+            self.offset = 0;
+            if !self.prev_entry_marker(Some(marker)) {
+                panic!("Cannot move back before the start of the tree");
+            }
+        }
+        self.offset -= amt;
+    }
 }
 
 impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> Cursor<E, I> {
