@@ -6,6 +6,7 @@ use crate::order::OrderSpan;
 use std::pin::Pin;
 use crate::list::double_delete::DoubleDelete;
 use crate::rle::{KVPair, RleKey, RleSpanHelpers};
+use crate::merge_iter::merge_items;
 
 // Length of the item before and after the operation sequence has been applied.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -74,11 +75,6 @@ impl SplitableSpan for PositionMapEntry {
 
 impl EntryTraits for PositionMapEntry {
     type Item = (); // TODO: Remove this.
-
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        // The struct is symmetric. There's no difference truncating left or right.
-        self.truncate(at)
-    }
 
     fn contains(&self, _loc: Self::Item) -> Option<usize> {
         unimplemented!()
@@ -298,8 +294,9 @@ impl ListCRDT {
                 debug_assert!(entry.is_deactivated());
                 let first_del_target = u32::max(entry.order, last_del_target + 1 - del_span_size);
 
-                let (allowed, first_order) = marked_deletes.mark_range(&self.double_deletes, last_del_target, first_del_target);
-                let len_here = last_del_target + 1 - first_order;
+                let (allowed, first_del_target) = marked_deletes.mark_range(&self.double_deletes, last_del_target, first_del_target);
+                let len_here = last_del_target + 1 - first_del_target;
+                println!("Delete from {} to {}", first_del_target, last_del_target);
 
                 if allowed {
                     // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
@@ -320,8 +317,7 @@ impl ListCRDT {
                 span.len -= len_here;
             } else {
                 // The operation was an insert operation, not a delete operation.
-                let mut rt_cursor = self.get_cursor_before(span_last_order);
-                rt_cursor.offset += 1; // Dirty. Essentially get_cursor_after(span_last_order) without rolling over.
+                let mut rt_cursor = self.get_cursor_after(span_last_order, true);
 
                 // Check how much we can tag in one go.
                 let len_here = u32::min(span.len, rt_cursor.offset as _); // usize? u32? blehh
@@ -380,8 +376,25 @@ mod test {
     use rand::SeedableRng;
     use crate::fuzz_helpers::make_random_change;
     use smartstring::alias::{String as SmartString};
-    use crate::list::ot::positionmap::OpTag;
+    use crate::list::ot::positionmap::{OpTag, PositionMapEntry};
     use crate::LocalOp;
+    use crate::splitable_span::test_splitable_methods_valid;
+
+    #[test]
+    fn position_map_entry_valid() {
+        test_splitable_methods_valid(PositionMapEntry {
+            tag: OpTag::Retain,
+            len: 5
+        });
+        test_splitable_methods_valid(PositionMapEntry {
+            tag: OpTag::Insert,
+            len: 5
+        });
+        test_splitable_methods_valid(PositionMapEntry {
+            tag: OpTag::Delete,
+            len: 5
+        });
+    }
 
     #[test]
     fn simple_position_map() {
@@ -440,7 +453,7 @@ mod test {
         let agent = doc.get_or_create_agent_id("seph");
 
         let mut ops = vec![];
-        for _i in 0..3 {
+        for _i in 0..35 {
             let op = make_random_change(&mut doc, None, agent, &mut rng);
             ops.push(op);
         }

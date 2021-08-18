@@ -44,6 +44,25 @@ impl SplitableSpan for YjsSpan {
         other
     }
 
+    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        debug_assert!(at > 0);
+        let at_signed = at as i32 * self.len.signum();
+
+        let other = YjsSpan {
+            order: self.order,
+            origin_left: self.origin_left,
+            origin_right: self.origin_right,
+            len: at_signed
+        };
+
+        self.order += at as Order;
+        self.origin_left = self.order - 1;
+        self.len -= at_signed;
+        // origin_right stays the same.
+
+        other
+    }
+
     fn can_append(&self, other: &Self) -> bool {
         let len = self.len.abs() as u32;
         (self.len > 0) == (other.len > 0)
@@ -66,25 +85,6 @@ impl SplitableSpan for YjsSpan {
 
 impl EntryTraits for YjsSpan {
     type Item = Order;
-
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        debug_assert!(at > 0);
-        let at_signed = at as i32 * self.len.signum();
-
-        let other = YjsSpan {
-            order: self.order,
-            origin_left: self.origin_left,
-            origin_right: self.origin_right,
-            len: at_signed
-        };
-
-        self.order += at as Order;
-        self.origin_left = self.order - 1;
-        self.len -= at_signed;
-        // origin_right stays the same.
-
-        other
-    }
 
     fn contains(&self, loc: Self::Item) -> Option<usize> {
         if (loc >= self.order) && (loc < self.order + self.len.abs() as u32) {
@@ -129,9 +129,27 @@ impl CRDTItem for YjsSpan {
 mod tests {
     use std::mem::size_of;
     use crate::list::span::YjsSpan;
+    use crate::splitable_span::test_splitable_methods_valid;
 
     #[test]
     fn print_span_sizes() {
         println!("size of YjsSpan {}", size_of::<YjsSpan>());
+    }
+
+    #[test]
+    fn yjsspan_entry_valid() {
+        test_splitable_methods_valid(YjsSpan {
+            order: 10,
+            origin_left: 20,
+            origin_right: 30,
+            len: 5
+        });
+
+        test_splitable_methods_valid(YjsSpan {
+            order: 10,
+            origin_left: 20,
+            origin_right: 30,
+            len: -5
+        });
     }
 }

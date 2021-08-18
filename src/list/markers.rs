@@ -26,6 +26,15 @@ impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
         }
     }
 
+    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        let left = Self {
+            len: at as _,
+            ptr: self.ptr
+        };
+        self.len -= at as u32;
+        left
+    }
+
     fn can_append(&self, other: &Self) -> bool {
         self.ptr == other.ptr
     }
@@ -62,15 +71,6 @@ impl<E: EntryTraits, I: TreeIndex<E>> MarkerEntry<E, I> {
 
 impl<E: EntryTraits, I: TreeIndex<E>> EntryTraits for MarkerEntry<E, I> {
     type Item = Option<NonNull<NodeLeaf<E, I>>>;
-
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        let left = Self {
-            len: at as _,
-            ptr: self.ptr
-        };
-        self.len -= at as u32;
-        left
-    }
 
     fn contains(&self, _loc: Self::Item) -> Option<usize> {
         panic!("Should never be used")

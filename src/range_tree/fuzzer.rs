@@ -3,7 +3,6 @@ use crate::splitable_span::SplitableSpan;
 use crate::range_tree::*;
 use rand::prelude::*;
 use crate::merge_iter::merge_items;
-use std::ops::Range;
 
 /// This is a simple span object for testing.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -35,6 +34,13 @@ impl SplitableSpan for TestRange {
         self.len = at as u32;
         other
     }
+
+    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        let mut other = *self;
+        *self = other.truncate(at);
+        other
+    }
+
     fn can_append(&self, other: &Self) -> bool {
         other.order == self.order + self.len && other.is_activated == self.is_activated
     }
@@ -53,12 +59,6 @@ impl SplitableSpan for TestRange {
 
 impl EntryTraits for TestRange {
     type Item = ();
-
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        let mut other = *self;
-        *self = other.truncate(at);
-        other
-    }
 
     fn contains(&self, _loc: Self::Item) -> Option<usize> { unimplemented!() }
     fn is_valid(&self) -> bool { self.order != Order::MAX }

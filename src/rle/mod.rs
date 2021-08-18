@@ -47,6 +47,13 @@ impl<V: SplitableSpan> SplitableSpan for KVPair<V> {
         KVPair(self.0 + at as u32, remainder)
     }
 
+    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        let old_key = self.0;
+        self.0 += at as u32;
+        let trimmed = self.1.truncate_keeping_right(at);
+        KVPair(old_key, trimmed)
+    }
+
     fn can_append(&self, other: &Self) -> bool {
         other.0 == self.end() && self.1.can_append(&other.1)
     }
@@ -63,13 +70,6 @@ impl<V: SplitableSpan> SplitableSpan for KVPair<V> {
 
 impl<V: EntryTraits> EntryTraits for KVPair<V> {
     type Item = V::Item;
-
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        let old_key = self.0;
-        self.0 += at as u32;
-        let trimmed = self.1.truncate_keeping_right(at);
-        KVPair(old_key, trimmed)
-    }
 
     fn contains(&self, loc: Self::Item) -> Option<usize> { self.1.contains(loc) }
     fn is_valid(&self) -> bool { self.1.is_valid() }
@@ -134,5 +134,20 @@ impl<A: smallvec::Array> AppendRLE<A::Item> for SmallVec<A> where A::Item: Split
         }
 
         self.push(item);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::splitable_span::test_splitable_methods_valid;
+    use crate::rle::KVPair;
+    use crate::order::OrderSpan;
+
+    #[test]
+    fn kvpair_valid() {
+        test_splitable_methods_valid(KVPair(10, OrderSpan {
+            order: 10,
+            len: 5
+        }));
     }
 }

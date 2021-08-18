@@ -50,6 +50,18 @@ impl SplitableSpan for OrderSpan {
         other
     }
 
+    #[inline]
+    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        let at = at as u32;
+        let other = OrderSpan {
+            order: self.order,
+            len: at
+        };
+        self.order += at;
+        self.len -= at;
+        other
+    }
+
     // #[inline]
     fn can_append(&self, other: &Self) -> bool {
         other.order == self.order + self.len
@@ -68,18 +80,6 @@ impl SplitableSpan for OrderSpan {
 
 impl EntryTraits for OrderSpan {
     type Item = usize; // Order.
-
-    #[inline]
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        let at = at as u32;
-        let other = OrderSpan {
-            order: self.order,
-            len: at
-        };
-        self.order += at;
-        self.len -= at;
-        other
-    }
 
     fn contains(&self, loc: Self::Item) -> Option<usize> {
         // debug_assert!(loc < self.len());

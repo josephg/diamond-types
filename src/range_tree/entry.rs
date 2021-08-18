@@ -7,7 +7,7 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
     type Item: Copy + Debug;
 
     // This is strictly unnecessary given truncate(), but it makes some code cleaner.
-    fn truncate_keeping_right(&mut self, at: usize) -> Self;
+    // fn truncate_keeping_right(&mut self, at: usize) -> Self;
 
     /// Checks if the entry contains the specified item. If it does, returns the offset into the
     /// item.
@@ -50,17 +50,6 @@ pub struct CRDTSpan {
 
 impl EntryTraits for CRDTSpan {
     type Item = CRDTLocation;
-
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        let at = at as u32;
-        let other = CRDTSpan {
-            loc: self.loc,
-            len: at
-        };
-        self.loc.seq += at;
-        self.len -= at;
-        other
-    }
 
     fn contains(&self, loc: CRDTLocation) -> Option<usize> {
         // let r = self.loc.seq .. self.loc.seq + (self.len.abs() as usize);
@@ -112,6 +101,17 @@ impl SplitableSpan for CRDTSpan {
 
         self.len = at;
 
+        other
+    }
+
+    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        let at = at as u32;
+        let other = CRDTSpan {
+            loc: self.loc,
+            len: at
+        };
+        self.loc.seq += at;
+        self.len -= at;
         other
     }
 

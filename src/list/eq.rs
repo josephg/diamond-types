@@ -8,7 +8,6 @@ use crate::list::span::YjsSpan;
 use crate::splitable_span::SplitableSpan;
 // use std::fs::File;
 // use std::io::Write;
-use crate::range_tree::EntryTraits;
 use crate::order::OrderSpan;
 // use smallvec::smallvec;
 

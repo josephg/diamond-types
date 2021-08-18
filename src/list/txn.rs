@@ -81,8 +81,18 @@ impl RleKeyed for TxnSpan {
 #[cfg(test)]
 mod tests {
     use crate::list::txn::TxnSpan;
-    use crate::splitable_span::SplitableSpan;
+    use crate::splitable_span::{SplitableSpan, test_splitable_methods_valid};
     use smallvec::smallvec;
+
+    #[test]
+    fn txn_entry_valid() {
+        test_splitable_methods_valid(TxnSpan {
+            order: 1000,
+            len: 5,
+            shadow: 999,
+            parents: smallvec![999]
+        });
+    }
 
     #[test]
     fn test_txn_appends() {

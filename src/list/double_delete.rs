@@ -2,8 +2,6 @@ use crate::splitable_span::SplitableSpan;
 use crate::rle::{Rle, KVPair, RleSpanHelpers};
 use crate::list::Order;
 use crate::order::OrderSpan;
-use crate::range_tree::EntryTraits;
-// use crate::range_tree::EntryTraits;
 
 /// Sometimes the same item is removed by multiple peers. This is really rare, but necessary to
 /// track for correctness when we're activating and deactivating entries.
@@ -184,6 +182,15 @@ impl Rle<KVPair<DoubleDelete>> {
 mod tests {
     use crate::rle::{Rle, KVPair};
     use crate::list::double_delete::DoubleDelete;
+    use crate::splitable_span::test_splitable_methods_valid;
+
+    #[test]
+    fn double_delete_entry_valid() {
+        test_splitable_methods_valid(DoubleDelete {
+            len: 10,
+            excess_deletes: 2
+        });
+    }
 
     #[test]
     fn inc_delete_range() {
