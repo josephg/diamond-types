@@ -248,8 +248,22 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         true
     }
 
-    // How widely useful is this?
-    pub fn move_back_by(&mut self, mut amt: usize, marker: &mut I::IndexUpdate) {
+    pub(super) fn move_forward_by(&mut self, mut amt: usize, marker: &mut I::IndexUpdate) {
+        loop {
+            let len_here = self.get_raw_entry().len();
+            if self.offset + amt <= len_here {
+                self.offset += amt;
+                break;
+            }
+            amt -= len_here - self.offset;
+            if !self.next_entry_marker(Some(marker)) {
+                panic!("Cannot move back before the start of the tree");
+            }
+        }
+    }
+
+    // How widely useful is this? This is optimized for small moves.
+    pub(super) fn move_back_by(&mut self, mut amt: usize, marker: &mut I::IndexUpdate) {
         while self.offset < amt {
             amt -= self.offset;
             self.offset = 0;
@@ -332,10 +346,10 @@ mod tests {
     fn compare_cursors() {
         let mut tree = RangeTree::<OrderSpan, RawPositionIndex>::new();
 
-        let cursor = tree.cursor_at_start();
+        let mut cursor = tree.cursor_at_start();
         assert_eq!(cursor, cursor);
 
-        tree.insert(cursor, OrderSpan { order: 0, len: 1 }, |_a, _b| {});
+        tree.insert(&mut cursor, OrderSpan { order: 0, len: 1 }, |_a, _b| {});
 
         let c1 = tree.cursor_at_start();
         let c2 = tree.cursor_at_end();
@@ -343,7 +357,7 @@ mod tests {
 
         // Ok now lets add a bunch of junk to make sure the tree has a bunch of internal nodes
         for i in 0..1000 {
-            tree.insert(tree.cursor_at_start(), OrderSpan { order: i, len: 1 }, |_a, _b| {});
+            tree.insert(&mut tree.cursor_at_start(), OrderSpan { order: i, len: 1 }, |_a, _b| {});
         }
 
         let c1 = tree.cursor_at_start();

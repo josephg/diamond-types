@@ -13,7 +13,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     ///
     /// If the cursor points in the middle of an item, the item is split.
     ///
-    /// TODO: Add support for item prepending to this method, for backspace operations.
+    /// This method returns the pending cursor movement offset. If you want the cursor to be
+    /// positioned correctly, adjust the cursor by this amount after calling.
     pub(super) fn insert_internal<F>(self: &mut Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E, I>, flush_marker: &mut I::IndexUpdate, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>)
     {
@@ -174,8 +175,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             cursor.offset = items[items.len() - 1].len();
 
             if trailing_offset > 0 {
-                cursor.roll_to_next_entry();
-                cursor.offset = trailing_offset;
+                cursor.move_forward_by(trailing_offset, flush_marker);
             }
         }
 
@@ -230,6 +230,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         if items_idx >= items.len() {
             // Nuke the item under the cursor and shuffle everything back.
             node.splice_out(cursor.idx);
+            cursor.offset = 0;
         } else {
             // First replace the item directly.
             *entry = items[items_idx];
@@ -242,14 +243,14 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
-    pub fn insert<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I>, new_entry: E, mut notify: F)
+    pub fn insert<F>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I>, new_entry: E, mut notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         // TODO: This check is useful, but awful to code in with all the index stuff :(
         // let len = new_entry.content_len();
         // let expected_size = self.count + len;
 
         let mut marker = I::IndexUpdate::default();
-        self.insert_internal(&[new_entry], &mut cursor, &mut marker, &mut notify);
+        self.insert_internal(&[new_entry], cursor, &mut marker, &mut notify);
 
         unsafe { cursor.get_node_mut() }.flush_index_update(&mut marker);
         // println!("tree after insert {:#?}", self);
@@ -269,8 +270,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     pub fn insert_at_start<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
 
-        let cursor = self.cursor_at_start();
-        self.insert(cursor, new_entry, notify)
+        self.insert(&mut self.cursor_at_start(), new_entry, notify)
     }
 
     /// Replace as much of the current entry from cursor onwards as we can
@@ -1054,13 +1054,13 @@ mod tests {
     fn delete_collapses() {
         let mut tree = RangeTree::<TestRange, ContentIndex>::new();
 
-        let cursor = tree.cursor_at_content_pos(0, false);
+        let mut cursor = tree.cursor_at_content_pos(0, false);
         let entry = TestRange {
             order: 1000,
             len: 100,
             is_activated: true,
         };
-        tree.insert(cursor, entry, null_notify);
+        tree.insert(&mut cursor, entry, null_notify);
         assert_eq!(tree.count_entries(), 1);
 
         // I'm going to delete two items in the middle.
@@ -1079,13 +1079,13 @@ mod tests {
     fn backspace_collapses() {
         let mut tree = RangeTree::<TestRange, ContentIndex>::new();
 
-        let cursor = tree.cursor_at_content_pos(0, false);
+        let mut cursor = tree.cursor_at_content_pos(0, false);
         let entry = TestRange {
             order: 1000,
             len: 100,
             is_activated: true,
         };
-        tree.insert(cursor, entry, null_notify);
+        tree.insert(&mut cursor, entry, null_notify);
         assert_eq!(tree.count_entries(), 1);
 
         // Ok now I'm going to delete the last and second-last elements. We should end up with

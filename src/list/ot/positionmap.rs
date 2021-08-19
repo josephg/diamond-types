@@ -301,7 +301,7 @@ impl ListCRDT {
                 if allowed {
                     // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
                     let post_pos = rt_cursor.count_pos();
-                    let map_cursor = map.cursor_at_post(post_pos as _, true);
+                    let mut map_cursor = map.cursor_at_post(post_pos as _, true);
                     // We call insert instead of replace_range here because the delete doesn't
                     // consume "space".
                     let entry = PositionMapEntry {
@@ -309,7 +309,7 @@ impl ListCRDT {
                         len: len_here
                     };
                     let pre_pos = map_cursor.count_pos().0;
-                    map.insert(map_cursor, entry, null_notify);
+                    map.insert(&mut map_cursor, entry, null_notify);
 
                     // The content might have later been deleted.
                     visit(post_pos, pre_pos, entry, false);

@@ -334,7 +334,7 @@ impl ListCRDT {
         }
 
         // Now insert here.
-        self.range_tree.insert(cursor, item, notify_for(&mut self.index));
+        self.range_tree.insert(&mut cursor, item, notify_for(&mut self.index));
     }
 
     fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {

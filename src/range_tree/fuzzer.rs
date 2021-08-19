@@ -168,15 +168,15 @@ fn random_edits() {
     // So for this test we'll make a range tree and a list, make random changes to both, and make
     // sure the content is always the same.
 
-    for _i in 0..1000 {
-        println!("i {}", _i);
+    for _i in 0..300 {
+        // println!("i {}", _i);
         // TestRange is overkill for this, but eh.
         let mut tree = RangeTree::<TestRange, FullIndex>::new();
         let mut list = vec![];
         let mut expected_len = 0;
 
-        for _j in 0..100 {
-            println!("  j {}", _j);
+        for _j in 0..200 {
+            // println!("  j {} / i {}", _j, _i);
             if list.is_empty() || rng.gen_bool(0.33) {
                 // Insert something.
                 let pos = rng.gen_range(0..=tree.len().0);
@@ -184,9 +184,10 @@ fn random_edits() {
 
                 // println!("inserting {:?} at {}", item, pos);
                 // dbg!(&tree);
-                let cursor = tree.cursor_at_offset_pos(pos as usize, true);
-                tree.insert(cursor.clone(), item, null_notify);
+                let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
                 assert_eq!(cursor.count_pos().0, pos);
+                tree.insert(&mut cursor, item, null_notify);
+                assert_eq!(cursor.count_pos().0, pos + item.len);
 
                 insert_into_list(&mut list, pos as usize, item);
 
