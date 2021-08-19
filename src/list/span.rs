@@ -44,24 +44,8 @@ impl SplitableSpan for YjsSpan {
         other
     }
 
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        debug_assert!(at > 0);
-        let at_signed = at as i32 * self.len.signum();
-
-        let other = YjsSpan {
-            order: self.order,
-            origin_left: self.origin_left,
-            origin_right: self.origin_right,
-            len: at_signed
-        };
-
-        self.order += at as Order;
-        self.origin_left = self.order - 1;
-        self.len -= at_signed;
-        // origin_right stays the same.
-
-        other
-    }
+    // Could have a custom truncate_keeping_right method here - I once did. But the optimizer
+    // does a great job flattening the generic implementation anyway.
 
     fn can_append(&self, other: &Self) -> bool {
         let len = self.len.abs() as u32;
