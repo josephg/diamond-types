@@ -2,6 +2,7 @@
 
 pub use alloc::*;
 pub use common::{LocalOp, AgentId};
+use crate::list::ListCRDT;
 
 pub mod list;
 

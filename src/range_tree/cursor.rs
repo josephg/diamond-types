@@ -104,7 +104,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
 
     /// Move back to the previous entry. Returns true if it exists, otherwise
     /// returns false if we're at the start of the doc already.
-    fn prev_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
+    pub(super) fn prev_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
         if self.idx > 0 {
             self.idx -= 1;
             self.offset = self.get_raw_entry().len();

@@ -645,6 +645,11 @@ impl ListCRDT {
             println!("order {} l{} from {} / {} <-> {}", entry.order, entry.len(), loc.agent, entry.origin_left, entry.origin_right);
         }
     }
+
+    pub fn foo(&mut self) {
+        let mut cursor = self.range_tree.cursor_at_start();
+        self.range_tree.mutate_entry(|e| { e.len += 1; }, &mut cursor, 10, &mut 0, &mut notify_for(&mut self.index));
+    }
 }
 
 impl ToString for ListCRDT {

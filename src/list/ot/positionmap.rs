@@ -442,7 +442,7 @@ mod test {
     }
 
     #[test]
-    fn single_document_random() {
+    fn ot_single_document_random() {
         // Check that when we query all the changes from a single document, the result is the same
         // (same values, same order) as we get from ot_changes_since.
 
@@ -455,7 +455,7 @@ mod test {
             let agent = doc.get_or_create_agent_id("seph");
 
             let mut ops = vec![];
-            for _i in 0..30 {
+            for _i in 0..100 {
                 let op = make_random_change(&mut doc, None, agent, &mut rng);
                 ops.push(op);
             }

@@ -1,3 +1,5 @@
+/// This file contains the core code for range_tree's mutation operations.
+
 use crate::range_tree::entry::{EntryTraits, CRDTItem};
 use crate::range_tree::{RangeTree, Cursor, NodeLeaf, NUM_LEAF_ENTRIES, DeleteResult, ParentPtr, Node, NodePtr, NUM_NODE_CHILDREN, NodeInternal};
 use std::ptr::NonNull;
@@ -12,31 +14,22 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     /// is returned. The cursor is modified in-place to point after the inserted items.
     ///
     /// If the cursor points in the middle of an item, the item is split.
-    ///
-    /// This method returns the pending cursor movement offset. If you want the cursor to be
-    /// positioned correctly, adjust the cursor by this amount after calling.
     pub(super) fn insert_internal<F>(self: &mut Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E, I>, flush_marker: &mut I::IndexUpdate, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>)
     {
-        // dbg!("splice_insert", &flush_marker);
-        // dbg!(items, &cursor);
         if items.is_empty() { return; }
 
-        // let mut items_content_len = items.iter().fold(0, |a, b| {
-        //     a + b.content_len()
-        // });
-
-        // cursor.node.as_ref() would be better but it would hold a borrow to cursor :/
+        // cursor.get_node_mut() would be better but it would borrow the cursor.
         let mut node = unsafe { &mut *cursor.node.as_ptr() };
 
-        // let new_item_length = item.len();
-        // let mut items_iter = items.iter().peekable();
-
-        if cursor.offset == 0 && cursor.idx > 0 { // TODO: Benchmark to see if this actually helps any.
+        if cursor.offset == 0 && cursor.idx > 0 {
             // We'll roll the cursor back to opportunistically see if we can append.
             cursor.idx -= 1;
             cursor.offset = node.data[cursor.idx].len(); // blerp could be cleaner.
         }
+
+        // We could also roll back if cursor.offset == 0 and cursor.idx == 0 but when I tried it it
+        // didn't make any difference in practice because insert() is always called with stick_end.
 
         let seq_len = node.data[cursor.idx].len();
         // Remainder is the trimmed off returned value.
@@ -53,8 +46,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             Some(remainder)
         };
 
-        // dbg!(&remainder);
-
+        // If we prepend to the start of the following tree node, the cursor will need to be
+        // adjusted accordingly.
         let mut trailing_offset = 0;
 
         if cursor.offset != 0 {
@@ -76,7 +69,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 } else { break; }
             }
             if items_idx == items.len() && remainder.is_none() {
-                return; // WE're done here. Cursor is at the end of the previous entry.
+                return; // We're done here. Cursor is at the end of the previous entry.
             }
             items = &items[items_idx..];
             // Note items might be empty now. We might just have remainder left.
@@ -93,6 +86,9 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 // merging all the deleted elements together. This adds complexity in exchange for
                 // making the tree simpler. For real edit sequences (like the automerge-perf data
                 // set) this gives about an 8% performance increase.
+
+                // It may be worth being more aggressive here. We're currently not trying this trick
+                // when the cursor is at the end of the current node. That might be worth trying!
                 let mut end_idx = items.len() - 1;
                 let cur_entry = &mut node.data[cursor.idx];
                 loop {
@@ -112,7 +108,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 items = &items[..=end_idx];
             }
         }
-        // debug_assert_eq!(cursor.offset, 0);
+
+        debug_assert_eq!(cursor.offset, 0);
 
         // Step 2: Make room in the leaf for the new items.
         // I'm setting up node again to work around a borrow checker issue.
@@ -120,12 +117,9 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         let space_needed = items.len() + remainder.is_some() as usize;
         let num_filled = node.len_entries();
         debug_assert!(space_needed > 0);
-        // Only 2 in debug mode! Could remove this restriction but it doesn't matter yet.
-        // (Hint to later self: Call insert_after() in a loop.)
         assert!(space_needed <= NUM_LEAF_ENTRIES / 2);
 
         let remainder_moved = if num_filled + space_needed > NUM_LEAF_ENTRIES {
-            // println!("spill {} {}", num_filled, space_needed);
             // We need to split the node. The proper b-tree way to do this is to make sure there's
             // always N/2 items in every leaf after a split, but I don't think it'll matter here.
             // Instead I'll split at idx, and insert the new items in whichever child has more space
@@ -133,7 +127,6 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
             // We have to flush regardless, because we might have truncated the current element.
             node.flush_index_update(flush_marker);
-            // flush_marker.flush(node);
 
             if cursor.idx < NUM_LEAF_ENTRIES / 2 {
                 // Split then elements go in left branch, so the cursor isn't updated.
@@ -158,7 +151,6 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         };
 
         // Step 3: There's space now, so we can just insert.
-        // println!("items {:?} cursor {:?}", items, cursor);
 
         let remainder_idx = cursor.idx + items.len();
 
@@ -182,7 +174,6 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         // The cursor isn't updated to point after remainder.
         if let Some(e) = remainder {
             I::increment_marker(flush_marker, &e);
-            // flush_marker.0 += e.content_len() as isize;
             if remainder_moved {
                 notify(e, cursor.node);
             }
@@ -190,11 +181,31 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
+    pub fn insert<F>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I>, new_entry: E, mut notify: F)
+        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
+        let mut marker = I::IndexUpdate::default();
+        self.insert_internal(&[new_entry], cursor, &mut marker, &mut notify);
+
+        unsafe { cursor.get_node_mut() }.flush_index_update(&mut marker);
+    }
+
+    pub fn insert_at_start<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
+        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
+
+        self.insert(&mut self.cursor_at_start(), new_entry, notify)
+    }
+
+    pub fn push<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
+        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
+
+        self.insert(&mut self.cursor_at_end(), new_entry, notify)
+    }
+
     /// Replace the item at the cursor position with the new items provided by items.
     ///
     /// Items must have a maximum length of 3, due to limitations in split_insert above.
     /// The cursor's offset is ignored. The cursor ends up at the end of the inserted items.
-    pub(super) fn replace_entry<F>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I>, items: &[E], flush_marker: &mut I::IndexUpdate, notify: &mut F)
+    fn replace_entry<F>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I>, items: &[E], flush_marker: &mut I::IndexUpdate, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
         assert!(items.len() >= 1 && items.len() <= 3);
 
@@ -243,40 +254,17 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
-    pub fn insert<F>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I>, new_entry: E, mut notify: F)
-        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
-        // TODO: This check is useful, but awful to code in with all the index stuff :(
-        // let len = new_entry.content_len();
-        // let expected_size = self.count + len;
-
-        let mut marker = I::IndexUpdate::default();
-        self.insert_internal(&[new_entry], cursor, &mut marker, &mut notify);
-
-        unsafe { cursor.get_node_mut() }.flush_index_update(&mut marker);
-        // println!("tree after insert {:#?}", self);
-
-        // self.cache_cursor(pos + new_entry.content_len(), cursor);
-
-        if cfg!(debug_assertions) {
-            // self.print_ptr_tree();
-
-            // self.as_ref().get_ref().check();
-
-            // Check the total size of the tree has grown by len.
-            // assert_eq!(expected_size, self.count);
-        }
-    }
-
-    pub fn insert_at_start<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
-        where F: FnMut(E, NonNull<NodeLeaf<E, I>>) {
-
-        self.insert(&mut self.cursor_at_start(), new_entry, notify)
-    }
-
     /// Replace as much of the current entry from cursor onwards as we can
-    fn mutate_entry<MapFn, N>(self: &mut Pin<Box<Self>>, map_fn: MapFn, cursor: &mut Cursor<E, I>, replace_max: usize, flush_marker: &mut I::IndexUpdate, notify: &mut N) -> usize
-        where N: FnMut(E, NonNull<NodeLeaf<E, I>>), MapFn: FnOnce(&mut E) {
-
+    pub fn mutate_entry<MapFn, N>(
+        self: &mut Pin<Box<Self>>,
+        map_fn: MapFn,
+        cursor: &mut Cursor<E, I>,
+        replace_max: usize,
+        flush_marker: &mut I::IndexUpdate,
+        notify: &mut N
+    ) -> usize
+    where N: FnMut(E, NonNull<NodeLeaf<E, I>>), MapFn: FnOnce(&mut E)
+    {
         let node = unsafe { cursor.get_node_mut() };
         let mut entry: E = node.data[cursor.idx];
         let mut entry_len = entry.len();
@@ -296,9 +284,6 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             (Some(entry.truncate(replace_max)), replace_max)
         } else { (None, entry_len) };
 
-        // extend_delete(&mut result, entry);
-        // entry.mark_deleted();
-        // entry = map_fn(entry);
         map_fn(&mut entry);
 
         match (a, c) {
@@ -312,6 +297,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 self.replace_entry(cursor, &[entry, c], flush_marker, notify);
             },
             (None, None) => {
+                // Short circuit for:
                 // self.replace_entry(&mut cursor, &[entry], &mut flush_marker, &mut notify);
 
                 // TODO: Check if the replacement item can be appended to the previous element
@@ -319,7 +305,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 node.data[cursor.idx] = entry;
                 cursor.offset = replaced_here;
                 I::increment_marker(flush_marker, &entry);
-                // flush_marker.0 -= replaced_here as isize;
+                notify(entry, cursor.node);
             }
         }
 
@@ -574,7 +560,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
                     // And insert the rest, if there are any. I'm using insert() to do this because
                     // we don't want our cursor changed as a result of the insert. This also makes
-                    // a fresh flush marker, but thats not a big deal.
+                    // a fresh flush marker, but that's not a big deal.
 
                     // The code below is equivalent to, but marginally faster than:
                     // self.insert(cursor.clone(), remainder, notify);
@@ -816,9 +802,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
             let num_children = self.count_children();
 
             let removed = self.children[idx].take().unwrap();
-            // self_ref.children.copy_within(idx + 1..num_children, idx);
-            // dbg!(self.index[idx]); // Should be 0.
-            // ptr::drop_in_place(&mut self.children[idx]);
+
             let count = num_children - idx - 1;
             if count > 0 {
                 ptr::copy(
@@ -827,7 +811,6 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodeInternal<E, I> {
                     count
                 );
 
-                // self.children[num_children - 1] = None;
                 self.index.copy_within(idx + 1..num_children, idx);
             }
 
