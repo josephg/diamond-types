@@ -167,7 +167,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             cursor.offset = items[items.len() - 1].len();
 
             if trailing_offset > 0 {
-                cursor.move_forward_by(trailing_offset, flush_marker);
+                cursor.move_forward_by(trailing_offset, Some(flush_marker));
             }
         }
 
@@ -187,6 +187,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         self.insert_internal(&[new_entry], cursor, &mut marker, &mut notify);
 
         unsafe { cursor.get_node_mut() }.flush_index_update(&mut marker);
+        // cursor.compress_node();
     }
 
     pub fn insert_at_start<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
@@ -320,6 +321,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         let mut flush_marker = I::IndexUpdate::default();
         self.replace_range_internal(cursor, new_entry.len(), new_entry, &mut flush_marker, notify);
         unsafe { cursor.get_node_mut() }.flush_index_update(&mut flush_marker);
+        // cursor.compress_node();
     }
 
     fn replace_range_internal<N>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I>, mut replaced_len: usize, new_entry: E, flush_marker: &mut I::IndexUpdate, mut notify: N)
@@ -384,7 +386,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 self.replace_entry(cursor, &[a, new_entry, c], flush_marker, &mut notify);
 
                 // Move the cursor back to be pointing at the end of new_entry.
-                cursor.move_back_by(c_len, flush_marker);
+                cursor.move_back_by(c_len, Some(flush_marker));
                 return;
             } else {
                 // Remove (truncate) the remainder of this entry. Then continue.
@@ -430,7 +432,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
             let remainder = remainder.truncate(replaced_len);
             let rem_len = remainder.len();
             self.replace_entry(cursor, &[new_entry, remainder], flush_marker, &mut notify);
-            cursor.move_back_by(rem_len, flush_marker);
+            cursor.move_back_by(rem_len, Some(flush_marker));
         }
     }
 
@@ -608,6 +610,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         let mut marker = I::IndexUpdate::default();
         self.delete_internal(cursor, del_items, &mut marker, &mut notify);
         unsafe { cursor.get_node_mut() }.flush_index_update(&mut marker);
+        // cursor.compress_node();
     }
 }
 
@@ -649,6 +652,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> RangeTree<E, I> {
                 e.mark_deactivated();
             }, &mut cursor, delete_remaining, &mut flush_marker, &mut notify);
         }
+        cursor.compress_node();
 
         // The cursor is potentially after any remainder.
         unsafe { cursor.get_node_mut() }.flush_index_update(&mut flush_marker);

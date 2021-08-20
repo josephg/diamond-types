@@ -211,6 +211,7 @@ fn random_edits() {
                 let del_span = rng.gen_range(1..=u32::min(tree.count.0, 20));
                 let pos = rng.gen_range(0..=tree.count.0 - del_span);
 
+                // println!("Deleting {} entries at position {}", pos, del_span);
                 let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
 
                 tree.delete(&mut cursor, del_span as _, null_notify);

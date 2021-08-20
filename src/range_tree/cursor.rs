@@ -248,7 +248,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         true
     }
 
-    pub(super) fn move_forward_by(&mut self, mut amt: usize, marker: &mut I::IndexUpdate) {
+    pub(super) fn move_forward_by(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
         loop {
             let len_here = self.get_raw_entry().len();
             if self.offset + amt <= len_here {
@@ -256,22 +256,54 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                 break;
             }
             amt -= len_here - self.offset;
-            if !self.next_entry_marker(Some(marker)) {
+            if !self.next_entry_marker(marker.take()) {
                 panic!("Cannot move back before the start of the tree");
             }
         }
     }
 
     // How widely useful is this? This is optimized for small moves.
-    pub(super) fn move_back_by(&mut self, mut amt: usize, marker: &mut I::IndexUpdate) {
+    pub(super) fn move_back_by(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
         while self.offset < amt {
             amt -= self.offset;
             self.offset = 0;
-            if !self.prev_entry_marker(Some(marker)) {
+            if !self.prev_entry_marker(marker.take()) {
                 panic!("Cannot move back before the start of the tree");
             }
         }
         self.offset -= amt;
+    }
+
+    /// This helper method attempts to minimize the size of the leaf around the cursor using
+    /// append() methods, when possible.
+    pub fn compress_node(&mut self) {
+        if self.idx >= NUM_LEAF_ENTRIES { return; } // For the optimizer.
+
+        let node = unsafe { self.node.as_mut() };
+
+        if self.idx >= node.len_entries() {
+            // The cursor is pointing past the end of the node. Don't bother.
+            return;
+        }
+
+        let mut merged = 0;
+
+        for i in self.idx.max(1)..node.num_entries as usize {
+            let dest_idx = i - 1 - merged;
+            if node.data[dest_idx].can_append(&node.data[i]) {
+                if i == self.idx {
+                    // This works because we only compress from the cursor onwards.
+                    self.offset += node.data[dest_idx].len();
+                    self.idx = dest_idx;
+                }
+
+                node.data[dest_idx].append(node.data[i]);
+                merged += 1;
+            } else if merged > 0 {
+                node.data[i - merged] = node.data[i];
+            }
+        }
+        node.num_entries -= merged as u8;
     }
 }
 
