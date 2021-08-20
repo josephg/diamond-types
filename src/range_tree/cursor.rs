@@ -4,8 +4,8 @@ use std::cmp::Ordering;
 use std::hint::unreachable_unchecked;
 
 // impl<'a, E: EntryTraits> Cursor<'a, E> {
-impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
-    pub(super) fn new(node: NonNull<NodeLeaf<E,I>>, idx: usize, offset: usize) -> Self {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
+    pub(super) fn new(node: NonNull<NodeLeaf<E, I, IE, LE>>, idx: usize, offset: usize) -> Self {
         // TODO: This is creating a cursor with 'static lifetime, which isn't really what we want.
         Cursor {
             node, idx, offset,
@@ -14,12 +14,12 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
     }
 
     #[allow(clippy::mut_from_ref)] // Dirty.
-    pub(super) unsafe fn get_node_mut(&self) -> &mut NodeLeaf<E, I> {
+    pub(super) unsafe fn get_node_mut(&self) -> &mut NodeLeaf<E, I, IE, LE> {
         &mut *self.node.as_ptr()
     }
 
     #[allow(unused)]
-    pub(super) fn get_node(&self) -> &NodeLeaf<E, I> {
+    pub(super) fn get_node(&self) -> &NodeLeaf<E, I, IE, LE> {
         unsafe { self.node.as_ref() }
     }
 
@@ -45,7 +45,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                         let next_idx = idx + 1;
                         // This would be much cleaner if I put a len field in NodeInternal instead.
                         // TODO: Consider using node_ref.count_children() instead of this mess.
-                        if (next_idx < NUM_NODE_CHILDREN) && node_ref.children[next_idx].is_some() {
+                        if (next_idx < IE) && node_ref.children[next_idx].is_some() {
                             Some(next_idx)
                         } else { None }
                     } else if idx > 0 {
@@ -278,7 +278,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
     /// This helper method attempts to minimize the size of the leaf around the cursor using
     /// append() methods, when possible.
     pub fn compress_node(&mut self) {
-        if self.idx >= NUM_LEAF_ENTRIES { return; } // For the optimizer.
+        if self.idx >= LE { return; } // For the optimizer.
 
         let node = unsafe { self.node.as_mut() };
 
@@ -291,9 +291,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
 
         for i in self.idx.max(1)..node.num_entries as usize {
             // Some optimizer fun.
-            if i >= NUM_LEAF_ENTRIES
-                || i - 1 - merged >= NUM_LEAF_ENTRIES
-                || i - merged >= NUM_LEAF_ENTRIES {
+            if i >= LE || i - 1 - merged >= LE || i - merged >= LE {
                 unsafe { unreachable_unchecked(); }
             }
 
@@ -316,7 +314,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
     }
 }
 
-impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> Cursor<E, I> {
+impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
     /// Calculate and return the predecessor ID at the cursor. This is used to calculate the CRDT
     /// location for an insert position.
     ///
@@ -339,7 +337,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>> Cursor<E, I> {
 ///
 /// Also beware: A cursor pointing to the end of an entry will be considered less than a cursor
 /// pointing to the subsequent entry.
-impl<E: EntryTraits, I: TreeIndex<E>> Ord for Cursor<E, I> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for Cursor<E, I, IE, LE> {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.node == other.node {
             // We'll compare cursors directly.
@@ -371,7 +369,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Ord for Cursor<E, I> {
     }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>> PartialOrd for Cursor<E, I> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialOrd for Cursor<E, I, IE, LE> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -385,7 +383,7 @@ mod tests {
 
     #[test]
     fn compare_cursors() {
-        let mut tree = RangeTree::<OrderSpan, RawPositionIndex>::new();
+        let mut tree = RangeTree::<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
 
         let mut cursor = tree.cursor_at_start();
         assert_eq!(cursor, cursor);
@@ -409,7 +407,7 @@ mod tests {
     #[test]
     fn empty_tree_has_empty_iter() {
         // Regression.
-        let tree = RangeTree::<OrderSpan, RawPositionIndex>::new();
+        let tree = RangeTree::<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
         for _item in tree.iter() {
             panic!("Found spurious item");
         }

@@ -5,14 +5,14 @@ use std::fmt::Debug;
 // use crate::common::IndexGet;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct MarkerEntry<E: EntryTraits, I: TreeIndex<E>> {
+pub struct MarkerEntry<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     // This is cleaner as a separate enum and struct, but doing it that way
     // bumps it from 16 to 24 bytes per entry because of alignment.
     pub len: u32,
-    pub ptr: Option<NonNull<NodeLeaf<E, I>>>,
+    pub ptr: Option<NonNull<NodeLeaf<E, I, IE, LE>>>,
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> SplitableSpan for MarkerEntry<E, I, IE, LE> {
     fn len(&self) -> usize {
         self.len as usize
     }
@@ -46,8 +46,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
     fn prepend(&mut self, other: Self) { self.len += other.len; }
 }
 
-// impl<E: EntryTraits, I: TreeIndex<E>> IndexGet<usize> for MarkerEntry<E, I> {
-//     type Output = NonNull<NodeLeaf<E, I>>;
+// impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> IndexGet<usize> for MarkerEntry<E, I, IE, LE> {
+//     type Output = NonNull<NodeLeaf<E, I, IE, LE>>;
 //
 //     fn index_get(&self, _index: usize) -> Self::Output {
 //         self.ptr
@@ -56,21 +56,21 @@ impl<E: EntryTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
 
 
 
-impl<E: EntryTraits, I: TreeIndex<E>> Default for MarkerEntry<E, I> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Default for MarkerEntry<E, I, IE, LE> {
     fn default() -> Self {
         MarkerEntry {ptr: None, len: 0}
     }
 }
 
 
-impl<E: EntryTraits, I: TreeIndex<E>> MarkerEntry<E, I> {
-    pub fn unwrap_ptr(&self) -> NonNull<NodeLeaf<E, I>> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> MarkerEntry<E, I, IE, LE> {
+    pub fn unwrap_ptr(&self) -> NonNull<NodeLeaf<E, I, IE, LE>> {
         self.ptr.unwrap()
     }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>> EntryTraits for MarkerEntry<E, I> {
-    type Item = Option<NonNull<NodeLeaf<E, I>>>;
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> EntryTraits for MarkerEntry<E, I, IE, LE> {
+    type Item = Option<NonNull<NodeLeaf<E, I, IE, LE>>>;
 
     fn contains(&self, _loc: Self::Item) -> Option<usize> {
         panic!("Should never be used")

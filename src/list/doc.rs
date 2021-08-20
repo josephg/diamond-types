@@ -33,7 +33,7 @@ impl ClientData {
     }
 }
 
-pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, ContentIndex>>) + '_ {
+pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, ContentIndex, DOC_IE, DOC_LE>>) + '_ {
     move |entry: YjsSpan, leaf| {
         // println!("notify {:?}", &entry);
 
@@ -159,7 +159,7 @@ impl ListCRDT {
         } else { 0 }
     }
 
-    fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, ContentIndex>> {
+    fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, ContentIndex, DOC_IE, DOC_LE>> {
         let cursor = self.index.cursor_at_offset_pos(order as usize, false);
         // Gross.
         cursor.get_item().unwrap().unwrap()
@@ -167,7 +167,7 @@ impl ListCRDT {
         // self.index.entry_at(order as usize).unwrap_ptr()
     }
 
-    pub(crate) fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
+    pub(crate) fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, ContentIndex, DOC_IE, DOC_LE> {
         if order == ROOT_ORDER {
             // Or maybe we should just abort?
             self.range_tree.cursor_at_end()
@@ -180,7 +180,7 @@ impl ListCRDT {
     }
 
     // This does not stick_end to the found item.
-    pub(super) fn get_cursor_after(&self, order: Order, stick_end: bool) -> Cursor<YjsSpan, ContentIndex> {
+    pub(super) fn get_cursor_after(&self, order: Order, stick_end: bool) -> Cursor<YjsSpan, ContentIndex, DOC_IE, DOC_LE> {
         if order == ROOT_ORDER {
             self.range_tree.cursor_at_start()
         } else {
@@ -215,7 +215,7 @@ impl ListCRDT {
         span.1.len - span_offset
     }
 
-    fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<Cursor<YjsSpan, ContentIndex>>) {
+    fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<Cursor<YjsSpan, ContentIndex, DOC_IE, DOC_LE>>) {
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
         //     assert_eq!(item.order, next_order);

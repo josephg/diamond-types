@@ -42,14 +42,14 @@ impl TreeIndex<TraversalComponent> for PrePostIndex {
     }
 }
 
-pub(super) type PositionMap = Pin<Box<RangeTree<TraversalComponent, PrePostIndex>>>;
+pub(super) type PositionMap = Pin<Box<RangeTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>>>;
 
-impl RangeTree<TraversalComponent, PrePostIndex> {
+impl RangeTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
     // pub fn content_len(&self) -> usize {
     //     self.count as usize
     // }
 
-    pub fn cursor_at_post(&self, pos: usize, stick_end: bool) -> Cursor<TraversalComponent, PrePostIndex> {
+    pub fn cursor_at_post(&self, pos: usize, stick_end: bool) -> Cursor<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
         self.cursor_at_query(pos, stick_end,
                              |i| i.1 as usize,
                              |e| e.post_len() as usize)

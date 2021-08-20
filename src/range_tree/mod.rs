@@ -29,48 +29,48 @@ mod fuzzer;
 // pub(crate) use cursor::Cursor;
 
 #[cfg(debug_assertions)]
-const NUM_NODE_CHILDREN: usize = 8; // This needs to be minimum 8.
+pub const DEFAULT_IE: usize = 8; // This needs to be minimum 8.
 #[cfg(not(debug_assertions))]
-const NUM_NODE_CHILDREN: usize = 16;
+pub const DEFAULT_IE: usize = 16;
 
 
 // Must fit in u8, and must be >= 4 due to limitations in splice_insert.
 #[cfg(debug_assertions)]
-const NUM_LEAF_ENTRIES: usize = 4;
+pub const DEFAULT_LE: usize = 4;
 #[cfg(not(debug_assertions))]
-const NUM_LEAF_ENTRIES: usize = 32;
+pub const DEFAULT_LE: usize = 32;
 
 
 // This is the root of the tree. There's a bit of double-deref going on when you
 // access the first node in the tree, but I can't think of a clean way around
 // it.
 #[derive(Debug)]
-pub struct RangeTree<E: EntryTraits, I: TreeIndex<E>> {
+pub struct RangeTree<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     // count: usize,
     count: I::IndexValue,
-    root: Node<E, I>,
+    root: Node<E, I, IE, LE>,
 
     // Usually inserts and deletes are followed by more inserts / deletes at the same location.
     // We cache the last cursor position so we can reuse cursors between edits.
     // TODO: Currently unused.
-    // last_cursor: Cell<Option<(usize, Cursor<E, I>)>>,
+    // last_cursor: Cell<Option<(usize, Cursor<E, I, IE, LE>)>>,
 
     _pin: marker::PhantomPinned,
 }
 
 // The warning here is an error - the bound can't be removed.
 // #[allow(type_alias_bounds)]
-// type InternalEntry<E, I: TreeIndex<E>> = (I::IndexOffset, Option<Node<E, I>>);
+// type InternalEntry<E, I: TreeIndex<E>> = (I::IndexOffset, Option<Node<E, I, IE, LE>>);
 
 /// An internal node in the B-tree
 #[derive(Debug)]
-struct NodeInternal<E: EntryTraits, I: TreeIndex<E>> {
-    parent: ParentPtr<E, I>,
+struct NodeInternal<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+    parent: ParentPtr<E, I, IE, LE>,
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
     // ItemCount only includes items which haven't been deleted.
-    index: [I::IndexValue; NUM_NODE_CHILDREN],
-    children: [Option<Node<E, I>>; NUM_NODE_CHILDREN],
+    index: [I::IndexValue; IE],
+    children: [Option<Node<E, I, IE, LE>>; IE],
     _pin: PhantomPinned, // Needed because children have parent pointers here.
     _drop: PrintDropInternal,
 }
@@ -78,46 +78,46 @@ struct NodeInternal<E: EntryTraits, I: TreeIndex<E>> {
 /// A leaf node in the B-tree. Except the root, each child stores MAX_CHILDREN/2 - MAX_CHILDREN
 /// entries.
 #[derive(Debug)]
-pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>> {
-    parent: ParentPtr<E, I>,
+pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+    parent: ParentPtr<E, I, IE, LE>,
     num_entries: u8, // Number of entries which have been populated
-    data: [E; NUM_LEAF_ENTRIES],
+    data: [E; LE],
     _pin: PhantomPinned, // Needed because cursors point here.
     _drop: PrintDropLeaf
 }
 
 #[derive(Debug)]
-enum Node<E: EntryTraits, I: TreeIndex<E>> {
-    Internal(Pin<Box<NodeInternal<E, I>>>),
-    Leaf(Pin<Box<NodeLeaf<E, I>>>),
+enum Node<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+    Internal(Pin<Box<NodeInternal<E, I, IE, LE>>>),
+    Leaf(Pin<Box<NodeLeaf<E, I, IE, LE>>>),
 }
 
 // I hate that I need this, but its used all over the place when traversing the tree.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum NodePtr<E: EntryTraits, I: TreeIndex<E>> {
-    Internal(NonNull<NodeInternal<E, I>>),
-    Leaf(NonNull<NodeLeaf<E, I>>),
+enum NodePtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+    Internal(NonNull<NodeInternal<E, I, IE, LE>>),
+    Leaf(NonNull<NodeLeaf<E, I, IE, LE>>),
 }
 
 // TODO: Consider just reusing NodePtr for this.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum ParentPtr<E: EntryTraits, I: TreeIndex<E>> {
-    Root(NonNull<RangeTree<E, I>>),
-    Internal(NonNull<NodeInternal<E, I>>)
+enum ParentPtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+    Root(NonNull<RangeTree<E, I, IE, LE>>),
+    Internal(NonNull<NodeInternal<E, I, IE, LE>>)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 // pub struct Cursor<'a, E: EntryTraits> {
-pub struct Cursor<E: EntryTraits, I: TreeIndex<E>> {
+pub struct Cursor<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
 // pub struct Cursor {
-    node: NonNull<NodeLeaf<E, I>>,
+    node: NonNull<NodeLeaf<E, I, IE, LE>>,
     pub idx: usize,
     pub offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
     // _marker: marker::PhantomData<&'a MarkerTree<E>>,
 }
 
 // impl<E: EntryTraits> Iterator for Cursor<'_, E> {
-impl<E: EntryTraits, I: TreeIndex<E>> Iterator for Cursor<E, I> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for Cursor<E, I, IE, LE> {
     type Item = E;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -149,9 +149,9 @@ impl<E: EntryTraits, I: TreeIndex<E>> Iterator for Cursor<E, I> {
 
 /// Iterator for all the items inside the entries. Unlike entry iteration we use the offset here.
 #[derive(Debug)]
-pub struct ItemIterator<E: EntryTraits, I: TreeIndex<E>>(Cursor<E, I>);
+pub struct ItemIterator<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize>(Cursor<E, I, IE, LE>);
 
-impl<E: EntryTraits, I: TreeIndex<E>> Iterator for ItemIterator<E, I> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for ItemIterator<E, I, IE, LE> {
     type Item = E::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -210,7 +210,7 @@ unsafe fn ref_to_nonnull<T>(val: &T) -> NonNull<T> {
 /// Helper when a notify function is not needed
 pub fn null_notify<E, Node>(_e: E, _node: Node) {}
 
-impl<E: EntryTraits, I: TreeIndex<E>> Node<E, I> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Node<E, I, IE, LE> {
     /// Unsafe: Created leaf has a dangling parent pointer. Must be set after initialization.
     unsafe fn new_leaf() -> Self {
         Node::Leaf(Box::pin(NodeLeaf::new()))
@@ -219,7 +219,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Node<E, I> {
     //     Node::Leaf(Box::pin(NodeLeaf::new_with_parent(parent)))
     // }
 
-    fn set_parent(&mut self, parent: ParentPtr<E, I>) {
+    fn set_parent(&mut self, parent: ParentPtr<E, I, IE, LE>) {
         unsafe {
             match self {
                 Node::Leaf(l) => l.as_mut().get_unchecked_mut().parent = parent,
@@ -242,21 +242,21 @@ impl<E: EntryTraits, I: TreeIndex<E>> Node<E, I> {
         }
     }
 
-    fn unwrap_leaf(&self) -> &NodeLeaf<E, I> {
+    fn unwrap_leaf(&self) -> &NodeLeaf<E, I, IE, LE> {
         match self {
             Node::Leaf(l) => l.as_ref().get_ref(),
             Node::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
 
-    fn unwrap_into_leaf(self) -> Pin<Box<NodeLeaf<E, I>>> {
+    fn unwrap_into_leaf(self) -> Pin<Box<NodeLeaf<E, I, IE, LE>>> {
         match self {
             Node::Leaf(l) => l,
             Node::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
 
-    fn unwrap_leaf_mut(&mut self) -> Pin<&mut NodeLeaf<E, I>> {
+    fn unwrap_leaf_mut(&mut self) -> Pin<&mut NodeLeaf<E, I, IE, LE>> {
         match self {
             Node::Leaf(l) => l.as_mut(),
             Node::Internal(_) => panic!("Expected leaf - found internal node"),
@@ -268,7 +268,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Node<E, I> {
     //         Node::Leaf(_) => panic!("Expected internal node"),
     //     }
     // }
-    fn unwrap_internal_mut(&mut self) -> Pin<&mut NodeInternal<E, I>> {
+    fn unwrap_internal_mut(&mut self) -> Pin<&mut NodeInternal<E, I, IE, LE>> {
         match self {
             Node::Internal(n) => n.as_mut(),
             Node::Leaf(_) => panic!("Expected internal node"),
@@ -276,7 +276,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Node<E, I> {
     }
 
     /// Unsafe: The resulting NodePtr is mutable and doesn't have an associated lifetime.
-    unsafe fn as_ptr(&self) -> NodePtr<E, I> {
+    unsafe fn as_ptr(&self) -> NodePtr<E, I, IE, LE> {
         match self {
             Node::Internal(n) => {
                 NodePtr::Internal(ref_to_nonnull(n.as_ref().get_ref()))
@@ -287,7 +287,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Node<E, I> {
         }
     }
 
-    fn ptr_eq(&self, ptr: NodePtr<E, I>) -> bool {
+    fn ptr_eq(&self, ptr: NodePtr<E, I, IE, LE>) -> bool {
         match (self, ptr) {
             (Node::Internal(n), NodePtr::Internal(ptr)) => {
                 std::ptr::eq(n.as_ref().get_ref(), ptr.as_ptr())
@@ -300,15 +300,15 @@ impl<E: EntryTraits, I: TreeIndex<E>> Node<E, I> {
     }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>> NodePtr<E, I> {
-    fn unwrap_leaf(self) -> NonNull<NodeLeaf<E, I>> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodePtr<E, I, IE, LE> {
+    fn unwrap_leaf(self) -> NonNull<NodeLeaf<E, I, IE, LE>> {
         match self {
             NodePtr::Leaf(l) => l,
             NodePtr::Internal(_) => panic!("Expected leaf - found internal node"),
         }
     }
 
-    unsafe fn get_parent(&self) -> ParentPtr<E, I> {
+    unsafe fn get_parent(&self) -> ParentPtr<E, I, IE, LE> {
         match self {
             NodePtr::Internal(n) => { n.as_ref().parent }
             NodePtr::Leaf(n) => { n.as_ref().parent }
@@ -316,8 +316,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> NodePtr<E, I> {
     }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>> ParentPtr<E, I> {
-    fn unwrap_internal(self) -> NonNull<NodeInternal<E, I>> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ParentPtr<E, I, IE, LE> {
+    fn unwrap_internal(self) -> NonNull<NodeInternal<E, I, IE, LE>> {
         match self {
             ParentPtr::Root(_) => { panic!("Expected internal node"); }
             ParentPtr::Internal(ptr) => { ptr }
@@ -341,8 +341,8 @@ mod test {
 
     #[test]
     fn option_node_size_is_transparent() {
-        let node_size = size_of::<Node<OrderSpan, RawPositionIndex>>();
-        let opt_node_size = size_of::<Option<Node<OrderSpan, RawPositionIndex>>>();
+        let node_size = size_of::<Node<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>>();
+        let opt_node_size = size_of::<Option<Node<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>>>();
         assert_eq!(node_size, opt_node_size);
 
         // TODO: This fails, which means we're burning 8 bytes to simply store tags for each

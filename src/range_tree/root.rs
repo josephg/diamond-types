@@ -8,7 +8,7 @@ use crate::merge_iter::merge_items;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 
-impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
     pub fn new() -> Pin<Box<Self>> {
         assert!(!E::default().is_valid());
 
@@ -26,7 +26,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         tree
     }
 
-    fn root_ref_mut(self: Pin<&mut Self>) -> &mut Node<E, I> {
+    fn root_ref_mut(self: Pin<&mut Self>) -> &mut Node<E, I, IE, LE> {
         unsafe {
             &mut self.get_unchecked_mut().root
         }
@@ -41,11 +41,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     //     cursor.get_item()
     // }
 
-    pub(super) unsafe fn to_parent_ptr(&self) -> ParentPtr<E, I> {
+    pub(super) unsafe fn to_parent_ptr(&self) -> ParentPtr<E, I, IE, LE> {
         ParentPtr::Root(ref_to_nonnull(self))
     }
 
-    pub fn cursor_at_query<F, G>(&self, raw_pos: usize, stick_end: bool, offset_to_num: F, entry_to_num: G) -> Cursor<E, I>
+    pub fn cursor_at_query<F, G>(&self, raw_pos: usize, stick_end: bool, offset_to_num: F, entry_to_num: G) -> Cursor<E, I, IE, LE>
             where F: Fn(I::IndexValue) -> usize, G: Fn(E) -> usize {
         // if let Some((pos, mut cursor)) = self.last_cursor.get() {
         //     if pos == raw_pos {
@@ -81,7 +81,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
-    pub fn cursor_at_end(&self) -> Cursor<E, I> {
+    pub fn cursor_at_end(&self) -> Cursor<E, I, IE, LE> {
         // There's ways to write this to be faster, but this method is called rarely enough that it
         // should be fine.
         // let cursor = self.cursor_at_query(offset_to_num(self.count), true, offset_to_num, entry_to_num);
@@ -124,7 +124,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     //     self.as_ref().last_cursor.set(Some((pos, cursor)));
     // }
 
-    pub fn cursor_at_start(&self) -> Cursor<E, I> {
+    pub fn cursor_at_start(&self) -> Cursor<E, I, IE, LE> {
         // self.cursor_at_pos(0, false)
 
         unsafe {
@@ -143,20 +143,20 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
     }
 
-    pub fn iter(&self) -> Cursor<E, I> { self.cursor_at_start() }
+    pub fn iter(&self) -> Cursor<E, I, IE, LE> { self.cursor_at_start() }
 
-    pub fn item_iter(&self) -> ItemIterator<E, I> {
+    pub fn item_iter(&self) -> ItemIterator<E, I, IE, LE> {
         ItemIterator(self.iter())
     }
 
-    pub fn next_entry_or_panic(cursor: &mut Cursor<E, I>, marker: &mut I::IndexUpdate) {
+    pub fn next_entry_or_panic(cursor: &mut Cursor<E, I, IE, LE>, marker: &mut I::IndexUpdate) {
         if !cursor.next_entry_marker(Some(marker)) {
             panic!("Local delete past the end of the document");
         }
     }
 
     // Returns size.
-    fn check_leaf(leaf: &NodeLeaf<E, I>, expected_parent: ParentPtr<E, I>) -> I::IndexValue {
+    fn check_leaf(leaf: &NodeLeaf<E, I, IE, LE>, expected_parent: ParentPtr<E, I, IE, LE>) -> I::IndexValue {
         assert_eq!(leaf.parent, expected_parent);
         
         // let mut count: usize = 0;
@@ -180,7 +180,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     }
     
     // Returns size.
-    fn check_internal(node: &NodeInternal<E, I>, expected_parent: ParentPtr<E, I>) -> I::IndexValue {
+    fn check_internal(node: &NodeInternal<E, I, IE, LE>, expected_parent: ParentPtr<E, I, IE, LE>) -> I::IndexValue {
         assert_eq!(node.parent, expected_parent);
         
         // let mut count_total: usize = 0;
@@ -241,7 +241,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         assert_eq!(self.count, expected_size, "tree.count is incorrect");
     }
 
-    fn print_node_tree(node: &Node<E, I>, depth: usize) {
+    fn print_node_tree(node: &Node<E, I, IE, LE>, depth: usize) {
         for _ in 0..depth { eprint!("  "); }
         match node {
             Node::Internal(n) => {
@@ -272,7 +272,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     }
 
     /// Returns a cursor right before the named location, referenced by the pointer.
-    pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I>>) -> Cursor<E, I> {
+    pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> Cursor<E, I, IE, LE> {
         // First make a cursor to the specified item
         let leaf = ptr.as_ref();
         leaf.find(loc).expect("Position not in named leaf")
@@ -293,8 +293,8 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         }
 
         let (num_internal_nodes, num_leaf_nodes) = self.count_nodes();
-        let leaf_node_size = num_leaf_nodes * size_of::<NodeLeaf<E, I>>();
-        let internal_node_size = num_internal_nodes * size_of::<NodeInternal<E, I>>();
+        let leaf_node_size = num_leaf_nodes * size_of::<NodeLeaf<E, I, IE, LE>>();
+        let internal_node_size = num_internal_nodes * size_of::<NodeInternal<E, I, IE, LE>>();
         let num_entries = self.count_entries();
 
         println!("-------- Range tree {} stats --------", name);
@@ -304,14 +304,14 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
              (num_entries * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap()
         );
         println!("Number of {} byte internal nodes {} ({})",
-             size_of::<NodeInternal<E, I>>(),
+             size_of::<NodeInternal<E, I, IE, LE>>(),
              num_internal_nodes,
              internal_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap());
         println!("Number of {} byte leaf nodes {} ({}) (space for {} entries)",
-             size_of::<NodeLeaf<E, I>>(),
+             size_of::<NodeLeaf<E, I, IE, LE>>(),
              num_leaf_nodes,
              leaf_node_size.file_size(file_size_opts::CONVENTIONAL).unwrap(),
-             num_leaf_nodes * NUM_LEAF_ENTRIES
+             num_leaf_nodes * LE
         );
 
         println!("Depth {}", self.get_depth());
@@ -336,11 +336,11 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
 
         if detailed {
             println!("Entry distribution {:?}", size_counts);
-            println!("Internal node size {}", std::mem::size_of::<NodeInternal<E, I>>());
+            println!("Internal node size {}", std::mem::size_of::<NodeInternal<E, I, IE, LE>>());
             println!("Node entry size {} alignment {}",
-                     std::mem::size_of::<Option<Node<E, I>>>(),
-                     std::mem::align_of::<Option<Node<E, I>>>());
-            println!("Leaf size {}", std::mem::size_of::<NodeLeaf<E, I>>());
+                     std::mem::size_of::<Option<Node<E, I, IE, LE>>>(),
+                     std::mem::align_of::<Option<Node<E, I, IE, LE>>>());
+            println!("Leaf size {}", std::mem::size_of::<NodeLeaf<E, I, IE, LE>>());
         }
     }
 
@@ -362,7 +362,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     }
 
     // Passing (num internal nodes, num leaf nodes).
-    fn count_nodes_internal(node: &Node<E, I>, num: &mut (usize, usize)) {
+    fn count_nodes_internal(node: &Node<E, I, IE, LE>, num: &mut (usize, usize)) {
         if let Node::Internal(n) = node {
             num.0 += 1;
 
@@ -381,10 +381,10 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         num
     }
 
-    fn count_memory_internal(node: &Node<E, I>, size: &mut usize) {
+    fn count_memory_internal(node: &Node<E, I, IE, LE>, size: &mut usize) {
         match node {
             Node::Internal(n) => {
-                *size += size_of::<NodeInternal<E, I>>();
+                *size += size_of::<NodeInternal<E, I, IE, LE>>();
 
                 for e in &n.children[..] {
                     if let Some(e) = e {
@@ -393,21 +393,21 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
                 }
             }
             Node::Leaf(_) => {
-                *size += std::mem::size_of::<NodeLeaf<E, I>>();
+                *size += std::mem::size_of::<NodeLeaf<E, I, IE, LE>>();
             }
         }
     }
 
     #[allow(unused)]
     pub(crate) fn count_total_memory(&self) -> usize {
-        let mut size = size_of::<RangeTree<E, I>>();
+        let mut size = size_of::<RangeTree<E, I, IE, LE>>();
         Self::count_memory_internal(&self.root, &mut size);
         size
     }
 }
 
-impl<E: EntryTraits> RangeTree<E, RawPositionIndex> {
-    pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, RawPositionIndex> {
+impl<E: EntryTraits, const IE: usize, const LE: usize> RangeTree<E, RawPositionIndex, IE, LE> {
+    pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, RawPositionIndex, IE, LE> {
         self.cursor_at_query(pos, stick_end,
                              |i| i as usize,
                              |e| e.len())
@@ -418,29 +418,29 @@ impl<E: EntryTraits> RangeTree<E, RawPositionIndex> {
         cursor.get_item()
     }
 }
-impl<E: EntryTraits + EntryWithContent> RangeTree<E, ContentIndex> {
+impl<E: EntryTraits + EntryWithContent, const IE: usize, const LE: usize> RangeTree<E, ContentIndex, IE, LE> {
     pub fn content_len(&self) -> usize {
         self.count as usize
     }
 
-    pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, ContentIndex> {
+    pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, ContentIndex, IE, LE> {
         self.cursor_at_query(pos, stick_end,
                                          |i| i as usize,
                                          |e| e.content_len())
     }
 }
-impl<E: EntryTraits + EntryWithContent> RangeTree<E, FullIndex> {
+impl<E: EntryTraits + EntryWithContent, const IE: usize, const LE: usize> RangeTree<E, FullIndex, IE, LE> {
     pub fn content_len(&self) -> usize {
         self.count.1 as usize
     }
 
-    pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, FullIndex> {
+    pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, FullIndex, IE, LE> {
         self.cursor_at_query(pos, stick_end,
                                          |i| i.1 as usize,
                                          |e| e.content_len())
     }
 
-    pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, FullIndex> {
+    pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, FullIndex, IE, LE> {
         self.cursor_at_query(pos, stick_end,
                                          |i| i.0 as usize,
                                          |e| e.len())
@@ -449,14 +449,14 @@ impl<E: EntryTraits + EntryWithContent> RangeTree<E, FullIndex> {
 
 #[cfg(test)]
 mod tests {
-    use crate::range_tree::{RangeTree, CRDTSpan, ContentIndex, FullIndex, TreeIndex};
+    use crate::range_tree::*;
     use std::mem::size_of;
 
     #[test]
     fn print_memory_stats() {
-        let x = RangeTree::<CRDTSpan, ContentIndex>::new();
+        let x = RangeTree::<CRDTSpan, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         x.print_stats("", false);
-        let x = RangeTree::<CRDTSpan, FullIndex>::new();
+        let x = RangeTree::<CRDTSpan, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
         x.print_stats("", false);
 
         println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<CRDTSpan>>::IndexValue>());

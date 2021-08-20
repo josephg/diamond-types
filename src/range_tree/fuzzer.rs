@@ -171,7 +171,7 @@ fn random_edits() {
     for _i in 0..300 {
         // println!("i {}", _i);
         // TestRange is overkill for this, but eh.
-        let mut tree = RangeTree::<TestRange, FullIndex>::new();
+        let mut tree = RangeTree::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
         let mut list = vec![];
         let mut expected_len = 0;
 
