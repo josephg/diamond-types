@@ -36,19 +36,11 @@ fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     }
 }
 
-fn main() {
-    #[cfg(not(feature = "memusage"))]
-    eprintln!("Warning: Memory usage scanning not enabled. Run with --release --features memusage");
-
-    #[cfg(debug_assertions)]
-    eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
-
-    let test_filename = "benchmark_data/automerge-paper.json.gz";
-    // let test_filename = "benchmark_data/rustcode.json.gz";
-    let test_data = load_testing_data(test_filename);
+fn print_stats_for_file(filename: &str) {
+    let test_data = load_testing_data(filename);
     assert_eq!(test_data.start_content.len(), 0);
-    println!("Loaded testing data from {}\n ({} patches in {} txns)",
-        test_filename,
+    println!("\n\nLoaded testing data from {}\n ({} patches in {} txns)",
+        filename,
         test_data.txns.iter()
             .fold(0, |acc, txn| { acc + txn.patches.len() }),
         test_data.txns.len()
@@ -72,4 +64,15 @@ fn main() {
 
     // doc.write_encoding_stats();
     black_box(doc);
+}
+
+fn main() {
+    #[cfg(not(feature = "memusage"))]
+    eprintln!("Warning: Memory usage scanning not enabled. Run with --release --features memusage");
+
+    #[cfg(debug_assertions)]
+    eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
+
+    print_stats_for_file("benchmark_data/automerge-paper.json.gz");
+    print_stats_for_file("benchmark_data/rustcode.json.gz");
 }
