@@ -69,14 +69,6 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> MarkerEn
     }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> EntryTraits for MarkerEntry<E, I, IE, LE> {
-    fn is_valid(&self) -> bool {
-        // TODO: Replace this with a real nullptr.
-        // self.ptr != NonNull::dangling()
-        self.len > 0
-    }
-}
-
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Searchable for MarkerEntry<E, I, IE, LE> {
     type Item = Option<NonNull<NodeLeaf<E, I, IE, LE>>>;
 

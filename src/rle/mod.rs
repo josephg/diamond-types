@@ -5,7 +5,7 @@ mod simple_rle;
 
 pub use simple_rle::Rle;
 use crate::splitable_span::SplitableSpan;
-use crate::range_tree::{EntryTraits, Searchable};
+use crate::range_tree::{Searchable};
 use std::fmt::Debug;
 use smallvec::SmallVec;
 
@@ -66,10 +66,6 @@ impl<V: SplitableSpan> SplitableSpan for KVPair<V> {
         self.1.prepend(other.1);
         self.0 = other.0;
     }
-}
-
-impl<V: EntryTraits> EntryTraits for KVPair<V> {
-    fn is_valid(&self) -> bool { self.1.is_valid() }
 }
 
 impl<V: Searchable> Searchable for KVPair<V> {

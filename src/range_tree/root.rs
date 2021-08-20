@@ -10,8 +10,6 @@ pub type DeleteResult<E> = SmallVec<[E; 2]>;
 
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
     pub fn new() -> Pin<Box<Self>> {
-        assert!(!E::default().is_valid());
-
         let mut tree = Box::pin(Self {
             count: I::IndexValue::default(),
             root: unsafe { Node::new_leaf() },
@@ -163,7 +161,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
         let mut count = I::IndexValue::default();
 
         for e in &leaf.data[..leaf.num_entries as usize] {
-            assert!(e.is_valid());
+            // assert!(e.is_valid());
 
             // Make sure there's no data after an invalid entry
             assert_ne!(e.len(), 0, "Invalid leaf - 0 length");

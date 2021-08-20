@@ -1,11 +1,10 @@
-use crate::common::{CRDTLocation, CLIENT_INVALID, IndexGet};
+use crate::common::{CRDTLocation, IndexGet};
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 
 // TODO: Consider renaming this "RangeEntry" or something.
-pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default {
-    fn is_valid(&self) -> bool;
-}
+pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default {}
+impl<T: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default> EntryTraits for T {}
 
 pub trait Searchable {
     type Item: Copy + Debug;
@@ -49,12 +48,6 @@ pub trait CRDTItem {
 pub struct CRDTSpan {
     pub loc: CRDTLocation,
     pub len: u32,
-}
-
-impl EntryTraits for CRDTSpan {
-    fn is_valid(&self) -> bool {
-        self.loc.agent != CLIENT_INVALID
-    }
 }
 
 impl Searchable for CRDTSpan {

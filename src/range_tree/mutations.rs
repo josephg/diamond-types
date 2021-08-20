@@ -636,10 +636,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>, const IE: usize, const LE: usiz
 
         while delete_remaining > 0 {
             // We're iterating through entries, marking entries for delete along the way.
-            // dbg!(cursor, delete_remaining);
-            // dbg!(cursor.get_node());
-            debug_assert!(cursor.get_raw_entry().is_valid());
-            // dbg!(cursor.get_entry());
+            // debug_assert!(cursor.get_raw_entry().is_valid());
 
             while cursor.get_raw_entry().is_deactivated() {
                 Self::next_entry_or_panic(&mut cursor, &mut flush_marker);

@@ -5,7 +5,6 @@ use smallvec::SmallVec;
 use crate::splitable_span::SplitableSpan;
 use TraversalComponent::*;
 use crate::list::Order;
-use crate::range_tree::{EntryTraits};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TraversalComponent {
@@ -138,12 +137,6 @@ impl SplitableSpan for TraversalComponent {
     fn prepend(&mut self, other: Self) {
         // We're symmetric.
         self.append(other);
-    }
-}
-
-impl EntryTraits for TraversalComponent {
-    fn is_valid(&self) -> bool {
-        self.len() != u32::MAX as usize
     }
 }
 

@@ -57,10 +57,6 @@ impl SplitableSpan for TestRange {
     }
 }
 
-impl EntryTraits for TestRange {
-    fn is_valid(&self) -> bool { self.order != Order::MAX }
-}
-
 impl CRDTItem for TestRange {
     fn is_activated(&self) -> bool {
         self.is_activated

@@ -48,7 +48,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
             // }
 
             let entry: E = self.data[i];
-            if !entry.is_valid() { break; }
+            // if !entry.is_valid() { break; }
 
             // let text_len = entry.content_len();
             let entry_len = entry_to_num(entry);

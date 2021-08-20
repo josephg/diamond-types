@@ -1,6 +1,6 @@
 use crate::splitable_span::SplitableSpan;
 // use crate::range_tree::{EntryTraits, CRDTItem, EntryWithContent};
-use crate::range_tree::{EntryTraits, Searchable};
+use crate::range_tree::{Searchable};
 use crate::rle::{RleKeyed, RleKey};
 
 /// An OrderMarker defines a span of item orders, with a base and length.
@@ -75,12 +75,6 @@ impl SplitableSpan for OrderSpan {
     fn prepend(&mut self, other: Self) {
         self.order = other.order;
         self.len += other.len;
-    }
-}
-
-impl EntryTraits for OrderSpan {
-    fn is_valid(&self) -> bool {
-        self.order != u32::MAX && self.len != 0
     }
 }
 
