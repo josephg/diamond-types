@@ -31,7 +31,7 @@ mod fuzzer;
 #[cfg(debug_assertions)]
 pub const DEFAULT_IE: usize = 8; // This needs to be minimum 8.
 #[cfg(not(debug_assertions))]
-pub const DEFAULT_IE: usize = 16;
+pub const DEFAULT_IE: usize = 10;
 
 
 // Must fit in u8, and must be >= 4 due to limitations in splice_insert.
