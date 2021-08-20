@@ -1,5 +1,5 @@
 use crate::list::Order;
-use crate::range_tree::{EntryTraits, EntryWithContent, CRDTItem};
+use crate::range_tree::{EntryTraits, EntryWithContent, CRDTItem, Searchable};
 use crate::splitable_span::SplitableSpan;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -70,6 +70,12 @@ impl SplitableSpan for YjsSpan {
 }
 
 impl EntryTraits for YjsSpan {
+    fn is_valid(&self) -> bool {
+        self.order != Order::MAX && self.len != 0
+    }
+}
+
+impl Searchable for YjsSpan {
     type Item = Order;
 
     fn contains(&self, loc: Self::Item) -> Option<usize> {
@@ -78,10 +84,6 @@ impl EntryTraits for YjsSpan {
         } else {
             None
         }
-    }
-
-    fn is_valid(&self) -> bool {
-        self.order != Order::MAX && self.len != 0
     }
 
     fn at_offset(&self, offset: usize) -> Self::Item {

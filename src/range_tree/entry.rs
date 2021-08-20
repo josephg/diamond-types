@@ -4,6 +4,10 @@ use std::fmt::Debug;
 
 // TODO: Consider renaming this "RangeEntry" or something.
 pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default {
+    fn is_valid(&self) -> bool;
+}
+
+pub trait Searchable {
     type Item: Copy + Debug;
 
     // This is strictly unnecessary given truncate(), but it makes some code cleaner.
@@ -12,7 +16,6 @@ pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + D
     /// Checks if the entry contains the specified item. If it does, returns the offset into the
     /// item.
     fn contains(&self, loc: Self::Item) -> Option<usize>;
-    fn is_valid(&self) -> bool;
 
     // I'd use Index for this but the index trait returns a reference.
     // fn at_offset(&self, offset: usize) -> Self::Item;
@@ -25,7 +28,7 @@ pub trait EntryWithContent {
     fn content_len(&self) -> usize;
 }
 
-impl<T: EntryTraits> IndexGet<usize> for T {
+impl<T: EntryTraits + Searchable> IndexGet<usize> for T {
     type Output = T::Item;
 
     fn index_get(&self, index: usize) -> Self::Output {
@@ -49,6 +52,12 @@ pub struct CRDTSpan {
 }
 
 impl EntryTraits for CRDTSpan {
+    fn is_valid(&self) -> bool {
+        self.loc.agent != CLIENT_INVALID
+    }
+}
+
+impl Searchable for CRDTSpan {
     type Item = CRDTLocation;
 
     fn contains(&self, loc: CRDTLocation) -> Option<usize> {
@@ -59,10 +68,6 @@ impl EntryTraits for CRDTSpan {
             && loc.seq < self.loc.seq + self.len {
             Some((loc.seq - self.loc.seq) as usize)
         } else { None }
-    }
-
-    fn is_valid(&self) -> bool {
-        self.loc.agent != CLIENT_INVALID
     }
 
     fn at_offset(&self, offset: usize) -> CRDTLocation {

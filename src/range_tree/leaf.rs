@@ -38,24 +38,6 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
     //     (raw_pos, None)
     // }
 
-    pub fn find(&self, loc: E::Item) -> Option<Cursor<E, I, IE, LE>> {
-        for i in 0..self.len_entries() {
-            let entry: E = self.data[i];
-
-            if let Some(offset) = entry.contains(loc) {
-                debug_assert!(offset < entry.len());
-                // let offset = if entry.is_insert() { entry_offset } else { 0 };
-
-                return Some(Cursor::new(
-                    unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
-                    i,
-                    offset
-                ))
-            }
-        }
-        None
-    }
-
     // Find a given text offset within the node
     // Returns (index, offset within entry)
     pub fn find_offset<F>(&self, mut offset: usize, stick_end: bool, entry_to_num: F) -> Option<(usize, usize)>
@@ -166,5 +148,25 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
     pub(super) fn clear_all(&mut self) {
         // self.data[0..self.num_entries as usize].fill(E::default());
         self.num_entries = 0;
+    }
+}
+
+impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
+    pub fn find(&self, loc: E::Item) -> Option<Cursor<E, I, IE, LE>> {
+        for i in 0..self.len_entries() {
+            let entry: E = self.data[i];
+
+            if let Some(offset) = entry.contains(loc) {
+                debug_assert!(offset < entry.len());
+                // let offset = if entry.is_insert() { entry_offset } else { 0 };
+
+                return Some(Cursor::new(
+                    unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
+                    i,
+                    offset
+                ))
+            }
+        }
+        None
     }
 }

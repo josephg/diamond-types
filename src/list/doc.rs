@@ -1,6 +1,6 @@
 use crate::list::*;
 // use crate::split_list::SplitList;
-use crate::range_tree::{RangeTree, Cursor, NodeLeaf, EntryTraits, null_notify};
+use crate::range_tree::{RangeTree, Cursor, NodeLeaf, null_notify, Searchable};
 use crate::common::{AgentId, LocalOp, CRDT_DOC_ROOT};
 use smallvec::smallvec;
 use std::ptr::NonNull;

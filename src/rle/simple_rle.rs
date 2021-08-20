@@ -1,4 +1,4 @@
-use crate::range_tree::EntryTraits;
+use crate::range_tree::{EntryTraits, Searchable};
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 use std::cmp::Ordering::*;
@@ -145,7 +145,7 @@ impl<V: SplitableSpan + Clone + Sized> Extend<V> for Rle<V> {
 //     }
 // }
 
-impl<V: EntryTraits + RleKeyed> Rle<V> {
+impl<V: EntryTraits + Searchable + RleKeyed> Rle<V> {
     pub fn get(&self, idx: RleKey) -> V::Item {
         let (v, offset) = self.find(idx).unwrap();
         v.at_offset(offset as usize)

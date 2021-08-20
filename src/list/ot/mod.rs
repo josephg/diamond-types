@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 use crate::splitable_span::SplitableSpan;
 use TraversalComponent::*;
 use crate::list::Order;
-use crate::range_tree::EntryTraits;
+use crate::range_tree::{EntryTraits};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TraversalComponent {
@@ -142,21 +142,10 @@ impl SplitableSpan for TraversalComponent {
 }
 
 impl EntryTraits for TraversalComponent {
-    type Item = (); // TODO: Remove this.
-
-    fn contains(&self, _loc: Self::Item) -> Option<usize> {
-        unimplemented!()
-    }
-
     fn is_valid(&self) -> bool {
         self.len() != u32::MAX as usize
     }
-
-    fn at_offset(&self, _offset: usize) -> Self::Item {
-        unimplemented!()
-    }
 }
-
 
 #[cfg(test)]
 mod test {

@@ -232,14 +232,6 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
         }
     }
 
-    pub fn get_item(&self) -> Option<E::Item> {
-        // TODO: Optimize this. This is gross.
-        let mut cursor = self.clone();
-        if cursor.roll_to_next_entry() {
-            Some(cursor.get_raw_entry().at_offset(cursor.offset))
-        } else { None }
-    }
-
     // TODO: This is inefficient in a loop.
     pub fn next(&mut self) -> bool {
         if !self.roll_to_next_entry() {
@@ -314,7 +306,17 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
     }
 }
 
-impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
+impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
+    pub fn get_item(&self) -> Option<E::Item> {
+        // TODO: Optimize this. This is gross.
+        let mut cursor = self.clone();
+        if cursor.roll_to_next_entry() {
+            Some(cursor.get_raw_entry().at_offset(cursor.offset))
+        } else { None }
+    }
+}
+
+impl<E: EntryTraits + CRDTItem + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
     /// Calculate and return the predecessor ID at the cursor. This is used to calculate the CRDT
     /// location for an insert position.
     ///

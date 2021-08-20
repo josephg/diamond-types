@@ -151,7 +151,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator
 #[derive(Debug)]
 pub struct ItemIterator<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize>(Cursor<E, I, IE, LE>);
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for ItemIterator<E, I, IE, LE> {
+impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for ItemIterator<E, I, IE, LE> {
     type Item = E::Item;
 
     fn next(&mut self) -> Option<Self::Item> {

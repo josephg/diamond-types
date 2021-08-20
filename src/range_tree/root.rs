@@ -271,13 +271,6 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
         Self::print_node_tree(&self.root, 1);
     }
 
-    /// Returns a cursor right before the named location, referenced by the pointer.
-    pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> Cursor<E, I, IE, LE> {
-        // First make a cursor to the specified item
-        let leaf = ptr.as_ref();
-        leaf.find(loc).expect("Position not in named leaf")
-    }
-
     #[allow(unused)]
     pub fn print_stats(&self, name: &str, detailed: bool) {
         // We'll get the distribution of entry sizes
@@ -406,18 +399,30 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
     }
 }
 
+impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+    /// Returns a cursor right before the named location, referenced by the pointer.
+    pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> Cursor<E, I, IE, LE> {
+        // First make a cursor to the specified item
+        let leaf = ptr.as_ref();
+        leaf.find(loc).expect("Position not in named leaf")
+    }
+}
+
 impl<E: EntryTraits, const IE: usize, const LE: usize> RangeTree<E, RawPositionIndex, IE, LE> {
     pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, RawPositionIndex, IE, LE> {
         self.cursor_at_query(pos, stick_end,
                              |i| i as usize,
                              |e| e.len())
     }
+}
 
+impl<E: EntryTraits + Searchable, const IE: usize, const LE: usize> RangeTree<E, RawPositionIndex, IE, LE> {
     pub fn at(&self, pos: usize) -> Option<E::Item> {
         let cursor = self.cursor_at_offset_pos(pos, false);
         cursor.get_item()
     }
 }
+
 impl<E: EntryTraits + EntryWithContent, const IE: usize, const LE: usize> RangeTree<E, ContentIndex, IE, LE> {
     pub fn content_len(&self) -> usize {
         self.count as usize

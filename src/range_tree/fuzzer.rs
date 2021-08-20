@@ -58,11 +58,7 @@ impl SplitableSpan for TestRange {
 }
 
 impl EntryTraits for TestRange {
-    type Item = ();
-
-    fn contains(&self, _loc: Self::Item) -> Option<usize> { unimplemented!() }
     fn is_valid(&self) -> bool { self.order != Order::MAX }
-    fn at_offset(&self, _offset: usize) -> Self::Item { () }
 }
 
 impl CRDTItem for TestRange {
