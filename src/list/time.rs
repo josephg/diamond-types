@@ -233,7 +233,7 @@ impl ListCRDT {
                     let base_item = d.1.order + d_offset + 1 - undelete_here;
                     // dbg!(base_item, d.1.order, d_offset, undelete_here, base);
                     let cursor = self.get_cursor_before(base_item);
-                    let (len_here, succeeded) = self.range_tree.remote_reactivate(cursor, len_here as _, notify_for(&mut self.index));
+                    let (len_here, succeeded) = self.range_tree.remote_reactivate(cursor, len_here as _, notify_for(&mut self.index, u32::MAX));
                     assert!(succeeded); // If they're active in the range_tree, we're in trouble.
                     undelete_here -= len_here as u32;
                 }
@@ -252,7 +252,7 @@ impl ListCRDT {
                 // dbg!(&cursor, len_here);
                 cursor.offset -= len_here as usize;
 
-                let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, len_here as _, notify_for(&mut self.index));
+                let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor, len_here as _, notify_for(&mut self.index, u32::MAX));
                 // let len_here = deleted_here as u32;
                 debug_assert_eq!(deleted_here, len_here as usize);
                 // Deletes of an item have to be chronologically after any insert of that same item.
@@ -282,7 +282,7 @@ impl ListCRDT {
         } else {
             // The operation was an insert operation. Re-insert the content.
             let cursor = self.get_cursor_before(span.order);
-            let (ins_here, succeeded) = self.range_tree.remote_reactivate(cursor, span.len as _, notify_for(&mut self.index));
+            let (ins_here, succeeded) = self.range_tree.remote_reactivate(cursor, span.len as _, notify_for(&mut self.index, u32::MAX));
             assert!(succeeded); // If they're active in the range_tree, we're in trouble.
             debug_assert!(ins_here > 0);
             // span.truncate_keeping_right(ins_here);

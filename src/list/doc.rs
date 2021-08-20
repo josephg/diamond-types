@@ -33,13 +33,19 @@ impl ClientData {
     }
 }
 
-pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, ContentIndex, DOC_IE, DOC_LE>>) + '_ {
+pub(super) fn notify_for(index: &mut SpaceIndex, last_insert: u32) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, ContentIndex, DOC_IE, DOC_LE>>) + '_ {
     move |entry: YjsSpan, leaf| {
-        // println!("notify {:?}", &entry);
+        let mut len = entry.len() as u32;
+        let mut order = entry.order;
+        if entry.order > last_insert {
+            // Insert extra dummy data to cover deletes.
+            len += entry.order - last_insert;
+            order = last_insert;
+        }
 
-        let mut cursor = index.cursor_at_offset_pos(entry.order as usize, true);
+        let mut cursor = index.cursor_at_offset_pos(order as usize, true);
         index.replace_range(&mut cursor, MarkerEntry {
-            ptr: Some(leaf), len: entry.len() as u32
+            ptr: Some(leaf), len
         }, null_notify);
 
         // index.replace_range(entry.order as usize, MarkerEntry {
@@ -85,6 +91,8 @@ impl ListCRDT {
             text_content: Some(Rope::new()),
             // text_content: None,
             deleted_content: None,
+
+            hack_last_insert_order: 0,
         }
     }
 
@@ -159,7 +167,7 @@ impl ListCRDT {
         } else { 0 }
     }
 
-    fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, ContentIndex, DOC_IE, DOC_LE>> {
+    pub(super) fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, ContentIndex, DOC_IE, DOC_LE>> {
         let cursor = self.index.cursor_at_offset_pos(order as usize, false);
         // Gross.
         cursor.get_item().unwrap().unwrap()
@@ -337,7 +345,9 @@ impl ListCRDT {
         }
 
         // Now insert here.
-        self.range_tree.insert(&mut cursor, item, notify_for(&mut self.index));
+        self.range_tree.insert(&mut cursor, item, notify_for(&mut self.index, self.hack_last_insert_order));
+
+        self.hack_last_insert_order = item.order + item.len() as u32;
     }
 
     fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
@@ -382,7 +392,7 @@ impl ListCRDT {
     pub(super) fn internal_mark_deleted(&mut self, order: Order, max_len: u32, update_content: bool) -> (u32, bool) {
         let cursor = self.get_cursor_before(order);
 
-        let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor.clone(), max_len as _, notify_for(&mut self.index));
+        let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor.clone(), max_len as _, notify_for(&mut self.index, u32::MAX));
         let deleted_here = deleted_here as u32;
 
         if !succeeded {
@@ -510,16 +520,12 @@ impl ListCRDT {
                     }
 
                     // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
-                    let mut cursor = self.index.cursor_at_end();
-                    let last_entry = cursor.get_raw_entry();
-                    let entry = MarkerEntry {
-                        len: *len, ptr: last_entry.ptr
-                    };
-                    self.index.insert(&mut cursor, entry, null_notify);
-
-                    // self.index.append_entry(self.index.last().map_or(MarkerEntry::default(), |m| {
-                    //     MarkerEntry { len: *len, ptr: m.ptr }
-                    // }));
+                    // let mut cursor = self.index.cursor_at_end();
+                    // let last_entry = cursor.get_raw_entry();
+                    // let entry = MarkerEntry {
+                    //     len: *len, ptr: last_entry.ptr
+                    // };
+                    // self.index.insert(&mut cursor, entry, null_notify);
                 }
             }
         }
@@ -552,19 +558,15 @@ impl ListCRDT {
             let pos = *pos;
             if *del_span > 0 {
                 let cursor = self.range_tree.cursor_at_content_pos(pos, false);
-                let deleted_items = self.range_tree.local_deactivate(cursor, *del_span, notify_for(&mut self.index));
+                let deleted_items = self.range_tree.local_deactivate(cursor, *del_span, notify_for(&mut self.index, u32::MAX));
 
                 // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
-                let mut cursor = self.index.cursor_at_end();
-                let last_entry = cursor.get_raw_entry();
-                let entry = MarkerEntry {
-                    len: *del_span as u32, ptr: last_entry.ptr
-                };
-                self.index.insert(&mut cursor, entry, null_notify);
-
-                // self.index.append_entry(self.index.last().map_or(MarkerEntry::default(), |m| {
-                //     MarkerEntry { len: *del_span as u32, ptr: m.ptr }
-                // }));
+                // let mut cursor = self.index.cursor_at_end();
+                // let last_entry = cursor.get_raw_entry();
+                // let entry = MarkerEntry {
+                //     len: *del_span as u32, ptr: last_entry.ptr
+                // };
+                // self.index.insert(&mut cursor, entry, null_notify);
 
                 // dbg!(&deleted_items);
                 let mut deleted_length = 0; // To check.

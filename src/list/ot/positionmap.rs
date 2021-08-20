@@ -366,7 +366,7 @@ mod test {
         }
 
         let midpoint_order = doc.get_next_order();
-        let midpoint_content = doc.to_string();
+        let midpoint_content = if doc.has_content() { Some(doc.to_string()) } else { None };
 
         let mut ops = vec![];
         for _i in 0..50 {
@@ -409,9 +409,11 @@ mod test {
         //    to the midpoint, returning the current document state.
         let traversal = map_to_traversal(&map, doc.text_content.as_ref().unwrap());
         // dbg!(&traversal);
-        let result = traversal.apply_to_string(midpoint_content.as_str());
-        // dbg!(doc.text_content.unwrap(), result);
-        assert_eq!(doc.text_content.unwrap(), result);
+        if let Some(midpoint_content) = midpoint_content {
+            let result = traversal.apply_to_string(midpoint_content.as_str());
+            // dbg!(doc.text_content.unwrap(), result);
+            assert_eq!(doc.text_content.unwrap(), result);
+        }
 
 
         // 3. We should also be able to apply all the changes one by one to the midpoint state and

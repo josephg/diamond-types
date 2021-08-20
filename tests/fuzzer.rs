@@ -34,7 +34,7 @@ fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentI
         // let len: usize = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
 
         let content = random_str(len as usize, rng);
-        // println!("Inserting '{}' at position {}", content, pos);
+        // eprintln!("Inserting '{}' at position {}", content, pos);
         if let Some(rope) = rope {
             rope.insert(pos, content.as_str());
         }
@@ -45,25 +45,28 @@ fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentI
         // println!("range {}", u32::min(10, doc_len - pos));
         let span = rng.gen_range(1..=usize::min(10, doc_len - pos));
         // dbg!(&state.marker_tree, pos, len);
-        // println!("deleting {} at position {}", span, pos);
+        // eprintln!("deleting {} at position {}", span, pos);
         if let Some(rope) = rope {
             rope.remove(pos..pos + span);
         }
         doc.local_delete(agent, pos, span)
     }
     // dbg!(&doc.markers);
+    // doc.check(true);
     doc.check(false);
 }
 
 #[test]
 fn random_single_document() {
-    let mut rng = SmallRng::seed_from_u64(7);
+    let mut rng = SmallRng::seed_from_u64(3);
     let mut doc = ListCRDT::new();
 
     let agent = doc.get_or_create_agent_id("seph");
     let mut expected_content = Rope::new();
 
     for _i in 0..1000 {
+        // eprintln!("i {}", _i);
+        // doc.debug_print_stuff();
         make_random_change(&mut doc, Some(&mut expected_content), agent, &mut rng);
         doc.dbg_assert_content_eq(&expected_content);
     }

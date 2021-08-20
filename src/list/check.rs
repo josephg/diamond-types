@@ -33,6 +33,15 @@ impl ListCRDT {
 
         if deep {
             self.check_shadow();
+            self.check_index();
+        }
+    }
+
+    fn check_index(&self) {
+        // Go through each entry in the range tree and make sure we can find it using the index.
+        for entry in self.range_tree.iter() {
+            let marker = self.marker_at(entry.order);
+            unsafe { marker.as_ref() }.find(entry.order).unwrap();
         }
     }
 

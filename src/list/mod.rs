@@ -55,11 +55,12 @@ struct ClientData {
     item_orders: Rle<KVPair<OrderSpan>>,
 }
 
-const INDEX_IE: usize = DEFAULT_IE;
-const INDEX_LE: usize = DEFAULT_LE;
+pub(crate) const INDEX_IE: usize = DEFAULT_IE;
+pub(crate) const INDEX_LE: usize = DEFAULT_LE;
 
-const DOC_IE: usize = DEFAULT_IE;
-const DOC_LE: usize = DEFAULT_LE;
+pub(crate) const DOC_IE: usize = DEFAULT_IE;
+pub(crate) const DOC_LE: usize = DEFAULT_LE;
+// const DOC_LE: usize = 32;
 
 // pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
 // pub type MarkerTree = MutRle<MarkerEntry<YjsSpan, ContentIndex>>;
@@ -99,6 +100,8 @@ pub struct ListCRDT {
     /// Note for inserts which insert a lot of contiguous characters, this will
     /// contain a lot of repeated pointers. I'm trading off memory for simplicity
     /// here - which might or might not be the right approach.
+    ///
+    /// This is a map from insert Order -> a pointer to the leaf node which contains that insert.
     index: SpaceIndex,
 
     /// This is a set of all deletes. Each delete names the set of orders of inserts which were
@@ -120,6 +123,10 @@ pub struct ListCRDT {
     text_content: Option<Rope>,
     /// This is a big ol' string containing everything that's been deleted (self.deletes) in order.
     deleted_content: Option<String>,
+
+    /// This is a hack. Index updates need to be "full", which is a side effect of using the range
+    /// tree instead of something more appropriate for the index.
+    hack_last_insert_order: u32,
 }
 
 // #[derive(Clone, Debug)]
