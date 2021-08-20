@@ -47,6 +47,8 @@ impl SplitableSpan for YjsSpan {
     // Could have a custom truncate_keeping_right method here - I once did. But the optimizer
     // does a great job flattening the generic implementation anyway.
 
+    // This method gets inlined all over the place.
+    // TODO: Might be worth tagging it with inline(never) and seeing what happens.
     fn can_append(&self, other: &Self) -> bool {
         let len = self.len.abs() as u32;
         (self.len > 0) == (other.len > 0)

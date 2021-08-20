@@ -8,7 +8,7 @@ use crate::splitable_span::SplitableSpan;
 use std::cmp::Ordering;
 use crate::rle::Rle;
 use std::mem::replace;
-use crate::list::external_txn::{RemoteTxn, RemoteOp};
+use crate::list::external_txn::{RemoteTxn, RemoteCRDTOp};
 use crate::unicount::split_at_char;
 
 
@@ -408,14 +408,14 @@ impl ListCRDT {
         let mut expected_content_len = 0;
         for op in txn.ops.iter() {
             match op {
-                RemoteOp::Ins { len, content_known, .. } => {
+                RemoteCRDTOp::Ins { len, content_known, .. } => {
                     // txn_len += ins_content.chars().count();
                     txn_len += *len as usize;
                     if *content_known {
                         expected_content_len += *len;
                     }
                 }
-                RemoteOp::Del { len, .. } => {
+                RemoteCRDTOp::Del { len, .. } => {
                     txn_len += *len as usize;
                 }
             }
@@ -433,7 +433,7 @@ impl ListCRDT {
         // Apply the changes.
         for op in txn.ops.iter() {
             match op {
-                RemoteOp::Ins { origin_left, origin_right, len, content_known } => {
+                RemoteCRDTOp::Ins { origin_left, origin_right, len, content_known } => {
                     // let ins_len = ins_content.chars().count();
 
                     let order = next_order;
@@ -461,7 +461,7 @@ impl ListCRDT {
                     self.integrate(agent, item, ins_content, None);
                 }
 
-                RemoteOp::Del { id, len } => {
+                RemoteCRDTOp::Del { id, len } => {
                     // The order of the item we're deleting
                     // println!("handling remote delete of id {:?} len {}", id, len);
                     let agent = self.get_agent_id(id.agent.as_str()).unwrap() as usize;
@@ -645,11 +645,6 @@ impl ListCRDT {
             println!("order {} l{} from {} / {} <-> {}", entry.order, entry.len(), loc.agent, entry.origin_left, entry.origin_right);
         }
     }
-
-    pub fn foo(&mut self) {
-        let mut cursor = self.range_tree.cursor_at_start();
-        self.range_tree.mutate_entry(|e| { e.len += 1; }, &mut cursor, 10, &mut 0, &mut notify_for(&mut self.index));
-    }
 }
 
 impl ToString for ListCRDT {
@@ -667,7 +662,7 @@ impl Default for ListCRDT {
 #[cfg(test)]
 mod tests {
     use crate::list::*;
-    use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteOp};
+    use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
     use smallvec::smallvec;
 
     #[test]
@@ -733,7 +728,7 @@ mod tests {
             },
             parents: smallvec![root_id()],
             ops: smallvec![
-                RemoteOp::Ins {
+                RemoteCRDTOp::Ins {
                     origin_left: root_id(),
                     origin_right: root_id(),
                     len: 2,
@@ -761,7 +756,7 @@ mod tests {
                 seq: 1
             }],
             ops: smallvec![
-                RemoteOp::Del {
+                RemoteCRDTOp::Del {
                     id: RemoteId {
                         agent: "seph".into(),
                         seq: 0
@@ -795,7 +790,7 @@ mod tests {
             },
             parents: smallvec![root_id()],
             ops: smallvec![
-                RemoteOp::Ins {
+                RemoteCRDTOp::Ins {
                     origin_left: root_id(),
                     origin_right: root_id(),
                     len: 2,
@@ -814,7 +809,7 @@ mod tests {
             },
             parents: smallvec![root_id()],
             ops: smallvec![
-                RemoteOp::Ins {
+                RemoteCRDTOp::Ins {
                     origin_left: root_id(),
                     origin_right: root_id(),
                     len: 5,

@@ -1,106 +1,27 @@
 use crate::list::{Order, ListCRDT, DoubleDeleteList};
 use crate::range_tree::*;
-use crate::splitable_span::SplitableSpan;
-use OpTag::*;
 use crate::order::OrderSpan;
 use std::pin::Pin;
 use crate::list::double_delete::DoubleDelete;
-use crate::rle::{KVPair, RleKey, RleSpanHelpers};
+use crate::rle::{KVPair, RleKey, RleSpanHelpers, AppendRLE};
+use crate::list::ot::{TraversalOp, TraversalComponent};
+use ropey::Rope;
 
-// Length of the item before and after the operation sequence has been applied.
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub(super) enum OpTag {
-    Retain,
-    Insert,
-    Delete,
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub(super) struct PositionMapEntry {
-    tag: OpTag,
-    len: Order,
-}
-
-impl PositionMapEntry {
-    fn pre_len(&self) -> Order {
-        match self.tag {
-            Retain | Delete => self.len,
-            Insert => 0,
-        }
-    }
-
-    fn post_len(&self) -> Order {
-        match self.tag {
-            Retain | Insert => self.len,
-            Delete => 0,
-        }
-    }
-}
-
-impl Default for PositionMapEntry {
-    fn default() -> Self {
-        Self {
-            tag: OpTag::Retain,
-            len: Order::MAX
-        }
-    }
-}
-
-impl SplitableSpan for PositionMapEntry {
-    fn len(&self) -> usize {
-        // self.post_len() as _
-        self.len as usize
-    }
-
-    fn truncate(&mut self, at_post_len: usize) -> Self {
-        let remainder = self.len - at_post_len as Order;
-        self.len = at_post_len as u32;
-        Self {
-            tag: self.tag,
-            len: remainder
-        }
-    }
-
-    fn can_append(&self, other: &Self) -> bool { self.tag == other.tag }
-    fn append(&mut self, other: Self) { self.len += other.len; }
-    fn prepend(&mut self, other: Self) { self.len += other.len; }
-}
-
-// impl EntryWithContent for PositionMapEntry {
-//     fn content_len(&self) -> usize {
-//         self.pre_len() as _
-//     }
-// }
-
-impl EntryTraits for PositionMapEntry {
-    type Item = (); // TODO: Remove this.
-
-    fn contains(&self, _loc: Self::Item) -> Option<usize> {
-        unimplemented!()
-    }
-
-    fn is_valid(&self) -> bool {
-        self.len != Order::MAX
-    }
-
-    fn at_offset(&self, _offset: usize) -> Self::Item {
-        unimplemented!()
-    }
-}
+use TraversalComponent::*;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
 
-impl TreeIndex<PositionMapEntry> for PrePostIndex {
+impl TreeIndex<TraversalComponent> for PrePostIndex {
     type IndexUpdate = Pair<i32>;
     type IndexValue = Pair<u32>;
 
-    fn increment_marker(marker: &mut Self::IndexUpdate, entry: &PositionMapEntry) {
+    fn increment_marker(marker: &mut Self::IndexUpdate, entry: &TraversalComponent) {
         marker.0 += entry.pre_len() as i32;
         marker.1 += entry.post_len() as i32;
     }
 
-    fn decrement_marker(marker: &mut Self::IndexUpdate, entry: &PositionMapEntry) {
+    fn decrement_marker(marker: &mut Self::IndexUpdate, entry: &TraversalComponent) {
         marker.0 -= entry.pre_len() as i32;
         marker.1 -= entry.post_len() as i32;
     }
@@ -115,20 +36,20 @@ impl TreeIndex<PositionMapEntry> for PrePostIndex {
         offset.1 = offset.1.wrapping_add(by.1 as u32);
     }
 
-    fn increment_offset(offset: &mut Self::IndexValue, by: &PositionMapEntry) {
+    fn increment_offset(offset: &mut Self::IndexValue, by: &TraversalComponent) {
         offset.0 += by.pre_len();
         offset.1 += by.post_len();
     }
 }
 
-pub(super) type PositionMap = Pin<Box<RangeTree<PositionMapEntry, PrePostIndex>>>;
+pub(super) type PositionMap = Pin<Box<RangeTree<TraversalComponent, PrePostIndex>>>;
 
-impl RangeTree<PositionMapEntry, PrePostIndex> {
+impl RangeTree<TraversalComponent, PrePostIndex> {
     // pub fn content_len(&self) -> usize {
     //     self.count as usize
     // }
 
-    pub fn cursor_at_post(&self, pos: usize, stick_end: bool) -> Cursor<PositionMapEntry, PrePostIndex> {
+    pub fn cursor_at_post(&self, pos: usize, stick_end: bool) -> Cursor<TraversalComponent, PrePostIndex> {
         self.cursor_at_query(pos, stick_end,
                              |i| i.1 as usize,
                              |e| e.post_len() as usize)
@@ -197,7 +118,7 @@ impl DoubleDeleteVisitor {
 
 impl ListCRDT {
     pub(super) fn ot_changes_since<V>(&self, mut span: OrderSpan, mut visit: V) -> PositionMap
-    where V: FnMut(u32, u32, PositionMapEntry, bool) {
+    where V: FnMut(u32, u32, TraversalComponent) {
         // println!("ot_changes_since {:?}", span);
         // I've gone through a lot of potential designs for this code and settled on this one.
         //
@@ -236,11 +157,7 @@ impl ListCRDT {
         assert_eq!(span.end(), self.get_next_order());
 
         let mut map: PositionMap = RangeTree::new();
-        map.insert_at_start(PositionMapEntry {
-            tag: OpTag::Retain,
-            len: self.range_tree.content_len() as _,
-            // len: u32::MAX / 2,
-        }, null_notify);
+        map.insert_at_start(Retain(self.range_tree.content_len() as _), null_notify);
 
         // So the way this works is if we find an item has been double-deleted, we'll mark in this
         // empty range until marked_deletes equals self.double_deletes.
@@ -304,15 +221,12 @@ impl ListCRDT {
                     let mut map_cursor = map.cursor_at_post(post_pos as _, true);
                     // We call insert instead of replace_range here because the delete doesn't
                     // consume "space".
-                    let entry = PositionMapEntry {
-                        tag: OpTag::Delete,
-                        len: len_here
-                    };
+                    let entry = Del(len_here);
                     let pre_pos = map_cursor.count_pos().0;
                     map.insert(&mut map_cursor, entry, null_notify);
 
                     // The content might have later been deleted.
-                    visit(post_pos, pre_pos, entry, false);
+                    visit(post_pos, pre_pos, entry);
                 }
 
                 span.len -= len_here;
@@ -332,17 +246,14 @@ impl ListCRDT {
                 // Where in the final document are we?
                 let post_pos = rt_cursor.count_pos();
 
-                let entry = PositionMapEntry {
-                    tag: OpTag::Insert,
-                    len: len_here
-                };
-
                 // So this is also dirty. We need to skip any deletes, which have a size of 0.
-                let has_content = rt_cursor.get_raw_entry().is_activated();
+                let content_known = rt_cursor.get_raw_entry().is_activated();
+
+                let entry = Ins { len: len_here, content_known };
 
                 // There's two cases here. Either we're inserting something fresh, or we're
                 // cancelling out a delete we found earlier.
-                let pre_pos = if has_content {
+                let pre_pos = if content_known {
                     // post_pos + 1 is a hack. cursor_at_offset_pos returns the first cursor
                     // location which has the right position.
                     let mut map_cursor = map.cursor_at_post(post_pos as usize + 1, true);
@@ -358,7 +269,7 @@ impl ListCRDT {
                 };
 
                 // The content might have later been deleted.
-                visit(post_pos, pre_pos, entry, has_content);
+                visit(post_pos, pre_pos, entry);
 
                 span.len -= len_here;
             }
@@ -368,32 +279,36 @@ impl ListCRDT {
     }
 }
 
+fn map_to_traversal(map: &PositionMap, resulting_doc: &Rope) -> TraversalOp {
+    use TraversalComponent::*;
+
+    let mut op = TraversalOp::new();
+    // TODO: Could use doc.chars() for this, but I think it'll be slower. Benchmark!
+    let mut post_len: u32 = 0;
+    for entry in map.iter() {
+        match entry {
+            Ins { len, content_known: true } => {
+                op.content.extend(resulting_doc.chars_at(post_len as usize).take(len as usize));
+                post_len += len;
+            }
+            Retain(len) => {
+                post_len += len;
+            }
+            _ => {}
+        }
+        op.traversal.append_rle(entry);
+    }
+    op
+}
+
 #[cfg(test)]
 mod test {
     use crate::list::ListCRDT;
     use rand::prelude::SmallRng;
     use rand::SeedableRng;
     use crate::fuzz_helpers::make_random_change;
-    use smartstring::alias::{String as SmartString};
-    use crate::list::ot::positionmap::{OpTag, PositionMapEntry};
-    use crate::LocalOp;
-    use crate::splitable_span::test_splitable_methods_valid;
-
-    #[test]
-    fn position_map_entry_valid() {
-        test_splitable_methods_valid(PositionMapEntry {
-            tag: OpTag::Retain,
-            len: 5
-        });
-        test_splitable_methods_valid(PositionMapEntry {
-            tag: OpTag::Insert,
-            len: 5
-        });
-        test_splitable_methods_valid(PositionMapEntry {
-            tag: OpTag::Delete,
-            len: 5
-        });
-    }
+    use crate::list::ot::positionmap::map_to_traversal;
+    use super::TraversalComponent::*;
 
     #[test]
     fn simple_position_map() {
@@ -402,8 +317,8 @@ mod test {
         doc.local_insert(0, 0, "hi there".into()); // 0-7
         doc.local_delete(0, 2, 3); // "hiere" 8-11
 
-        doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
-            dbg!((post_pos, pre_pos, e, has_content));
+        doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, pre_pos, e| {
+            dbg!((post_pos, pre_pos, e));
         });
     }
 
@@ -431,18 +346,87 @@ mod test {
         dbg!(&doc1.double_deletes);
 
         let mut changes = Vec::new();
-        let map = doc2.ot_changes_since(doc2.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
-            dbg!((post_pos, pre_pos, e, has_content));
+        let map = doc2.ot_changes_since(doc2.linear_changes_since(0), |post_pos, pre_pos, e| {
+            dbg!((post_pos, pre_pos, e));
             // if e.tag == OpTag::Insert {pre_pos -= e.len;}
-            changes.push((post_pos, pre_pos, e, has_content));
+            changes.push((post_pos, pre_pos, e));
         });
         changes.reverse();
         dbg!(&changes);
         dbg!(&map);
     }
 
+    fn ot_single_doc_fuzz(rng: &mut SmallRng) {
+        let mut doc = ListCRDT::new();
+
+        let agent = doc.get_or_create_agent_id("seph");
+
+        for _i in 0..50 {
+            make_random_change(&mut doc, None, agent, rng);
+        }
+
+        let midpoint_order = doc.get_next_order();
+        let midpoint_content = doc.to_string();
+
+        let mut ops = vec![];
+        for _i in 0..50 {
+            let op = make_random_change(&mut doc, None, agent, rng);
+            ops.push(op);
+        }
+        // dbg!(ops);
+
+        let mut ops2 = vec![];
+        // let map = doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
+        let map = doc.ot_changes_since(doc.linear_changes_since(midpoint_order), |_post_pos, _pre_pos, e| {
+            ops2.push(e);
+            // let content = if e.tag == OpTag::Insert {
+            //     if e.has_content {
+            //         doc.text_content.as_ref().unwrap()
+            //             .chars_at(post_pos as usize).take(e.len as usize)
+            //             .collect::<SmartString>()
+            //     } else {
+            //         std::iter::repeat('X').take(e.len as usize).collect::<SmartString>()
+            //     }
+            // } else { SmartString::default() };
+            //
+            // let c = LocalOp {
+            //     pos: pre_pos as usize,
+            //     ins_content: content,
+            //     del_span: if e.tag == OpTag::Delete { e.len as usize } else { 0 },
+            // };
+            // ops2.push(c);
+        });
+
+        // Ok we have a few things to check:
+        // 1. The returned map shouldn't contain any inserts with unknown content
+        for e in map.iter() {
+            if let Ins { content_known, .. } = e {
+                assert!(content_known);
+            }
+        }
+
+        // 2. The returned map should be able to be converted to a traversal operation and applied
+        //    to the midpoint, returning the current document state.
+        let traversal = map_to_traversal(&map, doc.text_content.as_ref().unwrap());
+        // dbg!(&traversal);
+        let result = traversal.apply_to_string(midpoint_content.as_str());
+        // dbg!(doc.text_content.unwrap(), result);
+        assert_eq!(doc.text_content.unwrap(), result);
+
+
+        // 3. We should also be able to apply all the changes one by one to the midpoint state and
+        //    arrive at the same result.
+
+
+        // ops2.reverse();
+        // dbg!(ops2);
+        //
+        // assert_eq!(map.len().1 as usize, doc.len());
+
+    }
+
     #[test]
-    fn ot_single_document_random() {
+    fn ot_single_document_fuzz() {
         // Check that when we query all the changes from a single document, the result is the same
         // (same values, same order) as we get from ot_changes_since.
 
@@ -450,41 +434,13 @@ mod test {
 
         for _j in 0..100 {
             println!("{}", _j);
-            let mut doc = ListCRDT::new();
-
-            let agent = doc.get_or_create_agent_id("seph");
-
-            let mut ops = vec![];
-            for _i in 0..100 {
-                let op = make_random_change(&mut doc, None, agent, &mut rng);
-                ops.push(op);
-            }
-            // dbg!(ops);
-
-            let mut ops2 = vec![];
-            let map = doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
-                let content = if e.tag == OpTag::Insert {
-                    if has_content {
-                        doc.text_content.as_ref().unwrap()
-                            .chars_at(post_pos as usize).take(e.len as usize)
-                            .collect::<SmartString>()
-                    } else {
-                        std::iter::repeat('X').take(e.len as usize).collect::<SmartString>()
-                    }
-                } else { SmartString::default() };
-
-                let c = LocalOp {
-                    pos: pre_pos as usize,
-                    ins_content: content,
-                    del_span: if e.tag == OpTag::Delete { e.len as usize } else { 0 },
-                };
-                ops2.push(c);
-            });
-            ops2.reverse();
-            // dbg!(ops2);
-
-            assert_eq!(map.len().1 as usize, doc.len());
-            // dbg!(&map);
+            ot_single_doc_fuzz(&mut rng);
         }
+    }
+
+    #[test]
+    fn ot_single_doc_fuzz_once() {
+        let mut rng = SmallRng::seed_from_u64(8);
+        ot_single_doc_fuzz(&mut rng);
     }
 }

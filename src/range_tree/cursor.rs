@@ -1,6 +1,7 @@
 use super::*;
 use crate::range_tree::entry::CRDTItem;
 use std::cmp::Ordering;
+use std::hint::unreachable_unchecked;
 
 // impl<'a, E: EntryTraits> Cursor<'a, E> {
 impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
@@ -289,7 +290,15 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
         let mut merged = 0;
 
         for i in self.idx.max(1)..node.num_entries as usize {
+            // Some optimizer fun.
+            if i >= NUM_LEAF_ENTRIES
+                || i - 1 - merged >= NUM_LEAF_ENTRIES
+                || i - merged >= NUM_LEAF_ENTRIES {
+                unsafe { unreachable_unchecked(); }
+            }
+
             let dest_idx = i - 1 - merged;
+
             if node.data[dest_idx].can_append(&node.data[i]) {
                 if i == self.idx {
                     // This works because we only compress from the cursor onwards.
@@ -301,7 +310,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> Cursor<E, I> {
                 merged += 1;
             } else if merged > 0 {
                 node.data[i - merged] = node.data[i];
-            }
+            } // TODO: Else consider aborting here.
         }
         node.num_entries -= merged as u8;
     }

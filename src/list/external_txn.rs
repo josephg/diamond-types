@@ -12,7 +12,7 @@ use crate::range_tree::CRDTItem;
 
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
-use crate::list::external_txn::RemoteOp::{Ins, Del};
+use crate::list::external_txn::RemoteCRDTOp::{Ins, Del};
 use std::iter::FromIterator;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,7 +24,7 @@ pub struct RemoteId {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
-pub enum RemoteOp {
+pub enum RemoteCRDTOp {
     Ins {
         origin_left: RemoteId,
         origin_right: RemoteId,
@@ -46,7 +46,7 @@ pub enum RemoteOp {
     }
 }
 
-impl RemoteOp {
+impl RemoteCRDTOp {
     fn len(&self) -> u32 {
         match self {
             Ins { len, .. } => { *len }
@@ -99,7 +99,7 @@ impl RemoteOp {
 pub struct RemoteTxn {
     pub id: RemoteId,
     pub parents: SmallVec<[RemoteId; 2]>, // usually 1 entry
-    pub ops: SmallVec<[RemoteOp; 2]>, // usually 1-2 entries.
+    pub ops: SmallVec<[RemoteCRDTOp; 2]>, // usually 1-2 entries.
 
     pub ins_content: SmartString,
 }
@@ -302,7 +302,7 @@ impl ListCRDT {
         // Limit by #3
         let (id, txn_len) = self.order_to_remote_id_span(span.order, txn_len);
 
-        let mut ops: SmallVec<[RemoteOp; 2]> = SmallVec::new();
+        let mut ops: SmallVec<[RemoteCRDTOp; 2]> = SmallVec::new();
         let mut txn_offset = 0; // Offset into the txn.
 
         while txn_offset < txn_len {
@@ -320,7 +320,7 @@ impl ListCRDT {
                 // Limit by #5
                 let (id, len) = self.order_to_remote_id_span(d.1.order + offset, len_limit_2);
                 // dbg!((&id, len));
-                (RemoteOp::Del { id, len }, len)
+                (RemoteCRDTOp::Del { id, len }, len)
             } else {
                 // It must be an insert. Fish information out of the range tree.
                 let cursor = self.get_cursor_before(order);
@@ -342,7 +342,7 @@ impl ListCRDT {
                 // We don't need to fetch the inserted CRDT span ID and limit the length based on
                 // that. I thought we did, but it works without that test.
 
-                (RemoteOp::Ins {
+                (RemoteCRDTOp::Ins {
                     origin_left: self.order_to_remote_id(entry.origin_left_at_offset(cursor.offset as u32)),
                     origin_right: self.order_to_remote_id(entry.origin_right),
                     len,

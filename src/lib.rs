@@ -2,7 +2,6 @@
 
 pub use alloc::*;
 pub use common::{LocalOp, AgentId};
-use crate::list::ListCRDT;
 
 pub mod list;
 
@@ -44,7 +43,7 @@ pub mod fuzz_helpers {
 
     pub fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentId, rng: &mut SmallRng) -> LocalOp {
         let doc_len = doc.len();
-        let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
+        let insert_weight = if doc_len < 100 { 0.6 } else { 0.4 };
         let op = if doc_len == 0 || rng.gen_bool(insert_weight) {
             // Insert something.
             let pos = rng.gen_range(0..=doc_len);
