@@ -2,7 +2,7 @@
 // https://github.com/automerge/automerge-perf/
 // mod testdata;
 
-use criterion::{black_box, Criterion};
+use criterion::{black_box, Criterion, BenchmarkId};
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use smartstring::alias::{String as SmartString};
 use diamond_types::*;
@@ -29,24 +29,23 @@ fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
 }
 
 pub fn yjs_benchmarks(c: &mut Criterion) {
-    c.bench_function("yjs automerge-perf set", |b| {
-        let test_data = load_testing_data("benchmark_data/automerge-paper.json.gz");
+    let mut group = c.benchmark_group("yjs data set");
+    for name in &["automerge-paper", "rustcode"] {
+        group.bench_with_input(BenchmarkId::new("yjs", name), name, |b, name| {
+            let filename = format!("benchmark_data/{}.json.gz", name);
+            let test_data = load_testing_data(&filename);
+            assert_eq!(test_data.start_content.len(), 0);
 
-        // let mut patches: Vec<TestPatch> = Vec::new();
-        // for mut v in u.txns.iter() {
-        //     patches.extend_from_slice(v.patches.as_slice());
-        // }
-        assert_eq!(test_data.start_content.len(), 0);
+            b.iter(|| {
+                let mut doc = ListCRDT::new();
+                apply_edits(&mut doc, &test_data.txns);
+                assert_eq!(doc.len(), test_data.end_content.len());
+                black_box(doc.len());
+            })
+        });
+    }
 
-        b.iter(|| {
-            let mut doc = ListCRDT::new();
-            apply_edits(&mut doc, &test_data.txns);
-            // apply_edits_fast(&mut state, &patches);
-            // println!("len {}", state.len());
-            assert_eq!(doc.len(), test_data.end_content.len());
-            black_box(doc.len());
-        })
-    });
+    group.finish();
 
     c.bench_function("kevin", |b| {
         b.iter(|| {
