@@ -279,7 +279,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
     }
 
     #[allow(unused)]
-    pub fn print_stats(&self, detailed: bool) {
+    pub fn print_stats(&self, name: &str, detailed: bool) {
         // We'll get the distribution of entry sizes
         let mut size_counts = vec!();
 
@@ -297,7 +297,7 @@ impl<E: EntryTraits, I: TreeIndex<E>> RangeTree<E, I> {
         let internal_node_size = num_internal_nodes * size_of::<NodeInternal<E, I>>();
         let num_entries = self.count_entries();
 
-        println!("-------- Range tree stats --------");
+        println!("-------- Range tree {} stats --------", name);
         println!("Number of {} byte entries: {} ({} bytes of entries)",
              size_of::<E>(),
              num_entries,
@@ -455,9 +455,9 @@ mod tests {
     #[test]
     fn print_memory_stats() {
         let x = RangeTree::<CRDTSpan, ContentIndex>::new();
-        x.print_stats(false);
+        x.print_stats("", false);
         let x = RangeTree::<CRDTSpan, FullIndex>::new();
-        x.print_stats(false);
+        x.print_stats("", false);
 
         println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<CRDTSpan>>::IndexValue>());
         println!("sizeof FullIndex offset {}", size_of::<<FullIndex as TreeIndex<CRDTSpan>>::IndexValue>());

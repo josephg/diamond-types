@@ -630,7 +630,7 @@ impl ListCRDT {
 
     pub fn print_stats(&self, detailed: bool) {
         println!("Document of length {}", self.len());
-        self.range_tree.print_stats(detailed);
+        self.range_tree.print_stats("content", detailed);
         self.index.print_stats("index", detailed);
         // self.markers.print_rle_size();
         self.deletes.print_stats("deletes", detailed);
