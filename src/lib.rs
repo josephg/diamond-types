@@ -7,7 +7,6 @@ pub mod list;
 
 mod common;
 mod range_tree;
-mod split_list;
 mod splitable_span;
 mod alloc;
 mod order;
