@@ -1,6 +1,6 @@
 use crate::list::*;
 // use crate::split_list::SplitList;
-use crate::range_tree::{RangeTree, Cursor, NodeLeaf, EntryTraits};
+use crate::range_tree::{RangeTree, Cursor, NodeLeaf, EntryTraits, null_notify};
 use crate::common::{AgentId, LocalOp, CRDT_DOC_ROOT};
 use smallvec::smallvec;
 use std::ptr::NonNull;
@@ -37,14 +37,14 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<
     move |entry: YjsSpan, leaf| {
         // println!("notify {:?}", &entry);
 
-        // let cursor = markers.cursor_at_offset_pos(entry.order as usize, true);
-        // markers.replace_range(cursor, MarkerEntry {
-        //     ptr: Some(ptr), len: entry.len() as u32
-        // }, |_,_| {});
-
-        index.replace_range(entry.order as usize, MarkerEntry {
+        let mut cursor = index.cursor_at_offset_pos(entry.order as usize, true);
+        index.replace_range(&mut cursor, MarkerEntry {
             ptr: Some(leaf), len: entry.len() as u32
-        });
+        }, null_notify);
+
+        // index.replace_range(entry.order as usize, MarkerEntry {
+        //     ptr: Some(leaf), len: entry.len() as u32
+        // });
     }
 }
 
@@ -72,11 +72,14 @@ impl ListCRDT {
             client_with_order: Rle::new(),
             frontier: smallvec![ROOT_ORDER],
             client_data: vec![],
-            // markers: RangeTree::new(),
-            index: SplitList::new(),
+
             range_tree: RangeTree::new(),
+            index: RangeTree::new(),
+            // index: SplitList::new(),
+
             deletes: Rle::new(),
             double_deletes: Rle::new(),
+
             txns: Rle::new(),
 
             text_content: Some(Rope::new()),
@@ -157,11 +160,11 @@ impl ListCRDT {
     }
 
     fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, ContentIndex>> {
-        // let cursor = self.markers.cursor_at_offset_pos(order as usize, false);
-        // cursor.get_item().unwrap().unwrap()
-        // self.markers.find(order).unwrap().0.ptr
+        let cursor = self.index.cursor_at_offset_pos(order as usize, false);
+        // Gross.
+        cursor.get_item().unwrap().unwrap()
 
-        self.index.entry_at(order as usize).unwrap_ptr()
+        // self.index.entry_at(order as usize).unwrap_ptr()
     }
 
     pub(crate) fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, ContentIndex> {
@@ -507,9 +510,16 @@ impl ListCRDT {
                     }
 
                     // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
-                    self.index.append_entry(self.index.last().map_or(MarkerEntry::default(), |m| {
-                        MarkerEntry { len: *len, ptr: m.ptr }
-                    }));
+                    let mut cursor = self.index.cursor_at_end();
+                    let last_entry = cursor.get_raw_entry();
+                    let entry = MarkerEntry {
+                        len: *len, ptr: last_entry.ptr
+                    };
+                    self.index.insert(&mut cursor, entry, null_notify);
+
+                    // self.index.append_entry(self.index.last().map_or(MarkerEntry::default(), |m| {
+                    //     MarkerEntry { len: *len, ptr: m.ptr }
+                    // }));
                 }
             }
         }
@@ -545,9 +555,16 @@ impl ListCRDT {
                 let deleted_items = self.range_tree.local_deactivate(cursor, *del_span, notify_for(&mut self.index));
 
                 // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
-                self.index.append_entry(self.index.last().map_or(MarkerEntry::default(), |m| {
-                    MarkerEntry { len: *del_span as u32, ptr: m.ptr }
-                }));
+                let mut cursor = self.index.cursor_at_end();
+                let last_entry = cursor.get_raw_entry();
+                let entry = MarkerEntry {
+                    len: *del_span as u32, ptr: last_entry.ptr
+                };
+                self.index.insert(&mut cursor, entry, null_notify);
+
+                // self.index.append_entry(self.index.last().map_or(MarkerEntry::default(), |m| {
+                //     MarkerEntry { len: *del_span as u32, ptr: m.ptr }
+                // }));
 
                 // dbg!(&deleted_items);
                 let mut deleted_length = 0; // To check.
