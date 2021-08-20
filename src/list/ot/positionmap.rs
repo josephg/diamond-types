@@ -407,9 +407,10 @@ mod test {
 
         // 2. The returned map should be able to be converted to a traversal operation and applied
         //    to the midpoint, returning the current document state.
-        let traversal = map_to_traversal(&map, doc.text_content.as_ref().unwrap());
-        // dbg!(&traversal);
-        if let Some(midpoint_content) = midpoint_content {
+        if let (Some(text_content), Some(midpoint_content)) = (doc.text_content.as_ref(), midpoint_content) {
+            let traversal = map_to_traversal(&map, text_content);
+            // dbg!(&traversal);
+
             let result = traversal.apply_to_string(midpoint_content.as_str());
             // dbg!(doc.text_content.unwrap(), result);
             assert_eq!(doc.text_content.unwrap(), result);

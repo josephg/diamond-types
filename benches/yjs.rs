@@ -30,7 +30,7 @@ fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
 
 pub fn yjs_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("yjs data set");
-    for name in &["automerge-paper", "rustcode"] {
+    for name in &["automerge-paper", "rustcode", "sveltecomponent"] {
         group.bench_with_input(BenchmarkId::new("yjs", name), name, |b, name| {
             let filename = format!("benchmark_data/{}.json.gz", name);
             let test_data = load_testing_data(&filename);
