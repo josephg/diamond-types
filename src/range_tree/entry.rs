@@ -3,8 +3,8 @@ use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 
 // TODO: Consider renaming this "RangeEntry" or something.
-pub trait EntryTraits: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default {}
-impl<T: SplitableSpan + Copy + Debug + PartialEq + Eq + Sized + Default> EntryTraits for T {}
+pub trait EntryTraits: SplitableSpan + Copy + Debug + Default {}
+impl<T: SplitableSpan + Copy + Debug + Default> EntryTraits for T {}
 
 pub trait Searchable {
     type Item: Copy + Debug;

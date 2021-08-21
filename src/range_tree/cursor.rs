@@ -346,7 +346,7 @@ impl<E: EntryTraits + CRDTItem + Searchable, I: TreeIndex<E>, const IE: usize, c
 ///
 /// Also beware: A cursor pointing to the end of an entry will be considered less than a cursor
 /// pointing to the subsequent entry.
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for Cursor<E, I, IE, LE> {
+impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for Cursor<E, I, IE, LE> {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.node == other.node {
             // We'll compare cursors directly.
@@ -378,7 +378,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for 
     }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialOrd for Cursor<E, I, IE, LE> {
+impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialOrd for Cursor<E, I, IE, LE> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }

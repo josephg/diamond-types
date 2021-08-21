@@ -100,7 +100,7 @@ enum NodePtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> 
 }
 
 // TODO: Consider just reusing NodePtr for this.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Eq)]
 enum ParentPtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     Root(NonNull<RangeTree<E, I, IE, LE>>),
     Internal(NonNull<NodeInternal<E, I, IE, LE>>)
@@ -114,6 +114,19 @@ pub struct Cursor<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: us
     pub idx: usize,
     pub offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
     // _marker: marker::PhantomData<&'a MarkerTree<E>>,
+}
+
+// I can't use the derive() implementation of this because EntryTraits does not always implement
+// PartialEq.
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialEq for ParentPtr<E, I, IE, LE> {
+    fn eq(&self, other: &Self) -> bool {
+        use ParentPtr::*;
+        match (self, other) {
+            (Root(a), Root(b)) => a == b,
+            (Internal(a), Internal(b)) => a == b,
+            _ => false
+        }
+    }
 }
 
 // impl<E: EntryTraits> Iterator for Cursor<'_, E> {
