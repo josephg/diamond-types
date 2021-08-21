@@ -348,9 +348,10 @@ mod test {
     use crate::list::ot::positionmap::{map_to_traversal, PositionMap};
     use super::TraversalComponent::*;
     use crate::range_tree::{RangeTree, null_notify, Pair};
-    use crate::list::ot::traversal::TraversalComponent;
+    use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
     use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
     use ropey::Rope;
+    use smallvec::smallvec;
 
     #[test]
     fn simple_position_map() {
@@ -409,11 +410,34 @@ mod test {
             (2, PositionalComponent { pos: 2, len: 2, content_known: false, tag: Del }),
         ]);
 
+        if let Some(text_content) = doc2.text_content.as_ref() {
+            let positional = PositionalOp::from_components(&changes, text_content);
+            assert_eq!(positional, PositionalOp {
+                components: smallvec![
+                    PositionalComponent { pos: 0, len: 2, content_known: true, tag: Ins },
+                    PositionalComponent { pos: 2, len: 5, content_known: false, tag: Ins },
+                    PositionalComponent { pos: 7, len: 1, content_known: true, tag: Ins },
+
+                    PositionalComponent { pos: 2, len: 5, content_known: false, tag: Del },
+                ],
+                content: "hie".into(),
+            })
+        }
+
         // dbg!(&map.merged_iter().collect::<Vec<_>>());
         assert!(&map.merged_iter().eq(std::iter::once(TraversalComponent::Ins {
             len: 3,
             content_known: true,
         })));
+
+        if let Some(text_content) = doc2.text_content.as_ref() {
+            // The fuzzer will do a much better job of testing this.
+            let traversal = map_to_traversal(&map, text_content);
+            assert_eq!(traversal, TraversalOp {
+                traversal: smallvec![TraversalComponent::Ins {len: 3, content_known: true}],
+                content: "hie".into(),
+            });
+        }
     }
 
     fn ot_single_doc_fuzz(rng: &mut SmallRng, num_ops: usize) {
@@ -434,11 +458,6 @@ mod test {
             ops.push(op);
         }
         // dbg!(ops);
-
-        // let mut ops2 = vec![];
-        // let map = doc.ot_changes_since(doc.linear_changes_since(midpoint_order), |post_pos, e| {
-        //     ops2.push((post_pos, e));
-        // });
 
         let mut ops2 = Vec::new();
         let mut iter = doc.each_positional_op(midpoint_order);
