@@ -6,14 +6,7 @@ edition = "2018"
 license = "ISC OR Apache-2.0"
 description = "Small and fast CRDT data types for collaborative editing"
 repository = "https://github.com/josephg/diamond-types"
-
-# I can't get this working.
-#[build]
-#rustflags = ["-C", "linker-flavor=lld-link"]
-
-#[target.x86_64-unknown-linux-gnu]
-#rustflags = ["-C", "linker-flavor=lld-link"]
-#linker = "lld"
+resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
