@@ -23,7 +23,7 @@ pub trait TreeIndex<E: EntryTraits> where Self: Debug + Copy + Clone + PartialEq
     // or whatever. TODO: Check if this actually makes any performance difference.
     fn increment_offset_partial(offset: &mut Self::IndexValue, by: &E, at: usize) {
         let mut e = *by;
-        if e.len() < at { e.truncate(at); }
+        if at < e.len() { e.truncate(at); }
         Self::increment_offset(offset, &e);
         // *offset += by.content_len().min(at) as u32;
     }

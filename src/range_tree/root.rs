@@ -93,9 +93,14 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
             // Now scan to the end of the leaf
             let leaf_ptr = node.unwrap_leaf();
             let leaf = leaf_ptr.as_ref();
-            let idx = leaf.len_entries() - 1;
-            let offset = leaf.data[idx].len();
-
+            let (idx, offset) = if leaf.len_entries() == 0 {
+                // We're creating a cursor into an empty range tree.
+                (0, 0)
+            } else {
+                let idx = leaf.len_entries() - 1;
+                let offset = leaf.data[idx].len();
+                (idx, offset)
+            };
             Cursor {
                 node: leaf_ptr,
                 idx,
@@ -107,8 +112,12 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
             // Make sure nothing went wrong while we're here.
             let mut cursor = cursor.clone();
             let node = unsafe { cursor.node.as_ref() };
-            assert_eq!(cursor.get_raw_entry().len(), cursor.offset);
-            assert_eq!(cursor.idx, node.len_entries() - 1);
+            if let Some(entry) = cursor.try_get_raw_entry() {
+                assert_eq!(entry.len(), cursor.offset);
+            }
+            if node.len_entries() > 0 {
+                assert_eq!(cursor.idx, node.len_entries() - 1);
+            }
             assert!(!cursor.next_entry());
         }
 

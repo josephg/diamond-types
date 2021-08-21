@@ -199,6 +199,13 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
         node.data[self.idx]
     }
 
+    pub fn try_get_raw_entry(&self) -> Option<E> {
+        let node = unsafe { self.node.as_ref() };
+        if self.idx < node.len_entries() {
+            Some(node.data[self.idx])
+        } else { None }
+    }
+
     pub(super) fn get_raw_entry_mut(&mut self) -> &mut E {
         let node = unsafe { self.node.as_mut() };
         debug_assert!(self.idx < node.len_entries());
@@ -390,7 +397,7 @@ mod tests {
         let mut cursor = tree.cursor_at_start();
         assert_eq!(cursor, cursor);
 
-        tree.insert(&mut cursor, OrderSpan { order: 0, len: 1 }, |_a, _b| {});
+        tree.insert(&mut cursor, OrderSpan { order: 0, len: 1 }, null_notify);
 
         let c1 = tree.cursor_at_start();
         let c2 = tree.cursor_at_end();
@@ -398,7 +405,7 @@ mod tests {
 
         // Ok now lets add a bunch of junk to make sure the tree has a bunch of internal nodes
         for i in 0..1000 {
-            tree.insert(&mut tree.cursor_at_start(), OrderSpan { order: i, len: 1 }, |_a, _b| {});
+            tree.insert(&mut tree.cursor_at_start(), OrderSpan { order: i, len: 1 }, null_notify);
         }
 
         let c1 = tree.cursor_at_start();

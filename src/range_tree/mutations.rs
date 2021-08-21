@@ -1109,4 +1109,10 @@ mod tests {
         assert_eq!(tree.len(), 0);
         tree.check();
     }
+
+    #[test]
+    fn push_into_empty() {
+        let mut tree = RangeTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        tree.push(TestRange { order: 0, len: 10, is_activated: true }, null_notify);
+    }
 }

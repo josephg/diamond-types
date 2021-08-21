@@ -53,9 +53,6 @@ impl RangeTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
         self.cursor_at_query(pos, stick_end,
                              |i| i.1 as usize,
                              |e| e.post_len() as usize)
-        // self.cursor_at_query(pos, stick_end,
-        //                      |i| i as usize,
-        //                      |e| e.content_len())
     }
 }
 
@@ -445,5 +442,16 @@ mod test {
     fn ot_single_doc_fuzz_once() {
         let mut rng = SmallRng::seed_from_u64(8);
         ot_single_doc_fuzz(&mut rng);
+    }
+
+    #[test]
+    fn midpoint_cursor_has_correct_count() {
+        // Regression for a bug in range tree.
+        //pub(super) type PositionMap = Pin<Box<RangeTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>>>;
+        let mut tree: PositionMap = RangeTree::new();
+        tree.insert_at_start(TraversalComponent::Retain(10), null_notify);
+
+        let cursor = tree.cursor_at_post(4, true);
+        assert_eq!(cursor.count_pos(), Pair(4, 4));
     }
 }
