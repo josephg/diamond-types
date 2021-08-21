@@ -462,7 +462,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
         let mut end_range = cursor.idx;
 
         // TODO: Benchmark to see if this actually helps.
-        if I::can_count_items() && start_range == 0 && !node.has_root_as_parent() {
+        if I::CAN_COUNT_ITEMS && start_range == 0 && !node.has_root_as_parent() {
             // Try and short circuit deleting the entire range. This will speed up large deletes.
             let item_count = node.count_items();
             if I::count_items(item_count) <= del_items {

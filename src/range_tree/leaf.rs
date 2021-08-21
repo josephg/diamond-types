@@ -117,7 +117,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
     }
 
     pub(super) fn count_items(&self) -> I::IndexValue {
-        if I::can_count_items() {
+        if I::CAN_COUNT_ITEMS {
             // Optimization using the index. TODO: check if this is actually faster.
             match self.parent {
                 ParentPtr::Root(root) => {

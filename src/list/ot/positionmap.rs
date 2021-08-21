@@ -312,8 +312,14 @@ impl<'a> Iterator for ReversePositionalOpIter<'a> {
 }
 
 impl<'a> ReversePositionalOpIter<'a> {
-    fn into_map(self) -> PositionMap {
+    fn into_map(mut self) -> PositionMap {
+        while let Some(_) = self.next() {}
         self.map
+    }
+
+    fn into_traversal(self, resulting_doc: &Rope) -> TraversalOp {
+        let map = self.into_map();
+        map_to_traversal(&map, resulting_doc)
     }
 }
 

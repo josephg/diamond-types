@@ -28,7 +28,7 @@ pub trait TreeIndex<E: EntryTraits> where Self: Debug + Copy + Clone + PartialEq
         // *offset += by.content_len().min(at) as u32;
     }
 
-    fn can_count_items() -> bool { false }
+    const CAN_COUNT_ITEMS: bool = false;
     fn count_items(_idx: Self::IndexValue) -> usize { panic!("Index cannot count items") }
 }
 
@@ -103,7 +103,7 @@ impl<E: EntryTraits> TreeIndex<E> for RawPositionIndex {
         *offset += by.len().min(at) as u32;
     }
 
-    fn can_count_items() -> bool { true }
+    const CAN_COUNT_ITEMS: bool = true;
     fn count_items(idx: Self::IndexValue) -> usize { idx as usize }
 }
 
