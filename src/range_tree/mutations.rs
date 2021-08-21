@@ -861,10 +861,10 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
 // I'm really not sure where to put these methods. Its not really associated with
 // any of the tree implementation methods. This seems like a hidden spot. Maybe
 // range_tree? I could put it in impl ParentPtr? I dunno...
-fn insert_after<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize>(
-    mut parent: ParentPtr<E, I, IE, LE>,
-    mut inserted_leaf_node: Node<E, I, IE, LE>,
-    mut insert_after: NodePtr<E, I, IE, LE>,
+fn insert_after<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize>(
+    mut parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
+    mut inserted_leaf_node: Node<E, I, INT_ENTRIES, LEAF_ENTRIES>,
+    mut insert_after: NodePtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     mut stolen_length: I::IndexValue) {
     // println!("insert_after {:?} leaf {:#?} parent {:#?}", stolen_length, inserted_leaf_node, parent);
     unsafe {
@@ -876,7 +876,7 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usiz
             if let ParentPtr::Internal(mut n) = parent {
                 let parent_ref = n.as_ref();
                 let count = parent_ref.count_children();
-                if count < IE {
+                if count < INT_ENTRIES {
                     // Great. Insert the new node into the parent and return.
                     inserted_leaf_node.set_parent(ParentPtr::Internal(n));
 
@@ -930,7 +930,7 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usiz
                     // the tree.
                     let left_sibling = n.as_ref();
                     parent = left_sibling.parent; // For next iteration through the loop.
-                    debug_assert!(left_sibling.count_children() == IE);
+                    debug_assert!(left_sibling.count_children() == INT_ENTRIES);
 
                     // let mut right_sibling = NodeInternal::new_with_parent(parent);
                     let mut right_sibling_box = Node::Internal(NodeInternal::new_with_parent(parent));
@@ -942,12 +942,12 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usiz
                     let mut new_stolen_length = I::IndexValue::default();
                     // Dividing this into cases makes it easier to reason
                     // about.
-                    if old_idx < IE /2 {
+                    if old_idx < INT_ENTRIES /2 {
                         // Move all items from MAX_CHILDREN/2..MAX_CHILDREN
                         // into right_sibling, then splice inserted_node into
                         // old_parent.
-                        for i in 0..IE /2 {
-                            let ii = i + IE /2;
+                        for i in 0..INT_ENTRIES /2 {
+                            let ii = i + INT_ENTRIES /2;
                             // let c = mem::replace(&mut left_sibling.index[ii], I::IndexOffset::default());
                             let c = mem::take(&mut left_sibling.index[ii]);
                             // let e = mem::replace(&mut left_sibling.children[ii], None);
@@ -966,14 +966,14 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usiz
                     } else {
                         // The new element is in the second half of the
                         // group.
-                        let new_idx = old_idx - IE /2 + 1;
+                        let new_idx = old_idx - INT_ENTRIES /2 + 1;
 
                         inserted_leaf_node.set_parent(right_sibling.as_ref().to_parent_ptr());
                         let mut new_entry = (stolen_length, Some(inserted_leaf_node));
                         new_stolen_length = stolen_length;
 
-                        let mut src = IE /2;
-                        for dest in 0..=IE /2 {
+                        let mut src = INT_ENTRIES /2;
+                        for dest in 0..=INT_ENTRIES /2 {
                             if dest == new_idx {
                                 right_sibling.as_mut().set_entry(dest, mem::take(&mut new_entry.0), mem::take(&mut new_entry.1));
                             } else {

@@ -45,10 +45,10 @@ pub const DEFAULT_LE: usize = 32;
 // access the first node in the tree, but I can't think of a clean way around
 // it.
 #[derive(Debug)]
-pub struct RangeTree<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub struct RangeTree<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
     // count: usize,
     count: I::IndexValue,
-    root: Node<E, I, IE, LE>,
+    root: Node<E, I, INT_ENTRIES, LEAF_ENTRIES>,
 
     // Usually inserts and deletes are followed by more inserts / deletes at the same location.
     // We cache the last cursor position so we can reuse cursors between edits.
@@ -64,13 +64,13 @@ pub struct RangeTree<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE:
 
 /// An internal node in the B-tree
 #[derive(Debug)]
-struct NodeInternal<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
-    parent: ParentPtr<E, I, IE, LE>,
+struct NodeInternal<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
+    parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
     // ItemCount only includes items which haven't been deleted.
-    index: [I::IndexValue; IE],
-    children: [Option<Node<E, I, IE, LE>>; IE],
+    index: [I::IndexValue; INT_ENTRIES],
+    children: [Option<Node<E, I, INT_ENTRIES, LEAF_ENTRIES>>; INT_ENTRIES],
     _pin: PhantomPinned, // Needed because children have parent pointers here.
     _drop: PrintDropInternal,
 }
@@ -78,10 +78,10 @@ struct NodeInternal<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: 
 /// A leaf node in the B-tree. Except the root, each child stores MAX_CHILDREN/2 - MAX_CHILDREN
 /// entries.
 #[derive(Debug)]
-pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
-    parent: ParentPtr<E, I, IE, LE>,
+pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
+    parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     num_entries: u8, // Number of entries which have been populated
-    data: [E; LE],
+    data: [E; LEAF_ENTRIES],
     _pin: PhantomPinned, // Needed because cursors point here.
     _drop: PrintDropLeaf
 }
