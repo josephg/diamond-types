@@ -309,7 +309,7 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &Rope) -> TraversalOp {
             }
             _ => {}
         }
-        op.traversal.append_rle(entry);
+        op.traversal.push_rle(entry);
     }
     op
 }
@@ -372,7 +372,7 @@ mod test {
         dbg!(&map);
     }
 
-    fn ot_single_doc_fuzz(rng: &mut SmallRng) {
+    fn ot_single_doc_fuzz(rng: &mut SmallRng, num_ops: usize) {
         let mut doc = ListCRDT::new();
 
         let agent = doc.get_or_create_agent_id("seph");
@@ -385,7 +385,7 @@ mod test {
         let midpoint_content = if doc.has_content() { Some(doc.to_string()) } else { None };
 
         let mut ops = vec![];
-        for _i in 0..50 {
+        for _i in 0..num_ops {
             let op = make_random_change(&mut doc, None, agent, rng);
             ops.push(op);
         }
@@ -435,14 +435,14 @@ mod test {
         for i in 0..100 {
             let mut rng = SmallRng::seed_from_u64(i);
             println!("{}", i);
-            ot_single_doc_fuzz(&mut rng);
+            ot_single_doc_fuzz(&mut rng, 50);
         }
     }
 
     #[test]
     fn ot_single_doc_fuzz_once() {
         let mut rng = SmallRng::seed_from_u64(5);
-        ot_single_doc_fuzz(&mut rng);
+        ot_single_doc_fuzz(&mut rng, 5);
     }
 
     #[test]
@@ -451,7 +451,7 @@ mod test {
         for i in 0.. {
             if i % 1000 == 0 { println!("{}", i); }
             let mut rng = SmallRng::seed_from_u64(i);
-            ot_single_doc_fuzz(&mut rng);
+            ot_single_doc_fuzz(&mut rng, 50);
         }
     }
 

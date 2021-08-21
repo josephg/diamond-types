@@ -16,7 +16,7 @@ impl<V: SplitableSpan + Clone + Sized> Rle<V> {
     /// Append a new value to the end of the RLE list. This method is fast - O(1) average time.
     /// The new item will extend the last entry in the list if possible.
     pub fn append(&mut self, val: V) {
-        self.0.append_rle(val);
+        self.0.push_rle(val);
     }
 
     // Forward to vec.
@@ -154,8 +154,8 @@ impl<V: EntryTraits + Searchable + RleKeyed> Rle<V> {
 
 // Seems kinda redundant but eh.
 impl<V: SplitableSpan + Clone + Debug + Sized> AppendRLE<V> for Rle<V> {
-    fn append_rle(&mut self, item: V) { self.append(item); }
-    fn append_reversed_rle(&mut self, _item: V) { unimplemented!(); }
+    fn push_rle(&mut self, item: V) { self.append(item); }
+    fn push_reversed_rle(&mut self, _item: V) { unimplemented!(); }
 }
 
 // impl<V: EntryTraits> Index<usize> for RLE<V> {

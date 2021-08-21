@@ -241,7 +241,7 @@ impl ListCRDT {
             // Append a span of orders from here and requeue.
             let c = &self.client_data[e.agent_id];
             let KVPair(_, span) = c.item_orders.0[e.idx];
-            result.append_rle(OrderSpan {
+            result.push_rle(OrderSpan {
                 // Kinda gross but at least its branchless.
                 order: span.order.max(e.next_order),
                 len: span.len - (e.next_order - span.order),

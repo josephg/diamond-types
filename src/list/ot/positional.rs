@@ -10,6 +10,7 @@ use crate::splitable_span::SplitableSpan;
 use InsDelTag::*;
 use ropey::Rope;
 use crate::unicount::str_pos_to_bytes;
+use crate::rle::AppendRLE;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum InsDelTag { Ins, Del }
@@ -66,7 +67,7 @@ impl PositionalOp {
     pub fn from_components(components: &[(u32, PositionalComponent)], content: &Rope) -> Self {
         let mut result = Self::new();
         for (post_pos, c) in components {
-            result.components.push(c.clone());
+            result.components.push_rle(c.clone());
             if c.content_known {
                 let chars = content.chars_at(*post_pos as usize).take(c.len as usize);
                 result.content.extend(chars);

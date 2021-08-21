@@ -83,13 +83,13 @@ impl<V: Default> Default for KVPair<V> {
 
 
 pub trait AppendRLE<T: SplitableSpan> {
-    fn append_rle(&mut self, item: T);
-    fn append_reversed_rle(&mut self, item: T);
+    fn push_rle(&mut self, item: T);
+    fn push_reversed_rle(&mut self, item: T);
 }
 
 // Apparently the cleanest way to do this DRY is using macros.
 impl<T: SplitableSpan> AppendRLE<T> for Vec<T> {
-    fn append_rle(&mut self, item: T) {
+    fn push_rle(&mut self, item: T) {
         if let Some(v) = self.last_mut() {
             if v.can_append(&item) {
                 v.append(item);
@@ -100,7 +100,7 @@ impl<T: SplitableSpan> AppendRLE<T> for Vec<T> {
         self.push(item);
     }
 
-    fn append_reversed_rle(&mut self, item: T) {
+    fn push_reversed_rle(&mut self, item: T) {
         if let Some(v) = self.last_mut() {
             if item.can_append(v) {
                 v.prepend(item);
@@ -113,7 +113,7 @@ impl<T: SplitableSpan> AppendRLE<T> for Vec<T> {
 }
 
 impl<A: smallvec::Array> AppendRLE<A::Item> for SmallVec<A> where A::Item: SplitableSpan {
-    fn append_rle(&mut self, item: A::Item) {
+    fn push_rle(&mut self, item: A::Item) {
         if let Some(v) = self.last_mut() {
             if v.can_append(&item) {
                 v.append(item);
@@ -124,7 +124,7 @@ impl<A: smallvec::Array> AppendRLE<A::Item> for SmallVec<A> where A::Item: Split
         self.push(item);
     }
 
-    fn append_reversed_rle(&mut self, item: A::Item) {
+    fn push_reversed_rle(&mut self, item: A::Item) {
         if let Some(v) = self.last_mut() {
             if item.can_append(v) {
                 v.prepend(item);

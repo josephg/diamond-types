@@ -645,7 +645,7 @@ impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>, const IE: usize, const LE: usiz
             // dbg!(self, delete_remaining, &flush_marker);
 
             delete_remaining -= self.mutate_entry(|e| {
-                result.append_rle(*e);
+                result.push_rle(*e);
                 e.mark_deactivated();
             }, &mut cursor, delete_remaining, &mut flush_marker, &mut notify);
         }

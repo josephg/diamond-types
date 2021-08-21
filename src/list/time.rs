@@ -114,7 +114,7 @@ impl ListCRDT {
                 Flag::Shared => { return; }
             };
             // dbg!((ord_start, ord_end));
-            target.append_reversed_rle(OrderSpan { order: ord_start, len: ord_end - ord_start + 1});
+            target.push_reversed_rle(OrderSpan { order: ord_start, len: ord_end - ord_start + 1});
         };
 
         while let Some((mut ord, mut flag)) = queue.pop() {
