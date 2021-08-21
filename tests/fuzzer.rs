@@ -71,6 +71,7 @@ fn random_single_document() {
         doc.dbg_assert_content_eq(&expected_content);
     }
 
+    doc.check(true);
     doc.check_all_changes_rle_merged();
 }
 
@@ -92,6 +93,9 @@ fn random_single_replicate() {
         // dbg!(&doc.range_tree);
         doc.replicate_into(&mut doc_2);
         assert_eq!(doc, doc_2);
+
+        doc.check(true);
+        doc_2.check(true);
     }
 }
 
@@ -159,8 +163,12 @@ fn run_fuzzer_iteration(seed: u64) {
         }
 
         for doc in &docs {
-            doc.check(true);
+            doc.check(false);
         }
+    }
+
+    for doc in &docs {
+        doc.check(true);
     }
 }
 
