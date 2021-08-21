@@ -123,10 +123,6 @@ pub struct ListCRDT {
     text_content: Option<Rope>,
     /// This is a big ol' string containing everything that's been deleted (self.deletes) in order.
     deleted_content: Option<String>,
-
-    /// This is a hack. Index updates need to be "full", which is a side effect of using the range
-    /// tree instead of something more appropriate for the index.
-    hack_last_insert_order: u32,
 }
 
 // #[derive(Clone, Debug)]
