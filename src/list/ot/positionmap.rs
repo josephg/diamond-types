@@ -113,55 +113,40 @@ impl DoubleDeleteVisitor {
     }
 }
 
+// I've gone through a lot of potential designs for this code and settled on this one.
+//
+// Other options:
+//
+// 1. Scan the changes, make position map by iterating backwards then iterate forwards again
+// re-applying changes, and emit / visit on the way forward. The downside of this is it'd be slower
+// and require more code (going backwards is enough, combined with a reverse()). But it might be
+// less memory intensive if the run of changes is large. It might also be valuable to write that
+// code anyway so we can make an operation stream from the document's start.
+//
+// 2. Add a 'actually delete' flag somewhere for delete operations. This would almost always be
+// true, which would let it RLE very well. This would in turn make the code here simpler when
+// dealing with deleted items. But we would incur a permanent memory cost, and make it so we can't
+// backtrack to arbitrary version vectors in a general way. So OT peers with pending changes would
+// be stuck talking to their preferred peer. This would in turn make networking code more complex.
+// (Not that I'm supporting that now, but I want the code to be extensible.
+//
+// 3. Change to a TP2 OT style, where we assume the OT algorithm understands tombstones. The benefit
+// of this is that order would no longer really matter here. No matter how the operation stream is
+// generated, we could compose all the operations into a single change. This would make the code
+// here simpler and faster, but at the expense of a more complex OT system to implement for web
+// peers. I'm not going down that road because the whole point of using OT for peers is that they
+// need a very small, simple amount of code to interoperate with the rest of the system. If we're
+// asking remote peers (web clients and apps) to include complex merging code, I may as well just
+// push them to bundle full CRDT implementations.
+//
+// The result is that this code is very complex. It also probably adds a lot to binary size because
+// of the monomorphized range_tree calls. The upside is that this complexity is entirely self
+// contained, and the complexity here allows other systems to work "naturally". But its not perfect.
+
 impl ListCRDT {
-    pub(super) fn ot_changes_since<V>(&self, mut span: OrderSpan, mut visit: V) -> PositionMap
-    where V: FnMut(u32, PositionalComponent) {
-        // println!("ot_changes_since {:?}", span);
-        // I've gone through a lot of potential designs for this code and settled on this one.
-        //
-        // Other options:
-        //
-        // 1. Scan the changes, make position map by iterating backwards then iterate forwards again
-        // re-applying changes, and emit / visit on the way forward. The downside of this is it'd be
-        // slower and require more code (going backwards is enough, combined with a reverse()). But
-        // it might be less memory intensive if the run of changes is large. It might also be
-        // valuable to write that code anyway so we can make an operation stream from the document's
-        // start.
-        //
-        // 2. Add a 'actually delete' flag somewhere for delete operations. This would almost always
-        // be true, which would let it RLE very well. This would in turn make the code here simpler
-        // when dealing with deleted items. But we would incur a permanent memory cost, and make it
-        // so we can't backtrack to arbitrary version vectors in a general way. So OT peers with
-        // pending changes would be stuck talking to their preferred peer. This would in turn make
-        // networking code more complex. (Not that I'm supporting that now, but I want the code to
-        // be extensible.
-        //
-        // 3. Change to a TP2 OT style, where we assume the OT algorithm understands tombstones. The
-        // benefit of this is that order would no longer really matter here. No matter how the
-        // operation stream is generated, we could compose all the operations into a single change.
-        // This would make the code here simpler and faster, but at the expense of a more complex OT
-        // system to implement for web peers. I'm not going down that road because the whole point
-        // of using OT for peers is that they need a very small, simple amount of code to
-        // interoperate with the rest of the system. If we're asking remote peers (web clients and
-        // apps) to include complex merging code, I may as well just push them to bundle full CRDT
-        // implementations.
-        //
-        // The result is that this code is very complex. It also probably adds a lot to binary size
-        // because of the monomorphized range_tree calls. The upside is that this complexity is
-        // entirely self contained, and the complexity here allows other systems to work
-        // "naturally". But its not perfect.
-
-        assert_eq!(span.end(), self.get_next_order());
-
-        let mut map: PositionMap = RangeTree::new();
-        map.insert_at_start(Retain(self.range_tree.content_len() as _), null_notify);
-
-        // So the way this works is if we find an item has been double-deleted, we'll mark in this
-        // empty range until marked_deletes equals self.double_deletes.
-        // let mut marked_deletes = DoubleDeleteList::new();
-        let mut marked_deletes = DoubleDeleteVisitor::new();
-
-        // Now we go back through history in reverse order. We need to go in reverse order for a few reasons:
+    fn next_positional_change(&self, span: &OrderSpan, map: &mut PositionMap, marked_deletes: &mut DoubleDeleteVisitor) -> (u32, Option<(u32, PositionalComponent)>) {
+        // We go back through history in reverse order. We need to go in reverse order for a few
+        // reasons:
         //
         // - Because of duplicate deletes. If an item has been deleted multiple times, we only want
         // to visit it the "first" time chronologically based on the OrderSpan passed in here.
@@ -171,124 +156,164 @@ impl ListCRDT {
         // each entry, but at some point we might want to generate this map from a different time
         // order. This approach uses less memory and generalizes better, at the expense of more
         // complex code.
+        assert!(span.len > 0);
 
-        while span.len > 0 {
-            // dbg!(&map, &marked_deletes, &span);
+        // dbg!(&map, &marked_deletes, &span);
 
-            // So instead of searching for span.offset, we start with span.offset + span.len - 1.
+        // So instead of searching for span.offset, we start with span.offset + span.len - 1.
 
-            // First check if the change was a delete or an insert.
-            let span_last_order = span.end() - 1;
+        // First check if the change was a delete or an insert.
+        let span_last_order = span.end() - 1;
 
-            // TODO: Replace with a search iterator. We're binary searching with ordered search keys.
-            if let Some((d, d_offset)) = self.deletes.find(span_last_order) {
-                // Its a delete. We need to try to undelete the item, unless the item was deleted
-                // multiple times (in which case, it stays deleted for now).
-                let base = u32::max(span.order, d.0);
-                let del_span_size = span_last_order + 1 - base; // TODO: Clean me up
-                debug_assert!(del_span_size > 0);
+        // TODO: Replace with a search iterator. We're binary searching with ordered search keys.
+        if let Some((d, d_offset)) = self.deletes.find(span_last_order) {
+            // Its a delete. We need to try to undelete the item, unless the item was deleted
+            // multiple times (in which case, it stays deleted for now).
+            let base = u32::max(span.order, d.0);
+            let del_span_size = span_last_order + 1 - base; // TODO: Clean me up
+            debug_assert!(del_span_size > 0);
 
-                // d_offset -= span_last_order - base; // equivalent to d_offset -= undelete_here - 1;
+            // d_offset -= span_last_order - base; // equivalent to d_offset -= undelete_here - 1;
 
-                // Ok, undelete here. An earlier version of this code iterated *forwards* amongst
-                // the deleted span. This worked correctly and was slightly simpler, but it was a
-                // confusing API to use and test because delete changes in particular were sometimes
-                // arbitrarily reordered.
+            // Ok, undelete here. An earlier version of this code iterated *forwards* amongst
+            // the deleted span. This worked correctly and was slightly simpler, but it was a
+            // confusing API to use and test because delete changes in particular were sometimes
+            // arbitrarily reordered.
 
-                let last_del_target = d.1.order + d_offset;
+            let last_del_target = d.1.order + d_offset;
 
-                // I'm also going to limit what we visit each iteration by the size of the visited
-                // item in the range tree. For performance I could hold off looking this up until
-                // we've got the go ahead from marked_deletes, but given how rare double deletes
-                // are, this is fine.
+            // I'm also going to limit what we visit each iteration by the size of the visited
+            // item in the range tree. For performance I could hold off looking this up until
+            // we've got the go ahead from marked_deletes, but given how rare double deletes
+            // are, this is fine.
 
-                let rt_cursor = self.get_cursor_after(last_del_target, true);
-                // Cap the number of items to undelete each iteration based on the span in range_tree.
-                let entry = rt_cursor.get_raw_entry();
-                debug_assert!(entry.is_deactivated());
-                let first_del_target = u32::max(entry.order, last_del_target + 1 - del_span_size);
+            let rt_cursor = self.get_cursor_after(last_del_target, true);
+            // Cap the number of items to undelete each iteration based on the span in range_tree.
+            let entry = rt_cursor.get_raw_entry();
+            debug_assert!(entry.is_deactivated());
+            let first_del_target = u32::max(entry.order, last_del_target + 1 - del_span_size);
 
-                let (allowed, first_del_target) = marked_deletes.mark_range(&self.double_deletes, last_del_target, first_del_target);
-                let len_here = last_del_target + 1 - first_del_target;
-                // println!("Delete from {} to {}", first_del_target, last_del_target);
+            let (allowed, first_del_target) = marked_deletes.mark_range(&self.double_deletes, last_del_target, first_del_target);
+            let len_here = last_del_target + 1 - first_del_target;
+            // println!("Delete from {} to {}", first_del_target, last_del_target);
 
-                if allowed {
-                    // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
-                    let post_pos = rt_cursor.count_pos();
-                    let mut map_cursor = map.cursor_at_post(post_pos as _, true);
-                    // We call insert instead of replace_range here because the delete doesn't
-                    // consume "space".
-
-                    let pre_pos = map_cursor.count_pos().0;
-                    map.insert(&mut map_cursor, Del(len_here), null_notify);
-
-                    // The content might have later been deleted.
-                    let entry = PositionalComponent {
-                        pos: pre_pos,
-                        len: len_here,
-                        content_known: false,
-                        tag: InsDelTag::Del,
-                    };
-                    visit(post_pos, entry);
-                }
-
-                span.len -= len_here;
-            } else {
-                // println!("Insert at {:?} (last order: {})", span, span_last_order);
-                // The operation was an insert operation, not a delete operation.
-                let mut rt_cursor = self.get_cursor_after(span_last_order, true);
-
-                // Check how much we can tag in one go.
-                let len_here = u32::min(span.len, rt_cursor.offset as _); // usize? u32? blehh
-                debug_assert_ne!(len_here, 0);
-                // let base = span_last_order + 1 - len_here; // not needed.
-                // let base = u32::max(span.order, span_last_order + 1 - cursor.offset);
-                // dbg!(&cursor, len_here);
-                rt_cursor.offset -= len_here as usize;
-
-                // Where in the final document are we?
+            let op = if allowed {
+                // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
                 let post_pos = rt_cursor.count_pos();
+                let mut map_cursor = map.cursor_at_post(post_pos as _, true);
+                // We call insert instead of replace_range here because the delete doesn't
+                // consume "space".
 
-                // So this is also dirty. We need to skip any deletes, which have a size of 0.
-                let content_known = rt_cursor.get_raw_entry().is_activated();
-
-
-                // There's two cases here. Either we're inserting something fresh, or we're
-                // cancelling out a delete we found earlier.
-                let entry = if content_known {
-                    // post_pos + 1 is a hack. cursor_at_offset_pos returns the first cursor
-                    // location which has the right position.
-                    let mut map_cursor = map.cursor_at_post(post_pos as usize + 1, true);
-                    map_cursor.offset -= 1;
-                    let pre_pos = map_cursor.count_pos().0;
-                    map.replace_range(&mut map_cursor, Ins { len: len_here, content_known }, null_notify);
-                    PositionalComponent {
-                        pos: pre_pos,
-                        len: len_here,
-                        content_known: true,
-                        tag: InsDelTag::Ins
-                    }
-                } else {
-                    let mut map_cursor = map.cursor_at_post(post_pos as usize, true);
-                    map_cursor.roll_to_next_entry();
-                    map.delete(&mut map_cursor, len_here as usize, null_notify);
-                    PositionalComponent {
-                        pos: map_cursor.count_pos().0,
-                        len: len_here,
-                        content_known: false,
-                        tag: InsDelTag::Ins
-                    }
-                };
+                let pre_pos = map_cursor.count_pos().0;
+                map.insert(&mut map_cursor, Del(len_here), null_notify);
 
                 // The content might have later been deleted.
+                let entry = PositionalComponent {
+                    pos: pre_pos,
+                    len: len_here,
+                    content_known: false,
+                    tag: InsDelTag::Del,
+                };
+                Some((post_pos, entry))
+            } else { None };
 
-                visit(post_pos, entry);
+            (len_here, op)
+        } else {
+            // println!("Insert at {:?} (last order: {})", span, span_last_order);
+            // The operation was an insert operation, not a delete operation.
+            let mut rt_cursor = self.get_cursor_after(span_last_order, true);
 
-                span.len -= len_here;
+            // Check how much we can tag in one go.
+            let len_here = u32::min(span.len, rt_cursor.offset as _); // usize? u32? blehh
+            debug_assert_ne!(len_here, 0);
+            // let base = span_last_order + 1 - len_here; // not needed.
+            // let base = u32::max(span.order, span_last_order + 1 - cursor.offset);
+            // dbg!(&cursor, len_here);
+            rt_cursor.offset -= len_here as usize;
+
+            // Where in the final document are we?
+            let post_pos = rt_cursor.count_pos();
+
+            // So this is also dirty. We need to skip any deletes, which have a size of 0.
+            let content_known = rt_cursor.get_raw_entry().is_activated();
+
+
+            // There's two cases here. Either we're inserting something fresh, or we're
+            // cancelling out a delete we found earlier.
+            let entry = if content_known {
+                // post_pos + 1 is a hack. cursor_at_offset_pos returns the first cursor
+                // location which has the right position.
+                let mut map_cursor = map.cursor_at_post(post_pos as usize + 1, true);
+                map_cursor.offset -= 1;
+                let pre_pos = map_cursor.count_pos().0;
+                map.replace_range(&mut map_cursor, Ins { len: len_here, content_known }, null_notify);
+                PositionalComponent {
+                    pos: pre_pos,
+                    len: len_here,
+                    content_known: true,
+                    tag: InsDelTag::Ins
+                }
+            } else {
+                let mut map_cursor = map.cursor_at_post(post_pos as usize, true);
+                map_cursor.roll_to_next_entry();
+                map.delete(&mut map_cursor, len_here as usize, null_notify);
+                PositionalComponent {
+                    pos: map_cursor.count_pos().0,
+                    len: len_here,
+                    content_known: false,
+                    tag: InsDelTag::Ins
+                }
+            };
+
+            // The content might have later been deleted.
+
+            (len_here, Some((post_pos, entry)))
+        }
+    }
+
+    pub fn each_positional_op(&self, base_order: Order) -> ReversePositionalOpIter {
+        let mut iter = ReversePositionalOpIter {
+            doc: self,
+            span: self.linear_changes_since(base_order),
+            map: RangeTree::new(),
+            marked_deletes: DoubleDeleteVisitor::new(),
+        };
+
+        iter.map.insert_at_start(Retain(self.range_tree.content_len() as _), null_notify);
+
+        iter
+    }
+}
+
+#[derive(Debug)]
+pub struct ReversePositionalOpIter<'a> {
+    doc: &'a ListCRDT,
+    span: OrderSpan,
+    map: PositionMap,
+    marked_deletes: DoubleDeleteVisitor,
+}
+
+impl<'a> Iterator for ReversePositionalOpIter<'a> {
+    type Item = (u32, PositionalComponent);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.span.len == 0 {
+            None
+        } else {
+            loop {
+                let (len_here, op) = self.doc.next_positional_change(&self.span, &mut self.map, &mut self.marked_deletes);
+                self.span.len -= len_here;
+                if op.is_some() || self.span.len == 0 {
+                    return op;
+                } // Else we're in a span of double deleted items. Keep scanning.
             }
         }
+    }
+}
 
-        map
+impl<'a> ReversePositionalOpIter<'a> {
+    fn into_map(self) -> PositionMap {
+        self.map
     }
 }
 
@@ -324,7 +349,7 @@ mod test {
     use super::TraversalComponent::*;
     use crate::range_tree::{RangeTree, null_notify, Pair};
     use crate::list::ot::traversal::TraversalComponent;
-    use crate::list::ot::positional::PositionalOp;
+    use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
     use ropey::Rope;
 
     #[test]
@@ -334,9 +359,9 @@ mod test {
         doc.local_insert(0, 0, "hi there".into()); // 0-7
         doc.local_delete(0, 2, 3); // "hiere" 8-11
 
-        doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, e| {
+        for (post_pos, e) in doc.each_positional_op(0) {
             dbg!((post_pos, e));
-        });
+        }
     }
 
     #[test]
@@ -358,18 +383,37 @@ mod test {
 
         // "hi there" -> "hiere" -> "hie"
 
-        dbg!(&doc1.range_tree);
-        dbg!(&doc1.deletes);
-        dbg!(&doc1.double_deletes);
+        // dbg!(&doc1.range_tree);
+        // dbg!(&doc1.deletes);
+        // dbg!(&doc1.double_deletes);
 
         let mut changes = Vec::new();
-        let map = doc2.ot_changes_since(doc2.linear_changes_since(0), |post_pos, e| {
-            dbg!((post_pos, e));
+        let mut iter = doc2.each_positional_op(0);
+        while let Some((post_pos, e)) = iter.next() {
             changes.push((post_pos, e));
-        });
+        }
         changes.reverse();
-        dbg!(&changes);
-        dbg!(&map);
+        let map = iter.into_map();
+
+        use InsDelTag::*;
+        assert_eq!(changes, [
+            // Insert 8 characters, with the middle 5 deleted (so no content)
+            (0, PositionalComponent { pos: 0, len: 2, content_known: true, tag: Ins }),
+            (2, PositionalComponent { pos: 2, len: 5, content_known: false, tag: Ins }),
+            (2, PositionalComponent { pos: 7, len: 1, content_known: true, tag: Ins }),
+
+            // Delete 5 characters in the middle. This test should still pass if these entries get
+            // merged differently.
+            (2, PositionalComponent { pos: 2, len: 1, content_known: false, tag: Del }),
+            (2, PositionalComponent { pos: 2, len: 2, content_known: false, tag: Del }),
+            (2, PositionalComponent { pos: 2, len: 2, content_known: false, tag: Del }),
+        ]);
+
+        // dbg!(&map.merged_iter().collect::<Vec<_>>());
+        assert!(&map.merged_iter().eq(std::iter::once(TraversalComponent::Ins {
+            len: 3,
+            content_known: true,
+        })));
     }
 
     fn ot_single_doc_fuzz(rng: &mut SmallRng, num_ops: usize) {
@@ -391,10 +435,19 @@ mod test {
         }
         // dbg!(ops);
 
-        let mut ops2 = vec![];
-        let map = doc.ot_changes_since(doc.linear_changes_since(midpoint_order), |post_pos, e| {
+        // let mut ops2 = vec![];
+        // let map = doc.ot_changes_since(doc.linear_changes_since(midpoint_order), |post_pos, e| {
+        //     ops2.push((post_pos, e));
+        // });
+
+        let mut ops2 = Vec::new();
+        let mut iter = doc.each_positional_op(midpoint_order);
+        while let Some((post_pos, e)) = iter.next() {
             ops2.push((post_pos, e));
-        });
+        }
+        ops2.reverse();
+
+        let map = iter.into_map();
 
         // Ok we have a few things to check:
         // 1. The returned map shouldn't contain any inserts with unknown content
@@ -417,7 +470,6 @@ mod test {
 
             // 3. We should also be able to apply all the changes one by one to the midpoint state and
             //    arrive at the same result.
-            ops2.reverse();
             // dbg!(&ops2);
             let positional = PositionalOp::from_components(&ops2[..], &text_content);
             // dbg!(&positional);

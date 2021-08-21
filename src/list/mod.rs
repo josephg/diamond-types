@@ -26,7 +26,6 @@ mod eq;
 mod encoding;
 mod time;
 mod check;
-mod external_linear;
 mod ot;
 
 // #[cfg(inlinerope)]

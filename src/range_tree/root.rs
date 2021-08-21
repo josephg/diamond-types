@@ -152,6 +152,9 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
 
     pub fn iter(&self) -> Cursor<E, I, IE, LE> { self.cursor_at_start() }
 
+    // TODO: Is this the best name? rle_iter? ??.
+    pub fn merged_iter(&self) -> impl Iterator<Item = E> { merge_items(self.cursor_at_start()) }
+
     pub fn item_iter(&self) -> ItemIterator<E, I, IE, LE> {
         ItemIterator(self.iter())
     }
