@@ -4,10 +4,10 @@ use crate::order::OrderSpan;
 use std::pin::Pin;
 use crate::list::double_delete::DoubleDelete;
 use crate::rle::{KVPair, RleKey, RleSpanHelpers, AppendRLE};
-use crate::list::ot::{TraversalOp, TraversalComponent};
+use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
 use ropey::Rope;
-
 use TraversalComponent::*;
+use crate::list::ot::positional::{PositionalComponent, InsDelTag};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
@@ -115,7 +115,7 @@ impl DoubleDeleteVisitor {
 
 impl ListCRDT {
     pub(super) fn ot_changes_since<V>(&self, mut span: OrderSpan, mut visit: V) -> PositionMap
-    where V: FnMut(u32, u32, TraversalComponent) {
+    where V: FnMut(u32, PositionalComponent) {
         // println!("ot_changes_since {:?}", span);
         // I've gone through a lot of potential designs for this code and settled on this one.
         //
@@ -218,12 +218,18 @@ impl ListCRDT {
                     let mut map_cursor = map.cursor_at_post(post_pos as _, true);
                     // We call insert instead of replace_range here because the delete doesn't
                     // consume "space".
-                    let entry = Del(len_here);
+
                     let pre_pos = map_cursor.count_pos().0;
-                    map.insert(&mut map_cursor, entry, null_notify);
+                    map.insert(&mut map_cursor, Del(len_here), null_notify);
 
                     // The content might have later been deleted.
-                    visit(post_pos, pre_pos, entry);
+                    let entry = PositionalComponent {
+                        pos: pre_pos,
+                        len: len_here,
+                        content_known: false,
+                        tag: InsDelTag::Del,
+                    };
+                    visit(post_pos, entry);
                 }
 
                 span.len -= len_here;
@@ -246,27 +252,37 @@ impl ListCRDT {
                 // So this is also dirty. We need to skip any deletes, which have a size of 0.
                 let content_known = rt_cursor.get_raw_entry().is_activated();
 
-                let entry = Ins { len: len_here, content_known };
 
                 // There's two cases here. Either we're inserting something fresh, or we're
                 // cancelling out a delete we found earlier.
-                let pre_pos = if content_known {
+                let entry = if content_known {
                     // post_pos + 1 is a hack. cursor_at_offset_pos returns the first cursor
                     // location which has the right position.
                     let mut map_cursor = map.cursor_at_post(post_pos as usize + 1, true);
                     map_cursor.offset -= 1;
                     let pre_pos = map_cursor.count_pos().0;
-                    map.replace_range(&mut map_cursor, entry, null_notify);
-                    pre_pos
+                    map.replace_range(&mut map_cursor, Ins { len: len_here, content_known }, null_notify);
+                    PositionalComponent {
+                        pos: pre_pos,
+                        len: len_here,
+                        content_known: true,
+                        tag: InsDelTag::Ins
+                    }
                 } else {
                     let mut map_cursor = map.cursor_at_post(post_pos as usize, true);
                     map_cursor.roll_to_next_entry();
                     map.delete(&mut map_cursor, len_here as usize, null_notify);
-                    map_cursor.count_pos().0
+                    PositionalComponent {
+                        pos: map_cursor.count_pos().0,
+                        len: len_here,
+                        content_known: false,
+                        tag: InsDelTag::Ins
+                    }
                 };
 
                 // The content might have later been deleted.
-                visit(post_pos, pre_pos, entry);
+
+                visit(post_pos, entry);
 
                 span.len -= len_here;
             }
@@ -304,8 +320,12 @@ mod test {
     use rand::prelude::SmallRng;
     use rand::SeedableRng;
     use crate::fuzz_helpers::make_random_change;
-    use crate::list::ot::positionmap::map_to_traversal;
+    use crate::list::ot::positionmap::{map_to_traversal, PositionMap};
     use super::TraversalComponent::*;
+    use crate::range_tree::{RangeTree, null_notify, Pair};
+    use crate::list::ot::traversal::TraversalComponent;
+    use crate::list::ot::positional::PositionalOp;
+    use ropey::Rope;
 
     #[test]
     fn simple_position_map() {
@@ -314,8 +334,8 @@ mod test {
         doc.local_insert(0, 0, "hi there".into()); // 0-7
         doc.local_delete(0, 2, 3); // "hiere" 8-11
 
-        doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, pre_pos, e| {
-            dbg!((post_pos, pre_pos, e));
+        doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, e| {
+            dbg!((post_pos, e));
         });
     }
 
@@ -343,10 +363,9 @@ mod test {
         dbg!(&doc1.double_deletes);
 
         let mut changes = Vec::new();
-        let map = doc2.ot_changes_since(doc2.linear_changes_since(0), |post_pos, pre_pos, e| {
-            dbg!((post_pos, pre_pos, e));
-            // if e.tag == OpTag::Insert {pre_pos -= e.len;}
-            changes.push((post_pos, pre_pos, e));
+        let map = doc2.ot_changes_since(doc2.linear_changes_since(0), |post_pos, e| {
+            dbg!((post_pos, e));
+            changes.push((post_pos, e));
         });
         changes.reverse();
         dbg!(&changes);
@@ -373,25 +392,8 @@ mod test {
         // dbg!(ops);
 
         let mut ops2 = vec![];
-        // let map = doc.ot_changes_since(doc.linear_changes_since(0), |post_pos, pre_pos, e, has_content| {
-        let map = doc.ot_changes_since(doc.linear_changes_since(midpoint_order), |_post_pos, _pre_pos, e| {
-            ops2.push(e);
-            // let content = if e.tag == OpTag::Insert {
-            //     if e.has_content {
-            //         doc.text_content.as_ref().unwrap()
-            //             .chars_at(post_pos as usize).take(e.len as usize)
-            //             .collect::<SmartString>()
-            //     } else {
-            //         std::iter::repeat('X').take(e.len as usize).collect::<SmartString>()
-            //     }
-            // } else { SmartString::default() };
-            //
-            // let c = LocalOp {
-            //     pos: pre_pos as usize,
-            //     ins_content: content,
-            //     del_span: if e.tag == OpTag::Delete { e.len as usize } else { 0 },
-            // };
-            // ops2.push(c);
+        let map = doc.ot_changes_since(doc.linear_changes_since(midpoint_order), |post_pos, e| {
+            ops2.push((post_pos, e));
         });
 
         // Ok we have a few things to check:
@@ -402,27 +404,27 @@ mod test {
             }
         }
 
-        // 2. The returned map should be able to be converted to a traversal operation and applied
-        //    to the midpoint, returning the current document state.
         if let (Some(text_content), Some(midpoint_content)) = (doc.text_content.as_ref(), midpoint_content) {
+            // 2. The returned map should be able to be converted to a traversal operation and applied
+            //    to the midpoint, returning the current document state.
             let traversal = map_to_traversal(&map, text_content);
             // dbg!(&traversal);
 
             let result = traversal.apply_to_string(midpoint_content.as_str());
-            // dbg!(doc.text_content.unwrap(), result);
-            assert_eq!(doc.text_content.unwrap(), result);
+            // dbg!(doc.text_content, result);
+            assert_eq!(text_content, &result);
+
+
+            // 3. We should also be able to apply all the changes one by one to the midpoint state and
+            //    arrive at the same result.
+            ops2.reverse();
+            // dbg!(&ops2);
+            let positional = PositionalOp::from_components(&ops2[..], &text_content);
+            // dbg!(&positional);
+            let mut midpoint_rope = Rope::from(midpoint_content.as_str());
+            positional.apply_to_rope(&mut midpoint_rope);
+            assert_eq!(text_content, &midpoint_rope);
         }
-
-
-        // 3. We should also be able to apply all the changes one by one to the midpoint state and
-        //    arrive at the same result.
-
-
-        // ops2.reverse();
-        // dbg!(ops2);
-        //
-        // assert_eq!(map.len().1 as usize, doc.len());
-
     }
 
     #[test]
@@ -430,24 +432,32 @@ mod test {
         // Check that when we query all the changes from a single document, the result is the same
         // (same values, same order) as we get from ot_changes_since.
 
-        let mut rng = SmallRng::seed_from_u64(7);
-
-        for _j in 0..100 {
-            println!("{}", _j);
+        for i in 0..100 {
+            let mut rng = SmallRng::seed_from_u64(i);
+            println!("{}", i);
             ot_single_doc_fuzz(&mut rng);
         }
     }
 
     #[test]
     fn ot_single_doc_fuzz_once() {
-        let mut rng = SmallRng::seed_from_u64(8);
+        let mut rng = SmallRng::seed_from_u64(5);
         ot_single_doc_fuzz(&mut rng);
+    }
+
+    #[test]
+    #[ignore]
+    fn ot_single_document_fuzz_forever() {
+        for i in 0.. {
+            if i % 1000 == 0 { println!("{}", i); }
+            let mut rng = SmallRng::seed_from_u64(i);
+            ot_single_doc_fuzz(&mut rng);
+        }
     }
 
     #[test]
     fn midpoint_cursor_has_correct_count() {
         // Regression for a bug in range tree.
-        //pub(super) type PositionMap = Pin<Box<RangeTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>>>;
         let mut tree: PositionMap = RangeTree::new();
         tree.insert_at_start(TraversalComponent::Retain(10), null_notify);
 
