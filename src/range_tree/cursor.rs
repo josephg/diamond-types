@@ -71,6 +71,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
 
     /// Go to the next entry marker and update the (optional) flush marker.
     /// Returns true if successful, or false if we've reached the end of the document.
+    #[inline(always)]
     pub(super) fn next_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
         // TODO: Do this without code duplication of next/prev entry marker.
         unsafe {
@@ -87,6 +88,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
         }
     }
 
+    #[inline(always)]
     pub fn next_entry(&mut self) -> bool {
         self.next_entry_marker(None)
     }
@@ -167,18 +169,15 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
             let node = self.node.as_ref();
 
             if self.idx >= node.num_entries as usize {
-                self.next_entry()
+                debug_assert_eq!(self.offset, usize::MAX);
+                false
             } else {
                 let seq_len = node.data[self.idx].len();
 
                 debug_assert!(self.offset <= seq_len);
 
                 if self.offset < seq_len { return true; }
-                self.offset = 0;
-                self.idx += 1;
-                if self.idx >= node.num_entries as usize {
-                    self.next_entry()
-                } else { true }
+                self.next_entry()
             }
         }
     }
