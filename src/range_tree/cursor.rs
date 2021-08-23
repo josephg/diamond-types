@@ -23,7 +23,11 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
         unsafe { self.node.as_ref() }
     }
 
-    /// Internal method for prev_entry and next_entry when we need to move laterally.
+    /// Internal method for prev_entry and next_entry when we need to move laterally. This moves
+    /// the cursor to the next / prev node in the tree, with no regard for the current position.
+    ///
+    /// Returns true if the move was successful, or false if we're at the first / last item in the
+    /// tree.
     pub fn traverse(&mut self, direction_forward: bool) -> bool {
         // println!("** traverse called {:?} {}", self, traverse_next);
         // idx is 0. Go up as far as we can until we get to an index that has room, or we hit the
@@ -146,23 +150,21 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
     }
 
     pub fn count_pos(&self) -> I::IndexValue {
+        // We're a cursor into an empty tree.
+        if self.offset == usize::MAX { return I::IndexValue::default(); }
+
         let node = unsafe { self.node.as_ref() };
-        
-        // let mut pos: usize = 0;
         let mut pos = I::IndexValue::default();
         // First find out where we are in the current node.
-        
-        // TODO: This is a bit redundant - we could find out the local position
-        // when we scan initially to initialize the cursor.
+
+        if self.idx >= node.data.len() { unsafe { unreachable_unchecked(); } }
+
         for e in &node.data[0..self.idx] {
             I::increment_offset(&mut pos, e);
-            // pos += e.content_len();
         }
 
         // This is pretty idiosyncratic.
-        // let local_len = node.data[self.idx].content_len();
-        // if local_len > 0 { pos += self.offset; }
-        if self.offset != 0 { // The cursor might be pointing past the end of the last element.
+        if self.offset != 0 {
             I::increment_offset_partial(&mut pos, &node.data[self.idx], self.offset);
         }
 
@@ -310,6 +312,18 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
             } // TODO: Else consider aborting here.
         }
         node.num_entries -= merged as u8;
+    }
+
+    pub fn check(&self) {
+        let node = unsafe { self.node.as_ref() };
+
+        if node.num_entries == 0 {
+            assert_eq!(self.idx, 0);
+            assert_eq!(self.offset, usize::MAX);
+        } else {
+            assert!(self.idx < node.len_entries());
+            assert!(self.offset <= node.data[self.idx].len());
+        }
     }
 }
 

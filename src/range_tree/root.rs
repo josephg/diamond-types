@@ -66,9 +66,14 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
             };
 
             let leaf_ptr = node.unwrap_leaf();
-            let (idx, offset_remaining) = leaf_ptr
-                .as_ref().find_offset(offset_remaining, stick_end, entry_to_num)
-                .expect("Element does not contain entry");
+            let node = leaf_ptr.as_ref();
+
+            let (idx, offset_remaining) = if node.num_entries == 0 {
+                (0, usize::MAX)
+            } else {
+                node.find_offset(offset_remaining, stick_end, entry_to_num)
+                    .expect("Element does not contain entry")
+            };
 
             Cursor {
                 node: leaf_ptr,
@@ -95,7 +100,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
             let leaf = leaf_ptr.as_ref();
             let (idx, offset) = if leaf.len_entries() == 0 {
                 // We're creating a cursor into an empty range tree.
-                (0, 0)
+                (0, usize::MAX)
             } else {
                 let idx = leaf.len_entries() - 1;
                 let offset = leaf.data[idx].len();
@@ -132,8 +137,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
     // }
 
     pub fn cursor_at_start(&self) -> Cursor<E, I, IE, LE> {
-        // self.cursor_at_pos(0, false)
-
+        // TODO: Consider moving this into cursor.rs
         unsafe {
             let mut node = self.root.as_ptr();
             while let NodePtr::Internal(data) = node {
@@ -144,7 +148,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
             Cursor {
                 node: leaf_ptr,
                 idx: 0,
-                offset: 0,
+                offset: if leaf_ptr.as_ref().num_entries == 0 { usize::MAX } else { 0 },
                 // _marker: marker::PhantomData
             }
         }

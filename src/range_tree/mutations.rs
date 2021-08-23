@@ -8,6 +8,7 @@ use std::pin::Pin;
 use smallvec::SmallVec;
 use crate::range_tree::index::{TreeIndex};
 use crate::rle::AppendRLE;
+use std::hint::unreachable_unchecked;
 
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
@@ -22,28 +23,35 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
         // cursor.get_node_mut() would be better but it would borrow the cursor.
         let mut node = unsafe { &mut *cursor.node.as_ptr() };
 
-        if cursor.offset == 0 && cursor.idx > 0 {
+        let remainder = if cursor.offset == usize::MAX {
+            debug_assert_eq!(cursor.idx, 0);
+            debug_assert_eq!(node.num_entries, 0);
+            // We're inserting into the start of a tree. I could short circuit here, but the
+            // complexity isn't worth the performance boost given it just happens once per tree.
+            cursor.offset = 0;
+            None
+        } else if cursor.offset == 0 && cursor.idx > 0 {
             // We'll roll the cursor back to opportunistically see if we can append.
             cursor.idx -= 1;
             cursor.offset = node.data[cursor.idx].len(); // blerp could be cleaner.
-        }
-
-        // We could also roll back if cursor.offset == 0 and cursor.idx == 0 but when I tried it it
-        // didn't make any difference in practice because insert() is always called with stick_end.
-
-        let seq_len = node.data[cursor.idx].len();
-        // Remainder is the trimmed off returned value.
-        let remainder = if cursor.offset == seq_len || cursor.offset == 0 {
             None
         } else {
-            // splice the item into the current cursor location.
-            let entry: &mut E = &mut node.data[cursor.idx];
-            let remainder = entry.truncate(cursor.offset);
-            I::decrement_marker(flush_marker, &remainder);
-            // flush_marker -= (seq_len - cursor.offset) as isize;
-            // We don't need to update cursor since its already where it needs to be.
+            // We could also roll back if cursor.offset == 0 and cursor.idx == 0 but when I tried it it
+            // didn't make any difference in practice because insert() is always called with stick_end.
 
-            Some(remainder)
+            // Remainder is the trimmed off returned value.
+            if cursor.offset == node.data[cursor.idx].len() || cursor.offset == 0 {
+                None
+            } else {
+                // splice the item into the current cursor location.
+                let entry: &mut E = &mut node.data[cursor.idx];
+                let remainder = entry.truncate(cursor.offset);
+                I::decrement_marker(flush_marker, &remainder);
+                // flush_marker -= (seq_len - cursor.offset) as isize;
+                // We don't need to update cursor since its already where it needs to be.
+
+                Some(remainder)
+            }
         };
 
         // If we prepend to the start of the following tree node, the cursor will need to be
@@ -444,6 +452,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
     /// We return a tuple of (should_iterate, the number of remaining items to delete).
     /// If should_iterate is true, keep calling this in a loop. (Eh I need a better name for that
     /// variable).
+    #[inline(never)]
     fn delete_entry_range(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I, IE, LE>, mut del_items: usize, flush_marker: &mut I::IndexUpdate) -> (bool, usize) {
         // This method only deletes whole items.
         debug_assert_eq!(cursor.offset, 0);
@@ -458,6 +467,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
             node = unsafe { cursor.get_node_mut() };
         }
 
+        if cursor.idx >= LE { unsafe { unreachable_unchecked(); } }
         let start_range = cursor.idx;
         let mut end_range = cursor.idx;
 
@@ -591,14 +601,25 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
             // delete_entry_range only deletes from the current item each iteration.
         }
 
+        let node = unsafe { cursor.node.as_mut() };
         if del_items > 0 {
             // Trim the final entry.
-            let node = unsafe { cursor.get_node_mut() };
+            // let node = unsafe { cursor.get_node_mut() };
             debug_assert!(cursor.idx < node.len_entries());
             debug_assert!(node.data[cursor.idx].len() > del_items);
 
             let trimmed = node.data[cursor.idx].truncate_keeping_right(del_items);
             I::decrement_marker(flush_marker, &trimmed);
+        } else if cursor.idx >= node.len_entries() {
+            debug_assert_eq!(cursor.offset, 0);
+            if cursor.idx == 0 {
+                // We've removed all items in the tree.
+                cursor.offset = usize::MAX;
+                debug_assert!(node.parent.is_root());
+            } else {
+                cursor.idx -= 1;
+                cursor.offset = node.data[cursor.idx].len();
+            }
         }
     }
 
@@ -610,7 +631,6 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
         let mut marker = I::IndexUpdate::default();
         self.delete_internal(cursor, del_items, &mut marker, &mut notify);
         unsafe { cursor.get_node_mut() }.flush_index_update(&mut marker);
-        // cursor.compress_node();
     }
 }
 

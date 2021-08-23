@@ -106,13 +106,22 @@ enum ParentPtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize
     Internal(NonNull<NodeInternal<E, I, IE, LE>>)
 }
 
+/// A cursor into some location in a range tree.
+///
+/// Note the state of a cursor is weird in two situations:
+/// - When a cursor points to a location in between two entries, the cursor could either point to
+/// the end of the first entry or the start of the subsequent entry.
+/// - When a tree is empty, the cursor points past the end of the tree.
+///
+/// Safety: This is currently a very unsafe structure, because:
+/// - There's no associated lifetime on a cursor (its 'static)
+/// - When using the cursor to call mutate methods, there's no explicit association between a
+/// cursor and the tree the cursor references.
 #[derive(Clone, Debug, PartialEq, Eq)]
-// pub struct Cursor<'a, E: EntryTraits> {
 pub struct Cursor<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
-// pub struct Cursor {
     node: NonNull<NodeLeaf<E, I, IE, LE>>,
-    pub idx: usize,
-    pub offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
+    idx: usize,
+    pub(crate) offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
     // _marker: marker::PhantomData<&'a MarkerTree<E>>,
 }
 
