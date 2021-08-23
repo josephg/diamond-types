@@ -34,76 +34,21 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
         // root.
         let node = unsafe { self.node.as_ref() };
 
-        let mut parent = node.parent;
-        let mut node_ptr = NodePtr::Leaf(self.node);
-        loop {
-            match parent {
-                ParentPtr::Root(_) => { return false; },
-                ParentPtr::Internal(n) => {
-                    let node_ref = unsafe { n.as_ref() };
-                    // Time to find ourself up this tree.
-                    let idx = node_ref.find_child(node_ptr).unwrap();
-                    // println!("found myself at {}", idx);
-
-                    let next_idx: Option<usize> = if direction_forward {
-                        let next_idx = idx + 1;
-                        // This would be much cleaner if I put a len field in NodeInternal instead.
-                        // TODO: Consider using node_ref.count_children() instead of this mess.
-                        if (next_idx < IE) && node_ref.children[next_idx].is_some() {
-                            Some(next_idx)
-                        } else { None }
-                    } else if idx > 0 {
-                        Some(idx - 1)
-                    } else { None };
-                    // println!("index {:?}", next_idx);
-
-                    if let Some(next_idx) = next_idx {
-                        // Whew - now we can descend down from here.
-                        // println!("traversing laterally to {}", next_idx);
-                        node_ptr = unsafe { node_ref.children[next_idx].as_ref().unwrap().as_ptr() };
-                        break;
-                    } else {
-                        // idx is 0. Keep climbing that ladder!
-                        node_ptr = NodePtr::Internal(unsafe { NonNull::new_unchecked(node_ref as *const _ as *mut _) });
-                        parent = node_ref.parent;
-                    }
-                }
+        if let Some(n) = node.adjacent_leaf(direction_forward) {
+            let node_ref = unsafe { n.as_ref() };
+            assert!(node_ref.num_entries > 0);
+            self.node = n;
+            if direction_forward {
+                self.idx = 0;
+                self.offset = 0;
+            } else {
+                self.idx = node_ref.len_entries() - 1;
+                self.offset = node_ref.data[self.idx].len();
+                // println!("leaf {:?}", self);
             }
-        }
-
-        // Now back down. We don't need idx here because we just take the first / last item in each
-        // node going down the tree.
-        loop {
-            // println!("nodeptr {:?}", node_ptr);
-            match node_ptr {
-                NodePtr::Internal(n) => {
-                    let node_ref = unsafe { n.as_ref() };
-                    let next_idx = if direction_forward {
-                        0
-                    } else {
-                        let num_children = node_ref.count_children();
-                        assert!(num_children > 0);
-                        num_children - 1
-                    };
-                    node_ptr = unsafe { node_ref.children[next_idx].as_ref().unwrap().as_ptr() };
-                },
-                NodePtr::Leaf(n) => {
-                    // Finally.
-                    let node_ref = unsafe { n.as_ref() };
-                    assert!(node_ref.num_entries > 0);
-                    // println!("landed in leaf {:#?}", node_ref);
-                    self.node = n;
-                    if direction_forward {
-                        self.idx = 0;
-                        self.offset = 0;
-                    } else {
-                        self.idx = node_ref.len_entries() - 1;
-                        self.offset = node_ref.data[self.idx].len();
-                        // println!("leaf {:?}", self);
-                    }
-                    return true;
-                }
-            }
+            true
+        } else {
+            false
         }
     }
 

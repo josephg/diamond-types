@@ -20,7 +20,6 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
                 mem::transmute_copy::<_, [Option<Node<E, I, IE, LE>>; IE]>(&children)
             },
             _pin: PhantomPinned,
-            _drop: PrintDropInternal,
         })
     }
 

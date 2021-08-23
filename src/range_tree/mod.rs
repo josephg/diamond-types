@@ -72,7 +72,6 @@ struct NodeInternal<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, c
     index: [I::IndexValue; INT_ENTRIES],
     children: [Option<Node<E, I, INT_ENTRIES, LEAF_ENTRIES>>; INT_ENTRIES],
     _pin: PhantomPinned, // Needed because children have parent pointers here.
-    _drop: PrintDropInternal,
 }
 
 /// A leaf node in the B-tree. Except the root, each child stores MAX_CHILDREN/2 - MAX_CHILDREN
@@ -83,7 +82,8 @@ pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, c
     num_entries: u8, // Number of entries which have been populated
     data: [E; LEAF_ENTRIES],
     _pin: PhantomPinned, // Needed because cursors point here.
-    _drop: PrintDropLeaf
+
+    next: Option<NonNull<Self>>,
 }
 
 #[derive(Debug)]
@@ -199,27 +199,6 @@ impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: us
     }
 }
 
-
-#[derive(Clone, Debug)]
-struct PrintDropLeaf;
-
-// For debugging.
-
-// impl Drop for PrintDropLeaf {
-//     fn drop(&mut self) {
-//         eprintln!("DROP LEAF {:?}", self);
-//     }
-// }
-
-#[derive(Clone, Debug)]
-struct PrintDropInternal;
-
-// impl Drop for PrintDropInternal {
-//     fn drop(&mut self) {
-//         eprintln!("DROP INTERNAL {:?}", self);
-//     }
-// }
-
 // unsafe fn pinbox_to_nonnull<T>(box_ref: &Pin<Box<T>>) -> NonNull<T> {
 //     NonNull::new_unchecked(box_ref.as_ref().get_ref() as *const _ as *mut _)
 // }
@@ -234,9 +213,9 @@ pub fn null_notify<E, Node>(_e: E, _node: Node) {}
 
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Node<E, I, IE, LE> {
     /// Unsafe: Created leaf has a dangling parent pointer. Must be set after initialization.
-    unsafe fn new_leaf() -> Self {
-        Node::Leaf(Box::pin(NodeLeaf::new()))
-    }
+    // unsafe fn new_leaf() -> Self {
+    //     Node::Leaf(Box::pin(NodeLeaf::new()))
+    // }
     // fn new_with_parent(parent: ParentPtr) -> Self {
     //     Node::Leaf(Box::pin(NodeLeaf::new_with_parent(parent)))
     // }

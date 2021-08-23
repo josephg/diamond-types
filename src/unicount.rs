@@ -63,7 +63,7 @@ mod test {
         for i in 0..=char_len {
             let expected = slow_lib_version(s, i);
             let actual = str_pos_to_bytes(s, i);
-            dbg!(expected, actual);
+            // dbg!(expected, actual);
             assert_eq!(expected, actual);
         }
     }

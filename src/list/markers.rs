@@ -105,7 +105,6 @@ mod tests {
 
         dbg!(std::mem::size_of::<MarkerEntry1>());
 
-
         #[derive(Copy, Clone, Eq, PartialEq, Debug)]
         pub enum MarkerEntry2 {
             Ins(u32, NonNull<usize>),

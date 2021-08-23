@@ -754,7 +754,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
             // calls to notify and save us needing to fix up a bunch of parent pointers. More work
             // here, but probably less work overall.
 
-            let mut new_node = Self::new(); // The new node has a danging parent pointer
+            let mut new_node = Self::new(self.next); // The new node has a danging parent pointer
             let new_filled_len = self.len_entries() - idx;
             let new_len = new_filled_len + padding;
             debug_assert!(new_len <= LE);
@@ -778,14 +778,17 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
 
             // eprintln!("split_at idx {} stolen_length {:?} self {:?}", idx, stolen_length, &self);
 
-            let mut inserted_node = Node::Leaf(Box::pin(new_node));
+            let mut new_node_boxed = Box::pin(new_node);
+
             // This is the pointer to the new item we'll end up returning.
-            let new_leaf_ptr = NonNull::new_unchecked(inserted_node.unwrap_leaf_mut().get_unchecked_mut());
-            for e in &inserted_node.unwrap_leaf().data[padding..new_len] {
+            let new_leaf_ptr = NonNull::new_unchecked(new_node_boxed.as_mut().get_unchecked_mut());
+            self.next = Some(new_leaf_ptr);
+
+            for e in &new_node_boxed.as_ref().data[padding..new_len] {
                 notify(*e, new_leaf_ptr);
             }
 
-            insert_after(self.parent, inserted_node, NodePtr::Leaf(NonNull::new_unchecked(self)), stolen_length);
+            insert_after(self.parent, Node::Leaf(new_node_boxed), NodePtr::Leaf(NonNull::new_unchecked(self)), stolen_length);
 
             // TODO: It would be cleaner to return a Pin<&mut NodeLeaf> here instead of the pointer.
             new_leaf_ptr
@@ -804,6 +807,10 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
         // Function is unsafe.
         let leaf = self_ptr.as_ref();
         debug_assert!(!leaf.has_root_as_parent());
+
+        if let Some(mut prev) = leaf.adjacent_leaf(false) {
+            prev.as_mut().next = leaf.next;
+        }
 
         NodeInternal::remove_leaf(leaf.parent.unwrap_internal(), self_ptr);
     }

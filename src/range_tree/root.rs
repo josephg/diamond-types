@@ -12,7 +12,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
     pub fn new() -> Pin<Box<Self>> {
         let mut tree = Box::pin(Self {
             count: I::IndexValue::default(),
-            root: unsafe { Node::new_leaf() },
+            root: unsafe { Node::Leaf(Box::pin(NodeLeaf::new(None))) },
             // last_cursor: Cell::new(None),
             _pin: marker::PhantomPinned,
         });
@@ -189,6 +189,10 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
         if let ParentPtr::Internal(_) = leaf.parent {
             assert_ne!(leaf.num_entries, 0, "Non-root leaf is empty");
         }
+
+        // Check the next pointer makes sense.
+        let next = leaf.adjacent_leaf(true);
+        assert_eq!(next, leaf.next);
 
         count
     }

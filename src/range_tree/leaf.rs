@@ -5,17 +5,17 @@ use std::mem::take;
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
     // no reason for this object to be pinned. (Is that a bad idea? I'm not sure.)
-    pub(super) unsafe fn new() -> Self {
-        Self::new_with_parent(ParentPtr::Root(NonNull::dangling()))
+    pub(super) unsafe fn new(next: Option<NonNull<Self>>) -> Self {
+        Self::new_with_parent(ParentPtr::Root(NonNull::dangling()), next)
     }
 
-    pub(super) fn new_with_parent(parent: ParentPtr<E, I, IE, LE>) -> Self {
+    pub(super) fn new_with_parent(parent: ParentPtr<E, I, IE, LE>, next: Option<NonNull<Self>>) -> Self {
         Self {
             parent,
             data: [E::default(); LE],
             num_entries: 0,
             _pin: PhantomPinned,
-            _drop: PrintDropLeaf,
+            next,
         }
     }
 
@@ -63,6 +63,76 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
         if offset == 0 { // Special case for the first inserted element - we may never enter the loop.
             Some((self.len_entries(), 0))
         } else { None }
+    }
+
+    pub fn adjacent_leaf(&self, direction_forward: bool) -> Option<NonNull<Self>> {
+        // println!("** traverse called {:?} {}", self, traverse_next);
+        // idx is 0. Go up as far as we can until we get to an index that has room, or we hit the
+        // root.
+        if direction_forward && !cfg!(debug_assertions) {
+            return self.next;
+        }
+
+        let mut parent = self.parent;
+        let mut node_ptr = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self as *const _ as *mut _) });
+
+        loop {
+            match parent {
+                ParentPtr::Root(_) => { return None; },
+                ParentPtr::Internal(n) => {
+                    let node_ref = unsafe { n.as_ref() };
+                    // Time to find ourself up this tree.
+                    let idx = node_ref.find_child(node_ptr).unwrap();
+                    // println!("found myself at {}", idx);
+
+                    let next_idx: Option<usize> = if direction_forward {
+                        let next_idx = idx + 1;
+                        // This would be much cleaner if I put a len field in NodeInternal instead.
+                        // TODO: Consider using node_ref.count_children() instead of this mess.
+                        if (next_idx < IE) && node_ref.children[next_idx].is_some() {
+                            Some(next_idx)
+                        } else { None }
+                    } else if idx > 0 {
+                        Some(idx - 1)
+                    } else { None };
+                    // println!("index {:?}", next_idx);
+
+                    if let Some(next_idx) = next_idx {
+                        // Whew - now we can descend down from here.
+                        // println!("traversing laterally to {}", next_idx);
+                        node_ptr = unsafe { node_ref.children[next_idx].as_ref().unwrap().as_ptr() };
+                        break;
+                    } else {
+                        // idx is 0. Keep climbing that ladder!
+                        node_ptr = NodePtr::Internal(unsafe { NonNull::new_unchecked(node_ref as *const _ as *mut _) });
+                        parent = node_ref.parent;
+                    }
+                }
+            }
+        }
+
+        // Now back down. We don't need idx here because we just take the first / last item in each
+        // node going down the tree.
+        loop {
+            // println!("nodeptr {:?}", node_ptr);
+            match node_ptr {
+                NodePtr::Internal(n) => {
+                    let node_ref = unsafe { n.as_ref() };
+                    let next_idx = if direction_forward {
+                        0
+                    } else {
+                        let num_children = node_ref.count_children();
+                        assert!(num_children > 0);
+                        num_children - 1
+                    };
+                    node_ptr = unsafe { node_ref.children[next_idx].as_ref().unwrap().as_ptr() };
+                },
+                NodePtr::Leaf(n) => {
+                    // Finally.
+                    return Some(n);
+                }
+            }
+        }
     }
 
     // pub(super) fn actually_count_entries(&self) -> usize {
