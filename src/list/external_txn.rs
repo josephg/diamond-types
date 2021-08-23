@@ -173,6 +173,8 @@ impl ListCRDT {
         (self.crdt_loc_to_remote_id(crdt_span.loc), crdt_span.len)
     }
 
+    /// Get the current vector clock. This includes the version for each agent which has ever
+    /// interacted with the document, so it will grow over time as the document grows.
     pub fn get_vector_clock(&self) -> VectorClock {
         self.client_data.iter()
             .filter(|c| !c.item_orders.is_empty())
@@ -183,6 +185,13 @@ impl ListCRDT {
                 }
             })
             .collect()
+    }
+
+    /// The frontier only contains the versions which aren't transitively included. Its usually
+    /// much smaller than the vector clock, but harder to use because the frontier for one peer
+    /// might be unintelligible by another peer.
+    pub fn get_frontier<B: FromIterator<RemoteId>>(&self) -> B {
+        self.frontier.iter().map(|order| self.order_to_remote_id(*order)).collect()
     }
 
     /// This method returns the list of spans of orders which will bring a client up to date

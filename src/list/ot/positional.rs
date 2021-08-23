@@ -11,11 +11,15 @@ use InsDelTag::*;
 use ropey::Rope;
 use crate::unicount::str_pos_to_bytes;
 use crate::rle::AppendRLE;
+#[cfg(feature = "serde")]
+use serde_crate::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub enum InsDelTag { Ins, Del }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct PositionalComponent {
     pub pos: u32,
     pub len: u32,
@@ -24,6 +28,7 @@ pub struct PositionalComponent {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct PositionalOp {
     pub components: SmallVec<[PositionalComponent; 1]>,
     pub content: SmartString,
