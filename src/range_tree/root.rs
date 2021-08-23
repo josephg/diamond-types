@@ -191,7 +191,8 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
         }
 
         // Check the next pointer makes sense.
-        let next = leaf.adjacent_leaf(true);
+        // Note we're using adjacent_leaf_by_traversal, which forces the full traversal.
+        let next = leaf.adjacent_leaf_by_traversal(true);
         assert_eq!(next, leaf.next);
 
         count

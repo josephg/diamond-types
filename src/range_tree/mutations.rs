@@ -463,7 +463,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
         if cursor.idx >= node.num_entries as usize {
             node.flush_index_update(flush_marker);
             // If we reach the end of the tree, discard trailing deletes.
-            if !cursor.traverse(true) { return (false, 0); }
+            if !cursor.traverse_forward() { return (false, 0); }
             node = unsafe { cursor.get_node_mut() };
         }
 
@@ -479,7 +479,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
                 I::decrement_marker_by_val(flush_marker, &item_count);
                 node.flush_index_update(flush_marker);
                 let node = cursor.node;
-                cursor.traverse(true);
+                cursor.traverse_forward();
                 unsafe { NodeLeaf::remove(node); }
                 return (true, del_items - I::count_items(item_count));
             }
@@ -507,7 +507,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
                 node.flush_index_update(flush_marker);
 
                 let node = cursor.node;
-                if !cursor.traverse(true) {
+                if !cursor.traverse_forward() {
                     // This is weird and hacky but - this is the last item in the tree. If the
                     // cursor is still pointing to this element afterwards, the cursor will be
                     // invalid. So instead I'll move the cursor to the end of the previous item.
@@ -517,7 +517,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
                     //
                     // The resulting behaviour of all this is tested by the fuzzer. If any of these
                     // assumptions break later, the tests should catch it.
-                    cursor.traverse(false);
+                    cursor.traverse_backwards();
                 }
                 unsafe { NodeLeaf::remove(node); }
                 (true, del_items)
@@ -808,7 +808,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
         let leaf = self_ptr.as_ref();
         debug_assert!(!leaf.has_root_as_parent());
 
-        if let Some(mut prev) = leaf.adjacent_leaf(false) {
+        if let Some(mut prev) = leaf.prev_leaf() {
             prev.as_mut().next = leaf.next;
         }
 

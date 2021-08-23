@@ -65,14 +65,18 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
         } else { None }
     }
 
-    pub fn adjacent_leaf(&self, direction_forward: bool) -> Option<NonNull<Self>> {
+    pub fn next_leaf(&self) -> Option<NonNull<Self>> {
+        self.next
+    }
+
+    pub fn prev_leaf(&self) -> Option<NonNull<Self>> {
+        self.adjacent_leaf_by_traversal(false)
+    }
+
+    pub(super) fn adjacent_leaf_by_traversal(&self, direction_forward: bool) -> Option<NonNull<Self>> {
         // println!("** traverse called {:?} {}", self, traverse_next);
         // idx is 0. Go up as far as we can until we get to an index that has room, or we hit the
         // root.
-        if direction_forward && !cfg!(debug_assertions) {
-            return self.next;
-        }
-
         let mut parent = self.parent;
         let mut node_ptr = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self as *const _ as *mut _) });
 

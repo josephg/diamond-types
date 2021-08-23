@@ -28,28 +28,25 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
     ///
     /// Returns true if the move was successful, or false if we're at the first / last item in the
     /// tree.
-    pub fn traverse(&mut self, direction_forward: bool) -> bool {
-        // println!("** traverse called {:?} {}", self, traverse_next);
-        // idx is 0. Go up as far as we can until we get to an index that has room, or we hit the
-        // root.
+    pub fn traverse_forward(&mut self) -> bool {
         let node = unsafe { self.node.as_ref() };
-
-        if let Some(n) = node.adjacent_leaf(direction_forward) {
-            let node_ref = unsafe { n.as_ref() };
-            assert!(node_ref.num_entries > 0);
+        if let Some(n) = node.next {
             self.node = n;
-            if direction_forward {
-                self.idx = 0;
-                self.offset = 0;
-            } else {
-                self.idx = node_ref.len_entries() - 1;
-                self.offset = node_ref.data[self.idx].len();
-                // println!("leaf {:?}", self);
-            }
+            self.idx = 0;
+            self.offset = 0;
             true
-        } else {
-            false
-        }
+        } else { false }
+    }
+
+    pub fn traverse_backwards(&mut self) -> bool {
+        let node = unsafe { self.node.as_ref() };
+        if let Some(n) = node.prev_leaf() {
+            let node_ref = unsafe { n.as_ref() };
+            self.node = n;
+            self.idx = node_ref.len_entries() - 1;
+            self.offset = node_ref.data[self.idx].len();
+            true
+        } else { false }
     }
 
     /// Move back to the previous entry. Returns true if it exists, otherwise
@@ -64,7 +61,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
             if let Some(marker) = marker {
                 unsafe { self.node.as_mut() }.flush_index_update(marker);
             }
-            self.traverse(false)
+            self.traverse_backwards()
         }
     }
 
@@ -85,7 +82,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
                 if let Some(marker) = marker {
                     self.node.as_mut().flush_index_update(marker);
                 }
-                self.traverse(true)
+                self.traverse_forward()
             }
         }
     }
