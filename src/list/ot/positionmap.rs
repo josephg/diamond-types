@@ -7,7 +7,8 @@ use crate::rle::{KVPair, RleKey, RleSpanHelpers, AppendRLE};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
 use ropey::Rope;
 use TraversalComponent::*;
-use crate::list::ot::positional::{PositionalComponent, InsDelTag};
+use crate::list::ot::positional::{PositionalComponent, InsDelTag, PositionalOp};
+use smallvec::SmallVec;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
@@ -271,29 +272,21 @@ impl ListCRDT {
         }
     }
 
-    pub fn each_positional_op(&self, base_order: Order) -> ReversePositionalOpIter {
-        let mut iter = ReversePositionalOpIter {
-            doc: self,
-            span: self.linear_changes_since(base_order),
-            map: RangeTree::new(),
-            marked_deletes: DoubleDeleteVisitor::new(),
-        };
-
-        iter.map.insert_at_start(Retain(self.range_tree.content_len() as _), null_notify);
-
-        iter
+    pub fn positional_changes_since(&self, order: Order) -> PositionalOp {
+        let mut walker = ReversePositionalOpWalker::new(self, order);
+        walker.get_positional_op()
     }
 }
 
 #[derive(Debug)]
-pub struct ReversePositionalOpIter<'a> {
+struct ReversePositionalOpWalker<'a> {
     doc: &'a ListCRDT,
     span: OrderSpan,
     map: PositionMap,
     marked_deletes: DoubleDeleteVisitor,
 }
 
-impl<'a> Iterator for ReversePositionalOpIter<'a> {
+impl<'a> Iterator for ReversePositionalOpWalker<'a> {
     type Item = (u32, PositionalComponent);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -311,10 +304,34 @@ impl<'a> Iterator for ReversePositionalOpIter<'a> {
     }
 }
 
-impl<'a> ReversePositionalOpIter<'a> {
-    fn into_map(mut self) -> PositionMap {
+impl<'a> ReversePositionalOpWalker<'a> {
+    fn new(doc: &'a ListCRDT, base_order: Order) -> Self {
+        let mut iter = ReversePositionalOpWalker {
+            doc,
+            span: doc.linear_changes_since(base_order),
+            map: RangeTree::new(),
+            marked_deletes: DoubleDeleteVisitor::new(),
+        };
+
+        iter.map.insert_at_start(Retain(doc.range_tree.content_len() as _), null_notify);
+        iter
+    }
+    fn drain(&mut self) {
         while let Some(_) = self.next() {}
+    }
+
+    fn into_map(mut self) -> PositionMap {
+        self.drain();
         self.map
+    }
+
+    fn get_positional_op(&mut self) -> PositionalOp {
+        let mut changes: SmallVec<[(u32, PositionalComponent); 10]> = SmallVec::new();
+        while let Some((post_pos, e)) = self.next() {
+            changes.push((post_pos, e));
+        }
+        changes.reverse();
+        PositionalOp::from_components(&changes, self.doc.text_content.as_ref())
     }
 
     fn into_traversal(self, resulting_doc: &Rope) -> TraversalOp {
@@ -351,7 +368,7 @@ mod test {
     use rand::prelude::SmallRng;
     use rand::SeedableRng;
     use crate::fuzz_helpers::make_random_change;
-    use crate::list::ot::positionmap::{map_to_traversal, PositionMap};
+    use crate::list::ot::positionmap::{map_to_traversal, PositionMap, ReversePositionalOpWalker};
     use super::TraversalComponent::*;
     use crate::range_tree::{RangeTree, null_notify, Pair};
     use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
@@ -366,9 +383,20 @@ mod test {
         doc.local_insert(0, 0, "hi there".into()); // 0-7
         doc.local_delete(0, 2, 3); // "hiere" 8-11
 
-        for (post_pos, e) in doc.each_positional_op(0) {
-            dbg!((post_pos, e));
-        }
+        let op = doc.positional_changes_since(0);
+        // dbg!(&op);
+
+        use InsDelTag::*;
+        assert_eq!(op, PositionalOp {
+            components: smallvec![
+                PositionalComponent {pos: 0, len: 2, content_known: true, tag: Ins},
+                PositionalComponent {pos: 2, len: 3, content_known: false, tag: Ins},
+                PositionalComponent {pos: 5, len: 3, content_known: true, tag: Ins},
+
+                PositionalComponent {pos: 2, len: 3, content_known: false, tag: Del},
+            ],
+            content: "hiere".into(),
+        });
     }
 
     #[test]
@@ -390,35 +418,12 @@ mod test {
 
         // "hi there" -> "hiere" -> "hie"
 
-        // dbg!(&doc1.range_tree);
-        // dbg!(&doc1.deletes);
-        // dbg!(&doc1.double_deletes);
-
-        let mut changes = Vec::new();
-        let mut iter = doc2.each_positional_op(0);
-        while let Some((post_pos, e)) = iter.next() {
-            changes.push((post_pos, e));
-        }
-        changes.reverse();
-        let map = iter.into_map();
+        let mut walker = ReversePositionalOpWalker::new(&doc2, 0);
+        let positional_op = walker.get_positional_op();
 
         use InsDelTag::*;
-        assert_eq!(changes, [
-            // Insert 8 characters, with the middle 5 deleted (so no content)
-            (0, PositionalComponent { pos: 0, len: 2, content_known: true, tag: Ins }),
-            (2, PositionalComponent { pos: 2, len: 5, content_known: false, tag: Ins }),
-            (2, PositionalComponent { pos: 7, len: 1, content_known: true, tag: Ins }),
-
-            // Delete 5 characters in the middle. This test should still pass if these entries get
-            // merged differently.
-            (2, PositionalComponent { pos: 2, len: 1, content_known: false, tag: Del }),
-            (2, PositionalComponent { pos: 2, len: 2, content_known: false, tag: Del }),
-            (2, PositionalComponent { pos: 2, len: 2, content_known: false, tag: Del }),
-        ]);
-
-        if let Some(text_content) = doc2.text_content.as_ref() {
-            let positional = PositionalOp::from_components(&changes, text_content);
-            assert_eq!(positional, PositionalOp {
+        if doc2.text_content.is_some() {
+            assert_eq!(positional_op, PositionalOp {
                 components: smallvec![
                     PositionalComponent { pos: 0, len: 2, content_known: true, tag: Ins },
                     PositionalComponent { pos: 2, len: 5, content_known: false, tag: Ins },
@@ -430,7 +435,8 @@ mod test {
             })
         }
 
-        // dbg!(&map.merged_iter().collect::<Vec<_>>());
+        let map = walker.into_map();
+
         assert!(&map.merged_iter().eq(std::iter::once(TraversalComponent::Ins {
             len: 3,
             content_known: true,
@@ -465,14 +471,9 @@ mod test {
         }
         // dbg!(ops);
 
-        let mut ops2 = Vec::new();
-        let mut iter = doc.each_positional_op(midpoint_order);
-        while let Some((post_pos, e)) = iter.next() {
-            ops2.push((post_pos, e));
-        }
-        ops2.reverse();
-
-        let map = iter.into_map();
+        let mut walker = ReversePositionalOpWalker::new(&doc, midpoint_order);
+        let positional_op = walker.get_positional_op();
+        let map = walker.into_map();
 
         // Ok we have a few things to check:
         // 1. The returned map shouldn't contain any inserts with unknown content
@@ -492,15 +493,13 @@ mod test {
             // dbg!(doc.text_content, result);
             assert_eq!(text_content, &result);
 
-
             // 3. We should also be able to apply all the changes one by one to the midpoint state and
             //    arrive at the same result.
-            // dbg!(&ops2);
-            let positional = PositionalOp::from_components(&ops2[..], &text_content);
-            // dbg!(&positional);
             let mut midpoint_rope = Rope::from(midpoint_content.as_str());
-            positional.apply_to_rope(&mut midpoint_rope);
+            positional_op.apply_to_rope(&mut midpoint_rope);
             assert_eq!(text_content, &midpoint_rope);
+        } else {
+            eprintln!("WARNING: Cannot test properly due to missing text content");
         }
     }
 

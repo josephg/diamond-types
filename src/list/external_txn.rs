@@ -46,6 +46,23 @@ pub enum RemoteCRDTOp {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+pub struct RemoteTxn {
+    pub id: RemoteId,
+    pub parents: SmallVec<[RemoteId; 2]>, // usually 1 entry
+    pub ops: SmallVec<[RemoteCRDTOp; 2]>, // usually 1-2 entries.
+
+    pub ins_content: SmartString,
+}
+
+/// An iterator over the RemoteTxn objects. This allows RemoteTxns to be created lazily.
+#[derive(Debug)]
+struct RemoteTxnsIter<'a> {
+    doc: &'a ListCRDT,
+    span: OrderSpan,
+}
+
 impl RemoteCRDTOp {
     fn len(&self) -> u32 {
         match self {
@@ -92,23 +109,6 @@ impl RemoteCRDTOp {
             _ => unreachable!(),
         }
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
-pub struct RemoteTxn {
-    pub id: RemoteId,
-    pub parents: SmallVec<[RemoteId; 2]>, // usually 1 entry
-    pub ops: SmallVec<[RemoteCRDTOp; 2]>, // usually 1-2 entries.
-
-    pub ins_content: SmartString,
-}
-
-/// An iterator over the RemoteTxn objects. This allows RemoteTxns to be created lazily.
-#[derive(Debug)]
-struct RemoteTxnsIter<'a> {
-    doc: &'a ListCRDT,
-    span: OrderSpan,
 }
 
 impl<'a> Iterator for RemoteTxnsIter<'a> {

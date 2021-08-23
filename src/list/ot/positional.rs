@@ -64,14 +64,18 @@ impl PositionalOp {
         }
     }
 
-    pub fn from_components(components: &[(u32, PositionalComponent)], content: &Rope) -> Self {
+    pub fn from_components(components: &[(u32, PositionalComponent)], content: Option<&Rope>) -> Self {
         let mut result = Self::new();
-        for (post_pos, c) in components {
-            result.components.push_rle(c.clone());
+        for (post_pos, mut c) in components {
             if c.content_known {
-                let chars = content.chars_at(*post_pos as usize).take(c.len as usize);
-                result.content.extend(chars);
+                if let Some(content) = content {
+                    let chars = content.chars_at(*post_pos as usize).take(c.len as usize);
+                    result.content.extend(chars);
+                } else {
+                    c.content_known = false;
+                }
             }
+            result.components.push_rle(c);
         }
         result
     }
