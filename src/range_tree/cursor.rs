@@ -141,6 +141,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
     // TODO: Check if its faster if this returns by copy or byref.
     /// Note this ignores the cursor's offset.
     pub fn get_raw_entry(&self) -> E {
+        assert_ne!(self.offset, usize::MAX, "Cannot get entry for a cursor to an empty list");
         let node = unsafe { self.node.as_ref() };
         node.data[self.idx]
     }
@@ -153,6 +154,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
     }
 
     pub(super) fn get_raw_entry_mut(&mut self) -> &mut E {
+        assert_ne!(self.offset, usize::MAX, "Cannot get entry for a cursor to an empty list");
         let node = unsafe { self.node.as_mut() };
         debug_assert!(self.idx < node.len_entries());
         &mut node.data[self.idx]
@@ -164,14 +166,11 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
     /// Returns false if the resulting cursor location points past the end of the tree.
     pub(crate) fn roll_to_next_entry(&mut self) -> bool {
         unsafe {
-            // This is pretty dirty to handle the case where the cursor already points past the end
-            // of the document when this method is called.
-            let node = self.node.as_ref();
-
-            if self.idx >= node.num_entries as usize {
-                debug_assert_eq!(self.offset, usize::MAX);
+            if self.offset == usize::MAX {
+                // The tree is empty.
                 false
             } else {
+                let node = self.node.as_ref();
                 let seq_len = node.data[self.idx].len();
 
                 debug_assert!(self.offset <= seq_len);
