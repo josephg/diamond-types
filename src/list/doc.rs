@@ -530,9 +530,7 @@ impl ListCRDT {
 
         assert!(content.is_empty());
 
-        let parents: Branch = txn.parents.iter().map(|remote_id| {
-            self.remote_id_to_order(remote_id)
-        }).collect();
+        let parents = self.remote_ids_to_branch(&txn.parents);
         self.insert_txn(Some(parents), first_order, txn_len as u32);
     }
 

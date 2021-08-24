@@ -282,6 +282,9 @@ impl ListCRDT {
         let (a, b) = self.diff(branch, &self.frontier);
         assert_eq!(a.len(), 0);
 
+        // Note the spans are guaranteed to be delivered in reverse order (from last to first).
+        // This is what walker expects - since we'll be moving in reverse chronological order here
+        // too. Otherwise we'd need to wrap the iterator in Reverse() or reverse the contents.
         let mut walker = ReversePositionalOpWalker::new_from_iter(self, b.iter().copied());
         walker.get_positional_op()
     }
@@ -293,6 +296,11 @@ impl ListCRDT {
     pub fn traversal_changes_since_branch(&self, branch: &[Order]) -> TraversalOpSequence {
         self.positional_changes_since_branch(branch).into()
     }
+
+    // pub fn traversal_changes_since_branch_ext(&self, branch_ext: &[RemoteId]) -> TraversalOpSequence {
+    //     let branch = self.remote_ids_to_branch(branch_ext);
+    //     self.traversal_changes_since_branch(&branch)
+    // }
 }
 
 #[derive(Debug)]

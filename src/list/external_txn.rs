@@ -1,6 +1,6 @@
 use smartstring::alias::{String as SmartString};
 use smallvec::{SmallVec, smallvec};
-use crate::list::{ListCRDT, Order, ROOT_ORDER};
+use crate::list::{ListCRDT, Order, ROOT_ORDER, Branch};
 use crate::order::OrderSpan;
 use std::collections::BinaryHeap;
 use std::cmp::{Ordering, Reverse};
@@ -146,10 +146,16 @@ impl<'a> Iterator for RemoteTxnsIter<'a> {
 pub type VectorClock = Vec<RemoteId>;
 
 impl ListCRDT {
-    pub(crate) fn remote_id_to_order(&self, id: &RemoteId) -> Order {
+    pub fn remote_id_to_order(&self, id: &RemoteId) -> Order {
         let agent = self.get_agent_id(id.agent.as_str()).unwrap();
         if agent == AgentId::MAX { ROOT_ORDER }
         else { self.client_data[agent as usize].seq_to_order(id.seq) }
+    }
+
+    pub fn remote_ids_to_branch(&self, ids: &[RemoteId]) -> Branch {
+        ids.iter().map(|remote_id| {
+            self.remote_id_to_order(remote_id)
+        }).collect()
     }
 
     fn crdt_loc_to_remote_id(&self, loc: CRDTLocation) -> RemoteId {
