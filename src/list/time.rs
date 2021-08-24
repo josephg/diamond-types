@@ -1,4 +1,4 @@
-use crate::list::{ListCRDT, Branch, ROOT_ORDER, Order};
+use crate::list::{ListCRDT, ROOT_ORDER, Order};
 use crate::order::OrderSpan;
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
@@ -57,7 +57,7 @@ impl ListCRDT {
     }
 
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
-    pub(crate) fn diff(&self, a: &Branch, b: &Branch) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
+    pub(crate) fn diff(&self, a: &[Order], b: &[Order]) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
         assert!(!a.is_empty());
         assert!(!b.is_empty());
 
@@ -84,7 +84,7 @@ impl ListCRDT {
     }
 
     // Split out for testing.
-    fn diff_slow(&self, a: &Branch, b: &Branch) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
+    fn diff_slow(&self, a: &[Order], b: &[Order]) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
         // We need to tag each entry in the queue based on whether its part of a's history or b's
         // history or both, and do so without changing the sort order for the heap.
         #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -315,12 +315,12 @@ impl ListCRDT {
 
 #[cfg(test)]
 pub mod test {
-    use crate::list::{ListCRDT, Branch, ROOT_ORDER};
+    use crate::list::{ListCRDT, ROOT_ORDER, Order};
     use crate::order::OrderSpan;
     use smallvec::smallvec;
     use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
 
-    fn assert_diff_eq(doc: &ListCRDT, a: &Branch, b: &Branch, expect_a: &[OrderSpan], expect_b: &[OrderSpan]) {
+    fn assert_diff_eq(doc: &ListCRDT, a: &[Order], b: &[Order], expect_a: &[OrderSpan], expect_b: &[OrderSpan]) {
         let slow_result = doc.diff_slow(a, b);
         let fast_result = doc.diff(a, b);
         assert_eq!(slow_result, fast_result);
@@ -346,12 +346,12 @@ pub mod test {
         let b1 = doc1.frontier.clone();
 
         assert_diff_eq(&doc1, &b1, &b1, &[], &[]);
-        assert_diff_eq(&doc1, &smallvec![ROOT_ORDER], &smallvec![ROOT_ORDER], &[], &[]);
+        assert_diff_eq(&doc1, &[ROOT_ORDER], &[ROOT_ORDER], &[], &[]);
         // dbg!(&doc1.frontier);
 
         // There are 4 items in doc1 - "Saaa".
         // dbg!(&doc1.frontier); // [3]
-        assert_diff_eq(&doc1, &smallvec![1], &smallvec![3], &[], &[OrderSpan {
+        assert_diff_eq(&doc1, &[1], &[3], &[], &[OrderSpan {
             order: 2,
             len: 2
         }]);
@@ -369,7 +369,7 @@ pub mod test {
             len: 3
         }]);
 
-        assert_diff_eq(&doc1, &smallvec![3], &smallvec![6], &[OrderSpan {
+        assert_diff_eq(&doc1, &[3], &[6], &[OrderSpan {
             order: 1,
             len: 3
         }], &[OrderSpan {
@@ -377,7 +377,7 @@ pub mod test {
             len: 3
         }]);
 
-        assert_diff_eq(&doc1, &smallvec![2], &smallvec![5], &[OrderSpan {
+        assert_diff_eq(&doc1, &[2], &[5], &[OrderSpan {
             order: 1,
             len: 2
         }], &[OrderSpan {
@@ -448,19 +448,19 @@ pub mod test {
         // dbg!(doc.diff(&smallvec![6], &smallvec![ROOT_ORDER]));
         // dbg!(&doc);
 
-        assert_diff_eq(&doc, &smallvec![6], &smallvec![ROOT_ORDER], &[
+        assert_diff_eq(&doc, &[6], &[ROOT_ORDER], &[
            OrderSpan { order: 5, len: 2 },
            OrderSpan { order: 0, len: 3 },
         ], &[]);
 
-        assert_diff_eq(&doc, &smallvec![6], &smallvec![4], &[
+        assert_diff_eq(&doc, &[6], &[4], &[
             OrderSpan { order: 5, len: 2 },
             OrderSpan { order: 0, len: 3 },
         ], &[
             OrderSpan { order: 3, len: 2 },
         ]);
 
-        assert_diff_eq(&doc, &smallvec![4, 6], &smallvec![ROOT_ORDER], &[
+        assert_diff_eq(&doc, &[4, 6], &[ROOT_ORDER], &[
             OrderSpan { order: 0, len: 7 },
         ], &[]);
     }
