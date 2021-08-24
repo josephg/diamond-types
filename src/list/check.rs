@@ -59,6 +59,9 @@ impl ListCRDT {
             let mut parents = txn.parents.clone();
             let mut expect_shadow = txn.order;
 
+            // The first txn *must* have ROOT as a parent, so 0 should never show up in shadow.
+            assert_ne!(txn.shadow, 0);
+
             if parents[0] == ROOT_ORDER {
                 // The root order will be sorted out of order, but it doesn't matter because
                 // if it shows up at all it should be the only item in parents.

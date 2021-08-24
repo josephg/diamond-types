@@ -432,10 +432,14 @@ pub mod test {
                 len: 2,
                 content_known: true,
             }],
-            ins_content: "BB".into(),
+            ins_content: "AA".into(),
         });
 
         assert_eq!(doc.frontier.as_slice(), &[4, 6]);
+
+        if let Some(ref text) = doc.text_content {
+            assert_eq!(text, "aaaAAbb");
+        }
 
         doc
     }

@@ -1,4 +1,4 @@
-use crate::list::{Order, ListCRDT, DoubleDeleteList, Branch};
+use crate::list::{Order, ListCRDT, DoubleDeleteList};
 use crate::range_tree::*;
 use crate::order::OrderSpan;
 use std::pin::Pin;
@@ -278,7 +278,7 @@ impl ListCRDT {
         walker.get_positional_op()
     }
 
-    pub fn positional_changes_since_branch(&self, branch: &Branch) -> PositionalOp {
+    pub fn positional_changes_since_branch(&self, branch: &[Order]) -> PositionalOp {
         let (a, b) = self.diff(branch, &self.frontier);
         assert_eq!(a.len(), 0);
 
@@ -290,33 +290,29 @@ impl ListCRDT {
         self.positional_changes_since(order).into()
     }
 
-    pub fn traversal_changes_since_branch(&self, branch: &Branch) -> TraversalOpSequence {
+    pub fn traversal_changes_since_branch(&self, branch: &[Order]) -> TraversalOpSequence {
         self.positional_changes_since_branch(branch).into()
     }
 }
 
 #[derive(Debug)]
-struct ReversePositionalOpWalker<'a, I: DoubleEndedIterator<Item=OrderSpan>> {
+struct ReversePositionalOpWalker<'a, I: Iterator<Item=OrderSpan>> {
     doc: &'a ListCRDT,
-    iter: I,
+    /// NOTE: The remaining spans list must be in reverse order.
+    remaining_spans: I,
     span: OrderSpan,
     map: PositionMap,
     marked_deletes: DoubleDeleteVisitor,
 }
-// #[derive(Debug)]
-// struct ReversePositionalOpWalker<'a> {
-//     doc: &'a ListCRDT,
-//     span: OrderSpan,
-//     map: PositionMap,
-//     marked_deletes: DoubleDeleteVisitor,
-// }
 
-impl<'a, I: DoubleEndedIterator<Item=OrderSpan>> Iterator for ReversePositionalOpWalker<'a, I> {
+impl<'a, I: Iterator<Item=OrderSpan>> Iterator for ReversePositionalOpWalker<'a, I> {
     type Item = (u32, PositionalComponent);
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.span.len == 0 {
-            if let Some(span) = self.iter.next_back() {
+        if self.span.len == 0 {
+            if let Some(span) = self.remaining_spans.next() {
+                debug_assert!(span.order < self.span.order);
+                assert!(span.len > 0);
                 self.span = span;
             } else { return None; }
         }
@@ -337,7 +333,7 @@ impl<'a> ReversePositionalOpWalker<'a, Empty<OrderSpan>> {
     fn new_since_order(doc: &'a ListCRDT, base_order: Order) -> Self {
         let mut iter = ReversePositionalOpWalker {
             doc,
-            iter: std::iter::empty(),
+            remaining_spans: std::iter::empty(),
             span: doc.linear_changes_since(base_order),
             map: RangeTree::new(),
             marked_deletes: DoubleDeleteVisitor::new(),
@@ -348,11 +344,11 @@ impl<'a> ReversePositionalOpWalker<'a, Empty<OrderSpan>> {
     }
 }
 
-impl<'a, I: DoubleEndedIterator<Item=OrderSpan>> ReversePositionalOpWalker<'a, I> {
+impl<'a, I: Iterator<Item=OrderSpan>> ReversePositionalOpWalker<'a, I> {
     fn new_from_iter(doc: &'a ListCRDT, iter: I) -> Self {
         let mut iter = ReversePositionalOpWalker {
             doc,
-            iter,
+            remaining_spans: iter,
             span: OrderSpan::default(),
             map: RangeTree::new(),
             marked_deletes: DoubleDeleteVisitor::new(),
@@ -410,7 +406,7 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &Rope) -> TraversalOp {
 
 #[cfg(test)]
 mod test {
-    use crate::list::ListCRDT;
+    use crate::list::{ListCRDT, ROOT_ORDER};
     use rand::prelude::SmallRng;
     use rand::SeedableRng;
     use crate::fuzz_helpers::make_random_change;
@@ -588,12 +584,39 @@ mod test {
         assert_eq!(cursor.count_pos(), Pair(4, 4));
     }
 
-    // #[test]
-    // fn complex_edits() {
-    //     let doc = crate::list::time::test::complex_multientry_doc();
-    //
-    //     // Ok, now there's a bunch of interesting diffs to generate here. Fronteir is [4,6] but
-    //     // we have two branches - with orders [0-2, 5-6] and [3-4]
-    //     // let all = doc.positional_changes_since_branch(&smallvec![])
-    // }
+    #[test]
+    fn complex_edits() {
+        let doc = crate::list::time::test::complex_multientry_doc();
+
+        // Ok, now there's a bunch of interesting diffs to generate here. Frontier is [4,6] but
+        // we have two branches - with orders [0-2, 5-6] and [3-4]
+
+        let full_history = doc.positional_changes_since_branch(&[ROOT_ORDER]);
+        use InsDelTag::*;
+        assert_eq!(full_history, PositionalOp {
+            components: smallvec![
+                PositionalComponent { pos: 0, len: 5, content_known: true, tag: Ins },
+                PositionalComponent { pos: 3, len: 2, content_known: true, tag: Ins },
+            ],
+            content: "aaabbAA".into(),
+        });
+
+        let left_history = doc.positional_changes_since_branch(&[6]);
+        assert_eq!(left_history, PositionalOp {
+            components: smallvec![
+                PositionalComponent { pos: 5, len: 2, content_known: true, tag: Ins },
+            ],
+            content: "bb".into(),
+        });
+
+        let right_history = doc.positional_changes_since_branch(&[4]);
+        assert_eq!(right_history, PositionalOp {
+            components: smallvec![
+                PositionalComponent { pos: 0, len: 5, content_known: true, tag: Ins },
+            ],
+            content: "aaaAA".into(),
+        });
+
+        // dbg!(right_history);
+    }
 }
