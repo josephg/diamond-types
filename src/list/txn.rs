@@ -11,7 +11,7 @@ pub struct TxnSpan {
     pub order: Order,
     pub len: u32, // Length of the span
 
-    /// All txns in this span are direct descendants of all operations from order down to succeeds.
+    /// All txns in this span are direct descendants of all operations from order down to shadow.
     pub shadow: Order,
 
     /// The parents vector of the first txn in this span. Must contain at least 1 entry (and will

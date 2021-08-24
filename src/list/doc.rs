@@ -375,6 +375,7 @@ impl ListCRDT {
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
             shadow = self.txns.find(shadow - 1).unwrap().0.shadow;
         }
+        if shadow == 0 { shadow = ROOT_ORDER; }
 
         let txn = TxnSpan {
             order: first_order,
@@ -737,10 +738,7 @@ mod tests {
     fn remote_txns() {
         let mut doc_remote = ListCRDT::new();
         doc_remote.apply_remote_txn(&RemoteTxn {
-            id: RemoteId {
-                agent: "seph".into(),
-                seq: 0
-            },
+            id: RemoteId { agent: "seph".into(), seq: 0 },
             parents: smallvec![root_id()],
             ops: smallvec![
                 RemoteCRDTOp::Ins {
@@ -762,14 +760,8 @@ mod tests {
         assert_eq!(doc_remote.deletes, doc_local.deletes); // Not currently checked by Eq.
 
         doc_remote.apply_remote_txn(&RemoteTxn {
-            id: RemoteId {
-                agent: "seph".into(),
-                seq: 2
-            },
-            parents: smallvec![RemoteId {
-                agent: "seph".into(),
-                seq: 1
-            }],
+            id: RemoteId { agent: "seph".into(), seq: 2 },
+            parents: smallvec![RemoteId {agent: "seph".into(), seq: 1}],
             ops: smallvec![
                 RemoteCRDTOp::Del {
                     id: RemoteId {

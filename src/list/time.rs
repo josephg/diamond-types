@@ -41,12 +41,22 @@ impl<'a> Iterator for LinearIter<'a> {
 /// about branches, find diffs and move between branches.
 impl ListCRDT {
     fn shadow_of(&self, order: Order) -> Order {
-        assert_ne!(order, ROOT_ORDER); // The root doesn't have a shadow at all.
-        let (txn, _offset) = self.txns.find(order).unwrap();
-        txn.shadow
+        if order == ROOT_ORDER {
+            ROOT_ORDER
+        } else {
+            let (txn, _offset) = self.txns.find(order).unwrap();
+            txn.shadow
+        }
     }
 
-    // Returns (spans only in a, spans only in b).
+    /// Does the frontier `[a]` contain `[b]` as a direct ancestor according to its shadow?
+    fn txn_shadow_contains(&self, a: Order, b: Order) -> bool {
+        let a_1 = a.wrapping_add(1);
+        let b_1 = b.wrapping_add(1);
+        a_1 == b_1 || (a_1 > b_1 && self.shadow_of(a).wrapping_add(1) <= b_1)
+    }
+
+    /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
     pub(crate) fn diff(&self, a: &Branch, b: &Branch) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
         assert!(!a.is_empty());
         assert!(!b.is_empty());
@@ -55,27 +65,17 @@ impl ListCRDT {
         // Note most of the time this method is called, one of these early short circuit cases will
         // fire.
         if a == b { return (smallvec![], smallvec![]); }
-        // let root_branch: Branch = smallvec![ROOT_ORDER];
-        if a.as_slice() == [ROOT_ORDER] {
-            // TODO: b or b + 1?
-            let max_b = b.iter().max().unwrap();
-            return (smallvec![], smallvec![OrderSpan {order: 0, len: max_b + 1}]);
-        }
-        if b.as_slice() == [ROOT_ORDER] {
-            let max_a = a.iter().max().unwrap();
-            return (smallvec![OrderSpan {order: 0, len: max_a + 1}], smallvec![]);
-        }
 
         if a.len() == 1 && b.len() == 1 {
             // Check if either operation naively dominates the other. We could do this for more
             // cases, but we may as well use the code below instead.
             let a = a[0];
             let b = b[0];
-            if a < b && self.shadow_of(b) <= a {
-                return (smallvec![], smallvec![OrderSpan {order: a + 1, len: b - a}]);
-            }
-            if b < a && self.shadow_of(a) <= b {
+            if self.txn_shadow_contains(a, b) {
                 return (smallvec![OrderSpan {order: b + 1, len: a - b}], smallvec![]);
+            }
+            if self.txn_shadow_contains(b, a) {
+                return (smallvec![], smallvec![OrderSpan {order: a + 1, len: b - a}]);
             }
         }
 
@@ -87,8 +87,6 @@ impl ListCRDT {
     fn diff_slow(&self, a: &Branch, b: &Branch) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
         // We need to tag each entry in the queue based on whether its part of a's history or b's
         // history or both, and do so without changing the sort order for the heap.
-        //
-        // The reason we need to keep around both items is because we need to burn
         #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
         enum Flag { OnlyA, OnlyB, Shared }
 
@@ -303,13 +301,6 @@ impl ListCRDT {
         }
     }
 
-    fn foo_iter(&mut self, span: OrderSpan) -> LinearIter<'_> {
-        LinearIter {
-            list: self,
-            span
-        }
-    }
-
     pub fn num_ops(&self) -> Order {
         self.get_next_order()
     }
@@ -323,10 +314,11 @@ impl ListCRDT {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use crate::list::{ListCRDT, Branch, ROOT_ORDER};
     use crate::order::OrderSpan;
     use smallvec::smallvec;
+    use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
 
     fn assert_diff_eq(doc: &ListCRDT, a: &Branch, b: &Branch, expect_a: &[OrderSpan], expect_b: &[OrderSpan]) {
         let slow_result = doc.diff_slow(a, b);
@@ -357,8 +349,8 @@ mod test {
         assert_diff_eq(&doc1, &smallvec![ROOT_ORDER], &smallvec![ROOT_ORDER], &[], &[]);
         // dbg!(&doc1.frontier);
 
-        // There are 4 items in doc1 - "Saaa". Frontier is [3].
-        // dbg!(&doc1.frontier);
+        // There are 4 items in doc1 - "Saaa".
+        // dbg!(&doc1.frontier); // [3]
         assert_diff_eq(&doc1, &smallvec![1], &smallvec![3], &[], &[OrderSpan {
             order: 2,
             len: 2
@@ -395,6 +387,82 @@ mod test {
 
         // doc1.replicate_into(&mut doc2); // Also "Saaabbb" but different txns.
         // dbg!(&doc1.txns, &doc2.txns);
+    }
+
+    fn root_id() -> RemoteId {
+        RemoteId {
+            agent: "ROOT".into(),
+            seq: u32::MAX
+        }
+    }
+
+    pub fn complex_multientry_doc() -> ListCRDT {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("a");
+        doc.get_or_create_agent_id("b");
+
+        assert_eq!(doc.frontier.as_slice(), &[ROOT_ORDER]);
+
+        doc.local_insert(0, 0, "aaa".into());
+
+        assert_eq!(doc.frontier.as_slice(), &[2]);
+
+        // Need to do this manually to make the change concurrent.
+        doc.apply_remote_txn(&RemoteTxn {
+            id: RemoteId { agent: "b".into(), seq: 0 },
+            parents: smallvec![root_id()],
+            ops: smallvec![RemoteCRDTOp::Ins {
+                origin_left: root_id(),
+                origin_right: root_id(),
+                len: 2,
+                content_known: true,
+            }],
+            ins_content: "bb".into(),
+        });
+
+        assert_eq!(doc.frontier.as_slice(), &[2, 4]);
+
+        // And need to do this manually to make the change not merge time.
+        doc.apply_remote_txn(&RemoteTxn {
+            id: RemoteId { agent: "a".into(), seq: 3 },
+            parents: smallvec![RemoteId { agent: "a".into(), seq: 2 }],
+            ops: smallvec![RemoteCRDTOp::Ins {
+                origin_left: RemoteId { agent: "a".into(), seq: 2 },
+                origin_right: root_id(),
+                len: 2,
+                content_known: true,
+            }],
+            ins_content: "BB".into(),
+        });
+
+        assert_eq!(doc.frontier.as_slice(), &[4, 6]);
+
+        doc
+    }
+
+    #[test]
+    fn diff_with_multiple_entries() {
+        let doc = complex_multientry_doc();
+
+        // dbg!(&doc.txns);
+        // dbg!(doc.diff(&smallvec![6], &smallvec![ROOT_ORDER]));
+        // dbg!(&doc);
+
+        assert_diff_eq(&doc, &smallvec![6], &smallvec![ROOT_ORDER], &[
+           OrderSpan { order: 5, len: 2 },
+           OrderSpan { order: 0, len: 3 },
+        ], &[]);
+
+        assert_diff_eq(&doc, &smallvec![6], &smallvec![4], &[
+            OrderSpan { order: 5, len: 2 },
+            OrderSpan { order: 0, len: 3 },
+        ], &[
+            OrderSpan { order: 3, len: 2 },
+        ]);
+
+        assert_diff_eq(&doc, &smallvec![4, 6], &smallvec![ROOT_ORDER], &[
+            OrderSpan { order: 0, len: 7 },
+        ], &[]);
     }
 
     #[test]

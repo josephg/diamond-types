@@ -63,7 +63,7 @@ impl ListCRDT {
                 // The root order will be sorted out of order, but it doesn't matter because
                 // if it shows up at all it should be the only item in parents.
                 debug_assert_eq!(parents.len(), 1);
-                // And leave expect_shadow = txn.order.
+                if txn.order == 0 { expect_shadow = ROOT_ORDER; }
             } else {
                 parents.sort_by(|a, b| b.cmp(a)); // descending order
 

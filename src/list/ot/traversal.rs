@@ -196,7 +196,9 @@ impl SplitableSpan for TraversalComponent {
 #[cfg(test)]
 mod test {
     use crate::splitable_span::test_splitable_methods_valid;
-    use super::TraversalComponent::*;
+    use crate::list::ot::traversal::*;
+    use std::mem::size_of;
+    use crate::list::ot::positional::PositionalOp;
 
     #[test]
     fn traverse_op_checks() {
@@ -204,5 +206,12 @@ mod test {
         test_splitable_methods_valid(Ins { len: 5, content_known: true });
         test_splitable_methods_valid(Del(5));
         test_splitable_methods_valid(Retain(5));
+    }
+
+    #[test]
+    fn print_sizes() {
+        dbg!(size_of::<TraversalOpSequence>());
+        dbg!(size_of::<TraversalOp>());
+        dbg!(size_of::<PositionalOp>());
     }
 }

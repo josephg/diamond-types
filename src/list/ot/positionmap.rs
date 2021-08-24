@@ -1,4 +1,4 @@
-use crate::list::{Order, ListCRDT, DoubleDeleteList};
+use crate::list::{Order, ListCRDT, DoubleDeleteList, Branch};
 use crate::range_tree::*;
 use crate::order::OrderSpan;
 use std::pin::Pin;
@@ -9,6 +9,7 @@ use ropey::Rope;
 use TraversalComponent::*;
 use crate::list::ot::positional::{PositionalComponent, InsDelTag, PositionalOp};
 use smallvec::SmallVec;
+use std::iter::Empty;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
@@ -273,45 +274,70 @@ impl ListCRDT {
     }
 
     pub fn positional_changes_since(&self, order: Order) -> PositionalOp {
-        let mut walker = ReversePositionalOpWalker::new(self, order);
+        let mut walker = ReversePositionalOpWalker::new_since_order(self, order);
+        walker.get_positional_op()
+    }
+
+    pub fn positional_changes_since_branch(&self, branch: &Branch) -> PositionalOp {
+        let (a, b) = self.diff(branch, &self.frontier);
+        assert_eq!(a.len(), 0);
+
+        let mut walker = ReversePositionalOpWalker::new_from_iter(self, b.iter().copied());
         walker.get_positional_op()
     }
 
     pub fn traversal_changes_since(&self, order: Order) -> TraversalOpSequence {
         self.positional_changes_since(order).into()
     }
+
+    pub fn traversal_changes_since_branch(&self, branch: &Branch) -> TraversalOpSequence {
+        self.positional_changes_since_branch(branch).into()
+    }
 }
 
 #[derive(Debug)]
-struct ReversePositionalOpWalker<'a> {
+struct ReversePositionalOpWalker<'a, I: DoubleEndedIterator<Item=OrderSpan>> {
     doc: &'a ListCRDT,
+    iter: I,
     span: OrderSpan,
     map: PositionMap,
     marked_deletes: DoubleDeleteVisitor,
 }
+// #[derive(Debug)]
+// struct ReversePositionalOpWalker<'a> {
+//     doc: &'a ListCRDT,
+//     span: OrderSpan,
+//     map: PositionMap,
+//     marked_deletes: DoubleDeleteVisitor,
+// }
 
-impl<'a> Iterator for ReversePositionalOpWalker<'a> {
+impl<'a, I: DoubleEndedIterator<Item=OrderSpan>> Iterator for ReversePositionalOpWalker<'a, I> {
     type Item = (u32, PositionalComponent);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.span.len == 0 {
-            None
-        } else {
-            loop {
-                let (len_here, op) = self.doc.next_positional_change(&self.span, &mut self.map, &mut self.marked_deletes);
-                self.span.len -= len_here;
-                if op.is_some() || self.span.len == 0 {
-                    return op;
-                } // Else we're in a span of double deleted items. Keep scanning.
-            }
+        while self.span.len == 0 {
+            if let Some(span) = self.iter.next_back() {
+                self.span = span;
+            } else { return None; }
         }
+
+        while self.span.len != 0 {
+            let (len_here, op) = self.doc.next_positional_change(&self.span, &mut self.map, &mut self.marked_deletes);
+            self.span.len -= len_here;
+            if op.is_some() || self.span.len == 0 {
+                return op;
+            } // Else we're in a span of double deleted items. Keep scanning.
+        }
+
+        None
     }
 }
 
-impl<'a> ReversePositionalOpWalker<'a> {
-    fn new(doc: &'a ListCRDT, base_order: Order) -> Self {
+impl<'a> ReversePositionalOpWalker<'a, Empty<OrderSpan>> {
+    fn new_since_order(doc: &'a ListCRDT, base_order: Order) -> Self {
         let mut iter = ReversePositionalOpWalker {
             doc,
+            iter: std::iter::empty(),
             span: doc.linear_changes_since(base_order),
             map: RangeTree::new(),
             marked_deletes: DoubleDeleteVisitor::new(),
@@ -320,6 +346,22 @@ impl<'a> ReversePositionalOpWalker<'a> {
         iter.map.insert_at_start(Retain(doc.range_tree.content_len() as _), null_notify);
         iter
     }
+}
+
+impl<'a, I: DoubleEndedIterator<Item=OrderSpan>> ReversePositionalOpWalker<'a, I> {
+    fn new_from_iter(doc: &'a ListCRDT, iter: I) -> Self {
+        let mut iter = ReversePositionalOpWalker {
+            doc,
+            iter,
+            span: OrderSpan::default(),
+            map: RangeTree::new(),
+            marked_deletes: DoubleDeleteVisitor::new(),
+        };
+
+        iter.map.insert_at_start(Retain(doc.range_tree.content_len() as _), null_notify);
+        iter
+    }
+
     fn drain(&mut self) {
         while let Some(_) = self.next() {}
     }
@@ -379,6 +421,7 @@ mod test {
     use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
     use ropey::Rope;
     use smallvec::smallvec;
+    // use crate::list::external_txn::{RemoteTxn, RemoteId};
 
     #[test]
     fn simple_position_map() {
@@ -422,7 +465,7 @@ mod test {
 
         // "hi there" -> "hiere" -> "hie"
 
-        let mut walker = ReversePositionalOpWalker::new(&doc2, 0);
+        let mut walker = ReversePositionalOpWalker::new_since_order(&doc2, 0);
         let positional_op = walker.get_positional_op();
 
         use InsDelTag::*;
@@ -475,7 +518,7 @@ mod test {
         }
         // dbg!(ops);
 
-        let mut walker = ReversePositionalOpWalker::new(&doc, midpoint_order);
+        let mut walker = ReversePositionalOpWalker::new_since_order(&doc, midpoint_order);
         let positional_op = walker.get_positional_op();
         let map = walker.into_map();
 
@@ -544,4 +587,13 @@ mod test {
         let cursor = tree.cursor_at_post(4, true);
         assert_eq!(cursor.count_pos(), Pair(4, 4));
     }
+
+    // #[test]
+    // fn complex_edits() {
+    //     let doc = crate::list::time::test::complex_multientry_doc();
+    //
+    //     // Ok, now there's a bunch of interesting diffs to generate here. Fronteir is [4,6] but
+    //     // we have two branches - with orders [0-2, 5-6] and [3-4]
+    //     // let all = doc.positional_changes_since_branch(&smallvec![])
+    // }
 }
