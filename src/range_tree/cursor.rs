@@ -348,10 +348,10 @@ mod tests {
     fn compare_cursors() {
         let mut tree = RangeTree::<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
 
-        let mut cursor = tree.cursor_at_start();
+        let cursor = tree.cursor_at_start();
         assert_eq!(cursor, cursor);
 
-        tree.insert(&mut cursor, OrderSpan { order: 0, len: 1 }, null_notify);
+        tree.insert_at_start(OrderSpan { order: 0, len: 1 }, null_notify);
 
         let c1 = tree.cursor_at_start();
         let c2 = tree.cursor_at_end();
@@ -359,7 +359,7 @@ mod tests {
 
         // Ok now lets add a bunch of junk to make sure the tree has a bunch of internal nodes
         for i in 0..1000 {
-            tree.insert(&mut tree.cursor_at_start(), OrderSpan { order: i, len: 1 }, null_notify);
+            tree.insert_at_start(OrderSpan { order: i, len: 1 }, null_notify);
         }
 
         let c1 = tree.cursor_at_start();

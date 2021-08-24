@@ -437,14 +437,25 @@ impl<E: EntryTraits + EntryWithContent, I: FindContent<E>, const IE: usize, cons
 }
 
 impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+    pub fn offset_len(&self) -> usize {
+        I::index_to_offset(self.count)
+    }
+
     pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, I, IE, LE> {
         self.cursor_at_query(pos, stick_end, I::index_to_offset, |e| e.len())
     }
 }
     
 impl<E: EntryTraits + Searchable, I: FindOffset<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
-    pub fn at(&self, pos: usize) -> Option<E::Item> {
+    pub fn at_offset(&self, pos: usize) -> Option<E::Item> {
         let cursor = self.cursor_at_offset_pos(pos, false);
+        cursor.get_item()
+    }
+}
+
+impl<E: EntryTraits + EntryWithContent + Searchable, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+    pub fn at_content(&self, pos: usize) -> Option<E::Item> {
+        let cursor = self.cursor_at_content_pos(pos, false);
         cursor.get_item()
     }
 }

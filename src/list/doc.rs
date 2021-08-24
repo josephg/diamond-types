@@ -45,8 +45,7 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<
             order = index_len;
         }
 
-        let mut cursor = index.cursor_at_offset_pos(order as usize, true);
-        index.replace_range(&mut cursor, MarkerEntry {
+        index.replace_range_at_offset(order as usize, MarkerEntry {
             ptr: Some(leaf), len
         }, null_notify);
 
@@ -345,7 +344,7 @@ impl ListCRDT {
         }
 
         // Now insert here.
-        self.range_tree.insert(&mut cursor, item, notify_for(&mut self.index));
+        unsafe { self.range_tree.insert(&mut cursor, item, notify_for(&mut self.index)); }
     }
 
     fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
@@ -390,7 +389,7 @@ impl ListCRDT {
     pub(super) fn internal_mark_deleted(&mut self, order: Order, max_len: u32, update_content: bool) -> (u32, bool) {
         let cursor = self.get_cursor_before(order);
 
-        let (deleted_here, succeeded) = self.range_tree.remote_deactivate(cursor.clone(), max_len as _, notify_for(&mut self.index));
+        let (deleted_here, succeeded) = unsafe { self.range_tree.remote_deactivate(cursor.clone(), max_len as _, notify_for(&mut self.index)) };
         let deleted_here = deleted_here as u32;
 
         if !succeeded {
@@ -555,8 +554,7 @@ impl ListCRDT {
         for LocalOp { pos, ins_content, del_span } in local_ops {
             let pos = *pos;
             if *del_span > 0 {
-                let cursor = self.range_tree.cursor_at_content_pos(pos, false);
-                let deleted_items = self.range_tree.local_deactivate(cursor, *del_span, notify_for(&mut self.index));
+                let deleted_items = self.range_tree.local_deactivate_at_content(pos, *del_span, notify_for(&mut self.index));
 
                 // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
                 // let mut cursor = self.index.cursor_at_end();

@@ -79,6 +79,20 @@ impl EntryWithContent for TestRange {
     }
 }
 
+impl Searchable for TestRange {
+    type Item = (Order, bool);
+
+    fn contains(&self, loc: Self::Item) -> Option<usize> {
+        if self.is_activated == loc.1 && loc.0 >= self.order && loc.0 < (self.order + self.len) {
+            Some((loc.0 - self.order) as usize)
+        } else { None }
+    }
+
+    fn at_offset(&self, offset: usize) -> Self::Item {
+        (offset as Order + self.order, self.is_activated)
+    }
+}
+
 fn random_entry(rng: &mut SmallRng) -> TestRange {
     TestRange {
         order: rng.gen_range(0..10),
@@ -180,7 +194,7 @@ fn random_edits() {
                 assert_eq!(cursor.count_pos().0, pos);
                 cursor.check();
 
-                tree.insert(&mut cursor, item, null_notify);
+                unsafe { tree.insert(&mut cursor, item, null_notify); }
                 assert_eq!(cursor.count_pos().0, pos + item.len);
                 cursor.check();
 
@@ -196,7 +210,7 @@ fn random_edits() {
                 let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
                 assert_eq!(cursor.count_pos().0, pos);
                 cursor.check();
-                tree.replace_range(&mut cursor, item, null_notify);
+                unsafe { tree.replace_range(&mut cursor, item, null_notify); }
                 assert_eq!(cursor.count_pos().0, pos + item.len);
                 cursor.check();
 
@@ -214,7 +228,7 @@ fn random_edits() {
                 assert_eq!(cursor.count_pos().0, pos);
                 cursor.check();
 
-                tree.delete(&mut cursor, del_span as _, null_notify);
+                unsafe { tree.delete(&mut cursor, del_span as _, null_notify); }
                 assert_eq!(cursor.count_pos().0, pos);
                 cursor.check();
 

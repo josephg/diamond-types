@@ -206,7 +206,7 @@ impl ListCRDT {
                 // consume "space".
 
                 let pre_pos = map_cursor.count_pos().0;
-                map.insert(&mut map_cursor, Del(len_here), null_notify);
+                unsafe { map.insert(&mut map_cursor, Del(len_here), null_notify); }
 
                 // The content might have later been deleted.
                 let entry = PositionalComponent {
@@ -247,7 +247,7 @@ impl ListCRDT {
                 let mut map_cursor = map.cursor_at_post(post_pos as usize + 1, true);
                 map_cursor.offset -= 1;
                 let pre_pos = map_cursor.count_pos().0;
-                map.replace_range(&mut map_cursor, Ins { len: len_here, content_known }, null_notify);
+                unsafe { map.replace_range(&mut map_cursor, Ins { len: len_here, content_known }, null_notify); }
                 PositionalComponent {
                     pos: pre_pos,
                     len: len_here,
@@ -257,7 +257,7 @@ impl ListCRDT {
             } else {
                 let mut map_cursor = map.cursor_at_post(post_pos as usize, true);
                 map_cursor.roll_to_next_entry();
-                map.delete(&mut map_cursor, len_here as usize, null_notify);
+                unsafe { map.delete(&mut map_cursor, len_here as usize, null_notify); }
                 PositionalComponent {
                     pos: map_cursor.count_pos().0,
                     len: len_here,
