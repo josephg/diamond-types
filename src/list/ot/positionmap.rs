@@ -4,7 +4,7 @@ use crate::order::OrderSpan;
 use std::pin::Pin;
 use crate::list::double_delete::DoubleDelete;
 use crate::rle::{KVPair, RleKey, RleSpanHelpers, AppendRLE};
-use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
+use crate::list::ot::traversal::{TraversalComponent, TraversalOp, TraversalOpSequence};
 use ropey::Rope;
 use TraversalComponent::*;
 use crate::list::ot::positional::{PositionalComponent, InsDelTag, PositionalOp};
@@ -275,6 +275,10 @@ impl ListCRDT {
     pub fn positional_changes_since(&self, order: Order) -> PositionalOp {
         let mut walker = ReversePositionalOpWalker::new(self, order);
         walker.get_positional_op()
+    }
+
+    pub fn traversal_changes_since(&self, order: Order) -> TraversalOpSequence {
+        self.positional_changes_since(order).into()
     }
 }
 

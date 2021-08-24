@@ -15,12 +15,16 @@
 /// https://github.com/ottypes/text-unicode/blob/49b054d275a82a0f3aa2bafa4b77bdc3ee7513b7/NOTES.md
 
 use smartstring::alias::{String as SmartString};
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 use crate::splitable_span::SplitableSpan;
 use TraversalComponent::*;
 use crate::list::Order;
+use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
+#[cfg(feature = "serde")]
+use serde_crate::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub enum TraversalComponent {
     Ins { len: u32, content_known: bool },
     Del(u32), // TODO: Add content_known for del for consistency
@@ -29,14 +33,37 @@ pub enum TraversalComponent {
 
 /// A traversal is a walk over the document which inserts and deletes items.
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct TraversalOp {
     pub traversal: SmallVec<[TraversalComponent; 2]>,
+    pub content: SmartString,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+pub struct TraversalOpSequence {
+    pub components: SmallVec<[SmallVec<[TraversalComponent; 2]>; 2]>,
     pub content: SmartString,
 }
 
 impl TraversalOp {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn body_from_positional(positional: PositionalComponent) -> SmallVec<[TraversalComponent; 2]> {
+        let body = match positional.tag {
+            InsDelTag::Ins => TraversalComponent::Ins {
+                len: positional.len,
+                content_known: positional.content_known
+            },
+            InsDelTag::Del => TraversalComponent::Del(positional.len)
+        };
+        if positional.pos == 0 {
+            smallvec![body]
+        } else {
+            smallvec![Retain(positional.pos), body]
+        }
     }
 
     pub fn apply_to_string(&self, val: &str) -> String {
@@ -71,6 +98,18 @@ impl TraversalOp {
             }
         }
         result
+    }
+}
+
+impl From<PositionalOp> for TraversalOpSequence {
+    fn from(positional: PositionalOp) -> Self {
+        Self {
+            components: positional.components
+                .into_iter()
+                .map(TraversalOp::body_from_positional)
+                .collect(),
+            content: positional.content
+        }
     }
 }
 
