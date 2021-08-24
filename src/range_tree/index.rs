@@ -32,6 +32,15 @@ pub trait TreeIndex<E: EntryTraits> where Self: Debug + Copy + Clone + PartialEq
     fn count_items(_idx: Self::IndexValue) -> usize { panic!("Index cannot count items") }
 }
 
+pub trait FindContent<E: EntryTraits + EntryWithContent>: TreeIndex<E> {
+    fn index_to_content(offset: Self::IndexValue) -> usize;
+}
+
+pub trait FindOffset<E: EntryTraits>: TreeIndex<E> {
+    fn index_to_offset(offset: Self::IndexValue) -> usize;
+}
+
+
 /// Content index - which just indexes based on the resulting size. Deletes are not counted.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct ContentIndex;
@@ -66,6 +75,11 @@ impl<E: EntryTraits + EntryWithContent> TreeIndex<E> for ContentIndex {
     fn increment_offset_partial(offset: &mut Self::IndexValue, by: &E, at: usize) {
         *offset += by.content_len().min(at) as u32;
     }
+}
+
+impl<E: EntryTraits + EntryWithContent> FindContent<E> for ContentIndex {
+    fn index_to_content(offset: Self::IndexValue) -> usize { offset as usize }
+    // fn entry_to_num(entry: &E) -> usize { entry.content_len() }
 }
 
 /// Index based on the raw size of an element.
@@ -106,6 +120,11 @@ impl<E: EntryTraits> TreeIndex<E> for RawPositionIndex {
     const CAN_COUNT_ITEMS: bool = true;
     fn count_items(idx: Self::IndexValue) -> usize { idx as usize }
 }
+
+impl<E: EntryTraits> FindOffset<E> for RawPositionIndex {
+    fn index_to_offset(offset: Self::IndexValue) -> usize { offset as usize }
+}
+
 
 /// Index based on both resulting size and raw insert position
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -189,5 +208,17 @@ impl<E: EntryTraits + EntryWithContent> TreeIndex<E> for FullIndex {
     fn increment_offset_partial(offset: &mut Self::IndexValue, by: &E, at: usize) {
         offset.0 += at as u32;
         offset.1 += by.content_len().min(at) as u32;
+    }
+}
+
+impl<E: EntryTraits + EntryWithContent> FindContent<E> for FullIndex {
+    fn index_to_content(offset: Self::IndexValue) -> usize {
+        offset.1 as usize
+    }
+}
+
+impl<E: EntryTraits + EntryWithContent> FindOffset<E> for FullIndex {
+    fn index_to_offset(offset: Self::IndexValue) -> usize {
+        offset.0 as usize
     }
 }

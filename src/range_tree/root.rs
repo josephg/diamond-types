@@ -1,7 +1,6 @@
 use super::*;
 
 use smallvec::SmallVec;
-use crate::range_tree::index::FullIndex;
 use std::mem::size_of;
 use humansize::{FileSize, file_size_opts};
 use crate::merge_iter::merge_items;
@@ -427,47 +426,26 @@ impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: us
     }
 }
 
-impl<E: EntryTraits, const IE: usize, const LE: usize> RangeTree<E, RawPositionIndex, IE, LE> {
-    pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, RawPositionIndex, IE, LE> {
-        self.cursor_at_query(pos, stick_end,
-                             |i| i as usize,
-                             |e| e.len())
+impl<E: EntryTraits + EntryWithContent, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+    pub fn content_len(&self) -> usize {
+        I::index_to_content(self.count)
+    }
+    
+    pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, I, IE, LE> {
+        self.cursor_at_query(pos, stick_end, I::index_to_content, |e| e.content_len())
     }
 }
 
-impl<E: EntryTraits + Searchable, const IE: usize, const LE: usize> RangeTree<E, RawPositionIndex, IE, LE> {
+impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+    pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, I, IE, LE> {
+        self.cursor_at_query(pos, stick_end, I::index_to_offset, |e| e.len())
+    }
+}
+    
+impl<E: EntryTraits + Searchable, I: FindOffset<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
     pub fn at(&self, pos: usize) -> Option<E::Item> {
         let cursor = self.cursor_at_offset_pos(pos, false);
         cursor.get_item()
-    }
-}
-
-impl<E: EntryTraits + EntryWithContent, const IE: usize, const LE: usize> RangeTree<E, ContentIndex, IE, LE> {
-    pub fn content_len(&self) -> usize {
-        self.count as usize
-    }
-
-    pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, ContentIndex, IE, LE> {
-        self.cursor_at_query(pos, stick_end,
-                                         |i| i as usize,
-                                         |e| e.content_len())
-    }
-}
-impl<E: EntryTraits + EntryWithContent, const IE: usize, const LE: usize> RangeTree<E, FullIndex, IE, LE> {
-    pub fn content_len(&self) -> usize {
-        self.count.1 as usize
-    }
-
-    pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, FullIndex, IE, LE> {
-        self.cursor_at_query(pos, stick_end,
-                                         |i| i.1 as usize,
-                                         |e| e.content_len())
-    }
-
-    pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, FullIndex, IE, LE> {
-        self.cursor_at_query(pos, stick_end,
-                                         |i| i.0 as usize,
-                                         |e| e.len())
     }
 }
 
