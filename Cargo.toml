@@ -42,9 +42,5 @@ name = "ropey"
 harness = false
 
 [[bench]]
-name = "local_edits"
-harness = false
-
-[[bench]]
-name = "remote_edits"
+name = "core"
 harness = false
