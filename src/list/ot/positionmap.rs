@@ -201,12 +201,12 @@ impl ListCRDT {
 
             let op = if allowed {
                 // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
-                let post_pos = rt_cursor.count_pos();
+                let post_pos = unsafe { rt_cursor.count_pos() };
                 let mut map_cursor = map.cursor_at_post(post_pos as _, true);
                 // We call insert instead of replace_range here because the delete doesn't
                 // consume "space".
 
-                let pre_pos = map_cursor.count_pos().0;
+                let pre_pos = unsafe { map_cursor.count_pos() }.0;
                 unsafe { map.insert(&mut map_cursor, Del(len_here), null_notify); }
 
                 // The content might have later been deleted.
@@ -234,7 +234,7 @@ impl ListCRDT {
             rt_cursor.offset -= len_here as usize;
 
             // Where in the final document are we?
-            let post_pos = rt_cursor.count_pos();
+            let post_pos = unsafe { rt_cursor.count_pos() };
 
             // So this is also dirty. We need to skip any deletes, which have a size of 0.
             let content_known = rt_cursor.get_raw_entry().is_activated();
@@ -247,7 +247,7 @@ impl ListCRDT {
                 // location which has the right position.
                 let mut map_cursor = map.cursor_at_post(post_pos as usize + 1, true);
                 map_cursor.offset -= 1;
-                let pre_pos = map_cursor.count_pos().0;
+                let pre_pos = unsafe { map_cursor.count_pos() }.0;
                 unsafe { map.replace_range(&mut map_cursor, Ins { len: len_here, content_known }, null_notify); }
                 PositionalComponent {
                     pos: pre_pos,
@@ -260,7 +260,7 @@ impl ListCRDT {
                 map_cursor.roll_to_next_entry();
                 unsafe { map.delete(&mut map_cursor, len_here as usize, null_notify); }
                 PositionalComponent {
-                    pos: map_cursor.count_pos().0,
+                    pos: unsafe { map_cursor.count_pos() }.0,
                     len: len_here,
                     content_known: false,
                     tag: InsDelTag::Ins
@@ -296,11 +296,6 @@ impl ListCRDT {
     pub fn traversal_changes_since_branch(&self, branch: &[Order]) -> TraversalOpSequence {
         self.positional_changes_since_branch(branch).into()
     }
-
-    // pub fn traversal_changes_since_branch_ext(&self, branch_ext: &[RemoteId]) -> TraversalOpSequence {
-    //     let branch = self.remote_ids_to_branch(branch_ext);
-    //     self.traversal_changes_since_branch(&branch)
-    // }
 }
 
 #[derive(Debug)]
@@ -589,7 +584,7 @@ mod test {
         tree.insert_at_start(TraversalComponent::Retain(10), null_notify);
 
         let cursor = tree.cursor_at_post(4, true);
-        assert_eq!(cursor.count_pos(), Pair(4, 4));
+        assert_eq!(unsafe { cursor.count_pos() }, Pair(4, 4));
     }
 
     #[test]

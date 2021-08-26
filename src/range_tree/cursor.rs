@@ -93,15 +93,15 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
         self.next_entry_marker(None)
     }
 
-    pub fn count_pos(&self) -> I::IndexValue {
+    pub unsafe fn count_pos(&self) -> I::IndexValue {
         // We're a cursor into an empty tree.
         if self.offset == usize::MAX { return I::IndexValue::default(); }
 
-        let node = unsafe { self.node.as_ref() };
+        let node = self.node.as_ref();
         let mut pos = I::IndexValue::default();
         // First find out where we are in the current node.
 
-        if self.idx >= node.data.len() { unsafe { unreachable_unchecked(); } }
+        if self.idx >= node.data.len() { unreachable_unchecked(); }
 
         for e in &node.data[0..self.idx] {
             I::increment_offset(&mut pos, e);
@@ -121,7 +121,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
                 ParentPtr::Root(_) => { break; }, // done.
 
                 ParentPtr::Internal(n) => {
-                    let node_ref = unsafe { n.as_ref() };
+                    let node_ref = n.as_ref();
                     let idx = node_ref.find_child(node_ptr).unwrap();
 
                     for c in &node_ref.index[0..idx] {

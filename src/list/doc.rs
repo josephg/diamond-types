@@ -316,13 +316,13 @@ impl ListCRDT {
         if scanning { cursor = scan_start; }
 
         if cfg!(debug_assertions) {
-            let pos = cursor.count_pos() as usize;
+            let pos = unsafe { cursor.count_pos() as usize };
             let len = self.range_tree.len() as usize;
             assert!(pos <= len);
         }
 
         if let Some(text) = self.text_content.as_mut() {
-            let pos = cursor.count_pos() as usize;
+            let pos = unsafe { cursor.count_pos() as usize };
             if let Some(ins_content) = ins_content {
                 debug_assert_eq!(ins_content.chars().count(), item.len as usize);
                 text.insert(pos, ins_content);
@@ -397,7 +397,7 @@ impl ListCRDT {
             // This span was already deleted by a different peer. Mark duplicate delete.
             self.double_deletes.increment_delete_range(order, deleted_here);
         } else if let (Some(text), true) = (&mut self.text_content, update_content) {
-            let pos = cursor.count_pos() as usize;
+            let pos = unsafe { cursor.count_pos() as usize };
             text.remove(pos..pos + deleted_here as usize);
         }
 

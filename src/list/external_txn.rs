@@ -347,7 +347,7 @@ impl ListCRDT {
                 // This might be simpler if I just make up content for deleted items O_o
                 let content_known = if entry.is_activated() {
                     if let Some(ref text) = self.text_content {
-                        let pos = cursor.count_pos() as usize;
+                        let pos = unsafe { cursor.count_pos() as usize };
                         let content = text.chars_at(pos).take(len as usize);
                         ins_content.extend(content);
                         true
