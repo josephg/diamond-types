@@ -2,31 +2,14 @@
 // https://github.com/automerge/automerge-perf/
 // mod testdata;
 
-use criterion::{black_box, Criterion, BenchmarkId};
+mod utils;
+
+use criterion::{criterion_group, criterion_main, black_box, Criterion, BenchmarkId};
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use smartstring::alias::{String as SmartString};
 use diamond_types::*;
 use diamond_types::list::*;
-
-fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
-    let id = doc.get_or_create_agent_id("jeremy");
-
-    let mut local_ops: Vec<LocalOp> = Vec::new();
-
-    for (_i, txn) in txns.iter().enumerate() {
-        local_ops.clear();
-        local_ops.extend(txn.patches.iter().map(|TestPatch(pos, del_span, ins_content)| {
-            assert!(*pos <= doc.len());
-            LocalOp {
-                pos: *pos,
-                del_span: *del_span,
-                ins_content: SmartString::from(ins_content.as_str())
-            }
-        }));
-
-        doc.apply_local_txn(id, local_ops.as_slice());
-    }
-}
+use utils::apply_edits;
 
 pub fn local_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("local edits");
@@ -60,3 +43,6 @@ pub fn local_benchmarks(c: &mut Criterion) {
         })
     });
 }
+
+criterion_group!(benches, local_benchmarks);
+criterion_main!(benches);

@@ -38,5 +38,13 @@ inlinerope = []
 serde = ["serde_crate", "smallvec/serde", "smartstring/serde"]
 
 [[bench]]
-name = "benchmark"
+name = "ropey"
+harness = false
+
+[[bench]]
+name = "local_edits"
+harness = false
+
+[[bench]]
+name = "remote_edits"
 harness = false
