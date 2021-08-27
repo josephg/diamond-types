@@ -470,38 +470,22 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
         let start_range = cursor.idx;
         let mut end_range = cursor.idx;
 
-        // TODO: Benchmark to see if this actually helps.
-        let mut remove_whole_node = if I::CAN_COUNT_ITEMS && start_range == 0 && !node.has_root_as_parent() {
-            let item_count = node.count_items();
-            if I::count_items(item_count) <= del_items {
-                I::decrement_marker_by_val(flush_marker, &item_count);
-                del_items -= I::count_items(item_count);
-                true
-            } else { false }
-        } else { false };
-
         // 1. Find the end index to remove
-        if !remove_whole_node {
-            let len_entries = node.len_entries();
-            // let mut node = unsafe { &mut *cursor.node.as_ptr() };
-            while end_range < len_entries && del_items > 0 {
-                let entry = node.data[end_range];
-                let entry_len = entry.len();
-                if entry_len <= del_items {
-                    I::decrement_marker(flush_marker, &entry);
-                    del_items -= entry_len;
-                    end_range += 1;
-                } else {
-                    break;
-                }
-            }
-
-            if start_range == 0 && end_range == len_entries && !node.has_root_as_parent() {
-                remove_whole_node = true;
+        let len_entries = node.len_entries();
+        // let mut node = unsafe { &mut *cursor.node.as_ptr() };
+        while end_range < len_entries && del_items > 0 {
+            let entry = node.data[end_range];
+            let entry_len = entry.len();
+            if entry_len <= del_items {
+                I::decrement_marker(flush_marker, &entry);
+                del_items -= entry_len;
+                end_range += 1;
+            } else {
+                break;
             }
         }
 
-        if remove_whole_node {
+        if start_range == 0 && end_range == len_entries && !node.has_root_as_parent() {
             // Remove the entire leaf from the tree.
             node.flush_index_update(flush_marker);
 
@@ -537,8 +521,8 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
             // If the result is to remove all entries, the leaf should have been removed instead.
             debug_assert!(node.num_entries > 0 || node.parent.is_root());
 
-            // Is this worth doing? It keeps things tidier but its unnecessary and I don't like
-            // debug mode and prod mode drifting too far.
+            // This is unnecessary but for some total magic reason, disabling this results in a
+            // performance regression.
             // #[cfg(debug_assertions)]
             node.data[start_range + tail_count..].fill(E::default());
 
