@@ -9,7 +9,6 @@ use ropey::Rope;
 use TraversalComponent::*;
 use crate::list::ot::positional::{PositionalComponent, InsDelTag, PositionalOp};
 use smallvec::SmallVec;
-use std::iter::Empty;
 use crate::splitable_span::SplitableSpan;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -48,10 +47,6 @@ impl TreeIndex<TraversalComponent> for PrePostIndex {
 pub(super) type PositionMap = Pin<Box<RangeTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>>>;
 
 impl RangeTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
-    // pub fn content_len(&self) -> usize {
-    //     self.count as usize
-    // }
-
     pub fn cursor_at_post(&self, pos: usize, stick_end: bool) -> Cursor<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
         self.cursor_at_query(pos, stick_end,
                              |i| i.1 as usize,
@@ -69,8 +64,6 @@ struct DoubleDeleteVisitor(DoubleDeleteList); // TODO: Make allocation lazy here
 
 impl DoubleDeleteVisitor {
     fn new() -> Self { Self::default() }
-
-    // fn swap_index(idx: RleKey) -> RleKey { RleKey::MAX - idx }
 
     fn find_edit_range(&self, needle: RleKey) -> Result<(&KVPair<DoubleDelete>, usize), (RleKey, usize)> {
         match self.0.search(needle) {
@@ -116,6 +109,73 @@ impl DoubleDeleteVisitor {
     }
 }
 
+impl<V: SplitableSpan + RleKeyed + Clone + Sized> Rle<V> {
+    fn search_backwards(&self, needle: RleKey, idx: &mut usize) -> Option<(&V, RleKey)> {
+        // This conditional looks inverted given we're looping backwards, but I'm using
+        // wrapping_sub - so when we reach the end the index wraps around and we'll hit usize::MAX.
+        while *idx < self.0.len() {
+            let e = &self.0[*idx];
+            if e.get_rle_key() <= needle {
+                return if e.end() > needle {
+                    Some((e, needle - e.get_rle_key()))
+                } else {
+                    None
+                };
+            }
+            *idx = idx.wrapping_sub(1);
+        }
+        None
+    }
+}
+
+/// An iterator over positional changes. The positional changes are returned in reverse
+/// chronological order (last to first).
+#[derive(Debug)]
+struct PositionalChangesIter<'a> {
+    doc: &'a ListCRDT,
+    span: OrderSpan,
+    map: PositionMap,
+    deletes_idx: usize,
+    marked_deletes: DoubleDeleteVisitor,
+}
+
+/// An iterator over positional changes which handles situations where time is non-linear. This
+/// is useful when finding an operation to some arbitrary branch in history - which might not have
+/// ever existed in the local time linearization. Eg, if two operations were concurrent, this allows
+/// fetching the changes from *either* point in time to the current point in time.
+#[derive(Debug)]
+struct MultiPositionalChangesIter<'a, I: Iterator<Item=OrderSpan>> {
+    /// NOTE: The remaining spans iter must yield in reverse order (highest order to lowest order).
+    remaining_spans: I,
+    state: PositionalChangesIter<'a>,
+}
+
+impl ListCRDT {
+    pub fn positional_changes_since(&self, order: Order) -> PositionalOp {
+        let walker = PositionalChangesIter::new_since_order(self, order);
+        walker.into_positional_op()
+    }
+
+    pub fn positional_changes_since_branch(&self, branch: &[Order]) -> PositionalOp {
+        let (a, b) = self.diff(branch, &self.frontier);
+        assert_eq!(a.len(), 0);
+
+        // Note the spans are guaranteed to be delivered in reverse order (from last to first).
+        // This is what walker expects - since we'll be moving in reverse chronological order here
+        // too. Otherwise we'd need to wrap the iterator in Reverse() or reverse the contents.
+        let walker = MultiPositionalChangesIter::new_from_iter(self, b.iter().copied());
+        walker.into_positional_op()
+    }
+
+    pub fn traversal_changes_since(&self, order: Order) -> TraversalOpSequence {
+        self.positional_changes_since(order).into()
+    }
+
+    pub fn traversal_changes_since_branch(&self, branch: &[Order]) -> TraversalOpSequence {
+        self.positional_changes_since_branch(branch).into()
+    }
+}
+
 // I've gone through a lot of potential designs for this code and settled on this one.
 //
 // Other options:
@@ -145,34 +205,10 @@ impl DoubleDeleteVisitor {
 // The result is that this code is very complex. It also probably adds a lot to binary size because
 // of the monomorphized range_tree calls. The upside is that this complexity is entirely self
 // contained, and the complexity here allows other systems to work "naturally". But its not perfect.
+impl<'a> Iterator for PositionalChangesIter<'a> {
+    type Item = (u32, PositionalComponent);
 
-impl<V: SplitableSpan + RleKeyed + Clone + Sized> Rle<V> {
-    fn search_backwards(&self, needle: RleKey, idx: &mut usize) -> Option<(&V, RleKey)> {
-        // This conditional looks inverted given we're looping backwards, but I'm using
-        // wrapping_sub - so when we reach the end the index wraps around and we'll hit usize::MAX.
-        while *idx < self.0.len() {
-            let e = &self.0[*idx];
-            if e.get_rle_key() <= needle {
-                return if e.end() > needle {
-                    Some((e, needle - e.get_rle_key()))
-                } else {
-                    None
-                };
-            }
-            *idx = idx.wrapping_sub(1);
-        }
-        None
-    }
-}
-
-impl ListCRDT {
-    fn next_positional_change(
-        &self,
-        span: &OrderSpan,
-        map: &mut PositionMap,
-        marked_deletes: &mut DoubleDeleteVisitor,
-        deletes_idx: &mut usize
-    ) -> (u32, Option<(u32, PositionalComponent)>) {
+    fn next(&mut self) -> Option<(u32, PositionalComponent)> {
         // We go back through history in reverse order. We need to go in reverse order for a few
         // reasons:
         //
@@ -184,203 +220,135 @@ impl ListCRDT {
         // each entry, but at some point we might want to generate this map from a different time
         // order. This approach uses less memory and generalizes better, at the expense of more
         // complex code.
-        assert!(span.len > 0);
+        while self.span.len > 0 {
+            // So instead of searching for span.offset, we start with span.offset + span.len - 1.
+            let span_last_order = self.span.end() - 1;
 
-        // dbg!(&map, &marked_deletes, &span);
+            // First check if the change was a delete or an insert.
+            if let Some((d, d_offset)) = self.doc.deletes.search_backwards(span_last_order, &mut self.deletes_idx) {
+                // Its a delete. We need to try to undelete the item, unless the item was deleted
+                // multiple times (in which case, it stays deleted for now).
+                let base = u32::max(self.span.order, d.0);
+                let del_span_size = span_last_order + 1 - base; // TODO: Clean me up
+                debug_assert!(del_span_size > 0);
 
-        // So instead of searching for span.offset, we start with span.offset + span.len - 1.
+                // d_offset -= span_last_order - base; // equivalent to d_offset -= undelete_here - 1;
 
-        // First check if the change was a delete or an insert.
-        let span_last_order = span.end() - 1;
+                // Ok, undelete here. An earlier version of this code iterated *forwards* amongst
+                // the deleted span. This worked correctly and was slightly simpler, but it was a
+                // confusing API to use and test because delete changes in particular were sometimes
+                // arbitrarily reordered.
 
-        if let Some((d, d_offset)) = self.deletes.search_backwards(span_last_order, deletes_idx) {
-            // Its a delete. We need to try to undelete the item, unless the item was deleted
-            // multiple times (in which case, it stays deleted for now).
-            let base = u32::max(span.order, d.0);
-            let del_span_size = span_last_order + 1 - base; // TODO: Clean me up
-            debug_assert!(del_span_size > 0);
+                let last_del_target = d.1.order + d_offset;
 
-            // d_offset -= span_last_order - base; // equivalent to d_offset -= undelete_here - 1;
+                // I'm also going to limit what we visit each iteration by the size of the visited
+                // item in the range tree. For performance I could hold off looking this up until
+                // we've got the go ahead from marked_deletes, but given how rare double deletes
+                // are, this is fine.
 
-            // Ok, undelete here. An earlier version of this code iterated *forwards* amongst
-            // the deleted span. This worked correctly and was slightly simpler, but it was a
-            // confusing API to use and test because delete changes in particular were sometimes
-            // arbitrarily reordered.
+                let rt_cursor = self.doc.get_cursor_after(last_del_target, true);
+                // Cap the number of items to undelete each iteration based on the span in range_tree.
+                let entry = rt_cursor.get_raw_entry();
+                debug_assert!(entry.is_deactivated());
+                let first_del_target = u32::max(entry.order, last_del_target + 1 - del_span_size);
 
-            let last_del_target = d.1.order + d_offset;
+                let (allowed, first_del_target) = self.marked_deletes.mark_range(&self.doc.double_deletes, last_del_target, first_del_target);
+                let len_here = last_del_target + 1 - first_del_target;
+                // println!("Delete from {} to {}", first_del_target, last_del_target);
+                self.span.len -= len_here;
 
-            // I'm also going to limit what we visit each iteration by the size of the visited
-            // item in the range tree. For performance I could hold off looking this up until
-            // we've got the go ahead from marked_deletes, but given how rare double deletes
-            // are, this is fine.
+                if allowed {
+                    // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
+                    let post_pos = unsafe { rt_cursor.count_pos() };
+                    let mut map_cursor = self.map.cursor_at_post(post_pos as _, true);
+                    // We call insert instead of replace_range here because the delete doesn't
+                    // consume "space".
 
-            let rt_cursor = self.get_cursor_after(last_del_target, true);
-            // Cap the number of items to undelete each iteration based on the span in range_tree.
-            let entry = rt_cursor.get_raw_entry();
-            debug_assert!(entry.is_deactivated());
-            let first_del_target = u32::max(entry.order, last_del_target + 1 - del_span_size);
+                    let pre_pos = unsafe { map_cursor.count_pos() }.0;
+                    unsafe { self.map.insert(&mut map_cursor, Del(len_here), null_notify); }
 
-            let (allowed, first_del_target) = marked_deletes.mark_range(&self.double_deletes, last_del_target, first_del_target);
-            let len_here = last_del_target + 1 - first_del_target;
-            // println!("Delete from {} to {}", first_del_target, last_del_target);
+                    // The content might have later been deleted.
+                    let entry = PositionalComponent {
+                        pos: pre_pos,
+                        len: len_here,
+                        content_known: false,
+                        tag: InsDelTag::Del,
+                    };
+                    return Some((post_pos, entry));
+                } // else continue.
+            } else {
+                // println!("Insert at {:?} (last order: {})", span, span_last_order);
+                // The operation was an insert operation, not a delete operation.
+                let mut rt_cursor = self.doc.get_cursor_after(span_last_order, true);
 
-            let op = if allowed {
-                // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
+                // Check how much we can tag in one go.
+                let len_here = u32::min(self.span.len, rt_cursor.offset as _); // usize? u32? blehh
+                debug_assert_ne!(len_here, 0);
+                // let base = span_last_order + 1 - len_here; // not needed.
+                // let base = u32::max(span.order, span_last_order + 1 - cursor.offset);
+                // dbg!(&cursor, len_here);
+                rt_cursor.offset -= len_here as usize;
+
+                // Where in the final document are we?
                 let post_pos = unsafe { rt_cursor.count_pos() };
-                let mut map_cursor = map.cursor_at_post(post_pos as _, true);
-                // We call insert instead of replace_range here because the delete doesn't
-                // consume "space".
 
-                let pre_pos = unsafe { map_cursor.count_pos() }.0;
-                unsafe { map.insert(&mut map_cursor, Del(len_here), null_notify); }
+                // So this is also dirty. We need to skip any deletes, which have a size of 0.
+                let content_known = rt_cursor.get_raw_entry().is_activated();
+
+
+                // There's two cases here. Either we're inserting something fresh, or we're
+                // cancelling out a delete we found earlier.
+                let entry = if content_known {
+                    // post_pos + 1 is a hack. cursor_at_offset_pos returns the first cursor
+                    // location which has the right position.
+                    let mut map_cursor = self.map.cursor_at_post(post_pos as usize + 1, true);
+                    map_cursor.offset -= 1;
+                    let pre_pos = unsafe { map_cursor.count_pos() }.0;
+                    unsafe { self.map.replace_range(&mut map_cursor, Ins { len: len_here, content_known }, null_notify); }
+                    PositionalComponent {
+                        pos: pre_pos,
+                        len: len_here,
+                        content_known: true,
+                        tag: InsDelTag::Ins
+                    }
+                } else {
+                    let mut map_cursor = self.map.cursor_at_post(post_pos as usize, true);
+                    map_cursor.roll_to_next_entry();
+                    unsafe { self.map.delete(&mut map_cursor, len_here as usize, null_notify); }
+                    PositionalComponent {
+                        pos: unsafe { map_cursor.count_pos() }.0,
+                        len: len_here,
+                        content_known: false,
+                        tag: InsDelTag::Ins
+                    }
+                };
 
                 // The content might have later been deleted.
-                let entry = PositionalComponent {
-                    pos: pre_pos,
-                    len: len_here,
-                    content_known: false,
-                    tag: InsDelTag::Del,
-                };
-                Some((post_pos, entry))
-            } else { None };
 
-            (len_here, op)
-        } else {
-            // println!("Insert at {:?} (last order: {})", span, span_last_order);
-            // The operation was an insert operation, not a delete operation.
-            let mut rt_cursor = self.get_cursor_after(span_last_order, true);
-
-            // Check how much we can tag in one go.
-            let len_here = u32::min(span.len, rt_cursor.offset as _); // usize? u32? blehh
-            debug_assert_ne!(len_here, 0);
-            // let base = span_last_order + 1 - len_here; // not needed.
-            // let base = u32::max(span.order, span_last_order + 1 - cursor.offset);
-            // dbg!(&cursor, len_here);
-            rt_cursor.offset -= len_here as usize;
-
-            // Where in the final document are we?
-            let post_pos = unsafe { rt_cursor.count_pos() };
-
-            // So this is also dirty. We need to skip any deletes, which have a size of 0.
-            let content_known = rt_cursor.get_raw_entry().is_activated();
-
-
-            // There's two cases here. Either we're inserting something fresh, or we're
-            // cancelling out a delete we found earlier.
-            let entry = if content_known {
-                // post_pos + 1 is a hack. cursor_at_offset_pos returns the first cursor
-                // location which has the right position.
-                let mut map_cursor = map.cursor_at_post(post_pos as usize + 1, true);
-                map_cursor.offset -= 1;
-                let pre_pos = unsafe { map_cursor.count_pos() }.0;
-                unsafe { map.replace_range(&mut map_cursor, Ins { len: len_here, content_known }, null_notify); }
-                PositionalComponent {
-                    pos: pre_pos,
-                    len: len_here,
-                    content_known: true,
-                    tag: InsDelTag::Ins
-                }
-            } else {
-                let mut map_cursor = map.cursor_at_post(post_pos as usize, true);
-                map_cursor.roll_to_next_entry();
-                unsafe { map.delete(&mut map_cursor, len_here as usize, null_notify); }
-                PositionalComponent {
-                    pos: unsafe { map_cursor.count_pos() }.0,
-                    len: len_here,
-                    content_known: false,
-                    tag: InsDelTag::Ins
-                }
-            };
-
-            // The content might have later been deleted.
-
-            (len_here, Some((post_pos, entry)))
+                self.span.len -= len_here;
+                return Some((post_pos, entry));
+            }
         }
-    }
-
-    pub fn positional_changes_since(&self, order: Order) -> PositionalOp {
-        let mut walker = ReversePositionalOpWalker::new_since_order(self, order);
-        walker.get_positional_op()
-    }
-
-    pub fn positional_changes_since_branch(&self, branch: &[Order]) -> PositionalOp {
-        let (a, b) = self.diff(branch, &self.frontier);
-        assert_eq!(a.len(), 0);
-
-        // Note the spans are guaranteed to be delivered in reverse order (from last to first).
-        // This is what walker expects - since we'll be moving in reverse chronological order here
-        // too. Otherwise we'd need to wrap the iterator in Reverse() or reverse the contents.
-        let mut walker = ReversePositionalOpWalker::new_from_iter(self, b.iter().copied());
-        walker.get_positional_op()
-    }
-
-    pub fn traversal_changes_since(&self, order: Order) -> TraversalOpSequence {
-        self.positional_changes_since(order).into()
-    }
-
-    pub fn traversal_changes_since_branch(&self, branch: &[Order]) -> TraversalOpSequence {
-        self.positional_changes_since_branch(branch).into()
-    }
-}
-
-#[derive(Debug)]
-struct ReversePositionalOpWalker<'a, I: Iterator<Item=OrderSpan>> {
-    doc: &'a ListCRDT,
-    /// NOTE: The remaining spans list must be in reverse order.
-    remaining_spans: I,
-    span: OrderSpan,
-    map: PositionMap,
-    deletes_idx: usize,
-    marked_deletes: DoubleDeleteVisitor,
-}
-
-impl<'a, I: Iterator<Item=OrderSpan>> Iterator for ReversePositionalOpWalker<'a, I> {
-    type Item = (u32, PositionalComponent);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.span.len == 0 {
-            if let Some(span) = self.remaining_spans.next() {
-                debug_assert!(span.order < self.span.order);
-                assert!(span.len > 0);
-                self.span = span;
-            } else { return None; }
-        }
-
-        while self.span.len != 0 {
-            let (len_here, op) = self.doc.next_positional_change(&self.span, &mut self.map, &mut self.marked_deletes, &mut self.deletes_idx);
-            self.span.len -= len_here;
-            if op.is_some() || self.span.len == 0 {
-                return op;
-            } // Else we're in a span of double deleted items. Keep scanning.
-        }
-
         None
     }
 }
 
-impl<'a> ReversePositionalOpWalker<'a, Empty<OrderSpan>> {
-    fn new_since_order(doc: &'a ListCRDT, base_order: Order) -> Self {
-        // Alternately I could use std::iter::once. I think this is a bit cleaner but I could go
-        // either way on it.
-        let mut walker = Self::new_from_iter(doc, std::iter::empty());
-        walker.span = doc.linear_changes_since(base_order);
-        walker
-    }
-}
-
-impl<'a, I: Iterator<Item=OrderSpan>> ReversePositionalOpWalker<'a, I> {
-    fn new_from_iter(doc: &'a ListCRDT, iter: I) -> Self {
-        let mut iter = ReversePositionalOpWalker {
+impl<'a> PositionalChangesIter<'a> {
+    fn new(doc: &'a ListCRDT, span: OrderSpan) -> Self {
+        let mut iter = PositionalChangesIter {
             doc,
-            remaining_spans: iter,
-            span: OrderSpan::default(),
+            span,
             map: RangeTree::new(),
             deletes_idx: doc.deletes.0.len().wrapping_sub(1),
             marked_deletes: DoubleDeleteVisitor::new(),
         };
-
         iter.map.insert_at_start(Retain(doc.range_tree.content_len() as _), null_notify);
+
         iter
+    }
+
+    fn new_since_order(doc: &'a ListCRDT, base_order: Order) -> Self {
+        Self::new(doc, doc.linear_changes_since(base_order))
     }
 
     fn drain(&mut self) {
@@ -392,13 +360,57 @@ impl<'a, I: Iterator<Item=OrderSpan>> ReversePositionalOpWalker<'a, I> {
         self.map
     }
 
-    fn get_positional_op(&mut self) -> PositionalOp {
-        let mut changes: SmallVec<[(u32, PositionalComponent); 10]> = SmallVec::new();
-        while let Some((post_pos, e)) = self.next() {
-            changes.push((post_pos, e));
-        }
+    fn into_positional_op(mut self) -> PositionalOp {
+        let mut changes: SmallVec<[(u32, PositionalComponent); 10]> = (&mut self).collect();
         changes.reverse();
         PositionalOp::from_components(&changes, self.doc.text_content.as_ref())
+    }
+
+    fn into_traversal(self, resulting_doc: &Rope) -> TraversalOp {
+        let map = self.into_map();
+        map_to_traversal(&map, resulting_doc)
+    }
+}
+
+impl<'a, I: Iterator<Item=OrderSpan>> Iterator for MultiPositionalChangesIter<'a, I> {
+    type Item = (u32, PositionalComponent);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.state.span.len == 0 {
+            if let Some(span) = self.remaining_spans.next() {
+                debug_assert!(span.order < self.state.span.order);
+                assert!(span.len > 0);
+                self.state.span = span;
+            } else { return None; }
+        }
+
+        self.state.next()
+    }
+}
+
+impl<'a, I: Iterator<Item=OrderSpan>> MultiPositionalChangesIter<'a, I> {
+    fn new_from_iter(doc: &'a ListCRDT, iter: I) -> Self {
+        MultiPositionalChangesIter {
+            remaining_spans: iter,
+            state: PositionalChangesIter::new(doc, OrderSpan::default())
+        }
+    }
+
+    // These methods are duplicated in PositionalChangesIter. I could do trait magic to share them
+    // but I'm not convinced jumping through the extra hoops is worth it.
+    fn drain(&mut self) {
+        while let Some(_) = self.next() {}
+    }
+
+    fn into_map(mut self) -> PositionMap {
+        self.drain();
+        self.state.map
+    }
+
+    fn into_positional_op(mut self) -> PositionalOp {
+        let mut changes: SmallVec<[(u32, PositionalComponent); 10]> = (&mut self).collect();
+        changes.reverse();
+        PositionalOp::from_components(&changes, self.state.doc.text_content.as_ref())
     }
 
     fn into_traversal(self, resulting_doc: &Rope) -> TraversalOp {
@@ -435,7 +447,7 @@ mod test {
     use rand::prelude::SmallRng;
     use rand::SeedableRng;
     use crate::fuzz_helpers::make_random_change;
-    use crate::list::ot::positionmap::{map_to_traversal, PositionMap, ReversePositionalOpWalker};
+    use crate::list::ot::positionmap::{map_to_traversal, PositionMap, PositionalChangesIter};
     use super::TraversalComponent::*;
     use crate::range_tree::{RangeTree, null_notify, Pair};
     use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
@@ -486,8 +498,8 @@ mod test {
 
         // "hi there" -> "hiere" -> "hie"
 
-        let mut walker = ReversePositionalOpWalker::new_since_order(&doc2, 0);
-        let positional_op = walker.get_positional_op();
+        let walker = PositionalChangesIter::new_since_order(&doc2, 0);
+        let positional_op = walker.into_positional_op();
 
         use InsDelTag::*;
         if doc2.text_content.is_some() {
@@ -503,6 +515,8 @@ mod test {
             })
         }
 
+        // There's no good reason to iterate twice except for API convenience.
+        let walker = PositionalChangesIter::new_since_order(&doc2, 0);
         let map = walker.into_map();
 
         assert!(&map.merged_iter().eq(std::iter::once(TraversalComponent::Ins {
@@ -539,8 +553,11 @@ mod test {
         }
         // dbg!(ops);
 
-        let mut walker = ReversePositionalOpWalker::new_since_order(&doc, midpoint_order);
-        let positional_op = walker.get_positional_op();
+        let walker = PositionalChangesIter::new_since_order(&doc, midpoint_order);
+        let positional_op = walker.into_positional_op();
+
+        // Bleh we don't need to iterate twice here except the API is awks.
+        let walker = PositionalChangesIter::new_since_order(&doc, midpoint_order);
         let map = walker.into_map();
 
         // Ok we have a few things to check:
