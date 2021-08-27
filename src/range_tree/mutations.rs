@@ -471,75 +471,79 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
         let mut end_range = cursor.idx;
 
         // TODO: Benchmark to see if this actually helps.
-        if I::CAN_COUNT_ITEMS && start_range == 0 && !node.has_root_as_parent() {
-            // Try and short circuit deleting the entire range. This will speed up large deletes.
+        let mut remove_whole_node = if I::CAN_COUNT_ITEMS && start_range == 0 && !node.has_root_as_parent() {
             let item_count = node.count_items();
             if I::count_items(item_count) <= del_items {
                 I::decrement_marker_by_val(flush_marker, &item_count);
-                node.flush_index_update(flush_marker);
-                let node = cursor.node;
-                cursor.traverse_forward();
-                NodeLeaf::remove(node);
-                return (true, del_items - I::count_items(item_count));
-            }
-        }
+                del_items -= I::count_items(item_count);
+                true
+            } else { false }
+        } else { false };
 
         // 1. Find the end index to remove
-        let len_entries = node.len_entries();
-        // let mut node = unsafe { &mut *cursor.node.as_ptr() };
-        while end_range < len_entries && del_items > 0 {
-            let entry = node.data[end_range];
-            let entry_len = entry.len();
-            if entry_len <= del_items {
-                I::decrement_marker(flush_marker, &entry);
-                del_items -= entry_len;
-                end_range += 1;
-            } else {
-                break;
+        if !remove_whole_node {
+            let len_entries = node.len_entries();
+            // let mut node = unsafe { &mut *cursor.node.as_ptr() };
+            while end_range < len_entries && del_items > 0 {
+                let entry = node.data[end_range];
+                let entry_len = entry.len();
+                if entry_len <= del_items {
+                    I::decrement_marker(flush_marker, &entry);
+                    del_items -= entry_len;
+                    end_range += 1;
+                } else {
+                    break;
+                }
+            }
+
+            if start_range == 0 && end_range == len_entries && !node.has_root_as_parent() {
+                remove_whole_node = true;
             }
         }
 
-        // 2. Delete from [start_range..end_range)
-        if end_range > start_range {
-            if start_range == 0 && end_range == len_entries && !node.has_root_as_parent() {
-                // Remove the entire leaf from the tree.
-                node.flush_index_update(flush_marker);
+        if remove_whole_node {
+            // Remove the entire leaf from the tree.
+            node.flush_index_update(flush_marker);
 
-                let node = cursor.node;
-                if !cursor.traverse_forward() {
-                    // This is weird and hacky but - this is the last item in the tree. If the
-                    // cursor is still pointing to this element afterwards, the cursor will be
-                    // invalid. So instead I'll move the cursor to the end of the previous item.
-                    //
-                    // If this is the only item, the cursor will stay here. But the item itself
-                    // will end up being reused by the NodeLeaf::remove() logic.
-                    //
-                    // The resulting behaviour of all this is tested by the fuzzer. If any of these
-                    // assumptions break later, the tests should catch it.
-                    cursor.traverse_backwards();
-                }
-                NodeLeaf::remove(node);
-                (true, del_items)
-            } else {
-                // println!("Delete entry range from {} to {} (m: {:?})", start_range, end_range, flush_marker);
-                let len_entries = node.len_entries();
-                let tail_count = len_entries - end_range;
-                if tail_count > 0 {
-                    node.data.copy_within(end_range..len_entries, start_range);
-                }
-                node.num_entries = (start_range + tail_count) as u8;
-
-                // If the result is to remove all entries, the leaf should have been removed instead.
-                debug_assert!(node.num_entries > 0 || node.parent.is_root());
-
-                // Is this worth doing? It keeps things tidier but its unnecessary and I don't like
-                // debug mode and prod mode drifting too far.
-                // #[cfg(debug_assertions)]
-                node.data[start_range + tail_count..].fill(E::default());
-
-                // TODO: And rebalance if the node is now less than half full.
-                (true, del_items)
+            let node = cursor.node;
+            let has_next = cursor.traverse_forward();
+            if !has_next {
+                // This is weird and hacky but - we've just deleted the last item in the tree.
+                // If the cursor is still pointing to this element afterwards, the cursor will
+                // be invalid. So instead I'll move the cursor to the end of the previous item.
+                //
+                // If this is the only item, the cursor will stay here. (traverse_backward
+                // returns false). And the item itself will end up being reused by the
+                // NodeLeaf::remove() logic.
+                //
+                // The resulting behaviour of all this is tested by the fuzzer. If any of these
+                // assumptions break later, the tests should catch it.
+                cursor.traverse_backwards();
+                del_items = 0; // There's nothing remaining to delete.
             }
+
+            NodeLeaf::remove(node);
+            (has_next, del_items)
+        } else if end_range > start_range {
+            // Delete from [start_range..end_range)
+            // println!("Delete entry range from {} to {} (m: {:?})", start_range, end_range, flush_marker);
+            let len_entries = node.len_entries();
+            let tail_count = len_entries - end_range;
+            if tail_count > 0 {
+                node.data.copy_within(end_range..len_entries, start_range);
+            }
+            node.num_entries = (start_range + tail_count) as u8;
+
+            // If the result is to remove all entries, the leaf should have been removed instead.
+            debug_assert!(node.num_entries > 0 || node.parent.is_root());
+
+            // Is this worth doing? It keeps things tidier but its unnecessary and I don't like
+            // debug mode and prod mode drifting too far.
+            // #[cfg(debug_assertions)]
+            node.data[start_range + tail_count..].fill(E::default());
+
+            // TODO: And rebalance if the node is now less than half full.
+            (true, del_items)
         } else {
             (false, del_items)
         }
@@ -600,9 +604,15 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
             // delete_entry_range only deletes from the current item each iteration.
         }
 
+
         let node = cursor.node.as_mut();
         if del_items > 0 {
             // Trim the final entry.
+            //
+            // Note this code doesn't handle the case when del_items > 0 but we're at the end of the
+            // tree. Thats currently impossible given the code in delete_entry_range() according to the
+            // fuzzer, so its probably not something to be concerned by.
+
             // let node = unsafe { cursor.get_node_mut() };
             debug_assert!(cursor.idx < node.len_entries());
             debug_assert!(node.data[cursor.idx].len() > del_items);
@@ -1196,6 +1206,13 @@ mod tests {
         tree.delete_at_start(10 * num, null_notify);
         assert_eq!(tree.len(), 0);
         tree.check();
+    }
+
+    #[test]
+    fn delete_past_end() {
+        let mut tree = RangeTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        tree.insert_at_start(TestRange { order: 10 as _, len: 10, is_activated: true }, null_notify);
+        tree.delete_at_content(10, 100, null_notify);
     }
 
     #[test]

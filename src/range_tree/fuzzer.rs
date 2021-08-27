@@ -130,7 +130,7 @@ fn delete_in_list(list: &mut Vec<TestRange>, pos: usize, mut del_span: usize) {
     let mut idx = 0;
     let mut cur_pos = 0;
 
-    while del_span > 0 {
+    while del_span > 0 && idx < list.len() {
         let e_len = list[idx].len();
         if cur_pos == pos {
             if e_len > del_span {
@@ -167,28 +167,27 @@ fn replace_in_list(list: &mut Vec<TestRange>, pos: usize, entry: TestRange) {
     insert_into_list(list, pos, entry);
 }
 
-#[test]
-fn random_edits() {
+fn random_edits_once(verbose: bool, iterations: usize) {
     let mut rng = SmallRng::seed_from_u64(20);
 
     // So for this test we'll make a range tree and a list, make random changes to both, and make
     // sure the content is always the same.
 
-    for _i in 0..300 {
-        // println!("i {}", _i);
+    for _i in 0..iterations {
+        if verbose { println!("i {}", _i); }
         // TestRange is overkill for this, but eh.
         let mut tree = RangeTree::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
         let mut list = vec![];
         let mut expected_len = 0;
 
         for _j in 0..200 {
-            // println!("  j {} / i {}", _j, _i);
+            if verbose { println!("  j {} / i {}", _j, _i); }
             if list.is_empty() || rng.gen_bool(0.33) {
                 // Insert something.
                 let pos = rng.gen_range(0..=tree.len().0);
                 let item = random_entry(&mut rng);
 
-                // println!("inserting {:?} at {}", item, pos);
+                if verbose { println!("inserting {:?} at {}", item, pos); }
                 // dbg!(&tree);
                 let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
                 unsafe {
@@ -206,9 +205,12 @@ fn random_edits() {
             } else if tree.count.0 > 10 && rng.gen_bool(0.5) {
                 // Modify something.
                 let item = random_entry(&mut rng);
-                let pos = rng.gen_range(0..tree.count.0 - item.len);
+                // let pos = rng.gen_range(0..tree.count.0 - item.len);
+                let pos = rng.gen_range(0..=tree.count.0);
 
-                // println!("Replacing {} entries at position {} with {:?}", item.len(), pos, item);
+                if verbose {
+                    println!("Replacing {} entries at position {} with {:?}", item.len(), pos, item);
+                }
                 let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
                 unsafe {
                     assert_eq!(cursor.count_pos().0, pos);
@@ -219,15 +221,23 @@ fn random_edits() {
                 }
 
                 replace_in_list(&mut list, pos as usize, item);
+
+                // this could be cleaned up but eh.
+                let amt_deleted = usize::min(item.len(), expected_len - pos as usize);
+                expected_len = expected_len - amt_deleted + item.len();
             } else {
                 // Delete something
                 assert!(tree.count.0 > 0);
 
                 // Delete up to 20 items, but not more than we have in the document!
-                let del_span = rng.gen_range(1..=u32::min(tree.count.0, 20));
-                let pos = rng.gen_range(0..=tree.count.0 - del_span);
+                // let del_span = rng.gen_range(1..=u32::min(tree.count.0, 20));
+                let del_span = rng.gen_range(0..=20);
+                // let pos = rng.gen_range(0..=tree.count.0 - del_span);
+                let pos = rng.gen_range(0..=tree.count.0);
 
-                // println!("Deleting {} entries at position {}", pos, del_span);
+                if verbose {
+                    println!("Deleting {} entries at position {} (size {})", pos, del_span, expected_len);
+                }
                 let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
                 unsafe {
                     assert_eq!(cursor.count_pos().0, pos);
@@ -240,12 +250,11 @@ fn random_edits() {
 
                 delete_in_list(&mut list, pos as usize, del_span as usize);
 
-                expected_len -= del_span as usize;
+                // expected_len -= del_span as usize;
+                let amt_deleted = usize::min(expected_len - pos as usize, del_span as usize);
+                expected_len -= amt_deleted;
             }
 
-            // if _i == 41 && _j >= 74 {
-            //     dbg!(&tree);
-            // }
             tree.check();
 
             let list_len = list.iter().fold(0usize, |sum, item| sum + item.len());
@@ -260,4 +269,9 @@ fn random_edits() {
             assert!(tree_iter.eq(list_iter));
         }
     }
+}
+
+#[test]
+fn random_edits() {
+    random_edits_once(false, 30000);
 }

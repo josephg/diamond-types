@@ -209,6 +209,9 @@ impl<E: EntryTraits + EntryWithContent> TreeIndex<E> for FullIndex {
         offset.0 += at as u32;
         offset.1 += by.content_len().min(at) as u32;
     }
+
+    const CAN_COUNT_ITEMS: bool = true;
+    fn count_items(idx: Self::IndexValue) -> usize { idx.0 as usize }
 }
 
 impl<E: EntryTraits + EntryWithContent> FindContent<E> for FullIndex {
