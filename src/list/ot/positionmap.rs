@@ -3,13 +3,14 @@ use crate::range_tree::*;
 use crate::order::OrderSpan;
 use std::pin::Pin;
 use crate::list::double_delete::DoubleDelete;
-use crate::rle::{KVPair, RleKey, RleSpanHelpers, AppendRLE};
+use crate::rle::{KVPair, RleKey, RleSpanHelpers, AppendRLE, RleKeyed, Rle};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp, TraversalOpSequence};
 use ropey::Rope;
 use TraversalComponent::*;
 use crate::list::ot::positional::{PositionalComponent, InsDelTag, PositionalOp};
 use smallvec::SmallVec;
 use std::iter::Empty;
+use crate::splitable_span::SplitableSpan;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
@@ -145,8 +146,33 @@ impl DoubleDeleteVisitor {
 // of the monomorphized range_tree calls. The upside is that this complexity is entirely self
 // contained, and the complexity here allows other systems to work "naturally". But its not perfect.
 
+impl<V: SplitableSpan + RleKeyed + Clone + Sized> Rle<V> {
+    fn search_backwards(&self, needle: RleKey, idx: &mut usize) -> Option<(&V, RleKey)> {
+        // This conditional looks inverted given we're looping backwards, but I'm using
+        // wrapping_sub - so when we reach the end the index wraps around and we'll hit usize::MAX.
+        while *idx < self.0.len() {
+            let e = &self.0[*idx];
+            if e.get_rle_key() <= needle {
+                return if e.end() > needle {
+                    Some((e, needle - e.get_rle_key()))
+                } else {
+                    None
+                };
+            }
+            *idx = idx.wrapping_sub(1);
+        }
+        None
+    }
+}
+
 impl ListCRDT {
-    fn next_positional_change(&self, span: &OrderSpan, map: &mut PositionMap, marked_deletes: &mut DoubleDeleteVisitor) -> (u32, Option<(u32, PositionalComponent)>) {
+    fn next_positional_change(
+        &self,
+        span: &OrderSpan,
+        map: &mut PositionMap,
+        marked_deletes: &mut DoubleDeleteVisitor,
+        deletes_idx: &mut usize
+    ) -> (u32, Option<(u32, PositionalComponent)>) {
         // We go back through history in reverse order. We need to go in reverse order for a few
         // reasons:
         //
@@ -167,8 +193,7 @@ impl ListCRDT {
         // First check if the change was a delete or an insert.
         let span_last_order = span.end() - 1;
 
-        // TODO: Replace with a search iterator. We're binary searching with ordered search keys.
-        if let Some((d, d_offset)) = self.deletes.find(span_last_order) {
+        if let Some((d, d_offset)) = self.deletes.search_backwards(span_last_order, deletes_idx) {
             // Its a delete. We need to try to undelete the item, unless the item was deleted
             // multiple times (in which case, it stays deleted for now).
             let base = u32::max(span.order, d.0);
@@ -305,6 +330,7 @@ struct ReversePositionalOpWalker<'a, I: Iterator<Item=OrderSpan>> {
     remaining_spans: I,
     span: OrderSpan,
     map: PositionMap,
+    deletes_idx: usize,
     marked_deletes: DoubleDeleteVisitor,
 }
 
@@ -321,7 +347,7 @@ impl<'a, I: Iterator<Item=OrderSpan>> Iterator for ReversePositionalOpWalker<'a,
         }
 
         while self.span.len != 0 {
-            let (len_here, op) = self.doc.next_positional_change(&self.span, &mut self.map, &mut self.marked_deletes);
+            let (len_here, op) = self.doc.next_positional_change(&self.span, &mut self.map, &mut self.marked_deletes, &mut self.deletes_idx);
             self.span.len -= len_here;
             if op.is_some() || self.span.len == 0 {
                 return op;
@@ -334,16 +360,11 @@ impl<'a, I: Iterator<Item=OrderSpan>> Iterator for ReversePositionalOpWalker<'a,
 
 impl<'a> ReversePositionalOpWalker<'a, Empty<OrderSpan>> {
     fn new_since_order(doc: &'a ListCRDT, base_order: Order) -> Self {
-        let mut iter = ReversePositionalOpWalker {
-            doc,
-            remaining_spans: std::iter::empty(),
-            span: doc.linear_changes_since(base_order),
-            map: RangeTree::new(),
-            marked_deletes: DoubleDeleteVisitor::new(),
-        };
-
-        iter.map.insert_at_start(Retain(doc.range_tree.content_len() as _), null_notify);
-        iter
+        // Alternately I could use std::iter::once. I think this is a bit cleaner but I could go
+        // either way on it.
+        let mut walker = Self::new_from_iter(doc, std::iter::empty());
+        walker.span = doc.linear_changes_since(base_order);
+        walker
     }
 }
 
@@ -354,6 +375,7 @@ impl<'a, I: Iterator<Item=OrderSpan>> ReversePositionalOpWalker<'a, I> {
             remaining_spans: iter,
             span: OrderSpan::default(),
             map: RangeTree::new(),
+            deletes_idx: doc.deletes.0.len().wrapping_sub(1),
             marked_deletes: DoubleDeleteVisitor::new(),
         };
 
