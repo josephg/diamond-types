@@ -86,6 +86,12 @@ impl PositionalOp {
     }
 }
 
+impl Default for PositionalComponent {
+    fn default() -> Self {
+        Self { pos: 0, len: 0, content_known: false, tag: InsDelTag::Ins }
+    }
+}
+
 impl SplitableSpan for PositionalComponent {
     fn len(&self) -> usize {
         self.len as usize

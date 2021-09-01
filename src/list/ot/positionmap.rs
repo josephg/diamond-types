@@ -10,6 +10,7 @@ use TraversalComponent::*;
 use crate::list::ot::positional::{PositionalComponent, InsDelTag, PositionalOp};
 use smallvec::SmallVec;
 use crate::splitable_span::SplitableSpan;
+use crate::common::CRDTLocation;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
@@ -131,7 +132,7 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> Rle<V> {
 /// An iterator over positional changes. The positional changes are returned in reverse
 /// chronological order (last to first).
 #[derive(Debug)]
-struct PositionalChangesIter<'a> {
+struct PatchIter<'a> {
     doc: &'a ListCRDT,
     span: OrderSpan,
     map: PositionMap,
@@ -147,13 +148,18 @@ struct PositionalChangesIter<'a> {
 struct MultiPositionalChangesIter<'a, I: Iterator<Item=OrderSpan>> {
     /// NOTE: The remaining spans iter must yield in reverse order (highest order to lowest order).
     remaining_spans: I,
-    state: PositionalChangesIter<'a>,
+    state: PatchIter<'a>,
 }
 
 impl ListCRDT {
     pub fn positional_changes_since(&self, order: Order) -> PositionalOp {
-        let walker = PositionalChangesIter::new_since_order(self, order);
+        let walker = PatchIter::new_since_order(self, order);
         walker.into_positional_op()
+    }
+
+    pub fn attributed_positional_changes_since(&self, order: Order) -> (PositionalOp, SmallVec<[CRDTSpan; 1]>) {
+        let walker = PatchWithAuthorIter::new_since_order(self, order);
+        walker.into_attributed_positional_op()
     }
 
     pub fn positional_changes_since_branch(&self, branch: &[Order]) -> PositionalOp {
@@ -205,7 +211,7 @@ impl ListCRDT {
 // The result is that this code is very complex. It also probably adds a lot to binary size because
 // of the monomorphized range_tree calls. The upside is that this complexity is entirely self
 // contained, and the complexity here allows other systems to work "naturally". But its not perfect.
-impl<'a> Iterator for PositionalChangesIter<'a> {
+impl<'a> Iterator for PatchIter<'a> {
     type Item = (u32, PositionalComponent);
 
     fn next(&mut self) -> Option<(u32, PositionalComponent)> {
@@ -333,9 +339,101 @@ impl<'a> Iterator for PositionalChangesIter<'a> {
     }
 }
 
-impl<'a> PositionalChangesIter<'a> {
+/// This is an iterator which wraps PatchIter and yields information about patches, as well as
+/// authorship of those patches.
+///
+/// Internally this is a bit fancy. To avoid adding extra complexity to PatchIter, this drives
+/// PatchIter with span ranges limited by authorship.
+struct PatchWithAuthorIter<'a> {
+    actual_base: Order,
+    state: PatchIter<'a>,
+    client_order_idx: usize,
+    crdt_loc: CRDTLocation,
+}
+
+impl<'a> PatchWithAuthorIter<'a> {
     fn new(doc: &'a ListCRDT, span: OrderSpan) -> Self {
-        let mut iter = PositionalChangesIter {
+        Self {
+            actual_base: span.order,
+            state: PatchIter::new(doc, OrderSpan { order: span.end(), len: 0 }),
+            client_order_idx: doc.client_with_order.0.len().wrapping_sub(1),
+            crdt_loc: Default::default()
+        }
+    }
+
+    fn new_since_order(doc: &'a ListCRDT, base_order: Order) -> Self {
+        Self::new(doc, doc.linear_changes_since(base_order))
+    }
+
+    fn into_attributed_positional_op(mut self) -> (PositionalOp, SmallVec<[CRDTSpan; 1]>) {
+        let mut changes = SmallVec::<[(u32, PositionalComponent); 10]>::new();
+        let mut attribution = SmallVec::<[CRDTSpan; 1]>::new();
+        
+        for (post_pos, c, loc) in &mut self {
+            changes.push((post_pos, c));
+            attribution.push_reversed_rle(CRDTSpan {
+                loc,
+                len: c.len
+            });
+        }
+        
+        changes.reverse();
+        attribution.reverse();
+        let op = PositionalOp::from_components(&changes, self.state.doc.text_content.as_ref());
+        (op, attribution)
+    }
+
+}
+
+impl<'a> Iterator for PatchWithAuthorIter<'a> {
+    type Item = (u32, PositionalComponent, CRDTLocation);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.state.span.len == 0 {
+            // Grab the next span back in time and pass to the internal iterator.
+            if self.actual_base == self.state.span.order {
+                // Done here.
+                return None;
+            }
+
+            let span_last_order = self.state.span.order - 1;
+            let (val, _offset) = self.state.doc.client_with_order
+                .search_backwards(span_last_order, &mut self.client_order_idx)
+                .unwrap(); // client_with_order is packed.
+
+            if val.0 <= self.actual_base {
+                // Only take down to actual_base.
+                self.state.span = OrderSpan {
+                    order: self.actual_base,
+                    len: self.state.span.order - self.actual_base
+                };
+                self.crdt_loc = CRDTLocation {
+                    agent: val.1.loc.agent,
+                    seq: val.1.loc.seq + (self.actual_base - val.0)
+                };
+            } else {
+                // Take the whole entry.
+                self.state.span = OrderSpan {
+                    order: val.0,
+                    len: self.state.span.order - val.0
+                };
+                self.crdt_loc = val.1.loc;
+            }
+            assert_ne!(self.state.span.len, 0);
+        }
+
+        if let Some((post_pos, c)) = self.state.next() {
+            Some((post_pos, c, CRDTLocation {
+                agent: self.crdt_loc.agent,
+                seq: self.crdt_loc.seq + self.state.span.len
+            }))
+        } else { None }
+    }
+}
+
+impl<'a> PatchIter<'a> {
+    fn new(doc: &'a ListCRDT, span: OrderSpan) -> Self {
+        let mut iter = PatchIter {
             doc,
             span,
             map: RangeTree::new(),
@@ -392,7 +490,7 @@ impl<'a, I: Iterator<Item=OrderSpan>> MultiPositionalChangesIter<'a, I> {
     fn new_from_iter(doc: &'a ListCRDT, iter: I) -> Self {
         MultiPositionalChangesIter {
             remaining_spans: iter,
-            state: PositionalChangesIter::new(doc, OrderSpan::default())
+            state: PatchIter::new(doc, OrderSpan::default())
         }
     }
 
@@ -447,13 +545,14 @@ mod test {
     use rand::prelude::SmallRng;
     use rand::SeedableRng;
     use crate::fuzz_helpers::make_random_change;
-    use crate::list::ot::positionmap::{map_to_traversal, PositionMap, PositionalChangesIter};
+    use crate::list::ot::positionmap::{map_to_traversal, PositionMap, PatchIter, PatchWithAuthorIter};
     use super::TraversalComponent::*;
-    use crate::range_tree::{RangeTree, null_notify, Pair};
+    use crate::range_tree::{RangeTree, null_notify, Pair, CRDTSpan};
     use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
     use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
     use ropey::Rope;
     use smallvec::smallvec;
+    use crate::common::CRDTLocation;
     // use crate::list::external_txn::{RemoteTxn, RemoteId};
 
     #[test]
@@ -463,8 +562,8 @@ mod test {
         doc.local_insert(0, 0, "hi there".into()); // 0-7
         doc.local_delete(0, 2, 3); // "hiere" 8-11
 
-        let op = doc.positional_changes_since(0);
-        // dbg!(&op);
+        let (op, attr) = doc.attributed_positional_changes_since(0);
+        // dbg!(&op, attr);
 
         use InsDelTag::*;
         assert_eq!(op, PositionalOp {
@@ -477,6 +576,14 @@ mod test {
             ],
             content: "hiere".into(),
         });
+
+        assert!(attr.iter().eq(&[CRDTSpan {
+            loc: CRDTLocation {
+                agent: 0,
+                seq: 0,
+            },
+            len: 11,
+        }]));
     }
 
     #[test]
@@ -486,20 +593,29 @@ mod test {
         doc1.local_insert(0, 0, "hi there".into());
 
         let mut doc2 = ListCRDT::new();
-        doc2.get_or_create_agent_id("b");
         doc1.replicate_into(&mut doc2);
+        doc2.get_or_create_agent_id("b"); // Agent IDs are consistent to make testing easier.
 
         // Overlapping but distinct.
         doc1.local_delete(0, 2, 3); // -> 'hiere'
-        doc2.local_delete(0, 4, 3); // -> 'hi te'
+        doc2.local_delete(1, 4, 3); // -> 'hi te'
 
         doc2.replicate_into(&mut doc1); // 'hie'
         doc1.replicate_into(&mut doc2); // 'hie'
 
         // "hi there" -> "hiere" -> "hie"
 
-        let walker = PositionalChangesIter::new_since_order(&doc2, 0);
-        let positional_op = walker.into_positional_op();
+        let walker = PatchWithAuthorIter::new_since_order(&doc2, 0);
+        let (positional_op, attr) = walker.into_attributed_positional_op();
+
+        // dbg!(&doc2.client_with_order);
+        // dbg!(&attr);
+
+        assert!(attr.iter().eq(&[
+            CRDTSpan { loc: CRDTLocation { agent: 0, seq: 0 }, len: 8 },
+            CRDTSpan { loc: CRDTLocation { agent: 1, seq: 0 }, len: 3 },
+            CRDTSpan { loc: CRDTLocation { agent: 0, seq: 8 }, len: 2 },
+        ]));
 
         use InsDelTag::*;
         if doc2.text_content.is_some() {
@@ -516,7 +632,7 @@ mod test {
         }
 
         // There's no good reason to iterate twice except for API convenience.
-        let walker = PositionalChangesIter::new_since_order(&doc2, 0);
+        let walker = PatchIter::new_since_order(&doc2, 0);
         let map = walker.into_map();
 
         assert!(&map.merged_iter().eq(std::iter::once(TraversalComponent::Ins {
@@ -553,11 +669,11 @@ mod test {
         }
         // dbg!(ops);
 
-        let walker = PositionalChangesIter::new_since_order(&doc, midpoint_order);
+        let walker = PatchIter::new_since_order(&doc, midpoint_order);
         let positional_op = walker.into_positional_op();
 
         // Bleh we don't need to iterate twice here except the API is awks.
-        let walker = PositionalChangesIter::new_since_order(&doc, midpoint_order);
+        let walker = PatchIter::new_since_order(&doc, midpoint_order);
         let map = walker.into_map();
 
         // Ok we have a few things to check:
