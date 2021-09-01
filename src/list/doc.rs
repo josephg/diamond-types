@@ -160,7 +160,7 @@ impl ListCRDT {
         self.client_data[loc.agent as usize].seq_to_order_span(loc.seq, max_len)
     }
 
-    pub(super) fn get_next_order(&self) -> Order {
+    pub fn get_next_order(&self) -> Order {
         if let Some(KVPair(base, entry)) = self.client_with_order.last() {
             base + entry.len as u32
         } else { 0 }

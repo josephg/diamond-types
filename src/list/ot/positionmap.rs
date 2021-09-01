@@ -11,6 +11,7 @@ use crate::list::ot::positional::{PositionalComponent, InsDelTag, PositionalOp};
 use smallvec::SmallVec;
 use crate::splitable_span::SplitableSpan;
 use crate::common::CRDTLocation;
+use crate::list::external_txn::RemoteIdSpan;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
@@ -177,6 +178,16 @@ impl ListCRDT {
         self.positional_changes_since(order).into()
     }
 
+    pub fn attributed_traversal_changes_since(&self, order: Order) -> (TraversalOpSequence, SmallVec<[CRDTSpan; 1]>) {
+        let (op, attr) = self.attributed_positional_changes_since(order);
+        (op.into(), attr)
+    }
+
+    pub fn remote_attr_patches_since(&self, order: Order) -> (TraversalOpSequence, SmallVec<[RemoteIdSpan; 1]>) {
+        let (op, attr) = self.attributed_traversal_changes_since(order);
+        (op, attr.iter().map(|span| self.crdt_span_to_remote_span(*span)).collect())
+    }
+
     pub fn traversal_changes_since_branch(&self, branch: &[Order]) -> TraversalOpSequence {
         self.positional_changes_since_branch(branch).into()
     }
@@ -338,98 +349,6 @@ impl<'a> Iterator for PatchIter<'a> {
     }
 }
 
-/// This is an iterator which wraps PatchIter and yields information about patches, as well as
-/// authorship of those patches.
-///
-/// Internally this is a bit fancy. To avoid adding extra complexity to PatchIter, this drives
-/// PatchIter with span ranges limited by authorship.
-struct PatchWithAuthorIter<'a> {
-    actual_base: Order,
-    state: PatchIter<'a>,
-    client_order_idx: usize,
-    crdt_loc: CRDTLocation,
-}
-
-impl<'a> PatchWithAuthorIter<'a> {
-    fn new(doc: &'a ListCRDT, span: OrderSpan) -> Self {
-        Self {
-            actual_base: span.order,
-            state: PatchIter::new(doc, OrderSpan { order: span.end(), len: 0 }),
-            client_order_idx: doc.client_with_order.0.len().wrapping_sub(1),
-            crdt_loc: Default::default()
-        }
-    }
-
-    fn new_since_order(doc: &'a ListCRDT, base_order: Order) -> Self {
-        Self::new(doc, doc.linear_changes_since(base_order))
-    }
-
-    fn into_attributed_positional_op(mut self) -> (PositionalOp, SmallVec<[CRDTSpan; 1]>) {
-        let mut changes = SmallVec::<[(u32, PositionalComponent); 10]>::new();
-        let mut attribution = SmallVec::<[CRDTSpan; 1]>::new();
-        
-        for (post_pos, c, loc) in &mut self {
-            changes.push((post_pos, c));
-            attribution.push_reversed_rle(CRDTSpan {
-                loc,
-                len: c.len
-            });
-        }
-        
-        changes.reverse();
-        attribution.reverse();
-        let op = PositionalOp::from_components(&changes, self.state.doc.text_content.as_ref());
-        (op, attribution)
-    }
-
-}
-
-impl<'a> Iterator for PatchWithAuthorIter<'a> {
-    type Item = (u32, PositionalComponent, CRDTLocation);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.state.span.len == 0 {
-            // Grab the next span back in time and pass to the internal iterator.
-            if self.actual_base == self.state.span.order {
-                // Done here.
-                return None;
-            }
-
-            let span_last_order = self.state.span.order - 1;
-            let val = self.state.doc.client_with_order
-                .search_backwards(span_last_order, &mut self.client_order_idx)
-                .unwrap(); // client_with_order is packed.
-
-            if val.0 < self.actual_base {
-                // Only take down to actual_base.
-                self.state.span = OrderSpan {
-                    order: self.actual_base,
-                    len: self.state.span.order - self.actual_base
-                };
-                self.crdt_loc = CRDTLocation {
-                    agent: val.1.loc.agent,
-                    seq: val.1.loc.seq + (self.actual_base - val.0)
-                };
-            } else {
-                // Take the whole entry.
-                self.state.span = OrderSpan {
-                    order: val.0,
-                    len: self.state.span.order - val.0
-                };
-                self.crdt_loc = val.1.loc;
-            }
-            assert_ne!(self.state.span.len, 0);
-        }
-
-        if let Some((post_pos, c)) = self.state.next() {
-            Some((post_pos, c, CRDTLocation {
-                agent: self.crdt_loc.agent,
-                seq: self.crdt_loc.seq + self.state.span.len
-            }))
-        } else { None }
-    }
-}
-
 impl<'a> PatchIter<'a> {
     // TODO: Consider swapping these two new() functions around as new_since_order is more useful.
     fn new(doc: &'a ListCRDT, span: OrderSpan) -> Self {
@@ -470,6 +389,101 @@ impl<'a> PatchIter<'a> {
     }
 }
 
+/// This is an iterator which wraps PatchIter and yields information about patches, as well as
+/// authorship of those patches.
+struct PatchWithAuthorIter<'a> {
+    actual_base: Order,
+    state: PatchIter<'a>,
+    client_order_idx: usize,
+    crdt_loc: CRDTLocation,
+}
+
+// Internally this is a bit fancy. To avoid adding extra complexity to PatchIter, this drives
+// PatchIter with span ranges limited by authorship. This kinda breaks the abstraction boundary of
+// PatchIter. And note the way this is written, this can't be used with the multi positional
+// changes stuff.
+impl<'a> Iterator for PatchWithAuthorIter<'a> {
+    type Item = (u32, PositionalComponent, CRDTLocation);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.state.span.len == 0 {
+            // Grab the next span back in time and pass to the internal iterator.
+            if self.actual_base == self.state.span.order {
+                // We're done here.
+                return None;
+            }
+
+            let span_last_order = self.state.span.order - 1;
+            let val = self.state.doc.client_with_order
+                .search_backwards(span_last_order, &mut self.client_order_idx)
+                .unwrap(); // client_with_order is packed, so its impossible to skip entries.
+
+            if val.0 < self.actual_base {
+                // Only take down to actual_base.
+                self.state.span = OrderSpan {
+                    order: self.actual_base,
+                    len: self.state.span.order - self.actual_base
+                };
+                self.crdt_loc = CRDTLocation {
+                    agent: val.1.loc.agent,
+                    seq: val.1.loc.seq + (self.actual_base - val.0)
+                };
+            } else {
+                // Take the whole entry.
+                self.state.span = OrderSpan {
+                    order: val.0,
+                    len: self.state.span.order - val.0
+                };
+                self.crdt_loc = val.1.loc;
+            }
+            assert_ne!(self.state.span.len, 0);
+        }
+
+        if let Some((post_pos, c)) = self.state.next() {
+            Some((post_pos, c, CRDTLocation {
+                agent: self.crdt_loc.agent,
+                seq: self.crdt_loc.seq + self.state.span.len
+            }))
+        } else { None }
+    }
+}
+
+impl<'a> PatchWithAuthorIter<'a> {
+    fn new(doc: &'a ListCRDT, span: OrderSpan) -> Self {
+        Self {
+            actual_base: span.order,
+            state: PatchIter::new(doc, OrderSpan { order: span.end(), len: 0 }),
+            client_order_idx: doc.client_with_order.0.len().wrapping_sub(1),
+            crdt_loc: Default::default()
+        }
+    }
+
+    fn new_since_order(doc: &'a ListCRDT, base_order: Order) -> Self {
+        Self::new(doc, doc.linear_changes_since(base_order))
+    }
+
+    fn into_attributed_positional_op(mut self) -> (PositionalOp, SmallVec<[CRDTSpan; 1]>) {
+        let mut changes = SmallVec::<[(u32, PositionalComponent); 10]>::new();
+        let mut attribution = SmallVec::<[CRDTSpan; 1]>::new();
+
+        for (post_pos, c, loc) in &mut self {
+            changes.push((post_pos, c));
+            attribution.push_reversed_rle(CRDTSpan {
+                loc,
+                len: c.len
+            });
+        }
+
+        changes.reverse();
+        attribution.reverse();
+        let op = PositionalOp::from_components(&changes, self.state.doc.text_content.as_ref());
+        (op, attribution)
+    }
+
+}
+
+// This code - while correct - is in danger of being removed because it might not be usable due to
+// weaknesses in using OT across multiple servers.
 impl<'a, I: Iterator<Item=OrderSpan>> Iterator for MultiPositionalChangesIter<'a, I> {
     type Item = (u32, PositionalComponent);
 

@@ -7,7 +7,7 @@ use std::cmp::{Ordering, Reverse};
 use crate::rle::{KVPair, AppendRLE, RleSpanHelpers};
 use crate::common::{AgentId, CRDT_DOC_ROOT, CRDTLocation};
 use crate::splitable_span::SplitableSpan;
-use crate::range_tree::CRDTItem;
+use crate::range_tree::{CRDTItem, CRDTSpan};
 // use crate::LocalOp;
 
 #[cfg(feature = "serde")]
@@ -15,11 +15,23 @@ use serde_crate::{Deserialize, Serialize};
 use crate::list::external_txn::RemoteCRDTOp::{Ins, Del};
 use std::iter::FromIterator;
 
+/// External equivalent of CRDTLocation
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct RemoteId {
     pub agent: SmartString,
     pub seq: u32,
+}
+
+/// External equivalent of CRDTSpan
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+pub struct RemoteIdSpan {
+    // This flattens the structure, but for some reason then it uses a JS map instead of an object
+    // :/
+    // #[cfg_attr(feature = "serde", serde(flatten))]
+    pub id: RemoteId,
+    pub len: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -166,6 +178,13 @@ impl ListCRDT {
                 self.client_data[loc.agent as usize].name.clone()
             },
             seq: loc.seq
+        }
+    }
+
+    pub(crate) fn crdt_span_to_remote_span(&self, span: CRDTSpan) -> RemoteIdSpan {
+        RemoteIdSpan {
+            id: self.crdt_loc_to_remote_id(span.loc),
+            len: span.len
         }
     }
 
