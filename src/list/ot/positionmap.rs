@@ -111,14 +111,14 @@ impl DoubleDeleteVisitor {
 }
 
 impl<V: SplitableSpan + RleKeyed + Clone + Sized> Rle<V> {
-    fn search_backwards(&self, needle: RleKey, idx: &mut usize) -> Option<(&V, RleKey)> {
+    fn search_backwards(&self, needle: RleKey, idx: &mut usize) -> Option<&V> {
         // This conditional looks inverted given we're looping backwards, but I'm using
         // wrapping_sub - so when we reach the end the index wraps around and we'll hit usize::MAX.
         while *idx < self.0.len() {
             let e = &self.0[*idx];
             if e.get_rle_key() <= needle {
                 return if e.end() > needle {
-                    Some((e, needle - e.get_rle_key()))
+                    Some(e)
                 } else {
                     None
                 };
@@ -231,7 +231,7 @@ impl<'a> Iterator for PatchIter<'a> {
             let span_last_order = self.span.end() - 1;
 
             // First check if the change was a delete or an insert.
-            if let Some((d, d_offset)) = self.doc.deletes.search_backwards(span_last_order, &mut self.deletes_idx) {
+            if let Some(d) = self.doc.deletes.search_backwards(span_last_order, &mut self.deletes_idx) {
                 // Its a delete. We need to try to undelete the item, unless the item was deleted
                 // multiple times (in which case, it stays deleted for now).
                 let base = u32::max(self.span.order, d.0);
@@ -244,8 +244,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 // the deleted span. This worked correctly and was slightly simpler, but it was a
                 // confusing API to use and test because delete changes in particular were sometimes
                 // arbitrarily reordered.
-
-                let last_del_target = d.1.order + d_offset;
+                let last_del_target = d.1.order + (span_last_order - d.0);
 
                 // I'm also going to limit what we visit each iteration by the size of the visited
                 // item in the range tree. For performance I could hold off looking this up until
@@ -397,7 +396,7 @@ impl<'a> Iterator for PatchWithAuthorIter<'a> {
             }
 
             let span_last_order = self.state.span.order - 1;
-            let (val, _offset) = self.state.doc.client_with_order
+            let val = self.state.doc.client_with_order
                 .search_backwards(span_last_order, &mut self.client_order_idx)
                 .unwrap(); // client_with_order is packed.
 
