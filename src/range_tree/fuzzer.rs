@@ -273,5 +273,5 @@ fn random_edits_once(verbose: bool, iterations: usize) {
 
 #[test]
 fn random_edits() {
-    random_edits_once(false, 30000);
+    random_edits_once(false, 300);
 }
