@@ -5,7 +5,7 @@ use crate::order::OrderSpan;
 use std::collections::BinaryHeap;
 use std::cmp::{Ordering, Reverse};
 use crate::rle::{KVPair, AppendRLE, RleSpanHelpers};
-use crate::common::{AgentId, CRDT_DOC_ROOT, CRDTLocation};
+use crate::common::{AgentId, CRDT_DOC_ROOT, CRDTId};
 use crate::splitable_span::SplitableSpan;
 use crate::range_tree::{CRDTItem, CRDTSpan};
 // use crate::LocalOp;
@@ -170,7 +170,7 @@ impl ListCRDT {
         }).collect()
     }
 
-    fn crdt_loc_to_remote_id(&self, loc: CRDTLocation) -> RemoteId {
+    pub(crate) fn crdt_id_to_remote(&self, loc: CRDTId) -> RemoteId {
         RemoteId {
             agent: if loc.agent == CRDT_DOC_ROOT.agent {
                 "ROOT".into()
@@ -181,21 +181,21 @@ impl ListCRDT {
         }
     }
 
-    pub(crate) fn crdt_span_to_remote_span(&self, span: CRDTSpan) -> RemoteIdSpan {
+    pub(crate) fn crdt_span_to_remote(&self, span: CRDTSpan) -> RemoteIdSpan {
         RemoteIdSpan {
-            id: self.crdt_loc_to_remote_id(span.loc),
+            id: self.crdt_id_to_remote(span.loc),
             len: span.len
         }
     }
 
     pub(crate) fn order_to_remote_id(&self, order: Order) -> RemoteId {
         let crdt_loc = self.get_crdt_location(order);
-        self.crdt_loc_to_remote_id(crdt_loc)
+        self.crdt_id_to_remote(crdt_loc)
     }
 
     pub(crate) fn order_to_remote_id_span(&self, order: Order, max_size: u32) -> (RemoteId, u32) {
         let crdt_span = self.get_crdt_span(order, max_size);
-        (self.crdt_loc_to_remote_id(crdt_span.loc), crdt_span.len)
+        (self.crdt_id_to_remote(crdt_span.loc), crdt_span.len)
     }
 
     /// Get the current vector clock. This includes the version for each agent which has ever

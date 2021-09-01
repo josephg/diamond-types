@@ -2,7 +2,7 @@
 /// inefficient. Its mostly just to aid in unit testing & support for fuzzing.
 
 use crate::list::{ListCRDT, Order, ROOT_AGENT, Branch};
-use crate::common::{CRDTLocation, AgentId};
+use crate::common::{CRDTId, AgentId};
 use crate::rle::Rle;
 use crate::list::span::YjsSpan;
 use crate::splitable_span::SplitableSpan;
@@ -24,8 +24,8 @@ fn map_agent(map: &AgentMap, agent: AgentId) -> AgentId {
     else { map[agent as usize].unwrap() }
 }
 
-fn map_crdt_location(map: &AgentMap, loc: CRDTLocation) -> CRDTLocation {
-    CRDTLocation {
+fn map_crdt_location(map: &AgentMap, loc: CRDTId) -> CRDTId {
+    CRDTId {
         agent: map_agent(map, loc.agent),
         seq: loc.seq
     }

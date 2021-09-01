@@ -128,7 +128,7 @@ impl ListCRDT {
         self.client_data[agent as usize].name.as_str()
     }
 
-    pub(crate) fn get_crdt_location(&self, order: Order) -> CRDTLocation {
+    pub(crate) fn get_crdt_location(&self, order: Order) -> CRDTId {
         if order == ROOT_ORDER { CRDT_DOC_ROOT }
         else {
             let (loc, offset) = self.client_with_order.find(order).unwrap();
@@ -141,7 +141,7 @@ impl ListCRDT {
         else {
             let (loc, offset) = self.client_with_order.find(order).unwrap();
             CRDTSpan {
-                loc: CRDTLocation {
+                loc: CRDTId {
                     agent: loc.1.loc.agent,
                     seq: loc.1.loc.seq + offset,
                 },
@@ -150,12 +150,12 @@ impl ListCRDT {
         }
     }
 
-    pub(crate) fn get_order(&self, loc: CRDTLocation) -> Order {
+    pub(crate) fn get_order(&self, loc: CRDTId) -> Order {
         if loc.agent == ROOT_AGENT { ROOT_ORDER }
         else { self.client_data[loc.agent as usize].seq_to_order(loc.seq) }
     }
 
-    pub(crate) fn get_order_span(&self, loc: CRDTLocation, max_len: u32) -> OrderSpan {
+    pub(crate) fn get_order_span(&self, loc: CRDTId, max_len: u32) -> OrderSpan {
         assert_ne!(loc.agent, ROOT_AGENT);
         self.client_data[loc.agent as usize].seq_to_order_span(loc.seq, max_len)
     }
@@ -205,7 +205,7 @@ impl ListCRDT {
         }
     }
 
-    fn assign_order_to_client(&mut self, loc: CRDTLocation, order: Order, len: usize) {
+    fn assign_order_to_client(&mut self, loc: CRDTId, order: Order, len: usize) {
         self.client_with_order.append(KVPair(order, CRDTSpan {
             loc,
             len: len as _
@@ -436,7 +436,7 @@ impl ListCRDT {
         let mut content = txn.ins_content.as_str();
 
         // TODO: This may be premature - we may be left in an invalid state if the txn is invalid.
-        self.assign_order_to_client(CRDTLocation {
+        self.assign_order_to_client(CRDTId {
             agent,
             seq: txn.id.seq,
         }, first_order, txn_len);
@@ -544,7 +544,7 @@ impl ListCRDT {
             txn_len += ins_content.chars().count();
         }
 
-        self.assign_order_to_client(CRDTLocation {
+        self.assign_order_to_client(CRDTId {
             agent,
             seq: self.client_data[agent as usize].get_next_seq()
         }, first_order, txn_len);

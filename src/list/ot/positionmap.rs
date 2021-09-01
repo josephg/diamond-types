@@ -1,3 +1,6 @@
+// TODO: This file ended up being a kitchen sink for the logic here. Separate this logic out into a
+// few files!
+
 use crate::list::{Order, ListCRDT, DoubleDeleteList};
 use crate::range_tree::*;
 use crate::order::OrderSpan;
@@ -10,7 +13,7 @@ use TraversalComponent::*;
 use crate::list::ot::positional::{PositionalComponent, InsDelTag, PositionalOp};
 use smallvec::SmallVec;
 use crate::splitable_span::SplitableSpan;
-use crate::common::CRDTLocation;
+use crate::common::CRDTId;
 use crate::list::external_txn::RemoteIdSpan;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -185,7 +188,7 @@ impl ListCRDT {
 
     pub fn remote_attr_patches_since(&self, order: Order) -> (TraversalOpSequence, SmallVec<[RemoteIdSpan; 1]>) {
         let (op, attr) = self.attributed_traversal_changes_since(order);
-        (op, attr.iter().map(|span| self.crdt_span_to_remote_span(*span)).collect())
+        (op, attr.iter().map(|span| self.crdt_span_to_remote(*span)).collect())
     }
 
     pub fn traversal_changes_since_branch(&self, branch: &[Order]) -> TraversalOpSequence {
@@ -395,7 +398,7 @@ struct PatchWithAuthorIter<'a> {
     actual_base: Order,
     state: PatchIter<'a>,
     client_order_idx: usize,
-    crdt_loc: CRDTLocation,
+    crdt_loc: CRDTId,
 }
 
 // Internally this is a bit fancy. To avoid adding extra complexity to PatchIter, this drives
@@ -403,7 +406,7 @@ struct PatchWithAuthorIter<'a> {
 // PatchIter. And note the way this is written, this can't be used with the multi positional
 // changes stuff.
 impl<'a> Iterator for PatchWithAuthorIter<'a> {
-    type Item = (u32, PositionalComponent, CRDTLocation);
+    type Item = (u32, PositionalComponent, CRDTId);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.state.span.len == 0 {
@@ -424,7 +427,7 @@ impl<'a> Iterator for PatchWithAuthorIter<'a> {
                     order: self.actual_base,
                     len: self.state.span.order - self.actual_base
                 };
-                self.crdt_loc = CRDTLocation {
+                self.crdt_loc = CRDTId {
                     agent: val.1.loc.agent,
                     seq: val.1.loc.seq + (self.actual_base - val.0)
                 };
@@ -440,7 +443,7 @@ impl<'a> Iterator for PatchWithAuthorIter<'a> {
         }
 
         if let Some((post_pos, c)) = self.state.next() {
-            Some((post_pos, c, CRDTLocation {
+            Some((post_pos, c, CRDTId {
                 agent: self.crdt_loc.agent,
                 seq: self.crdt_loc.seq + self.state.span.len
             }))
@@ -563,7 +566,7 @@ mod test {
     use crate::list::ot::positional::*;
     use ropey::Rope;
     use smallvec::smallvec;
-    use crate::common::CRDTLocation;
+    use crate::common::CRDTId;
     use crate::rle::AppendRLE;
     // use crate::list::external_txn::{RemoteTxn, RemoteId};
 
@@ -590,7 +593,7 @@ mod test {
         });
 
         assert!(attr.iter().eq(&[CRDTSpan {
-            loc: CRDTLocation {
+            loc: CRDTId {
                 agent: 0,
                 seq: 0,
             },
@@ -624,9 +627,9 @@ mod test {
         // dbg!(&attr);
 
         assert!(attr.iter().eq(&[
-            CRDTSpan { loc: CRDTLocation { agent: 0, seq: 0 }, len: 8 },
-            CRDTSpan { loc: CRDTLocation { agent: 1, seq: 0 }, len: 3 },
-            CRDTSpan { loc: CRDTLocation { agent: 0, seq: 8 }, len: 2 },
+            CRDTSpan { loc: CRDTId { agent: 0, seq: 0 }, len: 8 },
+            CRDTSpan { loc: CRDTId { agent: 1, seq: 0 }, len: 3 },
+            CRDTSpan { loc: CRDTId { agent: 0, seq: 8 }, len: 2 },
         ]));
 
         use InsDelTag::*;
@@ -691,7 +694,7 @@ mod test {
 
             let next_seq = if agent == agent_0 { &mut next_seq_0 } else { &mut next_seq_1 };
             expect_author.push_rle(CRDTSpan {
-                loc: CRDTLocation { agent, seq: *next_seq },
+                loc: CRDTId { agent, seq: *next_seq },
                 len: op_len
             });
             *next_seq += op_len;

@@ -1,4 +1,4 @@
-use crate::common::{CRDTLocation, IndexGet};
+use crate::common::{CRDTId, IndexGet};
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 
@@ -46,14 +46,14 @@ pub trait CRDTItem {
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 pub struct CRDTSpan {
-    pub loc: CRDTLocation,
+    pub loc: CRDTId,
     pub len: u32,
 }
 
 impl Searchable for CRDTSpan {
-    type Item = CRDTLocation;
+    type Item = CRDTId;
 
-    fn contains(&self, loc: CRDTLocation) -> Option<usize> {
+    fn contains(&self, loc: CRDTId) -> Option<usize> {
         // let r = self.loc.seq .. self.loc.seq + (self.len.abs() as usize);
         // self.loc.agent == loc.agent && entry.get_seq_range().contains(&loc.seq)
         if self.loc.agent == loc.agent
@@ -63,9 +63,9 @@ impl Searchable for CRDTSpan {
         } else { None }
     }
 
-    fn at_offset(&self, offset: usize) -> CRDTLocation {
+    fn at_offset(&self, offset: usize) -> CRDTId {
         assert!(offset < self.len());
-        CRDTLocation {
+        CRDTId {
             agent: self.loc.agent,
             seq: self.loc.seq + offset as u32
         }
@@ -90,7 +90,7 @@ impl SplitableSpan for CRDTSpan {
         debug_assert!(at < self.len);
 
         let other = CRDTSpan {
-            loc: CRDTLocation {
+            loc: CRDTId {
                 agent: self.loc.agent,
                 seq: self.loc.seq + at,
             },

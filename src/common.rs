@@ -13,26 +13,26 @@ pub type ItemCount = u32;
 pub const CLIENT_INVALID: AgentId = AgentId::MAX;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct CRDTLocation {
+pub struct CRDTId {
     pub agent: AgentId,
     pub seq: u32,
 }
 
-impl Default for CRDTLocation {
+impl Default for CRDTId {
     fn default() -> Self {
-        CRDTLocation {
+        CRDTId {
             agent: CLIENT_INVALID,
             seq: u32::MAX
         }
     }
 }
 
-pub const CRDT_DOC_ROOT: CRDTLocation = CRDTLocation {
+pub const CRDT_DOC_ROOT: CRDTId = CRDTId {
     agent: CLIENT_INVALID,
     seq: 0
 };
 
-impl PartialOrd for CRDTLocation {
+impl PartialOrd for CRDTId {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.agent != other.agent {
             None

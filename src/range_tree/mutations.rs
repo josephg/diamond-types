@@ -1096,14 +1096,14 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const
 mod tests {
     // use std::pin::Pin;
     use crate::range_tree::*;
-    use crate::common::CRDTLocation;
+    use crate::common::CRDTId;
     use crate::range_tree::fuzzer::TestRange;
 
     #[test]
     fn splice_insert_test() {
         let mut tree = RangeTree::<CRDTSpan, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         let entry = CRDTSpan {
-            loc: CRDTLocation {agent: 0, seq: 1000},
+            loc: CRDTId {agent: 0, seq: 1000},
             len: 100
         };
         let mut cursor = tree.cursor_at_content_pos(0, false);
@@ -1112,7 +1112,7 @@ mod tests {
         unsafe {cursor.get_node_mut() }.flush_index_update(&mut marker);
 
         let entry = CRDTSpan {
-            loc: CRDTLocation {agent: 0, seq: 1100},
+            loc: CRDTId {agent: 0, seq: 1100},
             len: 20
         };
         cursor = tree.cursor_at_content_pos(15, false);

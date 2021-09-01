@@ -4,7 +4,7 @@ use ropey::Rope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
-use crate::common::{AgentId, ClientName, CRDTLocation};
+use crate::common::{AgentId, ClientName, CRDTId};
 use crate::list::double_delete::DoubleDelete;
 use crate::list::markers::MarkerEntry;
 use crate::list::span::YjsSpan;
