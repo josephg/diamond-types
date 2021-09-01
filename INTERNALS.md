@@ -99,10 +99,6 @@ There's 3 ways to name a moment in time in diamond types:
 Taken together, the core document data structure (currently) looks something like this:
 
 ```rust
-type SpaceIndex = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex, DOC_IE, DOC_LE>, RawPositionIndex, INDEX_IE, INDEX_LE>>>;
-
-pub type DoubleDeleteList = Rle<KVPair<DoubleDelete>>;
-
 pub struct ListCRDT {
     // *** Space DAG stuff ***
 
@@ -118,10 +114,10 @@ pub struct ListCRDT {
     /// here - which might or might not be the right approach.
     ///
     /// This is a map from insert Order -> a pointer to the leaf node which contains that insert.
-    index: RLEBTreeMap<Order, RangeTreeLeafPtr>,
+    index: RleBTreeMap<Order, RangeTreeLeafPtr>,
 
     /// This is used to map Order -> External CRDT locations.
-    client_with_order: Rle<KVPair<CRDTSpan>>,
+    client_with_order: RleVec<(Order, CRDTSpan)>,
     /// This is used to map external CRDT locations -> Order numbers.
     client_data: Vec<ClientData>,
 
@@ -137,11 +133,11 @@ pub struct ListCRDT {
     frontier: Vec<Order>,
 
     /// Compact 'parents' for all operations
-    txns: Rle<TxnSpan>,
+    txns: RleVec<TxnSpan>,
 
     /// Optimizations around deletes are a little complex. Essentially this
     /// maps from delete operations -> which items each operation deleted.
-    deletes: Rle<KVPair<OrderSpan>>,
-    double_deletes: DoubleDeleteList,
+    deletes: RleVec<(Order, OrderSpan)>,
+    double_deletes: RleVec<(Order, DoubleDelete)>,
 }
 ```
