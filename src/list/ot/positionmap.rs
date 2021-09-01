@@ -400,7 +400,7 @@ impl<'a> Iterator for PatchWithAuthorIter<'a> {
                 .search_backwards(span_last_order, &mut self.client_order_idx)
                 .unwrap(); // client_with_order is packed.
 
-            if val.0 <= self.actual_base {
+            if val.0 < self.actual_base {
                 // Only take down to actual_base.
                 self.state.span = OrderSpan {
                     order: self.actual_base,
@@ -431,6 +431,7 @@ impl<'a> Iterator for PatchWithAuthorIter<'a> {
 }
 
 impl<'a> PatchIter<'a> {
+    // TODO: Consider swapping these two new() functions around as new_since_order is more useful.
     fn new(doc: &'a ListCRDT, span: OrderSpan) -> Self {
         let mut iter = PatchIter {
             doc,
@@ -541,17 +542,15 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &Rope) -> TraversalOp {
 #[cfg(test)]
 mod test {
     use crate::list::{ListCRDT, ROOT_ORDER};
-    use rand::prelude::SmallRng;
-    use rand::SeedableRng;
+    use rand::prelude::*;
     use crate::fuzz_helpers::make_random_change;
-    use crate::list::ot::positionmap::{map_to_traversal, PositionMap, PatchIter, PatchWithAuthorIter};
-    use super::TraversalComponent::*;
-    use crate::range_tree::{RangeTree, null_notify, Pair, CRDTSpan};
-    use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
-    use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
+    use crate::list::ot::positionmap::*;
+    use crate::list::ot::traversal::*;
+    use crate::list::ot::positional::*;
     use ropey::Rope;
     use smallvec::smallvec;
     use crate::common::CRDTLocation;
+    use crate::rle::AppendRLE;
     // use crate::list::external_txn::{RemoteTxn, RemoteId};
 
     #[test]
@@ -652,24 +651,43 @@ mod test {
     fn ot_single_doc_fuzz(rng: &mut SmallRng, num_ops: usize) {
         let mut doc = ListCRDT::new();
 
-        let agent = doc.get_or_create_agent_id("seph");
+        let agent_0 = doc.get_or_create_agent_id("0");
+        let agent_1 = doc.get_or_create_agent_id("1");
 
         for _i in 0..50 {
-            make_random_change(&mut doc, None, agent, rng);
+            make_random_change(&mut doc, None, agent_0, rng);
         }
 
         let midpoint_order = doc.get_next_order();
         let midpoint_content = if doc.has_content() { Some(doc.to_string()) } else { None };
 
         let mut ops = vec![];
+        let mut expect_author = vec![];
+        // Actually if all the changes above are given to agent_0, this should be doc.next_order() / 0
+        let mut next_seq_0 = doc.client_data[agent_0 as usize].get_next_seq();
+        let mut next_seq_1 = doc.client_data[agent_1 as usize].get_next_seq();
+
         for _i in 0..num_ops {
+            // Most changes from agent 0 to keep things frothy.
+            let agent = if rng.gen_bool(0.9) { agent_0 } else { agent_1 };
             let op = make_random_change(&mut doc, None, agent, rng);
+
+            let op_len = (op.del_span + op.ins_content.chars().count()) as u32;
             ops.push(op);
+
+            let next_seq = if agent == agent_0 { &mut next_seq_0 } else { &mut next_seq_1 };
+            expect_author.push_rle(CRDTSpan {
+                loc: CRDTLocation { agent, seq: *next_seq },
+                len: op_len
+            });
+            *next_seq += op_len;
         }
         // dbg!(ops);
 
-        let walker = PatchIter::new_since_order(&doc, midpoint_order);
-        let positional_op = walker.into_positional_op();
+        let walker = PatchWithAuthorIter::new_since_order(&doc, midpoint_order);
+        let (positional_op, attr) = walker.into_attributed_positional_op();
+
+        assert!(attr.iter().eq(&expect_author));
 
         // Bleh we don't need to iterate twice here except the API is awks.
         let walker = PatchIter::new_since_order(&doc, midpoint_order);
