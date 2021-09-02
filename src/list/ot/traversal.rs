@@ -51,6 +51,29 @@ impl TraversalOp {
         Self::default()
     }
 
+    pub fn new_insert(pos: u32, content: &str) -> Self {
+        let len = content.chars().count() as u32;
+        TraversalOp {
+            traversal: if pos == 0 {
+                smallvec![Ins { len, content_known: true }]
+            } else {
+                smallvec![Retain(pos), Ins { len, content_known: true }]
+            },
+            content: content.into()
+        }
+    }
+
+    pub fn new_delete(pos: u32, del_len: u32) -> Self {
+        TraversalOp {
+            traversal: if pos == 0 {
+                smallvec![Del(del_len)]
+            } else {
+                smallvec![Retain(pos), Del(del_len)]
+            },
+            content: "".into()
+        }
+    }
+
     fn body_from_positional(positional: PositionalComponent) -> SmallVec<[TraversalComponent; 2]> {
         let body = match positional.tag {
             InsDelTag::Ins => TraversalComponent::Ins {
@@ -125,6 +148,13 @@ impl TraversalComponent {
         match self {
             Retain(len) => *len,
             Del(_) => 0,
+            Ins { len, .. } => *len,
+        }
+    }
+
+    pub fn len(&self) -> u32 {
+        match self {
+            Retain(len) | Del(len) => *len,
             Ins { len, .. } => *len,
         }
     }

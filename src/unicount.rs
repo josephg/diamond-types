@@ -41,6 +41,7 @@ pub fn split_at_char(s: &str, char_pos: usize) -> (&str, &str) {
 #[cfg(test)]
 mod test {
     use crate::unicount::{str_pos_to_bytes, split_at_char};
+    use ropey::str_utils::char_to_byte_idx;
 
     // TODO: Run a microbenchmark to see how this performs in the wild.
     fn slow_lib_version(s: &str, char_pos: usize) -> usize {
@@ -63,8 +64,10 @@ mod test {
         for i in 0..=char_len {
             let expected = slow_lib_version(s, i);
             let actual = str_pos_to_bytes(s, i);
+            let ropey = char_to_byte_idx(s, i);
             // dbg!(expected, actual);
             assert_eq!(expected, actual);
+            assert_eq!(ropey, actual);
         }
     }
 
