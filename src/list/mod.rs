@@ -28,6 +28,8 @@ mod time;
 mod check;
 mod ot;
 
+pub use ot::traversal::TraversalComponent;
+
 // #[cfg(inlinerope)]
 // pub const USE_INNER_ROPE: bool = true;
 // #[cfg(not(inlinerope))]

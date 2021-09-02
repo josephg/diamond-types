@@ -34,7 +34,7 @@ fn random_inserts_deletes() {
             let content = random_str(len as usize, &mut rng);
             // println!("Inserting '{}' at position {}", content, pos);
             // rope.insert(pos, content.as_str());
-            doc.local_insert(agent, pos, content.into())
+            doc.local_insert(agent, pos, &content)
         } else {
             // Delete something
             let pos = rng.gen_range(0..doc_len);

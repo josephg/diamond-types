@@ -38,7 +38,7 @@ fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentI
         if let Some(rope) = rope {
             rope.insert(pos, content.as_str());
         }
-        doc.local_insert(agent, pos, content.into())
+        doc.local_insert(agent, pos, &content)
     } else {
         // Delete something
         let pos = rng.gen_range(0..doc_len);

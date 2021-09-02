@@ -678,7 +678,6 @@ mod test {
         let midpoint_order = doc.get_next_order();
         let midpoint_content = if doc.has_content() { Some(doc.to_string()) } else { None };
 
-        let mut ops = vec![];
         let mut expect_author = vec![];
         // Actually if all the changes above are given to agent_0, this should be doc.next_order() / 0
         let mut next_seq_0 = doc.client_data[agent_0 as usize].get_next_seq();
@@ -687,10 +686,7 @@ mod test {
         for _i in 0..num_ops {
             // Most changes from agent 0 to keep things frothy.
             let agent = if rng.gen_bool(0.9) { agent_0 } else { agent_1 };
-            let op = make_random_change(&mut doc, None, agent, rng);
-
-            let op_len = (op.del_span + op.ins_content.chars().count()) as u32;
-            ops.push(op);
+            let op_len = make_random_change(&mut doc, None, agent, rng) as u32;
 
             let next_seq = if agent == agent_0 { &mut next_seq_0 } else { &mut next_seq_1 };
             expect_author.push_rle(CRDTSpan {

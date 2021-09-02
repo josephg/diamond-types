@@ -1,7 +1,7 @@
 use crate::list::*;
 // use crate::split_list::SplitList;
 use crate::range_tree::{RangeTree, Cursor, NodeLeaf, null_notify, Searchable};
-use crate::common::{AgentId, LocalOp, CRDT_DOC_ROOT};
+use crate::common::{AgentId, CRDT_DOC_ROOT};
 use smallvec::smallvec;
 use std::ptr::NonNull;
 use crate::splitable_span::SplitableSpan;
@@ -9,7 +9,8 @@ use std::cmp::Ordering;
 use crate::rle::Rle;
 use std::mem::replace;
 use crate::list::external_txn::{RemoteTxn, RemoteCRDTOp};
-use crate::unicount::split_at_char;
+use crate::unicount::{split_at_char, str_pos_to_bytes};
+use crate::list::ot::traversal::TraversalComponent;
 
 
 impl ClientData {
@@ -534,86 +535,101 @@ impl ListCRDT {
         self.insert_txn(Some(parents), first_order, txn_len as u32);
     }
 
-    pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[LocalOp]) {
+    pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[TraversalComponent], mut content: &str) {
+        use TraversalComponent::*;
+
         let first_order = self.get_next_order();
         let mut next_order = first_order;
 
-        let mut txn_len = 0;
-        for LocalOp { pos: _, ins_content, del_span } in local_ops {
-            txn_len += *del_span;
-            txn_len += ins_content.chars().count();
-        }
+        let txn_len = local_ops.iter().map(|c| match c {
+            Ins { len, .. } | Del(len) => *len as usize,
+            Retain(_) => 0
+        }).sum();
 
         self.assign_order_to_client(CRDTId {
             agent,
             seq: self.client_data[agent as usize].get_next_seq()
         }, first_order, txn_len);
 
+        let mut pos = 0usize;
 
-        for LocalOp { pos, ins_content, del_span } in local_ops {
-            let pos = *pos;
-            if *del_span > 0 {
-                let deleted_items = self.range_tree.local_deactivate_at_content(pos, *del_span, notify_for(&mut self.index));
+        // for LocalOp { pos, ins_content, del_span } in local_ops {
+        for c in local_ops {
+            match c {
+                Retain(len) => pos += *len as usize,
 
-                // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
-                // let mut cursor = self.index.cursor_at_end();
-                // let last_entry = cursor.get_raw_entry();
-                // let entry = MarkerEntry {
-                //     len: *del_span as u32, ptr: last_entry.ptr
-                // };
-                // self.index.insert(&mut cursor, entry, null_notify);
+                Ins { len, content_known } => {
+                    // First we need the insert's base order
+                    // let len = ins_content.chars().count();
 
-                // dbg!(&deleted_items);
-                let mut deleted_length = 0; // To check.
-                for item in deleted_items {
-                    self.deletes.append(KVPair(next_order, OrderSpan {
-                        order: item.order,
-                        len: item.len as u32
-                    }));
-                    deleted_length += item.len as usize;
-                    next_order += item.len as u32;
+                    let order = next_order;
+                    next_order += *len;
+
+                    // Find the preceding item and successor
+                    let (origin_left, cursor) = if pos == 0 {
+                        (ROOT_ORDER, self.range_tree.cursor_at_start())
+                    } else {
+                        let mut cursor = self.range_tree.cursor_at_content_pos(pos - 1, false);
+                        let origin_left = cursor.get_item().unwrap();
+                        assert!(cursor.next());
+                        (origin_left, cursor)
+                    };
+
+                    // TODO: This should scan & skip past deleted items!
+                    let origin_right = cursor.get_item().unwrap_or(ROOT_ORDER);
+
+                    let item = YjsSpan {
+                        order,
+                        origin_left,
+                        origin_right,
+                        len: *len as i32
+                    };
+                    // dbg!(item);
+
+                    let ins_content = if *content_known {
+                        let byte_len = str_pos_to_bytes(content, *len as usize);
+                        let (here, remaining) = content.split_at(byte_len);
+                        content = remaining;
+                        Some(here)
+                    } else { None };
+
+                    self.integrate(agent, item, ins_content, Some(cursor));
+                    pos += *len as usize;
                 }
-                // I might be able to relax this, but we'd need to change del_span above.
-                assert_eq!(deleted_length, *del_span);
 
-                if let Some(ref mut text) = self.text_content {
-                    if let Some(deleted_content) = self.deleted_content.as_mut() {
-                        let chars = text.chars_at(pos).take(*del_span);
-                        deleted_content.extend(chars);
+                Del(len) => {
+                    let len = *len as usize;
+                    let deleted_items = self.range_tree.local_deactivate_at_content(pos, len, notify_for(&mut self.index));
+
+                    // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
+                    // let mut cursor = self.index.cursor_at_end();
+                    // let last_entry = cursor.get_raw_entry();
+                    // let entry = MarkerEntry {
+                    //     len: *del_span as u32, ptr: last_entry.ptr
+                    // };
+                    // self.index.insert(&mut cursor, entry, null_notify);
+
+                    // dbg!(&deleted_items);
+                    let mut deleted_length = 0; // To check.
+                    for item in deleted_items {
+                        self.deletes.append(KVPair(next_order, OrderSpan {
+                            order: item.order,
+                            len: item.len as u32
+                        }));
+                        deleted_length += item.len as usize;
+                        next_order += item.len as u32;
                     }
-                    text.remove(pos..pos + *del_span);
+                    // I might be able to relax this, but we'd need to change del_span above.
+                    assert_eq!(deleted_length, len);
+
+                    if let Some(ref mut text) = self.text_content {
+                        if let Some(deleted_content) = self.deleted_content.as_mut() {
+                            let chars = text.chars_at(pos).take(len);
+                            deleted_content.extend(chars);
+                        }
+                        text.remove(pos..pos + len);
+                    }
                 }
-            }
-
-            if !ins_content.is_empty() {
-                // First we need the insert's base order
-                let ins_len = ins_content.chars().count();
-
-                let order = next_order;
-                next_order += ins_len as u32;
-
-                // Find the preceding item and successor
-                let (origin_left, cursor) = if pos == 0 {
-                    (ROOT_ORDER, self.range_tree.cursor_at_start())
-                } else {
-                    let mut cursor = self.range_tree.cursor_at_content_pos(pos - 1, false);
-                    let origin_left = cursor.get_item().unwrap();
-                    assert!(cursor.next());
-                    (origin_left, cursor)
-                };
-
-                // TODO: This should scan & skip past deleted items!
-                let origin_right = cursor.get_item().unwrap_or(ROOT_ORDER);
-
-                let item = YjsSpan {
-                    order,
-                    origin_left,
-                    origin_right,
-                    len: ins_len as i32
-                };
-                // dbg!(item);
-
-                self.integrate(agent, item, Some(ins_content.as_str()), Some(cursor));
             }
         }
 
@@ -622,16 +638,27 @@ impl ListCRDT {
     }
 
     // pub fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) -> Order {
-    pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) {
-        self.apply_local_txn(agent, &[LocalOp {
-            ins_content, pos, del_span: 0
-        }])
+    pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
+        // self.apply_local_txn(agent, &[LocalOp {
+        //     ins_content, pos, del_span: 0
+        // }])
+        self.apply_local_txn(agent, &[
+            TraversalComponent::Retain(pos as u32),
+            TraversalComponent::Ins {
+                len: ins_content.chars().count() as u32,
+                content_known: true,
+            },
+        ], ins_content);
     }
 
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) {
-        self.apply_local_txn(agent, &[LocalOp {
-            ins_content: SmartString::default(), pos, del_span
-        }])
+        // self.apply_local_txn(agent, &[LocalOp {
+        //     ins_content: SmartString::default(), pos, del_span
+        // }])
+        self.apply_local_txn(agent, &[
+            TraversalComponent::Retain(pos as u32),
+            TraversalComponent::Del(del_span as u32),
+        ], &"");
     }
 
     pub fn len(&self) -> usize {

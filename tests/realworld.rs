@@ -1,27 +1,35 @@
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn, TestData};
-use smartstring::alias::{String as SmartString};
-use diamond_types::*;
 use diamond_types::list::*;
 
-fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
+pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
 
-    let mut local_ops: Vec<LocalOp> = Vec::new();
+    let mut traversal: Vec<TraversalComponent> = Vec::with_capacity(3);
+    let mut content = String::new();
 
     for (_i, txn) in txns.iter().enumerate() {
-        local_ops.clear();
-        local_ops.extend(txn.patches.iter().map(|TestPatch(pos, del_span, ins_content)| {
-            assert!(*pos <= doc.len());
-            LocalOp {
-                pos: *pos,
-                del_span: *del_span,
-                ins_content: SmartString::from(ins_content.as_str())
-            }
-        }));
+        for TestPatch(pos, del_span, ins_content) in &txn.patches {
+            traversal.clear();
+            content.clear();
+            traversal.push(TraversalComponent::Retain(*pos as u32));
 
-        doc.apply_local_txn(id, local_ops.as_slice());
+            if *del_span > 0 {
+                traversal.push(TraversalComponent::Del(*del_span as u32));
+            }
+
+            if !ins_content.is_empty() {
+                traversal.push(TraversalComponent::Ins {
+                    len: ins_content.chars().count() as u32,
+                    content_known: true
+                });
+                content.push_str(ins_content.as_str());
+            }
+
+            doc.apply_local_txn(id, traversal.as_slice(), content.as_str());
+        }
     }
 }
+
 
 fn load_into_doc(test_data: TestData) -> ListCRDT {
 
@@ -41,17 +49,9 @@ fn load_into_doc(test_data: TestData) -> ListCRDT {
 
 #[test]
 fn txn_real_world_data() {
-    let test_data = load_testing_data("benchmark_data/sveltecomponent.json.gz");
-
-    assert_eq!(test_data.start_content.len(), 0);
-    println!("final length: {}, txns {} patches {}", test_data.end_content.len(), test_data.txns.len(),
-             test_data.txns.iter().fold(0, |x, i| x + i.patches.len()));
-
-    let start_alloc = get_thread_memory_usage();
+    let test_data = load_testing_data("benchmark_data/rustcode.json.gz");
+    // let test_data = load_testing_data("benchmark_data/sveltecomponent.json.gz");
     load_into_doc(test_data);
-
-    println!("alloc {}", get_thread_memory_usage() - start_alloc);
-    println!("alloc count {}", get_thread_num_allocations());
 }
 
 #[test]
