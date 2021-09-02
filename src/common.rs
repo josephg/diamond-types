@@ -42,13 +42,6 @@ impl PartialOrd for CRDTId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalOp {
-    pub pos: usize,
-    pub ins_content: SmartString,
-    pub del_span: usize
-}
-
 // From https://github.com/rust-lang/rfcs/issues/997:
 pub trait IndexGet<Idx: ?Sized> {
     type Output;
