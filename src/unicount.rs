@@ -22,7 +22,7 @@ fn codepoint_size(b: u8) -> usize {
 // I'm sure there's much better ways to write this. But this is fine for now - its not a bottleneck.
 // Code adapted from here:
 // https://github.com/josephg/librope/blob/785a7c5ef6dc6ca05cb545264fbb22c96951af0d/rope.c#L193-L212
-pub fn str_pos_to_bytes(s: &str, char_pos: usize) -> usize {
+pub fn str_pos_to_bytes_smol(s: &str, char_pos: usize) -> usize {
     let bytes = s.as_bytes();
     let mut num_bytes = 0;
 
@@ -33,6 +33,12 @@ pub fn str_pos_to_bytes(s: &str, char_pos: usize) -> usize {
     num_bytes
 }
 
+pub fn str_pos_to_bytes(s: &str, char_pos: usize) -> usize {
+    // For all that my implementation above is correct and tight, ropey's char_to_byte_idx is
+    // already being pulled in anyway by ropey, and its faster. Just use that.
+    ropey::str_utils::char_to_byte_idx(s, char_pos)
+}
+
 pub fn split_at_char(s: &str, char_pos: usize) -> (&str, &str) {
     s.split_at(str_pos_to_bytes(s, char_pos))
 }
@@ -40,7 +46,7 @@ pub fn split_at_char(s: &str, char_pos: usize) -> (&str, &str) {
 
 #[cfg(test)]
 mod test {
-    use crate::unicount::{str_pos_to_bytes, split_at_char};
+    use crate::unicount::{str_pos_to_bytes_smol, split_at_char};
     use ropey::str_utils::char_to_byte_idx;
 
     // TODO: Run a microbenchmark to see how this performs in the wild.
@@ -63,7 +69,7 @@ mod test {
         let char_len = s.chars().count();
         for i in 0..=char_len {
             let expected = slow_lib_version(s, i);
-            let actual = str_pos_to_bytes(s, i);
+            let actual = str_pos_to_bytes_smol(s, i);
             let ropey = char_to_byte_idx(s, i);
             // dbg!(expected, actual);
             assert_eq!(expected, actual);
