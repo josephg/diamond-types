@@ -10,8 +10,8 @@ use crate::rle::Rle;
 use std::mem::replace;
 use crate::list::external_txn::{RemoteTxn, RemoteCRDTOp};
 use crate::unicount::{split_at_char, str_pos_to_bytes};
-use crate::list::ot::traversal::TraversalComponent;
-
+use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
+use crate::list::ot::ot::transform;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
@@ -637,6 +637,20 @@ impl ListCRDT {
         debug_assert_eq!(next_order, self.get_next_order());
     }
 
+    pub fn apply_local_txn_at_order(&mut self, agent: AgentId, op: &TraversalOp, order: Order, is_left: bool) {
+        let now = self.get_next_order();
+        if order < now {
+            let historical_patches = self.traversal_changes_since(order);
+            let mut local_ops = op.traversal.clone();
+            for p in historical_patches.components {
+                local_ops = transform(local_ops.as_slice(), &p, is_left);
+            }
+            self.apply_local_txn(agent, local_ops.as_slice(), op.content.as_str());
+        } else {
+            self.apply_local_txn(agent, &op.traversal, op.content.as_str());
+        }
+    }
+
     // pub fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) -> Order {
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
         // self.apply_local_txn(agent, &[LocalOp {
@@ -705,6 +719,7 @@ mod tests {
     use crate::list::*;
     use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
     use smallvec::smallvec;
+    use crate::list::ot::traversal::TraversalOp;
 
     #[test]
     fn smoke() {
@@ -878,5 +893,26 @@ mod tests {
             order: 7,
             len: 1
         }]);
+    }
+
+    #[test]
+    fn apply_at_order() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("seph"); // 0
+        doc.local_insert(0, 0, "aa".into());
+
+        let op = TraversalOp::new_insert(0, "bb");
+        // If we apply the change with is_left = false, the new content goes on the right...
+        doc.apply_local_txn_at_order(0, &op, 0, false);
+        if let Some(text) = doc.text_content.as_ref() {
+            assert_eq!(text, "aabb");
+        }
+
+        let op = TraversalOp::new_insert(0, "cc");
+        // And if is_left is true, new content goes left.
+        doc.apply_local_txn_at_order(0, &op, 0, true);
+        if let Some(text) = doc.text_content.as_ref() {
+            assert_eq!(text, "ccaabb");
+        }
     }
 }
