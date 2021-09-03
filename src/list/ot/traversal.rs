@@ -240,6 +240,7 @@ mod test {
 
     #[test]
     fn print_sizes() {
+        dbg!(size_of::<TraversalComponent>());
         dbg!(size_of::<TraversalOpSequence>());
         dbg!(size_of::<TraversalOp>());
         dbg!(size_of::<PositionalOp>());
