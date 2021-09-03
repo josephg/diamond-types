@@ -13,8 +13,9 @@ use criterion::black_box;
 use TraversalComponent::*;
 
 #[cfg(feature = "memusage")]
-use humansize::{FileSize, file_size_opts};
 use diamond_types::{get_thread_memory_usage, get_thread_num_allocations};
+#[cfg(feature = "memusage")]
+use humansize::{FileSize, file_size_opts};
 
 pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
@@ -33,10 +34,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
             }
 
             if !ins_content.is_empty() {
-                traversal.push(Ins {
-                    len: ins_content.chars().count() as u32,
-                    content_known: true
-                });
+                traversal.push(Ins(ins_content.chars().count() as i32));
                 content.push_str(ins_content.as_str());
             }
 
