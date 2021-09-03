@@ -25,6 +25,9 @@ criterion = "^0.3"
 rand = { version = "^0.8", features = ["small_rng"] }
 crdt-testdata = { path = "src/testdata" }
 
+# For OT fuzz data tests
+json_minimal = "0.1.3"
+
 [profile.release]
 #debug = true
 lto = true

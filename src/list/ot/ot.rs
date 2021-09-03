@@ -48,23 +48,15 @@ impl TraversalOp {
                         doc.insert_at(pos, content.as_str());
                     }
 
-                    pos += s.chars().count();
+                    pos += *len as usize;
                 }
             }
         }
     }
 }
 
-#[test]
-fn simple_apply() {
-    let op = TraversalOp::new_insert(2, "hi");
-    let mut doc = "yo".to_string();
-    op.apply(&mut doc);
-    assert_eq!(doc, "yohi");
-}
-
-
 // ***** Transform & Compose code
+
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum Context { Pre, Post }
@@ -135,12 +127,27 @@ fn traversal_iter(traversal: &[TraversalComponent], ctx: Context) -> TextOpItera
     TextOpIterator { op: traversal, ctx, idx: 0, offset: 0 }
 }
 
-fn append_remainder(traversal: &mut SmallVec<[TraversalComponent; 2]>, mut iter: TextOpIterator) {
+fn append_remainder_component(traversal: &mut SmallVec<[TraversalComponent; 2]>, mut iter: TextOpIterator) {
     loop {
         let chunk = iter.next(u32::MAX);
         if chunk == Retain(u32::MAX) { break; }
         traversal.push_rle(chunk);
     }
+}
+
+fn append_remainder(op: &mut TraversalOp, mut iter: TextOpIterator, mut content: &str) {
+    loop {
+        let chunk = iter.next(u32::MAX);
+        match chunk {
+            Retain(u32::MAX) => { break; }
+            Ins { len, content_known: true } => {
+                op.content.push_str(take_first_chars(&mut content, len as usize));
+            }
+            _ => {}
+        }
+        op.traversal.push_rle(chunk);
+    }
+    assert!(content.is_empty());
 }
 
 /// Transform the positions in one traversal component by another. Produces the replacement
@@ -177,7 +184,10 @@ pub fn transform(op: &[TraversalComponent], other: &[TraversalComponent], is_lef
 
             Ins { len, .. } => { // Write a corresponding skip.
                 // Left's insert should go first.
-                if is_left { result.push_rle(iter.next(0)); }
+                if is_left {
+                    let next = iter.next(0);
+                    if !next.is_noop() { result.push_rle(next); }
+                }
 
                 // Skip the text that otherop inserted.
                 result.push_rle(Retain(*len));
@@ -185,7 +195,7 @@ pub fn transform(op: &[TraversalComponent], other: &[TraversalComponent], is_lef
         }
     }
 
-    append_remainder(&mut result, iter);
+    append_remainder_component(&mut result, iter);
     trim(&mut result);
     // debug_assert!(result.is_valid());
 
@@ -205,7 +215,6 @@ fn take_first_chars<'a>(s: &mut &'a str, count: usize) -> &'a str {
     first
 }
 
-
 /// Compose two traversals together. This operates on the traversals themselves because the inserted
 /// strings may be modified as a result. (Eg if the first operation inserts, and the second deletes
 /// the newly inserted content).
@@ -219,7 +228,6 @@ pub fn compose(a: &TraversalOp, b: &TraversalOp) -> TraversalOp {
     let mut iter = traversal_iter(&a.traversal, Context::Post);
     let mut a_content = a.content.as_str();
     let mut b_content = b.content.as_str();
-
 
     for c in &b.traversal {
         match c {
@@ -263,9 +271,148 @@ pub fn compose(a: &TraversalOp, b: &TraversalOp) -> TraversalOp {
         }
     }
 
-    append_remainder(&mut result.traversal, iter);
+
+    append_remainder(&mut result, iter, a_content);
     trim(&mut result.traversal);
-    // debug_assert!(result.is_valid());
+
+    debug_assert!(b_content.is_empty());
+
+    if cfg!(debug_assertions) {
+        result.check();
+    }
 
     result
 }
+
+
+#[cfg(test)]
+mod tests {
+    use std::io::*;
+    use json_minimal::Json;
+    use crate::list::ot::traversal::*;
+    use TraversalComponent::*;
+    use crate::rle::AppendRLE;
+    use std::fs::File;
+    use crate::list::ot::ot::{compose, transform};
+
+    #[test]
+    fn simple_apply() {
+        let op = TraversalOp::new_insert(2, "hi");
+        let mut doc = "yo".to_string();
+        op.apply(&mut doc);
+        assert_eq!(doc, "yohi");
+    }
+
+    struct JsonStreamIter<T>(Lines<BufReader<T>>);
+
+    fn read_json<'a>(filename: &str) -> JsonStreamIter<impl Read> {
+        let file = File::open(filename).unwrap();
+        let reader = BufReader::new(file);
+        JsonStreamIter(reader.lines())
+    }
+
+    impl<T: Read> Iterator for JsonStreamIter<T> {
+        type Item = Json;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.0.next().and_then(|line| {
+                let line = line.unwrap();
+                if line.len() == 0 { None }
+                else { Some(Json::parse(&line.as_bytes()).unwrap()) }
+            })
+        }
+    }
+
+    fn get<'a>(val: &'a Json, field: &str) -> &'a Json {
+        unwrap_obj_value(val.get(field).unwrap())
+    }
+
+    fn unwrap_array(val: &Json) -> &Vec<Json> {
+        if let Json::ARRAY(arr) = val { arr }
+        else { panic!("Does not contain array") }
+    }
+
+    fn unwrap_obj_value(val: &Json) -> &Json {
+        if let Json::OBJECT { value, .. } = val {
+            value.unbox()
+        } else { panic!("Does not contain obj") }
+    }
+    fn unwrap_number(val: &Json) -> f64 {
+        if let Json::NUMBER(num) = val {
+            *num
+        } else { panic!("Does not contain number") }
+    }
+    fn unwrap_string(val: &Json) -> &str {
+        if let Json::STRING(str) = val {
+            str.as_str()
+        } else { panic!("Does not contain string") }
+    }
+
+    fn json_to_op(val: &Json) -> TraversalOp {
+        let arr = unwrap_array(val);
+
+        let mut result = TraversalOp::new();
+        for m in arr {
+            result.traversal.push_rle(match m {
+                Json::NUMBER(n) => Retain(*n as u32),
+                Json::STRING(s) => {
+                    result.content.push_str(s);
+                    Ins {
+                        len: s.chars().count() as u32,
+                        content_known: true
+                    }
+                }
+                Json::JSON(_) => {
+                    let d = unwrap_obj_value(m.get("d").unwrap());
+                    Del(unwrap_number(d) as u32)
+                }
+                _ => panic!("Invalid data {:?}", m)
+            });
+        }
+
+        result.check();
+        result
+    }
+
+    #[test]
+    fn fuzz_compose() {
+        for (_i, val) in read_json("test_data/compose.json").enumerate() {
+            // println!("i {}", _i);
+            let op1 = json_to_op(get(&val, "op1"));
+            let op2 = json_to_op(get(&val, "op2"));
+            let expected = json_to_op(get(&val, "result"));
+
+            let actual = compose(&op1, &op2);
+            assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn fuzz_transform() {
+        for (_i, val) in read_json("test_data/transform.json").enumerate() {
+            // println!("i {}", _i);
+            let op = json_to_op(get(&val, "op"));
+            let other_op = json_to_op(get(&val, "otherOp"));
+            let side_is_left = unwrap_string(get(&val, "side")) == "left";
+            let expected = json_to_op(get(&val, "result")).traversal;
+
+            let result = transform(&op.traversal, &other_op.traversal, side_is_left);
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    fn fuzz_apply() {
+        for (_i, val) in read_json("test_data/apply.json").enumerate() {
+            // println!("i {}", _i);
+            let mut str = unwrap_string(get(&val, "str")).to_string();
+            let op = json_to_op(get(&val, "op"));
+            let expected = unwrap_string(get(&val, "result"));
+
+            op.apply(&mut str);
+            assert_eq!(str, expected);
+            // dbg!(str, op, result);
+        }
+    }
+}
+

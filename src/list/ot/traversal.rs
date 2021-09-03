@@ -22,6 +22,7 @@ use crate::list::Order;
 use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
+use crate::rle::AppendRLE;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
@@ -78,6 +79,11 @@ impl TraversalOp {
         }
     }
 
+    pub(crate) fn append_insert(&mut self, content: &str) {
+        self.traversal.push_rle(Ins { len: content.chars().count() as _, content_known: true });
+        self.content.push_str(content);
+    }
+
     fn body_from_positional(positional: PositionalComponent) -> SmallVec<[TraversalComponent; 2]> {
         let body = match positional.tag {
             InsDelTag::Ins => TraversalComponent::Ins {
@@ -125,6 +131,14 @@ impl TraversalOp {
             }
         }
         result
+    }
+
+    pub(crate) fn check(&self) {
+        let len: u32 = self.traversal.iter().map(|c| {
+            if let TraversalComponent::Ins { len, content_known: true } = c { *len }
+            else { 0 }
+        }).sum();
+        assert_eq!(len as usize, self.content.chars().count());
     }
 }
 
