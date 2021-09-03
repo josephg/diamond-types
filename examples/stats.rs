@@ -34,7 +34,10 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
             }
 
             if !ins_content.is_empty() {
-                traversal.push(Ins(ins_content.chars().count() as i32));
+                traversal.push(Ins {
+                    len: ins_content.chars().count() as u32,
+                    content_known: true
+                });
                 content.push_str(ins_content.as_str());
             }
 
