@@ -26,6 +26,10 @@ use serde_crate::{Deserialize, Serialize};
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub enum TraversalComponent {
+    // Note: I tried making len an i32 and using the sign bit to store content_known, like YjsSpan.
+    // The result had no change in memory usage - this enum is already has 8 bytes (because of the
+    // enum field and padding). Tucking this bool only really served to drop performance by 1-5% on
+    // some benchmarks. The code isn't much different in either case.
     Ins { len: u32, content_known: bool },
     Del(u32), // TODO: Add content_known for del for consistency
     Retain(u32)
