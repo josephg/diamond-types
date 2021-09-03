@@ -327,6 +327,8 @@ mod tests {
         unwrap_obj_value(val.get(field).unwrap())
     }
 
+    // This is gross. The other option would be to use serde or the 'json' crate, either of which
+    // would give us less code here but a slower time compiling. Eh.
     fn unwrap_array(val: &Json) -> &Vec<Json> {
         if let Json::ARRAY(arr) = val { arr }
         else { panic!("Does not contain array") }
@@ -337,11 +339,13 @@ mod tests {
             value.unbox()
         } else { panic!("Does not contain obj") }
     }
+
     fn unwrap_number(val: &Json) -> f64 {
         if let Json::NUMBER(num) = val {
             *num
         } else { panic!("Does not contain number") }
     }
+
     fn unwrap_string(val: &Json) -> &str {
         if let Json::STRING(str) = val {
             str.as_str()

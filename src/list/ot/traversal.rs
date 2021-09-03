@@ -134,11 +134,18 @@ impl TraversalOp {
     }
 
     pub(crate) fn check(&self) {
-        let len: u32 = self.traversal.iter().map(|c| {
-            if let TraversalComponent::Ins { len, content_known: true } = c { *len }
-            else { 0 }
-        }).sum();
-        assert_eq!(len as usize, self.content.chars().count());
+        let mut content_len = 0;
+
+        for c in &self.traversal {
+            if let TraversalComponent::Ins { len, content_known: true } = c {
+                content_len += *len;
+            }
+
+            // Components are not allowed to be no-ops.
+            assert_ne!(c.len(), 0);
+        }
+
+        assert_eq!(content_len as usize, self.content.chars().count());
     }
 }
 

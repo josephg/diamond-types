@@ -108,6 +108,8 @@ impl<T: SplitableSpan> AppendRLE<T> for Vec<T> {
 
 impl<A: smallvec::Array> AppendRLE<A::Item> for SmallVec<A> where A::Item: SplitableSpan {
     fn push_rle(&mut self, item: A::Item) {
+        debug_assert!(item.len() > 0);
+
         if let Some(v) = self.last_mut() {
             if v.can_append(&item) {
                 v.append(item);
@@ -119,6 +121,8 @@ impl<A: smallvec::Array> AppendRLE<A::Item> for SmallVec<A> where A::Item: Split
     }
 
     fn push_reversed_rle(&mut self, item: A::Item) {
+        debug_assert!(item.len() > 0);
+
         if let Some(v) = self.last_mut() {
             if item.can_append(v) {
                 v.prepend(item);

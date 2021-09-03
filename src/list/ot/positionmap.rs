@@ -551,7 +551,9 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &Rope) -> TraversalOp {
             }
             _ => {}
         }
-        op.traversal.push_rle(entry);
+        if entry.len() > 0 {
+            op.traversal.push_rle(entry);
+        }
     }
     op
 }
