@@ -14,6 +14,7 @@ use TraversalComponent::*;
 
 #[cfg(feature = "memusage")]
 use humansize::{FileSize, file_size_opts};
+use diamond_types::{get_thread_memory_usage, get_thread_num_allocations};
 
 pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
