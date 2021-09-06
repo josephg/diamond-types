@@ -9,7 +9,7 @@ use crate::list::TraversalComponent;
 use TraversalComponent::*;
 use crate::list::ot::traversal::TraversalOp;
 use crate::rle::AppendRLE;
-use crate::unicount::str_pos_to_bytes;
+use crate::unicount::chars_to_bytes;
 use crate::list::ot::editablestring::EditableText;
 
 impl TraversalComponent {
@@ -203,12 +203,12 @@ pub fn transform(op: &[TraversalComponent], other: &[TraversalComponent], is_lef
 }
 
 fn skip_chars(s: &str, num: usize) -> &str {
-    let byte_offset = str_pos_to_bytes(s, num);
+    let byte_offset = chars_to_bytes(s, num);
     &s[byte_offset..]
 }
 
 fn take_first_chars<'a>(s: &mut &'a str, count: usize) -> &'a str {
-    let num_bytes = str_pos_to_bytes(s, count);
+    let num_bytes = chars_to_bytes(s, count);
     let (first, remainder) = s.split_at(num_bytes);
     // result.content.push_str(first);
     *s = remainder;

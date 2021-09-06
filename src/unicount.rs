@@ -22,7 +22,7 @@ fn codepoint_size(b: u8) -> usize {
 // I'm sure there's much better ways to write this. But this is fine for now - its not a bottleneck.
 // Code adapted from here:
 // https://github.com/josephg/librope/blob/785a7c5ef6dc6ca05cb545264fbb22c96951af0d/rope.c#L193-L212
-pub fn str_pos_to_bytes_smol(s: &str, char_pos: usize) -> usize {
+pub fn chars_to_bytes_smol(s: &str, char_pos: usize) -> usize {
     let bytes = s.as_bytes();
     let mut num_bytes = 0;
 
@@ -33,28 +33,38 @@ pub fn str_pos_to_bytes_smol(s: &str, char_pos: usize) -> usize {
     num_bytes
 }
 
-pub fn str_pos_to_bytes(s: &str, char_pos: usize) -> usize {
+pub fn chars_to_bytes(s: &str, char_pos: usize) -> usize {
     // For all that my implementation above is correct and tight, ropey's char_to_byte_idx is
     // already being pulled in anyway by ropey, and its faster. Just use that.
     ropey::str_utils::char_to_byte_idx(s, char_pos)
 }
 
 pub fn split_at_char(s: &str, char_pos: usize) -> (&str, &str) {
-    s.split_at(str_pos_to_bytes(s, char_pos))
+    s.split_at(chars_to_bytes(s, char_pos))
 }
 
+pub fn bytes_to_chars(s: &str, byte_pos: usize) -> usize {
+    ropey::str_utils::byte_to_char_idx(s, byte_pos)
+}
+
+pub fn count_chars(s: &str) -> usize {
+    ropey::str_utils::byte_to_char_idx(s, s.len())
+}
 
 #[cfg(test)]
 mod test {
-    use crate::unicount::{str_pos_to_bytes_smol, split_at_char};
-    use ropey::str_utils::char_to_byte_idx;
+    use crate::unicount::*;
 
     // TODO: Run a microbenchmark to see how this performs in the wild.
-    fn slow_lib_version(s: &str, char_pos: usize) -> usize {
+    fn std_chars_to_bytes(s: &str, char_pos: usize) -> usize {
         s.char_indices().nth(char_pos).map_or_else(
             || s.len(),
             |(i, _)| i
         )
+    }
+
+    pub fn std_bytes_to_chars(s: &str, byte_pos: usize) -> usize {
+        s[..byte_pos].chars().count()
     }
 
     const TRICKY_CHARS: &[&str] = &[
@@ -68,12 +78,18 @@ mod test {
     fn check_matches(s: &str) {
         let char_len = s.chars().count();
         for i in 0..=char_len {
-            let expected = slow_lib_version(s, i);
-            let actual = str_pos_to_bytes_smol(s, i);
-            let ropey = char_to_byte_idx(s, i);
+            let expected_bytes = std_chars_to_bytes(s, i);
+            let actual_bytes = chars_to_bytes_smol(s, i);
+            let ropey_bytes = ropey::str_utils::char_to_byte_idx(s, i);
             // dbg!(expected, actual);
-            assert_eq!(expected, actual);
-            assert_eq!(ropey, actual);
+            assert_eq!(expected_bytes, actual_bytes);
+            assert_eq!(ropey_bytes, actual_bytes);
+
+            let std_chars = std_bytes_to_chars(s, actual_bytes);
+            let ropey_chars = bytes_to_chars(s, actual_bytes);
+
+            assert_eq!(std_chars, i);
+            assert_eq!(ropey_chars, i);
         }
     }
 

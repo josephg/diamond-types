@@ -9,7 +9,7 @@ use smallvec::SmallVec;
 use crate::splitable_span::SplitableSpan;
 use InsDelTag::*;
 use ropey::Rope;
-use crate::unicount::str_pos_to_bytes;
+use crate::unicount::chars_to_bytes;
 use crate::rle::AppendRLE;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
@@ -49,7 +49,7 @@ impl PositionalOp {
             match c.tag {
                 Ins => {
                     if c.content_known {
-                        let byte_len = str_pos_to_bytes(new_content, len);
+                        let byte_len = chars_to_bytes(new_content, len);
                         let (here, next) = new_content.split_at(byte_len);
                         new_content = next;
                         rope.insert(pos, here);

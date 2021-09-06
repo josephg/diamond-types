@@ -23,6 +23,7 @@ use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 use crate::rle::AppendRLE;
+use crate::unicount::count_chars;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
@@ -57,7 +58,7 @@ impl TraversalOp {
     }
 
     pub fn new_insert(pos: u32, content: &str) -> Self {
-        let len = content.chars().count() as u32;
+        let len = count_chars(&content) as u32;
         TraversalOp {
             traversal: if pos == 0 {
                 smallvec![Ins { len, content_known: true }]
@@ -80,7 +81,7 @@ impl TraversalOp {
     }
 
     pub(crate) fn append_insert(&mut self, content: &str) {
-        self.traversal.push_rle(Ins { len: content.chars().count() as _, content_known: true });
+        self.traversal.push_rle(Ins { len: count_chars(&content) as _, content_known: true });
         self.content.push_str(content);
     }
 
@@ -145,7 +146,7 @@ impl TraversalOp {
             assert_ne!(c.len(), 0);
         }
 
-        assert_eq!(content_len as usize, self.content.chars().count());
+        assert_eq!(content_len as usize, count_chars(&self.content));
     }
 }
 

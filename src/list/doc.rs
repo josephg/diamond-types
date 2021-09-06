@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 use crate::rle::Rle;
 use std::mem::replace;
 use crate::list::external_txn::{RemoteTxn, RemoteCRDTOp};
-use crate::unicount::{split_at_char, str_pos_to_bytes};
+use crate::unicount::{split_at_char, chars_to_bytes, count_chars};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
 use crate::list::ot::ot::transform;
 
@@ -325,7 +325,7 @@ impl ListCRDT {
         if let Some(text) = self.text_content.as_mut() {
             let pos = unsafe { cursor.count_pos() as usize };
             if let Some(ins_content) = ins_content {
-                debug_assert_eq!(ins_content.chars().count(), item.len as usize);
+                debug_assert_eq!(count_chars(&ins_content), item.len as usize);
                 text.insert(pos, ins_content);
             } else {
                 // todo!("Figure out what to do when inserted content not present");
@@ -433,7 +433,7 @@ impl ListCRDT {
             }
         }
 
-        assert_eq!(txn.ins_content.chars().count(), expected_content_len as usize);
+        assert_eq!(count_chars(&txn.ins_content), expected_content_len as usize);
         let mut content = txn.ins_content.as_str();
 
         // TODO: This may be premature - we may be left in an invalid state if the txn is invalid.
@@ -587,7 +587,7 @@ impl ListCRDT {
                     // dbg!(item);
 
                     let ins_content = if *content_known {
-                        let byte_len = str_pos_to_bytes(content, *len as usize);
+                        let byte_len = chars_to_bytes(content, *len as usize);
                         let (here, remaining) = content.split_at(byte_len);
                         content = remaining;
                         Some(here)
@@ -659,7 +659,7 @@ impl ListCRDT {
         self.apply_local_txn(agent, &[
             TraversalComponent::Retain(pos as u32),
             TraversalComponent::Ins {
-                len: ins_content.chars().count() as u32,
+                len: count_chars(&ins_content) as u32,
                 content_known: true,
             },
         ], ins_content);
