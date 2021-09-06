@@ -114,6 +114,7 @@ pub fn decode_u64_slow(buf: &[u8]) -> (u64, usize) {
     }
 }
 
+// TODO: This is from rust-protobuf. Check this is actually faster than decode_u64_slow.
 pub fn decode_u64(buf: &[u8]) -> (u64, usize) {
     if buf.len() < 1 {
         panic!("Not enough bytes in buffer");
@@ -127,21 +128,13 @@ pub fn decode_u64(buf: &[u8]) -> (u64, usize) {
             2
         )
     } else if buf.len() >= 10 {
-        // Read from array when buf at at least 10 bytes,
-        // max len for varint.
+        // Read from array when buf at at least 10 bytes, which is the max len for varint.
         let mut r: u64 = 0;
         let mut i: usize = 0;
-        loop {
-            if i == 10 {
-                panic!("Invalid varint");
-            }
-
-            let b = if true {
-                // skip range check
-                unsafe { *buf.get_unchecked(i) }
-            } else {
-                buf[i]
-            };
+        // The i < buf.len() clause gets optimized out, but it gets the optimizer to remove bounds
+        // checks on buf[i].
+        while i < buf.len() && i < 10 {
+            let b = buf[i];
 
             if i == 9 && (b & 0x7f) > 1 {
                 panic!("Invalid varint");
@@ -149,10 +142,10 @@ pub fn decode_u64(buf: &[u8]) -> (u64, usize) {
             r = r | (((b & 0x7f) as u64) << (i as u64 * 7));
             i += 1;
             if b < 0x80 {
-                break;
+                return (r, i);
             }
         }
-        (r, i)
+        panic!("Invalid varint");
     } else {
         decode_u64_slow(buf)
     }
@@ -160,7 +153,7 @@ pub fn decode_u64(buf: &[u8]) -> (u64, usize) {
 
 pub fn decode_u32(buf: &[u8]) -> (u32, usize) {
     let (val, bytes_consumed) = decode_u64(buf);
-    assert!(val < u32::MAX as u64);
+    assert!(val < u32::MAX as u64, "varint is not a u32");
     debug_assert!(bytes_consumed <= 5);
     (val as u32, bytes_consumed)
 }
@@ -190,21 +183,19 @@ pub fn encode_i32(value: i32, buf: &mut[u8]) -> usize {
     encode_u32(encode_zigzag_i32(value), buf)
 }
 
+pub fn encode_i64_with_extra_bits(value: i64, extra: bool, buf: &mut[u8]) -> usize {
+    // We only have enough remaining bits in the u64 encoding to fit +/- 2^62.
+    debug_assert!(value < (i64::MAX / 2));
+    let val_1 = encode_zigzag_i64(value);
+    let val_2 = val_1 * 2 + extra as u64;
+    encode_u64(val_2, buf)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use rand::prelude::*;
     use crate::list::encoding::varint::encode_u64;
-
-    #[test]
-    fn simple_encode_u32() {
-        // This isn't thorough, but its a decent smoke test.
-        // Encoding example from https://developers.google.com/protocol-buffers/docs/encoding:
-        let mut result = [0u8; 5];
-        assert_eq!(2, encode_u32(300, &mut result[..]));
-        assert_eq!(result[0], 0b10101100);
-        assert_eq!(result[1], 0b00000010);
-    }
 
     fn check_enc_dec_unsigned(val: u64) {
         let mut buf = [0u8; 10];
@@ -223,6 +214,23 @@ mod test {
             assert_eq!(buf[..5], buf2);
             assert_eq!(bytes_used, bytes_used_2);
         }
+    }
+
+    #[test]
+    fn simple_encode_u32() {
+        // This isn't thorough, but its a decent smoke test.
+        // Encoding example from https://developers.google.com/protocol-buffers/docs/encoding:
+        let mut result = [0u8; 5];
+        assert_eq!(2, encode_u32(300, &mut result[..]));
+        assert_eq!(result[0], 0b10101100);
+        assert_eq!(result[1], 0b00000010);
+    }
+
+    #[test]
+    fn enc_edge_cases() {
+        check_enc_dec_unsigned(0);
+        check_enc_dec_unsigned(1);
+        check_enc_dec_unsigned(u64::MAX);
     }
 
     #[test]
