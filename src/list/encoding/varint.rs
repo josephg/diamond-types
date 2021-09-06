@@ -183,7 +183,19 @@ pub fn encode_i32(value: i32, buf: &mut[u8]) -> usize {
     encode_u32(encode_zigzag_i32(value), buf)
 }
 
-pub fn encode_i64_with_extra_bits(value: i64, extra: bool, buf: &mut[u8]) -> usize {
+pub fn encode_u32_with_extra_bit(value: u32, extra: bool, buf: &mut[u8]) -> usize {
+    debug_assert!(value < (u32::MAX >> 1));
+    let val_2 = value * 2 + (extra as u32);
+    encode_u32(val_2, buf)
+}
+
+pub fn encode_u32_with_extra_bit_2(value: u32, extra_1: bool, extra_2: bool, buf: &mut[u8]) -> usize {
+    debug_assert!(value < (u32::MAX >> 2));
+    let val_2 = value << 2 + (extra_1 as u32) << 1 + (extra_2 as u32);
+    encode_u32(val_2, buf)
+}
+
+pub fn encode_i64_with_extra_bit(value: i64, extra: bool, buf: &mut[u8]) -> usize {
     // We only have enough remaining bits in the u64 encoding to fit +/- 2^62.
     debug_assert!(value < (i64::MAX / 2));
     let val_1 = encode_zigzag_i64(value);

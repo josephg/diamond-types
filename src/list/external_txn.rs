@@ -345,6 +345,8 @@ impl ListCRDT {
 
             let order = span.order + txn_offset;
             let len_remaining = txn_len - txn_offset;
+            // TODO: Use a smarter replacement for deletes.find() here, since we're traversing
+            // linearly.
             let (next, len) = if let Some((d, offset)) = self.deletes.find(order) {
                 // dbg!((d, offset));
                 // Its a delete.

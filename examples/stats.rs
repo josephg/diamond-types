@@ -49,11 +49,12 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
 fn print_stats_for_file(filename: &str) {
     let test_data = load_testing_data(filename);
     assert_eq!(test_data.start_content.len(), 0);
-    println!("\n\nLoaded testing data from {}\n ({} patches in {} txns)",
+    println!("\n\nLoaded testing data from {}\n ({} patches in {} txns -> docsize {} chars)",
         filename,
         test_data.txns.iter()
             .fold(0, |acc, txn| { acc + txn.patches.len() }),
-        test_data.txns.len()
+        test_data.txns.len(),
+        test_data.end_content.chars().count()
     );
 
     #[cfg(feature = "memusage")]
@@ -63,7 +64,7 @@ fn print_stats_for_file(filename: &str) {
 
     let mut doc = ListCRDT::new();
     apply_edits(&mut doc, &test_data.txns);
-    assert_eq!(doc.len(), test_data.end_content.len());
+    assert_eq!(doc.len(), test_data.end_content.chars().count());
 
     #[cfg(feature = "memusage")]
     println!("allocated {} bytes in {} blocks",
@@ -72,7 +73,7 @@ fn print_stats_for_file(filename: &str) {
 
     doc.print_stats(false);
 
-    // doc.write_encoding_stats();
+    // doc.write_encoding_stats_2();
     black_box(doc);
 }
 
