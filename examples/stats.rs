@@ -73,6 +73,7 @@ fn print_stats_for_file(filename: &str) {
     doc.print_stats(false);
 
     // doc.write_encoding_stats_2();
+    doc.write_encoding_stats_3(true);
     black_box(doc);
 }
 

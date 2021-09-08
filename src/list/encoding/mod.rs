@@ -7,6 +7,8 @@ use crate::range_tree::CRDTItem;
 use crate::list::encoding::varint::*;
 use crate::splitable_span::SplitableSpan;
 use std::fmt::Debug;
+use crate::rle::KVPair;
+use crate::list::span::YjsSpan;
 
 struct BitWriter<W: Write> {
     to: W,
@@ -117,7 +119,7 @@ impl<V: Clone + PartialEq + Eq> SplitableSpan for Run<V> {
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 struct Run2<const INC: bool> {
-    jump: isize,
+    diff: isize,
     len: usize,
 }
 
@@ -126,17 +128,17 @@ impl<const INC: bool> SplitableSpan for Run2<INC> {
 
     fn truncate(&mut self, at: usize) -> Self {
         let remainder = Self {
-            jump: INC as isize,
+            diff: INC as isize,
             len: self.len - at,
         };
         self.len = at;
         remainder
     }
 
-    fn can_append(&self, other: &Self) -> bool { other.jump == INC as isize }
+    fn can_append(&self, other: &Self) -> bool { other.diff == INC as isize }
     fn append(&mut self, other: Self) { self.len += other.len; }
     fn prepend(&mut self, other: Self) {
-        self.jump = other.jump;
+        self.diff = other.diff;
         self.len += other.len;
     }
 }
@@ -157,7 +159,36 @@ impl DiffVal {
         self.0 = new_val + len - 1;
         diff
     }
+    fn next_run_2<const INC: bool>(&mut self, new_val: usize, len: usize) -> Run2<INC> {
+        let diff = new_val as isize - self.0 as isize;
+        self.0 = new_val + len - 1;
+        Run2 { diff, len }
+    }
 }
+
+
+fn write_run<const INC: bool>(run: Run2<INC>, vec: &mut Vec<u8>) {
+    let mut dest = [0u8; 10];
+    let mut pos = 0;
+    // println!("{:?}", run);
+    pos += encode_i32(run.diff as i32, &mut dest[..]);
+    pos += encode_u32(run.len as u32, &mut dest[pos..]);
+    vec.extend_from_slice(&dest[..pos]);
+}
+
+fn write_run_2<const INC: bool>(run: Run2<INC>, vec: &mut Vec<u8>) {
+    let mut dest = [0u8; 15];
+    let mut pos = 0;
+    pos += encode_i64_with_extra_bit(run.diff as i64, run.len != 1, &mut dest[..]);
+    if run.len != 1 {
+        pos += encode_u32(run.len as u32, &mut dest[pos..]);
+    }
+
+    vec.extend_from_slice(&dest[..pos]);
+}
+
+// The 0 is a simple top level version identifier.
+const MAGIC_BYTES: [u8; 8] = *b"DIAMOND0";
 
 impl ListCRDT {
     fn write_order<W: Write>(writer: &mut W, order: Order) {
@@ -194,28 +225,9 @@ impl ListCRDT {
             del_runs.append(entry.len);
         }
 
-        fn write_run<const INC: bool>(run: Run2<INC>, vec: &mut Vec<u8>) {
-            let mut dest = [0u8; 10];
-            let mut pos = 0;
-            // println!("{:?}", run);
-            pos += encode_i32(run.jump as i32, &mut dest[..]);
-            pos += encode_u32(run.len as u32, &mut dest[pos..]);
-            vec.extend_from_slice(&dest[..pos]);
-        }
-        fn write_run2_2<const INC: bool>(run: Run2<INC>, vec: &mut Vec<u8>) {
-            let mut dest = [0u8; 15];
-            let mut pos = 0;
-            pos += encode_i64_with_extra_bit(run.jump as i64, run.len != 1, &mut dest[..]);
-            if run.len != 1 {
-                pos += encode_u32(run.len as u32, &mut dest[pos..]);
-            }
-
-            vec.extend_from_slice(&dest[..pos]);
-        }
-
-        let mut order_runs = SpanWriter::new(write_run2_2);
-        let mut left_origin_runs = SpanWriter::new(write_run2_2);
-        let mut right_origin_runs = SpanWriter::new(write_run2_2);
+        let mut order_runs = SpanWriter::new(write_run_2);
+        let mut left_origin_runs = SpanWriter::new(write_run_2);
+        let mut right_origin_runs = SpanWriter::new(write_run_2);
 
         for (len, d_o, d_lo1, d_lo2, d_ro) in self.range_tree.iter().scan((DiffVal(0), 0, DiffVal(0)), |state, entry| {
             // State is the previous order & previous LO.
@@ -229,14 +241,14 @@ impl ListCRDT {
 
             Some((entry.len(), diff_origin, diff_lo_1, diff_lo_2, diff_ro))
         }) {
-            order_runs.append(Run2::<true> { jump: d_o, len });
+            order_runs.append(Run2::<true> { diff: d_o, len });
 
-            left_origin_runs.append(Run2::<true> { jump: d_lo1, len: 1 });
+            left_origin_runs.append(Run2::<true> { diff: d_lo1, len: 1 });
             if len > 1 {
-                left_origin_runs.append(Run2::<true> { jump: d_lo2, len: len - 1 });
+                left_origin_runs.append(Run2::<true> { diff: d_lo2, len: len - 1 });
             }
 
-            right_origin_runs.append(Run2::<false> { jump: d_ro, len });
+            right_origin_runs.append(Run2::<false> { diff: d_ro, len });
         }
 
 
@@ -266,65 +278,140 @@ impl ListCRDT {
 
     }
 
-    // pub fn write_encoding_stats_3(&self) {
-    //     println!("\n===== encoding stats 3 =====");
-    //
-    //     let mut del_target = SpanWriter::new(|target: KVPair<OrderSpan>, vec: &mut Vec<u8>| {
-    //         // let mut dest = [0u8; 5];
-    //         // // The lengths alternate back and forth each operation.
-    //         // let len = encode_u32(len.abs() as u32, &mut dest[..]);
-    //         // // let len = encode_i32(len, &mut dest[..]);
-    //         // vec.extend_from_slice(&dest[..len]);
-    //     });
-    //
-    //
-    //     let end_order = self.get_next_order();
-    //     let mut order = 0;
-    //
-    //     while order < end_order {
-    //         let len_remaining = end_order - order;
-    //
-    //         let (next, len) = if let Some((d, offset)) = self.deletes.find(order) {
-    //             // Its a delete.
-    //
-    //             // Limit by #4
-    //             let len_limit_2 = u32::min(d.1.len - offset, len_remaining);
-    //             // Limit by #5
-    //             del_target.append(KVPair(order, OrderSpan {
-    //                 order: d.1.order + offset,
-    //                 len: len_limit_2
-    //             }));
-    //             let (id, len) = self.order_to_remote_id_span(d.1.order + offset, len_limit_2);
-    //             // dbg!((&id, len));
-    //             (RemoteCRDTOp::Del { id, len }, len)
-    //         } else {
-    //             // It must be an insert. Fish information out of the range tree.
-    //             let cursor = self.get_cursor_before(order);
-    //             let entry = cursor.get_raw_entry();
-    //             // Limit by #4
-    //             let len = u32::min((entry.len() - cursor.offset) as u32, len_remaining);
-    //
-    //             // I'm not fishing out the deleted content at the moment, for any reason.
-    //             // This might be simpler if I just make up content for deleted items O_o
-    //             let content_known = if entry.is_activated() {
-    //                 if let Some(ref text) = self.text_content {
-    //                     let pos = unsafe { cursor.count_pos() as usize };
-    //                     let content = text.chars_at(pos).take(len as usize);
-    //                     ins_content.extend(content);
-    //                     true
-    //                 } else { false }
-    //             } else { false };
-    //
-    //     }
-    // }
+    pub fn write_encoding_stats_3(&self, verbose: bool) -> Vec<u8> {
+        let mut del_runs = SpanWriter::new(|len: i32, vec: &mut Vec<u8>| {
+            let mut dest = [0u8; 5];
+            // The lengths alternate back and forth each operation.
+            let len = encode_u32(len.abs() as u32, &mut dest[..]);
+            // let len = encode_i32(len, &mut dest[..]);
+            vec.extend_from_slice(&dest[..len]);
+        });
+
+        let mut del_spans = SpanWriter::new(write_run_2);
+
+        let mut next_order = 0;
+        for (target, order, d_len) in self.deletes.iter().scan(DiffVal(0), |dv, KVPair(order, d)| {
+            let target = dv.next_run_2::<true>(d.order as _, d.len as _);
+            Some((target, *order, d.len))
+        }) {
+            if order > next_order {
+                del_runs.append(-((order - next_order) as i32));
+            }
+            // dbg!((d.end(), *order));
+            del_runs.append(d_len as i32);
+            next_order = order + d_len;
+
+            del_spans.append(target);
+        }
+
+        let mut entries = self.range_tree.iter().collect::<Vec<YjsSpan>>();
+        entries.sort_by_key(|e| e.order);
+        // dbg!(&entries[..10]);
+
+        let mut left_origin_runs = SpanWriter::new(write_run_2);
+        let mut right_origin_runs = SpanWriter::new(write_run_2);
+
+        for (len, d_lo1, d_lo2, d_ro) in entries.iter().scan((0, DiffVal(0)), |state, entry| {
+            // State is the previous order & previous LO.
+
+            let diff_lo_1 = entry.origin_left as isize - state.0 as isize;
+            let diff_lo_2 = entry.order as isize - entry.origin_left as isize;
+            state.0 = entry.origin_left_at_offset(entry.len() as u32 - 1);
+
+            let diff_ro = state.1.next(entry.origin_right as usize);
+
+            Some((entry.len(), diff_lo_1, diff_lo_2, diff_ro))
+        }) {
+            left_origin_runs.append(Run2::<true> { diff: d_lo1, len: 1 });
+            if len > 1 {
+                left_origin_runs.append(Run2::<true> { diff: d_lo2, len: len - 1 });
+            }
+
+            right_origin_runs.append(Run2::<false> { diff: d_ro, len });
+        }
+
+        let runs_data = del_runs.flush_into_inner();
+        let del_data = del_spans.flush_into_inner();
+        let lo_data = left_origin_runs.flush_into_inner();
+        let ro_runs = right_origin_runs.flush_into_inner();
+
+        let mut result: Vec<u8> = Vec::with_capacity(runs_data.len() + del_data.len() + lo_data.len() + ro_runs.len() + 1000);
+        result.extend_from_slice(runs_data.as_slice());
+        result.extend_from_slice(del_data.as_slice());
+        result.extend_from_slice(lo_data.as_slice());
+        result.extend_from_slice(ro_runs.as_slice());
+
+        if let Some(d) = self.text_content.as_ref() {
+            for chunk in d.chunks() {
+                result.extend_from_slice(chunk.as_bytes());
+            }
+        }
+
+        if verbose {
+            println!("\n===== encoding stats 3 =====");
+
+            println!("Del run info {}", runs_data.len());
+            println!("Del data {}", del_data.len());
+
+            println!("left origin RLE {} bytes", lo_data.len());
+
+            // dbg!(right_origin_runs.count);
+            println!("right origin RLE {} bytes", ro_runs.len());
+
+            println!("without del {}", lo_data.len() + ro_runs.len());
+
+            println!("total {}", result.len());
+        }
+
+        result
+
+
+        // let end_order = self.get_next_order();
+        // let mut order = 0;
+        //
+        // while order < end_order {
+        //     let len_remaining = end_order - order;
+        //
+        //     let (next, len) = if let Some((d, offset)) = self.deletes.find(order) {
+        //         // Its a delete.
+        //
+        //         // Limit by #4
+        //         let len_limit_2 = u32::min(d.1.len - offset, len_remaining);
+        //         // Limit by #5
+        //         del_target.append(KVPair(order, OrderSpan {
+        //             order: d.1.order + offset,
+        //             len: len_limit_2
+        //         }));
+        //         let (id, len) = self.order_to_remote_id_span(d.1.order + offset, len_limit_2);
+        //         // dbg!((&id, len));
+        //         (RemoteCRDTOp::Del { id, len }, len)
+        //     } else {
+        //         // It must be an insert. Fish information out of the range tree.
+        //         let cursor = self.get_cursor_before(order);
+        //         let entry = cursor.get_raw_entry();
+        //         // Limit by #4
+        //         let len = u32::min((entry.len() - cursor.offset) as u32, len_remaining);
+        //
+        //         // I'm not fishing out the deleted content at the moment, for any reason.
+        //         // This might be simpler if I just make up content for deleted items O_o
+        //         let content_known = if entry.is_activated() {
+        //             if let Some(ref text) = self.text_content {
+        //                 let pos = unsafe { cursor.count_pos() as usize };
+        //                 let content = text.chars_at(pos).take(len as usize);
+        //                 ins_content.extend(content);
+        //                 true
+        //             } else { false }
+        //         } else { false };
+        //
+        // }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::list::ListCRDT;
-    use crate::splitable_span::{test_splitable_methods_valid, SplitableSpan};
+    use crate::splitable_span::{test_splitable_methods_valid};
     use crate::list::encoding::*;
-    use crate::list::span::YjsSpan;
 
     #[test]
     fn simple_encode() {
@@ -343,13 +430,13 @@ mod tests {
         test_splitable_methods_valid(Run { len: 5, val: true });
         test_splitable_methods_valid(Run { len: 5, val: false });
 
-        test_splitable_methods_valid(Run2::<true> { jump: 1, len: 5 });
-        test_splitable_methods_valid(Run2::<true> { jump: 2, len: 5 });
-        test_splitable_methods_valid(Run2::<true> { jump: -1, len: 5 });
+        test_splitable_methods_valid(Run2::<true> { diff: 1, len: 5 });
+        test_splitable_methods_valid(Run2::<true> { diff: 2, len: 5 });
+        test_splitable_methods_valid(Run2::<true> { diff: -1, len: 5 });
 
-        test_splitable_methods_valid(Run2::<false> { jump: 1, len: 5 });
-        test_splitable_methods_valid(Run2::<false> { jump: 2, len: 5 });
-        test_splitable_methods_valid(Run2::<false> { jump: -1, len: 5 });
+        test_splitable_methods_valid(Run2::<false> { diff: 1, len: 5 });
+        test_splitable_methods_valid(Run2::<false> { diff: 2, len: 5 });
+        test_splitable_methods_valid(Run2::<false> { diff: -1, len: 5 });
     }
 
     // other.order == self.order + len

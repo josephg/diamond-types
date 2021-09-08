@@ -325,7 +325,7 @@ impl ListCRDT {
         if let Some(text) = self.text_content.as_mut() {
             let pos = unsafe { cursor.count_pos() as usize };
             if let Some(ins_content) = ins_content {
-                debug_assert_eq!(count_chars(&ins_content), item.len as usize);
+                // debug_assert_eq!(count_chars(&ins_content), item.len as usize);
                 text.insert(pos, ins_content);
             } else {
                 // todo!("Figure out what to do when inserted content not present");

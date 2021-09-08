@@ -38,7 +38,7 @@ fn local_benchmarks(c: &mut Criterion) {
 
         group.finish();
     }
-    
+
     c.bench_function("kevin", |b| {
         b.iter(|| {
             let mut doc = ListCRDT::new();
@@ -100,10 +100,27 @@ fn ot_benchmarks(c: &mut Criterion) {
     }
 }
 
+fn encoding_benchmarks(c: &mut Criterion) {
+    for name in &["automerge-paper", "rustcode", "sveltecomponent"] {
+        let mut group = c.benchmark_group("encoding");
+        let test_data = testing_data(name);
+        let doc = list_with_data(&test_data);
+        group.throughput(Throughput::Bytes(doc.write_encoding_stats_3(false).len() as _));
+
+        group.bench_function(BenchmarkId::new("encode", name), |b| {
+            b.iter(|| {
+                let encoding = doc.write_encoding_stats_3(false);
+                assert!(encoding.len() > 1000);
+                black_box(encoding);
+            })
+        });
+    }
+}
 
 criterion_group!(benches,
     local_benchmarks,
     remote_benchmarks,
     ot_benchmarks,
+    encoding_benchmarks,
 );
 criterion_main!(benches);
