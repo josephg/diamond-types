@@ -4,8 +4,8 @@
 
 mod utils;
 
-use criterion::{criterion_group, criterion_main, black_box, Criterion, BenchmarkId};
-use crdt_testdata::{load_testing_data};
+use criterion::{criterion_group, criterion_main, black_box, Criterion, BenchmarkId, Throughput};
+use crdt_testdata::{load_testing_data, TestData};
 use diamond_types::list::*;
 use utils::apply_edits;
 
@@ -42,9 +42,12 @@ fn local_benchmarks(c: &mut Criterion) {
     });
 }
 
-fn list_with_data(name: &str) -> ListCRDT {
+fn testing_data(name: &str) -> TestData {
     let filename = format!("benchmark_data/{}.json.gz", name);
-    let test_data = load_testing_data(&filename);
+    load_testing_data(&filename)
+}
+
+fn list_with_data(test_data: &TestData) -> ListCRDT {
     assert_eq!(test_data.start_content.len(), 0);
 
     let mut doc = ListCRDT::new();
@@ -53,25 +56,22 @@ fn list_with_data(name: &str) -> ListCRDT {
 }
 
 fn remote_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("generate remote edits");
     for name in &["automerge-paper", "rustcode", "sveltecomponent"] {
-        group.bench_with_input(BenchmarkId::new("dataset", name), name, |b, name| {
-            let src_doc = list_with_data(name);
+        let mut group = c.benchmark_group("remote");
+        let test_data = testing_data(name);
+        let src_doc = list_with_data(&test_data);
+
+        group.throughput(Throughput::Elements(test_data.len() as u64));
+
+        group.bench_function(BenchmarkId::new( "generate", name), |b| {
             b.iter(|| {
                 let remote_edits: Vec<_> = src_doc.get_all_txns();
                 black_box(remote_edits);
             })
         });
-    }
 
-    group.finish();
-
-    let mut group = c.benchmark_group("apply remote edits");
-    for name in &["automerge-paper", "rustcode", "sveltecomponent"] {
-        group.bench_with_input(BenchmarkId::new("dataset", name), name, |b, name| {
-            let src_doc = list_with_data(name);
-            let remote_edits: Vec<_> = src_doc.get_all_txns();
-
+        let remote_edits: Vec<_> = src_doc.get_all_txns();
+        group.bench_function(BenchmarkId::new( "apply", name), |b| {
             b.iter(|| {
                 let mut doc = ListCRDT::new();
                 for txn in remote_edits.iter() {
@@ -81,17 +81,19 @@ fn remote_benchmarks(c: &mut Criterion) {
                 // black_box(doc.len());
             })
         });
-    }
 
-    group.finish();
+        group.finish();
+    }
 }
 
 fn ot_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("generate ot");
     for name in &["automerge-paper", "rustcode", "sveltecomponent"] {
-        group.bench_with_input(BenchmarkId::new("dataset", name), name, |b, name| {
-            let doc = list_with_data(name);
+        let mut group = c.benchmark_group("ot");
+        let test_data = testing_data(name);
+        let doc = list_with_data(&test_data);
+        group.throughput(Throughput::Elements(test_data.len() as u64));
 
+        group.bench_function(BenchmarkId::new("traversal_since", name), |b| {
             b.iter(|| {
                 let changes = doc.traversal_changes_since(0);
                 black_box(changes);
