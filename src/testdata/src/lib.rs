@@ -26,6 +26,14 @@ pub struct TestData {
     pub txns: Vec<TestTxn>,
 }
 
+impl TestData {
+    pub fn len(&self) -> usize {
+        self.txns.iter()
+            .map(|txn| { txn.patches.len() })
+            .sum::<usize>()
+    }
+}
+
 pub fn load_testing_data(filename: &str) -> TestData {
     // let start = SystemTime::now();
     // let mut file = File::open("benchmark_data/automerge-paper.json.gz").unwrap();

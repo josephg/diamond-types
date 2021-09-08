@@ -51,8 +51,7 @@ fn print_stats_for_file(filename: &str) {
     assert_eq!(test_data.start_content.len(), 0);
     println!("\n\nLoaded testing data from {}\n ({} patches in {} txns -> docsize {} chars)",
         filename,
-        test_data.txns.iter()
-            .fold(0, |acc, txn| { acc + txn.patches.len() }),
+        test_data.len(),
         test_data.txns.len(),
         test_data.end_content.chars().count()
     );

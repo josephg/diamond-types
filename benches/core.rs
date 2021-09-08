@@ -9,25 +9,36 @@ use crdt_testdata::{load_testing_data, TestData};
 use diamond_types::list::*;
 use utils::apply_edits;
 
-fn local_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("local edits");
-    for name in &["automerge-paper", "rustcode", "sveltecomponent"] {
-        group.bench_with_input(BenchmarkId::new("yjs", name), name, |b, name| {
-            let filename = format!("benchmark_data/{}.json.gz", name);
-            let test_data = load_testing_data(&filename);
-            assert_eq!(test_data.start_content.len(), 0);
+fn testing_data(name: &str) -> TestData {
+    let filename = format!("benchmark_data/{}.json.gz", name);
+    load_testing_data(&filename)
+}
 
+fn list_with_data(test_data: &TestData) -> ListCRDT {
+    assert_eq!(test_data.start_content.len(), 0);
+
+    let mut doc = ListCRDT::new();
+    apply_edits(&mut doc, &test_data.txns);
+    doc
+}
+
+fn local_benchmarks(c: &mut Criterion) {
+    for name in &["automerge-paper", "rustcode", "sveltecomponent"] {
+        let mut group = c.benchmark_group("local");
+        let test_data = testing_data(name);
+        group.throughput(Throughput::Elements(test_data.len() as u64));
+
+        group.bench_function(BenchmarkId::new("yjs", name), |b| {
             b.iter(|| {
-                let mut doc = ListCRDT::new();
-                apply_edits(&mut doc, &test_data.txns);
+                let doc = list_with_data(&test_data);
                 assert_eq!(doc.len(), test_data.end_content.len());
                 black_box(doc.len());
             })
         });
+
+        group.finish();
     }
-
-    group.finish();
-
+    
     c.bench_function("kevin", |b| {
         b.iter(|| {
             let mut doc = ListCRDT::new();
@@ -40,19 +51,6 @@ fn local_benchmarks(c: &mut Criterion) {
             black_box(doc.len());
         })
     });
-}
-
-fn testing_data(name: &str) -> TestData {
-    let filename = format!("benchmark_data/{}.json.gz", name);
-    load_testing_data(&filename)
-}
-
-fn list_with_data(test_data: &TestData) -> ListCRDT {
-    assert_eq!(test_data.start_content.len(), 0);
-
-    let mut doc = ListCRDT::new();
-    apply_edits(&mut doc, &test_data.txns);
-    doc
 }
 
 fn remote_benchmarks(c: &mut Criterion) {
