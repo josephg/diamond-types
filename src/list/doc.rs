@@ -637,20 +637,6 @@ impl ListCRDT {
         debug_assert_eq!(next_order, self.get_next_order());
     }
 
-    pub fn apply_local_txn_at_order(&mut self, agent: AgentId, op: &TraversalOp, order: Order, is_left: bool) {
-        let now = self.get_next_order();
-        if order < now {
-            let historical_patches = self.traversal_changes_since(order);
-            let mut local_ops = op.traversal.clone();
-            for p in historical_patches.components {
-                local_ops = transform(local_ops.as_slice(), &p, is_left);
-            }
-            self.apply_local_txn(agent, local_ops.as_slice(), op.content.as_str());
-        } else {
-            self.apply_local_txn(agent, &op.traversal, op.content.as_str());
-        }
-    }
-
     // pub fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) -> Order {
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
         // self.apply_local_txn(agent, &[LocalOp {
@@ -673,6 +659,27 @@ impl ListCRDT {
             TraversalComponent::Retain(pos as u32),
             TraversalComponent::Del(del_span as u32),
         ], &"");
+    }
+
+    pub fn apply_local_txn_at_order(&mut self, agent: AgentId, op: &TraversalOp, order: Order, is_left: bool) {
+        let now = self.get_next_order();
+        if order < now {
+            let historical_patches = self.traversal_changes_since(order);
+            let mut local_ops = op.traversal.clone();
+            for p in historical_patches.components {
+                local_ops = transform(local_ops.as_slice(), &p, is_left);
+            }
+            self.apply_local_txn(agent, local_ops.as_slice(), op.content.as_str());
+        } else {
+            self.apply_local_txn(agent, &op.traversal, op.content.as_str());
+        }
+    }
+
+    pub fn local_insert_at_order(&mut self, agent: AgentId, pos: usize, ins_content: &str, order: Order, is_left: bool) {
+        self.apply_local_txn_at_order(agent, &TraversalOp::new_insert(pos as u32, ins_content), order, is_left);
+    }
+    pub fn local_delete_at_order(&mut self, agent: AgentId, pos: usize, del_span: usize, order: Order, is_left: bool) {
+        self.apply_local_txn_at_order(agent, &TraversalOp::new_delete(pos as u32, del_span as u32), order, is_left);
     }
 
     pub fn len(&self) -> usize {

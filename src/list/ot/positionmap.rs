@@ -181,6 +181,11 @@ impl ListCRDT {
         self.positional_changes_since(order).into()
     }
 
+    pub fn flat_traversal_since(&self, order: Order) -> TraversalOp {
+        let walker = PatchIter::new_since_order(self, order);
+        walker.into_traversal(self.text_content.as_ref().unwrap())
+    }
+
     pub fn attributed_traversal_changes_since(&self, order: Order) -> (TraversalOpSequence, SmallVec<[CRDTSpan; 1]>) {
         let (op, attr) = self.attributed_positional_changes_since(order);
         (op.into(), attr)
