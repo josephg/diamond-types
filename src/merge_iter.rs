@@ -4,7 +4,7 @@ use crate::splitable_span::SplitableSpan;
 /// iterator over those same items in run-length order.
 
 #[derive(Debug, Clone)]
-pub struct MergeIter<I: Iterator>{
+pub struct MergeIter<I: Iterator> {
     next: Option<I::Item>,
     iter: I
 }
@@ -50,6 +50,23 @@ where
         }
 
         Some(this_val)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (lower, upper) = self.iter.size_hint();
+        (lower.min(1), upper)
+    }
+}
+
+pub trait MergeableIterator<X: SplitableSpan>: Iterator<Item = X> where Self: Sized {
+    fn merge_spans(self) -> MergeIter<Self>;
+}
+
+impl<X, I> MergeableIterator<X> for I
+where I: Iterator<Item=X>, X: SplitableSpan, Self: Sized
+{
+    fn merge_spans(self) -> MergeIter<Self> {
+        MergeIter::new(self)
     }
 }
 

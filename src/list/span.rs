@@ -25,6 +25,11 @@ impl YjsSpan {
         if at == 0 { self.origin_left }
         else { self.order + at - 1 }
     }
+
+    pub fn activated(mut self) -> Self {
+        self.len = self.len.abs();
+        self
+    }
 }
 
 impl SplitableSpan for YjsSpan {

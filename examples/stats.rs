@@ -71,9 +71,7 @@ fn print_stats_for_file(filename: &str) {
 
     // doc.print_stats(false);
 
-    // let mut out = vec![];
-    // doc.encode_small(&mut out, true).unwrap();
-    let encoded = doc.encode_small(true);
+    let encoded = doc.encode_small(false);
     // println!("Full encoded size {}", encoded.len().file_size(file_size_opts::CONVENTIONAL).unwrap());
     println!("Full encoded size {}", encoded.len());
 
@@ -87,6 +85,7 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    // print_stats_for_file("benchmark_data/automerge-paper.json.gz");
+    print_stats_for_file("benchmark_data/automerge-paper.json.gz");
     print_stats_for_file("benchmark_data/rustcode.json.gz");
+    print_stats_for_file("benchmark_data/sveltecomponent.json.gz");
 }

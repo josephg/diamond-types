@@ -217,6 +217,15 @@ pub fn num_decode_zigzag_i64(val: u64) -> i64 {
     (val >> 1) as i64 * (if val & 1 == 1 { -1 } else { 1 })
 }
 
+pub fn num_decode_u32_with_extra_bit(value: u32) -> (u32, bool) {
+    let bit = (value & 1) != 0;
+    (value >> 1, bit)
+}
+pub fn num_decode_u64_with_extra_bit(value: u64) -> (u64, bool) {
+    let bit = (value & 1) != 0;
+    (value >> 1, bit)
+}
+
 pub fn num_decode_i64_with_extra_bit(value: u64) -> (i64, bool) {
     let bit = (value & 1) != 0;
     (num_decode_zigzag_i64(value >> 1), bit)

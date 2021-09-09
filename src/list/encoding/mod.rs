@@ -1,7 +1,6 @@
 mod varint;
 
 use crate::list::{ListCRDT, Order};
-use std::io::Write;
 use std::mem::{size_of, replace};
 use crate::list::encoding::varint::*;
 use crate::splitable_span::SplitableSpan;
@@ -10,47 +9,51 @@ use crate::rle::KVPair;
 use crate::list::span::YjsSpan;
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
+use crate::merge_iter::MergeableIterator;
+use crate::order::OrderSpan;
+use crate::range_tree::CRDTSpan;
+use crate::common::CRDTId;
 
-struct BitWriter<W: Write> {
-    to: W,
-    buf: u32,
-    buf_pos: u8,
-}
-
-impl<W: Write> BitWriter<W> {
-    fn new(writer: W) -> Self {
-        Self {
-            to: writer,
-            buf: 0,
-            buf_pos: 0
-        }
-    }
-
-    fn unwrap(self) -> W {
-        self.to
-    }
-
-    fn append(&mut self, bit: bool) {
-        self.buf |= (bit as u32) << self.buf_pos;
-        self.buf_pos += 1;
-
-        if self.buf_pos > size_of::<u32>() as u8 {
-            self.flush();
-        }
-    }
-
-    fn flush(&mut self) {
-        if self.buf_pos > 0 {
-            self.to.write_all(&self.buf.to_le_bytes()).unwrap();
-            self.buf_pos = 0;
-            self.buf = 0;
-        }
-        self.to.flush().unwrap();
-    }
-}
+// struct BitWriter<W: Write> {
+//     to: W,
+//     buf: u32,
+//     buf_pos: u8,
+// }
+//
+// impl<W: Write> BitWriter<W> {
+//     fn new(writer: W) -> Self {
+//         Self {
+//             to: writer,
+//             buf: 0,
+//             buf_pos: 0
+//         }
+//     }
+//
+//     fn unwrap(self) -> W {
+//         self.to
+//     }
+//
+//     fn append(&mut self, bit: bool) {
+//         self.buf |= (bit as u32) << self.buf_pos;
+//         self.buf_pos += 1;
+//
+//         if self.buf_pos > size_of::<u32>() as u8 {
+//             self.flush();
+//         }
+//     }
+//
+//     fn flush(&mut self) {
+//         if self.buf_pos > 0 {
+//             self.to.write_all(&self.buf.to_le_bytes()).unwrap();
+//             self.buf_pos = 0;
+//             self.buf = 0;
+//         }
+//         self.to.flush().unwrap();
+//     }
+// }
 
 #[derive(Debug, Clone, Default)]
-struct SpanWriter<S: SplitableSpan + Clone + Debug, F: FnMut(S, &mut Vec<u8>)> {
+struct SpanWriter<S: SplitableSpan + Clone + Debug, F: FnMut(&mut Vec<u8>, S)> {
     dest: Vec<u8>,
     last: Option<S>,
     flush: F,
@@ -59,7 +62,7 @@ struct SpanWriter<S: SplitableSpan + Clone + Debug, F: FnMut(S, &mut Vec<u8>)> {
     pub count: usize,
 }
 
-impl<S: SplitableSpan + Clone + Debug, F: FnMut(S, &mut Vec<u8>)> SpanWriter<S, F> {
+impl<S: SplitableSpan + Clone + Debug, F: FnMut(&mut Vec<u8>, S)> SpanWriter<S, F> {
     pub fn new(flush: F) -> Self {
         Self {
             dest: vec![],
@@ -75,7 +78,7 @@ impl<S: SplitableSpan + Clone + Debug, F: FnMut(S, &mut Vec<u8>)> SpanWriter<S, 
         result
     }
     
-    pub fn append(&mut self, s: S) {
+    pub fn push(&mut self, s: S) {
         assert!(s.len() > 0);
         // if s.len() == 0 { return; }
         // println!("append {:?}", &s);
@@ -85,7 +88,7 @@ impl<S: SplitableSpan + Clone + Debug, F: FnMut(S, &mut Vec<u8>)> SpanWriter<S, 
             } else {
                 let old = replace(last, s);
                 self.count += 1;
-                (self.flush)(old, &mut self.dest);
+                (self.flush)(&mut self.dest, old);
             }
         } else {
             self.last = Some(s);
@@ -95,7 +98,7 @@ impl<S: SplitableSpan + Clone + Debug, F: FnMut(S, &mut Vec<u8>)> SpanWriter<S, 
     pub fn flush_into_inner(mut self) -> Vec<u8> {
         if let Some(elem) = self.last.take() {
             self.count += 1;
-            (self.flush)(elem, &mut self.dest);
+            (self.flush)(&mut self.dest, elem);
         }
         self.dest
     }
@@ -170,24 +173,34 @@ impl DiffVal {
 }
 
 
-fn write_run<const INC: bool>(run: Run2<INC>, vec: &mut Vec<u8>) {
-    let mut dest = [0u8; 10];
-    let mut pos = 0;
-    // println!("{:?}", run);
-    pos += encode_i32(run.diff as i32, &mut dest[..]);
-    pos += encode_u32(run.len as u32, &mut dest[pos..]);
-    vec.extend_from_slice(&dest[..pos]);
-}
+// fn write_run<const INC: bool>(run: Run2<INC>, vec: &mut Vec<u8>) {
+//     let mut dest = [0u8; 10];
+//     let mut pos = 0;
+//     // println!("{:?}", run);
+//     pos += encode_i32(run.diff as i32, &mut dest[..]);
+//     pos += encode_u32(run.len as u32, &mut dest[pos..]);
+//     vec.extend_from_slice(&dest[..pos]);
+// }
 
-fn write_run_2<const INC: bool>(run: Run2<INC>, vec: &mut Vec<u8>) {
+fn push_run_u32(into: &mut Vec<u8>, run: Run<u32>) {
     let mut dest = [0u8; 15];
     let mut pos = 0;
-    pos += encode_i64_with_extra_bit(run.diff as i64, run.len != 1, &mut dest[..]);
+    pos += encode_u32_with_extra_bit(run.val, run.len != 1, &mut dest[..]);
     if run.len != 1 {
-        pos += encode_u32(run.len as u32, &mut dest[pos..]);
+        pos += encode_u64(run.len as u64, &mut dest[pos..]);
     }
 
-    vec.extend_from_slice(&dest[..pos]);
+    into.extend_from_slice(&dest[..pos]);
+}
+fn push_run_2<const INC: bool>(into: &mut Vec<u8>, val: Run2<INC>) {
+    let mut dest = [0u8; 20];
+    let mut pos = 0;
+    pos += encode_i64_with_extra_bit(val.diff as i64, val.len != 1, &mut dest[..]);
+    if val.len != 1 {
+        pos += encode_u64(val.len as u64, &mut dest[pos..]);
+    }
+
+    into.extend_from_slice(&dest[..pos]);
 }
 
 fn push_u32(into: &mut Vec<u8>, val: u32) {
@@ -286,13 +299,26 @@ impl<'a> BufReader<'a> {
         r
     }
 
-    fn next_str(&mut self) -> &str {
+    fn next_str(&mut self) -> Option<&str> {
+        if self.0.is_empty() { return None; }
         let len = self.next_usize();
         let bytes = self.next_n_bytes(len);
-        std::str::from_utf8(bytes).unwrap()
+        Some(std::str::from_utf8(bytes).unwrap())
     }
 
-    fn next_u32_run<const INC: bool>(&mut self, last: &mut u32) -> Option<Run<u32>> {
+    fn next_u32_run(&mut self) -> Option<Run<u32>> {
+        if self.0.is_empty() { return None; }
+        // TODO: Error checking!!
+        let (val, has_len) = num_decode_u32_with_extra_bit(self.next_u32());
+        let len = if has_len {
+            self.next_u64() as usize
+        } else {
+            1
+        };
+        Some(Run { val, len })
+    }
+
+    fn next_u32_diff_run<const INC: bool>(&mut self, last: &mut u32) -> Option<Run<u32>> {
         let (diff, has_len) = num_decode_i64_with_extra_bit(self.next()?);
         *last = last.wrapping_add(diff as i32 as u32);
         let base_val = *last;
@@ -322,32 +348,103 @@ impl<'a> Iterator for BufReader<'a> {
     }
 }
 
+struct PartialReader<'a, S: SplitableSpan, F: FnMut(&mut BufReader<'a>) -> Option<S>> {
+    reader: BufReader<'a>,
+    read_fn: F,
+    data: Option<S>,
+}
+
+impl<'a, S: SplitableSpan, F: FnMut(&mut BufReader<'a>) -> Option<S>> PartialReader<'a, S, F> {
+    fn new(reader: BufReader<'a>, read_fn: F) -> Self {
+        Self {
+            reader,
+            read_fn,
+            data: None
+        }
+    }
+
+    fn fill(&mut self) {
+        if self.data.is_none() {
+            self.data = (self.read_fn)(&mut self.reader);
+        }
+    }
+
+    fn peek_next(&mut self) -> &Option<S> {
+        self.fill();
+        &self.data
+    }
+
+    fn consume(&mut self, max_len: usize) -> Option<S> {
+        self.fill();
+        match &mut self.data {
+            None => None,
+            Some(span) => {
+                if span.len() <= max_len {
+                    // Take the whole span.
+                    self.data.take() // I'm surprised the borrow checker lets me do this!
+                } else {
+                    Some(span.truncate_keeping_right(max_len))
+                }
+            }
+        }
+    }
+}
+
+impl<'a, S: SplitableSpan, F: FnMut(&mut BufReader<'a>) -> Option<S>> Iterator for PartialReader<'a, S, F> {
+    type Item = S;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.fill();
+        self.data.take()
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]
 enum Chunk {
     FileInfo = 1,
-    Frontier = 2,
 
-    InsOrDelFlags = 3,
-    DelData = 4,
+    AgentNames = 2,
+    AgentAssignment = 3,
 
-    InsOrigins = 5, // Not used by encode_small.
-    InsLeftOrigins = 6,
-    InsRightOrigins = 7,
+    Frontier = 4,
 
-    Content = 8,
+    InsOrDelFlags = 5,
+    DelData = 6,
+
+    InsOrders = 7, // Not used by encode_small.
+    InsOrigins = 8,
+
+    Content = 9,
 }
-
 
 impl ListCRDT {
     // pub fn encode_small<W: Write>(&self, writer: &mut W, verbose: bool) -> std::io::Result<()> {
     pub fn encode_small(&self, verbose: bool) -> Vec<u8> {
-        let mut ins_del_runs = SpanWriter::new_with_val(0, |len: i32, vec: &mut Vec<u8>| {
+
+        let mut agent_names = Vec::new();
+        for client_data in self.client_data.iter() {
+            push_str(&mut agent_names, client_data.name.as_str());
+        }
+
+        // So here we know:
+        // - Each entry has the next group of order numbers (its packed)
+        // - Also the CRDT locations for each agent are packed.
+        // So we really just have to store the runs of agent ID.
+        //
+        // I could use SpanWriter here but self.client_with_order should already be packed. (And if
+        // it wasn't, .merge_spans() would be simpler.)
+        let mut agent_data = Vec::new();
+        for KVPair(_, span) in self.client_with_order.iter() {
+            push_run_u32(&mut agent_data, Run { val: span.loc.agent as _, len: span.len() });
+        }
+
+        let mut ins_del_runs = SpanWriter::new_with_val(0, |vec: &mut Vec<u8>, len: i32| {
             // The lengths alternate back and forth each operation.
             push_u32(vec, len.abs() as u32);
         });
 
-        let mut del_spans = SpanWriter::new(write_run_2);
+        let mut del_spans = SpanWriter::new(push_run_2);
 
         let mut next_order = 0;
         let mut dv = DiffVal(0);
@@ -355,55 +452,63 @@ impl ListCRDT {
             let target = dv.next_run::<true>(d.order as _, d.len as _);
             // Some((target, *order, d.len))
             if *order > next_order {
-                ins_del_runs.append((*order - next_order) as i32);
+                ins_del_runs.push((*order - next_order) as i32);
             }
             // dbg!((d.end(), *order));
-            ins_del_runs.append(-(d.len as i32));
+            ins_del_runs.push(-(d.len as i32));
             next_order = *order + d.len;
 
-            del_spans.append(target);
+            del_spans.push(target);
+        }
+
+        let doc_next_order = self.get_next_order();
+        if next_order < doc_next_order {
+            // There's an insert after the last delete. Include it in ins_del_runs.
+            ins_del_runs.push((doc_next_order - next_order) as i32);
         }
 
         let mut entries = self.range_tree.iter().collect::<Vec<YjsSpan>>();
         entries.sort_by_key(|e| e.order);
-        // dbg!(&entries[..10]);
 
-        let mut left_origin_runs = SpanWriter::new(write_run_2);
-        let mut right_origin_runs = SpanWriter::new(write_run_2);
-
-
+        let mut fancy_runs = Vec::new();
         let mut prev_ol = 0;
         let mut prev_or = DiffVal(0);
-        for entry in entries.iter() {
-            let len = entry.len();
+        // dbg!(entries.clone().into_iter().map(|e| e.activated()).merge_spans().count());
+        for entry in entries.into_iter().map(|e| e.activated()).merge_spans() {
+            let len = entry.len as u32;
 
-            // This wrapping and casting is a bit weird. I'm using it to force ROOT_ORIGIN
-            // (u32::MAX) to encode as -1 instead of 2^32-1.
-            left_origin_runs.append(Run2::<true> {
-                diff: entry.origin_left.wrapping_sub(prev_ol) as i32 as isize,
-                len: 1
-            });
-            prev_ol = if len == 1 {
-                entry.origin_left
-            } else { // len > 1
-                left_origin_runs.append(Run2::<true> {
-                    diff: entry.order.wrapping_sub(entry.origin_left) as i32 as isize,
-                    len: len - 1
-                });
-                entry.order + len as u32 - 2
-            };
+            let lo_diff = entry.origin_left.wrapping_sub(prev_ol) as i32;
+            prev_ol = entry.origin_left;
+            // prev_ol = entry.origin_left_at_offset(len - 1);
+            // prev_ol = entry.origin_left;
 
-            let diff_ro = prev_or.next(entry.origin_right);
-            right_origin_runs.append(Run2::<false> { diff: diff_ro as isize, len });
+            // prev_ol = if len == 1 {
+            //     entry.origin_left
+            // } else { // len > 1
+            //     entry.order + len as u32 - 2
+            // };
+
+            let ro_diff = prev_or.next(entry.origin_right);
+
+            let mut dest = [0u8; 20];
+            let mut pos = 0;
+            pos += encode_i32(lo_diff, &mut dest[pos..]);
+            pos += encode_i64_with_extra_bit(ro_diff as i64, len != 1, &mut dest[..]);
+            if len != 1 {
+                pos += encode_u32(len as u32, &mut dest[pos..]);
+            }
+
+            fancy_runs.extend_from_slice(&dest[..pos]);
         }
 
         let ins_del_runs_data = ins_del_runs.flush_into_inner();
         let del_data = del_spans.flush_into_inner();
-        let lo_data = left_origin_runs.flush_into_inner();
-        let ro_data = right_origin_runs.flush_into_inner();
+        // let lo_data = left_origin_runs.flush_into_inner();
+        // let ro_data = right_origin_runs.flush_into_inner();
 
         // TODO: Avoid this allocation and just use write_all() to the writer for each section.
-        let mut result: Vec<u8> = Vec::with_capacity(ins_del_runs_data.len() + del_data.len() + lo_data.len() + ro_data.len() + 1000);
+        let mut result: Vec<u8> = Vec::with_capacity(ins_del_runs_data.len() + del_data.len() + fancy_runs.len() + 1000);
+        // let mut result: Vec<u8> = Vec::with_capacity(ins_del_runs_data.len() + del_data.len() + lo_data.len() + ro_data.len() + 1000);
         // writer.write_all(&MAGIC_BYTES_SMALL)?;
         // writer.write_all(runs_data.as_slice())?;
         // writer.write_all(del_data.as_slice())?;
@@ -416,11 +521,15 @@ impl ListCRDT {
         for v in self.frontier.iter() {
             push_u32(&mut frontier_data, *v);
         }
+        push_chunk(&mut result, Chunk::AgentNames, agent_names.as_slice());
+        push_chunk(&mut result, Chunk::AgentAssignment, agent_data.as_slice());
         push_chunk(&mut result, Chunk::Frontier, frontier_data.as_slice());
         push_chunk(&mut result, Chunk::InsOrDelFlags, ins_del_runs_data.as_slice());
         push_chunk(&mut result, Chunk::DelData, del_data.as_slice());
-        push_chunk(&mut result, Chunk::InsLeftOrigins, lo_data.as_slice());
-        push_chunk(&mut result, Chunk::InsRightOrigins, ro_data.as_slice());
+        push_chunk(&mut result, Chunk::InsOrigins, fancy_runs.as_slice());
+
+        // push_chunk(&mut result, Chunk::InsLeftOrigins, lo_data.as_slice());
+        // push_chunk(&mut result, Chunk::InsRightOrigins, ro_data.as_slice());
 
         // result.extend_from_slice(runs_data.as_slice());
         // result.extend_from_slice(del_data.as_slice());
@@ -439,17 +548,22 @@ impl ListCRDT {
         if verbose {
             println!("\n===== encoding stats 3 =====");
 
+            println!("Agent names {}", agent_names.len());
+            println!("Agent assignments {}", agent_data.len());
+
             println!("Del run info {}", ins_del_runs_data.len());
             println!("Del data {}", del_data.len());
 
-            println!("left origin RLE {} bytes", lo_data.len());
+            // println!("left origin RLE {} bytes", lo_data.len());
+            //
+            // // dbg!(right_origin_runs.count);
+            // println!("right origin RLE {} bytes", ro_data.len());
 
-            // dbg!(right_origin_runs.count);
-            println!("right origin RLE {} bytes", ro_data.len());
+            println!("Left / right origins {}", fancy_runs.len());
 
-            println!("without del {}", lo_data.len() + ro_data.len());
+            // println!("without del {}", fancy_runs.len());
 
-            println!("total (no doc content) {}", ins_del_runs_data.len() + del_data.len() + lo_data.len() + ro_data.len());
+            println!("total (no doc content) {}", ins_del_runs_data.len() + del_data.len() + fancy_runs.len());
 
             // if let Some(d) = self.text_content.as_ref() {
             //     println!("total (with doc content) {}", runs_data.len() + del_data.len() + lo_data.len() + ro_runs.len() + d.len_bytes());
@@ -464,66 +578,95 @@ impl ListCRDT {
 
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let mut result = ListCRDT::new();
+        result.text_content = None; // Disable document content while we import data
 
         let mut reader = BufReader(bytes);
         reader.read_magic();
 
         let _info = reader.expect_chunk(Chunk::FileInfo);
 
+        let mut agent_names = reader.expect_chunk(Chunk::AgentNames);
+        while let Some(name) = agent_names.next_str() {
+            dbg!(name);
+            // TODO: This is gross for multiple reasons:
+            // - Its n^2 (since we're scanning each time)
+            // - We aren't checking the ID matches the current index.
+            // Tidy this up!
+            result.get_or_create_agent_id(name);
+        }
+        dbg!(&result.client_data);
+
+        let mut agent_data = reader.expect_chunk(Chunk::AgentAssignment);
+        // let mut agent_reader = PartialReader::new(agent_data, |r| {
+        //     r.next_u32_run()
+        // });
+
+        let mut order: Order = 0;
+        while let Some(Run { val: agent, len }) = agent_data.next_u32_run() {
+            // TODO: Consider calling assign_order_to_client instead.
+            let client_data = &mut result.client_data[agent as usize];
+            let seq = client_data.get_next_seq();
+            result.client_with_order.append(KVPair(order, CRDTSpan {
+                loc: CRDTId {
+                    agent: agent as _,
+                    seq
+                },
+                len: len as _
+            }));
+
+            client_data.item_orders.append(KVPair(seq, OrderSpan {
+                order,
+                len: len as _
+            }));
+
+            order += len as Order;
+        }
+
+        // This one is easy.
         let frontier_data = reader.expect_chunk(Chunk::Frontier);
         result.frontier = frontier_data.map(|o| o as u32).collect();
 
-        let _ins_del_flags = reader.expect_chunk(Chunk::InsOrDelFlags);
-        let _del_data = reader.expect_chunk(Chunk::DelData);
-        let mut ins_lo = reader.expect_chunk(Chunk::InsLeftOrigins);
-        let mut ins_ro = reader.expect_chunk(Chunk::InsRightOrigins);
-        // dbg!(ins_del_flags.collect::<Vec<u64>>());
-        // dbg!(del_data.collect::<Vec<u64>>());
-        // dbg!(ins_lo.collect::<Vec<u64>>());
-        // dbg!(ins_ro.collect::<Vec<u64>>());
+        let ins_del_flags = reader.expect_chunk(Chunk::InsOrDelFlags);
+        let del_data = reader.expect_chunk(Chunk::DelData);
 
-        let mut last: Order = 0;
-        // let mut n = 0;
-        while let Some(lo_run) = ins_lo.next_u32_run::<true>(&mut last) {
-            dbg!(lo_run.len);
-            // n += 1;
-            // if n > 1000 {
-            //     break;
-            // }
-        }
-        // while let Some(val) = ins_lo.next() {
-        //     let (diff, has_len) = num_decode_i64_with_extra_bit(val);
-        //     // dbg!((diff, has_len));
-        //     last = last.wrapping_add(diff as i32 as u32);
-        //     let len = if has_len {
-        //         ins_lo.next().unwrap()
-        //     } else {
-        //         1
-        //     };
-        //     println!("LO order {} len {}", last, len);
-        //     last = last.wrapping_add(len as u32 - 1);
-        // }
 
-        let mut last: Order = 0;
-        // n = 0;
-        while let Some(ro_run) = ins_ro.next_u32_run::<false>(&mut last) {
-            dbg!(ro_run.len);
-            // n += 1;
-            // if n > 30 {
-            //     break;
-            // }
+        let mut last_del_target = 0;
+        let mut del_reader = PartialReader::new(del_data,  |r| {
+            r.next_u32_diff_run::<true>(&mut last_del_target)
+        });
+
+        let mut _origins = reader.expect_chunk(Chunk::InsOrigins);
+
+        let mut is_ins = true;
+        let mut order = 0;
+        for run in ins_del_flags {
+            dbg!(run, is_ins);
+            let mut run_remaining = run as usize;
+            if is_ins {
+                // Handle inserts!
+                // while run_remaining > 0 {
+                //     let agent = agent_reader.consume(run_remaining).unwrap();
+                //
+                //     run_remaining -= agent.len();
+                // }
+            } else {
+                // Handle deletes
+                while run_remaining > 0 {
+                    let Run {
+                        val: target, len
+                    } = del_reader.consume(run_remaining).unwrap();
+                    dbg!((order, target, len));
+
+                    run_remaining -= len;
+                }
+            }
+
+            is_ins = !is_ins;
+            order += run as u32;
         }
-        // println!("");
-        // while let Some(val) = ins_ro.next() {
-        //     let (diff, has_len) = num_decode_i64_with_extra_bit(val);
-        //     last = last.wrapping_add(diff as i32 as u32);
-        //     let len = if has_len {
-        //         ins_ro.next().unwrap()
-        //     } else {
-        //         1
-        //     };
-        //     println!("RO order {} len {}", last, len);
-        // }
+
+        assert_eq!(del_reader.next(), None);
+
 
         // TODO: Optional!
         let _content = reader.expect_chunk(Chunk::Content);
@@ -567,27 +710,27 @@ mod tests {
 
     #[test]
     fn alternate_assumes_positive_first() {
-        let mut runs = SpanWriter::new_with_val(0, |len: i32, vec: &mut Vec<u8>| {
+        let mut runs = SpanWriter::new_with_val(0, |vec: &mut Vec<u8>, len: i32| {
             push_u32(vec, len.abs() as u32);
         });
         runs.last = Some(0);
 
         // If we start with positive numbers, we should just get the positive values out.
-        runs.append(10);
-        runs.append(-5);
+        runs.push(10);
+        runs.push(-5);
 
         let out = runs.flush_into_inner();
         assert_eq!(vec![10, 5], BufReader(out.as_slice()).collect::<Vec<u64>>());
 
         // But if we start with negative numbers, we get a 0 out first.
-        let mut runs = SpanWriter::new_with_val(0, |len: i32, vec: &mut Vec<u8>| {
+        let mut runs = SpanWriter::new_with_val(0, |vec: &mut Vec<u8>, len: i32| {
             push_u32(vec, len.abs() as u32);
         });
         runs.last = Some(0);
 
         // If we start with positive numbers, we should just get the positive values out.
-        runs.append(-10);
-        runs.append(5);
+        runs.push(-10);
+        runs.push(5);
 
         let out = runs.flush_into_inner();
         assert_eq!(vec![0, 10, 5], BufReader(out.as_slice()).collect::<Vec<u64>>());
@@ -596,17 +739,20 @@ mod tests {
     #[test]
     fn encode_decode() {
         let mut doc = ListCRDT::new();
-        doc.get_or_create_agent_id("seph");
+        doc.get_or_create_agent_id("seph"); // 0
+        doc.get_or_create_agent_id("mike"); // 1
         doc.local_insert(0, 0, "hi".into());
-        doc.local_delete(0, 1, 1);
+        doc.local_delete(1, 1, 1);
         doc.local_insert(0, 1, "o".into());
+
+        // dbg!(&doc);
 
         let enc = doc.encode_small(true);
         let _dec = ListCRDT::from_bytes(enc.as_slice());
 
-        let mut spans = doc.range_tree.iter().collect::<Vec<YjsSpan>>();
-        spans.sort_by_key(|s| s.order);
-        dbg!(spans);
+        // let mut spans = doc.range_tree.iter().collect::<Vec<YjsSpan>>();
+        // spans.sort_by_key(|s| s.order);
+        // dbg!(spans);
         // assert_eq!(doc, dec);
     }
 
