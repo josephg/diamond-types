@@ -105,11 +105,16 @@ fn encoding_benchmarks(c: &mut Criterion) {
         let mut group = c.benchmark_group("encoding");
         let test_data = testing_data(name);
         let doc = list_with_data(&test_data);
-        group.throughput(Throughput::Bytes(doc.write_encoding_stats_3(false).len() as _));
+        // let mut out = vec![];
+        // doc.encode_small(&mut out, false).unwrap();
+        // group.throughput(Throughput::Bytes(out.len() as _));
+        group.throughput(Throughput::Bytes(doc.encode_small(false).len() as _));
 
         group.bench_function(BenchmarkId::new("encode", name), |b| {
             b.iter(|| {
-                let encoding = doc.write_encoding_stats_3(false);
+                // let mut out = vec![];
+                // doc.encode_small(&mut out, false).unwrap();
+                let encoding = doc.encode_small(false);
                 assert!(encoding.len() > 1000);
                 black_box(encoding);
             })

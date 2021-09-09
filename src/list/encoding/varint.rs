@@ -115,6 +115,7 @@ pub fn decode_u64_slow(buf: &[u8]) -> (u64, usize) {
 }
 
 // TODO: This is from rust-protobuf. Check this is actually faster than decode_u64_slow.
+/// Returns (varint, number of bytes read).
 pub fn decode_u64(buf: &[u8]) -> (u64, usize) {
     if buf.len() < 1 {
         panic!("Not enough bytes in buffer");
@@ -167,20 +168,20 @@ pub fn decode_u32(buf: &[u8]) -> (u32, usize) {
 //     ((n << 1) ^ (n >> 63)) as u64
 // }
 
-fn encode_zigzag_i64(val: i64) -> u64 {
+fn num_encode_zigzag_i64(val: i64) -> u64 {
     val.abs() as u64 * 2 + val.is_negative() as u64
 }
 
-fn encode_zigzag_i32(val: i32) -> u32 {
+fn num_encode_zigzag_i32(val: i32) -> u32 {
     val.abs() as u32 * 2 + val.is_negative() as u32
 }
 
 pub fn encode_i64(value: i64, buf: &mut[u8]) -> usize {
-    encode_u64(encode_zigzag_i64(value), buf)
+    encode_u64(num_encode_zigzag_i64(value), buf)
 }
 
 pub fn encode_i32(value: i32, buf: &mut[u8]) -> usize {
-    encode_u32(encode_zigzag_i32(value), buf)
+    encode_u32(num_encode_zigzag_i32(value), buf)
 }
 
 pub fn encode_u32_with_extra_bit(value: u32, extra: bool, buf: &mut[u8]) -> usize {
@@ -195,12 +196,30 @@ pub fn encode_u32_with_extra_bit_2(value: u32, extra_1: bool, extra_2: bool, buf
     encode_u32(val_2, buf)
 }
 
-pub fn encode_i64_with_extra_bit(value: i64, extra: bool, buf: &mut[u8]) -> usize {
+pub(crate) fn num_encode_i64_with_extra_bit(value: i64, extra: bool) -> u64 {
     // We only have enough remaining bits in the u64 encoding to fit +/- 2^62.
-    debug_assert!(value < (i64::MAX / 2));
-    let val_1 = encode_zigzag_i64(value);
-    let val_2 = val_1 * 2 + extra as u64;
-    encode_u64(val_2, buf)
+    debug_assert!(value.abs() < (i64::MAX / 2));
+    let val_1 = num_encode_zigzag_i64(value);
+    val_1 * 2 + extra as u64
+}
+
+pub fn encode_i64_with_extra_bit(value: i64, extra: bool, buf: &mut[u8]) -> usize {
+    encode_u64(num_encode_i64_with_extra_bit(value, extra), buf)
+}
+
+pub fn num_decode_zigzag_i32(val: u32) -> i32 {
+    // dbg!(val);
+    (val >> 1) as i32 * (if val & 1 == 1 { -1 } else { 1 })
+}
+
+pub fn num_decode_zigzag_i64(val: u64) -> i64 {
+    // dbg!(val);
+    (val >> 1) as i64 * (if val & 1 == 1 { -1 } else { 1 })
+}
+
+pub fn num_decode_i64_with_extra_bit(value: u64) -> (i64, bool) {
+    let bit = (value & 1) != 0;
+    (num_decode_zigzag_i64(value >> 1), bit)
 }
 
 #[cfg(test)]
@@ -245,6 +264,26 @@ mod test {
         check_enc_dec_unsigned(u64::MAX);
     }
 
+    fn check_zigzag(val: i64) {
+        let zz = num_encode_zigzag_i64(val);
+        let actual = num_decode_zigzag_i64(zz);
+        assert_eq!(val, actual);
+
+        if val.abs() < i64::MAX / 2 {
+            let zz_true = num_encode_i64_with_extra_bit(val, true);
+            assert_eq!((val, true), num_decode_i64_with_extra_bit(zz_true));
+            let zz_false = num_encode_i64_with_extra_bit(val, false);
+            assert_eq!((val, false), num_decode_i64_with_extra_bit(zz_false));
+        }
+
+        if val.abs() <= i32::MAX as i64 {
+            let val = val as i32;
+            let zz = num_encode_zigzag_i32(val);
+            let actual = num_decode_zigzag_i32(zz);
+            assert_eq!(val, actual);
+        }
+    }
+
     #[test]
     fn fuzz_encode() {
         let mut rng = SmallRng::seed_from_u64(20);
@@ -255,6 +294,9 @@ mod test {
             for bits in 0..64 {
                 let val = x >> bits;
                 check_enc_dec_unsigned(val);
+
+                check_zigzag(val as i64);
+                check_zigzag(-(val as i64));
             }
         }
     }

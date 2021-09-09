@@ -56,8 +56,11 @@ impl SplitableSpan for i32 {
         (abs - at) * sign
     }
 
+    // fn can_append(&self, other: &Self) -> bool {
+    //     self.signum() == other.signum()
+    // }
     fn can_append(&self, other: &Self) -> bool {
-        self.signum() == other.signum()
+        (*self >= 0) == (*other >= 0)
     }
 
     fn append(&mut self, other: Self) {

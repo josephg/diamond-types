@@ -9,7 +9,6 @@
 
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use diamond_types::list::{ListCRDT, TraversalComponent};
-use criterion::black_box;
 use TraversalComponent::*;
 
 #[cfg(feature = "memusage")]
@@ -70,11 +69,15 @@ fn print_stats_for_file(filename: &str) {
         (get_thread_memory_usage() - start_bytes).file_size(file_size_opts::CONVENTIONAL).unwrap(),
          get_thread_num_allocations() - start_count);
 
-    doc.print_stats(false);
+    // doc.print_stats(false);
 
-    // doc.write_encoding_stats_2();
-    doc.write_encoding_stats_3(true);
-    black_box(doc);
+    // let mut out = vec![];
+    // doc.encode_small(&mut out, true).unwrap();
+    let encoded = doc.encode_small(true);
+    // println!("Full encoded size {}", encoded.len().file_size(file_size_opts::CONVENTIONAL).unwrap());
+    println!("Full encoded size {}", encoded.len());
+
+    // ListCRDT::from_bytes(encoded.as_slice());
 }
 
 fn main() {
@@ -84,6 +87,6 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    print_stats_for_file("benchmark_data/automerge-paper.json.gz");
+    // print_stats_for_file("benchmark_data/automerge-paper.json.gz");
     print_stats_for_file("benchmark_data/rustcode.json.gz");
 }

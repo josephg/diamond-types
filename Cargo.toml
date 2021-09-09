@@ -19,6 +19,7 @@ serde_crate = { package = "serde", version = "1.0.126", features = ["derive"], o
 
 # Only used for printing stats. TODO: Move me to dev-dependencies!
 humansize = "1.1.1"
+num_enum = "0.5.4"
 
 [dev-dependencies]
 criterion = "^0.3"
