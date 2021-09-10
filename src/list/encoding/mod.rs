@@ -528,14 +528,6 @@ impl ListCRDT {
         push_chunk(&mut result, Chunk::DelData, del_data.as_slice());
         push_chunk(&mut result, Chunk::InsOrigins, fancy_runs.as_slice());
 
-        // push_chunk(&mut result, Chunk::InsLeftOrigins, lo_data.as_slice());
-        // push_chunk(&mut result, Chunk::InsRightOrigins, ro_data.as_slice());
-
-        // result.extend_from_slice(runs_data.as_slice());
-        // result.extend_from_slice(del_data.as_slice());
-        // result.extend_from_slice(lo_data.as_slice());
-        // result.extend_from_slice(ro_runs.as_slice());
-
         if let Some(d) = self.text_content.as_ref() {
             // push_usize(&mut result, d.len_bytes());
             push_chunk_header(&mut result, Chunk::Content, d.len_bytes());

@@ -9,7 +9,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
             MaybeUninit::uninit().assume_init() // Safe because `MaybeUninit`s don't require init.
         };
         for elem in &mut children[..] {
-            *elem = MaybeUninit::new(None);
+            elem.write(None);
         }
         Box::pin(Self {
             parent,
