@@ -89,5 +89,5 @@ fn main() {
     print_stats_for_file("automerge-paper");
     print_stats_for_file("rustcode");
     print_stats_for_file("sveltecomponent");
-    print_stats_for_file("blogpost");
+    print_stats_for_file("seph-blog1");
 }
