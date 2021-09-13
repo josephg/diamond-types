@@ -70,11 +70,12 @@ fn print_stats_for_file(name: &str) {
         (get_thread_memory_usage() - start_bytes).file_size(file_size_opts::CONVENTIONAL).unwrap(),
          get_thread_num_allocations() - start_count);
 
-    // doc.print_stats(false);
+    doc.print_stats(false);
 
     let encoded = doc.encode_small(false);
     // println!("Full encoded size {}", encoded.len().file_size(file_size_opts::CONVENTIONAL).unwrap());
     println!("Full encoded size {}", encoded.len());
+    // std::fs::write(format!("enc_{}.diamond", name), encoded).unwrap();
 
     // ListCRDT::from_bytes(encoded.as_slice());
 }

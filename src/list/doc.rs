@@ -34,7 +34,7 @@ impl ClientData {
     }
 }
 
-pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, ContentIndex, DOC_IE, DOC_LE>>) + '_ {
+pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) + '_ {
     move |entry: YjsSpan, leaf| {
         let mut len = entry.len() as u32;
         let mut order = entry.order;
@@ -167,7 +167,7 @@ impl ListCRDT {
         } else { 0 }
     }
 
-    pub(super) fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, ContentIndex, DOC_IE, DOC_LE>> {
+    pub(super) fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>> {
         let cursor = self.index.cursor_at_offset_pos(order as usize, false);
         // Gross.
         cursor.get_item().unwrap().unwrap()
@@ -175,7 +175,7 @@ impl ListCRDT {
         // self.index.entry_at(order as usize).unwrap_ptr()
     }
 
-    pub(crate) fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, ContentIndex, DOC_IE, DOC_LE> {
+    pub(crate) fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         if order == ROOT_ORDER {
             // Or maybe we should just abort?
             self.range_tree.cursor_at_end()
@@ -188,7 +188,7 @@ impl ListCRDT {
     }
 
     // This does not stick_end to the found item.
-    pub(super) fn get_cursor_after(&self, order: Order, stick_end: bool) -> Cursor<YjsSpan, ContentIndex, DOC_IE, DOC_LE> {
+    pub(super) fn get_cursor_after(&self, order: Order, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         if order == ROOT_ORDER {
             self.range_tree.cursor_at_start()
         } else {
@@ -223,7 +223,7 @@ impl ListCRDT {
         span.1.len - span_offset
     }
 
-    fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<Cursor<YjsSpan, ContentIndex, DOC_IE, DOC_LE>>) {
+    fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) {
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
         //     assert_eq!(item.order, next_order);
@@ -317,13 +317,13 @@ impl ListCRDT {
         if scanning { cursor = scan_start; }
 
         if cfg!(debug_assertions) {
-            let pos = unsafe { cursor.count_pos() as usize };
-            let len = self.range_tree.len() as usize;
+            let pos = unsafe { cursor.count_content_pos() as usize };
+            let len = self.range_tree.content_len() as usize;
             assert!(pos <= len);
         }
 
         if let Some(text) = self.text_content.as_mut() {
-            let pos = unsafe { cursor.count_pos() as usize };
+            let pos = unsafe { cursor.count_content_pos() as usize };
             if let Some(ins_content) = ins_content {
                 // debug_assert_eq!(count_chars(&ins_content), item.len as usize);
                 text.insert(pos, ins_content);
@@ -398,7 +398,7 @@ impl ListCRDT {
             // This span was already deleted by a different peer. Mark duplicate delete.
             self.double_deletes.increment_delete_range(order, deleted_here);
         } else if let (Some(text), true) = (&mut self.text_content, update_content) {
-            let pos = unsafe { cursor.count_pos() as usize };
+            let pos = unsafe { cursor.count_content_pos() as usize };
             text.remove(pos..pos + deleted_here as usize);
         }
 
@@ -687,7 +687,7 @@ impl ListCRDT {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.range_tree.len() != 0
+        self.range_tree.content_len() != 0
     }
 
     pub fn print_stats(&self, detailed: bool) {

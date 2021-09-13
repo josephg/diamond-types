@@ -10,7 +10,7 @@ use crate::list::markers::MarkerEntry;
 use crate::list::span::YjsSpan;
 use crate::list::txn::TxnSpan;
 use crate::order::OrderSpan;
-use crate::range_tree::{ContentIndex, CRDTSpan, RangeTree, RawPositionIndex, DEFAULT_IE, DEFAULT_LE};
+use crate::range_tree::*;
 // use crate::list::delete::DeleteEntry;
 use crate::rle::{KVPair, Rle};
 // use crate::split_list::SplitList;
@@ -63,10 +63,8 @@ pub(crate) const DOC_IE: usize = DEFAULT_IE;
 pub(crate) const DOC_LE: usize = DEFAULT_LE;
 // const DOC_LE: usize = 32;
 
-// pub type MarkerTree = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex>, RawPositionIndex>>>;
-// pub type MarkerTree = MutRle<MarkerEntry<YjsSpan, ContentIndex>>;
-// pub type SpaceIndex = SplitList<MarkerEntry<YjsSpan, ContentIndex>>;
-type SpaceIndex = Pin<Box<RangeTree<MarkerEntry<YjsSpan, ContentIndex, DOC_IE, DOC_LE>, RawPositionIndex, INDEX_IE, INDEX_LE>>>;
+type DocRangeIndex = ContentIndex;
+type SpaceIndex = Pin<Box<RangeTree<MarkerEntry<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>, RawPositionIndex, INDEX_IE, INDEX_LE>>>;
 
 pub type DoubleDeleteList = Rle<KVPair<DoubleDelete>>;
 
@@ -95,7 +93,7 @@ pub struct ListCRDT {
     /// document locations.
     ///
     /// This is the CRDT chum for the space DAG.
-    range_tree: Pin<Box<RangeTree<YjsSpan, ContentIndex, DOC_IE, DOC_LE>>>,
+    range_tree: Pin<Box<RangeTree<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>>,
 
     /// We need to be able to map each location to an item in the associated BST.
     /// Note for inserts which insert a lot of contiguous characters, this will

@@ -296,6 +296,19 @@ impl<E: EntryTraits + CRDTItem + Searchable, I: TreeIndex<E>, const IE: usize, c
     }
 }
 
+impl<E: EntryTraits + EntryWithContent, I: FindContent<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
+    pub unsafe fn count_content_pos(&self) -> usize {
+        I::index_to_content(self.count_pos())
+    }
+}
+
+impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
+    pub unsafe fn count_offset_pos(&self) -> usize {
+        I::index_to_offset(self.count_pos())
+    }
+}
+
+
 /// NOTE: This comparator will panic when cursors from different range trees are compared.
 ///
 /// Also beware: A cursor pointing to the end of an entry will be considered less than a cursor

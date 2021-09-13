@@ -23,7 +23,7 @@ impl ListCRDT {
         self.index.check();
 
         if let Some(text) = self.text_content.as_ref() {
-            assert_eq!(self.range_tree.len() as usize, text.len_chars());
+            assert_eq!(self.range_tree.content_len() as usize, text.len_chars());
 
             let num_deleted_items = self.deletes.iter().fold(0, |x, y| x + y.len());
             if let Some(del_content) = self.deleted_content.as_ref() {

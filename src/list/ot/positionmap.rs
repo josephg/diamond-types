@@ -283,7 +283,7 @@ impl<'a> Iterator for PatchIter<'a> {
 
                 if allowed {
                     // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
-                    let post_pos = unsafe { rt_cursor.count_pos() };
+                    let post_pos = unsafe { rt_cursor.count_content_pos() };
                     let mut map_cursor = self.map.cursor_at_post(post_pos as _, true);
                     // We call insert instead of replace_range here because the delete doesn't
                     // consume "space".
@@ -298,7 +298,7 @@ impl<'a> Iterator for PatchIter<'a> {
                         content_known: false,
                         tag: InsDelTag::Del,
                     };
-                    return Some((post_pos, entry));
+                    return Some((post_pos as u32, entry));
                 } // else continue.
             } else {
                 // println!("Insert at {:?} (last order: {})", span, span_last_order);
@@ -314,7 +314,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 rt_cursor.offset -= len_here as usize;
 
                 // Where in the final document are we?
-                let post_pos = unsafe { rt_cursor.count_pos() };
+                let post_pos = unsafe { rt_cursor.count_content_pos() };
 
                 // So this is also dirty. We need to skip any deletes, which have a size of 0.
                 let content_known = rt_cursor.get_raw_entry().is_activated();
@@ -350,7 +350,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 // The content might have later been deleted.
 
                 self.span.len -= len_here;
-                return Some((post_pos, entry));
+                return Some((post_pos as u32, entry));
             }
         }
         None

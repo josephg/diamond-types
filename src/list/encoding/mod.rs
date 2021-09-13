@@ -501,6 +501,7 @@ impl ListCRDT {
             fancy_runs.extend_from_slice(&dest[..pos]);
         }
 
+        // dbg!(ins_del_runs.count, self.deletes.iter().map(|r| {}).copied().merge_spans().count());
         let ins_del_runs_data = ins_del_runs.flush_into_inner();
         let del_data = del_spans.flush_into_inner();
         // let lo_data = left_origin_runs.flush_into_inner();

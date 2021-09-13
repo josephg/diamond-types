@@ -22,8 +22,10 @@ fn list_with_data(test_data: &TestData) -> ListCRDT {
     doc
 }
 
+const DATASETS: &[&str] = &["automerge-paper", "rustcode", "sveltecomponent", "seph-blog1"];
+
 fn local_benchmarks(c: &mut Criterion) {
-    for name in &["automerge-paper", "rustcode", "sveltecomponent"] {
+    for name in DATASETS {
         let mut group = c.benchmark_group("local");
         let test_data = testing_data(name);
         group.throughput(Throughput::Elements(test_data.len() as u64));
@@ -39,22 +41,22 @@ fn local_benchmarks(c: &mut Criterion) {
         group.finish();
     }
 
-    c.bench_function("kevin", |b| {
-        b.iter(|| {
-            let mut doc = ListCRDT::new();
-
-            let agent = doc.get_or_create_agent_id("seph");
-
-            for _i in 0..5000000 {
-                doc.local_insert(agent, 0, " ".into());
-            }
-            black_box(doc.len());
-        })
-    });
+    // c.bench_function("kevin", |b| {
+    //     b.iter(|| {
+    //         let mut doc = ListCRDT::new();
+    //
+    //         let agent = doc.get_or_create_agent_id("seph");
+    //
+    //         for _i in 0..5000000 {
+    //             doc.local_insert(agent, 0, " ".into());
+    //         }
+    //         black_box(doc.len());
+    //     })
+    // });
 }
 
 fn remote_benchmarks(c: &mut Criterion) {
-    for name in &["automerge-paper", "rustcode", "sveltecomponent"] {
+    for name in DATASETS {
         let mut group = c.benchmark_group("remote");
         let test_data = testing_data(name);
         let src_doc = list_with_data(&test_data);
@@ -85,7 +87,7 @@ fn remote_benchmarks(c: &mut Criterion) {
 }
 
 fn ot_benchmarks(c: &mut Criterion) {
-    for name in &["automerge-paper", "rustcode", "sveltecomponent"] {
+    for name in DATASETS {
         let mut group = c.benchmark_group("ot");
         let test_data = testing_data(name);
         let doc = list_with_data(&test_data);
@@ -101,7 +103,7 @@ fn ot_benchmarks(c: &mut Criterion) {
 }
 
 fn encoding_benchmarks(c: &mut Criterion) {
-    for name in &["automerge-paper", "rustcode", "sveltecomponent"] {
+    for name in DATASETS {
         let mut group = c.benchmark_group("encoding");
         let test_data = testing_data(name);
         let doc = list_with_data(&test_data);
