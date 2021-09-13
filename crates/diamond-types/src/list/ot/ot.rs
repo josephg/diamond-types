@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn fuzz_compose() {
-        for (_i, val) in read_json("test_data/compose.json").enumerate() {
+        for (_i, val) in read_json("../../test_data/compose.json").enumerate() {
             // println!("i {}", _i);
             let op1 = json_to_op(get(&val, "op1"));
             let op2 = json_to_op(get(&val, "op2"));
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn fuzz_transform() {
-        for (_i, val) in read_json("test_data/transform.json").enumerate() {
+        for (_i, val) in read_json("../../test_data/transform.json").enumerate() {
             // println!("i {}", _i);
             let op = json_to_op(get(&val, "op"));
             let other_op = json_to_op(get(&val, "otherOp"));
@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn fuzz_apply() {
-        for (_i, val) in read_json("test_data/apply.json").enumerate() {
+        for (_i, val) in read_json("../../test_data/apply.json").enumerate() {
             // println!("i {}", _i);
             let mut str = unwrap_string(get(&val, "str")).to_string();
             let op = json_to_op(get(&val, "op"));

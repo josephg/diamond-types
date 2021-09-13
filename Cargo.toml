@@ -1,33 +1,6 @@
-[package]
-name = "diamond-types"
-version = "0.1.0"
-authors = ["Seph Gentle <me@josephg.com>"]
-edition = "2018"
-license = "ISC OR Apache-2.0"
-description = "Small and fast CRDT data types for collaborative editing"
-repository = "https://github.com/josephg/diamond-types"
+[workspace]
 resolver = "2"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-smartstring = "0.2.9"
-ropey = "1.1.0"
-smallvec = { version = "1.6.1", features = ["union"] }
-lazy_static = "1.4.0"
-serde_crate = { package = "serde", version = "1.0.126", features = ["derive"], optional = true }
-
-# Only used for printing stats. TODO: Move me to dev-dependencies!
-humansize = "1.1.1"
-num_enum = "0.5.4"
-
-[dev-dependencies]
-criterion = "^0.3"
-rand = { version = "^0.8", features = ["small_rng"] }
-crdt-testdata = { path = "src/testdata" }
-
-# For OT fuzz data tests
-json_minimal = "0.1.3"
+members = ["crates/*"]
 
 [profile.release]
 #debug = true
@@ -35,16 +8,3 @@ lto = true
 #opt-level = "s"
 codegen-units = 1
 #panic = 'abort'
-
-[features]
-memusage = []
-inlinerope = []
-serde = ["serde_crate", "smallvec/serde", "smartstring/serde"]
-
-[[bench]]
-name = "ropey"
-harness = false
-
-[[bench]]
-name = "core"
-harness = false
