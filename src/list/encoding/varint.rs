@@ -196,12 +196,25 @@ pub fn encode_u32_with_extra_bit_2(value: u32, extra_1: bool, extra_2: bool, buf
     encode_u32(val_2, buf)
 }
 
+pub(crate) fn mix_bit_u64(value: u64, extra: bool) -> u64 {
+    debug_assert!(value < u64::MAX / 2);
+    value * 2 + extra as u64
+}
+
 pub(crate) fn num_encode_i64_with_extra_bit(value: i64, extra: bool) -> u64 {
     // We only have enough remaining bits in the u64 encoding to fit +/- 2^62.
     debug_assert!(value.abs() < (i64::MAX / 2));
     let val_1 = num_encode_zigzag_i64(value);
-    val_1 * 2 + extra as u64
+    mix_bit_u64(val_1, extra)
 }
+
+// pub(crate) fn num_encode_i64_with_extra_bit_2(value: i64, extra_1: bool, extra_2: bool) -> u64 {
+//     // We only have enough remaining bits in the u64 encoding to fit +/- 2^62.
+//     debug_assert!(value.abs() < (i64::MAX / 2));
+//     let val_1 = num_encode_zigzag_i64(value);
+//     let val_2 = mix_bit_u64(val_1, extra_1);
+//     mix_bit_u64(val_2, extra_2)
+// }
 
 pub fn encode_i64_with_extra_bit(value: i64, extra: bool, buf: &mut[u8]) -> usize {
     encode_u64(num_encode_i64_with_extra_bit(value, extra), buf)

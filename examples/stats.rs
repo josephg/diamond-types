@@ -45,8 +45,9 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     }
 }
 
-fn print_stats_for_file(filename: &str) {
-    let test_data = load_testing_data(filename);
+fn print_stats_for_file(name: &str) {
+    let filename = format!("benchmark_data/{}.json.gz", name);
+    let test_data = load_testing_data(&filename);
     assert_eq!(test_data.start_content.len(), 0);
     println!("\n\nLoaded testing data from {}\n ({} patches in {} txns -> docsize {} chars)",
         filename,
@@ -85,7 +86,8 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    print_stats_for_file("benchmark_data/automerge-paper.json.gz");
-    print_stats_for_file("benchmark_data/rustcode.json.gz");
-    print_stats_for_file("benchmark_data/sveltecomponent.json.gz");
+    print_stats_for_file("automerge-paper");
+    print_stats_for_file("rustcode");
+    print_stats_for_file("sveltecomponent");
+    print_stats_for_file("blogpost");
 }
