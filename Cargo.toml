@@ -8,3 +8,8 @@ lto = true
 #opt-level = "s"
 codegen-units = 1
 #panic = 'abort'
+
+[profile.release.package.diamond-js]
+opt-level = 3
+#opt-level = "s"
+#debugging = true
