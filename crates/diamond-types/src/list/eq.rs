@@ -2,13 +2,13 @@
 /// inefficient. Its mostly just to aid in unit testing & support for fuzzing.
 
 use crate::list::{ListCRDT, Order, ROOT_AGENT, Branch};
-use crate::common::{CRDTId, AgentId};
 use crate::rle::Rle;
 use crate::list::span::YjsSpan;
-use crate::splitable_span::SplitableSpan;
+use diamond_core::splitable_span::SplitableSpan;
 // use std::fs::File;
 // use std::io::Write;
 use crate::order::OrderSpan;
+use diamond_core::*;
 // use smallvec::smallvec;
 
 type AgentMap = Vec<Option<AgentId>>;

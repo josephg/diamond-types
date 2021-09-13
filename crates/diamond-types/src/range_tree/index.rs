@@ -1,7 +1,7 @@
 use crate::range_tree::{EntryTraits, EntryWithContent};
-use crate::common::ItemCount;
 use std::fmt::Debug;
 use std::ops::{AddAssign, SubAssign};
+use diamond_core::ItemCount;
 
 /// The index describes which fields we're tracking, and can query. Indexes let us convert
 /// cursors to positions and vice versa.

@@ -1,6 +1,6 @@
 use crate::list::Order;
 use crate::range_tree::{EntryWithContent, CRDTItem, Searchable};
-use crate::splitable_span::SplitableSpan;
+use diamond_core::splitable_span::SplitableSpan;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct YjsSpan {
@@ -116,7 +116,7 @@ impl CRDTItem for YjsSpan {
 mod tests {
     use std::mem::size_of;
     use crate::list::span::YjsSpan;
-    use crate::splitable_span::test_splitable_methods_valid;
+    use diamond_core::splitable_span::test_splitable_methods_valid;
 
     #[test]
     fn print_span_sizes() {

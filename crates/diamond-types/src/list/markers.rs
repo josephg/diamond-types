@@ -1,4 +1,4 @@
-use crate::splitable_span::SplitableSpan;
+use diamond_core::splitable_span::SplitableSpan;
 use std::ptr::NonNull;
 use crate::range_tree::{NodeLeaf, EntryTraits, TreeIndex, Searchable};
 use std::fmt::Debug;

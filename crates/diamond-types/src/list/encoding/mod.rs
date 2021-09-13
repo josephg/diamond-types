@@ -3,16 +3,16 @@ mod varint;
 use crate::list::{ListCRDT, Order};
 use std::mem::{size_of, replace};
 use crate::list::encoding::varint::*;
-use crate::splitable_span::SplitableSpan;
+use diamond_core::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 use crate::rle::KVPair;
 use crate::list::span::YjsSpan;
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
-use crate::merge_iter::MergeableIterator;
+use diamond_core::merge_iter::MergeableIterator;
 use crate::order::OrderSpan;
 use crate::range_tree::CRDTSpan;
-use crate::common::CRDTId;
+use diamond_core::CRDTId;
 
 // struct BitWriter<W: Write> {
 //     to: W,
@@ -673,7 +673,7 @@ impl ListCRDT {
 #[cfg(test)]
 mod tests {
     use crate::list::ListCRDT;
-    use crate::splitable_span::{test_splitable_methods_valid};
+    use diamond_core::splitable_span::{test_splitable_methods_valid};
     use crate::list::encoding::*;
 
     #[test]

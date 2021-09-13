@@ -3,7 +3,7 @@ use super::*;
 use smallvec::SmallVec;
 use std::mem::size_of;
 use humansize::{FileSize, file_size_opts};
-use crate::merge_iter::merge_items;
+use diamond_core::merge_iter::merge_items;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 

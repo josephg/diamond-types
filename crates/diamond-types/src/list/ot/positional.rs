@@ -6,7 +6,7 @@
 
 use smartstring::alias::{String as SmartString};
 use smallvec::SmallVec;
-use crate::splitable_span::SplitableSpan;
+use diamond_core::splitable_span::SplitableSpan;
 use InsDelTag::*;
 use ropey::Rope;
 use crate::unicount::chars_to_bytes;
@@ -134,7 +134,7 @@ impl SplitableSpan for PositionalComponent {
 
 #[cfg(test)]
 mod test {
-    use crate::splitable_span::test_splitable_methods_valid;
+    use diamond_core::splitable_span::test_splitable_methods_valid;
     use crate::list::ot::positional::{PositionalComponent, InsDelTag::*};
 
     #[test]

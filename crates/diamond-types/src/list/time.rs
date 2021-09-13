@@ -4,7 +4,7 @@ use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
 use crate::rle::AppendRLE;
 use crate::list::doc::notify_for;
-use crate::splitable_span::SplitableSpan;
+use diamond_core::splitable_span::SplitableSpan;
 use crate::range_tree::Searchable;
 // use smartstring::alias::{String as SmartString};
 

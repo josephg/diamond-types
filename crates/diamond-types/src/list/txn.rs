@@ -1,6 +1,6 @@
 use crate::list::Order;
 use smallvec::{SmallVec, smallvec};
-use crate::splitable_span::SplitableSpan;
+use diamond_core::splitable_span::SplitableSpan;
 use crate::rle::RleKeyed;
 
 /// This type stores metadata for a run of transactions created by the users.
@@ -81,7 +81,7 @@ impl RleKeyed for TxnSpan {
 #[cfg(test)]
 mod tests {
     use crate::list::txn::TxnSpan;
-    use crate::splitable_span::{SplitableSpan, test_splitable_methods_valid};
+    use diamond_core::splitable_span::{SplitableSpan, test_splitable_methods_valid};
     use smallvec::smallvec;
 
     #[test]

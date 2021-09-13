@@ -3,7 +3,7 @@ mod utils;
 use wasm_bindgen::prelude::*;
 use diamond_types::list::{Branch, ListCRDT, ROOT_ORDER};
 use diamond_types::list::external_txn::{RemoteId, RemoteTxn, VectorClock};
-use diamond_types::AgentId;
+use diamond_core::AgentId;
 use smallvec::smallvec;
 use serde_wasm_bindgen::Serializer;
 use serde::{Serialize};

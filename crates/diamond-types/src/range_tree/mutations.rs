@@ -1096,8 +1096,8 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const
 mod tests {
     // use std::pin::Pin;
     use crate::range_tree::*;
-    use crate::common::CRDTId;
     use crate::range_tree::fuzzer::TestRange;
+    use diamond_core::CRDTId;
 
     #[test]
     fn splice_insert_test() {

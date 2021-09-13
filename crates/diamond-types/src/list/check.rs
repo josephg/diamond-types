@@ -1,6 +1,6 @@
 use crate::list::{ListCRDT, ROOT_ORDER, Order};
 use ropey::Rope;
-use crate::splitable_span::SplitableSpan;
+use diamond_core::splitable_span::SplitableSpan;
 use crate::rle::Rle;
 use crate::list::span::YjsSpan;
 

@@ -5,8 +5,7 @@ use crate::order::OrderSpan;
 use std::collections::BinaryHeap;
 use std::cmp::{Ordering, Reverse};
 use crate::rle::{KVPair, AppendRLE, RleSpanHelpers};
-use crate::common::{AgentId, CRDT_DOC_ROOT, CRDTId};
-use crate::splitable_span::SplitableSpan;
+use diamond_core::splitable_span::SplitableSpan;
 use crate::range_tree::{CRDTItem, CRDTSpan};
 // use crate::LocalOp;
 
@@ -14,6 +13,7 @@ use crate::range_tree::{CRDTItem, CRDTSpan};
 use serde_crate::{Deserialize, Serialize};
 use crate::list::external_txn::RemoteCRDTOp::{Ins, Del};
 use std::iter::FromIterator;
+use diamond_core::{AgentId, CRDTId, CRDT_DOC_ROOT};
 
 /// External equivalent of CRDTLocation
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -72,29 +72,22 @@ where I: Iterator<Item=X>, X: SplitableSpan, Self: Sized
 
 #[cfg(test)]
 mod test {
-    use crate::order::OrderSpan;
-    use crate::merge_iter::merge_items;
+    use super::merge_items;
 
     #[test]
     fn test_merge_iter() {
-        let empty: Vec<OrderSpan> = vec![];
+        let empty: Vec<i32> = vec![];
         assert_eq!(merge_items(empty.into_iter()).collect::<Vec<_>>(), vec![]);
 
-        let one: Vec<OrderSpan> = vec![OrderSpan { order: 5, len: 10 }];
-        assert_eq!(merge_items(one.into_iter()).collect::<Vec<_>>(), vec![OrderSpan { order: 5, len: 10 }]);
+        let one: Vec<i32> = vec![5];
+        assert_eq!(merge_items(one.into_iter()).collect::<Vec<_>>(), vec![5]);
 
-        let two_split: Vec<OrderSpan> = vec![
-            OrderSpan { order: 5, len: 10 },
-            OrderSpan { order: 105, len: 10 },
-        ];
+        let two_split: Vec<i32> = vec![5, -10];
         assert_eq!(merge_items(two_split.iter().copied()).collect::<Vec<_>>(), two_split);
 
-        let two_merged: Vec<OrderSpan> = vec![
-            OrderSpan { order: 5, len: 10 },
-            OrderSpan { order: 15, len: 10 },
-        ];
-        assert_eq!(merge_items(two_merged.iter().copied()).collect::<Vec<_>>(), vec![
-            OrderSpan { order: 5, len: 20 },
-        ]);
+        let two_merged_1: Vec<i32> = vec![5, 15];
+        assert_eq!(merge_items(two_merged_1.iter().copied()).collect::<Vec<_>>(), vec![20]);
+        let two_merged_2: Vec<i32> = vec![-5, -15];
+        assert_eq!(merge_items(two_merged_2.iter().copied()).collect::<Vec<_>>(), vec![-20]);
     }
 }

@@ -1,6 +1,7 @@
-use crate::common::{CRDTId, IndexGet};
-use crate::splitable_span::SplitableSpan;
+
+use diamond_core::splitable_span::SplitableSpan;
 use std::fmt::Debug;
+use diamond_core::CRDTId;
 
 // TODO: Consider renaming this "RangeEntry" or something.
 pub trait EntryTraits: SplitableSpan + Copy + Debug + Default {}
@@ -27,13 +28,13 @@ pub trait EntryWithContent {
     fn content_len(&self) -> usize;
 }
 
-impl<T: EntryTraits + Searchable> IndexGet<usize> for T {
-    type Output = T::Item;
-
-    fn index_get(&self, index: usize) -> Self::Output {
-        self.at_offset(index)
-    }
-}
+// impl<T: EntryTraits + Searchable> IndexGet<usize> for T {
+//     type Output = T::Item;
+//
+//     fn index_get(&self, index: usize) -> Self::Output {
+//         self.at_offset(index)
+//     }
+// }
 
 pub trait CRDTItem {
     fn is_activated(&self) -> bool;

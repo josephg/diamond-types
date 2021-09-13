@@ -91,7 +91,7 @@ impl SplitableSpan for i32 {
 
 /// Simple test helper to verify an implementation of SplitableSpan is valid and meets expected
 /// constraints.
-#[cfg(test)]
+// #[cfg(test)]
 pub fn test_splitable_methods_valid<E: SplitableSpan + std::fmt::Debug + Clone + Eq>(entry: E) {
     assert!(entry.len() >= 2, "Call this with a larger entry");
     for i in 1..entry.len() {

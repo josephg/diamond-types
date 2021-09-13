@@ -1,4 +1,4 @@
-use crate::splitable_span::SplitableSpan;
+use diamond_core::splitable_span::SplitableSpan;
 use crate::rle::{Rle, KVPair, RleSpanHelpers};
 use crate::list::Order;
 use crate::order::OrderSpan;
@@ -182,7 +182,7 @@ impl Rle<KVPair<DoubleDelete>> {
 mod tests {
     use crate::rle::{Rle, KVPair};
     use crate::list::double_delete::DoubleDelete;
-    use crate::splitable_span::test_splitable_methods_valid;
+    use diamond_core::splitable_span::test_splitable_methods_valid;
 
     #[test]
     fn double_delete_entry_valid() {

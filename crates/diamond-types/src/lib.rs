@@ -1,18 +1,15 @@
 #![allow(dead_code)] // TODO: turn this off and clean up before releasing.
 
 pub use alloc::*;
-pub use common::{AgentId};
 
 pub mod list;
 
 mod common;
 mod range_tree;
-mod splitable_span;
 mod alloc;
 mod order;
 mod rle;
 mod unicount;
-mod merge_iter;
 
 #[cfg(test)]
 mod tests {
@@ -22,22 +19,24 @@ mod tests {
         smartstring::validate();
     }
 
-    #[test]
-    fn foo() {
-        use smartstring::alias::{String as SmartString};
-
-        dbg!(std::mem::size_of::<SmartString>());
-        dbg!(std::mem::size_of::<String>());
-    }
+    // #[test]
+    // fn print_sizes() {
+    //     use smartstring::alias::{String as SmartString};
+    //
+    //     dbg!(std::mem::size_of::<SmartString>());
+    //     dbg!(std::mem::size_of::<String>());
+    // }
 }
 
 #[cfg(test)]
 pub mod fuzz_helpers {
     use rand::prelude::SmallRng;
     use rand::Rng;
-    use crate::list::ListCRDT;
     use ropey::Rope;
-    use crate::{AgentId};
+
+    use diamond_core::AgentId;
+
+    use crate::list::ListCRDT;
 
     pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
         let mut str = String::new();
