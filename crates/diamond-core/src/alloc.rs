@@ -51,7 +51,7 @@ pub fn get_thread_memory_usage() -> isize {
 
 #[cfg(any(test, feature = "memusage"))]
 mod trace_alloc {
-    use crate::alloc::TracingAlloc;
+    use super::TracingAlloc;
 
     #[global_allocator]
     static A: TracingAlloc = TracingAlloc;

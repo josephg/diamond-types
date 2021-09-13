@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 
 pub mod splitable_span;
 pub mod merge_iter;
+pub mod alloc;
 
 pub type AgentId = u16;
 // pub type ClientSeq = u32;

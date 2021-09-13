@@ -1,12 +1,11 @@
 #![allow(dead_code)] // TODO: turn this off and clean up before releasing.
 
-pub use alloc::*;
+pub use diamond_core::alloc::*;
 
 pub mod list;
 
 mod common;
 mod range_tree;
-mod alloc;
 mod order;
 mod rle;
 mod unicount;
