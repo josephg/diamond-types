@@ -346,7 +346,7 @@ impl ListCRDT {
         }
 
         // Now insert here.
-        unsafe { ContentTreeRaw::unsafe_insert(&mut cursor, item, notify_for(&mut self.index)); }
+        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
     }
 
     fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
@@ -392,7 +392,7 @@ impl ListCRDT {
     pub(super) fn internal_mark_deleted(&mut self, order: Order, max_len: u32, update_content: bool) -> (u32, bool) {
         let cursor = self.get_cursor_before(order);
 
-        let (deleted_here, succeeded) = unsafe { ContentTreeRaw::unsafe_remote_deactivate(cursor.clone(), max_len as _, notify_for(&mut self.index)) };
+        let (deleted_here, succeeded) = unsafe { ContentTreeRaw::unsafe_remote_deactivate_notify(cursor.clone(), max_len as _, notify_for(&mut self.index)) };
         let deleted_here = deleted_here as u32;
 
         if !succeeded {

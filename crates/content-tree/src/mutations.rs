@@ -189,7 +189,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         }
     }
 
-    pub unsafe fn unsafe_insert<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_entry: E, mut notify: F)
+    pub unsafe fn unsafe_insert_notify<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_entry: E, mut notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         let mut marker = I::IndexUpdate::default();
         Self::insert_internal(&[new_entry], cursor, &mut marker, &mut notify);
@@ -202,7 +202,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     pub fn insert_at_start_notify<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        unsafe { Self::unsafe_insert(&mut self.unsafe_cursor_at_start(), new_entry, notify) }
+        unsafe { Self::unsafe_insert_notify(&mut self.unsafe_cursor_at_start(), new_entry, notify) }
     }
 
     #[inline(always)]
@@ -214,7 +214,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     pub fn push_notify<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        unsafe { Self::unsafe_insert(&mut self.unsafe_cursor_at_end(), new_entry, notify) }
+        unsafe { Self::unsafe_insert_notify(&mut self.unsafe_cursor_at_end(), new_entry, notify) }
     }
 
     /// Push a new entry to the end of the tree. The new entry will be merged with the existing
@@ -279,7 +279,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     }
 
     /// Replace as much of the current entry from cursor onwards as we can
-    pub unsafe fn unsafe_mutate_entry<MapFn, N>(
+    pub unsafe fn unsafe_mutate_entry_notify<MapFn, N>(
         map_fn: MapFn,
         cursor: &mut UnsafeCursor<E, I, IE, LE>,
         replace_max: usize,
@@ -336,7 +336,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     }
 
     /// Replace the range from cursor..cursor + replaced_len with new_entry.
-    pub unsafe fn unsafe_replace_range<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_entry: E, notify: N)
+    pub unsafe fn unsafe_replace_range_notify<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         let mut flush_marker = I::IndexUpdate::default();
@@ -631,7 +631,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
 
     /// Delete the specified number of items from the b-tree at the cursor.
     /// Cursor may be modified to point to the start of the next item.
-    pub unsafe fn unsafe_delete<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, del_items: usize, mut notify: F)
+    pub unsafe fn unsafe_delete_notify<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, del_items: usize, mut notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut marker = I::IndexUpdate::default();
@@ -639,7 +639,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         cursor.get_node_mut().flush_index_update(&mut marker);
     }
 
-    pub fn delete_at_start<F>(self: &mut Pin<Box<Self>>, del_items: usize, mut notify: F)
+    pub fn delete_at_start_notify<F>(self: &mut Pin<Box<Self>>, del_items: usize, mut notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut marker = I::IndexUpdate::default();
@@ -650,10 +650,13 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         }
     }
 
+    pub fn delete_at_start(self: &mut Pin<Box<Self>>, del_items: usize) {
+        self.delete_at_start_notify(del_items, null_notify);
+    }
 }
 
 impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
-    pub unsafe fn local_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: UnsafeCursor<E, I, IE, LE>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
+    pub unsafe fn local_deactivate_notify<F>(self: &mut Pin<Box<Self>>, mut cursor: UnsafeCursor<E, I, IE, LE>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         // println!("local_delete len: {} at cursor {:?}", deleted_len, cursor);
@@ -683,7 +686,7 @@ impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: 
 
             // dbg!(self, delete_remaining, &flush_marker);
 
-            delete_remaining -= Self::unsafe_mutate_entry(|e| {
+            delete_remaining -= Self::unsafe_mutate_entry_notify(|e| {
                 result.push_rle(*e);
                 e.mark_deactivated();
             }, &mut cursor, delete_remaining, &mut flush_marker, &mut notify);
@@ -717,7 +720,7 @@ impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: 
             // Even though we're just editing an item here, the item could be split as a result,
             // so notify may end up called.
             let mut flush_marker = I::IndexUpdate::default();
-            let amt_modified = Self::unsafe_mutate_entry(|e| {
+            let amt_modified = Self::unsafe_mutate_entry_notify(|e| {
                 if want_enabled { e.mark_activated(); } else { e.mark_deactivated(); }
             }, &mut cursor, max_len, &mut flush_marker, &mut notify);
 
@@ -745,13 +748,13 @@ impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: 
     /// TODO: Consider returning / mutating the cursor. Subsequent items will probably be in this
     /// node. It would be marginally faster to find a cursor using a hint, and subsequent deletes
     /// in the txn we're applying will usually be in this node (usually the next item in this node).
-    pub unsafe fn unsafe_remote_deactivate<F>(cursor: UnsafeCursor<E, I, IE, LE>, max_deleted_len: usize, notify: F) -> (usize, bool)
+    pub unsafe fn unsafe_remote_deactivate_notify<F>(cursor: UnsafeCursor<E, I, IE, LE>, max_deleted_len: usize, notify: F) -> (usize, bool)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         Self::set_enabled(cursor, max_deleted_len, false, notify)
     }
 
-    pub unsafe fn unsafe_remote_reactivate<F>(cursor: UnsafeCursor<E, I, IE, LE>, max_len: usize, notify: F) -> (usize, bool)
+    pub unsafe fn unsafe_remote_reactivate_notify<F>(cursor: UnsafeCursor<E, I, IE, LE>, max_len: usize, notify: F) -> (usize, bool)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         Self::set_enabled(cursor, max_len, true, notify)
@@ -764,36 +767,36 @@ impl<E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Conte
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_offset_pos(pos, true);
-        unsafe { Self::unsafe_insert(&mut cursor, new_entry, notify); }
+        unsafe { Self::unsafe_insert_notify(&mut cursor, new_entry, notify); }
     }
 
     pub fn insert_at_offset(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E) {
         let mut cursor = self.unsafe_cursor_at_offset_pos(pos, true);
-        unsafe { Self::unsafe_insert(&mut cursor, new_entry, null_notify); }
+        unsafe { Self::unsafe_insert_notify(&mut cursor, new_entry, null_notify); }
     }
 
     pub fn replace_range_at_offset_notify<N>(self: &mut Pin<Box<Self>>, offset: usize, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_offset_pos(offset, true);
-        unsafe { Self::unsafe_replace_range(&mut cursor, new_entry, notify); }
+        unsafe { Self::unsafe_replace_range_notify(&mut cursor, new_entry, notify); }
     }
 
     pub fn replace_range_at_offset(self: &mut Pin<Box<Self>>, offset: usize, new_entry: E) {
         let mut cursor = self.unsafe_cursor_at_offset_pos(offset, true);
-        unsafe { Self::unsafe_replace_range(&mut cursor, new_entry, null_notify); }
+        unsafe { Self::unsafe_replace_range_notify(&mut cursor, new_entry, null_notify); }
     }
 
     pub fn delete_at_offset_notify<F>(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_offset_pos(pos, false);
-        unsafe { Self::unsafe_delete(&mut cursor, del_items, notify); }
+        unsafe { Self::unsafe_delete_notify(&mut cursor, del_items, notify); }
     }
 
     pub fn delete_at_offset(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize) {
         let mut cursor = self.unsafe_cursor_at_offset_pos(pos, false);
-        unsafe { Self::unsafe_delete(&mut cursor, del_items, null_notify); }
+        unsafe { Self::unsafe_delete_notify(&mut cursor, del_items, null_notify); }
     }
 }
 
@@ -802,34 +805,34 @@ impl<E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_content_pos(pos, true);
-        unsafe { Self::unsafe_insert(&mut cursor, new_entry, notify); }
+        unsafe { Self::unsafe_insert_notify(&mut cursor, new_entry, notify); }
     }
 
     pub fn insert_at_content(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E) {
         let mut cursor = self.unsafe_cursor_at_content_pos(pos, true);
-        unsafe { Self::unsafe_insert(&mut cursor, new_entry, null_notify); }
+        unsafe { Self::unsafe_insert_notify(&mut cursor, new_entry, null_notify); }
     }
 
     pub fn replace_range_at_content_notify<N>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_content_pos(pos, true);
-        unsafe { Self::unsafe_replace_range(&mut cursor, new_entry, notify); }
+        unsafe { Self::unsafe_replace_range_notify(&mut cursor, new_entry, notify); }
     }
     pub fn replace_range_at_content(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E) {
         let mut cursor = self.unsafe_cursor_at_content_pos(pos, true);
-        unsafe { Self::unsafe_replace_range(&mut cursor, new_entry, null_notify); }
+        unsafe { Self::unsafe_replace_range_notify(&mut cursor, new_entry, null_notify); }
     }
 
     pub fn delete_at_content_notify<F>(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_content_pos(pos, false);
-        unsafe { Self::unsafe_delete(&mut cursor, del_items, notify); }
+        unsafe { Self::unsafe_delete_notify(&mut cursor, del_items, notify); }
     }
     pub fn delete_at_content(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize) {
         let mut cursor = self.unsafe_cursor_at_content_pos(pos, false);
-        unsafe { Self::unsafe_delete(&mut cursor, del_items, null_notify); }
+        unsafe { Self::unsafe_delete_notify(&mut cursor, del_items, null_notify); }
     }
 }
 
@@ -838,7 +841,7 @@ impl<E: ContentTraits + ContentLength + Toggleable, I: FindContent<E>, const IE:
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let cursor = self.unsafe_cursor_at_content_pos(offset, false);
-        unsafe { self.local_deactivate(cursor, deleted_len, notify) }
+        unsafe { self.local_deactivate_notify(cursor, deleted_len, notify) }
     }
 }
 
@@ -1222,7 +1225,7 @@ mod tests {
         let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         tree.insert_at_start_notify(TestRange { id: 0, len: 10, is_activated: true }, null_notify);
 
-        tree.delete_at_start(10, null_notify);
+        tree.delete_at_start_notify(10, null_notify);
         assert_eq!(tree.len(), 0);
         tree.check();
     }
@@ -1237,7 +1240,7 @@ mod tests {
         // dbg!(&tree);
         assert!(!tree.root.is_leaf());
 
-        tree.delete_at_start(10 * num, null_notify);
+        tree.delete_at_start_notify(10 * num, null_notify);
         assert_eq!(tree.len(), 0);
         tree.check();
     }

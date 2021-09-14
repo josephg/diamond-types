@@ -75,14 +75,14 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Mu
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         unsafe {
-            ContentTreeRaw::unsafe_insert(&mut self.inner, new_entry, notify);
+            ContentTreeRaw::unsafe_insert_notify(&mut self.inner, new_entry, notify);
         }
     }
 
     #[inline(always)]
     pub fn insert(&mut self, new_entry: E) {
         unsafe {
-            ContentTreeRaw::unsafe_insert(&mut self.inner, new_entry, null_notify);
+            ContentTreeRaw::unsafe_insert_notify(&mut self.inner, new_entry, null_notify);
         }
     }
 
@@ -90,14 +90,14 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Mu
     pub fn replace_range_notify<N>(&mut self, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         unsafe {
-            ContentTreeRaw::unsafe_replace_range(&mut self.inner, new_entry, notify);
+            ContentTreeRaw::unsafe_replace_range_notify(&mut self.inner, new_entry, notify);
         }
     }
 
     #[inline(always)]
     pub fn replace_range(&mut self, new_entry: E) {
         unsafe {
-            ContentTreeRaw::unsafe_replace_range(&mut self.inner, new_entry, null_notify);
+            ContentTreeRaw::unsafe_replace_range_notify(&mut self.inner, new_entry, null_notify);
         }
     }
 
@@ -105,14 +105,14 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Mu
     pub fn delete_notify<F>(&mut self, del_items: usize, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         unsafe {
-            ContentTreeRaw::unsafe_delete(&mut self.inner, del_items, notify);
+            ContentTreeRaw::unsafe_delete_notify(&mut self.inner, del_items, notify);
         }
     }
 
     #[inline(always)]
     pub fn delete(&mut self, del_items: usize) {
         unsafe {
-            ContentTreeRaw::unsafe_delete(&mut self.inner, del_items, null_notify);
+            ContentTreeRaw::unsafe_delete_notify(&mut self.inner, del_items, null_notify);
         }
     }
 }
