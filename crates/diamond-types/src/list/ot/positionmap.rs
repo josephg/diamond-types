@@ -293,7 +293,6 @@ impl<'a> Iterator for PatchIter<'a> {
 
                     let pre_pos = map_cursor.count_pos().0;
                     map_cursor.insert(Del(len_here));
-                    // unsafe { self.map.unsafe_insert(&mut map_cursor, Del(len_here), null_notify); }
 
                     // The content might have later been deleted.
                     let entry = PositionalComponent {
@@ -371,7 +370,7 @@ impl<'a> PatchIter<'a> {
             deletes_idx: doc.deletes.0.len().wrapping_sub(1),
             marked_deletes: DoubleDeleteVisitor::new(),
         };
-        iter.map.insert_at_start_notify(Retain(doc.range_tree.content_len() as _), null_notify);
+        iter.map.insert_at_start(Retain(doc.range_tree.content_len() as _));
 
         iter
     }
@@ -779,7 +778,7 @@ mod test {
     fn midpoint_cursor_has_correct_count() {
         // Regression for a bug in range tree.
         let mut tree: PositionMap = ContentTreeRaw::new();
-        tree.insert_at_start_notify(TraversalComponent::Retain(10), null_notify);
+        tree.insert_at_start(TraversalComponent::Retain(10));
 
         let cursor = positionmap_mut_cursor_at_post(&mut tree, 4, true);
         assert_eq!(cursor.count_pos(), Pair(4, 4));
