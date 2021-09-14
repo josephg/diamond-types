@@ -18,7 +18,7 @@ use crate::list::external_txn::RemoteIdSpan;
 use crate::list::ot::positional::{InsDelTag, PositionalComponent, PositionalOp};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp, TraversalOpSequence};
 use crate::order::OrderSpan;
-use crate::range_tree::*;
+use crate::content_tree::*;
 use crate::rle::{AppendRLE, KVPair, Rle, RleKey, RleKeyed, RleSpanHelpers};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -54,9 +54,9 @@ impl TreeIndex<TraversalComponent> for PrePostIndex {
     }
 }
 
-pub(super) type PositionMap = Pin<Box<RangeTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>>>;
+pub(super) type PositionMap = Pin<Box<ContentTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>>>;
 
-impl RangeTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
+impl ContentTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
     pub fn cursor_at_post(&self, pos: usize, stick_end: bool) -> Cursor<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
         self.cursor_at_query(pos, stick_end,
                              |i| i.1 as usize,
@@ -233,7 +233,7 @@ impl ListCRDT {
 // push them to bundle full CRDT implementations.
 //
 // The result is that this code is very complex. It also probably adds a lot to binary size because
-// of the monomorphized range_tree calls. The upside is that this complexity is entirely self
+// of the monomorphized content_tree calls. The upside is that this complexity is entirely self
 // contained, and the complexity here allows other systems to work "naturally". But its not perfect.
 impl<'a> Iterator for PatchIter<'a> {
     type Item = (u32, PositionalComponent);
@@ -276,7 +276,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 // are, this is fine.
 
                 let rt_cursor = self.doc.get_cursor_after(last_del_target, true);
-                // Cap the number of items to undelete each iteration based on the span in range_tree.
+                // Cap the number of items to undelete each iteration based on the span in content_tree.
                 let entry = rt_cursor.get_raw_entry();
                 debug_assert!(entry.is_deactivated());
                 let first_del_target = u32::max(entry.order, last_del_target + 1 - del_span_size);
@@ -368,7 +368,7 @@ impl<'a> PatchIter<'a> {
         let mut iter = PatchIter {
             doc,
             span,
-            map: RangeTree::new(),
+            map: ContentTree::new(),
             deletes_idx: doc.deletes.0.len().wrapping_sub(1),
             marked_deletes: DoubleDeleteVisitor::new(),
         };
@@ -778,7 +778,7 @@ mod test {
     #[test]
     fn midpoint_cursor_has_correct_count() {
         // Regression for a bug in range tree.
-        let mut tree: PositionMap = RangeTree::new();
+        let mut tree: PositionMap = ContentTree::new();
         tree.insert_at_start(TraversalComponent::Retain(10), null_notify);
 
         let cursor = tree.cursor_at_post(4, true);

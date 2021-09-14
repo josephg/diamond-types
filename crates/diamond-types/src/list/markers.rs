@@ -1,6 +1,6 @@
 use rle::splitable_span::SplitableSpan;
 use std::ptr::NonNull;
-use crate::range_tree::*;
+use crate::content_tree::*;
 use std::fmt::Debug;
 use crate::entry::{EntryTraits, Searchable};
 // use crate::common::IndexGet;

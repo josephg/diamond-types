@@ -354,12 +354,12 @@ impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Par
 
 #[cfg(test)]
 mod tests {
-    use crate::range_tree::*;
+    use crate::content_tree::*;
     use crate::order::OrderSpan;
 
     #[test]
     fn compare_cursors() {
-        let mut tree = RangeTree::<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTree::<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
 
         let cursor = tree.cursor_at_start();
         assert_eq!(cursor, cursor);
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn empty_tree_has_empty_iter() {
         // Regression.
-        let tree = RangeTree::<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let tree = ContentTree::<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
         for _item in tree.iter() {
             panic!("Found spurious item");
         }

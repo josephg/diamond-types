@@ -90,7 +90,7 @@ fn random_single_replicate() {
         }
         let mut doc_2 = ListCRDT::new();
 
-        // dbg!(&doc.range_tree);
+        // dbg!(&doc.content_tree);
         doc.replicate_into(&mut doc_2);
         assert_eq!(doc, doc_2);
 
@@ -144,7 +144,7 @@ fn run_fuzzer_iteration(seed: u64) {
             let b = &mut end[0];
 
             // dbg!(&a.text_content, &b.text_content);
-            // dbg!(&a.range_tree, &b.range_tree);
+            // dbg!(&a.content_tree, &b.content_tree);
 
             // println!("{} -> {}", a_idx, b_idx);
             a.replicate_into(b);

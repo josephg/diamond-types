@@ -7,7 +7,7 @@ use rle::merge_iter::merge_items;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     pub fn new() -> Pin<Box<Self>> {
         let mut tree = Box::pin(Self {
             count: I::IndexValue::default(),
@@ -411,13 +411,13 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
 
     #[allow(unused)]
     pub(crate) fn count_total_memory(&self) -> usize {
-        let mut size = size_of::<RangeTree<E, I, IE, LE>>();
+        let mut size = size_of::<ContentTree<E, I, IE, LE>>();
         Self::count_memory_internal(&self.root, &mut size);
         size
     }
 }
 
-impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     /// Returns a cursor right before the named location, referenced by the pointer.
     pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> Cursor<E, I, IE, LE> {
         // First make a cursor to the specified item
@@ -426,7 +426,7 @@ impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: us
     }
 }
 
-impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     pub fn content_len(&self) -> usize {
         I::index_to_content(self.count)
     }
@@ -436,7 +436,7 @@ impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const L
     }
 }
 
-impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     pub fn offset_len(&self) -> usize {
         I::index_to_offset(self.count)
     }
@@ -446,14 +446,14 @@ impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> RangeTr
     }
 }
     
-impl<E: EntryTraits + Searchable, I: FindOffset<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + Searchable, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     pub fn at_offset(&self, pos: usize) -> Option<E::Item> {
         let cursor = self.cursor_at_offset_pos(pos, false);
         cursor.get_item()
     }
 }
 
-impl<E: EntryTraits + ContentLength + Searchable, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + ContentLength + Searchable, I: FindContent<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     pub fn at_content(&self, pos: usize) -> Option<E::Item> {
         let cursor = self.cursor_at_content_pos(pos, false);
         cursor.get_item()

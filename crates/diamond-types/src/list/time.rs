@@ -232,7 +232,7 @@ impl ListCRDT {
                     // dbg!(base_item, d.1.order, d_offset, undelete_here, base);
                     let cursor = self.get_cursor_before(base_item);
                     let (len_here, succeeded) = self.range_tree.remote_reactivate(cursor, len_here as _, notify_for(&mut self.index));
-                    assert!(succeeded); // If they're active in the range_tree, we're in trouble.
+                    assert!(succeeded); // If they're active in the content_tree, we're in trouble.
                     undelete_here -= len_here as u32;
                 }
             } else {
@@ -281,7 +281,7 @@ impl ListCRDT {
             // The operation was an insert operation. Re-insert the content.
             let cursor = self.get_cursor_before(span.order);
             let (ins_here, succeeded) = self.range_tree.remote_reactivate(cursor, span.len as _, notify_for(&mut self.index));
-            assert!(succeeded); // If they're active in the range_tree, we're in trouble.
+            assert!(succeeded); // If they're active in the content_tree, we're in trouble.
             debug_assert!(ins_here > 0);
             // span.truncate_keeping_right(ins_here);
             ins_here as u32

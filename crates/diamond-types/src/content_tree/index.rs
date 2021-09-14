@@ -1,4 +1,4 @@
-use crate::range_tree::{EntryTraits, ContentLength};
+use crate::content_tree::{EntryTraits, ContentLength};
 use std::fmt::Debug;
 use std::ops::{AddAssign, SubAssign};
 use diamond_core::ItemCount;

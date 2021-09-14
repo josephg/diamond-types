@@ -9,7 +9,7 @@ use crate::list::markers::MarkerEntry;
 use crate::list::span::YjsSpan;
 use crate::list::txn::TxnSpan;
 use crate::order::OrderSpan;
-use crate::range_tree::*;
+use crate::content_tree::*;
 // use crate::list::delete::DeleteEntry;
 use crate::rle::{KVPair, Rle};
 // use crate::split_list::SplitList;
@@ -66,7 +66,7 @@ pub(crate) const DOC_LE: usize = DEFAULT_LE;
 // const DOC_LE: usize = 32;
 
 type DocRangeIndex = ContentIndex;
-type SpaceIndex = Pin<Box<RangeTree<MarkerEntry<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>, RawPositionIndex, INDEX_IE, INDEX_LE>>>;
+type SpaceIndex = Pin<Box<ContentTree<MarkerEntry<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>, RawPositionIndex, INDEX_IE, INDEX_LE>>>;
 
 pub type DoubleDeleteList = Rle<KVPair<DoubleDelete>>;
 
@@ -95,7 +95,7 @@ pub struct ListCRDT {
     /// document locations.
     ///
     /// This is the CRDT chum for the space DAG.
-    range_tree: Pin<Box<RangeTree<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>>,
+    range_tree: Pin<Box<ContentTree<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>>,
 
     /// We need to be able to map each location to an item in the associated BST.
     /// Note for inserts which insert a lot of contiguous characters, this will
@@ -110,7 +110,7 @@ pub struct ListCRDT {
     deletes: Rle<KVPair<OrderSpan>>,
 
     /// List of document items which have been deleted more than once. Usually empty. Keyed by the
-    /// item *being* deleted (like range_tree, unlike deletes).
+    /// item *being* deleted (like content_tree, unlike deletes).
     double_deletes: DoubleDeleteList,
 
     /// Transaction metadata (succeeds, parents) for all operations on this document. This is used

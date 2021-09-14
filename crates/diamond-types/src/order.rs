@@ -1,5 +1,5 @@
 use rle::splitable_span::SplitableSpan;
-// use crate::range_tree::{EntryTraits, CRDTItem, EntryWithContent};
+// use crate::content_tree::{EntryTraits, CRDTItem, EntryWithContent};
 use crate::entry::{Searchable};
 use crate::rle::{RleKeyed, RleKey};
 

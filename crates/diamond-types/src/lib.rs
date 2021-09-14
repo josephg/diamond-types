@@ -3,7 +3,7 @@
 pub mod list;
 
 mod common;
-mod range_tree;
+mod content_tree;
 mod order;
 mod rle;
 mod unicount;
@@ -84,17 +84,17 @@ pub mod fuzz_helpers {
 
 #[cfg(test)]
 mod size_info {
-    use crate::range_tree::*;
+    use crate::content_tree::*;
     use std::mem::size_of;
     use crate::crdtspan::CRDTSpan;
-    use crate::range_tree::{RangeTree, ContentIndex, FullIndex};
+    use crate::content_tree::{ContentTree, ContentIndex, FullIndex};
 
     #[test]
     #[ignore]
     fn print_memory_stats() {
-        let x = RangeTree::<CRDTSpan, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let x = ContentTree::<CRDTSpan, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         x.print_stats("", false);
-        let x = RangeTree::<CRDTSpan, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let x = ContentTree::<CRDTSpan, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
         x.print_stats("", false);
 
         println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<CRDTSpan>>::IndexValue>());

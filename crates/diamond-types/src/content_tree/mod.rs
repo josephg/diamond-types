@@ -43,7 +43,7 @@ pub const DEFAULT_LE: usize = 32;
 // access the first node in the tree, but I can't think of a clean way around
 // it.
 #[derive(Debug)]
-pub struct RangeTree<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
+pub struct ContentTree<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
     // count: usize,
     count: I::IndexValue,
     root: Node<E, I, INT_ENTRIES, LEAF_ENTRIES>,
@@ -100,7 +100,7 @@ enum NodePtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> 
 // TODO: Consider just reusing NodePtr for this.
 #[derive(Copy, Clone, Debug, Eq)]
 enum ParentPtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
-    Root(NonNull<RangeTree<E, I, IE, LE>>),
+    Root(NonNull<ContentTree<E, I, IE, LE>>),
     Internal(NonNull<NodeInternal<E, I, IE, LE>>)
 }
 
@@ -336,7 +336,7 @@ mod test {
     use std::mem::size_of;
 
     use crate::order::OrderSpan;
-    use crate::range_tree::*;
+    use crate::content_tree::*;
 
 // use std::pin::Pin;
 

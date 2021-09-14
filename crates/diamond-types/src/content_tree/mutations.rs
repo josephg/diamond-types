@@ -1,17 +1,17 @@
-/// This file contains the core code for range_tree's mutation operations.
+/// This file contains the core code for content_tree's mutation operations.
 
 use crate::entry::EntryTraits;
-use crate::range_tree::{RangeTree, Cursor, NodeLeaf, DeleteResult, ParentPtr, Node, NodePtr, NodeInternal, FindOffset, FindContent, ContentLength};
+use crate::content_tree::{ContentTree, Cursor, NodeLeaf, DeleteResult, ParentPtr, Node, NodePtr, NodeInternal, FindOffset, FindContent, ContentLength};
 use std::ptr::NonNull;
 use std::{ptr, mem};
 use std::pin::Pin;
 use smallvec::SmallVec;
-use crate::range_tree::index::{TreeIndex};
+use crate::content_tree::index::{TreeIndex};
 use crate::rle::AppendRLE;
 use std::hint::unreachable_unchecked;
 use crate::entry::Toggleable;
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
     /// is returned. The cursor is modified in-place to point after the inserted items.
     ///
@@ -640,7 +640,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
 
 }
 
-impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     pub unsafe fn local_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I, IE, LE>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
@@ -746,7 +746,7 @@ impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: us
     }
 }
 
-impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
 
     pub fn insert_at_offset<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
@@ -770,7 +770,7 @@ impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> RangeTr
     }
 }
 
-impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     pub fn insert_at_content<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
@@ -793,7 +793,7 @@ impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const L
     }
 }
 
-impl<E: EntryTraits + ContentLength + Toggleable, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + ContentLength + Toggleable, I: FindContent<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     pub fn local_deactivate_at_content<F>(self: &mut Pin<Box<Self>>, offset: usize, deleted_len: usize, notify: F) -> DeleteResult<E>
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
@@ -951,7 +951,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
 
 // I'm really not sure where to put these methods. Its not really associated with
 // any of the tree implementation methods. This seems like a hidden spot. Maybe
-// range_tree? I could put it in impl ParentPtr? I dunno...
+// content_tree? I could put it in impl ParentPtr? I dunno...
 fn insert_after<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize>(
     mut parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     mut inserted_leaf_node: Node<E, I, INT_ENTRIES, LEAF_ENTRIES>,
@@ -1096,12 +1096,12 @@ fn insert_after<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const
 #[cfg(test)]
 mod tests {
     // use std::pin::Pin;
-    use crate::range_tree::*;
-    use crate::range_tree::fuzzer::TestRange;
+    use crate::content_tree::*;
+    use crate::content_tree::fuzzer::TestRange;
 
     #[test]
     fn splice_insert_test() {
-        let mut tree = RangeTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         let entry = TestRange {
             order: 1000,
             len: 100,
@@ -1128,7 +1128,7 @@ mod tests {
 
     #[test]
     fn delete_collapses() {
-        let mut tree = RangeTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
 
         let entry = TestRange {
             order: 1000,
@@ -1155,7 +1155,7 @@ mod tests {
 
     #[test]
     fn backspace_collapses() {
-        let mut tree = RangeTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
 
         let entry = TestRange {
             order: 1000,
@@ -1182,7 +1182,7 @@ mod tests {
 
     #[test]
     fn delete_single_item() {
-        let mut tree = RangeTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         tree.insert_at_start(TestRange { order: 0, len: 10, is_activated: true }, null_notify);
 
         tree.delete_at_start(10, null_notify);
@@ -1192,7 +1192,7 @@ mod tests {
 
     #[test]
     fn delete_all_items() {
-        let mut tree = RangeTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         let num = DEFAULT_LE + 1;
         for i in 0..num {
             tree.insert_at_start(TestRange { order: i as _, len: 10, is_activated: true }, null_notify);
@@ -1207,7 +1207,7 @@ mod tests {
 
     #[test]
     fn delete_past_end() {
-        let mut tree = RangeTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         tree.insert_at_start(TestRange { order: 10 as _, len: 10, is_activated: true }, null_notify);
         tree.delete_at_content(10, 100, null_notify);
 
@@ -1218,13 +1218,13 @@ mod tests {
 
     #[test]
     fn push_into_empty() {
-        let mut tree = RangeTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         tree.push(TestRange { order: 0, len: 10, is_activated: true }, null_notify);
     }
 
     #[test]
     fn mutation_wrappers() {
-        let mut tree = RangeTree::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTree::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
         tree.insert_at_content(0, TestRange { order: 0, len: 10, is_activated: true }, null_notify);
         assert_eq!(tree.offset_len(), 10);
         assert_eq!(tree.content_len(), 10);

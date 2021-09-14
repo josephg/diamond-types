@@ -1,6 +1,6 @@
 use crate::list::Order;
 use rle::splitable_span::SplitableSpan;
-use crate::range_tree::*;
+use crate::content_tree::*;
 use rand::prelude::*;
 use rle::merge_iter::merge_items;
 use crate::entry::Toggleable;
@@ -177,7 +177,7 @@ fn random_edits_once(verbose: bool, iterations: usize) {
     for _i in 0..iterations {
         if verbose { println!("i {}", _i); }
         // TestRange is overkill for this, but eh.
-        let mut tree = RangeTree::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTree::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
         let mut list = vec![];
         let mut expected_len = 0;
 

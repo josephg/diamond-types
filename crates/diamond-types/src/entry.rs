@@ -22,7 +22,7 @@ pub trait Searchable {
 }
 
 pub trait ContentLength {
-    /// User specific content length. Used by range_tree for character counts.
+    /// User specific content length. Used by content_tree for character counts.
     fn content_len(&self) -> usize;
 }
 

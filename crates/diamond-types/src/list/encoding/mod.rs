@@ -774,7 +774,7 @@ mod tests {
         let enc = doc.encode_small(true);
         let _dec = ListCRDT::from_bytes(enc.as_slice());
 
-        // let mut spans = doc.range_tree.iter().collect::<Vec<YjsSpan>>();
+        // let mut spans = doc.content_tree.iter().collect::<Vec<YjsSpan>>();
         // spans.sort_by_key(|s| s.order);
         // dbg!(spans);
         // assert_eq!(doc, dec);

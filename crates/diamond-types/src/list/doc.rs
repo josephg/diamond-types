@@ -1,5 +1,5 @@
 use crate::list::*;
-// use crate::range_tree::*;
+// use crate::content_tree::*;
 use smallvec::smallvec;
 use std::ptr::NonNull;
 use rle::splitable_span::SplitableSpan;
@@ -82,8 +82,8 @@ impl ListCRDT {
             frontier: smallvec![ROOT_ORDER],
             client_data: vec![],
 
-            range_tree: RangeTree::new(),
-            index: RangeTree::new(),
+            range_tree: ContentTree::new(),
+            index: ContentTree::new(),
             // index: SplitList::new(),
 
             deletes: Rle::new(),
@@ -183,7 +183,7 @@ impl ListCRDT {
         } else {
             let marker = self.marker_at(order);
             unsafe {
-                RangeTree::cursor_before_item(order, marker)
+                ContentTree::cursor_before_item(order, marker)
             }
         }
     }
@@ -195,9 +195,9 @@ impl ListCRDT {
         } else {
             let marker = self.marker_at(order);
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
-            // self.range_tree.
+            // self.content_tree.
             let mut cursor = unsafe {
-                RangeTree::cursor_before_item(order, marker)
+                ContentTree::cursor_before_item(order, marker)
             };
             // The cursor points to parent. This is safe because of guarantees provided by
             // cursor_before_item.
