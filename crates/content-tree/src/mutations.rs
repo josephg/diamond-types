@@ -745,13 +745,13 @@ impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: 
     /// TODO: Consider returning / mutating the cursor. Subsequent items will probably be in this
     /// node. It would be marginally faster to find a cursor using a hint, and subsequent deletes
     /// in the txn we're applying will usually be in this node (usually the next item in this node).
-    pub unsafe fn remote_deactivate<F>(self: &mut Pin<Box<Self>>, cursor: UnsafeCursor<E, I, IE, LE>, max_deleted_len: usize, notify: F) -> (usize, bool)
+    pub unsafe fn unsafe_remote_deactivate<F>(cursor: UnsafeCursor<E, I, IE, LE>, max_deleted_len: usize, notify: F) -> (usize, bool)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         Self::set_enabled(cursor, max_deleted_len, false, notify)
     }
 
-    pub unsafe fn remote_reactivate<F>(self: &mut Pin<Box<Self>>, cursor: UnsafeCursor<E, I, IE, LE>, max_len: usize, notify: F) -> (usize, bool)
+    pub unsafe fn unsafe_remote_reactivate<F>(cursor: UnsafeCursor<E, I, IE, LE>, max_len: usize, notify: F) -> (usize, bool)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         Self::set_enabled(cursor, max_len, true, notify)
