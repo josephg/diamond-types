@@ -2,12 +2,9 @@ use std::mem::size_of;
 
 use humansize::{file_size_opts, FileSize};
 use smallvec::SmallVec;
-
-use rle::merge_iter::{merge_items, MergeIter};
-use rle::Searchable;
+use rle::{Searchable, merge_items, MergeIter};
 
 use super::safe_cursor::ItemIterator;
-
 use super::*;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;

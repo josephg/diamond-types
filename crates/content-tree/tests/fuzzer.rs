@@ -1,7 +1,6 @@
 use rand::prelude::*;
 
-use rle::merge_iter::merge_items;
-use rle::SplitableSpan;
+use rle::{merge_items, SplitableSpan};
 
 use content_tree::*;
 use content_tree::testrange::TestRange;

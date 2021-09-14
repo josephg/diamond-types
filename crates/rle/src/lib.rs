@@ -2,9 +2,10 @@ use std::fmt::Debug;
 
 pub use append_rle::AppendRLE;
 pub use splitable_span::*;
+pub use merge_iter::*;
 
 mod splitable_span;
-pub mod merge_iter;
+mod merge_iter;
 mod append_rle;
 
 pub trait Searchable {

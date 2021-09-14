@@ -5,8 +5,7 @@ use std::mem::{replace, size_of};
 use num_enum::TryFromPrimitive;
 
 use diamond_core::CRDTId;
-use rle::merge_iter::MergeableIterator;
-use rle::SplitableSpan;
+use rle::{MergeableIterator, SplitableSpan};
 
 use crate::crdtspan::CRDTSpan;
 use crate::list::{ListCRDT, Order};
