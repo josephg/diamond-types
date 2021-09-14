@@ -267,8 +267,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
     }
 
     /// Replace as much of the current entry from cursor onwards as we can
-    pub unsafe fn mutate_entry<MapFn, N>(
-        self: &mut Pin<Box<Self>>,
+    pub unsafe fn unsafe_mutate_entry<MapFn, N>(
         map_fn: MapFn,
         cursor: &mut UnsafeCursor<E, I, IE, LE>,
         replace_max: usize,
@@ -672,7 +671,7 @@ impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: us
 
             // dbg!(self, delete_remaining, &flush_marker);
 
-            delete_remaining -= self.mutate_entry(|e| {
+            delete_remaining -= Self::unsafe_mutate_entry(|e| {
                 result.push_rle(*e);
                 e.mark_deactivated();
             }, &mut cursor, delete_remaining, &mut flush_marker, &mut notify);
@@ -693,7 +692,7 @@ impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: us
         result
     }
 
-    unsafe fn set_enabled<F>(self: &mut Pin<Box<Self>>, mut cursor: UnsafeCursor<E, I, IE, LE>, max_len: usize, want_enabled: bool, mut notify: F) -> (usize, bool)
+    unsafe fn set_enabled<F>(mut cursor: UnsafeCursor<E, I, IE, LE>, max_len: usize, want_enabled: bool, mut notify: F) -> (usize, bool)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         cursor.roll_to_next_entry();
@@ -706,7 +705,7 @@ impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: us
             // Even though we're just editing an item here, the item could be split as a result,
             // so notify may end up called.
             let mut flush_marker = I::IndexUpdate::default();
-            let amt_modified = self.mutate_entry(|e| {
+            let amt_modified = Self::unsafe_mutate_entry(|e| {
                 if want_enabled { e.mark_activated(); } else { e.mark_deactivated(); }
             }, &mut cursor, max_len, &mut flush_marker, &mut notify);
 
@@ -737,18 +736,18 @@ impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: us
     pub unsafe fn remote_deactivate<F>(self: &mut Pin<Box<Self>>, cursor: UnsafeCursor<E, I, IE, LE>, max_deleted_len: usize, notify: F) -> (usize, bool)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        self.set_enabled(cursor, max_deleted_len, false, notify)
+        Self::set_enabled(cursor, max_deleted_len, false, notify)
     }
 
     pub unsafe fn remote_reactivate<F>(self: &mut Pin<Box<Self>>, cursor: UnsafeCursor<E, I, IE, LE>, max_len: usize, notify: F) -> (usize, bool)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        self.set_enabled(cursor, max_len, true, notify)
+        Self::set_enabled(cursor, max_len, true, notify)
     }
 }
 
 impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
-
+    // TODO: All these methods could just use self.mut_cursor_at...
     pub fn insert_at_offset<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
@@ -953,144 +952,142 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
 // I'm really not sure where to put these methods. Its not really associated with
 // any of the tree implementation methods. This seems like a hidden spot. Maybe
 // content_tree? I could put it in impl ParentPtr? I dunno...
-fn insert_after<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize>(
+unsafe fn insert_after<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize>(
     mut parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     mut inserted_leaf_node: Node<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     mut insert_after: NodePtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     mut stolen_length: I::IndexValue) {
     // println!("insert_after {:?} leaf {:#?} parent {:#?}", stolen_length, inserted_leaf_node, parent);
-    unsafe {
-        // Ok now we need to walk up the tree trying to insert. At each step
-        // we will try and insert inserted_node into parent next to old_node
-        // (topping out at the head).
-        loop {
-            // First try and simply emplace in the new element in the parent.
-            if let ParentPtr::Internal(mut n) = parent {
-                let parent_ref = n.as_ref();
-                let count = parent_ref.count_children();
-                if count < INT_ENTRIES {
-                    // Great. Insert the new node into the parent and return.
-                    inserted_leaf_node.set_parent(ParentPtr::Internal(n));
+    // Ok now we need to walk up the tree trying to insert. At each step
+    // we will try and insert inserted_node into parent next to old_node
+    // (topping out at the head).
+    loop {
+        // First try and simply emplace in the new element in the parent.
+        if let ParentPtr::Internal(mut n) = parent {
+            let parent_ref = n.as_ref();
+            let count = parent_ref.count_children();
+            if count < INT_ENTRIES {
+                // Great. Insert the new node into the parent and return.
+                inserted_leaf_node.set_parent(ParentPtr::Internal(n));
 
-                    let old_idx = parent_ref.find_child(insert_after).unwrap();
-                    let new_idx = old_idx + 1;
+                let old_idx = parent_ref.find_child(insert_after).unwrap();
+                let new_idx = old_idx + 1;
 
-                    let parent_ref = n.as_mut();
-                    // dbg!(&parent_ref.data[old_idx].0, stolen_length);
-                    parent_ref.index[old_idx] -= stolen_length;
-                    parent_ref.splice_in(new_idx, stolen_length, inserted_leaf_node);
+                let parent_ref = n.as_mut();
+                // dbg!(&parent_ref.data[old_idx].0, stolen_length);
+                parent_ref.index[old_idx] -= stolen_length;
+                parent_ref.splice_in(new_idx, stolen_length, inserted_leaf_node);
 
-                    // eprintln!("1");
-                    return;
-                }
+                // eprintln!("1");
+                return;
             }
+        }
 
-            // Ok so if we've gotten here we need to make a new internal
-            // node filled with inserted_node, then move and all the goodies
-            // from ParentPtr.
-            match parent {
-                ParentPtr::Root(mut r) => {
-                    // This is the simpler case. The new root will be a new
-                    // internal node containing old_node and inserted_node.
-                    let new_root = Node::Internal(NodeInternal::new_with_parent(ParentPtr::Root(r)));
-                    let mut old_root = mem::replace(&mut r.as_mut().root, new_root);
+        // Ok so if we've gotten here we need to make a new internal
+        // node filled with inserted_node, then move and all the goodies
+        // from ParentPtr.
+        match parent {
+            ParentPtr::Root(mut r) => {
+                // This is the simpler case. The new root will be a new
+                // internal node containing old_node and inserted_node.
+                let new_root = Node::Internal(NodeInternal::new_with_parent(ParentPtr::Root(r)));
+                let mut old_root = mem::replace(&mut r.as_mut().root, new_root);
 
-                    // *inserted_node.get_parent_mut() = parent_ptr;
+                // *inserted_node.get_parent_mut() = parent_ptr;
 
-                    let root = r.as_mut();
-                    let mut count = root.count;
-                    let mut new_internal_root = root.root.unwrap_internal_mut();
-                    // let parent_ptr = ParentPtr::Internal(NonNull::new_unchecked(new_root_ref));
-                    let parent_ptr = new_internal_root.as_ref().to_parent_ptr();
+                let root = r.as_mut();
+                let mut count = root.count;
+                let mut new_internal_root = root.root.unwrap_internal_mut();
+                // let parent_ptr = ParentPtr::Internal(NonNull::new_unchecked(new_root_ref));
+                let parent_ptr = new_internal_root.as_ref().to_parent_ptr();
 
-                    // Reassign parents for each node
-                    old_root.set_parent(parent_ptr);
-                    inserted_leaf_node.set_parent(parent_ptr);
+                // Reassign parents for each node
+                old_root.set_parent(parent_ptr);
+                inserted_leaf_node.set_parent(parent_ptr);
 
-                    count -= stolen_length;
-                    new_internal_root.as_mut().set_entry(0, count, Some(old_root));
-                    new_internal_root.as_mut().set_entry(1, stolen_length, Some(inserted_leaf_node));
+                count -= stolen_length;
+                new_internal_root.as_mut().set_entry(0, count, Some(old_root));
+                new_internal_root.as_mut().set_entry(1, stolen_length, Some(inserted_leaf_node));
 
-                    // r.as_mut().print_ptr_tree();
-                    return;
-                },
+                // r.as_mut().print_ptr_tree();
+                return;
+            },
 
-                ParentPtr::Internal(mut n) => {
-                    // And this is the complex case. We have MAX_CHILDREN+1
-                    // items (in some order) to distribute between two
-                    // internal nodes (one old, one new). Then we iterate up
-                    // the tree.
-                    let left_sibling = n.as_ref();
-                    parent = left_sibling.parent; // For next iteration through the loop.
-                    debug_assert!(left_sibling.count_children() == INT_ENTRIES);
+            ParentPtr::Internal(mut n) => {
+                // And this is the complex case. We have MAX_CHILDREN+1
+                // items (in some order) to distribute between two
+                // internal nodes (one old, one new). Then we iterate up
+                // the tree.
+                let left_sibling = n.as_ref();
+                parent = left_sibling.parent; // For next iteration through the loop.
+                debug_assert!(left_sibling.count_children() == INT_ENTRIES);
 
-                    // let mut right_sibling = NodeInternal::new_with_parent(parent);
-                    let mut right_sibling_box = Node::Internal(NodeInternal::new_with_parent(parent));
-                    let mut right_sibling = right_sibling_box.unwrap_internal_mut();
-                    let old_idx = left_sibling.find_child(insert_after).unwrap();
+                // let mut right_sibling = NodeInternal::new_with_parent(parent);
+                let mut right_sibling_box = Node::Internal(NodeInternal::new_with_parent(parent));
+                let mut right_sibling = right_sibling_box.unwrap_internal_mut();
+                let old_idx = left_sibling.find_child(insert_after).unwrap();
 
-                    let left_sibling = n.as_mut();
-                    left_sibling.index[old_idx] -= stolen_length;
-                    let mut new_stolen_length = I::IndexValue::default();
-                    // Dividing this into cases makes it easier to reason
-                    // about.
-                    if old_idx < INT_ENTRIES /2 {
-                        // Move all items from MAX_CHILDREN/2..MAX_CHILDREN
-                        // into right_sibling, then splice inserted_node into
-                        // old_parent.
-                        for i in 0..INT_ENTRIES /2 {
-                            let ii = i + INT_ENTRIES /2;
-                            // let c = mem::replace(&mut left_sibling.index[ii], I::IndexOffset::default());
-                            let c = mem::take(&mut left_sibling.index[ii]);
-                            // let e = mem::replace(&mut left_sibling.children[ii], None);
-                            let e = mem::take(&mut left_sibling.children[ii]);
+                let left_sibling = n.as_mut();
+                left_sibling.index[old_idx] -= stolen_length;
+                let mut new_stolen_length = I::IndexValue::default();
+                // Dividing this into cases makes it easier to reason
+                // about.
+                if old_idx < INT_ENTRIES /2 {
+                    // Move all items from MAX_CHILDREN/2..MAX_CHILDREN
+                    // into right_sibling, then splice inserted_node into
+                    // old_parent.
+                    for i in 0..INT_ENTRIES /2 {
+                        let ii = i + INT_ENTRIES /2;
+                        // let c = mem::replace(&mut left_sibling.index[ii], I::IndexOffset::default());
+                        let c = mem::take(&mut left_sibling.index[ii]);
+                        // let e = mem::replace(&mut left_sibling.children[ii], None);
+                        let e = mem::take(&mut left_sibling.children[ii]);
+                        if let Some(mut e) = e {
+                            e.set_parent(right_sibling.as_ref().to_parent_ptr());
+                            new_stolen_length += c;
+                            right_sibling.as_mut().set_entry(i, c, Some(e));
+                        }
+
+                    }
+
+                    let new_idx = old_idx + 1;
+                    inserted_leaf_node.set_parent(ParentPtr::Internal(NonNull::new_unchecked(left_sibling)));
+                    left_sibling.splice_in(new_idx, stolen_length, inserted_leaf_node);
+                } else {
+                    // The new element is in the second half of the
+                    // group.
+                    let new_idx = old_idx - INT_ENTRIES /2 + 1;
+
+                    inserted_leaf_node.set_parent(right_sibling.as_ref().to_parent_ptr());
+                    let mut new_entry = (stolen_length, Some(inserted_leaf_node));
+                    new_stolen_length = stolen_length;
+
+                    let mut src = INT_ENTRIES /2;
+                    for dest in 0..=INT_ENTRIES /2 {
+                        if dest == new_idx {
+                            right_sibling.as_mut().set_entry(dest, mem::take(&mut new_entry.0), mem::take(&mut new_entry.1));
+                        } else {
+                            let c = mem::take(&mut left_sibling.index[src]);
+                            let e = mem::take(&mut left_sibling.children[src]);
+                            // let (c, e) = mem::replace(&mut left_sibling.data[src], (I::IndexOffset::default(), None));
+
                             if let Some(mut e) = e {
                                 e.set_parent(right_sibling.as_ref().to_parent_ptr());
                                 new_stolen_length += c;
-                                right_sibling.as_mut().set_entry(i, c, Some(e));
-                            }
-
+                                right_sibling.as_mut().set_entry(dest, c, Some(e));
+                                src += 1;
+                            } else { break; }
                         }
-
-                        let new_idx = old_idx + 1;
-                        inserted_leaf_node.set_parent(ParentPtr::Internal(NonNull::new_unchecked(left_sibling)));
-                        left_sibling.splice_in(new_idx, stolen_length, inserted_leaf_node);
-                    } else {
-                        // The new element is in the second half of the
-                        // group.
-                        let new_idx = old_idx - INT_ENTRIES /2 + 1;
-
-                        inserted_leaf_node.set_parent(right_sibling.as_ref().to_parent_ptr());
-                        let mut new_entry = (stolen_length, Some(inserted_leaf_node));
-                        new_stolen_length = stolen_length;
-
-                        let mut src = INT_ENTRIES /2;
-                        for dest in 0..=INT_ENTRIES /2 {
-                            if dest == new_idx {
-                                right_sibling.as_mut().set_entry(dest, mem::take(&mut new_entry.0), mem::take(&mut new_entry.1));
-                            } else {
-                                let c = mem::take(&mut left_sibling.index[src]);
-                                let e = mem::take(&mut left_sibling.children[src]);
-                                // let (c, e) = mem::replace(&mut left_sibling.data[src], (I::IndexOffset::default(), None));
-
-                                if let Some(mut e) = e {
-                                    e.set_parent(right_sibling.as_ref().to_parent_ptr());
-                                    new_stolen_length += c;
-                                    right_sibling.as_mut().set_entry(dest, c, Some(e));
-                                    src += 1;
-                                } else { break; }
-                            }
-                        }
-                        debug_assert!(new_entry.1.is_none());
                     }
+                    debug_assert!(new_entry.1.is_none());
+                }
 
-                    insert_after = NodePtr::Internal(n);
-                    inserted_leaf_node = right_sibling_box;
-                    stolen_length = new_stolen_length;
-                    // And iterate up the tree.
-                },
-            };
-        }
+                insert_after = NodePtr::Internal(n);
+                inserted_leaf_node = right_sibling_box;
+                stolen_length = new_stolen_length;
+                // And iterate up the tree.
+            },
+        };
     }
 }
 
