@@ -1,5 +1,5 @@
 use rle::SplitableSpan;
-use crate::rle::{Rle, KVPair, RleSpanHelpers};
+use crate::rle::{RleVec, KVPair, RleSpanHelpers};
 use crate::list::Order;
 use crate::order::OrderSpan;
 
@@ -36,7 +36,7 @@ impl SplitableSpan for DoubleDelete {
     fn prepend(&mut self, other: Self) { self.len += other.len; }
 }
 
-impl Rle<KVPair<DoubleDelete>> {
+impl RleVec<KVPair<DoubleDelete>> {
     // TODO: Consider changing all these methods to take an OrderSpan instead.
 
     /// Internal function to add / subtract from a range of double deleted entries.
@@ -180,7 +180,7 @@ impl Rle<KVPair<DoubleDelete>> {
 // bugs.
 #[cfg(test)]
 mod tests {
-    use crate::rle::{Rle, KVPair};
+    use crate::rle::{RleVec, KVPair};
     use crate::list::double_delete::DoubleDelete;
     use rle::test_splitable_methods_valid;
 
@@ -196,7 +196,7 @@ mod tests {
     fn inc_delete_range() {
         // This isn't completely exhaustive, but its pretty robust.
         // It'd be nice to do coverage reporting on this.
-        let mut deletes: Rle<KVPair<DoubleDelete>> = Rle::new();
+        let mut deletes: RleVec<KVPair<DoubleDelete>> = RleVec::new();
         deletes.increment_delete_range(5, 3);
         assert_eq!(deletes.0, vec![KVPair(5, DoubleDelete { len: 3, excess_deletes: 1 })]);
         deletes.increment_delete_range(5, 3);
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn delete_regression() {
         // Regression. This bug was found by the fuzzer.
-        let mut deletes: Rle<KVPair<DoubleDelete>> = Rle::new();
+        let mut deletes: RleVec<KVPair<DoubleDelete>> = RleVec::new();
         deletes.increment_delete_range(5, 2);
         deletes.increment_delete_range(5, 1);
         deletes.increment_delete_range(5, 2);
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn dec_delete_range() {
         // This is mostly the same code is inc_delete_range so we don't need too much testing.
-        let mut deletes: Rle<KVPair<DoubleDelete>> = Rle::new();
+        let mut deletes: RleVec<KVPair<DoubleDelete>> = RleVec::new();
         assert_eq!(deletes.decrement_delete_range(5, 10), 0);
 
         deletes.increment_delete_range(5, 3);
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn zero_range() {
-        let mut deletes: Rle<KVPair<DoubleDelete>> = Rle::new();
+        let mut deletes: RleVec<KVPair<DoubleDelete>> = RleVec::new();
         assert_eq!(deletes.find_zero_range(10, 100), 100);
 
         deletes.increment_delete_range(5, 3);

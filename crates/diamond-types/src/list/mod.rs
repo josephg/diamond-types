@@ -11,7 +11,7 @@ use crate::list::txn::TxnSpan;
 use crate::order::OrderSpan;
 use content_tree::*;
 // use crate::list::delete::DeleteEntry;
-use crate::rle::{KVPair, Rle};
+use crate::rle::{KVPair, RleVec};
 // use crate::split_list::SplitList;
 // use std::ops::Range;
 
@@ -55,7 +55,7 @@ struct ClientData {
     /// location range -> item orders
     ///
     /// The OrderMarkers here always have positive len.
-    item_orders: Rle<KVPair<OrderSpan>>,
+    item_orders: RleVec<KVPair<OrderSpan>>,
 }
 
 pub(crate) const INDEX_IE: usize = DEFAULT_IE;
@@ -68,7 +68,7 @@ pub(crate) const DOC_LE: usize = DEFAULT_LE;
 type DocRangeIndex = ContentIndex;
 type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionIndex>>>;
 
-pub type DoubleDeleteList = Rle<KVPair<DoubleDelete>>;
+pub type DoubleDeleteList = RleVec<KVPair<DoubleDelete>>;
 
 pub type Branch = SmallVec<[Order; 4]>;
 
@@ -84,7 +84,7 @@ pub struct ListCRDT {
     /// The entries always have positive len.
     ///
     /// This is used to map Order -> External CRDT locations.
-    client_with_order: Rle<KVPair<CRDTSpan>>,
+    client_with_order: RleVec<KVPair<CRDTSpan>>,
 
     /// For each client, we store some data (above). This is indexed by AgentId.
     ///
@@ -107,7 +107,7 @@ pub struct ListCRDT {
 
     /// This is a set of all deletes. Each delete names the set of orders of inserts which were
     /// deleted. Keyed by the delete order, NOT the order of the item *being* deleted.
-    deletes: Rle<KVPair<OrderSpan>>,
+    deletes: RleVec<KVPair<OrderSpan>>,
 
     /// List of document items which have been deleted more than once. Usually empty. Keyed by the
     /// item *being* deleted (like content_tree, unlike deletes).
@@ -118,7 +118,7 @@ pub struct ListCRDT {
     /// remote changes.
     ///
     /// Along with deletes, this essentially contains the time DAG.
-    txns: Rle<TxnSpan>,
+    txns: RleVec<TxnSpan>,
 
     // Temporary. This will be moved out into a reference to another data structure I think.
     text_content: Option<Rope>,

@@ -2,7 +2,7 @@
 /// inefficient. Its mostly just to aid in unit testing & support for fuzzing.
 
 use crate::list::{ListCRDT, Order, ROOT_AGENT, Branch};
-use crate::rle::Rle;
+use crate::rle::RleVec;
 use crate::list::span::YjsSpan;
 use rle::SplitableSpan;
 // use std::fs::File;
@@ -82,8 +82,8 @@ impl PartialEq for ListCRDT {
 
         // This is inefficient. Use a double iterator or something if this is a hot path and not
         // just for testing.
-        let mut a_items: Rle<YjsSpan> = Rle::new();
-        let mut b_items: Rle<YjsSpan> = Rle::new();
+        let mut a_items: RleVec<YjsSpan> = RleVec::new();
+        let mut b_items: RleVec<YjsSpan> = RleVec::new();
 
         for mut entry in self.range_tree.raw_iter() {
             // dbg!(entry);

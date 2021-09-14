@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use rle::Searchable;
 use rle::SplitableSpan;
-pub use simple_rle::Rle;
+pub use simple_rle::RleVec;
 
 pub type RleKey = u32;
 

@@ -4,7 +4,7 @@ use smallvec::smallvec;
 use std::ptr::NonNull;
 use rle::SplitableSpan;
 use std::cmp::Ordering;
-use crate::rle::Rle;
+use crate::rle::RleVec;
 use std::mem::replace;
 use crate::list::external_txn::{RemoteTxn, RemoteCRDTOp};
 use crate::unicount::{split_at_char, chars_to_bytes, count_chars};
@@ -78,7 +78,7 @@ fn advance_branch_by(branch: &mut Branch, txn_parents: &Branch, first_order: Ord
 impl ListCRDT {
     pub fn new() -> Self {
         ListCRDT {
-            client_with_order: Rle::new(),
+            client_with_order: RleVec::new(),
             frontier: smallvec![ROOT_ORDER],
             client_data: vec![],
 
@@ -86,10 +86,10 @@ impl ListCRDT {
             index: ContentTreeRaw::new(),
             // index: SplitList::new(),
 
-            deletes: Rle::new(),
-            double_deletes: Rle::new(),
+            deletes: RleVec::new(),
+            double_deletes: RleVec::new(),
 
-            txns: Rle::new(),
+            txns: RleVec::new(),
 
             text_content: Some(Rope::new()),
             // text_content: None,
@@ -111,7 +111,7 @@ impl ListCRDT {
             // Create a new id.
             self.client_data.push(ClientData {
                 name: SmartString::from(name),
-                item_orders: Rle::new()
+                item_orders: RleVec::new()
             });
             (self.client_data.len() - 1) as AgentId
         }

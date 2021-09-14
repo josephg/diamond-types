@@ -12,9 +12,9 @@ use crate::rle::{RleKey, RleKeyed, RleSpanHelpers};
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Default, Clone, Eq, PartialEq, Debug)]
-pub struct Rle<V: SplitableSpan + Clone + Sized>(pub(crate) Vec<V>);
+pub struct RleVec<V: SplitableSpan + Clone + Sized>(pub Vec<V>);
 
-impl<V: SplitableSpan + Clone + Sized> Rle<V> {
+impl<V: SplitableSpan + Clone + Sized> RleVec<V> {
     pub fn new() -> Self { Self(Vec::new()) }
 
     /// Append a new value to the end of the RLE list. This method is fast - O(1) average time.
@@ -43,7 +43,7 @@ impl<V: SplitableSpan + Clone + Sized> Rle<V> {
 }
 
 // impl<K: Copy + Eq + Ord + Add<Output = K> + Sub<Output = K> + AddAssign, V: Copy + Eq> RLE<K, V> {
-impl<V: SplitableSpan + RleKeyed + Clone + Sized> Rle<V> {
+impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     pub(crate) fn search(&self, needle: RleKey) -> Result<usize, usize> {
         self.0.binary_search_by(|entry| {
             let key = entry.get_rle_key();
@@ -121,7 +121,7 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> Rle<V> {
     }
 }
 
-impl<V: SplitableSpan + Clone + Sized> FromIterator<V> for Rle<V> {
+impl<V: SplitableSpan + Clone + Sized> FromIterator<V> for RleVec<V> {
     fn from_iter<T: IntoIterator<Item=V>>(iter: T) -> Self {
         let mut rle = Self::new();
         for item in iter {
@@ -131,7 +131,7 @@ impl<V: SplitableSpan + Clone + Sized> FromIterator<V> for Rle<V> {
     }
 }
 
-impl<V: SplitableSpan + Clone + Sized> Extend<V> for Rle<V> {
+impl<V: SplitableSpan + Clone + Sized> Extend<V> for RleVec<V> {
     fn extend<T: IntoIterator<Item=V>>(&mut self, iter: T) {
         for item in iter {
             self.append(item);
@@ -149,7 +149,7 @@ impl<V: SplitableSpan + Clone + Sized> Extend<V> for Rle<V> {
 //     }
 // }
 
-impl<V: SplitableSpan + Searchable + RleKeyed> Rle<V> {
+impl<V: SplitableSpan + Searchable + RleKeyed> RleVec<V> {
     pub fn get(&self, idx: RleKey) -> V::Item {
         let (v, offset) = self.find(idx).unwrap();
         v.at_offset(offset as usize)
@@ -157,7 +157,7 @@ impl<V: SplitableSpan + Searchable + RleKeyed> Rle<V> {
 }
 
 // Seems kinda redundant but eh.
-impl<V: SplitableSpan + Clone + Debug + Sized> AppendRLE<V> for Rle<V> {
+impl<V: SplitableSpan + Clone + Debug + Sized> AppendRLE<V> for RleVec<V> {
     fn push_rle(&mut self, item: V) { self.append(item); }
     fn push_reversed_rle(&mut self, _item: V) { unimplemented!(); }
 }
@@ -174,11 +174,11 @@ impl<V: SplitableSpan + Clone + Debug + Sized> AppendRLE<V> for Rle<V> {
 mod tests {
     use crate::order::OrderSpan;
     use crate::rle::KVPair;
-    use crate::rle::simple_rle::Rle;
+    use crate::rle::simple_rle::RleVec;
 
     #[test]
     fn rle_finds_at_offset() {
-        let mut rle: Rle<KVPair<OrderSpan>> = Rle::new();
+        let mut rle: RleVec<KVPair<OrderSpan>> = RleVec::new();
 
         rle.append(KVPair(1, OrderSpan { order: 1000, len: 2 }));
         assert_eq!(rle.find(1), Some((&KVPair(1, OrderSpan { order: 1000, len: 2 }), 0)));
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn insert_inside() {
-        let mut rle: Rle<KVPair<OrderSpan>> = Rle::new();
+        let mut rle: RleVec<KVPair<OrderSpan>> = RleVec::new();
 
         rle.insert(KVPair(5, OrderSpan { order: 1000, len: 2}));
         // Prepend
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_find_sparse() {
-        let mut rle: Rle<KVPair<OrderSpan>> = Rle::new();
+        let mut rle: RleVec<KVPair<OrderSpan>> = RleVec::new();
 
         assert_eq!(rle.find_sparse(0), (Err(0), 0));
         assert_eq!(rle.find_sparse(10), (Err(0), 10));

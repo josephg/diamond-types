@@ -19,7 +19,7 @@ use crate::list::external_txn::RemoteIdSpan;
 use crate::list::ot::positional::{InsDelTag, PositionalComponent, PositionalOp};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp, TraversalOpSequence};
 use crate::order::OrderSpan;
-use crate::rle::{KVPair, Rle, RleKey, RleKeyed, RleSpanHelpers};
+use crate::rle::{KVPair, RleVec, RleKey, RleKeyed, RleSpanHelpers};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
@@ -117,7 +117,7 @@ impl DoubleDeleteVisitor {
     }
 }
 
-impl<V: SplitableSpan + RleKeyed + Clone + Sized> Rle<V> {
+impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     fn search_backwards(&self, needle: RleKey, idx: &mut usize) -> Option<&V> {
         // This conditional looks inverted given we're looping backwards, but I'm using
         // wrapping_sub - so when we reach the end the index wraps around and we'll hit usize::MAX.

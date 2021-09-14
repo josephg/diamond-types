@@ -1,7 +1,7 @@
 use crate::list::{ListCRDT, ROOT_ORDER, Order};
 use ropey::Rope;
 use rle::SplitableSpan;
-use crate::rle::Rle;
+use crate::rle::RleVec;
 use crate::list::span::YjsSpan;
 
 /// This file contains debugging assertions to validate the document's internal state.
@@ -96,7 +96,7 @@ impl ListCRDT {
 
     pub fn check_timetravel(&mut self, point: Order) {
         let double_deletes = self.double_deletes.clone();
-        let expect_range_tree: Rle<YjsSpan> = self.range_tree.raw_iter().collect();
+        let expect_range_tree: RleVec<YjsSpan> = self.range_tree.raw_iter().collect();
 
         // Ok now unapply- and reapply- changes back to the specified point.
         let span = self.linear_changes_since(point);
@@ -107,7 +107,7 @@ impl ListCRDT {
         self.check(false);
 
         assert_eq!(double_deletes, self.double_deletes);
-        let actual_range_tree: Rle<YjsSpan> = self.range_tree.raw_iter().collect();
+        let actual_range_tree: RleVec<YjsSpan> = self.range_tree.raw_iter().collect();
         assert_eq!(expect_range_tree, actual_range_tree);
     }
 }
