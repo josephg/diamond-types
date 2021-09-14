@@ -17,6 +17,7 @@ pub trait SplitableSpan: Clone {
 
     // This is strictly unnecessary given truncate(), but it makes some code cleaner.
     // fn truncate_keeping_right(&mut self, at: usize) -> Self;
+    #[inline(always)]
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
         let mut other = self.clone();
         *self = other.truncate(at);
@@ -28,6 +29,7 @@ pub trait SplitableSpan: Clone {
     fn can_append(&self, other: &Self) -> bool;
     fn append(&mut self, other: Self);
     // fn prepend(&mut self, other: Self);
+    #[inline(always)]
     fn prepend(&mut self, mut other: Self) {
         other.append(self.clone());
         *self = other;
