@@ -1,7 +1,7 @@
 /// This file contains the core code for content_tree's mutation operations.
 
 use crate::entry::EntryTraits;
-use crate::content_tree::{ContentTree, Cursor, NodeLeaf, DeleteResult, ParentPtr, Node, NodePtr, NodeInternal, FindOffset, FindContent, ContentLength};
+use crate::content_tree::{ContentTree, UnsafeCursor, NodeLeaf, DeleteResult, ParentPtr, Node, NodePtr, NodeInternal, FindOffset, FindContent, ContentLength};
 use std::ptr::NonNull;
 use std::{ptr, mem};
 use std::pin::Pin;
@@ -11,12 +11,14 @@ use crate::rle::AppendRLE;
 use std::hint::unreachable_unchecked;
 use crate::entry::Toggleable;
 
+
+
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
     /// is returned. The cursor is modified in-place to point after the inserted items.
     ///
     /// If the cursor points in the middle of an item, the item is split.
-    pub(super) unsafe fn insert_internal<F>(self: &mut Pin<Box<Self>>, mut items: &[E], cursor: &mut Cursor<E, I, IE, LE>, flush_marker: &mut I::IndexUpdate, notify: &mut F)
+    pub(super) unsafe fn insert_internal<F>(mut items: &[E], cursor: &mut UnsafeCursor<E, I, IE, LE>, flush_marker: &mut I::IndexUpdate, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         if items.is_empty() { return; }
@@ -190,10 +192,10 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
         }
     }
 
-    pub unsafe fn insert<F>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I, IE, LE>, new_entry: E, mut notify: F)
+    pub unsafe fn unsafe_insert<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_entry: E, mut notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         let mut marker = I::IndexUpdate::default();
-        self.insert_internal(&[new_entry], cursor, &mut marker, &mut notify);
+        Self::insert_internal(&[new_entry], cursor, &mut marker, &mut notify);
 
         cursor.get_node_mut().flush_index_update(&mut marker);
         // cursor.compress_node();
@@ -202,20 +204,20 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
     pub fn insert_at_start<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        unsafe { self.insert(&mut self.cursor_at_start(), new_entry, notify) }
+        unsafe { Self::unsafe_insert(&mut self.unsafe_cursor_at_start(), new_entry, notify) }
     }
 
     pub fn push<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        unsafe { self.insert(&mut self.cursor_at_end(), new_entry, notify) }
+        unsafe { Self::unsafe_insert(&mut self.unsafe_cursor_at_end(), new_entry, notify) }
     }
 
     /// Replace the item at the cursor position with the new items provided by items.
     ///
     /// Items must have a maximum length of 3, due to limitations in split_insert above.
     /// The cursor's offset is ignored. The cursor ends up at the end of the inserted items.
-    unsafe fn replace_entry<F>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I, IE, LE>, items: &[E], flush_marker: &mut I::IndexUpdate, notify: &mut F)
+    unsafe fn replace_entry<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, items: &[E], flush_marker: &mut I::IndexUpdate, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         assert!(items.len() >= 1 && items.len() <= 3);
 
@@ -260,7 +262,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
             cursor.offset = entry.len();
 
             // And insert the rest, if there are any.
-            self.insert_internal(&items[items_idx + 1..], cursor, flush_marker, notify);
+            Self::insert_internal(&items[items_idx + 1..], cursor, flush_marker, notify);
         }
     }
 
@@ -268,7 +270,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
     pub unsafe fn mutate_entry<MapFn, N>(
         self: &mut Pin<Box<Self>>,
         map_fn: MapFn,
-        cursor: &mut Cursor<E, I, IE, LE>,
+        cursor: &mut UnsafeCursor<E, I, IE, LE>,
         replace_max: usize,
         flush_marker: &mut I::IndexUpdate,
         notify: &mut N
@@ -298,13 +300,13 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
 
         match (a, c) {
             (Some(a), Some(c)) => {
-                self.replace_entry(cursor, &[a, entry, c], flush_marker, notify);
+                Self::replace_entry(cursor, &[a, entry, c], flush_marker, notify);
             },
             (Some(a), None) => {
-                self.replace_entry(cursor, &[a, entry], flush_marker, notify);
+                Self::replace_entry(cursor, &[a, entry], flush_marker, notify);
             },
             (None, Some(c)) => {
-                self.replace_entry(cursor, &[entry, c], flush_marker, notify);
+                Self::replace_entry(cursor, &[entry, c], flush_marker, notify);
             },
             (None, None) => {
                 // Short circuit for:
@@ -322,18 +324,17 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
         replaced_here
     }
 
-
     /// Replace the range from cursor..cursor + replaced_len with new_entry.
-    pub unsafe fn replace_range<N>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I, IE, LE>, new_entry: E, notify: N)
+    pub unsafe fn unsafe_replace_range<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         let mut flush_marker = I::IndexUpdate::default();
-        self.replace_range_internal(cursor, new_entry.len(), new_entry, &mut flush_marker, notify);
+        Self::replace_range_internal(cursor, new_entry.len(), new_entry, &mut flush_marker, notify);
         cursor.get_node_mut().flush_index_update(&mut flush_marker);
         // cursor.compress_node();
     }
 
-    unsafe fn replace_range_internal<N>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I, IE, LE>, mut replaced_len: usize, new_entry: E, flush_marker: &mut I::IndexUpdate, mut notify: N)
+    unsafe fn replace_range_internal<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, mut replaced_len: usize, new_entry: E, flush_marker: &mut I::IndexUpdate, mut notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         let node = cursor.node.as_mut();
@@ -341,7 +342,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
         if cursor.idx >= node.len_entries() {
             // The cursor already points past the end of the entry.
             cursor.roll_to_next_entry();
-            self.insert_internal(&[new_entry], cursor, flush_marker, &mut notify);
+            Self::insert_internal(&[new_entry], cursor, flush_marker, &mut notify);
             return;
         }
 
@@ -365,7 +366,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
             entry.append(new_entry);
             cursor.offset += new_entry.len();
 
-            self.delete_internal(cursor, replaced_len, flush_marker, &mut notify);
+            Self::delete_internal(cursor, replaced_len, flush_marker, &mut notify);
             return;
         }
 
@@ -373,7 +374,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
             debug_assert_eq!(*flush_marker, I::IndexUpdate::default());
 
             // We've reached the end of the tree. Can't replace more, so we just insert here.
-            self.insert_internal(&[new_entry], cursor, flush_marker, &mut notify);
+            Self::insert_internal(&[new_entry], cursor, flush_marker, &mut notify);
             return;
         }
 
@@ -392,7 +393,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
                 let c_len = c.len();
 
                 // This will update flush_marker for us.
-                self.replace_entry(cursor, &[a, new_entry, c], flush_marker, &mut notify);
+                Self::replace_entry(cursor, &[a, new_entry, c], flush_marker, &mut notify);
 
                 // Move the cursor back to be pointing at the end of new_entry.
                 cursor.move_back_by(c_len, Some(flush_marker));
@@ -406,7 +407,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
 
                 if replaced_len == 0 || !cursor.next_entry_marker(Some(flush_marker)) {
                     // Only inserting remains.
-                    self.insert_internal(&[new_entry], cursor, flush_marker, &mut notify);
+                    Self::insert_internal(&[new_entry], cursor, flush_marker, &mut notify);
                     return;
                 }
 
@@ -433,14 +434,14 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
             if replaced_len > entry_len {
                 // Delete any extra trailing length.
                 cursor.next_entry_marker(Some(flush_marker));
-                self.delete_internal(cursor, replaced_len - entry_len, flush_marker, &mut notify);
+                Self::delete_internal(cursor, replaced_len - entry_len, flush_marker, &mut notify);
             } // Otherwise we're done.
         } else { // replaced_len < entry_len
             // Replace this item with [new, remainder].
             let mut remainder = *entry;
             let remainder = remainder.truncate(replaced_len);
             let rem_len = remainder.len();
-            self.replace_entry(cursor, &[new_entry, remainder], flush_marker, &mut notify);
+            Self::replace_entry(cursor, &[new_entry, remainder], flush_marker, &mut notify);
             cursor.move_back_by(rem_len, Some(flush_marker));
         }
     }
@@ -453,7 +454,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
     /// We return a tuple of (should_iterate, the number of remaining items to delete).
     /// If should_iterate is true, keep calling this in a loop. (Eh I need a better name for that
     /// variable).
-    unsafe fn delete_entry_range(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I, IE, LE>, mut del_items: usize, flush_marker: &mut I::IndexUpdate) -> (bool, usize) {
+    unsafe fn delete_entry_range(cursor: &mut UnsafeCursor<E, I, IE, LE>, mut del_items: usize, flush_marker: &mut I::IndexUpdate) -> (bool, usize) {
         // This method only deletes whole items.
         debug_assert_eq!(cursor.offset, 0);
         debug_assert!(del_items > 0);
@@ -534,7 +535,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
         }
     }
 
-    unsafe fn delete_internal<N>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I, IE, LE>, mut del_items: usize, flush_marker: &mut I::IndexUpdate, notify: &mut N)
+    unsafe fn delete_internal<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, mut del_items: usize, flush_marker: &mut I::IndexUpdate, notify: &mut N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         if del_items == 0 { return; }
@@ -566,7 +567,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
                     // self.insert(cursor.clone(), remainder, notify);
 
                     let mut c2 = cursor.clone();
-                    self.insert_internal(&[remainder], &mut c2, flush_marker, notify);
+                    Self::insert_internal(&[remainder], &mut c2, flush_marker, notify);
                     c2.get_node_mut().flush_index_update(flush_marker);
 
                     return;
@@ -583,7 +584,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
         // Ok, we're at the start of an entry. Scan and delete entire entries from this leaf.
 
         while del_items > 0 {
-            let (iterate, num) = self.delete_entry_range(cursor, del_items, flush_marker);
+            let (iterate, num) = Self::delete_entry_range(cursor, del_items, flush_marker);
             del_items = num;
             if !iterate { break; }
             // delete_entry_range only deletes from the current item each iteration.
@@ -619,11 +620,11 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
 
     /// Delete the specified number of items from the b-tree at the cursor.
     /// Cursor may be modified to point to the start of the next item.
-    pub unsafe fn delete<F>(self: &mut Pin<Box<Self>>, cursor: &mut Cursor<E, I, IE, LE>, del_items: usize, mut notify: F)
+    pub unsafe fn unsafe_delete<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, del_items: usize, mut notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut marker = I::IndexUpdate::default();
-        self.delete_internal(cursor, del_items, &mut marker, &mut notify);
+        Self::delete_internal(cursor, del_items, &mut marker, &mut notify);
         cursor.get_node_mut().flush_index_update(&mut marker);
     }
 
@@ -631,9 +632,9 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut marker = I::IndexUpdate::default();
-        let mut cursor = self.cursor_at_start();
+        let mut cursor = self.unsafe_cursor_at_start();
         unsafe {
-            self.delete_internal(&mut cursor, del_items, &mut marker, &mut notify);
+            Self::delete_internal(&mut cursor, del_items, &mut marker, &mut notify);
             cursor.get_node_mut().flush_index_update(&mut marker);
         }
     }
@@ -641,7 +642,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
 }
 
 impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
-    pub unsafe fn local_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I, IE, LE>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
+    pub unsafe fn local_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: UnsafeCursor<E, I, IE, LE>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         // println!("local_delete len: {} at cursor {:?}", deleted_len, cursor);
@@ -692,7 +693,7 @@ impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: us
         result
     }
 
-    unsafe fn set_enabled<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I, IE, LE>, max_len: usize, want_enabled: bool, mut notify: F) -> (usize, bool)
+    unsafe fn set_enabled<F>(self: &mut Pin<Box<Self>>, mut cursor: UnsafeCursor<E, I, IE, LE>, max_len: usize, want_enabled: bool, mut notify: F) -> (usize, bool)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         cursor.roll_to_next_entry();
@@ -733,13 +734,13 @@ impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: us
     /// TODO: Consider returning / mutating the cursor. Subsequent items will probably be in this
     /// node. It would be marginally faster to find a cursor using a hint, and subsequent deletes
     /// in the txn we're applying will usually be in this node (usually the next item in this node).
-    pub unsafe fn remote_deactivate<F>(self: &mut Pin<Box<Self>>, cursor: Cursor<E, I, IE, LE>, max_deleted_len: usize, notify: F) -> (usize, bool)
+    pub unsafe fn remote_deactivate<F>(self: &mut Pin<Box<Self>>, cursor: UnsafeCursor<E, I, IE, LE>, max_deleted_len: usize, notify: F) -> (usize, bool)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         self.set_enabled(cursor, max_deleted_len, false, notify)
     }
 
-    pub unsafe fn remote_reactivate<F>(self: &mut Pin<Box<Self>>, cursor: Cursor<E, I, IE, LE>, max_len: usize, notify: F) -> (usize, bool)
+    pub unsafe fn remote_reactivate<F>(self: &mut Pin<Box<Self>>, cursor: UnsafeCursor<E, I, IE, LE>, max_len: usize, notify: F) -> (usize, bool)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         self.set_enabled(cursor, max_len, true, notify)
@@ -751,22 +752,22 @@ impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Content
     pub fn insert_at_offset<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        let mut cursor = self.cursor_at_offset_pos(pos, true);
-        unsafe { self.insert(&mut cursor, new_entry, notify); }
+        let mut cursor = self.unsafe_cursor_at_offset_pos(pos, true);
+        unsafe { Self::unsafe_insert(&mut cursor, new_entry, notify); }
     }
 
     pub fn replace_range_at_offset<N>(self: &mut Pin<Box<Self>>, offset: usize, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        let mut cursor = self.cursor_at_offset_pos(offset, true);
-        unsafe { self.replace_range(&mut cursor, new_entry, notify); }
+        let mut cursor = self.unsafe_cursor_at_offset_pos(offset, true);
+        unsafe { Self::unsafe_replace_range(&mut cursor, new_entry, notify); }
     }
 
     pub fn delete_at_offset<F>(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        let mut cursor = self.cursor_at_offset_pos(pos, false);
-        unsafe { self.delete(&mut cursor, del_items, notify); }
+        let mut cursor = self.unsafe_cursor_at_offset_pos(pos, false);
+        unsafe { Self::unsafe_delete(&mut cursor, del_items, notify); }
     }
 }
 
@@ -774,22 +775,22 @@ impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const L
     pub fn insert_at_content<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        let mut cursor = self.cursor_at_content_pos(pos, true);
-        unsafe { self.insert(&mut cursor, new_entry, notify); }
+        let mut cursor = self.unsafe_cursor_at_content_pos(pos, true);
+        unsafe { Self::unsafe_insert(&mut cursor, new_entry, notify); }
     }
 
     pub fn replace_range_at_content<N>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        let mut cursor = self.cursor_at_content_pos(pos, true);
-        unsafe { self.replace_range(&mut cursor, new_entry, notify); }
+        let mut cursor = self.unsafe_cursor_at_content_pos(pos, true);
+        unsafe { Self::unsafe_replace_range(&mut cursor, new_entry, notify); }
     }
 
     pub fn delete_at_content<F>(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        let mut cursor = self.cursor_at_content_pos(pos, false);
-        unsafe { self.delete(&mut cursor, del_items, notify); }
+        let mut cursor = self.unsafe_cursor_at_content_pos(pos, false);
+        unsafe { Self::unsafe_delete(&mut cursor, del_items, notify); }
     }
 }
 
@@ -797,7 +798,7 @@ impl<E: EntryTraits + ContentLength + Toggleable, I: FindContent<E>, const IE: u
     pub fn local_deactivate_at_content<F>(self: &mut Pin<Box<Self>>, offset: usize, deleted_len: usize, notify: F) -> DeleteResult<E>
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        let cursor = self.cursor_at_content_pos(offset, false);
+        let cursor = self.unsafe_cursor_at_content_pos(offset, false);
         unsafe { self.local_deactivate(cursor, deleted_len, notify) }
     }
 

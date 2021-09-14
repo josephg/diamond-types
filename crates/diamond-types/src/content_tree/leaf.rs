@@ -226,7 +226,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
 }
 
 impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
-    pub fn find(&self, loc: E::Item) -> Option<Cursor<E, I, IE, LE>> {
+    pub fn find(&self, loc: E::Item) -> Option<UnsafeCursor<E, I, IE, LE>> {
         for i in 0..self.len_entries() {
             let entry: E = self.data[i];
 
@@ -234,7 +234,7 @@ impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: us
                 debug_assert!(offset < entry.len());
                 // let offset = if entry.is_insert() { entry_offset } else { 0 };
 
-                return Some(Cursor::new(
+                return Some(UnsafeCursor::new(
                     unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
                     i,
                     offset

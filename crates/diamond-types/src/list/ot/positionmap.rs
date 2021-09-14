@@ -57,10 +57,10 @@ impl TreeIndex<TraversalComponent> for PrePostIndex {
 pub(super) type PositionMap = Pin<Box<ContentTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>>>;
 
 impl ContentTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
-    pub fn cursor_at_post(&self, pos: usize, stick_end: bool) -> Cursor<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
-        self.cursor_at_query(pos, stick_end,
-                             |i| i.1 as usize,
-                             |e| e.post_len() as usize)
+    pub fn mut_cursor_at_post<'a>(self: &'a mut Pin<Box<Self>>, pos: usize, stick_end: bool) -> MutCursor<'a, TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
+        self.mut_cursor_at_query(pos, stick_end,
+                                    |i| i.1 as usize,
+                                    |e| e.post_len() as usize)
     }
 }
 
@@ -289,12 +289,13 @@ impl<'a> Iterator for PatchIter<'a> {
                 if allowed {
                     // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
                     let post_pos = unsafe { rt_cursor.count_content_pos() };
-                    let mut map_cursor = self.map.cursor_at_post(post_pos as _, true);
+                    let mut map_cursor = self.map.mut_cursor_at_post(post_pos as _, true);
                     // We call insert instead of replace_range here because the delete doesn't
                     // consume "space".
 
-                    let pre_pos = unsafe { map_cursor.count_pos() }.0;
-                    unsafe { self.map.insert(&mut map_cursor, Del(len_here), null_notify); }
+                    let pre_pos = map_cursor.count_pos().0;
+                    map_cursor.insert(Del(len_here));
+                    // unsafe { self.map.unsafe_insert(&mut map_cursor, Del(len_here), null_notify); }
 
                     // The content might have later been deleted.
                     let entry = PositionalComponent {
@@ -330,10 +331,10 @@ impl<'a> Iterator for PatchIter<'a> {
                 let entry = if content_known {
                     // post_pos + 1 is a hack. cursor_at_offset_pos returns the first cursor
                     // location which has the right position.
-                    let mut map_cursor = self.map.cursor_at_post(post_pos as usize + 1, true);
-                    map_cursor.offset -= 1;
-                    let pre_pos = unsafe { map_cursor.count_pos() }.0;
-                    unsafe { self.map.replace_range(&mut map_cursor, Ins { len: len_here, content_known }, null_notify); }
+                    let mut map_cursor = self.map.mut_cursor_at_post(post_pos as usize + 1, true);
+                    map_cursor.inner.offset -= 1;
+                    let pre_pos = map_cursor.count_pos().0;
+                    map_cursor.replace_range(Ins { len: len_here, content_known });
                     PositionalComponent {
                         pos: pre_pos,
                         len: len_here,
@@ -341,11 +342,11 @@ impl<'a> Iterator for PatchIter<'a> {
                         tag: InsDelTag::Ins
                     }
                 } else {
-                    let mut map_cursor = self.map.cursor_at_post(post_pos as usize, true);
-                    map_cursor.roll_to_next_entry();
-                    unsafe { self.map.delete(&mut map_cursor, len_here as usize, null_notify); }
+                    let mut map_cursor = self.map.mut_cursor_at_post(post_pos as usize, true);
+                    map_cursor.inner.roll_to_next_entry();
+                    map_cursor.delete(len_here as usize);
                     PositionalComponent {
-                        pos: unsafe { map_cursor.count_pos() }.0,
+                        pos: map_cursor.count_pos().0,
                         len: len_here,
                         content_known: false,
                         tag: InsDelTag::Ins
@@ -781,8 +782,8 @@ mod test {
         let mut tree: PositionMap = ContentTree::new();
         tree.insert_at_start(TraversalComponent::Retain(10), null_notify);
 
-        let cursor = tree.cursor_at_post(4, true);
-        assert_eq!(unsafe { cursor.count_pos() }, Pair(4, 4));
+        let cursor = tree.mut_cursor_at_post(4, true);
+        assert_eq!(cursor.count_pos(), Pair(4, 4));
     }
 
     #[test]

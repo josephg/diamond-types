@@ -4,6 +4,7 @@ use smallvec::SmallVec;
 use std::mem::size_of;
 use humansize::{FileSize, file_size_opts};
 use rle::merge_iter::merge_items;
+use crate::content_tree::safe_cursor::ItemIterator;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 
@@ -42,7 +43,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
         ParentPtr::Root(ref_to_nonnull(self))
     }
 
-    pub fn cursor_at_query<F, G>(&self, raw_pos: usize, stick_end: bool, offset_to_num: F, entry_to_num: G) -> Cursor<E, I, IE, LE>
+    pub fn unsafe_cursor_at_query<F, G>(&self, raw_pos: usize, stick_end: bool, offset_to_num: F, entry_to_num: G) -> UnsafeCursor<E, I, IE, LE>
             where F: Fn(I::IndexValue) -> usize, G: Fn(E) -> usize {
         // if let Some((pos, mut cursor)) = self.last_cursor.get() {
         //     if pos == raw_pos {
@@ -74,7 +75,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
                     .expect("Element does not contain entry")
             };
 
-            Cursor {
+            UnsafeCursor {
                 node: leaf_ptr,
                 idx,
                 offset: offset_remaining,
@@ -83,7 +84,25 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
         }
     }
 
-    pub fn cursor_at_end(&self) -> Cursor<E, I, IE, LE> {
+    pub fn unsafe_cursor_at_start(&self) -> UnsafeCursor<E, I, IE, LE> {
+        // TODO: Consider moving this into unsafe_cursor
+        unsafe {
+            let mut node = self.root.as_ptr();
+            while let NodePtr::Internal(data) = node {
+                node = data.as_ref().children[0].as_ref().unwrap().as_ptr()
+            };
+
+            let leaf_ptr = node.unwrap_leaf();
+            UnsafeCursor {
+                node: leaf_ptr,
+                idx: 0,
+                offset: if leaf_ptr.as_ref().num_entries == 0 { usize::MAX } else { 0 },
+                // _marker: marker::PhantomData
+            }
+        }
+    }
+
+    pub fn unsafe_cursor_at_end(&self) -> UnsafeCursor<E, I, IE, LE> {
         // There's ways to write this to be faster, but this method is called rarely enough that it
         // should be fine.
         // let cursor = self.cursor_at_query(offset_to_num(self.count), true, offset_to_num, entry_to_num);
@@ -105,7 +124,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
                 let offset = leaf.data[idx].len();
                 (idx, offset)
             };
-            Cursor {
+            UnsafeCursor {
                 node: leaf_ptr,
                 idx,
                 offset
@@ -135,34 +154,17 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
     //     self.as_ref().last_cursor.set(Some((pos, cursor)));
     // }
 
-    pub fn cursor_at_start(&self) -> Cursor<E, I, IE, LE> {
-        // TODO: Consider moving this into cursor.rs
-        unsafe {
-            let mut node = self.root.as_ptr();
-            while let NodePtr::Internal(data) = node {
-                node = data.as_ref().children[0].as_ref().unwrap().as_ptr()
-            };
-
-            let leaf_ptr = node.unwrap_leaf();
-            Cursor {
-                node: leaf_ptr,
-                idx: 0,
-                offset: if leaf_ptr.as_ref().num_entries == 0 { usize::MAX } else { 0 },
-                // _marker: marker::PhantomData
-            }
-        }
-    }
-
+    // pub fn iter(&self) -> UnsafeCursor<E, I, IE, LE> { self.unsafe_cursor_at_start() }
     pub fn iter(&self) -> Cursor<E, I, IE, LE> { self.cursor_at_start() }
 
     // TODO: Is this the best name? rle_iter? ??.
-    pub fn merged_iter(&self) -> impl Iterator<Item = E> { merge_items(self.cursor_at_start()) }
+    pub fn merged_iter<'a>(&'a self) -> impl Iterator<Item = E> + 'a { merge_items(self.cursor_at_start()) }
 
     pub fn item_iter(&self) -> ItemIterator<E, I, IE, LE> {
         ItemIterator(self.iter())
     }
 
-    pub fn next_entry_or_panic(cursor: &mut Cursor<E, I, IE, LE>, marker: &mut I::IndexUpdate) {
+    pub fn next_entry_or_panic(cursor: &mut UnsafeCursor<E, I, IE, LE>, marker: &mut I::IndexUpdate) {
         if !cursor.next_entry_marker(Some(marker)) {
             panic!("Local delete past the end of the document");
         }
@@ -419,7 +421,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
 
 impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     /// Returns a cursor right before the named location, referenced by the pointer.
-    pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> Cursor<E, I, IE, LE> {
+    pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> UnsafeCursor<E, I, IE, LE> {
         // First make a cursor to the specified item
         let leaf = ptr.as_ref();
         leaf.find(loc).expect("Position not in named leaf")
@@ -431,8 +433,16 @@ impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const L
         I::index_to_content(self.count)
     }
     
+    pub fn unsafe_cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> UnsafeCursor<E, I, IE, LE> {
+        self.unsafe_cursor_at_query(pos, stick_end, I::index_to_content, |e| e.content_len())
+    }
+
     pub fn cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, I, IE, LE> {
         self.cursor_at_query(pos, stick_end, I::index_to_content, |e| e.content_len())
+    }
+
+    pub fn mut_cursor_at_content_pos<'a>(self: &'a mut Pin<Box<Self>>, pos: usize, stick_end: bool) -> MutCursor<'a, E, I, IE, LE> {
+        self.mut_cursor_at_query(pos, stick_end, I::index_to_content, |e| e.content_len())
     }
 }
 
@@ -441,21 +451,29 @@ impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Content
         I::index_to_offset(self.count)
     }
 
+    pub fn unsafe_cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> UnsafeCursor<E, I, IE, LE> {
+        self.unsafe_cursor_at_query(pos, stick_end, I::index_to_offset, |e| e.len())
+    }
+
     pub fn cursor_at_offset_pos(&self, pos: usize, stick_end: bool) -> Cursor<E, I, IE, LE> {
         self.cursor_at_query(pos, stick_end, I::index_to_offset, |e| e.len())
+    }
+
+    pub fn mut_cursor_at_offset_pos<'a>(self: &'a mut Pin<Box<Self>>, pos: usize, stick_end: bool) -> MutCursor<'a, E, I, IE, LE> {
+        self.mut_cursor_at_query(pos, stick_end, I::index_to_offset, |e| e.len())
     }
 }
     
 impl<E: EntryTraits + Searchable, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     pub fn at_offset(&self, pos: usize) -> Option<E::Item> {
-        let cursor = self.cursor_at_offset_pos(pos, false);
-        cursor.get_item()
+        let cursor = self.unsafe_cursor_at_offset_pos(pos, false);
+        unsafe { cursor.get_item() }
     }
 }
 
 impl<E: EntryTraits + ContentLength + Searchable, I: FindContent<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     pub fn at_content(&self, pos: usize) -> Option<E::Item> {
-        let cursor = self.cursor_at_content_pos(pos, false);
-        cursor.get_item()
+        let cursor = self.unsafe_cursor_at_content_pos(pos, false);
+        unsafe { cursor.get_item() }
     }
 }

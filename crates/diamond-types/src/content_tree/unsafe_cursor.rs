@@ -2,14 +2,11 @@ use super::*;
 use std::cmp::Ordering;
 use std::hint::unreachable_unchecked;
 
-// impl<'a, E: EntryTraits> Cursor<'a, E> {
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
+// TODO: All these methods should be unsafe and have safe wrappers in safe_cursor.
+impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub(super) fn new(node: NonNull<NodeLeaf<E, I, IE, LE>>, idx: usize, offset: usize) -> Self {
         // TODO: This is creating a cursor with 'static lifetime, which isn't really what we want.
-        Cursor {
-            node, idx, offset,
-            // _marker: marker::PhantomData
-        }
+        UnsafeCursor { node, idx, offset }
     }
 
     #[allow(clippy::mut_from_ref)] // Dirty.
@@ -17,10 +14,10 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
         &mut *self.node.as_ptr()
     }
 
-    #[allow(unused)]
-    pub(super) fn get_node(&self) -> &NodeLeaf<E, I, IE, LE> {
-        unsafe { self.node.as_ref() }
-    }
+    // #[allow(unused)]
+    // pub(super) fn get_node(&self) -> &NodeLeaf<E, I, IE, LE> {
+    //     unsafe { self.node.as_ref() }
+    // }
 
     /// Internal method for prev_entry and next_entry when we need to move laterally. This moves
     /// the cursor to the next / prev node in the tree, with no regard for the current position.
@@ -266,8 +263,8 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E
     }
 }
 
-impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
-    pub fn get_item(&self) -> Option<E::Item> {
+impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
+    pub unsafe fn get_item(&self) -> Option<E::Item> {
         // TODO: Optimize this. This is gross.
         let mut cursor = self.clone();
         if cursor.roll_to_next_entry() {
@@ -296,13 +293,13 @@ impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: us
 //     }
 // }
 
-impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
+impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub unsafe fn count_content_pos(&self) -> usize {
         I::index_to_content(self.count_pos())
     }
 }
 
-impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
+impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub unsafe fn count_offset_pos(&self) -> usize {
         I::index_to_offset(self.count_pos())
     }
@@ -313,7 +310,7 @@ impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Cursor<
 ///
 /// Also beware: A cursor pointing to the end of an entry will be considered less than a cursor
 /// pointing to the subsequent entry.
-impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for Cursor<E, I, IE, LE> {
+impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for UnsafeCursor<E, I, IE, LE> {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.node == other.node {
             // We'll compare cursors directly.
@@ -345,7 +342,7 @@ impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord
     }
 }
 
-impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialOrd for Cursor<E, I, IE, LE> {
+impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialOrd for UnsafeCursor<E, I, IE, LE> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -361,13 +358,13 @@ mod tests {
     fn compare_cursors() {
         let mut tree = ContentTree::<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
 
-        let cursor = tree.cursor_at_start();
+        let cursor = tree.unsafe_cursor_at_start();
         assert_eq!(cursor, cursor);
 
         tree.insert_at_start(OrderSpan { order: 0, len: 1 }, null_notify);
 
-        let c1 = tree.cursor_at_start();
-        let c2 = tree.cursor_at_end();
+        let c1 = tree.unsafe_cursor_at_start();
+        let c2 = tree.unsafe_cursor_at_end();
         assert!(c1 < c2);
 
         // Ok now lets add a bunch of junk to make sure the tree has a bunch of internal nodes
@@ -375,8 +372,8 @@ mod tests {
             tree.insert_at_start(OrderSpan { order: i, len: 1 }, null_notify);
         }
 
-        let c1 = tree.cursor_at_start();
-        let c2 = tree.cursor_at_end();
+        let c1 = tree.unsafe_cursor_at_start();
+        let c2 = tree.unsafe_cursor_at_end();
         assert!(c1 < c2);
     }
 

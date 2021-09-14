@@ -190,15 +190,13 @@ fn random_edits_once(verbose: bool, iterations: usize) {
 
                 if verbose { println!("inserting {:?} at {}", item, pos); }
                 // dbg!(&tree);
-                let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
-                unsafe {
-                    assert_eq!(cursor.count_pos().0, pos);
-                    cursor.check();
+                let mut cursor = tree.mut_cursor_at_offset_pos(pos as usize, true);
+                assert_eq!(cursor.count_pos().0, pos);
+                cursor.check();
 
-                    tree.insert(&mut cursor, item, null_notify);
-                    assert_eq!(cursor.count_pos().0, pos + item.len);
-                    cursor.check();
-                }
+                cursor.insert(item);
+                assert_eq!(cursor.count_pos().0, pos + item.len);
+                cursor.check();
 
                 insert_into_list(&mut list, pos as usize, item);
 
@@ -212,14 +210,12 @@ fn random_edits_once(verbose: bool, iterations: usize) {
                 if verbose {
                     println!("Replacing {} entries at position {} with {:?}", item.len(), pos, item);
                 }
-                let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
-                unsafe {
-                    assert_eq!(cursor.count_pos().0, pos);
-                    cursor.check();
-                    tree.replace_range(&mut cursor, item, null_notify);
-                    assert_eq!(cursor.count_pos().0, pos + item.len);
-                    cursor.check();
-                }
+                let mut cursor = tree.mut_cursor_at_offset_pos(pos as usize, true);
+                assert_eq!(cursor.count_pos().0, pos);
+                cursor.check();
+                cursor.replace_range(item);
+                assert_eq!(cursor.count_pos().0, pos + item.len);
+                cursor.check();
 
                 replace_in_list(&mut list, pos as usize, item);
 
@@ -239,15 +235,13 @@ fn random_edits_once(verbose: bool, iterations: usize) {
                 if verbose {
                     println!("Deleting {} entries at position {} (size {})", pos, del_span, expected_len);
                 }
-                let mut cursor = tree.cursor_at_offset_pos(pos as usize, true);
-                unsafe {
-                    assert_eq!(cursor.count_pos().0, pos);
-                    cursor.check();
+                let mut cursor = tree.mut_cursor_at_offset_pos(pos as usize, true);
+                assert_eq!(cursor.count_pos().0, pos);
+                cursor.check();
 
-                    tree.delete(&mut cursor, del_span as _, null_notify);
-                    assert_eq!(cursor.count_pos().0, pos);
-                    cursor.check();
-                }
+                cursor.delete(del_span as _);
+                assert_eq!(cursor.count_pos().0, pos);
+                cursor.check();
 
                 delete_in_list(&mut list, pos as usize, del_span as usize);
 

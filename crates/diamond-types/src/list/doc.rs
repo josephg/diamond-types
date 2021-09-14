@@ -169,17 +169,17 @@ impl ListCRDT {
     }
 
     pub(super) fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>> {
-        let cursor = self.index.cursor_at_offset_pos(order as usize, false);
+        let cursor = self.index.unsafe_cursor_at_offset_pos(order as usize, false);
         // Gross.
-        cursor.get_item().unwrap().unwrap()
+        unsafe { cursor.get_item().unwrap().unwrap() }
 
         // self.index.entry_at(order as usize).unwrap_ptr()
     }
 
-    pub(crate) fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+    pub(crate) fn get_cursor_before(&self, order: Order) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         if order == ROOT_ORDER {
             // Or maybe we should just abort?
-            self.range_tree.cursor_at_end()
+            self.range_tree.unsafe_cursor_at_end()
         } else {
             let marker = self.marker_at(order);
             unsafe {
@@ -189,9 +189,9 @@ impl ListCRDT {
     }
 
     // This does not stick_end to the found item.
-    pub(super) fn get_cursor_after(&self, order: Order, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+    pub(super) fn get_cursor_after(&self, order: Order, stick_end: bool) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         if order == ROOT_ORDER {
-            self.range_tree.cursor_at_start()
+            self.range_tree.unsafe_cursor_at_start()
         } else {
             let marker = self.marker_at(order);
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
@@ -224,7 +224,7 @@ impl ListCRDT {
         span.1.len - span_offset
     }
 
-    fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) {
+    fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) {
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
         //     assert_eq!(item.order, next_order);
@@ -245,7 +245,7 @@ impl ListCRDT {
         let mut scanning = false;
 
         loop {
-            let other_order = match cursor.get_item() {
+            let other_order = match unsafe { cursor.get_item() } {
                 None => { break; } // End of the document
                 Some(o) => { o }
             };
@@ -346,7 +346,7 @@ impl ListCRDT {
         }
 
         // Now insert here.
-        unsafe { self.range_tree.insert(&mut cursor, item, notify_for(&mut self.index)); }
+        unsafe { ContentTree::unsafe_insert(&mut cursor, item, notify_for(&mut self.index)); }
     }
 
     fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
@@ -568,16 +568,16 @@ impl ListCRDT {
 
                     // Find the preceding item and successor
                     let (origin_left, cursor) = if pos == 0 {
-                        (ROOT_ORDER, self.range_tree.cursor_at_start())
+                        (ROOT_ORDER, self.range_tree.unsafe_cursor_at_start())
                     } else {
-                        let mut cursor = self.range_tree.cursor_at_content_pos(pos - 1, false);
-                        let origin_left = cursor.get_item().unwrap();
+                        let mut cursor = self.range_tree.unsafe_cursor_at_content_pos(pos - 1, false);
+                        let origin_left = unsafe { cursor.get_item() }.unwrap();
                         assert!(cursor.next());
                         (origin_left, cursor)
                     };
 
                     // TODO: This should scan & skip past deleted items!
-                    let origin_right = cursor.get_item().unwrap_or(ROOT_ORDER);
+                    let origin_right = unsafe { cursor.get_item() }.unwrap_or(ROOT_ORDER);
 
                     let item = YjsSpan {
                         order,

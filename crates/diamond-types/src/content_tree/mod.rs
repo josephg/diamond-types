@@ -14,7 +14,7 @@ pub use root::DeleteResult;
 use crate::entry::*;
 
 // The common data structures are:
-mod cursor;
+mod unsafe_cursor;
 mod root;
 mod leaf;
 mod internal;
@@ -23,6 +23,7 @@ mod index;
 
 #[cfg(test)]
 mod fuzzer;
+mod safe_cursor;
 
 // pub(crate) use cursor::Cursor;
 
@@ -111,16 +112,37 @@ enum ParentPtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize
 /// the end of the first entry or the start of the subsequent entry.
 /// - When a tree is empty, the cursor points past the end of the tree.
 ///
-/// Safety: This is currently a very unsafe structure, because:
-/// - There's no associated lifetime on a cursor (its 'static)
-/// - When using the cursor to call mutate methods, there's no explicit association between a
-/// cursor and the tree the cursor references.
+/// Safety: This is unsafe because there's no associated lifetime on a cursor (its 'static).
+///
+/// The caller must ensure any reads and mutations through an UnsafeCursor are valid WRT the
+/// mutability and lifetime of the implicitly referenced content tree. Use Cursor and MutCursor.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Cursor<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub struct UnsafeCursor<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     node: NonNull<NodeLeaf<E, I, IE, LE>>,
     idx: usize,
     pub(crate) offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
-    // _marker: marker::PhantomData<&'a MarkerTree<E>>,
+}
+
+/// A cursor into an immutable ContentTree. A cursor is the primary way to read entries in the
+/// content tree. A cursor points to a specific offset at a specific entry in a specific node in
+/// the content tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct Cursor<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+    inner: UnsafeCursor<E, I, IE, LE>,
+    marker: marker::PhantomData<&'a ContentTree<E, I, IE, LE>>,
+}
+
+/// A mutable cursor into a ContentTree. Mutable cursors inherit all the functionality of Cursor,
+/// and can also be used to modify the content tree.
+///
+/// A mutable cursor mutably borrows the content tree. Only one mutable cursor can exist at a time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct MutCursor<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+    // TODO: Remove pub(crate).
+    pub(crate) inner: UnsafeCursor<E, I, IE, LE>,
+    marker: marker::PhantomData<&'a mut ContentTree<E, I, IE, LE>>,
 }
 
 // I can't use the derive() implementation of this because EntryTraits does not always implement
@@ -137,65 +159,36 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialE
 }
 
 // impl<E: EntryTraits> Iterator for Cursor<'_, E> {
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for Cursor<E, I, IE, LE> {
-    type Item = E;
+// impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for UnsafeCursor<E, I, IE, LE> {
+//     type Item = E;
+//
+//     fn next(&mut self) -> Option<Self::Item> {
+//         // When the cursor is past the end, idx is an invalid value.
+//         if self.idx == usize::MAX {
+//             return None;
+//         }
+//
+//         // The cursor is at the end of the current element. Its a bit dirty doing this twice but
+//         // This will happen for a fresh cursor in an empty document, or when iterating using a
+//         // cursor made by some other means.
+//         if self.idx >= unsafe { self.node.as_ref() }.len_entries() {
+//             let has_next = self.next_entry();
+//             if !has_next {
+//                 self.idx = usize::MAX;
+//                 return None;
+//             }
+//         }
+//
+//         let current = self.get_raw_entry();
+//         // Move the cursor forward preemptively for the next call to next().
+//         let has_next = self.next_entry();
+//         if !has_next {
+//             self.idx = usize::MAX;
+//         }
+//         Some(current)
+//     }
+// }
 
-    fn next(&mut self) -> Option<Self::Item> {
-        // When the cursor is past the end, idx is an invalid value.
-        if self.idx == usize::MAX {
-            return None;
-        }
-
-        // The cursor is at the end of the current element. Its a bit dirty doing this twice but
-        // This will happen for a fresh cursor in an empty document, or when iterating using a
-        // cursor made by some other means.
-        if self.idx >= unsafe { self.node.as_ref() }.len_entries() {
-            let has_next = self.next_entry();
-            if !has_next {
-                self.idx = usize::MAX;
-                return None;
-            }
-        }
-
-        let current = self.get_raw_entry();
-        // Move the cursor forward preemptively for the next call to next().
-        let has_next = self.next_entry();
-        if !has_next {
-            self.idx = usize::MAX;
-        }
-        Some(current)
-    }
-}
-
-/// Iterator for all the items inside the entries. Unlike entry iteration we use the offset here.
-#[derive(Debug)]
-pub struct ItemIterator<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize>(Cursor<E, I, IE, LE>);
-
-impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for ItemIterator<E, I, IE, LE> {
-    type Item = E::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // I'll set idx to an invalid value
-        if self.0.idx == usize::MAX {
-            None
-        } else {
-            let entry = self.0.get_raw_entry();
-            let len = entry.len();
-            let item = entry.at_offset(self.0.offset);
-            self.0.offset += 1;
-
-            if self.0.offset >= len {
-                // Skip to the next entry for the next query.
-                let has_next = self.0.next_entry();
-                if !has_next {
-                    // We're done.
-                    self.0.idx = usize::MAX;
-                }
-            }
-            Some(item)
-        }
-    }
-}
 
 // unsafe fn pinbox_to_nonnull<T>(box_ref: &Pin<Box<T>>) -> NonNull<T> {
 //     NonNull::new_unchecked(box_ref.as_ref().get_ref() as *const _ as *mut _)
