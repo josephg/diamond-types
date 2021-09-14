@@ -8,6 +8,7 @@ mod order;
 mod rle;
 mod unicount;
 mod entry;
+mod crdtspan;
 
 #[cfg(test)]
 mod tests {
@@ -78,5 +79,25 @@ pub mod fuzz_helpers {
         // dbg!(&doc.markers);
         doc.check(false);
         op_len
+    }
+}
+
+#[cfg(test)]
+mod size_info {
+    use crate::range_tree::*;
+    use std::mem::size_of;
+    use crate::crdtspan::CRDTSpan;
+    use crate::range_tree::{RangeTree, ContentIndex, FullIndex};
+
+    #[test]
+    #[ignore]
+    fn print_memory_stats() {
+        let x = RangeTree::<CRDTSpan, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        x.print_stats("", false);
+        let x = RangeTree::<CRDTSpan, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        x.print_stats("", false);
+
+        println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<CRDTSpan>>::IndexValue>());
+        println!("sizeof FullIndex offset {}", size_of::<<FullIndex as TreeIndex<CRDTSpan>>::IndexValue>());
     }
 }

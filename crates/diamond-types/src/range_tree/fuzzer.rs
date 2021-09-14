@@ -3,6 +3,7 @@ use rle::splitable_span::SplitableSpan;
 use crate::range_tree::*;
 use rand::prelude::*;
 use rle::merge_iter::merge_items;
+use crate::entry::Toggleable;
 
 /// This is a simple span object for testing.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -57,7 +58,7 @@ impl SplitableSpan for TestRange {
     }
 }
 
-impl CRDTItem for TestRange {
+impl Toggleable for TestRange {
     fn is_activated(&self) -> bool {
         self.is_activated
     }
@@ -73,7 +74,7 @@ impl CRDTItem for TestRange {
     }
 }
 
-impl EntryWithContent for TestRange {
+impl ContentLength for TestRange {
     fn content_len(&self) -> usize {
         if self.is_activated { self.len() } else { 0 }
     }

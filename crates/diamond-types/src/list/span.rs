@@ -1,6 +1,7 @@
 use crate::list::Order;
 use crate::entry::*;
 use rle::splitable_span::SplitableSpan;
+use crate::entry::Toggleable;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct YjsSpan {
@@ -90,13 +91,13 @@ impl Searchable for YjsSpan {
     }
 }
 
-impl EntryWithContent for YjsSpan {
+impl ContentLength for YjsSpan {
     fn content_len(&self) -> usize {
         self.len.max(0) as usize
     }
 }
 
-impl CRDTItem for YjsSpan {
+impl Toggleable for YjsSpan {
     fn is_activated(&self) -> bool {
         self.len > 0
     }

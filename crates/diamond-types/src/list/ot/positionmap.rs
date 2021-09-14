@@ -1,21 +1,25 @@
 // TODO: This file ended up being a kitchen sink for the logic here. Separate this logic out into a
 // few files!
 
-use crate::list::{Order, ListCRDT, DoubleDeleteList};
-use crate::range_tree::*;
-use crate::order::OrderSpan;
 use std::pin::Pin;
-use crate::list::double_delete::DoubleDelete;
-use crate::rle::{KVPair, RleKey, RleSpanHelpers, AppendRLE, RleKeyed, Rle};
-use crate::list::ot::traversal::{TraversalComponent, TraversalOp, TraversalOpSequence};
+
 use ropey::Rope;
-use TraversalComponent::*;
-use crate::list::ot::positional::{PositionalComponent, InsDelTag, PositionalOp};
 use smallvec::SmallVec;
-use rle::splitable_span::SplitableSpan;
-use crate::list::external_txn::RemoteIdSpan;
+
 use diamond_core::CRDTId;
-use crate::entry::{CRDTSpan, CRDTItem};
+use rle::splitable_span::SplitableSpan;
+use TraversalComponent::*;
+
+use crate::crdtspan::CRDTSpan;
+use crate::entry::Toggleable;
+use crate::list::{DoubleDeleteList, ListCRDT, Order};
+use crate::list::double_delete::DoubleDelete;
+use crate::list::external_txn::RemoteIdSpan;
+use crate::list::ot::positional::{InsDelTag, PositionalComponent, PositionalOp};
+use crate::list::ot::traversal::{TraversalComponent, TraversalOp, TraversalOpSequence};
+use crate::order::OrderSpan;
+use crate::range_tree::*;
+use crate::rle::{AppendRLE, KVPair, Rle, RleKey, RleKeyed, RleSpanHelpers};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
@@ -566,16 +570,18 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &Rope) -> TraversalOp {
 
 #[cfg(test)]
 mod test {
-    use crate::list::{ListCRDT, ROOT_ORDER};
     use rand::prelude::*;
-    use crate::fuzz_helpers::make_random_change;
-    use crate::list::ot::positionmap::*;
-    use crate::list::ot::traversal::*;
-    use crate::list::ot::positional::*;
     use ropey::Rope;
     use smallvec::smallvec;
+
+    use crate::fuzz_helpers::make_random_change;
+    use crate::list::{ListCRDT, ROOT_ORDER};
+    use crate::list::ot::positional::*;
+    use crate::list::ot::positionmap::*;
+    use crate::list::ot::traversal::*;
     use crate::rle::AppendRLE;
-    // use crate::list::external_txn::{RemoteTxn, RemoteId};
+
+// use crate::list::external_txn::{RemoteTxn, RemoteId};
 
     #[test]
     fn simple_position_map() {

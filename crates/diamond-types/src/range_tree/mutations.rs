@@ -1,7 +1,7 @@
 /// This file contains the core code for range_tree's mutation operations.
 
-use crate::entry::{EntryTraits, CRDTItem};
-use crate::range_tree::{RangeTree, Cursor, NodeLeaf, DeleteResult, ParentPtr, Node, NodePtr, NodeInternal, FindOffset, FindContent, EntryWithContent};
+use crate::entry::EntryTraits;
+use crate::range_tree::{RangeTree, Cursor, NodeLeaf, DeleteResult, ParentPtr, Node, NodePtr, NodeInternal, FindOffset, FindContent, ContentLength};
 use std::ptr::NonNull;
 use std::{ptr, mem};
 use std::pin::Pin;
@@ -9,6 +9,7 @@ use smallvec::SmallVec;
 use crate::range_tree::index::{TreeIndex};
 use crate::rle::AppendRLE;
 use std::hint::unreachable_unchecked;
+use crate::entry::Toggleable;
 
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
@@ -639,7 +640,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTre
 
 }
 
-impl<E: EntryTraits + CRDTItem, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
     pub unsafe fn local_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: Cursor<E, I, IE, LE>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
@@ -769,7 +770,7 @@ impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> RangeTr
     }
 }
 
-impl<E: EntryTraits + EntryWithContent, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
     pub fn insert_at_content<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
@@ -792,7 +793,7 @@ impl<E: EntryTraits + EntryWithContent, I: FindContent<E>, const IE: usize, cons
     }
 }
 
-impl<E: EntryTraits + EntryWithContent + CRDTItem, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + ContentLength + Toggleable, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
     pub fn local_deactivate_at_content<F>(self: &mut Pin<Box<Self>>, offset: usize, deleted_len: usize, notify: F) -> DeleteResult<E>
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
@@ -1097,31 +1098,32 @@ mod tests {
     // use std::pin::Pin;
     use crate::range_tree::*;
     use crate::range_tree::fuzzer::TestRange;
-    use diamond_core::CRDTId;
 
     #[test]
     fn splice_insert_test() {
-        let mut tree = RangeTree::<CRDTSpan, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
-        let entry = CRDTSpan {
-            loc: CRDTId {agent: 0, seq: 1000},
-            len: 100
+        let mut tree = RangeTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let entry = TestRange {
+            order: 1000,
+            len: 100,
+            is_activated: true
         };
-        let mut cursor = tree.cursor_at_content_pos(0, false);
-        let mut marker = 0;
-        unsafe { tree.insert_internal(&[entry], &mut cursor, &mut marker, &mut null_notify); }
-        unsafe {cursor.get_node_mut() }.flush_index_update(&mut marker);
+        tree.insert_at_content(15, entry, null_notify);
+        tree.check();
 
-        let entry = CRDTSpan {
-            loc: CRDTId {agent: 0, seq: 1100},
-            len: 20
+        let entry = TestRange {
+            order: 1100,
+            len: 20,
+            is_activated: true
         };
-        cursor = tree.cursor_at_content_pos(15, false);
-        unsafe { tree.insert_internal(&[entry], &mut cursor, &mut marker, &mut null_notify); }
-        unsafe {cursor.get_node_mut() }.flush_index_update(&mut marker);
+        tree.insert_at_content(15, entry, null_notify);
+        tree.check();
 
         // println!("{:#?}", tree);
-
-        tree.check();
+        assert_eq!(tree.iter().collect::<Vec<TestRange>>(), vec![
+            TestRange { order: 1000, len: 15, is_activated: true },
+            TestRange { order: 1100, len: 20, is_activated: true },
+            TestRange { order: 1015, len: 85, is_activated: true },
+        ]);
     }
 
     #[test]
@@ -1142,8 +1144,13 @@ mod tests {
 
         // dbg!(&tree);
         tree.local_deactivate_at_content(50, 1, null_notify);
-        dbg!(&tree);
-        assert_eq!(tree.count_entries(), 3);
+        // dbg!(&tree);
+
+        assert_eq!(tree.iter().collect::<Vec<TestRange>>(), vec![
+            TestRange { order: 1000, len: 50, is_activated: true },
+            TestRange { order: 1050, len: 2, is_activated: false },
+            TestRange { order: 1052, len: 48, is_activated: true },
+        ]);
     }
 
     #[test]
@@ -1165,6 +1172,12 @@ mod tests {
 
         tree.local_deactivate_at_content(98, 1, null_notify);
         assert_eq!(tree.count_entries(), 2);
+
+        assert_eq!(tree.iter().collect::<Vec<TestRange>>(), vec![
+            TestRange { order: 1000, len: 98, is_activated: true },
+            TestRange { order: 1098, len: 2, is_activated: false },
+        ]);
+        tree.check();
     }
 
     #[test]
@@ -1197,6 +1210,10 @@ mod tests {
         let mut tree = RangeTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         tree.insert_at_start(TestRange { order: 10 as _, len: 10, is_activated: true }, null_notify);
         tree.delete_at_content(10, 100, null_notify);
+
+        assert_eq!(tree.iter().collect::<Vec<TestRange>>(), vec![
+            TestRange { order: 10, len: 10, is_activated: true },
+        ]);
     }
 
     #[test]

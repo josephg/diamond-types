@@ -11,7 +11,7 @@ use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
 use rle::merge_iter::MergeableIterator;
 use crate::order::OrderSpan;
-use crate::entry::CRDTSpan;
+use crate::crdtspan::CRDTSpan;
 use diamond_core::CRDTId;
 
 // struct BitWriter<W: Write> {

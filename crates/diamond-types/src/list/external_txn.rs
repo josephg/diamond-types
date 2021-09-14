@@ -1,19 +1,23 @@
-use smartstring::alias::{String as SmartString};
-use smallvec::{SmallVec, smallvec};
-use crate::list::{ListCRDT, Order, ROOT_ORDER, Branch};
-use crate::order::OrderSpan;
-use std::collections::BinaryHeap;
 use std::cmp::{Ordering, Reverse};
-use crate::rle::{KVPair, AppendRLE, RleSpanHelpers};
-use rle::splitable_span::SplitableSpan;
-// use crate::LocalOp;
+use std::collections::BinaryHeap;
+use std::iter::FromIterator;
 
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
-use crate::list::external_txn::RemoteCRDTOp::{Ins, Del};
-use std::iter::FromIterator;
-use diamond_core::{AgentId, CRDTId, CRDT_DOC_ROOT};
-use crate::entry::{CRDTSpan, CRDTItem};
+use smallvec::{SmallVec, smallvec};
+use smartstring::alias::String as SmartString;
+
+use diamond_core::{AgentId, CRDT_DOC_ROOT, CRDTId};
+use rle::splitable_span::SplitableSpan;
+
+use crate::crdtspan::CRDTSpan;
+use crate::entry::Toggleable;
+use crate::list::{Branch, ListCRDT, Order, ROOT_ORDER};
+use crate::list::external_txn::RemoteCRDTOp::{Del, Ins};
+use crate::order::OrderSpan;
+use crate::rle::{AppendRLE, KVPair, RleSpanHelpers};
+
+// use crate::LocalOp;
 
 /// External equivalent of CRDTLocation
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -439,8 +443,8 @@ impl ListCRDT {
 
 #[cfg(test)]
 mod tests {
-    use crate::list::ListCRDT;
     use crate::list::external_txn::{RemoteId, VectorClock};
+    use crate::list::ListCRDT;
     use crate::order::OrderSpan;
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::range_tree::{EntryTraits, EntryWithContent};
+use crate::range_tree::{EntryTraits, ContentLength};
 use std::fmt::Debug;
 use std::ops::{AddAssign, SubAssign};
 use diamond_core::ItemCount;
@@ -32,7 +32,7 @@ pub trait TreeIndex<E: EntryTraits> where Self: Debug + Copy + Clone + PartialEq
     fn count_items(_idx: Self::IndexValue) -> usize { panic!("Index cannot count items") }
 }
 
-pub trait FindContent<E: EntryTraits + EntryWithContent>: TreeIndex<E> {
+pub trait FindContent<E: EntryTraits + ContentLength>: TreeIndex<E> {
     fn index_to_content(offset: Self::IndexValue) -> usize;
 }
 
@@ -45,7 +45,7 @@ pub trait FindOffset<E: EntryTraits>: TreeIndex<E> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct ContentIndex;
 
-impl<E: EntryTraits + EntryWithContent> TreeIndex<E> for ContentIndex {
+impl<E: EntryTraits + ContentLength> TreeIndex<E> for ContentIndex {
     type IndexUpdate = isize;
     type IndexValue = ItemCount;
 
@@ -77,7 +77,7 @@ impl<E: EntryTraits + EntryWithContent> TreeIndex<E> for ContentIndex {
     }
 }
 
-impl<E: EntryTraits + EntryWithContent> FindContent<E> for ContentIndex {
+impl<E: EntryTraits + ContentLength> FindContent<E> for ContentIndex {
     fn index_to_content(offset: Self::IndexValue) -> usize { offset as usize }
     // fn entry_to_num(entry: &E) -> usize { entry.content_len() }
 }
@@ -149,7 +149,7 @@ impl<V: Copy + Clone + Default + AddAssign + SubAssign + PartialEq + Eq> SubAssi
     }
 }
 
-impl<E: EntryTraits + EntryWithContent> TreeIndex<E> for FullIndex {
+impl<E: EntryTraits + ContentLength> TreeIndex<E> for FullIndex {
     // In pair, len = 0, content = 1.
     type IndexUpdate = Pair<i32>;
     type IndexValue = Pair<ItemCount>;
@@ -188,13 +188,13 @@ impl<E: EntryTraits + EntryWithContent> TreeIndex<E> for FullIndex {
     fn count_items(idx: Self::IndexValue) -> usize { idx.0 as usize }
 }
 
-impl<E: EntryTraits + EntryWithContent> FindContent<E> for FullIndex {
+impl<E: EntryTraits + ContentLength> FindContent<E> for FullIndex {
     fn index_to_content(offset: Self::IndexValue) -> usize {
         offset.1 as usize
     }
 }
 
-impl<E: EntryTraits + EntryWithContent> FindOffset<E> for FullIndex {
+impl<E: EntryTraits + ContentLength> FindOffset<E> for FullIndex {
     fn index_to_offset(offset: Self::IndexValue) -> usize {
         offset.0 as usize
     }

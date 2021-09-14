@@ -30,7 +30,7 @@ mod ot;
 pub use ot::traversal::TraversalComponent;
 use diamond_core::AgentId;
 use crate::common::ClientName;
-use crate::entry::CRDTSpan;
+use crate::crdtspan::CRDTSpan;
 
 // #[cfg(inlinerope)]
 // pub const USE_INNER_ROPE: bool = true;

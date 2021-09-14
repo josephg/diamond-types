@@ -426,7 +426,7 @@ impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: us
     }
 }
 
-impl<E: EntryTraits + EntryWithContent, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
     pub fn content_len(&self) -> usize {
         I::index_to_content(self.count)
     }
@@ -453,26 +453,9 @@ impl<E: EntryTraits + Searchable, I: FindOffset<E>, const IE: usize, const LE: u
     }
 }
 
-impl<E: EntryTraits + EntryWithContent + Searchable, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
+impl<E: EntryTraits + ContentLength + Searchable, I: FindContent<E>, const IE: usize, const LE: usize> RangeTree<E, I, IE, LE> {
     pub fn at_content(&self, pos: usize) -> Option<E::Item> {
         let cursor = self.cursor_at_content_pos(pos, false);
         cursor.get_item()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::range_tree::*;
-    use std::mem::size_of;
-
-    #[test]
-    fn print_memory_stats() {
-        let x = RangeTree::<CRDTSpan, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
-        x.print_stats("", false);
-        let x = RangeTree::<CRDTSpan, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
-        x.print_stats("", false);
-
-        println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<CRDTSpan>>::IndexValue>());
-        println!("sizeof FullIndex offset {}", size_of::<<FullIndex as TreeIndex<CRDTSpan>>::IndexValue>());
     }
 }

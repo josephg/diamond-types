@@ -11,7 +11,8 @@ use crate::unicount::{split_at_char, chars_to_bytes, count_chars};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
 use crate::list::ot::ot::transform;
 use diamond_core::*;
-use crate::entry::{CRDTSpan, Searchable};
+use crate::crdtspan::CRDTSpan;
+use crate::entry::Searchable;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {

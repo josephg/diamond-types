@@ -1,5 +1,4 @@
 use super::*;
-use crate::entry::CRDTItem;
 use std::cmp::Ordering;
 use std::hint::unreachable_unchecked;
 
@@ -277,26 +276,27 @@ impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: us
     }
 }
 
-impl<E: EntryTraits + CRDTItem + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
-    /// Calculate and return the predecessor ID at the cursor. This is used to calculate the CRDT
-    /// location for an insert position.
-    ///
-    /// The cursor is not moved backwards (? mistake?) - so it must be stick_end: true.
-    pub fn tell_predecessor(mut self) -> Option<E::Item> {
-        while (self.offset == 0 && self.idx == 0) || self.get_raw_entry().is_deactivated() {
-            // println!("\nentry {:?}", self);
-            let exists = self.prev_entry();
-            if !exists { return None; }
-            // println!("-> prev {:?} inside {:#?}", self, unsafe { self.node.as_ref() });
-            // println!();
-        }
+// Unused.
+// impl<E: EntryTraits + CRDTItem + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
+//     /// Calculate and return the predecessor ID at the cursor. This is used to calculate the CRDT
+//     /// location for an insert position.
+//     ///
+//     /// The cursor is not moved backwards (? mistake?) - so it must be stick_end: true.
+//     pub fn tell_predecessor(mut self) -> Option<E::Item> {
+//         while (self.offset == 0 && self.idx == 0) || self.get_raw_entry().is_deactivated() {
+//             // println!("\nentry {:?}", self);
+//             let exists = self.prev_entry();
+//             if !exists { return None; }
+//             // println!("-> prev {:?} inside {:#?}", self, unsafe { self.node.as_ref() });
+//             // println!();
+//         }
+//
+//         let entry = self.get_raw_entry(); // Shame this is called twice but eh.
+//         Some(entry.at_offset(self.offset - 1))
+//     }
+// }
 
-        let entry = self.get_raw_entry(); // Shame this is called twice but eh.
-        Some(entry.at_offset(self.offset - 1))
-    }
-}
-
-impl<E: EntryTraits + EntryWithContent, I: FindContent<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
+impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> Cursor<E, I, IE, LE> {
     pub unsafe fn count_content_pos(&self) -> usize {
         I::index_to_content(self.count_pos())
     }
