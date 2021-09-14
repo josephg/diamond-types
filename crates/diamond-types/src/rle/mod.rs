@@ -7,7 +7,7 @@ pub use simple_rle::Rle;
 use rle::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 use smallvec::SmallVec;
-use crate::entry::Searchable;
+use rle::Searchable;
 
 pub trait RleKeyed {
     fn get_rle_key(&self) -> RleKey;

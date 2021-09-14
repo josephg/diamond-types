@@ -18,6 +18,7 @@ smallvec = { version = "1.6", features = ["union"] }
 lazy_static = "1.4"
 serde_crate = { package = "serde", version = "1.0.126", features = ["derive"], optional = true }
 rle = { path = "../rle" }
+content-tree = { path = "../content-tree" }
 
 # Only used for printing stats. TODO: Move me to dev-dependencies!
 humansize = "1.1"

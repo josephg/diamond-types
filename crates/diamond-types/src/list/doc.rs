@@ -12,7 +12,7 @@ use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
 use crate::list::ot::ot::transform;
 use diamond_core::*;
 use crate::crdtspan::CRDTSpan;
-use crate::entry::Searchable;
+use rle::Searchable;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {

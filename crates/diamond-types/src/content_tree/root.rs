@@ -1,10 +1,14 @@
-use super::*;
-
-use smallvec::SmallVec;
 use std::mem::size_of;
-use humansize::{FileSize, file_size_opts};
+
+use humansize::{file_size_opts, FileSize};
+use smallvec::SmallVec;
+
 use rle::merge_iter::merge_items;
+use rle::Searchable;
+
 use crate::content_tree::safe_cursor::ItemIterator;
+
+use super::*;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 

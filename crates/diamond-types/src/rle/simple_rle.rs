@@ -1,10 +1,13 @@
-use crate::entry::{EntryTraits, Searchable};
-use rle::splitable_span::SplitableSpan;
-use std::fmt::Debug;
 use std::cmp::Ordering::*;
-use crate::rle::{RleKey, RleKeyed, AppendRLE, RleSpanHelpers};
-use humansize::{FileSize, file_size_opts};
+use std::fmt::Debug;
 use std::iter::FromIterator;
+
+use humansize::{file_size_opts, FileSize};
+
+use rle::Searchable;
+use rle::splitable_span::SplitableSpan;
+
+use crate::rle::{AppendRLE, RleKey, RleKeyed, RleSpanHelpers};
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Default, Clone, Eq, PartialEq, Debug)]
@@ -145,7 +148,7 @@ impl<V: SplitableSpan + Clone + Sized> Extend<V> for Rle<V> {
 //     }
 // }
 
-impl<V: EntryTraits + Searchable + RleKeyed> Rle<V> {
+impl<V: SplitableSpan + Searchable + RleKeyed> Rle<V> {
     pub fn get(&self, idx: RleKey) -> V::Item {
         let (v, offset) = self.find(idx).unwrap();
         v.at_offset(offset as usize)
@@ -169,8 +172,8 @@ impl<V: SplitableSpan + Clone + Debug + Sized> AppendRLE<V> for Rle<V> {
 #[cfg(test)]
 mod tests {
     use crate::order::OrderSpan;
-    use crate::rle::simple_rle::Rle;
     use crate::rle::KVPair;
+    use crate::rle::simple_rle::Rle;
 
     #[test]
     fn rle_finds_at_offset() {

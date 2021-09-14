@@ -1,7 +1,9 @@
-use crate::list::Order;
-use crate::entry::*;
+use rle::Searchable;
 use rle::splitable_span::SplitableSpan;
-use crate::entry::Toggleable;
+
+use crate::content_tree::ContentLength;
+use crate::content_tree::Toggleable;
+use crate::list::Order;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct YjsSpan {
@@ -116,8 +118,10 @@ impl Toggleable for YjsSpan {
 #[cfg(test)]
 mod tests {
     use std::mem::size_of;
-    use crate::list::span::YjsSpan;
+
     use rle::splitable_span::test_splitable_methods_valid;
+
+    use crate::list::span::YjsSpan;
 
     #[test]
     fn print_span_sizes() {

@@ -1,17 +1,17 @@
-/// This file contains the core code for content_tree's mutation operations.
-
-use crate::entry::EntryTraits;
-use crate::content_tree::{ContentTree, UnsafeCursor, NodeLeaf, DeleteResult, ParentPtr, Node, NodePtr, NodeInternal, FindOffset, FindContent, ContentLength};
-use std::ptr::NonNull;
-use std::{ptr, mem};
-use std::pin::Pin;
-use smallvec::SmallVec;
-use crate::content_tree::index::{TreeIndex};
-use crate::rle::AppendRLE;
+use std::{mem, ptr};
 use std::hint::unreachable_unchecked;
-use crate::entry::Toggleable;
+use std::pin::Pin;
+use std::ptr::NonNull;
 
+use smallvec::SmallVec;
 
+use crate::content_tree::{ContentTree, DeleteResult, FindContent, FindOffset, Node, NodeInternal, NodeLeaf, NodePtr, ParentPtr, UnsafeCursor};
+use crate::content_tree::index::{ContentLength, TreeIndex};
+/// This file contains the core code for content-tree's mutation operations.
+
+use crate::content_tree::EntryTraits;
+use crate::content_tree::index::Toggleable;
+use crate::rle::AppendRLE;
 
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
@@ -951,7 +951,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
 
 // I'm really not sure where to put these methods. Its not really associated with
 // any of the tree implementation methods. This seems like a hidden spot. Maybe
-// content_tree? I could put it in impl ParentPtr? I dunno...
+// content-tree? I could put it in impl ParentPtr? I dunno...
 unsafe fn insert_after<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize>(
     mut parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     mut inserted_leaf_node: Node<E, I, INT_ENTRIES, LEAF_ENTRIES>,

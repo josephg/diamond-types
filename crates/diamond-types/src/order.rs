@@ -1,7 +1,7 @@
+use rle::Searchable;
 use rle::splitable_span::SplitableSpan;
-// use crate::content_tree::{EntryTraits, CRDTItem, EntryWithContent};
-use crate::entry::{Searchable};
-use crate::rle::{RleKeyed, RleKey};
+
+use crate::rle::{RleKey, RleKeyed};
 
 /// An OrderMarker defines a span of item orders, with a base and length.
 /// If the length is negative, the span has been deleted in the document.

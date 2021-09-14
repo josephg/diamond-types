@@ -1,7 +1,10 @@
-use crate::entry::EntryTraits;
-use crate::content_tree::*;
 use std::marker::PhantomData;
 use std::ops::Deref;
+
+use rle::Searchable;
+
+use crate::content_tree::*;
+use crate::content_tree::EntryTraits;
 
 /// This file provides the safe implementation methods for cursors.
 

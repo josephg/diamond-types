@@ -5,7 +5,7 @@ use std::collections::BinaryHeap;
 use crate::rle::AppendRLE;
 use crate::list::doc::notify_for;
 use rle::splitable_span::SplitableSpan;
-use crate::entry::Searchable;
+use rle::Searchable;
 // use smartstring::alias::{String as SmartString};
 
 struct LinearIter<'a> {

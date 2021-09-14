@@ -11,7 +11,7 @@ use diamond_core::{AgentId, CRDT_DOC_ROOT, CRDTId};
 use rle::splitable_span::SplitableSpan;
 
 use crate::crdtspan::CRDTSpan;
-use crate::entry::Toggleable;
+use crate::content_tree::Toggleable;
 use crate::list::{Branch, ListCRDT, Order, ROOT_ORDER};
 use crate::list::external_txn::RemoteCRDTOp::{Del, Ins};
 use crate::order::OrderSpan;

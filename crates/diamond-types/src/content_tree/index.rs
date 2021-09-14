@@ -1,7 +1,9 @@
-use crate::content_tree::{EntryTraits, ContentLength};
 use std::fmt::Debug;
 use std::ops::{AddAssign, SubAssign};
+
 use diamond_core::ItemCount;
+
+use crate::content_tree::EntryTraits;
 
 /// The index describes which fields we're tracking, and can query. Indexes let us convert
 /// cursors to positions and vice versa.
@@ -198,4 +200,20 @@ impl<E: EntryTraits + ContentLength> FindOffset<E> for FullIndex {
     fn index_to_offset(offset: Self::IndexValue) -> usize {
         offset.0 as usize
     }
+}
+
+pub trait ContentLength {
+    /// User specific content length. Used by content-tree for character counts.
+    fn content_len(&self) -> usize;
+}
+
+/// This trait marks items as being able to toggle on and off. The motivation for this is CRDT
+/// items which want to stay in a list even after they've been deleted.
+pub trait Toggleable {
+    fn is_activated(&self) -> bool;
+    fn is_deactivated(&self) -> bool {
+        !self.is_activated()
+    }
+    fn mark_activated(&mut self);
+    fn mark_deactivated(&mut self);
 }

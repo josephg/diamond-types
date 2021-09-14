@@ -9,9 +9,8 @@ use std::pin::Pin;
 use std::ptr::NonNull;
 
 pub use index::*;
+use rle::splitable_span::SplitableSpan;
 pub use root::DeleteResult;
-
-use crate::entry::*;
 
 // The common data structures are:
 mod unsafe_cursor;
@@ -328,8 +327,8 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ParentPt
 mod test {
     use std::mem::size_of;
 
-    use crate::order::OrderSpan;
     use crate::content_tree::*;
+    use crate::order::OrderSpan;
 
 // use std::pin::Pin;
 
@@ -345,3 +344,8 @@ mod test {
         // assert_eq!(node_size, item_size);
     }
 }
+
+// TODO: Consider renaming this "RangeEntry" or something.
+pub trait EntryTraits: SplitableSpan + Copy + Debug + Default {}
+
+impl<T: SplitableSpan + Copy + Debug + Default> EntryTraits for T {}

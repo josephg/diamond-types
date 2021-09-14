@@ -7,7 +7,6 @@ mod content_tree;
 mod order;
 mod rle;
 mod unicount;
-mod entry;
 mod crdtspan;
 
 #[cfg(test)]

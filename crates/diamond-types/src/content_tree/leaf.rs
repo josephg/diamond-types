@@ -1,6 +1,9 @@
-use super::*;
-use std::ptr::NonNull;
 use std::mem::take;
+use std::ptr::NonNull;
+
+use rle::Searchable;
+
+use super::*;
 
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's

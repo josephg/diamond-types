@@ -1,6 +1,9 @@
-use super::*;
 use std::cmp::Ordering;
 use std::hint::unreachable_unchecked;
+
+use rle::Searchable;
+
+use super::*;
 
 // TODO: All these methods should be unsafe and have safe wrappers in safe_cursor.
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {

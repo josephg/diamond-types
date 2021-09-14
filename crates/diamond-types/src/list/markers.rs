@@ -1,8 +1,12 @@
-use rle::splitable_span::SplitableSpan;
-use std::ptr::NonNull;
-use crate::content_tree::*;
 use std::fmt::Debug;
-use crate::entry::{EntryTraits, Searchable};
+use std::ptr::NonNull;
+
+use rle::splitable_span::SplitableSpan;
+
+use crate::content_tree::*;
+use crate::content_tree::EntryTraits;
+use rle::Searchable;
+
 // use crate::common::IndexGet;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

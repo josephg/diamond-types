@@ -1,9 +1,12 @@
-use crate::list::Order;
-use rle::splitable_span::SplitableSpan;
-use crate::content_tree::*;
 use rand::prelude::*;
+
 use rle::merge_iter::merge_items;
-use crate::entry::Toggleable;
+use rle::Searchable;
+use rle::splitable_span::SplitableSpan;
+
+use crate::content_tree::*;
+use crate::content_tree::index::Toggleable;
+use crate::list::Order;
 
 /// This is a simple span object for testing.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

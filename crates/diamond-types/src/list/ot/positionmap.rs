@@ -11,7 +11,7 @@ use rle::splitable_span::SplitableSpan;
 use TraversalComponent::*;
 
 use crate::crdtspan::CRDTSpan;
-use crate::entry::Toggleable;
+use crate::content_tree::Toggleable;
 use crate::list::{DoubleDeleteList, ListCRDT, Order};
 use crate::list::double_delete::DoubleDelete;
 use crate::list::external_txn::RemoteIdSpan;
