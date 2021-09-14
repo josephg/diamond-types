@@ -6,18 +6,19 @@ use rle::SplitableSpan;
 use content_tree::*;
 use content_tree::ContentTraits;
 use rle::Searchable;
+use super::{DOC_IE, DOC_LE};
 
 // use crate::common::IndexGet;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct MarkerEntry<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub struct MarkerEntry<E: ContentTraits, I: TreeIndex<E>> {
     // This is cleaner as a separate enum and struct, but doing it that way
     // bumps it from 16 to 24 bytes per entry because of alignment.
     pub len: u32,
-    pub ptr: Option<NonNull<NodeLeaf<E, I, IE, LE>>>,
+    pub ptr: Option<NonNull<NodeLeaf<E, I, DOC_IE, DOC_LE>>>,
 }
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> SplitableSpan for MarkerEntry<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
     fn len(&self) -> usize {
         self.len as usize
     }
@@ -61,27 +62,25 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Splita
 
 
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Default for MarkerEntry<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>> Default for MarkerEntry<E, I> {
     fn default() -> Self {
         MarkerEntry {ptr: None, len: 0}
     }
 }
 
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> MarkerEntry<E, I, IE, LE> {
-    pub fn unwrap_ptr(&self) -> NonNull<NodeLeaf<E, I, IE, LE>> {
+impl<E: ContentTraits, I: TreeIndex<E>> MarkerEntry<E, I> {
+    pub fn unwrap_ptr(&self) -> NonNull<NodeLeaf<E, I, DOC_IE, DOC_LE>> {
         self.ptr.unwrap()
     }
 }
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Searchable for MarkerEntry<E, I, IE, LE> {
-    type Item = Option<NonNull<NodeLeaf<E, I, IE, LE>>>;
+impl<E: ContentTraits, I: TreeIndex<E>> Searchable for MarkerEntry<E, I> {
+    type Item = Option<NonNull<NodeLeaf<E, I, DOC_IE, DOC_LE>>>;
 
     fn contains(&self, _loc: Self::Item) -> Option<usize> {
         panic!("Should never be used")
-        // if self.ptr == loc { Some(0) } else { None }
     }
-
 
     fn at_offset(&self, _offset: usize) -> Self::Item {
         self.ptr
