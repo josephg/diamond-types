@@ -1,8 +1,8 @@
 use crate::list::Order;
-use diamond_core::splitable_span::SplitableSpan;
+use rle::splitable_span::SplitableSpan;
 use crate::range_tree::*;
 use rand::prelude::*;
-use diamond_core::merge_iter::merge_items;
+use rle::merge_iter::merge_items;
 
 /// This is a simple span object for testing.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

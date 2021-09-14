@@ -1,6 +1,6 @@
 /// This file contains the core code for range_tree's mutation operations.
 
-use crate::range_tree::entry::{EntryTraits, CRDTItem};
+use crate::entry::{EntryTraits, CRDTItem};
 use crate::range_tree::{RangeTree, Cursor, NodeLeaf, DeleteResult, ParentPtr, Node, NodePtr, NodeInternal, FindOffset, FindContent, EntryWithContent};
 use std::ptr::NonNull;
 use std::{ptr, mem};

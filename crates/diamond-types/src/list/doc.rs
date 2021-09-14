@@ -2,7 +2,7 @@ use crate::list::*;
 // use crate::range_tree::*;
 use smallvec::smallvec;
 use std::ptr::NonNull;
-use diamond_core::splitable_span::SplitableSpan;
+use rle::splitable_span::SplitableSpan;
 use std::cmp::Ordering;
 use crate::rle::Rle;
 use std::mem::replace;
@@ -11,6 +11,7 @@ use crate::unicount::{split_at_char, chars_to_bytes, count_chars};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
 use crate::list::ot::ot::transform;
 use diamond_core::*;
+use crate::entry::{CRDTSpan, Searchable};
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {

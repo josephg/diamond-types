@@ -130,32 +130,6 @@ impl<E: EntryTraits> FindOffset<E> for RawPositionIndex {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FullIndex;
 
-// #[derive(Default, Debug, PartialEq, Eq)]
-// pub struct FullMarker {
-//     pub len: i32,
-//     pub content: i32
-// }
-//
-// #[derive(Copy, Clone, Default, Debug, PartialEq, Eq)]
-// pub struct FullOffset {
-//     pub len: ItemCount, // Number of items ever inserted
-//     pub content: ItemCount, // Number of items not currently deleted
-// }
-//
-// impl AddAssign for FullOffset {
-//     fn add_assign(&mut self, rhs: Self) {
-//         self.len += rhs.len;
-//         self.content += rhs.content;
-//     }
-// }
-//
-// impl SubAssign for FullOffset {
-//     fn sub_assign(&mut self, rhs: Self) {
-//         self.len -= rhs.len;
-//         self.content -= rhs.content;
-//     }
-// }
-
 // Not sure why tuples of integers don't have AddAssign and SubAssign.
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 pub struct Pair<V: Copy + Clone + Default + AddAssign + SubAssign + PartialEq + Eq>(pub V, pub V);

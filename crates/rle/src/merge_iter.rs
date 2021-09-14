@@ -1,4 +1,4 @@
-use crate::splitable_span::SplitableSpan;
+use super::splitable_span::SplitableSpan;
 
 /// This is an iterator composer which wraps any iterator over a SplitableSpan to become an
 /// iterator over those same items in run-length order.
@@ -73,6 +73,41 @@ where I: Iterator<Item=X>, X: SplitableSpan, Self: Sized
 #[cfg(test)]
 mod test {
     use super::merge_items;
+    use crate::splitable_span::SplitableSpan;
+
+    /// Simple example where entries are runs of positive or negative items. This is used for testing
+    /// and for the encoder.
+    impl SplitableSpan for i32 {
+        fn len(&self) -> usize {
+            self.abs() as usize
+        }
+
+        fn truncate(&mut self, at: usize) -> Self {
+            let at = at as i32;
+            // dbg!(at, *self);
+            debug_assert!(at > 0 && at < self.abs());
+            debug_assert_ne!(*self, 0);
+
+            let abs = self.abs();
+            let sign = self.signum();
+            *self = at * sign;
+
+            (abs - at) * sign
+        }
+
+        fn can_append(&self, other: &Self) -> bool {
+            (*self >= 0) == (*other >= 0)
+        }
+
+        fn append(&mut self, other: Self) {
+            debug_assert!(self.can_append(&other));
+            *self += other;
+        }
+
+        fn prepend(&mut self, other: Self) {
+            self.append(other);
+        }
+    }
 
     #[test]
     fn test_merge_iter() {

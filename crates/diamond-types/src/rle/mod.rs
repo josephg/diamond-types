@@ -4,10 +4,10 @@ pub type RleKey = u32;
 mod simple_rle;
 
 pub use simple_rle::Rle;
-use diamond_core::splitable_span::SplitableSpan;
-use crate::range_tree::{Searchable};
+use rle::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 use smallvec::SmallVec;
+use crate::entry::Searchable;
 
 pub trait RleKeyed {
     fn get_rle_key(&self) -> RleKey;
@@ -136,7 +136,7 @@ impl<A: smallvec::Array> AppendRLE<A::Item> for SmallVec<A> where A::Item: Split
 
 #[cfg(test)]
 mod test {
-    use diamond_core::splitable_span::test_splitable_methods_valid;
+    use rle::splitable_span::test_splitable_methods_valid;
     use crate::rle::KVPair;
     use crate::order::OrderSpan;
 

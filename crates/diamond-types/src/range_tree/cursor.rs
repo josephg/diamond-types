@@ -1,5 +1,5 @@
 use super::*;
-use crate::range_tree::entry::CRDTItem;
+use crate::entry::CRDTItem;
 use std::cmp::Ordering;
 use std::hint::unreachable_unchecked;
 

@@ -1,7 +1,8 @@
-use diamond_core::splitable_span::SplitableSpan;
+use rle::splitable_span::SplitableSpan;
 use std::ptr::NonNull;
-use crate::range_tree::{NodeLeaf, EntryTraits, TreeIndex, Searchable};
+use crate::range_tree::*;
 use std::fmt::Debug;
+use crate::entry::{EntryTraits, Searchable};
 // use crate::common::IndexGet;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

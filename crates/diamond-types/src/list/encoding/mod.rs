@@ -3,15 +3,15 @@ mod varint;
 use crate::list::{ListCRDT, Order};
 use std::mem::{size_of, replace};
 use crate::list::encoding::varint::*;
-use diamond_core::splitable_span::SplitableSpan;
+use rle::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 use crate::rle::KVPair;
 use crate::list::span::YjsSpan;
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
-use diamond_core::merge_iter::MergeableIterator;
+use rle::merge_iter::MergeableIterator;
 use crate::order::OrderSpan;
-use crate::range_tree::CRDTSpan;
+use crate::entry::CRDTSpan;
 use diamond_core::CRDTId;
 
 // struct BitWriter<W: Write> {
@@ -201,6 +201,10 @@ fn push_run_2<const INC: bool>(into: &mut Vec<u8>, val: Run2<INC>) {
     }
 
     into.extend_from_slice(&dest[..pos]);
+}
+
+fn push_pos_neg(vec: &mut Vec<u8>, len: PosNegRun) {
+    push_u32(vec, len.0.abs() as u32);
 }
 
 fn push_u32(into: &mut Vec<u8>, val: u32) {
@@ -418,6 +422,41 @@ enum Chunk {
     Content = 9,
 }
 
+/// Entries are runs of positive or negative items.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+struct PosNegRun(i32);
+
+impl SplitableSpan for PosNegRun {
+    fn len(&self) -> usize {
+        self.0.abs() as usize
+    }
+
+    fn truncate(&mut self, at: usize) -> Self {
+        let at = at as i32;
+        debug_assert!(at > 0 && at < self.0.abs());
+        debug_assert_ne!(self.0, 0);
+
+        let abs = self.0.abs();
+        let sign = self.0.signum();
+        *self = PosNegRun(at * sign);
+
+        PosNegRun((abs - at) * sign)
+    }
+
+    fn can_append(&self, other: &Self) -> bool {
+        (self.0 >= 0) == (other.0 >= 0)
+    }
+
+    fn append(&mut self, other: Self) {
+        debug_assert!(self.can_append(&other));
+        self.0 += other.0;
+    }
+
+    fn prepend(&mut self, other: Self) {
+        self.append(other);
+    }
+}
+
 impl ListCRDT {
     // pub fn encode_small<W: Write>(&self, writer: &mut W, verbose: bool) -> std::io::Result<()> {
     pub fn encode_small(&self, verbose: bool) -> Vec<u8> {
@@ -439,10 +478,8 @@ impl ListCRDT {
             push_run_u32(&mut agent_data, Run { val: span.loc.agent as _, len: span.len() });
         }
 
-        let mut ins_del_runs = SpanWriter::new_with_val(0, |vec: &mut Vec<u8>, len: i32| {
-            // The lengths alternate back and forth each operation.
-            push_u32(vec, len.abs() as u32);
-        });
+        // The lengths alternate back and forth each operation.
+        let mut ins_del_runs = SpanWriter::new_with_val(PosNegRun(0), push_pos_neg);
 
         let mut del_spans = SpanWriter::new(push_run_2);
 
@@ -452,10 +489,10 @@ impl ListCRDT {
             let target = dv.next_run::<true>(d.order as _, d.len as _);
             // Some((target, *order, d.len))
             if *order > next_order {
-                ins_del_runs.push((*order - next_order) as i32);
+                ins_del_runs.push(PosNegRun((*order - next_order) as i32));
             }
             // dbg!((d.end(), *order));
-            ins_del_runs.push(-(d.len as i32));
+            ins_del_runs.push(PosNegRun(-(d.len as i32)));
             next_order = *order + d.len;
 
             del_spans.push(target);
@@ -464,7 +501,7 @@ impl ListCRDT {
         let doc_next_order = self.get_next_order();
         if next_order < doc_next_order {
             // There's an insert after the last delete. Include it in ins_del_runs.
-            ins_del_runs.push((doc_next_order - next_order) as i32);
+            ins_del_runs.push(PosNegRun((doc_next_order - next_order) as i32));
         }
 
         let mut entries = self.range_tree.iter().collect::<Vec<YjsSpan>>();
@@ -673,7 +710,7 @@ impl ListCRDT {
 #[cfg(test)]
 mod tests {
     use crate::list::ListCRDT;
-    use diamond_core::splitable_span::{test_splitable_methods_valid};
+    use rle::splitable_span::{test_splitable_methods_valid};
     use crate::list::encoding::*;
 
     #[test]
@@ -703,27 +740,21 @@ mod tests {
 
     #[test]
     fn alternate_assumes_positive_first() {
-        let mut runs = SpanWriter::new_with_val(0, |vec: &mut Vec<u8>, len: i32| {
-            push_u32(vec, len.abs() as u32);
-        });
-        runs.last = Some(0);
+        let mut runs = SpanWriter::new_with_val(PosNegRun(0), push_pos_neg);
 
         // If we start with positive numbers, we should just get the positive values out.
-        runs.push(10);
-        runs.push(-5);
+        runs.push(PosNegRun(10));
+        runs.push(PosNegRun(-5));
 
         let out = runs.flush_into_inner();
         assert_eq!(vec![10, 5], BufReader(out.as_slice()).collect::<Vec<u64>>());
 
         // But if we start with negative numbers, we get a 0 out first.
-        let mut runs = SpanWriter::new_with_val(0, |vec: &mut Vec<u8>, len: i32| {
-            push_u32(vec, len.abs() as u32);
-        });
-        runs.last = Some(0);
+        let mut runs = SpanWriter::new_with_val(PosNegRun(0), push_pos_neg);
 
         // If we start with positive numbers, we should just get the positive values out.
-        runs.push(-10);
-        runs.push(5);
+        runs.push(PosNegRun(-10));
+        runs.push(PosNegRun(5));
 
         let out = runs.flush_into_inner();
         assert_eq!(vec![0, 10, 5], BufReader(out.as_slice()).collect::<Vec<u64>>());

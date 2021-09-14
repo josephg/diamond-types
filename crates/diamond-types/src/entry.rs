@@ -1,5 +1,5 @@
 
-use diamond_core::splitable_span::SplitableSpan;
+use rle::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 use diamond_core::CRDTId;
 

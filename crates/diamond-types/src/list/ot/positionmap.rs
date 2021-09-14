@@ -12,9 +12,10 @@ use ropey::Rope;
 use TraversalComponent::*;
 use crate::list::ot::positional::{PositionalComponent, InsDelTag, PositionalOp};
 use smallvec::SmallVec;
-use diamond_core::splitable_span::SplitableSpan;
+use rle::splitable_span::SplitableSpan;
 use crate::list::external_txn::RemoteIdSpan;
 use diamond_core::CRDTId;
+use crate::entry::{CRDTSpan, CRDTItem};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;

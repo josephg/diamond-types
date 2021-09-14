@@ -1,6 +1,6 @@
-use diamond_core::splitable_span::SplitableSpan;
+use rle::splitable_span::SplitableSpan;
 // use crate::range_tree::{EntryTraits, CRDTItem, EntryWithContent};
-use crate::range_tree::{Searchable};
+use crate::entry::{Searchable};
 use crate::rle::{RleKeyed, RleKey};
 
 /// An OrderMarker defines a span of item orders, with a base and length.

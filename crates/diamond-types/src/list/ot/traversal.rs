@@ -16,7 +16,7 @@
 
 use smartstring::alias::{String as SmartString};
 use smallvec::{SmallVec, smallvec};
-use diamond_core::splitable_span::SplitableSpan;
+use rle::splitable_span::SplitableSpan;
 use TraversalComponent::*;
 use crate::list::Order;
 use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
@@ -251,7 +251,7 @@ impl SplitableSpan for TraversalComponent {
 
 #[cfg(test)]
 mod test {
-    use diamond_core::splitable_span::test_splitable_methods_valid;
+    use rle::splitable_span::test_splitable_methods_valid;
     use crate::list::ot::traversal::*;
     use std::mem::size_of;
     use crate::list::ot::positional::PositionalOp;

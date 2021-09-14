@@ -8,18 +8,16 @@ use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::ptr::NonNull;
 
-pub use entry::*;
 pub use index::*;
 pub use root::DeleteResult;
 
-pub use crate::range_tree::index::TreeIndex;
+use crate::entry::*;
 
 // The common data structures are:
 mod cursor;
 mod root;
 mod leaf;
 mod internal;
-mod entry;
 mod mutations;
 mod index;
 
@@ -336,9 +334,11 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ParentPt
 #[cfg(test)]
 mod test {
     use std::mem::size_of;
-    use crate::range_tree::*;
+
     use crate::order::OrderSpan;
-    // use std::pin::Pin;
+    use crate::range_tree::*;
+
+// use std::pin::Pin;
 
     #[test]
     fn option_node_size_is_transparent() {

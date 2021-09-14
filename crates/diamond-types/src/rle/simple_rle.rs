@@ -1,5 +1,5 @@
-use crate::range_tree::{EntryTraits, Searchable};
-use diamond_core::splitable_span::SplitableSpan;
+use crate::entry::{EntryTraits, Searchable};
+use rle::splitable_span::SplitableSpan;
 use std::fmt::Debug;
 use std::cmp::Ordering::*;
 use crate::rle::{RleKey, RleKeyed, AppendRLE, RleSpanHelpers};

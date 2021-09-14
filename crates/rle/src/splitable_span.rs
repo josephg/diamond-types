@@ -27,67 +27,65 @@ pub trait SplitableSpan: Clone {
     /// immediately before `append`.
     fn can_append(&self, other: &Self) -> bool;
     fn append(&mut self, other: Self);
-    fn prepend(&mut self, other: Self);
-    // fn prepend(&mut self, mut other: Self) {
-    //     other.append(*self);
-    //     *self = other;
-    // }
-}
-
-/// Simple example where entries are runs of positive or negative items. This is used for testing
-/// and for the encoder.
-impl SplitableSpan for i32 {
-    // type Item = bool; // Negative runs = false, positive = true.
-
-    fn len(&self) -> usize {
-        self.abs() as usize
-    }
-
-    fn truncate(&mut self, at: usize) -> Self {
-        let at = at as i32;
-        // dbg!(at, *self);
-        debug_assert!(at > 0 && at < self.abs());
-        debug_assert_ne!(*self, 0);
-
-        let abs = self.abs();
-        let sign = self.signum();
-        *self = at * sign;
-
-        (abs - at) * sign
-    }
-
-    // fn can_append(&self, other: &Self) -> bool {
-    //     self.signum() == other.signum()
-    // }
-    fn can_append(&self, other: &Self) -> bool {
-        (*self >= 0) == (*other >= 0)
-    }
-
-    fn append(&mut self, other: Self) {
-        debug_assert!(self.can_append(&other));
-        *self += other;
-    }
-
-    fn prepend(&mut self, other: Self) {
-        self.append(other);
+    // fn prepend(&mut self, other: Self);
+    fn prepend(&mut self, mut other: Self) {
+        other.append(self.clone());
+        *self = other;
     }
 }
 
-// /// A splitablespan in reverse. This is useful for lists made in descending order.
-// #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-// pub struct ReverseSpan<S: SplitableSpan + Clone>(pub S);
-//
-// impl<S: SplitableSpan + Clone> SplitableSpan for ReverseSpan<S> {
-//     fn len(&self) -> usize { self.0.len() }
-//
-//     fn truncate(&mut self, at: usize) -> Self {
-//         panic!("Cannot truncate ReverseSpan");
+// /// Simple example where entries are runs of positive or negative items. This is used for testing
+// /// and for the encoder.
+// impl SplitableSpan for i32 {
+//     fn len(&self) -> usize {
+//         self.abs() as usize
 //     }
 //
-//     fn can_append(&self, other: &Self) -> bool { other.0.can_append(&self.0) }
-//     fn append(&mut self, other: Self) { self.0.prepend(other.0); }
-//     fn prepend(&mut self, other: Self) { self.0.append(other.0); }
+//     fn truncate(&mut self, at: usize) -> Self {
+//         let at = at as i32;
+//         // dbg!(at, *self);
+//         debug_assert!(at > 0 && at < self.abs());
+//         debug_assert_ne!(*self, 0);
+//
+//         let abs = self.abs();
+//         let sign = self.signum();
+//         *self = at * sign;
+//
+//         (abs - at) * sign
+//     }
+//
+//     fn can_append(&self, other: &Self) -> bool {
+//         (*self >= 0) == (*other >= 0)
+//     }
+//
+//     fn append(&mut self, other: Self) {
+//         debug_assert!(self.can_append(&other));
+//         *self += other;
+//     }
+//
+//     fn prepend(&mut self, other: Self) {
+//         self.append(other);
+//     }
 // }
+
+/// A splitablespan in reverse. This is useful for making lists in descending order.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ReverseSpan<S: SplitableSpan + Clone>(pub S);
+
+impl<S: SplitableSpan + Clone> SplitableSpan for ReverseSpan<S> {
+    fn len(&self) -> usize { self.0.len() }
+
+    fn truncate(&mut self, at: usize) -> Self {
+        ReverseSpan(self.0.truncate_keeping_right(at))
+    }
+    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        ReverseSpan(self.0.truncate(at))
+    }
+
+    fn can_append(&self, other: &Self) -> bool { other.0.can_append(&self.0) }
+    fn append(&mut self, other: Self) { self.0.prepend(other.0); }
+    fn prepend(&mut self, other: Self) { self.0.append(other.0); }
+}
 
 /// Simple test helper to verify an implementation of SplitableSpan is valid and meets expected
 /// constraints.

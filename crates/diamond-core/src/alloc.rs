@@ -1,4 +1,6 @@
-// use std::sync::atomic::{AtomicUsize, Ordering};
+/// This module provides a replacement allocator for use in testing code, so we can trace & track
+/// memory allocations in tests.
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::RefCell;
 
