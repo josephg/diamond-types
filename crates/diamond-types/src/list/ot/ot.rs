@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 use crate::list::TraversalComponent;
 use TraversalComponent::*;
 use crate::list::ot::traversal::TraversalOp;
-use rle::append::AppendRLE;
+use rle::AppendRLE;
 use crate::unicount::chars_to_bytes;
 use crate::list::ot::editablestring::EditableText;
 
@@ -291,7 +291,7 @@ mod tests {
     use json_minimal::Json;
     use crate::list::ot::traversal::*;
     use TraversalComponent::*;
-    use rle::append::AppendRLE;
+    use rle::AppendRLE;
     use std::fs::File;
     use crate::list::ot::ot::{compose, transform};
 

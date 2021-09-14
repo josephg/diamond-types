@@ -1,5 +1,5 @@
 use rle::Searchable;
-use rle::splitable_span::SplitableSpan;
+use rle::SplitableSpan;
 
 use content_tree::ContentLength;
 use content_tree::Toggleable;
@@ -122,7 +122,7 @@ impl Toggleable for YjsSpan {
 mod tests {
     use std::mem::size_of;
 
-    use rle::splitable_span::test_splitable_methods_valid;
+    use rle::test_splitable_methods_valid;
 
     use crate::list::span::YjsSpan;
 

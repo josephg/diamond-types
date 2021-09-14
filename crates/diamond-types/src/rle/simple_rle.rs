@@ -4,9 +4,9 @@ use std::iter::FromIterator;
 
 use humansize::{file_size_opts, FileSize};
 
-use rle::append::AppendRLE;
+use rle::AppendRLE;
 use rle::Searchable;
-use rle::splitable_span::SplitableSpan;
+use rle::SplitableSpan;
 
 use crate::rle::{RleKey, RleKeyed, RleSpanHelpers};
 

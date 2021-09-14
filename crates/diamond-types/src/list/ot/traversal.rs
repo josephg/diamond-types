@@ -16,13 +16,13 @@
 
 use smartstring::alias::{String as SmartString};
 use smallvec::{SmallVec, smallvec};
-use rle::splitable_span::SplitableSpan;
+use rle::SplitableSpan;
 use TraversalComponent::*;
 use crate::list::Order;
 use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
-use rle::append::AppendRLE;
+use rle::AppendRLE;
 use crate::unicount::count_chars;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -251,7 +251,7 @@ impl SplitableSpan for TraversalComponent {
 
 #[cfg(test)]
 mod test {
-    use rle::splitable_span::test_splitable_methods_valid;
+    use rle::test_splitable_methods_valid;
     use crate::list::ot::traversal::*;
     use std::mem::size_of;
     use crate::list::ot::positional::PositionalOp;

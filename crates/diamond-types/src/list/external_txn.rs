@@ -9,8 +9,8 @@ use smartstring::alias::String as SmartString;
 
 use content_tree::Toggleable;
 use diamond_core::{AgentId, CRDT_DOC_ROOT, CRDTId};
-use rle::append::AppendRLE;
-use rle::splitable_span::SplitableSpan;
+use rle::AppendRLE;
+use rle::SplitableSpan;
 
 use crate::crdtspan::CRDTSpan;
 use crate::list::{Branch, ListCRDT, Order, ROOT_ORDER};

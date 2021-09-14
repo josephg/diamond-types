@@ -1,4 +1,4 @@
-use rle::splitable_span::SplitableSpan;
+use rle::SplitableSpan;
 use crate::{Toggleable, ContentLength};
 use rle::Searchable;
 

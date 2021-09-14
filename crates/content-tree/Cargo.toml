@@ -6,7 +6,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rle = { path = "../rle" }
+rle = { path = "../rle", features = ["smallvec"] }
 # Only used for printing stats. TODO: Move me to dev-dependencies!
 humansize = "1.1"
 smallvec = { version = "1.6", features = ["union"] }

@@ -1,5 +1,5 @@
 use rle::Searchable;
-use rle::splitable_span::SplitableSpan;
+use rle::SplitableSpan;
 
 use crate::rle::{RleKey, RleKeyed};
 

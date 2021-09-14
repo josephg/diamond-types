@@ -8,8 +8,8 @@ use smallvec::SmallVec;
 
 use content_tree::*;
 use diamond_core::CRDTId;
-use rle::append::AppendRLE;
-use rle::splitable_span::SplitableSpan;
+use rle::AppendRLE;
+use rle::SplitableSpan;
 use TraversalComponent::*;
 
 use crate::crdtspan::CRDTSpan;
@@ -573,7 +573,7 @@ mod test {
     use ropey::Rope;
     use smallvec::smallvec;
 
-    use rle::append::AppendRLE;
+    use rle::AppendRLE;
 
     use crate::fuzz_helpers::make_random_change;
     use crate::list::{ListCRDT, ROOT_ORDER};

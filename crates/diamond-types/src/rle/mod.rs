@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use rle::Searchable;
-use rle::splitable_span::SplitableSpan;
+use rle::SplitableSpan;
 pub use simple_rle::Rle;
 
 pub type RleKey = u32;
@@ -76,7 +76,7 @@ impl<V: Default> Default for KVPair<V> {
 
 #[cfg(test)]
 mod test {
-    use rle::splitable_span::test_splitable_methods_valid;
+    use rle::test_splitable_methods_valid;
 
     use crate::order::OrderSpan;
     use crate::rle::KVPair;

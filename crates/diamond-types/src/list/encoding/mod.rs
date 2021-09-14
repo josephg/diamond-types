@@ -1,18 +1,21 @@
-mod varint;
-
-use crate::list::{ListCRDT, Order};
-use std::mem::{size_of, replace};
-use crate::list::encoding::varint::*;
-use rle::splitable_span::SplitableSpan;
-use std::fmt::Debug;
-use crate::rle::KVPair;
-use crate::list::span::YjsSpan;
-use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
-use rle::merge_iter::MergeableIterator;
-use crate::order::OrderSpan;
-use crate::crdtspan::CRDTSpan;
+use std::fmt::Debug;
+use std::mem::{replace, size_of};
+
+use num_enum::TryFromPrimitive;
+
 use diamond_core::CRDTId;
+use rle::merge_iter::MergeableIterator;
+use rle::SplitableSpan;
+
+use crate::crdtspan::CRDTSpan;
+use crate::list::{ListCRDT, Order};
+use crate::list::encoding::varint::*;
+use crate::list::span::YjsSpan;
+use crate::order::OrderSpan;
+use crate::rle::KVPair;
+
+mod varint;
 
 // struct BitWriter<W: Write> {
 //     to: W,
@@ -709,9 +712,10 @@ impl ListCRDT {
 
 #[cfg(test)]
 mod tests {
-    use crate::list::ListCRDT;
-    use rle::splitable_span::{test_splitable_methods_valid};
+    use rle::test_splitable_methods_valid;
+
     use crate::list::encoding::*;
+    use crate::list::ListCRDT;
 
     #[test]
     fn simple_encode() {

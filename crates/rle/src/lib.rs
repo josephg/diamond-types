@@ -1,8 +1,11 @@
 use std::fmt::Debug;
 
-pub mod splitable_span;
+pub use append_rle::AppendRLE;
+pub use splitable_span::*;
+
+mod splitable_span;
 pub mod merge_iter;
-pub mod append;
+mod append_rle;
 
 pub trait Searchable {
     type Item: Copy + Debug;
@@ -18,4 +21,3 @@ pub trait Searchable {
     // fn at_offset(&self, offset: usize) -> Self::Item;
     fn at_offset(&self, offset: usize) -> Self::Item;
 }
-

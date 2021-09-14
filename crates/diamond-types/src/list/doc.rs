@@ -2,7 +2,7 @@ use crate::list::*;
 // use crate::content_tree::*;
 use smallvec::smallvec;
 use std::ptr::NonNull;
-use rle::splitable_span::SplitableSpan;
+use rle::SplitableSpan;
 use std::cmp::Ordering;
 use crate::rle::Rle;
 use std::mem::replace;

@@ -6,11 +6,11 @@
 
 use smartstring::alias::{String as SmartString};
 use smallvec::SmallVec;
-use rle::splitable_span::SplitableSpan;
+use rle::SplitableSpan;
 use InsDelTag::*;
 use ropey::Rope;
 use crate::unicount::chars_to_bytes;
-use rle::append::AppendRLE;
+use rle::AppendRLE;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 
@@ -134,7 +134,7 @@ impl SplitableSpan for PositionalComponent {
 
 #[cfg(test)]
 mod test {
-    use rle::splitable_span::test_splitable_methods_valid;
+    use rle::test_splitable_methods_valid;
     use crate::list::ot::positional::{PositionalComponent, InsDelTag::*};
 
     #[test]

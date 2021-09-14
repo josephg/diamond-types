@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::ptr::NonNull;
 
 pub use index::*;
-use rle::splitable_span::SplitableSpan;
+use rle::SplitableSpan;
 pub use root::DeleteResult;
 
 // The common data structures are:

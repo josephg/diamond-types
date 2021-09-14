@@ -2,9 +2,9 @@ use crate::list::{ListCRDT, ROOT_ORDER, Order};
 use crate::order::OrderSpan;
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
-use rle::append::AppendRLE;
+use rle::AppendRLE;
 use crate::list::doc::notify_for;
-use rle::splitable_span::SplitableSpan;
+use rle::SplitableSpan;
 use rle::Searchable;
 // use smartstring::alias::{String as SmartString};
 

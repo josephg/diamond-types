@@ -1,4 +1,7 @@
-// An entry is expected to contain multiple items.
+/// An entry is expected to contain multiple items.
+///
+/// A SplitableSpan is a range entry. That is, an entry which contains a compact run of many
+/// entries internally.
 pub trait SplitableSpan: Clone {
     /// The number of child items in the entry. This is indexed with the size used in truncate.
     fn len(&self) -> usize;
@@ -12,11 +15,11 @@ pub trait SplitableSpan: Clone {
     /// assert!(initial_len == truncate_at + rest.len());
     /// ```
     ///
-    /// `at` parameter must obey *0 < at < entry.len()*
+    /// `at` parameter must strictly obey *0 < at < entry.len()*
     fn truncate(&mut self, at: usize) -> Self;
 
-    // This is strictly unnecessary given truncate(), but it makes some code cleaner.
-    // fn truncate_keeping_right(&mut self, at: usize) -> Self;
+    /// The inverse of truncate. This method mutably truncates an item, keeping all content from
+    /// at..item.len() and returning the item range from 0..at.
     #[inline(always)]
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
         let mut other = self.clone();
@@ -27,8 +30,17 @@ pub trait SplitableSpan: Clone {
     /// See if the other item can be appended to self. `can_append` will always be called
     /// immediately before `append`.
     fn can_append(&self, other: &Self) -> bool;
+
+    /// Merge the passed item into self. Essentially, self = self + other.
+    ///
+    /// The other item *must* be a valid target for merging
+    /// (as per can_append(), above).
     fn append(&mut self, other: Self);
-    // fn prepend(&mut self, other: Self);
+
+    /// Append an item at the start of this item. self = other + self.
+    ///
+    /// This item must be a valid append target for other. That is, `other.can_append(self)` must
+    /// be true for this method to be called.
     #[inline(always)]
     fn prepend(&mut self, mut other: Self) {
         other.append(self.clone());
@@ -36,43 +48,21 @@ pub trait SplitableSpan: Clone {
     }
 }
 
-// /// Simple example where entries are runs of positive or negative items. This is used for testing
-// /// and for the encoder.
-// impl SplitableSpan for i32 {
-//     fn len(&self) -> usize {
-//         self.abs() as usize
-//     }
-//
-//     fn truncate(&mut self, at: usize) -> Self {
-//         let at = at as i32;
-//         // dbg!(at, *self);
-//         debug_assert!(at > 0 && at < self.abs());
-//         debug_assert_ne!(*self, 0);
-//
-//         let abs = self.abs();
-//         let sign = self.signum();
-//         *self = at * sign;
-//
-//         (abs - at) * sign
-//     }
-//
-//     fn can_append(&self, other: &Self) -> bool {
-//         (*self >= 0) == (*other >= 0)
-//     }
-//
-//     fn append(&mut self, other: Self) {
-//         debug_assert!(self.can_append(&other));
-//         *self += other;
-//     }
-//
-//     fn prepend(&mut self, other: Self) {
-//         self.append(other);
-//     }
-// }
+/// A SplitableSpan wrapper for any single item.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Single<T>(pub T);
 
 /// A splitablespan in reverse. This is useful for making lists in descending order.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ReverseSpan<S: SplitableSpan + Clone>(pub S);
+
+impl<T: Clone> SplitableSpan for Single<T> {
+    fn len(&self) -> usize { 1 }
+
+    fn truncate(&mut self, _at: usize) -> Self { panic!("Cannot truncate single sized item"); }
+    fn can_append(&self, _other: &Self) -> bool { false }
+    fn append(&mut self, _other: Self) { panic!("Cannot append to single sized item"); }
+}
 
 impl<S: SplitableSpan + Clone> SplitableSpan for ReverseSpan<S> {
     fn len(&self) -> usize { self.0.len() }
@@ -91,6 +81,8 @@ impl<S: SplitableSpan + Clone> SplitableSpan for ReverseSpan<S> {
 
 /// Simple test helper to verify an implementation of SplitableSpan is valid and meets expected
 /// constraints.
+///
+/// Use this to test splitablespan implementations in tests.
 // #[cfg(test)]
 pub fn test_splitable_methods_valid<E: SplitableSpan + std::fmt::Debug + Clone + Eq>(entry: E) {
     assert!(entry.len() >= 2, "Call this with a larger entry");
@@ -117,5 +109,50 @@ pub fn test_splitable_methods_valid<E: SplitableSpan + std::fmt::Debug + Clone +
         let start2 = end2.truncate_keeping_right(i);
         assert_eq!(end2, end);
         assert_eq!(start2, start);
+    }
+}
+
+/// Simple example where entries are runs of positive or negative items. This is used for testing.
+#[cfg(test)]
+impl SplitableSpan for i32 {
+    fn len(&self) -> usize {
+        self.abs() as usize
+    }
+
+    fn truncate(&mut self, at: usize) -> Self {
+        let at = at as i32;
+        // dbg!(at, *self);
+        debug_assert!(at > 0 && at < self.abs());
+        debug_assert_ne!(*self, 0);
+
+        let abs = self.abs();
+        let sign = self.signum();
+        *self = at * sign;
+
+        (abs - at) * sign
+    }
+
+    fn can_append(&self, other: &Self) -> bool {
+        (*self >= 0) == (*other >= 0)
+    }
+
+    fn append(&mut self, other: Self) {
+        debug_assert!(self.can_append(&other));
+        *self += other;
+    }
+
+    fn prepend(&mut self, other: Self) {
+        self.append(other);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::test_splitable_methods_valid;
+
+    #[test]
+    fn test_simple_i32_example() {
+        test_splitable_methods_valid(5);
+        test_splitable_methods_valid(-5);
     }
 }

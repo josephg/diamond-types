@@ -1,6 +1,7 @@
+#[cfg(feature = "smallvec")]
 use smallvec::SmallVec;
 
-use crate::splitable_span::SplitableSpan;
+use crate::SplitableSpan;
 
 pub trait AppendRLE<T: SplitableSpan> {
     fn push_rle(&mut self, item: T);
@@ -32,6 +33,7 @@ impl<T: SplitableSpan> AppendRLE<T> for Vec<T> {
     }
 }
 
+#[cfg(feature = "smallvec")]
 impl<A: smallvec::Array> AppendRLE<A::Item> for SmallVec<A> where A::Item: SplitableSpan {
     fn push_rle(&mut self, item: A::Item) {
         debug_assert!(item.len() > 0);
