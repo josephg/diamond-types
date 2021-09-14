@@ -760,59 +760,86 @@ impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: 
 
 impl<E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     // TODO: All these methods could just use self.mut_cursor_at...
-    pub fn insert_at_offset<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
+    pub fn insert_at_offset_notify<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_offset_pos(pos, true);
         unsafe { Self::unsafe_insert(&mut cursor, new_entry, notify); }
     }
 
-    pub fn replace_range_at_offset<N>(self: &mut Pin<Box<Self>>, offset: usize, new_entry: E, notify: N)
+    pub fn insert_at_offset(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E) {
+        let mut cursor = self.unsafe_cursor_at_offset_pos(pos, true);
+        unsafe { Self::unsafe_insert(&mut cursor, new_entry, null_notify); }
+    }
+
+    pub fn replace_range_at_offset_notify<N>(self: &mut Pin<Box<Self>>, offset: usize, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_offset_pos(offset, true);
         unsafe { Self::unsafe_replace_range(&mut cursor, new_entry, notify); }
     }
 
-    pub fn delete_at_offset<F>(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize, notify: F)
+    pub fn replace_range_at_offset(self: &mut Pin<Box<Self>>, offset: usize, new_entry: E) {
+        let mut cursor = self.unsafe_cursor_at_offset_pos(offset, true);
+        unsafe { Self::unsafe_replace_range(&mut cursor, new_entry, null_notify); }
+    }
+
+    pub fn delete_at_offset_notify<F>(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_offset_pos(pos, false);
         unsafe { Self::unsafe_delete(&mut cursor, del_items, notify); }
     }
+
+    pub fn delete_at_offset(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize) {
+        let mut cursor = self.unsafe_cursor_at_offset_pos(pos, false);
+        unsafe { Self::unsafe_delete(&mut cursor, del_items, null_notify); }
+    }
 }
 
 impl<E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
-    pub fn insert_at_content<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
+    pub fn insert_at_content_notify<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_content_pos(pos, true);
         unsafe { Self::unsafe_insert(&mut cursor, new_entry, notify); }
     }
 
-    pub fn replace_range_at_content<N>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: N)
+    pub fn insert_at_content(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E) {
+        let mut cursor = self.unsafe_cursor_at_content_pos(pos, true);
+        unsafe { Self::unsafe_insert(&mut cursor, new_entry, null_notify); }
+    }
+
+    pub fn replace_range_at_content_notify<N>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_content_pos(pos, true);
         unsafe { Self::unsafe_replace_range(&mut cursor, new_entry, notify); }
     }
+    pub fn replace_range_at_content(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E) {
+        let mut cursor = self.unsafe_cursor_at_content_pos(pos, true);
+        unsafe { Self::unsafe_replace_range(&mut cursor, new_entry, null_notify); }
+    }
 
-    pub fn delete_at_content<F>(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize, notify: F)
+    pub fn delete_at_content_notify<F>(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let mut cursor = self.unsafe_cursor_at_content_pos(pos, false);
         unsafe { Self::unsafe_delete(&mut cursor, del_items, notify); }
     }
+    pub fn delete_at_content(self: &mut Pin<Box<Self>>, pos: usize, del_items: usize) {
+        let mut cursor = self.unsafe_cursor_at_content_pos(pos, false);
+        unsafe { Self::unsafe_delete(&mut cursor, del_items, null_notify); }
+    }
 }
 
 impl<E: ContentTraits + ContentLength + Toggleable, I: FindContent<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
-    pub fn local_deactivate_at_content<F>(self: &mut Pin<Box<Self>>, offset: usize, deleted_len: usize, notify: F) -> DeleteResult<E>
+    pub fn local_deactivate_at_content_notify<F>(self: &mut Pin<Box<Self>>, offset: usize, deleted_len: usize, notify: F) -> DeleteResult<E>
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         let cursor = self.unsafe_cursor_at_content_pos(offset, false);
         unsafe { self.local_deactivate(cursor, deleted_len, notify) }
     }
-
 }
 
 impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
@@ -1117,7 +1144,7 @@ mod tests {
             len: 100,
             is_activated: true
         };
-        tree.insert_at_content(15, entry, null_notify);
+        tree.insert_at_content_notify(15, entry, null_notify);
         tree.check();
 
         let entry = TestRange {
@@ -1125,7 +1152,7 @@ mod tests {
             len: 20,
             is_activated: true
         };
-        tree.insert_at_content(15, entry, null_notify);
+        tree.insert_at_content_notify(15, entry, null_notify);
         tree.check();
 
         // println!("{:#?}", tree);
@@ -1145,15 +1172,15 @@ mod tests {
             len: 100,
             is_activated: true,
         };
-        tree.insert_at_content(0, entry, null_notify);
+        tree.insert_at_content_notify(0, entry, null_notify);
         assert_eq!(tree.count_entries(), 1);
 
         // I'm going to delete two items in the middle.
-        tree.local_deactivate_at_content(50, 1, null_notify);
+        tree.local_deactivate_at_content_notify(50, 1, null_notify);
         assert_eq!(tree.count_entries(), 3);
 
         // dbg!(&tree);
-        tree.local_deactivate_at_content(50, 1, null_notify);
+        tree.local_deactivate_at_content_notify(50, 1, null_notify);
         // dbg!(&tree);
 
         assert_eq!(tree.raw_iter().collect::<Vec<TestRange>>(), vec![
@@ -1172,15 +1199,15 @@ mod tests {
             len: 100,
             is_activated: true,
         };
-        tree.insert_at_content(0, entry, null_notify);
+        tree.insert_at_content_notify(0, entry, null_notify);
         assert_eq!(tree.count_entries(), 1);
 
         // Ok now I'm going to delete the last and second-last elements. We should end up with
         // two entries.
-        tree.local_deactivate_at_content(99, 1, null_notify);
+        tree.local_deactivate_at_content_notify(99, 1, null_notify);
         assert_eq!(tree.count_entries(), 2);
 
-        tree.local_deactivate_at_content(98, 1, null_notify);
+        tree.local_deactivate_at_content_notify(98, 1, null_notify);
         assert_eq!(tree.count_entries(), 2);
 
         assert_eq!(tree.raw_iter().collect::<Vec<TestRange>>(), vec![
@@ -1219,7 +1246,7 @@ mod tests {
     fn delete_past_end() {
         let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         tree.insert_at_start_notify(TestRange { id: 10 as _, len: 10, is_activated: true }, null_notify);
-        tree.delete_at_content(10, 100, null_notify);
+        tree.delete_at_content_notify(10, 100, null_notify);
 
         assert_eq!(tree.raw_iter().collect::<Vec<TestRange>>(), vec![
             TestRange { id: 10, len: 10, is_activated: true },
@@ -1235,11 +1262,11 @@ mod tests {
     #[test]
     fn mutation_wrappers() {
         let mut tree = ContentTreeRaw::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
-        tree.insert_at_content(0, TestRange { id: 0, len: 10, is_activated: true }, null_notify);
+        tree.insert_at_content_notify(0, TestRange { id: 0, len: 10, is_activated: true }, null_notify);
         assert_eq!(tree.offset_len(), 10);
         assert_eq!(tree.content_len(), 10);
 
-        tree.replace_range_at_content(3, TestRange { id: 100, len: 3, is_activated: false }, null_notify);
+        tree.replace_range_at_content_notify(3, TestRange { id: 100, len: 3, is_activated: false }, null_notify);
         assert_eq!(tree.offset_len(), 10);
         assert_eq!(tree.content_len(), 7);
 
@@ -1247,11 +1274,11 @@ mod tests {
         assert_eq!(tree.at_offset(4), Some((101, false)));
 
         // TODO: Eh and do the others - insert_at_offset, replace_range_at_offset, etc.
-        tree.delete_at_offset(5, 3, null_notify);
+        tree.delete_at_offset_notify(5, 3, null_notify);
         assert_eq!(tree.offset_len(), 7);
         assert_eq!(tree.content_len(), 5);
 
-        tree.delete_at_content(0, 1, null_notify);
+        tree.delete_at_content_notify(0, 1, null_notify);
         assert_eq!(tree.offset_len(), 6);
         assert_eq!(tree.content_len(), 4);
     }

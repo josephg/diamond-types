@@ -9,7 +9,8 @@ use std::pin::Pin;
 use std::ptr::NonNull;
 
 pub use index::*;
-use rle::SplitableSpan;
+// Re-export SplitableSpan from rle.
+pub use rle::SplitableSpan;
 pub use root::DeleteResult;
 
 // The common data structures are:

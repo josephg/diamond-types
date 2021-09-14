@@ -121,7 +121,6 @@ impl SplitableSpan for i32 {
 
     fn truncate(&mut self, at: usize) -> Self {
         let at = at as i32;
-        // dbg!(at, *self);
         debug_assert!(at > 0 && at < self.abs());
         debug_assert_ne!(*self, 0);
 

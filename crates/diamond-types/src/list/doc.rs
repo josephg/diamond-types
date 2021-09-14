@@ -47,7 +47,7 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<
             order = index_len;
         }
 
-        index.replace_range_at_offset(order as usize, MarkerEntry {
+        index.replace_range_at_offset_notify(order as usize, MarkerEntry {
             ptr: Some(leaf), len
         }, null_notify);
 
@@ -600,7 +600,7 @@ impl ListCRDT {
 
                 Del(len) => {
                     let len = *len as usize;
-                    let deleted_items = self.range_tree.local_deactivate_at_content(pos, len, notify_for(&mut self.index));
+                    let deleted_items = self.range_tree.local_deactivate_at_content_notify(pos, len, notify_for(&mut self.index));
 
                     // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
                     // let mut cursor = self.index.cursor_at_end();
