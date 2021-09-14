@@ -36,6 +36,7 @@ impl YjsSpan {
 }
 
 impl SplitableSpan for YjsSpan {
+    #[inline(always)]
     fn len(&self) -> usize { self.len.abs() as usize }
 
     fn truncate(&mut self, at: usize) -> Self {
@@ -65,6 +66,7 @@ impl SplitableSpan for YjsSpan {
             && other.origin_right == self.origin_right
     }
 
+    #[inline(always)]
     fn append(&mut self, other: Self) {
         self.len += other.len
     }
@@ -94,6 +96,7 @@ impl Searchable for YjsSpan {
 }
 
 impl ContentLength for YjsSpan {
+    #[inline(always)]
     fn content_len(&self) -> usize {
         self.len.max(0) as usize
     }
