@@ -5,7 +5,7 @@ use rle::Searchable;
 
 use super::*;
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
     // no reason for this object to be pinned. (Is that a bad idea? I'm not sure.)
     pub(crate) unsafe fn new(next: Option<NonNull<Self>>) -> Self {
@@ -228,7 +228,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
     }
 }
 
-impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
+impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
     pub fn find(&self, loc: E::Item) -> Option<UnsafeCursor<E, I, IE, LE>> {
         for i in 0..self.len_entries() {
             let entry: E = self.data[i];

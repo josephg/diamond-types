@@ -1,7 +1,7 @@
 use super::*;
 use std::mem::{self, MaybeUninit};
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInternal<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInternal<E, I, IE, LE> {
     pub fn new_with_parent(parent: ParentPtr<E, I, IE, LE>) -> Pin<Box<Self>> {
         // From the example in the docs:
         // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#initializing-an-array-element-by-element

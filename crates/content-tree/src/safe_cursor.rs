@@ -7,8 +7,8 @@ use super::*;
 
 /// This file provides the safe implementation methods for cursors.
 
-impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<'a, E, I, IE, LE> {
-    pub unsafe fn unchecked_from_raw(_tree: &'a ContentTree<E, I, IE, LE>, cursor: UnsafeCursor<E, I, IE, LE>) -> Self {
+impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<'a, E, I, IE, LE> {
+    pub unsafe fn unchecked_from_raw(_tree: &'a ContentTreeRaw<E, I, IE, LE>, cursor: UnsafeCursor<E, I, IE, LE>) -> Self {
         Cursor {
             inner: cursor,
             marker: PhantomData
@@ -22,7 +22,7 @@ impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Curs
     }
 }
 
-impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Deref for Cursor<'a, E, I, IE, LE> {
+impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Deref for Cursor<'a, E, I, IE, LE> {
     type Target = UnsafeCursor<E, I, IE, LE>;
 
     fn deref(&self) -> &Self::Target {
@@ -30,7 +30,7 @@ impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Dere
     }
 }
 
-impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for Cursor<'a, E, I, IE, LE> {
+impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for Cursor<'a, E, I, IE, LE> {
     type Item = E;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -60,8 +60,8 @@ impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iter
     }
 }
 
-impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> MutCursor<'a, E, I, IE, LE> {
-    pub unsafe fn unchecked_from_raw(_tree: &mut Pin<Box<ContentTree<E, I, IE, LE>>>, cursor: UnsafeCursor<E, I, IE, LE>) -> Self {
+impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> MutCursor<'a, E, I, IE, LE> {
+    pub unsafe fn unchecked_from_raw(_tree: &mut Pin<Box<ContentTreeRaw<E, I, IE, LE>>>, cursor: UnsafeCursor<E, I, IE, LE>) -> Self {
         MutCursor {
             inner: cursor,
             marker: PhantomData
@@ -75,14 +75,14 @@ impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> MutC
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         unsafe {
-            ContentTree::unsafe_insert(&mut self.inner, new_entry, notify);
+            ContentTreeRaw::unsafe_insert(&mut self.inner, new_entry, notify);
         }
     }
 
     #[inline(always)]
     pub fn insert(&mut self, new_entry: E) {
         unsafe {
-            ContentTree::unsafe_insert(&mut self.inner, new_entry, null_notify);
+            ContentTreeRaw::unsafe_insert(&mut self.inner, new_entry, null_notify);
         }
     }
 
@@ -90,14 +90,14 @@ impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> MutC
     pub fn replace_range_notify<N>(&mut self, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         unsafe {
-            ContentTree::unsafe_replace_range(&mut self.inner, new_entry, notify);
+            ContentTreeRaw::unsafe_replace_range(&mut self.inner, new_entry, notify);
         }
     }
 
     #[inline(always)]
     pub fn replace_range(&mut self, new_entry: E) {
         unsafe {
-            ContentTree::unsafe_replace_range(&mut self.inner, new_entry, null_notify);
+            ContentTreeRaw::unsafe_replace_range(&mut self.inner, new_entry, null_notify);
         }
     }
 
@@ -105,19 +105,19 @@ impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> MutC
     pub fn delete_notify<F>(&mut self, del_items: usize, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         unsafe {
-            ContentTree::unsafe_delete(&mut self.inner, del_items, notify);
+            ContentTreeRaw::unsafe_delete(&mut self.inner, del_items, notify);
         }
     }
 
     #[inline(always)]
     pub fn delete(&mut self, del_items: usize) {
         unsafe {
-            ContentTree::unsafe_delete(&mut self.inner, del_items, null_notify);
+            ContentTreeRaw::unsafe_delete(&mut self.inner, del_items, null_notify);
         }
     }
 }
 
-impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Deref for MutCursor<'a, E, I, IE, LE> {
+impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Deref for MutCursor<'a, E, I, IE, LE> {
     type Target = Cursor<'a, E, I, IE, LE>;
 
     #[inline(always)]
@@ -127,7 +127,7 @@ impl<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Dere
     }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     #[inline(always)]
     pub fn cursor_at_start(&self) -> Cursor<E, I, IE, LE> {
         unsafe {
@@ -176,9 +176,9 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
 
 /// Iterator for all the items inside the entries. Unlike entry iteration we use the offset here.
 #[derive(Debug)]
-pub struct ItemIterator<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize>(pub Cursor<'a, E, I, IE, LE>);
+pub struct ItemIterator<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize>(pub Cursor<'a, E, I, IE, LE>);
 
-impl<'a, E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for ItemIterator<'a, E, I, IE, LE> {
+impl<'a, E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for ItemIterator<'a, E, I, IE, LE> {
     type Item = E::Item;
 
     fn next(&mut self) -> Option<Self::Item> {

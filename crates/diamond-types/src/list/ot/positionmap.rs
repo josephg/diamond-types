@@ -54,7 +54,7 @@ impl TreeIndex<TraversalComponent> for PrePostIndex {
     }
 }
 
-pub(super) type PositionMap = Pin<Box<ContentTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>>>;
+pub(super) type PositionMap = Pin<Box<ContentTreeRaw<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>>>;
 
 pub(super) fn positionmap_mut_cursor_at_post<'a>(map: &'a mut PositionMap, pos: usize, stick_end: bool) -> MutCursor<'a, TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
     map.mut_cursor_at_query(pos, stick_end,
@@ -367,11 +367,11 @@ impl<'a> PatchIter<'a> {
         let mut iter = PatchIter {
             doc,
             span,
-            map: ContentTree::new(),
+            map: ContentTreeRaw::new(),
             deletes_idx: doc.deletes.0.len().wrapping_sub(1),
             marked_deletes: DoubleDeleteVisitor::new(),
         };
-        iter.map.insert_at_start(Retain(doc.range_tree.content_len() as _), null_notify);
+        iter.map.insert_at_start_notify(Retain(doc.range_tree.content_len() as _), null_notify);
 
         iter
     }
@@ -549,7 +549,7 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &Rope) -> TraversalOp {
     let mut op = TraversalOp::new();
     // TODO: Could use doc.chars() for this, but I think it'll be slower. Benchmark!
     let mut post_len: u32 = 0;
-    for entry in map.iter() {
+    for entry in map.raw_iter() {
         match entry {
             Ins { len, content_known: true } => {
                 op.content.extend(resulting_doc.chars_at(post_len as usize).take(len as usize));
@@ -663,7 +663,7 @@ mod test {
         let walker = PatchIter::new_since_order(&doc2, 0);
         let map = walker.into_map();
 
-        assert!(&map.merged_iter().eq(std::iter::once(TraversalComponent::Ins {
+        assert!(&map.iter().eq(std::iter::once(TraversalComponent::Ins {
             len: 3,
             content_known: true,
         })));
@@ -721,7 +721,7 @@ mod test {
 
         // Ok we have a few things to check:
         // 1. The returned map shouldn't contain any inserts with unknown content
-        for e in map.iter() {
+        for e in map.raw_iter() {
             if let Ins { content_known, .. } = e {
                 assert!(content_known);
             }
@@ -778,8 +778,8 @@ mod test {
     #[test]
     fn midpoint_cursor_has_correct_count() {
         // Regression for a bug in range tree.
-        let mut tree: PositionMap = ContentTree::new();
-        tree.insert_at_start(TraversalComponent::Retain(10), null_notify);
+        let mut tree: PositionMap = ContentTreeRaw::new();
+        tree.insert_at_start_notify(TraversalComponent::Retain(10), null_notify);
 
         let cursor = positionmap_mut_cursor_at_post(&mut tree, 4, true);
         assert_eq!(cursor.count_pos(), Pair(4, 4));

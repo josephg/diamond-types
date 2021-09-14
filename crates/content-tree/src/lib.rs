@@ -29,21 +29,37 @@ pub const DEFAULT_IE: usize = 8; // This needs to be minimum 8.
 #[cfg(not(debug_assertions))]
 pub const DEFAULT_IE: usize = 10;
 
-
 // Must fit in u8, and must be >= 4 due to limitations in splice_insert.
 #[cfg(debug_assertions)]
 pub const DEFAULT_LE: usize = 4;
 #[cfg(not(debug_assertions))]
 pub const DEFAULT_LE: usize = 32;
 
+/// Simple empty helper trait naming all the properties needed by ContentTree.
+pub trait ContentTraits: SplitableSpan + Copy + Debug + Default {}
+impl<T: SplitableSpan + Copy + Debug + Default> ContentTraits for T {}
 
-// This is the root of the tree. There's a bit of double-deref going on when you
-// access the first node in the tree, but I can't think of a clean way around
-// it.
+/// A ContentTree is an efficient packed list of RLE entries, allowing for arbitrary inserts and
+/// deletes anywhere in the range.
+///
+/// ```rust
+/// use content_tree::ContentTree;
+/// use content_tree::testrange::TestRange;
+///
+/// let mut tree = ContentTree::new();
+/// tree.push(TestRange { id: 0, len: 100, is_activated: true });
+/// tree.push(TestRange { id: 100, len: 50, is_activated: true });
+///
+/// assert_eq!(tree.raw_iter().collect::<Vec<TestRange>>(), vec![
+///     TestRange { id: 0, len: 150, is_activated: true }
+/// ]);
+/// ```
 #[derive(Debug)]
-pub struct ContentTree<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
-    // count: usize,
+pub struct ContentTreeRaw<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
     count: I::IndexValue,
+
+    // There's a bit of double-deref going on when you access the first node in the tree, but I
+    // can't think of a clean way around it.
     root: Node<E, I, INT_ENTRIES, LEAF_ENTRIES>,
 
     // Usually inserts and deletes are followed by more inserts / deletes at the same location.
@@ -54,13 +70,13 @@ pub struct ContentTree<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize
     _pin: marker::PhantomPinned,
 }
 
-// The warning here is an error - the bound can't be removed.
-// #[allow(type_alias_bounds)]
-// type InternalEntry<E, I: TreeIndex<E>> = (I::IndexOffset, Option<Node<E, I, IE, LE>>);
+/// An alias for ContentTreeRaw which uses the default sizes for internal elements.
+pub type ContentTreeWithIndex<E, I> = ContentTreeRaw<E, I, DEFAULT_IE, DEFAULT_LE>;
+pub type ContentTree<E> = ContentTreeRaw<E, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>;
 
 /// An internal node in the B-tree
 #[derive(Debug)]
-pub(crate) struct NodeInternal<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
+pub(crate) struct NodeInternal<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
     parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
@@ -72,8 +88,13 @@ pub(crate) struct NodeInternal<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIE
 
 /// A leaf node in the B-tree. Except the root, each child stores MAX_CHILDREN/2 - MAX_CHILDREN
 /// entries.
+///
+/// The details in a leaf node are private. This is exposed to allow consumers to build custom
+/// indexes, allowing for fast cursor creation without needing to iterate through the tree.
+///
+/// See diamond-types for an example of this.
 #[derive(Debug)]
-pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
+pub struct NodeLeaf<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
     parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     num_entries: u8, // Number of entries which have been populated
     data: [E; LEAF_ENTRIES],
@@ -83,22 +104,22 @@ pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, c
 }
 
 #[derive(Debug)]
-pub(crate) enum Node<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub(crate) enum Node<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     Internal(Pin<Box<NodeInternal<E, I, IE, LE>>>),
     Leaf(Pin<Box<NodeLeaf<E, I, IE, LE>>>),
 }
 
 // I hate that I need this, but its used all over the place when traversing the tree.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum NodePtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub(crate) enum NodePtr<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     Internal(NonNull<NodeInternal<E, I, IE, LE>>),
     Leaf(NonNull<NodeLeaf<E, I, IE, LE>>),
 }
 
 // TODO: Consider just reusing NodePtr for this.
 #[derive(Copy, Clone, Debug, Eq)]
-pub(crate) enum ParentPtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
-    Root(NonNull<ContentTree<E, I, IE, LE>>),
+pub(crate) enum ParentPtr<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+    Root(NonNull<ContentTreeRaw<E, I, IE, LE>>),
     Internal(NonNull<NodeInternal<E, I, IE, LE>>)
 }
 
@@ -114,7 +135,7 @@ pub(crate) enum ParentPtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, cons
 /// The caller must ensure any reads and mutations through an UnsafeCursor are valid WRT the
 /// mutability and lifetime of the implicitly referenced content tree. Use Cursor and MutCursor.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnsafeCursor<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub struct UnsafeCursor<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     node: NonNull<NodeLeaf<E, I, IE, LE>>,
     idx: usize,
     pub offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
@@ -125,9 +146,9 @@ pub struct UnsafeCursor<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const 
 /// the content tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct Cursor<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub struct Cursor<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     inner: UnsafeCursor<E, I, IE, LE>,
-    marker: marker::PhantomData<&'a ContentTree<E, I, IE, LE>>,
+    marker: marker::PhantomData<&'a ContentTreeRaw<E, I, IE, LE>>,
 }
 
 /// A mutable cursor into a ContentTree. Mutable cursors inherit all the functionality of Cursor,
@@ -136,15 +157,15 @@ pub struct Cursor<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE
 /// A mutable cursor mutably borrows the content tree. Only one mutable cursor can exist at a time.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct MutCursor<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub struct MutCursor<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     // TODO: Remove pub(crate).
     pub inner: UnsafeCursor<E, I, IE, LE>,
-    marker: marker::PhantomData<&'a mut ContentTree<E, I, IE, LE>>,
+    marker: marker::PhantomData<&'a mut ContentTreeRaw<E, I, IE, LE>>,
 }
 
 // I can't use the derive() implementation of this because EntryTraits does not always implement
 // PartialEq.
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialEq for ParentPtr<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialEq for ParentPtr<E, I, IE, LE> {
     fn eq(&self, other: &Self) -> bool {
         use ParentPtr::*;
         match (self, other) {
@@ -155,42 +176,6 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialE
     }
 }
 
-// impl<E: EntryTraits> Iterator for Cursor<'_, E> {
-// impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for UnsafeCursor<E, I, IE, LE> {
-//     type Item = E;
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         // When the cursor is past the end, idx is an invalid value.
-//         if self.idx == usize::MAX {
-//             return None;
-//         }
-//
-//         // The cursor is at the end of the current element. Its a bit dirty doing this twice but
-//         // This will happen for a fresh cursor in an empty document, or when iterating using a
-//         // cursor made by some other means.
-//         if self.idx >= unsafe { self.node.as_ref() }.len_entries() {
-//             let has_next = self.next_entry();
-//             if !has_next {
-//                 self.idx = usize::MAX;
-//                 return None;
-//             }
-//         }
-//
-//         let current = self.get_raw_entry();
-//         // Move the cursor forward preemptively for the next call to next().
-//         let has_next = self.next_entry();
-//         if !has_next {
-//             self.idx = usize::MAX;
-//         }
-//         Some(current)
-//     }
-// }
-
-
-// unsafe fn pinbox_to_nonnull<T>(box_ref: &Pin<Box<T>>) -> NonNull<T> {
-//     NonNull::new_unchecked(box_ref.as_ref().get_ref() as *const _ as *mut _)
-// }
-
 /// Unsafe because NonNull wraps a mutable pointer. Callers must take care of mutability!
 unsafe fn ref_to_nonnull<T>(val: &T) -> NonNull<T> {
     NonNull::new_unchecked(val as *const _ as *mut _)
@@ -199,7 +184,7 @@ unsafe fn ref_to_nonnull<T>(val: &T) -> NonNull<T> {
 /// Helper when a notify function is not needed
 pub fn null_notify<E, Node>(_e: E, _node: Node) {}
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Node<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Node<E, I, IE, LE> {
     /// Unsafe: Created leaf has a dangling parent pointer. Must be set after initialization.
     // unsafe fn new_leaf() -> Self {
     //     Node::Leaf(Box::pin(NodeLeaf::new()))
@@ -289,7 +274,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Node<E, 
     }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodePtr<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodePtr<E, I, IE, LE> {
     fn unwrap_leaf(self) -> NonNull<NodeLeaf<E, I, IE, LE>> {
         match self {
             NodePtr::Leaf(l) => l,
@@ -305,7 +290,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodePtr<
     }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ParentPtr<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ParentPtr<E, I, IE, LE> {
     fn unwrap_internal(self) -> NonNull<NodeInternal<E, I, IE, LE>> {
         match self {
             ParentPtr::Root(_) => { panic!("Expected internal node"); }
@@ -341,8 +326,3 @@ mod test {
         // assert_eq!(node_size, item_size);
     }
 }
-
-// TODO: Consider renaming this "RangeEntry" or something.
-pub trait EntryTraits: SplitableSpan + Copy + Debug + Default {}
-
-impl<T: SplitableSpan + Copy + Debug + Default> EntryTraits for T {}

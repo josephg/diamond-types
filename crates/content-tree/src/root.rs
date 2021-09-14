@@ -3,7 +3,7 @@ use std::mem::size_of;
 use humansize::{file_size_opts, FileSize};
 use smallvec::SmallVec;
 
-use rle::merge_iter::merge_items;
+use rle::merge_iter::{merge_items, MergeIter};
 use rle::Searchable;
 
 use super::safe_cursor::ItemIterator;
@@ -12,7 +12,7 @@ use super::*;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub fn new() -> Pin<Box<Self>> {
         let mut tree = Box::pin(Self {
             count: I::IndexValue::default(),
@@ -158,14 +158,23 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
     //     self.as_ref().last_cursor.set(Some((pos, cursor)));
     // }
 
-    // pub fn iter(&self) -> UnsafeCursor<E, I, IE, LE> { self.unsafe_cursor_at_start() }
-    pub fn iter(&self) -> Cursor<E, I, IE, LE> { self.cursor_at_start() }
+    /// Iterate through all the items "raw" - which is to say, without merging anything.
+    ///
+    /// This is different from iter() because in some editing situations the tree will not be
+    /// perfectly flattened. That is, it may be possible to merge some items in the tree. This
+    /// iterator method will not merge anything, and instead just iterate through all items as they
+    /// are stored.
+    ///
+    /// Whether specific items are merged or not is an implementation detail, and should not be
+    /// relied upon by your application. If you expect all mergable items to be merged, use iter().
+    pub fn raw_iter(&self) -> Cursor<E, I, IE, LE> { self.cursor_at_start() }
 
-    // TODO: Is this the best name? rle_iter? ??.
-    pub fn merged_iter<'a>(&'a self) -> impl Iterator<Item = E> + 'a { merge_items(self.cursor_at_start()) }
+    /// Iterate through all entries in the content tree. This iterator will yield all entries
+    /// merged according to the methods in SplitableSpan.
+    pub fn iter(&self) -> MergeIter<Cursor<E, I, IE, LE>> { merge_items(self.cursor_at_start()) }
 
     pub fn item_iter(&self) -> ItemIterator<E, I, IE, LE> {
-        ItemIterator(self.iter())
+        ItemIterator(self.raw_iter())
     }
 
     pub fn next_entry_or_panic(cursor: &mut UnsafeCursor<E, I, IE, LE>, marker: &mut I::IndexUpdate) {
@@ -300,7 +309,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
         // We'll get the distribution of entry sizes
         let mut size_counts = vec!();
 
-        for entry in self.iter() {
+        for entry in self.raw_iter() {
             // println!("entry {:?}", entry);
             let bucket = entry.len() as usize;
             if bucket >= size_counts.len() {
@@ -335,7 +344,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
         println!("Total range tree memory usage {}",
              self.count_total_memory().file_size(file_size_opts::CONVENTIONAL).unwrap());
 
-        let compacted_entries = merge_items(self.iter()).count();
+        let compacted_entries = merge_items(self.raw_iter()).count();
         // println!("(efficient size: {})", (self.count_entries() * size_of::<E>()).file_size(file_size_opts::CONVENTIONAL).unwrap());
         println!("Compacts to {} entries / {} bytes",
              compacted_entries,
@@ -375,7 +384,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
 
     #[allow(unused)]
     pub fn count_entries(&self) -> usize {
-        self.iter().fold(0, |a, _| a + 1)
+        self.raw_iter().fold(0, |a, _| a + 1)
     }
 
     // Passing (num internal nodes, num leaf nodes).
@@ -417,13 +426,13 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
 
     #[allow(unused)]
     pub fn count_total_memory(&self) -> usize {
-        let mut size = size_of::<ContentTree<E, I, IE, LE>>();
+        let mut size = size_of::<ContentTreeRaw<E, I, IE, LE>>();
         Self::count_memory_internal(&self.root, &mut size);
         size
     }
 }
 
-impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     /// Returns a cursor right before the named location, referenced by the pointer.
     pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> UnsafeCursor<E, I, IE, LE> {
         // First make a cursor to the specified item
@@ -432,7 +441,7 @@ impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: us
     }
 }
 
-impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub fn content_len(&self) -> usize {
         I::index_to_content(self.count)
     }
@@ -450,7 +459,7 @@ impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const L
     }
 }
 
-impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub fn offset_len(&self) -> usize {
         I::index_to_offset(self.count)
     }
@@ -468,14 +477,14 @@ impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Content
     }
 }
     
-impl<E: EntryTraits + Searchable, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits + Searchable, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub fn at_offset(&self, pos: usize) -> Option<E::Item> {
         let cursor = self.unsafe_cursor_at_offset_pos(pos, false);
         unsafe { cursor.get_item() }
     }
 }
 
-impl<E: EntryTraits + ContentLength + Searchable, I: FindContent<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits + ContentLength + Searchable, I: FindContent<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub fn at_content(&self, pos: usize) -> Option<E::Item> {
         let cursor = self.unsafe_cursor_at_content_pos(pos, false);
         unsafe { cursor.get_item() }

@@ -1,12 +1,12 @@
 use std::fmt::Debug;
 use std::ops::{AddAssign, SubAssign};
 
-use crate::EntryTraits;
+use crate::ContentTraits;
 
 /// The index describes which fields we're tracking, and can query. Indexes let us convert
 /// cursors to positions and vice versa.
 
-pub trait TreeIndex<E: EntryTraits> where Self: Debug + Copy + Clone + PartialEq + Eq {
+pub trait TreeIndex<E: ContentTraits> where Self: Debug + Copy + Clone + PartialEq + Eq {
     type IndexUpdate: Debug + Default + PartialEq + Eq;
     type IndexValue: Copy + Clone + Default + Debug + AddAssign + SubAssign + PartialEq + Eq + Sized;
 
@@ -32,11 +32,11 @@ pub trait TreeIndex<E: EntryTraits> where Self: Debug + Copy + Clone + PartialEq
     fn count_items(_idx: Self::IndexValue) -> usize { panic!("Index cannot count items") }
 }
 
-pub trait FindContent<E: EntryTraits + ContentLength>: TreeIndex<E> {
+pub trait FindContent<E: ContentTraits + ContentLength>: TreeIndex<E> {
     fn index_to_content(offset: Self::IndexValue) -> usize;
 }
 
-pub trait FindOffset<E: EntryTraits>: TreeIndex<E> {
+pub trait FindOffset<E: ContentTraits>: TreeIndex<E> {
     fn index_to_offset(offset: Self::IndexValue) -> usize;
 }
 
@@ -45,7 +45,7 @@ pub trait FindOffset<E: EntryTraits>: TreeIndex<E> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct ContentIndex;
 
-impl<E: EntryTraits + ContentLength> TreeIndex<E> for ContentIndex {
+impl<E: ContentTraits + ContentLength> TreeIndex<E> for ContentIndex {
     type IndexUpdate = isize;
     type IndexValue = u32; // TODO: Move this to a template parameter.
 
@@ -77,7 +77,7 @@ impl<E: EntryTraits + ContentLength> TreeIndex<E> for ContentIndex {
     }
 }
 
-impl<E: EntryTraits + ContentLength> FindContent<E> for ContentIndex {
+impl<E: ContentTraits + ContentLength> FindContent<E> for ContentIndex {
     fn index_to_content(offset: Self::IndexValue) -> usize { offset as usize }
     // fn entry_to_num(entry: &E) -> usize { entry.content_len() }
 }
@@ -86,7 +86,7 @@ impl<E: EntryTraits + ContentLength> FindContent<E> for ContentIndex {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct RawPositionIndex;
 
-impl<E: EntryTraits> TreeIndex<E> for RawPositionIndex {
+impl<E: ContentTraits> TreeIndex<E> for RawPositionIndex {
     type IndexUpdate = isize;
     type IndexValue = u32; // TODO: Move this to a template parameter.
 
@@ -121,7 +121,7 @@ impl<E: EntryTraits> TreeIndex<E> for RawPositionIndex {
     fn count_items(idx: Self::IndexValue) -> usize { idx as usize }
 }
 
-impl<E: EntryTraits> FindOffset<E> for RawPositionIndex {
+impl<E: ContentTraits> FindOffset<E> for RawPositionIndex {
     fn index_to_offset(offset: Self::IndexValue) -> usize { offset as usize }
 }
 
@@ -149,7 +149,7 @@ impl<V: Copy + Clone + Default + AddAssign + SubAssign + PartialEq + Eq> SubAssi
     }
 }
 
-impl<E: EntryTraits + ContentLength> TreeIndex<E> for FullIndex {
+impl<E: ContentTraits + ContentLength> TreeIndex<E> for FullIndex {
     // In pair, len = 0, content = 1.
     type IndexUpdate = Pair<i32>;
     type IndexValue = Pair<u32>;
@@ -188,13 +188,13 @@ impl<E: EntryTraits + ContentLength> TreeIndex<E> for FullIndex {
     fn count_items(idx: Self::IndexValue) -> usize { idx.0 as usize }
 }
 
-impl<E: EntryTraits + ContentLength> FindContent<E> for FullIndex {
+impl<E: ContentTraits + ContentLength> FindContent<E> for FullIndex {
     fn index_to_content(offset: Self::IndexValue) -> usize {
         offset.1 as usize
     }
 }
 
-impl<E: EntryTraits + ContentLength> FindOffset<E> for FullIndex {
+impl<E: ContentTraits + ContentLength> FindOffset<E> for FullIndex {
     fn index_to_offset(offset: Self::IndexValue) -> usize {
         offset.0 as usize
     }

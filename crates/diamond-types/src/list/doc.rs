@@ -82,8 +82,8 @@ impl ListCRDT {
             frontier: smallvec![ROOT_ORDER],
             client_data: vec![],
 
-            range_tree: ContentTree::new(),
-            index: ContentTree::new(),
+            range_tree: ContentTreeRaw::new(),
+            index: ContentTreeRaw::new(),
             // index: SplitList::new(),
 
             deletes: Rle::new(),
@@ -183,7 +183,7 @@ impl ListCRDT {
         } else {
             let marker = self.marker_at(order);
             unsafe {
-                ContentTree::cursor_before_item(order, marker)
+                ContentTreeRaw::cursor_before_item(order, marker)
             }
         }
     }
@@ -197,7 +197,7 @@ impl ListCRDT {
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
             // self.content_tree.
             let mut cursor = unsafe {
-                ContentTree::cursor_before_item(order, marker)
+                ContentTreeRaw::cursor_before_item(order, marker)
             };
             // The cursor points to parent. This is safe because of guarantees provided by
             // cursor_before_item.
@@ -346,7 +346,7 @@ impl ListCRDT {
         }
 
         // Now insert here.
-        unsafe { ContentTree::unsafe_insert(&mut cursor, item, notify_for(&mut self.index)); }
+        unsafe { ContentTreeRaw::unsafe_insert(&mut cursor, item, notify_for(&mut self.index)); }
     }
 
     fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
@@ -703,7 +703,7 @@ impl ListCRDT {
 
     #[allow(unused)]
     pub fn debug_print_segments(&self) {
-        for entry in self.range_tree.iter() {
+        for entry in self.range_tree.raw_iter() {
             let loc = self.get_crdt_location(entry.order);
             println!("order {} l{} from {} / {} <-> {}", entry.order, entry.len(), loc.agent, entry.origin_left, entry.origin_right);
         }

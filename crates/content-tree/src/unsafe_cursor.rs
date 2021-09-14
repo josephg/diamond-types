@@ -6,7 +6,7 @@ use rle::Searchable;
 use super::*;
 
 // TODO: All these methods should be unsafe and have safe wrappers in safe_cursor.
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub(crate) fn new(node: NonNull<NodeLeaf<E, I, IE, LE>>, idx: usize, offset: usize) -> Self {
         UnsafeCursor { node, idx, offset }
     }
@@ -265,7 +265,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCu
     }
 }
 
-impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
+impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub unsafe fn get_item(&self) -> Option<E::Item> {
         // TODO: Optimize this. This is gross.
         let mut cursor = self.clone();
@@ -295,13 +295,13 @@ impl<E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: us
 //     }
 // }
 
-impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
+impl<E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub unsafe fn count_content_pos(&self) -> usize {
         I::index_to_content(self.count_pos())
     }
 }
 
-impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
+impl<E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub unsafe fn count_offset_pos(&self) -> usize {
         I::index_to_offset(self.count_pos())
     }
@@ -312,7 +312,7 @@ impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> UnsafeC
 ///
 /// Also beware: A cursor pointing to the end of an entry will be considered less than a cursor
 /// pointing to the subsequent entry.
-impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for UnsafeCursor<E, I, IE, LE> {
+impl<E: ContentTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for UnsafeCursor<E, I, IE, LE> {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.node == other.node {
             // We'll compare cursors directly.
@@ -344,7 +344,7 @@ impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord
     }
 }
 
-impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialOrd for UnsafeCursor<E, I, IE, LE> {
+impl<E: ContentTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialOrd for UnsafeCursor<E, I, IE, LE> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -358,12 +358,12 @@ mod tests {
 
     #[test]
     fn compare_cursors() {
-        let mut tree = ContentTree::<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
 
         let cursor = tree.unsafe_cursor_at_start();
         assert_eq!(cursor, cursor);
 
-        tree.insert_at_start(TestRange { order: 0, len: 1, is_activated: true }, null_notify);
+        tree.insert_at_start_notify(TestRange { id: 0, len: 1, is_activated: true }, null_notify);
 
         let c1 = tree.unsafe_cursor_at_start();
         let c2 = tree.unsafe_cursor_at_end();
@@ -371,7 +371,7 @@ mod tests {
 
         // Ok now lets add a bunch of junk to make sure the tree has a bunch of internal nodes
         for i in 0..1000 {
-            tree.insert_at_start(TestRange { order: i, len: 1, is_activated: true }, null_notify);
+            tree.insert_at_start_notify(TestRange { id: i, len: 1, is_activated: true }, null_notify);
         }
 
         let c1 = tree.unsafe_cursor_at_start();
@@ -382,8 +382,8 @@ mod tests {
     #[test]
     fn empty_tree_has_empty_iter() {
         // Regression.
-        let tree = ContentTree::<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
-        for _item in tree.iter() {
+        let tree = ContentTreeRaw::<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        for _item in tree.raw_iter() {
             panic!("Found spurious item");
         }
     }

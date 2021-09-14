@@ -39,7 +39,7 @@ impl ListCRDT {
 
     fn check_index(&self) {
         // Go through each entry in the range tree and make sure we can find it using the index.
-        for entry in self.range_tree.iter() {
+        for entry in self.range_tree.raw_iter() {
             let marker = self.marker_at(entry.order);
             unsafe { marker.as_ref() }.find(entry.order).unwrap();
         }
@@ -96,7 +96,7 @@ impl ListCRDT {
 
     pub fn check_timetravel(&mut self, point: Order) {
         let double_deletes = self.double_deletes.clone();
-        let expect_range_tree: Rle<YjsSpan> = self.range_tree.iter().collect();
+        let expect_range_tree: Rle<YjsSpan> = self.range_tree.raw_iter().collect();
 
         // Ok now unapply- and reapply- changes back to the specified point.
         let span = self.linear_changes_since(point);
@@ -107,7 +107,7 @@ impl ListCRDT {
         self.check(false);
 
         assert_eq!(double_deletes, self.double_deletes);
-        let actual_range_tree: Rle<YjsSpan> = self.range_tree.iter().collect();
+        let actual_range_tree: Rle<YjsSpan> = self.range_tree.raw_iter().collect();
         assert_eq!(expect_range_tree, actual_range_tree);
     }
 }

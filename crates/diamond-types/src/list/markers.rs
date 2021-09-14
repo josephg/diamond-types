@@ -4,20 +4,20 @@ use std::ptr::NonNull;
 use rle::splitable_span::SplitableSpan;
 
 use content_tree::*;
-use content_tree::EntryTraits;
+use content_tree::ContentTraits;
 use rle::Searchable;
 
 // use crate::common::IndexGet;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct MarkerEntry<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub struct MarkerEntry<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     // This is cleaner as a separate enum and struct, but doing it that way
     // bumps it from 16 to 24 bytes per entry because of alignment.
     pub len: u32,
     pub ptr: Option<NonNull<NodeLeaf<E, I, IE, LE>>>,
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> SplitableSpan for MarkerEntry<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> SplitableSpan for MarkerEntry<E, I, IE, LE> {
     fn len(&self) -> usize {
         self.len as usize
     }
@@ -61,20 +61,20 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Splitabl
 
 
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Default for MarkerEntry<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Default for MarkerEntry<E, I, IE, LE> {
     fn default() -> Self {
         MarkerEntry {ptr: None, len: 0}
     }
 }
 
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> MarkerEntry<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> MarkerEntry<E, I, IE, LE> {
     pub fn unwrap_ptr(&self) -> NonNull<NodeLeaf<E, I, IE, LE>> {
         self.ptr.unwrap()
     }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Searchable for MarkerEntry<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Searchable for MarkerEntry<E, I, IE, LE> {
     type Item = Option<NonNull<NodeLeaf<E, I, IE, LE>>>;
 
     fn contains(&self, _loc: Self::Item) -> Option<usize> {

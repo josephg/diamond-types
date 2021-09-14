@@ -89,9 +89,9 @@ mod size_info {
     #[test]
     #[ignore]
     fn print_memory_stats() {
-        let x = ContentTree::<CRDTSpan, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let x = ContentTreeRaw::<CRDTSpan, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         x.print_stats("", false);
-        let x = ContentTree::<CRDTSpan, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let x = ContentTreeRaw::<CRDTSpan, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
         x.print_stats("", false);
 
         println!("sizeof ContentIndex offset {}", size_of::<<ContentIndex as TreeIndex<CRDTSpan>>::IndexValue>());

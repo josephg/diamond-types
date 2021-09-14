@@ -66,7 +66,7 @@ pub(crate) const DOC_LE: usize = DEFAULT_LE;
 // const DOC_LE: usize = 32;
 
 type DocRangeIndex = ContentIndex;
-type SpaceIndex = Pin<Box<ContentTree<MarkerEntry<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>, RawPositionIndex, INDEX_IE, INDEX_LE>>>;
+type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>, RawPositionIndex, INDEX_IE, INDEX_LE>>>;
 
 pub type DoubleDeleteList = Rle<KVPair<DoubleDelete>>;
 
@@ -95,7 +95,7 @@ pub struct ListCRDT {
     /// document locations.
     ///
     /// This is the CRDT chum for the space DAG.
-    range_tree: Pin<Box<ContentTree<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>>,
+    range_tree: Pin<Box<ContentTreeRaw<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>>,
 
     /// We need to be able to map each location to an item in the associated BST.
     /// Note for inserts which insert a lot of contiguous characters, this will

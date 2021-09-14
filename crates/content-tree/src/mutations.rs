@@ -10,12 +10,12 @@ use rle::append::AppendRLE;
 
 /// This file contains the core code for content-tree's mutation operations.
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
     /// is returned. The cursor is modified in-place to point after the inserted items.
     ///
     /// If the cursor points in the middle of an item, the item is split.
-    pub unsafe fn insert_internal<F>(mut items: &[E], cursor: &mut UnsafeCursor<E, I, IE, LE>, flush_marker: &mut I::IndexUpdate, notify: &mut F)
+    unsafe fn insert_internal<F>(mut items: &[E], cursor: &mut UnsafeCursor<E, I, IE, LE>, flush_marker: &mut I::IndexUpdate, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         if items.is_empty() { return; }
@@ -198,16 +198,31 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
         // cursor.compress_node();
     }
 
-    pub fn insert_at_start<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
+    #[inline(always)]
+    pub fn insert_at_start_notify<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         unsafe { Self::unsafe_insert(&mut self.unsafe_cursor_at_start(), new_entry, notify) }
     }
 
-    pub fn push<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
+    #[inline(always)]
+    pub fn insert_at_start(self: &mut Pin<Box<Self>>, new_entry: E) {
+        self.insert_at_start_notify(new_entry, null_notify);
+    }
+
+    #[inline(always)]
+    pub fn push_notify<F>(self: &mut Pin<Box<Self>>, new_entry: E, notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         unsafe { Self::unsafe_insert(&mut self.unsafe_cursor_at_end(), new_entry, notify) }
+    }
+
+    /// Push a new entry to the end of the tree. The new entry will be merged with the existing
+    /// last entry if possible.
+    #[inline(always)]
+    pub fn push(self: &mut Pin<Box<Self>>, new_entry: E)
+    {
+        self.push_notify(new_entry, null_notify);
     }
 
     /// Replace the item at the cursor position with the new items provided by items.
@@ -637,7 +652,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
 
 }
 
-impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub unsafe fn local_deactivate<F>(self: &mut Pin<Box<Self>>, mut cursor: UnsafeCursor<E, I, IE, LE>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
@@ -743,7 +758,7 @@ impl<E: EntryTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: us
     }
 }
 
-impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     // TODO: All these methods could just use self.mut_cursor_at...
     pub fn insert_at_offset<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
@@ -767,7 +782,7 @@ impl<E: EntryTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Content
     }
 }
 
-impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub fn insert_at_content<F>(self: &mut Pin<Box<Self>>, pos: usize, new_entry: E, notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
@@ -790,7 +805,7 @@ impl<E: EntryTraits + ContentLength, I: FindContent<E>, const IE: usize, const L
     }
 }
 
-impl<E: EntryTraits + ContentLength + Toggleable, I: FindContent<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
+impl<E: ContentTraits + ContentLength + Toggleable, I: FindContent<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub fn local_deactivate_at_content<F>(self: &mut Pin<Box<Self>>, offset: usize, deleted_len: usize, notify: F) -> DeleteResult<E>
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
@@ -800,7 +815,7 @@ impl<E: EntryTraits + ContentLength + Toggleable, I: FindContent<E>, const IE: u
 
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
 
     /// Split this leaf node at the specified index, so 0..idx stays and idx.. moves to a new node.
     ///
@@ -877,7 +892,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
     }
 }
 
-impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInternal<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInternal<E, I, IE, LE> {
     unsafe fn slice_out(&mut self, child: NodePtr<E, I, IE, LE>) -> Node<E, I, IE, LE> {
         if self.children[1].is_none() {
             // short circuit.
@@ -949,7 +964,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
 // I'm really not sure where to put these methods. Its not really associated with
 // any of the tree implementation methods. This seems like a hidden spot. Maybe
 // content-tree? I could put it in impl ParentPtr? I dunno...
-unsafe fn insert_after<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize>(
+unsafe fn insert_after<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize>(
     mut parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     mut inserted_leaf_node: Node<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     mut insert_after: NodePtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
@@ -1096,9 +1111,9 @@ mod tests {
 
     #[test]
     fn splice_insert_test() {
-        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         let entry = TestRange {
-            order: 1000,
+            id: 1000,
             len: 100,
             is_activated: true
         };
@@ -1106,7 +1121,7 @@ mod tests {
         tree.check();
 
         let entry = TestRange {
-            order: 1100,
+            id: 1100,
             len: 20,
             is_activated: true
         };
@@ -1114,19 +1129,19 @@ mod tests {
         tree.check();
 
         // println!("{:#?}", tree);
-        assert_eq!(tree.iter().collect::<Vec<TestRange>>(), vec![
-            TestRange { order: 1000, len: 15, is_activated: true },
-            TestRange { order: 1100, len: 20, is_activated: true },
-            TestRange { order: 1015, len: 85, is_activated: true },
+        assert_eq!(tree.raw_iter().collect::<Vec<TestRange>>(), vec![
+            TestRange { id: 1000, len: 15, is_activated: true },
+            TestRange { id: 1100, len: 20, is_activated: true },
+            TestRange { id: 1015, len: 85, is_activated: true },
         ]);
     }
 
     #[test]
     fn delete_collapses() {
-        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
 
         let entry = TestRange {
-            order: 1000,
+            id: 1000,
             len: 100,
             is_activated: true,
         };
@@ -1141,19 +1156,19 @@ mod tests {
         tree.local_deactivate_at_content(50, 1, null_notify);
         // dbg!(&tree);
 
-        assert_eq!(tree.iter().collect::<Vec<TestRange>>(), vec![
-            TestRange { order: 1000, len: 50, is_activated: true },
-            TestRange { order: 1050, len: 2, is_activated: false },
-            TestRange { order: 1052, len: 48, is_activated: true },
+        assert_eq!(tree.raw_iter().collect::<Vec<TestRange>>(), vec![
+            TestRange { id: 1000, len: 50, is_activated: true },
+            TestRange { id: 1050, len: 2, is_activated: false },
+            TestRange { id: 1052, len: 48, is_activated: true },
         ]);
     }
 
     #[test]
     fn backspace_collapses() {
-        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
 
         let entry = TestRange {
-            order: 1000,
+            id: 1000,
             len: 100,
             is_activated: true,
         };
@@ -1168,17 +1183,17 @@ mod tests {
         tree.local_deactivate_at_content(98, 1, null_notify);
         assert_eq!(tree.count_entries(), 2);
 
-        assert_eq!(tree.iter().collect::<Vec<TestRange>>(), vec![
-            TestRange { order: 1000, len: 98, is_activated: true },
-            TestRange { order: 1098, len: 2, is_activated: false },
+        assert_eq!(tree.raw_iter().collect::<Vec<TestRange>>(), vec![
+            TestRange { id: 1000, len: 98, is_activated: true },
+            TestRange { id: 1098, len: 2, is_activated: false },
         ]);
         tree.check();
     }
 
     #[test]
     fn delete_single_item() {
-        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
-        tree.insert_at_start(TestRange { order: 0, len: 10, is_activated: true }, null_notify);
+        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        tree.insert_at_start_notify(TestRange { id: 0, len: 10, is_activated: true }, null_notify);
 
         tree.delete_at_start(10, null_notify);
         assert_eq!(tree.len(), 0);
@@ -1187,10 +1202,10 @@ mod tests {
 
     #[test]
     fn delete_all_items() {
-        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
         let num = DEFAULT_LE + 1;
         for i in 0..num {
-            tree.insert_at_start(TestRange { order: i as _, len: 10, is_activated: true }, null_notify);
+            tree.insert_at_start_notify(TestRange { id: i as _, len: 10, is_activated: true }, null_notify);
         }
         // dbg!(&tree);
         assert!(!tree.root.is_leaf());
@@ -1202,29 +1217,29 @@ mod tests {
 
     #[test]
     fn delete_past_end() {
-        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
-        tree.insert_at_start(TestRange { order: 10 as _, len: 10, is_activated: true }, null_notify);
+        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        tree.insert_at_start_notify(TestRange { id: 10 as _, len: 10, is_activated: true }, null_notify);
         tree.delete_at_content(10, 100, null_notify);
 
-        assert_eq!(tree.iter().collect::<Vec<TestRange>>(), vec![
-            TestRange { order: 10, len: 10, is_activated: true },
+        assert_eq!(tree.raw_iter().collect::<Vec<TestRange>>(), vec![
+            TestRange { id: 10, len: 10, is_activated: true },
         ]);
     }
 
     #[test]
     fn push_into_empty() {
-        let mut tree = ContentTree::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
-        tree.push(TestRange { order: 0, len: 10, is_activated: true }, null_notify);
+        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        tree.push_notify(TestRange { id: 0, len: 10, is_activated: true }, null_notify);
     }
 
     #[test]
     fn mutation_wrappers() {
-        let mut tree = ContentTree::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
-        tree.insert_at_content(0, TestRange { order: 0, len: 10, is_activated: true }, null_notify);
+        let mut tree = ContentTreeRaw::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        tree.insert_at_content(0, TestRange { id: 0, len: 10, is_activated: true }, null_notify);
         assert_eq!(tree.offset_len(), 10);
         assert_eq!(tree.content_len(), 10);
 
-        tree.replace_range_at_content(3, TestRange { order: 100, len: 3, is_activated: false }, null_notify);
+        tree.replace_range_at_content(3, TestRange { id: 100, len: 3, is_activated: false }, null_notify);
         assert_eq!(tree.offset_len(), 10);
         assert_eq!(tree.content_len(), 7);
 

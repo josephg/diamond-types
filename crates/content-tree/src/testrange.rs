@@ -5,7 +5,7 @@ use rle::Searchable;
 /// This is a simple span object for testing.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct TestRange {
-    pub order: u32,
+    pub id: u32,
     pub len: u32,
     pub is_activated: bool,
 }
@@ -13,7 +13,7 @@ pub struct TestRange {
 impl Default for TestRange {
     fn default() -> Self {
         Self {
-            order: u32::MAX,
+            id: u32::MAX,
             len: u32::MAX,
             is_activated: false
         }
@@ -25,7 +25,7 @@ impl SplitableSpan for TestRange {
     fn truncate(&mut self, at: usize) -> Self {
         assert!(at > 0 && at < self.len as usize);
         let other = Self {
-            order: self.order + at as u32,
+            id: self.id + at as u32,
             len: self.len - at as u32,
             is_activated: self.is_activated
         };
@@ -40,7 +40,7 @@ impl SplitableSpan for TestRange {
     }
 
     fn can_append(&self, other: &Self) -> bool {
-        other.order == self.order + self.len && other.is_activated == self.is_activated
+        other.id == self.id + self.len && other.is_activated == self.is_activated
     }
 
     fn append(&mut self, other: Self) {
@@ -51,7 +51,7 @@ impl SplitableSpan for TestRange {
     fn prepend(&mut self, other: Self) {
         assert!(other.can_append(&self));
         self.len += other.len;
-        self.order = other.order;
+        self.id = other.id;
     }
 }
 
@@ -81,12 +81,12 @@ impl Searchable for TestRange {
     type Item = (u32, bool);
 
     fn contains(&self, loc: Self::Item) -> Option<usize> {
-        if self.is_activated == loc.1 && loc.0 >= self.order && loc.0 < (self.order + self.len) {
-            Some((loc.0 - self.order) as usize)
+        if self.is_activated == loc.1 && loc.0 >= self.id && loc.0 < (self.id + self.len) {
+            Some((loc.0 - self.id) as usize)
         } else { None }
     }
 
     fn at_offset(&self, offset: usize) -> Self::Item {
-        (offset as u32 + self.order, self.is_activated)
+        (offset as u32 + self.id, self.is_activated)
     }
 }

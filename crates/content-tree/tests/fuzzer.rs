@@ -8,7 +8,7 @@ use content_tree::testrange::TestRange;
 
 fn random_entry(rng: &mut SmallRng) -> TestRange {
     TestRange {
-        order: rng.gen_range(0..10),
+        id: rng.gen_range(0..10),
         len: rng.gen_range(1..10),
         is_activated: rng.gen_bool(0.5)
     }
@@ -89,7 +89,7 @@ fn random_edits_once(verbose: bool, iterations: usize) {
     for _i in 0..iterations {
         if verbose || _i % 10000 == 0 { println!("i {}", _i); }
         // TestRange is overkill for this, but eh.
-        let mut tree = ContentTree::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
         let mut list = vec![];
         let mut expected_len = 0;
 
@@ -171,7 +171,7 @@ fn random_edits_once(verbose: bool, iterations: usize) {
             let list_content = list.iter().fold(0usize, |sum, item| sum + item.content_len());
             assert_eq!(list_content, tree.content_len());
 
-            let tree_iter = merge_items(tree.iter());
+            let tree_iter = merge_items(tree.raw_iter());
             let list_iter = merge_items(list.iter().copied());
             assert!(tree_iter.eq(list_iter));
         }
