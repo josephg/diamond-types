@@ -9,7 +9,7 @@ use crate::list::markers::MarkerEntry;
 use crate::list::span::YjsSpan;
 use crate::list::txn::TxnSpan;
 use crate::order::OrderSpan;
-use crate::content_tree::*;
+use content_tree::*;
 // use crate::list::delete::DeleteEntry;
 use crate::rle::{KVPair, Rle};
 // use crate::split_list::SplitList;

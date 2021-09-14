@@ -1,9 +1,7 @@
 use std::fmt::Debug;
 use std::ops::{AddAssign, SubAssign};
 
-use diamond_core::ItemCount;
-
-use crate::content_tree::EntryTraits;
+use crate::EntryTraits;
 
 /// The index describes which fields we're tracking, and can query. Indexes let us convert
 /// cursors to positions and vice versa.
@@ -49,7 +47,7 @@ pub struct ContentIndex;
 
 impl<E: EntryTraits + ContentLength> TreeIndex<E> for ContentIndex {
     type IndexUpdate = isize;
-    type IndexValue = ItemCount;
+    type IndexValue = u32; // TODO: Move this to a template parameter.
 
     fn increment_marker(marker: &mut Self::IndexUpdate, entry: &E) {
         *marker += entry.content_len() as isize;
@@ -86,11 +84,11 @@ impl<E: EntryTraits + ContentLength> FindContent<E> for ContentIndex {
 
 /// Index based on the raw size of an element.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub(crate) struct RawPositionIndex;
+pub struct RawPositionIndex;
 
 impl<E: EntryTraits> TreeIndex<E> for RawPositionIndex {
     type IndexUpdate = isize;
-    type IndexValue = ItemCount;
+    type IndexValue = u32; // TODO: Move this to a template parameter.
 
     fn increment_marker(marker: &mut Self::IndexUpdate, entry: &E) {
         *marker += entry.len() as isize;
@@ -154,7 +152,7 @@ impl<V: Copy + Clone + Default + AddAssign + SubAssign + PartialEq + Eq> SubAssi
 impl<E: EntryTraits + ContentLength> TreeIndex<E> for FullIndex {
     // In pair, len = 0, content = 1.
     type IndexUpdate = Pair<i32>;
-    type IndexValue = Pair<ItemCount>;
+    type IndexValue = Pair<u32>;
 
     fn increment_marker(marker: &mut Self::IndexUpdate, entry: &E) {
         marker.0 += entry.len() as i32;

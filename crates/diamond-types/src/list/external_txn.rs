@@ -7,15 +7,16 @@ use serde_crate::{Deserialize, Serialize};
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
 
+use content_tree::Toggleable;
 use diamond_core::{AgentId, CRDT_DOC_ROOT, CRDTId};
+use rle::append::AppendRLE;
 use rle::splitable_span::SplitableSpan;
 
 use crate::crdtspan::CRDTSpan;
-use crate::content_tree::Toggleable;
 use crate::list::{Branch, ListCRDT, Order, ROOT_ORDER};
 use crate::list::external_txn::RemoteCRDTOp::{Del, Ins};
 use crate::order::OrderSpan;
-use crate::rle::{AppendRLE, KVPair, RleSpanHelpers};
+use crate::rle::{KVPair, RleSpanHelpers};
 
 // use crate::LocalOp;
 

@@ -22,7 +22,7 @@ use crate::list::Order;
 use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
-use crate::rle::AppendRLE;
+use rle::append::AppendRLE;
 use crate::unicount::count_chars;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

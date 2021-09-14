@@ -7,13 +7,12 @@ use super::*;
 
 // TODO: All these methods should be unsafe and have safe wrappers in safe_cursor.
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
-    pub(super) fn new(node: NonNull<NodeLeaf<E, I, IE, LE>>, idx: usize, offset: usize) -> Self {
-        // TODO: This is creating a cursor with 'static lifetime, which isn't really what we want.
+    pub(crate) fn new(node: NonNull<NodeLeaf<E, I, IE, LE>>, idx: usize, offset: usize) -> Self {
         UnsafeCursor { node, idx, offset }
     }
 
     #[allow(clippy::mut_from_ref)] // Dirty.
-    pub(super) unsafe fn get_node_mut(&self) -> &mut NodeLeaf<E, I, IE, LE> {
+    pub(crate) unsafe fn get_node_mut(&self) -> &mut NodeLeaf<E, I, IE, LE> {
         &mut *self.node.as_ptr()
     }
 
@@ -50,7 +49,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCu
 
     /// Move back to the previous entry. Returns true if it exists, otherwise
     /// returns false if we're at the start of the doc already.
-    pub(super) fn prev_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
+    pub fn prev_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
         if self.idx > 0 {
             self.idx -= 1;
             self.offset = self.get_raw_entry().len();
@@ -64,14 +63,14 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCu
         }
     }
 
-    pub(super) fn prev_entry(&mut self) -> bool {
+    pub fn prev_entry(&mut self) -> bool {
         self.prev_entry_marker(None)
     }
 
     /// Go to the next entry marker and update the (optional) flush marker.
     /// Returns true if successful, or false if we've reached the end of the document.
     #[inline(always)]
-    pub(super) fn next_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
+    pub fn next_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
         // TODO: Do this without code duplication of next/prev entry marker.
         unsafe {
             if self.idx + 1 < self.node.as_ref().num_entries as usize {
@@ -152,7 +151,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCu
         } else { None }
     }
 
-    pub(super) fn get_raw_entry_mut(&mut self) -> &mut E {
+    pub fn get_raw_entry_mut(&mut self) -> &mut E {
         assert_ne!(self.offset, usize::MAX, "Cannot get entry for a cursor to an empty list");
         let node = unsafe { self.node.as_mut() };
         debug_assert!(self.idx < node.len_entries());
@@ -163,7 +162,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCu
     /// to be a cursor to the start of the next entry - potentially in the following leaf.
     ///
     /// Returns false if the resulting cursor location points past the end of the tree.
-    pub(crate) fn roll_to_next_entry(&mut self) -> bool {
+    pub fn roll_to_next_entry(&mut self) -> bool {
         unsafe {
             if self.offset == usize::MAX {
                 // The tree is empty.
@@ -189,7 +188,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCu
         true
     }
 
-    pub(super) fn move_forward_by(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
+    pub fn move_forward_by(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
         loop {
             let len_here = self.get_raw_entry().len();
             if self.offset + amt <= len_here {
@@ -204,7 +203,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCu
     }
 
     // How widely useful is this? This is optimized for small moves.
-    pub(super) fn move_back_by(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
+    pub fn move_back_by(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
         while self.offset < amt {
             amt -= self.offset;
             self.offset = 0;
@@ -354,17 +353,17 @@ impl<E: EntryTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Par
 
 #[cfg(test)]
 mod tests {
-    use crate::content_tree::*;
-    use crate::order::OrderSpan;
+    use super::*;
+    use crate::testrange::TestRange;
 
     #[test]
     fn compare_cursors() {
-        let mut tree = ContentTree::<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTree::<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
 
         let cursor = tree.unsafe_cursor_at_start();
         assert_eq!(cursor, cursor);
 
-        tree.insert_at_start(OrderSpan { order: 0, len: 1 }, null_notify);
+        tree.insert_at_start(TestRange { order: 0, len: 1, is_activated: true }, null_notify);
 
         let c1 = tree.unsafe_cursor_at_start();
         let c2 = tree.unsafe_cursor_at_end();
@@ -372,7 +371,7 @@ mod tests {
 
         // Ok now lets add a bunch of junk to make sure the tree has a bunch of internal nodes
         for i in 0..1000 {
-            tree.insert_at_start(OrderSpan { order: i, len: 1 }, null_notify);
+            tree.insert_at_start(TestRange { order: i, len: 1, is_activated: true }, null_notify);
         }
 
         let c1 = tree.unsafe_cursor_at_start();
@@ -383,7 +382,7 @@ mod tests {
     #[test]
     fn empty_tree_has_empty_iter() {
         // Regression.
-        let tree = ContentTree::<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let tree = ContentTree::<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
         for _item in tree.iter() {
             panic!("Found spurious item");
         }

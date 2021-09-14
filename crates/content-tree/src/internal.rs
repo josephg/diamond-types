@@ -2,7 +2,7 @@ use super::*;
 use std::mem::{self, MaybeUninit};
 
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInternal<E, I, IE, LE> {
-    pub(super) fn new_with_parent(parent: ParentPtr<E, I, IE, LE>) -> Pin<Box<Self>> {
+    pub fn new_with_parent(parent: ParentPtr<E, I, IE, LE>) -> Pin<Box<Self>> {
         // From the example in the docs:
         // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#initializing-an-array-element-by-element
         let mut children: [MaybeUninit<Option<Node<E, I, IE, LE>>>; IE] = unsafe {
@@ -24,8 +24,8 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
     }
 
     /// Finds the child at some given offset. Returns the remaining offset within the found child.
-    pub(super) fn find_child_at_offset<F>(&self, raw_pos: usize, stick_end: bool, offset_to_num: &F)
-        -> Option<(usize, NodePtr<E, I, IE, LE>)>
+    pub(crate) fn find_child_at_offset<F>(&self, raw_pos: usize, stick_end: bool, offset_to_num: &F)
+                                   -> Option<(usize, NodePtr<E, I, IE, LE>)>
             where F: Fn(I::IndexValue) -> usize {
 
         let mut offset_remaining = raw_pos;
@@ -46,7 +46,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
         None
     }
 
-    pub(super) fn set_entry(self: Pin<&mut Self>, idx: usize, count: I::IndexValue, child: Option<Node<E, I, IE, LE>>) {
+    pub fn set_entry(self: Pin<&mut Self>, idx: usize, count: I::IndexValue, child: Option<Node<E, I, IE, LE>>) {
         unsafe {
             let ptr = self.get_unchecked_mut();
             ptr.index[idx] = count;
@@ -62,7 +62,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
 
     /// Insert a new item in the tree. This DOES NOT update the child counts in
     /// the parents. (So the tree will be in an invalid state after this has been called.)
-    pub(super) fn splice_in(&mut self, idx: usize, mut count: I::IndexValue, elem: Node<E, I, IE, LE>) {
+    pub fn splice_in(&mut self, idx: usize, mut count: I::IndexValue, elem: Node<E, I, IE, LE>) {
         // let mut buffer = (count, Some(elem));
         let mut elem_buffer = Some(elem);
 
@@ -84,7 +84,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
         // println!("self data {:#?}", self.data);
     }
 
-    pub(super) fn count_children(&self) -> usize {
+    pub fn count_children(&self) -> usize {
         self.children.iter()
         .position(|c| c.is_none())
         .unwrap_or(IE)
@@ -96,19 +96,19 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInte
     //     let last = &self.data[self.count_children() - 1];
     //     unsafe { (last.0, last.1.unwrap().as_ptr()) }
     // }
-    pub(super) fn last_child(&self) -> NodePtr<E, I, IE, LE> {
+    pub fn last_child(&self) -> NodePtr<E, I, IE, LE> {
         let last = &self.children[self.count_children() - 1];
         unsafe { last.as_ref().unwrap().as_ptr() }
     }
 
-    pub(super) fn find_child(&self, child: NodePtr<E, I, IE, LE>) -> Option<usize> {
+    pub fn find_child(&self, child: NodePtr<E, I, IE, LE>) -> Option<usize> {
         self.children.iter()
         .position(|c| c.as_ref()
             .map_or(false, |n| n.ptr_eq(child))
         )
     }
 
-    pub(super) unsafe fn to_parent_ptr(&self) -> ParentPtr<E, I, IE, LE> {
+    pub unsafe fn to_parent_ptr(&self) -> ParentPtr<E, I, IE, LE> {
         ParentPtr::Internal(ref_to_nonnull(self))
     }
 }

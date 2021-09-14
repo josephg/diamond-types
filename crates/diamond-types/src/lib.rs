@@ -3,7 +3,6 @@
 pub mod list;
 
 mod common;
-mod content_tree;
 mod order;
 mod rle;
 mod unicount;
@@ -83,10 +82,9 @@ pub mod fuzz_helpers {
 
 #[cfg(test)]
 mod size_info {
-    use crate::content_tree::*;
     use std::mem::size_of;
+    use content_tree::*;
     use crate::crdtspan::CRDTSpan;
-    use crate::content_tree::{ContentTree, ContentIndex, FullIndex};
 
     #[test]
     #[ignore]

@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 pub mod splitable_span;
 pub mod merge_iter;
+pub mod append;
 
 pub trait Searchable {
     type Item: Copy + Debug;

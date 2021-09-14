@@ -3,8 +3,8 @@ use std::ptr::NonNull;
 
 use rle::splitable_span::SplitableSpan;
 
-use crate::content_tree::*;
-use crate::content_tree::EntryTraits;
+use content_tree::*;
+use content_tree::EntryTraits;
 use rle::Searchable;
 
 // use crate::common::IndexGet;

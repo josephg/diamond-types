@@ -1,13 +1,12 @@
+use std::fmt::Debug;
+
+use rle::Searchable;
+use rle::splitable_span::SplitableSpan;
+pub use simple_rle::Rle;
 
 pub type RleKey = u32;
 
 mod simple_rle;
-
-pub use simple_rle::Rle;
-use rle::splitable_span::SplitableSpan;
-use std::fmt::Debug;
-use smallvec::SmallVec;
-use rle::Searchable;
 
 pub trait RleKeyed {
     fn get_rle_key(&self) -> RleKey;
@@ -75,70 +74,12 @@ impl<V: Default> Default for KVPair<V> {
     }
 }
 
-
-pub trait AppendRLE<T: SplitableSpan> {
-    fn push_rle(&mut self, item: T);
-    fn push_reversed_rle(&mut self, item: T);
-}
-
-// Apparently the cleanest way to do this DRY is using macros.
-impl<T: SplitableSpan> AppendRLE<T> for Vec<T> {
-    fn push_rle(&mut self, item: T) {
-        if let Some(v) = self.last_mut() {
-            if v.can_append(&item) {
-                v.append(item);
-                return;
-            }
-        }
-
-        self.push(item);
-    }
-
-    fn push_reversed_rle(&mut self, item: T) {
-        if let Some(v) = self.last_mut() {
-            if item.can_append(v) {
-                v.prepend(item);
-                return;
-            }
-        }
-
-        self.push(item);
-    }
-}
-
-impl<A: smallvec::Array> AppendRLE<A::Item> for SmallVec<A> where A::Item: SplitableSpan {
-    fn push_rle(&mut self, item: A::Item) {
-        debug_assert!(item.len() > 0);
-
-        if let Some(v) = self.last_mut() {
-            if v.can_append(&item) {
-                v.append(item);
-                return;
-            }
-        }
-
-        self.push(item);
-    }
-
-    fn push_reversed_rle(&mut self, item: A::Item) {
-        debug_assert!(item.len() > 0);
-
-        if let Some(v) = self.last_mut() {
-            if item.can_append(v) {
-                v.prepend(item);
-                return;
-            }
-        }
-
-        self.push(item);
-    }
-}
-
 #[cfg(test)]
 mod test {
     use rle::splitable_span::test_splitable_methods_valid;
-    use crate::rle::KVPair;
+
     use crate::order::OrderSpan;
+    use crate::rle::KVPair;
 
     #[test]
     fn kvpair_valid() {

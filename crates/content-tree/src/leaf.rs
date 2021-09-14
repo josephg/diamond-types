@@ -8,11 +8,11 @@ use super::*;
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
     // no reason for this object to be pinned. (Is that a bad idea? I'm not sure.)
-    pub(super) unsafe fn new(next: Option<NonNull<Self>>) -> Self {
+    pub(crate) unsafe fn new(next: Option<NonNull<Self>>) -> Self {
         Self::new_with_parent(ParentPtr::Root(NonNull::dangling()), next)
     }
 
-    pub(super) fn new_with_parent(parent: ParentPtr<E, I, IE, LE>, next: Option<NonNull<Self>>) -> Self {
+    pub(crate) fn new_with_parent(parent: ParentPtr<E, I, IE, LE>, next: Option<NonNull<Self>>) -> Self {
         Self {
             parent,
             data: [E::default(); LE],
@@ -76,7 +76,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
         self.adjacent_leaf_by_traversal(false)
     }
 
-    pub(super) fn adjacent_leaf_by_traversal(&self, direction_forward: bool) -> Option<NonNull<Self>> {
+    pub fn adjacent_leaf_by_traversal(&self, direction_forward: bool) -> Option<NonNull<Self>> {
         // println!("** traverse called {:?} {}", self, traverse_next);
         // idx is 0. Go up as far as we can until we get to an index that has room, or we hit the
         // root.
@@ -147,13 +147,13 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
     //     .position(|e| e.loc.client == CLIENT_INVALID)
     //     .unwrap_or(NUM_ENTRIES)
     // }
-    pub(super) fn len_entries(&self) -> usize {
+    pub fn len_entries(&self) -> usize {
         self.num_entries as usize
     }
 
     // Recursively (well, iteratively) ascend and update all the counts along
     // the way up. TODO: Move this - This method shouldn't be in NodeLeaf.
-    pub(super) fn update_parent_count(&mut self, amt: I::IndexUpdate) {
+    pub fn update_parent_count(&mut self, amt: I::IndexUpdate) {
         if amt == I::IndexUpdate::default() { return; }
 
         let mut child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self) });
@@ -183,17 +183,17 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
         }
     }
 
-    pub(super) fn flush_index_update(&mut self, marker: &mut I::IndexUpdate) {
+    pub fn flush_index_update(&mut self, marker: &mut I::IndexUpdate) {
         // println!("flush {:?}", marker);
         let amt = take(marker);
         self.update_parent_count(amt);
     }
 
-    pub(super) fn has_root_as_parent(&self) -> bool {
+    pub fn has_root_as_parent(&self) -> bool {
         self.parent.is_root()
     }
 
-    pub(super) fn count_items(&self) -> I::IndexValue {
+    pub fn count_items(&self) -> I::IndexValue {
         if I::CAN_COUNT_ITEMS {
             // Optimization using the index. TODO: check if this is actually faster.
             match self.parent {
@@ -217,12 +217,12 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf
     }
 
     /// Remove a single item from the node
-    pub(super) fn splice_out(&mut self, idx: usize) {
+    pub fn splice_out(&mut self, idx: usize) {
         self.data.copy_within(idx + 1..self.num_entries as usize, idx);
         self.num_entries -= 1;
     }
 
-    pub(super) fn clear_all(&mut self) {
+    pub fn clear_all(&mut self) {
         // self.data[0..self.num_entries as usize].fill(E::default());
         self.num_entries = 0;
     }

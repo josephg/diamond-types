@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 use rle::merge_iter::merge_items;
 use rle::Searchable;
 
-use crate::content_tree::safe_cursor::ItemIterator;
+use super::safe_cursor::ItemIterator;
 
 use super::*;
 
@@ -43,7 +43,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
     //     cursor.get_item()
     // }
 
-    pub(super) unsafe fn to_parent_ptr(&self) -> ParentPtr<E, I, IE, LE> {
+    pub(crate) unsafe fn to_parent_ptr(&self) -> ParentPtr<E, I, IE, LE> {
         ParentPtr::Root(ref_to_nonnull(self))
     }
 
@@ -374,7 +374,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
     }
 
     #[allow(unused)]
-    pub(crate) fn count_entries(&self) -> usize {
+    pub fn count_entries(&self) -> usize {
         self.iter().fold(0, |a, _| a + 1)
     }
 
@@ -392,7 +392,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
     }
 
     #[allow(unused)]
-    pub(crate) fn count_nodes(&self) -> (usize, usize) {
+    pub fn count_nodes(&self) -> (usize, usize) {
         let mut num = (0, 0);
         Self::count_nodes_internal(&self.root, &mut num);
         num
@@ -416,7 +416,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
     }
 
     #[allow(unused)]
-    pub(crate) fn count_total_memory(&self) -> usize {
+    pub fn count_total_memory(&self) -> usize {
         let mut size = size_of::<ContentTree<E, I, IE, LE>>();
         Self::count_memory_internal(&self.root, &mut size);
         size

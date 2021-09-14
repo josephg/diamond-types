@@ -3,8 +3,7 @@ use std::ops::Deref;
 
 use rle::Searchable;
 
-use crate::content_tree::*;
-use crate::content_tree::EntryTraits;
+use super::*;
 
 /// This file provides the safe implementation methods for cursors.
 
@@ -177,7 +176,7 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentT
 
 /// Iterator for all the items inside the entries. Unlike entry iteration we use the offset here.
 #[derive(Debug)]
-pub struct ItemIterator<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize>(pub(super) Cursor<'a, E, I, IE, LE>);
+pub struct ItemIterator<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize>(pub Cursor<'a, E, I, IE, LE>);
 
 impl<'a, E: EntryTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for ItemIterator<'a, E, I, IE, LE> {
     type Item = E::Item;

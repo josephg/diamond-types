@@ -10,7 +10,7 @@ use rle::splitable_span::SplitableSpan;
 use InsDelTag::*;
 use ropey::Rope;
 use crate::unicount::chars_to_bytes;
-use crate::rle::AppendRLE;
+use rle::append::AppendRLE;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 

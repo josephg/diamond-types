@@ -7,3 +7,9 @@ edition = "2018"
 
 [dependencies]
 rle = { path = "../rle" }
+# Only used for printing stats. TODO: Move me to dev-dependencies!
+humansize = "1.1"
+smallvec = { version = "1.6", features = ["union"] }
+
+[dev-dependencies]
+rand = { version = "^0.8", features = ["small_rng"] }

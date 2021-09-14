@@ -1,8 +1,8 @@
 use rle::Searchable;
 use rle::splitable_span::SplitableSpan;
 
-use crate::content_tree::ContentLength;
-use crate::content_tree::Toggleable;
+use content_tree::ContentLength;
+use content_tree::Toggleable;
 use crate::list::Order;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]

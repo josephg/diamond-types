@@ -6,20 +6,20 @@ use std::pin::Pin;
 use ropey::Rope;
 use smallvec::SmallVec;
 
+use content_tree::*;
 use diamond_core::CRDTId;
+use rle::append::AppendRLE;
 use rle::splitable_span::SplitableSpan;
 use TraversalComponent::*;
 
 use crate::crdtspan::CRDTSpan;
-use crate::content_tree::Toggleable;
 use crate::list::{DoubleDeleteList, ListCRDT, Order};
 use crate::list::double_delete::DoubleDelete;
 use crate::list::external_txn::RemoteIdSpan;
 use crate::list::ot::positional::{InsDelTag, PositionalComponent, PositionalOp};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp, TraversalOpSequence};
 use crate::order::OrderSpan;
-use crate::content_tree::*;
-use crate::rle::{AppendRLE, KVPair, Rle, RleKey, RleKeyed, RleSpanHelpers};
+use crate::rle::{KVPair, Rle, RleKey, RleKeyed, RleSpanHelpers};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
@@ -56,12 +56,10 @@ impl TreeIndex<TraversalComponent> for PrePostIndex {
 
 pub(super) type PositionMap = Pin<Box<ContentTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>>>;
 
-impl ContentTree<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
-    pub fn mut_cursor_at_post<'a>(self: &'a mut Pin<Box<Self>>, pos: usize, stick_end: bool) -> MutCursor<'a, TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
-        self.mut_cursor_at_query(pos, stick_end,
-                                    |i| i.1 as usize,
-                                    |e| e.post_len() as usize)
-    }
+pub(super) fn positionmap_mut_cursor_at_post<'a>(map: &'a mut PositionMap, pos: usize, stick_end: bool) -> MutCursor<'a, TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
+    map.mut_cursor_at_query(pos, stick_end,
+                                |i| i.1 as usize,
+                                |e| e.post_len() as usize)
 }
 
 /// This is a simple struct designed to pull some self contained complexity out of
@@ -289,7 +287,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 if allowed {
                     // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
                     let post_pos = unsafe { rt_cursor.count_content_pos() };
-                    let mut map_cursor = self.map.mut_cursor_at_post(post_pos as _, true);
+                    let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos as _, true);
                     // We call insert instead of replace_range here because the delete doesn't
                     // consume "space".
 
@@ -331,7 +329,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 let entry = if content_known {
                     // post_pos + 1 is a hack. cursor_at_offset_pos returns the first cursor
                     // location which has the right position.
-                    let mut map_cursor = self.map.mut_cursor_at_post(post_pos as usize + 1, true);
+                    let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos as usize + 1, true);
                     map_cursor.inner.offset -= 1;
                     let pre_pos = map_cursor.count_pos().0;
                     map_cursor.replace_range(Ins { len: len_here, content_known });
@@ -342,7 +340,7 @@ impl<'a> Iterator for PatchIter<'a> {
                         tag: InsDelTag::Ins
                     }
                 } else {
-                    let mut map_cursor = self.map.mut_cursor_at_post(post_pos as usize, true);
+                    let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos as usize, true);
                     map_cursor.inner.roll_to_next_entry();
                     map_cursor.delete(len_here as usize);
                     PositionalComponent {
@@ -575,12 +573,13 @@ mod test {
     use ropey::Rope;
     use smallvec::smallvec;
 
+    use rle::append::AppendRLE;
+
     use crate::fuzz_helpers::make_random_change;
     use crate::list::{ListCRDT, ROOT_ORDER};
     use crate::list::ot::positional::*;
     use crate::list::ot::positionmap::*;
     use crate::list::ot::traversal::*;
-    use crate::rle::AppendRLE;
 
 // use crate::list::external_txn::{RemoteTxn, RemoteId};
 
@@ -782,7 +781,7 @@ mod test {
         let mut tree: PositionMap = ContentTree::new();
         tree.insert_at_start(TraversalComponent::Retain(10), null_notify);
 
-        let cursor = tree.mut_cursor_at_post(4, true);
+        let cursor = positionmap_mut_cursor_at_post(&mut tree, 4, true);
         assert_eq!(cursor.count_pos(), Pair(4, 4));
     }
 

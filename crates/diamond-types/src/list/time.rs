@@ -2,7 +2,7 @@ use crate::list::{ListCRDT, ROOT_ORDER, Order};
 use crate::order::OrderSpan;
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
-use crate::rle::AppendRLE;
+use rle::append::AppendRLE;
 use crate::list::doc::notify_for;
 use rle::splitable_span::SplitableSpan;
 use rle::Searchable;

@@ -1,7 +1,7 @@
 use diamond_core::CRDTId;
 use rle::splitable_span::SplitableSpan;
 
-use crate::content_tree::ContentLength;
+use content_tree::ContentLength;
 use rle::Searchable;
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]

@@ -4,10 +4,11 @@ use std::iter::FromIterator;
 
 use humansize::{file_size_opts, FileSize};
 
+use rle::append::AppendRLE;
 use rle::Searchable;
 use rle::splitable_span::SplitableSpan;
 
-use crate::rle::{AppendRLE, RleKey, RleKeyed, RleSpanHelpers};
+use crate::rle::{RleKey, RleKeyed, RleSpanHelpers};
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Default, Clone, Eq, PartialEq, Debug)]

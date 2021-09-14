@@ -1,101 +1,10 @@
 use rand::prelude::*;
 
 use rle::merge_iter::merge_items;
-use rle::Searchable;
 use rle::splitable_span::SplitableSpan;
 
-use crate::content_tree::*;
-use crate::content_tree::index::Toggleable;
-use crate::list::Order;
-
-/// This is a simple span object for testing.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct TestRange {
-    pub order: Order,
-    pub len: u32,
-    pub is_activated: bool,
-}
-
-impl Default for TestRange {
-    fn default() -> Self {
-        Self {
-            order: Order::MAX,
-            len: u32::MAX,
-            is_activated: false
-        }
-    }
-}
-
-impl SplitableSpan for TestRange {
-    fn len(&self) -> usize { self.len as usize }
-    fn truncate(&mut self, at: usize) -> Self {
-        assert!(at > 0 && at < self.len as usize);
-        let other = Self {
-            order: self.order + at as u32,
-            len: self.len - at as u32,
-            is_activated: self.is_activated
-        };
-        self.len = at as u32;
-        other
-    }
-
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        let mut other = *self;
-        *self = other.truncate(at);
-        other
-    }
-
-    fn can_append(&self, other: &Self) -> bool {
-        other.order == self.order + self.len && other.is_activated == self.is_activated
-    }
-
-    fn append(&mut self, other: Self) {
-        assert!(self.can_append(&other));
-        self.len += other.len;
-    }
-
-    fn prepend(&mut self, other: Self) {
-        assert!(other.can_append(&self));
-        self.len += other.len;
-        self.order = other.order;
-    }
-}
-
-impl Toggleable for TestRange {
-    fn is_activated(&self) -> bool {
-        self.is_activated
-    }
-
-    fn mark_activated(&mut self) {
-        assert!(!self.is_activated);
-        self.is_activated = true;
-    }
-
-    fn mark_deactivated(&mut self) {
-        assert!(self.is_activated);
-        self.is_activated = false;
-    }
-}
-
-impl ContentLength for TestRange {
-    fn content_len(&self) -> usize {
-        if self.is_activated { self.len() } else { 0 }
-    }
-}
-
-impl Searchable for TestRange {
-    type Item = (Order, bool);
-
-    fn contains(&self, loc: Self::Item) -> Option<usize> {
-        if self.is_activated == loc.1 && loc.0 >= self.order && loc.0 < (self.order + self.len) {
-            Some((loc.0 - self.order) as usize)
-        } else { None }
-    }
-
-    fn at_offset(&self, offset: usize) -> Self::Item {
-        (offset as Order + self.order, self.is_activated)
-    }
-}
+use content_tree::*;
+use content_tree::testrange::TestRange;
 
 fn random_entry(rng: &mut SmallRng) -> TestRange {
     TestRange {
@@ -178,7 +87,7 @@ fn random_edits_once(verbose: bool, iterations: usize) {
     // sure the content is always the same.
 
     for _i in 0..iterations {
-        if verbose { println!("i {}", _i); }
+        if verbose || _i % 10000 == 0 { println!("i {}", _i); }
         // TestRange is overkill for this, but eh.
         let mut tree = ContentTree::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
         let mut list = vec![];
@@ -204,11 +113,11 @@ fn random_edits_once(verbose: bool, iterations: usize) {
                 insert_into_list(&mut list, pos as usize, item);
 
                 expected_len += item.len();
-            } else if tree.count.0 > 10 && rng.gen_bool(0.5) {
+            } else if tree.content_len() > 10 && rng.gen_bool(0.5) {
                 // Modify something.
                 let item = random_entry(&mut rng);
                 // let pos = rng.gen_range(0..tree.count.0 - item.len);
-                let pos = rng.gen_range(0..=tree.count.0);
+                let pos = rng.gen_range(0..=tree.offset_len() as u32);
 
                 if verbose {
                     println!("Replacing {} entries at position {} with {:?}", item.len(), pos, item);
@@ -227,13 +136,13 @@ fn random_edits_once(verbose: bool, iterations: usize) {
                 expected_len = expected_len - amt_deleted + item.len();
             } else {
                 // Delete something
-                assert!(tree.count.0 > 0);
+                assert!(tree.offset_len() > 0);
 
                 // Delete up to 20 items, but not more than we have in the document!
                 // let del_span = rng.gen_range(1..=u32::min(tree.count.0, 20));
                 let del_span = rng.gen_range(0..=20);
                 // let pos = rng.gen_range(0..=tree.count.0 - del_span);
-                let pos = rng.gen_range(0..=tree.count.0);
+                let pos = rng.gen_range(0..=tree.offset_len() as u32);
 
                 if verbose {
                     println!("Deleting {} entries at position {} (size {})", pos, del_span, expected_len);
@@ -257,10 +166,10 @@ fn random_edits_once(verbose: bool, iterations: usize) {
 
             let list_len = list.iter().fold(0usize, |sum, item| sum + item.len());
             assert_eq!(expected_len, list_len);
-            assert_eq!(expected_len, tree.count.0 as usize);
+            assert_eq!(expected_len, tree.offset_len());
 
             let list_content = list.iter().fold(0usize, |sum, item| sum + item.content_len());
-            assert_eq!(list_content, tree.count.1 as usize);
+            assert_eq!(list_content, tree.content_len());
 
             let tree_iter = merge_items(tree.iter());
             let list_iter = merge_items(list.iter().copied());
@@ -272,4 +181,10 @@ fn random_edits_once(verbose: bool, iterations: usize) {
 #[test]
 fn random_edits() {
     random_edits_once(false, 300);
+}
+
+#[test]
+#[ignore]
+fn random_edits_forever() {
+    random_edits_once(false, usize::MAX);
 }

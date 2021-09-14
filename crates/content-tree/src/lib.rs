@@ -19,10 +19,8 @@ mod leaf;
 mod internal;
 mod mutations;
 mod index;
-
-#[cfg(test)]
-mod fuzzer;
 mod safe_cursor;
+pub mod testrange;
 
 // pub(crate) use cursor::Cursor;
 
@@ -62,7 +60,7 @@ pub struct ContentTree<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize
 
 /// An internal node in the B-tree
 #[derive(Debug)]
-struct NodeInternal<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
+pub(crate) struct NodeInternal<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
     parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
@@ -85,21 +83,21 @@ pub struct NodeLeaf<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, c
 }
 
 #[derive(Debug)]
-enum Node<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub(crate) enum Node<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     Internal(Pin<Box<NodeInternal<E, I, IE, LE>>>),
     Leaf(Pin<Box<NodeLeaf<E, I, IE, LE>>>),
 }
 
 // I hate that I need this, but its used all over the place when traversing the tree.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum NodePtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub(crate) enum NodePtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     Internal(NonNull<NodeInternal<E, I, IE, LE>>),
     Leaf(NonNull<NodeLeaf<E, I, IE, LE>>),
 }
 
 // TODO: Consider just reusing NodePtr for this.
 #[derive(Copy, Clone, Debug, Eq)]
-enum ParentPtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub(crate) enum ParentPtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     Root(NonNull<ContentTree<E, I, IE, LE>>),
     Internal(NonNull<NodeInternal<E, I, IE, LE>>)
 }
@@ -119,7 +117,7 @@ enum ParentPtr<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize
 pub struct UnsafeCursor<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     node: NonNull<NodeLeaf<E, I, IE, LE>>,
     idx: usize,
-    pub(crate) offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
+    pub offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
 }
 
 /// A cursor into an immutable ContentTree. A cursor is the primary way to read entries in the
@@ -140,7 +138,7 @@ pub struct Cursor<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE
 #[repr(transparent)]
 pub struct MutCursor<'a, E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     // TODO: Remove pub(crate).
-    pub(crate) inner: UnsafeCursor<E, I, IE, LE>,
+    pub inner: UnsafeCursor<E, I, IE, LE>,
     marker: marker::PhantomData<&'a mut ContentTree<E, I, IE, LE>>,
 }
 
@@ -226,26 +224,26 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Node<E, 
     //     }
     // }
 
-    pub(super) fn is_leaf(&self) -> bool {
+    pub fn is_leaf(&self) -> bool {
         match self {
             Node::Leaf(_) => true,
             Node::Internal(_) => false,
         }
     }
 
-    fn unwrap_leaf(&self) -> &NodeLeaf<E, I, IE, LE> {
-        match self {
-            Node::Leaf(l) => l.as_ref().get_ref(),
-            Node::Internal(_) => panic!("Expected leaf - found internal node"),
-        }
-    }
-
-    fn unwrap_into_leaf(self) -> Pin<Box<NodeLeaf<E, I, IE, LE>>> {
-        match self {
-            Node::Leaf(l) => l,
-            Node::Internal(_) => panic!("Expected leaf - found internal node"),
-        }
-    }
+    // fn unwrap_leaf(&self) -> &NodeLeaf<E, I, IE, LE> {
+    //     match self {
+    //         Node::Leaf(l) => l.as_ref().get_ref(),
+    //         Node::Internal(_) => panic!("Expected leaf - found internal node"),
+    //     }
+    // }
+    //
+    // fn unwrap_into_leaf(self) -> Pin<Box<NodeLeaf<E, I, IE, LE>>> {
+    //     match self {
+    //         Node::Leaf(l) => l,
+    //         Node::Internal(_) => panic!("Expected leaf - found internal node"),
+    //     }
+    // }
 
     fn unwrap_leaf_mut(&mut self) -> Pin<&mut NodeLeaf<E, I, IE, LE>> {
         match self {
@@ -326,16 +324,15 @@ impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ParentPt
 #[cfg(test)]
 mod test {
     use std::mem::size_of;
-
-    use crate::content_tree::*;
-    use crate::order::OrderSpan;
+    use super::*;
+    use crate::testrange::TestRange;
 
 // use std::pin::Pin;
 
     #[test]
     fn option_node_size_is_transparent() {
-        let node_size = size_of::<Node<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>>();
-        let opt_node_size = size_of::<Option<Node<OrderSpan, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>>>();
+        let node_size = size_of::<Node<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>>();
+        let opt_node_size = size_of::<Option<Node<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>>>();
         assert_eq!(node_size, opt_node_size);
 
         // TODO: This fails, which means we're burning 8 bytes to simply store tags for each

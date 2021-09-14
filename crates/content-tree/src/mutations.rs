@@ -5,20 +5,17 @@ use std::ptr::NonNull;
 
 use smallvec::SmallVec;
 
-use crate::content_tree::{ContentTree, DeleteResult, FindContent, FindOffset, Node, NodeInternal, NodeLeaf, NodePtr, ParentPtr, UnsafeCursor};
-use crate::content_tree::index::{ContentLength, TreeIndex};
-/// This file contains the core code for content-tree's mutation operations.
+use super::*;
+use rle::append::AppendRLE;
 
-use crate::content_tree::EntryTraits;
-use crate::content_tree::index::Toggleable;
-use crate::rle::AppendRLE;
+/// This file contains the core code for content-tree's mutation operations.
 
 impl<E: EntryTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTree<E, I, IE, LE> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
     /// is returned. The cursor is modified in-place to point after the inserted items.
     ///
     /// If the cursor points in the middle of an item, the item is split.
-    pub(super) unsafe fn insert_internal<F>(mut items: &[E], cursor: &mut UnsafeCursor<E, I, IE, LE>, flush_marker: &mut I::IndexUpdate, notify: &mut F)
+    pub unsafe fn insert_internal<F>(mut items: &[E], cursor: &mut UnsafeCursor<E, I, IE, LE>, flush_marker: &mut I::IndexUpdate, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         if items.is_empty() { return; }
@@ -1094,8 +1091,8 @@ unsafe fn insert_after<E: EntryTraits, I: TreeIndex<E>, const INT_ENTRIES: usize
 #[cfg(test)]
 mod tests {
     // use std::pin::Pin;
-    use crate::content_tree::*;
-    use crate::content_tree::fuzzer::TestRange;
+    use super::*;
+    use crate::testrange::TestRange;
 
     #[test]
     fn splice_insert_test() {
