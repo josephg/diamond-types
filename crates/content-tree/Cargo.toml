@@ -1,7 +1,11 @@
 [package]
 name = "content-tree"
 version = "0.1.0"
+authors = ["Seph Gentle <me@josephg.com>"]
 edition = "2018"
+license = "ISC OR Apache-2.0"
+description = "An efficient data structure for compacted RLE data"
+repository = "https://github.com/josephg/diamond-types"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -3,6 +3,9 @@ name = "diamond-js"
 version = "0.1.0"
 authors = ["Seph Gentle <me@josephg.com>"]
 edition = "2018"
+license = "ISC OR Apache-2.0"
+description = "Javascript wrapper for diamond-types"
+repository = "https://github.com/josephg/diamond-types"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
