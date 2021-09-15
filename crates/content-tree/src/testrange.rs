@@ -49,7 +49,7 @@ impl SplitableSpan for TestRange {
     }
 
     fn prepend(&mut self, other: Self) {
-        assert!(other.can_append(&self));
+        assert!(other.can_append(self));
         self.len += other.len;
         self.id = other.id;
     }

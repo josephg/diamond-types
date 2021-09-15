@@ -9,7 +9,7 @@ use std::mem::replace;
 use crate::list::external_txn::{RemoteTxn, RemoteCRDTOp};
 use crate::unicount::{split_at_char, chars_to_bytes, count_chars};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
-use crate::list::ot::ot::transform;
+use crate::list::ot::transform;
 use diamond_core::*;
 use crate::crdtspan::CRDTSpan;
 use rle::Searchable;
@@ -597,7 +597,7 @@ impl ListCRDT {
                     } else {
                         let mut cursor = self.range_tree.unsafe_cursor_at_content_pos(pos - 1, false);
                         let origin_left = unsafe { cursor.get_item() }.unwrap();
-                        assert!(cursor.next());
+                        assert!(cursor.next_item());
                         (origin_left, cursor)
                     };
 
@@ -671,7 +671,7 @@ impl ListCRDT {
         self.apply_local_txn(agent, &[
             TraversalComponent::Retain(pos as u32),
             TraversalComponent::Ins {
-                len: count_chars(&ins_content) as u32,
+                len: count_chars(ins_content) as u32,
                 content_known: true,
             },
         ], ins_content);
@@ -684,7 +684,7 @@ impl ListCRDT {
         self.apply_local_txn(agent, &[
             TraversalComponent::Retain(pos as u32),
             TraversalComponent::Del(del_span as u32),
-        ], &"");
+        ], "");
     }
 
     pub fn apply_txn_at_ot_order(&mut self, agent: AgentId, op: &TraversalOp, order: Order, is_left: bool) {

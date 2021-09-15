@@ -11,7 +11,9 @@ use crate::order::OrderSpan;
 use diamond_core::*;
 // use smallvec::smallvec;
 
+// TODO: Not gonna lie... I kinda hate these typedefs. Remove them?
 type AgentMap = Vec<Option<AgentId>>;
+type AgentMapRef<'a> = &'a [Option<AgentId>];
 
 fn agent_map_from(a: &ListCRDT, b: &ListCRDT) -> AgentMap {
     a.client_data.iter()
@@ -19,12 +21,12 @@ fn agent_map_from(a: &ListCRDT, b: &ListCRDT) -> AgentMap {
         .collect()
 }
 
-fn map_agent(map: &AgentMap, agent: AgentId) -> AgentId {
+fn map_agent(map: AgentMapRef, agent: AgentId) -> AgentId {
     if agent == ROOT_AGENT { ROOT_AGENT }
     else { map[agent as usize].unwrap() }
 }
 
-fn map_crdt_location(map: &AgentMap, loc: CRDTId) -> CRDTId {
+fn map_crdt_location(map: AgentMapRef, loc: CRDTId) -> CRDTId {
     CRDTId {
         agent: map_agent(map, loc.agent),
         seq: loc.seq

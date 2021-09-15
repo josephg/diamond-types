@@ -940,7 +940,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeIn
             let count = num_children - idx - 1;
             if count > 0 {
                 ptr::copy(
-                    &mut self.children[idx + 1],
+                    &self.children[idx + 1],
                     &mut self.children[idx],
                     count
                 );

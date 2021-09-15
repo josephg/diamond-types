@@ -99,9 +99,9 @@ impl ListCRDT {
                     }
                 }
 
-                expect_parent_idx.sort();
+                expect_parent_idx.sort_unstable();
                 let mut actual_parent_idx = txn.parent_indexes.clone();
-                actual_parent_idx.sort();
+                actual_parent_idx.sort_unstable();
 
                 // if expect_parent_idx != actual_parent_idx {
                 //     dbg!(&self.txns.0[..=idx]);

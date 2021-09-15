@@ -31,7 +31,7 @@ pub(crate) fn retreat_branch_by(branch: &mut Branch, history: &RleVec<TxnSpan>, 
         branch.push(first_order - 1);
     } else {
         for &parent in &txn.parents {
-            if branch.is_empty() || !history.branch_contains_order(&branch, parent) {
+            if branch.is_empty() || !history.branch_contains_order(branch, parent) {
                 branch.push(parent);
             }
         }

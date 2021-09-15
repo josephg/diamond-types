@@ -106,7 +106,7 @@ pub fn decode_u64_slow(buf: &[u8]) -> (u64, usize) {
         if i == 9 && (b & 0x7f) > 1 {
             panic!("Invalid varint");
         }
-        r = r | (((b & 0x7f) as u64) << (i * 7));
+        r |= ((b & 0x7f) as u64) << (i * 7);
         i += 1;
         if b < 0x80 {
             return (r, i)
@@ -117,7 +117,7 @@ pub fn decode_u64_slow(buf: &[u8]) -> (u64, usize) {
 // TODO: This is from rust-protobuf. Check this is actually faster than decode_u64_slow.
 /// Returns (varint, number of bytes read).
 pub fn decode_u64(buf: &[u8]) -> (u64, usize) {
-    if buf.len() < 1 {
+    if buf.is_empty() {
         panic!("Not enough bytes in buffer");
     } else if buf[0] < 0x80 {
         // The most common case
@@ -140,7 +140,7 @@ pub fn decode_u64(buf: &[u8]) -> (u64, usize) {
             if i == 9 && (b & 0x7f) > 1 {
                 panic!("Invalid varint");
             }
-            r = r | (((b & 0x7f) as u64) << (i as u64 * 7));
+            r |= ((b & 0x7f) as u64) << (i as u64 * 7);
             i += 1;
             if b < 0x80 {
                 return (r, i);
@@ -192,7 +192,7 @@ pub fn encode_u32_with_extra_bit(value: u32, extra: bool, buf: &mut[u8]) -> usiz
 
 pub fn encode_u32_with_extra_bit_2(value: u32, extra_1: bool, extra_2: bool, buf: &mut[u8]) -> usize {
     debug_assert!(value < (u32::MAX >> 2));
-    let val_2 = value << 2 + (extra_1 as u32) << 1 + (extra_2 as u32);
+    let val_2 = (value << 2) + ((extra_1 as u32) << 1) + (extra_2 as u32);
     encode_u32(val_2, buf)
 }
 

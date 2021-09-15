@@ -1,5 +1,7 @@
 mod positionmap;
 pub mod traversal;
 mod positional;
-pub mod ot;
+mod ot;
 mod editablestring;
+
+pub use ot::*;

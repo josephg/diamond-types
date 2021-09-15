@@ -32,6 +32,10 @@ impl TestData {
             .map(|txn| { txn.patches.len() })
             .sum::<usize>()
     }
+
+    pub fn is_empty(&self) -> bool {
+        !self.txns.iter().any(|txn| !txn.patches.is_empty())
+    }
 }
 
 pub fn load_testing_data(filename: &str) -> TestData {

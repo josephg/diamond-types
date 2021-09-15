@@ -22,7 +22,7 @@ impl<'a> Iterator for LinearIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.span.len > 0 {
             unsafe {
-                let len = self.list.partially_reapply_change(&mut self.span);
+                let len = self.list.partially_reapply_change(&self.span);
                 self.span.truncate_keeping_right(len as usize);
             }
             Some(())
@@ -59,7 +59,7 @@ impl RleVec<TxnSpan> {
     pub(crate) fn branch_contains_order(&self, branch: &[Order], target: Order) -> bool {
         assert!(!branch.is_empty());
         if target == ROOT_ORDER || branch.contains(&target) { return true; }
-        if branch == &[ROOT_ORDER] { return false; }
+        if branch == [ROOT_ORDER] { return false; }
 
         // Fast path. This causes extra calls to find_packed(), but you usually have a branch with
         // a shadow less than target. Usually the root document. And in that case this codepath
@@ -366,7 +366,7 @@ impl ListCRDT {
     /// checked, and must be valid with respect to what else has been applied / unapplied.
     pub(super) unsafe fn partially_reapply_changes(&mut self, mut span: OrderSpan) {
         while span.len > 0 {
-            let len = self.partially_reapply_change(&mut span);
+            let len = self.partially_reapply_change(&span);
             span.truncate_keeping_right(len as usize);
         }
     }

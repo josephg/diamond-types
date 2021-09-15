@@ -27,7 +27,7 @@ impl<V: SplitableSpan + Clone + Sized> RleVec<V> {
 
     pub fn push_will_merge(&self, item: &V) -> bool {
         if let Some(v) = self.last() {
-            v.can_append(&item)
+            v.can_append(item)
         } else { false }
     }
 

@@ -389,10 +389,8 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         if let Node::Internal(n) = node {
             num.0 += 1;
 
-            for e in &n.children[..] {
-                if let Some(e) = e {
-                    Self::count_nodes_internal(e, num);
-                }
+            for e in n.children[..].iter().flatten() {
+                Self::count_nodes_internal(e, num);
             }
         } else { num.1 += 1; }
     }
@@ -409,10 +407,8 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
             Node::Internal(n) => {
                 *size += size_of::<NodeInternal<E, I, IE, LE>>();
 
-                for e in &n.children[..] {
-                    if let Some(e) = e {
-                        Self::count_memory_internal(e, size);
-                    }
+                for e in n.children[..].iter().flatten() {
+                    Self::count_memory_internal(e, size);
                 }
             }
             Node::Leaf(_) => {

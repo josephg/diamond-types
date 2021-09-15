@@ -100,7 +100,7 @@ impl <'a>TextOpIterator<'a> {
             // clone the string here. We could instead pass back a reference,
             // but then the slices below will need to deal with lifetimes or be
             // Rc or something.
-            c.clone()
+            *c
         } else if clen - self.offset <= max_size {
             // Take remainder of component.
             let result = c.slice(self.offset, clen - self.offset);

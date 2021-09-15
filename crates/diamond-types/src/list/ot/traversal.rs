@@ -58,7 +58,7 @@ impl TraversalOp {
     }
 
     pub fn new_insert(pos: u32, content: &str) -> Self {
-        let len = count_chars(&content) as u32;
+        let len = count_chars(content) as u32;
         TraversalOp {
             traversal: if pos == 0 {
                 smallvec![Ins { len, content_known: true }]
@@ -81,7 +81,7 @@ impl TraversalOp {
     }
 
     pub(crate) fn append_insert(&mut self, content: &str) {
-        self.traversal.push_rle(Ins { len: count_chars(&content) as _, content_known: true });
+        self.traversal.push_rle(Ins { len: count_chars(content) as _, content_known: true });
         self.content.push_str(content);
     }
 

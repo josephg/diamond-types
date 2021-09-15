@@ -53,14 +53,13 @@ impl PositionalOp {
                         let (here, next) = new_content.split_at(byte_len);
                         new_content = next;
                         rope.insert(pos, here);
+                    } else if len < XS.len() {
+                        rope.insert(pos, &XS[..len]);
                     } else {
-                        if len < XS.len() {
-                            rope.insert(pos, &XS[..len]);
-                        } else {
-                            let xs: String = std::iter::repeat('X').take(len).collect();
-                            rope.insert(pos, &xs);
-                        }
-                    };
+                        // let xs: String = std::iter::repeat('X').take(len).collect();
+                        let xs: String = "X".repeat(len);
+                        rope.insert(pos, &xs);
+                    }
                 }
                 Del => {
                     rope.remove(pos..pos+len);

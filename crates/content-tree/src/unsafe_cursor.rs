@@ -180,7 +180,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
     }
 
     // TODO: This is inefficient in a loop.
-    pub fn next(&mut self) -> bool {
+    pub fn next_item(&mut self) -> bool {
         if !self.roll_to_next_entry() {
             return false;
         }

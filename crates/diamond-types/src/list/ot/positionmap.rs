@@ -56,7 +56,7 @@ impl TreeIndex<TraversalComponent> for PrePostIndex {
 
 pub(super) type PositionMap = Pin<Box<ContentTreeRaw<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>>>;
 
-pub(super) fn positionmap_mut_cursor_at_post<'a>(map: &'a mut PositionMap, pos: usize, stick_end: bool) -> MutCursor<'a, TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
+pub(super) fn positionmap_mut_cursor_at_post(map: &mut PositionMap, pos: usize, stick_end: bool) -> MutCursor<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE> {
     map.mut_cursor_at_query(pos, stick_end,
                                 |i| i.1 as usize,
                                 |e| e.post_len() as usize)
@@ -380,7 +380,7 @@ impl<'a> PatchIter<'a> {
     }
 
     fn drain(&mut self) {
-        while let Some(_) = self.next() {}
+        for _ in self {}
     }
 
     fn into_map(mut self) -> PositionMap {
@@ -522,7 +522,7 @@ impl<'a, I: Iterator<Item=OrderSpan>> MultiPositionalChangesIter<'a, I> {
     // These methods are duplicated in PositionalChangesIter. I could do trait magic to share them
     // but I'm not convinced jumping through the extra hoops is worth it.
     fn drain(&mut self) {
-        while let Some(_) = self.next() {}
+        for _ in self {}
     }
 
     fn into_map(mut self) -> PositionMap {

@@ -271,19 +271,19 @@ impl<'a> BufReader<'a> {
     }
 
     fn next_u32(&mut self) -> u32 {
-        let (val, count) = decode_u32(&self.0);
+        let (val, count) = decode_u32(self.0);
         self.consume(count);
         val
     }
 
     fn next_u64(&mut self) -> u64 {
-        let (val, count) = decode_u64(&self.0);
+        let (val, count) = decode_u64(self.0);
         self.consume(count);
         val
     }
 
     fn next_usize(&mut self) -> usize {
-        let (val, count) = decode_u64(&self.0);
+        let (val, count) = decode_u64(self.0);
         self.consume(count);
         val as usize
     }

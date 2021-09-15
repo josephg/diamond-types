@@ -36,7 +36,7 @@ impl Doc {
     #[wasm_bindgen]
     pub fn ins(&mut self, pos: usize, content: &str) {
         // let id = self.0.get_or_create_agent_id("seph");
-        self.inner.local_insert(self.agent_id, pos, content.into());
+        self.inner.local_insert(self.agent_id, pos, content);
     }
 
     #[wasm_bindgen]
@@ -47,6 +47,11 @@ impl Doc {
     #[wasm_bindgen]
     pub fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    #[wasm_bindgen]
+    pub fn is_empty(&self) -> bool { // To make clippy happy.
+        self.inner.is_empty()
     }
 
     #[wasm_bindgen]
@@ -146,7 +151,7 @@ impl Doc {
     #[wasm_bindgen]
     pub fn ins_at_order(&mut self, pos: usize, content: &str, order: u32, is_left: bool) {
         // let id = self.0.get_or_create_agent_id("seph");
-        self.inner.insert_at_ot_order(self.agent_id, pos, content.into(), order, is_left);
+        self.inner.insert_at_ot_order(self.agent_id, pos, content, order, is_left);
     }
 
     #[wasm_bindgen]
