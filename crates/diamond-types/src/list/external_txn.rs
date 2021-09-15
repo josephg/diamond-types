@@ -9,7 +9,7 @@ use smartstring::alias::String as SmartString;
 
 use content_tree::Toggleable;
 use diamond_core::{AgentId, CRDT_DOC_ROOT, CRDTId};
-use rle::AppendRLE;
+use rle::AppendRle;
 use rle::SplitableSpan;
 
 use crate::crdtspan::CRDTSpan;
@@ -227,7 +227,7 @@ impl ListCRDT {
     /// This method returns the list of spans of orders which will bring a client up to date
     /// from the specified vector clock version.
     pub(super) fn get_order_spans_since<B>(&self, vv: &[RemoteId]) -> B
-    where B: Default + AppendRLE<OrderSpan>
+    where B: Default + AppendRle<OrderSpan>
     {
         #[derive(Clone, Copy, Debug, Eq)]
         struct OpSpan {

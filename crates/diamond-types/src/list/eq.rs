@@ -94,7 +94,7 @@ impl PartialEq for ListCRDT {
                     order, len
                 } = a_to_b_span(entry.order, entry.len() as u32);
 
-                a_items.append(YjsSpan {
+                a_items.push(YjsSpan {
                     order,
                     origin_left: a_to_b_order(entry.origin_left),
                     origin_right: a_to_b_order(entry.origin_right),
@@ -110,7 +110,7 @@ impl PartialEq for ListCRDT {
             }
         }
         for entry in other.range_tree.raw_iter() {
-            b_items.append(entry);
+            b_items.push(entry);
         }
         // dbg!(&a_items, &b_items);
         if a_items != b_items {

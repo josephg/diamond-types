@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 use smallvec::SmallVec;
 
 use super::*;
-use rle::AppendRLE;
+use rle::AppendRle;
 
 /// This file contains the core code for content-tree's mutation operations.
 

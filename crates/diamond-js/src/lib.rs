@@ -146,12 +146,12 @@ impl Doc {
     #[wasm_bindgen]
     pub fn ins_at_order(&mut self, pos: usize, content: &str, order: u32, is_left: bool) {
         // let id = self.0.get_or_create_agent_id("seph");
-        self.inner.local_insert_at_order(self.agent_id, pos, content.into(), order, is_left);
+        self.inner.insert_at_ot_order(self.agent_id, pos, content.into(), order, is_left);
     }
 
     #[wasm_bindgen]
     pub fn del_at_order(&mut self, pos: usize, del_span: usize, order: u32) {
-        self.inner.local_delete_at_order(self.agent_id, pos, del_span, order, true);
+        self.inner.delete_at_ot_order(self.agent_id, pos, del_span, order, true);
     }
 
 }

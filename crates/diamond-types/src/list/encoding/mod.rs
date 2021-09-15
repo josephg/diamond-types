@@ -638,7 +638,7 @@ impl ListCRDT {
             // TODO: Consider calling assign_order_to_client instead.
             let client_data = &mut result.client_data[agent as usize];
             let seq = client_data.get_next_seq();
-            result.client_with_order.append(KVPair(order, CRDTSpan {
+            result.client_with_order.push(KVPair(order, CRDTSpan {
                 loc: CRDTId {
                     agent: agent as _,
                     seq
@@ -646,7 +646,7 @@ impl ListCRDT {
                 len: len as _
             }));
 
-            client_data.item_orders.append(KVPair(seq, OrderSpan {
+            client_data.item_orders.push(KVPair(seq, OrderSpan {
                 order,
                 len: len as _
             }));

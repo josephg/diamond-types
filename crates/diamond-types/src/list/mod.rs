@@ -118,6 +118,8 @@ pub struct ListCRDT {
     /// remote changes.
     ///
     /// Along with deletes, this essentially contains the time DAG.
+    ///
+    /// TODO: Consider renaming this field
     txns: RleVec<TxnSpan>,
 
     // Temporary. This will be moved out into a reference to another data structure I think.

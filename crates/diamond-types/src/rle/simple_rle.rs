@@ -4,7 +4,7 @@ use std::iter::FromIterator;
 
 use humansize::{file_size_opts, FileSize};
 
-use rle::AppendRLE;
+use rle::AppendRle;
 use rle::Searchable;
 use rle::SplitableSpan;
 
@@ -19,13 +19,21 @@ impl<V: SplitableSpan + Clone + Sized> RleVec<V> {
 
     /// Append a new value to the end of the RLE list. This method is fast - O(1) average time.
     /// The new item will extend the last entry in the list if possible.
-    pub fn append(&mut self, val: V) {
-        self.0.push_rle(val);
+    ///
+    /// Returns true if the item was merged into the previous item. False if it was appended new.
+    pub fn push(&mut self, val: V) -> bool {
+        self.0.push_rle(val)
+    }
+
+    pub fn push_will_merge(&self, item: &V) -> bool {
+        if let Some(v) = self.last() {
+            v.can_append(&item)
+        } else { false }
     }
 
     // Forward to vec.
     pub fn last(&self) -> Option<&V> { self.0.last() }
-    pub fn num_entries(&self) -> usize { self.0.len() }
+    pub fn len(&self) -> usize { self.0.len() }
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
     pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
 
@@ -61,6 +69,11 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
             let entry = &self.0[idx];
             (entry, needle - entry.get_rle_key())
         })
+    }
+
+    /// Same as list.find(needle) except for lists where there are no gaps in the RLE list.
+    pub fn find_packed(&self, needle: RleKey) -> (&V, RleKey) {
+        self.find(needle).unwrap()
     }
 
     /// This method is similar to find, except instead of returning None when the value doesn't
@@ -125,7 +138,7 @@ impl<V: SplitableSpan + Clone + Sized> FromIterator<V> for RleVec<V> {
     fn from_iter<T: IntoIterator<Item=V>>(iter: T) -> Self {
         let mut rle = Self::new();
         for item in iter {
-            rle.append(item);
+            rle.push(item);
         }
         rle
     }
@@ -134,7 +147,7 @@ impl<V: SplitableSpan + Clone + Sized> FromIterator<V> for RleVec<V> {
 impl<V: SplitableSpan + Clone + Sized> Extend<V> for RleVec<V> {
     fn extend<T: IntoIterator<Item=V>>(&mut self, iter: T) {
         for item in iter {
-            self.append(item);
+            self.push(item);
         }
     }
 }
@@ -157,9 +170,9 @@ impl<V: SplitableSpan + Searchable + RleKeyed> RleVec<V> {
 }
 
 // Seems kinda redundant but eh.
-impl<V: SplitableSpan + Clone + Debug + Sized> AppendRLE<V> for RleVec<V> {
-    fn push_rle(&mut self, item: V) { self.append(item); }
-    fn push_reversed_rle(&mut self, _item: V) { unimplemented!(); }
+impl<V: SplitableSpan + Clone + Debug + Sized> AppendRle<V> for RleVec<V> {
+    fn push_rle(&mut self, item: V) -> bool { self.push(item) }
+    fn push_reversed_rle(&mut self, _item: V) -> bool { unimplemented!(); }
 }
 
 // impl<V: EntryTraits> Index<usize> for RLE<V> {
@@ -180,13 +193,13 @@ mod tests {
     fn rle_finds_at_offset() {
         let mut rle: RleVec<KVPair<OrderSpan>> = RleVec::new();
 
-        rle.append(KVPair(1, OrderSpan { order: 1000, len: 2 }));
+        rle.push(KVPair(1, OrderSpan { order: 1000, len: 2 }));
         assert_eq!(rle.find(1), Some((&KVPair(1, OrderSpan { order: 1000, len: 2 }), 0)));
         assert_eq!(rle.find(2), Some((&KVPair(1, OrderSpan { order: 1000, len: 2 }), 1)));
         assert_eq!(rle.find(3), None);
 
         // This should get appended.
-        rle.append(KVPair(3, OrderSpan { order: 1002, len: 1 }));
+        rle.push(KVPair(3, OrderSpan { order: 1002, len: 1 }));
         assert_eq!(rle.find(3), Some((&KVPair(1, OrderSpan { order: 1000, len: 3 }), 2)));
         assert_eq!(rle.0.len(), 1);
     }

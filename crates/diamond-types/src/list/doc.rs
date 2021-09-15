@@ -208,12 +208,12 @@ impl ListCRDT {
     }
 
     fn assign_order_to_client(&mut self, loc: CRDTId, order: Order, len: usize) {
-        self.client_with_order.append(KVPair(order, CRDTSpan {
+        self.client_with_order.push(KVPair(order, CRDTSpan {
             loc,
             len: len as _
         }));
 
-        self.client_data[loc.agent as usize].item_orders.append(KVPair(loc.seq, OrderSpan {
+        self.client_data[loc.agent as usize].item_orders.push(KVPair(loc.seq, OrderSpan {
             order,
             len: len as _
         }));
@@ -379,14 +379,43 @@ impl ListCRDT {
         }
         if shadow == 0 { shadow = ROOT_ORDER; }
 
+        let will_merge = if let Some(last) = self.txns.last() {
+            // TODO: Is this shadow check necessary?
+            // This code is from TxnSpan splitablespan impl. Copying it here is a bit ugly but
+            // its the least ugly way I could think to implement this.
+            txn_parents.len() == 1 && txn_parents[0] == last.last_order() && shadow == last.shadow
+        } else { false };
+
+        let mut parent_indexes = smallvec![];
+        if !will_merge {
+            // The item wasn't merged. So we need to go through the parents and wire up children.
+            let new_idx = self.txns.0.len();
+
+            for &p in &txn_parents {
+                if p == ROOT_ORDER { continue; }
+                let parent_idx = self.txns.search(p).unwrap();
+                // Interestingly the parent_idx array will always end up the same length as parents
+                // because it would be invalid for multiple parents to point to the same entry in
+                // txns. (That would imply one parent is a descendant of another.)
+                debug_assert!(!parent_indexes.contains(&parent_idx));
+                parent_indexes.push(parent_idx);
+
+                let parent_children = &mut self.txns.0[parent_idx].child_indexes;
+                if !parent_children.contains(&new_idx) { parent_children.push(new_idx); }
+            }
+        }
+
         let txn = TxnSpan {
             order: first_order,
             len,
             shadow,
-            parents: txn_parents.into_iter().collect()
+            parents: txn_parents.into_iter().collect(),
+            parent_indexes,
+            child_indexes: smallvec![]
         };
 
-        self.txns.append(txn);
+        let did_merge = self.txns.push(txn);
+        assert_eq!(will_merge, did_merge);
     }
 
     pub(super) fn internal_mark_deleted(&mut self, order: Order, max_len: u32, update_content: bool) -> (u32, bool) {
@@ -511,7 +540,7 @@ impl ListCRDT {
                         target_seq += deleted_here;
 
                         // This span is locked in once we find the contiguous region of seq numbers.
-                        self.deletes.append(KVPair(next_order, OrderSpan {
+                        self.deletes.push(KVPair(next_order, OrderSpan {
                             order: target_order,
                             len: deleted_here
                         }));
@@ -613,7 +642,7 @@ impl ListCRDT {
                     // dbg!(&deleted_items);
                     let mut deleted_length = 0; // To check.
                     for item in deleted_items {
-                        self.deletes.append(KVPair(next_order, OrderSpan {
+                        self.deletes.push(KVPair(next_order, OrderSpan {
                             order: item.order,
                             len: item.len as u32
                         }));
@@ -662,7 +691,7 @@ impl ListCRDT {
         ], &"");
     }
 
-    pub fn apply_local_txn_at_order(&mut self, agent: AgentId, op: &TraversalOp, order: Order, is_left: bool) {
+    pub fn apply_txn_at_ot_order(&mut self, agent: AgentId, op: &TraversalOp, order: Order, is_left: bool) {
         let now = self.get_next_order();
         if order < now {
             let historical_patches = self.traversal_changes_since(order);
@@ -676,11 +705,11 @@ impl ListCRDT {
         }
     }
 
-    pub fn local_insert_at_order(&mut self, agent: AgentId, pos: usize, ins_content: &str, order: Order, is_left: bool) {
-        self.apply_local_txn_at_order(agent, &TraversalOp::new_insert(pos as u32, ins_content), order, is_left);
+    pub fn insert_at_ot_order(&mut self, agent: AgentId, pos: usize, ins_content: &str, order: Order, is_left: bool) {
+        self.apply_txn_at_ot_order(agent, &TraversalOp::new_insert(pos as u32, ins_content), order, is_left);
     }
-    pub fn local_delete_at_order(&mut self, agent: AgentId, pos: usize, del_span: usize, order: Order, is_left: bool) {
-        self.apply_local_txn_at_order(agent, &TraversalOp::new_delete(pos as u32, del_span as u32), order, is_left);
+    pub fn delete_at_ot_order(&mut self, agent: AgentId, pos: usize, del_span: usize, order: Order, is_left: bool) {
+        self.apply_txn_at_ot_order(agent, &TraversalOp::new_delete(pos as u32, del_span as u32), order, is_left);
     }
 
     pub fn len(&self) -> usize {
@@ -879,7 +908,7 @@ mod tests {
         assert_eq!(doc.frontier.as_slice(), &[1, 6]);
 
         // The transactions shouldn't be merged.
-        assert_eq!(doc.txns.num_entries(), 2);
+        assert_eq!(doc.txns.len(), 2);
 
         // Merge the two branches.
         doc.local_insert(0, 7, "x".into());
@@ -911,14 +940,14 @@ mod tests {
 
         let op = TraversalOp::new_insert(0, "bb");
         // If we apply the change with is_left = false, the new content goes on the right...
-        doc.apply_local_txn_at_order(0, &op, 0, false);
+        doc.apply_txn_at_ot_order(0, &op, 0, false);
         if let Some(text) = doc.text_content.as_ref() {
             assert_eq!(text, "aabb");
         }
 
         let op = TraversalOp::new_insert(0, "cc");
         // And if is_left is true, new content goes left.
-        doc.apply_local_txn_at_order(0, &op, 0, true);
+        doc.apply_txn_at_ot_order(0, &op, 0, true);
         if let Some(text) = doc.text_content.as_ref() {
             assert_eq!(text, "ccaabb");
         }

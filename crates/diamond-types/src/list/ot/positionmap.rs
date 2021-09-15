@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 
 use content_tree::*;
 use diamond_core::CRDTId;
-use rle::AppendRLE;
+use rle::AppendRle;
 use rle::SplitableSpan;
 use TraversalComponent::*;
 
@@ -170,7 +170,7 @@ impl ListCRDT {
     }
 
     pub fn positional_changes_since_branch(&self, branch: &[Order]) -> PositionalOp {
-        let (a, b) = self.diff(branch, &self.frontier);
+        let (a, b) = self.txns.diff(branch, &self.frontier);
         assert_eq!(a.len(), 0);
 
         // Note the spans are guaranteed to be delivered in reverse order (from last to first).
@@ -572,7 +572,7 @@ mod test {
     use ropey::Rope;
     use smallvec::smallvec;
 
-    use rle::AppendRLE;
+    use rle::AppendRle;
 
     use crate::fuzz_helpers::make_random_change;
     use crate::list::{ListCRDT, ROOT_ORDER};

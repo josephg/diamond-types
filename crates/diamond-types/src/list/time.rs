@@ -2,11 +2,13 @@ use crate::list::{ListCRDT, ROOT_ORDER, Order};
 use crate::order::OrderSpan;
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
-use rle::AppendRLE;
+use rle::AppendRle;
 use crate::list::doc::notify_for;
 use rle::SplitableSpan;
 use rle::Searchable;
 use content_tree::ContentTreeRaw;
+use crate::rle::RleVec;
+use crate::list::txn::TxnSpan;
 // use smartstring::alias::{String as SmartString};
 
 struct LinearIter<'a> {
@@ -37,15 +39,12 @@ impl<'a> Iterator for LinearIter<'a> {
 //     ins: SmartString,
 // }
 
-
-/// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
-/// about branches, find diffs and move between branches.
-impl ListCRDT {
+impl RleVec<TxnSpan> {
     fn shadow_of(&self, order: Order) -> Order {
         if order == ROOT_ORDER {
             ROOT_ORDER
         } else {
-            let (txn, _offset) = self.txns.find(order).unwrap();
+            let (txn, _offset) = self.find(order).unwrap();
             txn.shadow
         }
     }
@@ -55,6 +54,52 @@ impl ListCRDT {
         let a_1 = a.wrapping_add(1);
         let b_1 = b.wrapping_add(1);
         a_1 == b_1 || (a_1 > b_1 && self.shadow_of(a).wrapping_add(1) <= b_1)
+    }
+
+    pub(crate) fn branch_contains_order(&self, branch: &[Order], target: Order) -> bool {
+        assert!(!branch.is_empty());
+        if target == ROOT_ORDER || branch.contains(&target) { return true; }
+        if branch == &[ROOT_ORDER] { return false; }
+
+        // So I don't *need* to use a priority queue here. The options are:
+        // 1. Use a priority queue, scanning from the highest to lowest orders
+        // 2. Use a simple list and do DFS, potentially scanning some items twice
+        // 3. Use a simple list and do DFS, with another structure to mark which items we've
+        //    visited.
+        //
+        // Honestly any approach should be obnoxiously fast in any real editing session anyway.
+        let mut queue = BinaryHeap::new();
+
+        // This code could be written to use parent_indexes but its a bit tricky, as an index isn't
+        // enough specificity. We'd need the parent and the parent_index. Eh...
+        for &o in branch {
+            debug_assert_ne!(o, target);
+            if o > target { queue.push(o); }
+        }
+
+        while let Some(order) = queue.pop() {
+            debug_assert!(order > target);
+            // dbg!((order, &queue));
+
+            let txn = self.find_packed(order).0;
+            if txn.order <= target { return true; }
+
+            while let Some(&next_order) = queue.peek() {
+                if next_order >= txn.order {
+                    // dbg!(next_order);
+                    queue.pop();
+                } else { break; }
+            }
+
+            // dbg!(order);
+            // TODO: These calls to find_packed() are avoidable using parent_index.
+            for &p in &txn.parents {
+                if p == target { return true; }
+                else if p != ROOT_ORDER && p > target { queue.push(p); }
+            }
+        }
+
+        false
     }
 
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
@@ -133,7 +178,7 @@ impl ListCRDT {
             // Grab the txn containing ord. This will usually be at prev_txn_idx - 1.
             // TODO: Remove usually redundant binary search
 
-            let (containing_txn, _offset) = self.txns.find(ord).unwrap();
+            let (containing_txn, _offset) = self.find(ord).unwrap();
 
             // There's essentially 2 cases here:
             // 1. This item and the first item in the queue are part of the same txn. Mark down to
@@ -177,7 +222,11 @@ impl ListCRDT {
 
         (only_a, only_b)
     }
+}
 
+/// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
+/// about branches, find diffs and move between branches.
+impl ListCRDT {
     /// Safety: This method only unapplies changes to the internal indexes. It does not update
     /// other metadata. Calling doc.check() after this will fail.
     /// Also the passed span is not checked, and must be valid with respect to what else has been
@@ -320,14 +369,83 @@ pub mod test {
     use crate::order::OrderSpan;
     use smallvec::smallvec;
     use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
+    use crate::list::txn::TxnSpan;
+    use crate::rle::RleVec;
 
     fn assert_diff_eq(doc: &ListCRDT, a: &[Order], b: &[Order], expect_a: &[OrderSpan], expect_b: &[OrderSpan]) {
-        let slow_result = doc.diff_slow(a, b);
-        let fast_result = doc.diff(a, b);
+        let slow_result = doc.txns.diff_slow(a, b);
+        let fast_result = doc.txns.diff(a, b);
         assert_eq!(slow_result, fast_result);
 
         assert_eq!(slow_result.0.as_slice(), expect_a);
         assert_eq!(slow_result.1.as_slice(), expect_b);
+
+        for &(branch, spans) in &[(a, expect_a), (b, expect_b)] {
+            for &o in spans {
+                assert!(doc.txns.branch_contains_order(branch, o.order));
+                assert!(doc.txns.branch_contains_order(branch, o.order + o.len - 1));
+            }
+        }
+    }
+
+    #[test]
+    fn branch_contains_smoke_test() {
+        // let mut doc = ListCRDT::new();
+        // assert!(doc.txns.branch_contains_order(&doc.frontier, ROOT_ORDER));
+        //
+        // doc.get_or_create_agent_id("a");
+        // doc.local_insert(0, 0, "S".into()); // Shared history.
+        // assert!(doc.txns.branch_contains_order(&doc.frontier, ROOT_ORDER));
+        // assert!(doc.txns.branch_contains_order(&doc.frontier, 0));
+        // assert!(!doc.txns.branch_contains_order(&[ROOT_ORDER], 0));
+
+        let txns = RleVec(vec![
+            TxnSpan { // 0-2
+                order: 0, len: 3, shadow: 0,
+                parents: smallvec![ROOT_ORDER],
+                parent_indexes: smallvec![], child_indexes: smallvec![2, 3],
+            },
+            TxnSpan { // 3-5
+                order: 3, len: 3, shadow: 0,
+                parents: smallvec![ROOT_ORDER],
+                parent_indexes: smallvec![], child_indexes: smallvec![2],
+            },
+            TxnSpan { // 6-8
+                order: 6, len: 3, shadow: 0,
+                parents: smallvec![1, 4],
+                parent_indexes: smallvec![0, 1], child_indexes: smallvec![3],
+            },
+            TxnSpan { // 9
+                order: 9, len: 1, shadow: 0,
+                parents: smallvec![7, 2],
+                parent_indexes: smallvec![2, 0], child_indexes: smallvec![],
+            },
+        ]);
+
+        assert!(txns.branch_contains_order(&[ROOT_ORDER], ROOT_ORDER));
+        assert!(txns.branch_contains_order(&[0], 0));
+        assert!(txns.branch_contains_order(&[0], ROOT_ORDER));
+
+        assert!(txns.branch_contains_order(&[2], 0));
+        assert!(txns.branch_contains_order(&[2], 1));
+        assert!(txns.branch_contains_order(&[2], 2));
+
+        assert!(!txns.branch_contains_order(&[0], 1));
+        assert!(!txns.branch_contains_order(&[1], 2));
+
+        assert!(txns.branch_contains_order(&[8], 0));
+        assert!(txns.branch_contains_order(&[8], 1));
+        assert!(!txns.branch_contains_order(&[8], 2));
+        assert!(!txns.branch_contains_order(&[8], 5));
+
+        assert!(txns.branch_contains_order(&[1,4], 0));
+        assert!(txns.branch_contains_order(&[1,4], 1));
+        assert!(!txns.branch_contains_order(&[1,4], 2));
+        assert!(!txns.branch_contains_order(&[1,4], 5));
+
+        assert!(txns.branch_contains_order(&[9], 2));
+        assert!(txns.branch_contains_order(&[9], 1));
+        assert!(txns.branch_contains_order(&[9], 0));
     }
 
     #[test]

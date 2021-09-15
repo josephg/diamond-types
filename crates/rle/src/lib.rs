@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-pub use append_rle::AppendRLE;
+pub use append_rle::AppendRle;
 pub use splitable_span::*;
 pub use merge_iter::*;
 
