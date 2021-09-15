@@ -130,11 +130,11 @@ impl PartialEq for ListCRDT {
                 // println!("Item lists written to 'a' and 'b'");
 
                 // dbg!(&self);
-                dbg!(a_to_b_order(84));
-                dbg!(a_to_b_order(85));
-                dbg!(self.client_with_order.find(84));
-                dbg!(self.client_with_order.find(85));
-                dbg!(a_to_b_span(84, 2));
+                // dbg!(a_to_b_order(84));
+                // dbg!(a_to_b_order(85));
+                // dbg!(self.client_with_order.find(84));
+                // dbg!(self.client_with_order.find(85));
+                // dbg!(a_to_b_span(84, 2));
             }
             return false;
         }
