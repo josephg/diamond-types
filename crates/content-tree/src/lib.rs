@@ -9,9 +9,10 @@ use std::pin::Pin;
 use std::ptr::NonNull;
 
 pub use index::*;
-// Re-export SplitableSpan from rle.
-pub use rle::SplitableSpan;
 pub use root::DeleteResult;
+
+// Types re-exported from rle for convenience
+pub use rle::{SplitableSpan, RleRun, ReverseSpan, Single};
 
 // The common data structures are:
 mod unsafe_cursor;

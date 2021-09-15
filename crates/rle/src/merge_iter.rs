@@ -73,21 +73,20 @@ where I: Iterator<Item=X>, X: SplitableSpan, Self: Sized
 #[cfg(test)]
 mod test {
     use super::merge_items;
+    use crate::RleRun;
 
     #[test]
     fn test_merge_iter() {
-        let empty: Vec<i32> = vec![];
+        let empty: Vec<RleRun<u32>> = vec![];
         assert_eq!(merge_items(empty.into_iter()).collect::<Vec<_>>(), vec![]);
 
-        let one: Vec<i32> = vec![5];
-        assert_eq!(merge_items(one.into_iter()).collect::<Vec<_>>(), vec![5]);
+        let one = vec![RleRun { val: 5, len: 1 }];
+        assert_eq!(merge_items(one.into_iter()).collect::<Vec<_>>(), vec![RleRun { val: 5, len: 1 }]);
 
-        let two_split: Vec<i32> = vec![5, -10];
+        let two_split = vec![RleRun { val: 5, len: 1 }, RleRun { val: 15, len: 1 }];
         assert_eq!(merge_items(two_split.iter().copied()).collect::<Vec<_>>(), two_split);
 
-        let two_merged_1: Vec<i32> = vec![5, 15];
-        assert_eq!(merge_items(two_merged_1.iter().copied()).collect::<Vec<_>>(), vec![20]);
-        let two_merged_2: Vec<i32> = vec![-5, -15];
-        assert_eq!(merge_items(two_merged_2.iter().copied()).collect::<Vec<_>>(), vec![-20]);
+        let two_merged = vec![RleRun { val: 5, len: 1 }, RleRun { val: 5, len: 2 }];
+        assert_eq!(merge_items(two_merged.iter().copied()).collect::<Vec<_>>(), vec![RleRun { val: 5, len: 3 }]);
     }
 }
