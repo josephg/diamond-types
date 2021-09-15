@@ -2,7 +2,7 @@ use smallvec::SmallVec;
 
 use rle::SplitableSpan;
 
-use crate::list::Order;
+use crate::list::{Order, ROOT_ORDER};
 use crate::rle::RleKeyed;
 
 /// This type stores metadata for a run of transactions created by the users.
@@ -42,6 +42,12 @@ impl TxnSpan {
     pub fn last_order(&self) -> Order {
         self.order + self.len - 1
     }
+
+    pub fn shadow_contains(&self, order: Order) -> bool {
+        debug_assert!(order <= self.last_order());
+        self.shadow == ROOT_ORDER || order >= self.shadow
+    }
+
     // pub fn parents_at_offset(&self, at: usize) -> SmallVec<[Order; 2]> {
     //     if at > 0 {
     //         smallvec![self.order + at as u32 - 1]

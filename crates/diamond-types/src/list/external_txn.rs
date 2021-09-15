@@ -224,6 +224,13 @@ impl ListCRDT {
         self.frontier.iter().map(|order| self.order_to_remote_id(*order)).collect()
     }
 
+    /// Checks if the given version is contained within the specified branch
+    pub fn branch_contains(&self, branch: &[RemoteId], version: &RemoteId) -> bool {
+        let branch_internal = self.remote_ids_to_branch(branch);
+        let order = self.remote_id_to_order(version);
+        self.txns.branch_contains_order(&branch_internal, order)
+    }
+
     /// This method returns the list of spans of orders which will bring a client up to date
     /// from the specified vector clock version.
     pub(super) fn get_order_spans_since<B>(&self, vv: &[RemoteId]) -> B

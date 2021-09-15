@@ -56,10 +56,21 @@ impl RleVec<TxnSpan> {
         a_1 == b_1 || (a_1 > b_1 && self.shadow_of(a).wrapping_add(1) <= b_1)
     }
 
+    // TODO: Fuzz test this!
     pub(crate) fn branch_contains_order(&self, branch: &[Order], target: Order) -> bool {
         assert!(!branch.is_empty());
         if target == ROOT_ORDER || branch.contains(&target) { return true; }
         if branch == &[ROOT_ORDER] { return false; }
+
+        // Fast path. This causes extra calls to find_packed(), but you usually have a branch with
+        // a shadow less than target. Usually the root document. And in that case this codepath
+        // avoids the allocation from BinaryHeap.
+        for &o in branch {
+            if o > target {
+                let txn = self.find_packed(o).0;
+                if txn.shadow_contains(target) { return true; }
+            }
+        }
 
         // So I don't *need* to use a priority queue here. The options are:
         // 1. Use a priority queue, scanning from the highest to lowest orders
@@ -82,7 +93,7 @@ impl RleVec<TxnSpan> {
             // dbg!((order, &queue));
 
             let txn = self.find_packed(order).0;
-            if txn.order <= target { return true; }
+            if txn.shadow_contains(target) { return true; }
 
             while let Some(&next_order) = queue.peek() {
                 if next_order >= txn.order {
@@ -406,18 +417,18 @@ pub mod test {
                 parent_indexes: smallvec![], child_indexes: smallvec![2, 3],
             },
             TxnSpan { // 3-5
-                order: 3, len: 3, shadow: 0,
+                order: 3, len: 3, shadow: 3,
                 parents: smallvec![ROOT_ORDER],
                 parent_indexes: smallvec![], child_indexes: smallvec![2],
             },
             TxnSpan { // 6-8
-                order: 6, len: 3, shadow: 0,
+                order: 6, len: 3, shadow: 6,
                 parents: smallvec![1, 4],
                 parent_indexes: smallvec![0, 1], child_indexes: smallvec![3],
             },
             TxnSpan { // 9
-                order: 9, len: 1, shadow: 0,
-                parents: smallvec![7, 2],
+                order: 9, len: 1, shadow: ROOT_ORDER,
+                parents: smallvec![8, 2],
                 parent_indexes: smallvec![2, 0], child_indexes: smallvec![],
             },
         ]);
