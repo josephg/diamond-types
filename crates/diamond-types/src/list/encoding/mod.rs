@@ -15,6 +15,7 @@ use crate::order::OrderSpan;
 use crate::rle::KVPair;
 
 mod varint;
+mod txn_trace;
 
 // struct BitWriter<W: Write> {
 //     to: W,

@@ -26,6 +26,7 @@ mod encoding;
 mod time;
 mod check;
 mod ot;
+mod branch;
 
 pub use ot::traversal::TraversalComponent;
 use diamond_core::AgentId;

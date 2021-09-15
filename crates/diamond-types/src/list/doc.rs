@@ -13,6 +13,7 @@ use crate::list::ot::ot::transform;
 use diamond_core::*;
 use crate::crdtspan::CRDTSpan;
 use rle::Searchable;
+use crate::list::branch::advance_branch_by;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
@@ -57,23 +58,6 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<
     }
 }
 
-/// Advance branch frontier by a transaction. This is written creating a new branch, which is
-/// somewhat inefficient (especially if the frontier is spilled).
-fn advance_branch_by(branch: &mut Branch, txn_parents: &[Order], first_order: Order, len: u32) {
-    // TODO: Check the branch contains everything in txn_parents, but not txn_id:
-    // Check the operation fits. The operation should not be in the branch, but
-    // all the operation's parents should be.
-    // From braid-kernel:
-    // assert(!branchContainsVersion(db, order, branch), 'db already contains version')
-    // for (const parent of op.parents) {
-    //    assert(branchContainsVersion(db, parent, branch), 'operation in the future')
-    // }
-    assert!(!branch.contains(&first_order)); // Remove this when branch_contains_version works.
-
-    // TODO: Consider sorting the branch after we do this.
-    branch.retain(|o| !txn_parents.contains(o)); // Usually removes all elements.
-    branch.push(first_order + len - 1);
-}
 
 impl ListCRDT {
     pub fn new() -> Self {
