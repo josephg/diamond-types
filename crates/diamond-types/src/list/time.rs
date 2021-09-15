@@ -56,7 +56,6 @@ impl RleVec<TxnSpan> {
         a_1 == b_1 || (a_1 > b_1 && self.shadow_of(a).wrapping_add(1) <= b_1)
     }
 
-    // TODO: Fuzz test this!
     pub(crate) fn branch_contains_order(&self, branch: &[Order], target: Order) -> bool {
         assert!(!branch.is_empty());
         if target == ROOT_ORDER || branch.contains(&target) { return true; }
@@ -238,6 +237,16 @@ impl RleVec<TxnSpan> {
 /// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
 /// about branches, find diffs and move between branches.
 impl ListCRDT {
+    /// Get the frontier as an internal order list
+    pub fn get_frontier_as_order(&self) -> &[Order] {
+        &self.frontier
+    }
+
+    // Exported for the fuzzer. Not sure if I actually want this exposed.
+    pub fn branch_contains_order(&self, branch: &[Order], target: Order) -> bool {
+        self.txns.branch_contains_order(branch, target)
+    }
+
     /// Safety: This method only unapplies changes to the internal indexes. It does not update
     /// other metadata. Calling doc.check() after this will fail.
     /// Also the passed span is not checked, and must be valid with respect to what else has been

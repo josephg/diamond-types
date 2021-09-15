@@ -146,6 +146,16 @@ fn run_fuzzer_iteration(seed: u64) {
             // dbg!(&a.text_content, &b.text_content);
             // dbg!(&a.content_tree, &b.content_tree);
 
+            // Our frontier should contain everything in the document.
+            let frontier = a.get_frontier_as_order().to_vec();
+            let mid_order = a.get_next_order();
+            if mid_order > 0 {
+                for _k in 0..10 {
+                    let order = rng.gen_range(0..mid_order);
+                    assert!(a.branch_contains_order(&frontier, order));
+                }
+            }
+
             // println!("{} -> {}", a_idx, b_idx);
             a.replicate_into(b);
             // println!("{} -> {}", b_idx, a_idx);
@@ -153,6 +163,14 @@ fn run_fuzzer_iteration(seed: u64) {
 
             a.check(false);
             b.check(false);
+
+            // But our old frontier doesn't contain any of the new items.
+            if a.get_next_order() > mid_order {
+                for _k in 0..10 {
+                    let order = rng.gen_range(mid_order..a.get_next_order());
+                    assert!(!a.branch_contains_order(&frontier, order));
+                }
+            }
 
             if a != b {
                 println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);
