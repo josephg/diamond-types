@@ -13,7 +13,7 @@
 use rand::prelude::*;
 use diamond_types::list::ListCRDT;
 use ropey::Rope;
-use diamond_types::AgentId;
+use diamond_core::AgentId;
 
 fn random_str(len: usize, rng: &mut SmallRng) -> String {
     let mut str = String::new();

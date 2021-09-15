@@ -49,14 +49,14 @@ fn load_into_doc(test_data: TestData) -> ListCRDT {
 
 #[test]
 fn txn_real_world_data() {
-    let test_data = load_testing_data("benchmark_data/rustcode.json.gz");
+    let test_data = load_testing_data("../../benchmark_data/rustcode.json.gz");
     // let test_data = load_testing_data("benchmark_data/sveltecomponent.json.gz");
     load_into_doc(test_data);
 }
 
 #[test]
 fn replicate() {
-    let test_data = load_testing_data("benchmark_data/sveltecomponent.json.gz");
+    let test_data = load_testing_data("../../benchmark_data/sveltecomponent.json.gz");
     let local_doc = load_into_doc(test_data);
 
     let mut remote_doc = ListCRDT::new();
