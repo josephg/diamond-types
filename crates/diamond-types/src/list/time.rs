@@ -391,10 +391,15 @@ pub mod test {
         assert_eq!(slow_result.0.as_slice(), expect_a);
         assert_eq!(slow_result.1.as_slice(), expect_b);
 
-        for &(branch, spans) in &[(a, expect_a), (b, expect_b)] {
+        for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
             for &o in spans {
                 assert!(doc.txns.branch_contains_order(branch, o.order));
                 assert!(doc.txns.branch_contains_order(branch, o.order + o.len - 1));
+            }
+
+            if spans.is_empty() && branch.len() == 1 {
+                dbg!(&other, branch[0]);
+                assert!(doc.txns.branch_contains_order(other, branch[0]));
             }
         }
     }
@@ -605,7 +610,7 @@ pub mod test {
         doc.get_or_create_agent_id("seph");
         doc.local_insert(0, 0, "aaaa".into()); // [0,4)
         doc.local_delete(0, 1, 2); // [4,6)
-        dbg!(&doc);
+        // dbg!(&doc);
         unsafe {
             // doc.partially_unapply_changes(OrderSpan { order: 4, len: 2 });
             doc.partially_unapply_changes(doc.linear_changes_since(0));
@@ -614,6 +619,6 @@ pub mod test {
         unsafe {
             doc.partially_reapply_changes(doc.linear_changes_since(0));
         }
-        dbg!(&doc);
+        // dbg!(&doc);
     }
 }
