@@ -59,7 +59,7 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<
 
 /// Advance branch frontier by a transaction. This is written creating a new branch, which is
 /// somewhat inefficient (especially if the frontier is spilled).
-fn advance_branch_by(branch: &mut Branch, txn_parents: &Branch, first_order: Order, len: u32) {
+fn advance_branch_by(branch: &mut Branch, txn_parents: &[Order], first_order: Order, len: u32) {
     // TODO: Check the branch contains everything in txn_parents, but not txn_id:
     // Check the operation fits. The operation should not be in the branch, but
     // all the operation's parents should be.
@@ -349,22 +349,34 @@ impl ListCRDT {
         unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
     }
 
-    fn insert_txn(&mut self, txn_parents: Option<Branch>, first_order: Order, len: u32) {
-        let last_order = first_order + len - 1;
-        let txn_parents = if let Some(txn_parents) = txn_parents {
-            advance_branch_by(&mut self.frontier, &txn_parents, first_order, len);
-            txn_parents
-        } else {
-            // Local change - Use the current frontier as the txn's parents.
-            // The new frontier points to the last order in the txn.
-            replace(&mut self.frontier, smallvec![last_order])
-        };
+    // For local changes, where we just take the frontier as the new parents list.
+    fn insert_txn_local(&mut self, first_order: Order, len: u32) {
+        // Fast path for local edits. For some reason the code below is remarkably non-performant.
+        if self.frontier.len() == 1 && self.frontier[0] == first_order.wrapping_sub(1) {
+            if let Some(last) = self.txns.0.last_mut() {
+                last.len += len;
+                self.frontier[0] += len;
+                return;
+            }
+        }
 
+        // Otherwise use the slow version.
+        let last_order = first_order + len - 1;
+        let txn_parents = replace(&mut self.frontier, smallvec![last_order]);
+        self.insert_txn_internal(txn_parents, first_order, len);
+    }
+
+    fn insert_txn_remote(&mut self, txn_parents: Branch, first_order: Order, len: u32) {
+        advance_branch_by(&mut self.frontier, &txn_parents, first_order, len);
+        self.insert_txn_internal(txn_parents, first_order, len);
+    }
+
+    fn insert_txn_internal(&mut self, txn_parents: Branch, first_order: Order, len: u32) {
         // Fast path. The code below is weirdly slow, but most txns just append.
         // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
         if let Some(last) = self.txns.0.last_mut() {
             if txn_parents.len() == 1
-                && txn_parents[0] == last.order + last.len - 1
+                && txn_parents[0] == last.last_order()
                 && last.order + last.len == first_order
             {
                 last.len += len;
@@ -562,7 +574,7 @@ impl ListCRDT {
         assert!(content.is_empty());
 
         let parents = self.remote_ids_to_branch(&txn.parents);
-        self.insert_txn(Some(parents), first_order, txn_len as u32);
+        self.insert_txn_remote(parents, first_order, txn_len as u32);
     }
 
     pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[TraversalComponent], mut content: &str) {
@@ -663,7 +675,7 @@ impl ListCRDT {
             }
         }
 
-        self.insert_txn(None, first_order, next_order - first_order);
+        self.insert_txn_local(first_order, next_order - first_order);
         debug_assert_eq!(next_order, self.get_next_order());
     }
 
