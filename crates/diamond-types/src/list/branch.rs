@@ -2,6 +2,7 @@ use crate::list::{Branch, Order};
 use crate::rle::RleVec;
 use crate::list::txn::TxnSpan;
 use std::ops::Range;
+use crate::rangeextra::OrderRange;
 
 /// Advance branch frontier by a transaction. This is written creating a new branch, which is
 /// somewhat inefficient (especially if the frontier is spilled).
@@ -18,7 +19,7 @@ pub(crate) fn advance_branch_by_known(branch: &mut Branch, txn_parents: &[Order]
 
     // TODO: Consider sorting the branch after we do this.
     branch.retain(|o| !txn_parents.contains(o)); // Usually removes all elements.
-    branch.push(range.end - 1);
+    branch.push(range.last_order());
 }
 
 pub(crate) fn advance_branch(branch: &mut Branch, history: &RleVec<TxnSpan>, range: Range<Order>) {

@@ -15,6 +15,7 @@ use crate::crdtspan::CRDTSpan;
 use rle::Searchable;
 use crate::list::branch::advance_branch_by_known;
 use std::ops::Range;
+use crate::rangeextra::OrderRange;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
@@ -344,7 +345,7 @@ impl ListCRDT {
         // Fast path for local edits. For some reason the code below is remarkably non-performant.
         if self.frontier.len() == 1 && self.frontier[0] == range.start.wrapping_sub(1) {
             if let Some(last) = self.txns.0.last_mut() {
-                let len = range.end - range.start;
+                let len = range.order_len();
                 last.len += len;
                 self.frontier[0] += len;
                 return;
@@ -352,7 +353,7 @@ impl ListCRDT {
         }
 
         // Otherwise use the slow version.
-        let txn_parents = replace(&mut self.frontier, smallvec![range.end - 1]);
+        let txn_parents = replace(&mut self.frontier, smallvec![range.last_order()]);
         self.insert_txn_internal(txn_parents, range);
     }
 
@@ -369,7 +370,7 @@ impl ListCRDT {
                 && txn_parents[0] == last.last_order()
                 && last.order + last.len == range.start
             {
-                last.len += range.end - range.start;
+                last.len += range.order_len();
                 return;
             }
         }
@@ -409,7 +410,7 @@ impl ListCRDT {
 
         let txn = TxnSpan {
             order: range.start,
-            len: range.end - range.start,
+            len: range.order_len(),
             shadow,
             parents: txn_parents.into_iter().collect(),
             parent_indexes,

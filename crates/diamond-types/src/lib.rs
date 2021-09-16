@@ -7,6 +7,7 @@ mod order;
 mod rle;
 mod unicount;
 mod crdtspan;
+mod rangeextra;
 
 #[cfg(test)]
 mod tests {

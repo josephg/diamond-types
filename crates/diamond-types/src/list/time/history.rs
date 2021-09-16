@@ -229,6 +229,7 @@ pub mod test {
     use crate::list::txn::TxnSpan;
     use crate::rle::RleVec;
     use std::ops::Range;
+    use crate::rangeextra::OrderRange;
 
     fn assert_diff_eq(txns: &RleVec<TxnSpan>, a: &[Order], b: &[Order], expect_a: &[Range<Order>], expect_b: &[Range<Order>]) {
         let slow_result = txns.diff_slow(a, b);
@@ -241,7 +242,7 @@ pub mod test {
         for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
             for o in spans {
                 assert!(txns.branch_contains_order(branch, o.start));
-                assert!(txns.branch_contains_order(branch, o.end - 1));
+                assert!(txns.branch_contains_order(branch, o.last_order()));
             }
 
             if branch.len() == 1 {
