@@ -44,8 +44,7 @@ impl RleVec<TxnSpan> {
         if order == ROOT_ORDER {
             ROOT_ORDER
         } else {
-            let (txn, _offset) = self.find(order).unwrap();
-            txn.shadow
+            self.find(order).unwrap().shadow
         }
     }
 
@@ -188,7 +187,7 @@ impl RleVec<TxnSpan> {
             // Grab the txn containing ord. This will usually be at prev_txn_idx - 1.
             // TODO: Remove usually redundant binary search
 
-            let (containing_txn, _offset) = self.find(ord).unwrap();
+            let (containing_txn, _offset) = self.find_with_offset(ord).unwrap();
 
             // There's essentially 2 cases here:
             // 1. This item and the first item in the queue are part of the same txn. Mark down to
@@ -259,7 +258,7 @@ impl ListCRDT {
 
             // First check if the change was a delete or an insert.
             let span_last_order = span.end() - 1;
-            if let Some((d, d_offset)) = self.deletes.find(span_last_order) {
+            if let Some((d, d_offset)) = self.deletes.find_with_offset(span_last_order) {
                 // Its a delete. We need to try to undelete the item, unless the item was deleted
                 // multiple times (in which case, it stays deleted.)
                 let mut base = u32::max(span.order, d.0);
@@ -334,7 +333,7 @@ impl ListCRDT {
 
     pub(super) unsafe fn partially_reapply_change(&mut self, span: &OrderSpan) -> u32 {
         // First check if the change was a delete or an insert.
-        if let Some((d, d_offset)) = self.deletes.find(span.order) {
+        if let Some((d, d_offset)) = self.deletes.find_with_offset(span.order) {
             // Re-delete the item.
             let delete_here = u32::min(span.len, d.1.len - d_offset);
             debug_assert!(delete_here > 0);

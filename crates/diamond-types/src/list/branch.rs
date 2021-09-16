@@ -26,7 +26,7 @@ pub(crate) fn retreat_branch_by(branch: &mut Branch, history: &RleVec<TxnSpan>, 
     branch.swap_remove(idx);
 
     // Now add back any parents.
-    let txn = history.find_packed(first_order).0;
+    let txn = history.find(first_order).unwrap();
     if first_order > txn.order {
         branch.push(first_order - 1);
     } else {

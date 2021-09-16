@@ -52,7 +52,7 @@ impl<V: SplitableSpan + Clone + Sized> RleVec<V> {
 
 // impl<K: Copy + Eq + Ord + Add<Output = K> + Sub<Output = K> + AddAssign, V: Copy + Eq> RLE<K, V> {
 impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
-    pub(crate) fn search(&self, needle: RleKey) -> Result<usize, usize> {
+    pub(crate) fn find_index(&self, needle: RleKey) -> Result<usize, usize> {
         self.0.binary_search_by(|entry| {
             let key = entry.get_rle_key();
             if needle < key { Greater }
@@ -63,9 +63,18 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
 
     /// Find an entry in the list with the specified key using binary search.
     ///
+    /// If found returns Some(found value).
+    pub fn find(&self, needle: RleKey) -> Option<&V> {
+        self.find_index(needle).ok().map(|idx| {
+            &self.0[idx]
+        })
+    }
+
+    /// Find an entry in the list with the specified key using binary search.
+    ///
     /// If found returns Some((found value, internal offset))
-    pub fn find(&self, needle: RleKey) -> Option<(&V, RleKey)> {
-        self.search(needle).ok().map(|idx| {
+    pub fn find_with_offset(&self, needle: RleKey) -> Option<(&V, RleKey)> {
+        self.find_index(needle).ok().map(|idx| {
             let entry = &self.0[idx];
             (entry, needle - entry.get_rle_key())
         })
@@ -73,7 +82,7 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
 
     /// Same as list.find(needle) except for lists where there are no gaps in the RLE list.
     pub fn find_packed(&self, needle: RleKey) -> (&V, RleKey) {
-        self.find(needle).unwrap()
+        self.find_with_offset(needle).unwrap()
     }
 
     /// This method is similar to find, except instead of returning None when the value doesn't
@@ -81,7 +90,7 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     ///
     /// This method assumes the "base" of the RLE is 0.
     pub fn find_sparse(&self, needle: RleKey) -> (Result<&V, RleKey>, RleKey) {
-        match self.search(needle) {
+        match self.find_index(needle) {
             Ok(idx) => {
                 let entry = &self.0[idx];
                 (Ok(entry), needle - entry.get_rle_key())
@@ -101,7 +110,7 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     ///
     /// If found, item is returned by mutable reference as Some((&mut item, offset)).
     pub fn find_mut(&mut self, needle: RleKey) -> Option<(&mut V, RleKey)> {
-        self.search(needle).ok().map(move |idx| {
+        self.find_index(needle).ok().map(move |idx| {
             let entry = &mut self.0[idx];
             let offset = needle - entry.get_rle_key();
             (entry, offset)
@@ -109,7 +118,7 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     }
 
     pub fn insert(&mut self, val: V) {
-        let idx = self.search(val.get_rle_key()).expect_err("Item already exists");
+        let idx = self.find_index(val.get_rle_key()).expect_err("Item already exists");
 
         // Extend the next / previous item if possible
         if idx >= 1 {
@@ -164,7 +173,7 @@ impl<V: SplitableSpan + Clone + Sized> Extend<V> for RleVec<V> {
 
 impl<V: SplitableSpan + Searchable + RleKeyed> RleVec<V> {
     pub fn get(&self, idx: RleKey) -> V::Item {
-        let (v, offset) = self.find(idx).unwrap();
+        let (v, offset) = self.find_with_offset(idx).unwrap();
         v.at_offset(offset as usize)
     }
 }
@@ -194,13 +203,13 @@ mod tests {
         let mut rle: RleVec<KVPair<OrderSpan>> = RleVec::new();
 
         rle.push(KVPair(1, OrderSpan { order: 1000, len: 2 }));
-        assert_eq!(rle.find(1), Some((&KVPair(1, OrderSpan { order: 1000, len: 2 }), 0)));
-        assert_eq!(rle.find(2), Some((&KVPair(1, OrderSpan { order: 1000, len: 2 }), 1)));
-        assert_eq!(rle.find(3), None);
+        assert_eq!(rle.find_with_offset(1), Some((&KVPair(1, OrderSpan { order: 1000, len: 2 }), 0)));
+        assert_eq!(rle.find_with_offset(2), Some((&KVPair(1, OrderSpan { order: 1000, len: 2 }), 1)));
+        assert_eq!(rle.find_with_offset(3), None);
 
         // This should get appended.
         rle.push(KVPair(3, OrderSpan { order: 1002, len: 1 }));
-        assert_eq!(rle.find(3), Some((&KVPair(1, OrderSpan { order: 1000, len: 3 }), 2)));
+        assert_eq!(rle.find_with_offset(3), Some((&KVPair(1, OrderSpan { order: 1000, len: 3 }), 2)));
         assert_eq!(rle.0.len(), 1);
     }
 

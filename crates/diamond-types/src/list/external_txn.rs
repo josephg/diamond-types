@@ -269,7 +269,7 @@ impl ListCRDT {
                 .find(|rid| rid.agent == client.name)
                 .map_or(0, |rid| rid.seq);
 
-            let idx = client.item_orders.search(from_seq).unwrap_or_else(|idx| idx);
+            let idx = client.item_orders.find_index(from_seq).unwrap_or_else(|idx| idx);
             if idx < client.item_orders.0.len() {
                 let entry = &client.item_orders.0[idx];
 
@@ -330,7 +330,7 @@ impl ListCRDT {
         // 4. The length of the delete or insert operation
         // 5. (For deletes) the contiguous section of items deleted which have the same agent id
 
-        let (txn, offset) = self.txns.find(span.order).unwrap();
+        let (txn, offset) = self.txns.find_with_offset(span.order).unwrap();
 
         let parents: SmallVec<[RemoteId; 2]> = if let Some(order) = txn.parent_at_offset(offset as _) {
             smallvec![self.order_to_remote_id(order)]
@@ -359,7 +359,7 @@ impl ListCRDT {
             let len_remaining = txn_len - txn_offset;
             // TODO: Use a smarter replacement for deletes.find() here, since we're traversing
             // linearly.
-            let (next, len) = if let Some((d, offset)) = self.deletes.find(order) {
+            let (next, len) = if let Some((d, offset)) = self.deletes.find_with_offset(order) {
                 // dbg!((d, offset));
                 // Its a delete.
 

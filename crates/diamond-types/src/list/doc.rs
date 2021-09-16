@@ -23,12 +23,12 @@ impl ClientData {
     }
 
     pub fn seq_to_order(&self, seq: u32) -> Order {
-        let (entry, offset) = self.item_orders.find(seq).unwrap();
+        let (entry, offset) = self.item_orders.find_with_offset(seq).unwrap();
         entry.1.order + offset
     }
 
     pub fn seq_to_order_span(&self, seq: u32, max_len: u32) -> OrderSpan {
-        let (entry, offset) = self.item_orders.find(seq).unwrap();
+        let (entry, offset) = self.item_orders.find_with_offset(seq).unwrap();
         OrderSpan {
             order: entry.1.order + offset,
             len: max_len.min(entry.1.len - offset),
@@ -117,7 +117,7 @@ impl ListCRDT {
     pub(crate) fn get_crdt_location(&self, order: Order) -> CRDTId {
         if order == ROOT_ORDER { CRDT_DOC_ROOT }
         else {
-            let (loc, offset) = self.client_with_order.find(order).unwrap();
+            let (loc, offset) = self.client_with_order.find_with_offset(order).unwrap();
             loc.1.at_offset(offset as usize)
         }
     }
@@ -125,7 +125,7 @@ impl ListCRDT {
     pub(crate) fn get_crdt_span(&self, order: Order, max_size: u32) -> CRDTSpan {
         if order == ROOT_ORDER { CRDTSpan { loc: CRDT_DOC_ROOT, len: 0 } }
         else {
-            let (loc, offset) = self.client_with_order.find(order).unwrap();
+            let (loc, offset) = self.client_with_order.find_with_offset(order).unwrap();
             CRDTSpan {
                 loc: CRDTId {
                     agent: loc.1.loc.agent,
@@ -204,7 +204,7 @@ impl ListCRDT {
     }
 
     pub(crate) fn max_span_length(&self, order: Order) -> u32 {
-        let (span, span_offset) = self.client_with_order.find(order).unwrap();
+        let (span, span_offset) = self.client_with_order.find_with_offset(order).unwrap();
         span.1.len - span_offset
     }
 
@@ -371,7 +371,7 @@ impl ListCRDT {
         // let parents = replace(&mut self.frontier, txn_parents);
         let mut shadow = first_order;
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
-            shadow = self.txns.find(shadow - 1).unwrap().0.shadow;
+            shadow = self.txns.find(shadow - 1).unwrap().shadow;
         }
         if shadow == 0 { shadow = ROOT_ORDER; }
 
@@ -389,7 +389,7 @@ impl ListCRDT {
 
             for &p in &txn_parents {
                 if p == ROOT_ORDER { continue; }
-                let parent_idx = self.txns.search(p).unwrap();
+                let parent_idx = self.txns.find_index(p).unwrap();
                 // Interestingly the parent_idx array will always end up the same length as parents
                 // because it would be invalid for multiple parents to point to the same entry in
                 // txns. (That would imply one parent is a descendant of another.)

@@ -140,7 +140,7 @@ impl RleVec<KVPair<DoubleDelete>> {
     }
 
     pub(crate) fn modify_delete_range(&mut self, base: Order, len: u32, update_by: i32, max_value: u32) -> u32 {
-        let start = self.search(base);
+        let start = self.find_index(base);
         let idx = start.unwrap_or_else(|idx| idx);
         self.modify_delete_range_idx(base, len, idx, update_by, max_value)
     }
@@ -161,7 +161,7 @@ impl RleVec<KVPair<DoubleDelete>> {
     pub(crate) fn find_zero_range(&self, base: Order, max_len: u32) -> u32 {
         // let mut span = OrderSpan { order: base, len: max_len };
 
-        for idx in self.search(base).unwrap_or_else(|idx| idx)..self.0.len() {
+        for idx in self.find_index(base).unwrap_or_else(|idx| idx)..self.0.len() {
             let e = &self.0[idx];
             debug_assert_ne!(e.1.len, 0);
 

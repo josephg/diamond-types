@@ -157,7 +157,7 @@ impl PartialEq for ListCRDT {
             let expect_parents = txn.parents.iter()
                 .map(|p| a_to_b_order(*p)).collect::<Branch>();
 
-            let (other_txn, offset) = other.txns.find(other_order).unwrap();
+            let (other_txn, offset) = other.txns.find_with_offset(other_order).unwrap();
             if let Some(actual_parent) = other_txn.parent_at_offset(offset as usize) {
                 if expect_parents.len() != 1 || expect_parents[0] != actual_parent { return false; }
             } else if !set_eq(&expect_parents, &other_txn.parents) { return false; }

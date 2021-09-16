@@ -81,7 +81,7 @@ impl ListCRDT {
                 // By induction, we can assume the previous shadows are correct.
                 for parent_order in parents {
                     // Note parent_order could point in the middle of a txn run.
-                    let parent_idx = self.txns.search(parent_order).unwrap();
+                    let parent_idx = self.txns.find_index(parent_order).unwrap();
                     if !expect_parent_idx.contains(&parent_idx) {
                         expect_parent_idx.push(parent_idx);
                     }

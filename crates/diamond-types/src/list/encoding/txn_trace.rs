@@ -56,7 +56,7 @@ impl RleVec<TxnSpan> {
                     // We're looking for a child where all the parents have been satisfied
                     if next.parents.len() == 1 || next.parents.iter().all(|p| {
                         // TODO: Speed this up by caching the index of each parent in each txn
-                        consumed[self.search(*p).unwrap()]
+                        consumed[self.find_index(*p).unwrap()]
                     }) {
                         next_idx = *i;
                         break 'outer;

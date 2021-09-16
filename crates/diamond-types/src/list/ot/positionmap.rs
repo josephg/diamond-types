@@ -74,7 +74,7 @@ impl DoubleDeleteVisitor {
     fn new() -> Self { Self::default() }
 
     fn find_edit_range(&self, needle: RleKey) -> Result<(&KVPair<DoubleDelete>, usize), (RleKey, usize)> {
-        match self.0.search(needle) {
+        match self.0.find_index(needle) {
             Ok(idx) => {
                 Ok((&self.0.0[idx], idx))
             }
