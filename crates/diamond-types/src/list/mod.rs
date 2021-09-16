@@ -67,6 +67,7 @@ pub(crate) const DOC_LE: usize = DEFAULT_LE;
 // const DOC_LE: usize = 32;
 
 type DocRangeIndex = ContentIndex;
+// type DocRangeIndex = FullIndex;
 type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionIndex>>>;
 
 pub type DoubleDeleteList = RleVec<KVPair<DoubleDelete>>;

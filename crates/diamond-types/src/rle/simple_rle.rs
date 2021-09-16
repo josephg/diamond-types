@@ -195,14 +195,6 @@ impl<T: SplitableSpan, I: SliceIndex<[T]>> Index<I> for RleVec<T> {
     }
 }
 
-// impl<V: EntryTraits> Index<usize> for RleVec<V> {
-//     type Output = V::Item;
-//
-//     fn index(&self, index: usize) -> &Self::Output {
-//         &self.get(index as RLEKey)
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use crate::order::OrderSpan;

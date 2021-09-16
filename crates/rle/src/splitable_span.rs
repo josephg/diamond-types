@@ -1,3 +1,5 @@
+use std::ops::{Range, Add, Sub};
+
 /// An entry is expected to contain multiple items.
 ///
 /// A SplitableSpan is a range entry. That is, an entry which contains a compact run of many
@@ -110,6 +112,27 @@ impl<T: Clone + Eq> SplitableSpan for RleRun<T> {
     }
 }
 
+// This will implement SplitableSpan for u8, u16, u32, u64, u128, usize
+impl<T: Add<Output=T> + Sub + From<usize> + Copy + Eq> SplitableSpan for Range<T> where usize: From<<T as Sub>::Output> {
+    fn len(&self) -> usize {
+        (self.end - self.start).into()
+    }
+
+    fn truncate(&mut self, at: usize) -> Self {
+        let old_end = self.end;
+        self.end = self.start + at.into();
+        Self { start: self.end, end: old_end }
+    }
+
+    fn can_append(&self, other: &Self) -> bool {
+        self.end == other.start
+    }
+
+    fn append(&mut self, other: Self) {
+        self.end = other.end;
+    }
+}
+
 /// Simple test helper to verify an implementation of SplitableSpan is valid and meets expected
 /// constraints.
 ///
@@ -153,5 +176,10 @@ mod test {
         assert!(RleRun { val: 10, len: 5 }.can_append(&RleRun { val: 10, len: 15 }));
 
         test_splitable_methods_valid(RleRun { val: 12, len: 5 });
+    }
+
+    #[test]
+    fn splitable_range() {
+        test_splitable_methods_valid(0..10);
     }
 }

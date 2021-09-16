@@ -3,8 +3,7 @@ use std::ops::Range;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct RleRange {
-    // We can't just embed a Range because it doesn't implement Copy. And Copy is needed for
-    // ContentTree.
+    // We can't embed a Range because it doesn't implement Copy. And Copy is needed for ContentTree.
     start: usize,
     end: usize,
 }
