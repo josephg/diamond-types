@@ -19,40 +19,37 @@ pub(crate) struct OpItem {
 /// This is a simple iterator which iterates through the modifications made to a document, in time
 /// (Order) order across a single contiguous span of time.
 #[derive(Debug)]
-pub(crate) struct ListPatchIter<'a> {
+pub(crate) struct ListPatchIter<'a, const FWD: bool> {
     doc: &'a ListCRDT,
     range: Range<Order>,
-    fwd_del_idx: usize,
-    back_del_idx: usize,
+    del_idx: usize,
+    // fwd_del_idx: usize,
+    // back_del_idx: usize,
 }
 
-impl<'a> ListPatchIter<'a> {
+impl<'a, const FWD: bool> ListPatchIter<'a, FWD> {
     fn new(doc: &'a ListCRDT, range: Range<Order>) -> Self {
-        let fwd_del_idx = if range.start == 0 { 0 }
-        else {
-            doc.deletes.find_index(range.start).unwrap_or_else(|idx| idx)
+        let del_idx = if FWD {
+            if range.start == 0 { 0 }
+            else {
+                doc.deletes.find_index(range.start).unwrap_or_else(|idx| idx)
+            }
+        } else {
+            doc.deletes
+                .find_index(range.end)
+                .unwrap_or_else(|idx| idx.wrapping_sub(1))
         };
 
-        // TODO: Test me!
-        let back_del_idx = doc.deletes
-            .find_index(range.end)
-            .unwrap_or_else(|idx| idx.wrapping_sub(1));
-
-        Self {
-            doc,
-            range,
-            fwd_del_idx,
-            back_del_idx,
-        }
+        Self { doc, range, del_idx }
     }
 }
 
-impl<'a> Iterator for ListPatchIter<'a> {
+impl<'a> Iterator for ListPatchIter<'a, true> {
     type Item = OpItem;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.range.start < self.range.end {
-            match self.doc.deletes.search_scanning_sparse(self.range.start, &mut self.fwd_del_idx) {
+            match self.doc.deletes.search_scanning_sparse(self.range.start, &mut self.del_idx) {
                 Ok(d) => {
                     // Its a delete.
                     debug_assert!(d.0 <= self.range.start && self.range.start < d.end());
@@ -78,11 +75,13 @@ impl<'a> Iterator for ListPatchIter<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for ListPatchIter<'a> {
-    fn next_back(&mut self) -> Option<Self::Item> {
+impl<'a> Iterator for ListPatchIter<'a, false> {
+    type Item = OpItem;
+
+    fn next(&mut self) -> Option<Self::Item> {
         if self.range.start < self.range.end {
             let last_order = self.range.last_order();
-            match self.doc.deletes.search_scanning_backwards_sparse(last_order, &mut self.back_del_idx) {
+            match self.doc.deletes.search_scanning_backwards_sparse(last_order, &mut self.del_idx) {
                 Ok(d) => {
                     // Its a delete.
                     debug_assert!(d.0 <= last_order && last_order < d.end());
@@ -110,11 +109,19 @@ impl<'a> DoubleEndedIterator for ListPatchIter<'a> {
 
 
 impl ListCRDT {
-    pub(crate) fn patch_iter(&self) -> ListPatchIter {
+    pub(crate) fn patch_iter(&self) -> ListPatchIter<true> {
         ListPatchIter::new(self, 0..self.get_next_order())
     }
 
-    pub(crate) fn patch_iter_in_range(&self, range: Range<Order>) -> ListPatchIter {
+    pub(crate) fn patch_iter_in_range(&self, range: Range<Order>) -> ListPatchIter<true> {
+        ListPatchIter::new(self, range)
+    }
+
+    pub(crate) fn patch_iter_rev(&self) -> ListPatchIter<false> {
+        ListPatchIter::new(self, 0..self.get_next_order())
+    }
+
+    pub(crate) fn patch_iter_in_range_rev(&self, range: Range<Order>) -> ListPatchIter<false> {
         ListPatchIter::new(self, range)
     }
 }
@@ -129,7 +136,7 @@ mod test {
         let forward = doc.patch_iter_in_range(range.clone());
         assert_eq!(forward.collect::<Vec<_>>(), expect);
 
-        let backward = doc.patch_iter_in_range(range.clone()).rev();
+        let backward = doc.patch_iter_in_range_rev(range.clone());
         let mut actual = backward.collect::<Vec<_>>();
         actual.reverse();
         assert_eq!(actual, expect);
