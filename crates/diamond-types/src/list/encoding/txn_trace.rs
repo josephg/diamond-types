@@ -54,9 +54,28 @@ impl<'a> OriginTxnIter<'a> {
             branch: smallvec![ROOT_ORDER],
             consumed: bitbox![0; history.len()],
             root_children,
-            stack: vec![usize::MAX],
+            stack: vec![],
             num_consumed: 0
         }
+    }
+
+    // Dirty - returns usize::MAX when there is no next child.
+    #[inline(always)]
+    fn get_next_child(&self, child_idxs: &[usize]) -> Option<usize> {
+        for &i in child_idxs { // Sorted??
+            // println!("  - {}", i);
+            if self.consumed[i] { continue; }
+
+            let next = &self.history[i];
+            // We're looking for a child where all the parents have been satisfied
+            if next.parents.len() == 1 || next.parents.iter().all(|&p| {
+                // TODO: Speed this up by caching the index of each parent in each txn
+                self.consumed[self.history.find_index(p).unwrap()]
+            }) {
+                return Some(i);
+            }
+        }
+        None
     }
 }
 
@@ -67,43 +86,35 @@ impl<'a> Iterator for OriginTxnIter<'a> {
         // Find the next item to consume. We'll start with all the children of the top of the
         // stack, and greedily walk up looking for anything which has all its dependencies
         // satisfied.
-        let mut next_idx = usize::MAX;
-        'outer: while let Some(&idx) = self.stack.last() {
-            // println!("stack top {}!", idx);
-            let child_idxs = if idx == usize::MAX { &self.root_children } else {
-                &self.history[idx].child_indexes
-            };
+        let next_idx = loop {
+            // A previous implementation handled both of these cases the same way, but it needed a
+            // dummy value at the start of self.stack, which caused an allocation when the doc only
+            // has one txn span. This approach is a bit more complex, but leaves the stack empty in
+            // this case.
+            if let Some(&idx) = self.stack.last() {
+                // println!("stack top {}!", idx);
+                if let Some(next_idx) = self.get_next_child(&self.history[idx].child_indexes) {
+                    break next_idx;
+                }
 
-            for i in child_idxs { // Sorted??
-                // println!("  - {}", i);
-                if self.consumed[*i] { continue; }
+                // TODO: We could retreat branch here. That would have the benefit of not needing as
+                // many lookups through txns, but the downside is we'd end up retreating all the way
+                // back to the start of the document at the end of the process. Benchmark to see
+                // which way is better.
 
-                let next = &self.history[*i];
-                // We're looking for a child where all the parents have been satisfied
-                if next.parents.len() == 1 || next.parents.iter().all(|p| {
-                    // TODO: Speed this up by caching the index of each parent in each txn
-                    self.consumed[self.history.find_index(*p).unwrap()]
-                }) {
-                    next_idx = *i;
-                    break 'outer;
+                // println!("pop {}!", idx);
+                self.stack.pop();
+            } else {
+                if let Some(next_idx) = self.get_next_child(&self.root_children) {
+                    break next_idx;
+                } else {
+                    // The stack was exhausted and we didn't find anything. We're done here.
+                    debug_assert!(self.consumed.all());
+                    debug_assert_eq!(self.num_consumed, self.history.len());
+                    return None;
                 }
             }
-
-            // TODO: We could retreat branch here. That would have the benefit of not needing as
-            // many lookups through txns, but the downside is we'd end up retreating all the way
-            // back to the start of the document at the end of the process. Benchmark to see
-            // which way is better.
-
-            // println!("pop {}!", idx);
-            self.stack.pop();
-        }
-
-        if next_idx == usize::MAX {
-            // The stack was exhausted and we didn't find anything. We're done here.
-            debug_assert!(self.consumed.all());
-            debug_assert_eq!(self.num_consumed, self.history.len());
-            return None;
-        }
+        };
 
         assert!(next_idx < self.history.len());
         assert!(!self.consumed[next_idx]);
