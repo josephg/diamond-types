@@ -2,9 +2,7 @@ use std::mem::size_of;
 
 use humansize::{file_size_opts, FileSize};
 use smallvec::SmallVec;
-use rle::{Searchable, merge_items, MergeIter};
-
-use super::safe_cursor::ItemIterator;
+use rle::{Searchable, merge_items};
 use super::*;
 
 pub type DeleteResult<E> = SmallVec<[E; 2]>;
@@ -85,19 +83,26 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         }
     }
 
-    pub fn unsafe_cursor_at_start(&self) -> UnsafeCursor<E, I, IE, LE> {
-        // TODO: Consider moving this into unsafe_cursor
+    pub(crate) fn leaf_at_start(&self) -> &NodeLeaf<E, I, IE, LE> {
+        // There is always at least one leaf, so this is safe!
         unsafe {
             let mut node = self.root.as_ptr();
             while let NodePtr::Internal(data) = node {
                 node = data.as_ref().children[0].as_ref().unwrap().as_ptr()
             };
 
-            let leaf_ptr = node.unwrap_leaf();
+            node.unwrap_leaf().as_ref()
+        }
+    }
+
+    pub fn unsafe_cursor_at_start(&self) -> UnsafeCursor<E, I, IE, LE> {
+        // TODO: Consider moving this into unsafe_cursor
+        unsafe {
+            let leaf_ref = self.leaf_at_start();
             UnsafeCursor {
-                node: leaf_ptr,
+                node: NonNull::new_unchecked(leaf_ref as *const _ as *mut _),
                 idx: 0,
-                offset: if leaf_ptr.as_ref().num_entries == 0 { usize::MAX } else { 0 },
+                offset: if leaf_ref.num_entries == 0 { usize::MAX } else { 0 },
                 // _marker: marker::PhantomData
             }
         }
@@ -154,25 +159,6 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     // pub fn cache_cursor(self: &Pin<Box<Self>>, pos: usize, cursor: Cursor<E>) {
     //     self.as_ref().last_cursor.set(Some((pos, cursor)));
     // }
-
-    /// Iterate through all the items "raw" - which is to say, without merging anything.
-    ///
-    /// This is different from iter() because in some editing situations the tree will not be
-    /// perfectly flattened. That is, it may be possible to merge some items in the tree. This
-    /// iterator method will not merge anything, and instead just iterate through all items as they
-    /// are stored.
-    ///
-    /// Whether specific items are merged or not is an implementation detail, and should not be
-    /// relied upon by your application. If you expect all mergable items to be merged, use iter().
-    pub fn raw_iter(&self) -> Cursor<E, I, IE, LE> { self.cursor_at_start() }
-
-    /// Iterate through all entries in the content tree. This iterator will yield all entries
-    /// merged according to the methods in SplitableSpan.
-    pub fn iter(&self) -> MergeIter<Cursor<E, I, IE, LE>> { merge_items(self.cursor_at_start()) }
-
-    pub fn item_iter(&self) -> ItemIterator<E, I, IE, LE> {
-        ItemIterator(self.raw_iter())
-    }
 
     pub fn next_entry_or_panic(cursor: &mut UnsafeCursor<E, I, IE, LE>, marker: &mut I::IndexUpdate) {
         if !cursor.next_entry_marker(Some(marker)) {

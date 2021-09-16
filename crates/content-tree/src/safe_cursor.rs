@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-use rle::Searchable;
-
 use super::*;
 
 /// This file provides the safe implementation methods for cursors.
@@ -170,36 +168,6 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         where F: Fn(I::IndexValue) -> usize, G: Fn(E) -> usize {
         unsafe {
             MutCursor::unchecked_from_raw(self, self.unsafe_cursor_at_query(raw_pos, stick_end, offset_to_num, entry_to_num))
-        }
-    }
-}
-
-/// Iterator for all the items inside the entries. Unlike entry iteration we use the offset here.
-#[derive(Debug)]
-pub struct ItemIterator<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize>(pub Cursor<'a, E, I, IE, LE>);
-
-impl<'a, E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for ItemIterator<'a, E, I, IE, LE> {
-    type Item = E::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // I'll set idx to an invalid value
-        if self.0.inner.idx == usize::MAX {
-            None
-        } else {
-            let entry = self.0.get_raw_entry();
-            let len = entry.len();
-            let item = entry.at_offset(self.0.inner.offset);
-            self.0.inner.offset += 1;
-
-            if self.0.inner.offset >= len {
-                // Skip to the next entry for the next query.
-                let has_next = self.0.inner.next_entry();
-                if !has_next {
-                    // We're done.
-                    self.0.inner.idx = usize::MAX;
-                }
-            }
-            Some(item)
         }
     }
 }

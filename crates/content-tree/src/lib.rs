@@ -23,6 +23,7 @@ mod mutations;
 mod index;
 mod safe_cursor;
 pub mod testrange;
+mod iter;
 
 // pub(crate) use cursor::Cursor;
 
@@ -52,7 +53,7 @@ impl<T: SplitableSpan + Copy + Debug + Default> ContentTraits for T {}
 /// tree.push(TestRange { id: 0, len: 100, is_activated: true });
 /// tree.push(TestRange { id: 100, len: 50, is_activated: true });
 ///
-/// assert_eq!(tree.raw_iter().collect::<Vec<TestRange>>(), vec![
+/// assert_eq!(tree.iter().collect::<Vec<TestRange>>(), vec![
 ///     TestRange { id: 0, len: 150, is_activated: true }
 /// ]);
 /// ```
