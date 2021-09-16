@@ -4,6 +4,7 @@ use std::ptr::NonNull;
 use rle::Searchable;
 
 use super::*;
+use std::marker::PhantomData;
 
 impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
@@ -76,7 +77,9 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
         self.adjacent_leaf_by_traversal(false)
     }
 
-    pub fn adjacent_leaf_by_traversal(&self, direction_forward: bool) -> Option<NonNull<Self>> {
+    pub(crate) fn adjacent_leaf_by_traversal(&self, direction_forward: bool) -> Option<NonNull<Self>> {
+        // TODO: Remove direction_forward here.
+
         // println!("** traverse called {:?} {}", self, traverse_next);
         // idx is 0. Go up as far as we can until we get to an index that has room, or we hit the
         // root.
@@ -149,6 +152,10 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
     // }
     pub fn len_entries(&self) -> usize {
         self.num_entries as usize
+    }
+
+    pub fn as_slice(&self) -> &[E] {
+        &self.data[0..self.num_entries as usize]
     }
 
     // Recursively (well, iteratively) ascend and update all the counts along
@@ -225,6 +232,20 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
     pub fn clear_all(&mut self) {
         // self.data[0..self.num_entries as usize].fill(E::default());
         self.num_entries = 0;
+    }
+
+    pub fn unsafe_cursor_at_start(&self) -> UnsafeCursor<E, I, IE, LE> {
+        UnsafeCursor::new(
+            unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
+            0,
+            0
+        )
+    }
+    
+    pub fn cursor_at_start(&self) -> Cursor<E, I, IE, LE> {
+        // This is safe because you can only reference a leaf while you immutably borrow a
+        // content-tree. The lifetime of the returned cursor should match self.
+        Cursor { inner: self.unsafe_cursor_at_start(), marker: PhantomData }
     }
 }
 
