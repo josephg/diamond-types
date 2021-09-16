@@ -32,21 +32,21 @@ pub(crate) fn advance_branch(branch: &mut Branch, history: &RleVec<TxnSpan>, ran
 }
 
 // TODO: Change this to take a range instead of first_order / len pair.
-pub(crate) fn retreat_branch_by(branch: &mut Branch, history: &RleVec<TxnSpan>, first_order: Order, len: u32) {
-    let txn = history.find(first_order).unwrap();
-    retreat_branch_known_txn(branch, history, txn, first_order, len);
+pub(crate) fn retreat_branch_by(branch: &mut Branch, history: &RleVec<TxnSpan>, range: Range<Order>) {
+    let txn = history.find(range.start).unwrap();
+    retreat_branch_known_txn(branch, history, txn, range);
 }
 
-pub(crate) fn retreat_branch_known_txn(branch: &mut Branch, history: &RleVec<TxnSpan>, txn: &TxnSpan, first_order: Order, len: u32) {
-    let last_order = first_order + len - 1;
+pub(crate) fn retreat_branch_known_txn(branch: &mut Branch, history: &RleVec<TxnSpan>, txn: &TxnSpan, range: Range<Order>) {
+    let last_order = range.last_order();
     let idx = branch.iter().position(|&e| e == last_order).unwrap();
 
     // Now add back any parents.
     debug_assert!(txn.contains(last_order));
 
-    if first_order > txn.order {
-        branch[idx] = first_order - 1;
-    } else if first_order == txn.order {
+    if range.start > txn.order {
+        branch[idx] = range.start - 1;
+    } else if range.start == txn.order {
         branch.swap_remove(idx);
         for &parent in &txn.parents {
             // TODO: This is pretty inefficient. We're calling branch_contains_order in a loop and
@@ -82,10 +82,10 @@ mod test {
             }
         ]);
 
-        retreat_branch_by(&mut branch, &txns, 5, 5);
+        retreat_branch_by(&mut branch, &txns, 5..10);
         assert_eq!(branch.as_slice(), &[4]);
 
-        retreat_branch_by(&mut branch, &txns, 0, 5);
+        retreat_branch_by(&mut branch, &txns, 0..5);
         assert_eq!(branch.as_slice(), &[ROOT_ORDER]);
     }
 }

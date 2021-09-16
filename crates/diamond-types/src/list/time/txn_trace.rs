@@ -127,7 +127,7 @@ impl<'a> Iterator for OriginTxnIter<'a> {
         // in only_branch if the child has a parent in the middle of our txn.
         for range in &only_branch {
             // println!("Retreat branch by {:?}", span);
-            retreat_branch_by(&mut self.branch, &self.history, range.start, range.end - range.start);
+            retreat_branch_by(&mut self.branch, &self.history, range.clone());
             // dbg!(&branch);
         }
         for range in only_txn.iter().rev() {
