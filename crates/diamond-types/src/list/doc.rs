@@ -13,7 +13,7 @@ use crate::list::ot::transform;
 use diamond_core::*;
 use crate::crdtspan::CRDTSpan;
 use rle::Searchable;
-use crate::list::branch::advance_branch_by;
+use crate::list::branch::advance_branch_by_known;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
@@ -334,42 +334,41 @@ impl ListCRDT {
     }
 
     // For local changes, where we just take the frontier as the new parents list.
-    fn insert_txn_local(&mut self, first_order: Order, len: u32) {
+    fn insert_txn_local(&mut self, span: OrderSpan) {
         // Fast path for local edits. For some reason the code below is remarkably non-performant.
-        if self.frontier.len() == 1 && self.frontier[0] == first_order.wrapping_sub(1) {
+        if self.frontier.len() == 1 && self.frontier[0] == span.order.wrapping_sub(1) {
             if let Some(last) = self.txns.0.last_mut() {
-                last.len += len;
-                self.frontier[0] += len;
+                last.len += span.len;
+                self.frontier[0] += span.len;
                 return;
             }
         }
 
         // Otherwise use the slow version.
-        let last_order = first_order + len - 1;
-        let txn_parents = replace(&mut self.frontier, smallvec![last_order]);
-        self.insert_txn_internal(txn_parents, first_order, len);
+        let txn_parents = replace(&mut self.frontier, smallvec![span.last()]);
+        self.insert_txn_internal(txn_parents, span);
     }
 
-    fn insert_txn_remote(&mut self, txn_parents: Branch, first_order: Order, len: u32) {
-        advance_branch_by(&mut self.frontier, &txn_parents, first_order, len);
-        self.insert_txn_internal(txn_parents, first_order, len);
+    fn insert_txn_remote(&mut self, txn_parents: Branch, span: OrderSpan) {
+        advance_branch_by_known(&mut self.frontier, &txn_parents, span);
+        self.insert_txn_internal(txn_parents, span);
     }
 
-    fn insert_txn_internal(&mut self, txn_parents: Branch, first_order: Order, len: u32) {
+    fn insert_txn_internal(&mut self, txn_parents: Branch, span: OrderSpan) {
         // Fast path. The code below is weirdly slow, but most txns just append.
         // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
         if let Some(last) = self.txns.0.last_mut() {
             if txn_parents.len() == 1
                 && txn_parents[0] == last.last_order()
-                && last.order + last.len == first_order
+                && last.order + last.len == span.order
             {
-                last.len += len;
+                last.len += span.len;
                 return;
             }
         }
 
         // let parents = replace(&mut self.frontier, txn_parents);
-        let mut shadow = first_order;
+        let mut shadow = span.order;
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
             shadow = self.txns.find(shadow - 1).unwrap().shadow;
         }
@@ -402,8 +401,8 @@ impl ListCRDT {
         }
 
         let txn = TxnSpan {
-            order: first_order,
-            len,
+            order: span.order,
+            len: span.len,
             shadow,
             parents: txn_parents.into_iter().collect(),
             parent_indexes,
@@ -558,7 +557,7 @@ impl ListCRDT {
         assert!(content.is_empty());
 
         let parents = self.remote_ids_to_branch(&txn.parents);
-        self.insert_txn_remote(parents, first_order, txn_len as u32);
+        self.insert_txn_remote(parents, OrderSpan { order: first_order, len: txn_len as u32 });
     }
 
     pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[TraversalComponent], mut content: &str) {
@@ -659,7 +658,10 @@ impl ListCRDT {
             }
         }
 
-        self.insert_txn_local(first_order, next_order - first_order);
+        self.insert_txn_local(OrderSpan {
+            order: first_order,
+            len: next_order - first_order
+        });
         debug_assert_eq!(next_order, self.get_next_order());
     }
 

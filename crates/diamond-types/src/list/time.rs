@@ -65,7 +65,7 @@ impl RleVec<TxnSpan> {
         // avoids the allocation from BinaryHeap.
         for &o in branch {
             if o > target {
-                let txn = self.find_packed(o).0;
+                let txn = self.find(o).unwrap();
                 if txn.shadow_contains(target) { return true; }
             }
         }
@@ -77,6 +77,9 @@ impl RleVec<TxnSpan> {
         //    visited.
         //
         // Honestly any approach should be obnoxiously fast in any real editing session anyway.
+
+        // TODO: Consider moving queue into a threadlocal variable so we don't need to reallocate it
+        // with each call to branch_contains_order.
         let mut queue = BinaryHeap::new();
 
         // This code could be written to use parent_indexes but its a bit tricky, as an index isn't
@@ -90,7 +93,8 @@ impl RleVec<TxnSpan> {
             debug_assert!(order > target);
             // dbg!((order, &queue));
 
-            let txn = self.find_packed(order).0;
+            // TODO: Skip these calls to find() using parent_index.
+            let txn = self.find(order).unwrap();
             if txn.shadow_contains(target) { return true; }
 
             while let Some(&next_order) = queue.peek() {
@@ -101,7 +105,6 @@ impl RleVec<TxnSpan> {
             }
 
             // dbg!(order);
-            // TODO: These calls to find_packed() are avoidable using parent_index.
             for &p in &txn.parents {
                 if p == target { return true; }
                 else if p != ROOT_ORDER && p > target { queue.push(p); }
@@ -211,10 +214,9 @@ impl RleVec<TxnSpan> {
                 }
             }
 
-            // 2: Mark the rest of the txn in our current color and repeat.
-            if ord > containing_txn.order {
-                mark_run(containing_txn.order, ord, flag);
-            }
+            // 2: Mark the rest of the txn in our current color and repeat. Note we still need to
+            // mark the run even if ord == containing_txn.order because the spans are inclusive.
+            mark_run(containing_txn.order, ord, flag);
 
             for p in containing_txn.parents.iter() {
                 if *p != ROOT_ORDER {
@@ -391,9 +393,9 @@ pub mod test {
     use crate::list::txn::TxnSpan;
     use crate::rle::RleVec;
 
-    fn assert_diff_eq(doc: &ListCRDT, a: &[Order], b: &[Order], expect_a: &[OrderSpan], expect_b: &[OrderSpan]) {
-        let slow_result = doc.txns.diff_slow(a, b);
-        let fast_result = doc.txns.diff(a, b);
+    fn assert_diff_eq(txns: &RleVec<TxnSpan>, a: &[Order], b: &[Order], expect_a: &[OrderSpan], expect_b: &[OrderSpan]) {
+        let slow_result = txns.diff_slow(a, b);
+        let fast_result = txns.diff(a, b);
         assert_eq!(slow_result, fast_result);
 
         assert_eq!(slow_result.0.as_slice(), expect_a);
@@ -401,13 +403,14 @@ pub mod test {
 
         for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
             for &o in spans {
-                assert!(doc.txns.branch_contains_order(branch, o.order));
-                assert!(doc.txns.branch_contains_order(branch, o.order + o.len - 1));
+                assert!(txns.branch_contains_order(branch, o.order));
+                assert!(txns.branch_contains_order(branch, o.order + o.len - 1));
             }
 
-            if spans.is_empty() && branch.len() == 1 {
-                dbg!(&other, branch[0]);
-                assert!(doc.txns.branch_contains_order(other, branch[0]));
+            if branch.len() == 1 {
+                // dbg!(&other, branch[0]);
+                let expect = spans.is_empty();
+                assert_eq!(expect, txns.branch_contains_order(other, branch[0]));
             }
         }
     }
@@ -475,7 +478,7 @@ pub mod test {
     #[test]
     fn diff_smoke_test() {
         let mut doc1 = ListCRDT::new();
-        assert_diff_eq(&doc1, &doc1.frontier, &doc1.frontier, &[], &[]);
+        assert_diff_eq(&doc1.txns, &doc1.frontier, &doc1.frontier, &[], &[]);
 
         doc1.get_or_create_agent_id("a");
         doc1.local_insert(0, 0, "S".into()); // Shared history.
@@ -488,13 +491,13 @@ pub mod test {
         doc1.local_insert(0, 1, "aaa".into());
         let b1 = doc1.frontier.clone();
 
-        assert_diff_eq(&doc1, &b1, &b1, &[], &[]);
-        assert_diff_eq(&doc1, &[ROOT_ORDER], &[ROOT_ORDER], &[], &[]);
+        assert_diff_eq(&doc1.txns, &b1, &b1, &[], &[]);
+        assert_diff_eq(&doc1.txns, &[ROOT_ORDER], &[ROOT_ORDER], &[], &[]);
         // dbg!(&doc1.frontier);
 
         // There are 4 items in doc1 - "Saaa".
         // dbg!(&doc1.frontier); // [3]
-        assert_diff_eq(&doc1, &[1], &[3], &[], &[OrderSpan {
+        assert_diff_eq(&doc1.txns, &[1], &[3], &[], &[OrderSpan {
             order: 2,
             len: 2
         }]);
@@ -507,12 +510,12 @@ pub mod test {
 
         // dbg!(doc1.diff(&b1, &doc1.frontier));
 
-        assert_diff_eq(&doc1, &b1, &doc1.frontier, &[], &[OrderSpan {
+        assert_diff_eq(&doc1.txns, &b1, &doc1.frontier, &[], &[OrderSpan {
             order: 4,
             len: 3
         }]);
 
-        assert_diff_eq(&doc1, &[3], &[6], &[OrderSpan {
+        assert_diff_eq(&doc1.txns, &[3], &[6], &[OrderSpan {
             order: 1,
             len: 3
         }], &[OrderSpan {
@@ -520,7 +523,7 @@ pub mod test {
             len: 3
         }]);
 
-        assert_diff_eq(&doc1, &[2], &[5], &[OrderSpan {
+        assert_diff_eq(&doc1.txns, &[2], &[5], &[OrderSpan {
             order: 1,
             len: 2
         }], &[OrderSpan {
@@ -595,20 +598,46 @@ pub mod test {
         // dbg!(doc.diff(&smallvec![6], &smallvec![ROOT_ORDER]));
         // dbg!(&doc);
 
-        assert_diff_eq(&doc, &[6], &[ROOT_ORDER], &[
+        assert_diff_eq(&doc.txns, &[6], &[ROOT_ORDER], &[
            OrderSpan { order: 5, len: 2 },
            OrderSpan { order: 0, len: 3 },
         ], &[]);
 
-        assert_diff_eq(&doc, &[6], &[4], &[
+        assert_diff_eq(&doc.txns, &[6], &[4], &[
             OrderSpan { order: 5, len: 2 },
             OrderSpan { order: 0, len: 3 },
         ], &[
             OrderSpan { order: 3, len: 2 },
         ]);
 
-        assert_diff_eq(&doc, &[4, 6], &[ROOT_ORDER], &[
+        assert_diff_eq(&doc.txns, &[4, 6], &[ROOT_ORDER], &[
             OrderSpan { order: 0, len: 7 },
+        ], &[]);
+    }
+
+    #[test]
+    fn diff_for_flat_txns() {
+        // Regression.
+        let history = RleVec(vec![
+            TxnSpan {
+                order: 0, len: 1, shadow: ROOT_ORDER,
+                parents: smallvec![ROOT_ORDER],
+                parent_indexes: smallvec![], child_indexes: smallvec![2]
+            },
+            TxnSpan {
+                order: 1, len: 1, shadow: ROOT_ORDER,
+                parents: smallvec![ROOT_ORDER],
+                parent_indexes: smallvec![], child_indexes: smallvec![3]
+            },
+            TxnSpan {
+                order: 2, len: 1, shadow: 2,
+                parents: smallvec![0],
+                parent_indexes: smallvec![0], child_indexes: smallvec![4]
+            },
+        ]);
+
+        assert_diff_eq(&history, &[2], &[ROOT_ORDER], &[
+            OrderSpan::new(2, 1), OrderSpan::new(0, 1),
         ], &[]);
     }
 

@@ -1,8 +1,9 @@
-use crate::list::ROOT_ORDER;
+use crate::list::{ROOT_ORDER, Branch};
 use bitvec::prelude::*;
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 use crate::list::txn::TxnSpan;
 use crate::rle::RleVec;
+use crate::list::branch::{retreat_branch_by, advance_branch, advance_branch_by_known};
 
 impl RleVec<TxnSpan> {
     /// This function is for efficiently finding the order we should traverse the time DAG in order to
@@ -31,11 +32,12 @@ impl RleVec<TxnSpan> {
                 Some(i)
             } else { None }
         }).collect::<SmallVec<[usize; 2]>>();
-        dbg!(&root_children);
+        // dbg!(&root_children);
 
         // let mut stack = Vec::new();
         let mut stack = vec![usize::MAX];
         let mut num_consumed = 0;
+        let mut branch: Branch = smallvec![ROOT_ORDER];
 
         while num_consumed < self.len() {
             // Find the next item to consume. We'll start with all the children of the top of the
@@ -63,6 +65,11 @@ impl RleVec<TxnSpan> {
                     }
                 }
 
+                // TODO: We could retreat branch here. That would have the benefit of not needing as
+                // many lookups through txns, but the downside is we'd end up retreating all the way
+                // back to the start of the document at the end of the process. Benchmark to see
+                // which way is better.
+
                 // println!("pop {}!", idx);
                 stack.pop();
             }
@@ -70,8 +77,26 @@ impl RleVec<TxnSpan> {
             assert!(next_idx < self.len());
             assert!(!consumed[next_idx]);
 
-            let last = &self.0[next_idx];
-            println!("consume {} (order {})", next_idx, last.order);
+            let next_txn = &self.0[next_idx];
+
+            let (only_branch, only_txn) = self.diff(&branch, &next_txn.parents);
+            // dbg!((&branch, &next_txn.parents, &only_branch, &only_txn));
+            // Note that even if we're moving to one of our direct children we might see items only
+            // in only_branch if the child has a parent in the middle of our txn.
+            for span in &only_branch {
+                println!("Retreat branch by {:?}", span);
+                retreat_branch_by(&mut branch, self, span.order, span.len);
+                // dbg!(&branch);
+            }
+            for span in only_txn.iter().rev() {
+                println!("Advance branch by {:?}", span);
+                advance_branch(&mut branch, self, *span);
+                // dbg!(&branch);
+            }
+
+            println!("consume {} (order {:?})", next_idx, next_txn.as_span());
+            advance_branch_by_known(&mut branch, &next_txn.parents, next_txn.as_span());
+            // dbg!(&branch);
             consumed.set(next_idx, true);
             num_consumed += 1;
 
@@ -80,6 +105,8 @@ impl RleVec<TxnSpan> {
 
         assert_eq!(num_consumed, self.len());
         assert!(consumed.all());
+
+        // dbg!(&branch);
     }
 }
 
@@ -100,9 +127,7 @@ mod test {
                 parent_indexes: smallvec![], child_indexes: smallvec![]
             },
             TxnSpan {
-                order: 10,
-                len: 20,
-                shadow: 0,
+                order: 10, len: 20, shadow: 0,
                 parents: smallvec![ROOT_ORDER],
                 parent_indexes: smallvec![], child_indexes: smallvec![]
             }
@@ -118,12 +143,12 @@ mod test {
                 parent_indexes: smallvec![], child_indexes: smallvec![2]
             },
             TxnSpan {
-                order: 10, len: 20, shadow: 0,
+                order: 10, len: 20, shadow: 10,
                 parents: smallvec![ROOT_ORDER],
                 parent_indexes: smallvec![], child_indexes: smallvec![2]
             },
             TxnSpan {
-                order: 10, len: 20, shadow: 0,
+                order: 30, len: 20, shadow: 0,
                 parents: smallvec![9, 29],
                 parent_indexes: smallvec![0, 1], child_indexes: smallvec![]
             },
@@ -134,37 +159,37 @@ mod test {
     fn two_chains() {
         RleVec(vec![
             TxnSpan {
-                order: 0, len: 1, shadow: 0,
+                order: 0, len: 1, shadow: ROOT_ORDER,
                 parents: smallvec![ROOT_ORDER],
                 parent_indexes: smallvec![], child_indexes: smallvec![2]
             },
             TxnSpan {
-                order: 1, len: 1, shadow: 0,
+                order: 1, len: 1, shadow: ROOT_ORDER,
                 parents: smallvec![ROOT_ORDER],
                 parent_indexes: smallvec![], child_indexes: smallvec![3]
             },
             TxnSpan {
-                order: 2, len: 1, shadow: 0,
+                order: 2, len: 1, shadow: 2,
                 parents: smallvec![0],
                 parent_indexes: smallvec![0], child_indexes: smallvec![4]
             },
             TxnSpan {
-                order: 3, len: 1, shadow: 0,
+                order: 3, len: 1, shadow: 3,
                 parents: smallvec![1],
                 parent_indexes: smallvec![1], child_indexes: smallvec![5]
             },
             TxnSpan {
-                order: 4, len: 1, shadow: 0,
+                order: 4, len: 1, shadow: 4,
                 parents: smallvec![2],
                 parent_indexes: smallvec![2], child_indexes: smallvec![6]
             },
             TxnSpan {
-                order: 5, len: 1, shadow: 0,
+                order: 5, len: 1, shadow: 5,
                 parents: smallvec![3],
                 parent_indexes: smallvec![3], child_indexes: smallvec![6]
             },
             TxnSpan {
-                order: 6, len: 1, shadow: 0,
+                order: 6, len: 1, shadow: ROOT_ORDER,
                 parents: smallvec![4, 5],
                 parent_indexes: smallvec![4, 5], child_indexes: smallvec![]
             },

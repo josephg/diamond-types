@@ -4,6 +4,7 @@ use rle::SplitableSpan;
 
 use crate::list::{Order, ROOT_ORDER};
 use crate::rle::RleKeyed;
+use crate::order::OrderSpan;
 
 /// This type stores metadata for a run of transactions created by the users.
 ///
@@ -35,6 +36,12 @@ impl TxnSpan {
         } else { None } // look at .parents field.
     }
 
+    pub fn parent_at_order(&self, order: Order) -> Option<Order> {
+        if order > self.order {
+            Some(order - 1)
+        } else { None } // look at .parents field.
+    }
+
     pub fn contains(&self, order: Order) -> bool {
         order >= self.order && order < self.order + self.len
     }
@@ -46,6 +53,10 @@ impl TxnSpan {
     pub fn shadow_contains(&self, order: Order) -> bool {
         debug_assert!(order <= self.last_order());
         self.shadow == ROOT_ORDER || order >= self.shadow
+    }
+
+    pub fn as_span(&self) -> OrderSpan {
+        OrderSpan { order: self.order, len: self.len }
     }
 
     // pub fn parents_at_offset(&self, at: usize) -> SmallVec<[Order; 2]> {
