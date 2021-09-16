@@ -173,6 +173,13 @@ mod test {
     use crate::order::OrderSpan;
 
     #[test]
+    fn iter_span_for_empty_doc() {
+        let history = RleVec::new();
+        let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
+        assert!(walk.is_empty());
+    }
+
+    #[test]
     fn iter_span_from_root() {
         let history = RleVec(vec![
             TxnSpan {
