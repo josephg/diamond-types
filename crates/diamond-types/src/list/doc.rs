@@ -564,8 +564,9 @@ impl ListCRDT {
 
         assert!(content.is_empty());
 
+        debug_assert_eq!(next_order, first_order + txn_len as u32);
         let parents = self.remote_ids_to_branch(&txn.parents);
-        self.insert_txn_remote(parents, first_order..first_order + txn_len as u32);
+        self.insert_txn_remote(parents, first_order..next_order);
     }
 
     pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[TraversalComponent], mut content: &str) {
