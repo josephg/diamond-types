@@ -9,6 +9,8 @@ use rle::Searchable;
 use rle::SplitableSpan;
 
 use crate::rle::{RleKey, RleKeyed, RleSpanHelpers};
+use std::ops::Index;
+use std::slice::SliceIndex;
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Default, Clone, Eq, PartialEq, Debug)]
@@ -184,7 +186,16 @@ impl<V: SplitableSpan + Clone + Debug + Sized> AppendRle<V> for RleVec<V> {
     fn push_reversed_rle(&mut self, _item: V) -> bool { unimplemented!(); }
 }
 
-// impl<V: EntryTraits> Index<usize> for RLE<V> {
+impl<T: SplitableSpan, I: SliceIndex<[T]>> Index<I> for RleVec<T> {
+    type Output = I::Output;
+
+    #[inline]
+    fn index(&self, index: I) -> &Self::Output {
+        self.0.index(index)
+    }
+}
+
+// impl<V: EntryTraits> Index<usize> for RleVec<V> {
 //     type Output = V::Item;
 //
 //     fn index(&self, index: usize) -> &Self::Output {
