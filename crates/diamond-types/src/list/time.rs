@@ -3,34 +3,30 @@ use crate::order::OrderSpan;
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
 use rle::AppendRle;
-use crate::list::doc::notify_for;
-use rle::SplitableSpan;
-use rle::Searchable;
-use content_tree::ContentTreeRaw;
 use crate::rle::RleVec;
 use crate::list::txn::TxnSpan;
 // use smartstring::alias::{String as SmartString};
 
-struct LinearIter<'a> {
-    list: &'a mut ListCRDT,
-    span: OrderSpan,
-}
-
-impl<'a> Iterator for LinearIter<'a> {
-    type Item = ();
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.span.len > 0 {
-            unsafe {
-                let len = self.list.partially_reapply_change(&self.span);
-                self.span.truncate_keeping_right(len as usize);
-            }
-            Some(())
-        } else {
-            None
-        }
-    }
-}
+// struct LinearIter<'a> {
+//     list: &'a mut ListCRDT,
+//     span: OrderSpan,
+// }
+//
+// impl<'a> Iterator for LinearIter<'a> {
+//     type Item = ();
+//
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if self.span.len > 0 {
+//             unsafe {
+//                 let len = self.list.partially_reapply_change(&self.span);
+//                 self.span.truncate_keeping_right(len as usize);
+//             }
+//             Some(())
+//         } else {
+//             None
+//         }
+//     }
+// }
 
 // #[derive(Debug, PartialEq, Eq, Clone, Default)]
 // pub struct OpComponent {
@@ -248,133 +244,133 @@ impl ListCRDT {
         self.txns.branch_contains_order(branch, target)
     }
 
-    /// Safety: This method only unapplies changes to the internal indexes. It does not update
-    /// other metadata. Calling doc.check() after this will fail.
-    /// Also the passed span is not checked, and must be valid with respect to what else has been
-    /// applied / unapplied.
-    // #[deprecated(note="Moving this logic into OT code")]
-    pub(super) unsafe fn partially_unapply_changes(&mut self, mut span: OrderSpan) {
-        while span.len > 0 {
-            // Note: This sucks, but we obviously ("obviously") have to unapply the span backwards.
-            // So instead of searching for span.offset, we start with span.offset + span.len - 1.
+    // /// Safety: This method only unapplies changes to the internal indexes. It does not update
+    // /// other metadata. Calling doc.check() after this will fail.
+    // /// Also the passed span is not checked, and must be valid with respect to what else has been
+    // /// applied / unapplied.
+    // // #[deprecated(note="Moving this logic into OT code")]
+    // pub(super) unsafe fn partially_unapply_changes(&mut self, mut span: OrderSpan) {
+    //     while span.len > 0 {
+    //         // Note: This sucks, but we obviously ("obviously") have to unapply the span backwards.
+    //         // So instead of searching for span.offset, we start with span.offset + span.len - 1.
+    //
+    //         // First check if the change was a delete or an insert.
+    //         let span_last_order = span.end() - 1;
+    //         if let Some((d, d_offset)) = self.deletes.find_with_offset(span_last_order) {
+    //             // Its a delete. We need to try to undelete the item, unless the item was deleted
+    //             // multiple times (in which case, it stays deleted.)
+    //             let mut base = u32::max(span.order, d.0);
+    //             let mut undelete_here = span_last_order + 1 - base;
+    //             debug_assert!(undelete_here > 0);
+    //
+    //             // d_offset -= span_last_order - base; // equivalent to d_offset -= undelete_here - 1;
+    //
+    //             // Ok, undelete here. There's two approaches this implementation could take:
+    //             // 1. Undelete backwards from base + len_here - 1, undeleting as much as we can.
+    //             //    Rely on the outer loop to iterate to the next section
+    //             // 2. Undelete len_here items. The order that we undelete an item in doesn't matter,
+    //             //    so although this approach needs another inner loop, we can go through this
+    //             //    range forwards. This makes the logic simpler, but longer.
+    //
+    //             // I'm going with 2.
+    //             span.len -= undelete_here; // equivalent to span.len = base - span.order;
+    //
+    //             while undelete_here > 0 {
+    //                 let mut len_here = self.double_deletes.find_zero_range(base, undelete_here);
+    //
+    //                 if len_here == 0 { // Unlikely.
+    //                     // We're looking at an item which has been deleted multiple times. Decrement
+    //                     // the deleted count by 1 in double_deletes and advance.
+    //                     let len_dd_here = self.double_deletes.decrement_delete_range(base, undelete_here);
+    //                     debug_assert!(len_dd_here > 0);
+    //
+    //                     // What a minefield. O_o
+    //                     undelete_here -= len_dd_here;
+    //                     base += len_dd_here;
+    //
+    //                     if undelete_here == 0 { break; } // The entire range was undeleted.
+    //
+    //                     len_here = self.double_deletes.find_zero_range(base, undelete_here);
+    //                     debug_assert!(len_here > 0);
+    //                 }
+    //
+    //                 // Ok now undelete from the range tree.
+    //                 let base_item = d.1.order + d_offset + 1 - undelete_here;
+    //                 // dbg!(base_item, d.1.order, d_offset, undelete_here, base);
+    //                 let cursor = self.get_cursor_before(base_item);
+    //                 let (len_here, succeeded) = ContentTreeRaw::unsafe_remote_reactivate_notify(cursor, len_here as _, notify_for(&mut self.index));
+    //                 assert!(succeeded); // If they're active in the content_tree, we're in trouble.
+    //                 undelete_here -= len_here as u32;
+    //             }
+    //         } else {
+    //             // The operation was an insert operation, not a delete operation. Mark as
+    //             // deactivated.
+    //             let mut cursor = self.get_cursor_before(span_last_order);
+    //             cursor.offset += 1; // Dirty. Essentially get_cursor_after(span_last_order) without rolling over.
+    //
+    //             // Check how much we can reactivate in one go.
+    //             // let base = u32::min(span.order, span_last_order + 1 - cursor.offset);
+    //             let len_here = u32::min(span.len, cursor.offset as _); // usize? u32? blehh
+    //             debug_assert_ne!(len_here, 0);
+    //             // let base = span_last_order + 1 - len_here; // not needed.
+    //             // let base = u32::max(span.order, span_last_order + 1 - cursor.offset);
+    //             // dbg!(&cursor, len_here);
+    //             cursor.offset -= len_here as usize;
+    //
+    //             let (deleted_here, succeeded) = ContentTreeRaw::unsafe_remote_deactivate_notify(cursor, len_here as _, notify_for(&mut self.index));
+    //             // let len_here = deleted_here as u32;
+    //             debug_assert_eq!(deleted_here, len_here as usize);
+    //             // Deletes of an item have to be chronologically after any insert of that same item.
+    //             // By the time we've gotten to unwinding an insert, all the deletes must be cleared
+    //             // out.
+    //             assert!(succeeded);
+    //             span.len -= len_here;
+    //         }
+    //     }
+    // }
+    //
+    // pub(super) unsafe fn partially_reapply_change(&mut self, span: &OrderSpan) -> u32 {
+    //     // First check if the change was a delete or an insert.
+    //     if let Some((d, d_offset)) = self.deletes.find_with_offset(span.order) {
+    //         // Re-delete the item.
+    //         let delete_here = u32::min(span.len, d.1.len - d_offset);
+    //         debug_assert!(delete_here > 0);
+    //
+    //         // Note the order in span is the order of the *delete*, not the order of the item
+    //         // being deleted.
+    //         let del_target_order = d.at_offset(d_offset as usize) as u32;
+    //
+    //         let (delete_here, _) = self.internal_mark_deleted(del_target_order, delete_here, false);
+    //         debug_assert!(delete_here > 0);
+    //         // span.truncate_keeping_right(delete_here as usize);
+    //         delete_here
+    //     } else {
+    //         // The operation was an insert operation. Re-insert the content.
+    //         let cursor = self.get_cursor_before(span.order);
+    //         let (ins_here, succeeded) = ContentTreeRaw::unsafe_remote_reactivate_notify(cursor, span.len as _, notify_for(&mut self.index));
+    //         assert!(succeeded); // If they're active in the content_tree, we're in trouble.
+    //         debug_assert!(ins_here > 0);
+    //         // span.truncate_keeping_right(ins_here);
+    //         ins_here as u32
+    //     }
+    // }
 
-            // First check if the change was a delete or an insert.
-            let span_last_order = span.end() - 1;
-            if let Some((d, d_offset)) = self.deletes.find_with_offset(span_last_order) {
-                // Its a delete. We need to try to undelete the item, unless the item was deleted
-                // multiple times (in which case, it stays deleted.)
-                let mut base = u32::max(span.order, d.0);
-                let mut undelete_here = span_last_order + 1 - base;
-                debug_assert!(undelete_here > 0);
+    // /// Pair of partially_unapply_changes. After changes are unapplied and reapplied, the document
+    // /// contents should be identical.
+    // ///
+    // /// Safety: This method only unapplies changes to the internal indexes. It does not update
+    // /// other metadata. Calling doc.check() after this will fail. Also the passed span is not
+    // /// checked, and must be valid with respect to what else has been applied / unapplied.
+    // pub(super) unsafe fn partially_reapply_changes(&mut self, mut span: OrderSpan) {
+    //     while span.len > 0 {
+    //         let len = self.partially_reapply_change(&span);
+    //         span.truncate_keeping_right(len as usize);
+    //     }
+    // }
 
-                // d_offset -= span_last_order - base; // equivalent to d_offset -= undelete_here - 1;
-
-                // Ok, undelete here. There's two approaches this implementation could take:
-                // 1. Undelete backwards from base + len_here - 1, undeleting as much as we can.
-                //    Rely on the outer loop to iterate to the next section
-                // 2. Undelete len_here items. The order that we undelete an item in doesn't matter,
-                //    so although this approach needs another inner loop, we can go through this
-                //    range forwards. This makes the logic simpler, but longer.
-
-                // I'm going with 2.
-                span.len -= undelete_here; // equivalent to span.len = base - span.order;
-
-                while undelete_here > 0 {
-                    let mut len_here = self.double_deletes.find_zero_range(base, undelete_here);
-
-                    if len_here == 0 { // Unlikely.
-                        // We're looking at an item which has been deleted multiple times. Decrement
-                        // the deleted count by 1 in double_deletes and advance.
-                        let len_dd_here = self.double_deletes.decrement_delete_range(base, undelete_here);
-                        debug_assert!(len_dd_here > 0);
-
-                        // What a minefield. O_o
-                        undelete_here -= len_dd_here;
-                        base += len_dd_here;
-
-                        if undelete_here == 0 { break; } // The entire range was undeleted.
-
-                        len_here = self.double_deletes.find_zero_range(base, undelete_here);
-                        debug_assert!(len_here > 0);
-                    }
-
-                    // Ok now undelete from the range tree.
-                    let base_item = d.1.order + d_offset + 1 - undelete_here;
-                    // dbg!(base_item, d.1.order, d_offset, undelete_here, base);
-                    let cursor = self.get_cursor_before(base_item);
-                    let (len_here, succeeded) = ContentTreeRaw::unsafe_remote_reactivate_notify(cursor, len_here as _, notify_for(&mut self.index));
-                    assert!(succeeded); // If they're active in the content_tree, we're in trouble.
-                    undelete_here -= len_here as u32;
-                }
-            } else {
-                // The operation was an insert operation, not a delete operation. Mark as
-                // deactivated.
-                let mut cursor = self.get_cursor_before(span_last_order);
-                cursor.offset += 1; // Dirty. Essentially get_cursor_after(span_last_order) without rolling over.
-
-                // Check how much we can reactivate in one go.
-                // let base = u32::min(span.order, span_last_order + 1 - cursor.offset);
-                let len_here = u32::min(span.len, cursor.offset as _); // usize? u32? blehh
-                debug_assert_ne!(len_here, 0);
-                // let base = span_last_order + 1 - len_here; // not needed.
-                // let base = u32::max(span.order, span_last_order + 1 - cursor.offset);
-                // dbg!(&cursor, len_here);
-                cursor.offset -= len_here as usize;
-
-                let (deleted_here, succeeded) = ContentTreeRaw::unsafe_remote_deactivate_notify(cursor, len_here as _, notify_for(&mut self.index));
-                // let len_here = deleted_here as u32;
-                debug_assert_eq!(deleted_here, len_here as usize);
-                // Deletes of an item have to be chronologically after any insert of that same item.
-                // By the time we've gotten to unwinding an insert, all the deletes must be cleared
-                // out.
-                assert!(succeeded);
-                span.len -= len_here;
-            }
-        }
-    }
-
-    pub(super) unsafe fn partially_reapply_change(&mut self, span: &OrderSpan) -> u32 {
-        // First check if the change was a delete or an insert.
-        if let Some((d, d_offset)) = self.deletes.find_with_offset(span.order) {
-            // Re-delete the item.
-            let delete_here = u32::min(span.len, d.1.len - d_offset);
-            debug_assert!(delete_here > 0);
-
-            // Note the order in span is the order of the *delete*, not the order of the item
-            // being deleted.
-            let del_target_order = d.at_offset(d_offset as usize) as u32;
-
-            let (delete_here, _) = self.internal_mark_deleted(del_target_order, delete_here, false);
-            debug_assert!(delete_here > 0);
-            // span.truncate_keeping_right(delete_here as usize);
-            delete_here
-        } else {
-            // The operation was an insert operation. Re-insert the content.
-            let cursor = self.get_cursor_before(span.order);
-            let (ins_here, succeeded) = ContentTreeRaw::unsafe_remote_reactivate_notify(cursor, span.len as _, notify_for(&mut self.index));
-            assert!(succeeded); // If they're active in the content_tree, we're in trouble.
-            debug_assert!(ins_here > 0);
-            // span.truncate_keeping_right(ins_here);
-            ins_here as u32
-        }
-    }
-
-    /// Pair of partially_unapply_changes. After changes are unapplied and reapplied, the document
-    /// contents should be identical.
-    ///
-    /// Safety: This method only unapplies changes to the internal indexes. It does not update
-    /// other metadata. Calling doc.check() after this will fail. Also the passed span is not
-    /// checked, and must be valid with respect to what else has been applied / unapplied.
-    pub(super) unsafe fn partially_reapply_changes(&mut self, mut span: OrderSpan) {
-        while span.len > 0 {
-            let len = self.partially_reapply_change(&span);
-            span.truncate_keeping_right(len as usize);
-        }
-    }
-
-    pub fn num_ops(&self) -> Order {
-        self.get_next_order()
-    }
+    // pub fn num_ops(&self) -> Order {
+    //     self.get_next_order()
+    // }
 
     pub fn linear_changes_since(&self, order: Order) -> OrderSpan {
         OrderSpan {
@@ -641,21 +637,21 @@ pub mod test {
         ], &[]);
     }
 
-    #[test]
-    fn unapply() {
-        let mut doc = ListCRDT::new();
-        doc.get_or_create_agent_id("seph");
-        doc.local_insert(0, 0, "aaaa".into()); // [0,4)
-        doc.local_delete(0, 1, 2); // [4,6)
-        // dbg!(&doc);
-        unsafe {
-            // doc.partially_unapply_changes(OrderSpan { order: 4, len: 2 });
-            doc.partially_unapply_changes(doc.linear_changes_since(0));
-        }
-
-        unsafe {
-            doc.partially_reapply_changes(doc.linear_changes_since(0));
-        }
-        // dbg!(&doc);
-    }
+    // #[test]
+    // fn unapply() {
+    //     let mut doc = ListCRDT::new();
+    //     doc.get_or_create_agent_id("seph");
+    //     doc.local_insert(0, 0, "aaaa".into()); // [0,4)
+    //     doc.local_delete(0, 1, 2); // [4,6)
+    //     // dbg!(&doc);
+    //     unsafe {
+    //         // doc.partially_unapply_changes(OrderSpan { order: 4, len: 2 });
+    //         doc.partially_unapply_changes(doc.linear_changes_since(0));
+    //     }
+    //
+    //     unsafe {
+    //         doc.partially_reapply_changes(doc.linear_changes_since(0));
+    //     }
+    //     // dbg!(&doc);
+    // }
 }
