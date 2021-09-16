@@ -569,6 +569,7 @@ impl ListCRDT {
         self.insert_txn_remote(parents, first_order..next_order);
     }
 
+    // TODO: Consider changing this to take PositionalComponents instead.
     pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[TraversalComponent], mut content: &str) {
         use TraversalComponent::*;
 

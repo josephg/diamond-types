@@ -18,9 +18,6 @@ use crate::order::OrderSpan;
 // use crate::list::delete::DeleteEntry;
 use crate::rle::{KVPair, RleVec};
 
-// use crate::split_list::SplitList;
-// use std::ops::Range;
-
 mod span;
 mod doc;
 mod markers;
@@ -130,62 +127,3 @@ pub struct ListCRDT {
     /// This is a big ol' string containing everything that's been deleted (self.deletes) in order.
     deleted_content: Option<String>,
 }
-
-// #[derive(Clone, Debug)]
-// pub enum OpExternal {
-//     Insert {
-//         // The items in the run implicitly all have the same origin_right, and except for the first,
-//         // each one has the previous item's ID as its origin_left.
-//         content: InlinableString,
-//         origin_left: CRDTLocation,
-//         origin_right: CRDTLocation,
-//     },
-//     // Deleted characters in sequence. In a CRDT these characters must be
-//     // contiguous from a single client.
-//     Delete {
-//         target: CRDTLocation,
-//         span: usize,
-//     }
-// }
-//
-// #[derive(Clone, Debug)]
-// pub struct TxnExternal {
-//     id: CRDTLocation,
-//     insert_seq_start: u32,
-//     parents: SmallVec<[CRDTLocation; 2]>,
-//     ops: SmallVec<[OpExternal; 1]>,
-// }
-//
-//
-// pub type Order = usize; // Feeling cute, might change later to u48 for less ram use.
-//
-// #[derive(Clone, Debug)]
-// pub enum Op {
-//     Insert {
-//         content: InlinableString,
-//         origin_left: Order,
-//         origin_right: Order,
-//     },
-//     Delete {
-//         target: Order,
-//         span: usize,
-//     }
-// }
-//
-// #[derive(Clone, Debug)]
-// pub struct TxnInternal {
-//     id: CRDTLocation,
-//     order: Order, // TODO: Remove this.
-//     parents: SmallVec<[Order; 2]>,
-//
-//     insert_seq_start: u32, // From external op.
-//     insert_order_start: Order,
-//     num_inserts: usize, // Cached from ops.
-//
-//     dominates: Order,
-//     submits: Order,
-//
-//     ops: SmallVec<[Op; 1]>,
-// }
-
-

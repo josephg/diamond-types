@@ -16,10 +16,10 @@ use crate::crdtspan::CRDTSpan;
 use crate::list::{DoubleDeleteList, ListCRDT, Order};
 use crate::list::double_delete::DoubleDelete;
 use crate::list::external_txn::RemoteIdSpan;
-use crate::list::ot::positional::{InsDelTag, PositionalComponent, PositionalOp};
+use crate::list::ot::positional::{PositionalComponent, PositionalOp, InsDelTag};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp, TraversalOpSequence};
 use crate::order::OrderSpan;
-use crate::rle::{KVPair, RleVec, RleKey, RleKeyed, RleSpanHelpers};
+use crate::rle::{KVPair, RleKey, RleKeyed, RleSpanHelpers, RleVec};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
@@ -118,27 +118,52 @@ impl DoubleDeleteVisitor {
     }
 }
 
+// TODO: Move me somewhere else.
 impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
-    fn search_backwards(&self, needle: RleKey, idx: &mut usize) -> Option<&V> {
+    /// Search forward from idx until we find needle. idx is modified. Returns either the item if
+    /// successful, or the key of the subsequent item.
+    pub(crate) fn search_scanning_sparse(&self, needle: RleKey, idx: &mut usize) -> Result<&V, RleKey> {
+        while *idx < self.len() {
+            // TODO: Is this bounds checking? It shouldn't need to... Fix if it is.
+            let e = &self[*idx];
+            if needle < e.end() {
+                return if needle >= e.get_rle_key() {
+                    Ok(e)
+                } else {
+                    Err(e.get_rle_key())
+                };
+            }
+
+            *idx += 1;
+        }
+        Err(RleKey::MAX)
+    }
+
+    /// Search backwards from idx until we find needle. idx is modified. Returns either the item or
+    /// the end of the preceeding range. Note the end could be == needle. (But cannot be greater
+    /// than it).
+    pub(crate) fn search_scanning_backwards_sparse(&self, needle: RleKey, idx: &mut usize) -> Result<&V, RleKey> {
         // This conditional looks inverted given we're looping backwards, but I'm using
         // wrapping_sub - so when we reach the end the index wraps around and we'll hit usize::MAX.
-        while *idx < self.0.len() {
-            let e = &self.0[*idx];
-            if e.get_rle_key() <= needle {
-                return if e.end() > needle {
-                    Some(e)
+        while *idx < self.len() {
+            let e = &self[*idx];
+            if needle >= e.get_rle_key() {
+                return if needle < e.end() {
+                    Ok(e)
                 } else {
-                    None
+                    Err(e.end())
                 };
             }
             *idx = idx.wrapping_sub(1);
         }
-        None
+        Err(0)
     }
 }
 
 /// An iterator over positional changes. The positional changes are returned in reverse
 /// chronological order (last to first).
+///
+/// TODO: Rewrite this using ListPatchIter.
 #[derive(Debug)]
 struct PatchIter<'a> {
     doc: &'a ListCRDT,
@@ -235,6 +260,7 @@ impl ListCRDT {
 // of the monomorphized content_tree calls. The upside is that this complexity is entirely self
 // contained, and the complexity here allows other systems to work "naturally". But its not perfect.
 impl<'a> Iterator for PatchIter<'a> {
+    // (post_pos, what happened)
     type Item = (u32, PositionalComponent);
 
     fn next(&mut self) -> Option<(u32, PositionalComponent)> {
@@ -254,7 +280,7 @@ impl<'a> Iterator for PatchIter<'a> {
             let span_last_order = self.span.end() - 1;
 
             // First check if the change was a delete or an insert.
-            if let Some(d) = self.doc.deletes.search_backwards(span_last_order, &mut self.deletes_idx) {
+            if let Ok(d) = self.doc.deletes.search_scanning_backwards_sparse(span_last_order, &mut self.deletes_idx) {
                 // Its a delete. We need to try to undelete the item, unless the item was deleted
                 // multiple times (in which case, it stays deleted for now).
                 let base = u32::max(self.span.order, d.0);
@@ -368,7 +394,7 @@ impl<'a> PatchIter<'a> {
             doc,
             span,
             map: ContentTreeRaw::new(),
-            deletes_idx: doc.deletes.0.len().wrapping_sub(1),
+            deletes_idx: doc.deletes.len().wrapping_sub(1),
             marked_deletes: DoubleDeleteVisitor::new(),
         };
         iter.map.insert_at_start(Retain(doc.range_tree.content_len() as _));
@@ -427,7 +453,7 @@ impl<'a> Iterator for PatchWithAuthorIter<'a> {
 
             let span_last_order = self.state.span.order - 1;
             let val = self.state.doc.client_with_order
-                .search_backwards(span_last_order, &mut self.client_order_idx)
+                .search_scanning_backwards_sparse(span_last_order, &mut self.client_order_idx)
                 .unwrap(); // client_with_order is packed, so its impossible to skip entries.
 
             if val.0 < self.actual_base {

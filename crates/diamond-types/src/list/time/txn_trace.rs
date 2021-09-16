@@ -33,10 +33,10 @@ pub(crate) struct OriginTxnIter<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WalkEntry {
-    retreat: SmallVec<[Range<Order>; 4]>,
-    advance_rev: SmallVec<[Range<Order>; 4]>,
+    pub(crate) retreat: SmallVec<[Range<Order>; 4]>,
+    pub(crate) advance_rev: SmallVec<[Range<Order>; 4]>,
     // txn: &'a TxnSpan,
-    consume: Range<Order>,
+    pub(crate) consume: Range<Order>,
 }
 
 impl<'a> OriginTxnIter<'a> {
