@@ -63,3 +63,11 @@ fn replicate() {
     local_doc.replicate_into(&mut remote_doc);
     assert_eq!(local_doc, remote_doc);
 }
+
+#[test]
+fn doc_to_position_updates() {
+    // let test_data = load_testing_data("../../benchmark_data/seph-blog1.json.gz");
+    let test_data = load_testing_data("../../benchmark_data/sveltecomponent.json.gz");
+    let local_doc = load_into_doc(test_data);
+    local_doc.foo();
+}

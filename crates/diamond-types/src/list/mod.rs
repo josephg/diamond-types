@@ -4,14 +4,20 @@ use ropey::Rope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
+use content_tree::*;
+use diamond_core::AgentId;
+pub use ot::traversal::TraversalComponent;
+
+use crate::common::ClientName;
+use crate::crdtspan::CRDTSpan;
 use crate::list::double_delete::DoubleDelete;
 use crate::list::markers::MarkerEntry;
 use crate::list::span::YjsSpan;
 use crate::list::txn::TxnSpan;
 use crate::order::OrderSpan;
-use content_tree::*;
 // use crate::list::delete::DeleteEntry;
 use crate::rle::{KVPair, RleVec};
+
 // use crate::split_list::SplitList;
 // use std::ops::Range;
 
@@ -23,15 +29,10 @@ mod double_delete;
 pub mod external_txn;
 mod eq;
 mod encoding;
-mod time;
 mod check;
 mod ot;
 mod branch;
-
-pub use ot::traversal::TraversalComponent;
-use diamond_core::AgentId;
-use crate::common::ClientName;
-use crate::crdtspan::CRDTSpan;
+mod time;
 
 // #[cfg(inlinerope)]
 // pub const USE_INNER_ROPE: bool = true;

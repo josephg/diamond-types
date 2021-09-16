@@ -5,6 +5,7 @@ use rle::SplitableSpan;
 use crate::list::{Order, ROOT_ORDER};
 use crate::rle::RleKeyed;
 use crate::order::OrderSpan;
+use std::ops::Range;
 
 /// This type stores metadata for a run of transactions created by the users.
 ///
@@ -55,8 +56,13 @@ impl TxnSpan {
         self.shadow == ROOT_ORDER || order >= self.shadow
     }
 
+    // Old. TODO: Remove this.
     pub fn as_span(&self) -> OrderSpan {
         OrderSpan { order: self.order, len: self.len }
+    }
+
+    pub fn as_order_range(&self) -> Range<Order> {
+        self.order .. self.order + self.len
     }
 
     // pub fn parents_at_offset(&self, at: usize) -> SmallVec<[Order; 2]> {

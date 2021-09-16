@@ -24,6 +24,7 @@ use crate::rle::{KVPair, RleVec, RleKey, RleKeyed, RleSpanHelpers};
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
 
+// TODO: Remove this and replace it with FullIndex, which has identical semantics.
 impl TreeIndex<TraversalComponent> for PrePostIndex {
     type IndexUpdate = Pair<i32>;
     type IndexValue = Pair<u32>;
@@ -152,7 +153,7 @@ struct PatchIter<'a> {
 /// ever existed in the local time linearization. Eg, if two operations were concurrent, this allows
 /// fetching the changes from *either* point in time to the current point in time.
 #[derive(Debug)]
-struct MultiPositionalChangesIter<'a, I: Iterator<Item=OrderSpan>> {
+struct MultiPositionalChangesIter<'a, I: Iterator<Item=OrderSpan>> { // TODO: Change this to Range<Order>
     /// NOTE: The remaining spans iter must yield in reverse order (highest order to lowest order).
     remaining_spans: I,
     state: PatchIter<'a>,
@@ -176,7 +177,7 @@ impl ListCRDT {
         // Note the spans are guaranteed to be delivered in reverse order (from last to first).
         // This is what walker expects - since we'll be moving in reverse chronological order here
         // too. Otherwise we'd need to wrap the iterator in Reverse() or reverse the contents.
-        let walker = MultiPositionalChangesIter::new_from_iter(self, b.iter().copied());
+        let walker = MultiPositionalChangesIter::new_from_iter(self, b.iter().map(|r| r.clone().into()));
         walker.into_positional_op()
     }
 
@@ -786,7 +787,7 @@ mod test {
 
     #[test]
     fn complex_edits() {
-        let doc = crate::list::time::test::complex_multientry_doc();
+        let doc = crate::list::time::history::test::complex_multientry_doc();
 
         // Ok, now there's a bunch of interesting diffs to generate here. Frontier is [4,6] but
         // we have two branches - with orders [0-2, 5-6] and [3-4]

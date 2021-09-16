@@ -204,24 +204,3 @@ fn fuzz_concurrency_forever() {
         run_fuzzer_iteration(k as u64);
     }
 }
-
-// #[test]
-// fn fuzz_unapply_reapply() {
-//     let mut rng = SmallRng::seed_from_u64(20);
-//     let mut doc = ListCRDT::new();
-//     doc.get_or_create_agent_id("seph".into());
-//
-//     for _k in 0..100 {
-//         // Apply some changes to the doc
-//         for _i in 0..10 {
-//             make_random_change(&mut doc, None, 0, &mut rng);
-//         }
-//
-//         // Ok now pick a random point in time. We'll go back there, then go forward again. The
-//         // result should be the same as if we never left. Note if both unapply and reapply are
-//         // no-ops this will also succeed. This test is only viable thanks to other unit tests of the
-//         // module.
-//         let point: u32 = rng.gen_range(0..doc.num_ops());
-//         doc.check_timetravel(point);
-//     }
-// }

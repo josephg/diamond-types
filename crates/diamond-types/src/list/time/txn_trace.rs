@@ -1,10 +1,10 @@
-use crate::list::{ROOT_ORDER, Branch};
+use crate::list::{ROOT_ORDER, Branch, Order};
 use bitvec::prelude::*;
 use smallvec::{SmallVec, smallvec};
 use crate::list::txn::TxnSpan;
 use crate::rle::RleVec;
 use crate::list::branch::{retreat_branch_by, advance_branch, advance_branch_by_known};
-use crate::order::OrderSpan;
+use std::ops::Range;
 
 // So essentially what I'm doing here is a depth first iteration of the time DAG. The trouble is
 // that we only want to visit each item exactly once, and we want to minimize the aggregate cost of
@@ -19,7 +19,7 @@ use crate::order::OrderSpan;
 // The code was manually unrolled into an iterator so we could walk it without needing to collect
 // this structure to a vec or something.
 #[derive(Debug)]
-struct OriginTxnIter<'a> {
+pub(crate) struct OriginTxnIter<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
     history: &'a RleVec<TxnSpan>,
 
@@ -32,11 +32,11 @@ struct OriginTxnIter<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct WalkEntry {
-    retreat: SmallVec<[OrderSpan; 4]>,
-    advance_rev: SmallVec<[OrderSpan; 4]>,
+pub(crate) struct WalkEntry {
+    retreat: SmallVec<[Range<Order>; 4]>,
+    advance_rev: SmallVec<[Range<Order>; 4]>,
     // txn: &'a TxnSpan,
-    consume: OrderSpan,
+    consume: Range<Order>,
 }
 
 impl<'a> OriginTxnIter<'a> {
@@ -125,19 +125,19 @@ impl<'a> Iterator for OriginTxnIter<'a> {
         // dbg!((&branch, &next_txn.parents, &only_branch, &only_txn));
         // Note that even if we're moving to one of our direct children we might see items only
         // in only_branch if the child has a parent in the middle of our txn.
-        for span in &only_branch {
+        for range in &only_branch {
             // println!("Retreat branch by {:?}", span);
-            retreat_branch_by(&mut self.branch, &self.history, span.order, span.len);
+            retreat_branch_by(&mut self.branch, &self.history, range.start, range.end - range.start);
             // dbg!(&branch);
         }
-        for span in only_txn.iter().rev() {
+        for range in only_txn.iter().rev() {
             // println!("Advance branch by {:?}", span);
-            advance_branch(&mut self.branch, &self.history, *span);
+            advance_branch(&mut self.branch, &self.history, range.clone());
             // dbg!(&branch);
         }
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());
-        advance_branch_by_known(&mut self.branch, &next_txn.parents, next_txn.as_span());
+        advance_branch_by_known(&mut self.branch, &next_txn.parents, next_txn.as_order_range());
         // dbg!(&branch);
         self.consumed.set(next_idx, true);
         self.num_consumed += 1;
@@ -146,7 +146,7 @@ impl<'a> Iterator for OriginTxnIter<'a> {
         return Some(WalkEntry {
             retreat: only_branch,
             advance_rev: only_txn,
-            consume: next_txn.as_span()
+            consume: next_txn.as_order_range()
         });
     }
 }
@@ -157,7 +157,7 @@ impl RleVec<TxnSpan> {
     /// we simply traverse the txns in the order they're in right now, we can have pathological
     /// behaviour in the presence of multiple interleaved branches. (Eg if you're streaming from two
     /// peers concurrently editing different branches).
-    fn txn_spanning_tree_iter(&self) -> OriginTxnIter {
+    pub(crate) fn txn_spanning_tree_iter(&self) -> OriginTxnIter {
         OriginTxnIter::new(self)
     }
 }
@@ -169,8 +169,7 @@ mod test {
     use crate::rle::RleVec;
     use crate::list::txn::TxnSpan;
     use smallvec::smallvec;
-    use crate::list::encoding::txn_trace::{OriginTxnIter, WalkEntry};
-    use crate::order::OrderSpan;
+    use crate::list::time::txn_trace::{OriginTxnIter, WalkEntry};
 
     #[test]
     fn iter_span_for_empty_doc() {
@@ -199,12 +198,12 @@ mod test {
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                consume: OrderSpan { order: 0, len: 10 },
+                consume: 0..10,
             },
             WalkEntry {
-                retreat: smallvec![OrderSpan { order: 0, len: 10 }],
+                retreat: smallvec![0..10],
                 advance_rev: smallvec![],
-                consume: OrderSpan { order: 10, len: 20 },
+                consume: 10..30,
             },
         ]);
     }
@@ -234,17 +233,17 @@ mod test {
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                consume: OrderSpan { order: 0, len: 10 },
+                consume: 0..10,
             },
             WalkEntry {
-                retreat: smallvec![OrderSpan { order: 0, len: 10 }],
+                retreat: smallvec![0..10],
                 advance_rev: smallvec![],
-                consume: OrderSpan { order: 10, len: 20 },
+                consume: 10..30,
             },
             WalkEntry {
                 retreat: smallvec![],
-                advance_rev: smallvec![OrderSpan { order: 0, len: 10 }],
-                consume: OrderSpan { order: 30, len: 20 },
+                advance_rev: smallvec![0..10],
+                consume: 30..50,
             },
         ]);
 
@@ -291,35 +290,29 @@ mod test {
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                consume: OrderSpan { order: 0, len: 1 },
+                consume: 0..1,
             },
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                consume: OrderSpan { order: 2, len: 1 },
+                consume: 2..3,
             },
 
             WalkEntry {
-                retreat: smallvec![
-                    OrderSpan { order: 2, len: 1 },
-                    OrderSpan { order: 0, len: 1 },
-                ],
+                retreat: smallvec![2..3, 0..1],
                 advance_rev: smallvec![],
-                consume: OrderSpan { order: 1, len: 1 },
+                consume: 1..2,
             },
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                consume: OrderSpan { order: 3, len: 1 },
+                consume: 3..4,
             },
 
             WalkEntry {
                 retreat: smallvec![],
-                advance_rev: smallvec![
-                    OrderSpan { order: 2, len: 1 },
-                    OrderSpan { order: 0, len: 1 },
-                ],
-                consume: OrderSpan { order: 4, len: 1 },
+                advance_rev: smallvec![2..3, 0..1],
+                consume: 4..5,
             },
         ])));
     }

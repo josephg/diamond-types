@@ -5,35 +5,9 @@ use std::collections::BinaryHeap;
 use rle::AppendRle;
 use crate::rle::RleVec;
 use crate::list::txn::TxnSpan;
+use std::ops::Range;
 // use smartstring::alias::{String as SmartString};
 
-// struct LinearIter<'a> {
-//     list: &'a mut ListCRDT,
-//     span: OrderSpan,
-// }
-//
-// impl<'a> Iterator for LinearIter<'a> {
-//     type Item = ();
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if self.span.len > 0 {
-//             unsafe {
-//                 let len = self.list.partially_reapply_change(&self.span);
-//                 self.span.truncate_keeping_right(len as usize);
-//             }
-//             Some(())
-//         } else {
-//             None
-//         }
-//     }
-// }
-
-// #[derive(Debug, PartialEq, Eq, Clone, Default)]
-// pub struct OpComponent {
-//     skip: u32,
-//     del: u32,
-//     ins: SmartString,
-// }
 
 impl RleVec<TxnSpan> {
     fn shadow_of(&self, order: Order) -> Order {
@@ -111,7 +85,7 @@ impl RleVec<TxnSpan> {
     }
 
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
-    pub(crate) fn diff(&self, a: &[Order], b: &[Order]) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
+    pub(crate) fn diff(&self, a: &[Order], b: &[Order]) -> (SmallVec<[Range<Order>; 4]>, SmallVec<[Range<Order>; 4]>) {
         assert!(!a.is_empty());
         assert!(!b.is_empty());
 
@@ -126,10 +100,10 @@ impl RleVec<TxnSpan> {
             let a = a[0];
             let b = b[0];
             if self.txn_shadow_contains(a, b) {
-                return (smallvec![OrderSpan {order: b + 1, len: a - b}], smallvec![]);
+                return (smallvec![b+1..a+1], smallvec![]);
             }
             if self.txn_shadow_contains(b, a) {
-                return (smallvec![], smallvec![OrderSpan {order: a + 1, len: b - a}]);
+                return (smallvec![], smallvec![a+1..b+1]);
             }
         }
 
@@ -138,7 +112,7 @@ impl RleVec<TxnSpan> {
     }
 
     // Split out for testing.
-    fn diff_slow(&self, a: &[Order], b: &[Order]) -> (SmallVec<[OrderSpan; 4]>, SmallVec<[OrderSpan; 4]>) {
+    fn diff_slow(&self, a: &[Order], b: &[Order]) -> (SmallVec<[Range<Order>; 4]>, SmallVec<[Range<Order>; 4]>) {
         // We need to tag each entry in the queue based on whether its part of a's history or b's
         // history or both, and do so without changing the sort order for the heap.
         #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -166,7 +140,7 @@ impl RleVec<TxnSpan> {
                 Flag::Shared => { return; }
             };
             // dbg!((ord_start, ord_end));
-            target.push_reversed_rle(OrderSpan { order: ord_start, len: ord_end - ord_start + 1});
+            target.push_reversed_rle(ord_start..ord_end+1);
         };
 
         while let Some((mut ord, mut flag)) = queue.pop() {
@@ -234,143 +208,10 @@ impl RleVec<TxnSpan> {
 /// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
 /// about branches, find diffs and move between branches.
 impl ListCRDT {
-    /// Get the frontier as an internal order list
-    pub fn get_frontier_as_order(&self) -> &[Order] {
-        &self.frontier
-    }
-
     // Exported for the fuzzer. Not sure if I actually want this exposed.
     pub fn branch_contains_order(&self, branch: &[Order], target: Order) -> bool {
         self.txns.branch_contains_order(branch, target)
     }
-
-    // /// Safety: This method only unapplies changes to the internal indexes. It does not update
-    // /// other metadata. Calling doc.check() after this will fail.
-    // /// Also the passed span is not checked, and must be valid with respect to what else has been
-    // /// applied / unapplied.
-    // // #[deprecated(note="Moving this logic into OT code")]
-    // pub(super) unsafe fn partially_unapply_changes(&mut self, mut span: OrderSpan) {
-    //     while span.len > 0 {
-    //         // Note: This sucks, but we obviously ("obviously") have to unapply the span backwards.
-    //         // So instead of searching for span.offset, we start with span.offset + span.len - 1.
-    //
-    //         // First check if the change was a delete or an insert.
-    //         let span_last_order = span.end() - 1;
-    //         if let Some((d, d_offset)) = self.deletes.find_with_offset(span_last_order) {
-    //             // Its a delete. We need to try to undelete the item, unless the item was deleted
-    //             // multiple times (in which case, it stays deleted.)
-    //             let mut base = u32::max(span.order, d.0);
-    //             let mut undelete_here = span_last_order + 1 - base;
-    //             debug_assert!(undelete_here > 0);
-    //
-    //             // d_offset -= span_last_order - base; // equivalent to d_offset -= undelete_here - 1;
-    //
-    //             // Ok, undelete here. There's two approaches this implementation could take:
-    //             // 1. Undelete backwards from base + len_here - 1, undeleting as much as we can.
-    //             //    Rely on the outer loop to iterate to the next section
-    //             // 2. Undelete len_here items. The order that we undelete an item in doesn't matter,
-    //             //    so although this approach needs another inner loop, we can go through this
-    //             //    range forwards. This makes the logic simpler, but longer.
-    //
-    //             // I'm going with 2.
-    //             span.len -= undelete_here; // equivalent to span.len = base - span.order;
-    //
-    //             while undelete_here > 0 {
-    //                 let mut len_here = self.double_deletes.find_zero_range(base, undelete_here);
-    //
-    //                 if len_here == 0 { // Unlikely.
-    //                     // We're looking at an item which has been deleted multiple times. Decrement
-    //                     // the deleted count by 1 in double_deletes and advance.
-    //                     let len_dd_here = self.double_deletes.decrement_delete_range(base, undelete_here);
-    //                     debug_assert!(len_dd_here > 0);
-    //
-    //                     // What a minefield. O_o
-    //                     undelete_here -= len_dd_here;
-    //                     base += len_dd_here;
-    //
-    //                     if undelete_here == 0 { break; } // The entire range was undeleted.
-    //
-    //                     len_here = self.double_deletes.find_zero_range(base, undelete_here);
-    //                     debug_assert!(len_here > 0);
-    //                 }
-    //
-    //                 // Ok now undelete from the range tree.
-    //                 let base_item = d.1.order + d_offset + 1 - undelete_here;
-    //                 // dbg!(base_item, d.1.order, d_offset, undelete_here, base);
-    //                 let cursor = self.get_cursor_before(base_item);
-    //                 let (len_here, succeeded) = ContentTreeRaw::unsafe_remote_reactivate_notify(cursor, len_here as _, notify_for(&mut self.index));
-    //                 assert!(succeeded); // If they're active in the content_tree, we're in trouble.
-    //                 undelete_here -= len_here as u32;
-    //             }
-    //         } else {
-    //             // The operation was an insert operation, not a delete operation. Mark as
-    //             // deactivated.
-    //             let mut cursor = self.get_cursor_before(span_last_order);
-    //             cursor.offset += 1; // Dirty. Essentially get_cursor_after(span_last_order) without rolling over.
-    //
-    //             // Check how much we can reactivate in one go.
-    //             // let base = u32::min(span.order, span_last_order + 1 - cursor.offset);
-    //             let len_here = u32::min(span.len, cursor.offset as _); // usize? u32? blehh
-    //             debug_assert_ne!(len_here, 0);
-    //             // let base = span_last_order + 1 - len_here; // not needed.
-    //             // let base = u32::max(span.order, span_last_order + 1 - cursor.offset);
-    //             // dbg!(&cursor, len_here);
-    //             cursor.offset -= len_here as usize;
-    //
-    //             let (deleted_here, succeeded) = ContentTreeRaw::unsafe_remote_deactivate_notify(cursor, len_here as _, notify_for(&mut self.index));
-    //             // let len_here = deleted_here as u32;
-    //             debug_assert_eq!(deleted_here, len_here as usize);
-    //             // Deletes of an item have to be chronologically after any insert of that same item.
-    //             // By the time we've gotten to unwinding an insert, all the deletes must be cleared
-    //             // out.
-    //             assert!(succeeded);
-    //             span.len -= len_here;
-    //         }
-    //     }
-    // }
-    //
-    // pub(super) unsafe fn partially_reapply_change(&mut self, span: &OrderSpan) -> u32 {
-    //     // First check if the change was a delete or an insert.
-    //     if let Some((d, d_offset)) = self.deletes.find_with_offset(span.order) {
-    //         // Re-delete the item.
-    //         let delete_here = u32::min(span.len, d.1.len - d_offset);
-    //         debug_assert!(delete_here > 0);
-    //
-    //         // Note the order in span is the order of the *delete*, not the order of the item
-    //         // being deleted.
-    //         let del_target_order = d.at_offset(d_offset as usize) as u32;
-    //
-    //         let (delete_here, _) = self.internal_mark_deleted(del_target_order, delete_here, false);
-    //         debug_assert!(delete_here > 0);
-    //         // span.truncate_keeping_right(delete_here as usize);
-    //         delete_here
-    //     } else {
-    //         // The operation was an insert operation. Re-insert the content.
-    //         let cursor = self.get_cursor_before(span.order);
-    //         let (ins_here, succeeded) = ContentTreeRaw::unsafe_remote_reactivate_notify(cursor, span.len as _, notify_for(&mut self.index));
-    //         assert!(succeeded); // If they're active in the content_tree, we're in trouble.
-    //         debug_assert!(ins_here > 0);
-    //         // span.truncate_keeping_right(ins_here);
-    //         ins_here as u32
-    //     }
-    // }
-
-    // /// Pair of partially_unapply_changes. After changes are unapplied and reapplied, the document
-    // /// contents should be identical.
-    // ///
-    // /// Safety: This method only unapplies changes to the internal indexes. It does not update
-    // /// other metadata. Calling doc.check() after this will fail. Also the passed span is not
-    // /// checked, and must be valid with respect to what else has been applied / unapplied.
-    // pub(super) unsafe fn partially_reapply_changes(&mut self, mut span: OrderSpan) {
-    //     while span.len > 0 {
-    //         let len = self.partially_reapply_change(&span);
-    //         span.truncate_keeping_right(len as usize);
-    //     }
-    // }
-
-    // pub fn num_ops(&self) -> Order {
-    //     self.get_next_order()
-    // }
 
     pub fn linear_changes_since(&self, order: Order) -> OrderSpan {
         OrderSpan {
@@ -383,13 +224,13 @@ impl ListCRDT {
 #[cfg(test)]
 pub mod test {
     use crate::list::{ListCRDT, ROOT_ORDER, Order};
-    use crate::order::OrderSpan;
     use smallvec::smallvec;
     use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
     use crate::list::txn::TxnSpan;
     use crate::rle::RleVec;
+    use std::ops::Range;
 
-    fn assert_diff_eq(txns: &RleVec<TxnSpan>, a: &[Order], b: &[Order], expect_a: &[OrderSpan], expect_b: &[OrderSpan]) {
+    fn assert_diff_eq(txns: &RleVec<TxnSpan>, a: &[Order], b: &[Order], expect_a: &[Range<Order>], expect_b: &[Range<Order>]) {
         let slow_result = txns.diff_slow(a, b);
         let fast_result = txns.diff(a, b);
         assert_eq!(slow_result, fast_result);
@@ -398,9 +239,9 @@ pub mod test {
         assert_eq!(slow_result.1.as_slice(), expect_b);
 
         for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
-            for &o in spans {
-                assert!(txns.branch_contains_order(branch, o.order));
-                assert!(txns.branch_contains_order(branch, o.order + o.len - 1));
+            for o in spans {
+                assert!(txns.branch_contains_order(branch, o.start));
+                assert!(txns.branch_contains_order(branch, o.end - 1));
             }
 
             if branch.len() == 1 {
@@ -493,10 +334,7 @@ pub mod test {
 
         // There are 4 items in doc1 - "Saaa".
         // dbg!(&doc1.frontier); // [3]
-        assert_diff_eq(&doc1.txns, &[1], &[3], &[], &[OrderSpan {
-            order: 2,
-            len: 2
-        }]);
+        assert_diff_eq(&doc1.txns, &[1], &[3], &[], &[2..4]);
 
         doc2.local_insert(0, 1, "bbb".into());
 
@@ -506,26 +344,9 @@ pub mod test {
 
         // dbg!(doc1.diff(&b1, &doc1.frontier));
 
-        assert_diff_eq(&doc1.txns, &b1, &doc1.frontier, &[], &[OrderSpan {
-            order: 4,
-            len: 3
-        }]);
-
-        assert_diff_eq(&doc1.txns, &[3], &[6], &[OrderSpan {
-            order: 1,
-            len: 3
-        }], &[OrderSpan {
-            order: 4,
-            len: 3
-        }]);
-
-        assert_diff_eq(&doc1.txns, &[2], &[5], &[OrderSpan {
-            order: 1,
-            len: 2
-        }], &[OrderSpan {
-            order: 4,
-            len: 2
-        }]);
+        assert_diff_eq(&doc1.txns, &b1, &doc1.frontier, &[], &[4..7]);
+        assert_diff_eq(&doc1.txns, &[3], &[6], &[1..4], &[4..7]);
+        assert_diff_eq(&doc1.txns, &[2], &[5], &[1..3], &[4..6]);
 
         // doc1.replicate_into(&mut doc2); // Also "Saaabbb" but different txns.
         // dbg!(&doc1.txns, &doc2.txns);
@@ -594,21 +415,9 @@ pub mod test {
         // dbg!(doc.diff(&smallvec![6], &smallvec![ROOT_ORDER]));
         // dbg!(&doc);
 
-        assert_diff_eq(&doc.txns, &[6], &[ROOT_ORDER], &[
-           OrderSpan { order: 5, len: 2 },
-           OrderSpan { order: 0, len: 3 },
-        ], &[]);
-
-        assert_diff_eq(&doc.txns, &[6], &[4], &[
-            OrderSpan { order: 5, len: 2 },
-            OrderSpan { order: 0, len: 3 },
-        ], &[
-            OrderSpan { order: 3, len: 2 },
-        ]);
-
-        assert_diff_eq(&doc.txns, &[4, 6], &[ROOT_ORDER], &[
-            OrderSpan { order: 0, len: 7 },
-        ], &[]);
+        assert_diff_eq(&doc.txns, &[6], &[ROOT_ORDER], &[5..7, 0..3], &[]);
+        assert_diff_eq(&doc.txns, &[6], &[4], &[5..7, 0..3], &[3..5]);
+        assert_diff_eq(&doc.txns, &[4, 6], &[ROOT_ORDER], &[0..7], &[]);
     }
 
     #[test]
@@ -632,26 +441,6 @@ pub mod test {
             },
         ]);
 
-        assert_diff_eq(&history, &[2], &[ROOT_ORDER], &[
-            OrderSpan::new(2, 1), OrderSpan::new(0, 1),
-        ], &[]);
+        assert_diff_eq(&history, &[2], &[ROOT_ORDER], &[2..3, 0..1], &[]);
     }
-
-    // #[test]
-    // fn unapply() {
-    //     let mut doc = ListCRDT::new();
-    //     doc.get_or_create_agent_id("seph");
-    //     doc.local_insert(0, 0, "aaaa".into()); // [0,4)
-    //     doc.local_delete(0, 1, 2); // [4,6)
-    //     // dbg!(&doc);
-    //     unsafe {
-    //         // doc.partially_unapply_changes(OrderSpan { order: 4, len: 2 });
-    //         doc.partially_unapply_changes(doc.linear_changes_since(0));
-    //     }
-    //
-    //     unsafe {
-    //         doc.partially_reapply_changes(doc.linear_changes_since(0));
-    //     }
-    //     // dbg!(&doc);
-    // }
 }

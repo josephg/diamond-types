@@ -1,4 +1,4 @@
-use std::ops::{Range, Add, Sub};
+use std::ops::{Range};
 
 /// An entry is expected to contain multiple items.
 ///
@@ -113,14 +113,35 @@ impl<T: Clone + Eq> SplitableSpan for RleRun<T> {
 }
 
 // This will implement SplitableSpan for u8, u16, u32, u64, u128, usize
-impl<T: Add<Output=T> + Sub + From<usize> + Copy + Eq> SplitableSpan for Range<T> where usize: From<<T as Sub>::Output> {
+// impl<T: Add<Output=T> + Sub + Copy + Eq> SplitableSpan for Range<T>
+// where usize: From<<T as Sub>::Output>, T: From<usize>
+// {
+//     fn len(&self) -> usize {
+//         (self.end - self.start).into()
+//     }
+//
+//     fn truncate(&mut self, at: usize) -> Self {
+//         let old_end = self.end;
+//         self.end = self.start + at.into();
+//         Self { start: self.end, end: old_end }
+//     }
+//
+//     fn can_append(&self, other: &Self) -> bool {
+//         self.end == other.start
+//     }
+//
+//     fn append(&mut self, other: Self) {
+//         self.end = other.end;
+//     }
+// }
+impl SplitableSpan for Range<u32> {
     fn len(&self) -> usize {
-        (self.end - self.start).into()
+        (self.end - self.start) as _
     }
 
     fn truncate(&mut self, at: usize) -> Self {
         let old_end = self.end;
-        self.end = self.start + at.into();
+        self.end = self.start + at as u32;
         Self { start: self.end, end: old_end }
     }
 
@@ -181,5 +202,6 @@ mod test {
     #[test]
     fn splitable_range() {
         test_splitable_methods_valid(0..10);
+        test_splitable_methods_valid(0u32..10u32);
     }
 }

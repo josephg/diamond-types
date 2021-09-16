@@ -1,11 +1,11 @@
 use crate::list::{Branch, Order};
 use crate::rle::RleVec;
 use crate::list::txn::TxnSpan;
-use crate::order::OrderSpan;
+use std::ops::Range;
 
 /// Advance branch frontier by a transaction. This is written creating a new branch, which is
 /// somewhat inefficient (especially if the frontier is spilled).
-pub(crate) fn advance_branch_by_known(branch: &mut Branch, txn_parents: &[Order], span: OrderSpan) {
+pub(crate) fn advance_branch_by_known(branch: &mut Branch, txn_parents: &[Order], range: Range<Order>) {
     // TODO: Check the branch contains everything in txn_parents, but not txn_id:
     // Check the operation fits. The operation should not be in the branch, but
     // all the operation's parents should be.
@@ -14,23 +14,23 @@ pub(crate) fn advance_branch_by_known(branch: &mut Branch, txn_parents: &[Order]
     // for (const parent of op.parents) {
     //    assert(branchContainsVersion(db, parent, branch), 'operation in the future')
     // }
-    assert!(!branch.contains(&span.order)); // Remove this when branch_contains_version works.
+    assert!(!branch.contains(&range.start)); // Remove this when branch_contains_version works.
 
     // TODO: Consider sorting the branch after we do this.
     branch.retain(|o| !txn_parents.contains(o)); // Usually removes all elements.
-    branch.push(span.last());
+    branch.push(range.end - 1);
 }
 
-pub(crate) fn advance_branch(branch: &mut Branch, history: &RleVec<TxnSpan>, span: OrderSpan) {
-    let txn = history.find(span.order).unwrap();
-    if let Some(parent) = txn.parent_at_order(span.order) {
-        advance_branch_by_known(branch, &[parent], span);
+pub(crate) fn advance_branch(branch: &mut Branch, history: &RleVec<TxnSpan>, range: Range<Order>) {
+    let txn = history.find(range.start).unwrap();
+    if let Some(parent) = txn.parent_at_order(range.start) {
+        advance_branch_by_known(branch, &[parent], range);
     } else {
-        advance_branch_by_known(branch, &txn.parents, span);
+        advance_branch_by_known(branch, &txn.parents, range);
     }
 }
 
-// TODO: Consider making this function take an OrderSpan instead of first_order / len pair.
+// TODO: Change this to take a range instead of first_order / len pair.
 pub(crate) fn retreat_branch_by(branch: &mut Branch, history: &RleVec<TxnSpan>, first_order: Order, len: u32) {
     let txn = history.find(first_order).unwrap();
     retreat_branch_known_txn(branch, history, txn, first_order, len);
@@ -70,9 +70,7 @@ mod test {
     #[test]
     fn branch_movement_smoke_tests() {
         let mut branch: Branch = smallvec![ROOT_ORDER];
-        advance_branch_by_known(&mut branch, &[ROOT_ORDER], OrderSpan {
-            order: 0, len: 10
-        });
+        advance_branch_by_known(&mut branch, &[ROOT_ORDER], 0..10);
         assert_eq!(branch.as_slice(), &[9]);
 
         let txns = RleVec(vec![

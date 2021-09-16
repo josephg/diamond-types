@@ -2,6 +2,8 @@ use rle::Searchable;
 use rle::SplitableSpan;
 
 use crate::rle::{RleKey, RleKeyed};
+use std::ops::Range;
+use crate::list::Order;
 
 /// An OrderMarker defines a span of item orders, with a base and length.
 /// If the length is negative, the span has been deleted in the document.
@@ -35,6 +37,15 @@ impl Default for OrderSpan {
             order: u32::MAX,
             len: 0,
             // parent: usize
+        }
+    }
+}
+
+impl From<Range<Order>> for OrderSpan {
+    fn from(range: Range<Order>) -> Self {
+        Self {
+            order: range.start,
+            len: range.end - range.start,
         }
     }
 }
