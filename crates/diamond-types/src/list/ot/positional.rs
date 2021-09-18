@@ -35,6 +35,10 @@ pub struct PositionalOp {
     pub content: SmartString,
 }
 
+impl Default for InsDelTag {
+    fn default() -> Self { InsDelTag::Ins } // Arbitrary.
+}
+
 // This is such a dirty hack and I'm not even mad about it.
 const XS: &str = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXx";
 

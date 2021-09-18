@@ -138,10 +138,10 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
 
     // TODO: Check if its faster if this returns by copy or byref.
     /// Note this ignores the cursor's offset.
-    pub fn get_raw_entry(&self) -> E {
+    pub fn get_raw_entry(&self) -> &E {
         assert_ne!(self.offset, usize::MAX, "Cannot get entry for a cursor to an empty list");
         let node = unsafe { self.node.as_ref() };
-        node.data[self.idx]
+        &node.data[self.idx]
     }
 
     pub fn try_get_raw_entry(&self) -> Option<E> {

@@ -248,7 +248,7 @@ impl ListCRDT {
             // rare that you actually get concurrent inserts at the same location in the document
             // anyway.
 
-            let other_entry = cursor.get_raw_entry();
+            let other_entry = *cursor.get_raw_entry();
             // let other_order = other_entry.order + cursor.offset as u32;
 
             let other_left_order = other_entry.origin_left_at_offset(cursor.offset as u32);

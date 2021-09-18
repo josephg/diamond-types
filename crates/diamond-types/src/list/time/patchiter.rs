@@ -5,22 +5,25 @@ use crate::rangeextra::OrderRange;
 use crate::rle::{RleSpanHelpers, RleVec, KVPair};
 use std::cell::Cell;
 use crate::order::OrderSpan;
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub(crate) enum OpContent {
-    Del(Order),
-    Ins
-}
+use crate::list::ot::positional::{InsDelTag, InsDelTag::*};
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub(crate) struct OpItem {
     pub range: Range<Order>,
-    pub content: OpContent,
+    pub op_type: InsDelTag,
+
+    // This is mostly a matter of convenience, since I'm not pulling out information about inserts.
+    // But we find out the del_target to be able to find out if the range is a delete anyway.
+    pub del_target: Order,
 }
 
-impl Default for OpContent {
-    // Arbitrary choice, but useful to have.
-    fn default() -> Self { OpContent::Ins }
+impl OpItem {
+    pub(crate) fn target_range(&self) -> Range<Order> {
+        match self.op_type {
+            Ins => self.range.clone(),
+            Del => self.del_target..self.del_target + self.range.order_len(),
+        }
+    }
 }
 
 /// This is a simple iterator which iterates through the modifications made to a document, in time
@@ -58,12 +61,13 @@ impl<'a> ListPatchIter<'a, true> {
                     debug_assert!(d.0 <= self.range.start && self.range.start < d.end());
 
                     let offset = self.range.start - d.0;
-                    let target = d.1.order + offset;
+                    let del_target = d.1.order + offset;
 
                     let end = u32::min(self.range.end, d.end());
                     Some(OpItem {
                         range: self.range.start..end,
-                        content: OpContent::Del(target)
+                        op_type: Del,
+                        del_target
                     })
                 },
                 Err(next_del) => {
@@ -71,7 +75,8 @@ impl<'a> ListPatchIter<'a, true> {
                     let end = u32::min(self.range.end, next_del);
                     Some(OpItem {
                         range: self.range.start..end,
-                        content: OpContent::Ins
+                        op_type: Ins,
+                        del_target: 0,
                     })
                 }
             }
@@ -90,11 +95,12 @@ impl<'a> ListPatchIter<'a, false> {
                     let start = u32::max(self.range.start, d.0);
                     debug_assert!(start < self.range.end);
                     let offset = start - d.0;
-                    let target = d.1.order + offset;
+                    let del_target = d.1.order + offset;
 
                     Some(OpItem {
                         range: start..self.range.end,
-                        content: OpContent::Del(target)
+                        op_type: Del,
+                        del_target
                     })
                 },
                 Err(last_del) => {
@@ -103,7 +109,8 @@ impl<'a> ListPatchIter<'a, false> {
 
                     Some(OpItem {
                         range: start..self.range.end,
-                        content: OpContent::Ins
+                        op_type: Ins,
+                        del_target: 0,
                     })
                 }
             }
@@ -154,7 +161,6 @@ impl ListCRDT {
 #[cfg(test)]
 mod test {
     use super::*;
-    use OpContent::*;
 
     fn assert_doc_patches_match(doc: &ListCRDT, range: Range<Order>, expect: &[OpItem]) {
         let forward = doc.patch_iter_in_range(range.clone());
@@ -174,8 +180,8 @@ mod test {
         doc.local_delete(0, 2, 6);
 
         assert_doc_patches_match(&doc, 0..doc.get_next_order(), &[
-            OpItem { range: 0..8, content: Ins },
-            OpItem { range: 8..14, content: Del(2) }
+            OpItem { range: 0..8, op_type: Ins, del_target: 0 },
+            OpItem { range: 8..14, op_type: Del, del_target: 2 }
         ]);
     }
 }

@@ -9,7 +9,7 @@ use rle::{SplitableSpan, Searchable};
 use std::cmp::Ordering;
 
 use crate::list::{ListCRDT, RangeTree, RangeTreeLeaf, Order, DoubleDeleteList};
-use crate::list::time::patchiter::{OpContent, ListPatchIter, OpItem};
+use crate::list::time::patchiter::{ListPatchIter, OpItem};
 use crate::list::time::positionmap::PositionMapComponent::*;
 use std::ops::Range;
 use crate::rangeextra::OrderRange;
@@ -41,6 +41,14 @@ impl From<PositionMapComponent> for InsDelTag {
             NotInsertedYet => panic!("Invalid component for conversion"),
             Inserted => InsDelTag::Ins,
             Deleted => InsDelTag::Del,
+        }
+    }
+}
+impl From<InsDelTag> for PositionMapComponent {
+    fn from(c: InsDelTag) -> Self {
+        match c {
+            InsDelTag::Ins => Inserted,
+            InsDelTag::Del => Deleted,
         }
     }
 }
@@ -105,14 +113,13 @@ impl<'a> OrderToRawInsertMap<'a> {
             Self::ord_refs(a.0, b.0)
         });
 
-        dbg!(nodes.iter().map(|n| n.0 as *const _).collect::<Vec<_>>());
+        // dbg!(nodes.iter().map(|n| n.0 as *const _).collect::<Vec<_>>());
 
         (Self(nodes), insert_position)
     }
 
     /// Returns the raw insert order (as if no deletes ever happened) of the passed range. The
-    /// returned range always starts with the requested order and has its size capped by the insert
-    /// run in the document.
+    /// returned range always starts with the requested order and the end is the maximum range.
     fn raw_insert_order(&self, doc: &ListCRDT, order: Order) -> Range<Order> {
         let marker = doc.marker_at(order);
         unsafe { marker.as_ref() }.find(order).unwrap();
@@ -132,13 +139,20 @@ impl<'a> OrderToRawInsertMap<'a> {
 
         unreachable!("Marker tree is invalid");
     }
+
+    // /// Same as raw_insert_order, but constrain the return value based on the length
+    // fn raw_insert_order_limited(&self, doc: &ListCRDT, order: Order, max_len: Order) -> Range<Order> {
+    //     let mut result = self.raw_insert_order(list, order);
+    //     result.end = result.end.min(result.start + max_len);
+    //     result
+    // }
 }
 
 /// An iterator over original insert positions - which tells us *where* each insert and delete
 /// happened in the document, at the time when that edit happened. This code would all be much
 /// cleaner and simpler using coroutines.
 #[derive(Debug)]
-struct OrigPositionIter<'a> {
+pub struct OrigPatchesIter<'a> {
     txn_iter: OriginTxnIter<'a>,
     map: Pin<Box<PositionMap>>,
     order_to_raw_map: OrderToRawInsertMap<'a>,
@@ -155,11 +169,11 @@ struct OrigPositionIter<'a> {
     /// Inside a txn we iterate over each rle patch with this.
     current_inner: Option<ListPatchIter<'a, true>>,
 
-    current_component: PositionMapComponent,
+    current_op_type: InsDelTag,
     current_target: Range<Order>,
 }
 
-impl<'a> OrigPositionIter<'a> {
+impl<'a> OrigPatchesIter<'a> {
     fn new(list: &'a ListCRDT) -> Self {
         let mut map = PositionMap::new();
 
@@ -174,7 +188,7 @@ impl<'a> OrigPositionIter<'a> {
             double_deletes: DoubleDeleteList::new(),
             list,
             current_inner: None,
-            current_component: PositionMapComponent::NotInsertedYet,
+            current_op_type: Default::default(),
             current_target: Default::default()
         }
     }
@@ -189,12 +203,25 @@ impl<'a> OrigPositionIter<'a> {
         // current_inner is either empty or None. Iterate to the next txn.
         let walk = self.txn_iter.next()?;
 
-        for _range in walk.retreat {
-            unimplemented!();
+        for range in walk.retreat {
+            for op in self.list.patch_iter_in_range(range) {
+                let mut target = op.target_range();
+                // dbg!(&op, &target);
+                while !target.is_empty() {
+                    let len = self.retreat_by_range(target.clone(), op.op_type);
+                    target.start += len;
+                }
+            }
         }
 
-        for _range in walk.advance_rev {
-            unimplemented!();
+        for range in walk.advance_rev.into_iter().rev() {
+            for op in self.list.patch_iter_in_range_rev(range) {
+                let mut target = op.target_range();
+                while !target.is_empty() {
+                    let len = self.advance_by_range(target.clone(), op.op_type, true).1;
+                    target.start += len;
+                }
+            }
         }
 
         // self.consuming = walk.consume;
@@ -206,73 +233,104 @@ impl<'a> OrigPositionIter<'a> {
         self.current_inner = Some(inner);
         return next;
     }
+
+    fn retreat_by_range(&mut self, target: Range<Order>, op_type: InsDelTag) -> Order {
+        // This variant is only actually used in one place - which makes things easier.
+
+        let raw_range = self.order_to_raw_map.raw_insert_order(self.list, target.start);
+        let raw_start = raw_range.start;
+        let mut len = Order::min(raw_range.order_len(), target.order_len());
+
+        let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
+        if op_type == InsDelTag::Del {
+            let e = cursor.get_raw_entry();
+            len = len.min((e.len - cursor.offset) as u32);
+            debug_assert!(len > 0);
+
+            // Usually there's no double-deletes, but we need to check just in case.
+            let allowed_len = self.double_deletes.find_zero_range(raw_start, len);
+            if allowed_len == 0 { // Unlikely. There's a double delete here.
+                let len_dd_here = self.double_deletes.decrement_delete_range(raw_start, len);
+                debug_assert!(len_dd_here > 0);
+
+                // What a minefield. O_o
+                return len_dd_here;
+            } else {
+                len = allowed_len;
+            }
+        }
+
+        let reversed_map_component = match op_type {
+            InsDelTag::Ins => NotInsertedYet,
+            InsDelTag::Del => Inserted,
+        };
+        cursor.replace_range(PositionRun::new(reversed_map_component, len as _));
+        len
+    }
+
+    fn advance_by_range(&mut self, target: Range<Order>, op_type: InsDelTag, handle_dd: bool) -> (Option<PositionalComponent>, Order) {
+        // We know the order of the range of the items which have been inserted.
+        // Walk through them. For each, find out the global insert position, then
+        // replace in map.
+
+        let raw_range = self.order_to_raw_map.raw_insert_order(self.list, target.start);
+        let raw_start = raw_range.start;
+        let mut len = Order::min(raw_range.order_len(), target.order_len());
+
+        let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
+        if op_type == InsDelTag::Del {
+            // So the item will usually be in the Inserted state. If its in the Deleted
+            // state, we need to mark it as double-deleted.
+            let e = cursor.get_raw_entry();
+
+            if handle_dd {
+                // Handling double-deletes is only an issue while consuming. Never advancing.
+                len = len.min((e.len - cursor.offset) as u32);
+                debug_assert!(len > 0);
+                if e.val == Deleted { // This can never happen while consuming. Only while advancing.
+                    self.double_deletes.increment_delete_range(raw_start, len);
+                    return (None, len);
+                }
+            } else {
+                // When the insert was created, the content must exist in the document.
+                // TODO: Actually verify this assumption when integrating remote txns.
+                debug_assert!(e.val == Inserted);
+            }
+        }
+
+        let content_pos = cursor.count_content_pos() as u32;
+        cursor.replace_range(PositionRun::new(op_type.into(), len as _));
+
+        (Some(PositionalComponent {
+            pos: content_pos,
+            len,
+            content_known: false,
+            tag: self.current_op_type.into(),
+        }), len)
+    }
 }
 
-impl<'a> Iterator for OrigPositionIter<'a> {
+impl<'a> Iterator for OrigPatchesIter<'a> {
     type Item = PositionalComponent;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_target.is_empty() {
-            let OpItem { range, content } = self.next_inner()?;
-
-            match content {
-                OpContent::Del(target) => {
-                    self.current_target = target..target + range.order_len();
-                    self.current_component = Deleted;
-                }
-                OpContent::Ins => {
-                    self.current_target = range;
-                    self.current_component = Inserted;
-                }
-            };
-
+            let item = self.next_inner()?;
+            self.current_target = item.target_range();
+            self.current_op_type = item.op_type;
             debug_assert!(!self.current_target.is_empty());
         }
 
-        // We know the order of the range of the items which have been inserted.
-        // Walk through them. For each, find out the global insert position, then
-        // replace in map.
-        dbg!(&self.current_target, self.current_component);
-
-        let raw_range = self.order_to_raw_map.raw_insert_order(self.list, self.current_target.start);
-        // raw_range.end = Order::max(raw_range.end, raw_range.start + self.current_target.order_len());
-        let len = raw_range.order_len();
-        let raw_start = raw_range.start;
-
-        let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
-        if self.current_component == Deleted {
-            // So the item will usually be in the Inserted state. If its in the Deleted
-            // state, we need to mark it as double-deleted.
-            let e = cursor.get_raw_entry();
-            debug_assert_eq!(e.val, Inserted);
-            // if e.val == Deleted { // Actually this can never happen while consuming. Only while advancing.
-            //     len = len.max((e.len - cursor.offset) as u32);
-            //     double_deletes.increment_delete_range(raw_start, len);
-            //     self.current_target.start += len;
-            //     continue;
-            // }
-        }
-
-        let content_pos = cursor.count_content_pos() as u32;
-        cursor.replace_range(PositionRun::new(self.current_component, len as _));
-
+        let (result, len) = self.advance_by_range(self.current_target.clone(), self.current_op_type, false);
         self.current_target.start += len;
-
-        Some(PositionalComponent {
-            pos: content_pos,
-            len,
-            content_known: false,
-            tag: self.current_component.into(),
-        })
-        // println!("consume {:?} at {:?}", self.current_component, content_pos..content_pos+len as usize);
+        debug_assert!(result.is_some());
+        result
     }
 }
 
 impl ListCRDT {
-    pub fn foo(&self) {
-        for patch in OrigPositionIter::new(self) {
-            dbg!(patch);
-        }
+    pub fn iter_original_patches(&self) -> OrigPatchesIter {
+        OrigPatchesIter::new(self)
     }
 }
 
@@ -281,6 +339,8 @@ mod test {
     use rle::test_splitable_methods_valid;
 
     use super::*;
+    use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
+    use smallvec::smallvec;
 
     #[test]
     fn positionrun_is_splitablespan() {
@@ -306,7 +366,37 @@ mod test {
         // }
 
         dbg!(doc.patch_iter().collect::<Vec<_>>());
+        dbg!(doc.iter_original_patches().collect::<Vec<_>>());
+    }
 
-        doc.foo();
+    #[test]
+    fn foo2() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("seph");
+        doc.local_insert(0, 0, "xxx");
+
+        // Ok now two users concurrently delete.
+        doc.apply_remote_txn(&RemoteTxn {
+            id: RemoteId { agent: "a".into(), seq: 0 },
+            parents: smallvec![RemoteId { agent: "seph".into(), seq: 2 }],
+            ops: smallvec![RemoteCRDTOp::Del {
+                id: RemoteId { agent: "seph".into(), seq: 0 },
+                len: 3
+            }],
+            ins_content: "".into(),
+        });
+
+        doc.apply_remote_txn(&RemoteTxn {
+            id: RemoteId { agent: "b".into(), seq: 0 },
+            parents: smallvec![RemoteId { agent: "seph".into(), seq: 2 }],
+            ops: smallvec![RemoteCRDTOp::Del {
+                id: RemoteId { agent: "seph".into(), seq: 0 },
+                len: 3
+            }],
+            ins_content: "".into(),
+        });
+
+        dbg!(doc.patch_iter().collect::<Vec<_>>());
+        dbg!(doc.iter_original_patches().collect::<Vec<_>>());
     }
 }

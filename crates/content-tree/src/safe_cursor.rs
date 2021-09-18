@@ -48,7 +48,7 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> It
             }
         }
 
-        let current = self.inner.get_raw_entry();
+        let current = self.inner.get_raw_entry().clone();
         // Move the cursor forward preemptively for the next call to next().
         let has_next = self.inner.next_entry();
         if !has_next {
