@@ -171,3 +171,15 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         }
     }
 }
+
+impl<'a, E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> Cursor<'a, E, I, IE, LE> {
+    pub fn count_content_pos(&self) -> usize {
+        I::index_to_content(self.count_pos())
+    }
+}
+
+impl<'a, E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Cursor<'a, E, I, IE, LE> {
+    pub fn count_offset_pos(&self) -> usize {
+        I::index_to_offset(self.count_pos())
+    }
+}
