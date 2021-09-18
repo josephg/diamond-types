@@ -418,7 +418,7 @@ impl<'a> PatchIter<'a> {
     fn into_positional_op(mut self) -> PositionalOp {
         let mut changes: SmallVec<[(u32, PositionalComponent); 10]> = (&mut self).collect();
         changes.reverse();
-        PositionalOp::from_components(&changes, self.doc.text_content.as_ref())
+        PositionalOp::from_components(changes, self.doc.text_content.as_ref())
     }
 
     fn into_traversal(self, resulting_doc: &Rope) -> TraversalOp {
@@ -505,16 +505,16 @@ impl<'a> PatchWithAuthorIter<'a> {
         let mut attribution = SmallVec::<[CRDTSpan; 1]>::new();
 
         for (post_pos, c, loc) in &mut self {
-            changes.push((post_pos, c));
             attribution.push_reversed_rle(CRDTSpan {
                 loc,
                 len: c.len
             });
+            changes.push((post_pos, c));
         }
 
         changes.reverse();
         attribution.reverse();
-        let op = PositionalOp::from_components(&changes, self.state.doc.text_content.as_ref());
+        let op = PositionalOp::from_components(changes, self.state.doc.text_content.as_ref());
         (op, attribution)
     }
 
@@ -560,7 +560,7 @@ impl<'a, I: Iterator<Item=OrderSpan>> MultiPositionalChangesIter<'a, I> {
     fn into_positional_op(mut self) -> PositionalOp {
         let mut changes: SmallVec<[(u32, PositionalComponent); 10]> = (&mut self).collect();
         changes.reverse();
-        PositionalOp::from_components(&changes, self.state.doc.text_content.as_ref())
+        PositionalOp::from_components(changes, self.state.doc.text_content.as_ref())
     }
 
     fn into_traversal(self, resulting_doc: &Rope) -> TraversalOp {

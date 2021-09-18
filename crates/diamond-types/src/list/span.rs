@@ -33,6 +33,10 @@ impl YjsSpan {
         self.len = self.len.abs();
         self
     }
+
+    pub fn order_len(&self) -> Order {
+        self.len.abs() as _
+    }
 }
 
 impl SplitableSpan for YjsSpan {

@@ -2,7 +2,9 @@ use std::ops::Range;
 
 use crate::list::{ListCRDT, Order};
 use crate::rangeextra::OrderRange;
-use crate::rle::RleSpanHelpers;
+use crate::rle::{RleSpanHelpers, RleVec, KVPair};
+use std::cell::Cell;
+use crate::order::OrderSpan;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(crate) enum OpContent {
@@ -10,46 +12,47 @@ pub(crate) enum OpContent {
     Ins
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub(crate) struct OpItem {
     pub range: Range<Order>,
     pub content: OpContent,
+}
+
+impl Default for OpContent {
+    // Arbitrary choice, but useful to have.
+    fn default() -> Self { OpContent::Ins }
 }
 
 /// This is a simple iterator which iterates through the modifications made to a document, in time
 /// (Order) order across a single contiguous span of time.
 #[derive(Debug)]
 pub(crate) struct ListPatchIter<'a, const FWD: bool> {
-    doc: &'a ListCRDT,
+    deletes: &'a RleVec<KVPair<OrderSpan>>,
     range: Range<Order>,
-    del_idx: usize,
-    // fwd_del_idx: usize,
-    // back_del_idx: usize,
+    del_idx: Cell<usize>,
 }
 
 impl<'a, const FWD: bool> ListPatchIter<'a, FWD> {
-    fn new(doc: &'a ListCRDT, range: Range<Order>) -> Self {
+    fn new(deletes: &'a RleVec<KVPair<OrderSpan>>, range: Range<Order>) -> Self {
         let del_idx = if FWD {
             if range.start == 0 { 0 }
             else {
-                doc.deletes.find_index(range.start).unwrap_or_else(|idx| idx)
+                deletes.find_index(range.start).unwrap_or_else(|idx| idx)
             }
         } else {
-            doc.deletes
+            deletes
                 .find_index(range.end)
                 .unwrap_or_else(|idx| idx.wrapping_sub(1))
         };
 
-        Self { doc, range, del_idx }
+        Self { deletes, range, del_idx: Cell::new(del_idx) }
     }
 }
 
-impl<'a> Iterator for ListPatchIter<'a, true> {
-    type Item = OpItem;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a> ListPatchIter<'a, true> {
+    fn peek(&self) -> Option<OpItem> {
         if self.range.start < self.range.end {
-            match self.doc.deletes.search_scanning_sparse(self.range.start, &mut self.del_idx) {
+            match self.deletes.search_scanning_sparse(self.range.start, &mut unsafe { *self.del_idx.as_ptr() }) {
                 Ok(d) => {
                     // Its a delete.
                     debug_assert!(d.0 <= self.range.start && self.range.start < d.end());
@@ -58,30 +61,29 @@ impl<'a> Iterator for ListPatchIter<'a, true> {
                     let target = d.1.order + offset;
 
                     let end = u32::min(self.range.end, d.end());
-                    let range = self.range.start..end;
-
-                    self.range.start = end; // Advance us.
-                    Some(OpItem { range, content: OpContent::Del(target) })
+                    Some(OpItem {
+                        range: self.range.start..end,
+                        content: OpContent::Del(target)
+                    })
                 },
                 Err(next_del) => {
                     // Its an insert.
                     let end = u32::min(self.range.end, next_del);
-                    let range = self.range.start..end;
-                    self.range.start = end;
-                    Some(OpItem { range, content: OpContent::Ins })
+                    Some(OpItem {
+                        range: self.range.start..end,
+                        content: OpContent::Ins
+                    })
                 }
             }
         } else { None }
     }
 }
 
-impl<'a> Iterator for ListPatchIter<'a, false> {
-    type Item = OpItem;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a> ListPatchIter<'a, false> {
+    fn peek(&self) -> Option<OpItem> {
         if self.range.start < self.range.end {
             let last_order = self.range.last_order();
-            match self.doc.deletes.search_scanning_backwards_sparse(last_order, &mut self.del_idx) {
+            match self.deletes.search_scanning_backwards_sparse(last_order, &mut unsafe { *self.del_idx.as_ptr() }) {
                 Ok(d) => {
                     // Its a delete.
                     debug_assert!(d.0 <= last_order && last_order < d.end());
@@ -90,39 +92,61 @@ impl<'a> Iterator for ListPatchIter<'a, false> {
                     let offset = start - d.0;
                     let target = d.1.order + offset;
 
-                    let range = start..self.range.end;
-                    self.range.end = start; // Advance us.
-                    Some(OpItem { range, content: OpContent::Del(target) })
+                    Some(OpItem {
+                        range: start..self.range.end,
+                        content: OpContent::Del(target)
+                    })
                 },
                 Err(last_del) => {
                     // Its an insert.
                     let start = u32::max(self.range.start, last_del);
 
-                    let range = start..self.range.end;
-                    self.range.end = start;
-                    Some(OpItem { range, content: OpContent::Ins })
+                    Some(OpItem {
+                        range: start..self.range.end,
+                        content: OpContent::Ins
+                    })
                 }
             }
         } else { None }
     }
 }
 
+impl<'a> Iterator for ListPatchIter<'a, true> {
+    type Item = OpItem;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = self.peek()?;
+        self.range.start = item.range.end;
+        Some(item)
+    }
+}
+
+impl<'a> Iterator for ListPatchIter<'a, false> {
+    type Item = OpItem;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = self.peek()?;
+        self.range.end = item.range.start;
+        Some(item)
+    }
+}
+
 
 impl ListCRDT {
     pub(crate) fn patch_iter(&self) -> ListPatchIter<true> {
-        ListPatchIter::new(self, 0..self.get_next_order())
+        ListPatchIter::new(&self.deletes, 0..self.get_next_order())
     }
 
     pub(crate) fn patch_iter_in_range(&self, range: Range<Order>) -> ListPatchIter<true> {
-        ListPatchIter::new(self, range)
+        ListPatchIter::new(&self.deletes, range)
     }
 
     pub(crate) fn patch_iter_rev(&self) -> ListPatchIter<false> {
-        ListPatchIter::new(self, 0..self.get_next_order())
+        ListPatchIter::new(&self.deletes, 0..self.get_next_order())
     }
 
     pub(crate) fn patch_iter_in_range_rev(&self, range: Range<Order>) -> ListPatchIter<false> {
-        ListPatchIter::new(self, range)
+        ListPatchIter::new(&self.deletes, range)
     }
 }
 

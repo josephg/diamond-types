@@ -1,6 +1,6 @@
 mod positionmap;
 pub mod traversal;
-mod positional;
+pub(crate) mod positional;
 mod ot;
 mod editablestring;
 

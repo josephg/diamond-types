@@ -36,6 +36,7 @@ pub(crate) struct WalkEntry {
     pub(crate) retreat: SmallVec<[Range<Order>; 4]>,
     pub(crate) advance_rev: SmallVec<[Range<Order>; 4]>,
     // txn: &'a TxnSpan,
+    pub(crate) parents: SmallVec<[Order; 2]>,
     pub(crate) consume: Range<Order>,
 }
 
@@ -146,6 +147,7 @@ impl<'a> Iterator for OriginTxnIter<'a> {
         return Some(WalkEntry {
             retreat: only_branch,
             advance_rev: only_txn,
+            parents: next_txn.parents.clone(),
             consume: next_txn.as_order_range()
         });
     }
@@ -198,11 +200,13 @@ mod test {
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
+                parents: smallvec![ROOT_ORDER],
                 consume: 0..10,
             },
             WalkEntry {
                 retreat: smallvec![0..10],
                 advance_rev: smallvec![],
+                parents: smallvec![ROOT_ORDER],
                 consume: 10..30,
             },
         ]);
@@ -233,16 +237,19 @@ mod test {
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
+                parents: smallvec![ROOT_ORDER],
                 consume: 0..10,
             },
             WalkEntry {
                 retreat: smallvec![0..10],
                 advance_rev: smallvec![],
+                parents: smallvec![ROOT_ORDER],
                 consume: 10..30,
             },
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![0..10],
+                parents: smallvec![9, 29],
                 consume: 30..50,
             },
         ]);
@@ -290,28 +297,33 @@ mod test {
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
+                parents: smallvec![ROOT_ORDER],
                 consume: 0..1,
             },
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
+                parents: smallvec![0],
                 consume: 2..3,
             },
 
             WalkEntry {
                 retreat: smallvec![2..3, 0..1],
                 advance_rev: smallvec![],
+                parents: smallvec![ROOT_ORDER],
                 consume: 1..2,
             },
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
+                parents: smallvec![1],
                 consume: 3..4,
             },
 
             WalkEntry {
                 retreat: smallvec![],
                 advance_rev: smallvec![2..3, 0..1],
+                parents: smallvec![2, 3],
                 consume: 4..5,
             },
         ])));

@@ -14,11 +14,12 @@ use rle::AppendRle;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 
+/// So I might use this more broadly, for all edits. If so, move this out of OT.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub enum InsDelTag { Ins, Del }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct PositionalComponent {
     pub pos: u32,
@@ -68,12 +69,12 @@ impl PositionalOp {
         }
     }
 
-    pub fn from_components(components: &[(u32, PositionalComponent)], content: Option<&Rope>) -> Self {
+    pub fn from_components(components: SmallVec<[(u32, PositionalComponent); 10]>, content: Option<&Rope>) -> Self {
         let mut result = Self::new();
         for (post_pos, mut c) in components {
             if c.content_known {
                 if let Some(content) = content {
-                    let chars = content.chars_at(*post_pos as usize).take(c.len as usize);
+                    let chars = content.chars_at(post_pos as usize).take(c.len as usize);
                     result.content.extend(chars);
                 } else {
                     c.content_known = false;

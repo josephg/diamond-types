@@ -160,7 +160,7 @@ impl ListCRDT {
     }
 
     pub(super) fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>> {
-        let cursor = self.index.unsafe_cursor_at_offset_pos(order as usize, false);
+        let cursor = self.index.cursor_at_offset_pos(order as usize, false);
         // Gross.
         unsafe { cursor.get_item().unwrap().unwrap() }
 

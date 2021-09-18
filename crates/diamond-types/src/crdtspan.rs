@@ -6,6 +6,7 @@ use rle::Searchable;
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 pub struct CRDTSpan {
+    // TODO: Consider changing to agent / range of sequences.
     pub loc: CRDTId,
     pub len: u32,
 }
