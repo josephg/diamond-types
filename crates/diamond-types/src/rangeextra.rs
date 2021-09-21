@@ -6,6 +6,8 @@ use std::ops::Range;
 pub(crate) trait OrderRange {
     fn last_order(&self) -> Order;
     fn order_len(&self) -> Order;
+
+    fn transpose(&self, new_start: Order) -> Self;
 }
 
 impl OrderRange for Range<Order> {
@@ -15,5 +17,9 @@ impl OrderRange for Range<Order> {
 
     fn order_len(&self) -> Order {
         self.end - self.start
+    }
+
+    fn transpose(&self, new_start: Order) -> Self {
+        new_start..new_start + self.order_len()
     }
 }

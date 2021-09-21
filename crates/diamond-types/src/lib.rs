@@ -27,7 +27,7 @@ mod tests {
 }
 
 #[cfg(test)]
-pub mod fuzz_helpers {
+pub mod test_helpers {
     use rand::prelude::SmallRng;
     use rand::Rng;
     use ropey::Rope;
@@ -35,6 +35,14 @@ pub mod fuzz_helpers {
     use diamond_core::AgentId;
 
     use crate::list::ListCRDT;
+    use crate::list::external_txn::RemoteId;
+
+    pub(crate) fn root_id() -> RemoteId {
+        RemoteId {
+            agent: "ROOT".into(),
+            seq: u32::MAX
+        }
+    }
 
     pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
         let mut str = String::new();

@@ -1,6 +1,8 @@
 use std::cmp::Ordering::*;
 use std::fmt::Debug;
 use std::iter::FromIterator;
+use std::ops::Index;
+use std::slice::SliceIndex;
 
 use humansize::{file_size_opts, FileSize};
 
@@ -9,8 +11,6 @@ use rle::Searchable;
 use rle::SplitableSpan;
 
 use crate::rle::{RleKey, RleKeyed, RleSpanHelpers};
-use std::ops::Index;
-use std::slice::SliceIndex;
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Default, Clone, Eq, PartialEq, Debug)]
@@ -142,6 +142,49 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         }
 
         self.0.insert(idx, val);
+    }
+
+    /// Search forward from idx until we find needle. idx is modified. Returns either the item if
+    /// successful, or the key of the subsequent item.
+    pub(crate) fn search_scanning_sparse(&self, needle: RleKey, idx: &mut usize) -> Result<&V, RleKey> {
+        while *idx < self.len() {
+            // TODO: Is this bounds checking? It shouldn't need to... Fix if it is.
+            let e = &self[*idx];
+            if needle < e.end() {
+                return if needle >= e.get_rle_key() {
+                    Ok(e)
+                } else {
+                    Err(e.get_rle_key())
+                };
+            }
+
+            *idx += 1;
+        }
+        Err(RleKey::MAX)
+    }
+
+    pub(crate) fn search_scanning_packed(&self, needle: RleKey, idx: &mut usize) -> &V {
+        self.search_scanning_sparse(needle, idx).unwrap()
+    }
+
+    /// Search backwards from idx until we find needle. idx is modified. Returns either the item or
+    /// the end of the preceeding range. Note the end could be == needle. (But cannot be greater
+    /// than it).
+    pub(crate) fn search_scanning_backwards_sparse(&self, needle: RleKey, idx: &mut usize) -> Result<&V, RleKey> {
+        // This conditional looks inverted given we're looping backwards, but I'm using
+        // wrapping_sub - so when we reach the end the index wraps around and we'll hit usize::MAX.
+        while *idx < self.len() {
+            let e = &self[*idx];
+            if needle >= e.get_rle_key() {
+                return if needle < e.end() {
+                    Ok(e)
+                } else {
+                    Err(e.end())
+                };
+            }
+            *idx = idx.wrapping_sub(1);
+        }
+        Err(0)
     }
 }
 

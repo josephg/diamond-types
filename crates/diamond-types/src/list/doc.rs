@@ -404,7 +404,21 @@ impl ListCRDT {
                 parent_indexes.push(parent_idx);
 
                 let parent_children = &mut self.txns.0[parent_idx].child_indexes;
-                if !parent_children.contains(&new_idx) { parent_children.push(new_idx); }
+                if !parent_children.contains(&new_idx) {
+                    parent_children.push(new_idx);
+
+                    // This is a tiny optimization for txn_trace. We store the child_indexes in
+                    // order of their first parent - which will usually be the order in which we
+                    // want to iterate them.
+                    // TODO: Make this work and benchmark.
+                    // if parent_children.len() > 1 {
+                    //     parent_children.sort_unstable_by(|&a, &b| {
+                    //         u32::cmp(&self.txns.0[a].parents[0].wrapping_add(1),
+                    //                  &self.txns.0[b].parents[0].wrapping_add(1))
+                    //     });
+                    // }
+                }
+
             }
         }
 
@@ -769,6 +783,7 @@ mod tests {
     use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
     use smallvec::smallvec;
     use crate::list::ot::traversal::TraversalOp;
+    use crate::test_helpers::root_id;
 
     #[test]
     fn smoke() {
@@ -806,13 +821,6 @@ mod tests {
     //     doc.local_insert(seph, 0, "a".into());
     //     assert_eq!(doc.txns.find(0).unwrap().0.shadow, 0);
     // }
-
-    fn root_id() -> RemoteId {
-        RemoteId {
-            agent: "ROOT".into(),
-            seq: u32::MAX
-        }
-    }
 
     // fn assert_frontier_eq(doc: &ListCRDT, expected: &Branch) {
     //     // The order of frontier is not currently guaranteed.

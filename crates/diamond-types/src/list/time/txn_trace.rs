@@ -56,14 +56,19 @@ impl<'a> OriginTxnIter<'a> {
             consumed: bitbox![0; history.len()],
             root_children,
             stack: vec![],
-            num_consumed: 0
+            num_consumed: 0,
         }
     }
 
     // Dirty - returns usize::MAX when there is no next child.
     #[inline(always)]
     fn get_next_child(&self, child_idxs: &[usize]) -> Option<usize> {
-        for &i in child_idxs { // Sorted??
+        // TODO: We actually want to iterate through the children in order from whatever requires us
+        // to backtrack the least, to whatever requires the most backtracking. I think iterating in
+        // reverse order gets us part way there, but without actual multi user benchmarking data its
+        // hard to tell for sure if this helps.
+        // for &i in child_idxs.iter().rev() {
+        for &i in child_idxs.iter() {
             // println!("  - {}", i);
             if self.consumed[i] { continue; }
 
