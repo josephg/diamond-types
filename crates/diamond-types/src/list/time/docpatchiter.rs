@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::pin::Pin;
 
-use content_tree::SplitableSpan;
+use content_tree::{SplitableSpan, Toggleable};
 
 use crate::list::{DoubleDeleteList, ListCRDT, Order, RangeTreeLeaf, RangeTree};
 use crate::list::ot::positional::{InsDelTag, PositionalComponent};
@@ -10,7 +10,7 @@ use crate::list::time::txn_trace::OptimizedTxnsIter;
 use crate::rangeextra::OrderRange;
 use crate::list::time::positionmap::{PositionMap, PositionRun};
 use std::cmp::Ordering;
-use crate::list::time::positionmap::PositionMapComponent::*;
+use crate::list::time::positionmap::MapTag::*;
 use rle::Searchable;
 
 
@@ -46,12 +46,18 @@ impl<'a> OrderToRawInsertMap<'a> {
         (Self(nodes), insert_position)
     }
 
-    /// Returns the raw insert position (as if no deletes ever happened) of the passed range. The
+    /// Returns the raw insert position (as if no deletes ever happened) of the requested item. The
     /// returned range always starts with the requested order and the end is the maximum range.
-    fn raw_insert_position(&self, doc: &ListCRDT, ins_order: Order) -> Range<Order> {
+    fn order_to_raw(&self, doc: &ListCRDT, ins_order: Order) -> (InsDelTag, Range<Order>) {
         let marker = doc.marker_at(ins_order);
-        unsafe { marker.as_ref() }.find(ins_order).unwrap();
+
         let leaf = unsafe { marker.as_ref() };
+        if cfg!(debug_assertions) {
+            // The requested item must be in the returned leaf.
+            leaf.find(ins_order).unwrap();
+        }
+
+        // TODO: Check if this is actually more efficient compared to a linear scan.
         let idx = self.0.binary_search_by(|elem| {
             Self::ord_refs(elem.0, leaf)
         }).unwrap();
@@ -59,7 +65,8 @@ impl<'a> OrderToRawInsertMap<'a> {
         let mut start_position = self.0[idx].1;
         for e in leaf.as_slice() {
             if let Some(offset) = e.contains(ins_order) {
-                return (start_position + offset as u32)..(start_position + e.order_len());
+                let tag = if e.is_activated() { InsDelTag::Ins } else { InsDelTag::Del };
+                return (tag, (start_position + offset as u32)..(start_position + e.order_len()));
             } else {
                 start_position += e.order_len();
             }
@@ -112,13 +119,20 @@ pub struct OrigPatchesIter<'a> {
     // current_target_offset: Order,
 }
 
+// impl<'a> Drop for OrigPatchesIter<'a> {
+//     fn drop(&mut self) {
+//         println!("Map entries {} nodes {:?}", self.map.count_entries(), self.map.count_nodes());
+//         // dbg!(&self.map);
+//     }
+// }
+
 impl<'a> OrigPatchesIter<'a> {
     fn new(list: &'a ListCRDT) -> Self {
         let mut map = PositionMap::new();
 
         let (order_to_raw_map, total_post_len) = OrderToRawInsertMap::new(&list.range_tree);
         // TODO: This is something we should cache somewhere.
-        map.push(PositionRun::new(NotInsertedYet, total_post_len as usize));
+        map.push(PositionRun::new_void(total_post_len as usize));
 
         Self {
             txn_iter: list.txns.txn_spanning_tree_iter(),
@@ -177,14 +191,14 @@ impl<'a> OrigPatchesIter<'a> {
     fn retreat_by_range(&mut self, target: Range<Order>, op_type: InsDelTag) -> Order {
         // This variant is only actually used in one place - which makes things easier.
 
-        let raw_range = self.order_to_raw_map.raw_insert_position(self.list, target.start);
+        let (final_tag, raw_range) = self.order_to_raw_map.order_to_raw(self.list, target.start);
         let raw_start = raw_range.start;
         let mut len = Order::min(raw_range.order_len(), target.order_len());
 
         let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
         if op_type == InsDelTag::Del {
             let e = cursor.get_raw_entry();
-            len = len.min((e.len - cursor.offset) as u32);
+            len = len.min((e.final_len - cursor.offset) as u32);
             debug_assert!(len > 0);
 
             // Usually there's no double-deletes, but we need to check just in case.
@@ -200,11 +214,32 @@ impl<'a> OrigPatchesIter<'a> {
             }
         }
 
-        let reversed_map_component = match op_type {
-            InsDelTag::Ins => NotInsertedYet,
-            InsDelTag::Del => Inserted,
-        };
-        cursor.replace_range(PositionRun::new(reversed_map_component, len as _));
+        // So the challenge here is we need to un-merge upstream position runs into their
+        // constituent parts. We can't use replace_range for this because that calls truncate().
+        // let mut len_remaining = len;
+        // while len_remaining > 0 {
+        //
+        // }
+        if op_type == InsDelTag::Ins && final_tag == InsDelTag::Del {
+            // The easy case. The entry in PositionRun will be Inserted.
+            debug_assert_eq!(cursor.get_raw_entry().tag, Inserted);
+            cursor.replace_range(PositionRun::new_void(len as _));
+        } else {
+            // We have merged everything into Upstream. We need to pull it apart, which is bleh.
+            debug_assert_eq!(cursor.get_raw_entry().tag, Upstream);
+            // TODO: Is this a safe assumption? Let the fuzzer verify it.
+            assert!(cursor.get_raw_entry().len() - cursor.offset >= len as usize);
+
+            // So we want to replace the cursor entry with [start, X, end]. The trick is figuring
+            // out where we split the content in the current entry.
+            todo!();
+        }
+
+        // let reversed_map_component = match op_type {
+        //     InsDelTag::Ins => NotInsertedYet,
+        //     InsDelTag::Del => Inserted,
+        // };
+        // cursor.replace_range(PositionRun::new(reversed_map_component, len as _));
         len
     }
 
@@ -213,7 +248,7 @@ impl<'a> OrigPatchesIter<'a> {
         // Walk through them. For each, find out the global insert position, then
         // replace in map.
 
-        let raw_range = self.order_to_raw_map.raw_insert_position(self.list, target.start);
+        let (final_tag, raw_range) = self.order_to_raw_map.order_to_raw(self.list, target.start);
         let raw_start = raw_range.start;
         let mut len = Order::min(raw_range.order_len(), target.order_len());
 
@@ -226,21 +261,37 @@ impl<'a> OrigPatchesIter<'a> {
 
             if handle_dd {
                 // Handling double-deletes is only an issue while consuming. Never advancing.
-                len = len.min((e.len - cursor.offset) as u32);
+                len = len.min((e.final_len - cursor.offset) as u32);
                 debug_assert!(len > 0);
-                if e.val == Deleted { // This can never happen while consuming. Only while advancing.
+                if e.tag == Upstream { // This can never happen while consuming. Only while advancing.
                     self.double_deletes.increment_delete_range(raw_start, len);
                     return (None, len);
                 }
             } else {
                 // When the insert was created, the content must exist in the document.
                 // TODO: Actually verify this assumption when integrating remote txns.
-                debug_assert_eq!(e.val, Inserted);
+                debug_assert_eq!(e.tag, Inserted);
             }
         }
 
         let content_pos = cursor.count_content_pos() as u32;
-        cursor.replace_range(PositionRun::new(op_type.into(), len as _));
+        // Life could be so simple...
+        // cursor.replace_range(PositionRun::new(op_type.into(), len as _));
+
+        // So there's kinda 3 different states
+        if final_tag == op_type {
+            // Transition into the Upstream state
+            let content_len: usize = if op_type == InsDelTag::Del { 0 } else { len as usize };
+            cursor.replace_range(PositionRun::new_upstream(len as _, content_len));
+            // Calling compress_node (in just this branch) improves performance by about 1%.
+            cursor.inner.compress_node();
+        } else {
+            debug_assert_eq!(op_type, InsDelTag::Ins);
+            debug_assert_eq!(final_tag, InsDelTag::Del);
+            cursor.replace_range(PositionRun::new_ins(len as _));
+        }
+
+        // println!("{} {} {}", self.map.count_entries(), self.map.count_nodes().1, self.map.iter().count());
 
         (Some(PositionalComponent {
             pos: content_pos,
@@ -296,6 +347,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn foo2() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");

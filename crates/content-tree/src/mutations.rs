@@ -15,10 +15,14 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     /// is returned. The cursor is modified in-place to point after the inserted items.
     ///
     /// If the cursor points in the middle of an item, the item is split.
+    ///
+    /// The list of items must have a maximum length of 3, so we can always insert all the new items
+    /// in half of a leaf node. (This is a somewhat artificial constraint, but its fine here.)
     unsafe fn insert_internal<F>(mut items: &[E], cursor: &mut UnsafeCursor<E, I, IE, LE>, flush_marker: &mut I::IndexUpdate, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         if items.is_empty() { return; }
+        assert!(items.len() <= 3);
 
         // cursor.get_node_mut() would be better but it would borrow the cursor.
         let mut node = &mut *cursor.node.as_ptr();
