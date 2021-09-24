@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use std::ops::Deref;
+use std::ops::{Deref, AddAssign};
 
 use super::*;
 
@@ -15,8 +15,13 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cu
 
     // TODO: Implement from_raw as well, where we walk up the tree to check the root.
 
-    pub fn count_pos(&self) -> I::IndexValue {
-        unsafe { self.inner.count_pos() }
+    // pub fn old_count_pos(&self) -> I::IndexValue {
+    //     unsafe { self.inner.old_count_pos() }
+    // }
+    pub fn count_pos_raw<Out, F, G, H>(&self, offset_to_num: F, entry_len: G, entry_len_at: H) -> Out
+        where Out: AddAssign + Default, F: Fn(I::IndexValue) -> Out, G: Fn(&E) -> Out, H: Fn(&E, usize) -> Out
+    {
+        unsafe { self.inner.count_pos_raw(offset_to_num, entry_len, entry_len_at) }
     }
 }
 
@@ -174,12 +179,14 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
 
 impl<'a, E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> Cursor<'a, E, I, IE, LE> {
     pub fn count_content_pos(&self) -> usize {
-        I::index_to_content(self.count_pos())
+        unsafe { self.inner.count_content_pos() }
+        // I::index_to_content(self.old_count_pos())
     }
 }
 
 impl<'a, E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Cursor<'a, E, I, IE, LE> {
     pub fn count_offset_pos(&self) -> usize {
-        I::index_to_offset(self.count_pos())
+        unsafe { self.inner.count_offset_pos() }
+        // I::index_to_offset(self.old_count_pos())
     }
 }

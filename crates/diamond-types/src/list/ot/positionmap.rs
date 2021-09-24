@@ -62,6 +62,14 @@ pub(super) fn positionmap_mut_cursor_at_post(map: &mut PositionMap, pos: usize, 
                                 |e| e.post_len() as usize)
 }
 
+fn count_cursor_pre_len(cursor: &Cursor<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>) -> u32 {
+    cursor.count_pos_raw(
+        |p| p.0,
+        |c| c.pre_len(),
+        |c, offset| (c.pre_len()).clamp(0, offset as u32)
+    )
+}
+
 /// This is a simple struct designed to pull some self contained complexity out of
 /// make_position_map.
 ///
@@ -275,7 +283,7 @@ impl<'a> Iterator for PatchIter<'a> {
                     // We call insert instead of replace_range here because the delete doesn't
                     // consume "space".
 
-                    let pre_pos = map_cursor.count_pos().0;
+                    let pre_pos = count_cursor_pre_len(&map_cursor);
                     map_cursor.insert(Del(len_here));
 
                     // The content might have later been deleted.
@@ -314,7 +322,7 @@ impl<'a> Iterator for PatchIter<'a> {
                     // location which has the right position.
                     let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos as usize + 1, true);
                     map_cursor.inner.offset -= 1;
-                    let pre_pos = map_cursor.count_pos().0;
+                    let pre_pos = count_cursor_pre_len(&map_cursor);
                     map_cursor.replace_range(Ins { len: len_here, content_known });
                     PositionalComponent {
                         pos: pre_pos,
@@ -327,7 +335,7 @@ impl<'a> Iterator for PatchIter<'a> {
                     map_cursor.inner.roll_to_next_entry();
                     map_cursor.delete(len_here as usize);
                     PositionalComponent {
-                        pos: map_cursor.count_pos().0,
+                        pos: count_cursor_pre_len(&map_cursor),
                         len: len_here,
                         content_known: false,
                         tag: InsDelTag::Ins
@@ -543,7 +551,7 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &Rope) -> TraversalOp {
             }
             _ => {}
         }
-        if entry.len() > 0 {
+        if !entry.is_noop() {
             op.traversal.push_rle(entry);
         }
     }
@@ -765,7 +773,8 @@ mod test {
         tree.insert_at_start(TraversalComponent::Retain(10));
 
         let cursor = positionmap_mut_cursor_at_post(&mut tree, 4, true);
-        assert_eq!(cursor.count_pos(), Pair(4, 4));
+        assert_eq!(count_cursor_pre_len(&cursor), 4);
+        // TODO: And check post_len is also 4...
     }
 
     #[test]

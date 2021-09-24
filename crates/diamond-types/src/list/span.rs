@@ -104,6 +104,13 @@ impl ContentLength for YjsSpan {
     fn content_len(&self) -> usize {
         self.len.max(0) as usize
     }
+
+    fn content_len_at_offset(&self, offset: usize) -> usize {
+        // let mut e = *self;
+        // e.truncate(offset);
+        // e.content_len()
+        self.len.clamp(0, offset as i32) as usize
+    }
 }
 
 impl Toggleable for YjsSpan {

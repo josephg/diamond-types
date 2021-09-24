@@ -37,6 +37,10 @@ impl ContentLength for CRDTSpan {
     fn content_len(&self) -> usize {
         self.len as _
     }
+
+    fn content_len_at_offset(&self, offset: usize) -> usize {
+        offset
+    }
 }
 
 impl SplitableSpan for CRDTSpan {

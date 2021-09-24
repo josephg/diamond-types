@@ -75,6 +75,11 @@ impl ContentLength for TestRange {
     fn content_len(&self) -> usize {
         if self.is_activated { self.len() } else { 0 }
     }
+
+    fn content_len_at_offset(&self, offset: usize) -> usize {
+        assert!(offset <= self.len as usize);
+        if self.is_activated { offset } else { 0 }
+    }
 }
 
 impl Searchable for TestRange {

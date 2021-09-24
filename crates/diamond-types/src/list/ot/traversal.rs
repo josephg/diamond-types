@@ -143,7 +143,7 @@ impl TraversalOp {
             }
 
             // Components are not allowed to be no-ops.
-            assert_ne!(c.len(), 0);
+            assert!(!c.is_noop());
         }
 
         assert_eq!(content_len as usize, count_chars(&self.content));
@@ -178,6 +178,7 @@ impl TraversalComponent {
         }
     }
 
+    // TODO: This function is pretty useless. Consider replacing it with is_empty().
     pub fn len(&self) -> u32 {
         match self {
             Retain(len) | Del(len) => *len,

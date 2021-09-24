@@ -4,6 +4,7 @@ use std::hint::unreachable_unchecked;
 use rle::Searchable;
 
 use super::*;
+use std::ops::AddAssign;
 
 // TODO: All these methods should be unsafe and have safe wrappers in safe_cursor.
 impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
@@ -91,27 +92,34 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
         self.next_entry_marker(None)
     }
 
-    pub unsafe fn count_pos(&self) -> I::IndexValue {
+    // TODO: This calculates a generic index value - which is often a pair of values. Then we almost
+    // always discard one of those values. Rewrite this to use the same helper methods as find().
+    pub unsafe fn count_pos_raw<Out, F, G, H>(&self, offset_to_num: F, entry_len: G, entry_len_at: H) -> Out
+        where Out: AddAssign + Default, F: Fn(I::IndexValue) -> Out, G: Fn(&E) -> Out, H: Fn(&E, usize) -> Out
+    {
         // We're a cursor into an empty tree.
-        if self.offset == usize::MAX { return I::IndexValue::default(); }
+        if self.offset == usize::MAX { return Out::default(); }
 
         let node = self.node.as_ref();
-        let mut pos = I::IndexValue::default();
-        // First find out where we are in the current node.
+        let mut pos = Out::default();
 
         if self.idx >= node.data.len() { unreachable_unchecked(); }
 
+        // First find out where we are in the current node.
         for e in &node.data[0..self.idx] {
-            I::increment_offset(&mut pos, e);
+            pos += entry_len(e);
         }
 
-        // This is pretty idiosyncratic.
         if self.offset != 0 {
-            I::increment_offset_partial(&mut pos, &node.data[self.idx], self.offset);
+            let e = &node.data[self.idx];
+            pos += if self.offset < e.len() {
+                entry_len_at(e, self.offset)
+            } else {
+                entry_len(e)
+            };
         }
 
         // Ok, now iterate up to the root counting offsets as we go.
-
         let mut parent = node.parent;
         let mut node_ptr = NodePtr::Leaf(self.node);
         loop {
@@ -123,7 +131,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
                     let idx = node_ref.find_child(node_ptr).unwrap();
 
                     for c in &node_ref.index[0..idx] {
-                        pos += *c;
+                        pos += offset_to_num(*c);
                     }
 
                     // node_ptr = NodePtr::Internal(unsafe { NonNull::new_unchecked(node_ref as *const _ as *mut _) });
@@ -297,13 +305,15 @@ impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: 
 
 impl<E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub unsafe fn count_content_pos(&self) -> usize {
-        I::index_to_content(self.count_pos())
+        self.count_pos_raw(I::index_to_content, E::content_len, E::content_len_at_offset)
     }
 }
 
 impl<E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub unsafe fn count_offset_pos(&self) -> usize {
-        I::index_to_offset(self.count_pos())
+        self.count_pos_raw(I::index_to_offset, E::len, |_, off| off)
+
+        // I::index_to_offset(self.old_count_pos())
     }
 }
 

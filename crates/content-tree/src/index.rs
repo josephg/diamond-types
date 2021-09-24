@@ -13,22 +13,15 @@ pub trait TreeIndex<E: ContentTraits> where Self: Debug + Copy + Clone + Partial
     fn increment_marker(marker: &mut Self::IndexUpdate, entry: &E);
     fn decrement_marker(marker: &mut Self::IndexUpdate, entry: &E);
 
+    // TODO: Unused. Consider removing.
     fn decrement_marker_by_val(marker: &mut Self::IndexUpdate, val: &Self::IndexValue);
 
     fn update_offset_by_marker(offset: &mut Self::IndexValue, by: &Self::IndexUpdate);
 
     fn increment_offset(offset: &mut Self::IndexValue, by: &E);
 
-    // This is actually unnecessary - it would be more correct to call truncate().content_len()
-    // or whatever. TODO: Check if this actually makes any performance difference.
-    fn increment_offset_partial(offset: &mut Self::IndexValue, by: &E, at: usize) {
-        let mut e = *by;
-        if at < e.len() { e.truncate(at); }
-        Self::increment_offset(offset, &e);
-        // *offset += by.content_len().min(at) as u32;
-    }
-
     const CAN_COUNT_ITEMS: bool = false;
+    // TODO: Unused. Consider removing.
     fn count_items(_idx: Self::IndexValue) -> usize { panic!("Index cannot count items") }
 }
 
@@ -70,11 +63,6 @@ impl<E: ContentTraits + ContentLength> TreeIndex<E> for ContentIndex {
     fn increment_offset(offset: &mut Self::IndexValue, by: &E) {
         *offset += by.content_len() as u32;
     }
-
-    // This is unnecessary.
-    fn increment_offset_partial(offset: &mut Self::IndexValue, by: &E, at: usize) {
-        *offset += by.content_len().min(at) as u32;
-    }
 }
 
 impl<E: ContentTraits + ContentLength> FindContent<E> for ContentIndex {
@@ -110,11 +98,6 @@ impl<E: ContentTraits> TreeIndex<E> for RawPositionIndex {
 
     fn increment_offset(offset: &mut Self::IndexValue, by: &E) {
         *offset += by.len() as u32;
-    }
-
-    // This is unnecessary.
-    fn increment_offset_partial(offset: &mut Self::IndexValue, by: &E, at: usize) {
-        *offset += by.len().min(at) as u32;
     }
 
     const CAN_COUNT_ITEMS: bool = true;
@@ -179,11 +162,6 @@ impl<E: ContentTraits + ContentLength> TreeIndex<E> for FullIndex {
         offset.1 += entry.content_len() as u32;
     }
 
-    fn increment_offset_partial(offset: &mut Self::IndexValue, by: &E, at: usize) {
-        offset.0 += at as u32;
-        offset.1 += by.content_len().min(at) as u32;
-    }
-
     const CAN_COUNT_ITEMS: bool = true;
     fn count_items(idx: Self::IndexValue) -> usize { idx.0 as usize }
 }
@@ -203,6 +181,7 @@ impl<E: ContentTraits + ContentLength> FindOffset<E> for FullIndex {
 pub trait ContentLength {
     /// User specific content length. Used by content-tree for character counts.
     fn content_len(&self) -> usize;
+    fn content_len_at_offset(&self, offset: usize) -> usize;
 }
 
 /// This trait marks items as being able to toggle on and off. The motivation for this is CRDT

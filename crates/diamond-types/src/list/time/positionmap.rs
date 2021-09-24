@@ -75,6 +75,10 @@ impl ContentLength for PositionRun {
         // This is the amount of space we take up right now.
         if self.val == Inserted { self.len } else { 0 }
     }
+
+    fn content_len_at_offset(&self, offset: usize) -> usize {
+        self.content_len().min(offset)
+    }
 }
 
 pub(super) type PositionMap = ContentTreeWithIndex<PositionRun, FullIndex>;
