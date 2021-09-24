@@ -72,7 +72,8 @@ fn print_stats_for_file(name: &str) {
 
     doc.print_stats(false);
 
-    let encoded = doc.encode_small(false);
+    // let encoded = doc.encode_small(false);
+    let encoded = doc.encode_patches(true);
     // println!("Full encoded size {}", encoded.len().file_size(file_size_opts::CONVENTIONAL).unwrap());
     println!("Full encoded size {}", encoded.len());
     // std::fs::write(format!("enc_{}.diamond", name), encoded).unwrap();

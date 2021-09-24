@@ -112,11 +112,20 @@ fn encoding_benchmarks(c: &mut Criterion) {
         // group.throughput(Throughput::Bytes(out.len() as _));
         group.throughput(Throughput::Bytes(doc.encode_small(false).len() as _));
 
-        group.bench_function(BenchmarkId::new("encode", name), |b| {
+        group.bench_function(BenchmarkId::new("encode_small", name), |b| {
             b.iter(|| {
                 // let mut out = vec![];
                 // doc.encode_small(&mut out, false).unwrap();
                 let encoding = doc.encode_small(false);
+                assert!(encoding.len() > 1000);
+                black_box(encoding);
+            })
+        });
+        group.bench_function(BenchmarkId::new("encode_patches", name), |b| {
+            b.iter(|| {
+                // let mut out = vec![];
+                // doc.encode_small(&mut out, false).unwrap();
+                let encoding = doc.encode_patches(false);
                 assert!(encoding.len() > 1000);
                 black_box(encoding);
             })

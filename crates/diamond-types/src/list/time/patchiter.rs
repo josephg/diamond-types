@@ -8,7 +8,7 @@ use crate::order::OrderSpan;
 use crate::list::ot::positional::{InsDelTag, InsDelTag::*};
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
-pub(crate) struct OpItem {
+pub(crate) struct ListPatchItem {
     pub range: Range<Order>,
     pub op_type: InsDelTag,
 
@@ -17,12 +17,17 @@ pub(crate) struct OpItem {
     pub del_target: Order,
 }
 
-impl OpItem {
-    pub(crate) fn target_range(&self) -> Range<Order> {
+impl ListPatchItem {
+    pub(crate) fn target_offset(&self) -> Order {
         match self.op_type {
-            Ins => self.range.clone(),
-            Del => self.del_target..self.del_target + self.range.order_len(),
+            Ins => 0,
+            Del => self.range.start - self.del_target,
         }
+    }
+
+    pub(crate) fn target_range(&self) -> Range<Order> {
+        let offset = self.target_offset();
+        self.range.start - offset .. self.range.end - offset
     }
 }
 
@@ -53,7 +58,7 @@ impl<'a, const FWD: bool> ListPatchIter<'a, FWD> {
 }
 
 impl<'a> ListPatchIter<'a, true> {
-    fn peek(&self) -> Option<OpItem> {
+    fn peek(&self) -> Option<ListPatchItem> {
         if self.range.start < self.range.end {
             match self.deletes.search_scanning_sparse(self.range.start, &mut unsafe { *self.del_idx.as_ptr() }) {
                 Ok(d) => {
@@ -64,7 +69,7 @@ impl<'a> ListPatchIter<'a, true> {
                     let del_target = d.1.order + offset;
 
                     let end = u32::min(self.range.end, d.end());
-                    Some(OpItem {
+                    Some(ListPatchItem {
                         range: self.range.start..end,
                         op_type: Del,
                         del_target
@@ -73,7 +78,7 @@ impl<'a> ListPatchIter<'a, true> {
                 Err(next_del) => {
                     // Its an insert.
                     let end = u32::min(self.range.end, next_del);
-                    Some(OpItem {
+                    Some(ListPatchItem {
                         range: self.range.start..end,
                         op_type: Ins,
                         del_target: 0,
@@ -85,7 +90,7 @@ impl<'a> ListPatchIter<'a, true> {
 }
 
 impl<'a> ListPatchIter<'a, false> {
-    fn peek(&self) -> Option<OpItem> {
+    fn peek(&self) -> Option<ListPatchItem> {
         if self.range.start < self.range.end {
             let last_order = self.range.last_order();
             match self.deletes.search_scanning_backwards_sparse(last_order, &mut unsafe { *self.del_idx.as_ptr() }) {
@@ -97,7 +102,7 @@ impl<'a> ListPatchIter<'a, false> {
                     let offset = start - d.0;
                     let del_target = d.1.order + offset;
 
-                    Some(OpItem {
+                    Some(ListPatchItem {
                         range: start..self.range.end,
                         op_type: Del,
                         del_target
@@ -107,7 +112,7 @@ impl<'a> ListPatchIter<'a, false> {
                     // Its an insert.
                     let start = u32::max(self.range.start, last_del);
 
-                    Some(OpItem {
+                    Some(ListPatchItem {
                         range: start..self.range.end,
                         op_type: Ins,
                         del_target: 0,
@@ -119,7 +124,7 @@ impl<'a> ListPatchIter<'a, false> {
 }
 
 impl<'a> Iterator for ListPatchIter<'a, true> {
-    type Item = OpItem;
+    type Item = ListPatchItem;
 
     fn next(&mut self) -> Option<Self::Item> {
         let item = self.peek()?;
@@ -129,7 +134,7 @@ impl<'a> Iterator for ListPatchIter<'a, true> {
 }
 
 impl<'a> Iterator for ListPatchIter<'a, false> {
-    type Item = OpItem;
+    type Item = ListPatchItem;
 
     fn next(&mut self) -> Option<Self::Item> {
         let item = self.peek()?;
@@ -162,7 +167,7 @@ impl ListCRDT {
 mod test {
     use super::*;
 
-    fn assert_doc_patches_match(doc: &ListCRDT, range: Range<Order>, expect: &[OpItem]) {
+    fn assert_doc_patches_match(doc: &ListCRDT, range: Range<Order>, expect: &[ListPatchItem]) {
         let forward = doc.patch_iter_in_range(range.clone());
         assert_eq!(forward.collect::<Vec<_>>(), expect);
 
@@ -180,8 +185,8 @@ mod test {
         doc.local_delete(0, 2, 6);
 
         assert_doc_patches_match(&doc, 0..doc.get_next_order(), &[
-            OpItem { range: 0..8, op_type: Ins, del_target: 0 },
-            OpItem { range: 8..14, op_type: Del, del_target: 2 }
+            ListPatchItem { range: 0..8, op_type: Ins, del_target: 0 },
+            ListPatchItem { range: 8..14, op_type: Del, del_target: 2 }
         ]);
     }
 }

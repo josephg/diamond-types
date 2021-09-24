@@ -12,7 +12,10 @@ use crate::list::{ListCRDT, Order};
 use crate::list::encoding::varint::*;
 use crate::list::span::YjsSpan;
 use crate::order::OrderSpan;
-use crate::rle::KVPair;
+use crate::rle::{KVPair, RleVec};
+use std::ops::Range;
+use crate::rangeextra::OrderRange;
+use crate::list::ot::positional::InsDelTag;
 
 mod varint;
 
@@ -409,19 +412,20 @@ impl<'a, S: SplitableSpan, F: FnMut(&mut BufReader<'a>) -> Option<S>> Iterator f
 #[repr(u32)]
 enum Chunk {
     FileInfo = 1,
+    Content = 2,
 
-    AgentNames = 2,
-    AgentAssignment = 3,
+    AgentNames = 3,
+    AgentAssignment = 4,
 
-    Frontier = 4,
+    Frontier = 5,
 
-    InsOrDelFlags = 5,
-    DelData = 6,
+    InsOrDelFlags = 6,
+    DelData = 7,
 
-    InsOrders = 7, // Not used by encode_small.
-    InsOrigins = 8,
+    InsOrders = 8, // Not used by encode_small.
+    InsOrigins = 9,
 
-    Content = 9,
+    Patches = 10,
 }
 
 /// Entries are runs of positive or negative items.
@@ -460,14 +464,41 @@ impl SplitableSpan for PosNegRun {
 }
 
 impl ListCRDT {
-    // pub fn encode_small<W: Write>(&self, writer: &mut W, verbose: bool) -> std::io::Result<()> {
-    pub fn encode_small(&self, verbose: bool) -> Vec<u8> {
+    fn encode_common(&self) -> Vec<u8> {
+        // TODO: Add flag about the file format passed in here.
+        // All document file formats start with some common fields. They just encode the CRDT data
+        // itself differently.
+        let mut result: Vec<u8> = Vec::new();
+        result.extend_from_slice(&MAGIC_BYTES_SMALL);
+        push_chunk(&mut result, Chunk::FileInfo, &[]);
 
+        // The content itself is added early in the file for a couple reasons:
+        // 1. This allows a reader to fetch the document data more easily (without skipping over
+        // all the CRDT stuff).
+        // 2. Many compression algorithms (eg snappy) work reasonably well for text data, but bail
+        // when trying to encode the compressed CRDT data. Putting the text first allows these
+        // compression algorithms to still do their thing.
+        if let Some(d) = self.text_content.as_ref() {
+            // push_usize(&mut result, d.len_bytes());
+            push_chunk_header(&mut result, Chunk::Content, d.len_bytes());
+            for chunk in d.chunks() {
+                // writer.write_all(chunk.as_bytes());
+                result.extend_from_slice(chunk.as_bytes());
+            }
+        }
+
+        // TODO: Do this without the unnecessary allocation.
         let mut agent_names = Vec::new();
         for client_data in self.client_data.iter() {
             push_str(&mut agent_names, client_data.name.as_str());
         }
+        push_chunk(&mut result, Chunk::AgentNames, &agent_names);
 
+        result
+    }
+
+    // pub fn encode_small<W: Write>(&self, writer: &mut W, verbose: bool) -> std::io::Result<()> {
+    pub fn encode_small(&self, verbose: bool) -> Vec<u8> {
         // So here we know:
         // - Each entry has the next group of order numbers (its packed)
         // - Also the CRDT locations for each agent are packed.
@@ -547,40 +578,34 @@ impl ListCRDT {
         // let ro_data = right_origin_runs.flush_into_inner();
 
         // TODO: Avoid this allocation and just use write_all() to the writer for each section.
-        let mut result: Vec<u8> = Vec::with_capacity(ins_del_runs_data.len() + del_data.len() + fancy_runs.len() + 1000);
+        // let mut result: Vec<u8> = Vec::with_capacity(ins_del_runs_data.len() + del_data.len() + fancy_runs.len() + 1000);
         // let mut result: Vec<u8> = Vec::with_capacity(ins_del_runs_data.len() + del_data.len() + lo_data.len() + ro_data.len() + 1000);
         // writer.write_all(&MAGIC_BYTES_SMALL)?;
         // writer.write_all(runs_data.as_slice())?;
         // writer.write_all(del_data.as_slice())?;
         // writer.write_all(lo_data.as_slice())?;
         // writer.write_all(ro_runs.as_slice())?;
-        result.extend_from_slice(&MAGIC_BYTES_SMALL);
-        push_chunk(&mut result, Chunk::FileInfo, &[]);
+
+        // result.extend_from_slice(&MAGIC_BYTES_SMALL);
+        // push_chunk(&mut result, Chunk::FileInfo, &[]);
+
+        let mut result = self.encode_common();
 
         let mut frontier_data = vec!();
         for v in self.frontier.iter() {
             push_u32(&mut frontier_data, *v);
         }
-        push_chunk(&mut result, Chunk::AgentNames, agent_names.as_slice());
+
         push_chunk(&mut result, Chunk::AgentAssignment, agent_data.as_slice());
         push_chunk(&mut result, Chunk::Frontier, frontier_data.as_slice());
         push_chunk(&mut result, Chunk::InsOrDelFlags, ins_del_runs_data.as_slice());
         push_chunk(&mut result, Chunk::DelData, del_data.as_slice());
         push_chunk(&mut result, Chunk::InsOrigins, fancy_runs.as_slice());
 
-        if let Some(d) = self.text_content.as_ref() {
-            // push_usize(&mut result, d.len_bytes());
-            push_chunk_header(&mut result, Chunk::Content, d.len_bytes());
-            for chunk in d.chunks() {
-                // writer.write_all(chunk.as_bytes());
-                result.extend_from_slice(chunk.as_bytes());
-            }
-        }
-
         if verbose {
             println!("\n===== encoding stats 3 =====");
 
-            println!("Agent names {}", agent_names.len());
+            // println!("Agent names {}", agent_names.len());
             println!("Agent assignments {}", agent_data.len());
 
             println!("Del run info {}", ins_del_runs_data.len());
@@ -608,6 +633,146 @@ impl ListCRDT {
         result
     }
 
+    pub fn encode_fast(&self) -> Vec<u8> {
+        todo!();
+    }
+
+    /// This encoding method encodes all the data as a series of original braid style positional
+    /// patches. The resulting encoded form contains each patch as it was originally typed, tracking
+    /// *when* the patch happened (via its parents), *where* (in a simple integer position) and
+    /// *what* the change was (insert, delete).
+    ///
+    /// This form ends up being much more compact than the other approaches, storing Martin's
+    /// editing trace in 28kb of overhead (compared to about 100kb for the fast encoding format).
+    pub fn encode_patches(&self, verbose: bool) -> Vec<u8> {
+        let mut result = self.encode_common();
+        // result now has:
+        // - Common header
+        // - Document content
+        // - List of agents
+
+        // Write the frontier
+        // push_chunk_header(into, Chunk::Frontier, data.len());
+        // for v in self.frontier.iter() {
+        //     push_u32(&mut result, *v);
+        // }
+
+        #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+        struct EditRun {
+            diff: i32, // From previous item
+            len: u32,
+            is_delete: bool,
+            backspace_mode: bool,
+        }
+
+        fn merge_bksp(r1: &EditRun, r2: &EditRun) -> Option<EditRun> {
+            if !r1.is_delete || !r2.is_delete { return None; }
+            if !(r2.len == 1 && r2.diff == -1) { return None; }
+
+            if r1.backspace_mode {
+                return Some(EditRun {
+                    diff: r1.diff,
+                    len: r1.len + 1,
+                    is_delete: true,
+                    backspace_mode: true
+                });
+            } else if r1.len == 1 {
+                return Some(EditRun {
+                    diff: r1.diff + 1, // Weird but we'll go after the deleted character.
+                    len: r1.len + 1,
+                    is_delete: true,
+                    backspace_mode: true
+                });
+            } else { return None; }
+        }
+
+        impl SplitableSpan for EditRun {
+            fn len(&self) -> usize { self.len as usize }
+
+            fn truncate(&mut self, _at: usize) -> Self { unimplemented!() }
+
+            fn can_append(&self, other: &Self) -> bool {
+                self.is_delete == other.is_delete && (other.diff == 0 || merge_bksp(self, other).is_some())
+            }
+            fn append(&mut self, other: Self) {
+                if let Some(r) = merge_bksp(self, &other) {
+                    *self = r;
+                } else { self.len += other.len; }
+            }
+            fn prepend(&mut self, _other: Self) { unimplemented!(); }
+        }
+
+        let mut i = 0;
+        let mut w = SpanWriter::new(|into, val: EditRun| {
+            // if i < 100 { dbg!((val.diff, val.len)); }
+            // if i < 100 { dbg!(val); }
+            i += 1;
+            // if val.diff == -1 && val.len == 1 { return; }
+            let mut dest = [0u8; 20];
+            let mut pos = 0;
+
+            let mut n = num_encode_i64_with_extra_bit(val.diff as i64, val.len != 1);
+            if val.is_delete {
+                n = mix_bit_u64(n, val.backspace_mode);
+            }
+            n = mix_bit_u64(n, val.is_delete);
+            pos += encode_u64(n, &mut dest[..]);
+            if val.len != 1 {
+                pos += encode_u32(val.len, &mut dest[pos..]);
+            }
+
+            into.extend_from_slice(&dest[..pos]);
+        });
+
+        // For optimization, the stream of patches emitted here does not necessarily match the order
+        // of patches we're storing locally. For example, if two users are concurrently editing two
+        // different branches, emitting everything in our native, local order would result in O(n^2)
+        // writing time (to go back and forth between branches), loading time (the same) and end up
+        // bigger on disk (both because the insert positions wouldn't line up nicely, and because
+        // the txn parents wouldn't be linear).
+        //
+        // The O(n^2) problems of this don't show up if two users are editing different sections of
+        // a document at once, though interleaved edits will still compress slightly worse than if
+        // the edits were fully linearized.
+
+        // Anyway, the upshoot of all of that is that the output file may have different orders than
+        // we store in memory. So we need to map:
+        // - Frontiers
+        // - Parents
+        // - Agent assignments
+        // Maps from current order numbers -> output order numbers
+        let mut out_txn_map: RleVec<KVPair<Range<Order>>> = RleVec::new();
+
+        let mut next_output_order = 0;
+        let mut last_edit_pos: u32 = 0;
+
+        for (range, patch) in self.iter_original_patches() {
+            w.push(EditRun {
+                diff: i32::wrapping_sub(patch.pos as i32,last_edit_pos as i32),
+                len: patch.len,
+                is_delete: patch.tag == InsDelTag::Del,
+                backspace_mode: false, // Modified by the appending code (above).
+            });
+            last_edit_pos = patch.pos;
+            if patch.tag == InsDelTag::Ins { last_edit_pos += patch.len; }
+
+            if range.start != next_output_order {
+                out_txn_map.insert(KVPair(range.start, range.transpose(next_output_order)));
+            }
+
+            next_output_order += range.order_len();
+        }
+        let data = w.flush_into_inner();
+
+        if verbose {
+            dbg!(data.len());
+            dbg!(&out_txn_map);
+        }
+        push_chunk(&mut result, Chunk::Patches, &data);
+
+        result
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let mut result = ListCRDT::new();
         result.text_content = None; // Disable document content while we import data
@@ -616,6 +781,9 @@ impl ListCRDT {
         reader.read_magic();
 
         let _info = reader.expect_chunk(Chunk::FileInfo);
+
+        // TODO: Optional!
+        let _content = reader.expect_chunk(Chunk::Content);
 
         let mut agent_names = reader.expect_chunk(Chunk::AgentNames);
         while let Some(name) = agent_names.next_str() {
@@ -699,11 +867,6 @@ impl ListCRDT {
 
         assert_eq!(del_reader.next(), None);
 
-
-        // TODO: Optional!
-        let _content = reader.expect_chunk(Chunk::Content);
-
-
         // dbg!(&result);
         result
     }
@@ -776,6 +939,8 @@ mod tests {
 
         let enc = doc.encode_small(true);
         let _dec = ListCRDT::from_bytes(enc.as_slice());
+
+        let _enc = doc.encode_patches(true);
 
         // let mut spans = doc.content_tree.iter().collect::<Vec<YjsSpan>>();
         // spans.sort_by_key(|s| s.order);

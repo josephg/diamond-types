@@ -40,7 +40,7 @@ impl Default for InsDelTag {
 }
 
 // This is such a dirty hack and I'm not even mad about it.
-const XS: &str = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXx";
+const XS: &str = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
 
 impl PositionalOp {
     pub fn new() -> Self { Self::default() }

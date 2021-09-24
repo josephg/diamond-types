@@ -9,12 +9,12 @@ use rle::{SplitableSpan, Searchable};
 use std::cmp::Ordering;
 
 use crate::list::{ListCRDT, RangeTree, RangeTreeLeaf, Order, DoubleDeleteList};
-use crate::list::time::patchiter::{ListPatchIter, OpItem};
+use crate::list::time::patchiter::{ListPatchIter, ListPatchItem};
 use crate::list::time::positionmap::PositionMapComponent::*;
 use std::ops::Range;
 use crate::rangeextra::OrderRange;
 use std::pin::Pin;
-use crate::list::time::txn_trace::OriginTxnIter;
+use crate::list::time::txn_trace::OptimizedTxnsIter;
 use crate::list::ot::positional::{PositionalComponent, InsDelTag};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -118,11 +118,11 @@ impl<'a> OrderToRawInsertMap<'a> {
         (Self(nodes), insert_position)
     }
 
-    /// Returns the raw insert order (as if no deletes ever happened) of the passed range. The
+    /// Returns the raw insert position (as if no deletes ever happened) of the passed range. The
     /// returned range always starts with the requested order and the end is the maximum range.
-    fn raw_insert_order(&self, doc: &ListCRDT, order: Order) -> Range<Order> {
-        let marker = doc.marker_at(order);
-        unsafe { marker.as_ref() }.find(order).unwrap();
+    fn raw_insert_position(&self, doc: &ListCRDT, ins_order: Order) -> Range<Order> {
+        let marker = doc.marker_at(ins_order);
+        unsafe { marker.as_ref() }.find(ins_order).unwrap();
         let leaf = unsafe { marker.as_ref() };
         let idx = self.0.binary_search_by(|elem| {
             Self::ord_refs(elem.0, leaf)
@@ -130,7 +130,7 @@ impl<'a> OrderToRawInsertMap<'a> {
 
         let mut start_position = self.0[idx].1;
         for e in leaf.as_slice() {
-            if let Some(offset) = e.contains(order) {
+            if let Some(offset) = e.contains(ins_order) {
                 return (start_position + offset as u32)..(start_position + e.order_len());
             } else {
                 start_position += e.order_len();
@@ -153,7 +153,9 @@ impl<'a> OrderToRawInsertMap<'a> {
 /// cleaner and simpler using coroutines.
 #[derive(Debug)]
 pub struct OrigPatchesIter<'a> {
-    txn_iter: OriginTxnIter<'a>,
+    txn_iter: OptimizedTxnsIter<'a>,
+
+    /// Helpers to map from Order -> raw positions -> position at the current point in time
     map: Pin<Box<PositionMap>>,
     order_to_raw_map: OrderToRawInsertMap<'a>,
 
@@ -169,8 +171,10 @@ pub struct OrigPatchesIter<'a> {
     /// Inside a txn we iterate over each rle patch with this.
     current_inner: Option<ListPatchIter<'a, true>>,
 
-    current_op_type: InsDelTag,
-    current_target: Range<Order>,
+    current_item: ListPatchItem,
+    // current_op_type: InsDelTag,
+    // current_range: Range<Order>,
+    // current_target_offset: Order,
 }
 
 impl<'a> OrigPatchesIter<'a> {
@@ -188,12 +192,13 @@ impl<'a> OrigPatchesIter<'a> {
             double_deletes: DoubleDeleteList::new(),
             list,
             current_inner: None,
-            current_op_type: Default::default(),
-            current_target: Default::default()
+            // current_op_type: Default::default(),
+            // current_target_offset: 0,
+            current_item: Default::default()
         }
     }
 
-    fn next_inner(&mut self) -> Option<OpItem> {
+    fn next_inner(&mut self) -> Option<ListPatchItem> {
         if let Some(current_inner) = &mut self.current_inner {
             if let Some(op_item) = current_inner.next() {
                 return Some(op_item)
@@ -237,7 +242,7 @@ impl<'a> OrigPatchesIter<'a> {
     fn retreat_by_range(&mut self, target: Range<Order>, op_type: InsDelTag) -> Order {
         // This variant is only actually used in one place - which makes things easier.
 
-        let raw_range = self.order_to_raw_map.raw_insert_order(self.list, target.start);
+        let raw_range = self.order_to_raw_map.raw_insert_position(self.list, target.start);
         let raw_start = raw_range.start;
         let mut len = Order::min(raw_range.order_len(), target.order_len());
 
@@ -273,7 +278,7 @@ impl<'a> OrigPatchesIter<'a> {
         // Walk through them. For each, find out the global insert position, then
         // replace in map.
 
-        let raw_range = self.order_to_raw_map.raw_insert_order(self.list, target.start);
+        let raw_range = self.order_to_raw_map.raw_insert_position(self.list, target.start);
         let raw_start = raw_range.start;
         let mut len = Order::min(raw_range.order_len(), target.order_len());
 
@@ -305,26 +310,29 @@ impl<'a> OrigPatchesIter<'a> {
             pos: content_pos,
             len,
             content_known: false,
-            tag: self.current_op_type.into(),
+            tag: op_type.into(),
         }), len)
     }
 }
 
 impl<'a> Iterator for OrigPatchesIter<'a> {
-    type Item = PositionalComponent;
+    type Item = (Range<Order>, PositionalComponent);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_target.is_empty() {
-            let item = self.next_inner()?;
-            self.current_target = item.target_range();
-            self.current_op_type = item.op_type;
-            debug_assert!(!self.current_target.is_empty());
+        if self.current_item.range.is_empty() {
+            self.current_item = self.next_inner()?;
+            // self.current_op_type = item.op_type;
+            // self.current_target_offset = item.target_offset();
+            // debug_assert!(!self.current_target_offset.is_empty());
+            debug_assert!(!self.current_item.range.is_empty());
         }
 
-        let (result, len) = self.advance_by_range(self.current_target.clone(), self.current_op_type, false);
-        self.current_target.start += len;
-        debug_assert!(result.is_some());
-        result
+        let (result, len) = self.advance_by_range(self.current_item.target_range(), self.current_item.op_type, false);
+        // self.current_item.range.start += len;
+        let consumed_range = self.current_item.range.truncate_keeping_right(len as _);
+        // debug_assert!(result.is_some());
+        debug_assert!(len > 0);
+        Some((consumed_range, result.unwrap()))
     }
 }
 

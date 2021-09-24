@@ -19,7 +19,7 @@ use std::ops::Range;
 // The code was manually unrolled into an iterator so we could walk it without needing to collect
 // this structure to a vec or something.
 #[derive(Debug)]
-pub(crate) struct OriginTxnIter<'a> {
+pub(crate) struct OptimizedTxnsIter<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
     history: &'a RleVec<TxnSpan>,
 
@@ -32,7 +32,7 @@ pub(crate) struct OriginTxnIter<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WalkEntry {
+pub(crate) struct TxnWalkItem {
     pub(crate) retreat: SmallVec<[Range<Order>; 4]>,
     pub(crate) advance_rev: SmallVec<[Range<Order>; 4]>,
     // txn: &'a TxnSpan,
@@ -40,7 +40,7 @@ pub(crate) struct WalkEntry {
     pub(crate) consume: Range<Order>,
 }
 
-impl<'a> OriginTxnIter<'a> {
+impl<'a> OptimizedTxnsIter<'a> {
     pub(crate) fn new(history: &'a RleVec<TxnSpan>) -> Self {
         let root_children = history.0.iter().enumerate().filter_map(|(i, txn)| {
             // if txn.parents.iter().eq(std::iter::once(&ROOT_ORDER)) {
@@ -85,8 +85,8 @@ impl<'a> OriginTxnIter<'a> {
     }
 }
 
-impl<'a> Iterator for OriginTxnIter<'a> {
-    type Item = WalkEntry;
+impl<'a> Iterator for OptimizedTxnsIter<'a> {
+    type Item = TxnWalkItem;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Find the next item to consume. We'll start with all the children of the top of the
@@ -149,7 +149,7 @@ impl<'a> Iterator for OriginTxnIter<'a> {
         self.num_consumed += 1;
         self.stack.push(next_idx);
 
-        return Some(WalkEntry {
+        return Some(TxnWalkItem {
             retreat: only_branch,
             advance_rev: only_txn,
             parents: next_txn.parents.clone(),
@@ -164,8 +164,8 @@ impl RleVec<TxnSpan> {
     /// we simply traverse the txns in the order they're in right now, we can have pathological
     /// behaviour in the presence of multiple interleaved branches. (Eg if you're streaming from two
     /// peers concurrently editing different branches).
-    pub(crate) fn txn_spanning_tree_iter(&self) -> OriginTxnIter {
-        OriginTxnIter::new(self)
+    pub(crate) fn txn_spanning_tree_iter(&self) -> OptimizedTxnsIter {
+        OptimizedTxnsIter::new(self)
     }
 }
 
@@ -176,7 +176,7 @@ mod test {
     use crate::rle::RleVec;
     use crate::list::txn::TxnSpan;
     use smallvec::smallvec;
-    use crate::list::time::txn_trace::{OriginTxnIter, WalkEntry};
+    use crate::list::time::txn_trace::{OptimizedTxnsIter, TxnWalkItem};
 
     #[test]
     fn iter_span_for_empty_doc() {
@@ -202,13 +202,13 @@ mod test {
         let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
 
         assert_eq!(walk, [
-            WalkEntry {
+            TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
                 parents: smallvec![ROOT_ORDER],
                 consume: 0..10,
             },
-            WalkEntry {
+            TxnWalkItem {
                 retreat: smallvec![0..10],
                 advance_rev: smallvec![],
                 parents: smallvec![ROOT_ORDER],
@@ -239,19 +239,19 @@ mod test {
         let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
 
         assert_eq!(walk, [
-            WalkEntry {
+            TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
                 parents: smallvec![ROOT_ORDER],
                 consume: 0..10,
             },
-            WalkEntry {
+            TxnWalkItem {
                 retreat: smallvec![0..10],
                 advance_rev: smallvec![],
                 parents: smallvec![ROOT_ORDER],
                 consume: 10..30,
             },
-            WalkEntry {
+            TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![0..10],
                 parents: smallvec![9, 29],
@@ -293,39 +293,39 @@ mod test {
         ]);
 
         // history.traverse_txn_spanning_tree();
-        let iter = OriginTxnIter::new(&history);
+        let iter = OptimizedTxnsIter::new(&history);
         // for item in iter {
         //     dbg!(item);
         // }
 
         assert!(iter.eq(std::array::IntoIter::new([
-            WalkEntry {
+            TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
                 parents: smallvec![ROOT_ORDER],
                 consume: 0..1,
             },
-            WalkEntry {
+            TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
                 parents: smallvec![0],
                 consume: 2..3,
             },
 
-            WalkEntry {
+            TxnWalkItem {
                 retreat: smallvec![2..3, 0..1],
                 advance_rev: smallvec![],
                 parents: smallvec![ROOT_ORDER],
                 consume: 1..2,
             },
-            WalkEntry {
+            TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
                 parents: smallvec![1],
                 consume: 3..4,
             },
 
-            WalkEntry {
+            TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![2..3, 0..1],
                 parents: smallvec![2, 3],
