@@ -167,7 +167,7 @@ impl ListCRDT {
         // self.index.entry_at(order as usize).unwrap_ptr()
     }
 
-    pub(crate) fn get_cursor_before(&self, order: Order) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+    pub(crate) fn get_unsafe_cursor_before(&self, order: Order) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         if order == ROOT_ORDER {
             // Or maybe we should just abort?
             self.range_tree.unsafe_cursor_at_end()
@@ -177,6 +177,10 @@ impl ListCRDT {
                 ContentTreeRaw::cursor_before_item(order, marker)
             }
         }
+    }
+
+    pub(crate) fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+        unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_before(order)) }
     }
 
     // This does not stick_end to the found item.
@@ -274,8 +278,8 @@ impl ListCRDT {
                         }
                     } else {
                         // Set scanning based on how the origin_right entries are ordered.
-                        let my_right_cursor = self.get_cursor_before(item.origin_right);
-                        let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
+                        let my_right_cursor = self.get_unsafe_cursor_before(item.origin_right);
+                        let other_right_cursor = self.get_unsafe_cursor_before(other_entry.origin_right);
 
                         if other_right_cursor < my_right_cursor {
                             if !scanning {
@@ -436,7 +440,7 @@ impl ListCRDT {
     }
 
     pub(super) fn internal_mark_deleted(&mut self, order: Order, max_len: u32, update_content: bool) -> (u32, bool) {
-        let cursor = self.get_cursor_before(order);
+        let cursor = self.get_unsafe_cursor_before(order);
 
         let (deleted_here, succeeded) = unsafe { ContentTreeRaw::unsafe_remote_deactivate_notify(cursor.clone(), max_len as _, notify_for(&mut self.index)) };
         let deleted_here = deleted_here as u32;

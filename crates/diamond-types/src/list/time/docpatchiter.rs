@@ -3,85 +3,83 @@ use std::pin::Pin;
 
 use content_tree::{SplitableSpan, Toggleable};
 
-use crate::list::{DoubleDeleteList, ListCRDT, Order, RangeTreeLeaf, RangeTree};
+use crate::list::{DoubleDeleteList, ListCRDT, Order};
 use crate::list::ot::positional::{InsDelTag, PositionalComponent};
 use crate::list::time::patchiter::{ListPatchItem, ListPatchIter};
 use crate::list::time::txn_trace::OptimizedTxnsIter;
 use crate::rangeextra::OrderRange;
 use crate::list::time::positionmap::{PositionMap, PositionRun};
-use std::cmp::Ordering;
 use crate::list::time::positionmap::MapTag::*;
-use rle::Searchable;
 
 
-#[derive(Debug)]
-pub(crate) struct OrderToRawInsertMap<'a>(Vec<(&'a RangeTreeLeaf, u32)>);
-
-impl<'a> OrderToRawInsertMap<'a> {
-    fn ord_refs(a: &RangeTreeLeaf, b: &RangeTreeLeaf) -> Ordering {
-        let a_ptr = a as *const _;
-        let b_ptr = b as *const _;
-
-        if a_ptr == b_ptr { Ordering::Equal }
-        else if a_ptr < b_ptr { Ordering::Less }
-        else { Ordering::Greater }
-    }
-
-    fn new(range_tree: &'a RangeTree) -> (Self, u32) {
-        let mut nodes = Vec::new();
-        let mut insert_position = 0;
-
-        for node in range_tree.node_iter() {
-            nodes.push((node, insert_position));
-            let len_here: u32 = node.as_slice().iter().map(|e| e.order_len()).sum();
-            insert_position += len_here;
-        }
-
-        nodes.sort_unstable_by(|a, b| {
-            Self::ord_refs(a.0, b.0)
-        });
-
-        // dbg!(nodes.iter().map(|n| n.0 as *const _).collect::<Vec<_>>());
-
-        (Self(nodes), insert_position)
-    }
-
-    /// Returns the raw insert position (as if no deletes ever happened) of the requested item. The
-    /// returned range always starts with the requested order and the end is the maximum range.
-    fn order_to_raw(&self, doc: &ListCRDT, ins_order: Order) -> (InsDelTag, Range<Order>) {
-        let marker = doc.marker_at(ins_order);
-
-        let leaf = unsafe { marker.as_ref() };
-        if cfg!(debug_assertions) {
-            // The requested item must be in the returned leaf.
-            leaf.find(ins_order).unwrap();
-        }
-
-        // TODO: Check if this is actually more efficient compared to a linear scan.
-        let idx = self.0.binary_search_by(|elem| {
-            Self::ord_refs(elem.0, leaf)
-        }).unwrap();
-
-        let mut start_position = self.0[idx].1;
-        for e in leaf.as_slice() {
-            if let Some(offset) = e.contains(ins_order) {
-                let tag = if e.is_activated() { InsDelTag::Ins } else { InsDelTag::Del };
-                return (tag, (start_position + offset as u32)..(start_position + e.order_len()));
-            } else {
-                start_position += e.order_len();
-            }
-        }
-
-        unreachable!("Marker tree is invalid");
-    }
-
-    // /// Same as raw_insert_order, but constrain the return value based on the length
-    // fn raw_insert_order_limited(&self, doc: &ListCRDT, order: Order, max_len: Order) -> Range<Order> {
-    //     let mut result = self.raw_insert_order(list, order);
-    //     result.end = result.end.min(result.start + max_len);
-    //     result
-    // }
-}
+// #[derive(Debug)]
+// pub(crate) struct OrderToRawInsertMap<'a>(Vec<(&'a RangeTreeLeaf, u32)>);
+//
+// impl<'a> OrderToRawInsertMap<'a> {
+//     fn ord_refs(a: &RangeTreeLeaf, b: &RangeTreeLeaf) -> Ordering {
+//         let a_ptr = a as *const _;
+//         let b_ptr = b as *const _;
+//
+//         if a_ptr == b_ptr { Ordering::Equal }
+//         else if a_ptr < b_ptr { Ordering::Less }
+//         else { Ordering::Greater }
+//     }
+//
+//     fn new(range_tree: &'a RangeTree) -> (Self, u32) {
+//         let mut nodes = Vec::new();
+//         let mut insert_position = 0;
+//
+//         for node in range_tree.node_iter() {
+//             nodes.push((node, insert_position));
+//             let len_here: u32 = node.as_slice().iter().map(|e| e.order_len()).sum();
+//             insert_position += len_here;
+//         }
+//
+//         nodes.sort_unstable_by(|a, b| {
+//             Self::ord_refs(a.0, b.0)
+//         });
+//
+//         // dbg!(nodes.iter().map(|n| n.0 as *const _).collect::<Vec<_>>());
+//
+//         (Self(nodes), insert_position)
+//     }
+//
+//     /// Returns the raw insert position (as if no deletes ever happened) of the requested item. The
+//     /// returned range always starts with the requested order and the end is the maximum range.
+//     fn order_to_raw(&self, doc: &ListCRDT, ins_order: Order) -> (InsDelTag, Range<Order>) {
+//         let marker = doc.marker_at(ins_order);
+//
+//         let leaf = unsafe { marker.as_ref() };
+//         if cfg!(debug_assertions) {
+//             // The requested item must be in the returned leaf.
+//             leaf.find(ins_order).unwrap();
+//         }
+//
+//         // TODO: Check if this is actually more efficient compared to a linear scan.
+//         let idx = self.0.binary_search_by(|elem| {
+//             Self::ord_refs(elem.0, leaf)
+//         }).unwrap();
+//
+//         let mut start_position = self.0[idx].1;
+//         for e in leaf.as_slice() {
+//             if let Some(offset) = e.contains(ins_order) {
+//                 let tag = if e.is_activated() { InsDelTag::Ins } else { InsDelTag::Del };
+//                 return (tag, (start_position + offset as u32)..(start_position + e.order_len()));
+//             } else {
+//                 start_position += e.order_len();
+//             }
+//         }
+//
+//         unreachable!("Marker tree is invalid");
+//     }
+//
+//     // /// Same as raw_insert_order, but constrain the return value based on the length
+//     // fn raw_insert_order_limited(&self, doc: &ListCRDT, order: Order, max_len: Order) -> Range<Order> {
+//     //     let mut result = self.raw_insert_order(list, order);
+//     //     result.end = result.end.min(result.start + max_len);
+//     //     result
+//     // }
+// }
 
 impl ListCRDT {
     pub fn iter_original_patches(&self) -> OrigPatchesIter {
@@ -99,7 +97,7 @@ pub struct OrigPatchesIter<'a> {
 
     /// Helpers to map from Order -> raw positions -> position at the current point in time
     map: Pin<Box<PositionMap>>,
-    order_to_raw_map: OrderToRawInsertMap<'a>,
+    // order_to_raw_map: OrderToRawInsertMap<'a>,
 
     // There's two ways we could handle double deletes:
     // 1. Use a double delete list. Have the map simply store whether or not an item was deleted
@@ -130,14 +128,14 @@ impl<'a> OrigPatchesIter<'a> {
     fn new(list: &'a ListCRDT) -> Self {
         let mut map = PositionMap::new();
 
-        let (order_to_raw_map, total_post_len) = OrderToRawInsertMap::new(&list.range_tree);
+        let total_post_len = list.range_tree.offset_len();
+        // let (order_to_raw_map, total_post_len) = OrderToRawInsertMap::new(&list.range_tree);
         // TODO: This is something we should cache somewhere.
-        map.push(PositionRun::new_void(total_post_len as usize));
+        map.push(PositionRun::new_void(total_post_len));
 
         Self {
             txn_iter: list.txns.txn_spanning_tree_iter(),
             map,
-            order_to_raw_map,
             double_deletes: DoubleDeleteList::new(),
             list,
             current_inner: None,
@@ -188,10 +186,20 @@ impl<'a> OrigPatchesIter<'a> {
         return next;
     }
 
+    fn order_to_raw(&self, order: Order) -> (InsDelTag, Range<Order>) {
+        let cursor = self.list.get_cursor_before(order);
+        let base = cursor.count_offset_pos() as Order;
+
+        let e = cursor.get_raw_entry();
+        let tag = if e.is_activated() { InsDelTag::Ins } else { InsDelTag::Del };
+        (tag, base..(base + e.order_len() - cursor.offset as Order))
+    }
+
     fn retreat_by_range(&mut self, target: Range<Order>, op_type: InsDelTag) -> Order {
+        // dbg!(&target, self.map.iter().collect::<Vec<_>>());
         // This variant is only actually used in one place - which makes things easier.
 
-        let (final_tag, raw_range) = self.order_to_raw_map.order_to_raw(self.list, target.start);
+        let (final_tag, raw_range) = self.order_to_raw(target.start);
         let raw_start = raw_range.start;
         let mut len = Order::min(raw_range.order_len(), target.order_len());
 
@@ -214,6 +222,7 @@ impl<'a> OrigPatchesIter<'a> {
             }
         }
 
+        debug_assert!(len >= 1);
         // So the challenge here is we need to un-merge upstream position runs into their
         // constituent parts. We can't use replace_range for this because that calls truncate().
         // let mut len_remaining = len;
@@ -227,13 +236,64 @@ impl<'a> OrigPatchesIter<'a> {
         } else {
             // We have merged everything into Upstream. We need to pull it apart, which is bleh.
             debug_assert_eq!(cursor.get_raw_entry().tag, Upstream);
+            debug_assert_eq!(op_type, final_tag); // Ins/Ins or Del/Del.
             // TODO: Is this a safe assumption? Let the fuzzer verify it.
             assert!(cursor.get_raw_entry().len() - cursor.offset >= len as usize);
 
+            let (new_entry, eat_content) = match op_type {
+                InsDelTag::Ins => (PositionRun::new_void(len as _), len as usize),
+                InsDelTag::Del => (PositionRun::new_ins(len as _), 0),
+            };
+
+            let current_entry = cursor.get_raw_entry();
+
             // So we want to replace the cursor entry with [start, X, end]. The trick is figuring
             // out where we split the content in the current entry.
-            todo!();
+            if cursor.offset == 0 {
+                // dbg!(&new_entry, current_entry);
+                // Cursor is at the start of this entry. This variant is easier.
+                let remainder = PositionRun::new_upstream(
+                    current_entry.final_len - new_entry.final_len,
+                    current_entry.content_len - eat_content
+                );
+                // dbg!(remainder);
+                if remainder.final_len > 0 {
+                    cursor.replace_entry(&[new_entry, remainder]);
+                } else {
+                    cursor.replace_entry(&[new_entry]);
+                }
+            } else {
+                // TODO: Accidentally this whole thing. Clean me up buttercup!
+
+                // The cursor isn't at the start. We need to figure out how much to slice off.
+                // Basically, we need to know how much content is in cursor.offset.
+
+                // TODO(opt): A cursor comparator function would make this much more performant.
+                let entry_start_offset = raw_start as usize - cursor.offset;
+                let start_cursor = self.list.range_tree.cursor_at_offset_pos(entry_start_offset, true);
+                let start_content = start_cursor.count_content_pos();
+
+                // TODO: Reuse the cursor from order_to_raw().
+                let midpoint_cursor = self.list.range_tree.cursor_at_offset_pos(raw_start as _, true);
+                let midpoint_content = midpoint_cursor.count_content_pos();
+
+                let content_chomp = midpoint_content - start_content;
+
+                let start = PositionRun::new_upstream(cursor.offset, content_chomp);
+
+                let remainder = PositionRun::new_upstream(
+                    current_entry.final_len - new_entry.final_len - cursor.offset,
+                    current_entry.content_len - eat_content - content_chomp
+                );
+
+                if remainder.final_len > 0 {
+                    cursor.replace_entry(&[start, new_entry, remainder]);
+                } else {
+                    cursor.replace_entry(&[start, new_entry]);
+                }
+            }
         }
+        // dbg!(self.map.iter().collect::<Vec<_>>());
 
         // let reversed_map_component = match op_type {
         //     InsDelTag::Ins => NotInsertedYet,
@@ -248,7 +308,7 @@ impl<'a> OrigPatchesIter<'a> {
         // Walk through them. For each, find out the global insert position, then
         // replace in map.
 
-        let (final_tag, raw_range) = self.order_to_raw_map.order_to_raw(self.list, target.start);
+        let (final_tag, raw_range) = self.order_to_raw(target.start);
         let raw_start = raw_range.start;
         let mut len = Order::min(raw_range.order_len(), target.order_len());
 
@@ -292,6 +352,7 @@ impl<'a> OrigPatchesIter<'a> {
         }
 
         // println!("{} {} {}", self.map.count_entries(), self.map.count_nodes().1, self.map.iter().count());
+        // dbg!(("after advance", self.map.iter().collect::<Vec<_>>()));
 
         (Some(PositionalComponent {
             pos: content_pos,
@@ -347,7 +408,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn foo2() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");
@@ -375,6 +435,42 @@ mod test {
         });
 
         dbg!(doc.patch_iter().collect::<Vec<_>>());
-        dbg!(doc.iter_original_patches().collect::<Vec<_>>());
+
+        // dbg!(doc.iter_original_patches().collect::<Vec<_>>());
+        let mut iter = doc.iter_original_patches();
+        while let Some(item) = iter.next() {
+            dbg!(item);
+        }
+        iter.map.check();
+        dbg!(&iter.map);
+    }
+
+    #[test]
+    fn forwards_backwards() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("seph");
+        doc.local_insert(0, 0, "xx");
+        doc.local_insert(0, 1, "XX");
+
+        doc.apply_remote_txn(&RemoteTxn {
+            id: RemoteId { agent: "a".into(), seq: 0 },
+            parents: smallvec![RemoteId { agent: "seph".into(), seq: 2 }],
+            ops: smallvec![RemoteCRDTOp::Del {
+                id: RemoteId { agent: "seph".into(), seq: 1 },
+                len: 1
+            }],
+            ins_content: "".into(),
+        });
+        doc.check(true);
+
+        dbg!(doc.patch_iter().collect::<Vec<_>>());
+
+        // dbg!(doc.iter_original_patches().collect::<Vec<_>>());
+        let mut iter = doc.iter_original_patches();
+        while let Some(item) = iter.next() {
+            dbg!(item);
+        }
+        iter.map.check();
+        // dbg!(&iter.map);
     }
 }

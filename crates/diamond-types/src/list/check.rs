@@ -52,6 +52,8 @@ impl ListCRDT {
         // all previous txns have valid shadows while we advance.
 
         for (idx, txn) in self.txns.iter().enumerate() {
+            assert!(txn.len > 0);
+
             // We contain prev_txn_order *and more*! See if we can extend the shadow by
             // looking at the other entries of parents.
             let mut parents = txn.parents.clone();

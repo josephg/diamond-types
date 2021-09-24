@@ -282,6 +282,17 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         }
     }
 
+    /// Replace the current entry with the items passed via items[]. Items.len must be <= 3. The
+    /// cursor offset is ignored. This is a fancy method - use sparingly.
+    pub unsafe fn unsafe_replace_entry_notify<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, items: &[E], mut notify: N)
+        where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
+
+        let mut flush_marker = I::IndexUpdate::default();
+        Self::replace_entry(cursor, items, &mut flush_marker, &mut notify);
+        cursor.get_node_mut().flush_index_update(&mut flush_marker);
+    }
+
+
     /// Replace as much of the current entry from cursor onwards as we can
     pub unsafe fn unsafe_mutate_entry_notify<MapFn, N>(
         map_fn: MapFn,

@@ -93,8 +93,8 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    print_stats_for_file("automerge-paper");
-    print_stats_for_file("rustcode");
+    // print_stats_for_file("automerge-paper");
+    // print_stats_for_file("rustcode");
     print_stats_for_file("sveltecomponent");
-    print_stats_for_file("seph-blog1");
+    // print_stats_for_file("seph-blog1");
 }

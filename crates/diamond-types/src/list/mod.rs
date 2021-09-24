@@ -64,8 +64,8 @@ pub(crate) const DOC_IE: usize = DEFAULT_IE;
 pub(crate) const DOC_LE: usize = DEFAULT_LE;
 // const DOC_LE: usize = 32;
 
-type DocRangeIndex = ContentIndex;
-// type DocRangeIndex = FullIndex;
+// type DocRangeIndex = ContentIndex;
+type DocRangeIndex = FullIndex;
 
 pub(crate) type RangeTree = Pin<Box<ContentTreeWithIndex<YjsSpan, DocRangeIndex>>>;
 pub(crate) type RangeTreeLeaf = NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>;

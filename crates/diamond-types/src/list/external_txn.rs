@@ -371,7 +371,7 @@ impl ListCRDT {
                 (RemoteCRDTOp::Del { id, len }, len)
             } else {
                 // It must be an insert. Fish information out of the range tree.
-                let cursor = self.get_cursor_before(order);
+                let cursor = self.get_unsafe_cursor_before(order);
                 let entry = cursor.get_raw_entry();
                 // Limit by #4
                 let len = u32::min((entry.len() - cursor.offset) as u32, len_remaining);

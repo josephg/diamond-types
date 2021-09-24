@@ -118,6 +118,13 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Mu
             ContentTreeRaw::unsafe_delete_notify(&mut self.inner, del_items, null_notify);
         }
     }
+
+    #[inline(always)]
+    pub fn replace_entry(&mut self, items: &[E]) {
+        unsafe {
+            ContentTreeRaw::unsafe_replace_entry_notify(&mut self.inner, items, null_notify);
+        }
+    }
 }
 
 impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Deref for MutCursor<'a, E, I, IE, LE> {
