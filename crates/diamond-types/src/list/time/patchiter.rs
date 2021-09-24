@@ -60,7 +60,11 @@ impl<'a, const FWD: bool> ListPatchIter<'a, FWD> {
 impl<'a> ListPatchIter<'a, true> {
     fn peek(&self) -> Option<ListPatchItem> {
         if self.range.start < self.range.end {
-            match self.deletes.search_scanning_sparse(self.range.start, &mut unsafe { *self.del_idx.as_ptr() }) {
+            let mut idx = self.del_idx.get();
+            let result = self.deletes.search_scanning_sparse(self.range.start, &mut idx);
+            self.del_idx.set(idx);
+
+            match result {
                 Ok(d) => {
                     // Its a delete.
                     debug_assert!(d.0 <= self.range.start && self.range.start < d.end());
@@ -93,7 +97,11 @@ impl<'a> ListPatchIter<'a, false> {
     fn peek(&self) -> Option<ListPatchItem> {
         if self.range.start < self.range.end {
             let last_order = self.range.last_order();
-            match self.deletes.search_scanning_backwards_sparse(last_order, &mut unsafe { *self.del_idx.as_ptr() }) {
+            let mut idx = self.del_idx.get();
+            let del_span = self.deletes.search_scanning_backwards_sparse(last_order, &mut idx);
+            self.del_idx.set(idx);
+
+            match del_span {
                 Ok(d) => {
                     // Its a delete.
                     debug_assert!(d.0 <= last_order && last_order < d.end());

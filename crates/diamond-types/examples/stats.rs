@@ -78,6 +78,11 @@ fn print_stats_for_file(name: &str) {
     println!("Full encoded size {}", encoded.len());
     // std::fs::write(format!("enc_{}.diamond", name), encoded).unwrap();
 
+    // for _i in 0..100 {
+    //     let encoded = doc.encode_patches(false);
+    //     assert!(encoded.len() > 100);
+    // }
+
     // ListCRDT::from_bytes(encoded.as_slice());
 }
 

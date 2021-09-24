@@ -6,7 +6,7 @@ pub use simple_rle::RleVec;
 
 pub type RleKey = u32;
 
-mod simple_rle;
+pub mod simple_rle;
 
 pub trait RleKeyed {
     fn get_rle_key(&self) -> RleKey;

@@ -937,8 +937,8 @@ mod tests {
 
         // dbg!(&doc);
 
-        let enc = doc.encode_small(true);
-        let _dec = ListCRDT::from_bytes(enc.as_slice());
+        // let enc = doc.encode_small(true);
+        // let _dec = ListCRDT::from_bytes(enc.as_slice());
 
         let _enc = doc.encode_patches(true);
 

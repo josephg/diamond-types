@@ -283,6 +283,7 @@ impl<'a> OrigPatchesIter<'a> {
         let mut len = Order::min(raw_range.order_len(), target.order_len());
 
         let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
+
         if op_type == InsDelTag::Del {
             // So the item will usually be in the Inserted state. If its in the Deleted
             // state, we need to mark it as double-deleted.
@@ -299,7 +300,7 @@ impl<'a> OrigPatchesIter<'a> {
             } else {
                 // When the insert was created, the content must exist in the document.
                 // TODO: Actually verify this assumption when integrating remote txns.
-                debug_assert!(e.val == Inserted);
+                debug_assert_eq!(e.val, Inserted);
             }
         }
 
@@ -330,7 +331,9 @@ impl<'a> Iterator for OrigPatchesIter<'a> {
         let (result, len) = self.advance_by_range(self.current_item.target_range(), self.current_item.op_type, false);
         // self.current_item.range.start += len;
         let consumed_range = self.current_item.range.truncate_keeping_right(len as _);
+        self.current_item.del_target += len; // TODO: Could be avoided by storing the offset...
         // debug_assert!(result.is_some());
+
         debug_assert!(len > 0);
         Some((consumed_range, result.unwrap()))
     }
