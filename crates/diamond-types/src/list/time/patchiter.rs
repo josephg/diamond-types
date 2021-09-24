@@ -32,7 +32,7 @@ impl ListPatchItem {
 }
 
 /// This is a simple iterator which iterates through the modifications made to a document, in time
-/// (Order) order across a single contiguous span of time.
+/// (Order) order across a single contiguous span of edits.
 #[derive(Debug)]
 pub(crate) struct ListPatchIter<'a, const FWD: bool> {
     deletes: &'a RleVec<KVPair<OrderSpan>>,
