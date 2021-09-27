@@ -159,4 +159,10 @@ impl Doc {
         self.inner.delete_at_ot_order(self.agent_id, pos, del_span, order, true);
     }
 
+    #[wasm_bindgen]
+    pub fn get_internal_list_entries(&self) -> Result<JsValue, JsValue> {
+        let entries = self.inner.get_internal_list_entries().collect::<Vec<_>>();
+        serde_wasm_bindgen::to_value(&entries)
+            .map_err(|err| err.into())
+    }
 }

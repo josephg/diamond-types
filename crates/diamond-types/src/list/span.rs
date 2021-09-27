@@ -5,7 +5,13 @@ use content_tree::ContentLength;
 use content_tree::Toggleable;
 use crate::list::Order;
 
+#[cfg(feature = "serde")]
+use serde_crate::{Deserialize, Serialize};
+
+/// This is exposed for diamond-js's vis output. The internal fields here should not be considered
+/// part of the public API and are not to be relied on.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct YjsSpan {
     pub order: Order,
 

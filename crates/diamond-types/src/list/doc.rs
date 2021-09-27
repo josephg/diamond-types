@@ -767,6 +767,10 @@ impl ListCRDT {
             println!("order {} l{} from {} / {} <-> {}", entry.order, entry.len(), loc.agent, entry.origin_left, entry.origin_right);
         }
     }
+
+    pub fn get_internal_list_entries<'a>(&'a self) -> impl Iterator<Item=YjsSpan> + 'a {
+        self.range_tree.iter()
+    }
 }
 
 impl ToString for ListCRDT {
