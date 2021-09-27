@@ -8,14 +8,15 @@ use diamond_core::CRDTId;
 use rle::{MergeableIterator, SplitableSpan};
 
 use crate::crdtspan::CRDTSpan;
-use crate::list::{ListCRDT, Order};
+use crate::list::{ListCRDT, Order, ROOT_ORDER};
 use crate::list::encoding::varint::*;
 use crate::list::span::YjsSpan;
 use crate::order::OrderSpan;
-use crate::rle::{KVPair, RleVec};
+use crate::rle::{KVPair, RleVec, RleSpanHelpers};
 use std::ops::Range;
 use crate::rangeextra::OrderRange;
 use crate::list::ot::positional::InsDelTag;
+use smallvec::{SmallVec, smallvec};
 
 mod varint;
 
@@ -419,13 +420,15 @@ enum Chunk {
 
     Frontier = 5,
 
-    InsOrDelFlags = 6,
-    DelData = 7,
+    Parents = 6,
 
-    InsOrders = 8, // Not used by encode_small.
-    InsOrigins = 9,
+    InsOrDelFlags = 7,
+    DelData = 8,
 
-    Patches = 10,
+    InsOrders = 9, // Not used by encode_small.
+    InsOrigins = 10,
+
+    Patches = 11,
 }
 
 /// Entries are runs of positive or negative items.
@@ -637,142 +640,6 @@ impl ListCRDT {
         todo!();
     }
 
-    /// This encoding method encodes all the data as a series of original braid style positional
-    /// patches. The resulting encoded form contains each patch as it was originally typed, tracking
-    /// *when* the patch happened (via its parents), *where* (in a simple integer position) and
-    /// *what* the change was (insert, delete).
-    ///
-    /// This form ends up being much more compact than the other approaches, storing Martin's
-    /// editing trace in 28kb of overhead (compared to about 100kb for the fast encoding format).
-    pub fn encode_patches(&self, verbose: bool) -> Vec<u8> {
-        let mut result = self.encode_common();
-        // result now has:
-        // - Common header
-        // - Document content
-        // - List of agents
-
-        // Write the frontier
-        // push_chunk_header(into, Chunk::Frontier, data.len());
-        // for v in self.frontier.iter() {
-        //     push_u32(&mut result, *v);
-        // }
-
-        #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-        struct EditRun {
-            diff: i32, // From previous item
-            len: u32,
-            is_delete: bool,
-            backspace_mode: bool,
-        }
-
-        fn merge_bksp(r1: &EditRun, r2: &EditRun) -> Option<EditRun> {
-            if !r1.is_delete || !r2.is_delete { return None; }
-            if !(r2.len == 1 && r2.diff == -1) { return None; }
-
-            if r1.backspace_mode {
-                return Some(EditRun {
-                    diff: r1.diff,
-                    len: r1.len + 1,
-                    is_delete: true,
-                    backspace_mode: true
-                });
-            } else if r1.len == 1 {
-                return Some(EditRun {
-                    diff: r1.diff + 1, // Weird but we'll go after the deleted character.
-                    len: r1.len + 1,
-                    is_delete: true,
-                    backspace_mode: true
-                });
-            } else { return None; }
-        }
-
-        impl SplitableSpan for EditRun {
-            fn len(&self) -> usize { self.len as usize }
-
-            fn truncate(&mut self, _at: usize) -> Self { unimplemented!() }
-
-            fn can_append(&self, other: &Self) -> bool {
-                self.is_delete == other.is_delete && (other.diff == 0 || merge_bksp(self, other).is_some())
-            }
-            fn append(&mut self, other: Self) {
-                if let Some(r) = merge_bksp(self, &other) {
-                    *self = r;
-                } else { self.len += other.len; }
-            }
-            fn prepend(&mut self, _other: Self) { unimplemented!(); }
-        }
-
-        let mut i = 0;
-        let mut w = SpanWriter::new(|into, val: EditRun| {
-            // if i < 100 { dbg!((val.diff, val.len)); }
-            // if i < 100 { dbg!(val); }
-            i += 1;
-            // if val.diff == -1 && val.len == 1 { return; }
-            let mut dest = [0u8; 20];
-            let mut pos = 0;
-
-            let mut n = num_encode_i64_with_extra_bit(val.diff as i64, val.len != 1);
-            if val.is_delete {
-                n = mix_bit_u64(n, val.backspace_mode);
-            }
-            n = mix_bit_u64(n, val.is_delete);
-            pos += encode_u64(n, &mut dest[..]);
-            if val.len != 1 {
-                pos += encode_u32(val.len, &mut dest[pos..]);
-            }
-
-            into.extend_from_slice(&dest[..pos]);
-        });
-
-        // For optimization, the stream of patches emitted here does not necessarily match the order
-        // of patches we're storing locally. For example, if two users are concurrently editing two
-        // different branches, emitting everything in our native, local order would result in O(n^2)
-        // writing time (to go back and forth between branches), loading time (the same) and end up
-        // bigger on disk (both because the insert positions wouldn't line up nicely, and because
-        // the txn parents wouldn't be linear).
-        //
-        // The O(n^2) problems of this don't show up if two users are editing different sections of
-        // a document at once, though interleaved edits will still compress slightly worse than if
-        // the edits were fully linearized.
-
-        // Anyway, the upshoot of all of that is that the output file may have different orders than
-        // we store in memory. So we need to map:
-        // - Frontiers
-        // - Parents
-        // - Agent assignments
-        // Maps from current order numbers -> output order numbers
-        let mut out_txn_map: RleVec<KVPair<Range<Order>>> = RleVec::new();
-
-        let mut next_output_order = 0;
-        let mut last_edit_pos: u32 = 0;
-
-        for (range, patch) in self.iter_original_patches() {
-            w.push(EditRun {
-                diff: i32::wrapping_sub(patch.pos as i32,last_edit_pos as i32),
-                len: patch.len,
-                is_delete: patch.tag == InsDelTag::Del,
-                backspace_mode: false, // Modified by the appending code (above).
-            });
-            last_edit_pos = patch.pos;
-            if patch.tag == InsDelTag::Ins { last_edit_pos += patch.len; }
-
-            if range.start != next_output_order {
-                out_txn_map.insert(KVPair(range.start, range.transpose(next_output_order)));
-            }
-
-            next_output_order += range.order_len();
-        }
-        let data = w.flush_into_inner();
-
-        if verbose {
-            dbg!(data.len());
-            dbg!(&out_txn_map);
-        }
-        push_chunk(&mut result, Chunk::Patches, &data);
-
-        result
-    }
-
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let mut result = ListCRDT::new();
         result.text_content = None; // Disable document content while we import data
@@ -872,12 +739,279 @@ impl ListCRDT {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+struct EditRun {
+    diff: i32, // From previous item
+    len: u32,
+    is_delete: bool,
+    backspace_mode: bool,
+}
+
+fn merge_bksp(r1: &EditRun, r2: &EditRun) -> Option<EditRun> {
+    if !r1.is_delete || !r2.is_delete { return None; }
+    if !(r2.len == 1 && r2.diff == -1) { return None; }
+
+    if r1.backspace_mode {
+        return Some(EditRun {
+            diff: r1.diff,
+            len: r1.len + 1,
+            is_delete: true,
+            backspace_mode: true
+        });
+    } else if r1.len == 1 {
+        return Some(EditRun {
+            diff: r1.diff + 1, // Weird but we'll go after the deleted character.
+            len: r1.len + 1,
+            is_delete: true,
+            backspace_mode: true
+        });
+    } else { return None; }
+}
+
+impl SplitableSpan for EditRun {
+    fn len(&self) -> usize { self.len as usize }
+
+    fn truncate(&mut self, _at: usize) -> Self { unimplemented!() } // Shouldn't get called.
+
+    fn can_append(&self, other: &Self) -> bool {
+        self.is_delete == other.is_delete && (other.diff == 0 || merge_bksp(self, other).is_some())
+    }
+    fn append(&mut self, other: Self) {
+        if let Some(r) = merge_bksp(self, &other) {
+            *self = r;
+        } else { self.len += other.len; }
+    }
+}
+
+fn write_editrun(into: &mut Vec<u8>, val: EditRun) {
+    let mut dest = [0u8; 20];
+    let mut pos = 0;
+
+    let mut n = num_encode_i64_with_extra_bit(val.diff as i64, val.len != 1);
+    if val.is_delete {
+        n = mix_bit_u64(n, val.backspace_mode);
+    }
+    n = mix_bit_u64(n, val.is_delete);
+    pos += encode_u64(n, &mut dest[..]);
+    if val.len != 1 {
+        pos += encode_u32(val.len, &mut dest[pos..]);
+    }
+
+    into.extend_from_slice(&dest[..pos]);
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct Parents {
+    order: Range<Order>,
+    parents: SmallVec<[Order; 2]>,
+}
+
+impl SplitableSpan for Parents {
+    fn len(&self) -> usize { self.order.order_len() as usize }
+
+    fn truncate(&mut self, _at: usize) -> Self { unimplemented!(); }
+
+    fn can_append(&self, other: &Self) -> bool {
+        other.parents.len() == 1 && other.parents[0] == self.order.end - 1
+    }
+
+    fn append(&mut self, other: Self) {
+        self.order.end = other.order.end;
+    }
+}
+
+fn write_parents(into: &mut Vec<u8>, val: Parents) {
+    // dbg!(&val);
+    let mut iter = val.parents.iter().peekable();
+    loop {
+        if let Some(&p) = iter.next() {
+            let is_last = iter.peek().is_none();
+            let mut diff = val.order.start.wrapping_sub(p);
+            diff = mix_bit_u32(diff, is_last);
+            // dbg!(diff);
+            push_u32(into, diff);
+        } else { break; }
+    }
+
+    push_u32(into, val.order.order_len());
+}
+
+impl ListCRDT {
+    /// This encoding method encodes all the data as a series of original braid style positional
+    /// patches. The resulting encoded form contains each patch as it was originally typed, tracking
+    /// *when* the patch happened (via its parents), *where* (in a simple integer position) and
+    /// *what* the change was (insert, delete).
+    ///
+    /// This form ends up being much more compact than the other approaches, storing Martin's
+    /// editing trace in 28kb of overhead (compared to about 100kb for the fast encoding format).
+    pub fn encode_patches(&self, verbose: bool) -> Vec<u8> {
+        let mut result = self.encode_common();
+        // result now has:
+        // - Common header
+        // - Document content
+        // - List of agents
+
+        // Write the frontier
+        // push_chunk_header(into, Chunk::Frontier, data.len());
+        // for v in self.frontier.iter() {
+        //     push_u32(&mut result, *v);
+        // }
+
+        let mut w = SpanWriter::new(write_editrun);
+
+        // For optimization, the stream of patches emitted here does not necessarily match the order
+        // of patches we're storing locally. For example, if two users are concurrently editing two
+        // different branches, emitting everything in our native, local order would result in O(n^2)
+        // writing time (to go back and forth between branches), loading time (the same) and end up
+        // bigger on disk (both because the insert positions wouldn't line up nicely, and because
+        // the txn parents wouldn't be linear).
+        //
+        // The O(n^2) problems of this don't show up if two users are editing different sections of
+        // a document at once, though interleaved edits will still compress slightly worse than if
+        // the edits were fully linearized.
+
+        // Anyway, the upshoot of all of that is that the output file may have different orders than
+        // we store in memory. So we need to map:
+        // - Frontiers
+        // - Parents
+        // - Agent assignments
+        // Maps from current order numbers -> output order numbers
+        //
+        // Note I'm using a vec for this and inserting. It would be theoretically better to use
+        // another b-tree here for this, but I don't think the extra code size & overhead is worth
+        // it for nearly any normal use cases. (The reordering should be stable - once a document
+        // has been reordered and saved, next time its loaded there will be no further reordering.)
+        let mut inner_to_outer_map: RleVec<KVPair<Range<Order>>> = RleVec::new();
+        let mut outer_to_inner_map: RleVec<KVPair<Range<Order>>> = RleVec::new();
+
+        let mut next_output_order = 0;
+        let mut last_edit_pos: u32 = 0;
+
+        for (range, patch) in self.iter_original_patches() {
+            // dbg!(&range);
+            w.push(EditRun {
+                diff: i32::wrapping_sub(patch.pos as i32,last_edit_pos as i32),
+                len: patch.len,
+                is_delete: patch.tag == InsDelTag::Del,
+                backspace_mode: false, // Filled in by the appending code (above).
+            });
+            last_edit_pos = patch.pos;
+            if patch.tag == InsDelTag::Ins { last_edit_pos += patch.len; }
+
+            if range.start != next_output_order {
+                // To cut down on allocations and copying, these maps are both lazy. They only
+                // contain entries where the output orders don't match the current document orders.
+                outer_to_inner_map.push(KVPair(next_output_order, range.clone()));
+                inner_to_outer_map.insert(KVPair(range.start, range.transpose(next_output_order)));
+            }
+
+            next_output_order += range.order_len();
+        }
+        let patch_data = w.flush_into_inner();
+        // dbg!(&outer_to_inner_map);
+        // dbg!(&inner_to_outer_map);
+
+        let local_to_remote_order = |order: Order| -> Order {
+            if order == ROOT_ORDER {
+                ROOT_ORDER
+            } else if let Some((val, offset)) = inner_to_outer_map.find_with_offset(order) {
+                val.1.start + offset
+            } else { order }
+        };
+
+        // *** Frontier ***
+
+        let mut frontier_data = vec!();
+        for v in self.frontier.iter() {
+            // dbg!(v, local_to_remote_order(*v));
+            push_u32(&mut frontier_data, local_to_remote_order(*v));
+        }
+        push_chunk(&mut result, Chunk::Frontier, &frontier_data);
+
+
+        // So I could map this during the loop above, with patches. That would avoid the allocation
+        // for outer_to_inner_map, but the agent list here is usually in massive runs. I haven't
+        // benchmarked it but (I assume) doing it here is still much more performant for the average
+        // case where there's no map, and the data is pretty much copied over.
+        // let mut agent_data = Vec::new();
+        let mut agent_writer = SpanWriter::new(push_run_u32);
+        let mut parent_writer = SpanWriter::new(write_parents);
+
+        outer_to_inner_map.for_each_sparse(next_output_order, |item| {
+            let range = match item {
+               Ok(KVPair(_, mapped_range)) => mapped_range.clone(),
+               Err(range) => range,
+            };
+
+            // *** Parents ***
+
+            // Parents need to be mapped twice. We need to iterate in the items in output order
+            // (achieved by the outer loop), and then for each item visited, map the parent orders
+            // to output orders.
+            let mut order = range.start;
+            let mut idx = self.txns.find_index(order).unwrap();
+            while order < range.end {
+                let txn = &self.txns[idx];
+                // The outer_to_inner_map should always line up along txn boundaries.
+                debug_assert_eq!(range.start, txn.order);
+                assert!(range.end >= txn.end());
+
+                // dbg!((order, &txn.parents));
+                let mut parents = Parents {
+                    order: txn.order .. txn.order + txn.len,
+                    parents: smallvec![]
+                };
+                for &p in &txn.parents {
+                    parents.parents.push(local_to_remote_order(p));
+                }
+                parent_writer.push(parents);
+
+                order += txn.len;
+                idx += 1;
+            }
+
+            // *** Mapped Agent Assignments ***
+            let mut order = range.start;
+            let mut idx = self.client_with_order.find_index(order).unwrap();
+            while order < range.end {
+                let e = &self.client_with_order[idx];
+                let next_order = e.end().min(range.end);
+                agent_writer.push(Run {
+                    val: e.1.loc.agent as _,
+                    len: (next_order - order) as _
+                });
+                order = next_order;
+                // This is sort of weird. We only really need to bump idx if we consume the
+                // whole range. If we don't, we'll exit the loop presently anyway. This could be
+                // cleaned up using loop {} and an explicit break, but its not a big deal.
+                idx += 1;
+            }
+        });
+        let agent_assignment_data = agent_writer.flush_into_inner();
+        let parents_data = parent_writer.flush_into_inner();
+
+        if verbose {
+            dbg!(agent_assignment_data.len());
+            dbg!(parents_data.len());
+            dbg!(patch_data.len());
+            // dbg!(&inner_to_outer_map);
+        }
+        push_chunk(&mut result, Chunk::AgentAssignment, &agent_assignment_data);
+        push_chunk(&mut result, Chunk::Parents, &parents_data);
+        push_chunk(&mut result, Chunk::Patches, &patch_data);
+
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rle::test_splitable_methods_valid;
 
     use crate::list::encoding::*;
     use crate::list::ListCRDT;
+    use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
+    use crate::test_helpers::root_id;
 
     #[test]
     fn simple_encode() {
@@ -948,42 +1082,67 @@ mod tests {
         // assert_eq!(doc, dec);
     }
 
-    // other.order == self.order + len
-    // && other.origin_left == other.order - 1
+    #[test]
+    fn encode_complex_tree() {
+        let mut doc = ListCRDT::new();
+        // doc.get_or_create_agent_id("seph");
+        // doc.local_insert(0, 0, "xxx");
 
-    // #[test]
-    // fn foo() {
-    //     let mut left_origin_runs = SpanWriter::new(|e, v| {
-    //         dbg!(e);
-    //     });
-    //
-    //     for (len, d_lo1, d_lo2) in [
-    //         YjsSpan {
-    //             order: 10,
-    //             origin_left: 50,
-    //             origin_right: 0,
-    //             len: 1
-    //         },
-    //         YjsSpan {
-    //             order: 11,
-    //             origin_left: 10,
-    //             origin_right: 0,
-    //             len: 5
-    //         }
-    //     ].iter().scan(0, |state, entry| {
-    //
-    //         let diff_lo_1 = entry.origin_left as isize - *state as isize;
-    //         let diff_lo_2 = entry.order as isize - entry.origin_left as isize;
-    //         *state = entry.origin_left_at_offset(entry.len() as u32 - 1);
-    //
-    //         Some((entry.len(), diff_lo_1, diff_lo_2))
-    //     }) {
-    //         left_origin_runs.append(Run3::<true> { jump: d_lo1, len: 1 });
-    //         if len > 1 {
-    //             left_origin_runs.append(Run3::<true> { jump: d_lo2, len: len - 1 });
-    //         }
-    //     }
-    //
-    //     left_origin_runs.flush_into_inner();
-    // }
+        // Two users will have edits which interleave each other. These will get flattened out
+        // by the encoder.
+        doc.apply_remote_txn(&RemoteTxn {
+            id: RemoteId { agent: "a".into(), seq: 0 },
+            parents: smallvec![root_id()],
+            ops: smallvec![RemoteCRDTOp::Ins {
+                origin_left: root_id(),
+                origin_right: root_id(),
+                len: 1,
+                content_known: false
+            }],
+            ins_content: "".into(),
+        });
+
+        doc.apply_remote_txn(&RemoteTxn {
+            id: RemoteId { agent: "b".into(), seq: 0 },
+            parents: smallvec![root_id()],
+            ops: smallvec![RemoteCRDTOp::Ins {
+                origin_left: root_id(),
+                origin_right: root_id(),
+                len: 10,
+                content_known: false
+            }],
+            ins_content: "".into(),
+        });
+
+        doc.apply_remote_txn(&RemoteTxn {
+            id: RemoteId { agent: "a".into(), seq: 1 },
+            parents: smallvec![RemoteId { agent: "a".into(), seq: 0 }],
+            ops: smallvec![RemoteCRDTOp::Ins {
+                origin_left: RemoteId { agent: "a".into(), seq: 0 },
+                origin_right: root_id(),
+                len: 20,
+                content_known: false
+            }],
+            ins_content: "".into(),
+        });
+        doc.apply_remote_txn(&RemoteTxn {
+            id: RemoteId { agent: "c".into(), seq: 0 },
+            parents: smallvec![
+                RemoteId { agent: "a".into(), seq: 20 },
+                RemoteId { agent: "b".into(), seq: 9 },
+            ],
+            ops: smallvec![RemoteCRDTOp::Ins {
+                origin_left: RemoteId { agent: "a".into(), seq: 0 },
+                origin_right: root_id(),
+                len: 20,
+                content_known: false
+            }],
+            ins_content: "".into(),
+        });
+
+        // dbg!(&doc.txns);
+        doc.check(true);
+
+        doc.encode_patches(true);
+    }
 }

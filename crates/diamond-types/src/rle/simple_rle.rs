@@ -1,7 +1,7 @@
 use std::cmp::Ordering::*;
 use std::fmt::Debug;
 use std::iter::FromIterator;
-use std::ops::Index;
+use std::ops::{Index, Range};
 use std::slice::SliceIndex;
 
 use humansize::{file_size_opts, FileSize};
@@ -185,6 +185,30 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
             *idx = idx.wrapping_sub(1);
         }
         Err(0)
+    }
+
+    /// Visit each item or gap in this (sparse) RLE list, ending at end with the passed visitor
+    /// method.
+    pub fn for_each_sparse<F>(&self, end: RleKey, mut visitor: F)
+    where F: FnMut(Result<&V, Range<RleKey>>) {
+        let mut key = 0;
+
+        for e in self.iter() {
+            let next_key = e.get_rle_key();
+            if key < next_key {
+                // Visit the empty range
+                visitor(Err(key..next_key));
+            }
+
+            // Ok now visit the entry we found.
+            visitor(Ok(e));
+            key = e.end();
+            debug_assert!(key <= end);
+        }
+        // And visit the remainder, if there is any.
+        if key < end {
+            visitor(Err(key..end));
+        }
     }
 }
 
