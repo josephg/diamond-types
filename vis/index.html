@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+/* Reset */
+html {
+  box-sizing: border-box;
+  font-size: 16px;
+}
+
+*, *:before, *:after {
+  box-sizing: inherit;
+}
+
+body, h1, h2, h3, h4, h5, h6, p, ol, ul {
+  margin: 0;
+  padding: 0;
+  font-weight: normal;
+}
+
+ol, ul {
+  list-style: none;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Actual styles */
+body {
+  display: grid;
+  grid-template-rows: minmax(200px, 1fr) 5fr;
+  grid-template-columns: 1fr 1fr;
+  /* gap: 10px; */
+  column-gap: 20px;
+  background-color: rgb(15, 23, 31);
+
+  position: fixed;
+  top: 0; bottom: 0;
+  left: 0; right: 0;
+  /* padding: 10px; */
+  font-size: 20px;
+  height: 100%;
+  margin: 10px;
+}
+
+textarea {
+  margin: 0;
+  border: 0;
+  width: 100%;
+  height: 100%;
+  font: inherit;
+  padding: 3px;
+}
+
+.info {
+  background-color: white;
+  border-top: 10px solid #444;
+  margin: 0;
+  overflow-y: scroll;
+  padding: 5px;
+}
+
+
+button {
+  position: fixed;
+  top: 50px;
+  margin: 0 auto;
+  left: 50%;
+  margin-left: -2em;
+  width: 4em;
+  padding: 0;
+  right: 0;
+  font-size: 30px;
+}
+
+#pushRight {
+  top: 40px;
+}
+
+#pushLeft {
+  top: 110px;
+}
+
+#reset {
+  top: 180px;
+}
+
+</style>
+<body>
+  <textarea id="t1" spellcheck="false" autofocus placeholder="User one (type here)"></textarea>
+  <textarea id="t2" spellcheck="false" placeholder="User two (type here)"></textarea>
+  <pre id="info1" class="info"></pre>
+  <pre id="info2" class="info"></pre>
+
+  <button id="pushRight">-&gt;</button>
+  <button id="pushLeft">&lt;-</button>
+  <button id="reset">⥀</button>
+</body>
+<!-- <script type="module" src="pkg/diamond_js.js"></script> -->
+<script type="module" src="events.js"></script>
