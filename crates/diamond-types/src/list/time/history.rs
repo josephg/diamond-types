@@ -100,10 +100,10 @@ impl RleVec<TxnSpan> {
             let a = a[0];
             let b = b[0];
             if self.txn_shadow_contains(a, b) {
-                return (smallvec![b+1..a+1], smallvec![]);
+                return (smallvec![b.wrapping_add(1)..a.wrapping_add(1)], smallvec![]);
             }
             if self.txn_shadow_contains(b, a) {
-                return (smallvec![], smallvec![a+1..b+1]);
+                return (smallvec![], smallvec![a.wrapping_add(1)..b.wrapping_add(1)]);
             }
         }
 
@@ -443,5 +443,36 @@ pub mod test {
         ]);
 
         assert_diff_eq(&history, &[2], &[ROOT_ORDER], &[2..3, 0..1], &[]);
+    }
+
+    #[test]
+    fn diff_three_root_txns() {
+        // Regression.
+        let history = RleVec(vec![
+            TxnSpan {
+                order: 0,
+                len: 1,
+                shadow: ROOT_ORDER,
+                parents: smallvec![ROOT_ORDER],
+                parent_indexes: smallvec![], child_indexes: smallvec![],
+            },
+            TxnSpan {
+                order: 1,
+                len: 1,
+                shadow: 1,
+                parents: smallvec![ROOT_ORDER],
+                parent_indexes: smallvec![], child_indexes: smallvec![],
+            },
+            TxnSpan {
+                order: 2,
+                len: 1,
+                shadow: 2,
+                parents: smallvec![ROOT_ORDER],
+                parent_indexes: smallvec![], child_indexes: smallvec![],
+            },
+        ]);
+
+        assert_diff_eq(&history, &[0], &[ROOT_ORDER], &[0..1], &[]);
+        assert_diff_eq(&history, &[ROOT_ORDER], &[0], &[], &[0..1]);
     }
 }
