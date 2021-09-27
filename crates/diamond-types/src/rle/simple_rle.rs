@@ -63,6 +63,29 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         })
     }
 
+    // /// This is a variant of find_index for data sets where we normally know the index (via
+    // /// iteration).
+    // pub(crate) fn find_hinted(&self, needle: RleKey, hint: &mut usize) -> Result<usize, usize> {
+    //     if self.is_empty() { return Err(0); }
+    //
+    //     if *hint < self.0.len() {
+    //         let e = &self.0[*hint];
+    //         if needle >= e.get_rle_key() && needle < e.end() {
+    //             return Ok(*hint);
+    //         } else if needle < e.get_rle_key() {
+    //             if hint > 0 {
+    //                 todo!()
+    //             } else {
+    //                 *hint = 0;
+    //                 return Err()
+    //             }
+    //         } else {
+    //             debug_assert!(needle >= e.end());
+    //         }
+    //     }
+    //     todo!()
+    // }
+
     /// Find an entry in the list with the specified key using binary search.
     ///
     /// If found returns Some(found value).
