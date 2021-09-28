@@ -469,3 +469,11 @@ impl<E: ContentTraits + ContentLength + Searchable, I: FindContent<E>, const IE:
         unsafe { cursor.get_item() }
     }
 }
+
+impl<E: ContentTraits + PartialEq, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialEq for ContentTreeRaw<E, I, IE, LE> {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+
+impl<E: ContentTraits + PartialEq, I: TreeIndex<E>, const IE: usize, const LE: usize> Eq for ContentTreeRaw<E, I, IE, LE> {}
