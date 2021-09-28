@@ -277,6 +277,7 @@ impl PositionMap {
         len
     }
 
+    #[inline]
     pub(super) fn advance_all_by_range(&mut self, list: &ListCRDT, mut target: Range<Order>, op_type: InsDelTag) {
         while !target.is_empty() {
             let len = self.advance_first_by_range(list, target.clone(), op_type, true).1;
@@ -285,6 +286,7 @@ impl PositionMap {
         }
     }
 
+    #[inline(always)]
     pub(super) fn advance_first_by_range(&mut self, list: &ListCRDT, target: Range<Order>, op_type: InsDelTag, handle_dd: bool) -> (Option<PositionalComponent>, Order) {
         let (final_tag, raw_range) = self.order_to_raw(list, target.start);
         let raw_start = raw_range.start;
