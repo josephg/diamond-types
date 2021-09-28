@@ -3,7 +3,7 @@ use rle::SplitableSpan;
 
 use crate::list::time::positionmap::MapTag::*;
 use std::pin::Pin;
-use crate::list::{DoubleDeleteList, ListCRDT, Order, Branch, ROOT_ORDER};
+use crate::list::{DoubleDeleteList, ListCRDT, Order, ROOT_ORDER};
 use crate::list::ot::positional::{InsDelTag, PositionalComponent};
 use std::ops::Range;
 use crate::rangeextra::OrderRange;
@@ -112,6 +112,21 @@ impl ContentLength for PositionRun {
 
 type PositionMapInternal = ContentTreeWithIndex<PositionRun, FullIndex>;
 
+/// A PositionMap is a data structure used internally to track a set of positional changes to the
+/// document as a result of inserts and deletes.
+///
+/// This is used for a couple functions:
+///
+/// - When generating positional patches (eg for saving), each patch names its position with respect
+/// to the state of the document when that patch was created. To do this, we walk the document in
+/// time order and iteratively update a PositionMap as we visit each change
+/// - When loading positional patches from disk or over the network, sometimes we need to interpret
+/// positional information based on a particular version. For this, we generate a PositionMap
+/// at the requested version (branch) and then use that to translate the incoming patch's position
+/// information.
+///
+/// This data structure *should* also be used to generate and process OT changes, though they work
+/// slightly differently in general.
 #[derive(Debug, Eq, PartialEq)]
 pub(super) struct PositionMap {
     /// Helpers to map from Order -> raw positions -> position at the current point in time
@@ -140,7 +155,9 @@ impl PositionMap {
         let total_post_len = list.range_tree.offset_len();
         // let (order_to_raw_map, total_post_len) = OrderToRawInsertMap::new(&list.range_tree);
         // TODO: This is something we should cache somewhere.
-        map.push(PositionRun::new_void(total_post_len));
+        if total_post_len > 0 {
+            map.push(PositionRun::new_void(total_post_len));
+        }
 
         Self { map, double_deletes: DoubleDeleteList::new() }
     }
@@ -149,10 +166,12 @@ impl PositionMap {
         let mut map = PositionMapInternal::new();
 
         let total_post_len = list.range_tree.offset_len();
-        let total_content_len = list.range_tree.content_len();
-        // let (order_to_raw_map, total_post_len) = OrderToRawInsertMap::new(&list.range_tree);
-        // TODO: This is something we should cache somewhere.
-        map.push(PositionRun::new_upstream(total_post_len, total_content_len));
+        if total_post_len > 0 {
+            let total_content_len = list.range_tree.content_len();
+            // let (order_to_raw_map, total_post_len) = OrderToRawInsertMap::new(&list.range_tree);
+            // TODO: This is something we should cache somewhere.
+            map.push(PositionRun::new_upstream(total_post_len, total_content_len));
+        }
 
         Self {
             map,
@@ -419,14 +438,15 @@ impl PositionMap {
     }
 
     pub(crate) fn check_upstream(&self, list: &ListCRDT) {
+        // dbg!(&self.map);
         self.map.check();
         for item in self.map.raw_iter() {
             assert_eq!(item.tag, MapTag::Upstream);
         }
 
-        // dbg!(&self.double_deletes);
-        // dbg!(&list.double_deletes);
-        assert!(self.double_deletes.iter().eq(list.double_deletes.iter()));
+        // dbg!(self.double_deletes.iter_raw().collect::<Vec<_>>());
+        // dbg!(list.double_deletes.iter_raw().collect::<Vec<_>>());
+        assert!(self.double_deletes.iter_merged().eq(list.double_deletes.iter_merged()));
     }
 }
 
@@ -563,9 +583,10 @@ mod test {
     #[test]
     #[ignore]
     fn fuzz_walk_multi_docs_forever() {
-        for _i in 0.. {
-            if _i % 100 == 0 { println!("{}", _i); }
-            let docs = gen_complex_docs(123, 20);
+        for i in 0.. {
+            if i % 1000 == 0 { println!("{}", i); }
+            // println!("{}", i);
+            let docs = gen_complex_docs(i, 20);
             check_doc(&docs[0]); // I could do this every iteration of each_complex, but its slow.
         }
     }

@@ -1,12 +1,12 @@
 use std::cmp::Ordering::*;
 use std::fmt::Debug;
-use std::iter::FromIterator;
+use std::iter::{FromIterator, Cloned};
 use std::ops::{Index, Range};
 use std::slice::SliceIndex;
 
 use humansize::{file_size_opts, FileSize};
 
-use rle::AppendRle;
+use rle::{AppendRle, MergeableIterator, MergeIter};
 use rle::Searchable;
 use rle::SplitableSpan;
 
@@ -38,6 +38,7 @@ impl<V: SplitableSpan + Clone + Sized> RleVec<V> {
     pub fn len(&self) -> usize { self.0.len() }
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
     pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
+    pub fn iter_merged(&self) -> MergeIter<Cloned<std::slice::Iter<V>>> { self.0.iter().cloned().merge_spans() }
 
     pub fn print_stats(&self, name: &str, _detailed: bool) {
         let size = std::mem::size_of::<V>();
