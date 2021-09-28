@@ -2,6 +2,7 @@
 /// data structure. It needs to be cleanly merged into traversal, and the tests need to be
 /// reinstated.
 
+// TODO: Move this file into a separate crate.
 use smartstring::alias::{String as SmartString};
 use smallvec::SmallVec;
 

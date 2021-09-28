@@ -28,14 +28,14 @@ mod tests {
 
 #[cfg(test)]
 pub mod test_helpers {
-    use rand::prelude::SmallRng;
-    use rand::{Rng, SeedableRng};
+    use rand::prelude::*;
     use ropey::Rope;
 
     use diamond_core::AgentId;
 
     use crate::list::ListCRDT;
     use crate::list::external_txn::RemoteId;
+    use rand::seq::index::sample;
 
     pub(crate) fn root_id() -> RemoteId {
         RemoteId {
@@ -90,11 +90,11 @@ pub mod test_helpers {
 
     /// A simple iterator over an infinite list of documents with random single-user edit histories
     #[derive(Debug)]
-    pub struct RandomSingleDocIter(usize, SmallRng);
+    pub struct RandomSingleDocIter(SmallRng, usize);
 
     impl RandomSingleDocIter {
         pub fn new(seed: u64, num_edits: usize) -> Self {
-            Self(num_edits, SmallRng::seed_from_u64(seed))
+            Self(SmallRng::seed_from_u64(seed), num_edits)
         }
     }
 
@@ -104,12 +104,75 @@ pub mod test_helpers {
         fn next(&mut self) -> Option<Self::Item> {
             let mut doc = ListCRDT::new();
             let agent_0 = doc.get_or_create_agent_id("0");
-            for _i in 0..self.0 {
-                make_random_change(&mut doc, None, agent_0, &mut self.1);
+            for _i in 0..self.1 {
+                make_random_change(&mut doc, None, agent_0, &mut self.0);
             }
 
             Some(doc)
         }
+    }
+
+    /// This is a fuzz helper which constructs and permutes an endless stream of documents for
+    /// testing. The documents are edited by complex multi user histories.
+    ///
+    /// I tried to write this as an iterator but failed to make something which borrow checks.
+    ///
+    /// This code is based on run_fuzzer_iteration.
+    pub fn each_complex_random_doc_pair<F: FnMut(usize, &ListCRDT, &ListCRDT)>(seed: u64, iter: usize, mut f: F) -> [ListCRDT; 3] {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let mut docs = [ListCRDT::new(), ListCRDT::new(), ListCRDT::new()];
+
+        // Each document will have a different local agent ID. I'm cheating here - just making agent
+        // 0 for all of them.
+        for (i, doc) in docs.iter_mut().enumerate() {
+            doc.get_or_create_agent_id(format!("agent {}", i).as_str());
+        }
+
+        for _i in 0..iter {
+            // Generate some operations
+            for _j in 0..5 {
+                let doc = docs.choose_mut(&mut rng).unwrap();
+                make_random_change(doc, None, 0, &mut rng);
+            }
+
+            // Then merge 2 documents at random. I'd use sample_multiple but it doesn't return
+            // mutable references to the sampled items.
+            let idxs = sample(&mut rng, docs.len(), 2);
+            let a_idx = idxs.index(0);
+            let b_idx = idxs.index(1);
+            assert_ne!(a_idx, b_idx);
+
+            // Oh god this is awful. I can't take mutable references to two array items.
+            let (a_idx, b_idx) = if a_idx < b_idx { (a_idx, b_idx) } else { (b_idx, a_idx) };
+            // a<b.
+            let (start, end) = docs[..].split_at_mut(b_idx);
+            let a = &mut start[a_idx];
+            let b = &mut end[0];
+
+            a.replicate_into(b);
+            b.replicate_into(a);
+
+            if a != b {
+                println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);
+                panic!("Documents do not match");
+            }
+
+            f(_i, &a, &b);
+
+            for doc in &docs {
+                doc.check(false);
+            }
+        }
+
+        for doc in &docs {
+            doc.check(false);
+        }
+
+        docs
+    }
+
+    pub fn gen_complex_docs(seed: u64, iter: usize) -> [ListCRDT; 3] {
+        each_complex_random_doc_pair(seed, iter, |_, _, _| {})
     }
 }
 

@@ -100,8 +100,9 @@ fn random_single_replicate() {
 }
 
 fn run_fuzzer_iteration(seed: u64) {
-    let mut rng = SmallRng::seed_from_u64(seed);
+    // TODO: Rewrite this to use each_complex_random_doc_pair.
 
+    let mut rng = SmallRng::seed_from_u64(seed);
     let mut docs = [ListCRDT::new(), ListCRDT::new(), ListCRDT::new()];
 
     // Each document will have a different local agent ID. I'm cheating here - just making agent
@@ -109,25 +110,14 @@ fn run_fuzzer_iteration(seed: u64) {
     for (i, doc) in docs.iter_mut().enumerate() {
         doc.get_or_create_agent_id(format!("agent {}", i).as_str());
     }
-    // for (_i, doc) in docs.iter_mut().enumerate() {
-    //     for a in 0..3 {
-    //         doc.get_or_create_agent_id(format!("agent {}", a).as_str());
-    //     }
-    // }
 
     for _i in 0..300 {
-        // if _i % 1000 == 0 { println!("{}", _i); }
-        // println!("\n\n{}", _i);
-
         // Generate some operations
         for _j in 0..5 {
             let doc_idx = rng.gen_range(0..docs.len());
             let doc = &mut docs[doc_idx];
 
-            // println!("editing doc {}:", doc_idx);
             make_random_change(doc, None, 0, &mut rng);
-            // make_random_change(doc, None, doc_idx as AgentId, &mut rng);
-            // println!("doc {} -> '{}'", doc_idx, doc.text_content);
         }
 
         // Then merge 2 documents at random

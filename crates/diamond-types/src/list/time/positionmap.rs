@@ -191,9 +191,9 @@ impl PositionMap {
             debug_assert!(len > 0);
 
             // Usually there's no double-deletes, but we need to check just in case.
-            let allowed_len = self.double_deletes.find_zero_range(raw_start, len);
+            let allowed_len = self.double_deletes.find_zero_range(target.start, len);
             if allowed_len == 0 { // Unlikely. There's a double delete here.
-                let len_dd_here = self.double_deletes.decrement_delete_range(raw_start, len);
+                let len_dd_here = self.double_deletes.decrement_delete_range(target.start, len);
                 debug_assert!(len_dd_here > 0);
 
                 // What a minefield. O_o
@@ -302,7 +302,8 @@ impl PositionMap {
                 len = len.min((e.final_len - cursor.offset) as u32);
                 debug_assert!(len > 0);
                 if e.tag == Upstream { // This can never happen while consuming. Only while advancing.
-                    self.double_deletes.increment_delete_range(raw_start, len);
+                    // self.double_deletes.increment_delete_range(raw_start, len);
+                    self.double_deletes.increment_delete_range(target.start, len);
                     return (None, len);
                 }
             } else {
@@ -360,6 +361,8 @@ impl PositionMap {
             assert_eq!(item.tag, MapTag::Upstream);
         }
 
+        // dbg!(&self.double_deletes);
+        // dbg!(&list.double_deletes);
         assert!(self.double_deletes.iter().eq(list.double_deletes.iter()));
     }
 }
@@ -441,7 +444,7 @@ impl PositionMap {
 mod test {
     use rle::test_splitable_methods_valid;
     use super::*;
-    use crate::test_helpers::RandomSingleDocIter;
+    use crate::test_helpers::*;
 
     #[test]
     fn positionrun_is_splitablespan() {
@@ -472,6 +475,24 @@ mod test {
         let iter = RandomSingleDocIter::new(2, 10).take(1000);
         for doc in iter {
             check_doc(&doc);
+        }
+    }
+
+    #[test]
+    fn fuzz_walk_multi_docs() {
+        for _i in 0..30 {
+            let docs = gen_complex_docs(123, 20);
+            check_doc(&docs[0]); // I could do this every iteration of each_complex, but its slow.
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn fuzz_walk_multi_docs_forever() {
+        for _i in 0.. {
+            if _i % 100 == 0 { println!("{}", _i); }
+            let docs = gen_complex_docs(123, 20);
+            check_doc(&docs[0]); // I could do this every iteration of each_complex, but its slow.
         }
     }
 }
