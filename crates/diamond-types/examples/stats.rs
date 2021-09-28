@@ -12,9 +12,13 @@ use diamond_types::list::{ListCRDT, TraversalComponent};
 use TraversalComponent::*;
 
 #[cfg(feature = "memusage")]
-use diamond_types::{get_thread_memory_usage, get_thread_num_allocations};
+use diamond_core::alloc::*;
 #[cfg(feature = "memusage")]
 use humansize::{FileSize, file_size_opts};
+
+#[cfg(feature = "memusage")]
+#[global_allocator]
+static A: TracingAlloc = TracingAlloc;
 
 pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
