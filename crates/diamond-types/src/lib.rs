@@ -29,7 +29,7 @@ mod tests {
 #[cfg(test)]
 pub mod test_helpers {
     use rand::prelude::SmallRng;
-    use rand::Rng;
+    use rand::{Rng, SeedableRng};
     use ropey::Rope;
 
     use diamond_core::AgentId;
@@ -86,6 +86,30 @@ pub mod test_helpers {
         // dbg!(&doc.markers);
         doc.check(false);
         op_len
+    }
+
+    /// A simple iterator over an infinite list of documents with random single-user edit histories
+    #[derive(Debug)]
+    pub struct RandomSingleDocIter(usize, SmallRng);
+
+    impl RandomSingleDocIter {
+        pub fn new(seed: u64, num_edits: usize) -> Self {
+            Self(num_edits, SmallRng::seed_from_u64(seed))
+        }
+    }
+
+    impl Iterator for RandomSingleDocIter {
+        type Item = ListCRDT;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let mut doc = ListCRDT::new();
+            let agent_0 = doc.get_or_create_agent_id("0");
+            for _i in 0..self.0 {
+                make_random_change(&mut doc, None, agent_0, &mut self.1);
+            }
+
+            Some(doc)
+        }
     }
 }
 

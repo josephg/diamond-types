@@ -108,12 +108,12 @@ impl ContentLength for PositionRun {
     }
 }
 
-type PositionMap = ContentTreeWithIndex<PositionRun, FullIndex>;
+type PositionMapInternal = ContentTreeWithIndex<PositionRun, FullIndex>;
 
 #[derive(Debug)]
-pub(super) struct PositionMapWithDeletes {
+pub(super) struct PositionMap {
     /// Helpers to map from Order -> raw positions -> position at the current point in time
-    map: Pin<Box<PositionMap>>,
+    map: Pin<Box<PositionMapInternal>>,
     // order_to_raw_map: OrderToRawInsertMap<'a>,
 
     // There's two ways we could handle double deletes:
@@ -124,9 +124,16 @@ pub(super) struct PositionMapWithDeletes {
     double_deletes: DoubleDeleteList,
 }
 
-impl PositionMapWithDeletes {
-    pub(super) fn new(list: &ListCRDT) -> Self {
-        let mut map = PositionMap::new();
+// impl<'a> Drop for OrigPatchesIter<'a> {
+//     fn drop(&mut self) {
+//         println!("Map entries {} nodes {:?}", self.map.count_entries(), self.map.count_nodes());
+//         // dbg!(&self.map);
+//     }
+// }
+
+impl PositionMap {
+    pub(super) fn new_void(list: &ListCRDT) -> Self {
+        let mut map = PositionMapInternal::new();
 
         let total_post_len = list.range_tree.offset_len();
         // let (order_to_raw_map, total_post_len) = OrderToRawInsertMap::new(&list.range_tree);
@@ -134,6 +141,22 @@ impl PositionMapWithDeletes {
         map.push(PositionRun::new_void(total_post_len));
 
         Self { map, double_deletes: DoubleDeleteList::new() }
+    }
+
+    pub(super) fn new_upstream(list: &ListCRDT) -> Self {
+        let mut map = PositionMapInternal::new();
+
+        let total_post_len = list.range_tree.offset_len();
+        let total_content_len = list.range_tree.content_len();
+        // let (order_to_raw_map, total_post_len) = OrderToRawInsertMap::new(&list.range_tree);
+        // TODO: This is something we should cache somewhere.
+        map.push(PositionRun::new_upstream(total_post_len, total_content_len));
+
+        Self {
+            map,
+            // TODO: Eww gross! Refactor to avoid this allocation.
+            double_deletes: list.double_deletes.clone()
+        }
     }
 
     pub(super) fn order_to_raw(&self, list: &ListCRDT, order: Order) -> (InsDelTag, Range<Order>) {
@@ -145,14 +168,22 @@ impl PositionMapWithDeletes {
         (tag, base..(base + e.order_len() - cursor.offset as Order))
     }
 
-    pub(super) fn retreat_by_range(&mut self, list: &ListCRDT, target: Range<Order>, op_type: InsDelTag) -> Order {
+    pub(super) fn retreat_all_by_range(&mut self, list: &ListCRDT, mut target: Range<Order>, op_type: InsDelTag) {
+        while !target.is_empty() {
+            let len = self.retreat_first_by_range(list, target.clone(), op_type);
+            target.start += len;
+            debug_assert!(target.start <= target.end);
+        }
+    }
+
+    pub(super) fn retreat_first_by_range(&mut self, list: &ListCRDT, target: Range<Order>, op_type: InsDelTag) -> Order {
         // dbg!(&target, self.map.iter().collect::<Vec<_>>());
         // This variant is only actually used in one place - which makes things easier.
 
         let (final_tag, raw_range) = self.order_to_raw(list, target.start);
         let raw_start = raw_range.start;
         let mut len = Order::min(raw_range.order_len(), target.order_len());
- 
+
         let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
         if op_type == InsDelTag::Del {
             let e = cursor.get_raw_entry();
@@ -246,7 +277,15 @@ impl PositionMapWithDeletes {
         len
     }
 
-    pub(super) fn advance_by_range(&mut self, list: &ListCRDT, target: Range<Order>, op_type: InsDelTag, handle_dd: bool) -> (Option<PositionalComponent>, Order) {
+    pub(super) fn advance_all_by_range(&mut self, list: &ListCRDT, mut target: Range<Order>, op_type: InsDelTag) {
+        while !target.is_empty() {
+            let len = self.advance_first_by_range(list, target.clone(), op_type, true).1;
+            target.start += len;
+            debug_assert!(target.start <= target.end);
+        }
+    }
+
+    pub(super) fn advance_first_by_range(&mut self, list: &ListCRDT, target: Range<Order>, op_type: InsDelTag, handle_dd: bool) -> (Option<PositionalComponent>, Order) {
         let (final_tag, raw_range) = self.order_to_raw(list, target.start);
         let raw_start = raw_range.start;
         let mut len = Order::min(raw_range.order_len(), target.order_len());
@@ -296,13 +335,32 @@ impl PositionMapWithDeletes {
         (Some(PositionalComponent {
             pos: content_pos,
             len,
-            content_known: false,
+            content_known: false, // TODO: Add support for content
             tag: op_type.into(),
         }), len)
     }
 
     pub(crate) fn check(&self) {
         self.map.check();
+    }
+
+    pub(crate) fn check_void(&self) {
+        self.map.check();
+        for item in self.map.raw_iter() {
+            assert_eq!(item.tag, MapTag::NotInsertedYet);
+        }
+        for d in self.double_deletes.iter() {
+            assert_eq!(d.1.excess_deletes, 0);
+        }
+    }
+
+    pub(crate) fn check_upstream(&self, list: &ListCRDT) {
+        self.map.check();
+        for item in self.map.raw_iter() {
+            assert_eq!(item.tag, MapTag::Upstream);
+        }
+
+        assert!(self.double_deletes.iter().eq(list.double_deletes.iter()));
     }
 }
 
@@ -383,16 +441,37 @@ impl PositionMapWithDeletes {
 mod test {
     use rle::test_splitable_methods_valid;
     use super::*;
+    use crate::test_helpers::RandomSingleDocIter;
 
     #[test]
     fn positionrun_is_splitablespan() {
         test_splitable_methods_valid(PositionRun::new_void(5));
         test_splitable_methods_valid(PositionRun::new_ins(5));
-        // test_splitable_methods_valid(PositionRun::new(Deleted, 5));
+    }
 
-        // assert!(PositionRun::new(Deleted(1), 1)
-        //     .can_append(&PositionRun::new(Deleted(1), 2)));
-        // assert!(!PositionRun::new(Deleted(1), 1)
-        //     .can_append(&PositionRun::new(Deleted(999), 2)));
+    fn check_doc(list: &ListCRDT) {
+        // We should be able to go forward from void to upstream.
+        let mut map = PositionMap::new_void(list);
+        for patch in list.patch_iter() {
+            // dbg!(&patch);
+            map.advance_all_by_range(list, patch.target_range(), patch.op_type);
+        }
+        // dbg!(&map);
+        map.check_upstream(list);
+
+        // And go back from upstream to void, by iterating backwards through all changes.
+        let mut map = PositionMap::new_upstream(list);
+        for patch in list.patch_iter_rev() {
+            map.retreat_all_by_range(list, patch.target_range(), patch.op_type);
+        }
+        map.check_void();
+    }
+
+    #[test]
+    fn fuzz_walk_single_docs() {
+        let iter = RandomSingleDocIter::new(2, 10).take(1000);
+        for doc in iter {
+            check_doc(&doc);
+        }
     }
 }

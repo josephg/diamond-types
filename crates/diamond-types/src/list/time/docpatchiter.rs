@@ -5,7 +5,7 @@ use crate::list::{ListCRDT, Order};
 use crate::list::ot::positional::PositionalComponent;
 use crate::list::time::patchiter::{ListPatchItem, ListPatchIter};
 use crate::list::time::txn_trace::OptimizedTxnsIter;
-use crate::list::time::positionmap::PositionMapWithDeletes;
+use crate::list::time::positionmap::PositionMap;
 
 impl ListCRDT {
     pub fn iter_original_patches(&self) -> OrigPatchesIter {
@@ -19,7 +19,7 @@ impl ListCRDT {
 #[derive(Debug)]
 pub struct OrigPatchesIter<'a> {
     txn_iter: OptimizedTxnsIter<'a>,
-    map: PositionMapWithDeletes,
+    map: PositionMap,
 
     // TODO: Consider / try to lower this to a tighter reference.
     list: &'a ListCRDT,
@@ -29,18 +29,11 @@ pub struct OrigPatchesIter<'a> {
     current_item: ListPatchItem,
 }
 
-// impl<'a> Drop for OrigPatchesIter<'a> {
-//     fn drop(&mut self) {
-//         println!("Map entries {} nodes {:?}", self.map.count_entries(), self.map.count_nodes());
-//         // dbg!(&self.map);
-//     }
-// }
-
 impl<'a> OrigPatchesIter<'a> {
     fn new(list: &'a ListCRDT) -> Self {
         Self {
             txn_iter: list.txns.txn_spanning_tree_iter(),
-            map: PositionMapWithDeletes::new(list),
+            map: PositionMap::new_void(list),
             list,
             current_inner: None,
             // current_op_type: Default::default(),
@@ -61,22 +54,13 @@ impl<'a> OrigPatchesIter<'a> {
 
         for range in walk.retreat {
             for op in self.list.patch_iter_in_range(range) {
-                let mut target = op.target_range();
-                // dbg!(&op, &target);
-                while !target.is_empty() {
-                    let len = self.map.retreat_by_range(self.list, target.clone(), op.op_type);
-                    target.start += len;
-                }
+                self.map.retreat_all_by_range(self.list, op.target_range(), op.op_type);
             }
         }
 
         for range in walk.advance_rev.into_iter().rev() {
             for op in self.list.patch_iter_in_range_rev(range) {
-                let mut target = op.target_range();
-                while !target.is_empty() {
-                    let len = self.map.advance_by_range(self.list, target.clone(), op.op_type, true).1;
-                    target.start += len;
-                }
+                self.map.advance_all_by_range(self.list, op.target_range(), op.op_type);
             }
         }
 
@@ -103,7 +87,7 @@ impl<'a> Iterator for OrigPatchesIter<'a> {
             debug_assert!(!self.current_item.range.is_empty());
         }
 
-        let (result, len) = self.map.advance_by_range(self.list, self.current_item.target_range(), self.current_item.op_type, false);
+        let (result, len) = self.map.advance_first_by_range(self.list, self.current_item.target_range(), self.current_item.op_type, false);
         // self.current_item.range.start += len;
         let consumed_range = self.current_item.range.truncate_keeping_right(len as _);
         self.current_item.del_target += len; // TODO: Could be avoided by storing the offset...
