@@ -1,14 +1,16 @@
-
-// There's 3 states a position component can be in:
-// - Not inserted (yet), with a postlen
-// - Inserted (and in the document)
-// - Inserted then deleted
-
 use content_tree::{ContentLength, ContentTreeWithIndex, FullIndex};
 use rle::SplitableSpan;
 
 use crate::list::time::positionmap::MapTag::*;
 
+/// There's 3 states a component in the position map can be in:
+/// - Not inserted (yet),
+/// - Inserted
+/// - Deleted
+///
+/// But for efficiency, when the state of an item matches the state in the current document, instead
+/// of storing that state we simply store `Upstream`. This represents either an insert or a delete,
+/// depending on the current document.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) enum MapTag {
     NotInsertedYet,
