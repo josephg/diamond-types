@@ -574,8 +574,8 @@ mod test {
 
     #[test]
     fn fuzz_walk_multi_docs() {
-        for _i in 0..30 {
-            let docs = gen_complex_docs(123, 20);
+        for i in 0..30 {
+            let docs = gen_complex_docs(i, 20);
             check_doc(&docs[0]); // I could do this every iteration of each_complex, but its slow.
         }
     }
