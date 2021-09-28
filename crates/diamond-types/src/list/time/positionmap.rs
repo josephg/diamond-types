@@ -3,10 +3,12 @@ use rle::SplitableSpan;
 
 use crate::list::time::positionmap::MapTag::*;
 use std::pin::Pin;
-use crate::list::{DoubleDeleteList, ListCRDT, Order};
+use crate::list::{DoubleDeleteList, ListCRDT, Order, Branch, ROOT_ORDER};
 use crate::list::ot::positional::{InsDelTag, PositionalComponent};
 use std::ops::Range;
 use crate::rangeextra::OrderRange;
+use crate::list::time::patchiter::ListPatchItem;
+use crate::list::time::history::branch_eq;
 
 /// There's 3 states a component in the position map can be in:
 /// - Not inserted (yet),
@@ -110,7 +112,7 @@ impl ContentLength for PositionRun {
 
 type PositionMapInternal = ContentTreeWithIndex<PositionRun, FullIndex>;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(super) struct PositionMap {
     /// Helpers to map from Order -> raw positions -> position at the current point in time
     map: Pin<Box<PositionMapInternal>>,
@@ -159,6 +161,63 @@ impl PositionMap {
         }
     }
 
+    fn new_at_version_from_start(list: &ListCRDT, branch: &[Order]) -> Self {
+        let mut result = Self::new_void(list);
+        if branch != &[ROOT_ORDER] {
+            let changes = list.txns.diff(&[ROOT_ORDER], branch).1;
+
+            for range in changes.iter().rev() {
+                let patches = list.patch_iter_in_range(range.clone());
+                for patch in patches {
+                    result.advance_all_by_range(list, patch);
+                }
+            }
+        }
+
+        result
+    }
+
+    fn new_at_version_from_end(list: &ListCRDT, branch: &[Order]) -> Self {
+        let mut result = Self::new_upstream(list);
+
+        if !branch_eq(branch, list.frontier.as_slice()) {
+            let (changes, nil) = list.txns.diff(&list.frontier, branch);
+            debug_assert!(nil.is_empty());
+
+            for range in changes.iter() {
+                let patches = list.patch_iter_in_range_rev(range.clone());
+                for patch in patches {
+                    result.retreat_all_by_range(list, patch);
+                }
+            }
+        }
+
+        result
+    }
+
+    pub(crate) fn new_at_version(list: &ListCRDT, branch: &[Order]) -> Self {
+        // There's two strategies here: We could start at the start of time and walk forward, or we
+        // could start at the current version and walk backward. Walking backward will be much more
+        // common in practice, but either approach will generate an identical result.
+
+        let sum: Order = branch.iter().sum();
+
+        let start_work = sum;
+        let end_work = list.get_next_order() * branch.len() as u32 - sum;
+
+        if cfg!(debug_assertions) {
+            // We should end up with identical results regardless of whether we start from the start
+            // or end.
+            let a = Self::new_at_version_from_start(list, branch);
+            let b = Self::new_at_version_from_end(list, branch);
+            assert_eq!(a, b);
+            return a;
+        }
+
+        if start_work < end_work { Self::new_at_version_from_start(list, branch) }
+        else { Self::new_at_version_from_end(list, branch) }
+    }
+
     pub(super) fn order_to_raw(&self, list: &ListCRDT, order: Order) -> (InsDelTag, Range<Order>) {
         let cursor = list.get_cursor_before(order);
         let base = cursor.count_offset_pos() as Order;
@@ -168,9 +227,10 @@ impl PositionMap {
         (tag, base..(base + e.order_len() - cursor.offset as Order))
     }
 
-    pub(super) fn retreat_all_by_range(&mut self, list: &ListCRDT, mut target: Range<Order>, op_type: InsDelTag) {
+    pub(super) fn retreat_all_by_range(&mut self, list: &ListCRDT, patch: ListPatchItem) {
+        let mut target = patch.target_range();
         while !target.is_empty() {
-            let len = self.retreat_first_by_range(list, target.clone(), op_type);
+            let len = self.retreat_first_by_range(list, target.clone(), patch.op_type);
             target.start += len;
             debug_assert!(target.start <= target.end);
         }
@@ -278,9 +338,10 @@ impl PositionMap {
     }
 
     #[inline]
-    pub(super) fn advance_all_by_range(&mut self, list: &ListCRDT, mut target: Range<Order>, op_type: InsDelTag) {
+    pub(super) fn advance_all_by_range(&mut self, list: &ListCRDT, patch: ListPatchItem) {
+        let mut target = patch.target_range();
         while !target.is_empty() {
-            let len = self.advance_first_by_range(list, target.clone(), op_type, true).1;
+            let len = self.advance_first_by_range(list, target.clone(), patch.op_type, true).1;
             target.start += len;
             debug_assert!(target.start <= target.end);
         }
@@ -459,7 +520,7 @@ mod test {
         let mut map = PositionMap::new_void(list);
         for patch in list.patch_iter() {
             // dbg!(&patch);
-            map.advance_all_by_range(list, patch.target_range(), patch.op_type);
+            map.advance_all_by_range(list, patch);
         }
         // dbg!(&map);
         map.check_upstream(list);
@@ -467,9 +528,20 @@ mod test {
         // And go back from upstream to void, by iterating backwards through all changes.
         let mut map = PositionMap::new_upstream(list);
         for patch in list.patch_iter_rev() {
-            map.retreat_all_by_range(list, patch.target_range(), patch.op_type);
+            map.retreat_all_by_range(list, patch);
         }
         map.check_void();
+    }
+
+    #[test]
+    fn foo() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("seph");
+        doc.local_insert(0, 0, "hi there");
+        doc.local_delete(0, 2, 3);
+
+        let map = PositionMap::new_at_version(&doc, &[5]);
+        dbg!(&map);
     }
 
     #[test]

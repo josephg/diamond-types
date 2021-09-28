@@ -8,6 +8,13 @@ use crate::list::txn::TxnSpan;
 use std::ops::Range;
 // use smartstring::alias::{String as SmartString};
 
+pub fn branch_eq(a: &[Order], b: &[Order]) -> bool {
+    // Almost all branches only have one element in them. But it would be cleaner to keep branches
+    // sorted.
+    a.len() == b.len() && ((a.len() == 1 && a[0] == b[0]) || {
+        a.iter().all(|o| b.contains(o))
+    })
+}
 
 impl RleVec<TxnSpan> {
     fn shadow_of(&self, order: Order) -> Order {

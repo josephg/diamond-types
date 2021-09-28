@@ -54,13 +54,13 @@ impl<'a> OrigPatchesIter<'a> {
 
         for range in walk.retreat {
             for op in self.list.patch_iter_in_range(range) {
-                self.map.retreat_all_by_range(self.list, op.target_range(), op.op_type);
+                self.map.retreat_all_by_range(self.list, op);
             }
         }
 
         for range in walk.advance_rev.into_iter().rev() {
             for op in self.list.patch_iter_in_range_rev(range) {
-                self.map.advance_all_by_range(self.list, op.target_range(), op.op_type);
+                self.map.advance_all_by_range(self.list, op);
             }
         }
 
