@@ -15,7 +15,9 @@ use crate::crdtspan::CRDTSpan;
 use rle::Searchable;
 use crate::list::branch::advance_branch_by_known;
 use std::ops::Range;
+use crate::list::ot::positional::InsDelTag::*;
 use crate::rangeextra::OrderRange;
+use crate::list::ot::positional::PositionalComponent;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
@@ -587,80 +589,61 @@ impl ListCRDT {
         self.insert_txn_remote(parents, first_order..next_order);
     }
 
-    // TODO: Consider changing this to take PositionalComponents instead.
-    pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[TraversalComponent], mut content: &str) {
-        use TraversalComponent::*;
-
+    pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str) {
         let first_order = self.get_next_order();
         let mut next_order = first_order;
 
-        let txn_len = local_ops.iter().map(|c| match c {
-            Ins { len, .. } | Del(len) => *len as usize,
-            Retain(_) => 0
-        }).sum();
+        let txn_len = local_ops.iter().map(|c| c.len).sum::<u32>() as usize;
 
         self.assign_order_to_client(CRDTId {
             agent,
             seq: self.client_data[agent as usize].get_next_seq()
         }, first_order, txn_len);
 
-        let mut pos = 0usize;
-
         // for LocalOp { pos, ins_content, del_span } in local_ops {
         for c in local_ops {
-            match c {
-                Retain(len) => pos += *len as usize,
+            let pos = c.pos as usize;
+            let len = c.len as usize;
 
-                Ins { len, content_known } => {
+            match c.tag {
+                Ins => {
                     // First we need the insert's base order
-                    // let len = ins_content.chars().count();
-
                     let order = next_order;
-                    next_order += *len;
+                    next_order += c.len;
 
                     // Find the preceding item and successor
                     let (origin_left, cursor) = if pos == 0 {
                         (ROOT_ORDER, self.range_tree.unsafe_cursor_at_start())
                     } else {
-                        let mut cursor = self.range_tree.unsafe_cursor_at_content_pos(pos - 1, false);
+                        let mut cursor = self.range_tree.unsafe_cursor_at_content_pos((pos - 1) as usize, false);
                         let origin_left = unsafe { cursor.get_item() }.unwrap();
                         assert!(cursor.next_item());
                         (origin_left, cursor)
                     };
 
-                    // TODO: This should scan & skip past deleted items!
+                    // TODO: This should skip past deleted items!
                     let origin_right = unsafe { cursor.get_item() }.unwrap_or(ROOT_ORDER);
 
                     let item = YjsSpan {
                         order,
                         origin_left,
                         origin_right,
-                        len: *len as i32
+                        len: len as i32
                     };
                     // dbg!(item);
 
-                    let ins_content = if *content_known {
-                        let byte_len = chars_to_bytes(content, *len as usize);
+                    let ins_content = if c.content_known {
+                        let byte_len = chars_to_bytes(content, len);
                         let (here, remaining) = content.split_at(byte_len);
                         content = remaining;
                         Some(here)
                     } else { None };
 
                     self.integrate(agent, item, ins_content, Some(cursor));
-                    pos += *len as usize;
                 }
 
-                Del(len) => {
-                    let len = *len as usize;
-                    let deleted_items = self.range_tree.local_deactivate_at_content_notify(pos, len, notify_for(&mut self.index));
-
-                    // TODO: Remove me. This is only needed because SplitList doesn't support gaps.
-                    // let mut cursor = self.index.cursor_at_end();
-                    // let last_entry = cursor.get_raw_entry();
-                    // let entry = MarkerEntry {
-                    //     len: *del_span as u32, ptr: last_entry.ptr
-                    // };
-                    // self.index.insert(&mut cursor, entry, null_notify);
+                Del => {
+                    let deleted_items = self.range_tree.local_deactivate_at_content_notify(pos as usize, len, notify_for(&mut self.index));
 
                     // dbg!(&deleted_items);
                     let mut deleted_length = 0; // To check.
@@ -696,22 +679,30 @@ impl ListCRDT {
         //     ins_content, pos, del_span: 0
         // }])
         self.apply_local_txn(agent, &[
-            TraversalComponent::Retain(pos as u32),
-            TraversalComponent::Ins {
+            PositionalComponent {
+                pos: pos as u32,
                 len: count_chars(ins_content) as u32,
                 content_known: true,
-            },
+                tag: Ins
+            }
         ], ins_content);
+        // self.apply_local_txn(agent, &[
+        //     TraversalComponent::Retain(pos as u32),
+        //     TraversalComponent::Ins {
+        //         len: count_chars(ins_content) as u32,
+        //         content_known: true,
+        //     },
+        // ], ins_content);
     }
 
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) {
-        // self.apply_local_txn(agent, &[LocalOp {
-        //     ins_content: SmartString::default(), pos, del_span
-        // }])
-        self.apply_local_txn(agent, &[
-            TraversalComponent::Retain(pos as u32),
-            TraversalComponent::Del(del_span as u32),
-        ], "");
+        self.apply_local_txn(agent, &[PositionalComponent {
+            pos: pos as u32, len: del_span as u32, content_known: true, tag: Del
+        }], "")
+        // self.apply_local_txn(agent, &[
+        //     TraversalComponent::Retain(pos as u32),
+        //     TraversalComponent::Del(del_span as u32),
+        // ], "");
     }
 
     pub fn apply_txn_at_ot_order(&mut self, agent: AgentId, op: &TraversalOp, order: Order, is_left: bool) {
@@ -722,9 +713,11 @@ impl ListCRDT {
             for p in historical_patches.components {
                 local_ops = transform(local_ops.as_slice(), &p, is_left);
             }
-            self.apply_local_txn(agent, local_ops.as_slice(), op.content.as_str());
+            let positional = PositionalComponent::from_traversal_components(&local_ops);
+            self.apply_local_txn(agent, &positional, op.content.as_str());
         } else {
-            self.apply_local_txn(agent, &op.traversal, op.content.as_str());
+            let positional = PositionalComponent::from_traversal_components(&op.traversal);
+            self.apply_local_txn(agent, &positional, op.content.as_str());
         }
     }
 

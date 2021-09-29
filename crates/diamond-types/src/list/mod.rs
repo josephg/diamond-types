@@ -7,6 +7,7 @@ use smartstring::alias::String as SmartString;
 use content_tree::*;
 use diamond_core::AgentId;
 pub use ot::traversal::TraversalComponent;
+pub use ot::positional::{PositionalComponent, PositionalOp, InsDelTag};
 
 use crate::common::ClientName;
 use crate::crdtspan::CRDTSpan;

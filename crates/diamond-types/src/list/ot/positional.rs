@@ -13,6 +13,8 @@ use crate::unicount::chars_to_bytes;
 use rle::AppendRle;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
+use crate::list::ot::traversal::TraversalOp;
+use crate::list::TraversalComponent;
 
 /// So I might use this more broadly, for all edits. If so, move this out of OT.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -87,6 +89,46 @@ impl PositionalOp {
             result.components.push_rle(c);
         }
         result
+    }
+}
+
+impl PositionalComponent {
+    pub fn from_traversal_components(traversal: &[TraversalComponent]) -> SmallVec<[PositionalComponent; 1]> {
+        let mut result = SmallVec::new();
+        let mut pos = 0;
+        for c in traversal {
+            match c {
+                TraversalComponent::Retain(len) => pos += *len,
+
+                TraversalComponent::Ins { len, content_known } => {
+                    result.push(PositionalComponent {
+                        pos,
+                        len: *len,
+                        content_known: *content_known,
+                        tag: Ins
+                    });
+                    pos += *len;
+                }
+                TraversalComponent::Del(len) => {
+                    result.push(PositionalComponent {
+                        pos,
+                        len: *len,
+                        content_known: false,
+                        tag: Del
+                    });
+                }
+            }
+        }
+        result
+    }
+}
+
+impl From<TraversalOp> for PositionalOp {
+    fn from(traversal: TraversalOp) -> Self {
+        Self {
+            components: PositionalComponent::from_traversal_components(traversal.traversal.as_slice()),
+            content: traversal.content
+        }
     }
 }
 
