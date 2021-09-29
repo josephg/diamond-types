@@ -1,8 +1,9 @@
-use crate::list::{Branch, Order};
-use crate::rle::RleVec;
-use crate::list::txn::TxnSpan;
 use std::ops::Range;
+
+use crate::list::{Branch, Order, ROOT_ORDER};
+use crate::list::txn::TxnSpan;
 use crate::rangeextra::OrderRange;
+use crate::rle::RleVec;
 
 /// Advance branch frontier by a transaction. This is written creating a new branch, which is
 /// somewhat inefficient (especially if the frontier is spilled).
@@ -64,8 +65,10 @@ pub(crate) fn retreat_branch_known_txn(branch: &mut Branch, history: &RleVec<Txn
 
 #[cfg(test)]
 mod test {
-    use crate::list::{Branch, ROOT_ORDER};
     use smallvec::smallvec;
+
+    use crate::list::{Branch, ROOT_ORDER};
+
     use super::*;
 
     #[test]
@@ -88,4 +91,16 @@ mod test {
         retreat_branch_by(&mut branch, &txns, 0..5);
         assert_eq!(branch.as_slice(), &[ROOT_ORDER]);
     }
+}
+
+pub fn branch_eq(a: &[Order], b: &[Order]) -> bool {
+    // Almost all branches only have one element in them. But it would be cleaner to keep branches
+    // sorted.
+    a.len() == b.len() && ((a.len() == 1 && a[0] == b[0]) || {
+        a.iter().all(|o| b.contains(o))
+    })
+}
+
+pub fn branch_is_root(branch: &[Order]) -> bool {
+    branch.len() == 1 && branch[0] == ROOT_ORDER
 }

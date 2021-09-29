@@ -42,6 +42,9 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         ParentPtr::Root(ref_to_nonnull(self))
     }
 
+    /// WARNING: This method doesn't actually figure out the cursor position at the item. The offset
+    /// stored in the cursor contains the final offset. For cursor_at_offset this will be correct,
+    /// or any time the content size corresponds to offset size.
     pub fn unsafe_cursor_at_query<F, G>(&self, raw_pos: usize, stick_end: bool, offset_to_num: F, entry_to_num: G) -> UnsafeCursor<E, I, IE, LE>
             where F: Fn(I::IndexValue) -> usize, G: Fn(E) -> usize {
         // if let Some((pos, mut cursor)) = self.last_cursor.get() {
@@ -424,7 +427,7 @@ impl<E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const
     pub fn content_len(&self) -> usize {
         I::index_to_content(self.count)
     }
-    
+
     pub fn unsafe_cursor_at_content_pos(&self, pos: usize, stick_end: bool) -> UnsafeCursor<E, I, IE, LE> {
         self.unsafe_cursor_at_query(pos, stick_end, I::index_to_content, |e| e.content_len())
     }

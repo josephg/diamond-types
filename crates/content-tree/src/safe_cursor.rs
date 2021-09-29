@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use std::ops::{Deref, AddAssign};
+use std::ops::{Deref, AddAssign, DerefMut};
 
 use super::*;
 
@@ -30,6 +30,11 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> De
 
     fn deref(&self) -> &Self::Target {
         &self.inner
+    }
+}
+impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> DerefMut for Cursor<'a, E, I, IE, LE> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }
 

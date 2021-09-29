@@ -1,14 +1,16 @@
-use content_tree::{ContentLength, ContentTreeWithIndex, FullIndex, Toggleable};
-use rle::SplitableSpan;
+use std::mem::take;
+use content_tree::{ContentLength, ContentTreeWithIndex, Cursor, FullIndex, Toggleable};
+use rle::{Searchable, SplitableSpan};
 
 use crate::list::time::positionmap::MapTag::*;
 use std::pin::Pin;
-use crate::list::{DoubleDeleteList, ListCRDT, Order, ROOT_ORDER};
+use crate::list::{DOC_IE, DOC_LE, DocRangeIndex, DoubleDeleteList, ListCRDT, Order, ROOT_ORDER};
 use crate::list::positional::{InsDelTag, PositionalComponent};
 use std::ops::Range;
+use crate::list::span::YjsSpan;
 use crate::rangeextra::OrderRange;
 use crate::list::time::patchiter::ListPatchItem;
-use crate::list::time::history::branch_eq;
+use crate::list::branch::{branch_eq, branch_is_root};
 
 /// There's 3 states a component in the position map can be in:
 /// - Not inserted (yet),
@@ -128,7 +130,7 @@ type PositionMapInternal = ContentTreeWithIndex<PositionRun, FullIndex>;
 /// This data structure *should* also be used to generate and process OT changes, though they work
 /// slightly differently in general.
 #[derive(Debug, Eq, PartialEq)]
-pub(super) struct PositionMap {
+pub(crate) struct PositionMap {
     /// Helpers to map from Order -> raw positions -> position at the current point in time
     map: Pin<Box<PositionMapInternal>>,
     // order_to_raw_map: OrderToRawInsertMap<'a>,
@@ -219,10 +221,12 @@ impl PositionMap {
         // could start at the current version and walk backward. Walking backward will be much more
         // common in practice, but either approach will generate an identical result.
 
+        if branch_is_root(branch) { return Self::new_void(list); }
+
         let sum: Order = branch.iter().sum();
 
         let start_work = sum;
-        let end_work = list.get_next_order() * branch.len() as u32 - sum;
+        let end_work = (list.get_next_order() - 1) * branch.len() as u32 - sum;
 
         if cfg!(debug_assertions) {
             // We should end up with identical results regardless of whether we start from the start
@@ -245,6 +249,75 @@ impl PositionMap {
         let tag = if e.is_activated() { InsDelTag::Ins } else { InsDelTag::Del };
         (tag, base..(base + e.order_len() - cursor.offset as Order))
     }
+
+    pub(crate) fn content_len(&self) -> usize {
+        self.map.content_len()
+    }
+
+    pub(crate) fn order_before_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize) -> Order {
+        // TODO: This could be optimized via a special method in content-tree in one pass, rather
+        // than traversing down the tree (to make the cursor) and then immediately walking back up
+        // again.
+        if pos == 0 { return ROOT_ORDER; }
+
+        let mut map_cursor = self.map.cursor_at_content_pos(pos, true);
+        map_cursor.move_back_by_offset(1, None);
+
+        // If we're in an upstream section the local offset is actually a content offset, and its
+        // meaningless here.
+        let content_offset = if map_cursor.get_raw_entry().tag == Upstream {
+            take(&mut map_cursor.offset)
+        } else { 0 };
+
+        let offset_pos = map_cursor.count_offset_pos();
+
+        let mut doc_cursor = list.range_tree.cursor_at_offset_pos(offset_pos, false);
+        if content_offset > 0 {
+            let content_pos = doc_cursor.count_content_pos() + content_offset;
+            doc_cursor = list.range_tree.cursor_at_content_pos(content_pos, false);
+        }
+
+        doc_cursor.get_raw_entry().at_offset(doc_cursor.offset)
+        // doc_cursor
+    }
+
+    pub(crate) fn list_cursor_at_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize) -> Cursor<'a, YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+        // TODO: This could be optimized via a special method in content-tree in one pass, rather
+        // than traversing down the tree (to make the cursor) and then immediately walking back up
+        // again.
+        let mut map_cursor = self.map.cursor_at_content_pos(pos, true);
+
+        // If we're in an upstream section the local offset is actually a content offset, and its
+        // meaningless here.
+        let content_offset = if map_cursor.get_raw_entry().tag == Upstream {
+            take(&mut map_cursor.offset)
+        } else { 0 };
+
+        let offset_pos = map_cursor.count_offset_pos();
+
+        let mut doc_cursor = list.range_tree.cursor_at_offset_pos(offset_pos, false);
+        if content_offset > 0 {
+            let content_pos = doc_cursor.count_content_pos() + content_offset;
+            doc_cursor = list.range_tree.cursor_at_content_pos(content_pos, false);
+        }
+
+        // doc_cursor.get_raw_entry().at_offset(doc_cursor.offset)
+        doc_cursor
+    }
+
+    pub(crate) fn order_at_content_pos(&self, list: &ListCRDT, pos: usize) -> Order {
+        let cursor = self.list_cursor_at_content_pos(list, pos);
+        cursor.get_raw_entry().at_offset(cursor.offset)
+    }
+
+        // pub(crate) fn content_pos_to_order(&self, list: &ListCRDT, pos: usize) -> Order {
+    //     // TODO: This could be optimized via a special method in content-tree.
+    //     let cursor = self.map.cursor_at_content_pos(pos, true);
+    //     let offset_pos = cursor.count_offset_pos();
+    //
+    //     let doc_cursor = list.range_tree.cursor_at_offset_pos(offset_pos, false);
+    //     doc_cursor.get_raw_entry().at_offset(cursor.offset)
+    // }
 
     pub(super) fn retreat_all_by_range(&mut self, list: &ListCRDT, patch: ListPatchItem) {
         let mut target = patch.target_range();
@@ -449,7 +522,6 @@ impl PositionMap {
         assert!(self.double_deletes.iter_merged().eq(list.double_deletes.iter_merged()));
     }
 }
-
 
 
 // #[derive(Debug)]

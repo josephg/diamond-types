@@ -92,8 +92,6 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
         self.next_entry_marker(None)
     }
 
-    // TODO: This calculates a generic index value - which is often a pair of values. Then we almost
-    // always discard one of those values. Rewrite this to use the same helper methods as find().
     pub unsafe fn count_pos_raw<Out, F, G, H>(&self, offset_to_num: F, entry_len: G, entry_len_at: H) -> Out
         where Out: AddAssign + Default, F: Fn(I::IndexValue) -> Out, G: Fn(&E) -> Out, H: Fn(&E, usize) -> Out
     {
@@ -196,7 +194,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
         true
     }
 
-    pub fn move_forward_by(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
+    pub fn move_forward_by_offset(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
         loop {
             let len_here = self.get_raw_entry().len();
             if self.offset + amt <= len_here {
@@ -211,7 +209,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
     }
 
     // How widely useful is this? This is optimized for small moves.
-    pub fn move_back_by(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
+    pub fn move_back_by_offset(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
         while self.offset < amt {
             amt -= self.offset;
             self.offset = 0;
@@ -306,6 +304,32 @@ impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: 
 impl<E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub unsafe fn count_content_pos(&self) -> usize {
         self.count_pos_raw(I::index_to_content, E::content_len, E::content_len_at_offset)
+    }
+
+    // pub unsafe fn count_pos_raw<Out, F, G, H>(&self, offset_to_num: F, entry_len: G, entry_len_at: H) -> Out
+    //     where Out: AddAssign + Default, F: Fn(I::IndexValue) -> Out, G: Fn(&E) -> Out, H: Fn(&E, usize) -> Out
+    pub fn move_forward_by_content(&mut self, _amt: usize) {
+        todo!();
+        // loop {
+        //     let e = self.get_raw_entry();
+        //     let len_here = e.content_len();
+        //     let content_offset = if self.offset > 0 {
+        //         e.content_len_at_offset(self.offset)
+        //     } else { 0 };
+        //
+        //     if content_offset + amt <= len_here {
+        //         self.offset += amt;
+        //         break;
+        //     }
+        //     amt -= len_here - self.offset;
+        //     if !self.next_entry_marker(marker.take()) {
+        //         panic!("Cannot move back before the start of the tree");
+        //     }
+        // }
+    }
+
+    pub fn move_back_by_content(&mut self, _amt: usize) {
+        todo!()
     }
 }
 

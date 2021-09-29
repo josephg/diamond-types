@@ -1,20 +1,16 @@
-use crate::list::{ListCRDT, ROOT_ORDER, Order};
-use crate::order::OrderSpan;
-use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
-use rle::AppendRle;
-use crate::rle::RleVec;
-use crate::list::txn::TxnSpan;
 use std::ops::Range;
-// use smartstring::alias::{String as SmartString};
 
-pub fn branch_eq(a: &[Order], b: &[Order]) -> bool {
-    // Almost all branches only have one element in them. But it would be cleaner to keep branches
-    // sorted.
-    a.len() == b.len() && ((a.len() == 1 && a[0] == b[0]) || {
-        a.iter().all(|o| b.contains(o))
-    })
-}
+use smallvec::{SmallVec, smallvec};
+
+use rle::AppendRle;
+
+use crate::list::{ListCRDT, Order, ROOT_ORDER};
+use crate::list::txn::TxnSpan;
+use crate::order::OrderSpan;
+use crate::rle::RleVec;
+
+// use smartstring::alias::{String as SmartString};
 
 impl RleVec<TxnSpan> {
     fn shadow_of(&self, order: Order) -> Order {
@@ -230,13 +226,15 @@ impl ListCRDT {
 
 #[cfg(test)]
 pub mod test {
-    use crate::list::{ListCRDT, ROOT_ORDER, Order};
-    use smallvec::smallvec;
-    use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
-    use crate::list::txn::TxnSpan;
-    use crate::rle::RleVec;
     use std::ops::Range;
+
+    use smallvec::smallvec;
+
+    use crate::list::{ListCRDT, Order, ROOT_ORDER};
+    use crate::list::external_txn::{RemoteCRDTOp, RemoteId, RemoteTxn};
+    use crate::list::txn::TxnSpan;
     use crate::rangeextra::OrderRange;
+    use crate::rle::RleVec;
 
     fn assert_diff_eq(txns: &RleVec<TxnSpan>, a: &[Order], b: &[Order], expect_a: &[Range<Order>], expect_b: &[Range<Order>]) {
         let slow_result = txns.diff_slow(a, b);

@@ -179,7 +179,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
             cursor.offset = items[items.len() - 1].len();
 
             if trailing_offset > 0 {
-                cursor.move_forward_by(trailing_offset, Some(flush_marker));
+                cursor.move_forward_by_offset(trailing_offset, Some(flush_marker));
             }
         }
 
@@ -422,7 +422,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
                 Self::replace_entry(cursor, &[a, new_entry, c], flush_marker, &mut notify);
 
                 // Move the cursor back to be pointing at the end of new_entry.
-                cursor.move_back_by(c_len, Some(flush_marker));
+                cursor.move_back_by_offset(c_len, Some(flush_marker));
                 return;
             } else {
                 // Remove (truncate) the remainder of this entry. Then continue.
@@ -468,7 +468,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
             let remainder = remainder.truncate(replaced_len);
             let rem_len = remainder.len();
             Self::replace_entry(cursor, &[new_entry, remainder], flush_marker, &mut notify);
-            cursor.move_back_by(rem_len, Some(flush_marker));
+            cursor.move_back_by_offset(rem_len, Some(flush_marker));
         }
     }
 

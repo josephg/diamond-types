@@ -18,6 +18,7 @@ use std::ops::Range;
 use crate::list::positional::InsDelTag::*;
 use crate::rangeextra::OrderRange;
 use crate::list::positional::PositionalComponent;
+use crate::list::time::positionmap::PositionMap;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
@@ -360,15 +361,15 @@ impl ListCRDT {
 
         // Otherwise use the slow version.
         let txn_parents = replace(&mut self.frontier, smallvec![range.last_order()]);
-        self.insert_txn_internal(txn_parents, range);
+        self.insert_txn_internal(&txn_parents, range);
     }
 
-    fn insert_txn_remote(&mut self, txn_parents: Branch, range: Range<Order>) {
+    fn insert_txn_remote(&mut self, txn_parents: &[Order], range: Range<Order>) {
         advance_branch_by_known(&mut self.frontier, &txn_parents, range.clone());
         self.insert_txn_internal(txn_parents, range);
     }
 
-    fn insert_txn_internal(&mut self, txn_parents: Branch, range: Range<Order>) {
+    fn insert_txn_internal(&mut self, txn_parents: &[Order], range: Range<Order>) {
         // Fast path. The code below is weirdly slow, but most txns just append.
         // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
         if let Some(last) = self.txns.0.last_mut() {
@@ -400,7 +401,7 @@ impl ListCRDT {
             // The item wasn't merged. So we need to go through the parents and wire up children.
             let new_idx = self.txns.0.len();
 
-            for &p in &txn_parents {
+            for &p in txn_parents {
                 if p == ROOT_ORDER { continue; }
                 let parent_idx = self.txns.find_index(p).unwrap();
                 // Interestingly the parent_idx array will always end up the same length as parents
@@ -432,7 +433,7 @@ impl ListCRDT {
             order: range.start,
             len: range.order_len(),
             shadow,
-            parents: txn_parents.into_iter().collect(),
+            parents: txn_parents.into_iter().copied().collect(),
             parent_indexes,
             child_indexes: smallvec![]
         };
@@ -586,7 +587,7 @@ impl ListCRDT {
 
         debug_assert_eq!(next_order, first_order + txn_len as u32);
         let parents = self.remote_ids_to_branch(&txn.parents);
-        self.insert_txn_remote(parents, first_order..next_order);
+        self.insert_txn_remote(&parents, first_order..next_order);
     }
 
     pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str) {
@@ -673,11 +674,7 @@ impl ListCRDT {
         debug_assert_eq!(next_order, self.get_next_order());
     }
 
-    // pub fn internal_insert(&mut self, agent: AgentId, pos: usize, ins_content: SmartString) -> Order {
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
-        // self.apply_local_txn(agent, &[LocalOp {
-        //     ins_content, pos, del_span: 0
-        // }])
         self.apply_local_txn(agent, &[
             PositionalComponent {
                 pos: pos as u32,
@@ -686,23 +683,105 @@ impl ListCRDT {
                 tag: Ins
             }
         ], ins_content);
-        // self.apply_local_txn(agent, &[
-        //     TraversalComponent::Retain(pos as u32),
-        //     TraversalComponent::Ins {
-        //         len: count_chars(ins_content) as u32,
-        //         content_known: true,
-        //     },
-        // ], ins_content);
     }
 
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) {
         self.apply_local_txn(agent, &[PositionalComponent {
             pos: pos as u32, len: del_span as u32, content_known: true, tag: Del
         }], "")
-        // self.apply_local_txn(agent, &[
-        //     TraversalComponent::Retain(pos as u32),
-        //     TraversalComponent::Del(del_span as u32),
-        // ], "");
+    }
+
+    pub fn apply_patch_at_version(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str, branch: &[Order]) {
+        let map = PositionMap::new_at_version(self, branch);
+
+        dbg!(&map);
+        // TODO: Merge this with apply_local_txn
+        let first_order = self.get_next_order();
+        let mut next_order = first_order;
+        let txn_len = local_ops.iter().map(|c| c.len).sum::<u32>() as usize;
+
+        self.assign_order_to_client(CRDTId {
+            agent,
+            seq: self.client_data[agent as usize].get_next_seq()
+        }, first_order, txn_len);
+
+        // for LocalOp { pos, ins_content, del_span } in local_ops {
+        for c in local_ops {
+            let orig_pos = c.pos as usize;
+            let len = c.len as usize;
+
+            match c.tag {
+                Ins => {
+                    // First we need the insert's base order
+                    let order = next_order;
+                    next_order += c.len;
+
+                    // Find the preceding item and successor
+                    let origin_left = map.order_before_content_pos(self, orig_pos);
+                    // let origin_left = if orig_pos == 0 {
+                    //     // It doesn't matter what the insert map looks like if orig_pos is 0.
+                    //     ROOT_ORDER
+                    // } else {
+                    //     // origin_left is the order of the preceeding item, mapped through map.
+                    //     map.order_before_content_pos(self, orig_pos - 1)
+                    // };
+
+                    let origin_right = if orig_pos == map.content_len() {
+                        ROOT_ORDER
+                    } else {
+                        map.order_at_content_pos(self, orig_pos)
+                    };
+
+                    let item = YjsSpan {
+                        order,
+                        origin_left,
+                        origin_right,
+                        len: len as i32
+                    };
+                    // dbg!(item);
+
+                    let ins_content = if c.content_known {
+                        let byte_len = chars_to_bytes(content, len);
+                        let (here, remaining) = content.split_at(byte_len);
+                        content = remaining;
+                        Some(here)
+                    } else { None };
+
+                    // TODO: Make & pass an appropriate cursor.
+                    self.integrate(agent, item, ins_content, None);
+                }
+
+                Del => {
+                    todo!()
+                    // let deleted_items = self.range_tree.local_deactivate_at_content_notify(orig_pos as usize, len, notify_for(&mut self.index));
+                    //
+                    // // dbg!(&deleted_items);
+                    // let mut deleted_length = 0; // To check.
+                    // for item in deleted_items {
+                    //     self.deletes.push(KVPair(next_order, OrderSpan {
+                    //         order: item.order,
+                    //         len: item.len as u32
+                    //     }));
+                    //     deleted_length += item.len as usize;
+                    //     next_order += item.len as u32;
+                    // }
+                    // // I might be able to relax this, but we'd need to change del_span above.
+                    // assert_eq!(deleted_length, len);
+                    //
+                    // if let Some(ref mut text) = self.text_content {
+                    //     if let Some(deleted_content) = self.deleted_content.as_mut() {
+                    //         let chars = text.chars_at(orig_pos).take(len);
+                    //         deleted_content.extend(chars);
+                    //     }
+                    //     text.remove(orig_pos..orig_pos + len);
+                    // }
+                }
+            }
+        }
+
+        // self.insert_txn_local(first_order..next_order);
+        self.insert_txn_remote(branch, first_order..next_order);
+        debug_assert_eq!(next_order, self.get_next_order());
     }
 
     // TODO: Consider refactoring me to use positional operations instead of traversal operations
@@ -973,5 +1052,28 @@ mod tests {
         if let Some(text) = doc.text_content.as_ref() {
             assert_eq!(text, "ccaabb");
         }
+    }
+
+    #[test]
+    fn foo() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("a"); // 0
+        doc.get_or_create_agent_id("b"); // 1
+
+        doc.local_insert(0, 0, "aaa");
+        doc.local_insert(0, 0, "A");
+
+        doc.apply_patch_at_version(1, &[PositionalComponent {
+            pos: 1, len: 1, content_known: true, tag: InsDelTag::Ins
+        }], "b", &[1]); // when the document had "aa"
+
+        // doc.apply_patch_at_version(0, &[PositionalComponent {
+        //     pos: 0, len: 1, content_known: true, tag: InsDelTag::Ins
+        // }], "a", &[ROOT_ORDER]);
+        // doc.apply_patch_at_version(1, &[PositionalComponent {
+        //     pos: 0, len: 1, content_known: true, tag: InsDelTag::Ins
+        // }], "b", &[ROOT_ORDER]);
+
+        dbg!(&doc);
     }
 }
