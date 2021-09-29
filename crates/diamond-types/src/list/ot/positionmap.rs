@@ -15,7 +15,7 @@ use crate::crdtspan::CRDTSpan;
 use crate::list::{DoubleDeleteList, ListCRDT, Order};
 use crate::list::double_delete::DoubleDelete;
 use crate::list::external_txn::RemoteIdSpan;
-use crate::list::ot::positional::{InsDelTag, PositionalComponent, PositionalOp};
+use crate::list::positional::{InsDelTag, PositionalComponent, PositionalOp};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp, TraversalOpSequence};
 use crate::order::OrderSpan;
 use crate::rle::{KVPair, RleKey, RleSpanHelpers};
@@ -567,7 +567,7 @@ mod test {
     use rle::AppendRle;
 
     use crate::list::{ListCRDT, ROOT_ORDER};
-    use crate::list::ot::positional::*;
+    use crate::list::positional::*;
     use crate::list::ot::positionmap::*;
     use crate::list::ot::traversal::*;
     use crate::test_helpers::make_random_change;

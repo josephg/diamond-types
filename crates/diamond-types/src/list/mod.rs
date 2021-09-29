@@ -7,7 +7,7 @@ use smartstring::alias::String as SmartString;
 use content_tree::*;
 use diamond_core::AgentId;
 pub use ot::traversal::TraversalComponent;
-pub use ot::positional::{PositionalComponent, PositionalOp, InsDelTag};
+pub use positional::{PositionalComponent, PositionalOp, InsDelTag};
 
 use crate::common::ClientName;
 use crate::crdtspan::CRDTSpan;
@@ -31,6 +31,7 @@ mod check;
 mod ot;
 mod branch;
 mod time;
+pub mod positional;
 
 // #[cfg(inlinerope)]
 // pub const USE_INNER_ROPE: bool = true;

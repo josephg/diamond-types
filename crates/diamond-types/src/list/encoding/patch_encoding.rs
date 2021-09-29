@@ -4,7 +4,7 @@ use content_tree::SplitableSpan;
 
 use crate::list::{encoding, ListCRDT, Order, ROOT_ORDER};
 use crate::list::encoding::{Chunk, Parents, Run, SpanWriter};
-use crate::list::ot::positional::InsDelTag;
+use crate::list::positional::InsDelTag;
 use crate::rangeextra::OrderRange;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::list::encoding::varint::{num_encode_i64_with_extra_bit, mix_bit_u64, encode_u64, encode_u32};

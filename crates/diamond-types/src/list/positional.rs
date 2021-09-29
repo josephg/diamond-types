@@ -181,7 +181,7 @@ impl SplitableSpan for PositionalComponent {
 #[cfg(test)]
 mod test {
     use rle::test_splitable_methods_valid;
-    use crate::list::ot::positional::{PositionalComponent, InsDelTag::*};
+    use crate::list::positional::{PositionalComponent, InsDelTag::*};
 
     #[test]
     fn positional_component_splitable() {

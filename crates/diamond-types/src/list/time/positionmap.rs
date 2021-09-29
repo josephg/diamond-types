@@ -4,7 +4,7 @@ use rle::SplitableSpan;
 use crate::list::time::positionmap::MapTag::*;
 use std::pin::Pin;
 use crate::list::{DoubleDeleteList, ListCRDT, Order, ROOT_ORDER};
-use crate::list::ot::positional::{InsDelTag, PositionalComponent};
+use crate::list::positional::{InsDelTag, PositionalComponent};
 use std::ops::Range;
 use crate::rangeextra::OrderRange;
 use crate::list::time::patchiter::ListPatchItem;

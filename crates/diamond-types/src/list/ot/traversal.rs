@@ -19,7 +19,7 @@ use smallvec::{SmallVec, smallvec};
 use rle::SplitableSpan;
 use TraversalComponent::*;
 use crate::list::Order;
-use crate::list::ot::positional::{PositionalOp, PositionalComponent, InsDelTag};
+use crate::list::positional::{PositionalOp, PositionalComponent, InsDelTag};
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 use rle::AppendRle;
@@ -255,7 +255,7 @@ mod test {
     use rle::test_splitable_methods_valid;
     use crate::list::ot::traversal::*;
     use std::mem::size_of;
-    use crate::list::ot::positional::PositionalOp;
+    use crate::list::positional::PositionalOp;
 
     #[test]
     fn traverse_op_checks() {

@@ -5,7 +5,7 @@ use crate::rangeextra::OrderRange;
 use crate::rle::{RleSpanHelpers, RleVec, KVPair};
 use std::cell::Cell;
 use crate::order::OrderSpan;
-use crate::list::ot::positional::{InsDelTag, InsDelTag::*};
+use crate::list::positional::{InsDelTag, InsDelTag::*};
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub(crate) struct ListPatchItem {

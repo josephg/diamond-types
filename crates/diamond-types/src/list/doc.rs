@@ -8,16 +8,16 @@ use crate::rle::RleVec;
 use std::mem::replace;
 use crate::list::external_txn::{RemoteTxn, RemoteCRDTOp};
 use crate::unicount::{split_at_char, chars_to_bytes, count_chars};
-use crate::list::ot::traversal::{TraversalComponent, TraversalOp};
+use crate::list::ot::traversal::TraversalOp;
 use crate::list::ot::transform;
 use diamond_core::*;
 use crate::crdtspan::CRDTSpan;
 use rle::Searchable;
 use crate::list::branch::advance_branch_by_known;
 use std::ops::Range;
-use crate::list::ot::positional::InsDelTag::*;
+use crate::list::positional::InsDelTag::*;
 use crate::rangeextra::OrderRange;
-use crate::list::ot::positional::PositionalComponent;
+use crate::list::positional::PositionalComponent;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
@@ -705,6 +705,7 @@ impl ListCRDT {
         // ], "");
     }
 
+    // TODO: Consider refactoring me to use positional operations instead of traversal operations
     pub fn apply_txn_at_ot_order(&mut self, agent: AgentId, op: &TraversalOp, order: Order, is_left: bool) {
         let now = self.get_next_order();
         if order < now {

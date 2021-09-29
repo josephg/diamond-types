@@ -2,7 +2,7 @@ use std::ops::Range;
 use content_tree::SplitableSpan;
 
 use crate::list::{ListCRDT, Order};
-use crate::list::ot::positional::PositionalComponent;
+use crate::list::positional::PositionalComponent;
 use crate::list::time::patchiter::{ListPatchItem, ListPatchIter};
 use crate::list::time::txn_trace::OptimizedTxnsIter;
 use crate::list::time::positionmap::PositionMap;
