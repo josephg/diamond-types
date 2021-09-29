@@ -260,8 +260,9 @@ impl PositionMap {
         // again.
         if pos == 0 { return ROOT_ORDER; }
 
-        let mut map_cursor = self.map.cursor_at_content_pos(pos, true);
-        map_cursor.move_back_by_offset(1, None);
+        let mut map_cursor = self.map.cursor_at_content_pos(pos - 1, false);
+        // let mut map_cursor = self.map.cursor_at_content_pos(pos, true);
+        // map_cursor.move_back_by_offset(1, None);
 
         // If we're in an upstream section the local offset is actually a content offset, and its
         // meaningless here.

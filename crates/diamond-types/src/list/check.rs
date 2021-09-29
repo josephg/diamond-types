@@ -30,6 +30,29 @@ impl ListCRDT {
             }
         }
 
+        let mut cursor = self.range_tree.cursor_at_start();
+        loop {
+            // The call to cursor.next() places the cursor at the next item before returning.
+            let this_cursor = cursor.clone();
+
+            if let Some(e) = cursor.next() { // Iterating manually for the borrow checker.
+                // Each item's ID should come after its origin left and right
+                assert!(e.origin_left == ROOT_ORDER || e.order > e.origin_left);
+                assert!(e.origin_right == ROOT_ORDER || e.order > e.origin_right);
+                assert_ne!(e.len, 0);
+
+                if deep {
+                    // Also check that the origin left appears before this entry, and origin right
+                    // appears after it.
+                    let left = self.get_cursor_after(e.origin_left, true);
+                    assert!(left <= this_cursor);
+
+                    let right = self.get_cursor_before(e.origin_right);
+                    assert!(this_cursor < right);
+                }
+            } else { break; }
+        }
+
         if deep {
             self.check_txns();
             self.check_index();

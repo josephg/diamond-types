@@ -182,12 +182,13 @@ impl ListCRDT {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_before(order)) }
     }
 
     // This does not stick_end to the found item.
-    pub(super) fn get_cursor_after(&self, order: Order, stick_end: bool) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+    pub(super) fn get_unsafe_cursor_after(&self, order: Order, stick_end: bool) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         if order == ROOT_ORDER {
             self.range_tree.unsafe_cursor_at_start()
         } else {
@@ -203,6 +204,12 @@ impl ListCRDT {
             if !stick_end { cursor.roll_to_next_entry(); }
             cursor
         }
+    }
+
+    // TODO: Can I remove the stick_end field here?
+    #[inline(always)]
+    pub(crate) fn get_cursor_after(&self, order: Order, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+        unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_after(order, stick_end)) }
     }
 
     fn assign_order_to_client(&mut self, loc: CRDTId, order: Order, len: usize) {
@@ -234,7 +241,7 @@ impl ListCRDT {
 
         // Ok now that's out of the way, lets integrate!
         let mut cursor = cursor_hint.unwrap_or_else(|| {
-            self.get_cursor_after(item.origin_left, false)
+            self.get_unsafe_cursor_after(item.origin_left, false)
         });
 
         // These are almost never used. Could avoid the clone here... though its pretty cheap.
@@ -259,10 +266,10 @@ impl ListCRDT {
             // let other_order = other_entry.order + cursor.offset as u32;
 
             let other_left_order = other_entry.origin_left_at_offset(cursor.offset as u32);
-            let other_left_cursor = self.get_cursor_after(other_left_order, false);
+            let other_left_cursor = self.get_unsafe_cursor_after(other_left_order, false);
 
             // YjsMod semantics
-            match std::cmp::Ord::cmp(&other_left_cursor, &left_cursor) {
+            match unsafe { other_left_cursor.unsafe_cmp(&left_cursor) } {
                 Ordering::Less => { break; } // Top row
                 Ordering::Greater => { } // Bottom row. Continue.
                 Ordering::Equal => {
@@ -281,8 +288,8 @@ impl ListCRDT {
                         }
                     } else {
                         // Set scanning based on how the origin_right entries are ordered.
-                        let my_right_cursor = self.get_unsafe_cursor_before(item.origin_right);
-                        let other_right_cursor = self.get_unsafe_cursor_before(other_entry.origin_right);
+                        let my_right_cursor = self.get_cursor_before(item.origin_right);
+                        let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
 
                         if other_right_cursor < my_right_cursor {
                             if !scanning {
@@ -1073,6 +1080,11 @@ mod tests {
         // doc.apply_patch_at_version(1, &[PositionalComponent {
         //     pos: 0, len: 1, content_known: true, tag: InsDelTag::Ins
         // }], "b", &[ROOT_ORDER]);
+
+        if let Some(text) = doc.text_content.as_ref() {
+            assert_eq!(text, "Aabaa");
+        }
+        doc.check(true);
 
         dbg!(&doc);
     }

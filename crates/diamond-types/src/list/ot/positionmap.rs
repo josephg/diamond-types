@@ -265,7 +265,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 // we've got the go ahead from marked_deletes, but given how rare double deletes
                 // are, this is fine.
 
-                let rt_cursor = self.doc.get_cursor_after(last_del_target, true);
+                let rt_cursor = self.doc.get_unsafe_cursor_after(last_del_target, true);
                 // Cap the number of items to undelete each iteration based on the span in content_tree.
                 let entry = rt_cursor.get_raw_entry();
                 debug_assert!(entry.is_deactivated());
@@ -298,7 +298,7 @@ impl<'a> Iterator for PatchIter<'a> {
             } else {
                 // println!("Insert at {:?} (last order: {})", span, span_last_order);
                 // The operation was an insert operation, not a delete operation.
-                let mut rt_cursor = self.doc.get_cursor_after(span_last_order, true);
+                let mut rt_cursor = self.doc.get_unsafe_cursor_after(span_last_order, true);
 
                 // Check how much we can tag in one go.
                 let len_here = u32::min(self.span.len, rt_cursor.offset as _); // usize? u32? blehh

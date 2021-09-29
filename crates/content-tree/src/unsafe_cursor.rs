@@ -269,6 +269,34 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
             assert!(self.offset <= node.data[self.idx].len());
         }
     }
+
+    pub unsafe fn unsafe_cmp(&self, other: &Self) -> Ordering {
+        if self.node == other.node {
+            // We'll compare cursors directly.
+            if self.idx == other.idx { self.offset.cmp(&other.offset) }
+            else { self.idx.cmp(&other.idx) }
+        } else {
+            // Recursively walk up the trees to find the common ancestor.
+            let mut n1 = NodePtr::Leaf(self.node);
+            let mut n2 = NodePtr::Leaf(other.node);
+            loop {
+                // Look at the parents
+                let p1 = n1.get_parent().unwrap_internal();
+                let p2 = n2.get_parent().unwrap_internal();
+
+                if p1 == p2 {
+                    let node = p1.as_ref();
+                    let idx1 = node.find_child(n1).unwrap();
+                    let idx2 = node.find_child(n2).unwrap();
+                    return idx1.cmp(&idx2);
+                }
+
+                // Otherwise keep traversing upwards!
+                n1 = NodePtr::Internal(p1);
+                n2 = NodePtr::Internal(p2);
+            }
+        }
+    }
 }
 
 impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
@@ -341,50 +369,6 @@ impl<E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Unsaf
     }
 }
 
-
-/// NOTE: This comparator will panic when cursors from different range trees are compared.
-///
-/// Also beware: A cursor pointing to the end of an entry will be considered less than a cursor
-/// pointing to the subsequent entry.
-impl<E: ContentTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for UnsafeCursor<E, I, IE, LE> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        if self.node == other.node {
-            // We'll compare cursors directly.
-            if self.idx == other.idx { self.offset.cmp(&other.offset) }
-            else { self.idx.cmp(&other.idx) }
-        } else {
-            // Recursively walk up the trees to find the common ancestor.
-            unsafe {
-                let mut n1 = NodePtr::Leaf(self.node);
-                let mut n2 = NodePtr::Leaf(other.node);
-                loop {
-                    // Look at the parents
-                    let p1 = n1.get_parent().unwrap_internal();
-                    let p2 = n2.get_parent().unwrap_internal();
-
-                    if p1 == p2 {
-                        let node = p1.as_ref();
-                        let idx1 = node.find_child(n1).unwrap();
-                        let idx2 = node.find_child(n2).unwrap();
-                        return idx1.cmp(&idx2);
-                    }
-
-                    // Otherwise keep traversing upwards!
-                    n1 = NodePtr::Internal(p1);
-                    n2 = NodePtr::Internal(p2);
-                }
-            }
-        }
-    }
-}
-
-impl<E: ContentTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialOrd for UnsafeCursor<E, I, IE, LE> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,7 +385,7 @@ mod tests {
 
         let c1 = tree.unsafe_cursor_at_start();
         let c2 = tree.unsafe_cursor_at_end();
-        assert!(c1 < c2);
+        assert_eq!(unsafe { c1.unsafe_cmp(&c2) }, Ordering::Less);
 
         // Ok now lets add a bunch of junk to make sure the tree has a bunch of internal nodes
         for i in 0..1000 {
@@ -410,7 +394,7 @@ mod tests {
 
         let c1 = tree.unsafe_cursor_at_start();
         let c2 = tree.unsafe_cursor_at_end();
-        assert!(c1 < c2);
+        assert_eq!(unsafe { c1.unsafe_cmp(&c2) }, Ordering::Less);
     }
 
     #[test]

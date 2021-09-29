@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::ops::{Deref, AddAssign, DerefMut};
 
@@ -6,6 +7,7 @@ use super::*;
 /// This file provides the safe implementation methods for cursors.
 
 impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursor<'a, E, I, IE, LE> {
+    #[inline(always)]
     pub unsafe fn unchecked_from_raw(_tree: &'a ContentTreeRaw<E, I, IE, LE>, cursor: UnsafeCursor<E, I, IE, LE>) -> Self {
         Cursor {
             inner: cursor,
@@ -200,5 +202,22 @@ impl<'a, E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> C
     pub fn count_offset_pos(&self) -> usize {
         unsafe { self.inner.count_offset_pos() }
         // I::index_to_offset(self.old_count_pos())
+    }
+}
+
+
+/// NOTE: This comparator will panic when cursors from different range trees are compared.
+///
+/// Also beware: A cursor pointing to the end of a leaf entry will be considered less than a cursor
+/// pointing to the subsequent entry in the next leaf.
+impl<'a, E: ContentTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for Cursor<'a, E, I, IE, LE> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        unsafe { self.inner.unsafe_cmp(&other.inner) }
+    }
+}
+
+impl<'a, E: ContentTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialOrd for Cursor<'a, E, I, IE, LE> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
