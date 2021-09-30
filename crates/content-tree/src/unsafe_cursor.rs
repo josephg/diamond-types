@@ -142,6 +142,21 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
         pos
     }
 
+    pub unsafe fn count_pos(&self) -> I::IndexValue {
+        self.count_pos_raw(|v| v, |e| {
+            let mut v = I::IndexValue::default();
+            I::increment_offset(&mut v, e);
+            v
+        }, |e, offset| {
+            // This is kinda awful, but hopefully the optimizer takes care of this
+            let mut e = e.clone();
+            e.truncate(offset);
+            let mut v = I::IndexValue::default();
+            I::increment_offset(&mut v, &e);
+            v
+        })
+    }
+
     // TODO: Check if its faster if this returns by copy or byref.
     /// Note this ignores the cursor's offset.
     pub fn get_raw_entry(&self) -> &E {

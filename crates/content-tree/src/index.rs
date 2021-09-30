@@ -109,7 +109,9 @@ impl<E: ContentTraits> FindOffset<E> for RawPositionIndex {
 }
 
 
-/// Index based on both resulting size and raw insert position
+/// Index based on both resulting size and raw insert position.
+///
+/// Item 0 is the raw offset position, and item 1 is the content position.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FullIndex;
 
