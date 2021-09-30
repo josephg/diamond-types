@@ -31,9 +31,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeIn
 
         let mut offset_remaining = raw_pos;
 
-        for idx in 0..self.children.len() {
-            let elem = &self.children[idx];
-        // for (idx, elem) in self.children.iter().enumerate() {
+        for (idx, elem) in self.children.iter().enumerate() {
             if let Some(elem) = elem.as_ref() {
                 let count = offset_to_num(self.index[idx]);
                 if offset_remaining < count || (stick_end && offset_remaining == count) {
