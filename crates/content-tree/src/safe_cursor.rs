@@ -31,6 +31,7 @@ impl<R, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Saf
 }
 
 impl<R, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> From<SafeCursor<R, E, I, IE, LE>> for UnsafeCursor<E, I, IE, LE> {
+    #[inline(always)]
     fn from(c: SafeCursor<R, E, I, IE, LE>) -> Self {
         c.inner
     }
@@ -40,12 +41,14 @@ impl<R, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Fro
 impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Deref for Cursor<'a, E, I, IE, LE> {
     type Target = UnsafeCursor<E, I, IE, LE>;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
 impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> DerefMut for Cursor<'a, E, I, IE, LE> {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
@@ -54,12 +57,14 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> De
 impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Deref for MutCursor<'a, E, I, IE, LE> {
     type Target = Cursor<'a, E, I, IE, LE>;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         unsafe { std::mem::transmute(self) }
     }
 }
 
 impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> DerefMut for MutCursor<'a, E, I, IE, LE> {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { std::mem::transmute(self) }
     }
@@ -71,26 +76,26 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> It
 
     fn next(&mut self) -> Option<Self::Item> {
         // When the cursor is past the end, idx is an invalid value.
-        if self.idx == usize::MAX {
+        if self.inner.idx == usize::MAX {
             return None;
         }
 
         // The cursor is at the end of the current element. Its a bit dirty doing this twice but
         // This will happen for a fresh cursor in an empty document, or when iterating using a
         // cursor made by some other means.
-        if self.idx >= unsafe { self.node.as_ref() }.len_entries() {
-            let has_next = self.next_entry();
+        if self.inner.idx >= unsafe { self.inner.node.as_ref() }.len_entries() {
+            let has_next = self.inner.next_entry();
             if !has_next {
-                self.idx = usize::MAX;
+                self.inner.idx = usize::MAX;
                 return None;
             }
         }
 
-        let current = self.get_raw_entry().clone();
+        let current = self.inner.get_raw_entry().clone();
         // Move the cursor forward preemptively for the next call to next().
-        let has_next = self.next_entry();
+        let has_next = self.inner.next_entry();
         if !has_next {
-            self.idx = usize::MAX;
+            self.inner.idx = usize::MAX;
         }
         Some(current)
     }
