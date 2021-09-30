@@ -481,7 +481,6 @@ impl PositionMap {
                 len = len.min((e.final_len - cursor.offset) as u32);
                 debug_assert!(len > 0);
                 if e.tag == Upstream { // This can never happen while consuming. Only while advancing.
-                    // self.double_deletes.increment_delete_range(raw_start, len);
                     self.double_deletes.increment_delete_range(target.start, len);
                     return (None, len);
                 }

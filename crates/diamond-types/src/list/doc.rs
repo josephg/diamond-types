@@ -456,14 +456,14 @@ impl ListCRDT {
         assert_eq!(will_merge, did_merge);
     }
 
-    pub(super) fn internal_mark_deleted(&mut self, id: Order, target: Order, max_len: u32, update_content: bool) -> (u32, bool) {
+    pub(super) fn internal_mark_deleted(&mut self, id: Order, target: Order, max_len: u32, update_content: bool) -> Order {
         // TODO: Make this use mut_cursor instead. The problem is notify_for mutably borrows
         // self.index, and the cursor is borrowing self (rather than self.range_tree).
         let mut cursor = self.get_unsafe_cursor_before(target);
         self.internal_mark_deleted_at(&mut cursor, id, max_len, update_content)
     }
 
-    pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut <&RangeTree as Cursors>::UnsafeCursor, id: Order, max_len: u32, update_content: bool) -> (u32, bool) {
+    pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut <&RangeTree as Cursors>::UnsafeCursor, id: Order, max_len: u32, update_content: bool) -> Order {
         let target = unsafe { cursor.get_item().unwrap() };
 
         let (deleted_here, succeeded) = unsafe {
@@ -486,7 +486,7 @@ impl ListCRDT {
             text.remove(pos..pos + deleted_here as usize);
         }
 
-        (deleted_here, succeeded)
+        deleted_here
     }
 
     pub fn apply_remote_txn(&mut self, txn: &RemoteTxn) {
@@ -587,7 +587,7 @@ impl ListCRDT {
                         // I could break this into two loops - and here enter an inner loop,
                         // deleting len items. It seems a touch excessive though.
 
-                        let (deleted_here, _) = self.internal_mark_deleted(next_order, target_order, len, true);
+                        let deleted_here = self.internal_mark_deleted(next_order, target_order, len, true);
 
                         // println!(" -> managed to delete {}", deleted_here);
                         remaining_len -= deleted_here;
@@ -720,10 +720,14 @@ impl ListCRDT {
         }], "")
     }
 
-    pub fn apply_patch_at_version(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str, branch: &[Order]) {
+    pub fn apply_patch_at_version(&mut self, agent: AgentId, local_ops: &[PositionalComponent], content: &str, branch: &[Order]) {
         let mut map = PositionMap::new_at_version(self, branch);
-
         // dbg!(&map);
+        self.apply_patch_at_map(&mut map, agent, local_ops, content, branch);
+        // dbg!(&map);
+    }
+
+    pub(crate) fn apply_patch_at_map(&mut self, map: &mut PositionMap, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str, branch: &[Order]) {
         // TODO: Merge this with apply_local_txn
         let first_order = self.get_next_order();
         let mut next_order = first_order;
@@ -801,18 +805,14 @@ impl ListCRDT {
 
                         while len > 0 {
                             // let target = unsafe { unsafe_cursor.get_item().unwrap() };
-                            let (len_here, succeeded) = self.internal_mark_deleted_at(&mut unsafe_cursor, next_order, len as _, true);
+                            let len_here = self.internal_mark_deleted_at(&mut unsafe_cursor, next_order, len as _, true);
 
-                            if succeeded {
-                                map.update_from_delete(orig_pos, len_here as _);
-                            } else {
-                                todo!("Add target to map double deletes for correctness")
-                                // map.advance_all_by_range(self, ListPatchItem {
-                                //     range: next_order..next_order + len_here,
-                                //     op_type: InsDelTag::Del,
-                                //     del_target: target
-                                // });
-                            }
+                            // This is wild, but we don't actually care if the delete succeeded. If
+                            // the delete didn't succeed, its because the item was already deleted
+                            // in the main (current) branch. But at this point in time the item
+                            // isn't (can't) have been deleted. So the map will just be modified
+                            // from Inserted -> Upstream.
+                            map.update_from_delete(orig_pos, len_here as _);
 
                             len -= len_here as usize;
                             next_order += len_here;
@@ -1165,6 +1165,29 @@ mod tests {
 
         if let Some(text) = doc.text_content.as_ref() {
             assert_eq!(text, "ax");
+        }
+        doc.check(true);
+
+        // dbg!(&doc);
+    }
+
+    #[test]
+    fn patch_double_delete() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("a"); // 0
+        doc.get_or_create_agent_id("b"); // 1
+
+        doc.local_insert(0, 0, "abc");
+        doc.local_delete(0, 1, 1); // ac
+        doc.local_insert(0, 0, "X"); // Xac
+
+        // Delete the "bc" from "abc"
+        doc.apply_patch_at_version(1, &[PositionalComponent {
+            pos: 1, len: 2, content_known: false, tag: InsDelTag::Del
+        }], "", &[2]); // Xa
+
+        if let Some(text) = doc.text_content.as_ref() {
+            assert_eq!(text, "Xa");
         }
         doc.check(true);
 
