@@ -1,13 +1,12 @@
 use std::mem::take;
-use content_tree::{ContentLength, ContentTreeWithIndex, Cursor, FullIndex, Toggleable};
-use rle::{Searchable, SplitableSpan};
+use content_tree::{ContentLength, ContentTreeWithIndex, Cursors, FullIndex, Toggleable};
+use rle::SplitableSpan;
 
 use crate::list::time::positionmap::MapTag::*;
 use std::pin::Pin;
-use crate::list::{DOC_IE, DOC_LE, DocRangeIndex, DoubleDeleteList, ListCRDT, Order, ROOT_ORDER};
+use crate::list::{DoubleDeleteList, ListCRDT, Order, RangeTree, ROOT_ORDER};
 use crate::list::positional::{InsDelTag, PositionalComponent};
 use std::ops::Range;
-use crate::list::span::YjsSpan;
 use crate::rangeextra::OrderRange;
 use crate::list::time::patchiter::ListPatchItem;
 use crate::list::branch::{branch_eq, branch_is_root};
@@ -254,48 +253,22 @@ impl PositionMap {
         self.map.content_len()
     }
 
-    pub(crate) fn order_before_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize) -> Order {
-        // TODO: This could be optimized via a special method in content-tree in one pass, rather
-        // than traversing down the tree (to make the cursor) and then immediately walking back up
-        // again.
-        if pos == 0 { return ROOT_ORDER; }
-
-        let mut map_cursor = self.map.cursor_at_content_pos(pos - 1, false);
+    pub(crate) fn list_cursor_at_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize, stick_end: bool) -> <&'a RangeTree as Cursors>::Cursor {
+        let mut map_cursor = self.map.cursor_at_content_pos(pos, stick_end);
         // let mut map_cursor = self.map.cursor_at_content_pos(pos, true);
         // map_cursor.move_back_by_offset(1, None);
 
         // If we're in an upstream section the local offset is actually a content offset, and its
         // meaningless here.
-        let content_offset = if map_cursor.get_raw_entry().tag == Upstream {
-            take(&mut map_cursor.offset)
-        } else { 0 };
 
-        let offset_pos = map_cursor.count_offset_pos();
-
-        let mut doc_cursor = list.range_tree.cursor_at_offset_pos(offset_pos, false);
-        if content_offset > 0 {
-            let content_pos = doc_cursor.count_content_pos() + content_offset;
-            doc_cursor = list.range_tree.cursor_at_content_pos(content_pos, false);
-        }
-
-        doc_cursor.get_raw_entry().at_offset(doc_cursor.offset)
-        // doc_cursor
-    }
-
-    pub(crate) fn list_cursor_at_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize) -> Cursor<'a, YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         // TODO: This could be optimized via a special method in content-tree in one pass, rather
         // than traversing down the tree (to make the cursor) and then immediately walking back up
         // again.
-        let mut map_cursor = self.map.cursor_at_content_pos(pos, true);
-
-        // If we're in an upstream section the local offset is actually a content offset, and its
-        // meaningless here.
         let content_offset = if map_cursor.get_raw_entry().tag == Upstream {
             take(&mut map_cursor.offset)
         } else { 0 };
 
         let offset_pos = map_cursor.count_offset_pos();
-
         let mut doc_cursor = list.range_tree.cursor_at_offset_pos(offset_pos, false);
         if content_offset > 0 {
             let content_pos = doc_cursor.count_content_pos() + content_offset;
@@ -303,12 +276,14 @@ impl PositionMap {
         }
 
         // doc_cursor.get_raw_entry().at_offset(doc_cursor.offset)
+        // unsafe { doc_cursor.get_item() }.unwrap()
         doc_cursor
     }
 
-    pub(crate) fn order_at_content_pos(&self, list: &ListCRDT, pos: usize) -> Order {
-        let cursor = self.list_cursor_at_content_pos(list, pos);
-        cursor.get_raw_entry().at_offset(cursor.offset)
+    pub(crate) fn order_at_content_pos(&self, list: &ListCRDT, pos: usize, stick_end: bool) -> Order {
+        let cursor = self.list_cursor_at_content_pos(list, pos, stick_end);
+        // cursor.get_raw_entry().at_offset(cursor.offset)
+        unsafe { cursor.get_item() }.unwrap()
     }
 
         // pub(crate) fn content_pos_to_order(&self, list: &ListCRDT, pos: usize) -> Order {

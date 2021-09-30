@@ -73,6 +73,18 @@ pub struct ContentTreeRaw<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: 
     _pin: marker::PhantomPinned,
 }
 
+// This is a simple helper to make it easier to reference the type of a content tree cursor.
+impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursors for &'a ContentTreeRaw<E, I, IE, LE> {
+    type UnsafeCursor = UnsafeCursor<E, I, IE, LE>;
+    type Cursor = Cursor<'a, E, I, IE, LE>;
+    type MutCursor = MutCursor<'a, E, I, IE, LE>;
+}
+impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursors for &'a Pin<Box<ContentTreeRaw<E, I, IE, LE>>> {
+    type UnsafeCursor = UnsafeCursor<E, I, IE, LE>;
+    type Cursor = Cursor<'a, E, I, IE, LE>;
+    type MutCursor = MutCursor<'a, E, I, IE, LE>;
+}
+
 /// An alias for ContentTreeRaw which uses the default sizes for internal elements.
 pub type ContentTreeWithIndex<E, I> = ContentTreeRaw<E, I, DEFAULT_IE, DEFAULT_LE>;
 pub type ContentTree<E> = ContentTreeRaw<E, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>;
@@ -150,7 +162,7 @@ pub struct UnsafeCursor<E: ContentTraits, I: TreeIndex<E>, const IE: usize, cons
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct Cursor<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
-    inner: UnsafeCursor<E, I, IE, LE>,
+    pub inner: UnsafeCursor<E, I, IE, LE>,
     marker: marker::PhantomData<&'a ContentTreeRaw<E, I, IE, LE>>,
 }
 

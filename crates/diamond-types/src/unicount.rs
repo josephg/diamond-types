@@ -43,6 +43,13 @@ pub fn split_at_char(s: &str, char_pos: usize) -> (&str, &str) {
     s.split_at(chars_to_bytes(s, char_pos))
 }
 
+#[inline]
+pub fn consume_chars<'a>(content: &mut &'a str, len: usize) -> &'a str {
+    let (here, remaining) = split_at_char(*content, len);
+    *content = remaining;
+    here
+}
+
 pub fn bytes_to_chars(s: &str, byte_pos: usize) -> usize {
     ropey::str_utils::byte_to_char_idx(s, byte_pos)
 }

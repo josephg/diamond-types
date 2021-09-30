@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 use crate::rle::RleVec;
 use std::mem::replace;
 use crate::list::external_txn::{RemoteTxn, RemoteCRDTOp};
-use crate::unicount::{split_at_char, chars_to_bytes, count_chars};
+use crate::unicount::{split_at_char, count_chars, consume_chars};
 use crate::list::ot::traversal::TraversalOp;
 use crate::list::ot::transform;
 use diamond_core::*;
@@ -641,10 +641,7 @@ impl ListCRDT {
                     // dbg!(item);
 
                     let ins_content = if c.content_known {
-                        let byte_len = chars_to_bytes(content, len);
-                        let (here, remaining) = content.split_at(byte_len);
-                        content = remaining;
-                        Some(here)
+                        Some(consume_chars(&mut content, len))
                     } else { None };
 
                     self.integrate(agent, item, ins_content, Some(cursor));
@@ -701,7 +698,7 @@ impl ListCRDT {
     pub fn apply_patch_at_version(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str, branch: &[Order]) {
         let map = PositionMap::new_at_version(self, branch);
 
-        dbg!(&map);
+        // dbg!(&map);
         // TODO: Merge this with apply_local_txn
         let first_order = self.get_next_order();
         let mut next_order = first_order;
@@ -724,19 +721,22 @@ impl ListCRDT {
                     next_order += c.len;
 
                     // Find the preceding item and successor
-                    let origin_left = map.order_before_content_pos(self, orig_pos);
-                    // let origin_left = if orig_pos == 0 {
-                    //     // It doesn't matter what the insert map looks like if orig_pos is 0.
-                    //     ROOT_ORDER
-                    // } else {
-                    //     // origin_left is the order of the preceeding item, mapped through map.
-                    //     map.order_before_content_pos(self, orig_pos - 1)
-                    // };
+                    let (origin_left, cursor) = if orig_pos == 0 {
+                        (ROOT_ORDER, self.range_tree.cursor_at_start())
+                    } else {
+                        let mut cursor = map.list_cursor_at_content_pos(self, orig_pos - 1, false);
+                        let origin_left = unsafe { cursor.get_item() }.unwrap();
+                        assert!(cursor.next_item());
+                        (origin_left, cursor)
+                    };
 
                     let origin_right = if orig_pos == map.content_len() {
                         ROOT_ORDER
                     } else {
-                        map.order_at_content_pos(self, orig_pos)
+                        // TODO: stick_end: false here matches the current semantics, but its not
+                        // ideal. Would be better to skip to the next entry that exists for
+                        // renaming.
+                        map.order_at_content_pos(self, orig_pos, true)
                     };
 
                     let item = YjsSpan {
@@ -748,18 +748,17 @@ impl ListCRDT {
                     // dbg!(item);
 
                     let ins_content = if c.content_known {
-                        let byte_len = chars_to_bytes(content, len);
-                        let (here, remaining) = content.split_at(byte_len);
-                        content = remaining;
-                        Some(here)
+                        Some(consume_chars(&mut content, len))
                     } else { None };
 
-                    // TODO: Make & pass an appropriate cursor.
-                    self.integrate(agent, item, ins_content, None);
+                    // This is dirty. The cursor here implicitly references self. Using cursor.inner
+                    // breaks the borrow checking rules.
+                    let inner_cursor = cursor.inner;
+                    self.integrate(agent, item, ins_content, Some(inner_cursor));
                 }
 
                 Del => {
-                    todo!()
+
                     // let deleted_items = self.range_tree.local_deactivate_at_content_notify(orig_pos as usize, len, notify_for(&mut self.index));
                     //
                     // // dbg!(&deleted_items);

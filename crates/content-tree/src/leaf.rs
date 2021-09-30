@@ -45,6 +45,9 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
     /// Find a given text offset within the node.
     ///
     /// Returns (index, offset within entry)
+    ///
+    /// TODO: Add a parameter for figuring out the offset at content length, and pass that in
+    /// from the ContentLength trait.
     pub fn find_offset<F>(&self, mut offset: usize, stick_end: bool, entry_to_num: F) -> Option<(usize, usize)>
         where F: Fn(E) -> usize {
         for i in 0..self.len_entries() {
