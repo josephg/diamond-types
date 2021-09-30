@@ -156,10 +156,18 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Mu
         }
     }
 
+    /// Replace the current entry with the items passed via items[]. Items.len must be <= 3. The
+    /// cursor offset is ignored. This is a fancy method - use sparingly.
     #[inline(always)]
     pub fn replace_entry(&mut self, items: &[E]) {
         unsafe {
             ContentTreeRaw::unsafe_replace_entry_notify(&mut self.inner, items, null_notify);
+        }
+    }
+
+    pub fn replace_entry_simple(&mut self, new_item: E) {
+        unsafe {
+            ContentTreeRaw::unsafe_replace_entry_simple_notify(&mut self.inner, new_item, null_notify);
         }
     }
 }

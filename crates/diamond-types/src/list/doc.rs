@@ -186,6 +186,11 @@ impl ListCRDT {
     pub(crate) fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_before(order)) }
     }
+    #[inline(always)]
+    pub(crate) fn get_mut_cursor_before(&mut self, order: Order) -> MutCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+        let unsafe_cursor = self.get_unsafe_cursor_before(order);
+        unsafe { MutCursor::unchecked_from_raw(&mut self.range_tree, unsafe_cursor) }
+    }
 
     // This does not stick_end to the found item.
     pub(super) fn get_unsafe_cursor_after(&self, order: Order, stick_end: bool) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
@@ -229,6 +234,7 @@ impl ListCRDT {
         span.1.len - span_offset
     }
 
+    // fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
     fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) {
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
@@ -352,6 +358,7 @@ impl ListCRDT {
 
         // Now insert here.
         unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
+        // cursor
     }
 
     // For local changes, where we just take the frontier as the new parents list.
@@ -449,16 +456,32 @@ impl ListCRDT {
         assert_eq!(will_merge, did_merge);
     }
 
-    pub(super) fn internal_mark_deleted(&mut self, order: Order, max_len: u32, update_content: bool) -> (u32, bool) {
-        let cursor = self.get_unsafe_cursor_before(order);
+    pub(super) fn internal_mark_deleted(&mut self, id: Order, target: Order, max_len: u32, update_content: bool) -> (u32, bool) {
+        // TODO: Make this use mut_cursor instead. The problem is notify_for mutably borrows
+        // self.index, and the cursor is borrowing self (rather than self.range_tree).
+        let mut cursor = self.get_unsafe_cursor_before(target);
+        self.internal_mark_deleted_at(&mut cursor, id, max_len, update_content)
+    }
 
-        let (deleted_here, succeeded) = unsafe { ContentTreeRaw::unsafe_remote_deactivate_notify(cursor.clone(), max_len as _, notify_for(&mut self.index)) };
+    pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut <&RangeTree as Cursors>::UnsafeCursor, id: Order, max_len: u32, update_content: bool) -> (u32, bool) {
+        let target = unsafe { cursor.get_item().unwrap() };
+
+        let (deleted_here, succeeded) = unsafe {
+            ContentTreeRaw::unsafe_remote_deactivate_notify(cursor, max_len as _, notify_for(&mut self.index))
+        };
         let deleted_here = deleted_here as u32;
+
+        self.deletes.push(KVPair(id, OrderSpan {
+            order: target,
+            len: deleted_here
+        }));
 
         if !succeeded {
             // This span was already deleted by a different peer. Mark duplicate delete.
-            self.double_deletes.increment_delete_range(order, deleted_here);
+            self.double_deletes.increment_delete_range(target, deleted_here);
         } else if let (Some(text), true) = (&mut self.text_content, update_content) {
+            // The call to remote_deactivate will have modified the cursor, but the content position
+            // will have stayed the same.
             let pos = unsafe { cursor.count_content_pos() as usize };
             text.remove(pos..pos + deleted_here as usize);
         }
@@ -564,17 +587,19 @@ impl ListCRDT {
                         // I could break this into two loops - and here enter an inner loop,
                         // deleting len items. It seems a touch excessive though.
 
-                        let (deleted_here, _) = self.internal_mark_deleted(target_order, len, true);
+                        let (deleted_here, _) = self.internal_mark_deleted(next_order, target_order, len, true);
 
                         // println!(" -> managed to delete {}", deleted_here);
                         remaining_len -= deleted_here;
                         target_seq += deleted_here;
 
                         // This span is locked in once we find the contiguous region of seq numbers.
-                        self.deletes.push(KVPair(next_order, OrderSpan {
-                            order: target_order,
-                            len: deleted_here
-                        }));
+
+                        // handled by internal_mark_deleted.
+                        // self.deletes.push(KVPair(next_order, OrderSpan {
+                        //     order: target_order,
+                        //     len: deleted_here
+                        // }));
                         next_order += deleted_here;
 
                     }
@@ -696,7 +721,7 @@ impl ListCRDT {
     }
 
     pub fn apply_patch_at_version(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str, branch: &[Order]) {
-        let map = PositionMap::new_at_version(self, branch);
+        let mut map = PositionMap::new_at_version(self, branch);
 
         // dbg!(&map);
         // TODO: Merge this with apply_local_txn
@@ -724,7 +749,7 @@ impl ListCRDT {
                     let (origin_left, cursor) = if orig_pos == 0 {
                         (ROOT_ORDER, self.range_tree.cursor_at_start())
                     } else {
-                        let mut cursor = map.list_cursor_at_content_pos(self, orig_pos - 1, false);
+                        let mut cursor = map.list_cursor_at_content_pos(self, orig_pos - 1, false).0;
                         let origin_left = unsafe { cursor.get_item() }.unwrap();
                         assert!(cursor.next_item());
                         (origin_left, cursor)
@@ -753,34 +778,50 @@ impl ListCRDT {
 
                     // This is dirty. The cursor here implicitly references self. Using cursor.inner
                     // breaks the borrow checking rules.
+                    let raw_pos = cursor.count_offset_pos();
+
                     let inner_cursor = cursor.inner;
                     self.integrate(agent, item, ins_content, Some(inner_cursor));
+
+                    // dbg!(&map);
+                    map.update_from_insert(raw_pos, len);
+                    // dbg!(&map);
                 }
 
                 Del => {
+                    // We need to loop here because the deleted span might have been broken up by
+                    // subsequent inserts. We also need to mark double_deletes when they happen.
+                    let mut remaining_len = len;
+                    while remaining_len > 0 {
+                        let (cursor, mut len) = map.list_cursor_at_content_pos(self, orig_pos, false);
+                        debug_assert!(len > 0);
+                        remaining_len -= len;
 
-                    // let deleted_items = self.range_tree.local_deactivate_at_content_notify(orig_pos as usize, len, notify_for(&mut self.index));
-                    //
-                    // // dbg!(&deleted_items);
-                    // let mut deleted_length = 0; // To check.
-                    // for item in deleted_items {
-                    //     self.deletes.push(KVPair(next_order, OrderSpan {
-                    //         order: item.order,
-                    //         len: item.len as u32
-                    //     }));
-                    //     deleted_length += item.len as usize;
-                    //     next_order += item.len as u32;
-                    // }
-                    // // I might be able to relax this, but we'd need to change del_span above.
-                    // assert_eq!(deleted_length, len);
-                    //
-                    // if let Some(ref mut text) = self.text_content {
-                    //     if let Some(deleted_content) = self.deleted_content.as_mut() {
-                    //         let chars = text.chars_at(orig_pos).take(len);
-                    //         deleted_content.extend(chars);
-                    //     }
-                    //     text.remove(orig_pos..orig_pos + len);
-                    // }
+                        let mut unsafe_cursor = cursor.inner;
+
+                        while len > 0 {
+                            // let target = unsafe { unsafe_cursor.get_item().unwrap() };
+                            let (len_here, succeeded) = self.internal_mark_deleted_at(&mut unsafe_cursor, next_order, len as _, true);
+
+                            if succeeded {
+                                map.update_from_delete(orig_pos, len_here as _);
+                            } else {
+                                todo!("Add target to map double deletes for correctness")
+                                // map.advance_all_by_range(self, ListPatchItem {
+                                //     range: next_order..next_order + len_here,
+                                //     op_type: InsDelTag::Del,
+                                //     del_target: target
+                                // });
+                            }
+
+                            len -= len_here as usize;
+                            next_order += len_here;
+                            // The cursor has been updated already by internal_mark_deleted_at.
+
+                            // We don't need to modify orig_pos because the position will be
+                            // unchanged.
+                        }
+                    }
                 }
             }
         }
@@ -1061,7 +1102,7 @@ mod tests {
     }
 
     #[test]
-    fn foo() {
+    fn insert_with_patch_1() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("a"); // 0
         doc.get_or_create_agent_id("b"); // 1
@@ -1085,6 +1126,48 @@ mod tests {
         }
         doc.check(true);
 
-        dbg!(&doc);
+        // dbg!(&doc);
+    }
+
+    #[test]
+    fn del_with_patch_1() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("a"); // 0
+        doc.get_or_create_agent_id("b"); // 1
+
+        doc.local_insert(0, 0, "abc");
+        doc.local_insert(0, 0, "A");
+
+        doc.apply_patch_at_version(1, &[PositionalComponent {
+            pos: 1, len: 1, content_known: false, tag: InsDelTag::Del
+        }], "", &[1]); // when the document had "aa"
+
+        if let Some(text) = doc.text_content.as_ref() {
+            assert_eq!(text, "Aac");
+        }
+        doc.check(true);
+
+        // dbg!(&doc);
+    }
+
+    #[test]
+    fn del_with_patch_extended() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("a"); // 0
+        doc.get_or_create_agent_id("b"); // 1
+
+        doc.local_insert(0, 0, "abc");
+        doc.local_insert(0, 2, "x"); // abxc
+
+        doc.apply_patch_at_version(1, &[PositionalComponent {
+            pos: 1, len: 2, content_known: false, tag: InsDelTag::Del
+        }], "", &[2]); // when the document had "aa"
+
+        if let Some(text) = doc.text_content.as_ref() {
+            assert_eq!(text, "ax");
+        }
+        doc.check(true);
+
+        // dbg!(&doc);
     }
 }

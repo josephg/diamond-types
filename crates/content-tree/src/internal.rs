@@ -24,6 +24,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeIn
     }
 
     /// Finds the child at some given offset. Returns the remaining offset within the found child.
+    /// This is a massive hotspot for the code.
     pub(crate) fn find_child_at_offset<F>(&self, raw_pos: usize, stick_end: bool, offset_to_num: &F)
                                    -> Option<(usize, NodePtr<E, I, IE, LE>)>
             where F: Fn(I::IndexValue) -> usize {
@@ -32,6 +33,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeIn
 
         for idx in 0..self.children.len() {
             let elem = &self.children[idx];
+        // for (idx, elem) in self.children.iter().enumerate() {
             if let Some(elem) = elem.as_ref() {
                 let count = offset_to_num(self.index[idx]);
                 if offset_remaining < count || (stick_end && offset_remaining == count) {

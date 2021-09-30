@@ -263,7 +263,8 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
             }
         }
 
-        let entry = cursor.get_raw_entry_mut();
+        // let entry = cursor.get_raw_entry_mut();
+        let entry = &mut node.data[cursor.idx];
         I::decrement_marker(flush_marker, entry);
 
         if items_idx >= items.len() {
@@ -276,6 +277,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
             I::increment_marker(flush_marker, entry);
 
             cursor.offset = entry.len();
+            // notify(*entry, cursor.node);
 
             // And insert the rest, if there are any.
             Self::insert_internal(&items[items_idx + 1..], cursor, flush_marker, notify);
@@ -289,6 +291,25 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
 
         let mut flush_marker = I::IndexUpdate::default();
         Self::replace_entry(cursor, items, &mut flush_marker, &mut notify);
+        cursor.get_node_mut().flush_index_update(&mut flush_marker);
+    }
+
+    #[inline]
+    unsafe fn replace_entry_simple<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_item: E, flush_marker: &mut I::IndexUpdate, notify: &mut F)
+        where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
+        notify(new_item, cursor.node);
+        cursor.offset = new_item.len();
+        let entry = cursor.get_raw_entry_mut();
+        I::decrement_marker(flush_marker, entry);
+        *entry = new_item;
+        I::increment_marker(flush_marker, entry);
+    }
+
+    pub unsafe fn unsafe_replace_entry_simple_notify<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_item: E, mut notify: N)
+        where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
+
+        let mut flush_marker = I::IndexUpdate::default();
+        Self::replace_entry_simple(cursor, new_item, &mut flush_marker, &mut notify);
         cursor.get_node_mut().flush_index_update(&mut flush_marker);
     }
 
@@ -326,19 +347,24 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
 
         match (a, c) {
             (Some(a), Some(c)) => {
+                let c_len = c.len();
                 Self::replace_entry(cursor, &[a, entry, c], flush_marker, notify);
+                cursor.move_back_by_offset(c_len, Some(flush_marker));
             },
             (Some(a), None) => {
                 Self::replace_entry(cursor, &[a, entry], flush_marker, notify);
             },
             (None, Some(c)) => {
+                let c_len = c.len();
                 Self::replace_entry(cursor, &[entry, c], flush_marker, notify);
+                cursor.move_back_by_offset(c_len, Some(flush_marker));
             },
             (None, None) => {
                 // Short circuit for:
                 // self.replace_entry(&mut cursor, &[entry], &mut flush_marker, &mut notify);
 
-                // TODO: Check if the replacement item can be appended to the previous element
+                // TODO: Check if the replacement item can be appended to the previous element?
+                // Self::replace_entry_simple(cursor, entry, flush_marker, notify);
                 I::decrement_marker(flush_marker, &node.data[cursor.idx]);
                 node.data[cursor.idx] = entry;
                 cursor.offset = replaced_here;
@@ -722,7 +748,7 @@ impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: 
         result
     }
 
-    unsafe fn set_enabled<F>(mut cursor: UnsafeCursor<E, I, IE, LE>, max_len: usize, want_enabled: bool, mut notify: F) -> (usize, bool)
+    unsafe fn set_enabled<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, max_len: usize, want_enabled: bool, mut notify: F) -> (usize, bool)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         cursor.roll_to_next_entry();
@@ -737,7 +763,7 @@ impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: 
             let mut flush_marker = I::IndexUpdate::default();
             let amt_modified = Self::unsafe_mutate_entry_notify(|e| {
                 if want_enabled { e.mark_activated(); } else { e.mark_deactivated(); }
-            }, &mut cursor, max_len, &mut flush_marker, &mut notify);
+            }, cursor, max_len, &mut flush_marker, &mut notify);
 
             cursor.get_node_mut().flush_index_update(&mut flush_marker);
 
@@ -763,13 +789,13 @@ impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: 
     /// TODO: Consider returning / mutating the cursor. Subsequent items will probably be in this
     /// node. It would be marginally faster to find a cursor using a hint, and subsequent deletes
     /// in the txn we're applying will usually be in this node (usually the next item in this node).
-    pub unsafe fn unsafe_remote_deactivate_notify<F>(cursor: UnsafeCursor<E, I, IE, LE>, max_deleted_len: usize, notify: F) -> (usize, bool)
+    pub unsafe fn unsafe_remote_deactivate_notify<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, max_deleted_len: usize, notify: F) -> (usize, bool)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         Self::set_enabled(cursor, max_deleted_len, false, notify)
     }
 
-    pub unsafe fn unsafe_remote_reactivate_notify<F>(cursor: UnsafeCursor<E, I, IE, LE>, max_len: usize, notify: F) -> (usize, bool)
+    pub unsafe fn unsafe_remote_reactivate_notify<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, max_len: usize, notify: F) -> (usize, bool)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         Self::set_enabled(cursor, max_len, true, notify)

@@ -1,5 +1,5 @@
 pub mod history;
 mod txn_trace;
 pub mod positionmap;
-mod patchiter;
+pub mod patchiter;
 mod docpatchiter;

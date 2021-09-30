@@ -253,10 +253,13 @@ impl PositionMap {
         self.map.content_len()
     }
 
-    pub(crate) fn list_cursor_at_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize, stick_end: bool) -> <&'a RangeTree as Cursors>::Cursor {
+    pub(crate) fn list_cursor_at_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize, stick_end: bool) -> (<&'a RangeTree as Cursors>::Cursor, usize) {
         let mut map_cursor = self.map.cursor_at_content_pos(pos, stick_end);
-        // let mut map_cursor = self.map.cursor_at_content_pos(pos, true);
-        // map_cursor.move_back_by_offset(1, None);
+
+        // The max span is used when deleting items. Something thats been inserted can be deleted,
+        // and also something thats been
+        let e = map_cursor.get_raw_entry();
+        let max_span = e.content_len - map_cursor.offset;
 
         // If we're in an upstream section the local offset is actually a content offset, and its
         // meaningless here.
@@ -264,7 +267,7 @@ impl PositionMap {
         // TODO: This could be optimized via a special method in content-tree in one pass, rather
         // than traversing down the tree (to make the cursor) and then immediately walking back up
         // again.
-        let content_offset = if map_cursor.get_raw_entry().tag == Upstream {
+        let content_offset = if e.tag == Upstream {
             take(&mut map_cursor.offset)
         } else { 0 };
 
@@ -277,11 +280,11 @@ impl PositionMap {
 
         // doc_cursor.get_raw_entry().at_offset(doc_cursor.offset)
         // unsafe { doc_cursor.get_item() }.unwrap()
-        doc_cursor
+        (doc_cursor, max_span)
     }
 
     pub(crate) fn order_at_content_pos(&self, list: &ListCRDT, pos: usize, stick_end: bool) -> Order {
-        let cursor = self.list_cursor_at_content_pos(list, pos, stick_end);
+        let cursor = self.list_cursor_at_content_pos(list, pos, stick_end).0;
         // cursor.get_raw_entry().at_offset(cursor.offset)
         unsafe { cursor.get_item() }.unwrap()
     }
@@ -403,6 +406,51 @@ impl PositionMap {
             }
         }
         len
+    }
+
+    pub(crate) fn update_from_delete(&mut self, content_pos: usize, mut len: usize) {
+        let mut cursor = self.map.mut_cursor_at_content_pos(content_pos, false);
+        debug_assert!(len > 0);
+        loop {
+            let e = cursor.get_raw_entry();
+            let len_here = usize::min(len, e.content_len - cursor.inner.offset);
+            debug_assert!(len_here > 0);
+            len -= len_here;
+            match e.tag {
+                NotInsertedYet => panic!(),
+                Inserted => {
+                    cursor.replace_range(PositionRun::new_upstream(0, len_here));
+                }
+                Upstream => {
+                    let new_entry = PositionRun::new_upstream(e.final_len, e.content_len - len_here);
+                    cursor.replace_entry_simple(new_entry);
+                }
+            }
+
+            if len == 0 { break; }
+
+            assert!(cursor.roll_to_next_entry());
+        }
+    }
+
+    /// Note this takes in the position as a raw position, because otherwise we can't distinguish
+    /// where an insert happened amidst a sea of deletes.
+    pub(crate) fn update_from_insert(&mut self, raw_pos: usize, len: usize) {
+        let mut cursor = self.map.mut_cursor_at_offset_pos(raw_pos, true);
+        let e = cursor.get_raw_entry();
+        match e.tag {
+            NotInsertedYet | Inserted => {
+                cursor.insert(PositionRun::new_upstream(len, len));
+            }
+            Upstream => {
+                // Just modify the entry in-place.
+                let new_entry = PositionRun::new_upstream(
+                    e.final_len + len,
+                    e.content_len + len
+                );
+                cursor.replace_entry_simple(new_entry);
+            }
+        }
     }
 
     #[inline]
