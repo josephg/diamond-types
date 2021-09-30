@@ -73,6 +73,12 @@ pub struct ContentTreeRaw<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: 
     _pin: marker::PhantomPinned,
 }
 
+pub trait Cursors {
+    type UnsafeCursor;
+    type Cursor;
+    type MutCursor;
+}
+
 // This is a simple helper to make it easier to reference the type of a content tree cursor.
 impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursors for &'a ContentTreeRaw<E, I, IE, LE> {
     type UnsafeCursor = UnsafeCursor<E, I, IE, LE>;
@@ -149,34 +155,30 @@ pub(crate) enum ParentPtr<E: ContentTraits, I: TreeIndex<E>, const IE: usize, co
 ///
 /// The caller must ensure any reads and mutations through an UnsafeCursor are valid WRT the
 /// mutability and lifetime of the implicitly referenced content tree. Use Cursor and MutCursor.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct UnsafeCursor<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
     node: NonNull<NodeLeaf<E, I, IE, LE>>,
     idx: usize,
     pub offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
 }
 
+#[repr(transparent)]
+#[derive(Clone, Debug)]
+pub struct SafeCursor<R, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+    pub inner: UnsafeCursor<E, I, IE, LE>,
+    marker: marker::PhantomData<R>
+}
+
 /// A cursor into an immutable ContentTree. A cursor is the primary way to read entries in the
 /// content tree. A cursor points to a specific offset at a specific entry in a specific node in
 /// the content tree.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct Cursor<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
-    pub inner: UnsafeCursor<E, I, IE, LE>,
-    marker: marker::PhantomData<&'a ContentTreeRaw<E, I, IE, LE>>,
-}
+pub type Cursor<'a, E, I, const IE: usize, const LE: usize> = SafeCursor<&'a ContentTreeRaw<E, I, IE, LE>, E, I, IE, LE>;
 
 /// A mutable cursor into a ContentTree. Mutable cursors inherit all the functionality of Cursor,
 /// and can also be used to modify the content tree.
 ///
 /// A mutable cursor mutably borrows the content tree. Only one mutable cursor can exist at a time.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct MutCursor<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
-    // TODO: Remove pub(crate).
-    pub inner: UnsafeCursor<E, I, IE, LE>,
-    marker: marker::PhantomData<&'a mut ContentTreeRaw<E, I, IE, LE>>,
-}
+pub type MutCursor<'a, E, I, const IE: usize, const LE: usize> = SafeCursor<&'a mut ContentTreeRaw<E, I, IE, LE>, E, I, IE, LE>;
 
 // I can't use the derive() implementation of this because EntryTraits does not always implement
 // PartialEq.

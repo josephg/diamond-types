@@ -11,20 +11,20 @@ impl<'a, E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const 
 
     fn next(&mut self) -> Option<Self::Item> {
         // I'll set idx to an invalid value
-        if self.0.inner.idx == usize::MAX {
+        if self.0.idx == usize::MAX {
             None
         } else {
             let entry = self.0.get_raw_entry();
             let len = entry.len();
-            let item = entry.at_offset(self.0.inner.offset);
-            self.0.inner.offset += 1;
+            let item = entry.at_offset(self.0.offset);
+            self.0.offset += 1;
 
-            if self.0.inner.offset >= len {
+            if self.0.offset >= len {
                 // Skip to the next entry for the next query.
-                let has_next = self.0.inner.next_entry();
+                let has_next = self.0.next_entry();
                 if !has_next {
                     // We're done.
-                    self.0.inner.idx = usize::MAX;
+                    self.0.idx = usize::MAX;
                 }
             }
             Some(item)

@@ -11,21 +11,31 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cu
     pub unsafe fn unchecked_from_raw(_tree: &'a ContentTreeRaw<E, I, IE, LE>, cursor: UnsafeCursor<E, I, IE, LE>) -> Self {
         Cursor {
             inner: cursor,
-            marker: PhantomData
+            marker: PhantomData,
         }
     }
 
     // TODO: Implement from_raw as well, where we walk up the tree to check the root.
+}
 
+impl<R, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> SafeCursor<R, E, I, IE, LE> {
     // pub fn old_count_pos(&self) -> I::IndexValue {
     //     unsafe { self.inner.old_count_pos() }
     // }
+
     pub fn count_pos_raw<Out, F, G, H>(&self, offset_to_num: F, entry_len: G, entry_len_at: H) -> Out
         where Out: AddAssign + Default, F: Fn(I::IndexValue) -> Out, G: Fn(&E) -> Out, H: Fn(&E, usize) -> Out
     {
         unsafe { self.inner.count_pos_raw(offset_to_num, entry_len, entry_len_at) }
     }
 }
+
+impl<R, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> From<SafeCursor<R, E, I, IE, LE>> for UnsafeCursor<E, I, IE, LE> {
+    fn from(c: SafeCursor<R, E, I, IE, LE>) -> Self {
+        c.inner
+    }
+}
+
 
 impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Deref for Cursor<'a, E, I, IE, LE> {
     type Target = UnsafeCursor<E, I, IE, LE>;
@@ -34,37 +44,53 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> De
         &self.inner
     }
 }
+
 impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> DerefMut for Cursor<'a, E, I, IE, LE> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
+impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Deref for MutCursor<'a, E, I, IE, LE> {
+    type Target = Cursor<'a, E, I, IE, LE>;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> DerefMut for MutCursor<'a, E, I, IE, LE> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+
 impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for Cursor<'a, E, I, IE, LE> {
     type Item = E;
 
     fn next(&mut self) -> Option<Self::Item> {
         // When the cursor is past the end, idx is an invalid value.
-        if self.inner.idx == usize::MAX {
+        if self.idx == usize::MAX {
             return None;
         }
 
         // The cursor is at the end of the current element. Its a bit dirty doing this twice but
         // This will happen for a fresh cursor in an empty document, or when iterating using a
         // cursor made by some other means.
-        if self.inner.idx >= unsafe { self.inner.node.as_ref() }.len_entries() {
-            let has_next = self.inner.next_entry();
+        if self.idx >= unsafe { self.node.as_ref() }.len_entries() {
+            let has_next = self.next_entry();
             if !has_next {
-                self.inner.idx = usize::MAX;
+                self.idx = usize::MAX;
                 return None;
             }
         }
 
-        let current = self.inner.get_raw_entry().clone();
+        let current = self.get_raw_entry().clone();
         // Move the cursor forward preemptively for the next call to next().
-        let has_next = self.inner.next_entry();
+        let has_next = self.next_entry();
         if !has_next {
-            self.inner.idx = usize::MAX;
+            self.idx = usize::MAX;
         }
         Some(current)
     }
@@ -72,13 +98,12 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> It
 
 impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> MutCursor<'a, E, I, IE, LE> {
     pub unsafe fn unchecked_from_raw(_tree: &mut Pin<Box<ContentTreeRaw<E, I, IE, LE>>>, cursor: UnsafeCursor<E, I, IE, LE>) -> Self {
-        MutCursor {
+        // TODO: Check that this is free.
+        Self {
             inner: cursor,
-            marker: PhantomData
+            marker: PhantomData,
         }
     }
-
-    // TODO: Implement from_raw as well.
 
     #[inline(always)]
     pub fn insert_notify<F>(&mut self, new_entry: E, notify: F)
@@ -134,16 +159,6 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Mu
     }
 }
 
-impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Deref for MutCursor<'a, E, I, IE, LE> {
-    type Target = Cursor<'a, E, I, IE, LE>;
-
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        // Safe because cursor types are repr(transparent).
-        unsafe { std::mem::transmute(self) }
-    }
-}
-
 impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     #[inline(always)]
     pub fn cursor_at_start(&self) -> Cursor<E, I, IE, LE> {
@@ -191,32 +206,40 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     }
 }
 
-impl<'a, E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> Cursor<'a, E, I, IE, LE> {
+impl<R, E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> SafeCursor<R, E, I, IE, LE> {
     pub fn count_content_pos(&self) -> usize {
         unsafe { self.inner.count_content_pos() }
         // I::index_to_content(self.old_count_pos())
     }
 }
 
-impl<'a, E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Cursor<'a, E, I, IE, LE> {
+impl<R, E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> SafeCursor<R, E, I, IE, LE> {
     pub fn count_offset_pos(&self) -> usize {
-        unsafe { self.inner.count_offset_pos() }
+        unsafe { self.inner.unsafe_count_offset_pos() }
         // I::index_to_offset(self.old_count_pos())
     }
 }
+
+impl<R, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialEq for SafeCursor<R, E, I, IE, LE> {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.eq(&other.inner)
+    }
+}
+
+impl<R, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Eq for SafeCursor<R, E, I, IE, LE> {}
 
 
 /// NOTE: This comparator will panic when cursors from different range trees are compared.
 ///
 /// Also beware: A cursor pointing to the end of a leaf entry will be considered less than a cursor
 /// pointing to the subsequent entry in the next leaf.
-impl<'a, E: ContentTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for Cursor<'a, E, I, IE, LE> {
+impl<R, E: ContentTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> Ord for SafeCursor<R, E, I, IE, LE> {
     fn cmp(&self, other: &Self) -> Ordering {
         unsafe { self.inner.unsafe_cmp(&other.inner) }
     }
 }
 
-impl<'a, E: ContentTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialOrd for Cursor<'a, E, I, IE, LE> {
+impl<R, E: ContentTraits + Eq, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialOrd<SafeCursor<R, E, I, IE, LE>> for SafeCursor<R, E, I, IE, LE> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }

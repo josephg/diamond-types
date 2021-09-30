@@ -299,6 +299,16 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
     }
 }
 
+// An explicit implementation is needed because the derive macros bound too tightly
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialEq for UnsafeCursor<E, I, IE, LE> {
+    fn eq(&self, other: &Self) -> bool {
+        self.node == other.node && self.idx == other.idx && self.offset == other.offset
+    }
+}
+
+impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Eq for UnsafeCursor<E, I, IE, LE> {}
+
+
 impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub unsafe fn get_item(&self) -> Option<E::Item> {
         // TODO: Optimize this. This is gross.
@@ -362,7 +372,7 @@ impl<E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const
 }
 
 impl<E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
-    pub unsafe fn count_offset_pos(&self) -> usize {
+    pub unsafe fn unsafe_count_offset_pos(&self) -> usize {
         self.count_pos_raw(I::index_to_offset, E::len, |_, off| off)
 
         // I::index_to_offset(self.old_count_pos())

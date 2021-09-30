@@ -4,7 +4,6 @@ use std::ptr::NonNull;
 use rle::Searchable;
 
 use super::*;
-use std::marker::PhantomData;
 
 impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
@@ -246,11 +245,11 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
         )
     }
     
-    pub fn cursor_at_start(&self) -> Cursor<E, I, IE, LE> {
-        // This is safe because you can only reference a leaf while you immutably borrow a
-        // content-tree. The lifetime of the returned cursor should match self.
-        Cursor { inner: self.unsafe_cursor_at_start(), marker: PhantomData }
-    }
+    // pub fn cursor_at_start<'a, 'b: 'a>(&'a self, tree: &'b ContentTreeRaw<E, I, IE, LE>) -> Cursor<E, I, IE, LE> {
+    //     // This is safe because you can only reference a leaf while you immutably borrow a
+    //     // content-tree. The lifetime of the returned cursor should match self.
+    //     unsafe { Cursor::unchecked_from_raw(tree, self.unsafe_cursor_at_start()) }
+    // }
 }
 
 impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
