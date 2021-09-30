@@ -24,9 +24,8 @@ pub struct OrigPatchesIter<'a> {
     // TODO: Consider / try to lower this to a tighter reference.
     list: &'a ListCRDT,
     /// Inside a txn we iterate over each rle patch with this.
-    current_inner: Option<ListPatchIter<'a, true>>,
-
     current_item: ListPatchItem,
+    current_inner: Option<ListPatchIter<'a, true> >, // extra space to work around intellij-rust bug
 }
 
 impl<'a> OrigPatchesIter<'a> {
@@ -35,10 +34,8 @@ impl<'a> OrigPatchesIter<'a> {
             txn_iter: list.txns.txn_spanning_tree_iter(),
             map: PositionMap::new_void(list),
             list,
+            current_item: Default::default(),
             current_inner: None,
-            // current_op_type: Default::default(),
-            // current_target_offset: 0,
-            current_item: Default::default()
         }
     }
 
@@ -87,14 +84,10 @@ impl<'a> Iterator for OrigPatchesIter<'a> {
             debug_assert!(!self.current_item.range.is_empty());
         }
 
-        let (result, len) = self.map.advance_first_by_range(self.list, self.current_item.target_range(), self.current_item.op_type, false);
-        // self.current_item.range.start += len;
-        let consumed_range = self.current_item.range.truncate_keeping_right(len as _);
-        self.current_item.del_target += len; // TODO: Could be avoided by storing the offset...
-        // debug_assert!(result.is_some());
-
-        debug_assert!(len > 0);
-        Some((consumed_range, result.unwrap()))
+        let consumed_start = self.current_item.range.start;
+        let result = self.map.advance_and_consume(self.list, &mut self.current_item);
+        debug_assert!(result.len > 0);
+        Some((consumed_start .. consumed_start + result.len, result))
     }
 }
 

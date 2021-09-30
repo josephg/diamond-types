@@ -14,20 +14,24 @@ pub(crate) struct ListPatchItem {
 
     // This is mostly a matter of convenience, since I'm not pulling out information about inserts.
     // But we find out the del_target to be able to find out if the range is a delete anyway.
-    pub del_target: Order,
+    pub target_start: Order,
 }
 
 impl ListPatchItem {
     pub(crate) fn target_offset(&self) -> Order {
-        match self.op_type {
-            Ins => 0,
-            Del => self.range.start - self.del_target,
-        }
+        self.range.start - self.target_start
     }
 
     pub(crate) fn target_range(&self) -> Range<Order> {
-        let offset = self.target_offset();
-        self.range.start - offset .. self.range.end - offset
+        // let offset = self.target_offset();
+        // self.range.start - offset .. self.range.end - offset
+        self.target_start .. self.target_start + self.range.order_len()
+    }
+
+    pub(super) fn consume(&mut self, len: Order) {
+        debug_assert!(len <= self.range.order_len());
+        self.range.start += len;
+        self.target_start += len;
     }
 }
 
@@ -70,13 +74,13 @@ impl<'a> ListPatchIter<'a, true> {
                     debug_assert!(d.0 <= self.range.start && self.range.start < d.end());
 
                     let offset = self.range.start - d.0;
-                    let del_target = d.1.order + offset;
+                    let target_start = d.1.order + offset;
 
                     let end = u32::min(self.range.end, d.end());
                     Some(ListPatchItem {
                         range: self.range.start..end,
                         op_type: Del,
-                        del_target
+                        target_start
                     })
                 },
                 Err(next_del) => {
@@ -85,7 +89,7 @@ impl<'a> ListPatchIter<'a, true> {
                     Some(ListPatchItem {
                         range: self.range.start..end,
                         op_type: Ins,
-                        del_target: 0,
+                        target_start: self.range.start,
                     })
                 }
             }
@@ -108,12 +112,12 @@ impl<'a> ListPatchIter<'a, false> {
                     let start = u32::max(self.range.start, d.0);
                     debug_assert!(start < self.range.end);
                     let offset = start - d.0;
-                    let del_target = d.1.order + offset;
+                    let target_start = d.1.order + offset;
 
                     Some(ListPatchItem {
                         range: start..self.range.end,
                         op_type: Del,
-                        del_target
+                        target_start
                     })
                 },
                 Err(last_del) => {
@@ -123,7 +127,7 @@ impl<'a> ListPatchIter<'a, false> {
                     Some(ListPatchItem {
                         range: start..self.range.end,
                         op_type: Ins,
-                        del_target: 0,
+                        target_start: start,
                     })
                 }
             }
@@ -193,8 +197,8 @@ mod test {
         doc.local_delete(0, 2, 6);
 
         assert_doc_patches_match(&doc, 0..doc.get_next_order(), &[
-            ListPatchItem { range: 0..8, op_type: Ins, del_target: 0 },
-            ListPatchItem { range: 8..14, op_type: Del, del_target: 2 }
+            ListPatchItem { range: 0..8, op_type: Ins, target_start: 0 },
+            ListPatchItem { range: 8..14, op_type: Del, target_start: 2 }
         ]);
     }
 }

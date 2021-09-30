@@ -408,64 +408,29 @@ impl PositionMap {
         len
     }
 
-    pub(crate) fn update_from_delete(&mut self, content_pos: usize, mut len: usize) {
-        let mut cursor = self.map.mut_cursor_at_content_pos(content_pos, false);
-        debug_assert!(len > 0);
-        loop {
-            let e = cursor.get_raw_entry();
-            let len_here = usize::min(len, e.content_len - cursor.inner.offset);
-            debug_assert!(len_here > 0);
-            len -= len_here;
-            match e.tag {
-                NotInsertedYet => panic!(),
-                Inserted => {
-                    cursor.replace_range(PositionRun::new_upstream(0, len_here));
-                }
-                Upstream => {
-                    let new_entry = PositionRun::new_upstream(e.final_len, e.content_len - len_here);
-                    cursor.replace_entry_simple(new_entry);
-                }
-            }
-
-            if len == 0 { break; }
-
-            assert!(cursor.roll_to_next_entry());
-        }
-    }
-
-    /// Note this takes in the position as a raw position, because otherwise we can't distinguish
-    /// where an insert happened amidst a sea of deletes.
-    pub(crate) fn update_from_insert(&mut self, raw_pos: usize, len: usize) {
-        let mut cursor = self.map.mut_cursor_at_offset_pos(raw_pos, true);
-        let e = cursor.get_raw_entry();
-        match e.tag {
-            NotInsertedYet | Inserted => {
-                cursor.insert(PositionRun::new_upstream(len, len));
-            }
-            Upstream => {
-                // Just modify the entry in-place.
-                let new_entry = PositionRun::new_upstream(
-                    e.final_len + len,
-                    e.content_len + len
-                );
-                cursor.replace_entry_simple(new_entry);
-            }
-        }
-    }
-
     #[inline]
-    pub(super) fn advance_all_by_range(&mut self, list: &ListCRDT, patch: ListPatchItem) {
-        let mut target = patch.target_range();
-        while !target.is_empty() {
-            let len = self.advance_first_by_range(list, target.clone(), patch.op_type, true).1;
-            target.start += len;
-            debug_assert!(target.start <= target.end);
+    pub(super) fn advance_all_by_range(&mut self, list: &ListCRDT, mut patch: ListPatchItem) {
+        while !patch.range.is_empty() {
+            let (final_tag, raw_range) = self.order_to_raw(list, patch.target_start);
+            self.advance_first_by_range_internal(list, raw_range, final_tag, &mut patch, true);
+            debug_assert!(patch.target_start <= patch.range.start);
         }
     }
 
-    #[inline(always)]
-    pub(super) fn advance_first_by_range(&mut self, list: &ListCRDT, target: Range<Order>, op_type: InsDelTag, handle_dd: bool) -> (Option<PositionalComponent>, Order) {
-        let (final_tag, raw_range) = self.order_to_raw(list, target.start);
+    pub(super) fn advance_and_consume(&mut self, list: &ListCRDT, patch: &mut ListPatchItem) -> PositionalComponent {
+        let (final_tag, raw_range) = self.order_to_raw(list, patch.target_start);
+        self.advance_first_by_range_internal(list, raw_range, final_tag, patch, false).unwrap()
+    }
+
+    // pub(super) fn advance_first_by_range_with_content(&mut self, list: &ListCRDT, target: Range<Order>, op_type: InsDelTag) -> (PositionalComponent, Order) {
+    //     let (final_tag, raw_range) = self.order_to_raw(list, target.start);
+    //     self.advance_first_by_range_internal(list, raw_range, final_tag, target, op_type, false)
+    // }
+
+    fn advance_first_by_range_internal(&mut self, list: &ListCRDT, raw_range: Range<Order>, final_tag: InsDelTag, patch: &mut ListPatchItem, handle_dd: bool) -> Option<PositionalComponent> {
+        let target = patch.target_range();
+        let op_type = patch.op_type;
+
         let raw_start = raw_range.start;
         let mut len = Order::min(raw_range.order_len(), target.order_len());
 
@@ -482,7 +447,8 @@ impl PositionMap {
                 debug_assert!(len > 0);
                 if e.tag == Upstream { // This can never happen while consuming. Only while advancing.
                     self.double_deletes.increment_delete_range(target.start, len);
-                    return (None, len);
+                    patch.consume(len);
+                    return None;
                 }
             } else {
                 // When the insert was created, the content must exist in the document.
@@ -508,15 +474,58 @@ impl PositionMap {
             cursor.replace_range(PositionRun::new_ins(len as _));
         }
 
-        // println!("{} {} {}", self.map.count_entries(), self.map.count_nodes().1, self.map.iter().count());
-        // dbg!(("after advance", self.map.iter().collect::<Vec<_>>()));
-
-        (Some(PositionalComponent {
+        patch.consume(len);
+        Some(PositionalComponent {
             pos: content_pos,
             len,
             content_known: false, // TODO: Add support for content
             tag: op_type.into(),
-        }), len)
+        })
+    }
+
+    /// Note this takes in the position as a raw position, because otherwise we can't distinguish
+    /// where an insert happened amidst a sea of deletes.
+    pub(crate) fn update_from_insert(&mut self, raw_pos: usize, len: usize) {
+        let mut cursor = self.map.mut_cursor_at_offset_pos(raw_pos, true);
+        let e = cursor.get_raw_entry();
+        match e.tag {
+            NotInsertedYet | Inserted => {
+                cursor.insert(PositionRun::new_upstream(len, len));
+            }
+            Upstream => {
+                // Just modify the entry in-place.
+                let new_entry = PositionRun::new_upstream(
+                    e.final_len + len,
+                    e.content_len + len
+                );
+                cursor.replace_entry_simple(new_entry);
+            }
+        }
+    }
+
+    pub(crate) fn update_from_delete(&mut self, content_pos: usize, mut len: usize) {
+        let mut cursor = self.map.mut_cursor_at_content_pos(content_pos, false);
+        debug_assert!(len > 0);
+        loop {
+            let e = cursor.get_raw_entry();
+            let len_here = usize::min(len, e.content_len - cursor.inner.offset);
+            debug_assert!(len_here > 0);
+            len -= len_here;
+            match e.tag {
+                NotInsertedYet => panic!(),
+                Inserted => {
+                    cursor.replace_range(PositionRun::new_upstream(0, len_here));
+                }
+                Upstream => {
+                    let new_entry = PositionRun::new_upstream(e.final_len, e.content_len - len_here);
+                    cursor.replace_entry_simple(new_entry);
+                }
+            }
+
+            if len == 0 { break; }
+
+            assert!(cursor.roll_to_next_entry());
+        }
     }
 
     pub(crate) fn check(&self) {
