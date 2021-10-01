@@ -80,6 +80,15 @@ struct RemoteTxnsIter<'a> {
     span: OrderSpan,
 }
 
+impl RemoteIdSpan {
+    pub(crate) fn end(&self) -> RemoteId {
+        RemoteId {
+            agent: self.id.agent.clone(),
+            seq: self.id.seq + self.len
+        }
+    }
+}
+
 impl RemoteCRDTOp {
     fn len(&self) -> u32 {
         match self {
@@ -198,9 +207,12 @@ impl ListCRDT {
         self.crdt_id_to_remote(crdt_loc)
     }
 
-    pub(crate) fn order_to_remote_id_span(&self, order: Order, max_size: u32) -> (RemoteId, u32) {
+    pub(crate) fn order_to_remote_id_span(&self, order: Order, max_size: u32) -> RemoteIdSpan {
         let crdt_span = self.get_crdt_span(order, max_size);
-        (self.crdt_id_to_remote(crdt_span.loc), crdt_span.len)
+        RemoteIdSpan {
+            id: self.crdt_id_to_remote(crdt_span.loc),
+            len: crdt_span.len
+        }
     }
 
     /// Get the current vector clock. This includes the version for each agent which has ever
@@ -346,7 +358,7 @@ impl ListCRDT {
         assert!(txn_len > 0);
 
         // Limit by #3
-        let (id, txn_len) = self.order_to_remote_id_span(span.order, txn_len);
+        let RemoteIdSpan { id, len: txn_len } = self.order_to_remote_id_span(span.order, txn_len);
 
         let mut ops: SmallVec<[RemoteCRDTOp; 2]> = SmallVec::new();
         let mut txn_offset = 0; // Offset into the txn.
@@ -366,7 +378,7 @@ impl ListCRDT {
                 // Limit by #4
                 let len_limit_2 = u32::min(d.1.len - offset, len_remaining);
                 // Limit by #5
-                let (id, len) = self.order_to_remote_id_span(d.1.order + offset, len_limit_2);
+                let RemoteIdSpan { id, len } = self.order_to_remote_id_span(d.1.order + offset, len_limit_2);
                 // dbg!((&id, len));
                 (RemoteCRDTOp::Del { id, len }, len)
             } else {

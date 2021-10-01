@@ -15,7 +15,7 @@ use crate::list::time::positionmap::PositionMap;
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct PositionalOpWalk {
     pub components: SmallVec<[PositionalComponent; 1]>,
-    pub origin_order: SmallVec<[Range<Order>; 1]>,
+    pub origin_order: SmallVec<[Range<Order>; 2]>,
     pub content: SmartString,
 }
 
@@ -83,7 +83,6 @@ impl<'a> OrigPatchesIter<'a> {
             }
         }
 
-        // self.consuming = walk.consume;
         debug_assert!(!walk.consume.is_empty());
         let mut inner = self.list.patch_iter_in_range(walk.consume);
         let next = inner.next();
@@ -123,8 +122,6 @@ impl<'a> OrigPatchesIter<'a> {
 
         result
     }
-
-    // pub fn next_with_content(&mut self) ->
 }
 
 impl<'a> Iterator for OrigPatchesIter<'a> {
@@ -185,11 +182,6 @@ mod test {
         doc.local_insert(0, 0, "hi there");
         doc.local_delete(0, 2, 3); // hiere
 
-        // for _i in 0..10 {
-        //     doc.local_insert(0, 0, "xy");
-        // }
-
-        // dbg!(doc.patch_iter().collect::<Vec<_>>());
         assert!(doc.patch_iter().eq([
             ListPatchItem {
                 range: 0..8,
@@ -261,15 +253,15 @@ mod test {
     #[test]
     fn forwards_backwards() {
         let mut doc = ListCRDT::new();
-        doc.get_or_create_agent_id("seph");
+        doc.get_or_create_agent_id("a");
         doc.local_insert(0, 0, "aa");
         doc.local_insert(0, 1, "bb"); // abba
 
         doc.apply_remote_txn(&RemoteTxn {
-            id: RemoteId { agent: "a".into(), seq: 0 },
-            parents: smallvec![RemoteId { agent: "seph".into(), seq: 2 }],
+            id: RemoteId { agent: "b".into(), seq: 0 },
+            parents: smallvec![RemoteId { agent: "a".into(), seq: 2 }],
             ops: smallvec![RemoteCRDTOp::Del {
-                id: RemoteId { agent: "seph".into(), seq: 1 }, // delete the last a
+                id: RemoteId { agent: "a".into(), seq: 1 }, // delete the last a
                 len: 1
             }],
             ins_content: "".into(),
