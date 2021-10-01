@@ -18,13 +18,7 @@ pub(crate) struct ListPatchItem {
 }
 
 impl ListPatchItem {
-    pub(crate) fn target_offset(&self) -> Order {
-        self.range.start - self.target_start
-    }
-
     pub(crate) fn target_range(&self) -> Range<Order> {
-        // let offset = self.target_offset();
-        // self.range.start - offset .. self.range.end - offset
         self.target_start .. self.target_start + self.range.order_len()
     }
 
@@ -32,6 +26,10 @@ impl ListPatchItem {
         debug_assert!(len <= self.range.order_len());
         self.range.start += len;
         self.target_start += len;
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.range.is_empty()
     }
 }
 

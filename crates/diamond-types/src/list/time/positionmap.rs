@@ -1,7 +1,9 @@
+use std::iter::FromIterator;
 use std::mem::take;
-use content_tree::{ContentLength, ContentTreeWithIndex, Cursors, FullIndex, Toggleable};
+use content_tree::{ContentLength, ContentTreeWithIndex, Cursors, FullIndex, Pair, Toggleable};
 use rle::SplitableSpan;
 
+use smartstring::alias::{String as SmartString};
 use crate::list::time::positionmap::MapTag::*;
 use std::pin::Pin;
 use crate::list::{DoubleDeleteList, ListCRDT, Order, RangeTree, ROOT_ORDER};
@@ -249,6 +251,23 @@ impl PositionMap {
         (tag, base..(base + e.order_len() - cursor.offset as Order))
     }
 
+    pub(super) fn order_to_raw_and_content_len(&self, list: &ListCRDT, order: Order) -> (InsDelTag, Range<Order>, Option<Order>) {
+        // This is a modified version of order_to_raw, above. I'm not just reusing the same code
+        // because of expected perf, but TODO: Reuse code more! :p
+        let cursor = list.get_cursor_before(order);
+        let Pair(base, content_pos) = unsafe { cursor.count_pos() };
+        debug_assert_eq!(base, cursor.count_offset_pos() as Order);
+
+        let e = cursor.get_raw_entry();
+        let range = base..(base + e.order_len() - cursor.offset as Order);
+
+        if e.is_activated() {
+            (InsDelTag::Ins, range, Some(content_pos))
+        } else {
+            (InsDelTag::Del, range, None)
+        }
+    }
+
     pub(crate) fn content_len(&self) -> usize {
         self.map.content_len()
     }
@@ -412,22 +431,33 @@ impl PositionMap {
     pub(super) fn advance_all_by_range(&mut self, list: &ListCRDT, mut patch: ListPatchItem) {
         while !patch.range.is_empty() {
             let (final_tag, raw_range) = self.order_to_raw(list, patch.target_start);
-            self.advance_first_by_range_internal(list, raw_range, final_tag, &mut patch, true);
+            self.advance_first_by_range_internal(raw_range, final_tag, &mut patch, true);
             debug_assert!(patch.target_start <= patch.range.start);
         }
     }
 
     pub(super) fn advance_and_consume(&mut self, list: &ListCRDT, patch: &mut ListPatchItem) -> PositionalComponent {
         let (final_tag, raw_range) = self.order_to_raw(list, patch.target_start);
-        self.advance_first_by_range_internal(list, raw_range, final_tag, patch, false).unwrap()
+        self.advance_first_by_range_internal(raw_range, final_tag, patch, false).unwrap()
     }
 
-    // pub(super) fn advance_first_by_range_with_content(&mut self, list: &ListCRDT, target: Range<Order>, op_type: InsDelTag) -> (PositionalComponent, Order) {
-    //     let (final_tag, raw_range) = self.order_to_raw(list, target.start);
-    //     self.advance_first_by_range_internal(list, raw_range, final_tag, target, op_type, false)
-    // }
+    // TODO: This method could work taking in a content_builder parameter, but I have no idea how
+    // that impacts performance. Benchmark me!
+    // pub(super) fn advance_and_consume_with_content(&mut self, list: &ListCRDT, patch: &mut ListPatchItem, content_builder: &mut SmartString) -> PositionalComponent {
+    pub(super) fn advance_and_consume_with_content(&mut self, list: &ListCRDT, patch: &mut ListPatchItem) -> (PositionalComponent, Option<SmartString>) {
+        let (final_tag, raw_range, content_pos) = self.order_to_raw_and_content_len(list, patch.target_start);
+        let mut c = self.advance_first_by_range_internal(raw_range, final_tag, patch, false).unwrap();
+        if let (Some(content_pos), Some(rope)) = (content_pos, &list.text_content) {
+            c.content_known = true;
+            let chars = rope
+                .chars_at(content_pos as usize)
+                .take(c.len as usize);
+            (c, Some(SmartString::from_iter(chars)))
+            // content_builder.extend(chars.take(c.len as usize));
+        } else { (c, None) }
+    }
 
-    fn advance_first_by_range_internal(&mut self, list: &ListCRDT, raw_range: Range<Order>, final_tag: InsDelTag, patch: &mut ListPatchItem, handle_dd: bool) -> Option<PositionalComponent> {
+    fn advance_first_by_range_internal(&mut self, raw_range: Range<Order>, final_tag: InsDelTag, patch: &mut ListPatchItem, handle_dd: bool) -> Option<PositionalComponent> {
         let target = patch.target_range();
         let op_type = patch.op_type;
 
@@ -474,11 +504,12 @@ impl PositionMap {
             cursor.replace_range(PositionRun::new_ins(len as _));
         }
 
+        debug_assert!(len > 0);
         patch.consume(len);
         Some(PositionalComponent {
             pos: content_pos,
             len,
-            content_known: false, // TODO: Add support for content
+            content_known: false,
             tag: op_type.into(),
         })
     }
