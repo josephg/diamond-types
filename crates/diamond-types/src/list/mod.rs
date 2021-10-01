@@ -30,7 +30,7 @@ mod encoding;
 mod check;
 mod ot;
 mod branch;
-mod time;
+pub mod time;
 pub mod positional;
 
 // #[cfg(inlinerope)]

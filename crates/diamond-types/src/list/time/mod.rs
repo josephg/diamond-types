@@ -3,4 +3,4 @@ mod txn_trace;
 pub mod positionmap;
 pub mod patchiter;
 mod docpatchiter;
-mod external_patches;
+pub mod external_patches;
