@@ -9,7 +9,7 @@ lto = true
 codegen-units = 1
 #panic = "abort"
 
-[profile.release.package.diamond-js]
+[profile.release.package.diamond-wasm]
 opt-level = 3
 #opt-level = "s"
 #debugging = true

@@ -1,5 +1,5 @@
 [package]
-name = "diamond-js"
+name = "diamond-wasm"
 version = "0.1.0"
 authors = ["Seph Gentle <me@josephg.com>"]
 edition = "2018"
