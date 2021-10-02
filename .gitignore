@@ -1,2 +1,4 @@
 /target
 Cargo.lock
+node_modules
+vis/build
