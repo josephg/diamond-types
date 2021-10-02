@@ -34,7 +34,7 @@ pub struct RemoteId {
 pub struct RemoteIdSpan {
     // This flattens the structure, but for some reason then it uses a JS map instead of an object
     // :/
-    #[cfg_attr(feature = "serde", serde(flatten))]
+    // #[cfg_attr(feature = "serde", serde(flatten))]
     pub id: RemoteId,
     pub len: u32,
 }

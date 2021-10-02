@@ -165,4 +165,11 @@ impl Doc {
         serde_wasm_bindgen::to_value(&entries)
             .map_err(|err| err.into())
     }
+
+    #[wasm_bindgen]
+    pub fn as_positional_patch(&self) -> Result<JsValue, JsValue> {
+        let patch = self.inner.as_external_patch();
+        serde_wasm_bindgen::to_value(&patch)
+            .map_err(|err| err.into())
+    }
 }
