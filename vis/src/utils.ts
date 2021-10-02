@@ -83,9 +83,9 @@ export const getEnhancedEntries = (value: string, rle: boolean, doc: Doc) => {
     entries = entries.flatMap(e => {
       const result = []
       let left = e.origin_left
-      for (let i = 0; i < e.len; i++) {
+      for (let i = 0; i < Math.abs(e.len); i++) {
         result.push({
-          len: 1,
+          len: 1 * Math.sign(e.len),
           order: e.order + i,
           origin_left: left,
           origin_right: e.origin_right,
