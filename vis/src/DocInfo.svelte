@@ -6,11 +6,13 @@ export let doc: Doc
 
 export let entries: EnhancedEntries[]
 
+export let rleItems: boolean = true
+
 type TabName = 'info' | 'space' | 'time-crdt' | 'time-pos'
 
 // let tabName: TabName = 'time-crdt'
-let tabName: TabName = 'info'
-// let tabName: TabName = 'space'
+// let tabName: TabName = 'info'
+let tabName: TabName = 'space'
 
 const setTab = (name: TabName) => (e: MouseEvent) => {
   tabName = name
@@ -26,6 +28,11 @@ const bgOrderColor = (order: number | string) => (
 const fgOrderColor = (order: number | string) => (
   order === 'ROOT' ? 'white' : 'black'
 )
+
+$: {
+  console.log('rle info', rleItems);
+}
+
 
 // $: console.log(doc.get_internal_list_entries())
 
@@ -70,6 +77,14 @@ const fgOrderColor = (order: number | string) => (
         </li>
       </ul>
     {:else if tabName === 'space'}
+      {#if entries.length > 0}
+        <div class="options">
+          <label>
+            <input type=checkbox bind:checked={rleItems}>
+            RLE items
+          </label>
+        </div>
+      {/if}
       <div class="spaceEntries">
         {#each entries as entry (entry.order)}
           <div style="background: {entry.color};">
@@ -161,10 +176,19 @@ a {
   line-height: 1.4;
   height: 100%;
   overflow-y: auto;
+  position: relative;
 }
 
 .content > * {
   margin: 5px;
+}
+
+.options {
+  position: absolute;
+  right: 0;
+  padding: 10px;
+  border-radius: 5px;
+  background-color: #222;
 }
 
 

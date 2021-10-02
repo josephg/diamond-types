@@ -18,6 +18,7 @@
     /* Additional Options */
     "strict": true,
     "skipLibCheck": true,
+    "lib": ["DOM", "esnext"],
     "types": ["svelte", "snowpack-env"],
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,

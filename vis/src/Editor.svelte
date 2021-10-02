@@ -59,11 +59,15 @@ $: {
   }
 }
 
-
+let rleItems: boolean = true
 let entries: EnhancedEntries[]
 
 $: {
-  entries = getEnhancedEntries(value, doc)
+  console.log('rle editor', rleItems);
+}
+
+$: {
+  entries = getEnhancedEntries(value, rleItems, doc)
   // console.log(JSON.stringify(entries))
 }
 
@@ -84,7 +88,7 @@ $: {
     placeholder="User {name} (type here)"
   ></textarea>
 </div>
-<DocInfo {doc} {entries} />
+<DocInfo {doc} {entries} bind:rleItems={rleItems} />
 
 <style>
 

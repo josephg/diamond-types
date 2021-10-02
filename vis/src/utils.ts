@@ -74,9 +74,29 @@ export type EnhancedEntries = YjsEntry & {
   originRight: number | string,
 }
 
-export const getEnhancedEntries = (value: string, doc: Doc) => {
+export const getEnhancedEntries = (value: string, rle: boolean, doc: Doc) => {
   let str = [...value]
-  return (doc.get_internal_list_entries() as YjsEntry[])
+  let entries = doc.get_internal_list_entries() as YjsEntry[]
+
+  if (!rle) {
+    // Split each item
+    entries = entries.flatMap(e => {
+      const result = []
+      let left = e.origin_left
+      for (let i = 0; i < e.len; i++) {
+        result.push({
+          len: 1,
+          order: e.order + i,
+          origin_left: left,
+          origin_right: e.origin_right,
+        })
+        left = i
+      }
+      return result
+    })
+  }
+
+  return entries
     // .filter(e => e.len > 0)
     .map((e, x) => ({
       ...e,
