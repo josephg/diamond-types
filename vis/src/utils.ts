@@ -1,4 +1,4 @@
-import type { Doc } from "../../crates/diamond-wasm/pkg/diamond_wasm";
+import type { Doc } from "diamond-wasm";
 
 export type DiffResult = {pos: number, del: number, ins: string}
 

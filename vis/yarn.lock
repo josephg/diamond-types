@@ -23,6 +23,15 @@
     chalk "^2.0.0"
     js-tokens "^4.0.0"
 
+"@emily-curry/snowpack-plugin-wasm-pack@^1.1.4":
+  version "1.1.4"
+  resolved "https://registry.yarnpkg.com/@emily-curry/snowpack-plugin-wasm-pack/-/snowpack-plugin-wasm-pack-1.1.4.tgz#85f476ed64a016acaf518eb0c645f811665abc6b"
+  integrity sha512-KyKP0Y6J3r9PBbANAu0vljhj8sUHMS2USXLf+X+Go0Z9O/dZhMnyCI/Um7Q9YbOJbjCA+ANTODwqiEgzKeEPmQ==
+  dependencies:
+    execa "^5.0.0"
+    npm-run-path "^4.0.1"
+    toml "^3.0.0"
+
 "@gar/promisify@^1.0.1":
   version "1.1.2"
   resolved "https://registry.npmjs.org/@gar/promisify/-/promisify-1.1.2.tgz"
@@ -2583,15 +2592,6 @@ smart-buffer@^4.1.0:
   resolved "https://registry.npmjs.org/smart-buffer/-/smart-buffer-4.2.0.tgz"
   integrity sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==
 
-snowpack-plugin-wasm-pack@^1.1.0:
-  version "1.1.0"
-  resolved "https://registry.npmjs.org/snowpack-plugin-wasm-pack/-/snowpack-plugin-wasm-pack-1.1.0.tgz"
-  integrity sha512-UvAdsrn2VhF28BAYmWmyUnhepbljd2nTmh6e1lb9TCBWi/KVLUwURv1S+VYHdBUdDoyjLBOVP4wM+M+pvqFAoA==
-  dependencies:
-    execa "^5.0.0"
-    npm-run-path "^4.0.1"
-    toml "^3.0.0"
-
 snowpack@^3.8.7:
   version "3.8.8"
   resolved "https://registry.npmjs.org/snowpack/-/snowpack-3.8.8.tgz"
@@ -2817,7 +2817,7 @@ to-regex-range@^5.0.1:
 
 toml@^3.0.0:
   version "3.0.0"
-  resolved "https://registry.npmjs.org/toml/-/toml-3.0.0.tgz"
+  resolved "https://registry.yarnpkg.com/toml/-/toml-3.0.0.tgz#342160f1af1904ec9d204d03a5d61222d762c5ee"
   integrity sha512-y/mWCZinnvxjTKYhJ+pYxwD0mRLVvOtdS2Awbgxln6iEnt4rk0yBxeSBHkGJcPucRiG0e55mwWp+g/05rsrd6w==
 
 tough-cookie@~2.5.0:

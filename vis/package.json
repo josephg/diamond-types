@@ -7,13 +7,13 @@
     "svelte": "^3.37.0"
   },
   "devDependencies": {
+    "@emily-curry/snowpack-plugin-wasm-pack": "^1.1.4",
     "@snowpack/plugin-dotenv": "^2.2.0",
     "@snowpack/plugin-svelte": "^3.6.1",
     "@snowpack/plugin-typescript": "^1.2.1",
     "@tsconfig/svelte": "^2.0.1",
     "@types/snowpack-env": "^2.3.3",
     "snowpack": "^3.8.7",
-    "snowpack-plugin-wasm-pack": "^1.1.0",
     "svelte-preprocess": "^4.7.2",
     "typescript": "^4.3.4"
   }
