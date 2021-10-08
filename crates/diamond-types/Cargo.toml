@@ -28,7 +28,7 @@ num_enum = "0.5"
 [dev-dependencies]
 criterion = "^0.3"
 rand = { version = "^0.8", features = ["small_rng"] }
-crdt-testdata = { path = "../testdata" }
+crdt-testdata = { path = "../crdt-testdata" }
 
 # For OT fuzz data tests
 json_minimal = "0.1.3"

@@ -7,6 +7,7 @@ use serde::Deserialize;
 /// This file contains some simple helpers for loading test data. Its used by benchmarking and
 /// testing code.
 
+/// (position, delete length, insert content).
 #[derive(Debug, Clone, Deserialize)]
 pub struct TestPatch(pub usize, pub usize, pub String);
 
@@ -38,6 +39,7 @@ impl TestData {
     }
 }
 
+// TODO: Make a try_ version of this method, which returns an appropriate Error object.
 pub fn load_testing_data(filename: &str) -> TestData {
     // let start = SystemTime::now();
     // let mut file = File::open("benchmark_data/automerge-paper.json.gz").unwrap();
