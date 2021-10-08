@@ -1,4 +1,4 @@
-use crate::SplitableSpan;
+use crate::MergableSpan;
 
 /// This is an iterator composer which wraps any iterator over a SplitableSpan to become an
 /// iterator over those same items in run-length order.
@@ -25,7 +25,7 @@ impl<I: Iterator> MergeIter<I> {
 impl<I, X> Iterator for MergeIter<I>
 where
     I: Iterator<Item = X>,
-    X: SplitableSpan
+    X: MergableSpan
 {
     type Item = X;
 
@@ -58,12 +58,12 @@ where
     }
 }
 
-pub trait MergeableIterator<X: SplitableSpan>: Iterator<Item = X> where Self: Sized {
+pub trait MergeableIterator<X: MergableSpan>: Iterator<Item = X> where Self: Sized {
     fn merge_spans(self) -> MergeIter<Self>;
 }
 
 impl<X, I> MergeableIterator<X> for I
-where I: Iterator<Item=X>, X: SplitableSpan, Self: Sized
+where I: Iterator<Item=X>, X: MergableSpan, Self: Sized
 {
     fn merge_spans(self) -> MergeIter<Self> {
         MergeIter::new(self)

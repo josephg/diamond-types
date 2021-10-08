@@ -1,5 +1,4 @@
-use rle::Searchable;
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 
 use content_tree::ContentLength;
 use content_tree::Toggleable;
@@ -45,9 +44,12 @@ impl YjsSpan {
     }
 }
 
-impl SplitableSpan for YjsSpan {
+impl HasLength for YjsSpan {
     #[inline(always)]
     fn len(&self) -> usize { self.len.abs() as usize }
+}
+
+impl SplitableSpan for YjsSpan {
 
     fn truncate(&mut self, at: usize) -> Self {
         debug_assert!(at > 0);
@@ -62,7 +64,9 @@ impl SplitableSpan for YjsSpan {
         self.len = at_signed;
         other
     }
+}
 
+impl MergableSpan for YjsSpan {
     // Could have a custom truncate_keeping_right method here - I once did. But the optimizer
     // does a great job flattening the generic implementation anyway.
 
@@ -92,7 +96,7 @@ impl SplitableSpan for YjsSpan {
 impl Searchable for YjsSpan {
     type Item = Order;
 
-    fn contains(&self, loc: Self::Item) -> Option<usize> {
+    fn get_offset(&self, loc: Self::Item) -> Option<usize> {
         if (loc >= self.order) && (loc < self.order + self.len.abs() as u32) {
             Some((loc - self.order) as usize)
         } else {

@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
-use rle::Searchable;
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
+use rle::SplitAndJoinSpan;
 pub use simple_rle::RleVec;
 
 pub type RleKey = u32;
@@ -12,13 +12,13 @@ pub trait RleKeyed {
     fn get_rle_key(&self) -> RleKey;
 }
 
-pub trait RleSpanHelpers: RleKeyed + SplitableSpan {
+pub trait RleSpanHelpers: RleKeyed + HasLength {
     fn end(&self) -> u32 {
         self.get_rle_key() + self.len() as u32
     }
 }
 
-impl<V: RleKeyed + SplitableSpan> RleSpanHelpers for V {}
+impl<V: RleKeyed + HasLength> RleSpanHelpers for V {}
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct KVPair<V>(pub RleKey, pub V);
@@ -29,9 +29,10 @@ impl<V> RleKeyed for KVPair<V> {
     }
 }
 
-impl<V: SplitableSpan> SplitableSpan for KVPair<V> {
+impl<V: SplitAndJoinSpan> HasLength for KVPair<V> {
     fn len(&self) -> usize { self.1.len() }
-
+}
+impl<V: SplitAndJoinSpan> SplitableSpan for KVPair<V> {
     fn truncate(&mut self, at: usize) -> Self {
         debug_assert!(at > 0);
         debug_assert!(at < self.1.len());
@@ -46,7 +47,8 @@ impl<V: SplitableSpan> SplitableSpan for KVPair<V> {
         let trimmed = self.1.truncate_keeping_right(at);
         KVPair(old_key, trimmed)
     }
-
+}
+impl<V: SplitAndJoinSpan> MergableSpan for KVPair<V> {
     fn can_append(&self, other: &Self) -> bool {
         other.0 == self.end() && self.1.can_append(&other.1)
     }
@@ -64,7 +66,7 @@ impl<V: SplitableSpan> SplitableSpan for KVPair<V> {
 impl<V: Searchable> Searchable for KVPair<V> {
     type Item = V::Item;
 
-    fn contains(&self, loc: Self::Item) -> Option<usize> { self.1.contains(loc) }
+    fn get_offset(&self, loc: Self::Item) -> Option<usize> { self.1.get_offset(loc) }
     fn at_offset(&self, offset: usize) -> Self::Item { self.1.at_offset(offset) }
 }
 

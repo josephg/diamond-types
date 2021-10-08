@@ -5,7 +5,7 @@
 use smallvec::{SmallVec, smallvec};
 use crate::list::{ListCRDT, Order, PositionalComponent};
 use smartstring::alias::{String as SmartString};
-use rle::{AppendRle, SplitableSpan};
+use rle::{AppendRle, HasLength, MergableSpan, SplitableSpan};
 use crate::list::external_txn::{RemoteId, RemoteIdSpan};
 use crate::list::time::docpatchiter::PositionalOpWalk;
 use crate::list::txn::TxnSpan;
@@ -41,15 +41,17 @@ impl RemoteParentRun {
     }
 }
 
-impl SplitableSpan for RemoteParentRun {
+impl HasLength for RemoteParentRun {
     fn len(&self) -> usize {
         self.id.len as usize
     }
-
+}
+impl SplitableSpan for RemoteParentRun {
     fn truncate(&mut self, _at: usize) -> Self {
         panic!("unused");
     }
-
+}
+impl MergableSpan for RemoteParentRun {
     fn can_append(&self, other: &Self) -> bool {
         // Gross.
         other.id.id.agent == self.id.id.agent

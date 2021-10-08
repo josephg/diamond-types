@@ -1,7 +1,7 @@
 use std::iter::FromIterator;
 use std::mem::take;
 use content_tree::{ContentLength, ContentTreeWithIndex, Cursors, FullIndex, Pair, Toggleable};
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan, SplitableSpan};
 
 use smartstring::alias::{String as SmartString};
 use crate::list::time::positionmap::MapTag::*;
@@ -66,9 +66,10 @@ impl PositionRun {
     }
 }
 
-impl SplitableSpan for PositionRun {
+impl HasLength for PositionRun {
     fn len(&self) -> usize { self.final_len }
-
+}
+impl SplitableSpan for PositionRun {
     fn truncate(&mut self, at: usize) -> Self {
         assert_ne!(self.tag, MapTag::Upstream);
 
@@ -86,7 +87,8 @@ impl SplitableSpan for PositionRun {
             Upstream => unreachable!()
         }
     }
-
+}
+impl MergableSpan for PositionRun {
     fn can_append(&self, other: &Self) -> bool {
         self.tag == other.tag
     }

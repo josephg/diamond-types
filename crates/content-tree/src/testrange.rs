@@ -1,4 +1,4 @@
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::{Toggleable, ContentLength};
 use rle::Searchable;
 
@@ -20,8 +20,10 @@ impl Default for TestRange {
     }
 }
 
-impl SplitableSpan for TestRange {
+impl HasLength for TestRange {
     fn len(&self) -> usize { self.len as usize }
+}
+impl SplitableSpan for TestRange {
     fn truncate(&mut self, at: usize) -> Self {
         assert!(at > 0 && at < self.len as usize);
         let other = Self {
@@ -38,7 +40,8 @@ impl SplitableSpan for TestRange {
         *self = other.truncate(at);
         other
     }
-
+}
+impl MergableSpan for TestRange {
     fn can_append(&self, other: &Self) -> bool {
         other.id == self.id + self.len && other.is_activated == self.is_activated
     }
@@ -85,7 +88,7 @@ impl ContentLength for TestRange {
 impl Searchable for TestRange {
     type Item = (u32, bool);
 
-    fn contains(&self, loc: Self::Item) -> Option<usize> {
+    fn get_offset(&self, loc: Self::Item) -> Option<usize> {
         if self.is_activated == loc.1 && loc.0 >= self.id && loc.0 < (self.id + self.len) {
             Some((loc.0 - self.id) as usize)
         } else { None }

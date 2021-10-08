@@ -1,6 +1,6 @@
 use rand::prelude::*;
 
-use rle::{merge_items, SplitableSpan};
+use rle::{HasLength, merge_items, SplitableSpan};
 
 use content_tree::*;
 use content_tree::testrange::TestRange;

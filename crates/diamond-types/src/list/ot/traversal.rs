@@ -16,7 +16,7 @@
 
 use smartstring::alias::{String as SmartString};
 use smallvec::{SmallVec, smallvec};
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan, SplitableSpan};
 use TraversalComponent::*;
 use crate::list::Order;
 use crate::list::positional::{PositionalOp, PositionalComponent, InsDelTag};
@@ -194,13 +194,14 @@ impl Default for TraversalComponent {
     }
 }
 
-impl SplitableSpan for TraversalComponent {
+impl HasLength for TraversalComponent {
     fn len(&self) -> usize {
         match self {
             Ins { len, .. } | Del(len) | Retain(len) => *len as usize,
         }
     }
-
+}
+impl SplitableSpan for TraversalComponent {
     // Might be able to write this cleaner with .len_mut_ref() method and such.
     fn truncate(&mut self, at: usize) -> Self {
         match self {
@@ -224,7 +225,8 @@ impl SplitableSpan for TraversalComponent {
             }
         }
     }
-
+}
+impl MergableSpan for TraversalComponent {
     fn can_append(&self, other: &Self) -> bool {
         match (self, other) {
             (Ins { content_known: true, .. }, Ins { content_known: true, .. }) => true,

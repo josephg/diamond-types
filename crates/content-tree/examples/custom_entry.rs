@@ -1,5 +1,6 @@
-use content_tree::{SplitableSpan, ContentTree};
+use content_tree::ContentTree;
 use std::ops::Range;
+use rle::{HasLength, MergableSpan, SplitableSpan};
 
 #[derive(Debug, Clone, Copy, Default)]
 struct RleRange {
@@ -14,9 +15,11 @@ impl From<Range<usize>> for RleRange {
     }
 }
 
-impl SplitableSpan for RleRange {
+impl HasLength for RleRange {
     fn len(&self) -> usize { self.end - self.start }
+}
 
+impl SplitableSpan for RleRange {
     fn truncate(&mut self, at: usize) -> Self {
         let old_end = self.end;
 
@@ -26,7 +29,9 @@ impl SplitableSpan for RleRange {
         // And return
         RleRange { start: self.end, end: old_end }
     }
+}
 
+impl MergableSpan for RleRange {
     fn can_append(&self, other: &Self) -> bool {
         self.end == other.start
     }

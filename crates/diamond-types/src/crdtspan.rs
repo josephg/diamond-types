@@ -1,5 +1,5 @@
 use diamond_core::CRDTId;
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan, SplitableSpan};
 
 use content_tree::ContentLength;
 use rle::Searchable;
@@ -14,7 +14,7 @@ pub struct CRDTSpan {
 impl Searchable for CRDTSpan {
     type Item = CRDTId;
 
-    fn contains(&self, loc: CRDTId) -> Option<usize> {
+    fn get_offset(&self, loc: CRDTId) -> Option<usize> {
         // let r = self.loc.seq .. self.loc.seq + (self.len.abs() as usize);
         // self.loc.agent == loc.agent && entry.get_seq_range().contains(&loc.seq)
         if self.loc.agent == loc.agent
@@ -43,13 +43,14 @@ impl ContentLength for CRDTSpan {
     }
 }
 
-impl SplitableSpan for CRDTSpan {
+impl HasLength for CRDTSpan {
     /// this length refers to the length that we'll use when we call truncate(). So this does count
     /// deletes.
     fn len(&self) -> usize {
         self.len as _
     }
-
+}
+impl SplitableSpan for CRDTSpan {
     fn truncate(&mut self, at: usize) -> Self {
         let at = at as u32;
         debug_assert!(at < self.len);
@@ -77,7 +78,8 @@ impl SplitableSpan for CRDTSpan {
         self.len -= at;
         other
     }
-
+}
+impl MergableSpan for CRDTSpan {
     fn can_append(&self, other: &Self) -> bool {
         other.loc.agent == self.loc.agent
             && other.loc.seq == self.loc.seq + self.len

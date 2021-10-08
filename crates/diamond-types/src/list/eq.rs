@@ -4,7 +4,7 @@
 use crate::list::{ListCRDT, Order, ROOT_AGENT, Branch};
 use crate::rle::RleVec;
 use crate::list::span::YjsSpan;
-use rle::SplitableSpan;
+use rle::{HasLength, SplitableSpan};
 // use std::fs::File;
 // use std::io::Write;
 use crate::order::OrderSpan;

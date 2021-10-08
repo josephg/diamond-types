@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::ptr::NonNull;
 
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan, SplitableSpan};
 
 use content_tree::*;
 use content_tree::ContentTraits;
@@ -18,11 +18,12 @@ pub struct MarkerEntry<E: ContentTraits, I: TreeIndex<E>> {
     pub ptr: Option<NonNull<NodeLeaf<E, I, DOC_IE, DOC_LE>>>,
 }
 
-impl<E: ContentTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
+impl<E: ContentTraits, I: TreeIndex<E>> HasLength for MarkerEntry<E, I> {
     fn len(&self) -> usize {
         self.len as usize
     }
-
+}
+impl<E: ContentTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
     fn truncate(&mut self, at: usize) -> Self {
         let remainder_len = self.len - at as u32;
         self.len = at as u32;
@@ -40,7 +41,8 @@ impl<E: ContentTraits, I: TreeIndex<E>> SplitableSpan for MarkerEntry<E, I> {
         self.len -= at as u32;
         left
     }
-
+}
+impl<E: ContentTraits, I: TreeIndex<E>> MergableSpan for MarkerEntry<E, I> {
     fn can_append(&self, other: &Self) -> bool {
         self.ptr == other.ptr
     }
@@ -78,7 +80,7 @@ impl<E: ContentTraits, I: TreeIndex<E>> MarkerEntry<E, I> {
 impl<E: ContentTraits, I: TreeIndex<E>> Searchable for MarkerEntry<E, I> {
     type Item = Option<NonNull<NodeLeaf<E, I, DOC_IE, DOC_LE>>>;
 
-    fn contains(&self, _loc: Self::Item) -> Option<usize> {
+    fn get_offset(&self, _loc: Self::Item) -> Option<usize> {
         panic!("Should never be used")
     }
 

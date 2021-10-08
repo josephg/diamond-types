@@ -16,7 +16,7 @@ pub trait Searchable {
 
     /// Checks if the entry contains the specified item. If it does, returns the offset into the
     /// item.
-    fn contains(&self, loc: Self::Item) -> Option<usize>;
+    fn get_offset(&self, loc: Self::Item) -> Option<usize>;
 
     // I'd use Index for this but the index trait returns a reference.
     // fn at_offset(&self, offset: usize) -> Self::Item;

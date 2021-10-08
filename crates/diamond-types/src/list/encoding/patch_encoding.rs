@@ -1,7 +1,5 @@
 use std::ops::Range;
 
-use content_tree::SplitableSpan;
-
 use crate::list::{encoding, ListCRDT, Order, ROOT_ORDER};
 use crate::list::encoding::{Chunk, Parents, Run, SpanWriter};
 use crate::list::positional::InsDelTag;
@@ -9,6 +7,7 @@ use crate::rangeextra::OrderRange;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::list::encoding::varint::{num_encode_i64_with_extra_bit, mix_bit_u64, encode_u64, encode_u32};
 use smallvec::smallvec;
+use rle::{HasLength, MergableSpan};
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub struct EditRun {
@@ -18,11 +17,13 @@ pub struct EditRun {
     backspace_mode: bool,
 }
 
-impl SplitableSpan for EditRun {
+impl HasLength for EditRun {
     fn len(&self) -> usize { self.len as usize }
-
-    fn truncate(&mut self, _at: usize) -> Self { unimplemented!() } // Shouldn't get called.
-
+}
+// impl SplitableSpan for EditRun {
+//     fn truncate(&mut self, _at: usize) -> Self { unimplemented!() } // Shouldn't get called.
+// }
+impl MergableSpan for EditRun {
     fn can_append(&self, other: &Self) -> bool {
         self.is_delete == other.is_delete && (other.diff == 0 || merge_bksp(self, other).is_some())
     }

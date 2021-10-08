@@ -12,7 +12,7 @@ pub use index::*;
 pub use root::DeleteResult;
 
 // Types re-exported from rle for convenience
-pub use rle::{SplitableSpan, RleRun, ReverseSpan, Single};
+pub use rle::{SplitAndJoinSpan, RleRun, ReverseSpan, Single};
 
 // The common data structures are:
 mod unsafe_cursor;
@@ -39,8 +39,8 @@ pub const DEFAULT_LE: usize = 4;
 pub const DEFAULT_LE: usize = 32;
 
 /// Simple empty helper trait naming all the properties needed by ContentTree.
-pub trait ContentTraits: SplitableSpan + Copy + Debug + Default {}
-impl<T: SplitableSpan + Copy + Debug + Default> ContentTraits for T {}
+pub trait ContentTraits: SplitAndJoinSpan + Copy + Debug + Default {}
+impl<T: SplitAndJoinSpan + Copy + Debug + Default> ContentTraits for T {}
 
 /// A ContentTree is an efficient packed list of RLE entries, allowing for arbitrary inserts and
 /// deletes anywhere in the range.

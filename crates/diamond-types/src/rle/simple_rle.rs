@@ -7,16 +7,15 @@ use std::slice::SliceIndex;
 use humansize::{file_size_opts, FileSize};
 
 use rle::{AppendRle, MergeableIterator, MergeIter};
-use rle::Searchable;
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan, Searchable};
 
 use crate::rle::{RleKey, RleKeyed, RleSpanHelpers};
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Default, Clone, Eq, PartialEq, Debug)]
-pub struct RleVec<V: SplitableSpan + Clone + Sized>(pub Vec<V>);
+pub struct RleVec<V: HasLength + MergableSpan + Clone + Sized>(pub Vec<V>);
 
-impl<V: SplitableSpan + Clone + Sized> RleVec<V> {
+impl<V: HasLength + MergableSpan + Clone + Sized> RleVec<V> {
     pub fn new() -> Self { Self(Vec::new()) }
 
     /// Append a new value to the end of the RLE list. This method is fast - O(1) average time.
@@ -54,7 +53,7 @@ impl<V: SplitableSpan + Clone + Sized> RleVec<V> {
 }
 
 // impl<K: Copy + Eq + Ord + Add<Output = K> + Sub<Output = K> + AddAssign, V: Copy + Eq> RLE<K, V> {
-impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
+impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     pub(crate) fn find_index(&self, needle: RleKey) -> Result<usize, usize> {
         self.0.binary_search_by(|entry| {
             let key = entry.get_rle_key();
@@ -236,7 +235,7 @@ impl<V: SplitableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     }
 }
 
-impl<V: SplitableSpan + Clone + Sized> FromIterator<V> for RleVec<V> {
+impl<V: HasLength + MergableSpan + Clone + Sized> FromIterator<V> for RleVec<V> {
     fn from_iter<T: IntoIterator<Item=V>>(iter: T) -> Self {
         let mut rle = Self::new();
         for item in iter {
@@ -246,7 +245,7 @@ impl<V: SplitableSpan + Clone + Sized> FromIterator<V> for RleVec<V> {
     }
 }
 
-impl<V: SplitableSpan + Clone + Sized> Extend<V> for RleVec<V> {
+impl<V: HasLength + MergableSpan + Clone + Sized> Extend<V> for RleVec<V> {
     fn extend<T: IntoIterator<Item=V>>(&mut self, iter: T) {
         for item in iter {
             self.push(item);
@@ -264,7 +263,7 @@ impl<V: SplitableSpan + Clone + Sized> Extend<V> for RleVec<V> {
 //     }
 // }
 
-impl<V: SplitableSpan + Searchable + RleKeyed> RleVec<V> {
+impl<V: HasLength + MergableSpan + Searchable + RleKeyed> RleVec<V> {
     pub fn get(&self, idx: RleKey) -> V::Item {
         let (v, offset) = self.find_with_offset(idx).unwrap();
         v.at_offset(offset as usize)
@@ -272,12 +271,12 @@ impl<V: SplitableSpan + Searchable + RleKeyed> RleVec<V> {
 }
 
 // Seems kinda redundant but eh.
-impl<V: SplitableSpan + Clone + Debug + Sized> AppendRle<V> for RleVec<V> {
+impl<V: HasLength + MergableSpan + Clone + Debug + Sized> AppendRle<V> for RleVec<V> {
     fn push_rle(&mut self, item: V) -> bool { self.push(item) }
     fn push_reversed_rle(&mut self, _item: V) -> bool { unimplemented!(); }
 }
 
-impl<T: SplitableSpan, I: SliceIndex<[T]>> Index<I> for RleVec<T> {
+impl<T: HasLength + MergableSpan, I: SliceIndex<[T]>> Index<I> for RleVec<T> {
     type Output = I::Output;
 
     #[inline]

@@ -7,7 +7,7 @@ use num_enum::TryFromPrimitive;
 use smallvec::SmallVec;
 
 use diamond_core::CRDTId;
-use rle::{MergeableIterator, SplitableSpan};
+use rle::{HasLength, MergableSpan, MergeableIterator, SplitableSpan, SplitAndJoinSpan};
 
 use crate::crdtspan::CRDTSpan;
 use crate::list::{ListCRDT, Order};
@@ -59,7 +59,7 @@ mod patch_encoding;
 // }
 
 #[derive(Debug, Clone, Default)]
-struct SpanWriter<S: SplitableSpan + Clone + Debug, F: FnMut(&mut Vec<u8>, S)> {
+struct SpanWriter<S: MergableSpan + Debug, F: FnMut(&mut Vec<u8>, S)> {
     dest: Vec<u8>,
     last: Option<S>,
     flush: F,
@@ -68,7 +68,7 @@ struct SpanWriter<S: SplitableSpan + Clone + Debug, F: FnMut(&mut Vec<u8>, S)> {
     pub count: usize,
 }
 
-impl<S: SplitableSpan + Clone + Debug, F: FnMut(&mut Vec<u8>, S)> SpanWriter<S, F> {
+impl<S: MergableSpan + Debug, F: FnMut(&mut Vec<u8>, S)> SpanWriter<S, F> {
     pub fn new(flush: F) -> Self {
         Self {
             dest: vec![],
@@ -85,9 +85,7 @@ impl<S: SplitableSpan + Clone + Debug, F: FnMut(&mut Vec<u8>, S)> SpanWriter<S, 
     }
     
     pub fn push(&mut self, s: S) {
-        assert!(s.len() > 0);
-        // if s.len() == 0 { return; }
-        // println!("append {:?}", &s);
+        // assert!(s.len() > 0);
         if let Some(last) = self.last.as_mut() {
             if last.can_append(&s) {
                 last.append(s);
@@ -116,9 +114,10 @@ struct Run<V: Clone + PartialEq + Eq> {
     len: usize,
 }
 
-impl<V: Clone + PartialEq + Eq> SplitableSpan for Run<V> {
+impl<V: Clone + PartialEq + Eq> HasLength for Run<V> {
     fn len(&self) -> usize { self.len }
-
+}
+impl<V: Clone + PartialEq + Eq> SplitableSpan for Run<V> {
     fn truncate(&mut self, at: usize) -> Self {
         let remainder = Self {
             len: self.len - at,
@@ -127,7 +126,8 @@ impl<V: Clone + PartialEq + Eq> SplitableSpan for Run<V> {
         self.len = at;
         remainder
     }
-
+}
+impl<V: Clone + PartialEq + Eq> MergableSpan for Run<V> {
     fn can_append(&self, other: &Self) -> bool { self.val == other.val }
     fn append(&mut self, other: Self) { self.len += other.len; }
     fn prepend(&mut self, other: Self) { self.len += other.len; }
@@ -139,9 +139,10 @@ struct Run2<const INC: bool> {
     len: usize,
 }
 
-impl<const INC: bool> SplitableSpan for Run2<INC> {
+impl<const INC: bool> HasLength for Run2<INC> {
     fn len(&self) -> usize { self.len }
-
+}
+impl<const INC: bool> SplitableSpan for Run2<INC> {
     fn truncate(&mut self, at: usize) -> Self {
         let remainder = Self {
             diff: INC as isize,
@@ -150,7 +151,8 @@ impl<const INC: bool> SplitableSpan for Run2<INC> {
         self.len = at;
         remainder
     }
-
+}
+impl<const INC: bool> MergableSpan for Run2<INC> {
     fn can_append(&self, other: &Self) -> bool { other.diff == INC as isize }
     fn append(&mut self, other: Self) { self.len += other.len; }
     fn prepend(&mut self, other: Self) {
@@ -358,13 +360,13 @@ impl<'a> Iterator for BufReader<'a> {
     }
 }
 
-struct PartialReader<'a, S: SplitableSpan, F: FnMut(&mut BufReader<'a>) -> Option<S>> {
+struct PartialReader<'a, S: SplitAndJoinSpan, F: FnMut(&mut BufReader<'a>) -> Option<S>> {
     reader: BufReader<'a>,
     read_fn: F,
     data: Option<S>,
 }
 
-impl<'a, S: SplitableSpan, F: FnMut(&mut BufReader<'a>) -> Option<S>> PartialReader<'a, S, F> {
+impl<'a, S: SplitAndJoinSpan, F: FnMut(&mut BufReader<'a>) -> Option<S>> PartialReader<'a, S, F> {
     fn new(reader: BufReader<'a>, read_fn: F) -> Self {
         Self {
             reader,
@@ -400,7 +402,7 @@ impl<'a, S: SplitableSpan, F: FnMut(&mut BufReader<'a>) -> Option<S>> PartialRea
     }
 }
 
-impl<'a, S: SplitableSpan, F: FnMut(&mut BufReader<'a>) -> Option<S>> Iterator for PartialReader<'a, S, F> {
+impl<'a, S: SplitAndJoinSpan, F: FnMut(&mut BufReader<'a>) -> Option<S>> Iterator for PartialReader<'a, S, F> {
     type Item = S;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -435,11 +437,12 @@ enum Chunk {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct PosNegRun(i32);
 
-impl SplitableSpan for PosNegRun {
+impl HasLength for PosNegRun {
     fn len(&self) -> usize {
         self.0.abs() as usize
     }
-
+}
+impl SplitableSpan for PosNegRun {
     fn truncate(&mut self, at: usize) -> Self {
         let at = at as i32;
         debug_assert!(at > 0 && at < self.0.abs());
@@ -451,7 +454,8 @@ impl SplitableSpan for PosNegRun {
 
         PosNegRun((abs - at) * sign)
     }
-
+}
+impl MergableSpan for PosNegRun {
     fn can_append(&self, other: &Self) -> bool {
         (self.0 >= 0) == (other.0 >= 0)
     }
@@ -745,11 +749,12 @@ struct Parents {
     parents: SmallVec<[Order; 2]>,
 }
 
-impl SplitableSpan for Parents {
+impl HasLength for Parents {
     fn len(&self) -> usize { self.order.order_len() as usize }
+}
+    // fn truncate(&mut self, _at: usize) -> Self { unimplemented!(); }
 
-    fn truncate(&mut self, _at: usize) -> Self { unimplemented!(); }
-
+impl MergableSpan for Parents {
     fn can_append(&self, other: &Self) -> bool {
         other.parents.len() == 1 && other.parents[0] == self.order.end - 1
     }

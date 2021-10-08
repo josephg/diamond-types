@@ -1,13 +1,11 @@
 use std::ops::{Range};
 
-/// An entry is expected to contain multiple items.
-///
-/// A SplitableSpan is a range entry. That is, an entry which contains a compact run of many
-/// entries internally.
-pub trait SplitableSpan: Clone {
+pub trait HasLength {
     /// The number of child items in the entry. This is indexed with the size used in truncate.
     fn len(&self) -> usize;
+}
 
+pub trait SplitableSpan: Clone {
     /// Split the entry, returning the part of the entry which was jettisoned. After truncating at
     /// `pos`, self.len() == `pos` and the returned value contains the rest of the items.
     ///
@@ -28,7 +26,9 @@ pub trait SplitableSpan: Clone {
         *self = other.truncate(at);
         other
     }
+}
 
+pub trait MergableSpan: Clone {
     /// See if the other item can be appended to self. `can_append` will always be called
     /// immediately before `append`.
     fn can_append(&self, other: &Self) -> bool;
@@ -50,38 +50,51 @@ pub trait SplitableSpan: Clone {
     }
 }
 
+/// An entry is expected to contain multiple items.
+///
+/// A SplitableSpan is a range entry. That is, an entry which contains a compact run of many
+/// entries internally.
+pub trait SplitAndJoinSpan: HasLength + SplitableSpan + MergableSpan {}
+impl<T: HasLength + SplitableSpan + MergableSpan> SplitAndJoinSpan for T {}
+
 /// A SplitableSpan wrapper for any single item.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq, Default)]
 pub struct Single<T>(pub T);
 
 /// A splitablespan in reverse. This is useful for making lists in descending order.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq, Default)]
-pub struct ReverseSpan<S: SplitableSpan + Clone>(pub S);
+pub struct ReverseSpan<S>(pub S);
 
-impl<T: Clone> SplitableSpan for Single<T> {
+impl<T> HasLength for Single<T> {
     fn len(&self) -> usize { 1 }
-
+}
+impl<T: Clone> SplitableSpan for Single<T> {
+    // This is a valid impl because truncate can never be called for single items.
     fn truncate(&mut self, _at: usize) -> Self { panic!("Cannot truncate single sized item"); }
+}
+impl<T: Clone> MergableSpan for Single<T> {
     fn can_append(&self, _other: &Self) -> bool { false }
     fn append(&mut self, _other: Self) { panic!("Cannot append to single sized item"); }
 }
 
-impl<S: SplitableSpan + Clone> SplitableSpan for ReverseSpan<S> {
+impl<S: HasLength> HasLength for ReverseSpan<S> {
     fn len(&self) -> usize { self.0.len() }
-
+}
+impl<S: SplitableSpan> SplitableSpan for ReverseSpan<S> {
     fn truncate(&mut self, at: usize) -> Self {
         ReverseSpan(self.0.truncate_keeping_right(at))
     }
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
         ReverseSpan(self.0.truncate(at))
     }
-
+}
+impl<S: MergableSpan> MergableSpan for ReverseSpan<S> {
     fn can_append(&self, other: &Self) -> bool { other.0.can_append(&self.0) }
     fn append(&mut self, other: Self) { self.0.prepend(other.0); }
     fn prepend(&mut self, other: Self) { self.0.append(other.0); }
 }
 
-/// A splitablespan which contains a single element repeated N times.
+/// A splitablespan which contains a single element repeated N times. This is used in some examples.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq, Default)]
 pub struct RleRun<T: Clone + Eq> {
     pub val: T,
@@ -94,15 +107,17 @@ impl<T: Clone + Eq> RleRun<T> {
     }
 }
 
-impl<T: Clone + Eq> SplitableSpan for RleRun<T> {
+impl<T: Clone + Eq> HasLength for RleRun<T> {
     fn len(&self) -> usize { self.len }
-
+}
+impl<T: Clone + Eq> SplitableSpan for RleRun<T> {
     fn truncate(&mut self, at: usize) -> Self {
         let remainder = self.len - at;
         self.len = at;
         Self { val: self.val.clone(), len: remainder }
     }
-
+}
+impl<T: Clone + Eq> MergableSpan for RleRun<T> {
     fn can_append(&self, other: &Self) -> bool {
         self.val == other.val
     }
@@ -134,17 +149,18 @@ impl<T: Clone + Eq> SplitableSpan for RleRun<T> {
 //         self.end = other.end;
 //     }
 // }
+impl HasLength for Range<u32> {
+    fn len(&self) -> usize { (self.end - self.start) as _ }
+}
 impl SplitableSpan for Range<u32> {
-    fn len(&self) -> usize {
-        (self.end - self.start) as _
-    }
-
+    // This is a valid impl because truncate can never be called for single items.
     fn truncate(&mut self, at: usize) -> Self {
         let old_end = self.end;
         self.end = self.start + at as u32;
         Self { start: self.end, end: old_end }
     }
-
+}
+impl MergableSpan for Range<u32> {
     fn can_append(&self, other: &Self) -> bool {
         self.end == other.start
     }
@@ -159,7 +175,7 @@ impl SplitableSpan for Range<u32> {
 ///
 /// Use this to test splitablespan implementations in tests.
 // #[cfg(test)]
-pub fn test_splitable_methods_valid<E: SplitableSpan + std::fmt::Debug + Clone + Eq>(entry: E) {
+pub fn test_splitable_methods_valid<E: SplitAndJoinSpan + std::fmt::Debug + Clone + Eq>(entry: E) {
     assert!(entry.len() >= 2, "Call this with a larger entry");
     for i in 1..entry.len() {
         // Split here and make sure we get the expected results.

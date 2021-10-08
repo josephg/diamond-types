@@ -257,7 +257,7 @@ impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: 
         for i in 0..self.len_entries() {
             let entry: E = self.data[i];
 
-            if let Some(offset) = entry.contains(loc) {
+            if let Some(offset) = entry.get_offset(loc) {
                 debug_assert!(offset < entry.len());
                 // let offset = if entry.is_insert() { entry_offset } else { 0 };
 

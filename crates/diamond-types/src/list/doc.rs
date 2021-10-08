@@ -2,7 +2,7 @@ use crate::list::*;
 // use crate::content_tree::*;
 use smallvec::smallvec;
 use std::ptr::NonNull;
-use rle::{SplitableSpan, MergeableIterator};
+use rle::{MergeableIterator, HasLength};
 use std::cmp::Ordering;
 use crate::rle::RleVec;
 use std::mem::replace;

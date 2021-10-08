@@ -1,6 +1,6 @@
 use jumprope::JumpRope;
 use crate::list::{ListCRDT, ROOT_ORDER};
-use rle::SplitableSpan;
+use rle::HasLength;
 use smallvec::{SmallVec, smallvec};
 
 /// This file contains debugging assertions to validate the document's internal state.

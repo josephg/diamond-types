@@ -1,5 +1,4 @@
-use rle::Searchable;
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 
 use crate::rle::{RleKey, RleKeyed};
 use std::ops::Range;
@@ -51,11 +50,12 @@ impl From<Range<Order>> for OrderSpan {
     }
 }
 
-impl SplitableSpan for OrderSpan {
+impl HasLength for OrderSpan {
     fn len(&self) -> usize {
         self.len as usize
     }
-
+}
+impl SplitableSpan for OrderSpan {
     fn truncate(&mut self, at: usize) -> Self {
         let at = at as u32;
 
@@ -79,7 +79,8 @@ impl SplitableSpan for OrderSpan {
         self.len -= at;
         other
     }
-
+}
+impl MergableSpan for OrderSpan {
     // #[inline]
     fn can_append(&self, other: &Self) -> bool {
         other.order == self.order + self.len
@@ -99,7 +100,7 @@ impl SplitableSpan for OrderSpan {
 impl Searchable for OrderSpan {
     type Item = usize; // Order.
 
-    fn contains(&self, loc: Self::Item) -> Option<usize> {
+    fn get_offset(&self, loc: Self::Item) -> Option<usize> {
         // debug_assert!(loc < self.len());
         let loc = loc as u32;
         if (loc >= self.order) && (loc < self.order + self.len) {

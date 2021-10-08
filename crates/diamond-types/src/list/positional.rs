@@ -7,7 +7,7 @@ use jumprope::JumpRope;
 
 use smartstring::alias::{String as SmartString};
 use smallvec::SmallVec;
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan, SplitableSpan};
 use InsDelTag::*;
 use crate::unicount::chars_to_bytes;
 use rle::AppendRle;
@@ -138,11 +138,12 @@ impl Default for PositionalComponent {
     }
 }
 
-impl SplitableSpan for PositionalComponent {
+impl HasLength for PositionalComponent {
     fn len(&self) -> usize {
         self.len as usize
     }
-
+}
+impl SplitableSpan for PositionalComponent {
     fn truncate(&mut self, at: usize) -> Self {
         let at = at as u32;
         let remainder = PositionalComponent {
@@ -155,7 +156,8 @@ impl SplitableSpan for PositionalComponent {
         self.len = at;
         remainder
     }
-
+}
+impl MergableSpan for PositionalComponent {
     fn can_append(&self, other: &Self) -> bool {
         // Positional components guarantee temporal stability, so we'll only concatenate inserts
         // when the second insert directly follows the first. Any concatenation of deletes throws

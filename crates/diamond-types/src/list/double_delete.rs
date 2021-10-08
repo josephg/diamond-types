@@ -1,4 +1,4 @@
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::rle::{RleVec, KVPair, RleSpanHelpers};
 use crate::list::Order;
 use crate::order::OrderSpan;
@@ -13,11 +13,12 @@ pub struct DoubleDelete {
     pub excess_deletes: u32, // u16 would do but it doesn't matter - we'll pad out anyway.
 }
 
-impl SplitableSpan for DoubleDelete {
+impl HasLength for DoubleDelete {
     fn len(&self) -> usize {
         self.len as usize
     }
-
+}
+impl SplitableSpan for DoubleDelete {
     fn truncate(&mut self, at: usize) -> Self {
         let trimmed = DoubleDelete {
             // order: self.order + at as _,
@@ -27,7 +28,8 @@ impl SplitableSpan for DoubleDelete {
         self.len = at as u32;
         trimmed
     }
-
+}
+impl MergableSpan for DoubleDelete {
     fn can_append(&self, other: &Self) -> bool {
         other.excess_deletes == self.excess_deletes
     }

@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 
-use rle::SplitableSpan;
+use rle::{HasLength, MergableSpan};
 
 use crate::list::{Order, ROOT_ORDER};
 use crate::rle::RleKeyed;
@@ -75,25 +75,27 @@ impl TxnSpan {
     // }
 }
 
-impl SplitableSpan for TxnSpan {
+impl HasLength for TxnSpan {
     fn len(&self) -> usize {
         self.len as usize
     }
-
-    fn truncate(&mut self, _at: usize) -> Self {
-        panic!("TxnSpan cannot be truncated");
-        // debug_assert!(at >= 1);
-        // let at = at as u32;
-        // let other = Self {
-        //     order: self.order + at,
-        //     len: self.len - at,
-        //     shadow: self.shadow,
-        //     parents: smallvec![self.order + at - 1],
-        // };
-        // self.len = at as u32;
-        // other
-    }
-
+}
+// impl SplitableSpan for TxnSpan {
+//     fn truncate(&mut self, _at: usize) -> Self {
+//         unimplemented!("TxnSpan cannot be truncated");
+//         // debug_assert!(at >= 1);
+//         // let at = at as u32;
+//         // let other = Self {
+//         //     order: self.order + at,
+//         //     len: self.len - at,
+//         //     shadow: self.shadow,
+//         //     parents: smallvec![self.order + at - 1],
+//         // };
+//         // self.len = at as u32;
+//         // other
+//     }
+// }
+impl MergableSpan for TxnSpan {
     fn can_append(&self, other: &Self) -> bool {
         other.parents.len() == 1
             && other.parents[0] == self.last_order()
@@ -123,8 +125,8 @@ impl RleKeyed for TxnSpan {
 #[cfg(test)]
 mod tests {
     use smallvec::smallvec;
-    use rle::SplitableSpan;
-    use crate::list::txn::TxnSpan;
+    use rle::MergableSpan;
+    use super::TxnSpan;
 
     // #[test]
     // fn txn_entry_valid() {
