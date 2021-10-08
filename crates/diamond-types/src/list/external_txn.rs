@@ -393,7 +393,8 @@ impl ListCRDT {
                 let content_known = if entry.is_activated() {
                     if let Some(ref text) = self.text_content {
                         let pos = unsafe { cursor.count_content_pos() };
-                        let content = text.chars_at(pos).take(len as usize);
+                        // TODO: Could optimize this.
+                        let content = text.slice_chars(pos..pos+len as usize);
                         ins_content.extend(content);
                         true
                     } else { false }

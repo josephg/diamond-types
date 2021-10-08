@@ -483,10 +483,10 @@ impl ListCRDT {
         // compression algorithms to still do their thing.
         if let Some(d) = self.text_content.as_ref() {
             // push_usize(&mut result, d.len_bytes());
-            push_chunk_header(&mut result, Chunk::Content, d.len_bytes());
-            for chunk in d.chunks() {
+            push_chunk_header(&mut result, Chunk::Content, d.len());
+            for (str, _) in d.chunks() {
                 // writer.write_all(chunk.as_bytes());
-                result.extend_from_slice(chunk.as_bytes());
+                result.extend_from_slice(str.as_bytes());
             }
         }
 

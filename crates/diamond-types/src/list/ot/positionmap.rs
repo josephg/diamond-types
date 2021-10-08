@@ -2,8 +2,8 @@
 // few files!
 
 use std::pin::Pin;
+use jumprope::JumpRope;
 
-use ropey::Rope;
 use smallvec::SmallVec;
 
 use content_tree::*;
@@ -386,7 +386,7 @@ impl<'a> PatchIter<'a> {
         PositionalOp::from_components(changes, self.doc.text_content.as_ref())
     }
 
-    fn into_traversal(self, resulting_doc: &Rope) -> TraversalOp {
+    fn into_traversal(self, resulting_doc: &JumpRope) -> TraversalOp {
         let map = self.into_map();
         map_to_traversal(&map, resulting_doc)
     }
@@ -528,13 +528,13 @@ impl<'a, I: Iterator<Item=OrderSpan>> MultiPositionalChangesIter<'a, I> {
         PositionalOp::from_components(changes, self.state.doc.text_content.as_ref())
     }
 
-    fn into_traversal(self, resulting_doc: &Rope) -> TraversalOp {
+    fn into_traversal(self, resulting_doc: &JumpRope) -> TraversalOp {
         let map = self.into_map();
         map_to_traversal(&map, resulting_doc)
     }
 }
 
-fn map_to_traversal(map: &PositionMap, resulting_doc: &Rope) -> TraversalOp {
+fn map_to_traversal(map: &PositionMap, resulting_doc: &JumpRope) -> TraversalOp {
     use TraversalComponent::*;
 
     let mut op = TraversalOp::new();
@@ -543,7 +543,8 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &Rope) -> TraversalOp {
     for entry in map.raw_iter() {
         match entry {
             Ins { len, content_known: true } => {
-                op.content.extend(resulting_doc.chars_at(post_len as usize).take(len as usize));
+                let range = post_len as usize..(post_len+len) as usize;
+                op.content.extend(resulting_doc.slice_chars(range));
                 post_len += len;
             }
             Retain(len) => {
@@ -561,7 +562,6 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &Rope) -> TraversalOp {
 #[cfg(test)]
 mod test {
     use rand::prelude::*;
-    use ropey::Rope;
     use smallvec::smallvec;
 
     use rle::AppendRle;
@@ -730,7 +730,7 @@ mod test {
 
             // 3. We should also be able to apply all the changes one by one to the midpoint state and
             //    arrive at the same result.
-            let mut midpoint_rope = Rope::from(midpoint_content.as_str());
+            let mut midpoint_rope = JumpRope::from(midpoint_content.as_str());
             positional_op.apply_to_rope(&mut midpoint_rope);
             assert_eq!(text_content, &midpoint_rope);
         } else {

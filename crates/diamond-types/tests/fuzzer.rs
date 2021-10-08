@@ -1,3 +1,4 @@
+use jumprope::JumpRope;
 /// This fuzzer is a simple test which simulates 3 peers. Each iteration:
 ///
 /// - We generate a set of changes from one or more peers
@@ -12,7 +13,6 @@
 
 use rand::prelude::*;
 use diamond_types::list::ListCRDT;
-use ropey::Rope;
 use diamond_core::AgentId;
 
 fn random_str(len: usize, rng: &mut SmallRng) -> String {
@@ -24,7 +24,7 @@ fn random_str(len: usize, rng: &mut SmallRng) -> String {
     str
 }
 
-fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentId, rng: &mut SmallRng) {
+fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) {
     let doc_len = doc.len();
     let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
     if doc_len == 0 || rng.gen_bool(insert_weight) {
@@ -62,7 +62,7 @@ fn random_single_document() {
     let mut doc = ListCRDT::new();
 
     let agent = doc.get_or_create_agent_id("seph");
-    let mut expected_content = Rope::new();
+    let mut expected_content = JumpRope::new();
 
     for _i in 0..1000 {
         // eprintln!("i {}", _i);
@@ -81,7 +81,7 @@ fn random_single_replicate() {
     let mut doc = ListCRDT::new();
 
     let agent = doc.get_or_create_agent_id("seph");
-    let mut expected_content = Rope::new();
+    let mut expected_content = JumpRope::new();
 
     // This takes a long time to do 1000 operations. (Like 3 seconds).
     for _i in 0..10 {

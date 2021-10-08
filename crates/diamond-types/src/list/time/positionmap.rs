@@ -450,8 +450,7 @@ impl PositionMap {
         if let (Some(content_pos), Some(rope)) = (content_pos, &list.text_content) {
             c.content_known = true;
             let chars = rope
-                .chars_at(content_pos as usize)
-                .take(c.len as usize);
+                .slice_chars(content_pos as usize .. (content_pos + c.len) as usize);
             (c, Some(SmartString::from_iter(chars)))
             // content_builder.extend(chars.take(c.len as usize));
         } else { (c, None) }

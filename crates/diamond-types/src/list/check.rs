@@ -1,5 +1,5 @@
+use jumprope::JumpRope;
 use crate::list::{ListCRDT, ROOT_ORDER};
-use ropey::Rope;
 use rle::SplitableSpan;
 use smallvec::{SmallVec, smallvec};
 
@@ -10,7 +10,7 @@ use smallvec::{SmallVec, smallvec};
 
 impl ListCRDT {
     #[allow(unused)]
-    pub fn dbg_assert_content_eq(&self, expected_content: &Rope) {
+    pub fn dbg_assert_content_eq(&self, expected_content: &JumpRope) {
         if let Some(ref text) = self.text_content {
             assert_eq!(text, expected_content);
         }

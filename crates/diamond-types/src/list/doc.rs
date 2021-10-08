@@ -80,7 +80,7 @@ impl ListCRDT {
 
             txns: RleVec::new(),
 
-            text_content: Some(Rope::new()),
+            text_content: Some(JumpRope::new()),
             // text_content: None,
             deleted_content: None,
         }
@@ -690,7 +690,8 @@ impl ListCRDT {
 
                     if let Some(ref mut text) = self.text_content {
                         if let Some(deleted_content) = self.deleted_content.as_mut() {
-                            let chars = text.chars_at(pos).take(len);
+                            // TODO: This could be optimized by using chunks.
+                            let chars = text.slice_chars(pos..pos+len);
                             deleted_content.extend(chars);
                         }
                         text.remove(pos..pos + len);
