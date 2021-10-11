@@ -15,6 +15,7 @@ use crate::crdtspan::CRDTSpan;
 use rle::Searchable;
 use crate::list::branch::advance_branch_by_known;
 use std::ops::Range;
+use humansize::{file_size_opts, FileSize};
 use crate::list::positional::InsDelTag::*;
 use crate::rangeextra::OrderRange;
 use crate::list::positional::PositionalComponent;
@@ -872,6 +873,10 @@ impl ListCRDT {
             .merge_spans()
             .count();
         println!("As alternating inserts and deletes: {} items", ins_del_count);
+
+        if let Some(r) = &self.text_content {
+            println!("Content memory size: {}", r.mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
+        }
 
         self.range_tree.print_stats("content", detailed);
         self.index.print_stats("index", detailed);

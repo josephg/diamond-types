@@ -1,4 +1,5 @@
 use std::mem::replace;
+use humansize::{file_size_opts, FileSize};
 use jumprope::JumpRope;
 use crate::list::{ClientData, ListCRDT, LocalTime};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
@@ -233,6 +234,7 @@ impl ListCRDT {
 
     pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str) {
         let first_time = self.get_next_time();
+        let mut next_time = first_time;
 
         let op_len = local_ops.iter().map(|c| c.len).sum();
 
@@ -262,7 +264,11 @@ impl ListCRDT {
                     }
                 }
             }
+
+            self.operations.push(KVPair(next_time, c.clone()));
+            next_time += len;
         }
+
 
         self.insert_history_local(TimeSpan { start: first_time, end: first_time + op_len });
     }
@@ -290,6 +296,19 @@ impl ListCRDT {
         } else {
             panic!("Cannot calculate length")
         }
+    }
+
+    pub fn print_stats(&self, detailed: bool) {
+        println!("Document of length {}", self.len());
+
+        if let Some(r) = &self.text_content {
+            println!("Content memory size: {}", r.mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
+            println!("(Efficient size: {})", r.len_bytes().file_size(file_size_opts::CONVENTIONAL).unwrap());
+        }
+
+        self.operations.print_stats("Operations", detailed);
+        self.client_with_localtime.print_stats("Client localtime map", detailed);
+        self.history.print_stats("History", detailed);
     }
 }
 

@@ -1,4 +1,4 @@
-mod alloc;
+pub mod alloc;
 pub mod list;
 mod rle;
 mod localtime;
