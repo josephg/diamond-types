@@ -17,6 +17,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
                 positional.push(PositionalComponent {
                     pos: *pos,
                     len: *del_span,
+                    rev: false,
                     content_known: false,
                     tag: InsDelTag::Del
                 });
@@ -26,6 +27,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
                 positional.push(PositionalComponent {
                     pos: *pos,
                     len: ins_content.chars().count(),
+                    rev: false,
                     content_known: true,
                     tag: InsDelTag::Ins
                 });

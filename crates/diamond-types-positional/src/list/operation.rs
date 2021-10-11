@@ -19,12 +19,26 @@ use serde_crate::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub enum InsDelTag { Ins, Del }
 
-// TODO: Add support for backspaces.
+/// So the span here is interesting. For inserts, this is the range of positions the inserted
+/// characters *will have* after they've been inserted.
+///
+/// For deletes this is the range of characters in the document *being deleted*.
+///
+/// The `rev` field specifies if the items being inserted or deleted are doing so in reverse order.
+/// For inserts "normal" mode means appending, reverse mode means prepending.
+/// For deletes, normal mode means using the delete key. reverse mode means backspacing.
+///
+/// This has no effect on *what* is deleted. Only the resulting order of the operations. This is
+/// totally unnecessary - we could just store extra entries with length 1 when modifying in other
+/// orders. But it gives us way better compression for some data sets on disk. And this structure
+/// is designed to match the on-disk file format.
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct PositionalComponent {
     pub pos: usize,
     pub len: usize,
+
+    pub rev: bool,
     pub content_known: bool,
     pub tag: InsDelTag,
 }
@@ -58,7 +72,12 @@ impl PositionalOp {
                         let byte_len = chars_to_bytes(new_content, len);
                         let (here, next) = new_content.split_at(byte_len);
                         new_content = next;
-                        rope.insert(pos, here);
+                        if c.rev {
+                            let mut s = here.chars().rev().collect::<String>();
+                            rope.insert(pos, &s);
+                        } else {
+                            rope.insert(pos, here);
+                        }
                     } else if len < XS.len() {
                         rope.insert(pos, &XS[..len]);
                     } else {
@@ -93,44 +112,84 @@ impl PositionalOp {
 
 impl HasLength for PositionalComponent {
     fn len(&self) -> usize {
-        self.len as usize
+        self.len
     }
 }
+
+impl PositionalComponent {
+    // Could just inline this into truncate() below. It won't be used in other contexts.
+    fn split_positions(&self, at: usize) -> (usize, usize) {
+        let first = self.pos;
+        if self.rev == false && self.tag == Ins {
+            (first, first + at)
+        } else if self.rev == true && self.tag == Del {
+            (first + self.len - at, first)
+        } else {
+            (first, first)
+        }
+    }
+}
+
 impl SplitableSpan for PositionalComponent {
     fn truncate(&mut self, at: usize) -> Self {
-        let remainder = PositionalComponent {
-            pos: if self.tag == Ins { self.pos + at } else { self.pos },
+        let (self_first, rem_first) = self.split_positions(at);
+        let remainder = Self {
+            pos: rem_first,
             len: self.len - at,
+            rev: self.rev,
             content_known: self.content_known,
-            tag: self.tag
+            tag: self.tag,
         };
 
+        self.pos = self_first;
         self.len = at;
+
         remainder
     }
 }
+
 impl MergableSpan for PositionalComponent {
     fn can_append(&self, other: &Self) -> bool {
-        // Positional components guarantee temporal stability, so we'll only concatenate inserts
-        // when the second insert directly follows the first. Any concatenation of deletes throws
-        // away information, because the result loses ordering amongst the deleted items. But
-        // knowing how I want to use this, I'm kinda ok with it.
-        self.content_known == other.content_known && match (self.tag, other.tag) {
-            (Ins, Ins) => other.pos == self.pos + self.len,
-            (Del, Del) => other.pos == self.pos,
-            _ => false
+        let tag = self.tag;
+
+        if other.tag != tag || self.content_known != other.content_known { return false; }
+
+        if other.rev != self.rev && self.len > 1 && other.len > 1 { return false; }
+
+        if (self.len == 1 || self.rev == false) && (other.len == 1 || other.rev == false) {
+            // Try and append in the forward sort of way.
+            if (tag == Ins && other.pos == self.pos + self.len)
+                || (tag == Del && other.pos == self.pos) { return true; }
         }
+        if (self.len == 1 || self.rev == true) && (other.len == 1 || other.rev == true) {
+            // Try an append in a reverse sort of way
+            if (tag == Ins && other.pos == self.pos)
+                || (tag == Del && other.pos + other.len == self.pos) { return true; }
+        }
+
+        false
     }
 
     fn append(&mut self, other: Self) {
+        self.rev = other.pos < self.pos || (other.pos == self.pos && self.tag == Ins);
+
         self.len += other.len;
+
+        if self.tag == Del && self.rev {
+            self.pos = other.pos;
+        }
     }
 
     fn prepend(&mut self, other: Self) {
-        self.pos = other.pos;
+        self.rev = self.pos < other.pos || (other.pos == self.pos && self.tag == Ins);
+
+        if self.tag == Ins || self.rev == false {
+            self.pos = other.pos;
+        }
         self.len += other.len;
     }
 }
+
 
 #[cfg(test)]
 mod test {
@@ -138,26 +197,63 @@ mod test {
     use super::*;
 
     #[test]
-    fn positional_component_splitable() {
-        test_splitable_methods_valid(PositionalComponent {
-            pos: 10,
-            len: 5,
-            content_known: false,
-            tag: Ins
-        });
-
-        test_splitable_methods_valid(PositionalComponent {
-            pos: 10,
-            len: 5,
-            content_known: false,
-            tag: Del
-        });
-
-        test_splitable_methods_valid(PositionalComponent {
-            pos: 10,
-            len: 5,
+    fn test_backspace_merges() {
+        // Make sure deletes collapse.
+        let a = PositionalComponent {
+            pos: 100,
+            len: 1,
+            rev: false,
             content_known: true,
-            tag: Ins
-        });
+            tag: Del
+        };
+        let b = PositionalComponent {
+            pos: 99,
+            len: 1,
+            rev: false,
+            content_known: true,
+            tag: Del
+        };
+        assert!(a.can_append(&b));
+
+        let mut merged = a.clone();
+        merged.append(b.clone());
+        // dbg!(&a);
+        let expect = PositionalComponent {
+            pos: 99,
+            len: 2,
+            rev: true,
+            content_known: true,
+            tag: Del
+        };
+        assert_eq!(merged, expect);
+
+        // And via prepend.
+        let mut merged2 = b.clone();
+        merged2.prepend(a.clone());
+        dbg!(&merged2);
+        assert_eq!(merged2, expect);
+    }
+
+    #[test]
+    fn positional_component_splitable() {
+        for rev in [true, false] {
+            for content_known in [true, false] {
+                test_splitable_methods_valid(PositionalComponent {
+                    pos: 10,
+                    len: 5,
+                    rev,
+                    content_known,
+                    tag: Ins
+                });
+
+                test_splitable_methods_valid(PositionalComponent {
+                    pos: 10,
+                    len: 5,
+                    rev,
+                    content_known,
+                    tag: Del
+                });
+            }
+        }
     }
 }

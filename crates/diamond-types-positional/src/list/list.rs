@@ -232,6 +232,8 @@ impl ListCRDT {
         assert_eq!(will_merge, did_merge);
     }
 
+    // pub fn apply_operation_at(&mut self, agent: AgentId, branch: &[usize], op)
+
     pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str) {
         let first_time = self.get_next_time();
         let mut next_time = first_time;
@@ -269,7 +271,6 @@ impl ListCRDT {
             next_time += len;
         }
 
-
         self.insert_history_local(TimeSpan { start: first_time, end: first_time + op_len });
     }
 
@@ -278,6 +279,7 @@ impl ListCRDT {
             PositionalComponent {
                 pos,
                 len: count_chars(ins_content),
+                rev: false,
                 content_known: true,
                 tag: Ins
             }
@@ -286,7 +288,7 @@ impl ListCRDT {
 
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) {
         self.apply_local_operation(agent, &[PositionalComponent {
-            pos, len: del_span, content_known: true, tag: Del
+            pos, len: del_span, rev: false, content_known: true, tag: Del
         }], "")
     }
 

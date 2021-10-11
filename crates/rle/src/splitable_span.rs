@@ -177,6 +177,8 @@ impl MergableSpan for Range<u32> {
 // #[cfg(test)]
 pub fn test_splitable_methods_valid<E: SplitAndJoinSpan + std::fmt::Debug + Clone + Eq>(entry: E) {
     assert!(entry.len() >= 2, "Call this with a larger entry");
+    // dbg!(&entry);
+
     for i in 1..entry.len() {
         // Split here and make sure we get the expected results.
         let mut start = entry.clone();
@@ -188,7 +190,10 @@ pub fn test_splitable_methods_valid<E: SplitAndJoinSpan + std::fmt::Debug + Clon
         assert!(start.can_append(&end));
 
         let mut merge_append = start.clone();
+
+        // dbg!(&start, &end);
         merge_append.append(end.clone());
+        // dbg!(&merge_append);
         assert_eq!(merge_append, entry);
 
         let mut merge_prepend = end.clone();

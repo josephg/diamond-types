@@ -11,9 +11,7 @@ use crate::ROOT_TIME;
 /// Both individual inserts and deletes will use up txn numbers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoryEntry {
-    pub span: TimeSpan,
-    // pub start: usize,
-    // pub len: usize, // Length of the span
+    pub span: TimeSpan, // TODO: Make the span u64s instead of usize.
 
     /// All txns in this span are direct descendants of all operations from order down to shadow.
     /// This is derived from other fields and used as an optimization for some calculations.
