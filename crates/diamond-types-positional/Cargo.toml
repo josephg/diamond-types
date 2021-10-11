@@ -1,0 +1,35 @@
+[package]
+name = "diamond-types-positional"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+#diamond-core = { path = "../diamond-core" }
+smartstring = "0.2"
+ropey = "1.1"
+smallvec = { version = "1.6", features = ["union"] }
+lazy_static = "1.4"
+serde_crate = { package = "serde", version = "1.0.126", features = ["derive"], optional = true }
+rle = { version = "0.1", path = "../rle" }
+content-tree = { version = "0.1", path = "../content-tree" }
+#bitvec = "0.22.3"
+jumprope = { version = "0.3", path = "../../../jumprope-rs" }
+humansize = "1.1"
+
+[dev-dependencies]
+#criterion = "^0.3"
+#rand = { version = "^0.8", features = ["small_rng"] }
+crdt-testdata = { path = "../crdt-testdata" }
+
+# For OT fuzz data tests
+#json_minimal = "0.1.3"
+
+[features]
+memusage = []
+inlinerope = []
+serde = ["serde_crate", "smallvec/serde", "smartstring/serde"]
+
+[lib]
+bench = false
