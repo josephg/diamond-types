@@ -1,5 +1,5 @@
 mod alloc;
-mod list;
+pub mod list;
 mod rle;
 mod localtime;
 mod unicount;

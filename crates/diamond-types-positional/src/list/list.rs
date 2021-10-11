@@ -231,7 +231,7 @@ impl ListCRDT {
         assert_eq!(will_merge, did_merge);
     }
 
-    pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str) {
+    pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str) {
         let first_time = self.get_next_time();
 
         let op_len = local_ops.iter().map(|c| c.len).sum();
@@ -268,7 +268,7 @@ impl ListCRDT {
     }
 
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
-        self.apply_local_txn(agent, &[
+        self.apply_local_operation(agent, &[
             PositionalComponent {
                 pos,
                 len: count_chars(ins_content),
@@ -279,9 +279,17 @@ impl ListCRDT {
     }
 
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) {
-        self.apply_local_txn(agent, &[PositionalComponent {
+        self.apply_local_operation(agent, &[PositionalComponent {
             pos, len: del_span, content_known: true, tag: Del
         }], "")
+    }
+
+    pub fn len(&self) -> usize {
+        if let Some(content) = &self.text_content {
+            content.len_chars()
+        } else {
+            panic!("Cannot calculate length")
+        }
     }
 }
 

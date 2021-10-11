@@ -3,7 +3,7 @@
 //!
 //! This module should not share any code with list/.
 
-mod operation;
+pub mod operation;
 mod timedag;
 mod list;
 mod check;
