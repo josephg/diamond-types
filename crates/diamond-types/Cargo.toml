@@ -20,7 +20,7 @@ serde_crate = { package = "serde", version = "1.0.126", features = ["derive"], o
 rle = { version = "0.1", path = "../rle" }
 content-tree = { version = "0.1", path = "../content-tree" }
 bitvec = "0.22.3"
-jumprope = { version = "0.4", path = "../../../jumprope-rs" }
+jumprope = { version = "0.4" }
 
 # Only used for printing stats. TODO: Move me to dev-dependencies!
 humansize = "1.1"
