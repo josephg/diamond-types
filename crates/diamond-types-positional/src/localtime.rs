@@ -12,7 +12,13 @@ pub struct TimeSpan {
 }
 
 impl TimeSpan {
-    pub fn new(start: usize, len: usize) -> TimeSpan {
+    #[inline]
+    pub fn new(start: usize, end: usize) -> TimeSpan {
+        TimeSpan { start, end }
+    }
+
+    #[inline]
+    pub fn new_from_len(start: usize, len: usize) -> TimeSpan {
         TimeSpan { start, end: start + len }
     }
 

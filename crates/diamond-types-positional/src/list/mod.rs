@@ -7,6 +7,7 @@ pub mod operation;
 mod timedag;
 mod list;
 mod check;
+mod history;
 
 use jumprope::JumpRope;
 use smallvec::SmallVec;
@@ -17,6 +18,8 @@ use crate::list::timedag::HistoryEntry;
 use crate::localtime::TimeSpan;
 use crate::remotespan::CRDTSpan;
 
+// TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
+// systems.
 pub type LocalTime = usize;
 
 pub type Branch = SmallVec<[LocalTime; 4]>;
