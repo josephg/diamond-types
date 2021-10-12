@@ -73,7 +73,7 @@ impl PositionalOp {
                         let (here, next) = new_content.split_at(byte_len);
                         new_content = next;
                         if c.rev {
-                            let mut s = here.chars().rev().collect::<String>();
+                            let s = here.chars().rev().collect::<String>();
                             rope.insert(pos, &s);
                         } else {
                             rope.insert(pos, here);
