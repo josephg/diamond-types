@@ -1,3 +1,6 @@
+// TODO: Take me out when we're feature complete.
+#![allow(unused)]
+
 pub mod alloc;
 pub mod list;
 mod rle;

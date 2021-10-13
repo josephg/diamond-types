@@ -35,7 +35,7 @@ impl HistoryEntry {
         } else { None } // look at .parents field.
     }
 
-    pub fn parent_at_localtime(&self, time: usize) -> Option<usize> {
+    pub fn parent_at_time(&self, time: usize) -> Option<usize> {
         if time > self.span.start {
             Some(time - 1)
         } else { None } // look at .parents field.

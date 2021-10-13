@@ -8,6 +8,7 @@ mod timedag;
 mod list;
 mod check;
 mod history;
+mod branch;
 
 use jumprope::JumpRope;
 use smallvec::SmallVec;
