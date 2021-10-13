@@ -282,7 +282,7 @@ impl RleVec<HistoryEntry> {
 
         // dbg!(&queue);
 
-        'outer: while let Some(time) = queue.pop() {
+        while let Some(time) = queue.pop() {
             let t = time.last;
 
             if t == ROOT_TIME { break; }
@@ -307,48 +307,38 @@ impl RleVec<HistoryEntry> {
 
             let mut range = TimeSpan { start: containing_txn.span.start, end: t + 1 };
 
-            // Consume any other changes within this txn.
-            loop {
-                match queue.peek() {
-                    None => { break 'outer; } // We're the only child. We're done.
-                    Some(peek_time) => {
-                        // println!("peek {:?}", &peek_time);
-                        // Might be simpler to use containing_txn.contains(peek_time.last).
-                        if peek_time.last != ROOT_TIME && peek_time.last >= containing_txn.span.start {
-                            // +1 because we don't want to include the actual merge point in the returned set.
-                            let rem = range.truncate(peek_time.last + 1);
-                            result.push_reversed_rle(rem);
+            // Consume all other changes within this txn.
+            while let Some(peek_time) = queue.peek() {
+                // println!("peek {:?}", &peek_time);
+                // Might be simpler to use containing_txn.contains(peek_time.last).
+                if peek_time.last != ROOT_TIME && peek_time.last >= containing_txn.span.start {
+                    // The next item is within this txn. Consume it.
+                    let time = queue.pop().unwrap();
 
-                            if peek_time.merged_with.is_empty() {
-                                queue.pop(); // We've consumed it. Keep scanning.
-                            } else {
-                                // println!("Break so we can shatter");
-                                // We've run into a merged item which uses part of this entry.
-                                // We've already pushed the necessary span to the result. Do the
-                                // normal merge & shatter logic with this item next.
-                                // TODO: Remove this queue.push.
-                                let time = queue.pop().unwrap();
+                    // +1 because we don't want to include the actual merge point in the returned set.
+                    let offset = time.last + 1 - containing_txn.span.start;
+                    if offset > 0 {
+                        let rem = range.truncate(offset);
+                        result.push_reversed_rle(rem);
+                    }
 
-                                queue.push(time.last.into());
-                                for t in time.merged_with {
-                                    queue.push(t.into());
-                                }
-
-                                // let last = peek_time.last;
-                                // queue.push(last.into());
-                                // break;
-                            }
-                        } else {
-                            // Push the rest.
-                            // result.push_reversed_rle(TimeSpan::new(containing_txn.span.start, to + 1));
-                            result.push_reversed_rle(range);
-
-                            // If this entry has multiple parents, we'll push a merge here then
-                            // immediately pop it. This is so we can stop at the merge point.
-                            queue.push(containing_txn.parents.as_slice().into());
-                            break;
+                    if !time.merged_with.is_empty() {
+                        // We've run into a merged item which uses part of this entry.
+                        // We've already pushed the necessary span to the result. Do the
+                        // normal merge & shatter logic with this item next.
+                        // let time = queue.pop().unwrap();
+                        for t in time.merged_with {
+                            queue.push(t.into());
                         }
                     }
+                } else {
+                    // Emit the remainder of this txn.
+                    result.push_reversed_rle(range);
+
+                    // If this entry has multiple parents, we'll push a merge here then
+                    // immediately pop it. This is so we stop at the merge point.
+                    queue.push(containing_txn.parents.as_slice().into());
+                    break;
                 }
             }
         }
@@ -363,7 +353,7 @@ impl RleVec<HistoryEntry> {
     /// a single localtime, but it might be the result of a merge of multiple edits.
     ///
     /// I'm assuming b is a parent of a, but it should all work if thats not the case.
-    fn find_conflicting(&self, a: &[Time], b: &[Time]) -> SmallVec<[TimeSpan; 4]> {
+    pub(crate) fn find_conflicting(&self, a: &[Time], b: &[Time]) -> SmallVec<[TimeSpan; 4]> {
         debug_assert!(!a.is_empty());
         debug_assert!(!b.is_empty());
 

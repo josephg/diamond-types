@@ -54,22 +54,24 @@ impl HasLength for TimeSpan {
 
 impl SplitableSpan for TimeSpan {
     fn truncate(&mut self, at: usize) -> Self {
+        let split = self.start + at;
         let other = TimeSpan {
-            start: at,
+            start: split,
             end: self.end,
         };
 
-        self.end = at;
+        self.end = split;
         other
     }
 
     #[inline]
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        let split = self.start + at;
         let other = TimeSpan {
             start: self.start,
-            end: at,
+            end: split,
         };
-        self.end = at;
+        self.start = split;
         other
     }
 }
@@ -118,5 +120,16 @@ impl Searchable for TimeSpan {
 impl RleKeyed for TimeSpan {
     fn get_rle_key(&self) -> usize {
         self.start
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rle::test_splitable_methods_valid;
+    use crate::localtime::TimeSpan;
+
+    #[test]
+    fn splitable_timespan() {
+        test_splitable_methods_valid(TimeSpan::new(10, 20));
     }
 }
