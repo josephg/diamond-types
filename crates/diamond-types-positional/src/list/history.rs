@@ -1,11 +1,11 @@
+use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-use std::ops::Range;
 
 use smallvec::{SmallVec, smallvec};
 
 use rle::AppendRle;
 
-use crate::list::{ListCRDT, LocalTime};
+use crate::list::{ListCRDT, Time};
 use crate::list::timedag::HistoryEntry;
 use crate::localtime::TimeSpan;
 use crate::rle::RleVec;
@@ -13,8 +13,14 @@ use crate::ROOT_TIME;
 
 // use smartstring::alias::{String as SmartString};
 
+// Diff function needs to tag each entry in the queue based on whether its part of a's history or
+// b's history or both, and do so without changing the sort order for the heap.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Flag { OnlyA, OnlyB, Shared }
+
+
 impl RleVec<HistoryEntry> {
-    fn shadow_of(&self, time: LocalTime) -> LocalTime {
+    fn shadow_of(&self, time: Time) -> Time {
         if time == ROOT_TIME {
             ROOT_TIME
         } else {
@@ -23,13 +29,13 @@ impl RleVec<HistoryEntry> {
     }
 
     /// Does the frontier `[a]` contain `[b]` as a direct ancestor according to its shadow?
-    fn txn_shadow_contains(&self, a: LocalTime, b: LocalTime) -> bool {
+    fn txn_shadow_contains(&self, a: Time, b: Time) -> bool {
         let a_1 = a.wrapping_add(1);
         let b_1 = b.wrapping_add(1);
         a_1 == b_1 || (a_1 > b_1 && self.shadow_of(a).wrapping_add(1) <= b_1)
     }
 
-    pub(crate) fn branch_contains_order(&self, branch: &[LocalTime], target: LocalTime) -> bool {
+    pub(crate) fn branch_contains_order(&self, branch: &[Time], target: Time) -> bool {
         assert!(!branch.is_empty());
         if target == ROOT_TIME || branch.contains(&target) { return true; }
         if branch == [ROOT_TIME] { return false; }
@@ -89,7 +95,9 @@ impl RleVec<HistoryEntry> {
     }
 
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
-    pub(crate) fn diff(&self, a: &[LocalTime], b: &[LocalTime]) -> (SmallVec<[TimeSpan; 4]>, SmallVec<[TimeSpan; 4]>) {
+    ///
+    /// Also find which operation is the greatest common ancestor.
+    pub(crate) fn diff(&self, a: &[Time], b: &[Time]) -> (SmallVec<[TimeSpan; 4]>, SmallVec<[TimeSpan; 4]>) {
         assert!(!a.is_empty());
         assert!(!b.is_empty());
 
@@ -103,11 +111,17 @@ impl RleVec<HistoryEntry> {
             // cases, but we may as well use the code below instead.
             let a = a[0];
             let b = b[0];
+            if a == b { return (smallvec![], smallvec![]); }
+
             if self.txn_shadow_contains(a, b) {
+                // a >= b.
                 return (smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()], smallvec![]);
+                // return (smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()], smallvec![], b);
             }
             if self.txn_shadow_contains(b, a) {
+                // b >= a.
                 return (smallvec![], smallvec![(a.wrapping_add(1)..b.wrapping_add(1)).into()]);
+                // return (smallvec![], smallvec![(a.wrapping_add(1)..b.wrapping_add(1)).into()], a);
             }
         }
 
@@ -115,29 +129,12 @@ impl RleVec<HistoryEntry> {
         self.diff_slow(a, b)
     }
 
-    // Split out for testing.
-    fn diff_slow(&self, a: &[LocalTime], b: &[LocalTime]) -> (SmallVec<[TimeSpan; 4]>, SmallVec<[TimeSpan; 4]>) {
-        // We need to tag each entry in the queue based on whether its part of a's history or b's
-        // history or both, and do so without changing the sort order for the heap.
-        #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-        enum Flag { OnlyA, OnlyB, Shared }
-
-        // Sorted highest to lowest.
-        let mut queue: BinaryHeap<(LocalTime, Flag)> = BinaryHeap::new();
-        for a_ord in a {
-            if *a_ord != ROOT_TIME { queue.push((*a_ord, Flag::OnlyA)); }
-        }
-        for b_ord in b {
-            if *b_ord != ROOT_TIME { queue.push((*b_ord, Flag::OnlyB)); }
-        }
-
-        let mut num_shared_entries = 0;
-
+    fn diff_slow(&self, a: &[Time], b: &[Time]) -> (SmallVec<[TimeSpan; 4]>, SmallVec<[TimeSpan; 4]>) {
         let mut only_a = smallvec![];
         let mut only_b = smallvec![];
 
         // marks range [ord_start..ord_end] *inclusive* with flag in our output.
-        let mut mark_run = |ord_start, ord_end, flag: Flag| {
+        let mark_run = |ord_start, ord_end, flag: Flag| {
             let target = match flag {
                 Flag::OnlyA => { &mut only_a }
                 Flag::OnlyB => { &mut only_b }
@@ -147,6 +144,23 @@ impl RleVec<HistoryEntry> {
 
             target.push_reversed_rle(TimeSpan::new(ord_start, ord_end+1));
         };
+
+        self.diff_slow_internal(a, b, mark_run);
+        (only_a, only_b)
+    }
+
+    fn diff_slow_internal<F>(&self, a: &[Time], b: &[Time], mut mark_run: F)
+    where F: FnMut(Time, Time, Flag) {
+        // Sorted highest to lowest.
+        let mut queue: BinaryHeap<(Time, Flag)> = BinaryHeap::new();
+        for a_ord in a {
+            if *a_ord != ROOT_TIME { queue.push((*a_ord, Flag::OnlyA)); }
+        }
+        for b_ord in b {
+            if *b_ord != ROOT_TIME { queue.push((*b_ord, Flag::OnlyB)); }
+        }
+
+        let mut num_shared_entries = 0;
 
         while let Some((mut ord, mut flag)) = queue.pop() {
             if flag == Flag::Shared { num_shared_entries -= 1; }
@@ -178,7 +192,7 @@ impl RleVec<HistoryEntry> {
                 if *peek_ord < containing_txn.span.start { break; }
                 else {
                     if *peek_flag != flag {
-                        // Mark from peek_ord..ord and continue.
+                        // Mark from peek_ord..=ord and continue.
                         mark_run(*peek_ord + 1, ord, flag);
                         ord = *peek_ord;
                         // offset -= ord - peek_ord;
@@ -203,10 +217,138 @@ impl RleVec<HistoryEntry> {
             // If there's only shared entries left, abort.
             if queue.len() == num_shared_entries { break; }
         }
+    }
 
-        // dbg!(&queue);
+    fn find_conflicting_slow(&self, a: &[Time], b: &[Time]) -> SmallVec<[TimeSpan; 4]> {
+        // Sorted highest to lowest (so we get the highest item first).
+        #[derive(Debug, PartialEq, Eq, Clone)]
+        struct TimePoint {
+            last: Time, // For merges this is the highest time.
+            // TODO: Compare performance here with actually using a vec.
+            merged_with: SmallVec<[Time; 1]>, // Always sorted. Usually empty.
+        }
 
-        (only_a, only_b)
+        impl PartialOrd for TimePoint {
+            #[inline(always)]
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                self.last.partial_cmp(&other.last)
+            }
+        }
+
+        impl From<Time> for TimePoint {
+            fn from(time: Time) -> Self {
+                Self { last: time, merged_with: SmallVec::new() }
+            }
+        }
+
+        // The heap is sorted such that we pull the highest items first.
+        let mut queue: BinaryHeap<(Time, Flag)> = BinaryHeap::new();
+        for a_ord in a {
+            if *a_ord != ROOT_TIME { queue.push(((*a_ord).into(), Flag::OnlyA)); }
+        }
+        for b_ord in b {
+            if *b_ord != ROOT_TIME { queue.push(((*b_ord).into(), Flag::OnlyB)); }
+        }
+
+        let mut result = smallvec![];
+
+        dbg!(&queue);
+
+        // let mut num_shared_entries = 0;
+        //
+        // while let Some((mut ord, mut flag)) = queue.pop() {
+        //     if flag == Flag::Shared { num_shared_entries -= 1; }
+        //
+        //     // dbg!((ord, flag));
+        //     while let Some((peek_ord, peek_flag)) = queue.peek() {
+        //         if *peek_ord != ord { break; } // Normal case.
+        //         else {
+        //             // 3 cases if peek_flag != flag. We set flag = Shared in all cases.
+        //             if *peek_flag != flag { flag = Flag::Shared; }
+        //             if *peek_flag == Flag::Shared { num_shared_entries -= 1; }
+        //             queue.pop();
+        //         }
+        //     }
+        //
+        //     // Grab the txn containing ord. This will usually be at prev_txn_idx - 1.
+        //     // TODO: Remove usually redundant binary search
+        //
+        //     let (containing_txn, _offset) = self.find_with_offset(ord).unwrap();
+        //
+        //     // There's essentially 2 cases here:
+        //     // 1. This item and the first item in the queue are part of the same txn. Mark down to
+        //     //    the queue head and continue.
+        //     // 2. Its not. Mark the whole txn and queue parents.
+        //
+        //     // 1:
+        //     while let Some((peek_ord, peek_flag)) = queue.peek() {
+        //         // dbg!((peek_ord, peek_flag));
+        //         if *peek_ord < containing_txn.span.start { break; }
+        //         else {
+        //             if *peek_flag != flag {
+        //                 // Mark from peek_ord..=ord and continue.
+        //                 mark_run(*peek_ord + 1, ord, flag);
+        //                 ord = *peek_ord;
+        //                 // offset -= ord - peek_ord;
+        //                 flag = Flag::Shared;
+        //             }
+        //             if *peek_flag == Flag::Shared { num_shared_entries -= 1; }
+        //             queue.pop();
+        //         }
+        //     }
+        //
+        //     // 2: Mark the rest of the txn in our current color and repeat. Note we still need to
+        //     // mark the run even if ord == containing_txn.order because the spans are inclusive.
+        //     mark_run(containing_txn.span.start, ord, flag);
+        //
+        //     for p in containing_txn.parents.iter() {
+        //         if *p != ROOT_TIME {
+        //             queue.push((*p, flag));
+        //             if flag == Flag::Shared { num_shared_entries += 1; }
+        //         }
+        //     }
+        //
+        //     // If there's only shared entries left, abort.
+        //     if queue.len() == num_shared_entries { break; }
+        // }
+
+        result
+    }
+
+    /// This method is used to find the operation ranges we need to look at that might be concurrent
+    /// with incoming edits.
+    ///
+    /// We need to track all spans back to a *single point in time*. This point in time is usually
+    /// a single localtime, but it might be the result of a merge of multiple edits.
+    ///
+    /// I'm assuming b is a parent of a, but it should all work if thats not the case.
+    fn find_conflicting(&self, a: &[Time], b: &[Time]) -> SmallVec<[TimeSpan; 4]> {
+        debug_assert!(!a.is_empty());
+        debug_assert!(!b.is_empty());
+
+        // First some simple short circuit checks to avoid needless work in common cases.
+        // Note most of the time this method is called, one of these early short circuit cases will
+        // fire.
+        if a == b { return smallvec![]; }
+
+        if a.len() == 1 && b.len() == 1 {
+            // Check if either operation naively dominates the other. We could do this for more
+            // cases, but we may as well use the code below instead.
+            let a = a[0];
+            let b = b[0];
+
+            if self.txn_shadow_contains(a, b) {
+                // a >= b.
+                return smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()];
+            }
+            if self.txn_shadow_contains(b, a) {
+                // b >= a.
+                return smallvec![(a.wrapping_add(1)..b.wrapping_add(1)).into()];
+            }
+        }
+
+        // Otherwise fall through to the slow version.
+        self.find_conflicting_slow(a, b)
     }
 }
 
@@ -214,30 +356,35 @@ impl RleVec<HistoryEntry> {
 /// about branches, find diffs and move between branches.
 impl ListCRDT {
     // Exported for the fuzzer. Not sure if I actually want this exposed.
-    pub fn branch_contains_order(&self, branch: &[LocalTime], target: LocalTime) -> bool {
+    pub fn branch_contains_order(&self, branch: &[Time], target: Time) -> bool {
         self.history.branch_contains_order(branch, target)
     }
 
-    pub fn linear_changes_since(&self, start: LocalTime) -> TimeSpan {
+    pub fn linear_changes_since(&self, start: Time) -> TimeSpan {
         TimeSpan::new(start, self.get_next_time())
     }
 }
 
 #[cfg(test)]
 pub mod test {
-    use std::ops::Range;
-
     use smallvec::smallvec;
 
-    use crate::list::{ListCRDT, LocalTime};
+    use crate::list::Time;
     use crate::list::timedag::HistoryEntry;
     use crate::localtime::TimeSpan;
     use crate::rle::RleVec;
     use crate::ROOT_TIME;
 
-    fn assert_diff_eq(txns: &RleVec<HistoryEntry>, a: &[LocalTime], b: &[LocalTime], expect_a: &[TimeSpan], expect_b: &[TimeSpan]) {
-        let slow_result = txns.diff_slow(a, b);
-        let fast_result = txns.diff(a, b);
+    fn assert_conflicting(history: &RleVec<HistoryEntry>, a: &[Time], b: &[Time], expect: &[TimeSpan]) {
+        let fast = history.find_conflicting(a, b);
+        assert_eq!(fast.as_slice(), expect);
+        let slow = history.find_conflicting_slow(a, b);
+        assert_eq!(slow.as_slice(), expect);
+    }
+
+    fn assert_diff_eq(history: &RleVec<HistoryEntry>, a: &[Time], b: &[Time], gco: Time, expect_a: &[TimeSpan], expect_b: &[TimeSpan]) {
+        let slow_result = history.diff_slow(a, b);
+        let fast_result = history.diff(a, b);
         assert_eq!(slow_result, fast_result);
 
         assert_eq!(slow_result.0.as_slice(), expect_a);
@@ -245,30 +392,20 @@ pub mod test {
 
         for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
             for o in spans {
-                assert!(txns.branch_contains_order(branch, o.start));
-                assert!(txns.branch_contains_order(branch, o.last()));
+                assert!(history.branch_contains_order(branch, o.start));
+                assert!(history.branch_contains_order(branch, o.last()));
             }
 
             if branch.len() == 1 {
                 // dbg!(&other, branch[0]);
                 let expect = spans.is_empty();
-                assert_eq!(expect, txns.branch_contains_order(other, branch[0]));
+                assert_eq!(expect, history.branch_contains_order(other, branch[0]));
             }
         }
     }
 
-    #[test]
-    fn branch_contains_smoke_test() {
-        // let mut doc = ListCRDT::new();
-        // assert!(doc.txns.branch_contains_order(&doc.frontier, ROOT_TIME));
-        //
-        // doc.get_or_create_agent_id("a");
-        // doc.local_insert(0, 0, "S".into()); // Shared history.
-        // assert!(doc.txns.branch_contains_order(&doc.frontier, ROOT_TIME));
-        // assert!(doc.txns.branch_contains_order(&doc.frontier, 0));
-        // assert!(!doc.txns.branch_contains_order(&[ROOT_TIME], 0));
-
-        let txns = RleVec(vec![
+    fn fancy_history() -> RleVec<HistoryEntry> {
+        RleVec(vec![
             HistoryEntry { // 0-2
                 span: (0..3).into(), shadow: 0,
                 parents: smallvec![ROOT_TIME],
@@ -285,36 +422,75 @@ pub mod test {
                 parent_indexes: smallvec![0, 1], child_indexes: smallvec![3],
             },
             HistoryEntry { // 9
-                span: (9..10).into(), shadow: ROOT_TIME,
+                span: (9..11).into(), shadow: ROOT_TIME,
                 parents: smallvec![8, 2],
                 parent_indexes: smallvec![2, 0], child_indexes: smallvec![],
             },
-        ]);
+        ])
+    }
 
-        assert!(txns.branch_contains_order(&[ROOT_TIME], ROOT_TIME));
-        assert!(txns.branch_contains_order(&[0], 0));
-        assert!(txns.branch_contains_order(&[0], ROOT_TIME));
+    // #[test]
+    // fn common_item_smoke_test() {
+    //     let history = fancy_history();
+    //
+    //     assert_common_ancestor(&history, &[1], &[2], 1);
+    //     assert_common_ancestor(&history, &[0], &[2], 0);
+    //     assert_common_ancestor(&history, &[ROOT_TIME], &[2], ROOT_TIME);
+    //
+    //     assert_common_ancestor(&history, &[2], &[3], ROOT_TIME);
+    //
+    //     assert_common_ancestor(&history, &[6], &[2], 1);
+    //     assert_common_ancestor(&history, &[6], &[5], ROOT_TIME); // 6 includes 1, 0.
+    //
+    //     assert_common_ancestor(&history, &[6, 5], &[2], 1);
+    //     assert_common_ancestor(&history, &[6, 2], &[5], ROOT_TIME);
+    //
+    //
+    //     assert_common_ancestor(&history, &[9], &[10], 9);
+    //     // 9 includes everything below it
+    //     for other in 0..=9 {
+    //         dbg!(other);
+    //         assert_common_ancestor(&history, &[9], &[other], other);
+    //     }
+    // }
 
-        assert!(txns.branch_contains_order(&[2], 0));
-        assert!(txns.branch_contains_order(&[2], 1));
-        assert!(txns.branch_contains_order(&[2], 2));
+    #[test]
+    fn branch_contains_smoke_test() {
+        // let mut doc = ListCRDT::new();
+        // assert!(doc.txns.branch_contains_order(&doc.frontier, ROOT_TIME));
+        //
+        // doc.get_or_create_agent_id("a");
+        // doc.local_insert(0, 0, "S".into()); // Shared history.
+        // assert!(doc.txns.branch_contains_order(&doc.frontier, ROOT_TIME));
+        // assert!(doc.txns.branch_contains_order(&doc.frontier, 0));
+        // assert!(!doc.txns.branch_contains_order(&[ROOT_TIME], 0));
 
-        assert!(!txns.branch_contains_order(&[0], 1));
-        assert!(!txns.branch_contains_order(&[1], 2));
+        let history = fancy_history();
 
-        assert!(txns.branch_contains_order(&[8], 0));
-        assert!(txns.branch_contains_order(&[8], 1));
-        assert!(!txns.branch_contains_order(&[8], 2));
-        assert!(!txns.branch_contains_order(&[8], 5));
+        assert!(history.branch_contains_order(&[ROOT_TIME], ROOT_TIME));
+        assert!(history.branch_contains_order(&[0], 0));
+        assert!(history.branch_contains_order(&[0], ROOT_TIME));
 
-        assert!(txns.branch_contains_order(&[1,4], 0));
-        assert!(txns.branch_contains_order(&[1,4], 1));
-        assert!(!txns.branch_contains_order(&[1,4], 2));
-        assert!(!txns.branch_contains_order(&[1,4], 5));
+        assert!(history.branch_contains_order(&[2], 0));
+        assert!(history.branch_contains_order(&[2], 1));
+        assert!(history.branch_contains_order(&[2], 2));
 
-        assert!(txns.branch_contains_order(&[9], 2));
-        assert!(txns.branch_contains_order(&[9], 1));
-        assert!(txns.branch_contains_order(&[9], 0));
+        assert!(!history.branch_contains_order(&[0], 1));
+        assert!(!history.branch_contains_order(&[1], 2));
+
+        assert!(history.branch_contains_order(&[8], 0));
+        assert!(history.branch_contains_order(&[8], 1));
+        assert!(!history.branch_contains_order(&[8], 2));
+        assert!(!history.branch_contains_order(&[8], 5));
+
+        assert!(history.branch_contains_order(&[1,4], 0));
+        assert!(history.branch_contains_order(&[1,4], 1));
+        assert!(!history.branch_contains_order(&[1,4], 2));
+        assert!(!history.branch_contains_order(&[1,4], 5));
+
+        assert!(history.branch_contains_order(&[9], 2));
+        assert!(history.branch_contains_order(&[9], 1));
+        assert!(history.branch_contains_order(&[9], 0));
     }
 
     // #[test]
@@ -446,7 +622,8 @@ pub mod test {
             },
         ]);
 
-        assert_diff_eq(&history, &[2], &[ROOT_TIME], &[(2..3).into(), (0..1).into()], &[]);
+        assert_diff_eq(&history, &[2], &[ROOT_TIME], ROOT_TIME, &[(2..3).into(), (0..1).into()], &[]);
+        assert_diff_eq(&history, &[2], &[1], ROOT_TIME, &[(2..3).into(), (0..1).into()], &[(1..2).into()]);
     }
 
     #[test]
@@ -473,7 +650,11 @@ pub mod test {
             },
         ]);
 
-        assert_diff_eq(&history, &[0], &[ROOT_TIME], &[(0..1).into()], &[]);
-        assert_diff_eq(&history, &[ROOT_TIME], &[0], &[], &[(0..1).into()]);
+        for time in [0, 1, 2] {
+            assert_diff_eq(&history, &[time], &[ROOT_TIME], ROOT_TIME, &[(time..time+1).into()], &[]);
+            assert_diff_eq(&history, &[ROOT_TIME], &[time], ROOT_TIME, &[], &[(time..time+1).into()]);
+        }
+
+        assert_diff_eq(&history, &[0], &[1], ROOT_TIME, &[(0..1).into()], &[(1..2).into()]);
     }
 }

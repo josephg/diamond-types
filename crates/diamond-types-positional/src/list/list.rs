@@ -1,7 +1,7 @@
 use std::mem::replace;
 use humansize::{file_size_opts, FileSize};
 use jumprope::JumpRope;
-use crate::list::{ClientData, ListCRDT, LocalTime};
+use crate::list::{ClientData, ListCRDT, Time};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use smallvec::smallvec;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
@@ -21,7 +21,7 @@ impl ClientData {
         } else { 0 }
     }
 
-    pub fn seq_to_time(&self, seq: usize) -> LocalTime {
+    pub fn seq_to_time(&self, seq: usize) -> Time {
         let (entry, offset) = self.item_orders.find_with_offset(seq).unwrap();
         entry.1.start + offset
     }

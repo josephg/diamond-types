@@ -20,9 +20,9 @@ use crate::remotespan::CRDTSpan;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
 // systems.
-pub type LocalTime = usize;
+pub type Time = usize;
 
-pub type Branch = SmallVec<[LocalTime; 4]>;
+pub type Branch = SmallVec<[Time; 4]>;
 
 
 #[derive(Clone, Debug)]
