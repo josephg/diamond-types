@@ -12,7 +12,8 @@ use serde_crate::{Deserialize, Serialize};
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct YjsSpan {
-    pub order: Time,
+    /// The ID of this entry. Well, the ID of the first entry in this span.
+    pub time: Time,
 
     /**
      * The origin_left is only for the first item in the span. Each subsequent item has an
@@ -31,7 +32,7 @@ pub struct YjsSpan {
 impl YjsSpan {
     pub fn origin_left_at_offset(&self, at: u32) -> Time {
         if at == 0 { self.origin_left }
-        else { self.order + at - 1 }
+        else { self.time + at - 1 }
     }
 
     pub fn activated(mut self) -> Self {
@@ -55,8 +56,8 @@ impl SplitableSpan for YjsSpan {
         debug_assert!(at > 0);
         let at_signed = at as i32 * self.len.signum();
         let other = YjsSpan {
-            order: self.order + at as Time,
-            origin_left: self.order + at as u32 - 1,
+            time: self.time + at as Time,
+            origin_left: self.time + at as u32 - 1,
             origin_right: self.origin_right,
             len: self.len - at_signed
         };
@@ -75,8 +76,8 @@ impl MergableSpan for YjsSpan {
     fn can_append(&self, other: &Self) -> bool {
         let len = self.len.abs() as u32;
         (self.len > 0) == (other.len > 0)
-            && other.order == self.order + len
-            && other.origin_left == other.order - 1
+            && other.time == self.time + len
+            && other.origin_left == other.time - 1
             && other.origin_right == self.origin_right
     }
 
@@ -87,7 +88,7 @@ impl MergableSpan for YjsSpan {
 
     fn prepend(&mut self, other: Self) {
         debug_assert!(other.can_append(self));
-        self.order = other.order;
+        self.time = other.time;
         self.len += other.len;
         self.origin_left = other.origin_left;
     }
@@ -97,15 +98,15 @@ impl Searchable for YjsSpan {
     type Item = Time;
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
-        if (loc >= self.order) && (loc < self.order + self.len.abs() as u32) {
-            Some((loc - self.order) as usize)
+        if (loc >= self.time) && (loc < self.time + self.len.abs() as u32) {
+            Some((loc - self.time) as usize)
         } else {
             None
         }
     }
 
     fn at_offset(&self, offset: usize) -> Self::Item {
-        self.order + offset as Time
+        self.time + offset as Time
     }
 }
 
@@ -155,14 +156,14 @@ mod tests {
     #[test]
     fn yjsspan_entry_valid() {
         test_splitable_methods_valid(YjsSpan {
-            order: 10,
+            time: 10,
             origin_left: 20,
             origin_right: 30,
             len: 5
         });
 
         test_splitable_methods_valid(YjsSpan {
-            order: 10,
+            time: 10,
             origin_left: 20,
             origin_right: 30,
             len: -5

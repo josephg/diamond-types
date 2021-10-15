@@ -13,12 +13,12 @@ use crate::list::ot::transform;
 use diamond_core::*;
 use crate::crdtspan::CRDTSpan;
 use rle::Searchable;
-use crate::list::branch::advance_branch_by_known;
+use crate::list::branch::{advance_branch_by_known, branch_eq};
 use std::ops::Range;
 use humansize::{file_size_opts, FileSize};
 use crate::list::positional::InsDelTag::*;
 use crate::rangeextra::OrderRange;
-use crate::list::positional::PositionalComponent;
+use crate::list::positional::{PositionalComponent, PositionalOpRef};
 use crate::list::time::positionmap::PositionMap;
 
 impl ClientData {
@@ -45,12 +45,12 @@ impl ClientData {
 pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) + '_ {
     move |entry: YjsSpan, leaf| {
         let mut len = entry.len() as u32;
-        let mut order = entry.order;
+        let mut order = entry.time;
 
         let index_len = index.len();
-        if entry.order > index_len {
+        if entry.time > index_len {
             // Insert extra dummy data to cover deletes.
-            len += entry.order - index_len;
+            len += entry.time - index_len;
             order = index_len;
         }
 
@@ -218,7 +218,7 @@ impl ListCRDT {
         unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_after(time, stick_end)) }
     }
 
-    fn assign_order_to_client(&mut self, loc: CRDTId, time: Time, len: usize) {
+    fn assign_time_to_client(&mut self, loc: CRDTId, time: Time, len: usize) {
         self.client_with_time.push(KVPair(time, CRDTSpan {
             loc,
             len: len as _
@@ -497,8 +497,8 @@ impl ListCRDT {
         // If the seq does not match we either need to skip or buffer the transaction.
         assert_eq!(next_seq, txn.id.seq);
 
-        let first_order = self.get_next_time();
-        let mut next_order = first_order;
+        let first_time = self.get_next_time();
+        let mut next_time = first_time;
 
         // Figure out the order range for this txn and assign
         let mut txn_len = 0;
@@ -522,10 +522,10 @@ impl ListCRDT {
         let mut content = txn.ins_content.as_str();
 
         // TODO: This may be premature - we may be left in an invalid state if the txn is invalid.
-        self.assign_order_to_client(CRDTId {
+        self.assign_time_to_client(CRDTId {
             agent,
             seq: txn.id.seq,
-        }, first_order, txn_len);
+        }, first_time, txn_len);
 
         // Apply the changes.
         for op in txn.ops.iter() {
@@ -533,15 +533,15 @@ impl ListCRDT {
                 RemoteCRDTOp::Ins { origin_left, origin_right, len, content_known } => {
                     // let ins_len = ins_content.chars().count();
 
-                    let order = next_order;
-                    next_order += len;
+                    let order = next_time;
+                    next_time += len;
 
                     // Convert origin left and right to order numbers
                     let origin_left = self.remote_id_to_order(origin_left);
                     let origin_right = self.remote_id_to_order(origin_right);
 
                     let item = YjsSpan {
-                        order,
+                        time: order,
                         origin_left,
                         origin_right,
                         len: *len as i32,
@@ -588,7 +588,7 @@ impl ListCRDT {
                         // I could break this into two loops - and here enter an inner loop,
                         // deleting len items. It seems a touch excessive though.
 
-                        let deleted_here = self.internal_mark_deleted(next_order, target_order, len, true);
+                        let deleted_here = self.internal_mark_deleted(next_time, target_order, len, true);
 
                         // println!(" -> managed to delete {}", deleted_here);
                         remaining_len -= deleted_here;
@@ -601,7 +601,7 @@ impl ListCRDT {
                         //     order: target_order,
                         //     len: deleted_here
                         // }));
-                        next_order += deleted_here;
+                        next_time += deleted_here;
 
                     }
 
@@ -618,32 +618,33 @@ impl ListCRDT {
 
         assert!(content.is_empty());
 
-        debug_assert_eq!(next_order, first_order + txn_len as u32);
+        debug_assert_eq!(next_time, first_time + txn_len as u32);
         let parents = self.remote_ids_to_branch(&txn.parents);
-        self.insert_txn_remote(&parents, first_order..next_order);
+        self.insert_txn_remote(&parents, first_time..next_time);
     }
 
-    pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str) {
-        let first_order = self.get_next_time();
-        let mut next_order = first_order;
+    pub fn apply_local_txn(&mut self, agent: AgentId, mut op: PositionalOpRef) {
+        // local_ops: &[PositionalComponent], mut content: &str
+        let first_time = self.get_next_time();
+        let mut next_time = first_time;
 
-        let txn_len = local_ops.iter().map(|c| c.len).sum::<u32>() as usize;
+        let txn_len = op.components.iter().map(|c| c.len).sum::<u32>() as usize;
 
-        self.assign_order_to_client(CRDTId {
+        self.assign_time_to_client(CRDTId {
             agent,
             seq: self.client_data[agent as usize].get_next_seq()
-        }, first_order, txn_len);
+        }, first_time, txn_len);
 
         // for LocalOp { pos, ins_content, del_span } in local_ops {
-        for c in local_ops {
+        for c in op.components {
             let pos = c.pos as usize;
             let len = c.len as usize;
 
             match c.tag {
                 Ins => {
                     // First we need the insert's base order
-                    let order = next_order;
-                    next_order += c.len;
+                    let time = next_time;
+                    next_time += c.len;
 
                     // Find the preceding item and successor
                     let (origin_left, cursor) = if pos == 0 {
@@ -659,7 +660,7 @@ impl ListCRDT {
                     let origin_right = unsafe { cursor.get_item() }.unwrap_or(ROOT_TIME);
 
                     let item = YjsSpan {
-                        order,
+                        time,
                         origin_left,
                         origin_right,
                         len: len as i32
@@ -667,7 +668,7 @@ impl ListCRDT {
                     // dbg!(item);
 
                     let ins_content = if c.content_known {
-                        Some(consume_chars(&mut content, len))
+                        Some(consume_chars(&mut op.content, len))
                     } else { None };
 
                     self.integrate(agent, item, ins_content, Some(cursor));
@@ -679,12 +680,12 @@ impl ListCRDT {
                     // dbg!(&deleted_items);
                     let mut deleted_length = 0; // To check.
                     for item in deleted_items {
-                        self.deletes.push(KVPair(next_order, TimeSpan {
-                            start: item.order,
+                        self.deletes.push(KVPair(next_time, TimeSpan {
+                            start: item.time,
                             len: item.len as u32
                         }));
                         deleted_length += item.len as usize;
-                        next_order += item.len as u32;
+                        next_time += item.len as u32;
                     }
                     // I might be able to relax this, but we'd need to change del_span above.
                     assert_eq!(deleted_length, len);
@@ -701,55 +702,64 @@ impl ListCRDT {
             }
         }
 
-        self.insert_txn_local(first_order..next_order);
-        debug_assert_eq!(next_order, self.get_next_time());
+        self.insert_txn_local(first_time..next_time);
+        debug_assert_eq!(next_time, self.get_next_time());
     }
 
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
-        self.apply_local_txn(agent, &[
-            PositionalComponent {
+        self.apply_local_txn(agent, PositionalOpRef {
+            components: &[PositionalComponent {
                 pos: pos as u32,
                 len: count_chars(ins_content) as u32,
                 content_known: true,
                 tag: Ins
-            }
-        ], ins_content);
+            }],
+            content: ins_content
+        });
     }
 
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) {
-        self.apply_local_txn(agent, &[PositionalComponent {
-            pos: pos as u32, len: del_span as u32, content_known: true, tag: Del
-        }], "")
+        self.apply_local_txn(agent, PositionalOpRef {
+            components: &[PositionalComponent {
+                pos: pos as u32, len: del_span as u32, content_known: true, tag: Del
+            }],
+            content: ""
+        });
     }
 
-    pub fn apply_patch_at_version(&mut self, agent: AgentId, local_ops: &[PositionalComponent], content: &str, branch: &[Time]) {
-        let mut map = PositionMap::new_at_version(self, branch);
-        // dbg!(&map);
-        self.apply_patch_at_map(&mut map, agent, local_ops, content, branch);
-        // dbg!(&map);
+    pub fn apply_patch_at_version(&mut self, agent: AgentId, op: PositionalOpRef, branch: &[Time]) {
+        if branch_eq(branch, self.frontier.as_slice()) {
+            self.apply_local_txn(agent, op);
+        } else {
+            let mut map = PositionMap::new_at_version(self, branch);
+            // dbg!(&map);
+            self.apply_patch_at_map(&mut map, agent, op, branch);
+            // dbg!(&map);
+        }
     }
 
-    pub(crate) fn apply_patch_at_map(&mut self, map: &mut PositionMap, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str, branch: &[Time]) {
+    pub(crate) fn apply_patch_at_map(&mut self, map: &mut PositionMap, agent: AgentId, mut op: PositionalOpRef, branch: &[Time]) {
+        // local_ops: &[PositionalComponent], mut content: &str
         // TODO: Merge this with apply_local_txn
-        let first_order = self.get_next_time();
-        let mut next_order = first_order;
-        let txn_len = local_ops.iter().map(|c| c.len).sum::<u32>() as usize;
+        let first_time = self.get_next_time();
+        let mut next_time = first_time;
+        let txn_len = op.components.iter().map(|c| c.len).sum::<u32>() as usize;
 
-        self.assign_order_to_client(CRDTId {
+        self.assign_time_to_client(CRDTId {
             agent,
             seq: self.client_data[agent as usize].get_next_seq()
-        }, first_order, txn_len);
+        }, first_time, txn_len);
 
         // for LocalOp { pos, ins_content, del_span } in local_ops {
-        for c in local_ops {
+        for c in op.components {
             let orig_pos = c.pos as usize;
             let len = c.len as usize;
 
             match c.tag {
                 Ins => {
                     // First we need the insert's base order
-                    let order = next_order;
-                    next_order += c.len;
+                    let order = next_time;
+                    next_time += c.len;
 
                     // Find the preceding item and successor
                     let (origin_left, cursor) = if orig_pos == 0 {
@@ -764,14 +774,13 @@ impl ListCRDT {
                     let origin_right = if orig_pos == map.content_len() {
                         ROOT_TIME
                     } else {
-                        // TODO: stick_end: false here matches the current semantics, but its not
-                        // ideal. Would be better to skip to the next entry that exists for
-                        // renaming.
+                        // stick_end: false here matches the current semantics where we still use
+                        // deleted items as the origin_right.
                         map.order_at_content_pos(self, orig_pos, true)
                     };
 
                     let item = YjsSpan {
-                        order,
+                        time: order,
                         origin_left,
                         origin_right,
                         len: len as i32
@@ -779,7 +788,7 @@ impl ListCRDT {
                     // dbg!(item);
 
                     let ins_content = if c.content_known {
-                        Some(consume_chars(&mut content, len))
+                        Some(consume_chars(&mut op.content, len))
                     } else { None };
 
                     // This is dirty. The cursor here implicitly references self. Using cursor.inner
@@ -807,7 +816,7 @@ impl ListCRDT {
 
                         while len > 0 {
                             // let target = unsafe { unsafe_cursor.get_item().unwrap() };
-                            let len_here = self.internal_mark_deleted_at(&mut unsafe_cursor, next_order, len as _, true);
+                            let len_here = self.internal_mark_deleted_at(&mut unsafe_cursor, next_time, len as _, true);
 
                             // This is wild, but we don't actually care if the delete succeeded. If
                             // the delete didn't succeed, its because the item was already deleted
@@ -817,7 +826,7 @@ impl ListCRDT {
                             map.update_from_delete(orig_pos, len_here as _);
 
                             len -= len_here as usize;
-                            next_order += len_here;
+                            next_time += len_here;
                             // The cursor has been updated already by internal_mark_deleted_at.
 
                             // We don't need to modify orig_pos because the position will be
@@ -829,8 +838,8 @@ impl ListCRDT {
         }
 
         // self.insert_txn_local(first_order..next_order);
-        self.insert_txn_remote(branch, first_order..next_order);
-        debug_assert_eq!(next_order, self.get_next_time());
+        self.insert_txn_remote(branch, first_time..next_time);
+        debug_assert_eq!(next_time, self.get_next_time());
     }
 
     // TODO: Consider refactoring me to use positional operations instead of traversal operations
@@ -842,11 +851,19 @@ impl ListCRDT {
             for p in historical_patches.components {
                 local_ops = transform(local_ops.as_slice(), &p, is_left);
             }
-            let positional = PositionalComponent::from_traversal_components(&local_ops);
-            self.apply_local_txn(agent, &positional, op.content.as_str());
+            // let positional = PositionalComponent::from_traversal_components(&local_ops);
+            self.apply_local_txn(agent, PositionalOpRef {
+                components: PositionalComponent::from_traversal_components(&local_ops).as_slice(),
+                content: op.content.as_str()
+            });
+            // self.apply_local_txn(agent, &positional, op.content.as_str());
         } else {
-            let positional = PositionalComponent::from_traversal_components(&op.traversal);
-            self.apply_local_txn(agent, &positional, op.content.as_str());
+            // let positional = PositionalComponent::from_traversal_components(&op.traversal);
+            // self.apply_local_txn(agent, &positional, op.content.as_str());
+            self.apply_local_txn(agent, PositionalOpRef {
+                components: PositionalComponent::from_traversal_components(&op.traversal).as_slice(),
+                content: op.content.as_str()
+            });
         }
     }
 
@@ -889,8 +906,8 @@ impl ListCRDT {
     #[allow(unused)]
     pub fn debug_print_segments(&self) {
         for entry in self.range_tree.raw_iter() {
-            let loc = self.get_crdt_location(entry.order);
-            println!("order {} l{} from {} / {} <-> {}", entry.order, entry.len(), loc.agent, entry.origin_left, entry.origin_right);
+            let loc = self.get_crdt_location(entry.time);
+            println!("order {} l{} from {} / {} <-> {}", entry.time, entry.len(), loc.agent, entry.origin_left, entry.origin_right);
         }
     }
 
@@ -917,6 +934,7 @@ mod tests {
     use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
     use smallvec::smallvec;
     use crate::list::ot::traversal::TraversalOp;
+    use crate::list::positional::PositionalOpRef;
     use crate::test_helpers::root_id;
 
     #[test]
@@ -1116,9 +1134,12 @@ mod tests {
         doc.local_insert(0, 0, "aaa");
         doc.local_insert(0, 0, "A");
 
-        doc.apply_patch_at_version(1, &[PositionalComponent {
-            pos: 1, len: 1, content_known: true, tag: InsDelTag::Ins
-        }], "b", &[1]); // when the document had "aa"
+        doc.apply_patch_at_version(1, PositionalOpRef {
+            components: &[PositionalComponent {
+                pos: 1, len: 1, content_known: true, tag: InsDelTag::Ins
+            }],
+            content: "b"
+        }, &[1]); // when the document had "aa"
 
         // doc.apply_patch_at_version(0, &[PositionalComponent {
         //     pos: 0, len: 1, content_known: true, tag: InsDelTag::Ins
@@ -1144,9 +1165,12 @@ mod tests {
         doc.local_insert(0, 0, "abc");
         doc.local_insert(0, 0, "A");
 
-        doc.apply_patch_at_version(1, &[PositionalComponent {
-            pos: 1, len: 1, content_known: false, tag: InsDelTag::Del
-        }], "", &[1]); // when the document had "aa"
+        doc.apply_patch_at_version(1, PositionalOpRef {
+            components: &[PositionalComponent {
+                pos: 1, len: 1, content_known: false, tag: InsDelTag::Del
+            }],
+            content: ""
+        }, &[1]); // when the document had "aa"
 
         if let Some(text) = doc.text_content.as_ref() {
             assert_eq!(text, "Aac");
@@ -1165,9 +1189,12 @@ mod tests {
         doc.local_insert(0, 0, "abc");
         doc.local_insert(0, 2, "x"); // abxc
 
-        doc.apply_patch_at_version(1, &[PositionalComponent {
-            pos: 1, len: 2, content_known: false, tag: InsDelTag::Del
-        }], "", &[2]); // when the document had "aa"
+        doc.apply_patch_at_version(1, PositionalOpRef {
+            components: &[PositionalComponent {
+                pos: 1, len: 2, content_known: false, tag: InsDelTag::Del
+            }],
+            content: ""
+        }, &[2]);
 
         if let Some(text) = doc.text_content.as_ref() {
             assert_eq!(text, "ax");
@@ -1187,10 +1214,13 @@ mod tests {
         doc.local_delete(0, 1, 1); // ac
         doc.local_insert(0, 0, "X"); // Xac
 
-        // Delete the "bc" from "abc"
-        doc.apply_patch_at_version(1, &[PositionalComponent {
-            pos: 1, len: 2, content_known: false, tag: InsDelTag::Del
-        }], "", &[2]); // Xa
+        doc.apply_patch_at_version(1, PositionalOpRef {
+            components: &[PositionalComponent {
+                pos: 1, len: 2, content_known: false, tag: InsDelTag::Del
+            }],
+            content: ""
+        }, &[2]); // Xa
+
 
         if let Some(text) = doc.text_content.as_ref() {
             assert_eq!(text, "Xa");

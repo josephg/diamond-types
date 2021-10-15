@@ -37,6 +37,12 @@ pub struct PositionalOp {
     pub content: SmartString,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub struct PositionalOpRef<'a> {
+    pub components: &'a [PositionalComponent],
+    pub content: &'a str,
+}
+
 impl Default for InsDelTag {
     fn default() -> Self { InsDelTag::Ins } // Arbitrary.
 }
@@ -89,6 +95,15 @@ impl PositionalOp {
             result.components.push_rle(c);
         }
         result
+    }
+}
+
+impl<'a> From<&'a PositionalOp> for PositionalOpRef<'a> {
+    fn from(op: &'a PositionalOp) -> Self {
+        PositionalOpRef {
+            components: op.components.as_slice(),
+            content: &op.content
+        }
     }
 }
 

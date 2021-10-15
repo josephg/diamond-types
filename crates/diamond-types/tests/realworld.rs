@@ -1,5 +1,6 @@
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn, TestData};
 use diamond_types::list::*;
+use diamond_types::list::positional::PositionalOpRef;
 
 pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
@@ -31,7 +32,10 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
                 content.push_str(ins_content.as_str());
             }
 
-            doc.apply_local_txn(id, positional.as_slice(), content.as_str());
+            doc.apply_local_txn(id, PositionalOpRef {
+                components: &positional,
+                content: content.as_str(),
+            });
         }
     }
 }

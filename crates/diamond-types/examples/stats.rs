@@ -14,6 +14,7 @@ use diamond_types::list::*;
 use diamond_core::alloc::*;
 #[cfg(feature = "memusage")]
 use humansize::{FileSize, file_size_opts};
+use diamond_types::list::positional::PositionalOpRef;
 
 #[cfg(feature = "memusage")]
 #[global_allocator]
@@ -27,6 +28,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
 
     for (_i, txn) in txns.iter().enumerate() {
         for TestPatch(pos, del_span, ins_content) in &txn.patches {
+
             positional.clear();
             content.clear();
 
@@ -49,7 +51,10 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
                 content.push_str(ins_content.as_str());
             }
 
-            doc.apply_local_txn(id, positional.as_slice(), content.as_str());
+            doc.apply_local_txn(id, PositionalOpRef {
+                components: &positional,
+                content: content.as_str(),
+            });
         }
     }
 }

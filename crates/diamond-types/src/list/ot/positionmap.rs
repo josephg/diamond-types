@@ -269,7 +269,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 // Cap the number of items to undelete each iteration based on the span in content_tree.
                 let entry = rt_cursor.get_raw_entry();
                 debug_assert!(entry.is_deactivated());
-                let first_del_target = u32::max(entry.order, last_del_target + 1 - del_span_size);
+                let first_del_target = u32::max(entry.time, last_del_target + 1 - del_span_size);
 
                 let (allowed, first_del_target) = self.marked_deletes.mark_range(&self.doc.double_deletes, last_del_target, first_del_target);
                 let len_here = last_del_target + 1 - first_del_target;

@@ -37,8 +37,8 @@ impl ListCRDT {
 
             if let Some(e) = cursor.next() { // Iterating manually for the borrow checker.
                 // Each item's ID should come after its origin left and right
-                assert!(e.origin_left == ROOT_TIME || e.order > e.origin_left);
-                assert!(e.origin_right == ROOT_TIME || e.order > e.origin_right);
+                assert!(e.origin_left == ROOT_TIME || e.time > e.origin_left);
+                assert!(e.origin_right == ROOT_TIME || e.time > e.origin_right);
                 assert_ne!(e.len, 0);
 
                 if deep {
@@ -62,8 +62,8 @@ impl ListCRDT {
     fn check_index(&self) {
         // Go through each entry in the range tree and make sure we can find it using the index.
         for entry in self.range_tree.raw_iter() {
-            let marker = self.marker_at(entry.order);
-            unsafe { marker.as_ref() }.find(entry.order).unwrap();
+            let marker = self.marker_at(entry.time);
+            unsafe { marker.as_ref() }.find(entry.time).unwrap();
         }
     }
 

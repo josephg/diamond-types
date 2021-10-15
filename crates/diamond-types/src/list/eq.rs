@@ -94,10 +94,10 @@ impl PartialEq for ListCRDT {
             loop {
                 let TimeSpan {
                     start: order, len
-                } = a_to_b_span(entry.order, entry.len() as u32);
+                } = a_to_b_span(entry.time, entry.len() as u32);
 
                 a_items.push(YjsSpan {
-                    order,
+                    time: order,
                     origin_left: a_to_b_order(entry.origin_left),
                     origin_right: a_to_b_order(entry.origin_right),
                     len: len as i32 * entry.len.signum()
