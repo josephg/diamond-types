@@ -32,6 +32,7 @@ mod ot;
 mod branch;
 pub mod time;
 pub mod positional;
+mod merge_positional;
 
 // #[cfg(inlinerope)]
 // pub const USE_INNER_ROPE: bool = true;
