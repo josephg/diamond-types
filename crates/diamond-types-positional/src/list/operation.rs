@@ -6,10 +6,10 @@ use jumprope::JumpRope;
 /// Updates are made up of a series of insert / delete components, each at some position.
 
 use smartstring::alias::{String as SmartString};
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use InsDelTag::*;
-use crate::unicount::chars_to_bytes;
+use crate::unicount::{chars_to_bytes, count_chars};
 use rle::AppendRle;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
@@ -59,6 +59,24 @@ const XS: &str = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 impl PositionalOp {
     pub fn new() -> Self { Self::default() }
+
+    pub fn new_insert(pos: usize, content: &str) -> Self {
+        let len = count_chars(content);
+        Self {
+            components: smallvec![
+                PositionalComponent { pos, len, rev: false, content_known: true, tag: Ins }
+            ],
+            content: content.into()
+        }
+    }
+    pub fn new_delete(pos: usize, len: usize) -> Self {
+        Self {
+            components: smallvec![
+                PositionalComponent { pos, len, rev: false, content_known: true, tag: Del }
+            ],
+            content: Default::default()
+        }
+    }
 
     pub fn apply_to_rope(&self, rope: &mut JumpRope) {
         let mut new_content = self.content.as_str();

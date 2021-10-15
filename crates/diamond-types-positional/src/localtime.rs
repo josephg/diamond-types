@@ -35,6 +35,8 @@ impl TimeSpan {
     pub fn contains(&self, item: usize) -> bool {
         self.start <= item && item < self.end
     }
+
+    pub fn is_empty(&self) -> bool { self.start == self.end }
 }
 
 impl From<Range<usize>> for TimeSpan {

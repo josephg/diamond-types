@@ -7,8 +7,9 @@ use smallvec::smallvec;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use smartstring::alias::{String as SmartString};
 use rle::{HasLength, MergableSpan, Searchable};
+use crate::list::branch::branch_eq;
 use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::list::operation::{InsDelTag, PositionalComponent};
+use crate::list::operation::{InsDelTag, PositionalComponent, PositionalOp};
 use crate::list::timedag::HistoryEntry;
 use crate::localtime::TimeSpan;
 use crate::remotespan::{CRDT_DOC_ROOT, CRDTId, CRDTSpan};
@@ -93,7 +94,7 @@ impl ListCRDT {
     pub(crate) fn get_crdt_location(&self, time: usize) -> CRDTId {
         if time == ROOT_TIME { CRDT_DOC_ROOT }
         else {
-            let (loc, offset) = self.client_with_localtime.find_packed(time);
+            let (loc, offset) = self.client_with_localtime.find_packed_with_offset(time);
             loc.1.at_offset(offset as usize)
         }
     }
@@ -101,7 +102,7 @@ impl ListCRDT {
     pub(crate) fn get_crdt_span(&self, time: TimeSpan) -> CRDTSpan {
         if time.start == ROOT_TIME { CRDTSpan { agent: ROOT_AGENT, seq_range: Default::default() } }
         else {
-            let (loc, offset) = self.client_with_localtime.find_packed(time.start);
+            let (loc, offset) = self.client_with_localtime.find_packed_with_offset(time.start);
             let start = loc.1.seq_range.start + offset;
             let end = usize::min(loc.1.seq_range.end, start + time.len());
             CRDTSpan {
@@ -231,8 +232,6 @@ impl ListCRDT {
         let did_merge = self.history.push(txn);
         assert_eq!(will_merge, did_merge);
     }
-
-    // pub fn apply_operation_at(&mut self, agent: AgentId, branch: &[usize], op)
 
     pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str) {
         let first_time = self.get_next_time();

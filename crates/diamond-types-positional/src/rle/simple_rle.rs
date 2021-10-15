@@ -95,6 +95,11 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         })
     }
 
+    /// Same as list.find_with_offset(needle) except for lists where there are no gaps in the RLE list.
+    pub fn find_packed(&self, needle: usize) -> &V {
+        self.find(needle).unwrap()
+    }
+
     /// Find an entry in the list with the specified key using binary search.
     ///
     /// If found returns Some((found value, internal offset))
@@ -105,8 +110,8 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         })
     }
 
-    /// Same as list.find(needle) except for lists where there are no gaps in the RLE list.
-    pub fn find_packed(&self, needle: usize) -> (&V, usize) {
+    /// Same as list.find_with_offset(needle) except for lists where there are no gaps in the RLE list.
+    pub fn find_packed_with_offset(&self, needle: usize) -> (&V, usize) {
         self.find_with_offset(needle).unwrap()
     }
 
