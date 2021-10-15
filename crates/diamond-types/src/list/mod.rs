@@ -15,7 +15,7 @@ use crate::list::double_delete::DoubleDelete;
 use crate::list::markers::MarkerEntry;
 use crate::list::span::YjsSpan;
 use crate::list::txn::TxnSpan;
-use crate::order::OrderSpan;
+use crate::order::TimeSpan;
 // use crate::list::delete::DeleteEntry;
 use crate::rle::{KVPair, RleVec};
 
@@ -41,8 +41,8 @@ pub mod positional;
 // #[cfg(test)]
 // mod tests;
 
-pub type Order = u32;
-pub const ROOT_ORDER: Order = Order::MAX;
+pub type Time = u32;
+pub const ROOT_TIME: Time = Time::MAX;
 pub const ROOT_AGENT: AgentId = AgentId::MAX;
 
 #[derive(Clone, Debug)]
@@ -56,7 +56,7 @@ struct ClientData {
     /// location range -> item orders
     ///
     /// The OrderMarkers here always have positive len.
-    item_orders: RleVec<KVPair<OrderSpan>>,
+    item_localtime: RleVec<KVPair<TimeSpan>>,
 }
 
 pub(crate) const INDEX_IE: usize = DEFAULT_IE;
@@ -67,16 +67,16 @@ pub(crate) const DOC_LE: usize = DEFAULT_LE;
 // const DOC_LE: usize = 32;
 
 // type DocRangeIndex = ContentIndex;
-type DocRangeIndex = FullIndex;
+type DocRangeIndex = FullMetrics;
 
 pub(crate) type RangeTree = Pin<Box<ContentTreeWithIndex<YjsSpan, DocRangeIndex>>>;
 pub(crate) type RangeTreeLeaf = NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>;
 
-type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionIndex>>>;
+type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionMetrics>>>;
 
 pub type DoubleDeleteList = RleVec<KVPair<DoubleDelete>>;
 
-pub type Branch = SmallVec<[Order; 4]>;
+pub type Branch = SmallVec<[Time; 4]>;
 
 #[derive(Debug)]
 pub struct ListCRDT {
@@ -86,19 +86,18 @@ pub struct ListCRDT {
     /// Never empty. Starts at usize::max (which is the root order).
     frontier: Branch,
 
-    /// This is a bunch of ranges of (item order -> CRDT location span).
+    /// This is a bunch of ranges of (item time -> CRDT location span).
     /// The entries always have positive len.
     ///
-    /// This is used to map Order -> External CRDT locations.
-    client_with_order: RleVec<KVPair<CRDTSpan>>,
+    /// This is used to map time -> External CRDT locations.
+    client_with_time: RleVec<KVPair<CRDTSpan>>,
 
     /// For each client, we store some data (above). This is indexed by AgentId.
     ///
-    /// This is used to map external CRDT locations -> Order numbers.
+    /// This is used to map external CRDT locations -> Time numbers.
     client_data: Vec<ClientData>,
 
-    /// The marker tree maps from order positions to btree entries, so we can map between orders and
-    /// document locations.
+    /// The range tree maps from document positions to btree entries.
     ///
     /// This is the CRDT chum for the space DAG.
     range_tree: RangeTree,
@@ -108,12 +107,12 @@ pub struct ListCRDT {
     /// contain a lot of repeated pointers. I'm trading off memory for simplicity
     /// here - which might or might not be the right approach.
     ///
-    /// This is a map from insert Order -> a pointer to the leaf node which contains that insert.
+    /// This is a map from insert time -> a pointer to the leaf node which contains that insert.
     index: SpaceIndex,
 
-    /// This is a set of all deletes. Each delete names the set of orders of inserts which were
+    /// This is a set of all deletes. Each delete names the set of times of inserts which were
     /// deleted. Keyed by the delete order, NOT the order of the item *being* deleted.
-    deletes: RleVec<KVPair<OrderSpan>>,
+    deletes: RleVec<KVPair<TimeSpan>>,
 
     /// List of document items which have been deleted more than once. Usually empty. Keyed by the
     /// item *being* deleted (like content_tree, unlike deletes).

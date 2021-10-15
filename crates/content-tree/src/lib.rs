@@ -8,7 +8,7 @@ use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::ptr::NonNull;
 
-pub use index::*;
+pub use metrics::*;
 pub use root::DeleteResult;
 
 // Types re-exported from rle for convenience
@@ -20,7 +20,7 @@ mod root;
 mod leaf;
 mod internal;
 mod mutations;
-mod index;
+mod metrics;
 mod safe_cursor;
 pub mod testrange;
 mod iter;
@@ -58,8 +58,8 @@ impl<T: SplitAndJoinSpan + Copy + Debug + Default> ContentTraits for T {}
 /// ]);
 /// ```
 #[derive(Debug)]
-pub struct ContentTreeRaw<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
-    count: I::IndexValue,
+pub struct ContentTreeRaw<E: ContentTraits, I: TreeMetrics<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
+    count: I::Value,
 
     // There's a bit of double-deref going on when you access the first node in the tree, but I
     // can't think of a clean way around it.
@@ -80,12 +80,12 @@ pub trait Cursors {
 }
 
 // This is a simple helper to make it easier to reference the type of a content tree cursor.
-impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursors for &'a ContentTreeRaw<E, I, IE, LE> {
+impl<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cursors for &'a ContentTreeRaw<E, I, IE, LE> {
     type UnsafeCursor = UnsafeCursor<E, I, IE, LE>;
     type Cursor = Cursor<'a, E, I, IE, LE>;
     type MutCursor = MutCursor<'a, E, I, IE, LE>;
 }
-impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cursors for &'a Pin<Box<ContentTreeRaw<E, I, IE, LE>>> {
+impl<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cursors for &'a Pin<Box<ContentTreeRaw<E, I, IE, LE>>> {
     type UnsafeCursor = UnsafeCursor<E, I, IE, LE>;
     type Cursor = Cursor<'a, E, I, IE, LE>;
     type MutCursor = MutCursor<'a, E, I, IE, LE>;
@@ -93,16 +93,16 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Cu
 
 /// An alias for ContentTreeRaw which uses the default sizes for internal elements.
 pub type ContentTreeWithIndex<E, I> = ContentTreeRaw<E, I, DEFAULT_IE, DEFAULT_LE>;
-pub type ContentTree<E> = ContentTreeRaw<E, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>;
+pub type ContentTree<E> = ContentTreeRaw<E, RawPositionMetrics, DEFAULT_IE, DEFAULT_LE>;
 
 /// An internal node in the B-tree
 #[derive(Debug)]
-pub(crate) struct NodeInternal<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
+pub(crate) struct NodeInternal<E: ContentTraits, I: TreeMetrics<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
     parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     // Pairs of (count of subtree elements, subtree contents).
     // Left packed. The nodes are all the same type.
     // ItemCount only includes items which haven't been deleted.
-    index: [I::IndexValue; INT_ENTRIES],
+    metrics: [I::Value; INT_ENTRIES],
     children: [Option<Node<E, I, INT_ENTRIES, LEAF_ENTRIES>>; INT_ENTRIES],
     _pin: PhantomPinned, // Needed because children have parent pointers here.
 }
@@ -115,7 +115,7 @@ pub(crate) struct NodeInternal<E: ContentTraits, I: TreeIndex<E>, const INT_ENTR
 ///
 /// See diamond-types for an example of this.
 #[derive(Debug)]
-pub struct NodeLeaf<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
+pub struct NodeLeaf<E: ContentTraits, I: TreeMetrics<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
     parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     num_entries: u8, // Number of entries which have been populated
     data: [E; LEAF_ENTRIES],
@@ -125,21 +125,21 @@ pub struct NodeLeaf<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usize,
 }
 
 #[derive(Debug)]
-pub(crate) enum Node<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub(crate) enum Node<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> {
     Internal(Pin<Box<NodeInternal<E, I, IE, LE>>>),
     Leaf(Pin<Box<NodeLeaf<E, I, IE, LE>>>),
 }
 
 // I hate that I need this, but its used all over the place when traversing the tree.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum NodePtr<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub(crate) enum NodePtr<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> {
     Internal(NonNull<NodeInternal<E, I, IE, LE>>),
     Leaf(NonNull<NodeLeaf<E, I, IE, LE>>),
 }
 
 // TODO: Consider just reusing NodePtr for this.
 #[derive(Copy, Clone, Debug, Eq)]
-pub(crate) enum ParentPtr<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub(crate) enum ParentPtr<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> {
     Root(NonNull<ContentTreeRaw<E, I, IE, LE>>),
     Internal(NonNull<NodeInternal<E, I, IE, LE>>)
 }
@@ -156,7 +156,7 @@ pub(crate) enum ParentPtr<E: ContentTraits, I: TreeIndex<E>, const IE: usize, co
 /// The caller must ensure any reads and mutations through an UnsafeCursor are valid WRT the
 /// mutability and lifetime of the implicitly referenced content tree. Use Cursor and MutCursor.
 #[derive(Clone, Debug)]
-pub struct UnsafeCursor<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub struct UnsafeCursor<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> {
     node: NonNull<NodeLeaf<E, I, IE, LE>>,
     idx: usize,
     pub offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
@@ -164,7 +164,7 @@ pub struct UnsafeCursor<E: ContentTraits, I: TreeIndex<E>, const IE: usize, cons
 
 #[repr(transparent)]
 #[derive(Clone, Debug)]
-pub struct SafeCursor<R, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> {
+pub struct SafeCursor<R, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> {
     pub inner: UnsafeCursor<E, I, IE, LE>,
     marker: marker::PhantomData<R>
 }
@@ -182,7 +182,7 @@ pub type MutCursor<'a, E, I, const IE: usize, const LE: usize> = SafeCursor<&'a 
 
 // I can't use the derive() implementation of this because EntryTraits does not always implement
 // PartialEq.
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialEq for ParentPtr<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> PartialEq for ParentPtr<E, I, IE, LE> {
     fn eq(&self, other: &Self) -> bool {
         use ParentPtr::*;
         match (self, other) {
@@ -201,7 +201,7 @@ unsafe fn ref_to_nonnull<T>(val: &T) -> NonNull<T> {
 /// Helper when a notify function is not needed
 pub fn null_notify<E, Node>(_e: E, _node: Node) {}
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Node<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Node<E, I, IE, LE> {
     /// Unsafe: Created leaf has a dangling parent pointer. Must be set after initialization.
     // unsafe fn new_leaf() -> Self {
     //     Node::Leaf(Box::pin(NodeLeaf::new()))
@@ -291,7 +291,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Node<E
     }
 }
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodePtr<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> NodePtr<E, I, IE, LE> {
     fn unwrap_leaf(self) -> NonNull<NodeLeaf<E, I, IE, LE>> {
         match self {
             NodePtr::Leaf(l) => l,
@@ -307,7 +307,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodePt
     }
 }
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ParentPtr<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> ParentPtr<E, I, IE, LE> {
     fn unwrap_internal(self) -> NonNull<NodeInternal<E, I, IE, LE>> {
         match self {
             ParentPtr::Root(_) => { panic!("Expected internal node"); }
@@ -333,8 +333,8 @@ mod test {
 
     #[test]
     fn option_node_size_is_transparent() {
-        let node_size = size_of::<Node<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>>();
-        let opt_node_size = size_of::<Option<Node<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>>>();
+        let node_size = size_of::<Node<TestRange, RawPositionMetrics, DEFAULT_IE, DEFAULT_LE>>();
+        let opt_node_size = size_of::<Option<Node<TestRange, RawPositionMetrics, DEFAULT_IE, DEFAULT_LE>>>();
         assert_eq!(node_size, opt_node_size);
 
         // TODO: This fails, which means we're burning 8 bytes to simply store tags for each

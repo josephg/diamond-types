@@ -1,7 +1,7 @@
 mod utils;
 
 use wasm_bindgen::prelude::*;
-use diamond_types::list::{Branch, ListCRDT, ROOT_ORDER};
+use diamond_types::list::{Branch, ListCRDT, ROOT_TIME};
 use diamond_types::list::external_txn::{RemoteId, RemoteTxn, VectorClock};
 use diamond_core::AgentId;
 use smallvec::smallvec;
@@ -73,7 +73,7 @@ impl Doc {
 
     #[wasm_bindgen]
     pub fn get_next_order(&self) -> Result<JsValue, JsValue> {
-        serde_wasm_bindgen::to_value(&self.inner.get_next_order())
+        serde_wasm_bindgen::to_value(&self.inner.get_next_time())
             .map_err(|err| err.into())
     }
 
@@ -127,7 +127,7 @@ impl Doc {
     #[wasm_bindgen]
     pub fn traversal_ops_since_branch(&self, branch: JsValue) -> Result<JsValue, JsValue> {
         let branch: Branch = if branch.is_null() || branch.is_undefined() {
-            smallvec![ROOT_ORDER]
+            smallvec![ROOT_TIME]
         } else {
             let b: Vec<RemoteId> = serde_wasm_bindgen::from_value(branch)?;
             self.inner.remote_ids_to_branch(&b)

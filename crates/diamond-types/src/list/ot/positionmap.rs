@@ -12,43 +12,43 @@ use rle::AppendRle;
 use TraversalComponent::*;
 
 use crate::crdtspan::CRDTSpan;
-use crate::list::{DoubleDeleteList, ListCRDT, Order};
+use crate::list::{DoubleDeleteList, ListCRDT, Time};
 use crate::list::double_delete::DoubleDelete;
 use crate::list::external_txn::RemoteIdSpan;
 use crate::list::positional::{InsDelTag, PositionalComponent, PositionalOp};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp, TraversalOpSequence};
-use crate::order::OrderSpan;
+use crate::order::TimeSpan;
 use crate::rle::{KVPair, RleKey, RleSpanHelpers};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct PrePostIndex;
 
 // TODO: Remove this and replace it with FullIndex, which has identical semantics.
-impl TreeIndex<TraversalComponent> for PrePostIndex {
-    type IndexUpdate = Pair<i32>;
-    type IndexValue = Pair<u32>;
+impl TreeMetrics<TraversalComponent> for PrePostIndex {
+    type Update = Pair<i32>;
+    type Value = Pair<u32>;
 
-    fn increment_marker(marker: &mut Self::IndexUpdate, entry: &TraversalComponent) {
+    fn increment_marker(marker: &mut Self::Update, entry: &TraversalComponent) {
         marker.0 += entry.pre_len() as i32;
         marker.1 += entry.post_len() as i32;
     }
 
-    fn decrement_marker(marker: &mut Self::IndexUpdate, entry: &TraversalComponent) {
+    fn decrement_marker(marker: &mut Self::Update, entry: &TraversalComponent) {
         marker.0 -= entry.pre_len() as i32;
         marker.1 -= entry.post_len() as i32;
     }
 
-    fn decrement_marker_by_val(marker: &mut Self::IndexUpdate, val: &Self::IndexValue) {
+    fn decrement_marker_by_val(marker: &mut Self::Update, val: &Self::Value) {
         marker.0 -= val.0 as i32;
         marker.1 -= val.1 as i32;
     }
 
-    fn update_offset_by_marker(offset: &mut Self::IndexValue, by: &Self::IndexUpdate) {
+    fn update_offset_by_marker(offset: &mut Self::Value, by: &Self::Update) {
         offset.0 = offset.0.wrapping_add(by.0 as u32);
         offset.1 = offset.1.wrapping_add(by.1 as u32);
     }
 
-    fn increment_offset(offset: &mut Self::IndexValue, by: &TraversalComponent) {
+    fn increment_offset(offset: &mut Self::Value, by: &TraversalComponent) {
         offset.0 += by.pre_len();
         offset.1 += by.post_len();
     }
@@ -97,7 +97,7 @@ impl DoubleDeleteVisitor {
     }
 
     /// Find the safe range from last_order backwards.
-    fn mark_range(&mut self, double_deletes: &DoubleDeleteList, last_order: Order, min_base: u32) -> (bool, u32) {
+    fn mark_range(&mut self, double_deletes: &DoubleDeleteList, last_order: Time, min_base: u32) -> (bool, u32) {
         match double_deletes.find_sparse(last_order).0 {
             // Most likely case. Indicates there's no double-delete to deal with in this span.
             Err(base) => (true, base.max(min_base)),
@@ -132,7 +132,7 @@ impl DoubleDeleteVisitor {
 #[derive(Debug)]
 struct PatchIter<'a> {
     doc: &'a ListCRDT,
-    span: OrderSpan,
+    span: TimeSpan,
     map: PositionMap,
     deletes_idx: usize,
     marked_deletes: DoubleDeleteVisitor,
@@ -143,24 +143,24 @@ struct PatchIter<'a> {
 /// ever existed in the local time linearization. Eg, if two operations were concurrent, this allows
 /// fetching the changes from *either* point in time to the current point in time.
 #[derive(Debug)]
-struct MultiPositionalChangesIter<'a, I: Iterator<Item=OrderSpan>> { // TODO: Change this to Range<Order>
+struct MultiPositionalChangesIter<'a, I: Iterator<Item=TimeSpan>> { // TODO: Change this to Range<Order>
     /// NOTE: The remaining spans iter must yield in reverse order (highest order to lowest order).
     remaining_spans: I,
     state: PatchIter<'a>,
 }
 
 impl ListCRDT {
-    pub fn positional_changes_since(&self, order: Order) -> PositionalOp {
+    pub fn positional_changes_since(&self, order: Time) -> PositionalOp {
         let walker = PatchIter::new_since_order(self, order);
         walker.into_positional_op()
     }
 
-    pub fn attributed_positional_changes_since(&self, order: Order) -> (PositionalOp, SmallVec<[CRDTSpan; 1]>) {
+    pub fn attributed_positional_changes_since(&self, order: Time) -> (PositionalOp, SmallVec<[CRDTSpan; 1]>) {
         let walker = PatchWithAuthorIter::new_since_order(self, order);
         walker.into_attributed_positional_op()
     }
 
-    pub fn positional_changes_since_branch(&self, branch: &[Order]) -> PositionalOp {
+    pub fn positional_changes_since_branch(&self, branch: &[Time]) -> PositionalOp {
         let (a, b) = self.txns.diff(branch, &self.frontier);
         assert_eq!(a.len(), 0);
 
@@ -171,26 +171,26 @@ impl ListCRDT {
         walker.into_positional_op()
     }
 
-    pub fn traversal_changes_since(&self, order: Order) -> TraversalOpSequence {
+    pub fn traversal_changes_since(&self, order: Time) -> TraversalOpSequence {
         self.positional_changes_since(order).into()
     }
 
-    pub fn flat_traversal_since(&self, order: Order) -> TraversalOp {
+    pub fn flat_traversal_since(&self, order: Time) -> TraversalOp {
         let walker = PatchIter::new_since_order(self, order);
         walker.into_traversal(self.text_content.as_ref().unwrap())
     }
 
-    pub fn attributed_traversal_changes_since(&self, order: Order) -> (TraversalOpSequence, SmallVec<[CRDTSpan; 1]>) {
+    pub fn attributed_traversal_changes_since(&self, order: Time) -> (TraversalOpSequence, SmallVec<[CRDTSpan; 1]>) {
         let (op, attr) = self.attributed_positional_changes_since(order);
         (op.into(), attr)
     }
 
-    pub fn remote_attr_patches_since(&self, order: Order) -> (TraversalOpSequence, SmallVec<[RemoteIdSpan; 1]>) {
+    pub fn remote_attr_patches_since(&self, order: Time) -> (TraversalOpSequence, SmallVec<[RemoteIdSpan; 1]>) {
         let (op, attr) = self.attributed_traversal_changes_since(order);
         (op, attr.iter().map(|span| self.crdt_span_to_remote(*span)).collect())
     }
 
-    pub fn traversal_changes_since_branch(&self, branch: &[Order]) -> TraversalOpSequence {
+    pub fn traversal_changes_since_branch(&self, branch: &[Time]) -> TraversalOpSequence {
         self.positional_changes_since_branch(branch).into()
     }
 }
@@ -248,7 +248,7 @@ impl<'a> Iterator for PatchIter<'a> {
             if let Ok(d) = self.doc.deletes.search_scanning_backwards_sparse(span_last_order, &mut self.deletes_idx) {
                 // Its a delete. We need to try to undelete the item, unless the item was deleted
                 // multiple times (in which case, it stays deleted for now).
-                let base = u32::max(self.span.order, d.0);
+                let base = u32::max(self.span.start, d.0);
                 let del_span_size = span_last_order + 1 - base; // TODO: Clean me up
                 debug_assert!(del_span_size > 0);
 
@@ -258,7 +258,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 // the deleted span. This worked correctly and was slightly simpler, but it was a
                 // confusing API to use and test because delete changes in particular were sometimes
                 // arbitrarily reordered.
-                let last_del_target = d.1.order + (span_last_order - d.0);
+                let last_del_target = d.1.start + (span_last_order - d.0);
 
                 // I'm also going to limit what we visit each iteration by the size of the visited
                 // item in the range tree. For performance I could hold off looking this up until
@@ -354,7 +354,7 @@ impl<'a> Iterator for PatchIter<'a> {
 
 impl<'a> PatchIter<'a> {
     // TODO: Consider swapping these two new() functions around as new_since_order is more useful.
-    fn new(doc: &'a ListCRDT, span: OrderSpan) -> Self {
+    fn new(doc: &'a ListCRDT, span: TimeSpan) -> Self {
         let mut iter = PatchIter {
             doc,
             span,
@@ -367,7 +367,7 @@ impl<'a> PatchIter<'a> {
         iter
     }
 
-    fn new_since_order(doc: &'a ListCRDT, base_order: Order) -> Self {
+    fn new_since_order(doc: &'a ListCRDT, base_order: Time) -> Self {
         Self::new(doc, doc.linear_changes_since(base_order))
     }
 
@@ -395,7 +395,7 @@ impl<'a> PatchIter<'a> {
 /// This is an iterator which wraps PatchIter and yields information about patches, as well as
 /// authorship of those patches.
 struct PatchWithAuthorIter<'a> {
-    actual_base: Order,
+    actual_base: Time,
     state: PatchIter<'a>,
     client_order_idx: usize,
     crdt_loc: CRDTId,
@@ -411,21 +411,21 @@ impl<'a> Iterator for PatchWithAuthorIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.state.span.len == 0 {
             // Grab the next span back in time and pass to the internal iterator.
-            if self.actual_base == self.state.span.order {
+            if self.actual_base == self.state.span.start {
                 // We're done here.
                 return None;
             }
 
-            let span_last_order = self.state.span.order - 1;
-            let val = self.state.doc.client_with_order
+            let span_last_order = self.state.span.start - 1;
+            let val = self.state.doc.client_with_time
                 .search_scanning_backwards_sparse(span_last_order, &mut self.client_order_idx)
                 .unwrap(); // client_with_order is packed, so its impossible to skip entries.
 
             if val.0 < self.actual_base {
                 // Only take down to actual_base.
-                self.state.span = OrderSpan {
-                    order: self.actual_base,
-                    len: self.state.span.order - self.actual_base
+                self.state.span = TimeSpan {
+                    start: self.actual_base,
+                    len: self.state.span.start - self.actual_base
                 };
                 self.crdt_loc = CRDTId {
                     agent: val.1.loc.agent,
@@ -433,9 +433,9 @@ impl<'a> Iterator for PatchWithAuthorIter<'a> {
                 };
             } else {
                 // Take the whole entry.
-                self.state.span = OrderSpan {
-                    order: val.0,
-                    len: self.state.span.order - val.0
+                self.state.span = TimeSpan {
+                    start: val.0,
+                    len: self.state.span.start - val.0
                 };
                 self.crdt_loc = val.1.loc;
             }
@@ -452,16 +452,16 @@ impl<'a> Iterator for PatchWithAuthorIter<'a> {
 }
 
 impl<'a> PatchWithAuthorIter<'a> {
-    fn new(doc: &'a ListCRDT, span: OrderSpan) -> Self {
+    fn new(doc: &'a ListCRDT, span: TimeSpan) -> Self {
         Self {
-            actual_base: span.order,
-            state: PatchIter::new(doc, OrderSpan { order: span.end(), len: 0 }),
-            client_order_idx: doc.client_with_order.0.len().wrapping_sub(1),
+            actual_base: span.start,
+            state: PatchIter::new(doc, TimeSpan { start: span.end(), len: 0 }),
+            client_order_idx: doc.client_with_time.0.len().wrapping_sub(1),
             crdt_loc: Default::default()
         }
     }
 
-    fn new_since_order(doc: &'a ListCRDT, base_order: Order) -> Self {
+    fn new_since_order(doc: &'a ListCRDT, base_order: Time) -> Self {
         Self::new(doc, doc.linear_changes_since(base_order))
     }
 
@@ -487,13 +487,13 @@ impl<'a> PatchWithAuthorIter<'a> {
 
 // This code - while correct - is in danger of being removed because it might not be usable due to
 // weaknesses in using OT across multiple servers.
-impl<'a, I: Iterator<Item=OrderSpan>> Iterator for MultiPositionalChangesIter<'a, I> {
+impl<'a, I: Iterator<Item=TimeSpan>> Iterator for MultiPositionalChangesIter<'a, I> {
     type Item = (u32, PositionalComponent);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.state.span.len == 0 {
             if let Some(span) = self.remaining_spans.next() {
-                debug_assert!(span.order < self.state.span.order);
+                debug_assert!(span.start < self.state.span.start);
                 assert!(span.len > 0);
                 self.state.span = span;
             } else { return None; }
@@ -503,11 +503,11 @@ impl<'a, I: Iterator<Item=OrderSpan>> Iterator for MultiPositionalChangesIter<'a
     }
 }
 
-impl<'a, I: Iterator<Item=OrderSpan>> MultiPositionalChangesIter<'a, I> {
+impl<'a, I: Iterator<Item=TimeSpan>> MultiPositionalChangesIter<'a, I> {
     fn new_from_iter(doc: &'a ListCRDT, iter: I) -> Self {
         MultiPositionalChangesIter {
             remaining_spans: iter,
-            state: PatchIter::new(doc, OrderSpan::default())
+            state: PatchIter::new(doc, TimeSpan::default())
         }
     }
 
@@ -566,7 +566,7 @@ mod test {
 
     use rle::AppendRle;
 
-    use crate::list::{ListCRDT, ROOT_ORDER};
+    use crate::list::{ListCRDT, ROOT_TIME};
     use crate::list::positional::*;
     use crate::list::ot::positionmap::*;
     use crate::list::ot::traversal::*;
@@ -679,7 +679,7 @@ mod test {
             make_random_change(&mut doc, None, agent_0, rng);
         }
 
-        let midpoint_order = doc.get_next_order();
+        let midpoint_order = doc.get_next_time();
         let midpoint_content = if doc.has_content() { Some(doc.to_string()) } else { None };
 
         let mut expect_author = vec![];
@@ -784,7 +784,7 @@ mod test {
         // Ok, now there's a bunch of interesting diffs to generate here. Frontier is [4,6] but
         // we have two branches - with orders [0-2, 5-6] and [3-4]
 
-        let full_history = doc.positional_changes_since_branch(&[ROOT_ORDER]);
+        let full_history = doc.positional_changes_since_branch(&[ROOT_TIME]);
         use InsDelTag::*;
         assert_eq!(full_history, PositionalOp {
             components: smallvec![

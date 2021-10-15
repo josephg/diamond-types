@@ -10,10 +10,10 @@ use diamond_core::CRDTId;
 use rle::{HasLength, MergableSpan, MergeableIterator, SplitableSpan, SplitAndJoinSpan};
 
 use crate::crdtspan::CRDTSpan;
-use crate::list::{ListCRDT, Order};
+use crate::list::{ListCRDT, Time};
 use crate::list::encoding::varint::*;
 use crate::list::span::YjsSpan;
-use crate::order::OrderSpan;
+use crate::order::TimeSpan;
 use crate::rangeextra::OrderRange;
 use crate::rle::KVPair;
 
@@ -162,18 +162,18 @@ impl<const INC: bool> MergableSpan for Run2<INC> {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-struct DiffVal(Order);
+struct DiffVal(Time);
 
 impl DiffVal {
     fn new() -> Self { Self(0) }
 
-    fn next(&mut self, new_val: Order) -> i32 {
+    fn next(&mut self, new_val: Time) -> i32 {
         let diff = new_val.wrapping_sub(self.0) as i32;
         self.0 = new_val;
         diff
     }
 
-    fn next_run<const INC: bool>(&mut self, new_val: Order, len: u32) -> Run2<INC> {
+    fn next_run<const INC: bool>(&mut self, new_val: Time, len: u32) -> Run2<INC> {
         let diff = new_val.wrapping_sub(self.0) as i32 as isize;
         self.0 = new_val + len - 1;
         Run2 { diff, len: len as usize }
@@ -514,7 +514,7 @@ impl ListCRDT {
         // I could use SpanWriter here but self.client_with_order should already be packed. (And if
         // it wasn't, .merge_spans() would be simpler.)
         let mut agent_data = Vec::new();
-        for KVPair(_, span) in self.client_with_order.iter() {
+        for KVPair(_, span) in self.client_with_time.iter() {
             push_run_u32(&mut agent_data, Run { val: span.loc.agent as _, len: span.len() });
         }
 
@@ -526,7 +526,7 @@ impl ListCRDT {
         let mut next_order = 0;
         let mut dv = DiffVal(0);
         for KVPair(order, d) in self.deletes.iter() {
-            let target = dv.next_run::<true>(d.order as _, d.len as _);
+            let target = dv.next_run::<true>(d.start as _, d.len as _);
             // Some((target, *order, d.len))
             if *order > next_order {
                 ins_del_runs.push(PosNegRun((*order - next_order) as i32));
@@ -538,7 +538,7 @@ impl ListCRDT {
             del_spans.push(target);
         }
 
-        let doc_next_order = self.get_next_order();
+        let doc_next_order = self.get_next_time();
         if next_order < doc_next_order {
             // There's an insert after the last delete. Include it in ins_del_runs.
             ins_del_runs.push(PosNegRun((doc_next_order - next_order) as i32));
@@ -672,12 +672,12 @@ impl ListCRDT {
         //     r.next_u32_run()
         // });
 
-        let mut order: Order = 0;
+        let mut order: Time = 0;
         while let Some(Run { val: agent, len }) = agent_data.next_u32_run() {
             // TODO: Consider calling assign_order_to_client instead.
             let client_data = &mut result.client_data[agent as usize];
             let seq = client_data.get_next_seq();
-            result.client_with_order.push(KVPair(order, CRDTSpan {
+            result.client_with_time.push(KVPair(order, CRDTSpan {
                 loc: CRDTId {
                     agent: agent as _,
                     seq
@@ -685,12 +685,12 @@ impl ListCRDT {
                 len: len as _
             }));
 
-            client_data.item_orders.push(KVPair(seq, OrderSpan {
-                order,
+            client_data.item_localtime.push(KVPair(seq, TimeSpan {
+                start: order,
                 len: len as _
             }));
 
-            order += len as Order;
+            order += len as Time;
         }
 
         // This one is easy.
@@ -745,8 +745,8 @@ impl ListCRDT {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct Parents {
-    order: Range<Order>,
-    parents: SmallVec<[Order; 2]>,
+    order: Range<Time>,
+    parents: SmallVec<[Time; 2]>,
 }
 
 impl HasLength for Parents {

@@ -1,7 +1,7 @@
 use super::*;
 use std::mem::{self, MaybeUninit};
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInternal<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> NodeInternal<E, I, IE, LE> {
     pub fn new_with_parent(parent: ParentPtr<E, I, IE, LE>) -> Pin<Box<Self>> {
         // From the example in the docs:
         // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#initializing-an-array-element-by-element
@@ -14,7 +14,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeIn
         Box::pin(Self {
             parent,
             // data: [(I::IndexOffset::default(), None); NUM_NODE_CHILDREN],
-            index: [I::IndexValue::default(); IE],
+            metrics: [I::Value::default(); IE],
             children: unsafe {
                 // Using transmute_copy because otherwise we run into a nonsense compiler error.
                 mem::transmute_copy::<_, [Option<Node<E, I, IE, LE>>; IE]>(&children)
@@ -27,13 +27,13 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeIn
     /// This is a massive hotspot for the code.
     pub(crate) fn find_child_at_offset<F>(&self, raw_pos: usize, stick_end: bool, offset_to_num: &F)
                                    -> Option<(usize, NodePtr<E, I, IE, LE>)>
-            where F: Fn(I::IndexValue) -> usize {
+            where F: Fn(I::Value) -> usize {
 
         let mut offset_remaining = raw_pos;
 
         for (idx, elem) in self.children.iter().enumerate() {
             if let Some(elem) = elem.as_ref() {
-                let count = offset_to_num(self.index[idx]);
+                let count = offset_to_num(self.metrics[idx]);
                 if offset_remaining < count || (stick_end && offset_remaining == count) {
                     // let elem_box = elem.unwrap();
                     return Some((offset_remaining, unsafe { elem.as_ptr() }))
@@ -46,10 +46,10 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeIn
         None
     }
 
-    pub fn set_entry(self: Pin<&mut Self>, idx: usize, count: I::IndexValue, child: Option<Node<E, I, IE, LE>>) {
+    pub fn set_entry(self: Pin<&mut Self>, idx: usize, count: I::Value, child: Option<Node<E, I, IE, LE>>) {
         unsafe {
             let ptr = self.get_unchecked_mut();
-            ptr.index[idx] = count;
+            ptr.metrics[idx] = count;
             ptr.children[idx] = child;
         }
     }
@@ -62,7 +62,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeIn
 
     /// Insert a new item in the tree. This DOES NOT update the child counts in
     /// the parents. (So the tree will be in an invalid state after this has been called.)
-    pub fn splice_in(&mut self, idx: usize, mut count: I::IndexValue, elem: Node<E, I, IE, LE>) {
+    pub fn splice_in(&mut self, idx: usize, mut count: I::Value, elem: Node<E, I, IE, LE>) {
         // let mut buffer = (count, Some(elem));
         let mut elem_buffer = Some(elem);
 
@@ -76,7 +76,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeIn
         // }
         // self.data[idx] = buffer;
         for i in idx..IE {
-            mem::swap(&mut count, &mut self.index[i]);
+            mem::swap(&mut count, &mut self.metrics[i]);
             mem::swap(&mut elem_buffer, &mut self.children[i]);
             if elem_buffer.is_none() { break; }
         }

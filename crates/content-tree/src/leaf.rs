@@ -5,7 +5,7 @@ use rle::Searchable;
 
 use super::*;
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
     // Note this doesn't return a Pin<Box<Self>> like the others. At the point of creation, there's
     // no reason for this object to be pinned. (Is that a bad idea? I'm not sure.)
     pub(crate) unsafe fn new(next: Option<NonNull<Self>>) -> Self {
@@ -163,8 +163,8 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
 
     // Recursively (well, iteratively) ascend and update all the counts along
     // the way up. TODO: Move this - This method shouldn't be in NodeLeaf.
-    pub fn update_parent_count(&mut self, amt: I::IndexUpdate) {
-        if amt == I::IndexUpdate::default() { return; }
+    pub fn update_parent_count(&mut self, amt: I::Update) {
+        if amt == I::Update::default() { return; }
 
         let mut child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self) });
         let mut parent = self.parent;
@@ -180,7 +180,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
                 },
                 ParentPtr::Internal(mut n) => {
                     let idx = unsafe { n.as_mut() }.find_child(child).unwrap();
-                    let c = &mut unsafe { n.as_mut() }.index[idx];
+                    let c = &mut unsafe { n.as_mut() }.metrics[idx];
                     // :(
                     I::update_offset_by_marker(c, &amt);
                     // *c = c.wrapping_add(amt as u32);
@@ -193,7 +193,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
         }
     }
 
-    pub fn flush_index_update(&mut self, marker: &mut I::IndexUpdate) {
+    pub fn flush_metric_update(&mut self, marker: &mut I::Update) {
         // println!("flush {:?}", marker);
         let amt = take(marker);
         self.update_parent_count(amt);
@@ -203,7 +203,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
         self.parent.is_root()
     }
 
-    pub fn count_items(&self) -> I::IndexValue {
+    pub fn count_items(&self) -> I::Value {
         if I::CAN_COUNT_ITEMS {
             // Optimization using the index. TODO: check if this is actually faster.
             match self.parent {
@@ -213,12 +213,12 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
                 ParentPtr::Internal(node) => {
                     let child = NodePtr::Leaf(unsafe { NonNull::new_unchecked(self as *const _ as *mut _) });
                     let idx = unsafe { node.as_ref() }.find_child(child).unwrap();
-                    unsafe { node.as_ref() }.index[idx]
+                    unsafe { node.as_ref() }.metrics[idx]
                 }
             }
         } else {
             // Count items the boring way. Hopefully this will optimize tightly.
-            let mut val = I::IndexValue::default();
+            let mut val = I::Value::default();
             for elem in self.data[..self.num_entries as usize].iter() {
                 I::increment_offset(&mut val, elem);
             }
@@ -252,7 +252,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
     // }
 }
 
-impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
+impl<E: ContentTraits + Searchable, I: TreeMetrics<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
     pub fn find(&self, loc: E::Item) -> Option<UnsafeCursor<E, I, IE, LE>> {
         for i in 0..self.len_entries() {
             let entry: E = self.data[i];

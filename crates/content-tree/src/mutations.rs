@@ -10,7 +10,7 @@ use rle::AppendRle;
 
 /// This file contains the core code for content-tree's mutation operations.
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     /// Insert item(s) at the position pointed to by the cursor. If the item is split, the remainder
     /// is returned. The cursor is modified in-place to point after the inserted items.
     ///
@@ -18,7 +18,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     ///
     /// The list of items must have a maximum length of 3, so we can always insert all the new items
     /// in half of a leaf node. (This is a somewhat artificial constraint, but its fine here.)
-    unsafe fn insert_internal<F>(mut items: &[E], cursor: &mut UnsafeCursor<E, I, IE, LE>, flush_marker: &mut I::IndexUpdate, notify: &mut F)
+    unsafe fn insert_internal<F>(mut items: &[E], cursor: &mut UnsafeCursor<E, I, IE, LE>, flush_marker: &mut I::Update, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         if items.is_empty() { return; }
@@ -138,7 +138,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
             // afterwards.
 
             // We have to flush regardless, because we might have truncated the current element.
-            node.flush_index_update(flush_marker);
+            node.flush_metric_update(flush_marker);
 
             if cursor.idx < LE / 2 {
                 // Split then elements go in left branch, so the cursor isn't updated.
@@ -195,10 +195,10 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
 
     pub unsafe fn unsafe_insert_notify<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_entry: E, mut notify: F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
-        let mut marker = I::IndexUpdate::default();
+        let mut marker = I::Update::default();
         Self::insert_internal(&[new_entry], cursor, &mut marker, &mut notify);
 
-        cursor.get_node_mut().flush_index_update(&mut marker);
+        cursor.get_node_mut().flush_metric_update(&mut marker);
         // cursor.compress_node();
     }
 
@@ -233,7 +233,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     ///
     /// Items must have a maximum length of 3, due to limitations in split_insert above.
     /// The cursor's offset is ignored. The cursor ends up at the end of the inserted items.
-    unsafe fn replace_entry<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, items: &[E], flush_marker: &mut I::IndexUpdate, notify: &mut F)
+    unsafe fn replace_entry<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, items: &[E], flush_marker: &mut I::Update, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         assert!(items.len() >= 1 && items.len() <= 3);
 
@@ -289,13 +289,13 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     pub unsafe fn unsafe_replace_entry_notify<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, items: &[E], mut notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
-        let mut flush_marker = I::IndexUpdate::default();
+        let mut flush_marker = I::Update::default();
         Self::replace_entry(cursor, items, &mut flush_marker, &mut notify);
-        cursor.get_node_mut().flush_index_update(&mut flush_marker);
+        cursor.get_node_mut().flush_metric_update(&mut flush_marker);
     }
 
     #[inline]
-    unsafe fn replace_entry_simple<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_item: E, flush_marker: &mut I::IndexUpdate, notify: &mut F)
+    unsafe fn replace_entry_simple<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_item: E, flush_marker: &mut I::Update, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         notify(new_item, cursor.node);
         cursor.offset = new_item.len();
@@ -308,9 +308,9 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     pub unsafe fn unsafe_replace_entry_simple_notify<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_item: E, mut notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
-        let mut flush_marker = I::IndexUpdate::default();
+        let mut flush_marker = I::Update::default();
         Self::replace_entry_simple(cursor, new_item, &mut flush_marker, &mut notify);
-        cursor.get_node_mut().flush_index_update(&mut flush_marker);
+        cursor.get_node_mut().flush_metric_update(&mut flush_marker);
     }
 
 
@@ -319,7 +319,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         map_fn: MapFn,
         cursor: &mut UnsafeCursor<E, I, IE, LE>,
         replace_max: usize,
-        flush_marker: &mut I::IndexUpdate,
+        flush_marker: &mut I::Update,
         notify: &mut N
     ) -> usize
     where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>), MapFn: FnOnce(&mut E)
@@ -380,13 +380,13 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     pub unsafe fn unsafe_replace_range_notify<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_entry: E, notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
-        let mut flush_marker = I::IndexUpdate::default();
+        let mut flush_marker = I::Update::default();
         Self::replace_range_internal(cursor, new_entry.len(), new_entry, &mut flush_marker, notify);
-        cursor.get_node_mut().flush_index_update(&mut flush_marker);
+        cursor.get_node_mut().flush_metric_update(&mut flush_marker);
         // cursor.compress_node();
     }
 
-    unsafe fn replace_range_internal<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, mut replaced_len: usize, new_entry: E, flush_marker: &mut I::IndexUpdate, mut notify: N)
+    unsafe fn replace_range_internal<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, mut replaced_len: usize, new_entry: E, flush_marker: &mut I::Update, mut notify: N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         let node = cursor.node.as_mut();
@@ -423,7 +423,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         }
 
         if !cursor.roll_to_next_entry() { // Only valid because flush_marker is empty here.
-            debug_assert_eq!(*flush_marker, I::IndexUpdate::default());
+            debug_assert_eq!(*flush_marker, I::Update::default());
 
             // We've reached the end of the tree. Can't replace more, so we just insert here.
             Self::insert_internal(&[new_entry], cursor, flush_marker, &mut notify);
@@ -506,7 +506,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     /// We return a tuple of (should_iterate, the number of remaining items to delete).
     /// If should_iterate is true, keep calling this in a loop. (Eh I need a better name for that
     /// variable).
-    unsafe fn delete_entry_range(cursor: &mut UnsafeCursor<E, I, IE, LE>, mut del_items: usize, flush_marker: &mut I::IndexUpdate) -> (bool, usize) {
+    unsafe fn delete_entry_range(cursor: &mut UnsafeCursor<E, I, IE, LE>, mut del_items: usize, flush_marker: &mut I::Update) -> (bool, usize) {
         // This method only deletes whole items.
         debug_assert_eq!(cursor.offset, 0);
         debug_assert!(del_items > 0);
@@ -514,7 +514,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         let mut node = cursor.get_node_mut();
         // If the cursor is at the end of the leaf, flush and roll.
         if cursor.idx >= node.num_entries as usize {
-            node.flush_index_update(flush_marker);
+            node.flush_metric_update(flush_marker);
             // If we reach the end of the tree, discard trailing deletes.
             if !cursor.traverse_forward() { return (false, 0); }
             node = cursor.get_node_mut();
@@ -541,7 +541,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
 
         if start_range == 0 && end_range == len_entries && !node.has_root_as_parent() {
             // Remove the entire leaf from the tree.
-            node.flush_index_update(flush_marker);
+            node.flush_metric_update(flush_marker);
 
             let node = cursor.node;
             let has_next = cursor.traverse_forward();
@@ -587,7 +587,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         }
     }
 
-    unsafe fn delete_internal<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, mut del_items: usize, flush_marker: &mut I::IndexUpdate, notify: &mut N)
+    unsafe fn delete_internal<N>(cursor: &mut UnsafeCursor<E, I, IE, LE>, mut del_items: usize, flush_marker: &mut I::Update, notify: &mut N)
         where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         if del_items == 0 { return; }
@@ -620,7 +620,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
 
                     let mut c2 = cursor.clone();
                     Self::insert_internal(&[remainder], &mut c2, flush_marker, notify);
-                    c2.get_node_mut().flush_index_update(flush_marker);
+                    c2.get_node_mut().flush_metric_update(flush_marker);
 
                     return;
                 }
@@ -675,19 +675,19 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     pub unsafe fn unsafe_delete_notify<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, del_items: usize, mut notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        let mut marker = I::IndexUpdate::default();
+        let mut marker = I::Update::default();
         Self::delete_internal(cursor, del_items, &mut marker, &mut notify);
-        cursor.get_node_mut().flush_index_update(&mut marker);
+        cursor.get_node_mut().flush_metric_update(&mut marker);
     }
 
     pub fn delete_at_start_notify<F>(self: &mut Pin<Box<Self>>, del_items: usize, mut notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
-        let mut marker = I::IndexUpdate::default();
+        let mut marker = I::Update::default();
         let mut cursor = self.unsafe_cursor_at_start();
         unsafe {
             Self::delete_internal(&mut cursor, del_items, &mut marker, &mut notify);
-            cursor.get_node_mut().flush_index_update(&mut marker);
+            cursor.get_node_mut().flush_metric_update(&mut marker);
         }
     }
 
@@ -696,7 +696,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     }
 }
 
-impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
+impl<E: ContentTraits + Toggleable, I: TreeMetrics<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub unsafe fn local_deactivate_notify<F>(self: &mut Pin<Box<Self>>, mut cursor: UnsafeCursor<E, I, IE, LE>, deleted_len: usize, mut notify: F) -> DeleteResult<E>
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
@@ -713,7 +713,7 @@ impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: 
         // let expected_size = self.count - deleted_len;
 
         let mut result: DeleteResult<E> = SmallVec::default();
-        let mut flush_marker = I::IndexUpdate::default();
+        let mut flush_marker = I::Update::default();
         let mut delete_remaining = deleted_len;
         cursor.roll_to_next_entry();
 
@@ -735,7 +735,7 @@ impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: 
         cursor.compress_node();
 
         // The cursor is potentially after any remainder.
-        cursor.get_node_mut().flush_index_update(&mut flush_marker);
+        cursor.get_node_mut().flush_metric_update(&mut flush_marker);
 
         if cfg!(debug_assertions) {
             // self.print_ptr_tree();
@@ -760,12 +760,12 @@ impl<E: ContentTraits + Toggleable, I: TreeIndex<E>, const IE: usize, const LE: 
             //
             // Even though we're just editing an item here, the item could be split as a result,
             // so notify may end up called.
-            let mut flush_marker = I::IndexUpdate::default();
+            let mut flush_marker = I::Update::default();
             let amt_modified = Self::unsafe_mutate_entry_notify(|e| {
                 if want_enabled { e.mark_activated(); } else { e.mark_deactivated(); }
             }, cursor, max_len, &mut flush_marker, &mut notify);
 
-            cursor.get_node_mut().flush_index_update(&mut flush_marker);
+            cursor.get_node_mut().flush_metric_update(&mut flush_marker);
 
             (amt_modified, true)
         } else {
@@ -886,7 +886,7 @@ impl<E: ContentTraits + ContentLength + Toggleable, I: FindContent<E>, const IE:
     }
 }
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> NodeLeaf<E, I, IE, LE> {
 
     /// Split this leaf node at the specified index, so 0..idx stays and idx.. moves to a new node.
     ///
@@ -914,7 +914,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
 
             // zero out the old entries
             // let mut stolen_length: usize = 0;
-            let mut stolen_length = I::IndexValue::default();
+            let mut stolen_length = I::Value::default();
             // dbg!(&self.data);
             for e in &mut self.data[idx..self.num_entries as usize] {
                 I::increment_offset(&mut stolen_length, e);
@@ -963,7 +963,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeLe
     }
 }
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeInternal<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> NodeInternal<E, I, IE, LE> {
     unsafe fn slice_out(&mut self, child: NodePtr<E, I, IE, LE>) -> Node<E, I, IE, LE> {
         if self.children[1].is_none() {
             // short circuit.
@@ -986,7 +986,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeIn
                     count
                 );
 
-                self.index.copy_within(idx + 1..num_children, idx);
+                self.metrics.copy_within(idx + 1..num_children, idx);
             }
 
             // This pointer has been moved. We need to set its entry to None without dropping it.
@@ -1035,11 +1035,11 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> NodeIn
 // I'm really not sure where to put these methods. Its not really associated with
 // any of the tree implementation methods. This seems like a hidden spot. Maybe
 // content-tree? I could put it in impl ParentPtr? I dunno...
-unsafe fn insert_after<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize>(
+unsafe fn insert_after<E: ContentTraits, I: TreeMetrics<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize>(
     mut parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     mut inserted_leaf_node: Node<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     mut insert_after: NodePtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
-    mut stolen_length: I::IndexValue) {
+    mut stolen_length: I::Value) {
     // println!("insert_after {:?} leaf {:#?} parent {:#?}", stolen_length, inserted_leaf_node, parent);
     // Ok now we need to walk up the tree trying to insert. At each step
     // we will try and insert inserted_node into parent next to old_node
@@ -1058,7 +1058,7 @@ unsafe fn insert_after<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usi
 
                 let parent_ref = n.as_mut();
                 // dbg!(&parent_ref.data[old_idx].0, stolen_length);
-                parent_ref.index[old_idx] -= stolen_length;
+                parent_ref.metrics[old_idx] -= stolen_length;
                 parent_ref.splice_in(new_idx, stolen_length, inserted_leaf_node);
 
                 // eprintln!("1");
@@ -1111,8 +1111,8 @@ unsafe fn insert_after<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usi
                 let old_idx = left_sibling.find_child(insert_after).unwrap();
 
                 let left_sibling = n.as_mut();
-                left_sibling.index[old_idx] -= stolen_length;
-                let mut new_stolen_length = I::IndexValue::default();
+                left_sibling.metrics[old_idx] -= stolen_length;
+                let mut new_stolen_length = I::Value::default();
                 // Dividing this into cases makes it easier to reason
                 // about.
                 if old_idx < INT_ENTRIES /2 {
@@ -1122,7 +1122,7 @@ unsafe fn insert_after<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usi
                     for i in 0..INT_ENTRIES /2 {
                         let ii = i + INT_ENTRIES /2;
                         // let c = mem::replace(&mut left_sibling.index[ii], I::IndexOffset::default());
-                        let c = mem::take(&mut left_sibling.index[ii]);
+                        let c = mem::take(&mut left_sibling.metrics[ii]);
                         // let e = mem::replace(&mut left_sibling.children[ii], None);
                         let e = mem::take(&mut left_sibling.children[ii]);
                         if let Some(mut e) = e {
@@ -1150,7 +1150,7 @@ unsafe fn insert_after<E: ContentTraits, I: TreeIndex<E>, const INT_ENTRIES: usi
                         if dest == new_idx {
                             right_sibling.as_mut().set_entry(dest, mem::take(&mut new_entry.0), mem::take(&mut new_entry.1));
                         } else {
-                            let c = mem::take(&mut left_sibling.index[src]);
+                            let c = mem::take(&mut left_sibling.metrics[src]);
                             let e = mem::take(&mut left_sibling.children[src]);
                             // let (c, e) = mem::replace(&mut left_sibling.data[src], (I::IndexOffset::default(), None));
 
@@ -1182,7 +1182,7 @@ mod tests {
 
     #[test]
     fn splice_insert_test() {
-        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, ContentMetrics, DEFAULT_IE, DEFAULT_LE>::new();
         let entry = TestRange {
             id: 1000,
             len: 100,
@@ -1209,7 +1209,7 @@ mod tests {
 
     #[test]
     fn delete_collapses() {
-        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, ContentMetrics, DEFAULT_IE, DEFAULT_LE>::new();
 
         let entry = TestRange {
             id: 1000,
@@ -1236,7 +1236,7 @@ mod tests {
 
     #[test]
     fn backspace_collapses() {
-        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, ContentMetrics, DEFAULT_IE, DEFAULT_LE>::new();
 
         let entry = TestRange {
             id: 1000,
@@ -1263,7 +1263,7 @@ mod tests {
 
     #[test]
     fn delete_single_item() {
-        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, ContentMetrics, DEFAULT_IE, DEFAULT_LE>::new();
         tree.insert_at_start_notify(TestRange { id: 0, len: 10, is_activated: true }, null_notify);
 
         tree.delete_at_start_notify(10, null_notify);
@@ -1273,7 +1273,7 @@ mod tests {
 
     #[test]
     fn delete_all_items() {
-        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, ContentMetrics, DEFAULT_IE, DEFAULT_LE>::new();
         let num = DEFAULT_LE + 1;
         for i in 0..num {
             tree.insert_at_start_notify(TestRange { id: i as _, len: 10, is_activated: true }, null_notify);
@@ -1288,7 +1288,7 @@ mod tests {
 
     #[test]
     fn delete_past_end() {
-        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, ContentMetrics, DEFAULT_IE, DEFAULT_LE>::new();
         tree.insert_at_start_notify(TestRange { id: 10 as _, len: 10, is_activated: true }, null_notify);
         tree.delete_at_content_notify(10, 100, null_notify);
 
@@ -1299,13 +1299,13 @@ mod tests {
 
     #[test]
     fn push_into_empty() {
-        let mut tree = ContentTreeRaw::<TestRange, ContentIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, ContentMetrics, DEFAULT_IE, DEFAULT_LE>::new();
         tree.push_notify(TestRange { id: 0, len: 10, is_activated: true }, null_notify);
     }
 
     #[test]
     fn mutation_wrappers() {
-        let mut tree = ContentTreeRaw::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, FullMetrics, DEFAULT_IE, DEFAULT_LE>::new();
         tree.insert_at_content_notify(0, TestRange { id: 0, len: 10, is_activated: true }, null_notify);
         assert_eq!(tree.offset_len(), 10);
         assert_eq!(tree.content_len(), 10);

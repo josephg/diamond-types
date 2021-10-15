@@ -88,7 +88,7 @@ fn random_edits_once(verbose: bool, iterations: usize) {
     for _i in 0..iterations {
         if verbose || _i % 10000 == 0 { println!("i {}", _i); }
         // TestRange is overkill for this, but eh.
-        let mut tree = ContentTreeRaw::<TestRange, FullIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, FullMetrics, DEFAULT_IE, DEFAULT_LE>::new();
         let mut list = vec![];
         let mut expected_len = 0;
 

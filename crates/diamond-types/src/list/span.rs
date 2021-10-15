@@ -2,7 +2,7 @@ use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 
 use content_tree::ContentLength;
 use content_tree::Toggleable;
-use crate::list::Order;
+use crate::list::Time;
 
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
@@ -12,24 +12,24 @@ use serde_crate::{Deserialize, Serialize};
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct YjsSpan {
-    pub order: Order,
+    pub order: Time,
 
     /**
      * The origin_left is only for the first item in the span. Each subsequent item has an
      * origin_left of order+offset
      */
-    pub origin_left: Order,
+    pub origin_left: Time,
 
     /**
      * Each item in the span has the same origin_right.
      */
-    pub origin_right: Order,
+    pub origin_right: Time,
 
     pub len: i32, // negative if deleted.
 }
 
 impl YjsSpan {
-    pub fn origin_left_at_offset(&self, at: u32) -> Order {
+    pub fn origin_left_at_offset(&self, at: u32) -> Time {
         if at == 0 { self.origin_left }
         else { self.order + at - 1 }
     }
@@ -39,7 +39,7 @@ impl YjsSpan {
         self
     }
 
-    pub fn order_len(&self) -> Order {
+    pub fn order_len(&self) -> Time {
         self.len.abs() as _
     }
 }
@@ -55,7 +55,7 @@ impl SplitableSpan for YjsSpan {
         debug_assert!(at > 0);
         let at_signed = at as i32 * self.len.signum();
         let other = YjsSpan {
-            order: self.order + at as Order,
+            order: self.order + at as Time,
             origin_left: self.order + at as u32 - 1,
             origin_right: self.origin_right,
             len: self.len - at_signed
@@ -94,7 +94,7 @@ impl MergableSpan for YjsSpan {
 }
 
 impl Searchable for YjsSpan {
-    type Item = Order;
+    type Item = Time;
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
         if (loc >= self.order) && (loc < self.order + self.len.abs() as u32) {
@@ -105,7 +105,7 @@ impl Searchable for YjsSpan {
     }
 
     fn at_offset(&self, offset: usize) -> Self::Item {
-        self.order + offset as Order
+        self.order + offset as Time
     }
 }
 

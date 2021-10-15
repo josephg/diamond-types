@@ -1,28 +1,28 @@
 use std::ops::Range;
 
-use crate::list::{ListCRDT, Order};
+use crate::list::{ListCRDT, Time};
 use crate::rangeextra::OrderRange;
 use crate::rle::{RleSpanHelpers, RleVec, KVPair};
 use std::cell::Cell;
-use crate::order::OrderSpan;
+use crate::order::TimeSpan;
 use crate::list::positional::{InsDelTag, InsDelTag::*};
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub(crate) struct ListPatchItem {
-    pub range: Range<Order>,
+    pub range: Range<Time>,
     pub op_type: InsDelTag,
 
     // This is mostly a matter of convenience, since I'm not pulling out information about inserts.
     // But we find out the del_target to be able to find out if the range is a delete anyway.
-    pub target_start: Order,
+    pub target_start: Time,
 }
 
 impl ListPatchItem {
-    pub(crate) fn target_range(&self) -> Range<Order> {
+    pub(crate) fn target_range(&self) -> Range<Time> {
         self.target_start .. self.target_start + self.range.order_len()
     }
 
-    pub(super) fn consume(&mut self, len: Order) {
+    pub(super) fn consume(&mut self, len: Time) {
         debug_assert!(len <= self.range.order_len());
         self.range.start += len;
         self.target_start += len;
@@ -37,13 +37,13 @@ impl ListPatchItem {
 /// (Order) order across a single contiguous span of edits.
 #[derive(Debug)]
 pub(crate) struct ListPatchIter<'a, const FWD: bool> {
-    deletes: &'a RleVec<KVPair<OrderSpan>>,
-    range: Range<Order>,
+    deletes: &'a RleVec<KVPair<TimeSpan>>,
+    range: Range<Time>,
     del_idx: Cell<usize>,
 }
 
 impl<'a, const FWD: bool> ListPatchIter<'a, FWD> {
-    fn new(deletes: &'a RleVec<KVPair<OrderSpan>>, range: Range<Order>) -> Self {
+    fn new(deletes: &'a RleVec<KVPair<TimeSpan>>, range: Range<Time>) -> Self {
         let del_idx = if FWD {
             if range.start == 0 { 0 }
             else {
@@ -72,7 +72,7 @@ impl<'a> ListPatchIter<'a, true> {
                     debug_assert!(d.0 <= self.range.start && self.range.start < d.end());
 
                     let offset = self.range.start - d.0;
-                    let target_start = d.1.order + offset;
+                    let target_start = d.1.start + offset;
 
                     let end = u32::min(self.range.end, d.end());
                     Some(ListPatchItem {
@@ -110,7 +110,7 @@ impl<'a> ListPatchIter<'a, false> {
                     let start = u32::max(self.range.start, d.0);
                     debug_assert!(start < self.range.end);
                     let offset = start - d.0;
-                    let target_start = d.1.order + offset;
+                    let target_start = d.1.start + offset;
 
                     Some(ListPatchItem {
                         range: start..self.range.end,
@@ -156,18 +156,18 @@ impl<'a> Iterator for ListPatchIter<'a, false> {
 
 impl ListCRDT {
     pub(crate) fn patch_iter(&self) -> ListPatchIter<true> {
-        ListPatchIter::new(&self.deletes, 0..self.get_next_order())
+        ListPatchIter::new(&self.deletes, 0..self.get_next_time())
     }
 
-    pub(crate) fn patch_iter_in_range(&self, range: Range<Order>) -> ListPatchIter<true> {
+    pub(crate) fn patch_iter_in_range(&self, range: Range<Time>) -> ListPatchIter<true> {
         ListPatchIter::new(&self.deletes, range)
     }
 
     pub(crate) fn patch_iter_rev(&self) -> ListPatchIter<false> {
-        ListPatchIter::new(&self.deletes, 0..self.get_next_order())
+        ListPatchIter::new(&self.deletes, 0..self.get_next_time())
     }
 
-    pub(crate) fn patch_iter_in_range_rev(&self, range: Range<Order>) -> ListPatchIter<false> {
+    pub(crate) fn patch_iter_in_range_rev(&self, range: Range<Time>) -> ListPatchIter<false> {
         ListPatchIter::new(&self.deletes, range)
     }
 }
@@ -177,7 +177,7 @@ impl ListCRDT {
 mod test {
     use super::*;
 
-    fn assert_doc_patches_match(doc: &ListCRDT, range: Range<Order>, expect: &[ListPatchItem]) {
+    fn assert_doc_patches_match(doc: &ListCRDT, range: Range<Time>, expect: &[ListPatchItem]) {
         let forward = doc.patch_iter_in_range(range.clone());
         assert_eq!(forward.collect::<Vec<_>>(), expect);
 
@@ -194,7 +194,7 @@ mod test {
         doc.local_insert(0, 0, "hi there");
         doc.local_delete(0, 2, 6);
 
-        assert_doc_patches_match(&doc, 0..doc.get_next_order(), &[
+        assert_doc_patches_match(&doc, 0..doc.get_next_time(), &[
             ListPatchItem { range: 0..8, op_type: Ins, target_start: 0 },
             ListPatchItem { range: 8..14, op_type: Del, target_start: 2 }
         ]);

@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::list::{encoding, ListCRDT, Order, ROOT_ORDER};
+use crate::list::{encoding, ListCRDT, Time, ROOT_TIME};
 use crate::list::encoding::{Chunk, Parents, Run, SpanWriter};
 use crate::list::positional::InsDelTag;
 use crate::rangeextra::OrderRange;
@@ -117,8 +117,8 @@ impl ListCRDT {
         // another b-tree here for this, but I don't think the extra code size & overhead is worth
         // it for nearly any normal use cases. (The reordering should be stable - once a document
         // has been reordered and saved, next time its loaded there will be no further reordering.)
-        let mut inner_to_outer_map: RleVec<KVPair<Range<Order>>> = RleVec::new();
-        let mut outer_to_inner_map: RleVec<KVPair<Range<Order>>> = RleVec::new();
+        let mut inner_to_outer_map: RleVec<KVPair<Range<Time>>> = RleVec::new();
+        let mut outer_to_inner_map: RleVec<KVPair<Range<Time>>> = RleVec::new();
 
         let mut next_output_order = 0;
         let mut last_edit_pos: u32 = 0;
@@ -147,9 +147,9 @@ impl ListCRDT {
         // dbg!(&outer_to_inner_map);
         // dbg!(&inner_to_outer_map);
 
-        let local_to_remote_order = |order: Order| -> Order {
-            if order == ROOT_ORDER {
-                ROOT_ORDER
+        let local_to_remote_order = |order: Time| -> Time {
+            if order == ROOT_TIME {
+                ROOT_TIME
             } else if let Some((val, offset)) = inner_to_outer_map.find_with_offset(order) {
                 val.1.start + offset
             } else { order }
@@ -189,12 +189,12 @@ impl ListCRDT {
             while order < range.end {
                 let txn = &self.txns[idx];
                 // The outer_to_inner_map should always line up along txn boundaries.
-                debug_assert_eq!(range.start, txn.order);
+                debug_assert_eq!(range.start, txn.time);
                 assert!(range.end >= txn.end());
 
                 // dbg!((order, &txn.parents));
                 let mut parents = Parents {
-                    order: txn.order .. txn.order + txn.len,
+                    order: txn.time.. txn.time + txn.len,
                     parents: smallvec![]
                 };
                 for &p in &txn.parents {
@@ -208,9 +208,9 @@ impl ListCRDT {
 
             // *** Mapped Agent Assignments ***
             let mut order = range.start;
-            let mut idx = self.client_with_order.find_index(order).unwrap();
+            let mut idx = self.client_with_time.find_index(order).unwrap();
             while order < range.end {
-                let e = &self.client_with_order[idx];
+                let e = &self.client_with_time[idx];
                 let next_order = e.end().min(range.end);
                 agent_writer.push(Run {
                     val: e.1.loc.agent as _,

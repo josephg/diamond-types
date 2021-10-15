@@ -1,5 +1,5 @@
 use jumprope::JumpRope;
-use crate::list::{ListCRDT, ROOT_ORDER};
+use crate::list::{ListCRDT, ROOT_TIME};
 use rle::HasLength;
 use smallvec::{SmallVec, smallvec};
 
@@ -37,8 +37,8 @@ impl ListCRDT {
 
             if let Some(e) = cursor.next() { // Iterating manually for the borrow checker.
                 // Each item's ID should come after its origin left and right
-                assert!(e.origin_left == ROOT_ORDER || e.order > e.origin_left);
-                assert!(e.origin_right == ROOT_ORDER || e.order > e.origin_right);
+                assert!(e.origin_left == ROOT_TIME || e.order > e.origin_left);
+                assert!(e.origin_right == ROOT_TIME || e.order > e.origin_right);
                 assert_ne!(e.len, 0);
 
                 if deep {
@@ -80,7 +80,7 @@ impl ListCRDT {
             // We contain prev_txn_order *and more*! See if we can extend the shadow by
             // looking at the other entries of parents.
             let mut parents = txn.parents.clone();
-            let mut expect_shadow = txn.order;
+            let mut expect_shadow = txn.time;
 
             // The first txn *must* have ROOT as a parent, so 0 should never show up in shadow.
             assert_ne!(txn.shadow, 0);
@@ -91,11 +91,11 @@ impl ListCRDT {
                 assert!(child.parents.iter().any(|p| txn.contains(*p)));
             }
 
-            if parents[0] == ROOT_ORDER {
+            if parents[0] == ROOT_TIME {
                 // The root order will be sorted out of order, but it doesn't matter because
                 // if it shows up at all it should be the only item in parents.
                 debug_assert_eq!(parents.len(), 1);
-                if txn.order == 0 { expect_shadow = ROOT_ORDER; }
+                if txn.time == 0 { expect_shadow = ROOT_TIME; }
                 assert!(txn.parent_indexes.is_empty());
             } else {
                 parents.sort_by(|a, b| b.cmp(a)); // descending order
@@ -110,14 +110,14 @@ impl ListCRDT {
                     }
 
                     let parent_txn = &self.txns.0[parent_idx];
-                    let offs = parent_order - parent_txn.order;
+                    let offs = parent_order - parent_txn.time;
 
                     // Check the parent txn names this txn in its child_indexes
                     assert!(parent_txn.child_indexes.contains(&idx));
 
                     // dbg!(parent_txn.order + offs, expect_shadow);
                     // Shift it if the expected shadow points to the last item in the txn run.
-                    if parent_txn.order + offs + 1 == expect_shadow {
+                    if parent_txn.time + offs + 1 == expect_shadow {
                         expect_shadow = parent_txn.shadow;
                     }
                 }
@@ -140,8 +140,8 @@ impl ListCRDT {
 
     #[allow(unused)]
     pub fn check_all_changes_rle_merged(&self) {
-        assert_eq!(self.client_data[0].item_orders.len(), 1);
-        assert_eq!(self.client_with_order.len(), 1);
+        assert_eq!(self.client_data[0].item_localtime.len(), 1);
+        assert_eq!(self.client_with_time.len(), 1);
         assert_eq!(self.txns.len(), 1);
     }
 }

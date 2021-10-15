@@ -1,12 +1,12 @@
 use std::iter::FromIterator;
 use std::mem::take;
-use content_tree::{ContentLength, ContentTreeWithIndex, Cursors, FullIndex, Pair, Toggleable};
+use content_tree::{ContentLength, ContentTreeWithIndex, Cursors, FullMetrics, Pair, Toggleable};
 use rle::{HasLength, MergableSpan, SplitableSpan};
 
 use smartstring::alias::{String as SmartString};
 use crate::list::time::positionmap::MapTag::*;
 use std::pin::Pin;
-use crate::list::{DoubleDeleteList, ListCRDT, Order, RangeTree, ROOT_ORDER};
+use crate::list::{DoubleDeleteList, ListCRDT, Time, RangeTree, ROOT_TIME};
 use crate::list::positional::{InsDelTag, PositionalComponent};
 use std::ops::Range;
 use crate::rangeextra::OrderRange;
@@ -115,7 +115,7 @@ impl ContentLength for PositionRun {
     }
 }
 
-type PositionMapInternal = ContentTreeWithIndex<PositionRun, FullIndex>;
+type PositionMapInternal = ContentTreeWithIndex<PositionRun, FullMetrics>;
 
 /// A PositionMap is a data structure used internally to track a set of positional changes to the
 /// document as a result of inserts and deletes.
@@ -185,10 +185,10 @@ impl PositionMap {
         }
     }
 
-    fn new_at_version_from_start(list: &ListCRDT, branch: &[Order]) -> Self {
+    fn new_at_version_from_start(list: &ListCRDT, branch: &[Time]) -> Self {
         let mut result = Self::new_void(list);
-        if branch != &[ROOT_ORDER] {
-            let changes = list.txns.diff(&[ROOT_ORDER], branch).1;
+        if branch != &[ROOT_TIME] {
+            let changes = list.txns.diff(&[ROOT_TIME], branch).1;
 
             for range in changes.iter().rev() {
                 let patches = list.patch_iter_in_range(range.clone());
@@ -201,7 +201,7 @@ impl PositionMap {
         result
     }
 
-    fn new_at_version_from_end(list: &ListCRDT, branch: &[Order]) -> Self {
+    fn new_at_version_from_end(list: &ListCRDT, branch: &[Time]) -> Self {
         let mut result = Self::new_upstream(list);
 
         if !branch_eq(branch, list.frontier.as_slice()) {
@@ -219,17 +219,17 @@ impl PositionMap {
         result
     }
 
-    pub(crate) fn new_at_version(list: &ListCRDT, branch: &[Order]) -> Self {
+    pub(crate) fn new_at_version(list: &ListCRDT, branch: &[Time]) -> Self {
         // There's two strategies here: We could start at the start of time and walk forward, or we
         // could start at the current version and walk backward. Walking backward will be much more
         // common in practice, but either approach will generate an identical result.
 
         if branch_is_root(branch) { return Self::new_void(list); }
 
-        let sum: Order = branch.iter().sum();
+        let sum: Time = branch.iter().sum();
 
         let start_work = sum;
-        let end_work = (list.get_next_order() - 1) * branch.len() as u32 - sum;
+        let end_work = (list.get_next_time() - 1) * branch.len() as u32 - sum;
 
         if cfg!(debug_assertions) {
             // We should end up with identical results regardless of whether we start from the start
@@ -244,24 +244,24 @@ impl PositionMap {
         else { Self::new_at_version_from_end(list, branch) }
     }
 
-    pub(super) fn order_to_raw(&self, list: &ListCRDT, order: Order) -> (InsDelTag, Range<Order>) {
+    pub(super) fn order_to_raw(&self, list: &ListCRDT, order: Time) -> (InsDelTag, Range<Time>) {
         let cursor = list.get_cursor_before(order);
-        let base = cursor.count_offset_pos() as Order;
+        let base = cursor.count_offset_pos() as Time;
 
         let e = cursor.get_raw_entry();
         let tag = if e.is_activated() { InsDelTag::Ins } else { InsDelTag::Del };
-        (tag, base..(base + e.order_len() - cursor.offset as Order))
+        (tag, base..(base + e.order_len() - cursor.offset as Time))
     }
 
-    pub(super) fn order_to_raw_and_content_len(&self, list: &ListCRDT, order: Order) -> (InsDelTag, Range<Order>, Option<Order>) {
+    pub(super) fn order_to_raw_and_content_len(&self, list: &ListCRDT, order: Time) -> (InsDelTag, Range<Time>, Option<Time>) {
         // This is a modified version of order_to_raw, above. I'm not just reusing the same code
         // because of expected perf, but TODO: Reuse code more! :p
         let cursor = list.get_cursor_before(order);
         let Pair(base, content_pos) = unsafe { cursor.count_pos() };
-        debug_assert_eq!(base, cursor.count_offset_pos() as Order);
+        debug_assert_eq!(base, cursor.count_offset_pos() as Time);
 
         let e = cursor.get_raw_entry();
-        let range = base..(base + e.order_len() - cursor.offset as Order);
+        let range = base..(base + e.order_len() - cursor.offset as Time);
 
         if e.is_activated() {
             (InsDelTag::Ins, range, Some(content_pos))
@@ -304,7 +304,7 @@ impl PositionMap {
         (doc_cursor, max_span)
     }
 
-    pub(crate) fn order_at_content_pos(&self, list: &ListCRDT, pos: usize, stick_end: bool) -> Order {
+    pub(crate) fn order_at_content_pos(&self, list: &ListCRDT, pos: usize, stick_end: bool) -> Time {
         let cursor = self.list_cursor_at_content_pos(list, pos, stick_end).0;
         // cursor.get_raw_entry().at_offset(cursor.offset)
         unsafe { cursor.get_item() }.unwrap()
@@ -328,13 +328,13 @@ impl PositionMap {
         }
     }
 
-    pub(super) fn retreat_first_by_range(&mut self, list: &ListCRDT, target: Range<Order>, op_type: InsDelTag) -> Order {
+    pub(super) fn retreat_first_by_range(&mut self, list: &ListCRDT, target: Range<Time>, op_type: InsDelTag) -> Time {
         // dbg!(&target, self.map.iter().collect::<Vec<_>>());
         // This variant is only actually used in one place - which makes things easier.
 
         let (final_tag, raw_range) = self.order_to_raw(list, target.start);
         let raw_start = raw_range.start;
-        let mut len = Order::min(raw_range.order_len(), target.order_len());
+        let mut len = Time::min(raw_range.order_len(), target.order_len());
 
         let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
         if op_type == InsDelTag::Del {
@@ -458,12 +458,12 @@ impl PositionMap {
         } else { (c, None) }
     }
 
-    fn advance_first_by_range_internal(&mut self, raw_range: Range<Order>, final_tag: InsDelTag, patch: &mut ListPatchItem, handle_dd: bool) -> Option<PositionalComponent> {
+    fn advance_first_by_range_internal(&mut self, raw_range: Range<Time>, final_tag: InsDelTag, patch: &mut ListPatchItem, handle_dd: bool) -> Option<PositionalComponent> {
         let target = patch.target_range();
         let op_type = patch.op_type;
 
         let raw_start = raw_range.start;
-        let mut len = Order::min(raw_range.order_len(), target.order_len());
+        let mut len = Time::min(raw_range.order_len(), target.order_len());
 
         let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
 

@@ -1,4 +1,4 @@
-use crate::list::{ROOT_ORDER, Branch, Order};
+use crate::list::{ROOT_TIME, Branch, Time};
 use bitvec::prelude::*;
 use smallvec::{SmallVec, smallvec};
 use crate::list::txn::TxnSpan;
@@ -33,18 +33,18 @@ pub(crate) struct OptimizedTxnsIter<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TxnWalkItem {
-    pub(crate) retreat: SmallVec<[Range<Order>; 4]>,
-    pub(crate) advance_rev: SmallVec<[Range<Order>; 4]>,
+    pub(crate) retreat: SmallVec<[Range<Time>; 4]>,
+    pub(crate) advance_rev: SmallVec<[Range<Time>; 4]>,
     // txn: &'a TxnSpan,
-    pub(crate) parents: SmallVec<[Order; 2]>,
-    pub(crate) consume: Range<Order>,
+    pub(crate) parents: SmallVec<[Time; 2]>,
+    pub(crate) consume: Range<Time>,
 }
 
 impl<'a> OptimizedTxnsIter<'a> {
     pub(crate) fn new(history: &'a RleVec<TxnSpan>) -> Self {
         let root_children = history.0.iter().enumerate().filter_map(|(i, txn)| {
             // if txn.parents.iter().eq(std::iter::once(&ROOT_ORDER)) {
-            if txn.parents.len() == 1 && txn.parents[0] == ROOT_ORDER {
+            if txn.parents.len() == 1 && txn.parents[0] == ROOT_TIME {
                 Some(i)
             } else { None }
         }).collect::<SmallVec<[usize; 2]>>();
@@ -52,7 +52,7 @@ impl<'a> OptimizedTxnsIter<'a> {
         Self {
             history,
             // TODO: Refactor to start with branch and stack empty.
-            branch: smallvec![ROOT_ORDER],
+            branch: smallvec![ROOT_TIME],
             consumed: bitbox![0; history.len()],
             root_children,
             stack: vec![],
@@ -172,7 +172,7 @@ impl RleVec<TxnSpan> {
 
 #[cfg(test)]
 mod test {
-    use crate::list::ROOT_ORDER;
+    use crate::list::ROOT_TIME;
     use crate::rle::RleVec;
     use crate::list::txn::TxnSpan;
     use smallvec::smallvec;
@@ -189,13 +189,13 @@ mod test {
     fn iter_span_from_root() {
         let history = RleVec(vec![
             TxnSpan {
-                order: 0, len: 10, shadow: 0,
-                parents: smallvec![ROOT_ORDER],
+                time: 0, len: 10, shadow: 0,
+                parents: smallvec![ROOT_TIME],
                 parent_indexes: smallvec![], child_indexes: smallvec![]
             },
             TxnSpan {
-                order: 10, len: 20, shadow: 0,
-                parents: smallvec![ROOT_ORDER],
+                time: 10, len: 20, shadow: 0,
+                parents: smallvec![ROOT_TIME],
                 parent_indexes: smallvec![], child_indexes: smallvec![]
             }
         ]);
@@ -205,13 +205,13 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_ORDER],
+                parents: smallvec![ROOT_TIME],
                 consume: 0..10,
             },
             TxnWalkItem {
                 retreat: smallvec![0..10],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_ORDER],
+                parents: smallvec![ROOT_TIME],
                 consume: 10..30,
             },
         ]);
@@ -221,17 +221,17 @@ mod test {
     fn fork_and_join() {
         let history = RleVec(vec![
             TxnSpan {
-                order: 0, len: 10, shadow: 0,
-                parents: smallvec![ROOT_ORDER],
+                time: 0, len: 10, shadow: 0,
+                parents: smallvec![ROOT_TIME],
                 parent_indexes: smallvec![], child_indexes: smallvec![2]
             },
             TxnSpan {
-                order: 10, len: 20, shadow: 10,
-                parents: smallvec![ROOT_ORDER],
+                time: 10, len: 20, shadow: 10,
+                parents: smallvec![ROOT_TIME],
                 parent_indexes: smallvec![], child_indexes: smallvec![2]
             },
             TxnSpan {
-                order: 30, len: 20, shadow: 0,
+                time: 30, len: 20, shadow: 0,
                 parents: smallvec![9, 29],
                 parent_indexes: smallvec![0, 1], child_indexes: smallvec![]
             },
@@ -242,13 +242,13 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_ORDER],
+                parents: smallvec![ROOT_TIME],
                 consume: 0..10,
             },
             TxnWalkItem {
                 retreat: smallvec![0..10],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_ORDER],
+                parents: smallvec![ROOT_TIME],
                 consume: 10..30,
             },
             TxnWalkItem {
@@ -266,27 +266,27 @@ mod test {
     fn two_chains() {
         let history = RleVec(vec![
             TxnSpan {
-                order: 0, len: 1, shadow: ROOT_ORDER,
-                parents: smallvec![ROOT_ORDER],
+                time: 0, len: 1, shadow: ROOT_TIME,
+                parents: smallvec![ROOT_TIME],
                 parent_indexes: smallvec![], child_indexes: smallvec![2]
             },
             TxnSpan {
-                order: 1, len: 1, shadow: ROOT_ORDER,
-                parents: smallvec![ROOT_ORDER],
+                time: 1, len: 1, shadow: ROOT_TIME,
+                parents: smallvec![ROOT_TIME],
                 parent_indexes: smallvec![], child_indexes: smallvec![3]
             },
             TxnSpan {
-                order: 2, len: 1, shadow: 2,
+                time: 2, len: 1, shadow: 2,
                 parents: smallvec![0],
                 parent_indexes: smallvec![0], child_indexes: smallvec![4]
             },
             TxnSpan {
-                order: 3, len: 1, shadow: 3,
+                time: 3, len: 1, shadow: 3,
                 parents: smallvec![1],
                 parent_indexes: smallvec![1], child_indexes: smallvec![4]
             },
             TxnSpan {
-                order: 4, len: 1, shadow: ROOT_ORDER,
+                time: 4, len: 1, shadow: ROOT_TIME,
                 parents: smallvec![2, 3],
                 parent_indexes: smallvec![2, 3], child_indexes: smallvec![]
             },
@@ -302,7 +302,7 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_ORDER],
+                parents: smallvec![ROOT_TIME],
                 consume: 0..1,
             },
             TxnWalkItem {
@@ -315,7 +315,7 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![2..3, 0..1],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_ORDER],
+                parents: smallvec![ROOT_TIME],
                 consume: 1..2,
             },
             TxnWalkItem {

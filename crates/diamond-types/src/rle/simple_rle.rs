@@ -287,43 +287,43 @@ impl<T: HasLength + MergableSpan, I: SliceIndex<[T]>> Index<I> for RleVec<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::order::OrderSpan;
+    use crate::order::TimeSpan;
     use crate::rle::KVPair;
     use crate::rle::simple_rle::RleVec;
 
     #[test]
     fn rle_finds_at_offset() {
-        let mut rle: RleVec<KVPair<OrderSpan>> = RleVec::new();
+        let mut rle: RleVec<KVPair<TimeSpan>> = RleVec::new();
 
-        rle.push(KVPair(1, OrderSpan { order: 1000, len: 2 }));
-        assert_eq!(rle.find_with_offset(1), Some((&KVPair(1, OrderSpan { order: 1000, len: 2 }), 0)));
-        assert_eq!(rle.find_with_offset(2), Some((&KVPair(1, OrderSpan { order: 1000, len: 2 }), 1)));
+        rle.push(KVPair(1, TimeSpan { start: 1000, len: 2 }));
+        assert_eq!(rle.find_with_offset(1), Some((&KVPair(1, TimeSpan { start: 1000, len: 2 }), 0)));
+        assert_eq!(rle.find_with_offset(2), Some((&KVPair(1, TimeSpan { start: 1000, len: 2 }), 1)));
         assert_eq!(rle.find_with_offset(3), None);
 
         // This should get appended.
-        rle.push(KVPair(3, OrderSpan { order: 1002, len: 1 }));
-        assert_eq!(rle.find_with_offset(3), Some((&KVPair(1, OrderSpan { order: 1000, len: 3 }), 2)));
+        rle.push(KVPair(3, TimeSpan { start: 1002, len: 1 }));
+        assert_eq!(rle.find_with_offset(3), Some((&KVPair(1, TimeSpan { start: 1000, len: 3 }), 2)));
         assert_eq!(rle.0.len(), 1);
     }
 
     #[test]
     fn insert_inside() {
-        let mut rle: RleVec<KVPair<OrderSpan>> = RleVec::new();
+        let mut rle: RleVec<KVPair<TimeSpan>> = RleVec::new();
 
-        rle.insert(KVPair(5, OrderSpan { order: 1000, len: 2}));
+        rle.insert(KVPair(5, TimeSpan { start: 1000, len: 2}));
         // Prepend
-        rle.insert(KVPair(3, OrderSpan { order: 998, len: 2}));
+        rle.insert(KVPair(3, TimeSpan { start: 998, len: 2}));
         assert_eq!(rle.0.len(), 1);
 
         // Append
-        rle.insert(KVPair(7, OrderSpan { order: 1002, len: 5}));
+        rle.insert(KVPair(7, TimeSpan { start: 1002, len: 5}));
         assert_eq!(rle.0.len(), 1);
 
         // Items which cannot be merged
-        rle.insert(KVPair(1, OrderSpan { order: 1, len: 1}));
+        rle.insert(KVPair(1, TimeSpan { start: 1, len: 1}));
         assert_eq!(rle.0.len(), 2);
 
-        rle.insert(KVPair(100, OrderSpan { order: 40, len: 1}));
+        rle.insert(KVPair(100, TimeSpan { start: 40, len: 1}));
         assert_eq!(rle.0.len(), 3);
 
         // dbg!(&rle);
@@ -331,12 +331,12 @@ mod tests {
 
     #[test]
     fn test_find_sparse() {
-        let mut rle: RleVec<KVPair<OrderSpan>> = RleVec::new();
+        let mut rle: RleVec<KVPair<TimeSpan>> = RleVec::new();
 
         assert_eq!(rle.find_sparse(0), (Err(0), 0));
         assert_eq!(rle.find_sparse(10), (Err(0), 10));
 
-        rle.insert(KVPair(15, OrderSpan { order: 40, len: 2}));
+        rle.insert(KVPair(15, TimeSpan { start: 40, len: 2}));
         assert_eq!(rle.find_sparse(10), (Err(0), 10));
         assert_eq!(rle.find_sparse(15), (Ok(&rle.0[0]), 0));
         assert_eq!(rle.find_sparse(16), (Ok(&rle.0[0]), 1));

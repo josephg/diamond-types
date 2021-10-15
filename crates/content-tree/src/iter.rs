@@ -1,12 +1,12 @@
 
-use crate::{NodeLeaf, ContentTraits, TreeIndex, Cursor, ContentTreeRaw};
+use crate::{NodeLeaf, ContentTraits, TreeMetrics, Cursor, ContentTreeRaw};
 use rle::{Searchable, MergeIter, merge_items};
 
 /// Iterator for all the items inside the entries. Unlike entry iteration we use the offset here.
 #[derive(Debug)]
-pub struct ItemIterator<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize>(pub Cursor<'a, E, I, IE, LE>);
+pub struct ItemIterator<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize>(pub Cursor<'a, E, I, IE, LE>);
 
-impl<'a, E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for ItemIterator<'a, E, I, IE, LE> {
+impl<'a, E: ContentTraits + Searchable, I: TreeMetrics<E>, const IE: usize, const LE: usize> Iterator for ItemIterator<'a, E, I, IE, LE> {
     type Item = E::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -34,9 +34,9 @@ impl<'a, E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const 
 
 /// Iterator for whole nodes in the tree. This lets you iterate through chunks of items efficiently.
 #[derive(Debug)]
-pub struct NodeIter<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize>(Option<&'a NodeLeaf<E, I, IE, LE>>);
+pub struct NodeIter<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize>(Option<&'a NodeLeaf<E, I, IE, LE>>);
 
-impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Iterator for NodeIter<'a, E, I, IE, LE> {
+impl<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Iterator for NodeIter<'a, E, I, IE, LE> {
     type Item = &'a NodeLeaf<E, I, IE, LE>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -48,7 +48,7 @@ impl<'a, E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> It
     }
 }
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     /// Iterate through all the items "raw" - which is to say, without merging anything.
     ///
     /// This is different from iter() because in some editing situations the tree will not be

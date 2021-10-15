@@ -3,7 +3,7 @@
 /// we're leaning on is correct.
 
 use smallvec::{SmallVec, smallvec};
-use crate::list::{ListCRDT, Order, PositionalComponent};
+use crate::list::{ListCRDT, Time, PositionalComponent};
 use smartstring::alias::{String as SmartString};
 use rle::{AppendRle, HasLength, MergableSpan, SplitableSpan};
 use crate::list::external_txn::{RemoteId, RemoteIdSpan};
@@ -22,12 +22,12 @@ pub struct RemoteParentRun {
 }
 
 impl RemoteParentRun {
-    pub fn from_txn(txn: &TxnSpan, offset: Order, max_len: Order, doc: &ListCRDT) -> Self {
+    pub fn from_txn(txn: &TxnSpan, offset: Time, max_len: Time, doc: &ListCRDT) -> Self {
         let max_len = max_len.min(txn.len - offset);
 
         debug_assert!(offset < txn.len);
         Self {
-            id: doc.order_to_remote_id_span(txn.order + offset, max_len),
+            id: doc.order_to_remote_id_span(txn.time + offset, max_len),
             // Stolen from external_txn. TODO: Hoist this into a method.
             parents: if let Some(order) = txn.parent_at_offset(offset as _) {
                 smallvec![doc.order_to_remote_id(order)]

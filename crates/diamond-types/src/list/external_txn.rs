@@ -12,9 +12,9 @@ use diamond_core::{AgentId, CRDT_DOC_ROOT, CRDTId};
 use rle::{AppendRle, HasLength};
 
 use crate::crdtspan::CRDTSpan;
-use crate::list::{Branch, ListCRDT, Order, ROOT_ORDER};
+use crate::list::{Branch, ListCRDT, Time, ROOT_TIME};
 use crate::list::external_txn::RemoteCRDTOp::{Del, Ins};
-use crate::order::OrderSpan;
+use crate::order::TimeSpan;
 use crate::rle::{KVPair, RleSpanHelpers};
 
 // use crate::LocalOp;
@@ -76,7 +76,7 @@ pub struct RemoteTxn {
 #[derive(Debug)]
 struct RemoteTxnsIter<'a> {
     doc: &'a ListCRDT,
-    span: OrderSpan,
+    span: TimeSpan,
 }
 
 impl RemoteIdSpan {
@@ -171,9 +171,9 @@ impl<'a> Iterator for RemoteTxnsIter<'a> {
 pub type VectorClock = Vec<RemoteId>;
 
 impl ListCRDT {
-    pub fn remote_id_to_order(&self, id: &RemoteId) -> Order {
+    pub fn remote_id_to_order(&self, id: &RemoteId) -> Time {
         let agent = self.get_agent_id(id.agent.as_str()).unwrap();
-        if agent == AgentId::MAX { ROOT_ORDER }
+        if agent == AgentId::MAX { ROOT_TIME }
         else { self.client_data[agent as usize].seq_to_order(id.seq) }
     }
 
@@ -201,12 +201,12 @@ impl ListCRDT {
         }
     }
 
-    pub(crate) fn order_to_remote_id(&self, order: Order) -> RemoteId {
+    pub(crate) fn order_to_remote_id(&self, order: Time) -> RemoteId {
         let crdt_loc = self.get_crdt_location(order);
         self.crdt_id_to_remote(crdt_loc)
     }
 
-    pub(crate) fn order_to_remote_id_span(&self, order: Order, max_size: u32) -> RemoteIdSpan {
+    pub(crate) fn order_to_remote_id_span(&self, order: Time, max_size: u32) -> RemoteIdSpan {
         let crdt_span = self.get_crdt_span(order, max_size);
         RemoteIdSpan {
             id: self.crdt_id_to_remote(crdt_span.loc),
@@ -218,11 +218,11 @@ impl ListCRDT {
     /// interacted with the document, so it will grow over time as the document grows.
     pub fn get_vector_clock(&self) -> VectorClock {
         self.client_data.iter()
-            .filter(|c| !c.item_orders.is_empty())
+            .filter(|c| !c.item_localtime.is_empty())
             .map(|c| {
                 RemoteId {
                     agent: c.name.clone(),
-                    seq: c.item_orders.last().unwrap().end()
+                    seq: c.item_localtime.last().unwrap().end()
                 }
             })
             .collect()
@@ -244,13 +244,13 @@ impl ListCRDT {
 
     /// This method returns the list of spans of orders which will bring a client up to date
     /// from the specified vector clock version.
-    pub(super) fn get_order_spans_since<B>(&self, vv: &[RemoteId]) -> B
-    where B: Default + AppendRle<OrderSpan>
+    pub(super) fn get_time_spans_since<B>(&self, vv: &[RemoteId]) -> B
+    where B: Default + AppendRle<TimeSpan>
     {
         #[derive(Clone, Copy, Debug, Eq)]
         struct OpSpan {
             agent_id: usize,
-            next_order: Order,
+            next_order: Time,
             idx: usize,
         }
 
@@ -280,13 +280,13 @@ impl ListCRDT {
                 .find(|rid| rid.agent == client.name)
                 .map_or(0, |rid| rid.seq);
 
-            let idx = client.item_orders.find_index(from_seq).unwrap_or_else(|idx| idx);
-            if idx < client.item_orders.0.len() {
-                let entry = &client.item_orders.0[idx];
+            let idx = client.item_localtime.find_index(from_seq).unwrap_or_else(|idx| idx);
+            if idx < client.item_localtime.0.len() {
+                let entry = &client.item_localtime.0[idx];
 
                 heap.push(Reverse(OpSpan {
                     agent_id,
-                    next_order: entry.1.order + from_seq.saturating_sub(entry.0),
+                    next_order: entry.1.start + from_seq.saturating_sub(entry.0),
                     idx,
                 }));
             }
@@ -297,18 +297,18 @@ impl ListCRDT {
         while let Some(Reverse(e)) = heap.pop() {
             // Append a span of orders from here and requeue.
             let c = &self.client_data[e.agent_id];
-            let KVPair(_, span) = c.item_orders.0[e.idx];
-            result.push_rle(OrderSpan {
+            let KVPair(_, span) = c.item_localtime.0[e.idx];
+            result.push_rle(TimeSpan {
                 // Kinda gross but at least its branchless.
-                order: span.order.max(e.next_order),
-                len: span.len - (e.next_order - span.order),
+                start: span.start.max(e.next_order),
+                len: span.len - (e.next_order - span.start),
             });
 
             // And potentially requeue this agent.
-            if e.idx + 1 < c.item_orders.0.len() {
+            if e.idx + 1 < c.item_localtime.0.len() {
                 heap.push(Reverse(OpSpan {
                     agent_id: e.agent_id,
-                    next_order: c.item_orders.0[e.idx + 1].1.order,
+                    next_order: c.item_localtime.0[e.idx + 1].1.start,
                     idx: e.idx + 1,
                 }));
             }
@@ -319,21 +319,21 @@ impl ListCRDT {
 
     /// Gets the order spans information for the whole document. Always equivalent to
     /// get_versions_since(vec![]).
-    pub(super) fn get_all_order_spans(&self) -> Option<OrderSpan> {
-        if self.client_with_order.is_empty() {
+    pub(super) fn get_all_order_spans(&self) -> Option<TimeSpan> {
+        if self.client_with_time.is_empty() {
             None
         } else {
-            Some(OrderSpan {
-                order: 0,
+            Some(TimeSpan {
+                start: 0,
                 // This is correct but it feels somewhat brittle.
-                len: self.get_next_order()
+                len: self.get_next_time()
             })
         }
     }
 
     /// This function is used to build an iterator for converting internal txns to remote
     /// transactions.
-    fn next_remote_txn_from_order(&self, span: OrderSpan) -> (RemoteTxn, u32) {
+    fn next_remote_txn_from_order(&self, span: TimeSpan) -> (RemoteTxn, u32) {
         // Each entry we return has its length limited by 5 different things (!)
         // 1. the requested span length (span.len)
         // 2. The length of this txn entry (the number of items we know about in a run)
@@ -341,7 +341,7 @@ impl ListCRDT {
         // 4. The length of the delete or insert operation
         // 5. (For deletes) the contiguous section of items deleted which have the same agent id
 
-        let (txn, offset) = self.txns.find_with_offset(span.order).unwrap();
+        let (txn, offset) = self.txns.find_with_offset(span.start).unwrap();
 
         let parents: SmallVec<[RemoteId; 2]> = if let Some(order) = txn.parent_at_offset(offset as _) {
             smallvec![self.order_to_remote_id(order)]
@@ -357,7 +357,7 @@ impl ListCRDT {
         assert!(txn_len > 0);
 
         // Limit by #3
-        let RemoteIdSpan { id, len: txn_len } = self.order_to_remote_id_span(span.order, txn_len);
+        let RemoteIdSpan { id, len: txn_len } = self.order_to_remote_id_span(span.start, txn_len);
 
         let mut ops: SmallVec<[RemoteCRDTOp; 2]> = SmallVec::new();
         let mut txn_offset = 0; // Offset into the txn.
@@ -366,7 +366,7 @@ impl ListCRDT {
             // Look up the change at order and append a span with maximum size len_remaining.
             // dbg!(order, len_remaining);
 
-            let order = span.order + txn_offset;
+            let order = span.start + txn_offset;
             let len_remaining = txn_len - txn_offset;
             // TODO: Use a smarter replacement for deletes.find() here, since we're traversing
             // linearly.
@@ -377,7 +377,7 @@ impl ListCRDT {
                 // Limit by #4
                 let len_limit_2 = u32::min(d.1.len - offset, len_remaining);
                 // Limit by #5
-                let RemoteIdSpan { id, len } = self.order_to_remote_id_span(d.1.order + offset, len_limit_2);
+                let RemoteIdSpan { id, len } = self.order_to_remote_id_span(d.1.start + offset, len_limit_2);
                 // dbg!((&id, len));
                 (RemoteCRDTOp::Del { id, len }, len)
             } else {
@@ -431,7 +431,7 @@ impl ListCRDT {
     }
 
     fn iter_remote_txns<'a, I>(&'a self, spans: I) -> impl Iterator<Item=RemoteTxn> + 'a
-    where I: Iterator<Item=&'a OrderSpan> + 'a
+    where I: Iterator<Item=&'a TimeSpan> + 'a
     {
         spans.flat_map(move |s| RemoteTxnsIter { doc: self, span: *s })
     }
@@ -439,7 +439,7 @@ impl ListCRDT {
     pub fn replicate_into(&self, dest: &mut Self) {
         let clock = dest.get_vector_clock();
         // TODO: Do something other than Vec<_> here.
-        let order_ranges = self.get_order_spans_since::<Vec<_>>(&clock);
+        let order_ranges = self.get_time_spans_since::<Vec<_>>(&clock);
         for txn in self.iter_remote_txns(order_ranges.iter()) {
             dest.apply_remote_txn(&txn);
         }
@@ -447,7 +447,7 @@ impl ListCRDT {
 
     /// This is a simplified API for exporting txns to remote peers.
     pub fn get_all_txns_since<B: FromIterator<RemoteTxn>>(&self, clock: &[RemoteId]) -> B {
-        let spans = self.get_order_spans_since::<Vec<_>>(clock);
+        let spans = self.get_time_spans_since::<Vec<_>>(clock);
         self.iter_remote_txns(spans.iter()).collect()
     }
 
@@ -465,7 +465,7 @@ impl ListCRDT {
 mod tests {
     use crate::list::external_txn::{RemoteId, VectorClock};
     use crate::list::ListCRDT;
-    use crate::order::OrderSpan;
+    use crate::order::TimeSpan;
 
     #[test]
     fn version_vector() {
@@ -491,16 +491,16 @@ mod tests {
         doc.local_insert(0, 4, "a".into());
 
         // When passed an empty vector clock, we fetch all versions from the start.
-        let vs = doc.get_order_spans_since::<Vec<_>>(&VectorClock::new());
-        assert_eq!(vs, vec![OrderSpan { order: 0, len: 5 }]);
+        let vs = doc.get_time_spans_since::<Vec<_>>(&VectorClock::new());
+        assert_eq!(vs, vec![TimeSpan { start: 0, len: 5 }]);
 
-        let vs = doc.get_order_spans_since::<Vec<_>>(&vec![RemoteId {
+        let vs = doc.get_time_spans_since::<Vec<_>>(&vec![RemoteId {
             agent: "seph".into(),
             seq: 2
         }]);
-        assert_eq!(vs, vec![OrderSpan { order: 2, len: 3 }]);
+        assert_eq!(vs, vec![TimeSpan { start: 2, len: 3 }]);
 
-        let vs = doc.get_order_spans_since::<Vec<_>>(&vec![RemoteId {
+        let vs = doc.get_time_spans_since::<Vec<_>>(&vec![RemoteId {
             agent: "seph".into(),
             seq: 100
         }, RemoteId {
@@ -516,7 +516,7 @@ mod tests {
 
         let check = |doc: &ListCRDT| {
             let a = doc.get_all_order_spans();
-            let b = doc.get_order_spans_since::<Vec<_>>(&vec![]);
+            let b = doc.get_time_spans_since::<Vec<_>>(&vec![]);
             // Hilariously awful. Doesn't matter for testing though.
             assert_eq!(a.into_iter().collect::<Vec<_>>(), b);
         };
@@ -542,7 +542,7 @@ mod tests {
         doc.local_delete(0, 0, 2);
 
         // dbg!(&doc);
-        dbg!(doc.next_remote_txn_from_order(OrderSpan { order: 0, len: 40 }));
+        dbg!(doc.next_remote_txn_from_order(TimeSpan { start: 0, len: 40 }));
         // assert_eq!(doc.next_remote_txn_from_order(OrderSpan { order: 0, len: 40 }), )
     }
 

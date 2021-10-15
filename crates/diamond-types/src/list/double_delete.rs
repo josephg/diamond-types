@@ -1,7 +1,7 @@
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::rle::{RleVec, KVPair, RleSpanHelpers};
-use crate::list::Order;
-use crate::order::OrderSpan;
+use crate::list::Time;
+use crate::order::TimeSpan;
 
 /// Sometimes the same item is removed by multiple peers. This is really rare, but necessary to
 /// track for correctness when we're activating and deactivating entries.
@@ -45,14 +45,14 @@ impl RleVec<KVPair<DoubleDelete>> {
     /// Returns the number of items modified.
     ///
     /// Idx must be the index where the target item should be, as is returned by search.
-    pub(crate) fn modify_delete_range_idx(&mut self, base: Order, len: u32, mut idx: usize, update_by: i32, max_value: u32) -> u32 {
+    pub(crate) fn modify_delete_range_idx(&mut self, base: Time, len: u32, mut idx: usize, update_by: i32, max_value: u32) -> u32 {
         debug_assert!(len > 0);
         debug_assert_ne!(update_by, 0);
         debug_assert_eq!(update_by.abs(), 1);
 
         let mut modified = 0;
 
-        let mut next_span = OrderSpan { order: base, len };
+        let mut next_span = TimeSpan { start: base, len };
         // let mut next_entry = KVPair(base, DoubleDelete { len, excess_deletes: 1 });
 
         loop {
@@ -62,20 +62,20 @@ impl RleVec<KVPair<DoubleDelete>> {
             // The gap case is most common when incrementing, but when decrementing we'll *only*
             // land on entries. We'll handle the gap, then flow to handle the modify case each
             // iteration.
-            if idx == self.0.len() || self.0[idx].0 > next_span.order {
+            if idx == self.0.len() || self.0[idx].0 > next_span.start {
                 if update_by < 0 { break; }
                 // We're in a gap.
                 // let mut this_span = next_entry;
                 let (done_here, this_entry) = if idx < self.0.len() && next_span.end() > self.0[idx].0 {
                     // The gap isn't big enough.
-                    let this_span = next_span.truncate_keeping_right((self.0[idx].0 - next_span.order) as usize);
-                    (false, KVPair(this_span.order, DoubleDelete {
+                    let this_span = next_span.truncate_keeping_right((self.0[idx].0 - next_span.start) as usize);
+                    (false, KVPair(this_span.start, DoubleDelete {
                         len: this_span.len,
                         excess_deletes: update_by as u32
                     }))
                 } else {
                     // Plenty of room.
-                    (true, KVPair(next_span.order, DoubleDelete {
+                    (true, KVPair(next_span.start, DoubleDelete {
                         len: next_span.len,
                         excess_deletes: update_by as u32
                     }))
@@ -96,19 +96,19 @@ impl RleVec<KVPair<DoubleDelete>> {
 
             // Ok we still have stuff to increment, and we're inside an entry now.
             let entry = &mut self.0[idx];
-            debug_assert!(entry.0 <= next_span.order);
-            debug_assert!(next_span.order < entry.end() as u32);
+            debug_assert!(entry.0 <= next_span.start);
+            debug_assert!(next_span.start < entry.end() as u32);
 
-            if entry.0 < next_span.order {
+            if entry.0 < next_span.start {
                 // Split into 2 entries. This approach will result in more memcpys but it shouldn't
                 // matter much in practice.
-                let remainder = entry.truncate((next_span.order - entry.0) as usize);
+                let remainder = entry.truncate((next_span.start - entry.0) as usize);
                 idx += 1;
                 self.0.insert(idx, remainder);
             }
 
             let entry = &mut self.0[idx];
-            debug_assert!(entry.0 == next_span.order);
+            debug_assert!(entry.0 == next_span.start);
 
             // Note that we're leaving in entries with excess_deletes of 0. The reason for this is
             // that decrement_delete_range is used when bouncing between versions. Usually we'll
@@ -141,26 +141,26 @@ impl RleVec<KVPair<DoubleDelete>> {
         modified
     }
 
-    pub(crate) fn modify_delete_range(&mut self, base: Order, len: u32, update_by: i32, max_value: u32) -> u32 {
+    pub(crate) fn modify_delete_range(&mut self, base: Time, len: u32, update_by: i32, max_value: u32) -> u32 {
         let start = self.find_index(base);
         let idx = start.unwrap_or_else(|idx| idx);
         self.modify_delete_range_idx(base, len, idx, update_by, max_value)
     }
 
-    pub fn increment_delete_range(&mut self, base: Order, len: u32) {
+    pub fn increment_delete_range(&mut self, base: Time, len: u32) {
         self.modify_delete_range(base, len, 1, u32::MAX);
     }
 
-    pub fn increment_delete_range_to(&mut self, base: Order, max_len: u32, max_value: u32) -> u32 {
+    pub fn increment_delete_range_to(&mut self, base: Time, max_len: u32, max_value: u32) -> u32 {
         self.modify_delete_range(base, max_len, 1, max_value)
     }
 
-    pub fn decrement_delete_range(&mut self, base: Order, max_len: u32) -> u32 {
+    pub fn decrement_delete_range(&mut self, base: Time, max_len: u32) -> u32 {
         self.modify_delete_range(base, max_len, -1, u32::MAX)
     }
 
     /// Find the range of items which have (implied or explicit) 0 double deletes
-    pub(crate) fn find_zero_range(&self, base: Order, max_len: u32) -> u32 {
+    pub(crate) fn find_zero_range(&self, base: Time, max_len: u32) -> u32 {
         // let mut span = OrderSpan { order: base, len: max_len };
 
         for idx in self.find_index(base).unwrap_or_else(|idx| idx)..self.0.len() {

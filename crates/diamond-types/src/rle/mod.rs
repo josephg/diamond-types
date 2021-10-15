@@ -80,13 +80,13 @@ impl<V: Default> Default for KVPair<V> {
 mod test {
     use rle::test_splitable_methods_valid;
 
-    use crate::order::OrderSpan;
+    use crate::order::TimeSpan;
     use crate::rle::KVPair;
 
     #[test]
     fn kvpair_valid() {
-        test_splitable_methods_valid(KVPair(10, OrderSpan {
-            order: 10,
+        test_splitable_methods_valid(KVPair(10, TimeSpan {
+            start: 10,
             len: 5
         }));
     }

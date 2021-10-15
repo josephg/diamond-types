@@ -2,65 +2,65 @@ use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 
 use crate::rle::{RleKey, RleKeyed};
 use std::ops::Range;
-use crate::list::Order;
+use crate::list::Time;
 use crate::rangeextra::OrderRange;
 
 /// An OrderMarker defines a span of item orders, with a base and length.
 /// If the length is negative, the span has been deleted in the document.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct OrderSpan {
-    pub order: u32,
+pub struct TimeSpan {
+    pub start: u32,
     pub len: u32,
 }
 
-impl OrderSpan {
-    pub fn new(order: u32, len: u32) -> OrderSpan {
-        OrderSpan { order, len }
+impl TimeSpan {
+    pub fn new(start: u32, len: u32) -> TimeSpan {
+        TimeSpan { start, len }
     }
 
     pub fn consume_start(&mut self, amt: u32) {
-        self.order += amt;
+        self.start += amt;
         self.len -= amt;
     }
 
     pub fn end(&self) -> u32 {
-        self.order + self.len
+        self.start + self.len
     }
 
-    pub fn last(&self) -> u32 { self.order + self.len - 1 }
+    pub fn last(&self) -> u32 { self.start + self.len - 1 }
 }
 
-impl Default for OrderSpan {
+impl Default for TimeSpan {
     fn default() -> Self {
-        OrderSpan {
+        TimeSpan {
             // Super invalid.
-            order: u32::MAX,
+            start: u32::MAX,
             len: 0,
             // parent: usize
         }
     }
 }
 
-impl From<Range<Order>> for OrderSpan {
-    fn from(range: Range<Order>) -> Self {
+impl From<Range<Time>> for TimeSpan {
+    fn from(range: Range<Time>) -> Self {
         Self {
-            order: range.start,
+            start: range.start,
             len: range.order_len(),
         }
     }
 }
 
-impl HasLength for OrderSpan {
+impl HasLength for TimeSpan {
     fn len(&self) -> usize {
         self.len as usize
     }
 }
-impl SplitableSpan for OrderSpan {
+impl SplitableSpan for TimeSpan {
     fn truncate(&mut self, at: usize) -> Self {
         let at = at as u32;
 
-        let other = OrderSpan {
-            order: self.order + at,
+        let other = TimeSpan {
+            start: self.start + at,
             len: self.len - at
         };
 
@@ -71,19 +71,19 @@ impl SplitableSpan for OrderSpan {
     #[inline]
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
         let at = at as u32;
-        let other = OrderSpan {
-            order: self.order,
+        let other = TimeSpan {
+            start: self.start,
             len: at
         };
-        self.order += at;
+        self.start += at;
         self.len -= at;
         other
     }
 }
-impl MergableSpan for OrderSpan {
+impl MergableSpan for TimeSpan {
     // #[inline]
     fn can_append(&self, other: &Self) -> bool {
-        other.order == self.order + self.len
+        other.start == self.start + self.len
     }
 
     // #[inline]
@@ -92,26 +92,26 @@ impl MergableSpan for OrderSpan {
     }
 
     fn prepend(&mut self, other: Self) {
-        self.order = other.order;
+        self.start = other.start;
         self.len += other.len;
     }
 }
 
-impl Searchable for OrderSpan {
+impl Searchable for TimeSpan {
     type Item = usize; // Order.
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
         // debug_assert!(loc < self.len());
         let loc = loc as u32;
-        if (loc >= self.order) && (loc < self.order + self.len) {
-            Some((loc - self.order) as usize)
+        if (loc >= self.start) && (loc < self.start + self.len) {
+            Some((loc - self.start) as usize)
         } else {
             None
         }
     }
 
     fn at_offset(&self, offset: usize) -> Self::Item {
-        self.order as usize + offset
+        self.start as usize + offset
     }
 }
 
@@ -135,8 +135,8 @@ impl Searchable for OrderSpan {
 
 // This is used for vector clocks. Note if you want order spans keyed by something else, use
 // KVPair<OrderSpan> instead.
-impl RleKeyed for OrderSpan {
+impl RleKeyed for TimeSpan {
     fn get_rle_key(&self) -> RleKey {
-        self.order
+        self.start
     }
 }

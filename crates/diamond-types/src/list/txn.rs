@@ -2,9 +2,9 @@ use smallvec::SmallVec;
 
 use rle::{HasLength, MergableSpan};
 
-use crate::list::{Order, ROOT_ORDER};
+use crate::list::{Time, ROOT_TIME};
 use crate::rle::RleKeyed;
-use crate::order::OrderSpan;
+use crate::order::TimeSpan;
 use std::ops::Range;
 
 /// This type stores metadata for a run of transactions created by the users.
@@ -12,17 +12,17 @@ use std::ops::Range;
 /// Both individual inserts and deletes will use up txn numbers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TxnSpan {
-    pub order: Order,
+    pub time: Time,
     pub len: u32, // Length of the span
 
     /// All txns in this span are direct descendants of all operations from order down to shadow.
     /// This is derived from other fields and used as an optimization for some calculations.
-    pub shadow: Order,
+    pub shadow: Time,
 
     /// The parents vector of the first txn in this span. Must contain at least 1 entry (and will
     /// almost always contain exactly 1 entry - the only exception being in the case of concurrent
     /// changes).
-    pub parents: SmallVec<[Order; 2]>,
+    pub parents: SmallVec<[Time; 2]>,
 
     /// This is a list of the index of other txns which have a parent within this transaction.
     /// TODO: Consider constraining this to not include the next child. Complexity vs memory.
@@ -31,38 +31,38 @@ pub struct TxnSpan {
 }
 
 impl TxnSpan {
-    pub fn parent_at_offset(&self, at: usize) -> Option<Order> {
+    pub fn parent_at_offset(&self, at: usize) -> Option<Time> {
         if at > 0 {
-            Some(self.order + at as u32 - 1)
+            Some(self.time + at as u32 - 1)
         } else { None } // look at .parents field.
     }
 
-    pub fn parent_at_order(&self, order: Order) -> Option<Order> {
-        if order > self.order {
-            Some(order - 1)
+    pub fn parent_at_time(&self, time: Time) -> Option<Time> {
+        if time > self.time {
+            Some(time - 1)
         } else { None } // look at .parents field.
     }
 
-    pub fn contains(&self, order: Order) -> bool {
-        order >= self.order && order < self.order + self.len
+    pub fn contains(&self, time: Time) -> bool {
+        time >= self.time && time < self.time + self.len
     }
 
-    pub fn last_order(&self) -> Order {
-        self.order + self.len - 1
+    pub fn last_time(&self) -> Time {
+        self.time + self.len - 1
     }
 
-    pub fn shadow_contains(&self, order: Order) -> bool {
-        debug_assert!(order <= self.last_order());
-        self.shadow == ROOT_ORDER || order >= self.shadow
+    pub fn shadow_contains(&self, time: Time) -> bool {
+        debug_assert!(time <= self.last_time());
+        self.shadow == ROOT_TIME || time >= self.shadow
     }
 
     // Old. TODO: Remove this.
-    pub fn as_span(&self) -> OrderSpan {
-        OrderSpan { order: self.order, len: self.len }
+    pub fn as_span(&self) -> TimeSpan {
+        TimeSpan { start: self.time, len: self.len }
     }
 
-    pub fn as_order_range(&self) -> Range<Order> {
-        self.order .. self.order + self.len
+    pub fn as_order_range(&self) -> Range<Time> {
+        self.time.. self.time + self.len
     }
 
     // pub fn parents_at_offset(&self, at: usize) -> SmallVec<[Order; 2]> {
@@ -98,7 +98,7 @@ impl HasLength for TxnSpan {
 impl MergableSpan for TxnSpan {
     fn can_append(&self, other: &Self) -> bool {
         other.parents.len() == 1
-            && other.parents[0] == self.last_order()
+            && other.parents[0] == self.last_time()
             && other.shadow == self.shadow
     }
 
@@ -109,7 +109,7 @@ impl MergableSpan for TxnSpan {
 
     fn prepend(&mut self, other: Self) {
         debug_assert!(self.parent_indexes.is_empty());
-        self.order = other.order;
+        self.time = other.time;
         self.len += other.len;
         self.parents = other.parents;
         debug_assert_eq!(self.shadow, other.shadow);
@@ -118,7 +118,7 @@ impl MergableSpan for TxnSpan {
 
 impl RleKeyed for TxnSpan {
     fn get_rle_key(&self) -> u32 {
-        self.order
+        self.time
     }
 }
 
@@ -141,12 +141,12 @@ mod tests {
     #[test]
     fn test_txn_appends() {
         let mut txn_a = TxnSpan {
-            order: 1000, len: 10, shadow: 500,
+            time: 1000, len: 10, shadow: 500,
             parents: smallvec![999],
             parent_indexes: smallvec![], child_indexes: smallvec![],
         };
         let txn_b = TxnSpan {
-            order: 1010, len: 5, shadow: 500,
+            time: 1010, len: 5, shadow: 500,
             parents: smallvec![1009],
             parent_indexes: smallvec![], child_indexes: smallvec![],
         };
@@ -155,7 +155,7 @@ mod tests {
 
         txn_a.append(txn_b);
         assert_eq!(txn_a, TxnSpan {
-            order: 1000,
+            time: 1000,
             len: 15,
             shadow: 500,
             parents: smallvec![999],

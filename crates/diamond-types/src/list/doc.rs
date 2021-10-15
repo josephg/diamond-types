@@ -23,20 +23,20 @@ use crate::list::time::positionmap::PositionMap;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> u32 {
-        if let Some(KVPair(loc, range)) = self.item_orders.last() {
+        if let Some(KVPair(loc, range)) = self.item_localtime.last() {
             loc + range.len as u32
         } else { 0 }
     }
 
-    pub fn seq_to_order(&self, seq: u32) -> Order {
-        let (entry, offset) = self.item_orders.find_with_offset(seq).unwrap();
-        entry.1.order + offset
+    pub fn seq_to_order(&self, seq: u32) -> Time {
+        let (entry, offset) = self.item_localtime.find_with_offset(seq).unwrap();
+        entry.1.start + offset
     }
 
-    pub fn seq_to_order_span(&self, seq: u32, max_len: u32) -> OrderSpan {
-        let (entry, offset) = self.item_orders.find_with_offset(seq).unwrap();
-        OrderSpan {
-            order: entry.1.order + offset,
+    pub fn seq_to_order_span(&self, seq: u32, max_len: u32) -> TimeSpan {
+        let (entry, offset) = self.item_localtime.find_with_offset(seq).unwrap();
+        TimeSpan {
+            start: entry.1.start + offset,
             len: max_len.min(entry.1.len - offset),
         }
     }
@@ -68,8 +68,8 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<
 impl ListCRDT {
     pub fn new() -> Self {
         ListCRDT {
-            client_with_order: RleVec::new(),
-            frontier: smallvec![ROOT_ORDER],
+            client_with_time: RleVec::new(),
+            frontier: smallvec![ROOT_TIME],
             client_data: vec![],
 
             range_tree: ContentTreeRaw::new(),
@@ -101,7 +101,7 @@ impl ListCRDT {
             // Create a new id.
             self.client_data.push(ClientData {
                 name: SmartString::from(name),
-                item_orders: RleVec::new()
+                item_localtime: RleVec::new()
             });
             (self.client_data.len() - 1) as AgentId
         }
@@ -120,18 +120,18 @@ impl ListCRDT {
         self.client_data[agent as usize].name.as_str()
     }
 
-    pub(crate) fn get_crdt_location(&self, order: Order) -> CRDTId {
-        if order == ROOT_ORDER { CRDT_DOC_ROOT }
+    pub(crate) fn get_crdt_location(&self, order: Time) -> CRDTId {
+        if order == ROOT_TIME { CRDT_DOC_ROOT }
         else {
-            let (loc, offset) = self.client_with_order.find_with_offset(order).unwrap();
+            let (loc, offset) = self.client_with_time.find_with_offset(order).unwrap();
             loc.1.at_offset(offset as usize)
         }
     }
 
-    pub(crate) fn get_crdt_span(&self, order: Order, max_size: u32) -> CRDTSpan {
-        if order == ROOT_ORDER { CRDTSpan { loc: CRDT_DOC_ROOT, len: 0 } }
+    pub(crate) fn get_crdt_span(&self, order: Time, max_size: u32) -> CRDTSpan {
+        if order == ROOT_TIME { CRDTSpan { loc: CRDT_DOC_ROOT, len: 0 } }
         else {
-            let (loc, offset) = self.client_with_order.find_with_offset(order).unwrap();
+            let (loc, offset) = self.client_with_time.find_with_offset(order).unwrap();
             CRDTSpan {
                 loc: CRDTId {
                     agent: loc.1.loc.agent,
@@ -142,67 +142,67 @@ impl ListCRDT {
         }
     }
 
-    pub(crate) fn get_order(&self, loc: CRDTId) -> Order {
-        if loc.agent == ROOT_AGENT { ROOT_ORDER }
+    pub(crate) fn crdt_to_localtime(&self, loc: CRDTId) -> Time {
+        if loc.agent == ROOT_AGENT { ROOT_TIME }
         else { self.client_data[loc.agent as usize].seq_to_order(loc.seq) }
     }
 
-    pub(crate) fn get_order_span(&self, loc: CRDTId, max_len: u32) -> OrderSpan {
+    pub(crate) fn crdt_span_to_localtime(&self, loc: CRDTId, max_len: u32) -> TimeSpan {
         assert_ne!(loc.agent, ROOT_AGENT);
         self.client_data[loc.agent as usize].seq_to_order_span(loc.seq, max_len)
     }
 
-    pub fn get_next_order(&self) -> Order {
-        if let Some(KVPair(base, entry)) = self.client_with_order.last() {
+    pub fn get_next_time(&self) -> Time {
+        if let Some(KVPair(base, entry)) = self.client_with_time.last() {
             base + entry.len as u32
         } else { 0 }
     }
 
     /// Get the frontier as an internal order list
-    pub fn get_frontier_as_order(&self) -> &[Order] {
+    pub fn get_frontier_as_localtime(&self) -> &[Time] {
         &self.frontier
     }
 
-    pub(super) fn marker_at(&self, order: Order) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>> {
-        let cursor = self.index.cursor_at_offset_pos(order as usize, false);
+    pub(super) fn marker_at(&self, time: Time) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>> {
+        let cursor = self.index.cursor_at_offset_pos(time as usize, false);
         // Gross.
         unsafe { cursor.get_item().unwrap().unwrap() }
 
         // self.index.entry_at(order as usize).unwrap_ptr()
     }
 
-    pub(crate) fn get_unsafe_cursor_before(&self, order: Order) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        if order == ROOT_ORDER {
+    pub(crate) fn get_unsafe_cursor_before(&self, time: Time) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+        if time == ROOT_TIME {
             // Or maybe we should just abort?
             self.range_tree.unsafe_cursor_at_end()
         } else {
-            let marker = self.marker_at(order);
+            let marker = self.marker_at(time);
             unsafe {
-                ContentTreeRaw::cursor_before_item(order, marker)
+                ContentTreeRaw::cursor_before_item(time, marker)
             }
         }
     }
 
     #[inline(always)]
-    pub(crate) fn get_cursor_before(&self, order: Order) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_before(order)) }
+    pub(crate) fn get_cursor_before(&self, time: Time) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+        unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_before(time)) }
     }
     #[inline(always)]
-    pub(crate) fn get_mut_cursor_before(&mut self, order: Order) -> MutCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        let unsafe_cursor = self.get_unsafe_cursor_before(order);
+    pub(crate) fn get_mut_cursor_before(&mut self, time: Time) -> MutCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+        let unsafe_cursor = self.get_unsafe_cursor_before(time);
         unsafe { MutCursor::unchecked_from_raw(&mut self.range_tree, unsafe_cursor) }
     }
 
     // This does not stick_end to the found item.
-    pub(super) fn get_unsafe_cursor_after(&self, order: Order, stick_end: bool) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        if order == ROOT_ORDER {
+    pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+        if time == ROOT_TIME {
             self.range_tree.unsafe_cursor_at_start()
         } else {
-            let marker = self.marker_at(order);
+            let marker = self.marker_at(time);
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
             // self.content_tree.
             let mut cursor = unsafe {
-                ContentTreeRaw::cursor_before_item(order, marker)
+                ContentTreeRaw::cursor_before_item(time, marker)
             };
             // The cursor points to parent. This is safe because of guarantees provided by
             // cursor_before_item.
@@ -214,24 +214,24 @@ impl ListCRDT {
 
     // TODO: Can I remove the stick_end field here?
     #[inline(always)]
-    pub(crate) fn get_cursor_after(&self, order: Order, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_after(order, stick_end)) }
+    pub(crate) fn get_cursor_after(&self, time: Time, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+        unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_after(time, stick_end)) }
     }
 
-    fn assign_order_to_client(&mut self, loc: CRDTId, order: Order, len: usize) {
-        self.client_with_order.push(KVPair(order, CRDTSpan {
+    fn assign_order_to_client(&mut self, loc: CRDTId, time: Time, len: usize) {
+        self.client_with_time.push(KVPair(time, CRDTSpan {
             loc,
             len: len as _
         }));
 
-        self.client_data[loc.agent as usize].item_orders.push(KVPair(loc.seq, OrderSpan {
-            order,
+        self.client_data[loc.agent as usize].item_localtime.push(KVPair(loc.seq, TimeSpan {
+            start: time,
             len: len as _
         }));
     }
 
-    pub(crate) fn max_span_length(&self, order: Order) -> u32 {
-        let (span, span_offset) = self.client_with_order.find_with_offset(order).unwrap();
+    pub(crate) fn max_span_length(&self, time: Time) -> u32 {
+        let (span, span_offset) = self.client_with_time.find_with_offset(time).unwrap();
         span.1.len - span_offset
     }
 
@@ -283,7 +283,7 @@ impl ListCRDT {
                     if item.origin_right == other_entry.origin_right {
                         // Origin_right matches. Items are concurrent. Order by agent names.
                         let my_name = self.get_agent_name(agent);
-                        let other_loc = self.client_with_order.get(other_order);
+                        let other_loc = self.client_with_time.get(other_order);
                         let other_name = self.get_agent_name(other_loc.agent);
                         assert_ne!(my_name, other_name);
 
@@ -363,7 +363,7 @@ impl ListCRDT {
     }
 
     // For local changes, where we just take the frontier as the new parents list.
-    fn insert_txn_local(&mut self, range: Range<Order>) {
+    fn insert_txn_local(&mut self, range: Range<Time>) {
         // Fast path for local edits. For some reason the code below is remarkably non-performant.
         if self.frontier.len() == 1 && self.frontier[0] == range.start.wrapping_sub(1) {
             if let Some(last) = self.txns.0.last_mut() {
@@ -379,18 +379,18 @@ impl ListCRDT {
         self.insert_txn_internal(&txn_parents, range);
     }
 
-    fn insert_txn_remote(&mut self, txn_parents: &[Order], range: Range<Order>) {
+    fn insert_txn_remote(&mut self, txn_parents: &[Time], range: Range<Time>) {
         advance_branch_by_known(&mut self.frontier, &txn_parents, range.clone());
         self.insert_txn_internal(txn_parents, range);
     }
 
-    fn insert_txn_internal(&mut self, txn_parents: &[Order], range: Range<Order>) {
+    fn insert_txn_internal(&mut self, txn_parents: &[Time], range: Range<Time>) {
         // Fast path. The code below is weirdly slow, but most txns just append.
         // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
         if let Some(last) = self.txns.0.last_mut() {
             if txn_parents.len() == 1
-                && txn_parents[0] == last.last_order()
-                && last.order + last.len == range.start
+                && txn_parents[0] == last.last_time()
+                && last.time + last.len == range.start
             {
                 last.len += range.order_len();
                 return;
@@ -402,13 +402,13 @@ impl ListCRDT {
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
             shadow = self.txns.find(shadow - 1).unwrap().shadow;
         }
-        if shadow == 0 { shadow = ROOT_ORDER; }
+        if shadow == 0 { shadow = ROOT_TIME; }
 
         let will_merge = if let Some(last) = self.txns.last() {
             // TODO: Is this shadow check necessary?
             // This code is from TxnSpan splitablespan impl. Copying it here is a bit ugly but
             // its the least ugly way I could think to implement this.
-            txn_parents.len() == 1 && txn_parents[0] == last.last_order() && shadow == last.shadow
+            txn_parents.len() == 1 && txn_parents[0] == last.last_time() && shadow == last.shadow
         } else { false };
 
         let mut parent_indexes = smallvec![];
@@ -417,7 +417,7 @@ impl ListCRDT {
             let new_idx = self.txns.0.len();
 
             for &p in txn_parents {
-                if p == ROOT_ORDER { continue; }
+                if p == ROOT_TIME { continue; }
                 let parent_idx = self.txns.find_index(p).unwrap();
                 // Interestingly the parent_idx array will always end up the same length as parents
                 // because it would be invalid for multiple parents to point to the same entry in
@@ -445,7 +445,7 @@ impl ListCRDT {
         }
 
         let txn = TxnSpan {
-            order: range.start,
+            time: range.start,
             len: range.order_len(),
             shadow,
             parents: txn_parents.into_iter().copied().collect(),
@@ -457,14 +457,14 @@ impl ListCRDT {
         assert_eq!(will_merge, did_merge);
     }
 
-    pub(super) fn internal_mark_deleted(&mut self, id: Order, target: Order, max_len: u32, update_content: bool) -> Order {
+    pub(super) fn internal_mark_deleted(&mut self, id: Time, target: Time, max_len: u32, update_content: bool) -> Time {
         // TODO: Make this use mut_cursor instead. The problem is notify_for mutably borrows
         // self.index, and the cursor is borrowing self (rather than self.range_tree).
         let mut cursor = self.get_unsafe_cursor_before(target);
         self.internal_mark_deleted_at(&mut cursor, id, max_len, update_content)
     }
 
-    pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut <&RangeTree as Cursors>::UnsafeCursor, id: Order, max_len: u32, update_content: bool) -> Order {
+    pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut <&RangeTree as Cursors>::UnsafeCursor, id: Time, max_len: u32, update_content: bool) -> Time {
         let target = unsafe { cursor.get_item().unwrap() };
 
         let (deleted_here, succeeded) = unsafe {
@@ -472,8 +472,8 @@ impl ListCRDT {
         };
         let deleted_here = deleted_here as u32;
 
-        self.deletes.push(KVPair(id, OrderSpan {
-            order: target,
+        self.deletes.push(KVPair(id, TimeSpan {
+            start: target,
             len: deleted_here
         }));
 
@@ -497,7 +497,7 @@ impl ListCRDT {
         // If the seq does not match we either need to skip or buffer the transaction.
         assert_eq!(next_seq, txn.id.seq);
 
-        let first_order = self.get_next_order();
+        let first_order = self.get_next_time();
         let mut next_order = first_order;
 
         // Figure out the order range for this txn and assign
@@ -580,8 +580,8 @@ impl ListCRDT {
                         // 1. `len` (passed in from the RemoteTxn above) via remaining_len
                         // 2. The length of the span returned by seq_to_order_span
                         // 3. The contiguous region of items in the range tree
-                        let OrderSpan {
-                            order: target_order,
+                        let TimeSpan {
+                            start: target_order,
                             len, // min(1 and 2)
                         } = self.client_data[agent].seq_to_order_span(target_seq, remaining_len);
 
@@ -624,7 +624,7 @@ impl ListCRDT {
     }
 
     pub fn apply_local_txn(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str) {
-        let first_order = self.get_next_order();
+        let first_order = self.get_next_time();
         let mut next_order = first_order;
 
         let txn_len = local_ops.iter().map(|c| c.len).sum::<u32>() as usize;
@@ -647,7 +647,7 @@ impl ListCRDT {
 
                     // Find the preceding item and successor
                     let (origin_left, cursor) = if pos == 0 {
-                        (ROOT_ORDER, self.range_tree.unsafe_cursor_at_start())
+                        (ROOT_TIME, self.range_tree.unsafe_cursor_at_start())
                     } else {
                         let mut cursor = self.range_tree.unsafe_cursor_at_content_pos((pos - 1) as usize, false);
                         let origin_left = unsafe { cursor.get_item() }.unwrap();
@@ -656,7 +656,7 @@ impl ListCRDT {
                     };
 
                     // TODO: This should skip past deleted items!
-                    let origin_right = unsafe { cursor.get_item() }.unwrap_or(ROOT_ORDER);
+                    let origin_right = unsafe { cursor.get_item() }.unwrap_or(ROOT_TIME);
 
                     let item = YjsSpan {
                         order,
@@ -679,8 +679,8 @@ impl ListCRDT {
                     // dbg!(&deleted_items);
                     let mut deleted_length = 0; // To check.
                     for item in deleted_items {
-                        self.deletes.push(KVPair(next_order, OrderSpan {
-                            order: item.order,
+                        self.deletes.push(KVPair(next_order, TimeSpan {
+                            start: item.order,
                             len: item.len as u32
                         }));
                         deleted_length += item.len as usize;
@@ -702,7 +702,7 @@ impl ListCRDT {
         }
 
         self.insert_txn_local(first_order..next_order);
-        debug_assert_eq!(next_order, self.get_next_order());
+        debug_assert_eq!(next_order, self.get_next_time());
     }
 
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
@@ -722,16 +722,16 @@ impl ListCRDT {
         }], "")
     }
 
-    pub fn apply_patch_at_version(&mut self, agent: AgentId, local_ops: &[PositionalComponent], content: &str, branch: &[Order]) {
+    pub fn apply_patch_at_version(&mut self, agent: AgentId, local_ops: &[PositionalComponent], content: &str, branch: &[Time]) {
         let mut map = PositionMap::new_at_version(self, branch);
         // dbg!(&map);
         self.apply_patch_at_map(&mut map, agent, local_ops, content, branch);
         // dbg!(&map);
     }
 
-    pub(crate) fn apply_patch_at_map(&mut self, map: &mut PositionMap, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str, branch: &[Order]) {
+    pub(crate) fn apply_patch_at_map(&mut self, map: &mut PositionMap, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str, branch: &[Time]) {
         // TODO: Merge this with apply_local_txn
-        let first_order = self.get_next_order();
+        let first_order = self.get_next_time();
         let mut next_order = first_order;
         let txn_len = local_ops.iter().map(|c| c.len).sum::<u32>() as usize;
 
@@ -753,7 +753,7 @@ impl ListCRDT {
 
                     // Find the preceding item and successor
                     let (origin_left, cursor) = if orig_pos == 0 {
-                        (ROOT_ORDER, self.range_tree.cursor_at_start())
+                        (ROOT_TIME, self.range_tree.cursor_at_start())
                     } else {
                         let mut cursor = map.list_cursor_at_content_pos(self, orig_pos - 1, false).0;
                         let origin_left = unsafe { cursor.get_item() }.unwrap();
@@ -762,7 +762,7 @@ impl ListCRDT {
                     };
 
                     let origin_right = if orig_pos == map.content_len() {
-                        ROOT_ORDER
+                        ROOT_TIME
                     } else {
                         // TODO: stick_end: false here matches the current semantics, but its not
                         // ideal. Would be better to skip to the next entry that exists for
@@ -830,12 +830,12 @@ impl ListCRDT {
 
         // self.insert_txn_local(first_order..next_order);
         self.insert_txn_remote(branch, first_order..next_order);
-        debug_assert_eq!(next_order, self.get_next_order());
+        debug_assert_eq!(next_order, self.get_next_time());
     }
 
     // TODO: Consider refactoring me to use positional operations instead of traversal operations
-    pub fn apply_txn_at_ot_order(&mut self, agent: AgentId, op: &TraversalOp, order: Order, is_left: bool) {
-        let now = self.get_next_order();
+    pub fn apply_txn_at_ot_order(&mut self, agent: AgentId, op: &TraversalOp, order: Time, is_left: bool) {
+        let now = self.get_next_time();
         if order < now {
             let historical_patches = self.traversal_changes_since(order);
             let mut local_ops = op.traversal.clone();
@@ -850,10 +850,10 @@ impl ListCRDT {
         }
     }
 
-    pub fn insert_at_ot_order(&mut self, agent: AgentId, pos: usize, ins_content: &str, order: Order, is_left: bool) {
+    pub fn insert_at_ot_order(&mut self, agent: AgentId, pos: usize, ins_content: &str, order: Time, is_left: bool) {
         self.apply_txn_at_ot_order(agent, &TraversalOp::new_insert(pos as u32, ins_content), order, is_left);
     }
-    pub fn delete_at_ot_order(&mut self, agent: AgentId, pos: usize, del_span: usize, order: Order, is_left: bool) {
+    pub fn delete_at_ot_order(&mut self, agent: AgentId, pos: usize, del_span: usize, order: Time, is_left: bool) {
         self.apply_txn_at_ot_order(agent, &TraversalOp::new_delete(pos as u32, del_span as u32), order, is_left);
     }
 
@@ -1019,7 +1019,7 @@ mod tests {
     fn remote_txns_fork() {
         // Two users concurrently type into an empty document
         let mut doc = ListCRDT::new();
-        assert_eq!(doc.frontier.as_slice(), &[ROOT_ORDER]);
+        assert_eq!(doc.frontier.as_slice(), &[ROOT_TIME]);
 
         doc.apply_remote_txn(&RemoteTxn {
             id: RemoteId {
@@ -1074,14 +1074,14 @@ mod tests {
         // dbg!(&doc);
 
         // Mike is missing all the changes from seph.
-        assert_eq!(doc.get_order_spans_since::<Vec<_>>(&vec![RemoteId {
+        assert_eq!(doc.get_time_spans_since::<Vec<_>>(&vec![RemoteId {
             agent: "mike".into(),
             seq: 5
-        }]), vec![OrderSpan {
-            order: 0,
+        }]), vec![TimeSpan {
+            start: 0,
             len: 2
-        }, OrderSpan {
-            order: 7,
+        }, TimeSpan {
+            start: 7,
             len: 1
         }]);
     }

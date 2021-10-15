@@ -18,7 +18,7 @@ use smartstring::alias::{String as SmartString};
 use smallvec::{SmallVec, smallvec};
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use TraversalComponent::*;
-use crate::list::Order;
+use crate::list::Time;
 use crate::list::positional::{PositionalOp, PositionalComponent, InsDelTag};
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
@@ -163,14 +163,14 @@ impl From<PositionalOp> for TraversalOpSequence {
 }
 
 impl TraversalComponent {
-    pub(super) fn pre_len(&self) -> Order {
+    pub(super) fn pre_len(&self) -> Time {
         match self {
             Retain(len) | Del(len) => *len,
             Ins{..} => 0,
         }
     }
 
-    pub(super) fn post_len(&self) -> Order {
+    pub(super) fn post_len(&self) -> Time {
         match self {
             Retain(len) => *len,
             Del(_) => 0,
@@ -207,19 +207,19 @@ impl SplitableSpan for TraversalComponent {
         match self {
             Ins { len, content_known } => {
                 let remainder = Ins {
-                    len: *len - at as Order,
+                    len: *len - at as Time,
                     content_known: *content_known,
                 };
-                *len = at as Order;
+                *len = at as Time;
                 remainder
             }
             Del(len) => {
-                let remainder = Del(*len - at as Order);
-                *len = at as Order;
+                let remainder = Del(*len - at as Time);
+                *len = at as Time;
                 remainder
             }
             Retain(len) => {
-                let remainder = Retain(*len - at as Order);
+                let remainder = Retain(*len - at as Time);
                 *len = at as _;
                 remainder
             }

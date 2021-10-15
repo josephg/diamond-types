@@ -7,7 +7,7 @@ use super::*;
 use std::ops::AddAssign;
 
 // TODO: All these methods should be unsafe and have safe wrappers in safe_cursor.
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub(crate) fn new(node: NonNull<NodeLeaf<E, I, IE, LE>>, idx: usize, offset: usize) -> Self {
         UnsafeCursor { node, idx, offset }
     }
@@ -50,7 +50,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
 
     /// Move back to the previous entry. Returns true if it exists, otherwise
     /// returns false if we're at the start of the doc already.
-    pub fn prev_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
+    pub fn prev_entry_marker(&mut self, marker: Option<&mut I::Update>) -> bool {
         if self.idx > 0 {
             self.idx -= 1;
             self.offset = self.get_raw_entry().len();
@@ -58,7 +58,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
             true
         } else {
             if let Some(marker) = marker {
-                unsafe { self.node.as_mut() }.flush_index_update(marker);
+                unsafe { self.node.as_mut() }.flush_metric_update(marker);
             }
             self.traverse_backwards()
         }
@@ -71,7 +71,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
     /// Go to the next entry marker and update the (optional) flush marker.
     /// Returns true if successful, or false if we've reached the end of the document.
     #[inline(always)]
-    pub fn next_entry_marker(&mut self, marker: Option<&mut I::IndexUpdate>) -> bool {
+    pub fn next_entry_marker(&mut self, marker: Option<&mut I::Update>) -> bool {
         // TODO: Do this without code duplication of next/prev entry marker.
         unsafe {
             if self.idx + 1 < self.node.as_ref().num_entries as usize {
@@ -80,7 +80,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
                 true
             } else {
                 if let Some(marker) = marker {
-                    self.node.as_mut().flush_index_update(marker);
+                    self.node.as_mut().flush_metric_update(marker);
                 }
                 self.traverse_forward()
             }
@@ -93,7 +93,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
     }
 
     pub unsafe fn count_pos_raw<Out, F, G, H>(&self, offset_to_num: F, entry_len: G, entry_len_at: H) -> Out
-        where Out: AddAssign + Default, F: Fn(I::IndexValue) -> Out, G: Fn(&E) -> Out, H: Fn(&E, usize) -> Out
+        where Out: AddAssign + Default, F: Fn(I::Value) -> Out, G: Fn(&E) -> Out, H: Fn(&E, usize) -> Out
     {
         // We're a cursor into an empty tree.
         if self.offset == usize::MAX { return Out::default(); }
@@ -128,7 +128,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
                     let node_ref = n.as_ref();
                     let idx = node_ref.find_child(node_ptr).unwrap();
 
-                    for c in &node_ref.index[0..idx] {
+                    for c in &node_ref.metrics[0..idx] {
                         pos += offset_to_num(*c);
                     }
 
@@ -142,16 +142,16 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
         pos
     }
 
-    pub unsafe fn count_pos(&self) -> I::IndexValue {
+    pub unsafe fn count_pos(&self) -> I::Value {
         self.count_pos_raw(|v| v, |e| {
-            let mut v = I::IndexValue::default();
+            let mut v = I::Value::default();
             I::increment_offset(&mut v, e);
             v
         }, |e, offset| {
             // This is kinda awful, but hopefully the optimizer takes care of this
             let mut e = e.clone();
             e.truncate(offset);
-            let mut v = I::IndexValue::default();
+            let mut v = I::Value::default();
             I::increment_offset(&mut v, &e);
             v
         })
@@ -209,7 +209,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
         true
     }
 
-    pub fn move_forward_by_offset(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
+    pub fn move_forward_by_offset(&mut self, mut amt: usize, mut marker: Option<&mut I::Update>) {
         loop {
             let len_here = self.get_raw_entry().len();
             if self.offset + amt <= len_here {
@@ -224,7 +224,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
     }
 
     // How widely useful is this? This is optimized for small moves.
-    pub fn move_back_by_offset(&mut self, mut amt: usize, mut marker: Option<&mut I::IndexUpdate>) {
+    pub fn move_back_by_offset(&mut self, mut amt: usize, mut marker: Option<&mut I::Update>) {
         while self.offset < amt {
             amt -= self.offset;
             self.offset = 0;
@@ -315,16 +315,16 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Unsafe
 }
 
 // An explicit implementation is needed because the derive macros bound too tightly
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialEq for UnsafeCursor<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> PartialEq for UnsafeCursor<E, I, IE, LE> {
     fn eq(&self, other: &Self) -> bool {
         self.node == other.node && self.idx == other.idx && self.offset == other.offset
     }
 }
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Eq for UnsafeCursor<E, I, IE, LE> {}
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Eq for UnsafeCursor<E, I, IE, LE> {}
 
 
-impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
+impl<E: ContentTraits + Searchable, I: TreeMetrics<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
     pub unsafe fn get_item(&self) -> Option<E::Item> {
         // TODO: Optimize this. This is gross.
         let mut cursor = self.clone();
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     fn compare_cursors() {
-        let mut tree = ContentTreeRaw::<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, RawPositionMetrics, DEFAULT_IE, DEFAULT_LE>::new();
 
         let cursor = tree.unsafe_cursor_at_start();
         assert_eq!(cursor, cursor);
@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn empty_tree_has_empty_iter() {
         // Regression.
-        let tree = ContentTreeRaw::<TestRange, RawPositionIndex, DEFAULT_IE, DEFAULT_LE>::new();
+        let tree = ContentTreeRaw::<TestRange, RawPositionMetrics, DEFAULT_IE, DEFAULT_LE>::new();
         for _item in tree.raw_iter() {
             panic!("Found spurious item");
         }

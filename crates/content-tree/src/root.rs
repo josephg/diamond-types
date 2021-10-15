@@ -7,10 +7,10 @@ use super::*;
 
 pub type DeleteResult<E> = SmallVec<[E; 8]>;
 
-impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub fn new() -> Pin<Box<Self>> {
         let mut tree = Box::pin(Self {
-            count: I::IndexValue::default(),
+            count: I::Value::default(),
             root: unsafe { Node::Leaf(Box::pin(NodeLeaf::new(None))) },
             // last_cursor: Cell::new(None),
             _pin: marker::PhantomPinned,
@@ -29,7 +29,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
         }
     }
 
-    pub fn len(&self) -> I::IndexValue {
+    pub fn len(&self) -> I::Value {
         self.count
     }
 
@@ -46,7 +46,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     /// stored in the cursor contains the final offset. For cursor_at_offset this will be correct,
     /// or any time the content size corresponds to offset size.
     pub fn unsafe_cursor_at_query<F, G>(&self, raw_pos: usize, stick_end: bool, offset_to_num: F, entry_to_num: G) -> UnsafeCursor<E, I, IE, LE>
-            where F: Fn(I::IndexValue) -> usize, G: Fn(E) -> usize {
+            where F: Fn(I::Value) -> usize, G: Fn(E) -> usize {
         // if let Some((pos, mut cursor)) = self.last_cursor.get() {
         //     if pos == raw_pos {
         //         if cursor.offset == 0 {
@@ -163,18 +163,18 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     //     self.as_ref().last_cursor.set(Some((pos, cursor)));
     // }
 
-    pub fn next_entry_or_panic(cursor: &mut UnsafeCursor<E, I, IE, LE>, marker: &mut I::IndexUpdate) {
+    pub fn next_entry_or_panic(cursor: &mut UnsafeCursor<E, I, IE, LE>, marker: &mut I::Update) {
         if !cursor.next_entry_marker(Some(marker)) {
             panic!("Local delete past the end of the document");
         }
     }
 
     // Returns size.
-    fn check_leaf(leaf: &NodeLeaf<E, I, IE, LE>, expected_parent: ParentPtr<E, I, IE, LE>) -> I::IndexValue {
+    fn check_leaf(leaf: &NodeLeaf<E, I, IE, LE>, expected_parent: ParentPtr<E, I, IE, LE>) -> I::Value {
         assert_eq!(leaf.parent, expected_parent);
         
         // let mut count: usize = 0;
-        let mut count = I::IndexValue::default();
+        let mut count = I::Value::default();
 
         for e in &leaf.data[..leaf.num_entries as usize] {
             // assert!(e.is_valid());
@@ -199,18 +199,18 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     }
     
     // Returns size.
-    fn check_internal(node: &NodeInternal<E, I, IE, LE>, expected_parent: ParentPtr<E, I, IE, LE>) -> I::IndexValue {
+    fn check_internal(node: &NodeInternal<E, I, IE, LE>, expected_parent: ParentPtr<E, I, IE, LE>) -> I::Value {
         assert_eq!(node.parent, expected_parent);
         
         // let mut count_total: usize = 0;
-        let mut count_total = I::IndexValue::default();
+        let mut count_total = I::Value::default();
         let mut done = false;
         let mut child_type = None; // Make sure all the children have the same type.
         // let self_parent = ParentPtr::Internal(NonNull::new(node as *const _ as *mut _).unwrap());
         let self_parent = unsafe { node.to_parent_ptr() };
 
-        for idx in 0..node.index.len() {
-            let child_count_expected = node.index[idx];
+        for idx in 0..node.metrics.len() {
+            let child_count_expected = node.metrics[idx];
             let child = &node.children[idx];
 
             if let Some(child) = child {
@@ -414,7 +414,7 @@ impl<E: ContentTraits, I: TreeIndex<E>, const IE: usize, const LE: usize> Conten
     }
 }
 
-impl<E: ContentTraits + Searchable, I: TreeIndex<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
+impl<E: ContentTraits + Searchable, I: TreeMetrics<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     /// Returns a cursor right before the named location, referenced by the pointer.
     pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> UnsafeCursor<E, I, IE, LE> {
         // First make a cursor to the specified item
@@ -473,10 +473,10 @@ impl<E: ContentTraits + ContentLength + Searchable, I: FindContent<E>, const IE:
     }
 }
 
-impl<E: ContentTraits + PartialEq, I: TreeIndex<E>, const IE: usize, const LE: usize> PartialEq for ContentTreeRaw<E, I, IE, LE> {
+impl<E: ContentTraits + PartialEq, I: TreeMetrics<E>, const IE: usize, const LE: usize> PartialEq for ContentTreeRaw<E, I, IE, LE> {
     fn eq(&self, other: &Self) -> bool {
         self.iter().eq(other.iter())
     }
 }
 
-impl<E: ContentTraits + PartialEq, I: TreeIndex<E>, const IE: usize, const LE: usize> Eq for ContentTreeRaw<E, I, IE, LE> {}
+impl<E: ContentTraits + PartialEq, I: TreeMetrics<E>, const IE: usize, const LE: usize> Eq for ContentTreeRaw<E, I, IE, LE> {}
