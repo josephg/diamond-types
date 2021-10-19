@@ -34,6 +34,9 @@ pub mod time;
 pub mod positional;
 mod merge_positional;
 
+#[cfg(test)]
+mod positional_fuzzer;
+
 // #[cfg(inlinerope)]
 // pub const USE_INNER_ROPE: bool = true;
 // #[cfg(not(inlinerope))]

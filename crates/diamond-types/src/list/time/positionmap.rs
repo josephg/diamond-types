@@ -1,6 +1,6 @@
 use std::iter::FromIterator;
 use std::mem::take;
-use content_tree::{ContentLength, ContentTreeWithIndex, Cursors, FullMetrics, Pair, Toggleable};
+use content_tree::*;
 use rle::{HasLength, MergableSpan, SplitableSpan};
 
 use smartstring::alias::{String as SmartString};
@@ -30,9 +30,9 @@ pub(super) enum MapTag {
 
 // It would be nicer to just use RleRun but I want to customize
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
-pub(super) struct PositionRun {
+pub(crate) struct PositionRun {
     pub(super) tag: MapTag,
-    pub(super) final_len: usize, // This is the full length that we take up in the final document
+    pub(super) final_len: usize, // This is the length if nothing was deleted
     pub(super) content_len: usize, // 0 if we're in the NotInsertedYet state.
 }
 
@@ -135,7 +135,7 @@ type PositionMapInternal = ContentTreeWithIndex<PositionRun, FullMetrics>;
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct PositionMap {
     /// Helpers to map from Order -> raw positions -> position at the current point in time
-    map: Pin<Box<PositionMapInternal>>,
+    pub(crate) map: Pin<Box<PositionMapInternal>>,
     // order_to_raw_map: OrderToRawInsertMap<'a>,
 
     // There's two ways we could handle double deletes:
@@ -275,8 +275,32 @@ impl PositionMap {
     }
 
     pub(crate) fn list_cursor_at_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize, stick_end: bool) -> (<&'a RangeTree as Cursors>::Cursor, usize) {
-        let mut map_cursor = self.map.cursor_at_content_pos(pos, stick_end);
+        let map_cursor = self.map.cursor_at_content_pos(pos, stick_end);
+        self.map_to_list_cursor(map_cursor, list)
+    }
 
+    pub(crate) fn right_origin_at(&self, list: &ListCRDT, pos: usize) -> Time {
+        let mut map_cursor = self.map.cursor_at_content_pos(pos, true);
+        // To be valid, the right origin needs to skip any not_inserted_yet items.
+        loop {
+            if let Some(e) = map_cursor.try_get_raw_entry() {
+                if e.tag == NotInsertedYet {
+                    if map_cursor.next_entry() {
+                        continue;
+                    } else { return ROOT_TIME; }
+                } else { break; }
+            } else {
+                // The cursor is at the end of the map. Origin right will be ROOT.
+                return ROOT_TIME;
+            }
+        }
+
+
+        let list_cursor = self.map_to_list_cursor(map_cursor, list).0;
+        unsafe { list_cursor.get_item() }.unwrap()
+    }
+
+    fn map_to_list_cursor<'a>(&self, mut map_cursor: Cursor<PositionRun, FullMetrics, DEFAULT_IE, DEFAULT_LE>, list: &'a ListCRDT) -> (<&'a RangeTree as Cursors>::Cursor, usize) {
         // The max span is used when deleting items. Something thats been inserted can be deleted,
         // and also something thats been
         let e = map_cursor.get_raw_entry();
@@ -308,6 +332,7 @@ impl PositionMap {
         let cursor = self.list_cursor_at_content_pos(list, pos, stick_end).0;
         // cursor.get_raw_entry().at_offset(cursor.offset)
         unsafe { cursor.get_item() }.unwrap()
+        // unsafe { cursor.get_item() }.unwrap_or(ROOT_TIME)
     }
 
         // pub(crate) fn content_pos_to_order(&self, list: &ListCRDT, pos: usize) -> Order {

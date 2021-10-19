@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
-use rle::SplitAndJoinSpan;
 pub use simple_rle::RleVec;
 
 pub type RleKey = u32;
@@ -29,10 +28,10 @@ impl<V> RleKeyed for KVPair<V> {
     }
 }
 
-impl<V: SplitAndJoinSpan> HasLength for KVPair<V> {
+impl<V: HasLength> HasLength for KVPair<V> {
     fn len(&self) -> usize { self.1.len() }
 }
-impl<V: SplitAndJoinSpan> SplitableSpan for KVPair<V> {
+impl<V: HasLength + SplitableSpan> SplitableSpan for KVPair<V> {
     fn truncate(&mut self, at: usize) -> Self {
         debug_assert!(at > 0);
         debug_assert!(at < self.1.len());
@@ -48,7 +47,7 @@ impl<V: SplitAndJoinSpan> SplitableSpan for KVPair<V> {
         KVPair(old_key, trimmed)
     }
 }
-impl<V: SplitAndJoinSpan> MergableSpan for KVPair<V> {
+impl<V: HasLength + MergableSpan> MergableSpan for KVPair<V> {
     fn can_append(&self, other: &Self) -> bool {
         other.0 == self.end() && self.1.can_append(&other.1)
     }

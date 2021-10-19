@@ -6,10 +6,10 @@ use jumprope::JumpRope;
 /// Updates are made up of a series of insert / delete components, each at some position.
 
 use smartstring::alias::{String as SmartString};
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use InsDelTag::*;
-use crate::unicount::chars_to_bytes;
+use crate::unicount::{chars_to_bytes, count_chars};
 use rle::AppendRle;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
@@ -52,6 +52,28 @@ const XS: &str = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 impl PositionalOp {
     pub fn new() -> Self { Self::default() }
+
+    pub fn new_insert<S: Into<SmartString> + AsRef<str>>(pos: u32, content: S) -> Self {
+        let len = count_chars(&content.as_ref()) as u32;
+        Self {
+            components: smallvec![
+                PositionalComponent { pos, len, content_known: true, tag: Ins }
+            ],
+            content: content.into()
+        }
+    }
+    pub fn new_delete(pos: u32, len: u32) -> Self {
+        Self {
+            components: smallvec![
+                PositionalComponent { pos, len, content_known: true, tag: Del }
+            ],
+            content: Default::default()
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.components.iter().map(|c| c.len).sum::<u32>() as usize
+    }
 
     pub fn apply_to_rope(&self, rope: &mut JumpRope) {
         let mut new_content = self.content.as_str();
@@ -150,6 +172,22 @@ impl From<TraversalOp> for PositionalOp {
 impl Default for PositionalComponent {
     fn default() -> Self {
         Self { pos: 0, len: 0, content_known: false, tag: InsDelTag::Ins }
+    }
+}
+
+impl HasLength for PositionalOp {
+    fn len(&self) -> usize {
+        self.components.iter().map(|c| c.len).sum::<u32>() as usize
+    }
+}
+
+impl MergableSpan for PositionalOp {
+    fn can_append(&self, _other: &Self) -> bool {
+        false
+    }
+
+    fn append(&mut self, _other: Self) {
+        unreachable!()
     }
 }
 

@@ -28,6 +28,8 @@ impl TimeSpan {
     }
 
     pub fn last(&self) -> u32 { self.start + self.len - 1 }
+
+    pub fn is_empty(&self) -> bool { self.len == 0 }
 }
 
 impl Default for TimeSpan {

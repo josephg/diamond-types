@@ -14,6 +14,7 @@ impl ListCRDT {
             self.apply_local_txn(agent, op);
         } else {
             let mut map = PositionMap::new_at_version(self, branch);
+            dbg!(map.map.iter().collect::<Vec<_>>());
             // dbg!(&map);
             self.apply_patch_at_map(&mut map, agent, op, branch);
             // dbg!(&map);
@@ -53,13 +54,17 @@ impl ListCRDT {
                         (origin_left, cursor)
                     };
 
-                    let origin_right = if orig_pos == map.content_len() {
-                        ROOT_TIME
-                    } else {
-                        // stick_end: false here matches the current semantics where we still use
-                        // deleted items as the origin_right.
-                        map.order_at_content_pos(self, orig_pos, true)
-                    };
+                    // The origin right is interesting. We need to end up after
+                    // let origin_right = map.order_at_content_pos(self, orig_pos, true);
+                    let origin_right = map.right_origin_at(self, orig_pos);
+                    dbg!(origin_right);
+                    // let origin_right = if orig_pos == map.content_len() {
+                    //     ROOT_TIME
+                    // } else {
+                    //     // stick_end: false here matches the current semantics where we still use
+                    //     // deleted items as the origin_right.
+                    //     map.order_at_content_pos(self, orig_pos, true)
+                    // };
 
                     let item = YjsSpan {
                         time: order,

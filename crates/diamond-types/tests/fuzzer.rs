@@ -15,7 +15,7 @@ use rand::prelude::*;
 use diamond_types::list::ListCRDT;
 use diamond_core::AgentId;
 
-fn random_str(len: usize, rng: &mut SmallRng) -> String {
+pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
     let mut str = String::new();
     let alphabet: Vec<char> = "abcdefghijklmnop_".chars().collect();
     for _ in 0..len {

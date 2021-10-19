@@ -14,6 +14,7 @@ use rle::{AppendRle, HasLength};
 use crate::crdtspan::CRDTSpan;
 use crate::list::{Branch, ListCRDT, Time, ROOT_TIME};
 use crate::list::external_txn::RemoteCRDTOp::{Del, Ins};
+use crate::list::txn::TxnSpan;
 use crate::order::TimeSpan;
 use crate::rle::{KVPair, RleSpanHelpers};
 
@@ -74,7 +75,7 @@ pub struct RemoteTxn {
 
 /// An iterator over the RemoteTxn objects. This allows RemoteTxns to be created lazily.
 #[derive(Debug)]
-struct RemoteTxnsIter<'a> {
+pub(crate) struct RemoteTxnsIter<'a> {
     doc: &'a ListCRDT,
     span: TimeSpan,
 }
@@ -331,6 +332,35 @@ impl ListCRDT {
         }
     }
 
+    pub(super) fn remote_parents_at_txn(&self, txn: &TxnSpan, offset: u32) -> SmallVec<[RemoteId; 2]> {
+        if let Some(order) = txn.parent_at_offset(offset as _) {
+            smallvec![self.order_to_remote_id(order)]
+        } else {
+            txn.parents.iter().map(|order| self.order_to_remote_id(*order))
+                .collect()
+        }
+    }
+
+    // Get the next contiguous span of remote operations from a single user.
+    pub(super) fn next_remote_id_span(&self, span: TimeSpan) -> (RemoteIdSpan, SmallVec<[RemoteId; 2]>) {
+        // Each entry we return has its length limited by 3 different things:
+        // 1. the requested span length (span.len)
+        // 2. The length of this txn entry (the number of items we know about in a run)
+        // 3. The number of contiguous items by *this userid*
+
+        let (txn, offset) = self.txns.find_with_offset(span.start).unwrap();
+
+        // Limit by #1 and #2
+        let txn_len = u32::min(span.len, txn.len - offset);
+        assert!(txn_len > 0);
+
+        // Limit by #3
+        let id_span = self.order_to_remote_id_span(span.start, txn_len);
+        let parents: SmallVec<[RemoteId; 2]> = self.remote_parents_at_txn(txn, offset);
+
+        (id_span, parents)
+    }
+
     /// This function is used to build an iterator for converting internal txns to remote
     /// transactions.
     fn next_remote_txn_from_order(&self, span: TimeSpan) -> (RemoteTxn, u32) {
@@ -341,23 +371,12 @@ impl ListCRDT {
         // 4. The length of the delete or insert operation
         // 5. (For deletes) the contiguous section of items deleted which have the same agent id
 
-        let (txn, offset) = self.txns.find_with_offset(span.start).unwrap();
+        // Limit by 1, 2 and 3.
+        // let (RemoteIdSpan { id, len: txn_len }, txn, offset) = self.next_remote_id_span(span);
+        let (RemoteIdSpan { id, len: txn_len }, parents) = self.next_remote_id_span(span);
 
-        let parents: SmallVec<[RemoteId; 2]> = if let Some(order) = txn.parent_at_offset(offset as _) {
-            smallvec![self.order_to_remote_id(order)]
-        } else {
-            txn.parents.iter().map(|order| self.order_to_remote_id(*order))
-                .collect()
-        };
-
+        // let parents: SmallVec<[RemoteId; 2]> = self.remote_parents_at_txn(txn, offset);
         let mut ins_content = SmartString::new();
-
-        // Limit by #1 and #2
-        let txn_len = u32::min(span.len, txn.len - offset);
-        assert!(txn_len > 0);
-
-        // Limit by #3
-        let RemoteIdSpan { id, len: txn_len } = self.order_to_remote_id_span(span.start, txn_len);
 
         let mut ops: SmallVec<[RemoteCRDTOp; 2]> = SmallVec::new();
         let mut txn_offset = 0; // Offset into the txn.
@@ -430,7 +449,7 @@ impl ListCRDT {
         }, txn_len)
     }
 
-    fn iter_remote_txns<'a, I>(&'a self, spans: I) -> impl Iterator<Item=RemoteTxn> + 'a
+    pub(crate) fn iter_remote_txns<'a, I>(&'a self, spans: I) -> impl Iterator<Item=RemoteTxn> + 'a
     where I: Iterator<Item=&'a TimeSpan> + 'a
     {
         spans.flat_map(move |s| RemoteTxnsIter { doc: self, span: *s })
@@ -439,8 +458,8 @@ impl ListCRDT {
     pub fn replicate_into(&self, dest: &mut Self) {
         let clock = dest.get_vector_clock();
         // TODO: Do something other than Vec<_> here.
-        let order_ranges = self.get_time_spans_since::<Vec<_>>(&clock);
-        for txn in self.iter_remote_txns(order_ranges.iter()) {
+        let time_ranges = self.get_time_spans_since::<Vec<_>>(&clock);
+        for txn in self.iter_remote_txns(time_ranges.iter()) {
             dest.apply_remote_txn(&txn);
         }
     }

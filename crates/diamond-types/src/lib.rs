@@ -33,7 +33,7 @@ pub mod test_helpers {
 
     use diamond_core::AgentId;
 
-    use crate::list::ListCRDT;
+    use crate::list::{ListCRDT, PositionalOp};
     use crate::list::external_txn::RemoteId;
     use rand::seq::index::sample;
 
@@ -53,10 +53,10 @@ pub mod test_helpers {
         str
     }
 
-    pub fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentId, rng: &mut SmallRng) -> usize {
+    pub fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentId, rng: &mut SmallRng) -> PositionalOp {
         let doc_len = doc.len();
         let insert_weight = if doc_len < 100 { 0.6 } else { 0.4 };
-        let op_len = if doc_len == 0 || rng.gen_bool(insert_weight) {
+        let op = if doc_len == 0 || rng.gen_bool(insert_weight) {
             // Insert something.
             let pos = rng.gen_range(0..=doc_len);
             let len: usize = rng.gen_range(1..2); // Ideally skew toward smaller inserts.
@@ -68,8 +68,9 @@ pub mod test_helpers {
                 rope.insert(pos, content.as_str());
             }
 
-            doc.local_insert(agent, pos, content.as_str());
-            len as usize
+            PositionalOp::new_insert(pos as u32, content)
+            // doc.local_insert(agent, pos, content.as_str());
+            // len as usize
         } else {
             // Delete something
             let pos = rng.gen_range(0..doc_len);
@@ -80,12 +81,16 @@ pub mod test_helpers {
             if let Some(rope) = rope {
                 rope.remove(pos..pos + span);
             }
-            doc.local_delete(agent, pos, span);
-            span
+            // doc.local_delete(agent, pos, span);
+            // span
+            PositionalOp::new_delete(pos as u32, span as u32)
         };
+
+        doc.apply_local_txn(agent, (&op).into());
+
         // dbg!(&doc.markers);
         doc.check(false);
-        op_len
+        op
     }
 
     /// A simple iterator over an infinite list of documents with random single-user edit histories
