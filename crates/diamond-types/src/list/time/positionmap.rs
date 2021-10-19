@@ -132,7 +132,7 @@ type PositionMapInternal = ContentTreeWithIndex<PositionRun, FullMetrics>;
 ///
 /// This data structure *should* also be used to generate and process OT changes, though they work
 /// slightly differently in general.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq)]
 pub(crate) struct PositionMap {
     /// Helpers to map from Order -> raw positions -> position at the current point in time
     pub(crate) map: Pin<Box<PositionMapInternal>>,
@@ -146,12 +146,16 @@ pub(crate) struct PositionMap {
     double_deletes: DoubleDeleteList,
 }
 
-// impl<'a> Drop for OrigPatchesIter<'a> {
-//     fn drop(&mut self) {
-//         println!("Map entries {} nodes {:?}", self.map.count_entries(), self.map.count_nodes());
-//         // dbg!(&self.map);
-//     }
-// }
+// The double delete list will sometimes end up with empty entries. This is fine in practice, but
+// it does mean we unfortunately need an explicit PartialEq function. (This is only really called
+// from tests anyway).
+impl PartialEq for PositionMap {
+    fn eq(&self, other: &Self) -> bool {
+        self.map == other.map
+            && self.double_deletes.iter().filter(|e| e.1.excess_deletes > 0)
+            .eq(other.double_deletes.iter().filter(|e| e.1.excess_deletes > 0))
+    }
+}
 
 impl PositionMap {
     pub(super) fn new_void(list: &ListCRDT) -> Self {
@@ -236,6 +240,11 @@ impl PositionMap {
             // or end.
             let a = Self::new_at_version_from_start(list, branch);
             let b = Self::new_at_version_from_end(list, branch);
+
+            if a != b {
+                dbg!(a.map.iter().collect::<Vec<_>>());
+                dbg!(b.map.iter().collect::<Vec<_>>());
+            }
             assert_eq!(a, b);
             return a;
         }
