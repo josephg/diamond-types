@@ -13,10 +13,14 @@ impl ListCRDT {
         if branch_eq(branch, self.frontier.as_slice()) {
             self.apply_local_txn(agent, op);
         } else {
+            dbg!(branch);
             let mut map = PositionMap::new_at_version(self, branch);
             dbg!(map.map.iter().collect::<Vec<_>>());
             // dbg!(&map);
             self.apply_patch_at_map(&mut map, agent, op, branch);
+            dbg!(map.map.iter().collect::<Vec<_>>());
+            dbg!(self.frontier.as_slice());
+            self.check(true);
             // dbg!(&map);
         }
     }
@@ -57,7 +61,7 @@ impl ListCRDT {
                     // The origin right is interesting. We need to end up after
                     // let origin_right = map.order_at_content_pos(self, orig_pos, true);
                     let origin_right = map.right_origin_at(self, orig_pos);
-                    dbg!(origin_right);
+                    dbg!((origin_left, origin_right));
                     // let origin_right = if orig_pos == map.content_len() {
                     //     ROOT_TIME
                     // } else {

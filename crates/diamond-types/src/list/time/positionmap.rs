@@ -276,7 +276,7 @@ impl PositionMap {
 
     pub(crate) fn list_cursor_at_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize, stick_end: bool) -> (<&'a RangeTree as Cursors>::Cursor, usize) {
         let map_cursor = self.map.cursor_at_content_pos(pos, stick_end);
-        self.map_to_list_cursor(map_cursor, list)
+        self.map_to_list_cursor(map_cursor, list, false)
     }
 
     pub(crate) fn right_origin_at(&self, list: &ListCRDT, pos: usize) -> Time {
@@ -295,12 +295,11 @@ impl PositionMap {
             }
         }
 
-
-        let list_cursor = self.map_to_list_cursor(map_cursor, list).0;
-        unsafe { list_cursor.get_item() }.unwrap()
+        let list_cursor = self.map_to_list_cursor(map_cursor, list, true).0;
+        unsafe { list_cursor.get_item() }.unwrap_or(ROOT_TIME)
     }
 
-    fn map_to_list_cursor<'a>(&self, mut map_cursor: Cursor<PositionRun, FullMetrics, DEFAULT_IE, DEFAULT_LE>, list: &'a ListCRDT) -> (<&'a RangeTree as Cursors>::Cursor, usize) {
+    fn map_to_list_cursor<'a>(&self, mut map_cursor: Cursor<PositionRun, FullMetrics, DEFAULT_IE, DEFAULT_LE>, list: &'a ListCRDT, stick_end: bool) -> (<&'a RangeTree as Cursors>::Cursor, usize) {
         // The max span is used when deleting items. Something thats been inserted can be deleted,
         // and also something thats been
         let e = map_cursor.get_raw_entry();
@@ -320,7 +319,15 @@ impl PositionMap {
         let mut doc_cursor = list.range_tree.cursor_at_offset_pos(offset_pos, false);
         if content_offset > 0 {
             let content_pos = doc_cursor.count_content_pos() + content_offset;
-            doc_cursor = list.range_tree.cursor_at_content_pos(content_pos, false);
+            dbg!(offset_pos, content_offset, (content_pos, doc_cursor.count_content_pos(), content_offset));
+            doc_cursor = list.range_tree.cursor_at_content_pos(content_pos, stick_end);
+
+            // if content_pos == list.range_tree.content_len() {
+            //     doc_cursor = list.range_tree.cursor_at_end();
+            // } else {
+            //     debug_assert!(content_pos < list.range_tree.content_len());
+            //     doc_cursor = list.range_tree.cursor_at_content_pos(content_pos, false);
+            // }
         }
 
         // doc_cursor.get_raw_entry().at_offset(doc_cursor.offset)
@@ -328,12 +335,12 @@ impl PositionMap {
         (doc_cursor, max_span)
     }
 
-    pub(crate) fn order_at_content_pos(&self, list: &ListCRDT, pos: usize, stick_end: bool) -> Time {
-        let cursor = self.list_cursor_at_content_pos(list, pos, stick_end).0;
-        // cursor.get_raw_entry().at_offset(cursor.offset)
-        unsafe { cursor.get_item() }.unwrap()
-        // unsafe { cursor.get_item() }.unwrap_or(ROOT_TIME)
-    }
+    // pub(crate) fn order_at_content_pos(&self, list: &ListCRDT, pos: usize, stick_end: bool) -> Time {
+    //     let cursor = self.list_cursor_at_content_pos(list, pos, stick_end).0;
+    //     // cursor.get_raw_entry().at_offset(cursor.offset)
+    //     unsafe { cursor.get_item() }.unwrap()
+    //     // unsafe { cursor.get_item() }.unwrap_or(ROOT_TIME)
+    // }
 
         // pub(crate) fn content_pos_to_order(&self, list: &ListCRDT, pos: usize) -> Order {
     //     // TODO: This could be optimized via a special method in content-tree.

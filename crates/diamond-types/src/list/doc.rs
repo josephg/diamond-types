@@ -791,7 +791,7 @@ impl ListCRDT {
     pub fn debug_print_segments(&self) {
         for entry in self.range_tree.raw_iter() {
             let loc = self.get_crdt_location(entry.time);
-            println!("order {} l{} from {} / {} <-> {}", entry.time, entry.len(), loc.agent, entry.origin_left, entry.origin_right);
+            println!("order {} len {} ({}) agent {} / {} <-> {}", entry.time, entry.len(), entry.content_len(), loc.agent, entry.origin_left, entry.origin_right);
         }
     }
 

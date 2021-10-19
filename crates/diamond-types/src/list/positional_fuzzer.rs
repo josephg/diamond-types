@@ -30,9 +30,11 @@ impl ListWithHistory {
                 let (ops, offset) = self.1.find_packed(span.start + pos);
                 assert_eq!(offset, 0);
 
+                println!("Agent {} / Parents {:?}", dest_agent, dest_parents);
                 println!("Merging {:?}", &ops.1);
 
                 let time = dest_doc.get_next_time();
+                println!("Op merging at time {}", time);
                 dest_ops.push(KVPair(time, ops.1.clone()));
                 dest_doc.apply_patch_at_version(dest_agent, (&ops.1).into(), dest_parents.as_slice());
 
@@ -75,6 +77,8 @@ fn run_fuzzer_iteration(seed: u64) {
     }
 
     for _i in 0..300 {
+        println!("Iteration {}", _i);
+
         // Generate some operations
         for _j in 0..5 {
             let doc_idx = rng.gen_range(0..docs.len());
@@ -85,7 +89,7 @@ fn run_fuzzer_iteration(seed: u64) {
             // let time = doc.get_frontier::<Vec<RemoteId>>();
             let time = doc.get_next_time();
             let op = make_random_change(doc, None, 0, &mut rng);
-            dbg!(doc_idx, &op, &doc.text_content);
+            // dbg!(doc_idx, &op, &doc.text_content);
 
             ops.push(KVPair(time, op));
         }
