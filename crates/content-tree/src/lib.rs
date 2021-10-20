@@ -2,7 +2,7 @@
 // be extended to inline a rope, but I haven't done that here.
 
 // use std::cell::Cell;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::marker;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
@@ -57,7 +57,6 @@ impl<T: SplitAndJoinSpan + Copy + Debug + Default> ContentTraits for T {}
 ///     TestRange { id: 0, len: 150, is_activated: true }
 /// ]);
 /// ```
-#[derive(Debug)]
 pub struct ContentTreeRaw<E: ContentTraits, I: TreeMetrics<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
     count: I::Value,
 
@@ -71,6 +70,14 @@ pub struct ContentTreeRaw<E: ContentTraits, I: TreeMetrics<E>, const INT_ENTRIES
     // last_cursor: Cell<Option<(usize, Cursor<E, I, IE, LE>)>>,
 
     _pin: marker::PhantomPinned,
+}
+
+impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Debug for ContentTreeRaw<E, I, IE, LE> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_list()
+            .entries(self.iter())
+            .finish()
+    }
 }
 
 pub trait Cursors {
