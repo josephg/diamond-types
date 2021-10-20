@@ -52,7 +52,7 @@ impl ListCRDT {
                     let (origin_left, cursor) = if orig_pos == 0 {
                         (ROOT_TIME, self.range_tree.cursor_at_start())
                     } else {
-                        let mut cursor = map.list_cursor_at_content_pos(self, orig_pos - 1, false).0;
+                        let mut cursor = map.list_cursor_at_content_pos(self, orig_pos - 1).0;
                         let origin_left = unsafe { cursor.get_item() }.unwrap();
                         assert!(cursor.next_item());
                         (origin_left, cursor)
@@ -99,7 +99,7 @@ impl ListCRDT {
                     // subsequent inserts. We also need to mark double_deletes when they happen.
                     let mut remaining_len = len;
                     while remaining_len > 0 {
-                        let (cursor, mut len) = map.list_cursor_at_content_pos(self, orig_pos, false);
+                        let (cursor, mut len) = map.list_cursor_at_content_pos(self, orig_pos);
                         debug_assert!(len > 0);
                         remaining_len -= len;
 

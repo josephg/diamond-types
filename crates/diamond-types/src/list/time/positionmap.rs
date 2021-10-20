@@ -283,8 +283,8 @@ impl PositionMap {
         self.map.content_len()
     }
 
-    pub(crate) fn list_cursor_at_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize, stick_end: bool) -> (<&'a RangeTree as Cursors>::Cursor, usize) {
-        let map_cursor = self.map.cursor_at_content_pos(pos, stick_end);
+    pub(crate) fn list_cursor_at_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize) -> (<&'a RangeTree as Cursors>::Cursor, usize) {
+        let map_cursor = self.map.cursor_at_content_pos(pos, false);
         self.map_to_list_cursor(map_cursor, list, false)
     }
 
@@ -320,24 +320,25 @@ impl PositionMap {
         // TODO: This could be optimized via a special method in content-tree in one pass, rather
         // than traversing down the tree (to make the cursor) and then immediately walking back up
         // again.
-        let content_offset = if e.tag == Upstream {
+
+        // TODO: All this logic feels pretty contrived. Once I'm correct, clean me up.
+        let tag_is_upstream = e.tag == Upstream;
+        let content_offset = if tag_is_upstream {
             take(&mut map_cursor.offset)
         } else { 0 };
 
         let offset_pos = map_cursor.count_offset_pos();
         let mut doc_cursor = list.range_tree.cursor_at_offset_pos(offset_pos, false);
-        if content_offset > 0 {
+
+        // If the item is Upstream, we need to skip any deleted items at this location in the range
+        // tree.
+        if content_offset > 0 || (tag_is_upstream && !stick_end) {
             let content_pos = doc_cursor.count_content_pos() + content_offset;
             dbg!(offset_pos, content_offset, (content_pos, doc_cursor.count_content_pos(), content_offset));
             doc_cursor = list.range_tree.cursor_at_content_pos(content_pos, stick_end);
-
-            // if content_pos == list.range_tree.content_len() {
-            //     doc_cursor = list.range_tree.cursor_at_end();
-            // } else {
-            //     debug_assert!(content_pos < list.range_tree.content_len());
-            //     doc_cursor = list.range_tree.cursor_at_content_pos(content_pos, false);
-            // }
         }
+        dbg!(&doc_cursor);
+        dbg!(doc_cursor.get_raw_entry());
 
         // doc_cursor.get_raw_entry().at_offset(doc_cursor.offset)
         // unsafe { doc_cursor.get_item() }.unwrap()

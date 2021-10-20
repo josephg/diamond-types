@@ -118,6 +118,15 @@ impl PositionalOp {
         }
         result
     }
+
+    #[allow(unused)]
+    pub(crate) fn check(&self) {
+        let content_len = self.components.iter().map(|c| {
+            if c.content_known && c.tag == Ins { c.len } else { 0 }
+        }).sum::<u32>() as usize;
+
+        assert_eq!(content_len, count_chars(&self.content));
+    }
 }
 
 impl<'a> From<&'a PositionalOp> for PositionalOpRef<'a> {
