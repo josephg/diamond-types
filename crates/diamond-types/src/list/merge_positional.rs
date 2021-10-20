@@ -100,6 +100,7 @@ impl ListCRDT {
                     let mut remaining_len = len;
                     while remaining_len > 0 {
                         let (cursor, mut len) = map.list_cursor_at_content_pos(self, orig_pos);
+                        len = len.min(remaining_len);
                         debug_assert!(len > 0);
                         remaining_len -= len;
 
