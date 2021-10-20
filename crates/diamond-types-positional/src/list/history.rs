@@ -36,6 +36,16 @@ impl RleVec<HistoryEntry> {
         a_1 == b_1 || (a_1 > b_1 && self.shadow_of(a).wrapping_add(1) <= b_1)
     }
 
+    // This is similar to txn_shadow_contains, but it also checks that a doesn't have any other
+    // ancestors which aren't included in b's history.
+    fn is_direct_descendant(&self, a: Time, b: Time) -> bool {
+        // This is a bit more strict than we technically need, but its fast for short circuit
+        // evaluation.
+        a == b
+            || (b == ROOT_TIME && self.txn_shadow_contains(a, ROOT_TIME))
+            || (a != ROOT_TIME && a > b && self.find(a).unwrap().contains(b))
+    }
+
     pub(crate) fn branch_contains_order(&self, branch: &[Time], target: Time) -> bool {
         assert!(!branch.is_empty());
         if target == ROOT_TIME || branch.contains(&target) { return true; }
@@ -114,12 +124,12 @@ impl RleVec<HistoryEntry> {
             let b = b[0];
             if a == b { return (smallvec![], smallvec![]); }
 
-            if self.txn_shadow_contains(a, b) {
+            if self.is_direct_descendant(a, b) {
                 // a >= b.
                 return (smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()], smallvec![]);
                 // return (smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()], smallvec![], b);
             }
-            if self.txn_shadow_contains(b, a) {
+            if self.is_direct_descendant(b, a) {
                 // b >= a.
                 return (smallvec![], smallvec![(a.wrapping_add(1)..b.wrapping_add(1)).into()]);
                 // return (smallvec![], smallvec![(a.wrapping_add(1)..b.wrapping_add(1)).into()], a);
@@ -698,5 +708,36 @@ pub mod test {
         }
 
         assert_diff_eq(&history, &[0], &[1], &[(0..1).into()], &[(1..2).into()]);
+    }
+
+    #[test]
+    fn diff_shadow_bubble() {
+        // regression
+        let history = RleVec(vec![
+            HistoryEntry {
+                span: (0..3).into(),
+                shadow: Time::MAX,
+                parents: smallvec![Time::MAX],
+                parent_indexes: smallvec![],
+                child_indexes: smallvec![2],
+            },
+            HistoryEntry {
+                span: (3..5).into(),
+                shadow: 3,
+                parents: smallvec![Time::MAX],
+                parent_indexes: smallvec![],
+                child_indexes: smallvec![2],
+            },
+            HistoryEntry {
+                span: (5..6).into(),
+                shadow: Time::MAX,
+                parents: smallvec![2,4],
+                parent_indexes: smallvec![0,1],
+                child_indexes: smallvec![],
+            },
+        ]);
+
+        assert_diff_eq(&history, &[4], &[ROOT_TIME], &[(3..5).into()], &[]);
+        assert_diff_eq(&history, &[4], &[5], &[], &[(5..6).into(), (0..3).into()]);
     }
 }

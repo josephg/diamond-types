@@ -495,13 +495,14 @@ pub mod test {
     }
 
     #[test]
-    fn diff_regression() {
+    fn diff_shadow_bubble() {
+        // regression
         let history = RleVec(vec![
             TxnSpan {
                 time: 0,
                 len: 3,
-                shadow: 4294967295,
-                parents: smallvec![4294967295],
+                shadow: Time::MAX,
+                parents: smallvec![Time::MAX],
                 parent_indexes: smallvec![],
                 child_indexes: smallvec![2],
             },
@@ -509,14 +510,14 @@ pub mod test {
                 time: 3,
                 len: 2,
                 shadow: 3,
-                parents: smallvec![4294967295],
+                parents: smallvec![Time::MAX],
                 parent_indexes: smallvec![],
                 child_indexes: smallvec![2],
             },
             TxnSpan {
                 time: 5,
                 len: 1,
-                shadow: 4294967295,
+                shadow: Time::MAX,
                 parents: smallvec![2,4],
                 parent_indexes: smallvec![0,1],
                 child_indexes: smallvec![],
