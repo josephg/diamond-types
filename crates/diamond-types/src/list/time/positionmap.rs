@@ -590,7 +590,7 @@ impl PositionMap {
             match e.tag {
                 NotInsertedYet => panic!(),
                 Inserted => {
-                    cursor.replace_range(PositionRun::new_upstream(0, len_here));
+                    cursor.replace_range(PositionRun::new_upstream(len_here, 0));
                 }
                 Upstream => {
                     let new_entry = PositionRun::new_upstream(e.final_len, e.content_len - len_here);
