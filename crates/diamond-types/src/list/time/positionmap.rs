@@ -292,8 +292,10 @@ impl PositionMap {
         let mut map_cursor = self.map.cursor_at_content_pos(pos, true);
         // To be valid, the right origin needs to skip any not_inserted_yet items.
         loop {
+            dbg!(&map_cursor);
             if let Some(e) = map_cursor.try_get_raw_entry() {
-                if e.tag == NotInsertedYet {
+                // println!("Scanning {:?}", &e);
+                if e.len() == map_cursor.offset || e.tag == NotInsertedYet {
                     if map_cursor.next_entry() {
                         continue;
                     } else { return ROOT_TIME; }

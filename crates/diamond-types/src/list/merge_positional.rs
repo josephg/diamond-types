@@ -1,3 +1,4 @@
+use content_tree::Toggleable;
 use diamond_core::{AgentId, CRDTId};
 use crate::list::{InsDelTag, ListCRDT, ROOT_TIME, Time};
 use crate::list::branch::branch_eq;
@@ -97,33 +98,39 @@ impl ListCRDT {
                 Del => {
                     // We need to loop here because the deleted span might have been broken up by
                     // subsequent inserts. We also need to mark double_deletes when they happen.
+
+                    // TODO: remaining_len, len, len_here - Gross.
                     let mut remaining_len = len;
                     while remaining_len > 0 {
                         let (cursor, mut len) = map.list_cursor_at_content_pos(self, orig_pos);
                         len = len.min(remaining_len);
                         debug_assert!(len > 0);
-                        remaining_len -= len;
+                        // remaining_len -= len;
+
+                        // dbg!(len);
 
                         let mut unsafe_cursor = cursor.inner;
 
-                        while len > 0 {
-                            // let target = unsafe { unsafe_cursor.get_item().unwrap() };
-                            let len_here = self.internal_mark_deleted_at(&mut unsafe_cursor, next_time, len as _, true);
+                        unsafe_cursor.roll_to_next_entry();
+                        debug_assert!(unsafe { unsafe_cursor.get_raw_entry() }.is_activated());
+                        // let target = unsafe { unsafe_cursor.get_item().unwrap() };
+                        let len_here = self.internal_mark_deleted_at(&mut unsafe_cursor, next_time, len as _, true);
 
-                            // This is wild, but we don't actually care if the delete succeeded. If
-                            // the delete didn't succeed, its because the item was already deleted
-                            // in the main (current) branch. But at this point in time the item
-                            // isn't (can't) have been deleted. So the map will just be modified
-                            // from Inserted -> Upstream.
-                            map.update_from_delete(orig_pos, len_here as _);
+                        // This is wild, but we don't actually care if the delete succeeded. If
+                        // the delete didn't succeed, its because the item was already deleted
+                        // in the main (current) branch. But at this point in time the item
+                        // isn't (can't) have been deleted. So the map will just be modified
+                        // from Inserted -> Upstream.
+                        map.update_from_delete(orig_pos, len_here as _);
 
-                            len -= len_here as usize;
-                            next_time += len_here;
-                            // The cursor has been updated already by internal_mark_deleted_at.
+                        // len -= len_here as usize;
+                        next_time += len_here;
+                        // The cursor has been updated already by internal_mark_deleted_at.
 
-                            // We don't need to modify orig_pos because the position will be
-                            // unchanged.
-                        }
+                        // We don't need to modify orig_pos because the position will be
+                        // unchanged.
+
+                        remaining_len -= len_here as usize;
                     }
                 }
             }
