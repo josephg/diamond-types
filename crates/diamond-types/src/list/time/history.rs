@@ -28,6 +28,16 @@ impl RleVec<TxnSpan> {
         a_1 == b_1 || (a_1 > b_1 && self.shadow_of(a).wrapping_add(1) <= b_1)
     }
 
+    // This is similar to txn_shadow_contains, but it also checks that a doesn't have any other
+    // ancestors which aren't included in b's history.
+    fn is_direct_descendant(&self, a: Time, b: Time) -> bool {
+        // This is a bit more strict than we technically need, but its fast for short circuit
+        // evaluation.
+        a == b
+            || (b == ROOT_TIME && self.txn_shadow_contains(a, ROOT_TIME))
+            || (a != ROOT_TIME && a > b && self.find(a).unwrap().contains(b))
+    }
+
     pub(crate) fn branch_contains_order(&self, branch: &[Time], target: Time) -> bool {
         assert!(!branch.is_empty());
         if target == ROOT_TIME || branch.contains(&target) { return true; }
@@ -102,10 +112,12 @@ impl RleVec<TxnSpan> {
             // cases, but we may as well use the code below instead.
             let a = a[0];
             let b = b[0];
-            if self.txn_shadow_contains(a, b) {
+            // if self.txn_shadow_contains(a, b) {
+            if self.is_direct_descendant(a, b) {
                 return (smallvec![b.wrapping_add(1)..a.wrapping_add(1)], smallvec![]);
             }
-            if self.txn_shadow_contains(b, a) {
+            // if self.txn_shadow_contains(b, a) {
+            if self.is_direct_descendant(b, a) {
                 return (smallvec![], smallvec![a.wrapping_add(1)..b.wrapping_add(1)]);
             }
         }
@@ -239,6 +251,7 @@ pub mod test {
     fn assert_diff_eq(txns: &RleVec<TxnSpan>, a: &[Time], b: &[Time], expect_a: &[Range<Time>], expect_b: &[Range<Time>]) {
         let slow_result = txns.diff_slow(a, b);
         let fast_result = txns.diff(a, b);
+        dbg!(&slow_result, &fast_result);
         assert_eq!(slow_result, fast_result);
 
         assert_eq!(slow_result.0.as_slice(), expect_a);
@@ -479,5 +492,38 @@ pub mod test {
 
         assert_diff_eq(&history, &[0], &[ROOT_TIME], &[0..1], &[]);
         assert_diff_eq(&history, &[ROOT_TIME], &[0], &[], &[0..1]);
+    }
+
+    #[test]
+    fn diff_regression() {
+        let history = RleVec(vec![
+            TxnSpan {
+                time: 0,
+                len: 3,
+                shadow: 4294967295,
+                parents: smallvec![4294967295],
+                parent_indexes: smallvec![],
+                child_indexes: smallvec![2],
+            },
+            TxnSpan {
+                time: 3,
+                len: 2,
+                shadow: 3,
+                parents: smallvec![4294967295],
+                parent_indexes: smallvec![],
+                child_indexes: smallvec![2],
+            },
+            TxnSpan {
+                time: 5,
+                len: 1,
+                shadow: 4294967295,
+                parents: smallvec![2,4],
+                parent_indexes: smallvec![0,1],
+                child_indexes: smallvec![],
+            },
+        ]);
+
+        assert_diff_eq(&history, &[4], &[ROOT_TIME], &[3..5], &[]);
+        assert_diff_eq(&history, &[4], &[5], &[], &[5..6, 0..3]);
     }
 }
