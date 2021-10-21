@@ -152,8 +152,8 @@ pub(crate) struct PositionMap {
 impl PartialEq for PositionMap {
     fn eq(&self, other: &Self) -> bool {
         self.map == other.map
-            && self.double_deletes.iter().filter(|e| e.1.excess_deletes > 0)
-            .eq(other.double_deletes.iter().filter(|e| e.1.excess_deletes > 0))
+            && self.double_deletes.iter_merged().filter(|e| e.1.excess_deletes > 0)
+            .eq(other.double_deletes.iter_merged().filter(|e| e.1.excess_deletes > 0))
     }
 }
 
@@ -235,30 +235,33 @@ impl PositionMap {
         let start_work = sum;
         let end_work = (list.get_next_time() - 1) * branch.len() as u32 - sum;
 
-        if cfg!(debug_assertions) {
-            // We should end up with identical results regardless of whether we start from the start
-            // or end.
-            let a = Self::new_at_version_from_start(list, branch);
-            let b = Self::new_at_version_from_end(list, branch);
-
-            dbg!(list.txns.diff(&branch, &[ROOT_TIME]));
-            dbg!(list.txns.diff(&branch, &list.frontier));
-            list.debug_print_segments();
-            list.debug_print_del();
-
-            if a != b {
-                list.check(true);
-                dbg!(&list.txns);
-                dbg!(&branch, &list.frontier);
-                dbg!(list.txns.diff(&branch, &[ROOT_TIME]));
-                dbg!(list.txns.diff(&branch, &list.frontier));
-                list.debug_print_segments();
-                dbg!(a.map.iter().collect::<Vec<_>>());
-                dbg!(b.map.iter().collect::<Vec<_>>());
-            }
-            assert_eq!(a, b);
-            return a;
-        }
+        // if cfg!(debug_assertions) {
+        //     // We should end up with identical results regardless of whether we start from the start
+        //     // or end.
+        //     let a = Self::new_at_version_from_start(list, branch);
+        //     let b = Self::new_at_version_from_end(list, branch);
+        //
+        //     // dbg!(list.txns.diff(&branch, &[ROOT_TIME]));
+        //     // dbg!(list.txns.diff(&branch, &list.frontier));
+        //     // list.debug_print_segments();
+        //     // list.debug_print_del();
+        //
+        //     if a != b {
+        //         list.check(true);
+        //         dbg!(&list.txns);
+        //         dbg!(&branch, &list.frontier);
+        //         dbg!(list.txns.diff(&branch, &[ROOT_TIME]));
+        //         dbg!(list.txns.diff(&branch, &list.frontier));
+        //         list.debug_print_segments();
+        //         dbg!(&a.map);
+        //         dbg!(&b.map);
+        //
+        //         dbg!(&a.double_deletes);
+        //         dbg!(&b.double_deletes);
+        //     }
+        //     assert_eq!(a, b);
+        //     return a;
+        // }
 
         if start_work < end_work { Self::new_at_version_from_start(list, branch) }
         else { Self::new_at_version_from_end(list, branch) }
@@ -311,7 +314,7 @@ impl PositionMap {
         // Note it would also be valid to also skip all deleted items here. That would result in
         // incompatibly different CRDT semantics.
 
-        dbg!(&self.map);
+        // dbg!(&self.map);
         // println!("{:?}", &self.map);
 
         // We need stick_end: true here so we don't skip deleted items.
@@ -319,7 +322,7 @@ impl PositionMap {
 
         // .. But we still need to scan past NotInsertedYet stuff.
         loop {
-            dbg!(&map_cursor);
+            // dbg!(&map_cursor);
             if let Some(e) = map_cursor.try_get_raw_entry() {
                 // println!("Scanning {:?}", &e);
 
@@ -392,11 +395,11 @@ impl PositionMap {
         // tree.
         if content_offset > 0 || (tag_is_upstream && !stick_end) {
             let content_pos = doc_cursor.count_content_pos() + content_offset;
-            dbg!(offset_pos, content_offset, (content_pos, doc_cursor.count_content_pos(), content_offset));
+            // dbg!(offset_pos, content_offset, (content_pos, doc_cursor.count_content_pos(), content_offset));
             doc_cursor = list.range_tree.cursor_at_content_pos(content_pos, stick_end);
         }
-        dbg!(&doc_cursor);
-        dbg!(doc_cursor.get_raw_entry());
+        // dbg!(&doc_cursor);
+        // dbg!(doc_cursor.get_raw_entry());
 
         // doc_cursor.get_raw_entry().at_offset(doc_cursor.offset)
         // unsafe { doc_cursor.get_item() }.unwrap()

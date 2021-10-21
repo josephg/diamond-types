@@ -13,15 +13,15 @@ impl ListCRDT {
         if branch_eq(branch, self.frontier.as_slice()) {
             self.apply_local_txn(agent, op);
         } else {
-            dbg!(branch);
+            // dbg!(branch);
             let mut map = PositionMap::new_at_version(self, branch);
-            dbg!(&map.map);
+            // dbg!(&map.map);
             // dbg!(&map);
             self.apply_patch_at_map(&mut map, agent, op, branch);
-            dbg!(&map.map);
-            dbg!(self.frontier.as_slice());
-            self.debug_print_segments();
-            self.check(true);
+            // dbg!(&map.map);
+            // dbg!(self.frontier.as_slice());
+            // self.debug_print_segments();
+            // self.check(true);
             // dbg!(&map);
         }
     }
@@ -62,7 +62,7 @@ impl ListCRDT {
                     // The origin right is interesting. We need to end up after
                     // let origin_right = map.order_at_content_pos(self, orig_pos, true);
                     let origin_right = map.right_origin_at(self, orig_pos);
-                    dbg!((origin_left, origin_right));
+                    // dbg!((origin_left, origin_right));
                     // let origin_right = if orig_pos == map.content_len() {
                     //     ROOT_TIME
                     // } else {
@@ -103,7 +103,7 @@ impl ListCRDT {
                     // TODO: remaining_len, len, len_here - Gross.
                     let mut remaining_len = len;
                     while remaining_len > 0 {
-                        self.debug_print_segments();
+                        // self.debug_print_segments();
                         let (cursor, mut len) = map.list_cursor_at_content_pos(self, orig_pos);
                         len = len.min(remaining_len);
                         debug_assert!(len > 0);
@@ -116,7 +116,7 @@ impl ListCRDT {
                         // unsafe_cursor.roll_to_next_entry();
                         // debug_assert!(unsafe_cursor.get_raw_entry().is_activated());
 
-                        dbg!(unsafe_cursor.get_raw_entry());
+                        // dbg!(unsafe_cursor.get_raw_entry());
 
                         // let target = unsafe { unsafe_cursor.get_item().unwrap() };
                         let len_here = self.internal_mark_deleted_at(&mut unsafe_cursor, next_time, len as _, true);
@@ -126,9 +126,9 @@ impl ListCRDT {
                         // in the main (current) branch. But at this point in time the item
                         // isn't (can't) have been deleted. So the map will just be modified
                         // from Inserted -> Upstream.
-                        dbg!(&map, len_here, orig_pos);
+                        // dbg!(&map, len_here, orig_pos);
                         map.update_from_delete(orig_pos, len_here as _);
-                        dbg!(&map);
+                        // dbg!(&map);
 
                         // len -= len_here as usize;
                         next_time += len_here;
