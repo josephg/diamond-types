@@ -141,9 +141,14 @@ fn run_fuzzer_iteration(seed: u64) {
             // }
 
 
+            a.1.debug_print_segments();
             println!("{} -> {}", b_idx, a_idx);
-            b.0.replicate_into(&mut a.0);
             b.1.replicate_into(&mut a.1);
+            println!("a.1");
+            // a.1.debug_print_segments();
+            // dbg!(&a.1.double_deletes);
+
+            b.0.replicate_into(&mut a.0);
             a.0.0.check(true);
 
 
@@ -161,8 +166,8 @@ fn run_fuzzer_iteration(seed: u64) {
             a.1.replicate_into(&mut b.1);
             b.0.0.check(true);
 
-            dbg!(b.0.0.range_tree.iter().collect::<Vec<_>>());
-            dbg!(b.1.range_tree.iter().collect::<Vec<_>>());
+            // dbg!(&b.0.0.range_tree);
+            // dbg!(&b.1.range_tree);
             assert_eq!(b.0.0, b.1);
 
 

@@ -1,4 +1,3 @@
-use content_tree::Toggleable;
 use diamond_core::{AgentId, CRDTId};
 use crate::list::{InsDelTag, ListCRDT, ROOT_TIME, Time};
 use crate::list::branch::branch_eq;
@@ -16,11 +15,12 @@ impl ListCRDT {
         } else {
             dbg!(branch);
             let mut map = PositionMap::new_at_version(self, branch);
-            dbg!(map.map.iter().collect::<Vec<_>>());
+            dbg!(&map.map);
             // dbg!(&map);
             self.apply_patch_at_map(&mut map, agent, op, branch);
-            dbg!(map.map.iter().collect::<Vec<_>>());
+            dbg!(&map.map);
             dbg!(self.frontier.as_slice());
+            self.debug_print_segments();
             self.check(true);
             // dbg!(&map);
         }
@@ -89,6 +89,7 @@ impl ListCRDT {
 
                     let inner_cursor = cursor.inner;
                     self.integrate(agent, item, ins_content, Some(inner_cursor));
+                    // self.integrate(agent, item, ins_content, None);
 
                     // dbg!(&map);
                     map.update_from_insert(raw_pos, len);
@@ -102,6 +103,7 @@ impl ListCRDT {
                     // TODO: remaining_len, len, len_here - Gross.
                     let mut remaining_len = len;
                     while remaining_len > 0 {
+                        self.debug_print_segments();
                         let (cursor, mut len) = map.list_cursor_at_content_pos(self, orig_pos);
                         len = len.min(remaining_len);
                         debug_assert!(len > 0);
@@ -111,8 +113,11 @@ impl ListCRDT {
 
                         let mut unsafe_cursor = cursor.inner;
 
-                        unsafe_cursor.roll_to_next_entry();
-                        debug_assert!(unsafe { unsafe_cursor.get_raw_entry() }.is_activated());
+                        // unsafe_cursor.roll_to_next_entry();
+                        // debug_assert!(unsafe_cursor.get_raw_entry().is_activated());
+
+                        dbg!(unsafe_cursor.get_raw_entry());
+
                         // let target = unsafe { unsafe_cursor.get_item().unwrap() };
                         let len_here = self.internal_mark_deleted_at(&mut unsafe_cursor, next_time, len as _, true);
 
@@ -121,7 +126,9 @@ impl ListCRDT {
                         // in the main (current) branch. But at this point in time the item
                         // isn't (can't) have been deleted. So the map will just be modified
                         // from Inserted -> Upstream.
+                        dbg!(&map, len_here, orig_pos);
                         map.update_from_delete(orig_pos, len_here as _);
+                        dbg!(&map);
 
                         // len -= len_here as usize;
                         next_time += len_here;

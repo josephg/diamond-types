@@ -241,7 +241,18 @@ impl PositionMap {
             let a = Self::new_at_version_from_start(list, branch);
             let b = Self::new_at_version_from_end(list, branch);
 
+            dbg!(list.txns.diff(&branch, &[ROOT_TIME]));
+            dbg!(list.txns.diff(&branch, &list.frontier));
+            list.debug_print_segments();
+            list.debug_print_del();
+
             if a != b {
+                list.check(true);
+                dbg!(&list.txns);
+                dbg!(&branch, &list.frontier);
+                dbg!(list.txns.diff(&branch, &[ROOT_TIME]));
+                dbg!(list.txns.diff(&branch, &list.frontier));
+                list.debug_print_segments();
                 dbg!(a.map.iter().collect::<Vec<_>>());
                 dbg!(b.map.iter().collect::<Vec<_>>());
             }
@@ -289,17 +300,62 @@ impl PositionMap {
     }
 
     pub(crate) fn right_origin_at(&self, list: &ListCRDT, pos: usize) -> Time {
+        // The behaviour of the right_origin marker is unfortunately complicated here. We want to
+        // mark as right origin:
+        // - The next item after pos
+        // - Regardless of whether or not its been deleted
+        // - But skipping anything that hasn't been inserted yet (NotInsertedYet items).
+        //
+        // If we reach the end of the document, the right origin is set to ROOT_TIME.
+
+        // Note it would also be valid to also skip all deleted items here. That would result in
+        // incompatibly different CRDT semantics.
+
+        dbg!(&self.map);
+        // println!("{:?}", &self.map);
+
+        // We need stick_end: true here so we don't skip deleted items.
         let mut map_cursor = self.map.cursor_at_content_pos(pos, true);
-        // To be valid, the right origin needs to skip any not_inserted_yet items.
+
+        // .. But we still need to scan past NotInsertedYet stuff.
         loop {
             dbg!(&map_cursor);
             if let Some(e) = map_cursor.try_get_raw_entry() {
                 // println!("Scanning {:?}", &e);
+
                 if e.len() == map_cursor.offset || e.tag == NotInsertedYet {
-                    if map_cursor.next_entry() {
-                        continue;
-                    } else { return ROOT_TIME; }
+                    // Go to next.
+                } else if e.tag == Upstream && e.content_len > 0 && e.content_len == map_cursor.offset {
+                    // This cursor *might* point to the end of this chunk of upstream content. We
+                    // have to look in the range tree in the doc to tell. If it does, we'll roll
+                    // next so we can check if the subsequent entry is NotInsertedYet. (So we can
+                    // skip it).
+
+                    // This is a little unfortunate, as we're duplicating logic from
+                    // map_to_list_cursor.
+
+                    // The starting offset position of this entry.
+
+                    // TODO: This is pretty gross. Find a way to clean this up.
+                    map_cursor.offset = 0;
+                    let start_offset_pos = map_cursor.count_offset_pos();
+                    let doc_cursor = list.range_tree.cursor_at_offset_pos(start_offset_pos, true);
+                    let doc_content_pos = doc_cursor.count_content_pos() + e.content_len;
+
+                    let c1 = list.range_tree.cursor_at_offset_pos(start_offset_pos + e.len(), true);
+                    let c2 = list.range_tree.cursor_at_content_pos(doc_content_pos, true);
+
+                    if c1 != c2 {
+                        return unsafe { c2.get_item() }.unwrap_or(ROOT_TIME)
+                        // map_cursor.offset = e.content_len;
+                        // break;
+                    } // Otherwise, if they're equal. Roll next.
                 } else { break; }
+
+                // This replicates cursor.roll_to_next().
+                if map_cursor.next_entry() {
+                    continue;
+                } else { return ROOT_TIME; }
             } else {
                 // The cursor is at the end of the map. Origin right will be ROOT.
                 return ROOT_TIME;

@@ -246,9 +246,17 @@ impl ListCRDT {
         // self.assign_order_to_client(loc, item.order, item.len as _);
 
         // Ok now that's out of the way, lets integrate!
-        let mut cursor = cursor_hint.unwrap_or_else(|| {
+        let mut cursor = cursor_hint.map_or_else(|| {
             self.get_unsafe_cursor_after(item.origin_left, false)
+        }, |mut c| {
+            // Ideally this wouldn't be necessary.
+            c.roll_to_next_entry();
+            c
         });
+
+        // let mut cursor = cursor_hint.unwrap_or_else(|| {
+        //     self.get_unsafe_cursor_after(item.origin_left, false)
+        // });
 
         // These are almost never used. Could avoid the clone here... though its pretty cheap.
         let left_cursor = cursor.clone();
@@ -792,6 +800,13 @@ impl ListCRDT {
         for entry in self.range_tree.raw_iter() {
             let loc = self.get_crdt_location(entry.time);
             println!("order {} len {} ({}) agent {} / {} <-> {}", entry.time, entry.len(), entry.content_len(), loc.agent, entry.origin_left, entry.origin_right);
+        }
+    }
+
+    #[allow(unused)]
+    pub fn debug_print_del(&self) {
+        for e in self.deletes.iter() {
+            println!("delete {} deletes {} len {}", e.0, e.1.start, e.1.len);
         }
     }
 
