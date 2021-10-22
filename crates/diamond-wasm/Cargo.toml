@@ -22,7 +22,7 @@ serde = "1.0"
 # Needed for jumprope.
 getrandom = { version = "0.2.3", features = ["js"] }
 # Small.
-jumprope = { version = "0.3.1", default-features = false }
+jumprope = { version = "0.4", default-features = false }
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires
