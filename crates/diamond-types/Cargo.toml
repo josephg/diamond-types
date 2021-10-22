@@ -2,7 +2,7 @@
 name = "diamond-types"
 version = "0.1.0"
 authors = ["Seph Gentle <me@josephg.com>"]
-edition = "2018"
+edition = "2021"
 license = "ISC OR Apache-2.0"
 description = "Small and fast CRDT data types for collaborative editing"
 repository = "https://github.com/josephg/diamond-types"

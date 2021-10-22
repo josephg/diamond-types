@@ -2,7 +2,7 @@
 name = "crdt-testdata"
 version = "0.0.0"
 authors = ["Seph Gentle <me@josephg.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 flate2 = { version = "1.0.20", features = ["zlib-ng-compat"], default-features = false }
