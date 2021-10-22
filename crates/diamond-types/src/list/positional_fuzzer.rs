@@ -21,29 +21,19 @@ impl ListWithHistory {
         for span in time_ranges.iter() {
             let mut pos = 0;
             while pos < span.len {
-
-                // println!();
-                // println!();
-                // println!();
                 let (remote_span, parents) = self.0.next_remote_id_span(TimeSpan { start: span.start + pos, len: span.len - pos });
 
                 let dest_agent = dest_doc.get_or_create_agent_id(remote_span.id.agent.as_str());
                 let dest_parents = dest_doc.remote_ids_to_branch(&parents);
-                // dest_doc.apply_patch_at_version(dest_agent, )
 
                 let (ops, offset) = self.1.find_packed(span.start + pos);
                 ops.1.check();
                 assert_eq!(offset, 0);
 
-                // println!("Agent {} / Parents {:?}", dest_agent, dest_parents);
-                // println!("Merging {:?}", &ops.1);
-
                 let time = dest_doc.get_next_time();
                 // println!("Op merging at time {}", time);
                 dest_ops.push(KVPair(time, ops.1.clone()));
                 dest_doc.apply_patch_at_version(dest_agent, (&ops.1).into(), dest_parents.as_slice());
-
-                // pos += remote_span.len;
                 pos += ops.1.len() as u32;
             }
             assert!(pos <= span.len);
@@ -146,40 +136,20 @@ fn run_fuzzer_iteration(seed: u64) {
 
             b.0.replicate_into(&mut a.0);
             a.0.0.check(false);
-
-            // dbg!(a.0.0.get_all_txns::<Vec<_>>());
-            // dbg!(a.1.get_all_txns::<Vec<_>>());
-            // dbg!(b.0.0.get_all_txns::<Vec<_>>());
-
-            // dbg!(a.0.0.range_tree.iter().collect::<Vec<_>>());
-            // dbg!(a.1.range_tree.iter().collect::<Vec<_>>());
-            assert_eq!(a.0.0, a.1);
+            // assert_eq!(a.0.0, a.1);
 
 
             // println!("{} -> {}", a_idx, b_idx);
             a.0.replicate_into(&mut b.0);
             a.1.replicate_into(&mut b.1);
             b.0.0.check(false);
-
-            // dbg!(&b.0.0.range_tree);
-            // dbg!(&b.1.range_tree);
-            assert_eq!(b.0.0, b.1);
-
+            // assert_eq!(b.0.0, b.1);
 
 
             // println!("--- pos ---");
             // a.0.0.debug_print_segments();
             // println!("--- crdt ---");
             // a.1.debug_print_segments();
-
-
-            // But our old frontier doesn't contain any of the new items.
-            // if a.0.get_next_time() > mid_order {
-            //     for _k in 0..10 {
-            //         let order = rng.gen_range(mid_order..a.0.get_next_time());
-            //         assert!(!a.0.branch_contains_order(&frontier, order));
-            //     }
-            // }
 
             if a.0.0 != b.0.0 {
                 println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);

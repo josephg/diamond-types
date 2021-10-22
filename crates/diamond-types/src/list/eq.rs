@@ -41,6 +41,7 @@ fn set_eq(a: &[Time], b: &[Time]) -> bool {
     true
 }
 
+// const DEBUG_EQ: bool = true;
 const DEBUG_EQ: bool = false;
 
 impl PartialEq for ListCRDT {
