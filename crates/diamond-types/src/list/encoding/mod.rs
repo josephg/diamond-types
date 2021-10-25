@@ -787,7 +787,7 @@ mod tests {
     use crate::list::encoding::*;
     use crate::list::external_txn::{RemoteCRDTOp, RemoteId, RemoteTxn};
     use crate::list::ListCRDT;
-    use crate::test_helpers::root_id;
+    use crate::root_id;
     use smallvec::smallvec;
 
     #[test]

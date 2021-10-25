@@ -6,24 +6,27 @@ use crate::list::span::YjsSpan;
 use crate::list::time::positionmap::PositionMap;
 use crate::unicount::consume_chars;
 use InsDelTag::*;
+use crate::list::external_txn::RemoteId;
 
 impl ListCRDT {
-
     pub fn apply_patch_at_version(&mut self, agent: AgentId, op: PositionalOpRef, branch: &[Time]) {
         if branch_eq(branch, self.frontier.as_slice()) {
             self.apply_local_txn(agent, op);
         } else {
-            // dbg!(branch);
             let mut map = PositionMap::new_at_version(self, branch);
-            // dbg!(&map.map);
-            // dbg!(&map);
             self.apply_patch_at_map(&mut map, agent, op, branch);
-            // dbg!(&map.map);
-            // dbg!(self.frontier.as_slice());
-            // self.debug_print_segments();
-            // self.check(true);
-            // dbg!(&map);
         }
+    }
+
+    pub fn apply_remote_patch_at_version(&mut self, id: &RemoteId, parents: &[RemoteId], op: PositionalOpRef) {
+        let agent = self.get_or_create_agent_id(id.agent.as_str());
+        let client = &self.client_data[agent as usize];
+        let next_seq = client.get_next_seq();
+        // If the seq does not match we either need to skip or buffer the transaction.
+        assert_eq!(next_seq, id.seq, "Sequence numbers are not linear");
+
+        let parents = self.remote_ids_to_branch(&parents);
+        self.apply_patch_at_version(agent, op, parents.as_slice());
     }
 
     pub(crate) fn apply_patch_at_map(&mut self, map: &mut PositionMap, agent: AgentId, mut op: PositionalOpRef, branch: &[Time]) {

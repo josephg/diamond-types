@@ -1,3 +1,5 @@
+pub mod nonlinear;
+
 // use std::time::SystemTime;
 use std::fs::File;
 use std::io::{BufReader, Read};

@@ -119,6 +119,10 @@ impl ListCRDT {
         self.client_data[agent as usize].name.as_str()
     }
 
+    pub fn get_next_agent_seq(&self, agent: AgentId) -> u32 {
+        self.client_data[agent as usize].get_next_seq()
+    }
+
     pub(crate) fn get_crdt_location(&self, order: Time) -> CRDTId {
         if order == ROOT_TIME { CRDT_DOC_ROOT }
         else {
@@ -833,7 +837,7 @@ mod tests {
     use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
     use smallvec::smallvec;
     use crate::list::ot::traversal::TraversalOp;
-    use crate::test_helpers::root_id;
+    use crate::root_id;
 
     #[test]
     fn smoke() {

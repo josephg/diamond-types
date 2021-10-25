@@ -23,9 +23,6 @@ impl ListWithHistory {
             while pos < span.len {
                 let (remote_span, parents) = self.0.next_remote_id_span(TimeSpan { start: span.start + pos, len: span.len - pos });
 
-                let dest_agent = dest_doc.get_or_create_agent_id(remote_span.id.agent.as_str());
-                let dest_parents = dest_doc.remote_ids_to_branch(&parents);
-
                 let (ops, offset) = self.1.find_packed(span.start + pos);
                 ops.1.check();
                 assert_eq!(offset, 0);
@@ -33,13 +30,46 @@ impl ListWithHistory {
                 let time = dest_doc.get_next_time();
                 // println!("Op merging at time {}", time);
                 dest_ops.push(KVPair(time, ops.1.clone()));
-                dest_doc.apply_patch_at_version(dest_agent, (&ops.1).into(), dest_parents.as_slice());
+
+                dest_doc.apply_remote_patch_at_version(&remote_span.id, &parents, (&ops.1).into());
+                // dest_doc.apply_patch_at_version(dest_agent, (&ops.1).into(), dest_parents.as_slice());
+
                 pos += ops.1.len() as u32;
             }
             assert!(pos <= span.len);
         }
     }
 }
+// impl ListWithHistory {
+//     fn replicate_into(&self, dest: &mut ListWithHistory) {
+//         let ListWithHistory(dest_doc, dest_ops) = dest;
+//         let clock = dest_doc.get_vector_clock();
+//         let time_ranges = self.0.get_time_spans_since::<Vec<_>>(&clock);
+//
+//         // dbg!(&time_ranges);
+//
+//         for span in time_ranges.iter() {
+//             let mut pos = 0;
+//             while pos < span.len {
+//                 let (remote_span, parents) = self.0.next_remote_id_span(TimeSpan { start: span.start + pos, len: span.len - pos });
+//
+//                 let dest_agent = dest_doc.get_or_create_agent_id(remote_span.id.agent.as_str());
+//                 let dest_parents = dest_doc.remote_ids_to_branch(&parents);
+//
+//                 let (ops, offset) = self.1.find_packed(span.start + pos);
+//                 ops.1.check();
+//                 assert_eq!(offset, 0);
+//
+//                 let time = dest_doc.get_next_time();
+//                 // println!("Op merging at time {}", time);
+//                 dest_ops.push(KVPair(time, ops.1.clone()));
+//                 dest_doc.apply_patch_at_version(dest_agent, (&ops.1).into(), dest_parents.as_slice());
+//                 pos += ops.1.len() as u32;
+//             }
+//             assert!(pos <= span.len);
+//         }
+//     }
+// }
 
 impl Default for ListWithHistory {
     fn default() -> Self { Self::new() }
@@ -136,14 +166,14 @@ fn run_fuzzer_iteration(seed: u64) {
 
             b.0.replicate_into(&mut a.0);
             a.0.0.check(false);
-            // assert_eq!(a.0.0, a.1);
+            assert_eq!(a.0.0, a.1);
 
 
             // println!("{} -> {}", a_idx, b_idx);
             a.0.replicate_into(&mut b.0);
             a.1.replicate_into(&mut b.1);
             b.0.0.check(false);
-            // assert_eq!(b.0.0, b.1);
+            assert_eq!(b.0.0, b.1);
 
 
             // println!("--- pos ---");

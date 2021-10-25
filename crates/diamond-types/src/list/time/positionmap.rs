@@ -157,6 +157,8 @@ impl PartialEq for PositionMap {
     }
 }
 
+const PARANOID_CHECKING: bool = false;
+
 impl PositionMap {
     pub(super) fn new_void(list: &ListCRDT) -> Self {
         let mut map = PositionMapInternal::new();
@@ -235,33 +237,33 @@ impl PositionMap {
         let start_work = sum;
         let end_work = (list.get_next_time() - 1) * branch.len() as u32 - sum;
 
-        // if cfg!(debug_assertions) {
-        //     // We should end up with identical results regardless of whether we start from the start
-        //     // or end.
-        //     let a = Self::new_at_version_from_start(list, branch);
-        //     let b = Self::new_at_version_from_end(list, branch);
-        //
-        //     // dbg!(list.txns.diff(&branch, &[ROOT_TIME]));
-        //     // dbg!(list.txns.diff(&branch, &list.frontier));
-        //     // list.debug_print_segments();
-        //     // list.debug_print_del();
-        //
-        //     if a != b {
-        //         list.check(true);
-        //         dbg!(&list.txns);
-        //         dbg!(&branch, &list.frontier);
-        //         dbg!(list.txns.diff(&branch, &[ROOT_TIME]));
-        //         dbg!(list.txns.diff(&branch, &list.frontier));
-        //         list.debug_print_segments();
-        //         dbg!(&a.map);
-        //         dbg!(&b.map);
-        //
-        //         dbg!(&a.double_deletes);
-        //         dbg!(&b.double_deletes);
-        //     }
-        //     assert_eq!(a, b);
-        //     return a;
-        // }
+        if PARANOID_CHECKING {
+            // We should end up with identical results regardless of whether we start from the start
+            // or end.
+            let a = Self::new_at_version_from_start(list, branch);
+            let b = Self::new_at_version_from_end(list, branch);
+
+            // dbg!(list.txns.diff(&branch, &[ROOT_TIME]));
+            // dbg!(list.txns.diff(&branch, &list.frontier));
+            // list.debug_print_segments();
+            // list.debug_print_del();
+
+            if a != b {
+                list.check(true);
+                dbg!(&list.txns);
+                dbg!(&branch, &list.frontier);
+                dbg!(list.txns.diff(&branch, &[ROOT_TIME]));
+                dbg!(list.txns.diff(&branch, &list.frontier));
+                list.debug_print_segments();
+                dbg!(&a.map);
+                dbg!(&b.map);
+
+                dbg!(&a.double_deletes);
+                dbg!(&b.double_deletes);
+            }
+            assert_eq!(a, b);
+            return a;
+        }
 
         if start_work < end_work { Self::new_at_version_from_start(list, branch) }
         else { Self::new_at_version_from_end(list, branch) }

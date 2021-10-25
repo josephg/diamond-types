@@ -1,5 +1,7 @@
 #![allow(dead_code)] // TODO: turn this off and clean up before releasing.
 
+use crate::list::external_txn::RemoteId;
+
 pub mod list;
 
 mod common;
@@ -8,6 +10,14 @@ mod rle;
 mod unicount;
 mod crdtspan;
 mod rangeextra;
+
+// TODO: Move this somewhere else.
+pub fn root_id() -> RemoteId {
+    RemoteId {
+        agent: "ROOT".into(),
+        seq: u32::MAX
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -34,15 +44,7 @@ pub mod test_helpers {
     use diamond_core::AgentId;
 
     use crate::list::{ListCRDT, PositionalOp};
-    use crate::list::external_txn::RemoteId;
     use rand::seq::index::sample;
-
-    pub(crate) fn root_id() -> RemoteId {
-        RemoteId {
-            agent: "ROOT".into(),
-            seq: u32::MAX
-        }
-    }
 
     pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
         let mut str = String::new();
