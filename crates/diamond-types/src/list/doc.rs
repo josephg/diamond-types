@@ -169,7 +169,7 @@ impl ListCRDT {
     pub(super) fn marker_at(&self, time: Time) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>> {
         let cursor = self.index.cursor_at_offset_pos(time as usize, false);
         // Gross.
-        unsafe { cursor.get_item().unwrap().unwrap() }
+        cursor.get_item().unwrap().unwrap()
 
         // self.index.entry_at(order as usize).unwrap_ptr()
     }
@@ -268,7 +268,7 @@ impl ListCRDT {
         let mut scanning = false;
 
         loop {
-            let other_order = match unsafe { cursor.get_item() } {
+            let other_order = match unsafe { cursor.unsafe_get_item() } {
                 None => { break; } // End of the document
                 Some(o) => { o }
             };
@@ -476,7 +476,7 @@ impl ListCRDT {
     }
 
     pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut <&RangeTree as Cursors>::UnsafeCursor, id: Time, max_len: u32, update_content: bool) -> Time {
-        let target = unsafe { cursor.get_item().unwrap() };
+        let target = unsafe { cursor.unsafe_get_item().unwrap() };
 
         let (deleted_here, succeeded) = unsafe {
             ContentTreeRaw::unsafe_remote_deactivate_notify(cursor, max_len as _, notify_for(&mut self.index))
@@ -662,13 +662,15 @@ impl ListCRDT {
                         (ROOT_TIME, self.range_tree.unsafe_cursor_at_start())
                     } else {
                         let mut cursor = self.range_tree.unsafe_cursor_at_content_pos((pos - 1) as usize, false);
-                        let origin_left = unsafe { cursor.get_item() }.unwrap();
+                        let origin_left = unsafe { cursor.unsafe_get_item() }.unwrap();
                         assert!(cursor.next_item());
                         (origin_left, cursor)
                     };
 
-                    // TODO: This should skip past deleted items!
-                    let origin_right = unsafe { cursor.get_item() }.unwrap_or(ROOT_TIME);
+                    // There's an open question of whether this should skip past deleted items.
+                    // It would be *correct* both ways, though you get slightly different merging
+                    // & pruning behaviour in each case.
+                    let origin_right = unsafe { cursor.unsafe_get_item() }.unwrap_or(ROOT_TIME);
 
                     let item = YjsSpan {
                         time,

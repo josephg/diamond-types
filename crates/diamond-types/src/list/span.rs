@@ -150,6 +150,7 @@ mod tests {
 
     #[test]
     fn print_span_sizes() {
+        // Last I checked, 16 bytes.
         println!("size of YjsSpan {}", size_of::<YjsSpan>());
     }
 

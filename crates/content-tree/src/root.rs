@@ -462,14 +462,14 @@ impl<E: ContentTraits, I: FindOffset<E>, const IE: usize, const LE: usize> Conte
 impl<E: ContentTraits + Searchable, I: FindOffset<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub fn at_offset(&self, pos: usize) -> Option<E::Item> {
         let cursor = self.unsafe_cursor_at_offset_pos(pos, false);
-        unsafe { cursor.get_item() }
+        unsafe { cursor.unsafe_get_item() }
     }
 }
 
 impl<E: ContentTraits + ContentLength + Searchable, I: FindContent<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub fn at_content(&self, pos: usize) -> Option<E::Item> {
         let cursor = self.unsafe_cursor_at_content_pos(pos, false);
-        unsafe { cursor.get_item() }
+        unsafe { cursor.unsafe_get_item() }
     }
 }
 

@@ -325,7 +325,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Eq f
 
 
 impl<E: ContentTraits + Searchable, I: TreeMetrics<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
-    pub unsafe fn get_item(&self) -> Option<E::Item> {
+    pub unsafe fn unsafe_get_item(&self) -> Option<E::Item> {
         // TODO: Optimize this. This is gross.
         let mut cursor = self.clone();
         if cursor.roll_to_next_entry() {

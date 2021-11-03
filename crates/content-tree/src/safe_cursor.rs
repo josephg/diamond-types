@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::ops::{Deref, AddAssign, DerefMut};
+use rle::Searchable;
 
 use super::*;
 
@@ -255,5 +256,11 @@ impl<R, E: ContentTraits + Eq, I: TreeMetrics<E>, const IE: usize, const LE: usi
 impl<R, E: ContentTraits + Eq, I: TreeMetrics<E>, const IE: usize, const LE: usize> PartialOrd<SafeCursor<R, E, I, IE, LE>> for SafeCursor<R, E, I, IE, LE> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl<R, E: ContentTraits + Searchable, I: TreeMetrics<E>, const IE: usize, const LE: usize> SafeCursor<R, E, I, IE, LE> {
+    pub fn get_item(&self) -> Option<E::Item> {
+        unsafe { self.inner.unsafe_get_item() }
     }
 }

@@ -351,7 +351,7 @@ impl PositionMap {
                     let c2 = list.range_tree.cursor_at_content_pos(doc_content_pos, true);
 
                     if c1 != c2 {
-                        return unsafe { c2.get_item() }.unwrap_or(ROOT_TIME)
+                        return unsafe { c2.unsafe_get_item() }.unwrap_or(ROOT_TIME)
                         // map_cursor.offset = e.content_len;
                         // break;
                     } // Otherwise, if they're equal. Roll next.
@@ -368,7 +368,7 @@ impl PositionMap {
         }
 
         let list_cursor = self.map_to_list_cursor(map_cursor, list, true).0;
-        unsafe { list_cursor.get_item() }.unwrap_or(ROOT_TIME)
+        unsafe { list_cursor.unsafe_get_item() }.unwrap_or(ROOT_TIME)
     }
 
     fn map_to_list_cursor<'a>(&self, mut map_cursor: Cursor<PositionRun, FullMetrics, DEFAULT_IE, DEFAULT_LE>, list: &'a ListCRDT, stick_end: bool) -> (<&'a RangeTree as Cursors>::Cursor, usize) {

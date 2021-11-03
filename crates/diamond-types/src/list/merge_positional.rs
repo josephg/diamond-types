@@ -57,7 +57,7 @@ impl ListCRDT {
                         (ROOT_TIME, self.range_tree.cursor_at_start())
                     } else {
                         let mut cursor = map.list_cursor_at_content_pos(self, orig_pos - 1).0;
-                        let origin_left = unsafe { cursor.get_item() }.unwrap();
+                        let origin_left = cursor.get_item().unwrap();
                         assert!(cursor.next_item());
                         (origin_left, cursor)
                     };
