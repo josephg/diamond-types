@@ -9,7 +9,9 @@ mod list;
 mod check;
 mod history;
 mod branch;
-mod merge;
+mod yjsspan;
+mod op_iter;
+mod m1;
 
 use jumprope::JumpRope;
 use smallvec::SmallVec;

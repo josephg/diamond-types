@@ -1,11 +1,14 @@
+use std::fmt::{Debug, DebugStruct, Formatter};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 
 use crate::rle::RleKeyed;
 use std::ops::Range;
+use crate::list::Time;
+use crate::ROOT_TIME;
 
 /// A time span defines a ... well, span in time. This is equivalent to Range<u64>, but it
 /// implements Copy (which Range does not) and it has some locally useful methods.
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
+#[derive(Copy, Clone, Eq, PartialEq, Default)]
 pub struct TimeSpan {
     pub start: usize,
     pub end: usize
@@ -124,6 +127,38 @@ impl RleKeyed for TimeSpan {
         self.start
     }
 }
+
+const UNDERWATER_START: usize = usize::MAX / 2;
+
+#[derive(Debug)]
+struct RootTime;
+
+pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: Time) {
+    match val {
+        ROOT_TIME => {
+            fmt.field(name, &RootTime);
+        },
+        start @ (UNDERWATER_START..=ROOT_TIME) => {
+            fmt.field(name, &Underwater(start - UNDERWATER_START));
+        },
+        start @ _ => {
+            fmt.field(name, &start);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Underwater(usize);
+
+impl Debug for TimeSpan {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_struct("TimeSpan");
+        debug_time(&mut s, "start", self.start);
+        debug_time(&mut s, "end", self.end);
+        s.finish()
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
