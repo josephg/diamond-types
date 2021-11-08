@@ -5,7 +5,7 @@ use smallvec::{SmallVec, smallvec};
 
 use rle::{AppendRle, SplitableSpan};
 
-use crate::list::{ListCRDT, Time};
+use crate::list::{Branch, ListCRDT, Time};
 use crate::list::branch::{branch_is_root, branch_is_sorted};
 use crate::list::timedag::HistoryEntry;
 use crate::localtime::TimeSpan;
@@ -153,7 +153,7 @@ impl RleVec<HistoryEntry> {
             };
             // dbg!((ord_start, ord_end));
 
-            target.push_reversed_rle(TimeSpan::new(ord_start, ord_end+1));
+            target.push_reversed_rle(TimeSpan::new(ord_start, ord_end + 1));
         };
 
         self.diff_slow_internal(a, b, mark_run);
@@ -161,7 +161,7 @@ impl RleVec<HistoryEntry> {
     }
 
     fn diff_slow_internal<F>(&self, a: &[Time], b: &[Time], mut mark_run: F)
-    where F: FnMut(Time, Time, Flag) {
+        where F: FnMut(Time, Time, Flag) {
         // Sorted highest to lowest.
         let mut queue: BinaryHeap<(Time, Flag)> = BinaryHeap::new();
         for a_ord in a {
@@ -200,8 +200,7 @@ impl RleVec<HistoryEntry> {
             // 1:
             while let Some((peek_ord, peek_flag)) = queue.peek() {
                 // dbg!((peek_ord, peek_flag));
-                if *peek_ord < containing_txn.span.start { break; }
-                else {
+                if *peek_ord < containing_txn.span.start { break; } else {
                     if *peek_flag != flag {
                         // Mark from peek_ord..=ord and continue.
                         // Note we'll mark this whole txn from ord, but we might do so with
@@ -231,8 +230,17 @@ impl RleVec<HistoryEntry> {
             if queue.len() == num_shared_entries { break; }
         }
     }
+}
 
-    fn find_conflicting_slow(&self, a: &[Time], b: &[Time]) -> SmallVec<[TimeSpan; 4]> {
+#[derive(Debug)]
+pub struct ConflictSpans {
+    common_branch: Branch,
+    spans: SmallVec<[TimeSpan; 4]>,
+}
+
+impl RleVec<HistoryEntry> {
+    fn find_conflicting_slow(&self, a: &[Time], b: &[Time]) -> ConflictSpans {
+    // fn find_conflicting_slow(&self, a: &[Time], b: &[Time]) -> SmallVec<[TimeSpan; 4]> {
         // Sorted highest to lowest (so we get the highest item first).
         #[derive(Debug, Ord, PartialEq, Eq, Clone)]
         struct TimePoint {
@@ -292,10 +300,12 @@ impl RleVec<HistoryEntry> {
 
         // dbg!(&queue);
 
-        while let Some(time) = queue.pop() {
+        let branch: Branch = 'outer: loop {
+            let time = queue.pop().unwrap();
+
             let t = time.last;
 
-            if t == ROOT_TIME { break; }
+            if t == ROOT_TIME { break smallvec![ROOT_TIME]; }
             // dbg!(&time);
 
             // Discard duplicate entries.
@@ -303,7 +313,13 @@ impl RleVec<HistoryEntry> {
             // I could write this with an inner loop and a match statement, but this is shorter and
             // more readable. The optimizer has to earn its keep somehow.
             while queue.peek() == Some(&time) { queue.pop(); }
-            if queue.is_empty() { break; }
+            if queue.is_empty() {
+                let mut branch: Branch = smallvec![];
+                // In this order because time.last > time.merged_with.
+                branch.extend(time.merged_with.into_iter());
+                branch.push(t);
+                break branch;
+            }
 
             // If this node is a merger, shatter it.
             if !time.merged_with.is_empty() {
@@ -318,42 +334,50 @@ impl RleVec<HistoryEntry> {
             let mut range = TimeSpan { start: containing_txn.span.start, end: t + 1 };
 
             // Consume all other changes within this txn.
-            while let Some(peek_time) = queue.peek() {
-                // println!("peek {:?}", &peek_time);
-                // Might be simpler to use containing_txn.contains(peek_time.last).
-                if peek_time.last != ROOT_TIME && peek_time.last >= containing_txn.span.start {
-                    // The next item is within this txn. Consume it.
-                    let time = queue.pop().unwrap();
+            loop {
+                if let Some(peek_time) = queue.peek() {
+                    // println!("peek {:?}", &peek_time);
+                    // Might be simpler to use containing_txn.contains(peek_time.last).
+                    if peek_time.last != ROOT_TIME && peek_time.last >= containing_txn.span.start {
+                        // The next item is within this txn. Consume it.
+                        let time = queue.pop().unwrap();
 
-                    // +1 because we don't want to include the actual merge point in the returned set.
-                    let offset = time.last + 1 - containing_txn.span.start;
-                    if offset > 0 {
+                        // +1 because we don't want to include the actual merge point in the returned set.
+                        let offset = time.last + 1 - containing_txn.span.start;
+                        debug_assert!(offset > 0);
                         let rem = range.truncate(offset);
                         result.push_reversed_rle(rem);
-                    }
 
-                    if !time.merged_with.is_empty() {
-                        // We've run into a merged item which uses part of this entry.
-                        // We've already pushed the necessary span to the result. Do the
-                        // normal merge & shatter logic with this item next.
-                        // let time = queue.pop().unwrap();
-                        for t in time.merged_with {
-                            queue.push(t.into());
+                        if !time.merged_with.is_empty() {
+                            // We've run into a merged item which uses part of this entry.
+                            // We've already pushed the necessary span to the result. Do the
+                            // normal merge & shatter logic with this item next.
+                            // let time = queue.pop().unwrap();
+                            for t in time.merged_with {
+                                queue.push(t.into());
+                            }
                         }
+                    } else {
+                        // Emit the remainder of this txn.
+                        result.push_reversed_rle(range);
+
+                        // If this entry has multiple parents, we'll push a merge here then
+                        // immediately pop it. This is so we stop at the merge point.
+                        queue.push(containing_txn.parents.as_slice().into());
+                        break;
                     }
                 } else {
-                    // Emit the remainder of this txn.
-                    result.push_reversed_rle(range);
-
-                    // If this entry has multiple parents, we'll push a merge here then
-                    // immediately pop it. This is so we stop at the merge point.
-                    queue.push(containing_txn.parents.as_slice().into());
-                    break;
+                    // println!("XXXX {:?}", &range.last());
+                    break 'outer smallvec![range.last()];
                 }
             }
-        }
+        };
 
-        result
+        ConflictSpans {
+            common_branch: branch,
+            spans: result
+        }
+        // result
     }
 
     /// This method is used to find the operation ranges we need to look at that might be concurrent
@@ -363,14 +387,20 @@ impl RleVec<HistoryEntry> {
     /// a single localtime, but it might be the result of a merge of multiple edits.
     ///
     /// I'm assuming b is a parent of a, but it should all work if thats not the case.
-    pub(crate) fn find_conflicting(&self, a: &[Time], b: &[Time]) -> SmallVec<[TimeSpan; 4]> {
+    // pub(crate) fn find_conflicting(&self, a: &[Time], b: &[Time]) -> SmallVec<[TimeSpan; 4]> {
+    pub(crate) fn find_conflicting(&self, a: &[Time], b: &[Time]) -> ConflictSpans {
         debug_assert!(!a.is_empty());
         debug_assert!(!b.is_empty());
 
         // First some simple short circuit checks to avoid needless work in common cases.
         // Note most of the time this method is called, one of these early short circuit cases will
         // fire.
-        if a == b { return smallvec![]; }
+        if a == b {
+            return ConflictSpans {
+                common_branch: a.into(),
+                spans: smallvec![],
+            };
+        }
 
         if a.len() == 1 && b.len() == 1 {
             // Check if either operation naively dominates the other. We could do this for more
@@ -380,11 +410,17 @@ impl RleVec<HistoryEntry> {
 
             if self.txn_shadow_contains(a, b) {
                 // a >= b.
-                return smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()];
+                return ConflictSpans {
+                    common_branch: smallvec![b],
+                    spans: smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()]
+                };
             }
             if self.txn_shadow_contains(b, a) {
                 // b >= a.
-                return smallvec![(a.wrapping_add(1)..b.wrapping_add(1)).into()];
+                return ConflictSpans {
+                    common_branch: smallvec![a],
+                    spans: smallvec![(a.wrapping_add(1)..b.wrapping_add(1)).into()]
+                };
             }
         }
 
@@ -417,12 +453,14 @@ pub mod test {
     use crate::rle::RleVec;
     use crate::ROOT_TIME;
 
-    fn assert_conflicting(history: &RleVec<HistoryEntry>, a: &[Time], b: &[Time], expect: &[Range<usize>]) {
-        let expect: Vec<TimeSpan> = expect.iter().rev().map(|e| e.clone().into()).collect();
+    fn assert_conflicting(history: &RleVec<HistoryEntry>, a: &[Time], b: &[Time], expect_spans: &[Range<usize>], expect_common: &[Time]) {
+        let expect: Vec<TimeSpan> = expect_spans.iter().rev().map(|e| e.clone().into()).collect();
         let slow = history.find_conflicting_slow(a, b);
-        assert_eq!(slow.as_slice(), &expect);
+        assert_eq!(slow.spans.as_slice(), expect);
+        assert_eq!(slow.common_branch.as_slice(), expect_common);
         let fast = history.find_conflicting(a, b);
-        assert_eq!(fast.as_slice(), expect);
+        assert_eq!(fast.spans.as_slice(), expect);
+        assert_eq!(fast.common_branch.as_slice(), expect_common);
     }
 
     fn assert_diff_eq(history: &RleVec<HistoryEntry>, a: &[Time], b: &[Time], expect_a: &[TimeSpan], expect_b: &[TimeSpan]) {
@@ -479,31 +517,32 @@ pub mod test {
         for t in 0..=9 {
             // dbg!(t);
             // The same item should never conflict with itself.
-            assert_conflicting(&history, &[t], &[t], &[]);
+            assert_conflicting(&history, &[t], &[t], &[], &[t]);
         }
-        assert_conflicting(&history, &[5, 6], &[5, 6], &[]);
+        assert_conflicting(&history, &[5, 6], &[5, 6], &[], &[5, 6]);
 
-        assert_conflicting(&history, &[1], &[2], &[2..3]);
-        assert_conflicting(&history, &[0], &[2], &[1..3]);
-        assert_conflicting(&history, &[ROOT_TIME], &[ROOT_TIME], &[]);
-        assert_conflicting(&history, &[ROOT_TIME], &[2], &[0..3]);
+        assert_conflicting(&history, &[1], &[2], &[2..3], &[1]);
+        assert_conflicting(&history, &[0], &[2], &[1..3], &[0]);
+        assert_conflicting(&history, &[ROOT_TIME], &[ROOT_TIME], &[], &[ROOT_TIME]);
+        assert_conflicting(&history, &[ROOT_TIME], &[2], &[0..3], &[ROOT_TIME]);
 
-        assert_conflicting(&history, &[2], &[3], &[0..4]); // 0,1,2 and 3.
+        assert_conflicting(&history, &[2], &[3], &[0..4], &[ROOT_TIME]); // 0,1,2 and 3.
 
-        assert_conflicting(&history, &[1, 4], &[4], &[0..2, 3..5]); // 0,1,2 and 3.
-        assert_conflicting(&history, &[6], &[2], &[0..5, 6..7]);
-        assert_conflicting(&history, &[6], &[5], &[0..2, 3..7]); // 6 includes 1, 0.
-        assert_conflicting(&history, &[5, 6], &[5], &[0..2, 3..7]);
-        assert_conflicting(&history, &[5, 6], &[2], &[0..7]);
-        assert_conflicting(&history, &[2, 6], &[5], &[0..7]);
-        assert_conflicting(&history, &[9], &[10], &[10..11]);
+        assert_conflicting(&history, &[1, 4], &[4], &[0..2, 3..5], &[ROOT_TIME]); // 0,1,2 and 3.
+        assert_conflicting(&history, &[6], &[2], &[0..5, 6..7], &[ROOT_TIME]);
+        assert_conflicting(&history, &[6], &[5], &[0..2, 3..7], &[ROOT_TIME]); // 6 includes 1, 0.
+        assert_conflicting(&history, &[5, 6], &[5], &[0..2, 3..7], &[ROOT_TIME]);
+        assert_conflicting(&history, &[5, 6], &[2], &[0..7], &[ROOT_TIME]);
+        assert_conflicting(&history, &[2, 6], &[5], &[0..7], &[ROOT_TIME]);
+        assert_conflicting(&history, &[9], &[10], &[10..11], &[9]);
+        assert_conflicting(&history, &[6], &[7], &[7..8], &[6]);
 
         // This looks weird, but its right because 9 shares the same parents.
-        assert_conflicting(&history, &[9], &[2, 8], &[9..10]);
+        assert_conflicting(&history, &[9], &[2, 8], &[9..10], &[2, 8]);
 
         // Everything! Just because we need to rebase operation 8 on top of 7, and can't produce
         // that without basically all of time. Hopefully this doesn't come up a lot in practice.
-        assert_conflicting(&history, &[9], &[2, 7], &[0..5, 6..10]);
+        assert_conflicting(&history, &[9], &[2, 7], &[0..5, 6..10], &[ROOT_TIME]);
     }
 
     #[test]
