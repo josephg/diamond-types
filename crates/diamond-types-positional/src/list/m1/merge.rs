@@ -1,15 +1,15 @@
 use std::pin::Pin;
-use content_tree::{ContentTreeRaw, ContentTreeWithIndex, FullMetrics, null_notify};
+use content_tree::{ContentTreeRaw, ContentTreeWithIndex, FullMetricsU32, null_notify};
 use crate::{AgentId, ROOT_TIME};
 use crate::list::{ListCRDT, Time};
 use crate::list::branch::branch_eq;
 use crate::list::operation::{InsDelTag, PositionalOp};
-use crate::list::yjsspan::YjsSpan;
+use crate::list::m1::yjsspan::YjsSpan;
 use crate::localtime::TimeSpan;
 use crate::rle::KVPair;
 
 // TODO: Remove FullMetrics here?
-type CRDTList = Pin<Box<ContentTreeWithIndex<YjsSpan, FullMetrics>>>;
+type CRDTList = Pin<Box<ContentTreeWithIndex<YjsSpan, FullMetricsU32>>>;
 
 impl ListCRDT {
     pub fn apply_operation_at(&mut self, agent: AgentId, branch: &[Time], op: PositionalOp) {
@@ -38,7 +38,7 @@ impl ListCRDT {
     }
 
     fn new_crdt_list() -> CRDTList {
-        let mut list = ContentTreeWithIndex::<YjsSpan, FullMetrics>::new();
+        let mut list = ContentTreeWithIndex::<YjsSpan, FullMetricsU32>::new();
         list.push(YjsSpan::new_underwater());
         list
     }

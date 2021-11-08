@@ -3,24 +3,25 @@
 //!
 //! This module should not share any code with list/.
 
-pub mod operation;
-mod timedag;
-mod list;
-mod check;
-mod history;
-mod branch;
-mod yjsspan;
-mod op_iter;
-mod m1;
-
 use jumprope::JumpRope;
 use smallvec::SmallVec;
-use crate::rle::{KVPair, RleVec};
-use smartstring::alias::{String as SmartString};
+use smartstring::alias::String as SmartString;
+
 use crate::list::operation::PositionalComponent;
-use crate::list::timedag::HistoryEntry;
+use crate::list::history::{History, HistoryEntry};
 use crate::localtime::TimeSpan;
 use crate::remotespan::CRDTSpan;
+use crate::rle::{KVPair, RleVec};
+
+pub mod operation;
+mod history;
+mod list;
+mod check;
+mod history_tools;
+mod branch;
+mod op_iter;
+mod m1;
+mod m2;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
 // systems.
@@ -74,7 +75,7 @@ pub struct ListCRDT {
     // /// Along with deletes, this essentially contains the time DAG.
     // ///
     // /// TODO: Consider renaming this field
-    history: RleVec<HistoryEntry>,
+    history: History,
 
     // Temporary. This will be moved out into a reference to another data structure I think.
     text_content: Option<JumpRope>,

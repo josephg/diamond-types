@@ -315,7 +315,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
 
 
     /// Replace as much of the current entry from cursor onwards as we can
-    pub unsafe fn unsafe_mutate_entry_notify<MapFn, N>(
+    unsafe fn unsafe_mutate_entry_internal<MapFn, N>(
         map_fn: MapFn,
         cursor: &mut UnsafeCursor<E, I, IE, LE>,
         replace_max: usize,
@@ -374,6 +374,20 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
         }
 
         replaced_here
+    }
+
+    pub unsafe fn unsafe_mutate_entry_notify<MapFn, N>(
+        map_fn: MapFn,
+        cursor: &mut UnsafeCursor<E, I, IE, LE>,
+        replace_max: usize,
+        mut notify: N
+    ) -> usize
+    where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>), MapFn: FnOnce(&mut E) {
+        let mut flush_marker = I::Update::default();
+        let amt_modified = Self::unsafe_mutate_entry_internal(map_fn, cursor, replace_max, &mut flush_marker, &mut notify);
+
+        cursor.get_node_mut().flush_metric_update(&mut flush_marker);
+        amt_modified
     }
 
     /// Replace the range from cursor..cursor + replaced_len with new_entry.
@@ -727,7 +741,7 @@ impl<E: ContentTraits + Toggleable, I: TreeMetrics<E>, const IE: usize, const LE
 
             // dbg!(self, delete_remaining, &flush_marker);
 
-            delete_remaining -= Self::unsafe_mutate_entry_notify(|e| {
+            delete_remaining -= Self::unsafe_mutate_entry_internal(|e| {
                 result.push_rle(*e);
                 e.mark_deactivated();
             }, &mut cursor, delete_remaining, &mut flush_marker, &mut notify);
@@ -748,7 +762,7 @@ impl<E: ContentTraits + Toggleable, I: TreeMetrics<E>, const IE: usize, const LE
         result
     }
 
-    unsafe fn set_enabled<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, max_len: usize, want_enabled: bool, mut notify: F) -> (usize, bool)
+    unsafe fn set_enabled<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, max_len: usize, want_enabled: bool, notify: F) -> (usize, bool)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
 
         cursor.roll_to_next_entry();
@@ -760,12 +774,15 @@ impl<E: ContentTraits + Toggleable, I: TreeMetrics<E>, const IE: usize, const LE
             //
             // Even though we're just editing an item here, the item could be split as a result,
             // so notify may end up called.
-            let mut flush_marker = I::Update::default();
             let amt_modified = Self::unsafe_mutate_entry_notify(|e| {
                 if want_enabled { e.mark_activated(); } else { e.mark_deactivated(); }
-            }, cursor, max_len, &mut flush_marker, &mut notify);
-
-            cursor.get_node_mut().flush_metric_update(&mut flush_marker);
+            }, cursor, max_len, notify);
+            // let mut flush_marker = I::Update::default();
+            // let amt_modified = Self::unsafe_mutate_entry_internal(|e| {
+            //     if want_enabled { e.mark_activated(); } else { e.mark_deactivated(); }
+            // }, cursor, max_len, &mut flush_marker, &mut notify);
+            //
+            // cursor.get_node_mut().flush_metric_update(&mut flush_marker);
 
             (amt_modified, true)
         } else {
@@ -1305,7 +1322,7 @@ mod tests {
 
     #[test]
     fn mutation_wrappers() {
-        let mut tree = ContentTreeRaw::<TestRange, FullMetrics, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, FullMetricsU32, DEFAULT_IE, DEFAULT_LE>::new();
         tree.insert_at_content_notify(0, TestRange { id: 0, len: 10, is_activated: true }, null_notify);
         assert_eq!(tree.offset_len(), 10);
         assert_eq!(tree.content_len(), 10);

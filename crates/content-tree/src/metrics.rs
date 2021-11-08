@@ -109,12 +109,6 @@ impl<E: ContentTraits> FindOffset<E> for RawPositionMetrics {
 }
 
 
-/// Index based on both resulting size and raw insert position.
-///
-/// Item 0 is the raw offset position, and item 1 is the content position.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct FullMetrics;
-
 // Not sure why tuples of integers don't have AddAssign and SubAssign.
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 pub struct Pair<V: Copy + Clone + Default + AddAssign + SubAssign + PartialEq + Eq>(pub V, pub V);
@@ -126,6 +120,7 @@ impl<V: Copy + Clone + Default + AddAssign + SubAssign + PartialEq + Eq> AddAssi
         self.1 += rhs.1;
     }
 }
+
 impl<V: Copy + Clone + Default + AddAssign + SubAssign + PartialEq + Eq> SubAssign for Pair<V> {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
@@ -134,7 +129,13 @@ impl<V: Copy + Clone + Default + AddAssign + SubAssign + PartialEq + Eq> SubAssi
     }
 }
 
-impl<E: ContentTraits + ContentLength> TreeMetrics<E> for FullMetrics {
+/// Index based on both resulting size and raw insert position.
+///
+/// Item 0 is the raw offset position, and item 1 is the content position.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct FullMetricsU32;
+
+impl<E: ContentTraits + ContentLength> TreeMetrics<E> for FullMetricsU32 {
     // In pair, len = 0, content = 1.
     type Update = Pair<i32>;
     type Value = Pair<u32>;
@@ -168,17 +169,71 @@ impl<E: ContentTraits + ContentLength> TreeMetrics<E> for FullMetrics {
     fn count_items(idx: Self::Value) -> usize { idx.0 as usize }
 }
 
-impl<E: ContentTraits + ContentLength> FindContent<E> for FullMetrics {
+impl<E: ContentTraits + ContentLength> FindContent<E> for FullMetricsU32 {
     fn index_to_content(offset: Self::Value) -> usize {
         offset.1 as usize
     }
 }
 
-impl<E: ContentTraits + ContentLength> FindOffset<E> for FullMetrics {
+impl<E: ContentTraits + ContentLength> FindOffset<E> for FullMetricsU32 {
     fn index_to_offset(offset: Self::Value) -> usize {
         offset.0 as usize
     }
 }
+
+/// Index based on both resulting size and raw insert position.
+///
+/// Item 0 is the raw offset position, and item 1 is the content position.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct FullMetricsUsize;
+
+impl<E: ContentTraits + ContentLength> TreeMetrics<E> for FullMetricsUsize {
+    // In pair, len = 0, content = 1.
+    type Update = Pair<isize>;
+    type Value = Pair<usize>;
+
+    fn increment_marker(marker: &mut Self::Update, entry: &E) {
+        marker.0 += entry.len() as isize;
+        marker.1 += entry.content_len() as isize;
+    }
+
+    fn decrement_marker(marker: &mut Self::Update, entry: &E) {
+        marker.0 -= entry.len() as isize;
+        marker.1 -= entry.content_len() as isize;
+    }
+
+    fn decrement_marker_by_val(marker: &mut Self::Update, val: &Self::Value) {
+        marker.0 -= val.0 as isize;
+        marker.1 -= val.1 as isize;
+    }
+
+    fn update_offset_by_marker(offset: &mut Self::Value, by: &Self::Update) {
+        offset.0 = offset.0.wrapping_add(by.0 as usize);
+        offset.1 = offset.1.wrapping_add(by.1 as usize);
+    }
+
+    fn increment_offset(offset: &mut Self::Value, entry: &E) {
+        offset.0 += entry.len() as usize;
+        offset.1 += entry.content_len() as usize;
+    }
+
+    const CAN_COUNT_ITEMS: bool = true;
+    fn count_items(idx: Self::Value) -> usize { idx.0 }
+}
+
+impl<E: ContentTraits + ContentLength> FindContent<E> for FullMetricsUsize {
+    fn index_to_content(offset: Self::Value) -> usize {
+        offset.1 as usize
+    }
+}
+
+impl<E: ContentTraits + ContentLength> FindOffset<E> for FullMetricsUsize {
+    fn index_to_offset(offset: Self::Value) -> usize {
+        offset.0 as usize
+    }
+}
+
+
 
 pub trait ContentLength {
     /// User specific content length. Used by content-tree for character counts.

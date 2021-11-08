@@ -1,6 +1,7 @@
 use jumprope::JumpRope;
 use crate::list::ListCRDT;
 use smallvec::{SmallVec, smallvec};
+use crate::list::history::History;
 use crate::ROOT_TIME;
 
 /// This file contains debugging assertions to validate the document's internal state.
@@ -26,18 +27,37 @@ impl ListCRDT {
     #[allow(unused)]
     pub fn check(&self, deep: bool) {
         if deep {
-            self.check_history();
+            self.history.check();
         }
     }
 
-    fn check_history(&self) {
+    #[allow(unused)]
+    pub fn check_all_changes_rle_merged(&self) {
+        assert_eq!(self.client_data[0].item_orders.len(), 1);
+        // .. And operation log.
+        assert_eq!(self.history.entries.len(), 1);
+    }
+}
+
+impl History {
+    fn check(&self) {
+        let expect_root_children = self.entries
+        .iter()
+        .enumerate()
+        .filter_map(|(i, entry)| {
+            if entry.parents.len() == 1 && entry.parents[0] == ROOT_TIME {
+                Some(i)
+            } else { None }
+        });
+        assert!(expect_root_children.eq(self.root_child_indexes.iter().copied()));
+
         // The shadow entries in txns name the smallest order for which all txns from
         // [shadow..txn.order] are transitive parents of the current txn.
 
         // I'm testing here sort of by induction. Iterating the txns in order allows us to assume
         // all previous txns have valid shadows while we advance.
 
-        for (idx, hist) in self.history.iter().enumerate() {
+        for (idx, hist) in self.entries.iter().enumerate() {
             assert!(hist.span.end > hist.span.start);
 
             // We contain prev_txn_order *and more*! See if we can extend the shadow by
@@ -50,7 +70,7 @@ impl ListCRDT {
 
             // Check our child_indexes all contain this item in their parents list.
             for child_idx in &hist.child_indexes {
-                let child = &self.history.0[*child_idx];
+                let child = &self.entries.0[*child_idx];
                 assert!(child.parents.iter().any(|p| hist.contains(*p)));
             }
 
@@ -67,12 +87,12 @@ impl ListCRDT {
                 // By induction, we can assume the previous shadows are correct.
                 for parent_order in parents {
                     // Note parent_order could point in the middle of a txn run.
-                    let parent_idx = self.history.find_index(parent_order).unwrap();
+                    let parent_idx = self.entries.find_index(parent_order).unwrap();
                     if !expect_parent_idx.contains(&parent_idx) {
                         expect_parent_idx.push(parent_idx);
                     }
 
-                    let parent_txn = &self.history.0[parent_idx];
+                    let parent_txn = &self.entries.0[parent_idx];
                     let offs = parent_order - parent_txn.span.start;
 
                     // Check the parent txn names this txn in its child_indexes
@@ -99,12 +119,5 @@ impl ListCRDT {
 
             assert_eq!(hist.shadow, expect_shadow);
         }
-    }
-
-    #[allow(unused)]
-    pub fn check_all_changes_rle_merged(&self) {
-        assert_eq!(self.client_data[0].item_orders.len(), 1);
-        // .. And operation log.
-        assert_eq!(self.history.len(), 1);
     }
 }

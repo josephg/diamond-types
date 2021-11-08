@@ -1,17 +1,22 @@
+use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
 use std::mem::take;
 use content_tree::*;
 use rle::{HasLength, MergableSpan, SplitableSpan};
 
 use smartstring::alias::{String as SmartString};
-use crate::list::time::positionmap::MapTag::*;
 use std::pin::Pin;
-use crate::list::{DoubleDeleteList, ListCRDT, Time, RangeTree, ROOT_TIME};
-use crate::list::positional::{InsDelTag, PositionalComponent};
+use crate::list::{ListCRDT, Time};
 use std::ops::Range;
-use crate::rangeextra::OrderRange;
-use crate::list::time::patchiter::ListPatchItem;
 use crate::list::branch::{branch_eq, branch_is_root};
+use crate::list::operation::{InsDelTag, PositionalComponent};
+use crate::rle::{KVPair, RleVec};
+use crate::ROOT_TIME;
+use MapTag::*;
+use crate::list::m2::{CRDTList2, DoubleDeleteList, M2Tracker};
+use crate::list::m2::double_delete::DoubleDelete;
+use crate::list::m2::patchiter::ListPatchItem;
+use crate::localtime::{debug_time, UNDERWATER_START};
 
 /// There's 3 states a component in the position map can be in:
 /// - Not inserted (yet),
@@ -29,40 +34,42 @@ pub(super) enum MapTag {
 }
 
 // It would be nicer to just use RleRun but I want to customize
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
+#[derive(Copy, Clone, Eq, PartialEq, Default)]
 pub(crate) struct PositionRun {
     pub(super) tag: MapTag,
-    pub(super) final_len: usize, // This is the length if nothing was deleted
     pub(super) content_len: usize, // 0 if we're in the NotInsertedYet state.
+    pub(super) final_len: usize, // This is the length if nothing was deleted. (Aka offset len)
+}
+
+impl Debug for PositionRun {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_struct("PositionRun");
+        s.field("tag", &self.tag);
+        debug_time(&mut s, "content_len", self.content_len);
+        debug_time(&mut s, "final_len", self.final_len);
+        s.finish()
+    }
 }
 
 impl Default for MapTag {
     fn default() -> Self { MapTag::NotInsertedYet }
 }
 
-// impl From<InsDelTag> for PositionMapComponent {
-//     fn from(c: InsDelTag) -> Self {
-//         match c {
-//             InsDelTag::Ins => Inserted,
-//             InsDelTag::Del => Deleted,
-//         }
-//     }
-// }
-
 impl PositionRun {
-    // pub(crate) fn new(val: PositionMapComponent, len: usize) -> Self {
-    //     Self { val, content_len: len, final_len: 0 }
-    // }
-    pub(crate) fn new_void(len: usize) -> Self {
-        Self { tag: MapTag::NotInsertedYet, final_len: len, content_len: 0 }
+    pub(crate) fn new_not_ins_yet(len: usize) -> Self {
+        Self { tag: MapTag::NotInsertedYet, content_len: 0, final_len: len }
     }
 
     pub(crate) fn new_ins(len: usize) -> Self {
-        Self { tag: MapTag::Inserted, final_len: len, content_len: len }
+        Self { tag: MapTag::Inserted, content_len: len, final_len: len }
     }
 
     pub(crate) fn new_upstream(final_len: usize, content_len: usize) -> Self {
-        Self { tag: MapTag::Upstream, final_len, content_len }
+        Self { tag: MapTag::Upstream, content_len, final_len }
+    }
+
+    pub(crate) fn new_underwater() -> Self {
+        Self::new_upstream(UNDERWATER_START, UNDERWATER_START)
     }
 }
 
@@ -115,7 +122,7 @@ impl ContentLength for PositionRun {
     }
 }
 
-type PositionMapInternal = ContentTreeWithIndex<PositionRun, FullMetricsU32>;
+type PositionMapInternal = ContentTreeWithIndex<PositionRun, FullMetrics>;
 
 /// A PositionMap is a data structure used internally to track a set of positional changes to the
 /// document as a result of inserts and deletes.
@@ -160,25 +167,26 @@ impl PartialEq for PositionMap {
 const PARANOID_CHECKING: bool = false;
 
 impl PositionMap {
-    pub(super) fn new_void(list: &ListCRDT) -> Self {
+    pub(super) fn new_at_start(track: &M2Tracker) -> Self {
         let mut map = PositionMapInternal::new();
 
-        let total_post_len = list.range_tree.offset_len();
-        // let (order_to_raw_map, total_post_len) = OrderToRawInsertMap::new(&list.range_tree);
-        // TODO: This is something we should cache somewhere.
-        if total_post_len > 0 {
-            map.push(PositionRun::new_void(total_post_len));
-        }
+        // We don't actually know how long the document is at this point in time.
+        map.push(PositionRun::new_underwater());
+
+        // let total_post_len = track.range_tree.offset_len();
+        // if total_post_len > 0 {
+        //     map.push(PositionRun::new_not_ins_yet(total_post_len));
+        // }
 
         Self { map, double_deletes: DoubleDeleteList::new() }
     }
 
-    pub(super) fn new_upstream(list: &ListCRDT) -> Self {
+    pub(super) fn new_upstream(track: &M2Tracker) -> Self {
         let mut map = PositionMapInternal::new();
 
-        let total_post_len = list.range_tree.offset_len();
+        let total_post_len = track.range_tree.offset_len();
         if total_post_len > 0 {
-            let total_content_len = list.range_tree.content_len();
+            let total_content_len = track.range_tree.content_len();
             // let (order_to_raw_map, total_post_len) = OrderToRawInsertMap::new(&list.range_tree);
             // TODO: This is something we should cache somewhere.
             map.push(PositionRun::new_upstream(total_post_len, total_content_len));
@@ -187,19 +195,19 @@ impl PositionMap {
         Self {
             map,
             // TODO: Eww gross! Refactor to avoid this allocation.
-            double_deletes: list.double_deletes.clone()
+            double_deletes: track.double_deletes.clone()
         }
     }
 
-    fn new_at_version_from_start(list: &ListCRDT, branch: &[Time]) -> Self {
-        let mut result = Self::new_void(list);
+    fn new_at_version_from_start(list: &ListCRDT, track: &M2Tracker, branch: &[Time]) -> Self {
+        let mut result = Self::new_at_start(track);
         if branch != &[ROOT_TIME] {
-            let changes = list.txns.diff(&[ROOT_TIME], branch).1;
+            let changes = list.history.diff(&[ROOT_TIME], branch).1;
 
             for range in changes.iter().rev() {
                 let patches = list.patch_iter_in_range(range.clone());
                 for patch in patches {
-                    result.advance_all_by_range(list, patch);
+                    result.advance_all_by_range(track, patch);
                 }
             }
         }
@@ -207,7 +215,7 @@ impl PositionMap {
         result
     }
 
-    fn new_at_version_from_end(list: &ListCRDT, branch: &[Time]) -> Self {
+    fn new_at_version_from_end(list: &M2Tracker, branch: &[Time]) -> Self {
         let mut result = Self::new_upstream(list);
 
         if !branch_eq(branch, list.frontier.as_slice()) {
@@ -225,17 +233,17 @@ impl PositionMap {
         result
     }
 
-    pub(crate) fn new_at_version(list: &ListCRDT, branch: &[Time]) -> Self {
+    pub(crate) fn new_at_version(list: &M2Tracker, branch: &[Time]) -> Self {
         // There's two strategies here: We could start at the start of time and walk forward, or we
         // could start at the current version and walk backward. Walking backward will be much more
         // common in practice, but either approach will generate an identical result.
 
-        if branch_is_root(branch) { return Self::new_void(list); }
+        if branch_is_root(branch) { return Self::new_at_start(list); }
 
         let sum: Time = branch.iter().sum();
 
         let start_work = sum;
-        let end_work = (list.get_next_time() - 1) * branch.len() as u32 - sum;
+        let end_work = (list.get_next_time() - 1) * branch.len() - sum;
 
         if PARANOID_CHECKING {
             // We should end up with identical results regardless of whether we start from the start
@@ -299,7 +307,7 @@ impl PositionMap {
         self.map.content_len()
     }
 
-    pub(crate) fn list_cursor_at_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize) -> (<&'a RangeTree as Cursors>::Cursor, usize) {
+    pub(crate) fn list_cursor_at_content_pos<'a>(&self, list: &'a ListCRDT, pos: usize) -> (<&'a CRDTList2 as Cursors>::Cursor, usize) {
         let map_cursor = self.map.cursor_at_content_pos(pos, false);
         self.map_to_list_cursor(map_cursor, list, false)
     }
@@ -371,7 +379,7 @@ impl PositionMap {
         unsafe { list_cursor.unsafe_get_item() }.unwrap_or(ROOT_TIME)
     }
 
-    fn map_to_list_cursor<'a>(&self, mut map_cursor: Cursor<PositionRun, FullMetricsU32, DEFAULT_IE, DEFAULT_LE>, list: &'a ListCRDT, stick_end: bool) -> (<&'a RangeTree as Cursors>::Cursor, usize) {
+    fn map_to_list_cursor<'a>(&self, mut map_cursor: Cursor<PositionRun, FullMetrics, DEFAULT_IE, DEFAULT_LE>, list: &'a ListCRDT, stick_end: bool) -> (<&'a CRDTList2 as Cursors>::Cursor, usize) {
         // The max span is used when deleting items. Something thats been inserted can be deleted,
         // and also something thats been
         let e = map_cursor.get_raw_entry();
@@ -444,7 +452,7 @@ impl PositionMap {
         let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
         if op_type == InsDelTag::Del {
             let e = cursor.get_raw_entry();
-            len = len.min((e.final_len - cursor.offset) as u32);
+            len = len.min(e.final_len - cursor.offset);
             debug_assert!(len > 0);
 
             // Usually there's no double-deletes, but we need to check just in case.
@@ -470,17 +478,17 @@ impl PositionMap {
         if op_type == InsDelTag::Ins && final_tag == InsDelTag::Del {
             // The easy case. The entry in PositionRun will be Inserted.
             debug_assert_eq!(cursor.get_raw_entry().tag, Inserted);
-            cursor.replace_range(PositionRun::new_void(len as _));
+            cursor.replace_range(PositionRun::new_not_ins_yet(len));
         } else {
             // We have merged everything into Upstream. We need to pull it apart, which is bleh.
             debug_assert_eq!(cursor.get_raw_entry().tag, Upstream);
             debug_assert_eq!(op_type, final_tag); // Ins/Ins or Del/Del.
             // TODO: Is this a safe assumption? Let the fuzzer verify it.
-            assert!(cursor.get_raw_entry().len() - cursor.offset >= len as usize);
+            assert!(cursor.get_raw_entry().len() - cursor.offset >= len);
 
             let (new_entry, eat_content) = match op_type {
-                InsDelTag::Ins => (PositionRun::new_void(len as _), len as usize),
-                InsDelTag::Del => (PositionRun::new_ins(len as _), 0),
+                InsDelTag::Ins => (PositionRun::new_not_ins_yet(len), len),
+                InsDelTag::Del => (PositionRun::new_ins(len), 0),
             };
 
             let current_entry = cursor.get_raw_entry();
@@ -507,12 +515,12 @@ impl PositionMap {
                 // Basically, we need to know how much content is in cursor.offset.
 
                 // TODO(opt): A cursor comparator function would make this much more performant.
-                let entry_start_offset = raw_start as usize - cursor.offset;
+                let entry_start_offset = raw_start - cursor.offset;
                 let start_cursor = list.range_tree.cursor_at_offset_pos(entry_start_offset, true);
                 let start_content = start_cursor.count_content_pos();
 
                 // TODO: Reuse the cursor from order_to_raw().
-                let midpoint_cursor = list.range_tree.cursor_at_offset_pos(raw_start as _, true);
+                let midpoint_cursor = list.range_tree.cursor_at_offset_pos(raw_start, true);
                 let midpoint_content = midpoint_cursor.count_content_pos();
 
                 let content_chomp = midpoint_content - start_content;
@@ -563,7 +571,7 @@ impl PositionMap {
         } else { (c, None) }
     }
 
-    fn advance_first_by_range_internal(&mut self, raw_range: Range<Time>, final_tag: InsDelTag, patch: &mut ListPatchItem, handle_dd: bool) -> Option<PositionalComponent> {
+    fn advance_first_by_range_internal(&mut self, raw_range: Range<Time>, final_tag: InsDelTag, patch: &mut KVPair<PositionalComponent>, handle_dd: bool) -> Option<PositionalComponent> {
         let target = patch.target_range();
         let op_type = patch.op_type;
 
@@ -579,7 +587,7 @@ impl PositionMap {
 
             if handle_dd {
                 // Handling double-deletes is only an issue while consuming. Never advancing.
-                len = len.min((e.final_len - cursor.offset) as u32);
+                len = len.min(e.final_len - cursor.offset);
                 debug_assert!(len > 0);
                 if e.tag == Upstream { // This can never happen while consuming. Only while advancing.
                     self.double_deletes.increment_delete_range(target.start, len);
@@ -593,7 +601,7 @@ impl PositionMap {
             }
         }
 
-        let content_pos = cursor.count_content_pos() as u32;
+        let content_pos = cursor.count_content_pos();
         // Life could be so simple...
         // cursor.replace_range(PositionRun::new(op_type.into(), len as _));
 
@@ -615,6 +623,7 @@ impl PositionMap {
         Some(PositionalComponent {
             pos: content_pos,
             len,
+            rev: false,
             content_known: false,
             tag: op_type.into(),
         })
@@ -768,17 +777,17 @@ impl PositionMap {
 mod test {
     use rle::test_splitable_methods_valid;
     use super::*;
-    use crate::test_helpers::*;
 
     #[test]
     fn positionrun_is_splitablespan() {
-        test_splitable_methods_valid(PositionRun::new_void(5));
+        test_splitable_methods_valid(PositionRun::new_not_ins_yet(5));
         test_splitable_methods_valid(PositionRun::new_ins(5));
+        // Can't test upstream because we can't split it "naturally".
     }
 
     fn check_doc(list: &ListCRDT) {
         // We should be able to go forward from void to upstream.
-        let mut map = PositionMap::new_void(list);
+        let mut map = PositionMap::new_at_start(list);
         for patch in list.patch_iter() {
             // dbg!(&patch);
             map.advance_all_by_range(list, patch);
@@ -798,40 +807,37 @@ mod test {
     fn foo() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");
-        doc.local_insert(0, 0, "aa");
-        doc.local_insert(0, 0, "bb");
-        // doc.local_delete(0, 2, 3);
-        // doc.local_insert(0, 0, "hi there");
-        // doc.local_delete(0, 2, 3);
+        doc.local_insert(0, 0, "hi there");
+        doc.local_delete(0, 2, 3);
 
-        let map = PositionMap::new_at_version(&doc, &[1]);
+        let map = PositionMap::new_at_version(&doc, &[5]);
         dbg!(&map);
     }
 
-    #[test]
-    fn fuzz_walk_single_docs() {
-        let iter = RandomSingleDocIter::new(2, 10).take(1000);
-        for doc in iter {
-            check_doc(&doc);
-        }
-    }
+    // #[test]
+    // fn fuzz_walk_single_docs() {
+    //     let iter = RandomSingleDocIter::new(2, 10).take(1000);
+    //     for doc in iter {
+    //         check_doc(&doc);
+    //     }
+    // }
 
-    #[test]
-    fn fuzz_walk_multi_docs() {
-        for i in 0..30 {
-            let docs = gen_complex_docs(i, 20);
-            check_doc(&docs[0]); // I could do this every iteration of each_complex, but its slow.
-        }
-    }
+    // #[test]
+    // fn fuzz_walk_multi_docs() {
+    //     for i in 0..30 {
+    //         let docs = gen_complex_docs(i, 20);
+    //         check_doc(&docs[0]); // I could do this every iteration of each_complex, but its slow.
+    //     }
+    // }
 
-    #[test]
-    #[ignore]
-    fn fuzz_walk_multi_docs_forever() {
-        for i in 0.. {
-            if i % 1000 == 0 { println!("{}", i); }
-            // println!("{}", i);
-            let docs = gen_complex_docs(i, 20);
-            check_doc(&docs[0]); // I could do this every iteration of each_complex, but its slow.
-        }
-    }
+    // #[test]
+    // #[ignore]
+    // fn fuzz_walk_multi_docs_forever() {
+    //     for i in 0.. {
+    //         if i % 1000 == 0 { println!("{}", i); }
+    //         // println!("{}", i);
+    //         let docs = gen_complex_docs(i, 20);
+    //         check_doc(&docs[0]); // I could do this every iteration of each_complex, but its slow.
+    //     }
+    // }
 }

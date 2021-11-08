@@ -10,7 +10,7 @@ use rle::{HasLength, MergableSpan, Searchable};
 use crate::list::branch::branch_eq;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::list::operation::{InsDelTag, PositionalComponent, PositionalOp};
-use crate::list::timedag::HistoryEntry;
+use crate::list::history::HistoryEntry;
 use crate::localtime::TimeSpan;
 use crate::remotespan::{CRDT_DOC_ROOT, CRDTId, CRDTSpan};
 use crate::unicount::{consume_chars, count_chars};
@@ -87,7 +87,7 @@ impl ListCRDT {
         }
     }
 
-    fn get_agent_name(&self, agent: AgentId) -> &str {
+    pub(crate) fn get_agent_name(&self, agent: AgentId) -> &str {
         self.client_data[agent as usize].name.as_str()
     }
 
@@ -145,7 +145,7 @@ impl ListCRDT {
         // Fast path for local edits. For some reason the code below is remarkably non-performant.
         // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
         if self.frontier.len() == 1 && self.frontier[0] == range.start.wrapping_sub(1) {
-            if let Some(last) = self.history.0.last_mut() {
+            if let Some(last) = self.history.entries.0.last_mut() {
                 last.span.end = range.end;
                 self.frontier[0] = range.last();
                 return;
@@ -164,7 +164,7 @@ impl ListCRDT {
 
     fn insert_history_internal(&mut self, txn_parents: &[usize], range: TimeSpan) {
         // Fast path. The code below is weirdly slow, but most txns just append.
-        if let Some(last) = self.history.0.last_mut() {
+        if let Some(last) = self.history.entries.0.last_mut() {
             if txn_parents.len() == 1
                 && txn_parents[0] == last.last_time()
                 && last.span.can_append(&range)
@@ -177,11 +177,11 @@ impl ListCRDT {
         // let parents = replace(&mut self.frontier, txn_parents);
         let mut shadow = range.start;
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
-            shadow = self.history.find(shadow - 1).unwrap().shadow;
+            shadow = self.history.entries.find(shadow - 1).unwrap().shadow;
         }
         if shadow == 0 { shadow = ROOT_TIME; }
 
-        let will_merge = if let Some(last) = self.history.last() {
+        let will_merge = if let Some(last) = self.history.entries.last() {
             // TODO: Is this shadow check necessary?
             // This code is from TxnSpan splitablespan impl. Copying it here is a bit ugly but
             // its the least ugly way I could think to implement this.
@@ -191,31 +191,34 @@ impl ListCRDT {
         let mut parent_indexes = smallvec![];
         if !will_merge {
             // The item wasn't merged. So we need to go through the parents and wire up children.
-            let new_idx = self.history.0.len();
+            let new_idx = self.history.entries.0.len();
 
             for &p in txn_parents {
-                if p == ROOT_TIME { continue; }
-                let parent_idx = self.history.find_index(p).unwrap();
-                // Interestingly the parent_idx array will always end up the same length as parents
-                // because it would be invalid for multiple parents to point to the same entry in
-                // txns. (That would imply one parent is a descendant of another.)
-                debug_assert!(!parent_indexes.contains(&parent_idx));
-                parent_indexes.push(parent_idx);
+                if p == ROOT_TIME {
+                    self.history.root_child_indexes.push(new_idx);
+                } else {
+                    let parent_idx = self.history.entries.find_index(p).unwrap();
+                    // Interestingly the parent_idx array will always end up the same length as parents
+                    // because it would be invalid for multiple parents to point to the same entry in
+                    // txns. (That would imply one parent is a descendant of another.)
+                    debug_assert!(!parent_indexes.contains(&parent_idx));
+                    parent_indexes.push(parent_idx);
 
-                let parent_children = &mut self.history.0[parent_idx].child_indexes;
-                if !parent_children.contains(&new_idx) {
-                    parent_children.push(new_idx);
+                    let parent_children = &mut self.history.entries.0[parent_idx].child_indexes;
+                    if !parent_children.contains(&new_idx) {
+                        parent_children.push(new_idx);
 
-                    // This is a tiny optimization for txn_trace. We store the child_indexes in
-                    // order of their first parent - which will usually be the order in which we
-                    // want to iterate them.
-                    // TODO: Make this work and benchmark.
-                    // if parent_children.len() > 1 {
-                    //     parent_children.sort_unstable_by(|&a, &b| {
-                    //         u32::cmp(&self.txns.0[a].parents[0].wrapping_add(1),
-                    //                  &self.txns.0[b].parents[0].wrapping_add(1))
-                    //     });
-                    // }
+                        // This is a tiny optimization for txn_trace. We store the child_indexes in
+                        // order of their first parent - which will usually be the order in which we
+                        // want to iterate them.
+                        // TODO: Make this work and benchmark.
+                        // if parent_children.len() > 1 {
+                        //     parent_children.sort_unstable_by(|&a, &b| {
+                        //         u32::cmp(&self.txns.0[a].parents[0].wrapping_add(1),
+                        //                  &self.txns.0[b].parents[0].wrapping_add(1))
+                        //     });
+                        // }
+                    }
                 }
 
             }
@@ -229,7 +232,7 @@ impl ListCRDT {
             child_indexes: smallvec![]
         };
 
-        let did_merge = self.history.push(txn);
+        let did_merge = self.history.entries.push(txn);
         assert_eq!(will_merge, did_merge);
     }
 
@@ -332,7 +335,7 @@ impl ListCRDT {
         println!("del: singles {}, fwd {}, rev {}", d_1, d_n, d_r);
 
         self.client_with_localtime.print_stats("Client localtime map", detailed);
-        self.history.print_stats("History", detailed);
+        self.history.entries.print_stats("History", detailed);
     }
 }
 

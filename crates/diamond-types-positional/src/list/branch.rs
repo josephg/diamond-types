@@ -1,11 +1,11 @@
 use crate::list::{Branch, Time};
-use crate::list::timedag::HistoryEntry;
+use crate::list::history::{History, HistoryEntry};
 use crate::localtime::TimeSpan;
 use crate::rle::RleVec;
 use crate::ROOT_TIME;
 
-pub(crate) fn advance_branch_by(branch: &mut Branch, history: &RleVec<HistoryEntry>, range: TimeSpan) {
-    let txn = history.find(range.start).unwrap();
+pub(crate) fn advance_branch_by(branch: &mut Branch, history: &History, range: TimeSpan) {
+    let txn = history.entries.find(range.start).unwrap();
     if let Some(parent) = txn.parent_at_time(range.start) {
         advance_branch_by_known(branch, &[parent], range);
     } else {
@@ -13,8 +13,8 @@ pub(crate) fn advance_branch_by(branch: &mut Branch, history: &RleVec<HistoryEnt
     }
 }
 
-pub(crate) fn retreat_branch_by(branch: &mut Branch, history: &RleVec<HistoryEntry>, range: TimeSpan) {
-    let txn = history.find(range.start).unwrap();
+pub(crate) fn retreat_branch_by(branch: &mut Branch, history: &History, range: TimeSpan) {
+    let txn = history.entries.find(range.start).unwrap();
     retreat_branch_known_txn(branch, history, txn, range);
 }
 
@@ -50,6 +50,14 @@ pub(crate) fn advance_branch_by_known(branch: &mut Branch, txn_parents: &[Time],
     // for (const parent of op.parents) {
     //    assert(branchContainsVersion(db, parent, branch), 'operation in the future')
     // }
+
+    if branch.len() == 1 && txn_parents.len() == 1 && branch[0] == txn_parents[0] {
+        // Fast path.
+        debug_assert!(branch[0] == ROOT_TIME || range.start > branch[0]);
+        branch[0] = range.last();
+        return;
+    }
+
     assert!(!branch.contains(&range.start)); // Remove this when branch_contains_version works.
     debug_assert!(branch_is_sorted(branch.as_slice()));
 
@@ -60,7 +68,7 @@ pub(crate) fn advance_branch_by_known(branch: &mut Branch, txn_parents: &[Time],
     add_to_branch(branch, range.last());
 }
 
-pub(crate) fn retreat_branch_known_txn(branch: &mut Branch, history: &RleVec<HistoryEntry>, txn: &HistoryEntry, range: TimeSpan) {
+pub(crate) fn retreat_branch_known_txn(branch: &mut Branch, history: &History, txn: &HistoryEntry, range: TimeSpan) {
     let last_order = range.last();
     let idx = branch.iter().position(|&e| e == last_order).unwrap();
 
@@ -120,7 +128,7 @@ mod test {
         advance_branch_by_known(&mut branch, &[ROOT_TIME], (0..10).into());
         assert_eq!(branch.as_slice(), &[9]);
 
-        let history = RleVec(vec![
+        let history = History::from_entries(&[
             HistoryEntry {
                 span: (0..10).into(), shadow: ROOT_TIME,
                 parents: smallvec![ROOT_TIME],
@@ -137,7 +145,7 @@ mod test {
 
     #[test]
     fn branch_stays_sorted() {
-        let history = RleVec(vec![
+        let history = History::from_entries(&[
             HistoryEntry {
                 span: (0..2).into(), shadow: ROOT_TIME,
                 parents: smallvec![ROOT_TIME],

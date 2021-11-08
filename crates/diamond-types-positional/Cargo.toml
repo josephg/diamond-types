@@ -17,6 +17,7 @@ content-tree = { version = "0.1", path = "../content-tree" }
 #bitvec = "0.22.3"
 jumprope = { version = "0.4" }
 humansize = "1.1"
+bitvec = "0.22.3"
 
 [dev-dependencies]
 criterion = "^0.3"

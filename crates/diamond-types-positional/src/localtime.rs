@@ -128,7 +128,7 @@ impl RleKeyed for TimeSpan {
     }
 }
 
-const UNDERWATER_START: usize = usize::MAX / 2;
+pub(crate) const UNDERWATER_START: usize = usize::MAX / 2;
 
 #[derive(Debug)]
 struct RootTime;

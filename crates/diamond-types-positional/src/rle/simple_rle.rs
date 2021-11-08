@@ -8,6 +8,7 @@ use humansize::{file_size_opts, FileSize};
 
 use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, MergeIter};
 use rle::Searchable;
+use crate::localtime::TimeSpan;
 
 use crate::rle::{RleKeyed, RleSpanHelpers};
 
@@ -125,18 +126,26 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     /// exist in the RLE list, we return the position in the empty span.
     ///
     /// This method assumes the "base" of the RLE is 0.
-    pub fn find_sparse(&self, needle: usize) -> (Result<&V, usize>, usize) {
+    ///
+    /// Returns (Ok(elem), offset) if item is found, otherwise (Err(void range), offset into void)
+    pub fn find_sparse(&self, needle: usize) -> (Result<&V, TimeSpan>, usize) {
         match self.find_index(needle) {
             Ok(idx) => {
                 let entry = &self.0[idx];
                 (Ok(entry), needle - entry.get_rle_key())
             }
             Err(idx) => {
+                let next_key = if let Some(entry) = self.0.get(idx) {
+                    entry.get_rle_key()
+                } else {
+                    usize::MAX
+                };
+
                 if idx == 0 {
-                    (Err(0), needle)
+                    (Err((0..next_key).into()), needle)
                 } else {
                     let end = self.0[idx - 1].end();
-                    (Err(end), needle - end)
+                    (Err((end..next_key).into()), needle - end)
                 }
             }
         }

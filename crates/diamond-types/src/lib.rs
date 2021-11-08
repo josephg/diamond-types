@@ -194,10 +194,10 @@ mod size_info {
     fn print_memory_stats() {
         let x = ContentTreeRaw::<CRDTSpan, ContentMetrics, DEFAULT_IE, DEFAULT_LE>::new();
         x.print_stats("", false);
-        let x = ContentTreeRaw::<CRDTSpan, FullMetrics, DEFAULT_IE, DEFAULT_LE>::new();
+        let x = ContentTreeRaw::<CRDTSpan, FullMetricsU32, DEFAULT_IE, DEFAULT_LE>::new();
         x.print_stats("", false);
 
         println!("sizeof ContentIndex offset {}", size_of::<<ContentMetrics as TreeMetrics<CRDTSpan>>::Value>());
-        println!("sizeof FullIndex offset {}", size_of::<<FullMetrics as TreeMetrics<CRDTSpan>>::Value>());
+        println!("sizeof FullIndex offset {}", size_of::<<FullMetricsU32 as TreeMetrics<CRDTSpan>>::Value>());
     }
 }
