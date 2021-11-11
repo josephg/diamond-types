@@ -1,15 +1,16 @@
+use std::fmt::{Debug, DebugStruct, Formatter};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 
 use content_tree::ContentLength;
 use content_tree::Toggleable;
-use crate::list::Time;
+use crate::list::{ROOT_TIME, Time};
 
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 
 /// This is exposed for diamond-wasm's vis output. The internal fields here should not be considered
 /// part of the public API and are not to be relied on.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Copy, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct YjsSpan {
     /// The ID of this entry. Well, the ID of the first entry in this span.
@@ -137,6 +138,32 @@ impl Toggleable for YjsSpan {
     fn mark_deactivated(&mut self) {
         debug_assert!(self.len > 0);
         self.len = -self.len
+    }
+}
+
+
+#[derive(Debug)]
+struct RootTime;
+
+pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: Time) {
+    match val {
+        ROOT_TIME => {
+            fmt.field(name, &RootTime);
+        },
+        start @ _ => {
+            fmt.field(name, &start);
+        }
+    }
+}
+
+impl Debug for YjsSpan {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_struct("YjsSpan");
+        s.field("time", &self.time);
+        debug_time(&mut s, "origin_left", self.origin_left);
+        debug_time(&mut s, "origin_right", self.origin_right);
+        s.field("len", &self.len);
+        s.finish()
     }
 }
 

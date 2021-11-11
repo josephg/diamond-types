@@ -855,6 +855,25 @@ mod tests {
     }
 
     #[test]
+    fn demo() {
+        let mut doc1 = ListCRDT::new();
+        doc1.get_or_create_agent_id("alice");
+        doc1.get_or_create_agent_id("bob");
+        let mut doc2 = ListCRDT::new();
+        doc2.get_or_create_agent_id("alice");
+        doc2.get_or_create_agent_id("bob");
+
+
+        doc1.local_insert(0, 0, "a".into());
+        doc2.local_insert(1, 0, "b".into());
+        
+        doc1.replicate_into(&mut doc2);
+        doc2.replicate_into(&mut doc1);
+        dbg!(&doc1);
+        // doc1.local_insert(0, 0, "a".into());
+    }
+
+    #[test]
     fn deletes_merged() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");
