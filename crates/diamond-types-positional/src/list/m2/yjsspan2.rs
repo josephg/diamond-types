@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 use content_tree::{ContentLength, Toggleable};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 use crate::list::Time;
-use crate::localtime::{debug_time, TimeSpan};
+use crate::localtime::{debug_time, TimeSpan, UNDERWATER_START};
 use crate::ROOT_TIME;
 use YjsSpanState::*;
 
@@ -118,7 +118,7 @@ impl YjsSpan2 {
 
     pub fn new_underwater() -> Self {
         YjsSpan2 {
-            id: TimeSpan::new(Time::MAX / 2, Time::MAX - 1),
+            id: TimeSpan::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
             origin_left: ROOT_TIME,
             origin_right: ROOT_TIME,
             state: Inserted, // Underwater items are never in the NotInsertedYet state.
@@ -126,7 +126,7 @@ impl YjsSpan2 {
     }
 
     pub fn is_underwater(&self) -> bool {
-        self.id.start >= Time::MAX / 2
+        self.id.start >= UNDERWATER_START
     }
 }
 

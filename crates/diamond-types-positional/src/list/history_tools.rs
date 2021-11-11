@@ -234,8 +234,8 @@ impl History {
 
 #[derive(Debug)]
 pub struct ConflictSpans {
-    common_branch: Branch,
-    spans: SmallVec<[TimeSpan; 4]>,
+    pub(crate) common_branch: Branch,
+    pub(crate) spans: SmallVec<[TimeSpan; 4]>,
 }
 
 impl History {

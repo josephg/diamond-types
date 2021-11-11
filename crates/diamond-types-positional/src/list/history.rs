@@ -30,6 +30,12 @@ impl History {
             }).collect()
         }
     }
+
+    pub fn get_next_time(&self) -> usize {
+        if let Some(last) = self.entries.last() {
+            last.span.end
+        } else { 0 }
+    }
 }
 
 /// This type stores metadata for a run of transactions created by the users.

@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::{Debug, DebugStruct, Formatter};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 
@@ -40,6 +41,21 @@ impl TimeSpan {
     }
 
     pub fn is_empty(&self) -> bool { self.start == self.end }
+
+    pub fn intersect(&self, other: &Self) -> Option<TimeSpan> {
+        let result = TimeSpan {
+            start: self.start.max(other.start),
+            end: self.end.min(other.end),
+        };
+        if result.start <= result.end { Some(result) }
+        else { None }
+    }
+
+    pub fn partial_cmp_time(&self, time: Time) -> Ordering {
+        if time < self.start { Ordering::Less }
+        else if time >= self.end { Ordering::Greater }
+        else { Ordering::Equal }
+    }
 }
 
 impl From<Range<usize>> for TimeSpan {
@@ -128,7 +144,7 @@ impl RleKeyed for TimeSpan {
     }
 }
 
-pub(crate) const UNDERWATER_START: usize = usize::MAX / 2;
+pub(crate) const UNDERWATER_START: usize = usize::MAX / 4;
 
 #[derive(Debug)]
 struct RootTime;

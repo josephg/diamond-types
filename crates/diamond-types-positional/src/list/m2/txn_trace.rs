@@ -2,12 +2,75 @@
 use bitvec::prelude::*;
 use smallvec::{SmallVec, smallvec};
 use crate::rle::RleVec;
-use crate::list::branch::{retreat_branch_by, advance_branch_by_known, advance_branch_by};
+use crate::list::branch::{retreat_branch_by, advance_branch_by_known, advance_branch_by, branch_is_sorted};
 use std::ops::Range;
+use rle::SplitableSpan;
 use crate::list::{Branch, Time};
-use crate::list::history::History;
+use crate::list::history::{History, HistoryEntry};
+use crate::list::history_tools::ConflictSpans;
 use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
+
+#[derive(Debug)]
+// struct VisitEntry<'a> {
+struct VisitEntry {
+    span: TimeSpan,
+    txn_idx: usize,
+    // entry: &'a HistoryEntry,
+    visited: bool,
+    parent_idxs: SmallVec<[usize; 4]>,
+}
+
+
+fn find_entry_idx(input: &SmallVec<[VisitEntry; 4]>, time: Time) -> Option<usize> {
+    input.as_slice().binary_search_by(|e| {
+        // Is this the right way around?
+        e.span.partial_cmp_time(time).reverse()
+    }).ok()
+}
+
+fn spans_to_entries(history: &History, spans: &[TimeSpan]) -> SmallVec<[VisitEntry; 4]> {
+    // This method could be removed - its sort of unnecessary. The find_conflicting process
+    // scans txns to find the range we need to work over. It does so in reverse order. But we
+    // need the txns themselves.
+    //
+    // It would be faster to just return the list of txns, though thats kinda uglier from an API
+    // standpoint.
+    //
+    // ... Something to consider.
+
+    let mut result = smallvec![];
+
+    // for mut span_remaining in spans.iter().copied().filter(|s| !s.is_empty()) {
+    for mut span_remaining in spans.iter().copied() {
+        debug_assert!(!span_remaining.is_empty());
+
+        let mut i = history.entries.find_index(span_remaining.start).unwrap();
+        // let mut offset = history.entries[i].
+        while !span_remaining.is_empty() {
+            let e = &history.entries[i];
+            debug_assert!(span_remaining.start >= e.span.start);
+            let span = span_remaining.truncate_keeping_right(e.span.end - span_remaining.start);
+
+            // We don't care about any parents outside of the input spans.
+            let parent_idxs = e.parents.iter()
+                .filter(|t| **t != ROOT_TIME)
+                .map(|t| find_entry_idx(&result, *t))
+                .flatten()
+                .collect();
+
+            result.push(VisitEntry {
+                span,
+                txn_idx: i,
+                // entry: e,
+                visited: false,
+                parent_idxs
+            });
+            i += 1;
+        }
+    }
+    result
+}
 
 // So essentially what I'm doing here is a depth first iteration of the time DAG. The trouble is
 // that we only want to visit each item exactly once, and we want to minimize the aggregate cost of
@@ -27,10 +90,16 @@ pub(crate) struct OptimizedTxnsIter<'a> {
     history: &'a History,
 
     branch: Branch,
-    consumed: BitBox, // Could use markers on txns for this instead?
 
-    // TODO: Might be better to make stack store tuples of (usize, usize) for child index.
-    stack: Vec<usize>, // smallvec? This will have an upper bound of the number of txns.
+    // TODO: Remove this. Use markers on txns or something instead.
+    // consumed: BitBox,
+
+    input: SmallVec<[VisitEntry; 4]>,
+    // input: SmallVec<[VisitEntry<'a>; 4]>,
+    // visit_spans: SmallVec<[TimeSpan; 4]>,
+
+    /// List of input_idx
+    to_process: SmallVec<[usize; 4]>, // smallvec? This will have an upper bound of the number of txns.
 
     num_consumed: usize, // For debugging.
 }
@@ -45,46 +114,63 @@ pub(crate) struct TxnWalkItem {
 }
 
 impl<'a> OptimizedTxnsIter<'a> {
-    pub(crate) fn new(history: &'a History) -> Self {
-        Self {
-            history,
-            // TODO: Refactor to start with branch and stack empty.
-            branch: smallvec![ROOT_TIME],
-            consumed: bitbox![0; history.entries.len()],
-            stack: vec![ROOT_TIME],
-            num_consumed: 0,
+    pub(crate) fn new_all(history: &'a History) -> Self {
+        let mut spans = smallvec![];
+        if history.get_next_time() > 0 {
+            // Kinda gross. Only add the span if the document isn't empty.
+            spans.push((0..history.get_next_time()).into());
         }
+
+        Self::new(history, ConflictSpans {
+            common_branch: smallvec![ROOT_TIME],
+            spans
+        })
     }
+    
+    pub(crate) fn new(history: &'a History, conflict: ConflictSpans) -> Self {
+        debug_assert!(branch_is_sorted(&conflict.common_branch));
 
-    // #[inline]
-    fn get_next_child(&self, child_idxs: &[usize]) -> Option<usize> {
-        // TODO: We actually want to iterate through the children in order from whatever requires us
-        // to backtrack the least, to whatever requires the most backtracking. I think iterating in
-        // reverse order gets us part way there, but without actual multi user benchmarking data its
-        // hard to tell for sure if this helps.
-        // for &i in child_idxs.iter().rev() {
-        for &i in child_idxs.iter() {
-            // println!("  - {}", i);
-            if self.consumed[i] { continue; }
+        let mut result = Self {
+            history,
+            branch: conflict.common_branch,
+            // consumed: bitbox![0; history.entries.len()], // NOOOO
+            // visit_spans: conflict.spans,
+            input: spans_to_entries(history, &conflict.spans),
+            to_process: smallvec![],
+            num_consumed: 0
+        };
 
-            let next = &self.history.entries[i];
-            // We're looking for a child where all the parents have been satisfied
-            if next.parents.len() == 1 || next.parents.iter().all(|&p| {
-                // TODO: Speed this up by caching the index of each parent in each txn
-                self.consumed[self.history.entries.find_index(p).unwrap()]
-            }) {
-                return Some(i);
+        for time in &result.branch {
+            // result.push_children(*time);
+
+            let txn_indexes = if *time == ROOT_TIME {
+                &history.root_child_indexes
+            } else {
+                &history.entries.find_packed(*time).child_indexes
+            }.as_slice();
+
+            // This is gross. This code is duplicated in push_children (below), but I can't easily
+            // call push_children because it would violate the borrow checker.
+            for idx in txn_indexes.iter().rev() {
+                let child_span_start = history.entries[*idx].span.start;
+                if let Some(i) = find_entry_idx(&result.input, child_span_start) {
+                    result.to_process.push(i);
+                }
             }
         }
-        None
+
+        result
     }
 
-    fn get_next_child_idx(&self, idx: usize) -> Option<usize> {
-        self.get_next_child(if idx == usize::MAX {
-            &self.history.root_child_indexes
-        } else {
-            &self.history.entries[idx].child_indexes
-        })
+    fn push_children(&mut self, child_txn_idxs: &[usize]) {
+        // self.to_process.extend(... ?)
+        // TODO: Consider removing .rev() here. I think its faster without it.
+        for idx in child_txn_idxs.iter().rev() {
+            let txn = &self.history.entries[*idx];
+            if let Some(i) = find_entry_idx(&self.input, txn.span.start) {
+                self.to_process.push(i);
+            }
+        }
     }
 }
 
@@ -100,31 +186,24 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
             // dummy value at the start of self.stack, which caused an allocation when the doc only
             // has one txn span. This approach is a bit more complex, but leaves the stack empty in
             // this case.
-            if let Some(&idx) = self.stack.last() {
-                // println!("stack top {}!", idx);
-                if let Some(next_idx) = self.get_next_child_idx(idx) {
-                    break next_idx;
+            if let Some(idx) = self.to_process.pop() {
+                let e = &self.input[idx];
+                // Visit this entry if it hasn't been visited but all of its parents have been
+                // visited. Note if our parents haven't been visited yet, we'll throw it out here.
+                // But thats ok, because we should always visit it via another path in that case.
+                if !e.visited && e.parent_idxs.iter().all(|i| self.input[*i].visited) {
+                    break idx;
                 }
-
-                // TODO: We could retreat branch here. That would have the benefit of not needing as
-                // many lookups through txns, but the downside is we'd end up retreating all the way
-                // back to the start of the document at the end of the process. Benchmark to see
-                // which way is better.
-
-                // println!("pop {}!", idx);
-                self.stack.pop();
             } else {
                 // The stack was exhausted and we didn't find anything. We're done here.
-                debug_assert!(self.consumed.all());
-                debug_assert_eq!(self.num_consumed, self.history.entries.len());
+                debug_assert!(self.input.iter().all(|e| e.visited));
+                debug_assert_eq!(self.num_consumed, self.input.len());
                 return None;
             }
         };
 
-        assert!(next_idx < self.history.entries.len());
-        assert!(!self.consumed[next_idx]);
-
-        let next_txn = &self.history.entries[next_idx];
+        let input_entry = &mut self.input[next_idx];
+        let next_txn = &self.history.entries[input_entry.txn_idx];
 
         let (only_branch, only_txn) = self.history.diff(&self.branch, &next_txn.parents);
         // dbg!((&branch, &next_txn.parents, &only_branch, &only_txn));
@@ -142,11 +221,13 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
         }
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());
-        advance_branch_by_known(&mut self.branch, &next_txn.parents, next_txn.span);
+        advance_branch_by_known(&mut self.branch, &next_txn.parents, input_entry.span);
         // dbg!(&branch);
-        self.consumed.set(next_idx, true);
+        // self.consumed.set(next_idx, true);
+        input_entry.visited = true;
         self.num_consumed += 1;
-        self.stack.push(next_idx);
+        // self.to_process.push(next_idx);
+        self.push_children(next_txn.child_indexes.as_slice());
 
         return Some(TxnWalkItem {
             retreat: only_branch,
@@ -164,8 +245,14 @@ impl History {
     /// behaviour in the presence of multiple interleaved branches. (Eg if you're streaming from two
     /// peers concurrently editing different branches).
     pub(crate) fn txn_spanning_tree_iter(&self) -> OptimizedTxnsIter {
-        OptimizedTxnsIter::new(self)
+        OptimizedTxnsIter::new_all(self)
     }
+
+    pub(crate) fn conflicting_txns_iter(&self, a: &[Time], b: &[Time]) -> OptimizedTxnsIter {
+        let conflict = self.find_conflicting(a, b);
+        OptimizedTxnsIter::new(self, conflict)
+    }
+
 }
 
 
@@ -197,6 +284,7 @@ mod test {
             }
         ]);
         let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
+        // dbg!(&walk);
 
         assert_eq!(walk, [
             TxnWalkItem {
@@ -290,7 +378,7 @@ mod test {
         ]);
 
         // history.traverse_txn_spanning_tree();
-        let iter = OptimizedTxnsIter::new(&history);
+        let iter = OptimizedTxnsIter::new_all(&history);
         // for item in iter {
         //     dbg!(item);
         // }
