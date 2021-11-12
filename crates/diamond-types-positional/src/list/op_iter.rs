@@ -1,5 +1,5 @@
 use rle::SplitableSpan;
-use crate::list::{ListCRDT, Time};
+use crate::list::{ListCRDT, OpSet, Time};
 use crate::list::operation::PositionalComponent;
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleVec};
@@ -44,7 +44,7 @@ impl<'a> OpIter<'a> {
     }
 }
 
-impl ListCRDT {
+impl OpSet {
     pub(crate) fn iter_ops(&self, range: TimeSpan) -> OpIter {
         OpIter::new(&self.operations, range)
     }

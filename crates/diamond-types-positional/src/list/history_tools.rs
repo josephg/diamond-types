@@ -5,7 +5,7 @@ use smallvec::{SmallVec, smallvec};
 
 use rle::{AppendRle, SplitableSpan};
 
-use crate::list::{Frontier, ListCRDT, Time};
+use crate::list::{Frontier, ListCRDT, OpSet, Time};
 use crate::list::branch::{branch_is_root, branch_is_sorted};
 use crate::list::history::{History, HistoryEntry};
 use crate::localtime::TimeSpan;
@@ -431,7 +431,7 @@ impl History {
 
 /// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
 /// about branches, find diffs and move between branches.
-impl ListCRDT {
+impl OpSet {
     // Exported for the fuzzer. Not sure if I actually want this exposed.
     pub fn branch_contains_order(&self, branch: &[Time], target: Time) -> bool {
         self.history.branch_contains_order(branch, target)

@@ -22,6 +22,8 @@ mod branch;
 mod op_iter;
 mod m1;
 mod m2;
+mod opset;
+mod checkout;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
 // systems.
@@ -42,19 +44,19 @@ struct ClientData {
     item_orders: RleVec<KVPair<TimeSpan>>,
 }
 
-// #[derive(Debug, Clone)]
-// pub struct Checkout {
-//     frontier: Frontier,
-//     text_content: Option<JumpRope>,
-// }
-//
-// #[derive(Debug, Clone)]
-// pub struct OpSet {
-//
-// }
+#[derive(Debug, Clone)]
+pub struct Checkout {
+    /// The set of txn orders with no children in the document. With a single writer this will
+    /// always just be the last order we've seen.
+    ///
+    /// Never empty. Starts at usize::max (which is the root order).
+    frontier: Frontier,
+
+    content: JumpRope,
+}
 
 #[derive(Debug, Clone)]
-pub struct ListCRDT {
+pub struct OpSet {
     /// This is a bunch of ranges of (item order -> CRDT location span).
     /// The entries always have positive len.
     ///
@@ -71,25 +73,19 @@ pub struct ListCRDT {
     // TODO: Replace me with a compact form of this data.
     operations: RleVec<KVPair<PositionalComponent>>,
 
-    /// The set of txn orders with no children in the document. With a single writer this will
-    /// always just be the last order we've seen.
+    /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
+    /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
+    /// remote changes.
     ///
-    /// Never empty. Starts at usize::max (which is the root order).
-    frontier: Frontier,
-
-
-    // /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
-    // /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
-    // /// remote changes.
-    // ///
-    // /// Along with deletes, this essentially contains the time DAG.
-    // ///
-    // /// TODO: Consider renaming this field
+    /// Along with deletes, this essentially contains the time DAG.
+    ///
+    /// TODO: Consider renaming this field
     history: History,
+}
 
-    // Temporary. This will be moved out into a reference to another data structure I think.
-    text_content: Option<JumpRope>,
-
-    // /// This is a big ol' string containing everything that's been deleted (self.deletes) in order.
-    // deleted_content: Option<String>,
+/// This is the default (obvious) construction for a list.
+#[derive(Debug, Clone)]
+pub struct ListCRDT {
+    checkout: Checkout,
+    ops: OpSet,
 }

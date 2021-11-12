@@ -40,6 +40,7 @@ type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry<YjsSpan2, DocRangeInd
 // struct M2Tracker<'a> {
 struct M2Tracker {
     // list: &'a mut ListCRDT,
+    // ops: &'a
 
     range_tree: CRDTList2,
 

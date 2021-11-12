@@ -3,6 +3,7 @@ use content_tree::{ContentTreeRaw, ContentTreeWithIndex, FullMetricsU32, null_no
 use crate::{AgentId, ROOT_TIME};
 use crate::list::{ListCRDT, Time};
 use crate::list::branch::branch_eq;
+use crate::list::list::apply_local_operation;
 use crate::list::operation::{InsDelTag, PositionalOp};
 use crate::list::m1::yjsspan::YjsSpan;
 use crate::localtime::TimeSpan;
@@ -13,14 +14,14 @@ type CRDTList = Pin<Box<ContentTreeWithIndex<YjsSpan, FullMetricsU32>>>;
 
 impl ListCRDT {
     pub fn apply_operation_at(&mut self, agent: AgentId, branch: &[Time], op: PositionalOp) {
-        if branch_eq(branch, self.frontier.as_slice()) {
-            self.apply_local_operation(agent, op.components.as_slice(), &op.content);
+        if branch_eq(branch, self.checkout.frontier.as_slice()) {
+            apply_local_operation(&mut self.ops, &mut self.checkout, agent, op.components.as_slice(), &op.content);
             return;
         }
 
         // TODO: Do all this in an arena. Allocations here are silly.
 
-        let conflicting = self.history.find_conflicting(self.frontier.as_slice(), branch);
+        let conflicting = self.ops.history.find_conflicting(self.checkout.frontier.as_slice(), branch);
         dbg!(&conflicting);
 
         // Generate CRDT maps for each item
@@ -44,7 +45,7 @@ impl ListCRDT {
     }
 
     fn write_crdt_chum_in_range(&self, list: &mut CRDTList, range: TimeSpan) {
-        for KVPair(time, op) in self.iter_ops(range) {
+        for KVPair(time, op) in self.ops.iter_ops(range) {
             match op.tag {
                 InsDelTag::Ins => {
                     if op.rev { unimplemented!("Implement me!") }
@@ -92,7 +93,7 @@ mod tests {
         doc.get_or_create_agent_id("mike"); // 1
         doc.local_insert(0, 0, "aaa".into());
 
-        let b = doc.frontier.clone();
+        let b = doc.checkout.frontier.clone();
         doc.local_delete(0, 1, 1);
 
         doc.apply_operation_at(1, b.as_slice(), PositionalOp::new_insert(3, "x"));

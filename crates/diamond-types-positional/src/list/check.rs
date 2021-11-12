@@ -1,5 +1,5 @@
 use jumprope::JumpRope;
-use crate::list::ListCRDT;
+use crate::list::{Checkout, ListCRDT, OpSet};
 use smallvec::{SmallVec, smallvec};
 use crate::list::history::History;
 use crate::ROOT_TIME;
@@ -9,21 +9,16 @@ use crate::ROOT_TIME;
 /// This is used during fuzzing to make sure everything is working properly, and if not, find bugs
 /// as early as possible.
 
-impl ListCRDT {
+impl Checkout {
     #[allow(unused)]
     pub fn dbg_assert_content_eq_rope(&self, expected_content: &JumpRope) {
-        if let Some(ref text) = self.text_content {
-            assert_eq!(text, expected_content);
-        }
-    }
-    #[allow(unused)]
-    pub fn dbg_assert_content_eq(&self, expected_content: &str) {
-        if let Some(ref text) = self.text_content {
-            assert_eq!(text, expected_content);
-        }
+        assert_eq!(&self.content, expected_content);
     }
 
-    // Used for testing.
+
+}
+
+impl OpSet {
     #[allow(unused)]
     pub fn check(&self, deep: bool) {
         if deep {
@@ -36,6 +31,14 @@ impl ListCRDT {
         assert_eq!(self.client_data[0].item_orders.len(), 1);
         // .. And operation log.
         assert_eq!(self.history.entries.len(), 1);
+    }
+}
+
+impl ListCRDT {
+    // Used for testing.
+    #[allow(unused)]
+    pub fn check(&self, deep: bool) {
+        self.ops.check(deep);
     }
 }
 
