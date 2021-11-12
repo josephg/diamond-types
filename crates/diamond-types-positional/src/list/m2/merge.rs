@@ -315,13 +315,15 @@ impl M2Tracker {
                 result.pos = ins_pos;
                 // act(result);
                 if let Some(to) = unsafe { to.as_mut() } {
-                    println!("Insert at {} len {}", ins_pos, op.len());
+                    // println!("Insert at {} len {}", ins_pos, op.len());
+                    assert!(op.content_known); // Ok if this is false - we'll just fill with junk.
+                    to.content.insert(ins_pos, &op.content);
                 }
             }
 
             InsDelTag::Del => {
                 let cursor = self.range_tree.mut_cursor_at_content_pos(op.pos, false);
-                let mut result_pos = cursor.count_offset_pos();
+                let mut del_start = cursor.count_offset_pos();
                 let deleted_items = unsafe {
                     let inner = cursor.inner;
                     self.range_tree.local_deactivate_notify(inner, op.len(), notify_for(&mut self.index))
@@ -331,20 +333,21 @@ impl M2Tracker {
 
                 // dbg!(&deleted_items);
                 let mut next_time = *time;
+                let mut del_end = del_start;
+
                 for item in deleted_items {
                     self.deletes.push(KVPair(next_time, item.id));
                     next_time += item.len();
 
                     if !item.ever_deleted {
-                        if let Some(to) = unsafe { to.as_mut() } {
-                            println!("Delete {} len {}", result_pos, item.len());
-                        }
-
-                        result_pos += item.len();
-                    } else {
-                        println!("Ignoring double delete {} {}", result_pos, item.len());
-                    }
+                        del_end += item.len();
+                    } // Otherwise its a double-delete and the content is already deleted.
                 }
+
+                if let Some(to) = unsafe { to.as_mut() } {
+                    to.content.remove(del_start..del_end);
+                }
+
             }
         }
     }
@@ -404,9 +407,9 @@ impl M2Tracker {
         // Ok now we're in the right location
 
         // dbg!(&range, &t);
-        println!("vvvvvvvvvvvvv");
+        // println!("vvvvvvvvvvvvv");
         t.apply_range(opset, range, Some(checkout));
-        println!("^^^^^^^^^^^^^");
+        // println!("^^^^^^^^^^^^^");
     }
 }
 
@@ -425,6 +428,8 @@ mod test {
         list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
 
         M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..6).into());
+        // dbg!(list.checkout);
+        assert_eq!(list.checkout.content, "aaabbb");
     }
 
     #[test]
@@ -441,6 +446,7 @@ mod test {
 
         // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
         M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (3..list.ops.len()).into());
+        assert_eq!(list.checkout.content, "");
     }
 
     #[test]
@@ -454,6 +460,7 @@ mod test {
         list.ops.push_delete(1, &[2], 0, 3);
 
         M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
+        assert_eq!(list.checkout.content, "");
     }
 
     #[test]
