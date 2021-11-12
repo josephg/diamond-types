@@ -1,17 +1,17 @@
 use rle::{HasLength, SplitableSpan};
 use crate::list::{ListCRDT, OpSet, Time};
-use crate::list::operation::PositionalComponent;
+use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleVec};
 
 pub(crate) struct OpIter<'a> {
-    list: &'a RleVec<KVPair<PositionalComponent>>,
+    list: &'a RleVec<KVPair<Operation>>,
     idx: usize,
     range: TimeSpan,
 }
 
 impl<'a> Iterator for OpIter<'a> {
-    type Item = KVPair<PositionalComponent>;
+    type Item = KVPair<Operation>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // I bet there's a more efficient way to write this function.
@@ -35,7 +35,7 @@ impl<'a> Iterator for OpIter<'a> {
 }
 
 impl<'a> OpIter<'a> {
-    fn new(list: &'a RleVec<KVPair<PositionalComponent>>, range: TimeSpan) -> Self {
+    fn new(list: &'a RleVec<KVPair<Operation>>, range: TimeSpan) -> Self {
         OpIter {
             list: &list,
             idx: list.find_index(range.start).unwrap(),
@@ -53,21 +53,21 @@ impl OpSet {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::list::operation::{InsDelTag, PositionalComponent};
+    use crate::list::operation::{InsDelTag, Operation};
     use crate::rle::{KVPair, RleVec};
     use InsDelTag::*;
 
     #[test]
     fn iter_smoke() {
-        let mut ops: RleVec<KVPair<PositionalComponent>> = RleVec::new();
+        let mut ops: RleVec<KVPair<Operation>> = RleVec::new();
 
-        ops.push(KVPair(0, PositionalComponent {
+        ops.push(KVPair(0, Operation {
             pos: 100,
             len: 10,
             rev: false, content_known: true, tag: Ins,
             content: "abcdeabcde".into()
         }));
-        ops.push(KVPair(10, PositionalComponent {
+        ops.push(KVPair(10, Operation {
             pos: 200,
             len: 20,
             rev: false, content_known: false, tag: Del,
@@ -76,7 +76,7 @@ mod test {
 
         assert_eq!(OpIter::new(&ops, (0..30).into()).collect::<Vec<_>>(), ops.0.as_slice());
         
-        assert_eq!(OpIter::new(&ops, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, PositionalComponent {
+        assert_eq!(OpIter::new(&ops, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, Operation {
             pos: 101,
             len: 4,
             rev: false, content_known: true, tag: Ins,
@@ -84,13 +84,13 @@ mod test {
         })]);
 
         assert_eq!(OpIter::new(&ops, (6..16).into()).collect::<Vec<_>>(), &[
-            KVPair(6, PositionalComponent {
+            KVPair(6, Operation {
                 pos: 106,
                 len: 4,
                 rev: false, content_known: true, tag: Ins,
                 content: "bcde".into()
             }),
-            KVPair(10, PositionalComponent {
+            KVPair(10, Operation {
                 pos: 200,
                 len: 6,
                 rev: false, content_known: false, tag: Del,

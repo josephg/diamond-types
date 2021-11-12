@@ -5,7 +5,7 @@ use crate::{AgentId, ROOT_TIME};
 use crate::list::{ListCRDT, Time};
 use crate::list::branch::branch_eq;
 use crate::list::list::apply_local_operation;
-use crate::list::operation::{InsDelTag, PositionalOp};
+use crate::list::operation::{InsDelTag, Operation};
 use crate::list::m1::yjsspan::YjsSpan;
 use crate::localtime::TimeSpan;
 use crate::rle::KVPair;
@@ -14,9 +14,9 @@ use crate::rle::KVPair;
 type CRDTList = Pin<Box<ContentTreeWithIndex<YjsSpan, FullMetricsU32>>>;
 
 impl ListCRDT {
-    pub fn apply_operation_at(&mut self, agent: AgentId, branch: &[Time], op: PositionalOp) {
+    pub fn apply_operation_at(&mut self, agent: AgentId, branch: &[Time], op: &[Operation]) {
         if branch_eq(branch, self.checkout.frontier.as_slice()) {
-            apply_local_operation(&mut self.ops, &mut self.checkout, agent, &op.0);
+            apply_local_operation(&mut self.ops, &mut self.checkout, agent, op);
             return;
         }
 
@@ -85,7 +85,7 @@ mod tests {
     use smallvec::smallvec;
 
     use crate::list::ListCRDT;
-    use crate::list::operation::{PositionalComponent, PositionalOp};
+    use crate::list::operation::{Operation};
 
     #[test]
     fn foo() {
@@ -97,7 +97,7 @@ mod tests {
         let b = doc.checkout.frontier.clone();
         doc.local_delete(0, 1, 1);
 
-        doc.apply_operation_at(1, b.as_slice(), PositionalOp::new_insert(3, "x"));
+        doc.apply_operation_at(1, b.as_slice(), &[Operation::new_insert(3, "x")]);
     }
 
     #[test]

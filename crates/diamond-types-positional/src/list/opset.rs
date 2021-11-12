@@ -6,7 +6,7 @@ use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::list::{ClientData, Branch, OpSet, Time};
 use crate::list::history::HistoryEntry;
 use crate::list::operation::InsDelTag::*;
-use crate::list::operation::PositionalComponent;
+use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 use crate::remotespan::*;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
@@ -32,15 +32,6 @@ impl ClientData {
         let end = usize::min(entry.1.end, start + seq_range.len());
         TimeSpan { start, end }
     }
-
-    // pub fn seq_to_time_span_old(&self, seq: usize, max_len: usize) -> TimeSpan {
-    //     let (entry, offset) = self.item_orders.find_with_offset(seq).unwrap();
-    //     let start = entry.1.start + offset;
-    //     let len = max_len.min(entry.1.start + entry.1.end - offset);
-    //     TimeSpan {
-    //         start, end: start + len
-    //     }
-    // }
 }
 
 impl OpSet {
@@ -212,7 +203,7 @@ impl OpSet {
         assert_eq!(will_merge, did_merge);
     }
 
-    pub fn push(&mut self, agent: AgentId, parents: &[Time], ops: &[PositionalComponent]) {
+    pub fn push(&mut self, agent: AgentId, parents: &[Time], ops: &[Operation]) {
         let first_time = self.len();
         let mut next_time = first_time;
 
@@ -235,19 +226,10 @@ impl OpSet {
     }
 
     pub fn push_insert(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) {
-        self.push(agent, parents, &[PositionalComponent {
-            pos,
-            len: count_chars(ins_content),
-            rev: false,
-            content_known: true,
-            tag: Ins,
-            content: ins_content.into()
-        }]);
+        self.push(agent, parents, &[Operation::new_insert(pos, ins_content)]);
     }
 
     pub fn push_delete(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) {
-        self.push(agent, parents, &[PositionalComponent {
-            pos, len: del_span, rev: false, content_known: true, tag: Del, content: Default::default()
-        }])
+        self.push(agent, parents, &[Operation::new_delete(pos, del_span)]);
     }
 }

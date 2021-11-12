@@ -7,7 +7,7 @@ use jumprope::JumpRope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
-use crate::list::operation::PositionalComponent;
+use crate::list::operation::Operation;
 use crate::list::history::{History, HistoryEntry};
 use crate::localtime::TimeSpan;
 use crate::remotespan::CRDTSpan;
@@ -71,7 +71,7 @@ pub struct OpSet {
     client_data: Vec<ClientData>,
 
     // TODO: Replace me with a compact form of this data.
-    operations: RleVec<KVPair<PositionalComponent>>,
+    operations: RleVec<KVPair<Operation>>,
 
     // TODO: ?? Whats the best form for this data?
     // inserted_content: String,

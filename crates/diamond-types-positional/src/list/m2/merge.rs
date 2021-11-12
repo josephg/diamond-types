@@ -7,7 +7,7 @@ use rle::{HasLength, Searchable, SplitableSpan};
 use crate::list::{Branch, Checkout, ListCRDT, OpSet, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::m2::yjsspan2::{YjsSpan2, YjsSpanState};
-use crate::list::operation::{InsDelTag, PositionalComponent};
+use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
@@ -152,7 +152,7 @@ impl M2Tracker {
             // YjsMod semantics
             match unsafe { other_left_cursor.unsafe_cmp(&left_cursor) } {
                 Ordering::Less => { break; } // Top row
-                Ordering::Greater => { } // Bottom row. Continue.
+                Ordering::Greater => {} // Bottom row. Continue.
                 Ordering::Equal => {
                     if item.origin_right == other_entry.origin_right {
                         // Origin_right matches. Items are concurrent. Order by agent names.
@@ -252,7 +252,7 @@ impl M2Tracker {
 
     /// This is for advancing us directly based on the edit.
     // fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<PositionalComponent>, to: Option<&mut Checkout>) {
-    fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<PositionalComponent>, to: *mut Checkout) {
+    fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<Operation>, to: *mut Checkout) {
         // The op must have been applied at the branch that the tracker is currently at.
         let KVPair(time, op) = pair;
 
@@ -347,70 +347,71 @@ impl M2Tracker {
                 if let Some(to) = unsafe { to.as_mut() } {
                     to.content.remove(del_start..del_end);
                 }
-
             }
         }
     }
+}
 
-    fn apply_to_checkout(checkout: &mut Checkout, opset: &OpSet, mut span: TimeSpan) {
+pub fn merge_changes_m2(checkout: &mut Checkout, opset: &OpSet, mut span: TimeSpan) {
+    // dbg!(&checkout);
+    assert!(span.end <= opset.len());
+    let mut idx = opset.history.entries.find_index(span.start).unwrap();
+
+    while !span.is_empty() {
+        let txn = &opset.history.entries[idx];
+        // dbg!(&span, &txn);
+        debug_assert!(txn.contains(span.start));
+
+        let len_here = span.len().min(txn.span.end - span.start);
+        debug_assert!(len_here > 0);
+
+        // Its kinda gross still doing this when we aren't carving anything off.
+        let op_here = span.truncate_keeping_right(len_here);
+        // dbg!(op_here);
+
+        if let Some(parent) = txn.parent_at_time(op_here.start) {
+            apply_to_checkout_internal(checkout, opset, &[parent], op_here);
+        } else {
+            apply_to_checkout_internal(checkout, opset, &txn.parents, op_here);
+        }
+        checkout.frontier = smallvec![op_here.last()];
         // dbg!(&checkout);
-        assert!(span.end <= opset.len());
-        let mut idx = opset.history.entries.find_index(span.start).unwrap();
+        idx += 1;
+    }
+}
 
-        while !span.is_empty() {
-            let txn = &opset.history.entries[idx];
-            // dbg!(&span, &txn);
-            debug_assert!(txn.contains(span.start));
-
-            let len_here = span.len().min(txn.span.end - span.start);
-            debug_assert!(len_here > 0);
-
-            // Its kinda gross still doing this when we aren't carving anything off.
-            let op_here = span.truncate_keeping_right(len_here);
-            // dbg!(op_here);
-
-            if let Some(parent) = txn.parent_at_time(op_here.start) {
-                Self::apply_to_checkout_internal(checkout, opset, &[parent], op_here);
-            } else {
-                Self::apply_to_checkout_internal(checkout, opset, &txn.parents, op_here);
-            }
-            checkout.frontier = smallvec![op_here.last()];
-            // dbg!(&checkout);
-            idx += 1;
+fn apply_to_checkout_internal(checkout: &mut Checkout, opset: &OpSet, parents: &[Time], range: TimeSpan) {
+    if branch_eq(parents, &checkout.frontier) {
+        // Fast path.
+        for op in opset.iter_ops(range) {
+            checkout.apply_1(&op.1);
         }
+        return;
     }
 
-    fn apply_to_checkout_internal(checkout: &mut Checkout, opset: &OpSet, parents: &[Time], range: TimeSpan) {
-        // if branch_eq(parents, &checkout.frontier) {
-        //     for op in opset.iter_ops(range) {
-        //         checkout.apply(&[op.1], "");
-        //     }
-        // }
+    // dbg!(parents, &range, &checkout.frontier);
 
-        // dbg!(parents, &range, &checkout.frontier);
+    let (mut t, branch) = M2Tracker::new_at_conflict(opset, parents, &checkout.frontier);
+    // dbg!(&t, &branch);
 
-        let (mut t, branch) = Self::new_at_conflict(opset, parents, &checkout.frontier);
-        // dbg!(&t, &branch);
-
-        let (only_tracker, only_parents) = opset.history.diff(&branch, parents);
-        // dbg!((&branch, &next_txn.parents, &only_branch, &only_txn));
-        // Note that even if we're moving to one of our direct children we might see items only
-        // in only_branch if the child has a parent in the middle of our txn.
-        // dbg!(&only_tracker, &only_parents);
-        for range in &only_tracker {
-            t.retreat_by_range(range.clone());
-        }
-        for range in only_parents.iter().rev() {
-            t.advance_by_range(range.clone());
-        }
-
-        // Ok now we're in the right location
-
-        // dbg!(&range, &t);
-        // println!("vvvvvvvvvvvvv");
-        t.apply_range(opset, range, Some(checkout));
-        // println!("^^^^^^^^^^^^^");
+    let (only_tracker, only_parents) = opset.history.diff(&branch, parents);
+    // dbg!((&branch, &next_txn.parents, &only_branch, &only_txn));
+    // Note that even if we're moving to one of our direct children we might see items only
+    // in only_branch if the child has a parent in the middle of our txn.
+    // dbg!(&only_tracker, &only_parents);
+    for range in &only_tracker {
+        t.retreat_by_range(range.clone());
     }
+    for range in only_parents.iter().rev() {
+        t.advance_by_range(range.clone());
+    }
+
+    // Ok now we're in the right location
+
+    // dbg!(&range, &t);
+    // println!("vvvvvvvvvvvvv");
+    t.apply_range(opset, range, Some(checkout));
+    // println!("^^^^^^^^^^^^^");
 }
 
 #[cfg(test)]
@@ -427,7 +428,7 @@ mod test {
         list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
         list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
 
-        M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..6).into());
+        merge_changes_m2(&mut list.checkout, &list.ops, (0..6).into());
         // dbg!(list.checkout);
         assert_eq!(list.checkout.content, "aaabbb");
     }
@@ -445,7 +446,7 @@ mod test {
         list.ops.push_delete(1, &[2], 0, 3);
 
         // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
-        M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (3..list.ops.len()).into());
+        merge_changes_m2(&mut list.checkout, &list.ops, (3..list.ops.len()).into());
         assert_eq!(list.checkout.content, "");
     }
 
@@ -459,7 +460,7 @@ mod test {
         list.ops.push_delete(0, &[2], 1, 1);
         list.ops.push_delete(1, &[2], 0, 3);
 
-        M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
+        merge_changes_m2(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
         assert_eq!(list.checkout.content, "");
     }
 

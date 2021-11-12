@@ -9,7 +9,7 @@ use smartstring::alias::{String as SmartString};
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::list::branch::branch_eq;
 use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::list::operation::{InsDelTag, PositionalComponent};
+use crate::list::operation::{InsDelTag, Operation};
 use crate::list::history::HistoryEntry;
 use crate::localtime::TimeSpan;
 use crate::remotespan::{CRDT_DOC_ROOT, CRDTId, CRDTSpan};
@@ -32,7 +32,7 @@ fn insert_history_local(opset: &mut OpSet, frontier: &mut Branch, range: TimeSpa
     opset.insert_history(&txn_parents, range);
 }
 
-pub fn apply_local_operation(opset: &mut OpSet, checkout: &mut Checkout, agent: AgentId, local_ops: &[PositionalComponent]) {
+pub fn apply_local_operation(opset: &mut OpSet, checkout: &mut Checkout, agent: AgentId, local_ops: &[Operation]) {
     let first_time = opset.len();
     let mut next_time = first_time;
 
@@ -71,21 +71,11 @@ pub fn apply_local_operation(opset: &mut OpSet, checkout: &mut Checkout, agent: 
 }
 
 pub fn local_insert(opset: &mut OpSet, checkout: &mut Checkout, agent: AgentId, pos: usize, ins_content: &str) {
-    apply_local_operation(opset, checkout, agent, &[PositionalComponent {
-        pos,
-        len: count_chars(ins_content),
-        rev: false,
-        content_known: true,
-        tag: Ins,
-        // content_bytes_offset: 0
-        content: ins_content.into()
-    }]);
+    apply_local_operation(opset, checkout, agent, &[Operation::new_insert(pos, ins_content)]);
 }
 
 pub fn local_delete(opset: &mut OpSet, checkout: &mut Checkout, agent: AgentId, pos: usize, del_span: usize) {
-    apply_local_operation(opset, checkout, agent, &[PositionalComponent {
-        pos, len: del_span, rev: false, content_known: true, tag: Del, content: Default::default()
-    }]);
+    apply_local_operation(opset, checkout, agent, &[Operation::new_delete(pos, del_span)]);
 }
 
 
@@ -101,7 +91,7 @@ impl ListCRDT {
         self.checkout.len()
     }
 
-    pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[PositionalComponent]) {
+    pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[Operation]) {
         apply_local_operation(&mut self.ops, &mut self.checkout, agent, local_ops);
     }
 

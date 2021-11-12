@@ -13,6 +13,7 @@ use crate::unicount::{chars_to_bytes, count_chars};
 use rle::AppendRle;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
+use crate::localtime::TimeSpan;
 
 /// So I might use this more broadly, for all edits. If so, move this out of OT.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -34,7 +35,7 @@ pub enum InsDelTag { Ins, Del }
 /// is designed to match the on-disk file format.
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
-pub struct PositionalComponent {
+pub struct Operation {
     pub pos: usize,
     pub len: usize,
 
@@ -45,94 +46,25 @@ pub struct PositionalComponent {
     pub content: SmartString,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
-pub struct PositionalOp(pub SmallVec<[PositionalComponent; 1]>);
-
-// pub struct PositionalOp {
-//     pub components: SmallVec<[PositionalComponent; 1]>,
-//     pub content: SmartString,
-// }
-
 impl Default for InsDelTag {
     fn default() -> Self { InsDelTag::Ins } // Arbitrary.
 }
 
-// This is such a dirty hack and I'm not even mad about it.
-const XS: &str = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
-
-impl PositionalOp {
-    pub fn new() -> Self { Self::default() }
-
-    pub fn new_insert(pos: usize, content: &str) -> Self {
-        let len = count_chars(content);
-        Self(smallvec![
-            PositionalComponent { pos, len, rev: false, content_known: true, tag: Ins, content: content.into() }
-        ])
-    }
-    pub fn new_delete(pos: usize, len: usize) -> Self {
-        Self(smallvec![
-            PositionalComponent { pos, len, rev: false, content_known: true, tag: Del, content: Default::default() }
-        ])
-    }
-
-    // pub fn apply_to_rope(&self, rope: &mut JumpRope) {
-    //     // let mut new_content = self.content.as_str();
-    //
-    //     for c in &self.components {
-    //         let len = c.len as usize;
-    //         let pos = c.pos as usize;
-    //         match c.tag {
-    //             Ins => {
-    //                 if c.content_known {
-    //                     // let byte_len = chars_to_bytes(new_content, len);
-    //                     // let (here, next) = new_content.split_at(byte_len);
-    //                     // new_content = next;
-    //                     if c.rev {
-    //                         let s = here.chars().rev().collect::<String>();
-    //                         rope.insert(pos, &s);
-    //                     } else {
-    //                         rope.insert(pos, here);
-    //                     }
-    //                 } else if len < XS.len() {
-    //                     rope.insert(pos, &XS[..len]);
-    //                 } else {
-    //                     // let xs: String = std::iter::repeat('X').take(len).collect();
-    //                     let xs: String = "X".repeat(len);
-    //                     rope.insert(pos, &xs);
-    //                 }
-    //             }
-    //             Del => {
-    //                 rope.remove(pos..pos+len);
-    //             }
-    //         }
-    //     }
-    // }
-
-    // pub fn from_components(components: SmallVec<[(usize, PositionalComponent); 10]>, content: Option<&JumpRope>) -> Self {
-    //     let mut result = Self::new();
-    //     for (post_pos, mut c) in components {
-    //         if c.content_known {
-    //             if let Some(content) = content {
-    //                 let chars = content.slice_chars(post_pos..post_pos + c.len);
-    //                 result.content.extend(chars);
-    //             } else {
-    //                 c.content_known = false;
-    //             }
-    //         }
-    //         result.components.push_rle(c);
-    //     }
-    //     result
-    // }
-}
-
-impl HasLength for PositionalComponent {
+impl HasLength for Operation {
     fn len(&self) -> usize {
         self.len
     }
 }
 
-impl PositionalComponent {
+impl Operation {
+    pub fn new_insert(pos: usize, content: &str) -> Self {
+        let len = count_chars(content);
+        Operation { pos, len, rev: false, content_known: true, tag: Ins, content: content.into() }
+    }
+    pub fn new_delete(pos: usize, len: usize) -> Self {
+        Operation { pos, len, rev: false, content_known: true, tag: Del, content: Default::default() }
+    }
+
     // Could just inline this into truncate() below. It won't be used in other contexts.
     fn split_positions(&self, at: usize) -> (usize, usize) {
         let first = self.pos;
@@ -144,9 +76,16 @@ impl PositionalComponent {
             (first, first)
         }
     }
+
+    pub fn range(&self) -> TimeSpan {
+        TimeSpan {
+            start: self.pos,
+            end: self.pos + self.len
+        }
+    }
 }
 
-impl SplitableSpan for PositionalComponent {
+impl SplitableSpan for Operation {
     fn truncate(&mut self, at: usize) -> Self {
         let (self_first, rem_first) = self.split_positions(at);
         let byte_split = if self.tag == Ins && self.content_known {
@@ -171,7 +110,7 @@ impl SplitableSpan for PositionalComponent {
     }
 }
 
-impl MergableSpan for PositionalComponent {
+impl MergableSpan for Operation {
     fn can_append(&self, other: &Self) -> bool {
         let tag = self.tag;
 
@@ -231,7 +170,7 @@ mod test {
     #[test]
     fn test_backspace_merges() {
         // Make sure deletes collapse.
-        let a = PositionalComponent {
+        let a = Operation {
             pos: 100,
             len: 1,
             rev: false,
@@ -239,7 +178,7 @@ mod test {
             tag: Del,
             content: Default::default()
         };
-        let b = PositionalComponent {
+        let b = Operation {
             pos: 99,
             len: 1,
             rev: false,
@@ -252,7 +191,7 @@ mod test {
         let mut merged = a.clone();
         merged.append(b.clone());
         // dbg!(&a);
-        let expect = PositionalComponent {
+        let expect = Operation {
             pos: 99,
             len: 2,
             rev: true,
@@ -273,7 +212,7 @@ mod test {
     fn positional_component_splitable() {
         for rev in [true, false] {
             for content_known in [true, false] {
-                test_splitable_methods_valid(PositionalComponent {
+                test_splitable_methods_valid(Operation {
                     pos: 10,
                     len: 5,
                     rev,
@@ -282,7 +221,7 @@ mod test {
                     content: "abcde".into()
                 });
 
-                test_splitable_methods_valid(PositionalComponent {
+                test_splitable_methods_valid(Operation {
                     pos: 10,
                     len: 5,
                     rev,
