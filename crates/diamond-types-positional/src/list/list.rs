@@ -9,7 +9,7 @@ use smartstring::alias::{String as SmartString};
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::list::branch::branch_eq;
 use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::list::operation::{InsDelTag, PositionalComponent, PositionalOp};
+use crate::list::operation::{InsDelTag, PositionalComponent};
 use crate::list::history::HistoryEntry;
 use crate::localtime::TimeSpan;
 use crate::remotespan::{CRDT_DOC_ROOT, CRDTId, CRDTSpan};
@@ -32,11 +32,11 @@ fn insert_history_local(opset: &mut OpSet, frontier: &mut Branch, range: TimeSpa
     opset.insert_history(&txn_parents, range);
 }
 
-pub fn apply_local_operation(opset: &mut OpSet, checkout: &mut Checkout, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str) {
+pub fn apply_local_operation(opset: &mut OpSet, checkout: &mut Checkout, agent: AgentId, local_ops: &[PositionalComponent]) {
     let first_time = opset.len();
     let mut next_time = first_time;
 
-    let op_len = local_ops.iter().map(|c| c.len).sum();
+    let op_len = local_ops.iter().map(|c| c.len()).sum();
 
     opset.assign_time_to_client(CRDTId {
         agent,
@@ -46,13 +46,13 @@ pub fn apply_local_operation(opset: &mut OpSet, checkout: &mut Checkout, agent: 
     // for LocalOp { pos, ins_content, del_span } in local_ops {
     for c in local_ops {
         let pos = c.pos as usize;
-        let len = c.len as usize;
+        let len = c.len() as usize;
 
         match c.tag {
             Ins => {
                 assert!(c.content_known);
-                let new_content = consume_chars(&mut content, len);
-                checkout.content.insert(pos, new_content);
+                // let new_content = consume_chars(&mut content, len);
+                checkout.content.insert(pos, &c.content);
             }
 
             Del => {
@@ -76,14 +76,16 @@ pub fn local_insert(opset: &mut OpSet, checkout: &mut Checkout, agent: AgentId, 
         len: count_chars(ins_content),
         rev: false,
         content_known: true,
-        tag: Ins
-    }], ins_content);
+        tag: Ins,
+        // content_bytes_offset: 0
+        content: ins_content.into()
+    }]);
 }
 
 pub fn local_delete(opset: &mut OpSet, checkout: &mut Checkout, agent: AgentId, pos: usize, del_span: usize) {
     apply_local_operation(opset, checkout, agent, &[PositionalComponent {
-        pos, len: del_span, rev: false, content_known: true, tag: Del
-    }], "")
+        pos, len: del_span, rev: false, content_known: true, tag: Del, content: Default::default()
+    }]);
 }
 
 
@@ -99,8 +101,8 @@ impl ListCRDT {
         self.checkout.len()
     }
 
-    pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[PositionalComponent], mut content: &str) {
-        apply_local_operation(&mut self.ops, &mut self.checkout, agent, local_ops, content);
+    pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[PositionalComponent]) {
+        apply_local_operation(&mut self.ops, &mut self.checkout, agent, local_ops);
     }
 
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
@@ -127,7 +129,7 @@ impl ListCRDT {
         let mut d_n = 0;
         let mut d_r = 0;
         for op in self.ops.operations.iter_merged() {
-            match (op.1.len, op.1.tag, op.1.rev) {
+            match (op.1.len(), op.1.tag, op.1.rev) {
                 (1, InsDelTag::Ins, _) => { i_1 += 1; }
                 (_, InsDelTag::Ins, false) => { i_n += 1; }
                 (_, InsDelTag::Ins, true) => { i_r += 1; }

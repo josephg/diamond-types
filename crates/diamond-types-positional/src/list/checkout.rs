@@ -1,6 +1,7 @@
 use jumprope::JumpRope;
 use crate::list::Checkout;
 use smallvec::smallvec;
+use rle::HasLength;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::PositionalComponent;
 use crate::ROOT_TIME;
@@ -19,8 +20,8 @@ impl Checkout {
     }
 
     pub fn apply_1(&mut self, op: &PositionalComponent, content: &str) {
-        let pos = op.pos as usize;
-        let len = op.len as usize;
+        let pos = op.pos;
+        let len = op.len();
 
         match op.tag {
             Ins => {
@@ -37,7 +38,7 @@ impl Checkout {
     pub fn apply(&mut self, ops: &[PositionalComponent], mut content: &str) {
         for c in ops {
             let content = if c.tag == Ins && c.content_known {
-                consume_chars(&mut content, c.len)
+                consume_chars(&mut content, c.len())
             } else { "" };
             self.apply_1(c, content);
         }

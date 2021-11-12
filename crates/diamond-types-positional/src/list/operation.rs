@@ -41,14 +41,18 @@ pub struct PositionalComponent {
     pub rev: bool,
     pub content_known: bool,
     pub tag: InsDelTag,
+    // pub content_bytes_offset: usize,
+    pub content: SmartString,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
-pub struct PositionalOp {
-    pub components: SmallVec<[PositionalComponent; 1]>,
-    pub content: SmartString,
-}
+pub struct PositionalOp(pub SmallVec<[PositionalComponent; 1]>);
+
+// pub struct PositionalOp {
+//     pub components: SmallVec<[PositionalComponent; 1]>,
+//     pub content: SmartString,
+// }
 
 impl Default for InsDelTag {
     fn default() -> Self { InsDelTag::Ins } // Arbitrary.
@@ -62,70 +66,64 @@ impl PositionalOp {
 
     pub fn new_insert(pos: usize, content: &str) -> Self {
         let len = count_chars(content);
-        Self {
-            components: smallvec![
-                PositionalComponent { pos, len, rev: false, content_known: true, tag: Ins }
-            ],
-            content: content.into()
-        }
+        Self(smallvec![
+            PositionalComponent { pos, len, rev: false, content_known: true, tag: Ins, content: content.into() }
+        ])
     }
     pub fn new_delete(pos: usize, len: usize) -> Self {
-        Self {
-            components: smallvec![
-                PositionalComponent { pos, len, rev: false, content_known: true, tag: Del }
-            ],
-            content: Default::default()
-        }
+        Self(smallvec![
+            PositionalComponent { pos, len, rev: false, content_known: true, tag: Del, content: Default::default() }
+        ])
     }
 
-    pub fn apply_to_rope(&self, rope: &mut JumpRope) {
-        let mut new_content = self.content.as_str();
+    // pub fn apply_to_rope(&self, rope: &mut JumpRope) {
+    //     // let mut new_content = self.content.as_str();
+    //
+    //     for c in &self.components {
+    //         let len = c.len as usize;
+    //         let pos = c.pos as usize;
+    //         match c.tag {
+    //             Ins => {
+    //                 if c.content_known {
+    //                     // let byte_len = chars_to_bytes(new_content, len);
+    //                     // let (here, next) = new_content.split_at(byte_len);
+    //                     // new_content = next;
+    //                     if c.rev {
+    //                         let s = here.chars().rev().collect::<String>();
+    //                         rope.insert(pos, &s);
+    //                     } else {
+    //                         rope.insert(pos, here);
+    //                     }
+    //                 } else if len < XS.len() {
+    //                     rope.insert(pos, &XS[..len]);
+    //                 } else {
+    //                     // let xs: String = std::iter::repeat('X').take(len).collect();
+    //                     let xs: String = "X".repeat(len);
+    //                     rope.insert(pos, &xs);
+    //                 }
+    //             }
+    //             Del => {
+    //                 rope.remove(pos..pos+len);
+    //             }
+    //         }
+    //     }
+    // }
 
-        for c in &self.components {
-            let len = c.len as usize;
-            let pos = c.pos as usize;
-            match c.tag {
-                Ins => {
-                    if c.content_known {
-                        let byte_len = chars_to_bytes(new_content, len);
-                        let (here, next) = new_content.split_at(byte_len);
-                        new_content = next;
-                        if c.rev {
-                            let s = here.chars().rev().collect::<String>();
-                            rope.insert(pos, &s);
-                        } else {
-                            rope.insert(pos, here);
-                        }
-                    } else if len < XS.len() {
-                        rope.insert(pos, &XS[..len]);
-                    } else {
-                        // let xs: String = std::iter::repeat('X').take(len).collect();
-                        let xs: String = "X".repeat(len);
-                        rope.insert(pos, &xs);
-                    }
-                }
-                Del => {
-                    rope.remove(pos..pos+len);
-                }
-            }
-        }
-    }
-
-    pub fn from_components(components: SmallVec<[(usize, PositionalComponent); 10]>, content: Option<&JumpRope>) -> Self {
-        let mut result = Self::new();
-        for (post_pos, mut c) in components {
-            if c.content_known {
-                if let Some(content) = content {
-                    let chars = content.slice_chars(post_pos..post_pos + c.len);
-                    result.content.extend(chars);
-                } else {
-                    c.content_known = false;
-                }
-            }
-            result.components.push_rle(c);
-        }
-        result
-    }
+    // pub fn from_components(components: SmallVec<[(usize, PositionalComponent); 10]>, content: Option<&JumpRope>) -> Self {
+    //     let mut result = Self::new();
+    //     for (post_pos, mut c) in components {
+    //         if c.content_known {
+    //             if let Some(content) = content {
+    //                 let chars = content.slice_chars(post_pos..post_pos + c.len);
+    //                 result.content.extend(chars);
+    //             } else {
+    //                 c.content_known = false;
+    //             }
+    //         }
+    //         result.components.push_rle(c);
+    //     }
+    //     result
+    // }
 }
 
 impl HasLength for PositionalComponent {
@@ -151,12 +149,19 @@ impl PositionalComponent {
 impl SplitableSpan for PositionalComponent {
     fn truncate(&mut self, at: usize) -> Self {
         let (self_first, rem_first) = self.split_positions(at);
+        let byte_split = if self.tag == Ins && self.content_known {
+            chars_to_bytes(&self.content, at)
+        } else {
+            0
+        };
+
         let remainder = Self {
             pos: rem_first,
             len: self.len - at,
             rev: self.rev,
             content_known: self.content_known,
             tag: self.tag,
+            content: self.content.split_off(byte_split),
         };
 
         self.pos = self_first;
@@ -196,15 +201,24 @@ impl MergableSpan for PositionalComponent {
         if self.tag == Del && self.rev {
             self.pos = other.pos;
         }
+
+        if self.tag == Ins && self.content_known {
+            self.content.push_str(&other.content);
+        }
     }
 
-    fn prepend(&mut self, other: Self) {
+    fn prepend(&mut self, mut other: Self) {
         self.rev = self.pos < other.pos || (other.pos == self.pos && self.tag == Ins);
 
         if self.tag == Ins || self.rev == false {
             self.pos = other.pos;
         }
         self.len += other.len;
+
+        if self.tag == Ins && self.content_known {
+            other.content.push_str(&self.content);
+            self.content = other.content;
+        }
     }
 }
 
@@ -222,14 +236,16 @@ mod test {
             len: 1,
             rev: false,
             content_known: true,
-            tag: Del
+            tag: Del,
+            content: Default::default()
         };
         let b = PositionalComponent {
             pos: 99,
             len: 1,
             rev: false,
             content_known: true,
-            tag: Del
+            tag: Del,
+            content: Default::default()
         };
         assert!(a.can_append(&b));
 
@@ -241,7 +257,8 @@ mod test {
             len: 2,
             rev: true,
             content_known: true,
-            tag: Del
+            tag: Del,
+            content: Default::default()
         };
         assert_eq!(merged, expect);
 
@@ -260,8 +277,9 @@ mod test {
                     pos: 10,
                     len: 5,
                     rev,
-                    content_known,
-                    tag: Ins
+                    content_known: true,
+                    tag: Ins,
+                    content: "abcde".into()
                 });
 
                 test_splitable_methods_valid(PositionalComponent {
@@ -269,7 +287,8 @@ mod test {
                     len: 5,
                     rev,
                     content_known,
-                    tag: Del
+                    tag: Del,
+                    content: Default::default()
                 });
             }
         }

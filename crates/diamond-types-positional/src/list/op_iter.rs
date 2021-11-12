@@ -1,4 +1,4 @@
-use rle::SplitableSpan;
+use rle::{HasLength, SplitableSpan};
 use crate::list::{ListCRDT, OpSet, Time};
 use crate::list::operation::PositionalComponent;
 use crate::localtime::TimeSpan;
@@ -20,7 +20,7 @@ impl<'a> Iterator for OpIter<'a> {
         let KVPair(mut time, mut c) = self.list[self.idx].clone();
         if time >= self.range.end { return None; }
 
-        if time + c.len > self.range.end {
+        if time + c.len() > self.range.end {
             c.truncate(self.range.end - time);
         }
 
@@ -64,32 +64,37 @@ mod test {
         ops.push(KVPair(0, PositionalComponent {
             pos: 100,
             len: 10,
-            rev: false, content_known: false, tag: Ins
+            rev: false, content_known: true, tag: Ins,
+            content: "abcdeabcde".into()
         }));
         ops.push(KVPair(10, PositionalComponent {
             pos: 200,
             len: 20,
-            rev: false, content_known: false, tag: Del
+            rev: false, content_known: false, tag: Del,
+            content: Default::default()
         }));
 
         assert_eq!(OpIter::new(&ops, (0..30).into()).collect::<Vec<_>>(), ops.0.as_slice());
-
+        
         assert_eq!(OpIter::new(&ops, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, PositionalComponent {
             pos: 101,
             len: 4,
-            rev: false, content_known: false, tag: Ins,
+            rev: false, content_known: true, tag: Ins,
+            content: "bcde".into()
         })]);
 
         assert_eq!(OpIter::new(&ops, (6..16).into()).collect::<Vec<_>>(), &[
             KVPair(6, PositionalComponent {
                 pos: 106,
                 len: 4,
-                rev: false, content_known: false, tag: Ins,
+                rev: false, content_known: true, tag: Ins,
+                content: "bcde".into()
             }),
             KVPair(10, PositionalComponent {
                 pos: 200,
                 len: 6,
                 rev: false, content_known: false, tag: Del,
+                content: Default::default()
             }),
         ]);
     }

@@ -73,6 +73,9 @@ pub struct OpSet {
     // TODO: Replace me with a compact form of this data.
     operations: RleVec<KVPair<PositionalComponent>>,
 
+    // TODO: ?? Whats the best form for this data?
+    // inserted_content: String,
+
     /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
     /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
     /// remote changes.

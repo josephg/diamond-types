@@ -299,7 +299,7 @@ impl M2Tracker {
                 // let origin_right = cursor.get_item().unwrap_or(ROOT_TIME);
 
                 let item = YjsSpan2 {
-                    id: TimeSpan::new(*time, *time + op.len),
+                    id: TimeSpan::new(*time, *time + op.len()),
                     origin_left,
                     origin_right,
                     state: YjsSpanState::Inserted,
@@ -315,7 +315,7 @@ impl M2Tracker {
                 result.pos = ins_pos;
                 // act(result);
                 if let Some(to) = unsafe { to.as_mut() } {
-                    println!("Insert at {} len {}", ins_pos, op.len);
+                    println!("Insert at {} len {}", ins_pos, op.len());
                 }
             }
 
@@ -324,7 +324,7 @@ impl M2Tracker {
                 let mut result_pos = cursor.count_offset_pos();
                 let deleted_items = unsafe {
                     let inner = cursor.inner;
-                    self.range_tree.local_deactivate_notify(inner, op.len, notify_for(&mut self.index))
+                    self.range_tree.local_deactivate_notify(inner, op.len(), notify_for(&mut self.index))
                 };
 
                 // let deleted_items = self.range_tree.local_deactivate_at_content_notify(op.pos, op.len, notify_for(&mut self.index));

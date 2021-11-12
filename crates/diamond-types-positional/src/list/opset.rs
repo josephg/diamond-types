@@ -49,6 +49,7 @@ impl OpSet {
             client_with_localtime: RleVec::new(),
             client_data: vec![],
             operations: Default::default(),
+            // inserted_content: "".to_string(),
             history: Default::default()
         }
     }
@@ -211,11 +212,11 @@ impl OpSet {
         assert_eq!(will_merge, did_merge);
     }
 
-    pub fn push(&mut self, agent: AgentId, parents: &[Time], ops: &[PositionalComponent], mut content: &str) {
+    pub fn push(&mut self, agent: AgentId, parents: &[Time], ops: &[PositionalComponent]) {
         let first_time = self.len();
         let mut next_time = first_time;
 
-        let op_len = ops.iter().map(|c| c.len).sum();
+        let op_len = ops.iter().map(|c| c.len()).sum();
 
         self.assign_time_to_client(CRDTId {
             agent,
@@ -223,8 +224,9 @@ impl OpSet {
         }, first_time, op_len);
 
         for c in ops {
-            let len = c.len as usize;
+            let len = c.len();
 
+            // TODO: Remove this .clone().
             self.operations.push(KVPair(next_time, c.clone()));
             next_time += len;
         }
@@ -238,13 +240,14 @@ impl OpSet {
             len: count_chars(ins_content),
             rev: false,
             content_known: true,
-            tag: Ins
-        }], ins_content);
+            tag: Ins,
+            content: ins_content.into()
+        }]);
     }
 
     pub fn push_delete(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) {
         self.push(agent, parents, &[PositionalComponent {
-            pos, len: del_span, rev: false, content_known: true, tag: Del
-        }], "")
+            pos, len: del_span, rev: false, content_known: true, tag: Del, content: Default::default()
+        }])
     }
 }

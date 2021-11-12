@@ -1,5 +1,6 @@
 use std::pin::Pin;
 use content_tree::{ContentTreeRaw, ContentTreeWithIndex, FullMetricsU32, null_notify};
+use rle::HasLength;
 use crate::{AgentId, ROOT_TIME};
 use crate::list::{ListCRDT, Time};
 use crate::list::branch::branch_eq;
@@ -15,7 +16,7 @@ type CRDTList = Pin<Box<ContentTreeWithIndex<YjsSpan, FullMetricsU32>>>;
 impl ListCRDT {
     pub fn apply_operation_at(&mut self, agent: AgentId, branch: &[Time], op: PositionalOp) {
         if branch_eq(branch, self.checkout.frontier.as_slice()) {
-            apply_local_operation(&mut self.ops, &mut self.checkout, agent, op.components.as_slice(), &op.content);
+            apply_local_operation(&mut self.ops, &mut self.checkout, agent, &op.0);
             return;
         }
 
@@ -62,7 +63,7 @@ impl ListCRDT {
                     let origin_right = cursor.get_item().unwrap_or(ROOT_TIME);
 
                     let item = YjsSpan {
-                        id: TimeSpan::new(time, time + op.len),
+                        id: TimeSpan::new(time, time + op.len()),
                         origin_left,
                         origin_right,
                         is_deleted: false
@@ -72,7 +73,7 @@ impl ListCRDT {
                     cursor.insert(item);
                 }
                 InsDelTag::Del => {
-                    list.local_deactivate_at_content_notify(op.pos, op.len, null_notify);
+                    list.local_deactivate_at_content_notify(op.pos, op.len(), null_notify);
                 }
             }
         }
