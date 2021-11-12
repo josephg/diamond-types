@@ -117,20 +117,11 @@ impl M2Tracker {
         }
     }
 
-    // pub(super) fn integrate(&mut self, agent: AgentId, item: YjsSpan2, ins_content: Option<&str>, cursor_hint: Option<MutCursor<YjsSpan2, FullMetrics, DEFAULT_IE, DEFAULT_LE>>) {
-    // pub(super) fn integrate(&mut self, list: &ListCRDT, agent: AgentId, item: YjsSpan2, ins_content: Option<&str>, mut cursor: UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) {
     pub(super) fn integrate(&mut self, opset: &OpSet, agent: AgentId, item: YjsSpan2, mut cursor: UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
         assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
         cursor.roll_to_next_entry();
-        // let mut cursor = cursor_hint.map_or_else(|| {
-        //     self.get_unsafe_cursor_after(item.origin_left, false)
-        // }, |mut c| {
-        //     // Ideally this wouldn't be necessary.
-        //     c.roll_to_next_entry();
-        //     c.inner
-        // });
 
         // These are almost never used. Could avoid the clone here... though its pretty cheap.
         let left_cursor = cursor.clone();
@@ -218,44 +209,11 @@ impl M2Tracker {
             assert!(pos <= len);
         }
 
-        // assert_eq!(ins_content, None, "Blerp inserting text not implemented");
-        // if let Some(text) = self.list.text_content.as_mut() {
-        //     let pos = unsafe { cursor.count_content_pos() };
-        //     if let Some(ins_content) = ins_content {
-        //         // debug_assert_eq!(count_chars(&ins_content), item.len as usize);
-        //         text.insert(pos, ins_content);
-        //     } else {
-        //         // todo!("Figure out what to do when inserted content not present");
-        //         // This is really dirty. This will happen when we're integrating remote txns which
-        //         // are missing inserted content - usually because the remote peer hasn't kept
-        //         // deleted text.
-        //         //
-        //         // In that case, we're inserting content which is about to be deleted by another
-        //         // incoming operation.
-        //         //
-        //         // Ideally it would be nice to flag the range here and cancel it out with the
-        //         // corresponding incoming delete. But thats really awkward, and this hack is super
-        //         // simple.
-        //         let content = SmartString::from("x").repeat(item.len as usize);
-        //         text.insert(pos, content.as_str());
-        //     }
-        // }
-
         // Now insert here.
         let content_pos = unsafe { cursor.unsafe_count_offset_pos() };
         unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
         content_pos
     }
-
-    // fn foo<'a, X>(x: &'a mut Option<&'a mut X>) -> Option<&'a mut X> {
-    // fn foo<'a, X>(x: &'a mut Option<&'a mut X>) -> Option<&'a mut X> {
-    //     if let Some(x) = x {
-    //         // Some(x.deref_mut())
-    //         Some(*x)
-    //     } else {
-    //         None
-    //     }
-    // }
 
     fn apply_range(&mut self, opset: &OpSet, range: TimeSpan, mut to: Option<&mut Checkout>) {
         let to_ptr = if let Some(to) = to {
@@ -421,7 +379,9 @@ impl M2Tracker {
 
     fn apply_to_checkout_internal(checkout: &mut Checkout, opset: &OpSet, parents: &[Time], range: TimeSpan) {
         // if branch_eq(parents, &checkout.frontier) {
-        //     // apply_local_operation()
+        //     for op in opset.iter_ops(range) {
+        //         checkout.apply(&[op.1], "");
+        //     }
         // }
 
         // dbg!(parents, &range, &checkout.frontier);
@@ -468,7 +428,7 @@ mod test {
     }
 
     #[test]
-    fn test_merge_deletes() {
+    fn test_merge_deletes_1() {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
@@ -481,6 +441,19 @@ mod test {
 
         // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
         M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (3..list.ops.len()).into());
+    }
+
+    #[test]
+    fn test_merge_deletes_2() {
+        let mut list = ListCRDT::new();
+        list.get_or_create_agent_id("a");
+        list.get_or_create_agent_id("b");
+
+        list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
+        list.ops.push_delete(0, &[2], 1, 1);
+        list.ops.push_delete(1, &[2], 0, 3);
+
+        M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
     }
 
     #[test]
