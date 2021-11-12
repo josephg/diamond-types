@@ -5,7 +5,7 @@ use smallvec::{SmallVec, smallvec};
 
 use rle::{AppendRle, SplitableSpan};
 
-use crate::list::{Frontier, ListCRDT, OpSet, Time};
+use crate::list::{Branch, ListCRDT, OpSet, Time};
 use crate::list::branch::{branch_is_root, branch_is_sorted};
 use crate::list::history::{History, HistoryEntry};
 use crate::localtime::TimeSpan;
@@ -232,9 +232,9 @@ impl History {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ConflictSpans {
-    pub(crate) common_branch: Frontier,
+    pub(crate) common_branch: Branch,
     pub(crate) spans: SmallVec<[TimeSpan; 4]>,
 }
 
@@ -300,7 +300,7 @@ impl History {
 
         // dbg!(&queue);
 
-        let branch: Frontier = 'outer: loop {
+        let branch: Branch = 'outer: loop {
             let time = queue.pop().unwrap();
 
             let t = time.last;
@@ -314,7 +314,7 @@ impl History {
             // more readable. The optimizer has to earn its keep somehow.
             while queue.peek() == Some(&time) { queue.pop(); }
             if queue.is_empty() {
-                let mut branch: Frontier = smallvec![];
+                let mut branch: Branch = smallvec![];
                 // In this order because time.last > time.merged_with.
                 branch.extend(time.merged_with.into_iter());
                 branch.push(t);
@@ -438,7 +438,7 @@ impl OpSet {
     }
 
     pub fn linear_changes_since(&self, start: Time) -> TimeSpan {
-        TimeSpan::new(start, self.get_next_time())
+        TimeSpan::new(start, self.len())
     }
 }
 

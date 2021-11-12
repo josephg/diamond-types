@@ -1,15 +1,19 @@
 use std::cmp::Ordering;
-use std::ptr::NonNull;
-use smallvec::SmallVec;
+use std::ops::{Deref, DerefMut};
+use std::ptr::{NonNull, null_mut};
+use smallvec::{SmallVec, smallvec};
 use content_tree::{ContentTreeRaw, ContentTreeWithIndex, Cursor, DEFAULT_IE, DEFAULT_LE, MutCursor, NodeLeaf, null_notify, UnsafeCursor};
 use rle::{HasLength, Searchable, SplitableSpan};
-use crate::list::{ListCRDT, OpSet, Time};
+use crate::list::{Branch, Checkout, ListCRDT, OpSet, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::m2::yjsspan2::{YjsSpan2, YjsSpanState};
 use crate::list::operation::{InsDelTag, PositionalComponent};
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
+use crate::list::branch::branch_eq;
+use crate::list::history::HistoryEntry;
+use crate::list::list::apply_local_operation;
 use crate::list::m2::markers::MarkerEntry;
 
 
@@ -50,8 +54,26 @@ impl M2Tracker {
         }
     }
 
-    pub(crate) fn new_at(ops: &OpSet, branch: &[Time]) {
+    pub(crate) fn new_at_conflict(opset: &OpSet, branch_a: &[Time], branch_b: &[Time]) -> (Self, Branch) {
+        let mut tracker = Self::new();
 
+        // dbg!(branch_a, branch_b);
+        let mut walker = opset.history.conflicting_txns_iter(branch_a, branch_b);
+        while let Some(walk) = walker.next() {
+            for range in walk.retreat {
+                tracker.retreat_by_range(range);
+            }
+
+            for range in walk.advance_rev.into_iter().rev() {
+                tracker.advance_by_range(range);
+            }
+
+            debug_assert!(!walk.consume.is_empty());
+            tracker.apply_range(opset, walk.consume, None);
+        }
+        let branch = walker.into_branch();
+
+        (tracker, branch)
     }
 
     fn marker_at(&self, time: Time) -> NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
@@ -225,7 +247,27 @@ impl M2Tracker {
         content_pos
     }
 
-    fn apply_range(&mut self, opset: &OpSet, range: TimeSpan) {
+    // fn foo<'a, X>(x: &'a mut Option<&'a mut X>) -> Option<&'a mut X> {
+    // fn foo<'a, X>(x: &'a mut Option<&'a mut X>) -> Option<&'a mut X> {
+    //     if let Some(x) = x {
+    //         // Some(x.deref_mut())
+    //         Some(*x)
+    //     } else {
+    //         None
+    //     }
+    // }
+
+    fn apply_range(&mut self, opset: &OpSet, range: TimeSpan, mut to: Option<&mut Checkout>) {
+        let to_ptr = if let Some(to) = to {
+            to as *mut _
+        } else {
+            null_mut()
+        };
+        self.apply_range_internal(opset, range, to_ptr);
+    }
+
+    // fn apply_range_internal(&mut self, opset: &OpSet, range: TimeSpan, mut to: Option<&mut Checkout>) {
+    fn apply_range_internal(&mut self, opset: &OpSet, range: TimeSpan, to: *mut Checkout) {
         if range.is_empty() { return; }
 
         for mut pair in opset.iter_ops(range) {
@@ -234,9 +276,16 @@ impl M2Tracker {
                 let span = opset.get_crdt_span(pair.span());
                 if span.len() < pair.1.len() {
                     let local_pair = pair.truncate_keeping_right(span.len());
-                    self.apply(opset, span.agent, &local_pair, |_| {});
+
+                    self.apply(opset, span.agent, &local_pair, to);
+                    // if let Some(to) = to.as_mut() {
+                    //     self.apply(opset, span.agent, &local_pair, Some(*to));
+                    // } else {
+                    //     self.apply(opset, span.agent, &local_pair, None);
+                    // }
                 } else {
-                    self.apply(opset, span.agent, &pair, |_| {});
+                    self.apply(opset, span.agent, &pair, to);
+                    // self.apply(opset, span.agent, &pair, Self::foo(&mut to));
                     break;
                 }
             }
@@ -244,7 +293,8 @@ impl M2Tracker {
     }
 
     /// This is for advancing us directly based on the edit.
-    fn apply<F: FnMut(PositionalComponent)>(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<PositionalComponent>, mut act: F) {
+    // fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<PositionalComponent>, to: Option<&mut Checkout>) {
+    fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<PositionalComponent>, to: *mut Checkout) {
         // The op must have been applied at the branch that the tracker is currently at.
         let KVPair(time, op) = pair;
 
@@ -305,8 +355,10 @@ impl M2Tracker {
 
                 let mut result = op.clone();
                 result.pos = ins_pos;
-                act(result);
-                println!("Insert at {}", ins_pos);
+                // act(result);
+                if let Some(to) = unsafe { to.as_mut() } {
+                    println!("Insert at {} len {}", ins_pos, op.len);
+                }
             }
 
             InsDelTag::Del => {
@@ -319,14 +371,17 @@ impl M2Tracker {
 
                 // let deleted_items = self.range_tree.local_deactivate_at_content_notify(op.pos, op.len, notify_for(&mut self.index));
 
-                dbg!(&deleted_items);
+                // dbg!(&deleted_items);
                 let mut next_time = *time;
                 for item in deleted_items {
                     self.deletes.push(KVPair(next_time, item.id));
                     next_time += item.len();
 
                     if !item.ever_deleted {
-                        println!("Delete {} len {}", result_pos, item.len());
+                        if let Some(to) = unsafe { to.as_mut() } {
+                            println!("Delete {} len {}", result_pos, item.len());
+                        }
+
                         result_pos += item.len();
                     } else {
                         println!("Ignoring double delete {} {}", result_pos, item.len());
@@ -336,73 +391,63 @@ impl M2Tracker {
         }
     }
 
-    // fn a(&mut self, list: &mut ListCRDT, mut span: TimeSpan) {
-    //     assert!(span.end <= list.get_next_time());
-    //     let idx = list.history.entries.find_index(span.start).unwrap();
-    //     while !span.is_empty() {
-    //         let txn = list.history.entries.find_packed(span.start);
-    //         let len_here = op.len().min(txn.len() - span.start);
-    //         // Its gross doing this when we aren't carving anything off.
-    //
-    //         if let Some(parent) = txn.parent_at_time(span.start) {
-    //             self.doc_fwd_by_p(list, agent, &[parent], op_here);
-    //         } else {
-    //             self.doc_fwd_by_p(list, agent, &txn.parents, op_here);
-    //         }
-    //     }
-    // }
-    //
-    // fn doc_fwd_by_range(&mut self, list: &mut ListCRDT, range: TimeSpan) {
-    //     assert!(!list.history.branch_contains_order(&list.frontier, range.start));
-    //
-    //     for mut pair in list.iter_ops(range) {
-    //         loop {
-    //             let span = list.get_crdt_span(pair.span());
-    //             if span.len() < pair.1.len() {
-    //                 let local_pair = pair.truncate_keeping_right(span.len());
-    //                 self.doc_fwd_by(list, span.agent, local_pair);
-    //             } else {
-    //                 self.doc_fwd_by(list, span.agent, pair);
-    //                 break;
-    //             }
-    //         }
-    //     }
-    // }
-    //
-    // fn doc_fwd_by(&mut self, list: &mut ListCRDT, agent: AgentId, mut op: KVPair<PositionalComponent>) {
-    //     // This works on a fixed span.
-    //     let mut span = op.span();
-    //     while !span.is_empty() {
-    //         let txn = list.history.entries.find_packed(span.start);
-    //         let len_here = op.len().min(txn.len() - span.start);
-    //         // Its gross doing this when we aren't carving anything off.
-    //         let op_here = op.truncate_keeping_right(len_here);
-    //
-    //         if let Some(parent) = txn.parent_at_time(span.start) {
-    //             self.doc_fwd_by_p(list, agent, &[parent], op_here);
-    //         } else {
-    //             self.doc_fwd_by_p(list, agent, &txn.parents, op_here);
-    //         }
-    //     }
-    // }
-    //
-    // fn doc_fwd_by_p(&mut self, list: &mut ListCRDT, agent: AgentId, parents: &[Time], op: KVPair<PositionalComponent>) {
-    //     // let conflicts = list.history.find_conflicting(v, &list.frontier);
-    //     let walker = list.history.conflicting_txns_iter(v, &list.frontier);
-    //     for walk in walker {
-    //         for range in walk.retreat {
-    //             self.retreat_by_range(range);
-    //         }
-    //
-    //         for range in walk.advance_rev.into_iter().rev() {
-    //             self.advance_by_range(range);
-    //         }
-    //
-    //         debug_assert!(!walk.consume.is_empty());
-    //         self.apply_range(list, walk.consume);
-    //     }
-    //
-    // }
+    fn apply_to_checkout(checkout: &mut Checkout, opset: &OpSet, mut span: TimeSpan) {
+        // dbg!(&checkout);
+        assert!(span.end <= opset.len());
+        let mut idx = opset.history.entries.find_index(span.start).unwrap();
+
+        while !span.is_empty() {
+            let txn = &opset.history.entries[idx];
+            // dbg!(&span, &txn);
+            debug_assert!(txn.contains(span.start));
+
+            let len_here = span.len().min(txn.span.end - span.start);
+            debug_assert!(len_here > 0);
+
+            // Its kinda gross still doing this when we aren't carving anything off.
+            let op_here = span.truncate_keeping_right(len_here);
+            // dbg!(op_here);
+
+            if let Some(parent) = txn.parent_at_time(op_here.start) {
+                Self::apply_to_checkout_internal(checkout, opset, &[parent], op_here);
+            } else {
+                Self::apply_to_checkout_internal(checkout, opset, &txn.parents, op_here);
+            }
+            checkout.frontier = smallvec![op_here.last()];
+            // dbg!(&checkout);
+            idx += 1;
+        }
+    }
+
+    fn apply_to_checkout_internal(checkout: &mut Checkout, opset: &OpSet, parents: &[Time], range: TimeSpan) {
+        // if branch_eq(parents, &checkout.frontier) {
+        //     // apply_local_operation()
+        // }
+
+        // dbg!(parents, &range, &checkout.frontier);
+
+        let (mut t, branch) = Self::new_at_conflict(opset, parents, &checkout.frontier);
+        // dbg!(&t, &branch);
+
+        let (only_tracker, only_parents) = opset.history.diff(&branch, parents);
+        // dbg!((&branch, &next_txn.parents, &only_branch, &only_txn));
+        // Note that even if we're moving to one of our direct children we might see items only
+        // in only_branch if the child has a parent in the middle of our txn.
+        // dbg!(&only_tracker, &only_parents);
+        for range in &only_tracker {
+            t.retreat_by_range(range.clone());
+        }
+        for range in only_parents.iter().rev() {
+            t.advance_by_range(range.clone());
+        }
+
+        // Ok now we're in the right location
+
+        // dbg!(&range, &t);
+        println!("vvvvvvvvvvvvv");
+        t.apply_range(opset, range, Some(checkout));
+        println!("^^^^^^^^^^^^^");
+    }
 }
 
 #[cfg(test)]
@@ -411,19 +456,47 @@ mod test {
     use super::*;
 
     #[test]
+    fn test_merge_inserts() {
+        let mut list = ListCRDT::new();
+        list.get_or_create_agent_id("a");
+        list.get_or_create_agent_id("b");
+
+        list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
+        list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
+
+        M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..6).into());
+    }
+
+    #[test]
+    fn test_merge_deletes() {
+        let mut list = ListCRDT::new();
+        list.get_or_create_agent_id("a");
+        list.get_or_create_agent_id("b");
+
+        list.local_insert(0, 0, "aaa");
+        // list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
+
+        list.ops.push_delete(0, &[2], 1, 1);
+        list.ops.push_delete(1, &[2], 0, 3);
+
+        // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
+        M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (3..list.ops.len()).into());
+    }
+
+    #[test]
     fn test_concurrent_insert() {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
         // list.local_insert(0, 0, "aaa");
 
-        list.ops.append_remote_insert(0, &[ROOT_TIME], 0, "aaa");
-        list.ops.append_remote_insert(1, &[ROOT_TIME], 0, "bbb");
+        list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
+        list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
 
         let mut t = M2Tracker::new();
-        t.apply_range(&list.ops, (0..3).into());
+        t.apply_range(&list.ops, (0..3).into(), None);
         t.retreat_by_range((0..3).into());
-        t.apply_range(&list.ops, (3..6).into());
+        t.apply_range(&list.ops, (3..6).into(), None);
         dbg!(&t);
         // t.apply_range_at_version()
     }
@@ -436,13 +509,13 @@ mod test {
 
         list.local_insert(0, 0, "aaa");
 
-        list.ops.append_remote_delete(0, &[ROOT_TIME], 1, 1);
-        list.ops.append_remote_delete(1, &[ROOT_TIME], 0, 3);
+        list.ops.push_delete(0, &[2], 1, 1);
+        list.ops.push_delete(1, &[2], 0, 3);
 
         let mut t = M2Tracker::new();
-        t.apply_range(&list.ops, (0..4).into());
+        t.apply_range(&list.ops, (0..4).into(), None);
         t.retreat_by_range((3..4).into());
-        t.apply_range(&list.ops, (4..7).into());
+        t.apply_range(&list.ops, (4..7).into(), None);
         dbg!(&t);
         // t.apply_range_at_version()
     }
@@ -456,9 +529,9 @@ mod test {
 
         let mut t = M2Tracker::new();
 
-        let end = list.ops.get_next_time();
+        let end = list.ops.len();
         dbg!(end);
-        t.apply_range(&list.ops, (0..end).into());
+        t.apply_range(&list.ops, (0..end).into(), None);
 
         // dbg!(&t);
 

@@ -73,6 +73,8 @@ impl HistoryEntry {
         } else { None } // look at .parents field.
     }
 
+    // pub fn local_children_at_time(&self, time: usize) ->
+
     pub fn contains(&self, localtime: usize) -> bool {
         self.span.contains(localtime)
     }

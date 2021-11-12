@@ -1,10 +1,10 @@
-use crate::list::{Frontier, Time};
+use crate::list::{Branch, Time};
 use crate::list::history::{History, HistoryEntry};
 use crate::localtime::TimeSpan;
 use crate::rle::RleVec;
 use crate::ROOT_TIME;
 
-pub(crate) fn advance_branch_by(branch: &mut Frontier, history: &History, range: TimeSpan) {
+pub(crate) fn advance_branch_by(branch: &mut Branch, history: &History, range: TimeSpan) {
     let txn = history.entries.find(range.start).unwrap();
     if let Some(parent) = txn.parent_at_time(range.start) {
         advance_branch_by_known(branch, &[parent], range);
@@ -13,7 +13,7 @@ pub(crate) fn advance_branch_by(branch: &mut Frontier, history: &History, range:
     }
 }
 
-pub(crate) fn retreat_branch_by(branch: &mut Frontier, history: &History, range: TimeSpan) {
+pub(crate) fn retreat_branch_by(branch: &mut Branch, history: &History, range: TimeSpan) {
     let txn = history.entries.find(range.start).unwrap();
     retreat_branch_known_txn(branch, history, txn, range);
 }
@@ -31,7 +31,7 @@ pub(crate) fn branch_is_sorted(branch: &[Time]) -> bool {
     true
 }
 
-fn add_to_branch(branch: &mut Frontier, new_item: Time) {
+fn add_to_branch(branch: &mut Branch, new_item: Time) {
     // In order to maintain the order of items in the branch, we want to insert the new item in the
     // appropriate place.
     let new_idx = branch.binary_search(&new_item).unwrap_err();
@@ -41,7 +41,7 @@ fn add_to_branch(branch: &mut Frontier, new_item: Time) {
 
 /// Advance branch frontier by a transaction. This is written creating a new branch, which is
 /// somewhat inefficient (especially if the frontier is spilled).
-pub(crate) fn advance_branch_by_known(branch: &mut Frontier, txn_parents: &[Time], range: TimeSpan) {
+pub(crate) fn advance_branch_by_known(branch: &mut Branch, txn_parents: &[Time], range: TimeSpan) {
     // TODO: Check the branch contains everything in txn_parents, but not txn_id:
     // Check the operation fits. The operation should not be in the branch, but
     // all the operation's parents should be.
@@ -68,7 +68,7 @@ pub(crate) fn advance_branch_by_known(branch: &mut Frontier, txn_parents: &[Time
     add_to_branch(branch, range.last());
 }
 
-pub(crate) fn retreat_branch_known_txn(branch: &mut Frontier, history: &History, txn: &HistoryEntry, range: TimeSpan) {
+pub(crate) fn retreat_branch_known_txn(branch: &mut Branch, history: &History, txn: &HistoryEntry, range: TimeSpan) {
     let last_order = range.last();
     let idx = branch.iter().position(|&e| e == last_order).unwrap();
 
@@ -117,14 +117,14 @@ pub fn branch_is_root(branch: &[Time]) -> bool {
 mod test {
     use smallvec::smallvec;
 
-    use crate::list::Frontier;
+    use crate::list::Branch;
     use crate::ROOT_TIME;
 
     use super::*;
 
     #[test]
     fn branch_movement_smoke_tests() {
-        let mut branch: Frontier = smallvec![ROOT_TIME];
+        let mut branch: Branch = smallvec![ROOT_TIME];
         advance_branch_by_known(&mut branch, &[ROOT_TIME], (0..10).into());
         assert_eq!(branch.as_slice(), &[9]);
 
@@ -163,7 +163,7 @@ mod test {
             },
         ]);
 
-        let mut branch: Frontier = smallvec![1, 10];
+        let mut branch: Branch = smallvec![1, 10];
         advance_branch_by(&mut branch, &history, (2..4).into());
         assert_eq!(branch.as_slice(), &[1, 3, 10]);
 

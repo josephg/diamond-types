@@ -3,7 +3,7 @@ use smallvec::smallvec;
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{ClientData, Frontier, OpSet, Time};
+use crate::list::{ClientData, Branch, OpSet, Time};
 use crate::list::history::HistoryEntry;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::PositionalComponent;
@@ -114,7 +114,7 @@ impl OpSet {
     //     self.client_data[loc.agent as usize].seq_to_order_span(loc.seq, max_len)
     // }
 
-    pub fn get_next_time(&self) -> usize {
+    pub fn len(&self) -> usize {
         if let Some(last) = self.client_with_localtime.last() {
             last.end()
         } else { 0 }
@@ -211,10 +211,8 @@ impl OpSet {
         assert_eq!(will_merge, did_merge);
     }
 
-
-
-    pub fn append_remote_operation(&mut self, agent: AgentId, parents: &[Time], ops: &[PositionalComponent], mut content: &str) {
-        let first_time = self.get_next_time();
+    pub fn push(&mut self, agent: AgentId, parents: &[Time], ops: &[PositionalComponent], mut content: &str) {
+        let first_time = self.len();
         let mut next_time = first_time;
 
         let op_len = ops.iter().map(|c| c.len).sum();
@@ -224,27 +222,8 @@ impl OpSet {
             seq: self.client_data[agent as usize].get_next_seq()
         }, first_time, op_len);
 
-        // for LocalOp { pos, ins_content, del_span } in local_ops {
         for c in ops {
-            // let pos = c.pos as usize;
             let len = c.len as usize;
-
-            // match c.tag {
-            //     Ins => {
-            //         assert!(c.content_known);
-            //         let new_content = consume_chars(&mut content, len);
-            //
-            //         if let Some(text) = self.text_content.as_mut() {
-            //             text.insert(pos, new_content);
-            //         }
-            //     }
-            //
-            //     Del => {
-            //         if let Some(ref mut text) = self.text_content {
-            //             text.remove(pos..pos + len);
-            //         }
-            //     }
-            // }
 
             self.operations.push(KVPair(next_time, c.clone()));
             next_time += len;
@@ -253,8 +232,8 @@ impl OpSet {
         self.insert_history(parents, TimeSpan { start: first_time, end: first_time + op_len });
     }
 
-    pub fn append_remote_insert(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) {
-        self.append_remote_operation(agent, parents, &[PositionalComponent {
+    pub fn push_insert(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) {
+        self.push(agent, parents, &[PositionalComponent {
             pos,
             len: count_chars(ins_content),
             rev: false,
@@ -263,12 +242,9 @@ impl OpSet {
         }], ins_content);
     }
 
-    pub fn append_remote_delete(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) {
-        self.append_remote_operation(agent, parents, &[PositionalComponent {
+    pub fn push_delete(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) {
+        self.push(agent, parents, &[PositionalComponent {
             pos, len: del_span, rev: false, content_known: true, tag: Del
         }], "")
     }
-
-
-
 }

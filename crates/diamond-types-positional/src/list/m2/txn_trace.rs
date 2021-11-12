@@ -4,8 +4,8 @@ use smallvec::{SmallVec, smallvec};
 use crate::rle::RleVec;
 use crate::list::branch::{retreat_branch_by, advance_branch_by_known, advance_branch_by, branch_is_sorted};
 use std::ops::Range;
-use rle::SplitableSpan;
-use crate::list::{Frontier, Time};
+use rle::{HasLength, SplitableSpan};
+use crate::list::{Branch, Time};
 use crate::list::history::{History, HistoryEntry};
 use crate::list::history_tools::ConflictSpans;
 use crate::localtime::TimeSpan;
@@ -50,7 +50,9 @@ fn spans_to_entries(history: &History, spans: &[TimeSpan]) -> SmallVec<[VisitEnt
         while !span_remaining.is_empty() {
             let e = &history.entries[i];
             debug_assert!(span_remaining.start >= e.span.start);
-            let span = span_remaining.truncate_keeping_right(e.span.end - span_remaining.start);
+
+            let offset = Time::min(span_remaining.len(), e.span.end - span_remaining.start);
+            let span = span_remaining.truncate_keeping_right(offset);
 
             // We don't care about any parents outside of the input spans.
             let parent_idxs = e.parents.iter()
@@ -89,7 +91,7 @@ pub(crate) struct OptimizedTxnsIter<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
     history: &'a History,
 
-    branch: Frontier,
+    branch: Branch,
 
     // TODO: Remove this. Use markers on txns or something instead.
     // consumed: BitBox,
@@ -146,7 +148,16 @@ impl<'a> OptimizedTxnsIter<'a> {
             let txn_indexes = if *time == ROOT_TIME {
                 &history.root_child_indexes
             } else {
-                &history.entries.find_packed(*time).child_indexes
+                let txn = history.entries.find_packed(*time);
+
+                if *time < txn.span.last() {
+                    // Add this txn itself.
+                    if let Some(i) = find_entry_idx(&result.input, *time + 1) {
+                        result.to_process.push(i);
+                    }
+                }
+
+                &txn.child_indexes
             }.as_slice();
 
             // This is gross. This code is duplicated in push_children (below), but I can't easily
@@ -172,6 +183,10 @@ impl<'a> OptimizedTxnsIter<'a> {
             }
         }
     }
+
+    pub fn into_branch(self) -> Branch {
+        self.branch
+    }
 }
 
 impl<'a> Iterator for OptimizedTxnsIter<'a> {
@@ -196,6 +211,7 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
                 }
             } else {
                 // The stack was exhausted and we didn't find anything. We're done here.
+                // dbg!(&self);
                 debug_assert!(self.input.iter().all(|e| e.visited));
                 debug_assert_eq!(self.num_consumed, self.input.len());
                 return None;
@@ -205,24 +221,39 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
         let input_entry = &mut self.input[next_idx];
         let next_txn = &self.history.entries[input_entry.txn_idx];
 
-        let (only_branch, only_txn) = self.history.diff(&self.branch, &next_txn.parents);
+        // let (only_branch, only_txn) = if let Some(p) = next_txn.parent_at_time(input_entry.span.start) {
+        //     self.history.diff(&self.branch, &[p])
+        // } else {
+        //     self.history.diff(&self.branch, &next_txn.parents)
+        // };
+
+        let parents = if let Some(p) = next_txn.parent_at_time(input_entry.span.start) {
+            smallvec![p]
+        } else {
+            next_txn.parents.clone()
+        };
+
+        // dbg!(&self.branch, &next_txn.parents);
+        let (only_branch, only_txn) = self.history.diff(&self.branch, &parents);
+        // let (only_branch, only_txn) = self.history.diff(&self.branch, &next_txn.parents);
         // dbg!((&branch, &next_txn.parents, &only_branch, &only_txn));
         // Note that even if we're moving to one of our direct children we might see items only
         // in only_branch if the child has a parent in the middle of our txn.
         for range in &only_branch {
-            // println!("Retreat branch by {:?}", span);
+            // println!("Retreat branch by {:?}", range);
             retreat_branch_by(&mut self.branch, &self.history, range.clone());
             // dbg!(&branch);
         }
         for range in only_txn.iter().rev() {
-            // println!("Advance branch by {:?}", span);
+            // println!("Advance branch by {:?}", range);
             advance_branch_by(&mut self.branch, &self.history, range.clone());
             // dbg!(&branch);
         }
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());
         let input_span = input_entry.span;
-        advance_branch_by_known(&mut self.branch, &next_txn.parents, input_span);
+        // advance_branch_by_known(&mut self.branch, &next_txn.parents, input_span);
+        advance_branch_by_known(&mut self.branch, &parents, input_span);
         // dbg!(&branch);
         // self.consumed.set(next_idx, true);
         input_entry.visited = true;
@@ -233,7 +264,7 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
         return Some(TxnWalkItem {
             retreat: only_branch,
             advance_rev: only_txn,
-            parents: next_txn.parents.clone(),
+            parents,
             consume: input_span,
         });
     }
@@ -251,6 +282,7 @@ impl History {
 
     pub(crate) fn conflicting_txns_iter(&self, a: &[Time], b: &[Time]) -> OptimizedTxnsIter {
         let conflict = self.find_conflicting(a, b);
+        // dbg!(&conflict, self);
         OptimizedTxnsIter::new(self, conflict)
     }
 
@@ -417,6 +449,37 @@ mod test {
                 parents: smallvec![2, 3],
                 consume: (4..5).into(),
             },
+        ])));
+    }
+
+    #[test]
+    fn iter_txn_middle() {
+        // regression
+        let history = History::from_entries(&[
+            HistoryEntry {
+                span: (0..10).into(),
+                shadow: ROOT_TIME,
+                parents: smallvec![ROOT_TIME],
+                parent_indexes: smallvec![],
+                child_indexes: smallvec![]
+            },
+        ]);
+
+        let conflict = history.find_conflicting(&[5], &[6]);
+        assert_eq!(conflict, ConflictSpans {
+            common_branch: smallvec![5],
+            spans: smallvec![(6..7).into()],
+        });
+        let iter = OptimizedTxnsIter::new(&history, conflict);
+        // dbg!(&iter);
+
+        assert!(iter.eq(std::array::IntoIter::new([
+            TxnWalkItem {
+                retreat: smallvec![],
+                advance_rev: smallvec![],
+                parents: smallvec![5],
+                consume: (6..7).into(),
+            }
         ])));
     }
 }
