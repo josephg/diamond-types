@@ -213,8 +213,8 @@ impl<E: ContentTraits + ContentLength> TreeMetrics<E> for FullMetricsUsize {
     }
 
     fn increment_offset(offset: &mut Self::Value, entry: &E) {
-        offset.0 += entry.len() as usize;
-        offset.1 += entry.content_len() as usize;
+        offset.0 += entry.len();
+        offset.1 += entry.content_len();
     }
 
     const CAN_COUNT_ITEMS: bool = true;
@@ -223,13 +223,13 @@ impl<E: ContentTraits + ContentLength> TreeMetrics<E> for FullMetricsUsize {
 
 impl<E: ContentTraits + ContentLength> FindContent<E> for FullMetricsUsize {
     fn index_to_content(offset: Self::Value) -> usize {
-        offset.1 as usize
+        offset.1
     }
 }
 
 impl<E: ContentTraits + ContentLength> FindOffset<E> for FullMetricsUsize {
     fn index_to_offset(offset: Self::Value) -> usize {
-        offset.0 as usize
+        offset.0
     }
 }
 

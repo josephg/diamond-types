@@ -341,13 +341,13 @@ impl ListCRDT {
         if scanning { cursor = scan_start; }
 
         if cfg!(debug_assertions) {
-            let pos = unsafe { cursor.count_content_pos() as usize };
+            let pos = unsafe { cursor.unsafe_count_content_pos() as usize };
             let len = self.range_tree.content_len() as usize;
             assert!(pos <= len);
         }
 
         if let Some(text) = self.text_content.as_mut() {
-            let pos = unsafe { cursor.count_content_pos() as usize };
+            let pos = unsafe { cursor.unsafe_count_content_pos() as usize };
             if let Some(ins_content) = ins_content {
                 // debug_assert_eq!(count_chars(&ins_content), item.len as usize);
                 text.insert(pos, ins_content);
@@ -494,7 +494,7 @@ impl ListCRDT {
         } else if let (Some(text), true) = (&mut self.text_content, update_content) {
             // The call to remote_deactivate will have modified the cursor, but the content position
             // will have stayed the same.
-            let pos = unsafe { cursor.count_content_pos() as usize };
+            let pos = unsafe { cursor.unsafe_count_content_pos() as usize };
             text.remove(pos..pos + deleted_here as usize);
         }
 

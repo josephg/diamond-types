@@ -5,7 +5,7 @@ use crate::rle::RleVec;
 use crate::list::branch::{retreat_branch_by, advance_branch_by_known, advance_branch_by, branch_is_sorted};
 use std::ops::Range;
 use rle::SplitableSpan;
-use crate::list::{Branch, Time};
+use crate::list::{Frontier, Time};
 use crate::list::history::{History, HistoryEntry};
 use crate::list::history_tools::ConflictSpans;
 use crate::localtime::TimeSpan;
@@ -89,7 +89,7 @@ pub(crate) struct OptimizedTxnsIter<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
     history: &'a History,
 
-    branch: Branch,
+    branch: Frontier,
 
     // TODO: Remove this. Use markers on txns or something instead.
     // consumed: BitBox,
@@ -221,7 +221,8 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
         }
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());
-        advance_branch_by_known(&mut self.branch, &next_txn.parents, input_entry.span);
+        let input_span = input_entry.span;
+        advance_branch_by_known(&mut self.branch, &next_txn.parents, input_span);
         // dbg!(&branch);
         // self.consumed.set(next_idx, true);
         input_entry.visited = true;
@@ -233,7 +234,7 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
             retreat: only_branch,
             advance_rev: only_txn,
             parents: next_txn.parents.clone(),
-            consume: next_txn.span
+            consume: input_span,
         });
     }
 }

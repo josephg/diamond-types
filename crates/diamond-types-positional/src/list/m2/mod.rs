@@ -15,6 +15,7 @@ use content_tree::{ContentMetrics, ContentTreeWithIndex, FullMetricsUsize, RawPo
 use crate::list::ListCRDT;
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::merge::notify_for;
+use crate::list::m2::metrics::MarkerMetrics;
 use crate::list::m2::yjsspan2::YjsSpan2;
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleVec};
@@ -27,9 +28,10 @@ mod merge;
 mod markers;
 mod advance_retreat;
 mod txn_trace;
+mod metrics;
 
-// type DocRangeIndex = FullMetricsUsize;
-type DocRangeIndex = ContentMetrics;
+type DocRangeIndex = MarkerMetrics;
+// type DocRangeIndex = ContentMetrics;
 type CRDTList2 = Pin<Box<ContentTreeWithIndex<YjsSpan2, DocRangeIndex>>>;
 
 type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry<YjsSpan2, DocRangeIndex>, RawPositionMetrics>>>;
@@ -46,31 +48,4 @@ struct M2Tracker {
     /// This is a set of all deletes. Each delete names the set of times of inserts which were
     /// deleted. Keyed by the delete order, NOT the order of the item *being* deleted.
     deletes: RleVec<KVPair<TimeSpan>>,
-}
-
-impl M2Tracker {
-    pub(crate) fn new() -> Self {
-        let mut range_tree = ContentTreeWithIndex::new();
-        let mut index = ContentTreeWithIndex::new();
-        range_tree.push_notify(YjsSpan2::new_underwater(), notify_for(&mut index));
-
-        Self {
-            // list,
-            range_tree,
-            index,
-            deletes: Default::default()
-        }
-    }
-    // pub(crate) fn new(list: &'a mut ListCRDT) -> Self {
-    //     let mut range_tree = ContentTreeWithIndex::new();
-    //     let mut index = ContentTreeWithIndex::new();
-    //     range_tree.push_notify(YjsSpan2::new_underwater(), notify_for(&mut index));
-    //
-    //     Self {
-    //         // list,
-    //         range_tree,
-    //         index,
-    //         deletes: Default::default()
-    //     }
-    // }
 }

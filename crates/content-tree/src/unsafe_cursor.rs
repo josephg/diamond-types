@@ -355,7 +355,7 @@ impl<E: ContentTraits + Searchable, I: TreeMetrics<E>, const IE: usize, const LE
 // }
 
 impl<E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> UnsafeCursor<E, I, IE, LE> {
-    pub unsafe fn count_content_pos(&self) -> usize {
+    pub unsafe fn unsafe_count_content_pos(&self) -> usize {
         self.count_pos_raw(I::index_to_content, E::content_len, E::content_len_at_offset)
     }
 

@@ -162,7 +162,7 @@ impl ListCRDT {
     //     self.insert_history_internal(txn_parents, range);
     // }
 
-    fn insert_history_internal(&mut self, txn_parents: &[usize], range: TimeSpan) {
+    fn insert_history_internal(&mut self, txn_parents: &[Time], range: TimeSpan) {
         // Fast path. The code below is weirdly slow, but most txns just append.
         if let Some(last) = self.history.entries.0.last_mut() {
             if txn_parents.len() == 1
@@ -277,19 +277,73 @@ impl ListCRDT {
     }
 
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
-        self.apply_local_operation(agent, &[
-            PositionalComponent {
-                pos,
-                len: count_chars(ins_content),
-                rev: false,
-                content_known: true,
-                tag: Ins
-            }
-        ], ins_content);
+        self.apply_local_operation(agent, &[PositionalComponent {
+            pos,
+            len: count_chars(ins_content),
+            rev: false,
+            content_known: true,
+            tag: Ins
+        }], ins_content);
     }
 
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) {
         self.apply_local_operation(agent, &[PositionalComponent {
+            pos, len: del_span, rev: false, content_known: true, tag: Del
+        }], "")
+    }
+
+    pub fn append_remote_operation(&mut self, agent: AgentId, parents: &[Time], ops: &[PositionalComponent], mut content: &str) {
+        let first_time = self.get_next_time();
+        let mut next_time = first_time;
+
+        let op_len = ops.iter().map(|c| c.len).sum();
+
+        self.assign_time_to_client(CRDTId {
+            agent,
+            seq: self.client_data[agent as usize].get_next_seq()
+        }, first_time, op_len);
+
+        // for LocalOp { pos, ins_content, del_span } in local_ops {
+        for c in ops {
+            // let pos = c.pos as usize;
+            let len = c.len as usize;
+
+            // match c.tag {
+            //     Ins => {
+            //         assert!(c.content_known);
+            //         let new_content = consume_chars(&mut content, len);
+            //
+            //         if let Some(text) = self.text_content.as_mut() {
+            //             text.insert(pos, new_content);
+            //         }
+            //     }
+            //
+            //     Del => {
+            //         if let Some(ref mut text) = self.text_content {
+            //             text.remove(pos..pos + len);
+            //         }
+            //     }
+            // }
+
+            self.operations.push(KVPair(next_time, c.clone()));
+            next_time += len;
+        }
+
+        self.insert_history_internal(parents, TimeSpan { start: first_time, end: first_time + op_len });
+    }
+
+    pub fn append_remote_insert(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) {
+        self.append_remote_operation(agent, parents, &[PositionalComponent {
+            pos,
+            len: count_chars(ins_content),
+            rev: false,
+            content_known: true,
+            tag: Ins
+        }], ins_content);
+    }
+
+    pub fn append_remote_delete(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) {
+        self.append_remote_operation(agent, parents, &[PositionalComponent {
             pos, len: del_span, rev: false, content_known: true, tag: Del
         }], "")
     }

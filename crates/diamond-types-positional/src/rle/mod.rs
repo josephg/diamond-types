@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 pub use simple_rle::RleVec;
+use crate::localtime::TimeSpan;
 
 pub mod simple_rle;
 
@@ -12,6 +13,11 @@ pub trait RleKeyed {
 pub trait RleSpanHelpers: RleKeyed + HasLength {
     fn end(&self) -> usize {
         self.get_rle_key() + self.len()
+    }
+
+    fn span(&self) -> TimeSpan {
+        let start = self.get_rle_key();
+        TimeSpan { start, end: start + self.len() }
     }
 }
 

@@ -22,7 +22,7 @@ impl YjsSpanState {
         }
     }
 
-    pub(crate) fn delete(&mut self) {
+    fn delete(&mut self) {
         match self {
             NotInsertedYet => panic!("Cannot deleted NIY item"),
             Inserted => {
@@ -92,6 +92,8 @@ pub struct YjsSpan2 {
     /// 2+ = deleted n-1 times.
     /// Enum is used for now to make the code more explicit.
     pub state: YjsSpanState,
+
+    pub ever_deleted: bool,
 }
 
 impl Debug for YjsSpan2 {
@@ -101,6 +103,7 @@ impl Debug for YjsSpan2 {
         debug_time(&mut s, "origin_left", self.origin_left);
         debug_time(&mut s, "origin_right", self.origin_right);
         s.field("state", &self.state); // Could probably do better than this.
+        s.field("ever_deleted", &self.ever_deleted);
         s.finish()
     }
 }
@@ -122,14 +125,29 @@ impl YjsSpan2 {
             origin_left: ROOT_TIME,
             origin_right: ROOT_TIME,
             state: Inserted, // Underwater items are never in the NotInsertedYet state.
+            ever_deleted: false,
         }
     }
 
     pub fn is_underwater(&self) -> bool {
         self.id.start >= UNDERWATER_START
     }
+
+    pub(crate) fn delete(&mut self) {
+        self.state.delete();
+        self.ever_deleted = true;
+    }
+
+    pub fn upstream_len(&self) -> usize {
+        if self.ever_deleted { 0 } else { self.id.len() }
+    }
 }
 
+// So the length is described in two ways - one for the current content position, and the other for
+// the merged upstream perspective of this content.
+//
+// I could make a custom index for this, but I'm gonna be lazy and say content length = current,
+// and "offset length" = upstream.
 impl HasLength for YjsSpan2 {
     #[inline(always)]
     fn len(&self) -> usize { self.id.len() }
@@ -144,6 +162,7 @@ impl SplitableSpan for YjsSpan2 {
             origin_left: self.id.start + offset - 1,
             origin_right: self.origin_right,
             state: self.state,
+            ever_deleted: self.ever_deleted,
         }
     }
 }
@@ -157,6 +176,7 @@ impl MergableSpan for YjsSpan2 {
             && other.origin_left == other.id.start - 1
             && other.origin_right == self.origin_right
             && other.state == self.state
+            && other.ever_deleted == self.ever_deleted
     }
 
     #[inline(always)]
@@ -206,7 +226,8 @@ impl Toggleable for YjsSpan2 {
 
     fn mark_deactivated(&mut self) {
         // debug_assert!(!self.is_deleted);
-        self.state.delete();
+        // self.state.delete();
+        self.delete();
     }
 }
 
@@ -231,6 +252,7 @@ mod tests {
             origin_left: 20,
             origin_right: 30,
             state: NotInsertedYet,
+            ever_deleted: false,
         });
 
         test_splitable_methods_valid(YjsSpan2 {
@@ -238,6 +260,7 @@ mod tests {
             origin_left: 20,
             origin_right: 30,
             state: Inserted,
+            ever_deleted: false
         });
 
         test_splitable_methods_valid(YjsSpan2 {
@@ -245,6 +268,7 @@ mod tests {
             origin_left: 20,
             origin_right: 30,
             state: Deleted(0),
+            ever_deleted: false
         });
     }
 }

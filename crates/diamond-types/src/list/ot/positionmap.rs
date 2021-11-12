@@ -278,7 +278,7 @@ impl<'a> Iterator for PatchIter<'a> {
 
                 if allowed {
                     // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
-                    let post_pos = unsafe { rt_cursor.count_content_pos() };
+                    let post_pos = unsafe { rt_cursor.unsafe_count_content_pos() };
                     let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos as _, true);
                     // We call insert instead of replace_range here because the delete doesn't
                     // consume "space".
@@ -309,7 +309,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 rt_cursor.offset -= len_here as usize;
 
                 // Where in the final document are we?
-                let post_pos = unsafe { rt_cursor.count_content_pos() };
+                let post_pos = unsafe { rt_cursor.unsafe_count_content_pos() };
 
                 // So this is also dirty. We need to skip any deletes, which have a size of 0.
                 let content_known = rt_cursor.get_raw_entry().is_activated();

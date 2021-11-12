@@ -1,14 +1,14 @@
 use std::cmp::Ordering;
 use std::ptr::NonNull;
 use smallvec::SmallVec;
-use content_tree::{ContentTreeRaw, Cursor, DEFAULT_IE, DEFAULT_LE, MutCursor, NodeLeaf, null_notify, UnsafeCursor};
+use content_tree::{ContentTreeRaw, ContentTreeWithIndex, Cursor, DEFAULT_IE, DEFAULT_LE, MutCursor, NodeLeaf, null_notify, UnsafeCursor};
 use rle::{HasLength, Searchable, SplitableSpan};
 use crate::list::{ListCRDT, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::m2::yjsspan2::{YjsSpan2, YjsSpanState};
 use crate::list::operation::{InsDelTag, PositionalComponent};
 use crate::localtime::TimeSpan;
-use crate::rle::KVPair;
+use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
 use crate::list::m2::markers::MarkerEntry;
 
@@ -38,6 +38,22 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull
 
 
 impl M2Tracker {
+    pub(crate) fn new() -> Self {
+        let mut range_tree = ContentTreeWithIndex::new();
+        let mut index = ContentTreeWithIndex::new();
+        range_tree.push_notify(YjsSpan2::new_underwater(), notify_for(&mut index));
+
+        Self {
+            range_tree,
+            index,
+            deletes: Default::default()
+        }
+    }
+
+    pub(crate) fn new_at(list: &ListCRDT, branch: &[Time]) {
+
+    }
+
     pub(super) fn marker_at(&self, time: Time) -> NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
         let cursor = self.index.cursor_at_offset_pos(time, false);
         // Gross.
@@ -80,7 +96,8 @@ impl M2Tracker {
     }
 
     // pub(super) fn integrate(&mut self, agent: AgentId, item: YjsSpan2, ins_content: Option<&str>, cursor_hint: Option<MutCursor<YjsSpan2, FullMetrics, DEFAULT_IE, DEFAULT_LE>>) {
-    pub(super) fn integrate(&mut self, list: &ListCRDT, agent: AgentId, item: YjsSpan2, ins_content: Option<&str>, mut cursor: UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) {
+    // pub(super) fn integrate(&mut self, list: &ListCRDT, agent: AgentId, item: YjsSpan2, ins_content: Option<&str>, mut cursor: UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) {
+    pub(super) fn integrate(&mut self, list: &ListCRDT, agent: AgentId, item: YjsSpan2, mut cursor: UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
         assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
@@ -113,6 +130,8 @@ impl M2Tracker {
 
             let other_entry = *cursor.get_raw_entry();
             // let other_order = other_entry.order + cursor.offset as u32;
+
+            debug_assert_eq!(other_entry.state, YjsSpanState::NotInsertedYet);
 
             let other_left_order = other_entry.origin_left_at_offset(cursor.offset);
             let other_left_cursor = self.get_unsafe_cursor_after(other_left_order, false);
@@ -172,12 +191,12 @@ impl M2Tracker {
         if scanning { cursor = scan_start; }
 
         if cfg!(debug_assertions) {
-            let pos = unsafe { cursor.count_content_pos() };
+            let pos = unsafe { cursor.unsafe_count_content_pos() };
             let len = self.range_tree.content_len();
             assert!(pos <= len);
         }
 
-        assert_eq!(ins_content, None, "Blerp inserting text not implemented");
+        // assert_eq!(ins_content, None, "Blerp inserting text not implemented");
         // if let Some(text) = self.list.text_content.as_mut() {
         //     let pos = unsafe { cursor.count_content_pos() };
         //     if let Some(ins_content) = ins_content {
@@ -201,27 +220,23 @@ impl M2Tracker {
         // }
 
         // Now insert here.
+        let content_pos = unsafe { cursor.unsafe_count_offset_pos() };
         unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
-        // cursor
+        content_pos
     }
 
     fn apply_range(&mut self, list: &ListCRDT, range: TimeSpan) {
         if range.is_empty() { return; }
 
-        // let mut cwl_idx = self.list.client_with_localtime.find_index(range.start).unwrap();
-
-        // TODO: This is super dirty. I'm just doing it like this to get around a borrow checker issue.
-        // let ops_iter = list.iter_ops(range).collect::<SmallVec<[KVPair<PositionalComponent>; 5]>>();
-
-        // for mut pair in ops_iter.into_iter() {
         for mut pair in list.iter_ops(range) {
             loop {
-                let span = list.get_crdt_span(TimeSpan { start: pair.0, end: pair.0 + pair.1.len });
+                // let span = list.get_crdt_span(TimeSpan { start: pair.0, end: pair.0 + pair.1.len });
+                let span = list.get_crdt_span(pair.span());
                 if span.len() < pair.1.len() {
                     let local_pair = pair.truncate_keeping_right(span.len());
-                    self.apply(list, span.agent, &local_pair);
+                    self.apply(list, span.agent, &local_pair, |_| {});
                 } else {
-                    self.apply(list, span.agent, &pair);
+                    self.apply(list, span.agent, &pair, |_| {});
                     break;
                 }
             }
@@ -229,7 +244,7 @@ impl M2Tracker {
     }
 
     /// This is for advancing us directly based on the edit.
-    fn apply(&mut self, list: &ListCRDT, agent: AgentId, pair: &KVPair<PositionalComponent>) {
+    fn apply<F: FnMut(PositionalComponent)>(&mut self, list: &ListCRDT, agent: AgentId, pair: &KVPair<PositionalComponent>, mut act: F) {
         // The op must have been applied at the branch that the tracker is currently at.
         let KVPair(time, op) = pair;
 
@@ -258,15 +273,16 @@ impl M2Tracker {
                 let origin_right = if !cursor.roll_to_next_entry() {
                     ROOT_TIME
                 } else {
+                    let mut c2 = cursor.clone();
                     loop {
-                        let e = cursor.try_get_raw_entry();
+                        let e = c2.try_get_raw_entry();
                         if let Some(e) = e {
                             if e.state == YjsSpanState::NotInsertedYet {
-                                if !cursor.next_entry() { break ROOT_TIME; }
+                                if !c2.next_entry() { break ROOT_TIME; }
                                 // Otherwise keep looping.
                             } else {
                                 // We can use this.
-                                break e.at_offset(cursor.offset);
+                                break e.at_offset(c2.offset);
                             }
                         } else { break ROOT_TIME; }
                     }
@@ -279,30 +295,157 @@ impl M2Tracker {
                     origin_left,
                     origin_right,
                     state: YjsSpanState::Inserted,
+                    ever_deleted: false,
                 };
+                // dbg!(&item);
 
                 // This is dirty because the cursor's lifetime is not associated with self.
                 let cursor = cursor.inner;
-                self.integrate(list, agent, item, None, cursor);
+                let ins_pos = self.integrate(list, agent, item, cursor);
+
+                let mut result = op.clone();
+                result.pos = ins_pos;
+                act(result);
+                println!("Insert at {}", ins_pos);
             }
 
             InsDelTag::Del => {
-                let deleted_items = self.range_tree.local_deactivate_at_content_notify(op.pos, op.len, notify_for(&mut self.index));
+                let cursor = self.range_tree.mut_cursor_at_content_pos(op.pos, false);
+                let mut result_pos = cursor.count_offset_pos();
+                let deleted_items = unsafe {
+                    let inner = cursor.inner;
+                    self.range_tree.local_deactivate_notify(inner, op.len, notify_for(&mut self.index))
+                };
 
+                // let deleted_items = self.range_tree.local_deactivate_at_content_notify(op.pos, op.len, notify_for(&mut self.index));
+
+                dbg!(&deleted_items);
                 let mut next_time = *time;
                 for item in deleted_items {
                     self.deletes.push(KVPair(next_time, item.id));
                     next_time += item.len();
+
+                    if !item.ever_deleted {
+                        println!("Delete {} len {}", result_pos, item.len());
+                        result_pos += item.len();
+                    } else {
+                        println!("Ignoring double delete {} {}", result_pos, item.len());
+                    }
                 }
             }
         }
     }
+
+    // fn a(&mut self, list: &mut ListCRDT, mut span: TimeSpan) {
+    //     assert!(span.end <= list.get_next_time());
+    //     let idx = list.history.entries.find_index(span.start).unwrap();
+    //     while !span.is_empty() {
+    //         let txn = list.history.entries.find_packed(span.start);
+    //         let len_here = op.len().min(txn.len() - span.start);
+    //         // Its gross doing this when we aren't carving anything off.
+    //
+    //         if let Some(parent) = txn.parent_at_time(span.start) {
+    //             self.doc_fwd_by_p(list, agent, &[parent], op_here);
+    //         } else {
+    //             self.doc_fwd_by_p(list, agent, &txn.parents, op_here);
+    //         }
+    //     }
+    // }
+    //
+    // fn doc_fwd_by_range(&mut self, list: &mut ListCRDT, range: TimeSpan) {
+    //     assert!(!list.history.branch_contains_order(&list.frontier, range.start));
+    //
+    //     for mut pair in list.iter_ops(range) {
+    //         loop {
+    //             let span = list.get_crdt_span(pair.span());
+    //             if span.len() < pair.1.len() {
+    //                 let local_pair = pair.truncate_keeping_right(span.len());
+    //                 self.doc_fwd_by(list, span.agent, local_pair);
+    //             } else {
+    //                 self.doc_fwd_by(list, span.agent, pair);
+    //                 break;
+    //             }
+    //         }
+    //     }
+    // }
+    //
+    // fn doc_fwd_by(&mut self, list: &mut ListCRDT, agent: AgentId, mut op: KVPair<PositionalComponent>) {
+    //     // This works on a fixed span.
+    //     let mut span = op.span();
+    //     while !span.is_empty() {
+    //         let txn = list.history.entries.find_packed(span.start);
+    //         let len_here = op.len().min(txn.len() - span.start);
+    //         // Its gross doing this when we aren't carving anything off.
+    //         let op_here = op.truncate_keeping_right(len_here);
+    //
+    //         if let Some(parent) = txn.parent_at_time(span.start) {
+    //             self.doc_fwd_by_p(list, agent, &[parent], op_here);
+    //         } else {
+    //             self.doc_fwd_by_p(list, agent, &txn.parents, op_here);
+    //         }
+    //     }
+    // }
+    //
+    // fn doc_fwd_by_p(&mut self, list: &mut ListCRDT, agent: AgentId, parents: &[Time], op: KVPair<PositionalComponent>) {
+    //     // let conflicts = list.history.find_conflicting(v, &list.frontier);
+    //     let walker = list.history.conflicting_txns_iter(v, &list.frontier);
+    //     for walk in walker {
+    //         for range in walk.retreat {
+    //             self.retreat_by_range(range);
+    //         }
+    //
+    //         for range in walk.advance_rev.into_iter().rev() {
+    //             self.advance_by_range(range);
+    //         }
+    //
+    //         debug_assert!(!walk.consume.is_empty());
+    //         self.apply_range(list, walk.consume);
+    //     }
+    //
+    // }
 }
 
 #[cfg(test)]
 mod test {
     use crate::list::ListCRDT;
     use super::*;
+
+    #[test]
+    fn test_concurrent_insert() {
+        let mut list = ListCRDT::new();
+        list.get_or_create_agent_id("a");
+        list.get_or_create_agent_id("b");
+        // list.local_insert(0, 0, "aaa");
+
+        list.append_remote_insert(0, &[ROOT_TIME], 0, "aaa");
+        list.append_remote_insert(1, &[ROOT_TIME], 0, "bbb");
+
+        let mut t = M2Tracker::new();
+        t.apply_range(&list, (0..3).into());
+        t.retreat_by_range((0..3).into());
+        t.apply_range(&list, (3..6).into());
+        dbg!(&t);
+        // t.apply_range_at_version()
+    }
+
+    #[test]
+    fn test_concurrent_delete() {
+        let mut list = ListCRDT::new();
+        list.get_or_create_agent_id("a");
+        list.get_or_create_agent_id("b");
+
+        list.local_insert(0, 0, "aaa");
+
+        list.append_remote_delete(0, &[ROOT_TIME], 1, 1);
+        list.append_remote_delete(1, &[ROOT_TIME], 0, 3);
+
+        let mut t = M2Tracker::new();
+        t.apply_range(&list, (0..4).into());
+        t.retreat_by_range((3..4).into());
+        t.apply_range(&list, (4..7).into());
+        dbg!(&t);
+        // t.apply_range_at_version()
+    }
 
     #[test]
     fn foo() {
@@ -316,7 +459,8 @@ mod test {
         let end = list.get_next_time();
         dbg!(end);
         t.apply_range(&list, (0..end).into());
-        dbg!(&t);
+
+        // dbg!(&t);
 
         // t.retreat_by_range((0..end).into());
         t.retreat_by_range((8..end).into());

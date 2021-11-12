@@ -27,7 +27,7 @@ mod m2;
 // systems.
 pub type Time = usize;
 
-pub type Branch = SmallVec<[Time; 4]>;
+pub type Frontier = SmallVec<[Time; 4]>;
 
 
 #[derive(Clone, Debug)]
@@ -42,8 +42,18 @@ struct ClientData {
     item_orders: RleVec<KVPair<TimeSpan>>,
 }
 
+// #[derive(Debug, Clone)]
+// pub struct Checkout {
+//     frontier: Frontier,
+//     text_content: Option<JumpRope>,
+// }
+//
+// #[derive(Debug, Clone)]
+// pub struct OpSet {
+//
+// }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ListCRDT {
     /// This is a bunch of ranges of (item order -> CRDT location span).
     /// The entries always have positive len.
@@ -65,7 +75,7 @@ pub struct ListCRDT {
     /// always just be the last order we've seen.
     ///
     /// Never empty. Starts at usize::max (which is the root order).
-    frontier: Branch,
+    frontier: Frontier,
 
 
     // /// Transaction metadata (succeeds, parents) for all operations on this document. This is used

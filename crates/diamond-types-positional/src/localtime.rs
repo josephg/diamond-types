@@ -146,8 +146,14 @@ impl RleKeyed for TimeSpan {
 
 pub(crate) const UNDERWATER_START: usize = usize::MAX / 4;
 
-#[derive(Debug)]
+// #[derive(Debug)]
 struct RootTime;
+
+impl Debug for RootTime {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ROOT")
+    }
+}
 
 pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: Time) {
     match val {
@@ -163,8 +169,14 @@ pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: Time) {
     }
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 struct Underwater(usize);
+
+impl Debug for Underwater {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("Underwater({})", self.0))
+    }
+}
 
 impl Debug for TimeSpan {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

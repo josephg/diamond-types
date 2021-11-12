@@ -55,7 +55,7 @@ impl M2Tracker {
                     if tag == InsDelTag::Ins {
                         e.state.mark_inserted();
                     } else {
-                        e.state.delete();
+                        e.delete();
                     }
                 }, &mut cursor, len, notify_for(&mut self.index));
 
@@ -88,7 +88,7 @@ impl M2Tracker {
                         }
                     }, &mut cursor, len, notify_for(&mut self.index));
 
-                    dbg!(amt_modified);
+                    // dbg!(amt_modified);
                     target += amt_modified;
                     len -= amt_modified;
                 }

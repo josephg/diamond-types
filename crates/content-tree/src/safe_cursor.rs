@@ -222,7 +222,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
 
 impl<R, E: ContentTraits + ContentLength, I: FindContent<E>, const IE: usize, const LE: usize> SafeCursor<R, E, I, IE, LE> {
     pub fn count_content_pos(&self) -> usize {
-        unsafe { self.inner.count_content_pos() }
+        unsafe { self.inner.unsafe_count_content_pos() }
         // I::index_to_content(self.old_count_pos())
     }
 }
