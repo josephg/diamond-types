@@ -235,12 +235,12 @@ impl History {
         let mut num_shared_entries = 0;
 
         while let Some(Item(mut time, mut flag)) = queue.pop() {
-            // let (mut time, mut flag) = (time, flag); // lldb bug workaround
+            let (mut time, mut flag) = (time, flag); // lldb bug workaround
             if flag == Flag::Shared { num_shared_entries -= 1; }
 
             // dbg!((ord, flag));
             while let Some(Item(peek_time, peek_flag)) = queue.peek() {
-                // let (peek_time, peek_flag) = (peek_time, peek_flag);
+                let (peek_time, peek_flag) = (peek_time, peek_flag);
                 if *peek_time != time { break; } // Normal case.
                 else {
                     // 3 cases if peek_flag != flag. We set flag = Shared in all cases.
@@ -727,6 +727,8 @@ pub mod test {
             ]),
             root_child_indexes: smallvec![0, 1, 2],
         };
+
+        assert_diff_eq(&history, &[0], &[0, 1], &[], &[(1..2).into()], &[ROOT_TIME]);
 
         for time in [0, 1, 2] {
             assert_diff_eq(&history, &[time], &[ROOT_TIME], &[(time..time+1).into()], &[], &[ROOT_TIME]);

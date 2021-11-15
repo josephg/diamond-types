@@ -18,6 +18,7 @@ use crate::list::list::apply_local_operation;
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
 
+const ALLOW_FF: bool = true;
 
 pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
     // |_entry: YjsSpan2, _leaf| {}
@@ -237,7 +238,6 @@ impl M2Tracker {
     }
 
     /// This is for advancing us directly based on the edit.
-    // fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<PositionalComponent>, to: Option<&mut Checkout>) {
     fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<Operation>, to: Option<&mut Checkout>) {
         // The op must have been applied at the branch that the tracker is currently at.
         let KVPair(time, op) = pair;
@@ -366,7 +366,7 @@ impl Checkout {
         debug_assert!(branch_is_sorted(&merge_frontier));
         // dbg!(&diff.common_branch, &self.frontier);
 
-        if diff.common_branch == self.frontier {
+        if ALLOW_FF && diff.common_branch == self.frontier {
             // Try and FF as much as we possibly can.
             loop {
                 // dbg!(&diff);
@@ -390,7 +390,9 @@ impl Checkout {
                         }
                     } else {
                         // Recalculate common_branch to skip the already merged changes.
-                        diff = opset.history.diff(&self.frontier, merge_frontier);
+                        dbg!(&diff.common_branch, &self.frontier, merge_frontier);
+                        diff = dbg!(opset.history.diff(&self.frontier, merge_frontier));
+                        dbg!(&diff.common_branch);
                         break;
                     }
                 } else {
@@ -402,7 +404,7 @@ impl Checkout {
 
         // TODO: Also FF at the end!
 
-        // dbg!((&self.frontier, &diff.common_branch));
+        dbg!((&self.frontier, &diff.common_branch, merge_frontier));
         let (mut tracker, branch) = M2Tracker::new_at_conflict(opset, &self.frontier, &diff.common_branch);
 
         let mut walker = OptimizedTxnsIter::new(&opset.history, ConflictSpans {
@@ -572,5 +574,33 @@ mod test {
         t.retreat_by_range((8..end).into());
         t.retreat_by_range((7..8).into());
         dbg!(&t);
+    }
+
+    #[test]
+    fn backspace() {
+        let mut list = ListCRDT::new();
+        list.get_or_create_agent_id("seph");
+        let mut t = ROOT_TIME;
+        t = list.ops.push_insert(0, &[t], 0, "abc"); // 2
+        t = list.ops.push_delete(0, &[t], 2, 1); // 3
+        t = list.ops.push_delete(0, &[t], 1, 1); // 4
+        t = list.ops.push_delete(0, &[t], 0, 1); // 5
+
+        list.checkout.merge_branch(&list.ops, &[4]);
+        dbg!(&list.checkout);
+    }
+
+    #[test]
+    fn ins_back() {
+        let mut list = ListCRDT::new();
+        list.get_or_create_agent_id("seph");
+        let mut t = ROOT_TIME;
+        t = list.ops.push_insert(0, &[t], 0, "c");
+        t = list.ops.push_insert(0, &[t], 0, "b");
+        t = list.ops.push_insert(0, &[t], 0, "a");
+
+        dbg!(&list.ops);
+        list.checkout.merge_branch(&list.ops, &[t]);
+        dbg!(&list.checkout);
     }
 }

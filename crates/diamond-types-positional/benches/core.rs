@@ -37,7 +37,7 @@ fn local_benchmarks(c: &mut Criterion) {
             b.iter(|| {
                 let mut doc = ListCRDT::new();
                 apply_edits_push_merge(&mut doc, &test_data.txns);
-                assert_eq!(doc.len(), test_data.end_content.len());
+                // assert_eq!(doc.len(), test_data.end_content.len());
                 black_box(doc.len());
             })
         });

@@ -39,7 +39,10 @@ pub struct Operation {
     pub pos: usize,
     pub len: usize,
 
+    /// rev marks the operation order as reversed. For now this is only supported on deletes, for
+    /// backspacing.
     pub rev: bool,
+
     pub content_known: bool,
     pub tag: InsDelTag,
     // pub content_bytes_offset: usize,
@@ -123,7 +126,9 @@ impl MergableSpan for Operation {
             if (tag == Ins && other.pos == self.pos + self.len)
                 || (tag == Del && other.pos == self.pos) { return true; }
         }
-        if (self.len == 1 || self.rev == true) && (other.len == 1 || other.rev == true) {
+
+        // TODO: Handling reversed items is currently limited to Del. Undo this.
+        if self.tag == Del && (self.len == 1 || self.rev == true) && (other.len == 1 || other.rev == true) {
             // Try an append in a reverse sort of way
             if (tag == Ins && other.pos == self.pos)
                 || (tag == Del && other.pos + other.len == self.pos) { return true; }
