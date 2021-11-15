@@ -184,9 +184,7 @@ impl History {
             // common branch once. This could be simpler by either defaulting an empty common set
             // to ROOT_TIME. Or actually adding ROOT_TIME to the diff below - and thus clearing
             // duplicates like that.
-            if time != ROOT_TIME || result.common_branch.is_empty() {
-                result.common_branch.push(time);
-            }
+            result.common_branch.push(time);
         };
 
         self.diff_slow_internal(a, b, mark_run, mark_common);
@@ -196,21 +194,33 @@ impl History {
     fn diff_slow_internal<F, G>(&self, a: &[Time], b: &[Time], mut mark_run: F, mut mark_common: G)
         where F: FnMut(Time, Time, Flag), G: FnMut(Time) {
         // Sorted highest to lowest.
-        let mut queue: BinaryHeap<(Time, Flag)> = BinaryHeap::new();
+        #[derive(Copy, Clone, Ord, Eq, PartialEq)]
+        struct Item(Time, Flag);
+
+        impl PartialOrd for Item {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                match self.0.wrapping_add(1).cmp(&other.0.wrapping_add(1)) {
+                    Ordering::Equal => self.1.partial_cmp(&other.1),
+                    x @ _ => Some(x)
+                }
+            }
+        }
+
+        let mut queue: BinaryHeap<Item> = BinaryHeap::new();
         for a_ord in a {
-            if *a_ord != ROOT_TIME { queue.push((*a_ord, Flag::OnlyA)); }
+            queue.push(Item(*a_ord, Flag::OnlyA));
         }
         for b_ord in b {
-            if *b_ord != ROOT_TIME { queue.push((*b_ord, Flag::OnlyB)); }
+            queue.push(Item(*b_ord, Flag::OnlyB));
         }
 
         let mut num_shared_entries = 0;
 
-        while let Some((mut time, mut flag)) = queue.pop() {
+        while let Some(Item(mut time, mut flag)) = queue.pop() {
             if flag == Flag::Shared { num_shared_entries -= 1; }
 
             // dbg!((ord, flag));
-            while let Some((peek_time, peek_flag)) = queue.peek() {
+            while let Some(Item(peek_time, peek_flag)) = queue.peek() {
                 if *peek_time != time { break; } // Normal case.
                 else {
                     // 3 cases if peek_flag != flag. We set flag = Shared in all cases.
@@ -224,6 +234,13 @@ impl History {
                 }
             }
 
+            if time == ROOT_TIME {
+                if flag != Shared {
+                    mark_common(ROOT_TIME);
+                }
+                continue;
+            } // continue or break;
+
             // Grab the txn containing ord. This will usually be at prev_txn_idx - 1.
             // TODO: Remove usually redundant binary search
 
@@ -235,9 +252,9 @@ impl History {
             // 2. Its not. Mark the whole txn and queue parents.
 
             // 1:
-            while let Some((peek_time, peek_flag)) = queue.peek() {
+            while let Some(Item(peek_time, peek_flag)) = queue.peek() {
                 // dbg!((peek_ord, peek_flag));
-                if *peek_time < containing_txn.span.start { break; } else {
+                if *peek_time == ROOT_TIME || *peek_time < containing_txn.span.start { break; } else {
                     if *peek_flag != flag {
                         // Mark from peek_ord..=ord and continue.
                         // Note we'll mark this whole txn from ord, but we might do so with
@@ -260,17 +277,8 @@ impl History {
             mark_run(containing_txn.span.start, time, flag);
 
             for p in containing_txn.parents.iter() {
-                if *p != ROOT_TIME {
-                    queue.push((*p, flag));
-                    if flag == Flag::Shared { num_shared_entries += 1; }
-                } else {
-                    // If our parent is the root of history and we still haven't run into the other
-                    // side, mark the root as a common ancestor.
-                    // TODO: It might be cleaner to just add ROOT_TIME to the queue.
-                    if flag != Flag::Shared {
-                        mark_common(ROOT_TIME);
-                    }
-                }
+                queue.push(Item(*p, flag));
+                if flag == Flag::Shared { num_shared_entries += 1; }
             }
 
             // If there's only shared entries left, abort.
@@ -668,7 +676,7 @@ pub mod test {
             root_child_indexes: smallvec![0, 1],
         };
 
-        // assert_diff_eq(&history, &[2], &[ROOT_TIME], &[(2..3).into(), (0..1).into()], &[], &[ROOT_TIME]);
+        assert_diff_eq(&history, &[2], &[ROOT_TIME], &[(2..3).into(), (0..1).into()], &[], &[ROOT_TIME]);
         assert_diff_eq(&history, &[2], &[1], &[(2..3).into(), (0..1).into()], &[(1..2).into()], &[ROOT_TIME]);
     }
 
