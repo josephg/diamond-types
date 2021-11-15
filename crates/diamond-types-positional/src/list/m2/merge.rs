@@ -389,6 +389,8 @@ impl Checkout {
                             diff.only_b.push(r);
                         }
                     } else {
+                        // Recalculate common_branch to skip the already merged changes.
+                        diff = opset.history.diff(&self.frontier, merge_frontier);
                         break;
                     }
                 } else {
@@ -397,7 +399,8 @@ impl Checkout {
                 }
             }
         }
-        // TODO: FF at the end of the run.
+
+        // TODO: Also FF at the end!
 
         // dbg!((&self.frontier, &diff.common_branch));
         let (mut tracker, branch) = M2Tracker::new_at_conflict(opset, &self.frontier, &diff.common_branch);
@@ -420,8 +423,6 @@ impl Checkout {
             // TODO: Add txn to walk, so we can use advance_branch_by_known.
             advance_branch_by(&mut self.frontier, &opset.history, walk.consume);
             tracker.apply_range(opset, walk.consume, Some(self));
-
-            // self.frontier
         }
     }
 }

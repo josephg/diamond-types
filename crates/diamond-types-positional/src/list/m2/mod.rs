@@ -28,17 +28,12 @@ mod txn_trace;
 mod metrics;
 
 type DocRangeIndex = MarkerMetrics;
-// type DocRangeIndex = ContentMetrics;
 type CRDTList2 = Pin<Box<ContentTreeWithIndex<YjsSpan2, DocRangeIndex>>>;
 
 type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry<YjsSpan2, DocRangeIndex>, RawPositionMetrics>>>;
 
 #[derive(Debug)]
-// struct M2Tracker<'a> {
 struct M2Tracker {
-    // list: &'a mut ListCRDT,
-    // ops: &'a
-
     range_tree: CRDTList2,
 
     index: SpaceIndex,

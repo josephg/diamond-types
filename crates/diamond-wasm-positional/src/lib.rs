@@ -57,10 +57,10 @@ impl Doc {
         self.inner.checkout.content.to_string()
     }
 
-    // #[wasm_bindgen]
-    // pub fn merge(&mut self, branch: &[Time]) {
-    //     self.inner.checkout.merge_branch(&self.inner.ops, branch);
-    // }
+    #[wasm_bindgen]
+    pub fn merge(&mut self, branch: &[Time]) {
+        self.inner.checkout.merge_branch(&self.inner.ops, branch);
+    }
 
     // #[wasm_bindgen]
     // pub fn get_vector_clock(&self) -> Result<JsValue, JsValue> {
