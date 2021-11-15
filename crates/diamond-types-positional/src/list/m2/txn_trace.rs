@@ -6,7 +6,7 @@ use std::ops::Range;
 use rle::{HasLength, SplitableSpan};
 use crate::list::{Branch, Time};
 use crate::list::history::{History, HistoryEntry};
-use crate::list::history_tools::{ConflictSpans, DiffResult};
+use crate::list::history_tools::ConflictSpansSimple;
 use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
 
@@ -122,14 +122,14 @@ impl<'a> OptimizedTxnsIter<'a> {
             spans.push((0..history.get_next_time()).into());
         }
 
-        Self::new(history, ConflictSpans {
+        Self::new(history, ConflictSpansSimple {
             common_branch: smallvec![ROOT_TIME],
             spans
         }, None)
     }
 
     /// If starting_branch is not specified, the iterator starts at conflict.common_branch.
-    pub(crate) fn new(history: &'a History, conflict: ConflictSpans, starting_branch: Option<Branch>) -> Self {
+    pub(crate) fn new(history: &'a History, conflict: ConflictSpansSimple, starting_branch: Option<Branch>) -> Self {
         debug_assert!(branch_is_sorted(&conflict.common_branch));
 
         let input = spans_to_entries(history, &conflict.spans);
@@ -237,11 +237,7 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
         };
 
         // dbg!(&self.branch, &next_txn.parents);
-        let DiffResult {
-            only_a: only_branch,
-            only_b: only_txn,
-            ..
-        } = self.history.diff(&self.branch, &parents);
+        let (only_branch, only_txn) = self.history.diff(&self.branch, &parents);
         // let (only_branch, only_txn) = self.history.diff(&self.branch, &next_txn.parents);
         // dbg!((&branch, &next_txn.parents, &only_branch, &only_txn));
         // Note that even if we're moving to one of our direct children we might see items only
@@ -288,7 +284,7 @@ impl History {
     }
 
     pub(crate) fn conflicting_txns_iter(&self, a: &[Time], b: &[Time]) -> OptimizedTxnsIter {
-        let conflict = self.find_conflicting(a, b);
+        let conflict = self.find_conflicting_simple(a, b);
         // dbg!(&conflict);
         OptimizedTxnsIter::new(self, conflict, None)
     }
@@ -472,8 +468,8 @@ mod test {
             },
         ]);
 
-        let conflict = history.find_conflicting(&[5], &[6]);
-        assert_eq!(conflict, ConflictSpans {
+        let conflict = history.find_conflicting_simple(&[5], &[6]);
+        assert_eq!(conflict, ConflictSpansSimple {
             common_branch: smallvec![5],
             spans: smallvec![(6..7).into()],
         });

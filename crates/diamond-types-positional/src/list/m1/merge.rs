@@ -22,7 +22,7 @@ impl ListCRDT {
 
         // TODO: Do all this in an arena. Allocations here are silly.
 
-        let conflicting = self.ops.history.find_conflicting(self.checkout.frontier.as_slice(), branch);
+        let conflicting = self.ops.history.find_conflicting_simple(self.checkout.frontier.as_slice(), branch);
         dbg!(&conflicting);
 
         // Generate CRDT maps for each item
