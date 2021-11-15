@@ -4,7 +4,7 @@ use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleVec};
 
-pub(crate) struct OpIter<'a> {
+pub struct OpIter<'a> {
     list: &'a RleVec<KVPair<Operation>>,
     idx: usize,
     range: TimeSpan,
@@ -45,8 +45,12 @@ impl<'a> OpIter<'a> {
 }
 
 impl OpSet {
-    pub(crate) fn iter_range(&self, range: TimeSpan) -> OpIter {
+    pub fn iter_range(&self, range: TimeSpan) -> OpIter {
         OpIter::new(&self.operations, range)
+    }
+
+    pub fn iter(&self) -> OpIter {
+        OpIter::new(&self.operations, (0..self.len()).into())
     }
 }
 

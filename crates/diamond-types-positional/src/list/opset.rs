@@ -1,9 +1,10 @@
 use std::mem::replace;
-use smallvec::smallvec;
+use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::list::{ClientData, Branch, OpSet, Time};
+use crate::list::branch::advance_branch_by_known;
 use crate::list::history::HistoryEntry;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::Operation;
@@ -106,6 +107,7 @@ impl OpSet {
     //     self.client_data[loc.agent as usize].seq_to_order_span(loc.seq, max_len)
     // }
 
+    /// Get the number of operations
     pub fn len(&self) -> usize {
         if let Some(last) = self.client_with_localtime.last() {
             last.end()
@@ -236,5 +238,17 @@ impl OpSet {
 
     pub fn push_delete(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) -> Time {
         self.push(agent, parents, &[Operation::new_delete(pos, del_span)])
+    }
+
+    pub fn inefficient_get_branch(&self) -> Branch {
+        let mut b = smallvec![ROOT_TIME];
+        for txn in self.history.entries.iter() {
+            advance_branch_by_known(&mut b, txn.parents.as_slice(), txn.span);
+        }
+        b
+    }
+
+    pub fn iter_history(&self) -> impl Iterator<Item = &HistoryEntry> {
+        self.history.entries.iter()
     }
 }

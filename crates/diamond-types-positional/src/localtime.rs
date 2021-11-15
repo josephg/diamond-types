@@ -6,10 +6,14 @@ use crate::rle::RleKeyed;
 use std::ops::Range;
 use crate::list::Time;
 use crate::ROOT_TIME;
+#[cfg(feature = "serde")]
+use serde_crate::{Deserialize, Serialize};
+
 
 /// A time span defines a ... well, span in time. This is equivalent to Range<u64>, but it
 /// implements Copy (which Range does not) and it has some locally useful methods.
 #[derive(Copy, Clone, Eq, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct TimeSpan {
     pub start: usize,
     pub end: usize

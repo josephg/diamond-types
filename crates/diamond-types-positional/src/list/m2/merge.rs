@@ -163,9 +163,18 @@ impl M2Tracker {
                         let my_name = opset.get_agent_name(agent);
                         let other_loc = opset.client_with_localtime.get(other_order);
                         let other_name = opset.get_agent_name(other_loc.agent);
-                        assert_ne!(my_name, other_name);
 
-                        if my_name < other_name {
+                        // Its possible for a user to conflict with themself if they commit to
+                        // multiple branches. In this case, sort by seq number.
+                        let ins_here = match my_name.cmp(other_name) {
+                            Ordering::Less => true,
+                            Ordering::Equal => {
+                                opset.get_crdt_location(item.id.start) < opset.get_crdt_location(other_entry.id.start)
+                            }
+                            Ordering::Greater => false,
+                        };
+
+                        if ins_here {
                             // Insert here.
                             break;
                         } else {

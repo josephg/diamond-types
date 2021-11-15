@@ -1,16 +1,116 @@
 mod utils;
 
+use smallvec::SmallVec;
 use wasm_bindgen::prelude::*;
 // use serde_wasm_bindgen::Serializer;
 // use serde::{Serialize};
-use diamond_types_positional::AgentId;
-use diamond_types_positional::list::{ListCRDT, Time};
+use diamond_types_positional::{AgentId, ROOT_TIME};
+use diamond_types_positional::list::{ListCRDT, Time, Checkout as DTCheckout, OpSet as DTOpSet};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
+#[wasm_bindgen]
+pub struct Checkout(DTCheckout);
+
+#[wasm_bindgen]
+impl Checkout {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        utils::set_panic_hook();
+
+        Self(DTCheckout::new())
+    }
+
+    #[wasm_bindgen]
+    pub fn all(opset: &OpSet) -> Self {
+        let mut result = Self::new();
+        result.0.merge_branch(&opset.inner, &opset.inner.inefficient_get_branch());
+        result
+    }
+
+    #[wasm_bindgen]
+    pub fn get(&self) -> String {
+        self.0.content.to_string()
+    }
+
+    #[wasm_bindgen]
+    pub fn merge(&mut self, ops: &OpSet, branch: Time) {
+        self.0.merge_branch(&ops.inner, &[branch]);
+    }
+
+    #[wasm_bindgen(js_name = getBranch)]
+    pub fn get_branch(&self) -> Box<[Time]> {
+        self.0.frontier.iter().copied().collect::<Box<[Time]>>()
+    }
+}
+
+#[wasm_bindgen]
+pub struct OpSet {
+    inner: DTOpSet,
+    agent_id: AgentId,
+}
+
+fn map_parents(parents_in: &[isize]) -> SmallVec<[Time; 4]> {
+    parents_in
+        .iter()
+        .map(|p| if *p < 0 { ROOT_TIME } else { *p as usize })
+        .collect()
+}
+
+#[wasm_bindgen]
+impl OpSet {
+    #[wasm_bindgen(constructor)]
+    pub fn new(agent_name: Option<String>) -> Self {
+        utils::set_panic_hook();
+
+        let mut inner = DTOpSet::new();
+        let name_str = agent_name.as_ref().map_or("seph", |s| s.as_str());
+        let agent_id = inner.get_or_create_agent_id(name_str);
+
+        Self { inner, agent_id }
+    }
+
+    #[wasm_bindgen(js_name = ins)]
+    pub fn push_insert(&mut self, pos: usize, content: &str, parents_in: Option<Box<[isize]>>) -> usize {
+        let parents = parents_in.map_or_else(|| {
+            self.inner.inefficient_get_branch()
+        }, |p| map_parents(&p));
+        self.inner.push_insert(self.agent_id, &parents, pos, content)
+    }
+
+    #[wasm_bindgen(js_name = del)]
+    pub fn push_delete(&mut self, pos: usize, len: usize, parents_in: Option<Box<[isize]>>) -> usize {
+        let parents = parents_in.map_or_else(|| {
+            self.inner.inefficient_get_branch()
+        }, |p| map_parents(&p));
+        self.inner.push_delete(self.agent_id, &parents, pos, len)
+    }
+
+    #[wasm_bindgen(js_name = toArray)]
+    pub fn to_arr(&self) -> Result<JsValue, JsValue> {
+        let ops = self.inner.iter().map(|pair| pair.1).collect::<Vec<_>>();
+
+        serde_wasm_bindgen::to_value(&ops)
+                .map_err(|err| err.into())
+    }
+
+    #[wasm_bindgen(js_name = txns)]
+    pub fn to_txn_arr(&self) -> Result<JsValue, JsValue> {
+        let txns = self.inner.iter_history().collect::<Vec<_>>();
+
+        serde_wasm_bindgen::to_value(&txns)
+                .map_err(|err| err.into())
+    }
+
+    #[wasm_bindgen(js_name = getBranch)]
+    pub fn get_branch(&self) -> Box<[Time]> {
+        self.inner.inefficient_get_branch().iter().copied().collect::<Box<[Time]>>()
+    }
+}
 
 #[wasm_bindgen]
 pub struct Doc {

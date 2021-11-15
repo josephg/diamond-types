@@ -6,6 +6,9 @@ use crate::list::Time;
 use crate::rle::{RleKeyed, RleVec};
 use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
+#[cfg(feature = "serde")]
+use serde_crate::{Deserialize, Serialize};
+
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct History {
@@ -43,11 +46,13 @@ impl History {
 ///
 /// Both individual inserts and deletes will use up txn numbers.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct HistoryEntry {
     pub span: TimeSpan, // TODO: Make the span u64s instead of usize.
 
     /// All txns in this span are direct descendants of all operations from order down to shadow.
     /// This is derived from other fields and used as an optimization for some calculations.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub shadow: usize,
 
     /// The parents vector of the first txn in this span. Must contain at least 1 entry (and will
@@ -57,7 +62,9 @@ pub struct HistoryEntry {
 
     /// This is a list of the index of other txns which have a parent within this transaction.
     /// TODO: Consider constraining this to not include the next child. Complexity vs memory.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub parent_indexes: SmallVec<[usize; 2]>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub child_indexes: SmallVec<[usize; 2]>,
 }
 
