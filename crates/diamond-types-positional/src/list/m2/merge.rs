@@ -356,45 +356,54 @@ impl M2Tracker {
 
 impl Checkout {
     /// Add everything in merge_frontier into the set.
-    // pub fn merge_changes_m22(&mut self, opset: &OpSet, merge_frontier: &[Time]) {
-    //     // The strategy here looks like this:
-    //     // We have some set of new changes to merge with a unified set of parents.
-    //     // 1. Find the parent set of the spans to merge
-    //     // 2. Generate the conflict set, and make a tracker for it (by iterating all the conflicting
-    //     //    changes).
-    //     // 3. Use OptTxnIter to iterate through the (new) merge set, merging along the way.
-    //
-    //     // if cfg!(debug_assertions) {
-    //     //     let (a, b) = opset.history.diff(&self.frontier, merge_frontier);
-    //     //     // We can't go backwards (yet).
-    //     //     assert!(a.is_empty());
-    //     // }
-    //
-    //     let common_branch = opset.history.find_common_branch(&self.frontier, merge_frontier);
-    //     // TODO: Actually run diff function, if only_b is empty just do a FF merge.
-    //     let (mut tracker, branch) = M2Tracker::new_at_conflict(opset, &self.frontier, &common_branch);
-    //
-    //     let diff = opset.history.diff(&common_branch, merge_frontier);
-    //     assert!(diff.only_a.is_empty());
-    //
-    //     let mut walker = OptimizedTxnsIter::new(&opset.history, ConflictSpans {
-    //         common_branch,
-    //         spans: diff.only_b
-    //     }, Some(branch));
-    //
-    //     while let Some(walk) = walker.next() {
-    //         for range in walk.retreat {
-    //             tracker.retreat_by_range(range);
-    //         }
-    //
-    //         for range in walk.advance_rev.into_iter().rev() {
-    //             tracker.advance_by_range(range);
-    //         }
-    //
-    //         debug_assert!(!walk.consume.is_empty());
-    //         tracker.apply_range(opset, walk.consume, Some(self));
-    //     }
-    // }
+    pub fn merge_changes_m22(&mut self, opset: &OpSet, merge_frontier: &[Time]) {
+        // The strategy here looks like this:
+        // We have some set of new changes to merge with a unified set of parents.
+        // 1. Find the parent set of the spans to merge
+        // 2. Generate the conflict set, and make a tracker for it (by iterating all the conflicting
+        //    changes).
+        // 3. Use OptTxnIter to iterate through the (new) merge set, merging along the way.
+
+        // if cfg!(debug_assertions) {
+        //     let (a, b) = opset.history.diff(&self.frontier, merge_frontier);
+        //     // We can't go backwards (yet).
+        //     assert!(a.is_empty());
+        // }
+
+        let diff = opset.history.diff(&self.frontier, merge_frontier);
+        assert!(diff.only_a.is_empty(), "Cannot merge backwards");
+
+        // dbg!(&diff);
+        // TODO: FF.
+        // if diff.only_a.is_empty() {
+        //     // We don't need to worry about the tracker. We can just do a FF merge.
+        //     println!("FF {:?}", &diff.only_b);
+        //     for range in diff.only_b {
+        //         self.apply_range_from(opset, range);
+        //     }
+        //     return;
+        // }
+
+        let (mut tracker, branch) = M2Tracker::new_at_conflict(opset, &self.frontier, &diff.common_branch);
+
+        let mut walker = OptimizedTxnsIter::new(&opset.history, ConflictSpans {
+            common_branch: diff.common_branch,
+            spans: diff.only_b
+        }, Some(branch));
+
+        while let Some(walk) = walker.next() {
+            for range in walk.retreat {
+                tracker.retreat_by_range(range);
+            }
+
+            for range in walk.advance_rev.into_iter().rev() {
+                tracker.advance_by_range(range);
+            }
+
+            debug_assert!(!walk.consume.is_empty());
+            tracker.apply_range(opset, walk.consume, Some(self));
+        }
+    }
 
 
     pub fn merge_changes_m2(&mut self, opset: &OpSet, mut span: TimeSpan) {
@@ -478,7 +487,7 @@ mod test {
         list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
         list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
 
-        list.checkout.merge_changes_m2(&list.ops, (0..6).into());
+        list.checkout.merge_changes_m22(&list.ops, &[2, 5]);
         // dbg!(list.checkout);
         assert_eq!(list.checkout.content, "aaabbb");
     }
@@ -492,11 +501,12 @@ mod test {
         list.local_insert(0, 0, "aaa");
         // list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
 
-        list.ops.push_delete(0, &[2], 1, 1);
-        list.ops.push_delete(1, &[2], 0, 3);
+        list.ops.push_delete(0, &[2], 1, 1); // &[3]
+        list.ops.push_delete(1, &[2], 0, 3); // &[6]
 
         // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
-        list.checkout.merge_changes_m2(&list.ops, (3..list.ops.len()).into());
+        // list.checkout.merge_changes_m2(&list.ops, (3..list.ops.len()).into());
+        list.checkout.merge_changes_m22(&list.ops, &[3, 6]);
         assert_eq!(list.checkout.content, "");
     }
 
@@ -507,10 +517,11 @@ mod test {
         list.get_or_create_agent_id("b");
 
         list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
-        list.ops.push_delete(0, &[2], 1, 1);
-        list.ops.push_delete(1, &[2], 0, 3);
+        list.ops.push_delete(0, &[2], 1, 1); // 3
+        list.ops.push_delete(1, &[2], 0, 3); // 6
 
-        list.checkout.merge_changes_m2(&list.ops, (0..list.ops.len()).into());
+        // list.checkout.merge_changes_m2(&list.ops, (0..list.ops.len()).into());
+        list.checkout.merge_changes_m22(&list.ops, &[3, 6]);
         assert_eq!(list.checkout.content, "");
     }
 

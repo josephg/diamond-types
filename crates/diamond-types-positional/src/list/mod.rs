@@ -94,8 +94,8 @@ pub struct ListCRDT {
     pub ops: OpSet,
 }
 
-impl OpSet {
-    pub fn blah(&self, a: &[Time], b: &[Time]) -> bool {
-        self.history.diff(a, b).common_branch[0] == ROOT_TIME
-    }
-}
+// impl OpSet {
+//     pub fn blah(&self, a: &[Time], b: &[Time]) -> bool {
+//         self.history.diff(a, b).common_branch[0] == ROOT_TIME
+//     }
+// }

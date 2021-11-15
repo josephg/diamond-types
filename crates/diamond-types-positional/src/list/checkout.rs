@@ -1,9 +1,10 @@
 use jumprope::JumpRope;
-use crate::list::Checkout;
+use crate::list::{Checkout, OpSet};
 use smallvec::smallvec;
 use rle::HasLength;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::Operation;
+use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
 use crate::unicount::consume_chars;
 
@@ -44,6 +45,12 @@ impl Checkout {
             //     consume_chars(&mut content, c.len())
             // } else { "" };
             self.apply_1(c);
+        }
+    }
+
+    pub fn apply_range_from(&mut self, ops: &OpSet, range: TimeSpan) {
+        for op in ops.iter_ops(range) {
+            self.apply_1(&op.1);
         }
     }
 }

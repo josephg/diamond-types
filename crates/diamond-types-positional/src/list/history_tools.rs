@@ -184,7 +184,9 @@ impl History {
             // common branch once. This could be simpler by either defaulting an empty common set
             // to ROOT_TIME. Or actually adding ROOT_TIME to the diff below - and thus clearing
             // duplicates like that.
+            debug_assert!(time != ROOT_TIME || result.common_branch.is_empty());
             result.common_branch.push(time);
+
         };
 
         self.diff_slow_internal(a, b, mark_run, mark_common);
