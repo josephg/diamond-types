@@ -8,16 +8,16 @@ edition = "2021"
 [dependencies]
 #diamond-core = { path = "../diamond-core" }
 smartstring = "0.2"
-ropey = "1.1"
-smallvec = { version = "1.6", features = ["union"] }
+ropey = "1"
+smallvec = { version = "1", features = ["union"] }
 lazy_static = "1.4"
-serde_crate = { package = "serde", version = "1.0.126", features = ["derive"], optional = true }
+serde_crate = { package = "serde", version = "1", features = ["derive"], optional = true }
 rle = { version = "0.1", path = "../rle" }
 content-tree = { version = "0.1", path = "../content-tree" }
 #bitvec = "0.22.3"
 jumprope = { version = "0.4" }
 humansize = "1.1"
-bitvec = "0.22.3"
+#bitvec = "0.22.3"
 
 [dev-dependencies]
 criterion = "^0.3"
