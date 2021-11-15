@@ -1,5 +1,5 @@
 use jumprope::JumpRope;
-use crate::list::{Checkout, OpSet};
+use crate::list::{Checkout, OpSet, Time};
 use smallvec::smallvec;
 use rle::HasLength;
 use crate::list::operation::InsDelTag::*;
@@ -55,5 +55,9 @@ impl Checkout {
         for op in ops.iter_range(range) {
             self.apply_1(&op.1);
         }
+    }
+
+    pub fn merge_branch(&mut self, ops: &OpSet, merge_frontier: &[Time]) {
+        self.merge_changes_m2(ops, merge_frontier);
     }
 }

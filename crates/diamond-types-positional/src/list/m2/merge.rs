@@ -340,7 +340,9 @@ impl M2Tracker {
 
 impl Checkout {
     /// Add everything in merge_frontier into the set.
-    pub fn merge_changes_m2(&mut self, opset: &OpSet, merge_frontier: &[Time]) {
+    ///
+    /// Reexposed as merge_changes.
+    pub(crate) fn merge_changes_m2(&mut self, opset: &OpSet, merge_frontier: &[Time]) {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
