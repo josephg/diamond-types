@@ -201,6 +201,7 @@ pub fn test_splitable_methods_valid<E: SplitAndJoinSpan + std::fmt::Debug + Clon
         assert_eq!(start.len(), i);
         assert_eq!(end.len(), entry.len() - i);
 
+        // dbg!(&start, &end);
         assert!(start.can_append(&end));
 
         let mut merge_append = start.clone();

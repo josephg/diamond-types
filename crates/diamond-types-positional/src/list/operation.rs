@@ -217,14 +217,16 @@ mod test {
     fn positional_component_splitable() {
         for rev in [true, false] {
             for content_known in [true, false] {
-                test_splitable_methods_valid(Operation {
-                    pos: 10,
-                    len: 5,
-                    rev,
-                    content_known: true,
-                    tag: Ins,
-                    content: "abcde".into()
-                });
+                if !rev {
+                    test_splitable_methods_valid(Operation {
+                        pos: 10,
+                        len: 5,
+                        rev,
+                        content_known: true,
+                        tag: Ins,
+                        content: "abcde".into()
+                    });
+                }
 
                 test_splitable_methods_valid(Operation {
                     pos: 10,
