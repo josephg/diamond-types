@@ -8,6 +8,7 @@ use rle::{AppendRle, SplitableSpan};
 use crate::list::{Branch, ListCRDT, OpSet, Time};
 use crate::list::branch::{branch_is_root, branch_is_sorted};
 use crate::list::history::{History, HistoryEntry};
+use crate::list::history_tools::Flag::Shared;
 use crate::localtime::TimeSpan;
 use crate::rle::RleVec;
 use crate::ROOT_TIME;
@@ -104,35 +105,58 @@ impl History {
 
         false
     }
+}
 
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct DiffResult {
+    pub only_a: SmallVec<[TimeSpan; 4]>,
+    pub only_b: SmallVec<[TimeSpan; 4]>,
+    pub common_branch: Branch,
+}
+
+impl DiffResult {
+    fn new_at_branch(branch: &[Time]) -> DiffResult {
+        DiffResult {
+            only_a: smallvec![], only_b: smallvec![], common_branch: branch.into()
+        }
+    }
+}
+
+impl History {
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
     ///
     /// Also find which operation is the greatest common ancestor.
-    pub(crate) fn diff(&self, a: &[Time], b: &[Time]) -> (SmallVec<[TimeSpan; 4]>, SmallVec<[TimeSpan; 4]>) {
+    pub(crate) fn diff(&self, a: &[Time], b: &[Time]) -> DiffResult {
         assert!(!a.is_empty());
         assert!(!b.is_empty());
 
         // First some simple short circuit checks to avoid needless work in common cases.
         // Note most of the time this method is called, one of these early short circuit cases will
         // fire.
-        if a == b { return (smallvec![], smallvec![]); }
+        if a == b { return DiffResult::new_at_branch(a); }
 
         if a.len() == 1 && b.len() == 1 {
             // Check if either operation naively dominates the other. We could do this for more
             // cases, but we may as well use the code below instead.
             let a = a[0];
             let b = b[0];
-            if a == b { return (smallvec![], smallvec![]); }
+            if a == b { return DiffResult::new_at_branch(&[a]); }
 
             if self.is_direct_descendant(a, b) {
                 // a >= b.
-                return (smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()], smallvec![]);
-                // return (smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()], smallvec![], b);
+                return DiffResult {
+                    only_a: smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()],
+                    only_b: smallvec![],
+                    common_branch: smallvec![b],
+                }
             }
             if self.is_direct_descendant(b, a) {
                 // b >= a.
-                return (smallvec![], smallvec![(a.wrapping_add(1)..b.wrapping_add(1)).into()]);
-                // return (smallvec![], smallvec![(a.wrapping_add(1)..b.wrapping_add(1)).into()], a);
+                return DiffResult {
+                    only_a: smallvec![],
+                    only_b: smallvec![(a.wrapping_add(1)..b.wrapping_add(1)).into()],
+                    common_branch: smallvec![a],
+                }
             }
         }
 
@@ -140,15 +164,14 @@ impl History {
         self.diff_slow(a, b)
     }
 
-    fn diff_slow(&self, a: &[Time], b: &[Time]) -> (SmallVec<[TimeSpan; 4]>, SmallVec<[TimeSpan; 4]>) {
-        let mut only_a = smallvec![];
-        let mut only_b = smallvec![];
+    fn diff_slow(&self, a: &[Time], b: &[Time]) -> DiffResult {
+        let mut result = DiffResult::default();
 
         // marks range [ord_start..ord_end] *inclusive* with flag in our output.
         let mark_run = |ord_start, ord_end, flag: Flag| {
             let target = match flag {
-                Flag::OnlyA => { &mut only_a }
-                Flag::OnlyB => { &mut only_b }
+                Flag::OnlyA => { &mut result.only_a }
+                Flag::OnlyB => { &mut result.only_b }
                 Flag::Shared => { return; }
             };
             // dbg!((ord_start, ord_end));
@@ -156,12 +179,22 @@ impl History {
             target.push_reversed_rle(TimeSpan::new(ord_start, ord_end + 1));
         };
 
-        self.diff_slow_internal(a, b, mark_run);
-        (only_a, only_b)
+        let mark_common = |time| {
+            // This is weird. If we run into the root branch from 2 directions, only add it to
+            // common branch once. This could be simpler by either defaulting an empty common set
+            // to ROOT_TIME. Or actually adding ROOT_TIME to the diff below - and thus clearing
+            // duplicates like that.
+            if time != ROOT_TIME || result.common_branch.is_empty() {
+                result.common_branch.push(time);
+            }
+        };
+
+        self.diff_slow_internal(a, b, mark_run, mark_common);
+        result
     }
 
-    fn diff_slow_internal<F>(&self, a: &[Time], b: &[Time], mut mark_run: F)
-        where F: FnMut(Time, Time, Flag) {
+    fn diff_slow_internal<F, G>(&self, a: &[Time], b: &[Time], mut mark_run: F, mut mark_common: G)
+        where F: FnMut(Time, Time, Flag), G: FnMut(Time) {
         // Sorted highest to lowest.
         let mut queue: BinaryHeap<(Time, Flag)> = BinaryHeap::new();
         for a_ord in a {
@@ -173,14 +206,18 @@ impl History {
 
         let mut num_shared_entries = 0;
 
-        while let Some((mut ord, mut flag)) = queue.pop() {
+        while let Some((mut time, mut flag)) = queue.pop() {
             if flag == Flag::Shared { num_shared_entries -= 1; }
 
             // dbg!((ord, flag));
-            while let Some((peek_ord, peek_flag)) = queue.peek() {
-                if *peek_ord != ord { break; } // Normal case.
+            while let Some((peek_time, peek_flag)) = queue.peek() {
+                if *peek_time != time { break; } // Normal case.
                 else {
                     // 3 cases if peek_flag != flag. We set flag = Shared in all cases.
+                    if *peek_flag != Shared && flag != Shared {
+                        mark_common(time);
+                    }
+
                     if *peek_flag != flag { flag = Flag::Shared; }
                     if *peek_flag == Flag::Shared { num_shared_entries -= 1; }
                     queue.pop();
@@ -190,7 +227,7 @@ impl History {
             // Grab the txn containing ord. This will usually be at prev_txn_idx - 1.
             // TODO: Remove usually redundant binary search
 
-            let containing_txn = self.entries.find(ord).unwrap();
+            let containing_txn = self.entries.find(time).unwrap();
 
             // There's essentially 2 cases here:
             // 1. This item and the first item in the queue are part of the same txn. Mark down to
@@ -198,15 +235,18 @@ impl History {
             // 2. Its not. Mark the whole txn and queue parents.
 
             // 1:
-            while let Some((peek_ord, peek_flag)) = queue.peek() {
+            while let Some((peek_time, peek_flag)) = queue.peek() {
                 // dbg!((peek_ord, peek_flag));
-                if *peek_ord < containing_txn.span.start { break; } else {
+                if *peek_time < containing_txn.span.start { break; } else {
                     if *peek_flag != flag {
                         // Mark from peek_ord..=ord and continue.
                         // Note we'll mark this whole txn from ord, but we might do so with
                         // different flags.
-                        mark_run(*peek_ord + 1, ord, flag);
-                        ord = *peek_ord;
+                        mark_run(*peek_time + 1, time, flag);
+                        time = *peek_time;
+                        if *peek_flag != Shared && flag != Shared {
+                            mark_common(time);
+                        }
                         // offset -= ord - peek_ord;
                         flag = Flag::Shared;
                     }
@@ -217,18 +257,29 @@ impl History {
 
             // 2: Mark the rest of the txn in our current color and repeat. Note we still need to
             // mark the run even if ord == containing_txn.order because the spans are inclusive.
-            mark_run(containing_txn.span.start, ord, flag);
+            mark_run(containing_txn.span.start, time, flag);
 
             for p in containing_txn.parents.iter() {
                 if *p != ROOT_TIME {
                     queue.push((*p, flag));
                     if flag == Flag::Shared { num_shared_entries += 1; }
+                } else {
+                    // If our parent is the root of history and we still haven't run into the other
+                    // side, mark the root as a common ancestor.
+                    // TODO: It might be cleaner to just add ROOT_TIME to the queue.
+                    if flag != Flag::Shared {
+                        mark_common(ROOT_TIME);
+                    }
                 }
             }
 
             // If there's only shared entries left, abort.
             if queue.len() == num_shared_entries { break; }
         }
+    }
+
+    pub fn find_common_branch(&self, a: &[Time], b: &[Time]) -> Branch {
+        todo!()
     }
 }
 
@@ -463,13 +514,15 @@ pub mod test {
         assert_eq!(fast.common_branch.as_slice(), expect_common);
     }
 
-    fn assert_diff_eq(history: &History, a: &[Time], b: &[Time], expect_a: &[TimeSpan], expect_b: &[TimeSpan]) {
+    fn assert_diff_eq(history: &History, a: &[Time], b: &[Time], expect_a: &[TimeSpan], expect_b: &[TimeSpan], expect_common: &[Time]) {
         let slow_result = history.diff_slow(a, b);
         let fast_result = history.diff(a, b);
+        // dbg!(&slow_result, &fast_result);
         assert_eq!(slow_result, fast_result);
 
-        assert_eq!(slow_result.0.as_slice(), expect_a);
-        assert_eq!(slow_result.1.as_slice(), expect_b);
+        assert_eq!(slow_result.only_a.as_slice(), expect_a);
+        assert_eq!(slow_result.only_b.as_slice(), expect_b);
+        assert_eq!(slow_result.common_branch.as_slice(), expect_common);
 
         for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
             for o in spans {
@@ -587,6 +640,117 @@ pub mod test {
         assert!(history.branch_contains_order(&[9], 0));
     }
 
+    #[test]
+    fn diff_for_flat_txns() {
+        // Regression.
+
+        // 0 |
+        // | 1
+        // 2
+        let history = History {
+            entries: RleVec(vec![
+                HistoryEntry {
+                    span: (0..1).into(), shadow: ROOT_TIME,
+                    parents: smallvec![ROOT_TIME],
+                    parent_indexes: smallvec![], child_indexes: smallvec![2]
+                },
+                HistoryEntry {
+                    span: (1..2).into(), shadow: ROOT_TIME,
+                    parents: smallvec![ROOT_TIME],
+                    parent_indexes: smallvec![], child_indexes: smallvec![3]
+                },
+                HistoryEntry {
+                    span: (2..3).into(), shadow: 2,
+                    parents: smallvec![0],
+                    parent_indexes: smallvec![0], child_indexes: smallvec![4]
+                },
+            ]),
+            root_child_indexes: smallvec![0, 1],
+        };
+
+        // assert_diff_eq(&history, &[2], &[ROOT_TIME], &[(2..3).into(), (0..1).into()], &[], &[ROOT_TIME]);
+        assert_diff_eq(&history, &[2], &[1], &[(2..3).into(), (0..1).into()], &[(1..2).into()], &[ROOT_TIME]);
+    }
+
+    #[test]
+    fn diff_three_root_txns() {
+        // Regression.
+
+        // 0 | |
+        //   1 |
+        //     2
+        let history = History {
+            entries: RleVec(vec![
+                HistoryEntry {
+                    span: (0..1).into(),
+                    shadow: ROOT_TIME,
+                    parents: smallvec![ROOT_TIME],
+                    parent_indexes: smallvec![], child_indexes: smallvec![],
+                },
+                HistoryEntry {
+                    span: (1..2).into(),
+                    shadow: 1,
+                    parents: smallvec![ROOT_TIME],
+                    parent_indexes: smallvec![], child_indexes: smallvec![],
+                },
+                HistoryEntry {
+                    span: (2..3).into(),
+                    shadow: 2,
+                    parents: smallvec![ROOT_TIME],
+                    parent_indexes: smallvec![], child_indexes: smallvec![],
+                },
+            ]),
+            root_child_indexes: smallvec![0, 1, 2],
+        };
+
+        for time in [0, 1, 2] {
+            assert_diff_eq(&history, &[time], &[ROOT_TIME], &[(time..time+1).into()], &[], &[ROOT_TIME]);
+            assert_diff_eq(&history, &[ROOT_TIME], &[time], &[], &[(time..time+1).into()], &[ROOT_TIME]);
+        }
+
+        assert_diff_eq(&history, &[0], &[1], &[(0..1).into()], &[(1..2).into()], &[ROOT_TIME]);
+    }
+
+    #[test]
+    fn diff_shadow_bubble() {
+        // regression
+
+        // 0,1,2   |
+        //      \ 3,4
+        //       \ /
+        //        5,6
+        let history = History {
+            entries: RleVec(vec![
+                HistoryEntry {
+                    span: (0..3).into(),
+                    shadow: ROOT_TIME,
+                    parents: smallvec![ROOT_TIME],
+                    parent_indexes: smallvec![],
+                    child_indexes: smallvec![2],
+                },
+                HistoryEntry {
+                    span: (3..5).into(),
+                    shadow: 3,
+                    parents: smallvec![ROOT_TIME],
+                    parent_indexes: smallvec![],
+                    child_indexes: smallvec![2],
+                },
+                HistoryEntry {
+                    span: (5..6).into(),
+                    shadow: ROOT_TIME,
+                    parents: smallvec![2,4],
+                    parent_indexes: smallvec![0,1],
+                    child_indexes: smallvec![],
+                },
+            ]),
+            root_child_indexes: smallvec![0, 1],
+        };
+
+        assert_diff_eq(&history, &[4], &[ROOT_TIME], &[(3..5).into()], &[], &[ROOT_TIME]);
+        assert_diff_eq(&history, &[4], &[5], &[], &[(5..6).into(), (0..3).into()], &[4]);
+    }
+
+
     // #[test]
     // fn diff_smoke_test() {
     //     let mut doc1 = ListCRDT::new();
@@ -695,100 +859,4 @@ pub mod test {
     //     assert_diff_eq(&doc.txns, &[4, 6], &[ROOT_TIME], &[0..7], &[]);
     // }
 
-    #[test]
-    fn diff_for_flat_txns() {
-        // Regression.
-        let history = History {
-            entries: RleVec(vec![
-                HistoryEntry {
-                    span: (0..1).into(), shadow: ROOT_TIME,
-                    parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![2]
-                },
-                HistoryEntry {
-                    span: (1..2).into(), shadow: ROOT_TIME,
-                    parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![3]
-                },
-                HistoryEntry {
-                    span: (2..3).into(), shadow: 2,
-                    parents: smallvec![0],
-                    parent_indexes: smallvec![0], child_indexes: smallvec![4]
-                },
-            ]),
-            root_child_indexes: smallvec![0, 1],
-        };
-
-        assert_diff_eq(&history, &[2], &[ROOT_TIME], &[(2..3).into(), (0..1).into()], &[]);
-        assert_diff_eq(&history, &[2], &[1], &[(2..3).into(), (0..1).into()], &[(1..2).into()]);
-    }
-
-    #[test]
-    fn diff_three_root_txns() {
-        // Regression.
-        let history = History {
-            entries: RleVec(vec![
-                HistoryEntry {
-                    span: (0..1).into(),
-                    shadow: ROOT_TIME,
-                    parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![],
-                },
-                HistoryEntry {
-                    span: (1..2).into(),
-                    shadow: 1,
-                    parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![],
-                },
-                HistoryEntry {
-                    span: (2..3).into(),
-                    shadow: 2,
-                    parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![],
-                },
-            ]),
-            root_child_indexes: smallvec![0, 1, 2],
-        };
-
-        for time in [0, 1, 2] {
-            assert_diff_eq(&history, &[time], &[ROOT_TIME], &[(time..time+1).into()], &[]);
-            assert_diff_eq(&history, &[ROOT_TIME], &[time], &[], &[(time..time+1).into()]);
-        }
-
-        assert_diff_eq(&history, &[0], &[1], &[(0..1).into()], &[(1..2).into()]);
-    }
-
-    #[test]
-    fn diff_shadow_bubble() {
-        // regression
-        let history = History {
-            entries: RleVec(vec![
-                HistoryEntry {
-                    span: (0..3).into(),
-                    shadow: ROOT_TIME,
-                    parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![],
-                    child_indexes: smallvec![2],
-                },
-                HistoryEntry {
-                    span: (3..5).into(),
-                    shadow: 3,
-                    parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![],
-                    child_indexes: smallvec![2],
-                },
-                HistoryEntry {
-                    span: (5..6).into(),
-                    shadow: ROOT_TIME,
-                    parents: smallvec![2,4],
-                    parent_indexes: smallvec![0,1],
-                    child_indexes: smallvec![],
-                },
-            ]),
-            root_child_indexes: smallvec![0, 1],
-        };
-
-        assert_diff_eq(&history, &[4], &[ROOT_TIME], &[(3..5).into()], &[]);
-        assert_diff_eq(&history, &[4], &[5], &[], &[(5..6).into(), (0..3).into()]);
-    }
 }

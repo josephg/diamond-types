@@ -14,62 +14,6 @@ pub enum YjsSpanState {
     Deleted(u16),
 }
 
-impl YjsSpanState {
-    pub(crate) fn is_deleted(&self) -> bool {
-        match self {
-            Deleted(_) => true,
-            _ => false
-        }
-    }
-
-    fn delete(&mut self) {
-        match self {
-            NotInsertedYet => panic!("Cannot deleted NIY item"),
-            Inserted => {
-                // Most common case.
-                *self = Deleted(0);
-            }
-            Deleted(n) => {
-                *n += 1;
-            }
-        }
-    }
-
-    pub(crate) fn undelete(&mut self) {
-        match self {
-            Deleted(n) => {
-                if *n > 0 { *n -= 1; }
-                else {
-                    // Most common case.
-                    *self = Inserted
-                }
-            }
-            _ => panic!("Invalid undelete target"),
-        }
-    }
-
-    pub(crate) fn mark_inserted(&mut self) {
-        match self {
-            NotInsertedYet => {
-                *self = Inserted;
-            },
-            _ => panic!("Invalid insert target - item already marked as inserted"),
-        }
-    }
-    pub(crate) fn mark_not_inserted_yet(&mut self) {
-        match self {
-            Inserted => {
-                *self = NotInsertedYet;
-            },
-            _ => panic!("Invalid insert target - item already marked as inserted"),
-        }
-    }
-}
-
-impl Default for YjsSpanState {
-    fn default() -> Self { NotInsertedYet }
-}
-
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
 pub struct YjsSpan2 {
     /// The local times for this entry
@@ -94,6 +38,59 @@ pub struct YjsSpan2 {
     pub state: YjsSpanState,
 
     pub ever_deleted: bool,
+}
+
+impl Default for YjsSpanState {
+    fn default() -> Self { NotInsertedYet }
+}
+
+impl YjsSpanState {
+    pub(crate) fn is_deleted(&self) -> bool {
+        match self {
+            Deleted(_) => true,
+            _ => false
+        }
+    }
+
+    fn delete(&mut self) {
+        match self {
+            NotInsertedYet => panic!("Cannot deleted NIY item"),
+            Inserted => {
+                // Most common case.
+                *self = Deleted(0);
+            }
+            Deleted(n) => {
+                *n += 1;
+            }
+        }
+    }
+
+    pub(crate) fn undelete(&mut self) {
+        if let Deleted(n) = self {
+            if *n > 0 { *n -= 1; }
+            else {
+                // Most common case.
+                *self = Inserted
+            }
+        } else {
+            panic!("Invalid undelete target");
+        }
+    }
+
+    pub(crate) fn mark_inserted(&mut self) {
+        if *self != NotInsertedYet {
+            panic!("Invalid insert target - item already marked as inserted");
+        }
+
+        *self = Inserted;
+    }
+    pub(crate) fn mark_not_inserted_yet(&mut self) {
+        if *self != Inserted {
+            panic!("Invalid insert target - item not inserted");
+        }
+
+        *self = NotInsertedYet;
+    }
 }
 
 impl Debug for YjsSpan2 {

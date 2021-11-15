@@ -13,8 +13,10 @@ use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
 use crate::list::branch::branch_eq;
 use crate::list::history::HistoryEntry;
+use crate::list::history_tools::{ConflictSpans, DiffResult};
 use crate::list::list::apply_local_operation;
 use crate::list::m2::markers::MarkerEntry;
+use crate::list::m2::txn_trace::OptimizedTxnsIter;
 
 
 pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
@@ -352,66 +354,114 @@ impl M2Tracker {
     }
 }
 
-pub fn merge_changes_m2(checkout: &mut Checkout, opset: &OpSet, mut span: TimeSpan) {
-    // dbg!(&checkout);
-    assert!(span.end <= opset.len());
-    let mut idx = opset.history.entries.find_index(span.start).unwrap();
+impl Checkout {
+    /// Add everything in merge_frontier into the set.
+    // pub fn merge_changes_m22(&mut self, opset: &OpSet, merge_frontier: &[Time]) {
+    //     // The strategy here looks like this:
+    //     // We have some set of new changes to merge with a unified set of parents.
+    //     // 1. Find the parent set of the spans to merge
+    //     // 2. Generate the conflict set, and make a tracker for it (by iterating all the conflicting
+    //     //    changes).
+    //     // 3. Use OptTxnIter to iterate through the (new) merge set, merging along the way.
+    //
+    //     // if cfg!(debug_assertions) {
+    //     //     let (a, b) = opset.history.diff(&self.frontier, merge_frontier);
+    //     //     // We can't go backwards (yet).
+    //     //     assert!(a.is_empty());
+    //     // }
+    //
+    //     let common_branch = opset.history.find_common_branch(&self.frontier, merge_frontier);
+    //     // TODO: Actually run diff function, if only_b is empty just do a FF merge.
+    //     let (mut tracker, branch) = M2Tracker::new_at_conflict(opset, &self.frontier, &common_branch);
+    //
+    //     let diff = opset.history.diff(&common_branch, merge_frontier);
+    //     assert!(diff.only_a.is_empty());
+    //
+    //     let mut walker = OptimizedTxnsIter::new(&opset.history, ConflictSpans {
+    //         common_branch,
+    //         spans: diff.only_b
+    //     }, Some(branch));
+    //
+    //     while let Some(walk) = walker.next() {
+    //         for range in walk.retreat {
+    //             tracker.retreat_by_range(range);
+    //         }
+    //
+    //         for range in walk.advance_rev.into_iter().rev() {
+    //             tracker.advance_by_range(range);
+    //         }
+    //
+    //         debug_assert!(!walk.consume.is_empty());
+    //         tracker.apply_range(opset, walk.consume, Some(self));
+    //     }
+    // }
 
-    while !span.is_empty() {
-        let txn = &opset.history.entries[idx];
-        // dbg!(&span, &txn);
-        debug_assert!(txn.contains(span.start));
 
-        let len_here = span.len().min(txn.span.end - span.start);
-        debug_assert!(len_here > 0);
-
-        // Its kinda gross still doing this when we aren't carving anything off.
-        let op_here = span.truncate_keeping_right(len_here);
-        // dbg!(op_here);
-
-        if let Some(parent) = txn.parent_at_time(op_here.start) {
-            apply_to_checkout_internal(checkout, opset, &[parent], op_here);
-        } else {
-            apply_to_checkout_internal(checkout, opset, &txn.parents, op_here);
-        }
-        checkout.frontier = smallvec![op_here.last()];
+    pub fn merge_changes_m2(&mut self, opset: &OpSet, mut span: TimeSpan) {
         // dbg!(&checkout);
-        idx += 1;
-    }
-}
+        assert!(span.end <= opset.len());
+        let mut idx = opset.history.entries.find_index(span.start).unwrap();
 
-fn apply_to_checkout_internal(checkout: &mut Checkout, opset: &OpSet, parents: &[Time], range: TimeSpan) {
-    if branch_eq(parents, &checkout.frontier) {
-        // Fast path.
-        for op in opset.iter_ops(range) {
-            checkout.apply_1(&op.1);
+        while !span.is_empty() {
+            let txn = &opset.history.entries[idx];
+            // dbg!(&span, &txn);
+            debug_assert!(txn.contains(span.start));
+
+            let len_here = span.len().min(txn.span.end - span.start);
+            debug_assert!(len_here > 0);
+
+            // Its kinda gross still doing this when we aren't carving anything off.
+            let op_here = span.truncate_keeping_right(len_here);
+            // dbg!(op_here);
+
+            if let Some(parent) = txn.parent_at_time(op_here.start) {
+                self.apply_to_checkout_internal(opset, &[parent], op_here);
+            } else {
+                self.apply_to_checkout_internal(opset, &txn.parents, op_here);
+            }
+            self.frontier = smallvec![op_here.last()];
+            // dbg!(&checkout);
+            idx += 1;
         }
-        return;
     }
 
-    // dbg!(parents, &range, &checkout.frontier);
+    fn apply_to_checkout_internal(&mut self, opset: &OpSet, parents: &[Time], range: TimeSpan) {
+        if branch_eq(parents, &self.frontier) {
+            // Fast path.
+            for op in opset.iter_ops(range) {
+                self.apply_1(&op.1);
+            }
+            return;
+        }
 
-    let (mut t, branch) = M2Tracker::new_at_conflict(opset, parents, &checkout.frontier);
-    // dbg!(&t, &branch);
+        // dbg!(parents, &range, &checkout.frontier);
 
-    let (only_tracker, only_parents) = opset.history.diff(&branch, parents);
-    // dbg!((&branch, &next_txn.parents, &only_branch, &only_txn));
-    // Note that even if we're moving to one of our direct children we might see items only
-    // in only_branch if the child has a parent in the middle of our txn.
-    // dbg!(&only_tracker, &only_parents);
-    for range in &only_tracker {
-        t.retreat_by_range(range.clone());
+        let (mut t, branch) = M2Tracker::new_at_conflict(opset, parents, &self.frontier);
+        // dbg!(&t, &branch);
+
+        let DiffResult {
+            only_a: only_tracker,
+            only_b: only_parents,
+            ..
+        } = opset.history.diff(&branch, parents);
+        // dbg!((&branch, &next_txn.parents, &only_branch, &only_txn));
+        // Note that even if we're moving to one of our direct children we might see items only
+        // in only_branch if the child has a parent in the middle of our txn.
+        // dbg!(&only_tracker, &only_parents);
+        for range in &only_tracker {
+            t.retreat_by_range(range.clone());
+        }
+        for range in only_parents.iter().rev() {
+            t.advance_by_range(range.clone());
+        }
+
+        // Ok now we're in the right location
+
+        // dbg!(&range, &t);
+        // println!("vvvvvvvvvvvvv");
+        t.apply_range(opset, range, Some(self));
+        // println!("^^^^^^^^^^^^^");
     }
-    for range in only_parents.iter().rev() {
-        t.advance_by_range(range.clone());
-    }
-
-    // Ok now we're in the right location
-
-    // dbg!(&range, &t);
-    // println!("vvvvvvvvvvvvv");
-    t.apply_range(opset, range, Some(checkout));
-    // println!("^^^^^^^^^^^^^");
 }
 
 #[cfg(test)]
@@ -428,7 +478,7 @@ mod test {
         list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
         list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
 
-        merge_changes_m2(&mut list.checkout, &list.ops, (0..6).into());
+        list.checkout.merge_changes_m2(&list.ops, (0..6).into());
         // dbg!(list.checkout);
         assert_eq!(list.checkout.content, "aaabbb");
     }
@@ -446,7 +496,7 @@ mod test {
         list.ops.push_delete(1, &[2], 0, 3);
 
         // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
-        merge_changes_m2(&mut list.checkout, &list.ops, (3..list.ops.len()).into());
+        list.checkout.merge_changes_m2(&list.ops, (3..list.ops.len()).into());
         assert_eq!(list.checkout.content, "");
     }
 
@@ -460,7 +510,7 @@ mod test {
         list.ops.push_delete(0, &[2], 1, 1);
         list.ops.push_delete(1, &[2], 0, 3);
 
-        merge_changes_m2(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
+        list.checkout.merge_changes_m2(&list.ops, (0..list.ops.len()).into());
         assert_eq!(list.checkout.content, "");
     }
 
