@@ -51,7 +51,7 @@ pub struct Checkout {
     /// always just be the last order we've seen.
     ///
     /// Never empty. Starts at usize::max (which is the root order).
-    frontier: Branch,
+    pub frontier: Branch,
 
     pub content: JumpRope,
 }

@@ -203,7 +203,10 @@ impl OpSet {
         assert_eq!(will_merge, did_merge);
     }
 
-    pub fn push(&mut self, agent: AgentId, parents: &[Time], ops: &[Operation]) {
+    /// Push new operations to the opset. Operation parents specified by parents parameter.
+    ///
+    /// Returns the single item frontier after merging.
+    pub fn push(&mut self, agent: AgentId, parents: &[Time], ops: &[Operation]) -> Time {
         let first_time = self.len();
         let mut next_time = first_time;
 
@@ -223,13 +226,15 @@ impl OpSet {
         }
 
         self.insert_history(parents, TimeSpan { start: first_time, end: first_time + op_len });
+
+        next_time - 1
     }
 
-    pub fn push_insert(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) {
-        self.push(agent, parents, &[Operation::new_insert(pos, ins_content)]);
+    pub fn push_insert(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) -> Time {
+        self.push(agent, parents, &[Operation::new_insert(pos, ins_content)])
     }
 
-    pub fn push_delete(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) {
-        self.push(agent, parents, &[Operation::new_delete(pos, del_span)]);
+    pub fn push_delete(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) -> Time {
+        self.push(agent, parents, &[Operation::new_delete(pos, del_span)])
     }
 }
