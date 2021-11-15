@@ -1,6 +1,7 @@
 use smallvec::SmallVec;
 
 use rle::{HasLength, MergableSpan};
+use crate::list::Time;
 
 use crate::rle::{RleKeyed, RleVec};
 use crate::localtime::TimeSpan;
@@ -71,6 +72,14 @@ impl HistoryEntry {
         if time > self.span.start {
             Some(time - 1)
         } else { None } // look at .parents field.
+    }
+
+    pub fn with_parents<F: FnOnce(&[Time]) -> G, G>(&self, time: usize, f: F) -> G {
+        if time > self.span.start {
+            f(&[time - 1])
+        } else {
+            f(self.parents.as_slice())
+        }
     }
 
     // pub fn local_children_at_time(&self, time: usize) ->

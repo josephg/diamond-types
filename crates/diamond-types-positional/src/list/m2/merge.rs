@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use std::ptr::{NonNull, null_mut};
 use smallvec::{SmallVec, smallvec};
 use content_tree::{ContentTreeRaw, ContentTreeWithIndex, Cursor, DEFAULT_IE, DEFAULT_LE, MutCursor, NodeLeaf, null_notify, UnsafeCursor};
-use rle::{HasLength, Searchable, SplitableSpan, Trim};
+use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
 use crate::list::{Branch, Checkout, ListCRDT, OpSet, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::m2::yjsspan2::{YjsSpan2, YjsSpanState};
@@ -13,7 +13,8 @@ use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
 use crate::list::branch::{advance_branch_by, advance_branch_by_known, branch_eq, branch_is_sorted};
 use crate::list::history::HistoryEntry;
-use crate::list::history_tools::ConflictSpansSimple;
+use crate::list::history_tools::{ConflictZone, Flag};
+use crate::list::history_tools::Flag::OnlyB;
 use crate::list::list::apply_local_operation;
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
@@ -57,11 +58,11 @@ impl M2Tracker {
         }
     }
 
-    pub(crate) fn new_at_conflict(opset: &OpSet, branch_a: &[Time], branch_b: &[Time]) -> (Self, Branch) {
+    pub(crate) fn new_at_conflict(opset: &OpSet, conflict: ConflictZone) -> (Self, Branch) {
         let mut tracker = Self::new();
 
         // dbg!(branch_a, branch_b);
-        let mut walker = opset.history.conflicting_txns_iter(branch_a, branch_b);
+        let mut walker = opset.history.known_conflicting_txns_iter(conflict);
         while let Some(walk) = walker.next() {
             for range in walk.retreat {
                 tracker.retreat_by_range(range);
@@ -356,77 +357,100 @@ impl Checkout {
         //     assert!(a.is_empty());
         // }
 
-        todo!();
+        debug_assert!(branch_is_sorted(&merge_frontier));
+        debug_assert!(branch_is_sorted(&self.frontier));
+
         // let mut diff = opset.history.diff(&self.frontier, merge_frontier);
-        // // assert!(diff.only_a.is_empty(), "Cannot merge backwards");
-        //
-        // // We don't want to have to make and maintain a tracker, and we don't need to in most
-        // // situations. We don't need to when all operations in diff.only_b can apply cleanly
-        // // in-order.
-        // debug_assert!(branch_is_sorted(&self.frontier));
-        // debug_assert!(branch_is_sorted(&merge_frontier));
-        // // dbg!(&diff.common_branch, &self.frontier);
-        //
-        // if ALLOW_FF && diff.common_branch == self.frontier {
-        //     // Try and FF as much as we possibly can.
-        //     loop {
-        //         // dbg!(&diff);
-        //         if let Some(span) = diff.only_b.last() {
-        //             let txn = opset.history.entries.find_packed(span.start);
-        //             let can_ff = if let Some(parent) = txn.parent_at_time(span.start) {
-        //                 self.frontier.as_slice() == &[parent]
-        //             } else {
-        //                 self.frontier == txn.parents
-        //             };
-        //
-        //             if can_ff {
-        //                 let mut span = diff.only_b.pop().unwrap();
-        //                 let remainder = span.trim(txn.span.end - span.start);
-        //                 // println!("FF {:?}", &span);
-        //                 self.apply_range_from(opset, span);
-        //                 self.frontier = smallvec![span.last()];
-        //
-        //                 if let Some(r) = remainder {
-        //                     diff.only_b.push(r);
-        //                 }
-        //             } else {
-        //                 // Recalculate common_branch to skip the already merged changes.
-        //                 dbg!(&diff.common_branch, &self.frontier, merge_frontier);
-        //                 diff = dbg!(opset.history.diff(&self.frontier, merge_frontier));
-        //                 dbg!(&diff.common_branch);
-        //                 break;
-        //             }
-        //         } else {
-        //             // We're done!
-        //             return;
-        //         }
-        //     }
-        // }
-        //
-        // // TODO: Also FF at the end!
-        //
+
+        // First lets see what we've got. I'll divide the conflicting range into two groups:
+        // - The new operations we need to merge
+        // - The conflict set. Ie, stuff we need to build a tracker around.
+        let mut new_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
+        let mut conflict_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
+
+        let mut common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
+            let target = match flag {
+                OnlyB => &mut new_ops,
+                _ => &mut conflict_ops
+            };
+            target.push_reversed_rle(span);
+        });
+
+        debug_assert!(branch_is_sorted(&common_ancestor));
+
+        // We don't want to have to make and maintain a tracker, and we don't need to in most
+        // situations. We don't need to when all operations in diff.only_b can apply cleanly
+        // in-order.
+        let mut did_ff = false;
+        if ALLOW_FF {
+            loop {
+                if let Some(span) = new_ops.last() {
+                    let txn = opset.history.entries.find_packed(span.start);
+                    let can_ff = txn.with_parents(span.start, |parents| {
+                        self.frontier == txn.parents
+                    });
+
+                    if can_ff {
+                        let mut span = new_ops.pop().unwrap();
+                        let remainder = span.trim(txn.span.end - span.start);
+                        println!("FF {:?}", &span);
+                        self.apply_range_from(opset, span);
+                        conflict_ops.push(span);
+                        self.frontier = smallvec![span.last()];
+
+                        if let Some(r) = remainder {
+                            new_ops.push(r);
+                        }
+                        did_ff = true;
+                    } else {
+                        break;
+                    }
+                } else {
+                    // We're done!
+                    return;
+                }
+            }
+        }
+
+        if did_ff {
+            // Since we ate some of the ops fast-forwarding, reset conflict_ops and common_ancestor
+            // so we don't scan unnecessarily.
+            conflict_ops.clear();
+            common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
+                if flag != OnlyB {
+                    conflict_ops.push_reversed_rle(span);
+                }
+            });
+        }
+
+        // TODO: Also FF at the end!
+
         // dbg!((&self.frontier, &diff.common_branch, merge_frontier));
-        // let (mut tracker, branch) = M2Tracker::new_at_conflict(opset, &self.frontier, &diff.common_branch);
-        //
-        // let mut walker = OptimizedTxnsIter::new(&opset.history, ConflictSpans {
-        //     common_branch: diff.common_branch,
-        //     spans: diff.only_b
-        // }, Some(branch));
-        //
-        // while let Some(walk) = walker.next() {
-        //     for range in walk.retreat {
-        //         tracker.retreat_by_range(range);
-        //     }
-        //
-        //     for range in walk.advance_rev.into_iter().rev() {
-        //         tracker.advance_by_range(range);
-        //     }
-        //
-        //     debug_assert!(!walk.consume.is_empty());
-        //     // TODO: Add txn to walk, so we can use advance_branch_by_known.
-        //     advance_branch_by(&mut self.frontier, &opset.history, walk.consume);
-        //     tracker.apply_range(opset, walk.consume, Some(self));
-        // }
+        let (mut tracker, branch) = M2Tracker::new_at_conflict(opset, ConflictZone {
+            common_ancestor: common_ancestor.clone(),
+            spans: conflict_ops
+        });
+
+        // Now walk through and merge the new edits.
+        let mut walker = OptimizedTxnsIter::new(&opset.history, ConflictZone {
+            common_ancestor,
+            spans: new_ops
+        }, Some(branch));
+
+        while let Some(walk) = walker.next() {
+            for range in walk.retreat {
+                tracker.retreat_by_range(range);
+            }
+
+            for range in walk.advance_rev.into_iter().rev() {
+                tracker.advance_by_range(range);
+            }
+
+            debug_assert!(!walk.consume.is_empty());
+            // TODO: Add txn to walk, so we can use advance_branch_by_known.
+            advance_branch_by(&mut self.frontier, &opset.history, walk.consume);
+            tracker.apply_range(opset, walk.consume, Some(self));
+        }
     }
 }
 
@@ -510,13 +534,15 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
-        list.ops.push_delete(0, &[2], 1, 1); // 3
-        list.ops.push_delete(1, &[2], 0, 3); // 6
+        let t = list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
+        list.ops.push_delete(0, &[t], 1, 1); // 3
+        list.ops.push_delete(1, &[t], 0, 3); // 6
+        // dbg!(&list.ops);
 
         // list.checkout.merge_changes_m2(&list.ops, (0..list.ops.len()).into());
         list.checkout.merge_changes_m2(&list.ops, &[3, 6]);
-        assert_eq!(list.checkout.content, "");
+        dbg!(&list.checkout);
+        // assert_eq!(list.checkout.content, "");
     }
 
     #[test]

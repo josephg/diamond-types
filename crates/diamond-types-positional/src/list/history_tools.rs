@@ -445,19 +445,19 @@ impl History {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct ConflictSpansSimple {
-    pub(crate) common_branch: Branch,
+pub struct ConflictZone {
+    pub(crate) common_ancestor: Branch,
     pub(crate) spans: SmallVec<[TimeSpan; 4]>,
 }
 
 impl History {
-    pub(crate) fn find_conflicting_simple(&self, a: &[Time], b: &[Time]) -> ConflictSpansSimple {
+    pub(crate) fn find_conflicting_simple(&self, a: &[Time], b: &[Time]) -> ConflictZone {
         let mut spans = smallvec![];
-        let common_branch = self.find_conflicting(a, b, |span, _flag| {
+        let common_ancestor = self.find_conflicting(a, b, |span, _flag| {
             spans.push_reversed_rle(span);
         });
 
-        ConflictSpansSimple { common_branch, spans }
+        ConflictZone { common_ancestor, spans }
     }
 }
 

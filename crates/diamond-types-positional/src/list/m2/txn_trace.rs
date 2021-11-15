@@ -6,7 +6,7 @@ use std::ops::Range;
 use rle::{HasLength, SplitableSpan};
 use crate::list::{Branch, Time};
 use crate::list::history::{History, HistoryEntry};
-use crate::list::history_tools::ConflictSpansSimple;
+use crate::list::history_tools::ConflictZone;
 use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
 
@@ -122,20 +122,20 @@ impl<'a> OptimizedTxnsIter<'a> {
             spans.push((0..history.get_next_time()).into());
         }
 
-        Self::new(history, ConflictSpansSimple {
-            common_branch: smallvec![ROOT_TIME],
+        Self::new(history, ConflictZone {
+            common_ancestor: smallvec![ROOT_TIME],
             spans
         }, None)
     }
 
     /// If starting_branch is not specified, the iterator starts at conflict.common_branch.
-    pub(crate) fn new(history: &'a History, conflict: ConflictSpansSimple, starting_branch: Option<Branch>) -> Self {
-        debug_assert!(branch_is_sorted(&conflict.common_branch));
+    pub(crate) fn new(history: &'a History, conflict: ConflictZone, starting_branch: Option<Branch>) -> Self {
+        debug_assert!(branch_is_sorted(&conflict.common_ancestor));
 
         let input = spans_to_entries(history, &conflict.spans);
         let mut to_process = smallvec![];
 
-        for time in &conflict.common_branch {
+        for time in &conflict.common_ancestor {
             // result.push_children(*time);
 
             let txn_indexes = if *time == ROOT_TIME {
@@ -163,7 +163,7 @@ impl<'a> OptimizedTxnsIter<'a> {
             }
         }
 
-        let branch = starting_branch.unwrap_or(conflict.common_branch);
+        let branch = starting_branch.unwrap_or(conflict.common_ancestor);
 
         let mut result = Self {
             history,
@@ -283,10 +283,12 @@ impl History {
         OptimizedTxnsIter::new_all(self)
     }
 
-    pub(crate) fn conflicting_txns_iter(&self, a: &[Time], b: &[Time]) -> OptimizedTxnsIter {
-        let conflict = self.find_conflicting_simple(a, b);
-        // dbg!(&conflict);
+    pub(crate) fn known_conflicting_txns_iter(&self, conflict: ConflictZone) -> OptimizedTxnsIter {
         OptimizedTxnsIter::new(self, conflict, None)
+    }
+
+    pub(crate) fn conflicting_txns_iter(&self, a: &[Time], b: &[Time]) -> OptimizedTxnsIter {
+        self.known_conflicting_txns_iter(self.find_conflicting_simple(a, b))
     }
 
 }
@@ -469,8 +471,8 @@ mod test {
         ]);
 
         let conflict = history.find_conflicting_simple(&[5], &[6]);
-        assert_eq!(conflict, ConflictSpansSimple {
-            common_branch: smallvec![5],
+        assert_eq!(conflict, ConflictZone {
+            common_ancestor: smallvec![5],
             spans: smallvec![(6..7).into()],
         });
         let iter = OptimizedTxnsIter::new(&history, conflict, None);
