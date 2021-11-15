@@ -28,6 +28,19 @@ pub trait SplitableSpan: Clone {
     }
 }
 
+pub trait Trim: SplitableSpan + HasLength {
+    /// Trim self to at most `at` items. Remainder (if any) is returned.
+    fn trim(&mut self, at: usize) -> Option<Self> {
+        if at >= self.len() {
+            None
+        } else {
+            Some(self.truncate(at))
+        }
+    }
+}
+
+impl<T: SplitableSpan + HasLength> Trim for T {}
+
 pub trait MergableSpan: Clone {
     /// See if the other item can be appended to self. `can_append` will always be called
     /// immediately before `append`.

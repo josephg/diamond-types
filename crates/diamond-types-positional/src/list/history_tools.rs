@@ -37,9 +37,20 @@ impl History {
         a_1 == b_1 || (a_1 > b_1 && self.shadow_of(a).wrapping_add(1) <= b_1)
     }
 
-    // This is similar to txn_shadow_contains, but it also checks that a doesn't have any other
-    // ancestors which aren't included in b's history.
-    fn is_direct_descendant(&self, a: Time, b: Time) -> bool {
+    /// This is similar to txn_shadow_contains, but it also checks that a doesn't have any other
+    /// ancestors which aren't included in b's history. Eg:
+    ///
+    /// ```text
+    /// 1
+    /// | 2
+    /// \ /
+    ///  3
+    /// ```
+    ///
+    /// `txn_shadow_contains(3, 2)` is true, but `is_direct_descendant(3, 2)` is false.
+    ///
+    /// See `diff_shadow_bubble` test below for an example.
+    fn is_direct_descendant_coarse(&self, a: Time, b: Time) -> bool {
         // This is a bit more strict than we technically need, but its fast for short circuit
         // evaluation.
         a == b
@@ -142,7 +153,7 @@ impl History {
             let b = b[0];
             if a == b { return DiffResult::new_at_branch(&[a]); }
 
-            if self.is_direct_descendant(a, b) {
+            if self.is_direct_descendant_coarse(a, b) {
                 // a >= b.
                 return DiffResult {
                     only_a: smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()],
@@ -150,7 +161,7 @@ impl History {
                     common_branch: smallvec![b],
                 }
             }
-            if self.is_direct_descendant(b, a) {
+            if self.is_direct_descendant_coarse(b, a) {
                 // b >= a.
                 return DiffResult {
                     only_a: smallvec![],
@@ -186,10 +197,15 @@ impl History {
             // duplicates like that.
             debug_assert!(time != ROOT_TIME || result.common_branch.is_empty());
             result.common_branch.push(time);
-
         };
 
         self.diff_slow_internal(a, b, mark_run, mark_common);
+
+        // dbg!(&result.common_branch);
+        if result.common_branch.len() >= 2 {
+            result.common_branch.reverse();
+        }
+        debug_assert!(branch_is_sorted(&result.common_branch));
         result
     }
 
@@ -540,7 +556,7 @@ pub mod test {
             }
 
             if branch.len() == 1 {
-                // dbg!(&other, branch[0]);
+                // dbg!(&other, branch[0], &spans);
                 let expect = spans.is_empty();
                 assert_eq!(expect, history.branch_contains_order(other, branch[0]));
             }
@@ -758,6 +774,48 @@ pub mod test {
 
         assert_diff_eq(&history, &[4], &[ROOT_TIME], &[(3..5).into()], &[], &[ROOT_TIME]);
         assert_diff_eq(&history, &[4], &[5], &[], &[(5..6).into(), (0..3).into()], &[4]);
+    }
+
+    #[test]
+    fn diff_common_branch_is_ordered() {
+        // Regression
+        // 0 1
+        // |x|
+        // 2 3
+        let history = History::from_entries(&[
+            HistoryEntry {
+                span: (0..1).into(),
+                shadow: ROOT_TIME,
+                parents: smallvec![ROOT_TIME],
+                parent_indexes: smallvec![],
+                child_indexes: smallvec![1, 2],
+            },
+            HistoryEntry {
+                span: (1..2).into(),
+                shadow: 1,
+                parents: smallvec![ROOT_TIME],
+                parent_indexes: smallvec![],
+                child_indexes: smallvec![1, 2],
+            },
+            HistoryEntry {
+                span: (2..3).into(),
+                shadow: ROOT_TIME,
+                parents: smallvec![0, 1],
+                parent_indexes: smallvec![0, 1],
+                child_indexes: smallvec![],
+            },
+            HistoryEntry {
+                span: (3..4).into(),
+                shadow: 3,
+                parents: smallvec![0, 1],
+                parent_indexes: smallvec![0, 1],
+                child_indexes: smallvec![],
+            },
+        ]);
+
+        assert_eq!(false, history.branch_contains_order(&[2], 3));
+        assert_eq!(false, history.branch_contains_order(&[3], 2));
+        assert_diff_eq(&history, &[2], &[3], &[(2..3).into()], &[(3..4).into()], &[0, 1]);
     }
 
 

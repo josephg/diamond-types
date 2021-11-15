@@ -46,7 +46,7 @@ impl ListCRDT {
     }
 
     fn write_crdt_chum_in_range(&self, list: &mut CRDTList, range: TimeSpan) {
-        for KVPair(time, op) in self.ops.iter_ops(range) {
+        for KVPair(time, op) in self.ops.iter_range(range) {
             match op.tag {
                 InsDelTag::Ins => {
                     if op.rev { unimplemented!("Implement me!") }

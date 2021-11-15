@@ -45,7 +45,7 @@ impl<'a> OpIter<'a> {
 }
 
 impl OpSet {
-    pub(crate) fn iter_ops(&self, range: TimeSpan) -> OpIter {
+    pub(crate) fn iter_range(&self, range: TimeSpan) -> OpIter {
         OpIter::new(&self.operations, range)
     }
 }

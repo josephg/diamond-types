@@ -289,7 +289,7 @@ impl History {
 
     pub(crate) fn conflicting_txns_iter(&self, a: &[Time], b: &[Time]) -> OptimizedTxnsIter {
         let conflict = self.find_conflicting(a, b);
-        // dbg!(&conflict, self);
+        // dbg!(&conflict);
         OptimizedTxnsIter::new(self, conflict, None)
     }
 

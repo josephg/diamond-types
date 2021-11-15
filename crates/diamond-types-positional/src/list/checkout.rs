@@ -24,7 +24,9 @@ impl Checkout {
         self.content.is_empty()
     }
 
-    pub fn apply_1(&mut self, op: &Operation) {
+    /// Apply a single operation. This method does not update the frontier - that is left as an
+    /// exercise for the caller.
+    pub(crate) fn apply_1(&mut self, op: &Operation) {
         let pos = op.pos;
 
         match op.tag {
@@ -39,7 +41,8 @@ impl Checkout {
         }
     }
 
-    pub fn apply(&mut self, ops: &[Operation]) {
+    /// Apply a set of operations. Does not update frontier.
+    pub(crate) fn apply(&mut self, ops: &[Operation]) {
         for c in ops {
             // let content = if c.tag == Ins && c.content_known {
             //     consume_chars(&mut content, c.len())
@@ -48,8 +51,8 @@ impl Checkout {
         }
     }
 
-    pub fn apply_range_from(&mut self, ops: &OpSet, range: TimeSpan) {
-        for op in ops.iter_ops(range) {
+    pub(crate) fn apply_range_from(&mut self, ops: &OpSet, range: TimeSpan) {
+        for op in ops.iter_range(range) {
             self.apply_1(&op.1);
         }
     }
