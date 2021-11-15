@@ -217,18 +217,21 @@ impl History {
         let mut num_shared_entries = 0;
 
         while let Some(Item(mut time, mut flag)) = queue.pop() {
+            // let (mut time, mut flag) = (time, flag); // lldb bug workaround
             if flag == Flag::Shared { num_shared_entries -= 1; }
 
             // dbg!((ord, flag));
             while let Some(Item(peek_time, peek_flag)) = queue.peek() {
+                // let (peek_time, peek_flag) = (peek_time, peek_flag);
                 if *peek_time != time { break; } // Normal case.
                 else {
                     // 3 cases if peek_flag != flag. We set flag = Shared in all cases.
-                    if *peek_flag != Shared && flag != Shared {
-                        mark_common(time);
+                    if *peek_flag != flag {
+                        if *peek_flag != Shared && flag != Shared {
+                            mark_common(time);
+                        }
+                        flag = Flag::Shared;
                     }
-
-                    if *peek_flag != flag { flag = Flag::Shared; }
                     if *peek_flag == Flag::Shared { num_shared_entries -= 1; }
                     queue.pop();
                 }
@@ -284,10 +287,6 @@ impl History {
             // If there's only shared entries left, abort.
             if queue.len() == num_shared_entries { break; }
         }
-    }
-
-    pub fn find_common_branch(&self, a: &[Time], b: &[Time]) -> Branch {
-        todo!()
     }
 }
 
@@ -716,6 +715,7 @@ pub mod test {
             assert_diff_eq(&history, &[ROOT_TIME], &[time], &[], &[(time..time+1).into()], &[ROOT_TIME]);
         }
 
+        assert_diff_eq(&history, &[ROOT_TIME], &[0, 1], &[], &[(0..2).into()], &[ROOT_TIME]);
         assert_diff_eq(&history, &[0], &[1], &[(0..1).into()], &[(1..2).into()], &[ROOT_TIME]);
     }
 
