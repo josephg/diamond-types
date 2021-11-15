@@ -19,6 +19,10 @@ impl Checkout {
         self.content.len_chars()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.content.is_empty()
+    }
+
     pub fn apply_1(&mut self, op: &Operation) {
         let pos = op.pos;
 

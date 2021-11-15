@@ -12,6 +12,7 @@ use crate::list::history::{History, HistoryEntry};
 use crate::localtime::TimeSpan;
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
+use crate::ROOT_TIME;
 
 pub mod operation;
 mod history;
@@ -52,7 +53,7 @@ pub struct Checkout {
     /// Never empty. Starts at usize::max (which is the root order).
     frontier: Branch,
 
-    content: JumpRope,
+    pub content: JumpRope,
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +90,12 @@ pub struct OpSet {
 /// This is the default (obvious) construction for a list.
 #[derive(Debug, Clone)]
 pub struct ListCRDT {
-    checkout: Checkout,
-    ops: OpSet,
+    pub checkout: Checkout,
+    pub ops: OpSet,
+}
+
+impl OpSet {
+    pub fn blah(&self, a: &[Time], b: &[Time]) -> bool {
+        self.history.diff(a, b).common_branch[0] == ROOT_TIME
+    }
 }
