@@ -15,14 +15,14 @@ type CRDTList = Pin<Box<ContentTreeWithIndex<YjsSpan, FullMetricsU32>>>;
 
 impl ListCRDT {
     pub fn apply_operation_at(&mut self, agent: AgentId, branch: &[Time], op: &[Operation]) {
-        if frontier_eq(branch, self.checkout.frontier.as_slice()) {
-            apply_local_operation(&mut self.ops, &mut self.checkout, agent, op);
+        if frontier_eq(branch, self.branch.frontier.as_slice()) {
+            apply_local_operation(&mut self.ops, &mut self.branch, agent, op);
             return;
         }
 
         // TODO: Do all this in an arena. Allocations here are silly.
 
-        let conflicting = self.ops.history.find_conflicting_simple(self.checkout.frontier.as_slice(), branch);
+        let conflicting = self.ops.history.find_conflicting_simple(self.branch.frontier.as_slice(), branch);
         dbg!(&conflicting);
 
         // Generate CRDT maps for each item
@@ -94,7 +94,7 @@ mod tests {
         doc.get_or_create_agent_id("mike"); // 1
         doc.local_insert(0, 0, "aaa".into());
 
-        let b = doc.checkout.frontier.clone();
+        let b = doc.branch.frontier.clone();
         doc.local_delete(0, 1, 1);
 
         doc.apply_operation_at(1, b.as_slice(), &[Operation::new_insert(3, "x")]);

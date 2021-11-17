@@ -4,7 +4,7 @@ use std::ptr::{NonNull, null_mut};
 use smallvec::{SmallVec, smallvec};
 use content_tree::{ContentTreeRaw, ContentTreeWithIndex, Cursor, DEFAULT_IE, DEFAULT_LE, MutCursor, NodeLeaf, null_notify, UnsafeCursor};
 use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
-use crate::list::{Frontier, Checkout, ListCRDT, OpSet, Time};
+use crate::list::{Frontier, Branch, ListCRDT, OpSet, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::m2::yjsspan2::{YjsSpan2, YjsSpanState};
 use crate::list::operation::{InsDelTag, Operation};
@@ -229,7 +229,7 @@ impl M2Tracker {
         content_pos
     }
 
-    fn apply_range(&mut self, opset: &OpSet, range: TimeSpan, mut to: Option<&mut Checkout>) {
+    fn apply_range(&mut self, opset: &OpSet, range: TimeSpan, mut to: Option<&mut Branch>) {
         if range.is_empty() { return; }
 
         for mut pair in opset.iter_range(range) {
@@ -249,7 +249,7 @@ impl M2Tracker {
     }
 
     /// This is for advancing us directly based on the edit.
-    fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<Operation>, to: Option<&mut Checkout>) {
+    fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<Operation>, to: Option<&mut Branch>) {
         // The op must have been applied at the branch that the tracker is currently at.
         let KVPair(time, op) = pair;
 
@@ -352,7 +352,7 @@ impl M2Tracker {
     }
 }
 
-impl Checkout {
+impl Branch {
     /// Add everything in merge_frontier into the set.
     ///
     /// Reexposed as merge_changes.
@@ -478,11 +478,11 @@ mod test {
         list.get_or_create_agent_id("a");
         list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
 
-        list.checkout.merge_changes_m2(&list.ops, &[1]);
-        list.checkout.merge_changes_m2(&list.ops, &[2]);
+        list.branch.merge_changes_m2(&list.ops, &[1]);
+        list.branch.merge_changes_m2(&list.ops, &[2]);
 
-        assert_eq!(list.checkout.frontier.as_slice(), &[2]);
-        assert_eq!(list.checkout.content, "aaa");
+        assert_eq!(list.branch.frontier.as_slice(), &[2]);
+        assert_eq!(list.branch.content, "aaa");
     }
 
     #[test]
@@ -493,16 +493,16 @@ mod test {
 
         list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
         list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
-        list.checkout.merge_changes_m2(&list.ops, &[2, 5]);
+        list.branch.merge_changes_m2(&list.ops, &[2, 5]);
 
-        assert_eq!(list.checkout.frontier.as_slice(), &[2, 5]);
-        assert_eq!(list.checkout.content, "aaabbb");
+        assert_eq!(list.branch.frontier.as_slice(), &[2, 5]);
+        assert_eq!(list.branch.content, "aaabbb");
 
         list.ops.push_insert(0, &[2, 5], 0, "ccc"); // 8
-        list.checkout.merge_changes_m2(&list.ops, &[8]);
+        list.branch.merge_changes_m2(&list.ops, &[8]);
 
-        assert_eq!(list.checkout.frontier.as_slice(), &[8]);
-        assert_eq!(list.checkout.content, "cccaaabbb");
+        assert_eq!(list.branch.frontier.as_slice(), &[8]);
+        assert_eq!(list.branch.content, "cccaaabbb");
     }
 
     #[test]
@@ -514,13 +514,13 @@ mod test {
         list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
         list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
 
-        list.checkout.merge_changes_m2(&list.ops, &[2, 5]);
+        list.branch.merge_changes_m2(&list.ops, &[2, 5]);
         // list.checkout.merge_changes_m2(&list.ops, &[2]);
         // list.checkout.merge_changes_m2(&list.ops, &[5]);
 
         // dbg!(list.checkout);
-        assert_eq!(list.checkout.frontier.as_slice(), &[2, 5]);
-        assert_eq!(list.checkout.content, "aaabbb");
+        assert_eq!(list.branch.frontier.as_slice(), &[2, 5]);
+        assert_eq!(list.branch.content, "aaabbb");
     }
 
     #[test]
@@ -537,8 +537,8 @@ mod test {
 
         // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
         // list.checkout.merge_changes_m2(&list.ops, (3..list.ops.len()).into());
-        list.checkout.merge_changes_m2(&list.ops, &[3, 6]);
-        assert_eq!(list.checkout.content, "");
+        list.branch.merge_changes_m2(&list.ops, &[3, 6]);
+        assert_eq!(list.branch.content, "");
     }
 
     #[test]
@@ -553,8 +553,8 @@ mod test {
         // dbg!(&list.ops);
 
         // list.checkout.merge_changes_m2(&list.ops, (0..list.ops.len()).into());
-        list.checkout.merge_changes_m2(&list.ops, &[3, 6]);
-        dbg!(&list.checkout);
+        list.branch.merge_changes_m2(&list.ops, &[3, 6]);
+        dbg!(&list.branch);
         // assert_eq!(list.checkout.content, "");
     }
 
@@ -645,7 +645,7 @@ mod test {
         t = list.ops.push_insert(0, &[t], 0, "a");
 
         dbg!(&list.ops);
-        list.checkout.merge_branch(&list.ops, &[t]);
-        dbg!(&list.checkout);
+        list.branch.merge_branch(&list.ops, &[t]);
+        dbg!(&list.branch);
     }
 }

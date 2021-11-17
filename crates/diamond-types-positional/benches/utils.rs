@@ -45,7 +45,7 @@ pub fn apply_edits_local(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
 pub fn apply_edits_push_merge(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
 
-    let mut last_parent = doc.checkout.frontier[0];
+    let mut last_parent = doc.branch.frontier[0];
 
     for (_i, txn) in txns.iter().enumerate() {
         for TestPatch(pos, del_span, ins_content) in &txn.patches {
@@ -61,5 +61,5 @@ pub fn apply_edits_push_merge(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
         }
     }
 
-    doc.checkout.merge_branch(&doc.ops, &[last_parent]);
+    doc.branch.merge_branch(&doc.ops, &[last_parent]);
 }

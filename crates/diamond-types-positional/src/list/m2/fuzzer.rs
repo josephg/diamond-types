@@ -56,7 +56,7 @@ fn random_single_document() {
         // eprintln!("i {}", _i);
         // doc.debug_print_stuff();
         make_random_change(&mut doc, Some(&mut expected_content), agent, &mut rng);
-        assert_eq!(doc.checkout.content, expected_content);
+        assert_eq!(doc.branch.content, expected_content);
     }
 
     doc.check(true);

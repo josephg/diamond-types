@@ -1,5 +1,5 @@
 use jumprope::JumpRope;
-use crate::list::{Checkout, OpSet, Time};
+use crate::list::{Branch, OpSet, Time};
 use smallvec::smallvec;
 use rle::HasLength;
 use crate::list::operation::InsDelTag::*;
@@ -8,7 +8,7 @@ use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
 use crate::unicount::consume_chars;
 
-impl Checkout {
+impl Branch {
     pub fn new() -> Self {
         Self {
             frontier: smallvec![ROOT_TIME],

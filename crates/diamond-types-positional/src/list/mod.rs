@@ -24,7 +24,7 @@ mod op_iter;
 mod m1;
 mod m2;
 mod opset;
-mod checkout;
+mod branch;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
 // systems.
@@ -46,7 +46,7 @@ struct ClientData {
 }
 
 #[derive(Debug, Clone)]
-pub struct Checkout {
+pub struct Branch {
     /// The set of txn orders with no children in the document. With a single writer this will
     /// always just be the last order we've seen.
     ///
@@ -90,7 +90,7 @@ pub struct OpSet {
 /// This is the default (obvious) construction for a list.
 #[derive(Debug, Clone)]
 pub struct ListCRDT {
-    pub checkout: Checkout,
+    pub branch: Branch,
     pub ops: OpSet,
 }
 

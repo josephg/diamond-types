@@ -1,7 +1,7 @@
 use std::mem::replace;
 use humansize::{file_size_opts, FileSize};
 use jumprope::JumpRope;
-use crate::list::{Checkout, ClientData, Frontier, ListCRDT, OpSet, Time};
+use crate::list::{Branch, ClientData, Frontier, ListCRDT, OpSet, Time};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use smallvec::smallvec;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
@@ -32,7 +32,7 @@ fn insert_history_local(opset: &mut OpSet, frontier: &mut Frontier, range: TimeS
     opset.insert_history(&txn_parents, range);
 }
 
-pub fn apply_local_operation(opset: &mut OpSet, checkout: &mut Checkout, agent: AgentId, local_ops: &[Operation]) {
+pub fn apply_local_operation(opset: &mut OpSet, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) {
     let first_time = opset.len();
     let mut next_time = first_time;
 
@@ -52,11 +52,11 @@ pub fn apply_local_operation(opset: &mut OpSet, checkout: &mut Checkout, agent: 
             Ins => {
                 assert!(c.content_known);
                 // let new_content = consume_chars(&mut content, len);
-                checkout.content.insert(pos, &c.content);
+                branch.content.insert(pos, &c.content);
             }
 
             Del => {
-                checkout.content.remove(pos..pos + len);
+                branch.content.remove(pos..pos + len);
             }
         }
 
@@ -64,50 +64,50 @@ pub fn apply_local_operation(opset: &mut OpSet, checkout: &mut Checkout, agent: 
         next_time += len;
     }
 
-    insert_history_local(opset, &mut checkout.frontier, TimeSpan {
+    insert_history_local(opset, &mut branch.frontier, TimeSpan {
         start: first_time,
         end: first_time + op_len
     });
 }
 
-pub fn local_insert(opset: &mut OpSet, checkout: &mut Checkout, agent: AgentId, pos: usize, ins_content: &str) {
-    apply_local_operation(opset, checkout, agent, &[Operation::new_insert(pos, ins_content)]);
+pub fn local_insert(opset: &mut OpSet, branch: &mut Branch, agent: AgentId, pos: usize, ins_content: &str) {
+    apply_local_operation(opset, branch, agent, &[Operation::new_insert(pos, ins_content)]);
 }
 
-pub fn local_delete(opset: &mut OpSet, checkout: &mut Checkout, agent: AgentId, pos: usize, del_span: usize) {
-    apply_local_operation(opset, checkout, agent, &[Operation::new_delete(pos, del_span)]);
+pub fn local_delete(opset: &mut OpSet, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) {
+    apply_local_operation(opset, branch, agent, &[Operation::new_delete(pos, del_span)]);
 }
 
 
 impl ListCRDT {
     pub fn new() -> Self {
         Self {
-            checkout: Checkout::new(),
+            branch: Branch::new(),
             ops: OpSet::new()
         }
     }
 
     pub fn len(&self) -> usize {
-        self.checkout.len()
+        self.branch.len()
     }
 
     pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[Operation]) {
-        apply_local_operation(&mut self.ops, &mut self.checkout, agent, local_ops);
+        apply_local_operation(&mut self.ops, &mut self.branch, agent, local_ops);
     }
 
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
-        local_insert(&mut self.ops, &mut self.checkout, agent, pos, ins_content);
+        local_insert(&mut self.ops, &mut self.branch, agent, pos, ins_content);
     }
 
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) {
-        local_delete(&mut self.ops, &mut self.checkout, agent, pos, del_span);
+        local_delete(&mut self.ops, &mut self.branch, agent, pos, del_span);
     }
 
     pub fn print_stats(&self, detailed: bool) {
-        println!("Document of length {}", self.checkout.len());
+        println!("Document of length {}", self.branch.len());
 
-        println!("Content memory size: {}", self.checkout.content.mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
-        println!("(Efficient size: {})", self.checkout.content.len_bytes().file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("Content memory size: {}", self.branch.content.mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("(Efficient size: {})", self.branch.content.len_bytes().file_size(file_size_opts::CONVENTIONAL).unwrap());
 
         self.ops.operations.print_stats("Operations", detailed);
 
@@ -154,9 +154,9 @@ mod tests {
         doc.local_insert(0, 0, "hi".into());
         doc.local_insert(0, 1, "yooo".into());
         // "hyoooi"
-        assert_eq!(doc.checkout.content, "hyoooi");
+        assert_eq!(doc.branch.content, "hyoooi");
         doc.local_delete(0, 1, 3);
-        assert_eq!(doc.checkout.content, "hoi");
+        assert_eq!(doc.branch.content, "hoi");
 
         doc.check(true);
         dbg!(doc);

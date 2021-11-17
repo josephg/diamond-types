@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 // use serde_wasm_bindgen::Serializer;
 // use serde::{Serialize};
 use diamond_types_positional::{AgentId, ROOT_TIME};
-use diamond_types_positional::list::{ListCRDT, Time, Checkout as DTCheckout, OpSet as DTOpSet};
+use diamond_types_positional::list::{ListCRDT, Time, Branch as DTCheckout, OpSet as DTOpSet};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -144,22 +144,22 @@ impl Doc {
 
     #[wasm_bindgen]
     pub fn len(&self) -> usize {
-        self.inner.checkout.len()
+        self.inner.branch.len()
     }
 
     #[wasm_bindgen]
     pub fn is_empty(&self) -> bool { // To make clippy happy.
-        self.inner.checkout.is_empty()
+        self.inner.branch.is_empty()
     }
 
     #[wasm_bindgen]
     pub fn get(&self) -> String {
-        self.inner.checkout.content.to_string()
+        self.inner.branch.content.to_string()
     }
 
     #[wasm_bindgen]
     pub fn merge(&mut self, branch: &[Time]) {
-        self.inner.checkout.merge_branch(&self.inner.ops, branch);
+        self.inner.branch.merge_branch(&self.inner.ops, branch);
     }
 
     // #[wasm_bindgen]

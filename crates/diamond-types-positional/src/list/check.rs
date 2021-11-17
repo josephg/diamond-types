@@ -1,5 +1,5 @@
 use jumprope::JumpRope;
-use crate::list::{Checkout, ListCRDT, OpSet};
+use crate::list::{Branch, ListCRDT, OpSet};
 use smallvec::{SmallVec, smallvec};
 use crate::list::history::History;
 use crate::ROOT_TIME;
@@ -9,7 +9,7 @@ use crate::ROOT_TIME;
 /// This is used during fuzzing to make sure everything is working properly, and if not, find bugs
 /// as early as possible.
 
-impl Checkout {
+impl Branch {
     #[allow(unused)]
     pub fn dbg_assert_content_eq_rope(&self, expected_content: &JumpRope) {
         assert_eq!(&self.content, expected_content);
