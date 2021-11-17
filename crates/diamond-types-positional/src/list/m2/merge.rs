@@ -439,18 +439,19 @@ impl Branch {
         // TODO: Also FF at the end!
 
         // dbg!((&self.frontier, &diff.common_branch, merge_frontier));
+        conflict_ops.reverse();
         let (mut tracker, branch) = M2Tracker::new_at_conflict(opset, ConflictZone {
             common_ancestor: common_ancestor.clone(),
             spans: conflict_ops
         });
 
         // Now walk through and merge the new edits.
-        let mut walker = OptimizedTxnsIter::new(&opset.history, ConflictZone {
-            common_ancestor,
-            spans: new_ops
-        }, Some(branch));
+        dbg!((&common_ancestor, &new_ops, &branch));
+        new_ops.reverse();
+        let mut walker = OptimizedTxnsIter::new(&opset.history, common_ancestor, &new_ops, Some(branch));
 
         while let Some(walk) = walker.next() {
+            // dbg!(&walk);
             for range in walk.retreat {
                 tracker.retreat_by_range(range);
             }
