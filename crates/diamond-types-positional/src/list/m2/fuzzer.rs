@@ -82,15 +82,19 @@ fn merge_fuzz(seed: u64) {
     }
 
     for _i in 0..300 {
-        println!("i {}", _i);
+        println!("\n\ni {}", _i);
         // Generate some operations
-        for _j in 0..5 {
-            let doc_idx = rng.gen_range(0..branches.len());
-            let branch = &mut branches[doc_idx];
+        for _j in 0..2 {
+        // for _j in 0..5 {
+            let idx = rng.gen_range(0..branches.len());
+            let branch = &mut branches[idx];
 
-            let v = make_random_change_raw(&mut opset, branch, None, doc_idx as AgentId, &mut rng);
+            let v = make_random_change_raw(&mut opset, branch, None, idx as AgentId, &mut rng);
+            // dbg!(opset.iter_range((v..v+1).into()).next().unwrap());
+
             branch.merge(&opset, &[v]);
             // make_random_change(doc, None, 0, &mut rng);
+            println!("branch {} content '{}'", idx, &branch.content);
         }
 
         // Then merge 2 branches at random
@@ -98,7 +102,7 @@ fn merge_fuzz(seed: u64) {
         let b_idx = rng.gen_range(0..branches.len());
 
         if a_idx != b_idx {
-            // println!("Merging {} and {}", a_idx, b_idx);
+            println!("Merging {} and {}", a_idx, b_idx);
             // Oh god this is awful. I can't take mutable references to two array items.
             let (a_idx, b_idx) = if a_idx < b_idx { (a_idx, b_idx) } else { (b_idx, a_idx) };
             // a<b.
@@ -109,9 +113,10 @@ fn merge_fuzz(seed: u64) {
             // dbg!(&a.text_content, &b.text_content);
             // dbg!(&a.content_tree, &b.content_tree);
 
-            // println!("{} -> {}", a_idx, b_idx);
+            // dbg!(&opset);
+            println!("Merge b to a: {} -> {}", a_idx, b_idx);
             a.merge(&opset, &b.frontier);
-            // println!("{} -> {}", b_idx, a_idx);
+            println!("Merge a to b: {} -> {}", b_idx, a_idx);
             b.merge(&opset, &a.frontier);
 
 
@@ -122,8 +127,8 @@ fn merge_fuzz(seed: u64) {
 
             if a != b {
                 println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);
-                // dbg!(&a);
-                // dbg!(&b);
+                dbg!(&a);
+                dbg!(&b);
                 panic!("Documents do not match");
             }
         }
@@ -141,5 +146,5 @@ fn merge_fuzz(seed: u64) {
 #[test]
 #[ignore]
 fn fuzz_once() {
-    merge_fuzz(0);
+    merge_fuzz(4);
 }

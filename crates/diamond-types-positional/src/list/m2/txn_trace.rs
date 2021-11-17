@@ -190,7 +190,7 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
                 }
             } else {
                 // The stack was exhausted and we didn't find anything. We're done here.
-                dbg!(&self);
+                // dbg!(&self);
                 debug_assert!(self.input.iter().all(|e| e.visited));
                 debug_assert_eq!(self.num_consumed, self.input.len());
                 return None;
@@ -336,7 +336,7 @@ mod test {
             },
         ]);
         let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
-        dbg!(&walk);
+        // dbg!(&walk);
 
         assert_eq!(walk, [
             TxnWalkItem {

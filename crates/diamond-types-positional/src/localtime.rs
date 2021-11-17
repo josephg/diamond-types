@@ -60,6 +60,10 @@ impl TimeSpan {
         else if time >= self.end { Ordering::Greater }
         else { Ordering::Equal }
     }
+
+    pub fn iter(&self) -> impl Iterator<Item=usize> {
+        Range::<usize>::from(self)
+    }
 }
 
 impl From<Range<usize>> for TimeSpan {
@@ -68,6 +72,17 @@ impl From<Range<usize>> for TimeSpan {
             start: range.start,
             end: range.end,
         }
+    }
+}
+
+impl From<TimeSpan> for Range<usize> {
+    fn from(span: TimeSpan) -> Self {
+        span.start..span.end
+    }
+}
+impl From<&TimeSpan> for Range<usize> {
+    fn from(span: &TimeSpan) -> Self {
+        span.start..span.end
     }
 }
 

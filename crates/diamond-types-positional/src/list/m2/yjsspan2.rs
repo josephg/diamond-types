@@ -138,6 +138,10 @@ impl YjsSpan2 {
     pub fn upstream_len(&self) -> usize {
         if self.ever_deleted { 0 } else { self.id.len() }
     }
+
+    pub fn upstream_len_at(&self, offset: usize) -> usize {
+        if self.ever_deleted { 0 } else { offset }
+    }
 }
 
 // So the length is described in two ways - one for the current content position, and the other for

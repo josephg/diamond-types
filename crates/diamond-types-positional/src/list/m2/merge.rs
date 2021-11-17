@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::ops::{Deref, DerefMut};
 use std::ptr::{NonNull, null_mut};
 use smallvec::{SmallVec, smallvec};
-use content_tree::{ContentTreeRaw, ContentTreeWithIndex, Cursor, DEFAULT_IE, DEFAULT_LE, MutCursor, NodeLeaf, null_notify, UnsafeCursor};
+use content_tree::{ContentTreeRaw, ContentTreeWithIndex, Cursor, DEFAULT_IE, DEFAULT_LE, FindOffset, MutCursor, NodeLeaf, null_notify, UnsafeCursor};
 use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
 use crate::list::{Frontier, Branch, ListCRDT, OpSet, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
@@ -17,6 +17,8 @@ use crate::list::history_tools::{ConflictZone, Flag};
 use crate::list::history_tools::Flag::OnlyB;
 use crate::list::list::apply_local_operation;
 use crate::list::m2::delete::Delete;
+use crate::list::m2::dot::{DotColor, name_of};
+use crate::list::m2::dot::DotColor::*;
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
 
@@ -66,7 +68,7 @@ impl M2Tracker {
         let mut walker = OptimizedTxnsIter::new(&opset.history, rev_spans, ancestor);
         // let mut walker = opset.history.known_conflicting_txns_iter(conflict);
         while let Some(walk) = walker.next() {
-            dbg!(&walk.consume);
+            // dbg!(&walk.consume);
 
             for range in walk.retreat {
                 tracker.retreat_by_range(range);
@@ -123,6 +125,10 @@ impl M2Tracker {
             if !stick_end { cursor.roll_to_next_entry(); }
             cursor
         }
+    }
+
+    unsafe fn upstream_cursor_pos(cursor: &UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
+        cursor.count_pos_raw(DocRangeIndex::index_to_offset, YjsSpan2::upstream_len, YjsSpan2::upstream_len_at)
     }
 
     pub(super) fn integrate(&mut self, opset: &OpSet, agent: AgentId, item: YjsSpan2, mut cursor: UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
@@ -227,7 +233,9 @@ impl M2Tracker {
         }
 
         // Now insert here.
-        let content_pos = unsafe { cursor.unsafe_count_offset_pos() };
+        // let content_pos = unsafe { cursor.unsafe_count_offset_pos() };
+        let content_pos = unsafe { Self::upstream_cursor_pos(&cursor) };
+        dbg!(&cursor, content_pos);
         unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
         content_pos
     }
@@ -315,15 +323,18 @@ impl M2Tracker {
                 result.pos = ins_pos;
                 // act(result);
                 if let Some(to) = to {
-                    // println!("Insert at {} len {}", ins_pos, op.len());
+                    dbg!(&self.range_tree);
+                    println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                     assert!(op.content_known); // Ok if this is false - we'll just fill with junk.
+                    assert!(ins_pos <= to.content.len_chars());
                     to.content.insert(ins_pos, &op.content);
                 }
             }
 
             InsDelTag::Del => {
                 let cursor = self.range_tree.mut_cursor_at_content_pos(op.pos, false);
-                let mut del_start = cursor.count_offset_pos();
+                // let mut del_start = cursor.count_offset_pos();
+                let mut del_start = unsafe { Self::upstream_cursor_pos(&cursor.inner) };
                 let deleted_items = unsafe {
                     let inner = cursor.inner;
                     self.range_tree.local_deactivate_notify(inner, op.len(), notify_for(&mut self.index))
@@ -348,6 +359,7 @@ impl M2Tracker {
                 }
 
                 if let Some(to) = to {
+                    println!("Delete {}..{} (len {})", del_start, del_end - 1, del_end - del_start);
                     to.content.remove(del_start..del_end);
                 }
             }
@@ -373,6 +385,8 @@ impl Branch {
         //     assert!(a.is_empty());
         // }
 
+        dbg!((&self.frontier, merge_frontier));
+
         debug_assert!(frontier_is_sorted(&merge_frontier));
         debug_assert!(frontier_is_sorted(&self.frontier));
 
@@ -384,16 +398,30 @@ impl Branch {
         let mut new_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
         let mut conflict_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
 
+        let mut dbg_all_ops: SmallVec<[(TimeSpan, DotColor); 4]> = smallvec![];
+
         let mut common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
-            dbg!(&span, flag);
+            // dbg!(&span, flag);
             let target = match flag {
                 OnlyB => &mut new_ops,
                 _ => &mut conflict_ops
             };
             target.push_reversed_rle(span);
+
+            let color = match flag {
+                Flag::OnlyA => Blue,
+                Flag::OnlyB => Green,
+                Flag::Shared => Black,
+            };
+            dbg_all_ops.push((span, color));
         });
 
-        dbg!(&opset.history, (&new_ops, &conflict_ops, &common_ancestor));
+        let s1 = merge_frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
+        let s2 = self.frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
+        opset.make_graph(&format!("m{}_to_{}.svg", s1, s2), dbg_all_ops.iter().copied());
+
+        // dbg!(&opset.history);
+        // dbg!((&new_ops, &conflict_ops, &common_ancestor));
 
         debug_assert!(frontier_is_sorted(&common_ancestor));
 
@@ -446,11 +474,13 @@ impl Branch {
 
         // dbg!((&self.frontier, &, merge_frontier));
         let (mut tracker, branch) = M2Tracker::new_at(opset, common_ancestor.clone(), &conflict_ops);
+        dbg!(&tracker, &branch);
+        dbg!(&self.content);
 
         // Now walk through and merge the new edits.
-        dbg!(&conflict_ops, (&common_ancestor, &new_ops, &branch));
+        // dbg!(&conflict_ops, (&common_ancestor, &new_ops, &branch));
         let mut walker = OptimizedTxnsIter::new(&opset.history, &new_ops, branch);
-        dbg!(&walker);
+        // dbg!(&walker);
         while let Some(walk) = walker.next() {
             dbg!(&walk);
             for range in walk.retreat {
@@ -461,10 +491,15 @@ impl Branch {
                 tracker.advance_by_range(range);
             }
 
+            dbg!(&tracker);
+
             debug_assert!(!walk.consume.is_empty());
             // TODO: Add txn to walk, so we can use advance_branch_by_known.
             advance_frontier_by(&mut self.frontier, &opset.history, walk.consume);
             tracker.apply_range(opset, walk.consume, Some(self));
+            dbg!(&tracker);
+
+            dbg!(&self);
         }
     }
 }

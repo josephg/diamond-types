@@ -30,6 +30,7 @@ mod metrics;
 mod delete;
 #[cfg(test)]
 mod fuzzer;
+mod dot;
 
 type DocRangeIndex = MarkerMetrics;
 type CRDTList2 = Pin<Box<ContentTreeWithIndex<YjsSpan2, DocRangeIndex>>>;
