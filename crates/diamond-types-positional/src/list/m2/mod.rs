@@ -13,7 +13,7 @@
 use std::pin::Pin;
 use content_tree::{ContentMetrics, ContentTreeWithIndex, FullMetricsUsize, RawPositionMetrics};
 use crate::list::ListCRDT;
-use crate::list::m2::deletes::Delete;
+use crate::list::m2::delete::Delete;
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::merge::notify_for;
 use crate::list::m2::metrics::MarkerMetrics;
@@ -27,7 +27,7 @@ mod markers;
 mod advance_retreat;
 mod txn_trace;
 mod metrics;
-mod deletes;
+mod delete;
 
 type DocRangeIndex = MarkerMetrics;
 type CRDTList2 = Pin<Box<ContentTreeWithIndex<YjsSpan2, DocRangeIndex>>>;

@@ -16,7 +16,7 @@ use crate::list::history::HistoryEntry;
 use crate::list::history_tools::{ConflictZone, Flag};
 use crate::list::history_tools::Flag::OnlyB;
 use crate::list::list::apply_local_operation;
-use crate::list::m2::deletes::Delete;
+use crate::list::m2::delete::Delete;
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
 
