@@ -1,4 +1,3 @@
-const {uniToStrPos} = require('unicount')
 const {Console} = require('console')
 global.console = new Console({
   stdout: process.stdout,
