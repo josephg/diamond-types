@@ -57,15 +57,15 @@ impl History {
             || (a != ROOT_TIME && a > b && self.entries.find(a).unwrap().contains(b))
     }
 
-    pub(crate) fn branch_contains_order(&self, branch: &[Time], target: Time) -> bool {
-        assert!(!branch.is_empty());
-        if target == ROOT_TIME || branch.contains(&target) { return true; }
-        if branch == [ROOT_TIME] { return false; }
+    pub(crate) fn frontier_contains_time(&self, frontier: &[Time], target: Time) -> bool {
+        assert!(!frontier.is_empty());
+        if target == ROOT_TIME || frontier.contains(&target) { return true; }
+        if frontier == [ROOT_TIME] { return false; }
 
         // Fast path. This causes extra calls to find_packed(), but you usually have a branch with
         // a shadow less than target. Usually the root document. And in that case this codepath
         // avoids the allocation from BinaryHeap.
-        for &o in branch {
+        for &o in frontier {
             if o > target {
                 let txn = self.entries.find(o).unwrap();
                 if txn.shadow_contains(target) { return true; }
@@ -86,7 +86,7 @@ impl History {
 
         // This code could be written to use parent_indexes but its a bit tricky, as an index isn't
         // enough specificity. We'd need the parent and the parent_index. Eh...
-        for &o in branch {
+        for &o in frontier {
             debug_assert_ne!(o, target);
             if o > target { queue.push(o); }
         }
@@ -282,19 +282,19 @@ impl History {
         }
 
         impl From<&[Time]> for TimePoint {
-            fn from(branch: &[Time]) -> Self {
-                debug_assert!(frontier_is_sorted(branch));
-                assert!(branch.len() >= 1);
+            fn from(frontier: &[Time]) -> Self {
+                debug_assert!(frontier_is_sorted(frontier));
+                assert!(frontier.len() >= 1);
 
                 let mut result = Self {
                     // Bleh.
-                    last: *branch.last().unwrap(),
+                    last: *frontier.last().unwrap(),
                     merged_with: smallvec![]
                 };
 
-                if branch.len() > 1 {
+                if frontier.len() > 1 {
                     // TODO: Clean this up. I'm sure there's nicer constructions
-                    for t in &branch[..branch.len() - 1] {
+                    for t in &frontier[..frontier.len() - 1] {
                         result.merged_with.push(*t);
                     }
                 }
@@ -309,7 +309,7 @@ impl History {
         queue.push((b.into(), OnlyB));
 
         // Loop until we've collapsed the graph down to a single element.
-        let branch: Frontier = 'outer: loop {
+        let frontier: Frontier = 'outer: loop {
             let (time, mut flag) = queue.pop().unwrap();
             let t = time.last;
             // dbg!((&time, flag));
@@ -331,10 +331,10 @@ impl History {
 
             if queue.is_empty() {
                 // In this order because time.last > time.merged_with.
-                let mut branch: Frontier = time.merged_with.as_slice().into();
+                let mut frontier: Frontier = time.merged_with.as_slice().into();
                 // branch.extend(time.merged_with.into_iter());
-                branch.push(t);
-                break branch;
+                frontier.push(t);
+                break frontier;
             }
 
             // If this node is a merger, shatter it.
@@ -399,7 +399,7 @@ impl History {
             }
         };
 
-        branch
+        frontier
     }
 
     /// This method is used to find the operation ranges we need to look at that might be concurrent
@@ -465,8 +465,8 @@ impl History {
 /// about branches, find diffs and move between branches.
 impl OpSet {
     // Exported for the fuzzer. Not sure if I actually want this exposed.
-    pub fn branch_contains_order(&self, branch: &[Time], target: Time) -> bool {
-        self.history.branch_contains_order(branch, target)
+    pub fn frontier_contains_time(&self, frontier: &[Time], target: Time) -> bool {
+        self.history.frontier_contains_time(frontier, target)
     }
 
     pub fn linear_changes_since(&self, start: Time) -> TimeSpan {
@@ -575,14 +575,14 @@ pub mod test {
 
         for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
             for o in spans {
-                assert!(history.branch_contains_order(branch, o.start));
-                assert!(history.branch_contains_order(branch, o.last()));
+                assert!(history.frontier_contains_time(branch, o.start));
+                assert!(history.frontier_contains_time(branch, o.last()));
             }
 
             if branch.len() == 1 {
                 // dbg!(&other, branch[0], &spans);
                 let expect = spans.is_empty();
-                assert_eq!(expect, history.branch_contains_order(other, branch[0]));
+                assert_eq!(expect, history.frontier_contains_time(other, branch[0]));
             }
         }
     }
@@ -662,30 +662,30 @@ pub mod test {
 
         let history = fancy_history();
 
-        assert!(history.branch_contains_order(&[ROOT_TIME], ROOT_TIME));
-        assert!(history.branch_contains_order(&[0], 0));
-        assert!(history.branch_contains_order(&[0], ROOT_TIME));
+        assert!(history.frontier_contains_time(&[ROOT_TIME], ROOT_TIME));
+        assert!(history.frontier_contains_time(&[0], 0));
+        assert!(history.frontier_contains_time(&[0], ROOT_TIME));
 
-        assert!(history.branch_contains_order(&[2], 0));
-        assert!(history.branch_contains_order(&[2], 1));
-        assert!(history.branch_contains_order(&[2], 2));
+        assert!(history.frontier_contains_time(&[2], 0));
+        assert!(history.frontier_contains_time(&[2], 1));
+        assert!(history.frontier_contains_time(&[2], 2));
 
-        assert!(!history.branch_contains_order(&[0], 1));
-        assert!(!history.branch_contains_order(&[1], 2));
+        assert!(!history.frontier_contains_time(&[0], 1));
+        assert!(!history.frontier_contains_time(&[1], 2));
 
-        assert!(history.branch_contains_order(&[8], 0));
-        assert!(history.branch_contains_order(&[8], 1));
-        assert!(!history.branch_contains_order(&[8], 2));
-        assert!(!history.branch_contains_order(&[8], 5));
+        assert!(history.frontier_contains_time(&[8], 0));
+        assert!(history.frontier_contains_time(&[8], 1));
+        assert!(!history.frontier_contains_time(&[8], 2));
+        assert!(!history.frontier_contains_time(&[8], 5));
 
-        assert!(history.branch_contains_order(&[1,4], 0));
-        assert!(history.branch_contains_order(&[1,4], 1));
-        assert!(!history.branch_contains_order(&[1,4], 2));
-        assert!(!history.branch_contains_order(&[1,4], 5));
+        assert!(history.frontier_contains_time(&[1,4], 0));
+        assert!(history.frontier_contains_time(&[1,4], 1));
+        assert!(!history.frontier_contains_time(&[1,4], 2));
+        assert!(!history.frontier_contains_time(&[1,4], 5));
 
-        assert!(history.branch_contains_order(&[9], 2));
-        assert!(history.branch_contains_order(&[9], 1));
-        assert!(history.branch_contains_order(&[9], 0));
+        assert!(history.frontier_contains_time(&[9], 2));
+        assert!(history.frontier_contains_time(&[9], 1));
+        assert!(history.frontier_contains_time(&[9], 0));
     }
 
     #[test]
@@ -838,8 +838,8 @@ pub mod test {
             },
         ]);
 
-        assert_eq!(false, history.branch_contains_order(&[2], 3));
-        assert_eq!(false, history.branch_contains_order(&[3], 2));
+        assert_eq!(false, history.frontier_contains_time(&[2], 3));
+        assert_eq!(false, history.frontier_contains_time(&[3], 2));
         assert_diff_eq(&history, &[2], &[3], &[(2..3).into()], &[(3..4).into()]);
     }
 

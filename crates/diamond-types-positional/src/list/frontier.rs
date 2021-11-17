@@ -6,16 +6,52 @@ use crate::ROOT_TIME;
 
 pub(crate) fn advance_frontier_by(frontier: &mut Frontier, history: &History, range: TimeSpan) {
     let txn = history.entries.find(range.start).unwrap();
-    if let Some(parent) = txn.parent_at_time(range.start) {
-        advance_frontier_by_known(frontier, &[parent], range);
-    } else {
-        advance_frontier_by_known(frontier, &txn.parents, range);
-    }
+    txn.with_parents(range.start, |parents| {
+        advance_frontier_by_known(frontier, parents, range);
+    })
 }
 
-pub(crate) fn retreat_frontier_by(frontier: &mut Frontier, history: &History, range: TimeSpan) {
-    let txn = history.entries.find(range.start).unwrap();
-    retreat_frontier_known_txn(frontier, history, txn, range);
+pub(crate) fn retreat_frontier_by(frontier: &mut Frontier, history: &History, mut range: TimeSpan) {
+    debug_assert_frontier_sorted(frontier.as_slice());
+
+    let mut txn_idx = history.entries.find_index(range.last()).unwrap();
+    loop {
+        let last_order = range.last();
+        let txn = &history.entries[txn_idx];
+        // debug_assert_eq!(txn_idx, history.entries.find_index(range.last()).unwrap());
+        debug_assert_eq!(txn, history.entries.find(last_order).unwrap());
+        let mut idx = frontier.iter().position(|&e| e == last_order).unwrap();
+
+        if range.start > txn.span.start {
+            frontier[idx] = range.start - 1;
+            debug_assert_frontier_sorted(frontier.as_slice());
+            break; // We're done.
+        } else {
+            // Retreat by this entire txn.
+            frontier.retain(|t| *t != last_order);
+            // branch.swap_remove(idx);
+
+            for &parent in &txn.parents {
+                // TODO: This is pretty inefficient. We're calling branch_contains_order in a loop and
+                // each call to branch_contains_version does a call to history.find() in turn for each
+                // item in branch.
+                if frontier.is_empty() || !history.frontier_contains_time(frontier, parent) {
+                    add_to_frontier(frontier, parent);
+                    // branch.push(parent);
+                }
+            }
+            // branch.sort();
+
+            if range.start == txn.span.start {
+                break;
+            }
+
+            // Otherwise keep scanning down through the txns.
+            range.end = txn.span.start;
+            txn_idx -= 1;
+        }
+    }
+    debug_assert_frontier_sorted(frontier.as_slice());
 }
 
 pub(crate) fn frontier_is_sorted(branch: &[Time]) -> bool {
@@ -70,37 +106,6 @@ pub(crate) fn advance_frontier_by_known(frontier: &mut Frontier, txn_parents: &[
     // In order to maintain the order of items in the branch, we want to insert the new item in the
     // appropriate place.
     add_to_frontier(frontier, range.last());
-}
-
-pub(crate) fn retreat_frontier_known_txn(frontier: &mut Frontier, history: &History, txn: &HistoryEntry, range: TimeSpan) {
-    let last_order = range.last();
-    let idx = frontier.iter().position(|&e| e == last_order).unwrap();
-
-    debug_assert!(txn.contains(last_order));
-    debug_assert_frontier_sorted(frontier.as_slice());
-
-    if range.start > txn.span.start {
-        frontier[idx] = range.start - 1;
-        debug_assert_frontier_sorted(frontier.as_slice());
-    } else if range.start == txn.span.start {
-        frontier.retain(|t| *t != last_order);
-        // branch.swap_remove(idx);
-
-        for &parent in &txn.parents {
-            // TODO: This is pretty inefficient. We're calling branch_contains_order in a loop and
-            // each call to branch_contains_version does a call to history.find() in turn for each
-            // item in branch.
-            if frontier.is_empty() || !history.branch_contains_order(frontier, parent) {
-                add_to_frontier(frontier, parent);
-                // branch.push(parent);
-            }
-        }
-
-        // branch.sort();
-    } else {
-        // Is this something worth implementing?
-        unimplemented!("retreat_branch cannot retreat by more than one transaction");
-    }
 }
 
 pub fn frontier_eq(a: &[Time], b: &[Time]) -> bool {
