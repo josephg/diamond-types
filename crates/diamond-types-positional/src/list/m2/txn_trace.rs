@@ -29,60 +29,14 @@ fn find_entry_idx(input: &SmallVec<[VisitEntry; 4]>, time: Time) -> Option<usize
     }).ok()
 }
 
-fn check_sorted(spans: &[TimeSpan]) {
+fn check_rev_sorted(spans: &[TimeSpan]) {
     let mut last_end = None;
-    for s in spans {
+    for s in spans.iter().rev() {
         if let Some(end) = last_end {
             assert!(s.start >= end);
         }
         last_end = Some(s.end);
     }
-}
-
-fn spans_to_entries(history: &History, spans: &[TimeSpan]) -> SmallVec<[VisitEntry; 4]> {
-    check_sorted(spans);
-    // This method could be removed - its sort of unnecessary. The find_conflicting process
-    // scans txns to find the range we need to work over. It does so in reverse order. But we
-    // need the txns themselves.
-    //
-    // It would be faster to just return the list of txns, though thats kinda uglier from an API
-    // standpoint.
-    //
-    // ... Something to consider.
-
-    let mut result = smallvec![];
-
-    // for mut span_remaining in spans.iter().copied().filter(|s| !s.is_empty()) {
-    for mut span_remaining in spans.iter().copied() {
-        debug_assert!(!span_remaining.is_empty());
-
-        let mut i = history.entries.find_index(span_remaining.start).unwrap();
-        // let mut offset = history.entries[i].
-        while !span_remaining.is_empty() {
-            let e = &history.entries[i];
-            debug_assert!(span_remaining.start >= e.span.start);
-
-            let offset = Time::min(span_remaining.len(), e.span.end - span_remaining.start);
-            let span = span_remaining.truncate_keeping_right(offset);
-
-            // We don't care about any parents outside of the input spans.
-            let parent_idxs = e.parents.iter()
-                .filter(|t| **t != ROOT_TIME)
-                .map(|t| find_entry_idx(&result, *t))
-                .flatten()
-                .collect();
-
-            result.push(VisitEntry {
-                span,
-                txn_idx: i,
-                // entry: e,
-                visited: false,
-                parent_idxs
-            });
-            i += 1;
-        }
-    }
-    result
 }
 
 // So essentially what I'm doing here is a depth first iteration of the time DAG. The trouble is
@@ -135,52 +89,64 @@ impl<'a> OptimizedTxnsIter<'a> {
         }
         spans.reverse();
 
-        Self::new(history, smallvec![ROOT_TIME], &spans, None)
+        Self::new(history, &spans, smallvec![ROOT_TIME])
     }
 
     /// If starting_branch is not specified, the iterator starts at conflict.common_branch.
-    pub(crate) fn new(history: &'a History, ancestor: Frontier, spans: &[TimeSpan], starting_branch: Option<Frontier>) -> Self {
-        debug_assert!(frontier_is_sorted(&ancestor));
+    pub(crate) fn new(history: &'a History, rev_spans: &[TimeSpan], branch: Frontier) -> Self {
 
-        let input = spans_to_entries(history, spans);
+        if cfg!(debug_assertions) {
+            check_rev_sorted(rev_spans);
+        }
+        let mut input = smallvec![];
         let mut to_process = smallvec![];
 
-        for time in &ancestor {
-            // result.push_children(*time);
+        for mut span_remaining in rev_spans.iter().rev().copied() {
+            debug_assert!(!span_remaining.is_empty());
 
-            let txn_indexes = if *time == ROOT_TIME {
-                &history.root_child_indexes
-            } else {
-                let txn = history.entries.find_packed(*time);
+            let mut i = history.entries.find_index(span_remaining.start).unwrap();
+            // let mut offset = history.entries[i].
+            while !span_remaining.is_empty() {
+                let e = &history.entries[i];
+                debug_assert!(span_remaining.start >= e.span.start);
 
-                if *time < txn.span.last() {
-                    // Add this txn itself.
-                    if let Some(i) = find_entry_idx(&input, *time + 1) {
-                        to_process.push(i);
-                    }
+                let offset = Time::min(span_remaining.len(), e.span.end - span_remaining.start);
+                let span = span_remaining.truncate_keeping_right(offset);
+
+                // We don't care about any parents outside of the input spans.
+                let parent_idxs: SmallVec<[usize; 4]> = e.parents.iter()
+                    .filter(|t| **t != ROOT_TIME)
+                    .map(|t| find_entry_idx(&input, *t))
+                    .flatten()
+                    .collect();
+
+                if parent_idxs.is_empty() {
+                    to_process.push(input.len());
                 }
 
-                &txn.child_indexes
-            }.as_slice();
+                input.push(VisitEntry {
+                    span,
+                    txn_idx: i,
+                    // entry: e,
+                    visited: false,
+                    parent_idxs,
+                });
 
-            // This is gross. This code is duplicated in push_children (below), but I can't easily
-            // call push_children because it would violate the borrow checker.
-            for idx in txn_indexes.iter().rev() {
-                let child_span_start = history.entries[*idx].span.start;
-                if let Some(i) = find_entry_idx(&input, child_span_start) {
-                    to_process.push(i);
-                }
+                i += 1;
             }
         }
 
-        let branch = starting_branch.unwrap_or(ancestor);
+        // I don't think this is needed, but it means we iterate in a sorted order.
+        to_process.reverse();
+
+        assert!(rev_spans.is_empty() || !to_process.is_empty());
 
         let mut result = Self {
             history,
             branch,
             input,
             to_process,
-            num_consumed: 0
+            num_consumed: 0,
         };
 
         result
@@ -224,7 +190,7 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
                 }
             } else {
                 // The stack was exhausted and we didn't find anything. We're done here.
-                // dbg!(&self);
+                dbg!(&self);
                 debug_assert!(self.input.iter().all(|e| e.visited));
                 debug_assert_eq!(self.num_consumed, self.input.len());
                 return None;
@@ -294,13 +260,13 @@ impl History {
     }
 
     pub(crate) fn known_conflicting_txns_iter(&self, conflict: ConflictZone) -> OptimizedTxnsIter {
-        OptimizedTxnsIter::new(self, conflict.common_ancestor, &conflict.spans, None)
+        OptimizedTxnsIter::new(self, &conflict.spans, conflict.common_ancestor)
     }
 
-    pub(crate) fn conflicting_txns_iter(&self, a: &[Time], b: &[Time]) -> OptimizedTxnsIter {
-        self.known_conflicting_txns_iter(self.find_conflicting_simple(a, b))
-    }
-
+    // Works, but unused.
+    // pub(crate) fn conflicting_txns_iter(&self, a: &[Time], b: &[Time]) -> OptimizedTxnsIter {
+    //     self.known_conflicting_txns_iter(self.find_conflicting_simple(a, b))
+    // }
 }
 
 
@@ -370,6 +336,7 @@ mod test {
             },
         ]);
         let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
+        dbg!(&walk);
 
         assert_eq!(walk, [
             TxnWalkItem {
@@ -485,7 +452,7 @@ mod test {
             common_ancestor: smallvec![5],
             spans: smallvec![(6..7).into()],
         });
-        let iter = OptimizedTxnsIter::new(&history, conflict.common_ancestor, &conflict.spans, None);
+        let iter = OptimizedTxnsIter::new(&history, &conflict.spans, conflict.common_ancestor);
         // dbg!(&iter);
 
         assert!(iter.eq(std::array::IntoIter::new([
