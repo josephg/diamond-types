@@ -45,7 +45,7 @@ struct ClientData {
     item_orders: RleVec<KVPair<TimeSpan>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Branch {
     /// The set of txn orders with no children in the document. With a single writer this will
     /// always just be the last order we've seen.

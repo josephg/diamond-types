@@ -61,5 +61,5 @@ pub fn apply_edits_push_merge(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
         }
     }
 
-    doc.branch.merge_branch(&doc.ops, &[last_parent]);
+    doc.branch.merge(&doc.ops, &[last_parent]);
 }

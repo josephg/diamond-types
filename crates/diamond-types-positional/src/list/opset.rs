@@ -232,10 +232,12 @@ impl OpSet {
         next_time - 1
     }
 
+    /// Returns the single item frontier after the inserted change.
     pub fn push_insert(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) -> Time {
         self.push(agent, parents, &[Operation::new_insert(pos, ins_content)])
     }
 
+    /// Returns the single item frontier after the inserted change.
     pub fn push_delete(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) -> Time {
         self.push(agent, parents, &[Operation::new_delete(pos, del_span)])
     }

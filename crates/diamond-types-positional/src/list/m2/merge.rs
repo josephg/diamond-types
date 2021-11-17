@@ -645,7 +645,7 @@ mod test {
         t = list.ops.push_insert(0, &[t], 0, "a");
 
         dbg!(&list.ops);
-        list.branch.merge_branch(&list.ops, &[t]);
+        list.branch.merge(&list.ops, &[t]);
         dbg!(&list.branch);
     }
 }

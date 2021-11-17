@@ -28,7 +28,7 @@ impl Checkout {
     #[wasm_bindgen]
     pub fn all(opset: &OpSet) -> Self {
         let mut result = Self::new();
-        result.0.merge_branch(&opset.inner, &opset.inner.inefficient_get_branch());
+        result.0.merge(&opset.inner, &opset.inner.inefficient_get_branch());
         result
     }
 
@@ -39,7 +39,7 @@ impl Checkout {
 
     #[wasm_bindgen]
     pub fn merge(&mut self, ops: &OpSet, branch: Time) {
-        self.0.merge_branch(&ops.inner, &[branch]);
+        self.0.merge(&ops.inner, &[branch]);
     }
 
     #[wasm_bindgen(js_name = getBranch)]
@@ -159,7 +159,7 @@ impl Doc {
 
     #[wasm_bindgen]
     pub fn merge(&mut self, branch: &[Time]) {
-        self.inner.branch.merge_branch(&self.inner.ops, branch);
+        self.inner.branch.merge(&self.inner.ops, branch);
     }
 
     // #[wasm_bindgen]

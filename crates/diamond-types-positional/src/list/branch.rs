@@ -57,7 +57,7 @@ impl Branch {
         }
     }
 
-    pub fn merge_branch(&mut self, ops: &OpSet, merge_frontier: &[Time]) {
+    pub fn merge(&mut self, ops: &OpSet, merge_frontier: &[Time]) {
         self.merge_changes_m2(ops, merge_frontier);
     }
 }
