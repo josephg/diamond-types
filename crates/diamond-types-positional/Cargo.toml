@@ -21,7 +21,7 @@ humansize = "1.1"
 
 [dev-dependencies]
 criterion = "^0.3"
-#rand = { version = "^0.8", features = ["small_rng"] }
+rand = { version = "^0.8", features = ["small_rng"] }
 crdt-testdata = { path = "../crdt-testdata" }
 
 # For OT fuzz data tests

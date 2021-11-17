@@ -3,7 +3,7 @@ use content_tree::{ContentTreeRaw, ContentTreeWithIndex, FullMetricsU32, null_no
 use rle::HasLength;
 use crate::{AgentId, ROOT_TIME};
 use crate::list::{ListCRDT, Time};
-use crate::list::branch::branch_eq;
+use crate::list::frontier::frontier_eq;
 use crate::list::list::apply_local_operation;
 use crate::list::operation::{InsDelTag, Operation};
 use crate::list::m1::yjsspan::YjsSpan;
@@ -15,7 +15,7 @@ type CRDTList = Pin<Box<ContentTreeWithIndex<YjsSpan, FullMetricsU32>>>;
 
 impl ListCRDT {
     pub fn apply_operation_at(&mut self, agent: AgentId, branch: &[Time], op: &[Operation]) {
-        if branch_eq(branch, self.checkout.frontier.as_slice()) {
+        if frontier_eq(branch, self.checkout.frontier.as_slice()) {
             apply_local_operation(&mut self.ops, &mut self.checkout, agent, op);
             return;
         }

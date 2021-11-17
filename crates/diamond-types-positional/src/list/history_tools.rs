@@ -5,8 +5,8 @@ use smallvec::{SmallVec, smallvec};
 
 use rle::{AppendRle, SplitableSpan};
 
-use crate::list::{Branch, ListCRDT, OpSet, Time};
-use crate::list::branch::{branch_is_root, branch_is_sorted};
+use crate::list::{Frontier, ListCRDT, OpSet, Time};
+use crate::list::frontier::{frontier_is_root, frontier_is_sorted};
 use crate::list::history::{History, HistoryEntry};
 use crate::list::history_tools::Flag::{OnlyA, OnlyB, Shared};
 use crate::localtime::TimeSpan;
@@ -248,7 +248,7 @@ impl History {
 
     // *** Conflicts! ***
 
-    fn find_conflicting_slow<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> Branch
+    fn find_conflicting_slow<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> Frontier
     where V: FnMut(TimeSpan, Flag) {
         // dbg!(a, b);
 
@@ -283,7 +283,7 @@ impl History {
 
         impl From<&[Time]> for TimePoint {
             fn from(branch: &[Time]) -> Self {
-                debug_assert!(branch_is_sorted(branch));
+                debug_assert!(frontier_is_sorted(branch));
                 assert!(branch.len() >= 1);
 
                 let mut result = Self {
@@ -309,7 +309,7 @@ impl History {
         queue.push((b.into(), OnlyB));
 
         // Loop until we've collapsed the graph down to a single element.
-        let branch: Branch = 'outer: loop {
+        let branch: Frontier = 'outer: loop {
             let (time, mut flag) = queue.pop().unwrap();
             let t = time.last;
             // dbg!((&time, flag));
@@ -331,7 +331,7 @@ impl History {
 
             if queue.is_empty() {
                 // In this order because time.last > time.merged_with.
-                let mut branch: Branch = time.merged_with.as_slice().into();
+                let mut branch: Frontier = time.merged_with.as_slice().into();
                 // branch.extend(time.merged_with.into_iter());
                 branch.push(t);
                 break branch;
@@ -409,7 +409,7 @@ impl History {
     /// a single localtime, but it might be the result of a merge of multiple edits.
     ///
     /// I'm assuming b is a parent of a, but it should all work if thats not the case.
-    pub fn find_conflicting<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> Branch
+    pub fn find_conflicting<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> Frontier
         where V: FnMut(TimeSpan, Flag) {
         debug_assert!(!a.is_empty());
         debug_assert!(!b.is_empty());
@@ -446,7 +446,7 @@ impl History {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct ConflictZone {
-    pub(crate) common_ancestor: Branch,
+    pub(crate) common_ancestor: Frontier,
     pub(crate) spans: SmallVec<[TimeSpan; 4]>,
 }
 
@@ -480,7 +480,7 @@ pub mod test {
     use smallvec::{smallvec, SmallVec};
     use rle::{AppendRle, MergableSpan};
 
-    use crate::list::{Branch, Time};
+    use crate::list::{Frontier, Time};
     use crate::list::history::{History, HistoryEntry};
     use crate::list::history_tools::{DiffResult, Flag};
     use crate::list::history_tools::Flag::{OnlyA, OnlyB, Shared};
@@ -511,7 +511,7 @@ pub mod test {
 
     #[derive(Debug, Eq, PartialEq)]
     pub struct ConflictFull {
-        pub(crate) common_branch: Branch,
+        pub(crate) common_branch: Frontier,
         pub(crate) spans: Vec<(TimeSpan, Flag)>,
     }
 

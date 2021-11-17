@@ -19,7 +19,7 @@ mod history;
 mod list;
 mod check;
 mod history_tools;
-mod branch;
+mod frontier;
 mod op_iter;
 mod m1;
 mod m2;
@@ -30,7 +30,7 @@ mod checkout;
 // systems.
 pub type Time = usize;
 
-pub type Branch = SmallVec<[Time; 4]>;
+pub type Frontier = SmallVec<[Time; 4]>;
 
 
 #[derive(Clone, Debug)]
@@ -51,7 +51,7 @@ pub struct Checkout {
     /// always just be the last order we've seen.
     ///
     /// Never empty. Starts at usize::max (which is the root order).
-    pub frontier: Branch,
+    pub frontier: Frontier,
 
     pub content: JumpRope,
 }

@@ -1,10 +1,10 @@
 
 use smallvec::{SmallVec, smallvec};
 use crate::rle::RleVec;
-use crate::list::branch::{retreat_branch_by, advance_branch_by_known, advance_branch_by, branch_is_sorted};
+use crate::list::frontier::{retreat_frontier_by, advance_frontier_by_known, advance_frontier_by, frontier_is_sorted};
 use std::ops::Range;
 use rle::{HasLength, SplitableSpan};
-use crate::list::{Branch, Time};
+use crate::list::{Frontier, Time};
 use crate::list::history::{History, HistoryEntry};
 use crate::list::history_tools::ConflictZone;
 use crate::localtime::TimeSpan;
@@ -90,7 +90,7 @@ pub(crate) struct OptimizedTxnsIter<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
     history: &'a History,
 
-    branch: Branch,
+    branch: Frontier,
 
     // TODO: Remove this. Use markers on txns or something instead.
     // consumed: BitBox,
@@ -129,8 +129,8 @@ impl<'a> OptimizedTxnsIter<'a> {
     }
 
     /// If starting_branch is not specified, the iterator starts at conflict.common_branch.
-    pub(crate) fn new(history: &'a History, conflict: ConflictZone, starting_branch: Option<Branch>) -> Self {
-        debug_assert!(branch_is_sorted(&conflict.common_ancestor));
+    pub(crate) fn new(history: &'a History, conflict: ConflictZone, starting_branch: Option<Frontier>) -> Self {
+        debug_assert!(frontier_is_sorted(&conflict.common_ancestor));
 
         let input = spans_to_entries(history, &conflict.spans);
         let mut to_process = smallvec![];
@@ -187,7 +187,7 @@ impl<'a> OptimizedTxnsIter<'a> {
         }
     }
 
-    pub fn into_branch(self) -> Branch {
+    pub fn into_branch(self) -> Frontier {
         self.branch
     }
 }
@@ -244,19 +244,19 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
         // in only_branch if the child has a parent in the middle of our txn.
         for range in &only_branch {
             // println!("Retreat branch by {:?}", range);
-            retreat_branch_by(&mut self.branch, &self.history, range.clone());
+            retreat_frontier_by(&mut self.branch, &self.history, range.clone());
             // dbg!(&branch);
         }
         for range in only_txn.iter().rev() {
             // println!("Advance branch by {:?}", range);
-            advance_branch_by(&mut self.branch, &self.history, range.clone());
+            advance_frontier_by(&mut self.branch, &self.history, range.clone());
             // dbg!(&branch);
         }
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());
         let input_span = input_entry.span;
         // advance_branch_by_known(&mut self.branch, &next_txn.parents, input_span);
-        advance_branch_by_known(&mut self.branch, &parents, input_span);
+        advance_frontier_by_known(&mut self.branch, &parents, input_span);
         // dbg!(&branch);
         // self.consumed.set(next_idx, true);
         input_entry.visited = true;

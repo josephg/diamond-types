@@ -28,6 +28,8 @@ mod advance_retreat;
 mod txn_trace;
 mod metrics;
 mod delete;
+#[cfg(test)]
+mod fuzzer;
 
 type DocRangeIndex = MarkerMetrics;
 type CRDTList2 = Pin<Box<ContentTreeWithIndex<YjsSpan2, DocRangeIndex>>>;

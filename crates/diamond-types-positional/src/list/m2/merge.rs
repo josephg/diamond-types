@@ -4,14 +4,14 @@ use std::ptr::{NonNull, null_mut};
 use smallvec::{SmallVec, smallvec};
 use content_tree::{ContentTreeRaw, ContentTreeWithIndex, Cursor, DEFAULT_IE, DEFAULT_LE, MutCursor, NodeLeaf, null_notify, UnsafeCursor};
 use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
-use crate::list::{Branch, Checkout, ListCRDT, OpSet, Time};
+use crate::list::{Frontier, Checkout, ListCRDT, OpSet, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::m2::yjsspan2::{YjsSpan2, YjsSpanState};
 use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
-use crate::list::branch::{advance_branch_by, advance_branch_by_known, branch_eq, branch_is_sorted};
+use crate::list::frontier::{advance_frontier_by, advance_frontier_by_known, frontier_eq, frontier_is_sorted};
 use crate::list::history::HistoryEntry;
 use crate::list::history_tools::{ConflictZone, Flag};
 use crate::list::history_tools::Flag::OnlyB;
@@ -59,7 +59,7 @@ impl M2Tracker {
         }
     }
 
-    pub(crate) fn new_at_conflict(opset: &OpSet, conflict: ConflictZone) -> (Self, Branch) {
+    pub(crate) fn new_at_conflict(opset: &OpSet, conflict: ConflictZone) -> (Self, Frontier) {
         let mut tracker = Self::new();
 
         // dbg!(branch_a, branch_b);
@@ -370,8 +370,8 @@ impl Checkout {
         //     assert!(a.is_empty());
         // }
 
-        debug_assert!(branch_is_sorted(&merge_frontier));
-        debug_assert!(branch_is_sorted(&self.frontier));
+        debug_assert!(frontier_is_sorted(&merge_frontier));
+        debug_assert!(frontier_is_sorted(&self.frontier));
 
         // let mut diff = opset.history.diff(&self.frontier, merge_frontier);
 
@@ -389,7 +389,7 @@ impl Checkout {
             target.push_reversed_rle(span);
         });
 
-        debug_assert!(branch_is_sorted(&common_ancestor));
+        debug_assert!(frontier_is_sorted(&common_ancestor));
 
         // We don't want to have to make and maintain a tracker, and we don't need to in most
         // situations. We don't need to when all operations in diff.only_b can apply cleanly
@@ -461,7 +461,7 @@ impl Checkout {
 
             debug_assert!(!walk.consume.is_empty());
             // TODO: Add txn to walk, so we can use advance_branch_by_known.
-            advance_branch_by(&mut self.frontier, &opset.history, walk.consume);
+            advance_frontier_by(&mut self.frontier, &opset.history, walk.consume);
             tracker.apply_range(opset, walk.consume, Some(self));
         }
     }

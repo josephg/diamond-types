@@ -3,8 +3,8 @@ use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{ClientData, Branch, OpSet, Time};
-use crate::list::branch::advance_branch_by_known;
+use crate::list::{ClientData, Frontier, OpSet, Time};
+use crate::list::frontier::advance_frontier_by_known;
 use crate::list::history::HistoryEntry;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::Operation;
@@ -240,10 +240,10 @@ impl OpSet {
         self.push(agent, parents, &[Operation::new_delete(pos, del_span)])
     }
 
-    pub fn inefficient_get_branch(&self) -> Branch {
+    pub fn inefficient_get_branch(&self) -> Frontier {
         let mut b = smallvec![ROOT_TIME];
         for txn in self.history.entries.iter() {
-            advance_branch_by_known(&mut b, txn.parents.as_slice(), txn.span);
+            advance_frontier_by_known(&mut b, txn.parents.as_slice(), txn.span);
         }
         b
     }
