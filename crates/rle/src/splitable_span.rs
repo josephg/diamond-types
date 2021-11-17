@@ -26,6 +26,11 @@ pub trait SplitableSpan: Clone {
         *self = other.truncate(at);
         other
     }
+
+    fn split(mut self, at: usize) -> (Self, Self) {
+        let remainder = self.truncate(at);
+        (self, remainder)
+    }
 }
 
 pub trait Trim: SplitableSpan + HasLength {

@@ -16,6 +16,7 @@ use crate::list::history::HistoryEntry;
 use crate::list::history_tools::{ConflictZone, Flag};
 use crate::list::history_tools::Flag::OnlyB;
 use crate::list::list::apply_local_operation;
+use crate::list::m2::deletes::Delete;
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
 
@@ -332,7 +333,10 @@ impl M2Tracker {
                 let mut del_end = del_start;
 
                 for item in deleted_items {
-                    self.deletes.push(KVPair(next_time, item.id));
+                    self.deletes.push(KVPair(next_time, Delete {
+                        target: item.id,
+                        rev: op.rev
+                    }));
                     next_time += item.len();
 
                     if !item.ever_deleted {
@@ -402,7 +406,7 @@ impl Checkout {
                     if can_ff {
                         let mut span = new_ops.pop().unwrap();
                         let remainder = span.trim(txn.span.end - span.start);
-                        println!("FF {:?}", &span);
+                        // println!("FF {:?}", &span);
                         self.apply_range_from(opset, span);
                         conflict_ops.push(span);
                         self.frontier = smallvec![span.last()];
@@ -618,12 +622,17 @@ mod test {
         list.get_or_create_agent_id("seph");
         let mut t = ROOT_TIME;
         t = list.ops.push_insert(0, &[t], 0, "abc"); // 2
-        t = list.ops.push_delete(0, &[t], 2, 1); // 3
-        t = list.ops.push_delete(0, &[t], 1, 1); // 4
-        t = list.ops.push_delete(0, &[t], 0, 1); // 5
+        t = list.ops.push_delete(0, &[t], 2, 1); // 3 -> "ab_"
+        t = list.ops.push_delete(0, &[t], 1, 1); // 4 -> "a__"
+        t = list.ops.push_delete(0, &[t], 0, 1); // 5 -> "___"
 
-        list.checkout.merge_branch(&list.ops, &[4]);
-        dbg!(&list.checkout);
+        let mut t = M2Tracker::new();
+        t.apply_range(&list.ops, (3..6).into(), None);
+        t.retreat_by_range((5..6).into());
+        dbg!(&t);
+
+        // list.checkout.merge_branch(&list.ops, &[4]);
+        // dbg!(&list.checkout);
     }
 
     #[test]

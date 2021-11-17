@@ -33,7 +33,7 @@ pub enum InsDelTag { Ins, Del }
 /// totally unnecessary - we could just store extra entries with length 1 when modifying in other
 /// orders. But it gives us way better compression for some data sets on disk. And this structure
 /// is designed to match the on-disk file format.
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[derive(Debug, Clone, Eq, PartialEq, Default)] // TODO: Do we need default?
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct Operation {
     pub pos: usize,
@@ -41,6 +41,7 @@ pub struct Operation {
 
     /// rev marks the operation order as reversed. For now this is only supported on deletes, for
     /// backspacing.
+    /// TODO: Consider swapping this to fwd
     pub rev: bool,
 
     pub content_known: bool,

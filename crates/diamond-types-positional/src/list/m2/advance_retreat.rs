@@ -12,9 +12,12 @@ impl M2Tracker {
         let (d, offset) = self.deletes.find_sparse(time);
 
         match d {
-            Ok(KVPair(time, target)) => {
-                (InsDelTag::Del, target.start + offset, target.len() - offset)
-            },
+            Ok(KVPair(time, del)) => {
+                let mut del = *del;
+                del.truncate_keeping_right(offset);
+                (InsDelTag::Del, del.target.start, del.len())
+                // (InsDelTag::Del, target.start + offset, target.len() - offset)
+            }
             Err(ins_span) => {
                 (InsDelTag::Ins, time, ins_span.len() - offset)
             }
@@ -28,11 +31,18 @@ impl M2Tracker {
         let (d, offset) = self.deletes.find_sparse(req_range.end - 1);
 
         match d {
-            Ok(KVPair(actual_range_start, target)) => {
-                let start = req_range.start.max(*actual_range_start);
-                let inner_offset = start - actual_range_start;
+            Ok(KVPair(actual_range_start, del)) => {
+                // We've found a delete which matches, but the actual_range_start points to the last
+                // item in the delete we found. We want to grab as many deleted items as possible.
 
-                (InsDelTag::Del, target.start + inner_offset, offset - inner_offset + 1)
+                let del_op_start = req_range.start.max(*actual_range_start);
+                let inner_offset = del_op_start - actual_range_start;
+
+                let mut del = *del;
+                del.truncate_keeping_right(inner_offset);
+                debug_assert_eq!(offset - inner_offset + 1, del.len());
+                (InsDelTag::Del, del.target.start, del.len())
+                // (InsDelTag::Del, del.start + inner_offset, offset - inner_offset + 1)
             }
             Err(ins_span) => {
                 let start = req_range.start.max(ins_span.start);
@@ -45,6 +55,8 @@ impl M2Tracker {
 
     pub(crate) fn advance_by_range(&mut self, mut range: TimeSpan) {
         while !range.is_empty() {
+            // Note the delete could be reversed - but we don't really care here; we just mark the
+            // whole range anyway.
             let (tag, target, mut len) = self.next_action(range.start);
             len = len.min(range.len());
 
