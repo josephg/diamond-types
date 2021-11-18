@@ -72,9 +72,9 @@ impl<E: ContentTraits + ContentLength> FindContent<E> for ContentMetrics {
 
 /// Index based on the raw size of an element.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct RawPositionMetrics;
+pub struct RawPositionMetricsU32;
 
-impl<E: ContentTraits> TreeMetrics<E> for RawPositionMetrics {
+impl<E: ContentTraits> TreeMetrics<E> for RawPositionMetricsU32 {
     type Update = isize;
     type Value = u32; // TODO: Move this to a template parameter.
 
@@ -104,8 +104,46 @@ impl<E: ContentTraits> TreeMetrics<E> for RawPositionMetrics {
     fn count_items(idx: Self::Value) -> usize { idx as usize }
 }
 
-impl<E: ContentTraits> FindOffset<E> for RawPositionMetrics {
+impl<E: ContentTraits> FindOffset<E> for RawPositionMetricsU32 {
     fn index_to_offset(offset: Self::Value) -> usize { offset as usize }
+}
+
+/// Index based on the raw size of an element.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct RawPositionMetricsUsize;
+
+impl<E: ContentTraits> TreeMetrics<E> for RawPositionMetricsUsize {
+    type Update = isize;
+    type Value = usize;
+
+    fn increment_marker(marker: &mut Self::Update, entry: &E) {
+        *marker += entry.len() as isize;
+    }
+
+    fn decrement_marker(marker: &mut Self::Update, entry: &E) {
+        *marker -= entry.len() as isize;
+        // dbg!(&marker, entry);
+    }
+
+    fn decrement_marker_by_val(marker: &mut Self::Update, val: &Self::Value) {
+        *marker -= *val as isize;
+    }
+
+    fn update_offset_by_marker(offset: &mut Self::Value, by: &Self::Update) {
+        // :( I wish there were a better way to do this.
+        *offset = offset.wrapping_add(*by as Self::Value);
+    }
+
+    fn increment_offset(offset: &mut Self::Value, by: &E) {
+        *offset += by.len();
+    }
+
+    const CAN_COUNT_ITEMS: bool = true;
+    fn count_items(idx: Self::Value) -> usize { idx }
+}
+
+impl<E: ContentTraits> FindOffset<E> for RawPositionMetricsUsize {
+    fn index_to_offset(offset: Self::Value) -> usize { offset }
 }
 
 

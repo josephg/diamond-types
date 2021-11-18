@@ -93,7 +93,7 @@ impl<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> 
 
 /// An alias for ContentTreeRaw which uses the default sizes for internal elements.
 pub type ContentTreeWithIndex<E, I> = ContentTreeRaw<E, I, DEFAULT_IE, DEFAULT_LE>;
-pub type ContentTree<E> = ContentTreeRaw<E, RawPositionMetrics, DEFAULT_IE, DEFAULT_LE>;
+pub type ContentTree<E> = ContentTreeRaw<E, RawPositionMetricsU32, DEFAULT_IE, DEFAULT_LE>;
 
 /// An internal node in the B-tree
 #[derive(Debug)]
@@ -333,8 +333,8 @@ mod test {
 
     #[test]
     fn option_node_size_is_transparent() {
-        let node_size = size_of::<Node<TestRange, RawPositionMetrics, DEFAULT_IE, DEFAULT_LE>>();
-        let opt_node_size = size_of::<Option<Node<TestRange, RawPositionMetrics, DEFAULT_IE, DEFAULT_LE>>>();
+        let node_size = size_of::<Node<TestRange, RawPositionMetricsU32, DEFAULT_IE, DEFAULT_LE>>();
+        let opt_node_size = size_of::<Option<Node<TestRange, RawPositionMetricsU32, DEFAULT_IE, DEFAULT_LE>>>();
         assert_eq!(node_size, opt_node_size);
 
         // TODO: This fails, which means we're burning 8 bytes to simply store tags for each

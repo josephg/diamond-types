@@ -10,10 +10,11 @@
 //! entries as we go). Or we could figure it out by walking the txns forwards and backwards through
 //! time.
 
+use std::collections::BTreeMap;
 use std::pin::Pin;
-use content_tree::{ContentMetrics, ContentTreeWithIndex, FullMetricsUsize, RawPositionMetrics};
+use content_tree::{ContentMetrics, ContentTreeWithIndex, FullMetricsUsize, RawPositionMetricsUsize};
 use crate::list::ListCRDT;
-use crate::list::m2::delete::Delete;
+use crate::list::m2::delete::TimeSpanRev;
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::merge::notify_for;
 use crate::list::m2::metrics::MarkerMetrics;
@@ -35,15 +36,25 @@ mod dot;
 type DocRangeIndex = MarkerMetrics;
 type CRDTList2 = Pin<Box<ContentTreeWithIndex<YjsSpan2, DocRangeIndex>>>;
 
-type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry<YjsSpan2, DocRangeIndex>, RawPositionMetrics>>>;
+type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry, RawPositionMetricsUsize>>>;
 
 #[derive(Debug)]
 struct M2Tracker {
     range_tree: CRDTList2,
 
+    /// The index is used for 2 things:
+    ///
+    /// - For inserts, this contains a pointer to the node in range_tree which contains this time.
+    /// - For deletes, this names the time at which the delete happened.
     index: SpaceIndex,
 
-    /// This is a set of all deletes. Each delete names the set of times of inserts which were
-    /// deleted. Keyed by the delete order, NOT the order of the item *being* deleted.
-    deletes: RleVec<KVPair<Delete>>,
+    // This is a set of all deletes. Each delete names the set of times of inserts which were
+    // deleted. Keyed by the delete order, NOT the order of the item *being* deleted.
+    //
+    // The problem here is that when we merge into a branch, we might merge items with an earlier
+    // time. So as a result, this collection is not append-only.
+    //
+    // TODO: Trial using BTreeMap here.
+    // deletes: Pin<Box<ContentTreeWithIndex<KVPair<Delete>, RawPositionMetricsUsize>>>,
+    // deletes: BTreeMap<usize, Delete>,
 }

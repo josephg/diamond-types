@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::ops::{Deref, DerefMut};
 use std::ptr::{NonNull, null_mut};
 use smallvec::{SmallVec, smallvec};
-use content_tree::{ContentTreeRaw, ContentTreeWithIndex, Cursor, DEFAULT_IE, DEFAULT_LE, FindOffset, MutCursor, NodeLeaf, null_notify, UnsafeCursor};
+use content_tree::{ContentTreeRaw, ContentTreeWithIndex, Cursor, DEFAULT_IE, DEFAULT_LE, FindOffset, FullMetricsUsize, MutCursor, NodeLeaf, null_notify, RawPositionMetricsUsize, UnsafeCursor};
 use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
 use crate::list::{Frontier, Branch, ListCRDT, OpSet, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
@@ -16,33 +16,54 @@ use crate::list::history::HistoryEntry;
 use crate::list::history_tools::{ConflictZone, Flag};
 use crate::list::history_tools::Flag::OnlyB;
 use crate::list::list::apply_local_operation;
-use crate::list::m2::delete::Delete;
+use crate::list::m2::delete::TimeSpanRev;
 use crate::list::m2::dot::{DotColor, name_of};
 use crate::list::m2::dot::DotColor::*;
 use crate::list::m2::markers::MarkerEntry;
+use crate::list::m2::metrics::MarkerMetrics;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
+use crate::list::operation::InsDelTag::{Del, Ins};
 
 const ALLOW_FF: bool = true;
+
+fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
+    // TODO: Use dirty tricks to avoid this for more performance.
+    let index_len = index.len() as usize;
+
+    if index_len < desired_len {
+        index.push(MarkerEntry {
+            len: desired_len - index_len,
+            ptr: None,
+            delete_info: None
+        });
+    }
+}
 
 pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
     // |_entry: YjsSpan2, _leaf| {}
     move |entry: YjsSpan2, leaf| {
-        let mut start = entry.id.start;
-        let mut len = entry.len();
+        let start = entry.id.start;
+        let len = entry.len();
 
-        let index_len = index.len() as usize;
-        if start > index_len {
-            // Insert extra dummy data to cover deletes.
-            len += start - index_len;
-            start = index_len;
+        // let index_len = index.len() as usize;
+        // if start > index_len {
+        //     // Insert extra dummy data to cover deletes.
+        //     len += start - index_len;
+        //     start = index_len;
+        // }
+
+        // TODO: Swap for a more efficient approach here in release mode.
+        pad_index_to(index, start);
+
+        let mut cursor = index.unsafe_cursor_at_offset_pos(start, false);
+        unsafe {
+            ContentTreeRaw::unsafe_mutate_entries_notify(|marker| {
+                marker.ptr = Some(leaf);
+            }, &mut cursor, len, null_notify);
         }
 
-        index.replace_range_at_offset(start, MarkerEntry {
-            ptr: Some(leaf), len
-        });
-
-        // index.replace_range(entry.order as usize, MarkerEntry {
-        //     ptr: Some(leaf), len: entry.len() as u32
+        // index.replace_range_at_offset(start, MarkerEntry {
+        //     ptr: Some(leaf), len
         // });
     }
 }
@@ -52,12 +73,14 @@ impl M2Tracker {
     pub(crate) fn new() -> Self {
         let mut range_tree = ContentTreeWithIndex::new();
         let mut index = ContentTreeWithIndex::new();
-        range_tree.push_notify(YjsSpan2::new_underwater(), notify_for(&mut index));
+        let underwater = YjsSpan2::new_underwater();
+        pad_index_to(&mut index, underwater.id.end);
+        range_tree.push_notify(underwater, notify_for(&mut index));
 
         Self {
             range_tree,
             index,
-            deletes: Default::default()
+            // deletes: Default::default()
         }
     }
 
@@ -92,6 +115,49 @@ impl M2Tracker {
         cursor.get_item().unwrap().unwrap()
     }
 
+    #[allow(unused)]
+    fn check_index(&self) {
+        // dbg!(&self.index);
+        // dbg!(&self.range_tree);
+        // Go through each entry in the range tree and make sure we can find it using the index.
+        for entry in self.range_tree.raw_iter() {
+            let marker = self.marker_at(entry.id.start);
+            unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
+        }
+    }
+
+    /// Returns what happened here, target range, offset into range and a cursor into the range
+    /// tree.
+    ///
+    /// This should only be used with times we have advanced through.
+    ///
+    /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
+    pub(super) fn index_query(&self, time: usize) -> (InsDelTag, TimeSpanRev, usize, NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) {
+        assert_ne!(time, ROOT_TIME); // Not sure what to do in this case.
+
+        let index_len = self.index.offset_len();
+        if time >= index_len {
+            panic!("Index query past the end");
+            // (Ins, (index_len..usize::MAX).into(), time - index_len, self.range_tree.unsafe_cursor_at_end())
+        } else {
+            let cursor = self.index.cursor_at_offset_pos(time, false);
+            let entry = cursor.get_raw_entry();
+
+            // let cursor = unsafe {
+            //     ContentTreeRaw::cursor_before_item(time, entry.ptr.unwrap())
+            // };
+
+            if let Some(mut target) = entry.delete_info {
+                // del.truncate_keeping_right(cursor.offset);
+                (Del, target, cursor.offset, entry.ptr.unwrap())
+            } else {
+                // For inserts, the target is simply the range of the item.
+                // let id = cursor.get_raw_entry().id;
+                let start = time - cursor.offset;
+                (Ins, (start..start+entry.len).into(), cursor.offset, entry.ptr.unwrap())
+            }
+        }
+    }
 
     pub(crate) fn get_unsafe_cursor_before(&self, time: Time) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
         if time == ROOT_TIME {
@@ -236,7 +302,9 @@ impl M2Tracker {
         // let content_pos = unsafe { cursor.unsafe_count_offset_pos() };
         let content_pos = unsafe { Self::upstream_cursor_pos(&cursor) };
         dbg!(&cursor, content_pos);
+        // self.check_index();
         unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
+        // self.check_index();
         content_pos
     }
 
@@ -261,9 +329,10 @@ impl M2Tracker {
 
     /// This is for advancing us directly based on the edit.
     fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<Operation>, to: Option<&mut Branch>) {
+        // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
         let KVPair(time, op) = pair;
-
+        dbg!(op);
         match op.tag {
             InsDelTag::Ins => {
                 if op.rev { unimplemented!("Implement me!") }
@@ -347,10 +416,19 @@ impl M2Tracker {
                 let mut del_end = del_start;
 
                 for item in deleted_items {
-                    self.deletes.push(KVPair(next_time, Delete {
-                        target: item.id,
-                        rev: op.rev
-                    }));
+                    pad_index_to(&mut self.index, next_time);
+                    self.index.replace_range_at_offset(next_time, MarkerEntry {
+                        len: item.len(),
+                        ptr: Some(self.marker_at(item.id.start)),
+                        delete_info: Some(TimeSpanRev {
+                            span: item.id,
+                            rev: op.rev
+                        })
+                    });
+                    // self.deletes.push(KVPair(next_time, TimeSpanRev {
+                    //     span: item.id,
+                    //     rev: op.rev
+                    // }));
                     next_time += item.len();
 
                     if !item.ever_deleted {
@@ -364,6 +442,7 @@ impl M2Tracker {
                 }
             }
         }
+        // self.check_index();
     }
 }
 

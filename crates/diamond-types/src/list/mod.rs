@@ -76,7 +76,7 @@ type DocRangeIndex = FullMetricsU32;
 pub(crate) type RangeTree = Pin<Box<ContentTreeWithIndex<YjsSpan, DocRangeIndex>>>;
 pub(crate) type RangeTreeLeaf = NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>;
 
-type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionMetrics>>>;
+type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionMetricsU32>>>;
 
 pub type DoubleDeleteList = RleVec<KVPair<DoubleDelete>>;
 

@@ -53,9 +53,7 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<
             order = index_len;
         }
 
-        index.replace_range_at_offset(order as usize, MarkerEntry {
-            ptr: Some(leaf), len
-        });
+        index.replace_range_at_offset(order as usize);
 
         // index.replace_range(entry.order as usize, MarkerEntry {
         //     ptr: Some(leaf), len: entry.len() as u32

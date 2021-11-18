@@ -183,7 +183,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Unsa
     /// to be a cursor to the start of the next entry - potentially in the following leaf.
     ///
     /// Returns false if the resulting cursor location points past the end of the tree.
-    pub fn roll_to_next_entry(&mut self) -> bool {
+    pub(crate) fn roll_to_next_entry_internal<F: FnOnce(&mut Self)>(&mut self, f: F) -> bool {
         unsafe {
             if self.offset == usize::MAX {
                 // The tree is empty.
@@ -195,10 +195,40 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Unsa
                 debug_assert!(self.offset <= seq_len);
 
                 if self.offset < seq_len { return true; }
+                f(self);
                 self.next_entry()
             }
         }
     }
+
+    pub fn roll_to_next_entry(&mut self) -> bool {
+        self.roll_to_next_entry_internal(|_| {})
+    }
+
+    pub fn roll_to_next_entry_marker(&mut self, marker: &mut I::Update) -> bool {
+        self.roll_to_next_entry_internal(|cursor| {
+            unsafe {
+                cursor.node.as_mut().flush_metric_update(marker);
+            }
+        })
+    }
+
+    // pub fn roll_to_next_entry(&mut self) -> bool {
+    //     unsafe {
+    //         if self.offset == usize::MAX {
+    //             // The tree is empty.
+    //             false
+    //         } else {
+    //             let node = self.node.as_ref();
+    //             let seq_len = node.data[self.idx].len();
+    //
+    //             debug_assert!(self.offset <= seq_len);
+    //
+    //             if self.offset < seq_len { return true; }
+    //             self.next_entry()
+    //         }
+    //     }
+    // }
 
     // TODO: This is inefficient in a loop.
     pub fn next_item(&mut self) -> bool {
@@ -401,7 +431,7 @@ mod tests {
 
     #[test]
     fn compare_cursors() {
-        let mut tree = ContentTreeRaw::<TestRange, RawPositionMetrics, DEFAULT_IE, DEFAULT_LE>::new();
+        let mut tree = ContentTreeRaw::<TestRange, RawPositionMetricsU32, DEFAULT_IE, DEFAULT_LE>::new();
 
         let cursor = tree.unsafe_cursor_at_start();
         assert_eq!(cursor, cursor);
@@ -425,7 +455,7 @@ mod tests {
     #[test]
     fn empty_tree_has_empty_iter() {
         // Regression.
-        let tree = ContentTreeRaw::<TestRange, RawPositionMetrics, DEFAULT_IE, DEFAULT_LE>::new();
+        let tree = ContentTreeRaw::<TestRange, RawPositionMetricsU32, DEFAULT_IE, DEFAULT_LE>::new();
         for _item in tree.raw_iter() {
             panic!("Found spurious item");
         }
