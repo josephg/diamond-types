@@ -42,6 +42,7 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
 pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
     // |_entry: YjsSpan2, _leaf| {}
     move |entry: YjsSpan2, leaf| {
+        println!("Moved {:?}", entry.id);
         let start = entry.id.start;
         let len = entry.len();
 
@@ -109,20 +110,30 @@ impl M2Tracker {
         (tracker, branch)
     }
 
-    fn marker_at(&self, time: Time) -> NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
+    pub(super) fn marker_at(&self, time: Time) -> NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
         let cursor = self.index.cursor_at_offset_pos(time, false);
         // Gross.
         cursor.get_item().unwrap().unwrap()
     }
 
     #[allow(unused)]
-    fn check_index(&self) {
+    pub(super) fn check_index(&self) {
         // dbg!(&self.index);
         // dbg!(&self.range_tree);
         // Go through each entry in the range tree and make sure we can find it using the index.
         for entry in self.range_tree.raw_iter() {
             let marker = self.marker_at(entry.id.start);
             unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
+        }
+
+        for marker in self.index.raw_iter() {
+            if let Some(del) = marker.delete_info {
+                let ptr = self.marker_at(del.span.start);
+                unsafe {
+                    // Make sure we can construct this.
+                    ContentTreeRaw::cursor_before_item(del.span.start, ptr);
+                }
+            }
         }
     }
 
@@ -436,13 +447,18 @@ impl M2Tracker {
                     } // Otherwise its a double-delete and the content is already deleted.
                 }
 
-                if let Some(to) = to {
-                    println!("Delete {}..{} (len {})", del_start, del_end - 1, del_end - del_start);
-                    to.content.remove(del_start..del_end);
+                if del_end > del_start {
+                    if let Some(to) = to {
+                        println!("Delete {}..{} (len {})", del_start, del_end, del_end - del_start);
+                        to.content.remove(del_start..del_end);
+                    }
                 }
             }
         }
-        // self.check_index();
+
+        if cfg!(debug_assertions) {
+            self.check_index();
+        }
     }
 }
 
@@ -561,6 +577,7 @@ impl Branch {
         let mut walker = OptimizedTxnsIter::new(&opset.history, &new_ops, branch);
         // dbg!(&walker);
         while let Some(walk) = walker.next() {
+            tracker.check_index();
             dbg!(&walk);
             for range in walk.retreat {
                 tracker.retreat_by_range(range);
