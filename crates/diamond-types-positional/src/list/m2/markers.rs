@@ -14,13 +14,14 @@ use crate::list::m2::yjsspan2::YjsSpan2;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct MarkerEntry {
+    // TODO: Clean this mess up. Yikes! We only have either ptr or delete_info - replace with an enum.
+
     // This is cleaner as a separate enum and struct, but doing it that way
     // bumps it from 16 to 24 bytes per entry because of alignment.
     pub len: usize,
 
-    /// If we're an insert, this is the pointer to the leaf node containing the inserted item.
-    ///
-    /// If we're a delete, this is pointer to the target of the delete.
+    /// This is the pointer to the leaf node containing the inserted item. For deletes, we do not
+    /// reuse this to store the pointer because when items are moved, we can't move the pointer too.
     pub ptr: Option<NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>>,
 
     // Could inline this. The reverse logic is complex though.

@@ -1,7 +1,7 @@
 
 use smallvec::{SmallVec, smallvec};
 use crate::rle::RleVec;
-use crate::list::frontier::{retreat_frontier_by, advance_frontier_by_known, advance_frontier_by, frontier_is_sorted};
+use crate::list::frontier::{retreat_frontier_by, advance_frontier_by_known_run, advance_frontier_by, frontier_is_sorted, check_frontier};
 use std::ops::Range;
 use rle::{HasLength, SplitableSpan};
 use crate::list::{Frontier, Time};
@@ -107,14 +107,14 @@ impl<'a> OptimizedTxnsIter<'a> {
             let mut i = history.entries.find_index(span_remaining.start).unwrap();
             // let mut offset = history.entries[i].
             while !span_remaining.is_empty() {
-                let e = &history.entries[i];
-                debug_assert!(span_remaining.start >= e.span.start);
+                let txn = &history.entries[i];
+                debug_assert!(span_remaining.start >= txn.span.start);
 
-                let offset = Time::min(span_remaining.len(), e.span.end - span_remaining.start);
+                let offset = Time::min(span_remaining.len(), txn.span.end - span_remaining.start);
                 let span = span_remaining.truncate_keeping_right(offset);
 
                 // We don't care about any parents outside of the input spans.
-                let parent_idxs: SmallVec<[usize; 4]> = e.parents.iter()
+                let parent_idxs: SmallVec<[usize; 4]> = txn.parents.iter()
                     .filter(|t| **t != ROOT_TIME)
                     .map(|t| find_entry_idx(&input, *t))
                     .flatten()
@@ -219,20 +219,23 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
         // Note that even if we're moving to one of our direct children we might see items only
         // in only_branch if the child has a parent in the middle of our txn.
         for range in &only_branch {
-            // println!("Retreat branch by {:?}", range);
+            // println!("Retreat branch {:?} by {:?}", &self.branch, range);
             retreat_frontier_by(&mut self.branch, &self.history, range.clone());
+            // println!(" -> {:?}", &self.branch);
             // dbg!(&branch);
         }
+        check_frontier(&self.branch, &self.history);
         for range in only_txn.iter().rev() {
             // println!("Advance branch by {:?}", range);
             advance_frontier_by(&mut self.branch, &self.history, range.clone());
             // dbg!(&branch);
         }
+        check_frontier(&self.branch, &self.history);
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());
         let input_span = input_entry.span;
         // advance_branch_by_known(&mut self.branch, &next_txn.parents, input_span);
-        advance_frontier_by_known(&mut self.branch, &parents, input_span);
+        advance_frontier_by_known_run(&mut self.branch, &parents, input_span);
         // dbg!(&branch);
         // self.consumed.set(next_idx, true);
         input_entry.visited = true;

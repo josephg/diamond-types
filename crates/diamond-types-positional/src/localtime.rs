@@ -44,7 +44,10 @@ impl TimeSpan {
         self.start <= item && item < self.end
     }
 
-    pub fn is_empty(&self) -> bool { self.start == self.end }
+    pub fn is_empty(&self) -> bool {
+        debug_assert!(self.start <= self.end);
+        self.start == self.end
+    }
 
     pub fn intersect(&self, other: &Self) -> Option<TimeSpan> {
         let result = TimeSpan {

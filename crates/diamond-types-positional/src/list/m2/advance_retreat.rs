@@ -12,14 +12,15 @@ impl M2Tracker {
             // Note the delete could be reversed - but we don't really care here; we just mark the
             // whole range anyway.
             // let (tag, target, mut len) = self.next_action(range.start);
-            let (tag, mut target, offset, _ptr) = self.index_query(range.start);
+            let (tag, mut target, offset, ptr) = self.index_query(range.start);
             target.truncate_keeping_right(offset);
             let len = target.len().min(range.len());
 
             // let mut cursor = self.get_unsafe_cursor_before(target);
 
             let amt_modified = unsafe {
-                let ptr = self.marker_at(target.span.start);
+                // We'll only get a pointer when we're inserting.
+                let ptr = ptr.unwrap_or_else(|| self.marker_at(target.span.start));
                 let mut cursor = ContentTreeRaw::cursor_before_item(target.span.start, ptr);
                 ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
                     if tag == InsDelTag::Ins {
@@ -60,14 +61,13 @@ impl M2Tracker {
             range.end -= len;
 
             let mut next = target.span.start;
-            println!("XXXXXXX");
             while len > 0 {
                 // Because the tag is either entirely delete or entirely insert, its safe to move forwards.
                 // dbg!(target, &self.range_tree);
                 // let mut cursor = self.get_unsafe_cursor_before(target);
 
                 unsafe {
-                    dbg!(next);
+                    // dbg!(next);
                     // We can't actually use the pointer returned by the index_query call because we
                     // mutate each loop iteraton.
                     let ptr = self.marker_at(next);

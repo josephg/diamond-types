@@ -102,22 +102,29 @@ fn merge_fuzz(seed: u64) {
         let b_idx = rng.gen_range(0..branches.len());
 
         if a_idx != b_idx {
-            println!("Merging {} and {}", a_idx, b_idx);
             // Oh god this is awful. I can't take mutable references to two array items.
             let (a_idx, b_idx) = if a_idx < b_idx { (a_idx, b_idx) } else { (b_idx, a_idx) };
             // a<b.
             let (start, end) = branches[..].split_at_mut(b_idx);
             let a = &mut start[a_idx];
             let b = &mut end[0];
+            println!("Merging a({}) {:?} and b({}) {:?}", a_idx, &a.frontier, b_idx, &b.frontier);
+            println!("a content '{}'", a.content);
+            println!("b content '{}'", b.content);
 
             // dbg!(&a.text_content, &b.text_content);
             // dbg!(&a.content_tree, &b.content_tree);
 
             // dbg!(&opset);
-            println!("Merge b to a: {} -> {}", a_idx, b_idx);
-            a.merge(&opset, &b.frontier);
-            println!("Merge a to b: {} -> {}", b_idx, a_idx);
-            b.merge(&opset, &a.frontier);
+            // println!("Merge b to a: {} -> {}", a_idx, b_idx);
+            println!("Merge b to a: {:?} -> {:?}", &b.frontier, &a.frontier);
+            a.merge2(&opset, &b.frontier, false);
+            // a.merge2(&opset, &b.frontier, _i == 16);
+            println!("-> a content '{}'", a.content);
+
+            println!("Merge a to b: {:?} -> {:?}", &a.frontier, &b.frontier);
+            b.merge2(&opset, &a.frontier, false);
+            println!("-> b content '{}'", b.content);
 
 
             // Our frontier should contain everything in the document.
@@ -130,6 +137,8 @@ fn merge_fuzz(seed: u64) {
                 dbg!(&a);
                 dbg!(&b);
                 panic!("Documents do not match");
+            } else {
+                println!("Merge {:?} -> '{}'", &a.frontier, a.content);
             }
         }
 
@@ -146,5 +155,5 @@ fn merge_fuzz(seed: u64) {
 #[test]
 #[ignore]
 fn fuzz_once() {
-    merge_fuzz(4);
+    merge_fuzz(11);
 }

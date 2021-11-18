@@ -11,7 +11,7 @@ use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
-use crate::list::frontier::{advance_frontier_by, advance_frontier_by_known, frontier_eq, frontier_is_sorted};
+use crate::list::frontier::{advance_frontier_by, advance_frontier_by_known_run, frontier_eq, frontier_is_sorted};
 use crate::list::history::HistoryEntry;
 use crate::list::history_tools::{ConflictZone, Flag};
 use crate::list::history_tools::Flag::OnlyB;
@@ -42,7 +42,6 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
 pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
     // |_entry: YjsSpan2, _leaf| {}
     move |entry: YjsSpan2, leaf| {
-        println!("Moved {:?}", entry.id);
         let start = entry.id.start;
         let len = entry.len();
 
@@ -125,16 +124,6 @@ impl M2Tracker {
             let marker = self.marker_at(entry.id.start);
             unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
         }
-
-        for marker in self.index.raw_iter() {
-            if let Some(del) = marker.delete_info {
-                let ptr = self.marker_at(del.span.start);
-                unsafe {
-                    // Make sure we can construct this.
-                    ContentTreeRaw::cursor_before_item(del.span.start, ptr);
-                }
-            }
-        }
     }
 
     /// Returns what happened here, target range, offset into range and a cursor into the range
@@ -143,7 +132,7 @@ impl M2Tracker {
     /// This should only be used with times we have advanced through.
     ///
     /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
-    pub(super) fn index_query(&self, time: usize) -> (InsDelTag, TimeSpanRev, usize, NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) {
+    pub(super) fn index_query(&self, time: usize) -> (InsDelTag, TimeSpanRev, usize, Option<NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>>) {
         assert_ne!(time, ROOT_TIME); // Not sure what to do in this case.
 
         let index_len = self.index.offset_len();
@@ -160,12 +149,12 @@ impl M2Tracker {
 
             if let Some(mut target) = entry.delete_info {
                 // del.truncate_keeping_right(cursor.offset);
-                (Del, target, cursor.offset, entry.ptr.unwrap())
+                (Del, target, cursor.offset, None)
             } else {
                 // For inserts, the target is simply the range of the item.
                 // let id = cursor.get_raw_entry().id;
                 let start = time - cursor.offset;
-                (Ins, (start..start+entry.len).into(), cursor.offset, entry.ptr.unwrap())
+                (Ins, (start..start+entry.len).into(), cursor.offset, entry.ptr)
             }
         }
     }
@@ -312,7 +301,7 @@ impl M2Tracker {
         // Now insert here.
         // let content_pos = unsafe { cursor.unsafe_count_offset_pos() };
         let content_pos = unsafe { Self::upstream_cursor_pos(&cursor) };
-        dbg!(&cursor, content_pos);
+        // dbg!(&cursor, content_pos);
         // self.check_index();
         unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
         // self.check_index();
@@ -343,7 +332,7 @@ impl M2Tracker {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
         let KVPair(time, op) = pair;
-        dbg!(op);
+        // dbg!(op);
         match op.tag {
             InsDelTag::Ins => {
                 if op.rev { unimplemented!("Implement me!") }
@@ -403,7 +392,7 @@ impl M2Tracker {
                 result.pos = ins_pos;
                 // act(result);
                 if let Some(to) = to {
-                    dbg!(&self.range_tree);
+                    // dbg!(&self.range_tree);
                     println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                     assert!(op.content_known); // Ok if this is false - we'll just fill with junk.
                     assert!(ins_pos <= to.content.len_chars());
@@ -430,7 +419,7 @@ impl M2Tracker {
                     pad_index_to(&mut self.index, next_time);
                     self.index.replace_range_at_offset(next_time, MarkerEntry {
                         len: item.len(),
-                        ptr: Some(self.marker_at(item.id.start)),
+                        ptr: None,
                         delete_info: Some(TimeSpanRev {
                             span: item.id,
                             rev: op.rev
@@ -449,7 +438,7 @@ impl M2Tracker {
 
                 if del_end > del_start {
                     if let Some(to) = to {
-                        println!("Delete {}..{} (len {})", del_start, del_end, del_end - del_start);
+                        println!("Delete {}..{} (len {}) '{}'", del_start, del_end, del_end - del_start, to.content.slice_chars(del_start..del_end).collect::<String>());
                         to.content.remove(del_start..del_end);
                     }
                 }
@@ -466,7 +455,7 @@ impl Branch {
     /// Add everything in merge_frontier into the set.
     ///
     /// Reexposed as merge_changes.
-    pub(crate) fn merge_changes_m2(&mut self, opset: &OpSet, merge_frontier: &[Time]) {
+    pub(crate) fn merge_changes_m2(&mut self, opset: &OpSet, merge_frontier: &[Time], verbose: bool) {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
@@ -480,7 +469,7 @@ impl Branch {
         //     assert!(a.is_empty());
         // }
 
-        dbg!((&self.frontier, merge_frontier));
+        if verbose { dbg!((&self.frontier, merge_frontier)); }
 
         debug_assert!(frontier_is_sorted(&merge_frontier));
         debug_assert!(frontier_is_sorted(&self.frontier));
@@ -569,8 +558,8 @@ impl Branch {
 
         // dbg!((&self.frontier, &, merge_frontier));
         let (mut tracker, branch) = M2Tracker::new_at(opset, common_ancestor.clone(), &conflict_ops);
-        dbg!(&tracker, &branch);
-        dbg!(&self.content);
+        if verbose { dbg!(&tracker, &branch); }
+        // dbg!(&self.content);
 
         // Now walk through and merge the new edits.
         // dbg!(&conflict_ops, (&common_ancestor, &new_ops, &branch));
@@ -578,7 +567,7 @@ impl Branch {
         // dbg!(&walker);
         while let Some(walk) = walker.next() {
             tracker.check_index();
-            dbg!(&walk);
+            if verbose { dbg!(&walk); }
             for range in walk.retreat {
                 tracker.retreat_by_range(range);
             }
@@ -587,15 +576,15 @@ impl Branch {
                 tracker.advance_by_range(range);
             }
 
-            dbg!(&tracker);
+            // dbg!(&tracker);
 
             debug_assert!(!walk.consume.is_empty());
             // TODO: Add txn to walk, so we can use advance_branch_by_known.
             advance_frontier_by(&mut self.frontier, &opset.history, walk.consume);
             tracker.apply_range(opset, walk.consume, Some(self));
-            dbg!(&tracker);
+            // dbg!(&tracker);
 
-            dbg!(&self);
+            // dbg!(&self);
         }
     }
 }
@@ -611,8 +600,8 @@ mod test {
         list.get_or_create_agent_id("a");
         list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
 
-        list.branch.merge_changes_m2(&list.ops, &[1]);
-        list.branch.merge_changes_m2(&list.ops, &[2]);
+        list.branch.merge(&list.ops, &[1]);
+        list.branch.merge(&list.ops, &[2]);
 
         assert_eq!(list.branch.frontier.as_slice(), &[2]);
         assert_eq!(list.branch.content, "aaa");
@@ -626,13 +615,13 @@ mod test {
 
         list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
         list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
-        list.branch.merge_changes_m2(&list.ops, &[2, 5]);
+        list.branch.merge(&list.ops, &[2, 5]);
 
         assert_eq!(list.branch.frontier.as_slice(), &[2, 5]);
         assert_eq!(list.branch.content, "aaabbb");
 
         list.ops.push_insert(0, &[2, 5], 0, "ccc"); // 8
-        list.branch.merge_changes_m2(&list.ops, &[8]);
+        list.branch.merge(&list.ops, &[8]);
 
         assert_eq!(list.branch.frontier.as_slice(), &[8]);
         assert_eq!(list.branch.content, "cccaaabbb");
@@ -647,7 +636,7 @@ mod test {
         list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
         list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
 
-        list.branch.merge_changes_m2(&list.ops, &[2, 5]);
+        list.branch.merge(&list.ops, &[2, 5]);
         // list.checkout.merge_changes_m2(&list.ops, &[2]);
         // list.checkout.merge_changes_m2(&list.ops, &[5]);
 
@@ -670,7 +659,7 @@ mod test {
 
         // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
         // list.checkout.merge_changes_m2(&list.ops, (3..list.ops.len()).into());
-        list.branch.merge_changes_m2(&list.ops, &[3, 6]);
+        list.branch.merge(&list.ops, &[3, 6]);
         assert_eq!(list.branch.content, "");
     }
 
@@ -686,7 +675,7 @@ mod test {
         // dbg!(&list.ops);
 
         // list.checkout.merge_changes_m2(&list.ops, (0..list.ops.len()).into());
-        list.branch.merge_changes_m2(&list.ops, &[3, 6]);
+        list.branch.merge(&list.ops, &[3, 6]);
         dbg!(&list.branch);
         // assert_eq!(list.checkout.content, "");
     }
