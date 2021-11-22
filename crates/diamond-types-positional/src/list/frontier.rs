@@ -50,8 +50,8 @@ pub(crate) fn retreat_frontier_by(frontier: &mut Frontier, history: &History, mu
                     // loop and each call to frontier_contains_time does a call to history.find() in
                     // turn for each item in branch.
                     debug_assert!(!frontier.is_empty());
-                    // Checking shadow directly for performance.
-                    if !txn.shadow_contains(*parent) && !history.frontier_contains_time(frontier, *parent) {
+                    // TODO: At least check shadow directly.
+                    if !history.frontier_contains_time(frontier, *parent) {
                         add_to_frontier(frontier, *parent);
                     }
                 }

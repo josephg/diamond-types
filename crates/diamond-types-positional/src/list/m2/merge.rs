@@ -22,6 +22,7 @@ use crate::list::m2::dot::DotColor::*;
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::metrics::MarkerMetrics;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
+use crate::list::m2::yjsspan2::YjsSpanState::Inserted;
 use crate::list::operation::InsDelTag::{Del, Ins};
 
 const ALLOW_FF: bool = true;
@@ -328,7 +329,7 @@ impl M2Tracker {
     }
 
     /// This is for advancing us directly based on the edit.
-    fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<Operation>, to: Option<&mut Branch>) {
+    fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<Operation>, mut to: Option<&mut Branch>) {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
         let KVPair(time, op) = pair;
@@ -401,47 +402,106 @@ impl M2Tracker {
             }
 
             InsDelTag::Del => {
-                let cursor = self.range_tree.mut_cursor_at_content_pos(op.pos, false);
-                // let mut del_start = cursor.count_offset_pos();
-                let mut del_start = unsafe { Self::upstream_cursor_pos(&cursor.inner) };
-                let deleted_items = unsafe {
-                    let inner = cursor.inner;
-                    self.range_tree.local_deactivate_notify(inner, op.len(), notify_for(&mut self.index))
-                };
+                // We need to loop here because the deleted span might have been broken up by
+                // subsequent inserts.
+                let mut remaining_len = op.len;
+
+                let mut pos = op.pos;
+                let mut next_time = *time;
+
+                // It would be tempting - and *nearly* correct to just use local_delete inside the
+                // range tree. Its hard to bake that logic in here though. We need to:
+                // - Skip anything not in the Inserted state
+                // - If an item is
+                while remaining_len > 0 {
+                    // TODO(perf): Reuse cursor. After mutate_single_entry we'll often be at another
+                    // entry that we can delete.
+                    // dbg!(&self.range_tree);
+                    let mut cursor = self.range_tree.mut_cursor_at_content_pos(pos, false);
+                    // If we've never been deleted locally, we'll need to do that.
+                    let e = cursor.get_raw_entry();
+                    assert_eq!(e.state, Inserted);
+                    let ever_deleted = e.ever_deleted;
+
+                    let del_start_check = unsafe { Self::upstream_cursor_pos(&cursor.inner) };
+
+                    let (mut_len, target) = unsafe {
+                        ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
+                            // dbg!(&e);
+                            // This will set the state to deleted, and mark ever_deleted in the
+                            // entry.
+                            e.delete();
+                            e.id
+                        }, &mut cursor.inner, remaining_len, notify_for(&mut self.index))
+                    };
+
+                    if let Some(to) = to.as_deref_mut() {
+                        if !ever_deleted {
+                            // Actually delete the item locally.
+                            // let del_end = cursor.count_offset_pos();
+
+                            // It seems this should be the position after the deleted entry, but the
+                            // deleted item will have 0 upstream size.
+                            let del_start = unsafe { Self::upstream_cursor_pos(&cursor.inner) };
+                            debug_assert_eq!(del_start_check, del_start);
+                            // dbg!(&self.range_tree);
+                            // let del_start = del_end - mut_len;
+                            let del_end = del_start + mut_len;
+                            // dbg!(del_start_check, del_end, mut_len, del_start);
+
+
+                            println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
+                            to.content.remove(del_start..del_end);
+                        }
+                    }
+
+                    pad_index_to(&mut self.index, next_time);
+                    self.index.replace_range_at_offset(next_time, MarkerEntry {
+                        len: target.len(),
+                        ptr: None,
+                        delete_info: Some(TimeSpanRev {
+                            span: target,
+                            rev: op.rev
+                        })
+                    });
+
+                    remaining_len -= mut_len;
+                    next_time += mut_len;
+                }
 
                 // let deleted_items = self.range_tree.local_deactivate_at_content_notify(op.pos, op.len, notify_for(&mut self.index));
 
                 // dbg!(&deleted_items);
-                let mut next_time = *time;
-                let mut del_end = del_start;
-
-                for item in deleted_items {
-                    pad_index_to(&mut self.index, next_time);
-                    self.index.replace_range_at_offset(next_time, MarkerEntry {
-                        len: item.len(),
-                        ptr: None,
-                        delete_info: Some(TimeSpanRev {
-                            span: item.id,
-                            rev: op.rev
-                        })
-                    });
-                    // self.deletes.push(KVPair(next_time, TimeSpanRev {
-                    //     span: item.id,
-                    //     rev: op.rev
-                    // }));
-                    next_time += item.len();
-
-                    if !item.ever_deleted {
-                        del_end += item.len();
-                    } // Otherwise its a double-delete and the content is already deleted.
-                }
-
-                if del_end > del_start {
-                    if let Some(to) = to {
-                        println!("Delete {}..{} (len {}) '{}'", del_start, del_end, del_end - del_start, to.content.slice_chars(del_start..del_end).collect::<String>());
-                        to.content.remove(del_start..del_end);
-                    }
-                }
+                // let mut next_time = *time;
+                // let mut del_end = del_start;
+                //
+                // for item in deleted_items {
+                //     pad_index_to(&mut self.index, next_time);
+                //     self.index.replace_range_at_offset(next_time, MarkerEntry {
+                //         len: item.len(),
+                //         ptr: None,
+                //         delete_info: Some(TimeSpanRev {
+                //             span: item.id,
+                //             rev: op.rev
+                //         })
+                //     });
+                //     // self.deletes.push(KVPair(next_time, TimeSpanRev {
+                //     //     span: item.id,
+                //     //     rev: op.rev
+                //     // }));
+                //     next_time += item.len();
+                //
+                //     if !item.ever_deleted {
+                //         del_end += item.len();
+                //     } // Otherwise its a double-delete and the content is already deleted.
+                // }
+                //
+                // if del_end > del_start {
+                //     if let Some(to) = to {
+                //         println!("Delete {}..{} (len {}) '{}'", del_start, del_end, del_end - del_start, to.content.slice_chars(del_start..del_end).collect::<String>());
+                //         to.content.remove(del_start..del_end);
+                //     }
+                // }
             }
         }
 
@@ -502,7 +562,9 @@ impl Branch {
 
         let s1 = merge_frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
         let s2 = self.frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
-        opset.make_graph(&format!("m{}_to_{}.svg", s1, s2), dbg_all_ops.iter().copied());
+        let filename = format!("m{}_to_{}.svg", s1, s2);
+        opset.make_graph(&filename, dbg_all_ops.iter().copied());
+        println!("Saved graph to {}", filename);
 
         // dbg!(&opset.history);
         // dbg!((&new_ops, &conflict_ops, &common_ancestor));
@@ -558,7 +620,7 @@ impl Branch {
 
         // dbg!((&self.frontier, &, merge_frontier));
         let (mut tracker, branch) = M2Tracker::new_at(opset, common_ancestor.clone(), &conflict_ops);
-        if verbose { dbg!(&tracker, &branch); }
+        if verbose { dbg!(&branch, &tracker); }
         // dbg!(&self.content);
 
         // Now walk through and merge the new edits.
@@ -576,12 +638,15 @@ impl Branch {
                 tracker.advance_by_range(range);
             }
 
+            if verbose { dbg!(&tracker); }
             // dbg!(&tracker);
 
             debug_assert!(!walk.consume.is_empty());
             // TODO: Add txn to walk, so we can use advance_branch_by_known.
             advance_frontier_by(&mut self.frontier, &opset.history, walk.consume);
             tracker.apply_range(opset, walk.consume, Some(self));
+
+            if verbose { dbg!(&tracker, &self); }
             // dbg!(&tracker);
 
             // dbg!(&self);

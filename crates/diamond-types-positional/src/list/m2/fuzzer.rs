@@ -108,9 +108,11 @@ fn merge_fuzz(seed: u64) {
             let (start, end) = branches[..].split_at_mut(b_idx);
             let a = &mut start[a_idx];
             let b = &mut end[0];
-            println!("Merging a({}) {:?} and b({}) {:?}", a_idx, &a.frontier, b_idx, &b.frontier);
+            println!("\n\n-----------");
             println!("a content '{}'", a.content);
             println!("b content '{}'", b.content);
+            println!("Merging a({}) {:?} and b({}) {:?}", a_idx, &a.frontier, b_idx, &b.frontier);
+            println!();
 
             // dbg!(&a.text_content, &b.text_content);
             // dbg!(&a.content_tree, &b.content_tree);
@@ -118,9 +120,10 @@ fn merge_fuzz(seed: u64) {
             // dbg!(&opset);
             // println!("Merge b to a: {} -> {}", a_idx, b_idx);
             println!("Merge b to a: {:?} -> {:?}", &b.frontier, &a.frontier);
-            a.merge2(&opset, &b.frontier, false);
+            a.merge2(&opset, &b.frontier, _i == 8);
             // a.merge2(&opset, &b.frontier, _i == 16);
             println!("-> a content '{}'", a.content);
+            println!("\n");
 
             println!("Merge a to b: {:?} -> {:?}", &a.frontier, &b.frontier);
             b.merge2(&opset, &a.frontier, false);
@@ -155,5 +158,5 @@ fn merge_fuzz(seed: u64) {
 #[test]
 #[ignore]
 fn fuzz_once() {
-    merge_fuzz(11);
+    merge_fuzz(200);
 }

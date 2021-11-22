@@ -28,7 +28,7 @@ impl M2Tracker {
                     } else {
                         e.delete();
                     }
-                }, &mut cursor, len, notify_for(&mut self.index))
+                }, &mut cursor, len, notify_for(&mut self.index)).0
             };
 
             range.truncate_keeping_right(amt_modified);
@@ -79,7 +79,7 @@ impl M2Tracker {
                         } else {
                             e.state.undelete();
                         }
-                    }, &mut cursor, len, notify_for(&mut self.index));
+                    }, &mut cursor, len, notify_for(&mut self.index)).0;
 
                     // dbg!(amt_modified);
                     next += amt_modified;

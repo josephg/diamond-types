@@ -218,11 +218,13 @@ impl ContentLength for YjsSpan2 {
 impl Toggleable for YjsSpan2 {
     fn is_activated(&self) -> bool {
         self.state == Inserted
+        // self.state == Inserted && !self.ever_deleted
     }
 
     fn mark_activated(&mut self) {
+        panic!("Cannot mark activated");
         // Not entirely sure this logic is right.
-        self.state.undelete();
+        // self.state.undelete();
     }
 
     fn mark_deactivated(&mut self) {

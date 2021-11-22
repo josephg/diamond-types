@@ -4,7 +4,9 @@ use crate::list::m2::yjsspan2::YjsSpan2;
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct MarkerMetrics;
 
-/// Item 0 is the current content length, item 1 is the upstream length.
+/// Item 0 is the current content length. This is returned to queries by content length,
+/// Item 1 is the upstream length. Ie, the length once everything has been applied. This is tagged
+/// as offset length, though the logic is sometimes a bit twisted.
 impl TreeMetrics<YjsSpan2> for MarkerMetrics {
     type Update = Pair<isize>;
     type Value = Pair<usize>;

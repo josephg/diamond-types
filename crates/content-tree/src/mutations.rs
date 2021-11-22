@@ -315,14 +315,14 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
 
 
     /// Replace as much of the current entry from cursor onwards as we can.
-    unsafe fn unsafe_mutate_entry_internal<MapFn, N>(
-        mut map_fn: MapFn,
+    unsafe fn unsafe_mutate_entry_internal<MapFn, N, R>(
+        map_fn: MapFn,
         cursor: &mut UnsafeCursor<E, I, IE, LE>,
         replace_max: usize,
         flush_marker: &mut I::Update,
         notify: &mut N
-    ) -> usize
-    where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>), MapFn: FnMut(&mut E)
+    ) -> (usize, R)
+    where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>), MapFn: FnOnce(&mut E) -> R
     {
         let node = cursor.get_node_mut();
         let mut entry: E = node.data[cursor.idx];
@@ -343,7 +343,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
             (Some(entry.truncate(replace_max)), replace_max)
         } else { (None, entry_len) };
 
-        map_fn(&mut entry);
+        let return_val = map_fn(&mut entry);
 
         match (a, c) {
             (Some(a), Some(c)) => {
@@ -373,21 +373,21 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
             }
         }
 
-        replaced_here
+        (replaced_here, return_val)
     }
 
-    pub unsafe fn unsafe_mutate_single_entry_notify<MapFn, N>(
+    pub unsafe fn unsafe_mutate_single_entry_notify<MapFn, R, N>(
         map_fn: MapFn,
         cursor: &mut UnsafeCursor<E, I, IE, LE>,
         replace_max: usize,
         mut notify: N
-    ) -> usize
-    where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>), MapFn: FnMut(&mut E) {
+    ) -> (usize, R)
+    where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>), MapFn: FnOnce(&mut E) -> R {
         let mut flush_marker = I::Update::default();
-        let amt_modified = Self::unsafe_mutate_entry_internal(map_fn, cursor, replace_max, &mut flush_marker, &mut notify);
+        let (amt_modified, ret) = Self::unsafe_mutate_entry_internal(map_fn, cursor, replace_max, &mut flush_marker, &mut notify);
 
         cursor.get_node_mut().flush_metric_update(&mut flush_marker);
-        amt_modified
+        (amt_modified, ret)
     }
 
     pub unsafe fn unsafe_mutate_entries_notify<MapFn, N>(
@@ -401,7 +401,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
         let mut remaining = replace_len;
         while remaining > 0 {
             cursor.roll_to_next_entry_marker(&mut flush_marker);
-            let consumed_here = Self::unsafe_mutate_entry_internal(&map_fn, cursor, remaining, &mut flush_marker, &mut notify);
+            let (consumed_here, _) = Self::unsafe_mutate_entry_internal(&map_fn, cursor, remaining, &mut flush_marker, &mut notify);
             assert!(consumed_here > 0, "Could not mutate past end of list");
             remaining -= consumed_here;
             // cursor.next_entry_marker(Some(&mut flush_marker));
@@ -764,7 +764,7 @@ impl<E: ContentTraits + Toggleable, I: TreeMetrics<E>, const IE: usize, const LE
             delete_remaining -= Self::unsafe_mutate_entry_internal(|e| {
                 result.push_rle(*e);
                 e.mark_deactivated();
-            }, &mut cursor, delete_remaining, &mut flush_marker, &mut notify);
+            }, &mut cursor, delete_remaining, &mut flush_marker, &mut notify).0;
         }
         cursor.compress_node();
 
@@ -794,15 +794,9 @@ impl<E: ContentTraits + Toggleable, I: TreeMetrics<E>, const IE: usize, const LE
             //
             // Even though we're just editing an item here, the item could be split as a result,
             // so notify may end up called.
-            let amt_modified = Self::unsafe_mutate_single_entry_notify(|e| {
+            let (amt_modified, _) = Self::unsafe_mutate_single_entry_notify(|e| {
                 if want_enabled { e.mark_activated(); } else { e.mark_deactivated(); }
             }, cursor, max_len, notify);
-            // let mut flush_marker = I::Update::default();
-            // let amt_modified = Self::unsafe_mutate_entry_internal(|e| {
-            //     if want_enabled { e.mark_activated(); } else { e.mark_deactivated(); }
-            // }, cursor, max_len, &mut flush_marker, &mut notify);
-            //
-            // cursor.get_node_mut().flush_metric_update(&mut flush_marker);
 
             (amt_modified, true)
         } else {
