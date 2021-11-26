@@ -42,7 +42,7 @@ impl M2Tracker {
                             println!("Re-deleting {:?}", e.id);
                             e.delete();
                         }
-                    }, &mut cursor, len, notify_for(&mut self.index)).0
+                    }, &mut cursor, len_remaining, notify_for(&mut self.index)).0
                 };
                 target_start += amt_modified;
                 len_remaining -= amt_modified;
