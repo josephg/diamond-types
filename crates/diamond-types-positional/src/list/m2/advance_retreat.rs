@@ -8,20 +8,30 @@ use crate::rle::KVPair;
 
 impl M2Tracker {
     pub(crate) fn advance_by_range(&mut self, mut range: TimeSpan) {
+        let x = range.contains(99);
         while !range.is_empty() {
             // Note the delete could be reversed - but we don't really care here; we just mark the
             // whole range anyway.
             // let (tag, target, mut len) = self.next_action(range.start);
             let (tag, mut target, offset, ptr) = self.index_query(range.start);
-            target.truncate_keeping_right(offset);
-            let len = target.len().min(range.len());
+
+            let len = usize::min(target.len() - offset, range.len());
+
+            // If the target span is reversed, we only really want the
+            // dbg!((range, tag, target, offset, len), target.range(offset, offset + len));
+            // let target_start = target.range(offset, len).start;
+            let target_start = target.range(offset, offset + len).start;
+
+            // let t1 = target.range(offset, len).start;
+            // let t2 = target.range(offset, offset + len).start;
+            // let b = t1 != t2;
 
             // let mut cursor = self.get_unsafe_cursor_before(target);
 
             let amt_modified = unsafe {
                 // We'll only get a pointer when we're inserting.
-                let ptr = ptr.unwrap_or_else(|| self.marker_at(target.span.start));
-                let mut cursor = ContentTreeRaw::cursor_before_item(target.span.start, ptr);
+                let ptr = ptr.unwrap_or_else(|| self.marker_at(target_start));
+                let mut cursor = ContentTreeRaw::cursor_before_item(target_start, ptr);
                 ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
                     if tag == InsDelTag::Ins {
                         e.state.mark_inserted();
@@ -54,7 +64,8 @@ impl M2Tracker {
             let mut len = target.len().min(range.len());
             // debug_assert_eq!(offset - e_offset + 1, len);
 
-            // dbg!(range, tag, target, len);
+            // dbg!((&self.range_tree, &self.index));
+            // dbg!((range, tag, target, len));
             // len = len.min(range.len());
             debug_assert!(len <= range.len());
 

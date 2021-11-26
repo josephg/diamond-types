@@ -36,6 +36,32 @@ impl TimeSpanRev {
             self.span.start + offset
         }
     }
+
+    // pub fn first(&self) -> Time {
+    //     if self.rev { self.span.last() } else { self.span.start }
+    // }
+
+    /// Get the relative range from start + offset_start to start + offset_end.
+    ///
+    /// This is useful because reversed ranges are weird.
+    pub fn range(&self, offset_start: usize, offset_end: usize) -> TimeSpan {
+        debug_assert!(offset_start <= offset_end);
+        debug_assert!(self.span.start + offset_start <= self.span.end);
+        debug_assert!(self.span.start + offset_end <= self.span.end);
+
+        if self.rev {
+            TimeSpan {
+                start: self.span.end - offset_end,
+                end: self.span.end - offset_start
+            }
+        } else {
+            // Simple case.
+            TimeSpan {
+                start: self.span.start + offset_start,
+                end: self.span.start + offset_end
+            }
+        }
+    }
 }
 
 impl From<TimeSpan> for TimeSpanRev {

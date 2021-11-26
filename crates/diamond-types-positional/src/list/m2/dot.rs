@@ -38,7 +38,8 @@ impl OpSet {
                 let (txn, offset) = self.history.entries.find_packed_with_offset(time);
                 let mut txn = txn.clone();
 
-                let label = if op.tag == Ins {
+                // let label = if op.tag == Ins {
+                let label = if op.content_known {
                     format!("{}: {:?} {} '{}'", time, op.tag, op.pos, &op.content)
                 } else {
                     format!("{}: {:?} {}", time, op.tag, op.pos)

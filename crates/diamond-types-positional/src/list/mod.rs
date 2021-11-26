@@ -23,7 +23,7 @@ mod frontier;
 mod op_iter;
 mod m1;
 mod m2;
-mod opset;
+mod oplog;
 mod branch;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit

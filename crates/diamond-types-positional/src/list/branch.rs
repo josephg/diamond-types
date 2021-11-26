@@ -1,11 +1,12 @@
 use jumprope::JumpRope;
 use crate::list::{Branch, OpSet, Time};
 use smallvec::smallvec;
+use smartstring::SmartString;
 use rle::HasLength;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
-use crate::ROOT_TIME;
+use crate::{AgentId, ROOT_TIME};
 use crate::unicount::consume_chars;
 
 impl Branch {
@@ -60,7 +61,15 @@ impl Branch {
     pub fn merge(&mut self, ops: &OpSet, merge_frontier: &[Time]) {
         self.merge_changes_m2(ops, merge_frontier, false);
     }
+
     pub fn merge2(&mut self, ops: &OpSet, merge_frontier: &[Time], verbose: bool) {
         self.merge_changes_m2(ops, merge_frontier, verbose);
+    }
+
+    pub fn make_delete_op(&self, pos: usize, del_span: usize) -> Operation {
+        assert!(pos + del_span <= self.content.len_chars());
+        let mut s = SmartString::new();
+        s.extend(self.content.slice_chars(pos..pos+del_span));
+        Operation::new_delete_with_content(pos, s)
     }
 }

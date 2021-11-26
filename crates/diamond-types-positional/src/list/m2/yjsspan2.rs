@@ -73,6 +73,7 @@ impl YjsSpanState {
                 *self = Inserted
             }
         } else {
+            dbg!(self);
             panic!("Invalid undelete target");
         }
     }

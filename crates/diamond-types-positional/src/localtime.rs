@@ -168,6 +168,10 @@ impl RleKeyed for TimeSpan {
 
 pub(crate) const UNDERWATER_START: usize = usize::MAX / 4;
 
+pub(crate) fn is_underwater(time: Time) -> bool {
+    time >= UNDERWATER_START
+}
+
 // #[derive(Debug)]
 struct RootTime;
 

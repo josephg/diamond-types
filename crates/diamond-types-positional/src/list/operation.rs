@@ -65,8 +65,14 @@ impl Operation {
         let len = count_chars(content);
         Operation { pos, len, rev: false, content_known: true, tag: Ins, content: content.into() }
     }
+
     pub fn new_delete(pos: usize, len: usize) -> Self {
-        Operation { pos, len, rev: false, content_known: true, tag: Del, content: Default::default() }
+        Operation { pos, len, rev: false, content_known: false, tag: Del, content: Default::default() }
+    }
+
+    pub fn new_delete_with_content(pos: usize, content: SmartString) -> Self {
+        let len = count_chars(&content);
+        Operation { pos, len, rev: false, content_known: true, tag: Del, content: content }
     }
 
     // Could just inline this into truncate() below. It won't be used in other contexts.
@@ -92,7 +98,7 @@ impl Operation {
 impl SplitableSpan for Operation {
     fn truncate(&mut self, at: usize) -> Self {
         let (self_first, rem_first) = self.split_positions(at);
-        let byte_split = if self.tag == Ins && self.content_known {
+        let byte_split = if self.content_known {
             chars_to_bytes(&self.content, at)
         } else {
             0
@@ -147,7 +153,7 @@ impl MergableSpan for Operation {
             self.pos = other.pos;
         }
 
-        if self.tag == Ins && self.content_known {
+        if self.content_known {
             self.content.push_str(&other.content);
         }
     }

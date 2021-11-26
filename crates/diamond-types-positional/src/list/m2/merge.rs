@@ -8,7 +8,7 @@ use crate::list::{Frontier, Branch, ListCRDT, OpSet, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::m2::yjsspan2::{YjsSpan2, YjsSpanState};
 use crate::list::operation::{InsDelTag, Operation};
-use crate::localtime::TimeSpan;
+use crate::localtime::{is_underwater, TimeSpan};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
 use crate::list::frontier::{advance_frontier_by, advance_frontier_by_known_run, frontier_eq, frontier_is_sorted};
@@ -329,10 +329,10 @@ impl M2Tracker {
     }
 
     /// This is for advancing us directly based on the edit.
-    fn apply(&mut self, opset: &OpSet, agent: AgentId, pair: &KVPair<Operation>, mut to: Option<&mut Branch>) {
+    fn apply(&mut self, opset: &OpSet, agent: AgentId, op_pair: &KVPair<Operation>, mut to: Option<&mut Branch>) {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
-        let KVPair(time, op) = pair;
+        let KVPair(time, op) = op_pair;
         // dbg!(op);
         match op.tag {
             InsDelTag::Ins => {
@@ -416,8 +416,8 @@ impl M2Tracker {
                 while remaining_len > 0 {
                     // TODO(perf): Reuse cursor. After mutate_single_entry we'll often be at another
                     // entry that we can delete.
-                    // dbg!(&self.range_tree);
                     let mut cursor = self.range_tree.mut_cursor_at_content_pos(pos, false);
+                    // dbg!(pos, &cursor);
                     // If we've never been deleted locally, we'll need to do that.
                     let e = cursor.get_raw_entry();
                     assert_eq!(e.state, Inserted);
@@ -428,12 +428,24 @@ impl M2Tracker {
                     let (mut_len, target) = unsafe {
                         ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
                             // dbg!(&e);
+                            println!("Delete {:?}", e.id);
                             // This will set the state to deleted, and mark ever_deleted in the
                             // entry.
                             e.delete();
                             e.id
                         }, &mut cursor.inner, remaining_len, notify_for(&mut self.index))
                     };
+                    debug_assert_eq!(mut_len, target.len());
+
+                    if cfg!(debug_assertions) {
+                        if !is_underwater(target.start) {
+                            // dbg!(*time, &target);
+
+                            // Deletes must always dominate item they're deleting in the time dag.
+                            assert!(opset.history.frontier_contains_time(&[*time], target.start));
+                        }
+                    }
+
 
                     if let Some(to) = to.as_deref_mut() {
                         if !ever_deleted {
@@ -449,9 +461,13 @@ impl M2Tracker {
                             let del_end = del_start + mut_len;
                             // dbg!(del_start_check, del_end, mut_len, del_start);
 
-
+                            // dbg!((&op, del_start, mut_len));
+                            debug_assert!(to.content.len_chars() >= del_end);
                             println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
                             to.content.remove(del_start..del_end);
+                        } else {
+                            println!("Ignoring double delete of length {}", mut_len);
+
                         }
                     }
 
@@ -628,8 +644,9 @@ impl Branch {
         let mut walker = OptimizedTxnsIter::new(&opset.history, &new_ops, branch);
         // dbg!(&walker);
         while let Some(walk) = walker.next() {
+            // TODO: This is basically the code at new_at. Unify.
             tracker.check_index();
-            if verbose { dbg!(&walk); }
+            // if verbose { dbg!(&walk); }
             for range in walk.retreat {
                 tracker.retreat_by_range(range);
             }
@@ -638,7 +655,7 @@ impl Branch {
                 tracker.advance_by_range(range);
             }
 
-            if verbose { dbg!(&tracker); }
+            // if verbose { dbg!(&tracker); }
             // dbg!(&tracker);
 
             debug_assert!(!walk.consume.is_empty());
