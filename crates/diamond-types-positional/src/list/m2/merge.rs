@@ -16,7 +16,7 @@ use crate::list::history::HistoryEntry;
 use crate::list::history_tools::{ConflictZone, Flag};
 use crate::list::history_tools::Flag::OnlyB;
 use crate::list::list::apply_local_operation;
-use crate::list::m2::delete::TimeSpanRev;
+use crate::list::m2::rev_span::TimeSpanRev;
 use crate::list::m2::dot::{DotColor, name_of};
 use crate::list::m2::dot::DotColor::*;
 use crate::list::m2::markers::MarkerEntry;

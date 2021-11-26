@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::pin::Pin;
 use content_tree::{ContentMetrics, ContentTreeWithIndex, FullMetricsUsize, RawPositionMetricsUsize};
 use crate::list::ListCRDT;
-use crate::list::m2::delete::TimeSpanRev;
+use crate::list::m2::rev_span::TimeSpanRev;
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::merge::notify_for;
 use crate::list::m2::metrics::MarkerMetrics;
@@ -28,7 +28,7 @@ mod markers;
 mod advance_retreat;
 mod txn_trace;
 mod metrics;
-mod delete;
+mod rev_span;
 #[cfg(test)]
 mod fuzzer;
 mod dot;

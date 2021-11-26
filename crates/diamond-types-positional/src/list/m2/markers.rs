@@ -6,7 +6,7 @@ use rle::{HasLength, MergableSpan, SplitableSpan};
 use content_tree::*;
 use content_tree::ContentTraits;
 use rle::Searchable;
-use crate::list::m2::delete::TimeSpanRev;
+use crate::list::m2::rev_span::TimeSpanRev;
 use crate::list::m2::DocRangeIndex;
 use crate::list::m2::yjsspan2::YjsSpan2;
 
