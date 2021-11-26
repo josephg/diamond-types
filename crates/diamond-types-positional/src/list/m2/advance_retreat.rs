@@ -20,7 +20,7 @@ impl M2Tracker {
             // If the target span is reversed, we only really want the
             // dbg!((range, tag, target, offset, len), target.range(offset, offset + len));
             // let target_start = target.range(offset, len).start;
-            let target_start = target.range(offset, offset + len).start;
+            let mut target_start = target.range(offset, offset + len).start;
 
             // let t1 = target.range(offset, len).start;
             // let t2 = target.range(offset, offset + len).start;
@@ -28,20 +28,27 @@ impl M2Tracker {
 
             // let mut cursor = self.get_unsafe_cursor_before(target);
 
-            let amt_modified = unsafe {
-                // We'll only get a pointer when we're inserting.
-                let ptr = ptr.unwrap_or_else(|| self.marker_at(target_start));
-                let mut cursor = ContentTreeRaw::cursor_before_item(target_start, ptr);
-                ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
-                    if tag == InsDelTag::Ins {
-                        e.state.mark_inserted();
-                    } else {
-                        e.delete();
-                    }
-                }, &mut cursor, len, notify_for(&mut self.index)).0
-            };
+            let mut len_remaining = len;
+            while len_remaining > 0 {
+                let amt_modified = unsafe {
+                    // We'll only get a pointer when we're inserting.
+                    let ptr = ptr.unwrap_or_else(|| self.marker_at(target_start));
+                    let mut cursor = ContentTreeRaw::cursor_before_item(target_start, ptr);
+                    ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
+                        if tag == InsDelTag::Ins {
+                            println!("Re-inserting {:?}", e.id);
+                            e.state.mark_inserted();
+                        } else {
+                            println!("Re-deleting {:?}", e.id);
+                            e.delete();
+                        }
+                    }, &mut cursor, len, notify_for(&mut self.index)).0
+                };
+                target_start += amt_modified;
+                len_remaining -= amt_modified;
+            }
 
-            range.truncate_keeping_right(amt_modified);
+            range.truncate_keeping_right(len);
         }
     }
 
@@ -59,9 +66,12 @@ impl M2Tracker {
             let e_start = req_time - offset;
             let start = range.start.max(e_start);
             let e_offset = start - e_start;
-            target.truncate_keeping_right(e_offset); // Only if e_offset > 0?
 
-            let mut len = target.len().min(range.len());
+            let mut len = usize::min(range.len(), target.len() - e_offset);
+            // dbg!((&range, &target, e_offset, len));
+            // target.truncate_keeping_right(e_offset);
+            let target_start = target.range(e_offset, e_offset + len).start;
+
             // debug_assert_eq!(offset - e_offset + 1, len);
 
             // dbg!((&self.range_tree, &self.index));
@@ -69,9 +79,9 @@ impl M2Tracker {
             // len = len.min(range.len());
             debug_assert!(len <= range.len());
 
-            range.end -= len;
+            let new_end = range.end - len; // TODO: Hack. Just update range here.
 
-            let mut next = target.span.start;
+            let mut next = target_start; // TODO: Inline?
             while len > 0 {
                 // Because the tag is either entirely delete or entirely insert, its safe to move forwards.
                 // dbg!(target, &self.range_tree);
@@ -97,6 +107,8 @@ impl M2Tracker {
                     len -= amt_modified;
                 }
             }
+
+            range.end = new_end;
         }
 
         self.check_index();

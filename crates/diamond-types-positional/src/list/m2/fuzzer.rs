@@ -6,8 +6,7 @@ use crate::list::frontier::frontier_eq;
 
 pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
     let mut str = String::new();
-    let alphabet: Vec<char> = "abcdefghijklmnop_".chars().collect();
-    // let alphabet: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars().collect();
+    let alphabet: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars().collect();
     for _ in 0..len {
         str.push(alphabet[rng.gen_range(0..alphabet.len())]);
     }
