@@ -64,10 +64,13 @@ impl M2Tracker {
             let req_time = range.last();
             let (tag, mut target, offset, ptr) = self.index_query(req_time);
             let e_start = req_time - offset;
+
             let start = range.start.max(e_start);
+            let end = usize::min(range.end, e_start + target.len());
+
             let e_offset = start - e_start;
 
-            let mut len = usize::min(range.len(), target.len() - e_offset);
+            let len = end - start;
             // dbg!((&range, &target, e_offset, len));
             // target.truncate_keeping_right(e_offset);
             let target_start = target.range(e_offset, e_offset + len).start;
@@ -82,7 +85,8 @@ impl M2Tracker {
             let new_end = range.end - len; // TODO: Hack. Just update range here.
 
             let mut next = target_start; // TODO: Inline?
-            while len > 0 {
+            let mut len_remaining = len; // TODO: Inline.
+            while len_remaining > 0 {
                 // Because the tag is either entirely delete or entirely insert, its safe to move forwards.
                 // dbg!(target, &self.range_tree);
                 // let mut cursor = self.get_unsafe_cursor_before(target);
@@ -96,15 +100,17 @@ impl M2Tracker {
                     // let mut cursor = ContentTreeRaw::cursor_before_item(next, ptr);
                     let amt_modified = ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
                         if tag == InsDelTag::Ins {
+                            // println!("Uninserting {:?}", e.id);
                             e.state.mark_not_inserted_yet();
                         } else {
+                            // println!("Undeleting {:?}", e.id);
                             e.state.undelete();
                         }
-                    }, &mut cursor, len, notify_for(&mut self.index)).0;
+                    }, &mut cursor, len_remaining, notify_for(&mut self.index)).0;
 
                     // dbg!(amt_modified);
                     next += amt_modified;
-                    len -= amt_modified;
+                    len_remaining -= amt_modified;
                 }
             }
 
