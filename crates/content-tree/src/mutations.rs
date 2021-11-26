@@ -250,6 +250,8 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
         // previous item.
         let mut items_idx = 0;
         let node = cursor.node.as_mut();
+        debug_assert!(cursor.idx < node.len_entries());
+
         if cursor.idx >= 1 {
             let elem = &mut node.data[cursor.idx - 1];
             loop { // This is a crap for / while loop.
@@ -270,7 +272,14 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
         if items_idx >= items.len() {
             // Nuke the item under the cursor and shuffle everything back.
             node.splice_out(cursor.idx);
-            cursor.offset = 0;
+            if cursor.idx >= node.len_entries() {
+                // The cursor might now be pointing past the end of this node.
+                debug_assert!(node.len_entries() >= 1);
+                cursor.idx -= 1;
+                cursor.offset = node.data[cursor.idx].len();
+            } else {
+                cursor.offset = 0;
+            }
         } else {
             // First replace the item directly.
             *entry = items[items_idx];
@@ -281,6 +290,12 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
 
             // And insert the rest, if there are any.
             Self::insert_internal(&items[items_idx + 1..], cursor, flush_marker, notify);
+        }
+
+        if cfg!(debug_assertions) {
+            // The cursor should always end up inside the node.
+            let node = cursor.get_node_mut();
+            debug_assert!(cursor.idx < node.len_entries());
         }
     }
 
@@ -325,6 +340,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
     where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>), MapFn: FnOnce(&mut E) -> R
     {
         let node = cursor.get_node_mut();
+        debug_assert!(cursor.idx < node.len_entries());
         let mut entry: E = node.data[cursor.idx];
         let mut entry_len = entry.len();
 

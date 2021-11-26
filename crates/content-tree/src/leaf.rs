@@ -228,6 +228,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Node
 
     /// Remove a single item from the node
     pub fn splice_out(&mut self, idx: usize) {
+        debug_assert!(idx < self.num_entries as usize);
         self.data.copy_within(idx + 1..self.num_entries as usize, idx);
         self.num_entries -= 1;
     }

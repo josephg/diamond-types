@@ -190,6 +190,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Unsa
                 false
             } else {
                 let node = self.node.as_ref();
+                debug_assert!(self.idx < node.len_entries());
                 let seq_len = node.data[self.idx].len();
 
                 debug_assert!(self.offset <= seq_len);
@@ -205,6 +206,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Unsa
         self.roll_to_next_entry_internal(|_| {})
     }
 
+    /// Also a terrible name. Roll to the next entry. If we move to a new node, flush the marker.
     pub fn roll_to_next_entry_marker(&mut self, marker: &mut I::Update) -> bool {
         self.roll_to_next_entry_internal(|cursor| {
             unsafe {
