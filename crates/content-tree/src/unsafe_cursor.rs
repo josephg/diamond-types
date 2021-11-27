@@ -92,6 +92,9 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Unsa
         self.next_entry_marker(None)
     }
 
+    /// # Safety
+    ///
+    /// This method assumes (but does not check) that the cursor outlives the container.
     pub unsafe fn count_pos_raw<Out, F, G, H>(&self, offset_to_num: F, entry_len: G, entry_len_at: H) -> Out
         where Out: AddAssign + Default, F: Fn(I::Value) -> Out, G: Fn(&E) -> Out, H: Fn(&E, usize) -> Out
     {
@@ -142,6 +145,9 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Unsa
         pos
     }
 
+    /// # Safety
+    ///
+    /// This method assumes (but does not check) that the cursor outlives the container.
     pub unsafe fn count_pos(&self) -> I::Value {
         self.count_pos_raw(|v| v, |e| {
             let mut v = I::Value::default();
@@ -149,7 +155,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Unsa
             v
         }, |e, offset| {
             // This is kinda awful, but hopefully the optimizer takes care of this
-            let mut e = e.clone();
+            let mut e = *e;
             e.truncate(offset);
             let mut v = I::Value::default();
             I::increment_offset(&mut v, &e);

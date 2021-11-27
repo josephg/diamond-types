@@ -92,7 +92,7 @@ impl<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> 
             }
         }
 
-        let current = self.inner.get_raw_entry().clone();
+        let current = *self.inner.get_raw_entry();
         // Move the cursor forward preemptively for the next call to next().
         let has_next = self.inner.next_entry();
         if !has_next {

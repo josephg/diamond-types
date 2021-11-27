@@ -150,7 +150,7 @@ pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: Time) {
         ROOT_TIME => {
             fmt.field(name, &RootTime);
         },
-        start @ _ => {
+        start => {
             fmt.field(name, &start);
         }
     }

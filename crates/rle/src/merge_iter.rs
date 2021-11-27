@@ -40,7 +40,7 @@ where
             }
         };
 
-        while let Some(val) = self.iter.next() {
+        for val in &mut self.iter {
             if this_val.can_append(&val) {
                 this_val.append(val);
             } else {

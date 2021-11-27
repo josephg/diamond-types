@@ -3,6 +3,10 @@ use std::ops::{Range};
 pub trait HasLength {
     /// The number of child items in the entry. This is indexed with the size used in truncate.
     fn len(&self) -> usize;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 pub trait SplitableSpan: Clone {

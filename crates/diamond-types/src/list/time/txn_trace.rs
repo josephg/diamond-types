@@ -110,15 +110,13 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
 
                 // println!("pop {}!", idx);
                 self.stack.pop();
+            } else if let Some(next_idx) = self.get_next_child(&self.root_children) {
+                break next_idx;
             } else {
-                if let Some(next_idx) = self.get_next_child(&self.root_children) {
-                    break next_idx;
-                } else {
-                    // The stack was exhausted and we didn't find anything. We're done here.
-                    debug_assert!(self.consumed.all());
-                    debug_assert_eq!(self.num_consumed, self.history.len());
-                    return None;
-                }
+                // The stack was exhausted and we didn't find anything. We're done here.
+                debug_assert!(self.consumed.all());
+                debug_assert_eq!(self.num_consumed, self.history.len());
+                return None;
             }
         };
 
