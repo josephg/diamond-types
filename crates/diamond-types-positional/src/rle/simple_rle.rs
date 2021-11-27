@@ -27,6 +27,7 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
         self.0.push_rle(val)
     }
 
+    #[allow(unused)]
     pub fn push_will_merge(&self, item: &V) -> bool {
         if let Some(v) = self.last() {
             v.can_append(item)
@@ -35,7 +36,9 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
 
     // Forward to vec.
     pub fn last(&self) -> Option<&V> { self.0.last() }
+    #[allow(unused)]
     pub fn len(&self) -> usize { self.0.len() }
+    #[allow(unused)]
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
     pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
     pub fn iter_merged(&self) -> MergeIter<Cloned<std::slice::Iter<V>>> { self.0.iter().cloned().merge_spans() }
@@ -128,6 +131,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     /// This method assumes the "base" of the RLE is 0.
     ///
     /// Returns (Ok(elem), offset) if item is found, otherwise (Err(void range), offset into void)
+    #[allow(unused)]
     pub fn find_sparse(&self, needle: usize) -> (Result<&V, TimeSpan>, usize) {
         match self.find_index(needle) {
             Ok(idx) => {
@@ -154,6 +158,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     /// Find an entry in the list with the specified key using binary search.
     ///
     /// If found, item is returned by mutable reference as Some((&mut item, offset)).
+    #[allow(unused)]
     pub fn find_mut(&mut self, needle: usize) -> Option<(&mut V, usize)> {
         self.find_index(needle).ok().map(move |idx| {
             let entry = &mut self.0[idx];
@@ -162,6 +167,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         })
     }
 
+    #[allow(unused)]
     pub fn insert(&mut self, val: V) {
         let idx = self.find_index(val.get_rle_key()).expect_err("Item already exists");
 
@@ -189,6 +195,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
 
     /// Search forward from idx until we find needle. idx is modified. Returns either the item if
     /// successful, or the key of the subsequent item.
+    #[allow(unused)]
     pub(crate) fn search_scanning_sparse(&self, needle: usize, idx: &mut usize) -> Result<&V, usize> {
         while *idx < self.len() {
             // TODO: Is this bounds checking? It shouldn't need to... Fix if it is.
@@ -206,6 +213,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         Err(usize::MAX)
     }
 
+    #[allow(unused)]
     pub(crate) fn search_scanning_packed(&self, needle: usize, idx: &mut usize) -> &V {
         self.search_scanning_sparse(needle, idx).unwrap()
     }
@@ -213,6 +221,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     /// Search backwards from idx until we find needle. idx is modified. Returns either the item or
     /// the end of the preceeding range. Note the end could be == needle. (But cannot be greater
     /// than it).
+    #[allow(unused)]
     pub(crate) fn search_scanning_backwards_sparse(&self, needle: usize, idx: &mut usize) -> Result<&V, usize> {
         // This conditional looks inverted given we're looping backwards, but I'm using
         // wrapping_sub - so when we reach the end the index wraps around and we'll hit usize::MAX.
@@ -232,6 +241,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
 
     /// Visit each item or gap in this (sparse) RLE list, ending at end with the passed visitor
     /// method.
+    #[allow(unused)]
     pub fn for_each_sparse<F>(&self, end: usize, mut visitor: F)
     where F: FnMut(Result<&V, Range<usize>>) {
         let mut key = 0;

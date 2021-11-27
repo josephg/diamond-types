@@ -1,10 +1,9 @@
 use std::fmt::{Write as _};
 use std::fs::File;
-use std::io::{stderr, stdout, Write as _};
+use std::io::{Write as _};
 use std::process::Command;
 use rle::SplitableSpan;
 use crate::list::{OpSet, Time};
-use crate::list::operation::InsDelTag::Ins;
 use crate::localtime::TimeSpan;
 use crate::rle::KVPair;
 use crate::ROOT_TIME;
@@ -22,8 +21,8 @@ pub enum DotColor {
 impl OpSet {
     pub fn make_graph<I: Iterator<Item=(TimeSpan, DotColor)>>(&self, filename: &str, iter: I) {
         let mut out = String::new();
-        out.write_str("strict digraph {\n");
-        out.write_str("rankdir=\"BT\"\n");
+        out.write_str("strict digraph {\n").unwrap();
+        out.write_str("rankdir=\"BT\"\n").unwrap();
 
         for (span, color) in iter {
             for time in span.iter() {
@@ -35,8 +34,7 @@ impl OpSet {
                 op.truncate_keeping_right(offset);
                 op.truncate(1);
 
-                let (txn, offset) = self.history.entries.find_packed_with_offset(time);
-                let mut txn = txn.clone();
+                let txn = self.history.entries.find_packed(time);
 
                 // let label = if op.tag == Ins {
                 let label = if op.content_known {
@@ -44,19 +42,19 @@ impl OpSet {
                 } else {
                     format!("{}: {:?} {}", time, op.tag, op.pos)
                 };
-                out.write_fmt(format_args!("{} [color={:?} label=\"{}\"]\n", name, color, label));
+                out.write_fmt(format_args!("{} [color={:?} label=\"{}\"]\n", name, color, label)).unwrap();
                 txn.with_parents(time, |parents| {
                     for p in parents {
-                        out.write_fmt(format_args!("{} -> {}\n", name, name_of(*p)));
+                        out.write_fmt(format_args!("{} -> {}\n", name, name_of(*p))).unwrap();
                     }
                 });
             }
         }
 
-        out.write_str("}\n");
+        out.write_str("}\n").unwrap();
 
         let mut f = File::create("out.dot").unwrap();
-        f.write_all(out.as_bytes());
+        f.write_all(out.as_bytes()).unwrap();
         f.flush().unwrap();
         drop(f);
 
@@ -70,7 +68,7 @@ impl OpSet {
         // stderr().write_all(&out.stderr);
 
         let mut f = File::create(filename).unwrap();
-        f.write_all(&out.stdout);
+        f.write_all(&out.stdout).unwrap();
 
     }
 }

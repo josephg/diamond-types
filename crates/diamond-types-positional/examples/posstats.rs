@@ -31,7 +31,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
                 positional.push(Operation {
                     pos: *pos,
                     len: *del_span,
-                    rev: false,
+                    reversed: false,
                     content_known: false,
                     tag: InsDelTag::Del,
                     content: Default::default()
@@ -42,7 +42,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
                 positional.push(Operation {
                     pos: *pos,
                     len: ins_content.chars().count(),
-                    rev: false,
+                    reversed: false,
                     content_known: true,
                     tag: InsDelTag::Ins,
                     content: ins_content.into()

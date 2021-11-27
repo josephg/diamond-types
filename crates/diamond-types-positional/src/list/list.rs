@@ -1,19 +1,14 @@
 use std::mem::replace;
 use humansize::{file_size_opts, FileSize};
-use jumprope::JumpRope;
-use crate::list::{Branch, ClientData, Frontier, ListCRDT, OpSet, Time};
-use crate::rle::{KVPair, RleSpanHelpers, RleVec};
+use crate::list::{Branch, Frontier, ListCRDT, OpSet};
+use crate::rle::KVPair;
 use smallvec::smallvec;
-use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use smartstring::alias::{String as SmartString};
-use rle::{HasLength, MergableSpan, Searchable};
-use crate::list::frontier::frontier_eq;
+use crate::AgentId;
+use rle::HasLength;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::list::operation::{InsDelTag, Operation};
-use crate::list::history::HistoryEntry;
 use crate::localtime::TimeSpan;
-use crate::remotespan::{CRDT_DOC_ROOT, CRDTId, CRDTSpan};
-use crate::unicount::{consume_chars, count_chars};
+use crate::remotespan::CRDTId;
 
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
 fn insert_history_local(opset: &mut OpSet, frontier: &mut Frontier, range: TimeSpan) {
@@ -78,6 +73,11 @@ pub fn local_delete(opset: &mut OpSet, branch: &mut Branch, agent: AgentId, pos:
     apply_local_operation(opset, branch, agent, &[Operation::new_delete(pos, del_span)]);
 }
 
+impl Default for ListCRDT {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ListCRDT {
     pub fn new() -> Self {
@@ -89,6 +89,10 @@ impl ListCRDT {
 
     pub fn len(&self) -> usize {
         self.branch.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.branch.is_empty()
     }
 
     pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[Operation]) {
@@ -119,7 +123,7 @@ impl ListCRDT {
         let mut d_n = 0;
         let mut d_r = 0;
         for op in self.ops.operations.iter_merged() {
-            match (op.1.len(), op.1.tag, op.1.rev) {
+            match (op.1.len(), op.1.tag, op.1.reversed) {
                 (1, InsDelTag::Ins, _) => { i_1 += 1; }
                 (_, InsDelTag::Ins, false) => { i_n += 1; }
                 (_, InsDelTag::Ins, true) => { i_r += 1; }

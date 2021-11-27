@@ -1,27 +1,22 @@
 use std::cmp::Ordering;
-use std::ops::{Deref, DerefMut};
-use std::ptr::{NonNull, null_mut};
+use std::ptr::NonNull;
 use smallvec::{SmallVec, smallvec};
-use content_tree::{ContentTreeRaw, ContentTreeWithIndex, Cursor, DEFAULT_IE, DEFAULT_LE, FindOffset, FullMetricsUsize, MutCursor, NodeLeaf, null_notify, RawPositionMetricsUsize, UnsafeCursor};
+use content_tree::*;
 use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
-use crate::list::{Frontier, Branch, ListCRDT, OpSet, Time};
+use crate::list::{Frontier, Branch, OpSet, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::m2::yjsspan2::{YjsSpan2, YjsSpanState};
 use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::{is_underwater, TimeSpan};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
-use crate::list::frontier::{advance_frontier_by, advance_frontier_by_known_run, frontier_eq, frontier_is_sorted};
-use crate::list::history::HistoryEntry;
-use crate::list::history_tools::{ConflictZone, Flag};
-use crate::list::history_tools::Flag::OnlyB;
-use crate::list::list::apply_local_operation;
+use crate::list::frontier::{advance_frontier_by, frontier_eq, frontier_is_sorted};
+use crate::list::history_tools::Flag;
 use crate::list::m2::rev_span::TimeSpanRev;
 use crate::list::m2::dot::{DotColor, name_of};
 use crate::list::m2::dot::DotColor::*;
 use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
-use crate::list::m2::markers::{Marker, MarkerEntry};
-use crate::list::m2::metrics::MarkerMetrics;
+use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
 use crate::list::m2::yjsspan2::YjsSpanState::Inserted;
 use crate::list::operation::InsDelTag::{Del, Ins};
@@ -94,10 +89,9 @@ impl M2Tracker {
         // dbg!(branch_a, branch_b);
         let mut walker = OptimizedTxnsIter::new(&opset.history, rev_spans, ancestor);
         // let mut walker = opset.history.known_conflicting_txns_iter(conflict);
-        while let Some(walk) = walker.next() {
-            // let walk = walk; // Work around intellij bug.
-            // dbg!(&walk);
 
+        for walk in &mut walker {
+            // dbg!(&walk);
             for range in walk.retreat {
                 tracker.retreat_by_range(range);
             }
@@ -109,6 +103,7 @@ impl M2Tracker {
             debug_assert!(!walk.consume.is_empty());
             tracker.apply_range(opset, walk.consume, None);
         }
+
         let branch = walker.into_branch();
 
         (tracker, branch)
@@ -158,7 +153,7 @@ impl M2Tracker {
                     let start = time - cursor.offset;
                     (Ins, (start..start+entry.len).into(), cursor.offset, Some(ptr))
                 }
-                DelTarget(mut target) => {
+                DelTarget(target) => {
                     (Del, target, cursor.offset, None)
                 }
             }
@@ -341,7 +336,7 @@ impl M2Tracker {
         // dbg!(op);
         match op.tag {
             InsDelTag::Ins => {
-                if op.rev { unimplemented!("Implement me!") }
+                if op.reversed { unimplemented!("Implement me!") }
 
                 // To implement this we need to:
                 // 1. Find the item directly before the requested position. This is our origin-left.
@@ -414,15 +409,14 @@ impl M2Tracker {
                 // subsequent inserts.
                 let mut remaining_len = op.len;
 
-                let mut pos = op.pos;
-                // let mut next_time = *time;
+                let pos = op.pos;
 
                 // This is needed because we're walking through the operation's span forwards
                 // (because thats simpler). But if the delete is reversed, we need to record the
                 // output time values in reverse order too.
                 let mut resulting_time = TimeSpanRev {
                     span: (*time..*time + op.len).into(),
-                    reversed: op.rev
+                    reversed: op.reversed
                 };
 
                 // It would be tempting - and *nearly* correct to just use local_delete inside the
@@ -453,15 +447,12 @@ impl M2Tracker {
                     };
                     debug_assert_eq!(mut_len, target.len());
 
-                    if cfg!(debug_assertions) {
-                        if !is_underwater(target.start) {
-                            // dbg!(*time, &target);
+                    if cfg!(debug_assertions) && !is_underwater(target.start) {
+                        // dbg!(*time, &target);
 
-                            // Deletes must always dominate item they're deleting in the time dag.
-                            assert!(opset.history.frontier_contains_time(&[*time], target.start));
-                        }
+                        // Deletes must always dominate item they're deleting in the time dag.
+                        assert!(opset.history.frontier_contains_time(&[*time], target.start));
                     }
-
 
                     if let Some(to) = to.as_deref_mut() {
                         if !ever_deleted {
@@ -529,7 +520,7 @@ impl Branch {
 
         if verbose { dbg!((&self.frontier, merge_frontier)); }
 
-        debug_assert!(frontier_is_sorted(&merge_frontier));
+        debug_assert!(frontier_is_sorted(merge_frontier));
         debug_assert!(frontier_is_sorted(&self.frontier));
 
         // let mut diff = opset.history.diff(&self.frontier, merge_frontier);
@@ -545,7 +536,7 @@ impl Branch {
         let mut common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
             // dbg!(&span, flag);
             let target = match flag {
-                OnlyB => &mut new_ops,
+                Flag::OnlyB => &mut new_ops,
                 _ => &mut conflict_ops
             };
             target.push_reversed_rle(span);
@@ -581,7 +572,10 @@ impl Branch {
                 if let Some(span) = new_ops.last() {
                     let txn = opset.history.entries.find_packed(span.start);
                     let can_ff = txn.with_parents(span.start, |parents| {
-                        self.frontier.as_slice() == parents
+                        // Previously this said:
+                        //   self.frontier == txn.parents
+                        // and the tests still passed. TODO: Was that code wrong? If so make a test case.
+                        frontier_eq(self.frontier.as_slice(), parents)
                     });
 
                     if can_ff {
@@ -611,7 +605,7 @@ impl Branch {
             // so we don't scan unnecessarily.
             conflict_ops.clear();
             common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
-                if flag != OnlyB {
+                if flag != Flag::OnlyB {
                     conflict_ops.push_reversed_rle(span);
                 }
             });
@@ -620,7 +614,7 @@ impl Branch {
         // TODO: Also FF at the end!
 
         // dbg!((&self.frontier, &, merge_frontier));
-        let (mut tracker, branch) = M2Tracker::new_at(opset, common_ancestor.clone(), &conflict_ops);
+        let (mut tracker, branch) = M2Tracker::new_at(opset, common_ancestor, &conflict_ops);
         // if verbose { dbg!(&branch, &tracker); }
         // dbg!(&self.content);
 
@@ -628,7 +622,7 @@ impl Branch {
         // dbg!(&conflict_ops, (&common_ancestor, &new_ops, &branch));
         let mut walker = OptimizedTxnsIter::new(&opset.history, &new_ops, branch);
         // dbg!(&walker);
-        while let Some(walk) = walker.next() {
+        for walk in &mut walker {
             // TODO: This is basically the code at new_at. Unify.
             tracker.check_index();
             if verbose { dbg!(&walk); }
@@ -817,6 +811,7 @@ mod test {
         t = list.ops.push_delete(0, &[t], 2, 1); // 3 -> "ab_"
         t = list.ops.push_delete(0, &[t], 1, 1); // 4 -> "a__"
         t = list.ops.push_delete(0, &[t], 0, 1); // 5 -> "___"
+        assert_eq!(t, 5);
 
         let mut t = M2Tracker::new();
         t.apply_range(&list.ops, (3..6).into(), None);

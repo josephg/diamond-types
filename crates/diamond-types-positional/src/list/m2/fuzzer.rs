@@ -2,7 +2,6 @@ use jumprope::JumpRope;
 use rand::prelude::*;
 use crate::AgentId;
 use crate::list::{Branch, ListCRDT, OpSet, Time};
-use crate::list::frontier::frontier_eq;
 
 pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
     let mut str = String::new();

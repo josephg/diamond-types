@@ -1,4 +1,3 @@
-use jumprope::JumpRope;
 /// Positional updates are a kind of operation (patch) which is larger than traversals but
 /// retains temporal information. So, we know when each change happened relative to all other
 /// changes.
@@ -6,11 +5,9 @@ use jumprope::JumpRope;
 /// Updates are made up of a series of insert / delete components, each at some position.
 
 use smartstring::alias::{String as SmartString};
-use smallvec::{SmallVec, smallvec};
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use InsDelTag::*;
 use crate::unicount::{chars_to_bytes, count_chars};
-use rle::AppendRle;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 use crate::localtime::TimeSpan;
@@ -42,7 +39,7 @@ pub struct Operation {
     /// rev marks the operation order as reversed. For now this is only supported on deletes, for
     /// backspacing.
     /// TODO: Consider swapping this to fwd
-    pub rev: bool,
+    pub reversed: bool,
 
     pub content_known: bool,
     pub tag: InsDelTag,
@@ -63,24 +60,24 @@ impl HasLength for Operation {
 impl Operation {
     pub fn new_insert(pos: usize, content: &str) -> Self {
         let len = count_chars(content);
-        Operation { pos, len, rev: false, content_known: true, tag: Ins, content: content.into() }
+        Operation { pos, len, reversed: false, content_known: true, tag: Ins, content: content.into() }
     }
 
     pub fn new_delete(pos: usize, len: usize) -> Self {
-        Operation { pos, len, rev: false, content_known: false, tag: Del, content: Default::default() }
+        Operation { pos, len, reversed: false, content_known: false, tag: Del, content: Default::default() }
     }
 
     pub fn new_delete_with_content(pos: usize, content: SmartString) -> Self {
         let len = count_chars(&content);
-        Operation { pos, len, rev: false, content_known: true, tag: Del, content: content }
+        Operation { pos, len, reversed: false, content_known: true, tag: Del, content }
     }
 
     // Could just inline this into truncate() below. It won't be used in other contexts.
     fn split_positions(&self, at: usize) -> (usize, usize) {
         let first = self.pos;
-        if self.rev == false && self.tag == Ins {
+        if !self.reversed && self.tag == Ins {
             (first, first + at)
-        } else if self.rev == true && self.tag == Del {
+        } else if self.reversed && self.tag == Del {
             (first + self.len - at, first)
         } else {
             (first, first)
@@ -107,7 +104,7 @@ impl SplitableSpan for Operation {
         let remainder = Self {
             pos: rem_first,
             len: self.len - at,
-            rev: self.rev,
+            reversed: self.reversed,
             content_known: self.content_known,
             tag: self.tag,
             content: self.content.split_off(byte_split),
@@ -126,16 +123,16 @@ impl MergableSpan for Operation {
 
         if other.tag != tag || self.content_known != other.content_known { return false; }
 
-        if other.rev != self.rev && self.len > 1 && other.len > 1 { return false; }
+        if other.reversed != self.reversed && self.len > 1 && other.len > 1 { return false; }
 
-        if (self.len == 1 || self.rev == false) && (other.len == 1 || other.rev == false) {
+        if (self.len == 1 || !self.reversed) && (other.len == 1 || !other.reversed) {
             // Try and append in the forward sort of way.
             if (tag == Ins && other.pos == self.pos + self.len)
                 || (tag == Del && other.pos == self.pos) { return true; }
         }
 
         // TODO: Handling reversed items is currently limited to Del. Undo this.
-        if self.tag == Del && (self.len == 1 || self.rev == true) && (other.len == 1 || other.rev == true) {
+        if self.tag == Del && (self.len == 1 || self.reversed) && (other.len == 1 || other.reversed) {
             // Try an append in a reverse sort of way
             if (tag == Ins && other.pos == self.pos)
                 || (tag == Del && other.pos + other.len == self.pos) { return true; }
@@ -145,11 +142,11 @@ impl MergableSpan for Operation {
     }
 
     fn append(&mut self, other: Self) {
-        self.rev = other.pos < self.pos || (other.pos == self.pos && self.tag == Ins);
+        self.reversed = other.pos < self.pos || (other.pos == self.pos && self.tag == Ins);
 
         self.len += other.len;
 
-        if self.tag == Del && self.rev {
+        if self.tag == Del && self.reversed {
             self.pos = other.pos;
         }
 
@@ -159,9 +156,9 @@ impl MergableSpan for Operation {
     }
 
     fn prepend(&mut self, mut other: Self) {
-        self.rev = self.pos < other.pos || (other.pos == self.pos && self.tag == Ins);
+        self.reversed = self.pos < other.pos || (other.pos == self.pos && self.tag == Ins);
 
-        if self.tag == Ins || self.rev == false {
+        if self.tag == Ins || !self.reversed {
             self.pos = other.pos;
         }
         self.len += other.len;
@@ -185,7 +182,7 @@ mod test {
         let a = Operation {
             pos: 100,
             len: 1,
-            rev: false,
+            reversed: false,
             content_known: true,
             tag: Del,
             content: Default::default()
@@ -193,7 +190,7 @@ mod test {
         let b = Operation {
             pos: 99,
             len: 1,
-            rev: false,
+            reversed: false,
             content_known: true,
             tag: Del,
             content: Default::default()
@@ -206,7 +203,7 @@ mod test {
         let expect = Operation {
             pos: 99,
             len: 2,
-            rev: true,
+            reversed: true,
             content_known: true,
             tag: Del,
             content: Default::default()
@@ -228,7 +225,7 @@ mod test {
                     test_splitable_methods_valid(Operation {
                         pos: 10,
                         len: 5,
-                        rev,
+                        reversed: rev,
                         content_known: true,
                         tag: Ins,
                         content: "abcde".into()
@@ -238,7 +235,7 @@ mod test {
                 test_splitable_methods_valid(Operation {
                     pos: 10,
                     len: 5,
-                    rev,
+                    reversed: rev,
                     content_known,
                     tag: Del,
                     content: Default::default()

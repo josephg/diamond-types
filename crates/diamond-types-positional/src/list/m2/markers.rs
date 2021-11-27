@@ -4,7 +4,6 @@ use std::ptr::NonNull;
 use rle::{HasLength, MergableSpan, SplitableSpan};
 
 use content_tree::*;
-use content_tree::ContentTraits;
 use rle::Searchable;
 use crate::list::m2::rev_span::TimeSpanRev;
 use crate::list::m2::DocRangeIndex;
@@ -94,7 +93,7 @@ impl MergableSpan for Marker {
             (InsPtr(ptr1), InsPtr(ptr2)) => {
                 ptr1 == ptr2
             }
-            (DelTarget(t1), DelTarget(t2)) => t1.can_append(&t2),
+            (DelTarget(t1), DelTarget(t2)) => t1.can_append(t2),
             _ => false,
         }
     }
@@ -156,15 +155,15 @@ impl Default for MarkerEntry {
 }
 
 
-impl MarkerEntry {
-    pub fn unwrap_ptr(&self) -> NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
-        if let InsPtr(ptr) = self.inner {
-            ptr
-        } else {
-            panic!("Internal consistency error: Cannot unwrap delete");
-        }
-    }
-}
+// impl MarkerEntry {
+//     pub fn unwrap_ptr(&self) -> NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
+//         if let InsPtr(ptr) = self.inner {
+//             ptr
+//         } else {
+//             panic!("Internal consistency error: Cannot unwrap delete");
+//         }
+//     }
+// }
 
 impl Searchable for MarkerEntry {
     type Item = Option<NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>>;

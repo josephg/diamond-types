@@ -45,12 +45,12 @@ impl Default for YjsSpanState {
 }
 
 impl YjsSpanState {
-    pub(crate) fn is_deleted(&self) -> bool {
-        match self {
-            Deleted(_) => true,
-            _ => false
-        }
-    }
+    // pub(crate) fn is_deleted(&self) -> bool {
+    //     match self {
+    //         Deleted(_) => true,
+    //         _ => false
+    //     }
+    // }
 
     fn delete(&mut self) {
         match self {
@@ -73,7 +73,7 @@ impl YjsSpanState {
                 *self = Inserted
             }
         } else {
-            dbg!(self);
+            // dbg!(self);
             panic!("Invalid undelete target");
         }
     }
@@ -127,6 +127,7 @@ impl YjsSpan2 {
         }
     }
 
+    #[allow(unused)]
     pub fn is_underwater(&self) -> bool {
         self.id.start >= UNDERWATER_START
     }
@@ -240,7 +241,6 @@ mod tests {
     use std::mem::size_of;
 
     use rle::test_splitable_methods_valid;
-    use crate::list::operation::InsDelTag::Del;
     use super::*;
 
     #[test]

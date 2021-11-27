@@ -1,19 +1,17 @@
-use content_tree::{ContentTreeRaw, Toggleable};
+use content_tree::ContentTreeRaw;
 use rle::{HasLength, SplitableSpan};
 use crate::list::m2::M2Tracker;
 use crate::list::m2::merge::notify_for;
 use crate::list::operation::InsDelTag;
 use crate::localtime::TimeSpan;
-use crate::rle::KVPair;
 
 impl M2Tracker {
     pub(crate) fn advance_by_range(&mut self, mut range: TimeSpan) {
-        let x = range.contains(99);
         while !range.is_empty() {
             // Note the delete could be reversed - but we don't really care here; we just mark the
             // whole range anyway.
             // let (tag, target, mut len) = self.next_action(range.start);
-            let (tag, mut target, offset, ptr) = self.index_query(range.start);
+            let (tag, target, offset, ptr) = self.index_query(range.start);
 
             let len = usize::min(target.len() - offset, range.len());
 
@@ -62,7 +60,7 @@ impl M2Tracker {
         while !range.is_empty() {
             // TODO: This is gross. Clean this up. There's totally a nicer way to write this.
             let req_time = range.last();
-            let (tag, mut target, offset, ptr) = self.index_query(req_time);
+            let (tag, target, offset, _ptr) = self.index_query(req_time);
             let e_start = req_time - offset;
 
             let start = range.start.max(e_start);
@@ -95,6 +93,8 @@ impl M2Tracker {
                     // dbg!(next);
                     // We can't actually use the pointer returned by the index_query call because we
                     // mutate each loop iteraton.
+
+                    // TODO: We probably just fetched this pointer above. Reuse that!
                     let ptr = self.marker_at(next);
                     let mut cursor = ContentTreeRaw::cursor_before_item(next, ptr);
                     // let mut cursor = ContentTreeRaw::cursor_before_item(next, ptr);

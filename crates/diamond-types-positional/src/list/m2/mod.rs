@@ -10,17 +10,11 @@
 //! entries as we go). Or we could figure it out by walking the txns forwards and backwards through
 //! time.
 
-use std::collections::BTreeMap;
 use std::pin::Pin;
-use content_tree::{ContentMetrics, ContentTreeWithIndex, FullMetricsUsize, RawPositionMetricsUsize};
-use crate::list::ListCRDT;
-use crate::list::m2::rev_span::TimeSpanRev;
+use content_tree::{ContentTreeWithIndex, RawPositionMetricsUsize};
 use crate::list::m2::markers::MarkerEntry;
-use crate::list::m2::merge::notify_for;
 use crate::list::m2::metrics::MarkerMetrics;
 use crate::list::m2::yjsspan2::YjsSpan2;
-use crate::localtime::TimeSpan;
-use crate::rle::{KVPair, RleVec};
 
 mod yjsspan2;
 mod merge;

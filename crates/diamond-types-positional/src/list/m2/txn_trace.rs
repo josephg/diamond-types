@@ -1,12 +1,9 @@
 
 use smallvec::{SmallVec, smallvec};
-use crate::rle::RleVec;
-use crate::list::frontier::{retreat_frontier_by, advance_frontier_by_known_run, advance_frontier_by, frontier_is_sorted, check_frontier};
-use std::ops::Range;
+use crate::list::frontier::*;
 use rle::{HasLength, SplitableSpan};
 use crate::list::{Frontier, Time};
-use crate::list::history::{History, HistoryEntry};
-use crate::list::history_tools::ConflictZone;
+use crate::list::history::History;
 use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
 
@@ -81,6 +78,7 @@ pub(crate) struct TxnWalkItem {
 }
 
 impl<'a> OptimizedTxnsIter<'a> {
+    #[allow(unused)]
     pub(crate) fn new_all(history: &'a History) -> Self {
         let mut spans: SmallVec<[TimeSpan; 4]> = smallvec![];
         if history.get_next_time() > 0 {
@@ -141,15 +139,13 @@ impl<'a> OptimizedTxnsIter<'a> {
 
         assert!(rev_spans.is_empty() || !to_process.is_empty());
 
-        let mut result = Self {
+        Self {
             history,
             branch,
             input,
             to_process,
             num_consumed: 0,
-        };
-
-        result
+        }
     }
 
     fn push_children(&mut self, child_txn_idxs: &[usize]) {
@@ -220,17 +216,17 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
         // in only_branch if the child has a parent in the middle of our txn.
         for range in &only_branch {
             // println!("Retreat branch {:?} by {:?}", &self.branch, range);
-            retreat_frontier_by(&mut self.branch, &self.history, range.clone());
+            retreat_frontier_by(&mut self.branch, self.history, *range);
             // println!(" -> {:?}", &self.branch);
             // dbg!(&branch);
         }
-        check_frontier(&self.branch, &self.history);
+        check_frontier(&self.branch, self.history);
         for range in only_txn.iter().rev() {
             // println!("Advance branch by {:?}", range);
-            advance_frontier_by(&mut self.branch, &self.history, range.clone());
+            advance_frontier_by(&mut self.branch, self.history, *range);
             // dbg!(&branch);
         }
-        check_frontier(&self.branch, &self.history);
+        check_frontier(&self.branch, self.history);
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());
         let input_span = input_entry.span;
@@ -243,12 +239,12 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
         // self.to_process.push(next_idx);
         self.push_children(next_txn.child_indexes.as_slice());
 
-        return Some(TxnWalkItem {
+        Some(TxnWalkItem {
             retreat: only_branch,
             advance_rev: only_txn,
             parents,
             consume: input_span,
-        });
+        })
     }
 }
 
@@ -258,13 +254,15 @@ impl History {
     /// we simply traverse the txns in the order they're in right now, we can have pathological
     /// behaviour in the presence of multiple interleaved branches. (Eg if you're streaming from two
     /// peers concurrently editing different branches).
+    #[allow(unused)] // Used by testing at least.
     pub(crate) fn txn_spanning_tree_iter(&self) -> OptimizedTxnsIter {
         OptimizedTxnsIter::new_all(self)
     }
 
-    pub(crate) fn known_conflicting_txns_iter(&self, conflict: ConflictZone) -> OptimizedTxnsIter {
-        OptimizedTxnsIter::new(self, &conflict.spans, conflict.common_ancestor)
-    }
+    // Works, but unused.
+    // pub(crate) fn known_conflicting_txns_iter(&self, conflict: ConflictZone) -> OptimizedTxnsIter {
+    //     OptimizedTxnsIter::new(self, &conflict.spans, conflict.common_ancestor)
+    // }
 
     // Works, but unused.
     // pub(crate) fn conflicting_txns_iter(&self, a: &[Time], b: &[Time]) -> OptimizedTxnsIter {
@@ -277,6 +275,7 @@ impl History {
 mod test {
     use smallvec::smallvec;
     use crate::list::history::HistoryEntry;
+    use crate::list::history_tools::ConflictZone;
     use super::*;
 
     #[test]

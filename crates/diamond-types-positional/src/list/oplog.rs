@@ -1,17 +1,14 @@
-use std::mem::replace;
-use smallvec::{smallvec, SmallVec};
+use smallvec::smallvec;
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::list::{ClientData, Frontier, OpSet, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::HistoryEntry;
-use crate::list::operation::InsDelTag::*;
 use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 use crate::remotespan::*;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
-use crate::unicount::count_chars;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> usize {
@@ -20,18 +17,24 @@ impl ClientData {
         } else { 0 }
     }
 
-    pub fn seq_to_time(&self, seq: usize) -> Time {
-        let (entry, offset) = self.item_orders.find_with_offset(seq).unwrap();
-        entry.1.start + offset
-    }
+    // pub fn seq_to_time(&self, seq: usize) -> Time {
+    //     let (entry, offset) = self.item_orders.find_with_offset(seq).unwrap();
+    //     entry.1.start + offset
+    // }
 
-    /// Note the returned timespan might be shorter than seq_range.
-    pub fn seq_to_time_span(&self, seq_range: TimeSpan) -> TimeSpan {
-        let (entry, offset) = self.item_orders.find_with_offset(seq_range.start).unwrap();
+    // /// Note the returned timespan might be shorter than seq_range.
+    // pub fn seq_to_time_span(&self, seq_range: TimeSpan) -> TimeSpan {
+    //     let (entry, offset) = self.item_orders.find_with_offset(seq_range.start).unwrap();
+    //
+    //     let start = entry.1.start + offset;
+    //     let end = usize::min(entry.1.end, start + seq_range.len());
+    //     TimeSpan { start, end }
+    // }
+}
 
-        let start = entry.1.start + offset;
-        let end = usize::min(entry.1.end, start + seq_range.len());
-        TimeSpan { start, end }
+impl Default for OpSet {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -97,10 +100,10 @@ impl OpSet {
         }
     }
 
-    pub(crate) fn get_time(&self, loc: CRDTId) -> usize {
-        if loc.agent == ROOT_AGENT { ROOT_TIME }
-        else { self.client_data[loc.agent as usize].seq_to_time(loc.seq) }
-    }
+    // pub(crate) fn get_time(&self, loc: CRDTId) -> usize {
+    //     if loc.agent == ROOT_AGENT { ROOT_TIME }
+    //     else { self.client_data[loc.agent as usize].seq_to_time(loc.seq) }
+    // }
 
     // pub(crate) fn get_time_span(&self, loc: CRDTId, max_len: u32) -> OrderSpan {
     //     assert_ne!(loc.agent, ROOT_AGENT);
@@ -112,6 +115,10 @@ impl OpSet {
         if let Some(last) = self.client_with_localtime.last() {
             last.end()
         } else { 0 }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.client_with_localtime.is_empty()
     }
 
     pub(crate) fn assign_time_to_client(&mut self, loc: CRDTId, time_start: usize, len: usize) {
@@ -196,7 +203,7 @@ impl OpSet {
         let txn = HistoryEntry {
             span: range,
             shadow,
-            parents: txn_parents.into_iter().copied().collect(),
+            parents: txn_parents.iter().copied().collect(),
             parent_indexes,
             child_indexes: smallvec![]
         };

@@ -19,12 +19,14 @@ pub struct History {
 }
 
 impl History {
+    #[allow(unused)]
     pub fn new() -> Self {
         Self::default()
     }
 
     // This is mostly for testing.
-    pub fn from_entries(entries: &[HistoryEntry]) -> Self {
+    #[allow(unused)]
+    pub(crate) fn from_entries(entries: &[HistoryEntry]) -> Self {
         History {
             entries: RleVec(entries.to_vec()),
             root_child_indexes: entries.iter().enumerate().filter_map(|(i, entry)| {
@@ -35,6 +37,7 @@ impl History {
         }
     }
 
+    #[allow(unused)]
     pub fn get_next_time(&self) -> usize {
         if let Some(last) = self.entries.last() {
             last.span.end

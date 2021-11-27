@@ -8,11 +8,10 @@ use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
 use crate::list::operation::Operation;
-use crate::list::history::{History, HistoryEntry};
+use crate::list::history::History;
 use crate::localtime::TimeSpan;
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
-use crate::ROOT_TIME;
 
 pub mod operation;
 mod history;
@@ -21,7 +20,10 @@ mod check;
 mod history_tools;
 mod frontier;
 mod op_iter;
-mod m1;
+
+// m1 is still wip.
+// mod m1;
+
 mod m2;
 mod oplog;
 mod branch;

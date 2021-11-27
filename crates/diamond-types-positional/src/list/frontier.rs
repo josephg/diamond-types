@@ -1,7 +1,6 @@
 use crate::list::{Frontier, Time};
-use crate::list::history::{History, HistoryEntry};
+use crate::list::history::History;
 use crate::localtime::TimeSpan;
-use crate::rle::RleVec;
 use crate::ROOT_TIME;
 
 pub(crate) fn advance_frontier_by(frontier: &mut Frontier, history: &History, mut range: TimeSpan) {
@@ -29,7 +28,7 @@ pub(crate) fn retreat_frontier_by(frontier: &mut Frontier, history: &History, mu
         let txn = &history.entries[txn_idx];
         // debug_assert_eq!(txn_idx, history.entries.find_index(range.last()).unwrap());
         debug_assert_eq!(txn, history.entries.find(last_order).unwrap());
-        let mut idx = frontier.iter().position(|&e| e == last_order).unwrap();
+        // let mut idx = frontier.iter().position(|&e| e == last_order).unwrap();
 
         if frontier.len() == 1 {
             // Fast case. Just replace frontier's contents with parents.
@@ -66,7 +65,7 @@ pub(crate) fn retreat_frontier_by(frontier: &mut Frontier, history: &History, mu
         range.end = txn.span.start;
         txn_idx -= 1;
     }
-    if cfg!(debug_assertions) { check_frontier(&frontier, history); }
+    if cfg!(debug_assertions) { check_frontier(frontier, history); }
     debug_assert_frontier_sorted(frontier.as_slice());
 }
 
@@ -149,6 +148,7 @@ pub fn frontier_eq(a: &[Time], b: &[Time]) -> bool {
     // })
 }
 
+#[allow(unused)]
 pub fn frontier_is_root(branch: &[Time]) -> bool {
     branch.len() == 1 && branch[0] == ROOT_TIME
 }
@@ -158,6 +158,7 @@ mod test {
     use smallvec::smallvec;
 
     use crate::list::Frontier;
+    use crate::list::history::HistoryEntry;
     use crate::ROOT_TIME;
 
     use super::*;

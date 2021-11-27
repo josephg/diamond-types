@@ -1,16 +1,13 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-
-use smallvec::{SmallVec, smallvec};
-
+use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
-use crate::list::{Frontier, ListCRDT, OpSet, Time};
-use crate::list::frontier::{frontier_is_root, frontier_is_sorted};
-use crate::list::history::{History, HistoryEntry};
+use crate::list::{Frontier, OpSet, Time};
+use crate::list::frontier::frontier_is_sorted;
+use crate::list::history::History;
 use crate::list::history_tools::Flag::{OnlyA, OnlyB, Shared};
 use crate::localtime::TimeSpan;
-use crate::rle::RleVec;
 use crate::ROOT_TIME;
 
 // use smartstring::alias::{String as SmartString};
@@ -253,7 +250,7 @@ impl History {
         // dbg!(a, b);
 
         // Sorted highest to lowest (so we get the highest item first).
-        #[derive(Debug, Ord, PartialEq, Eq, Clone)]
+        #[derive(Debug, PartialEq, Eq, Clone)]
         struct TimePoint {
             last: Time,
             // For merges this is the highest time.
@@ -261,17 +258,23 @@ impl History {
             merged_with: SmallVec<[Time; 1]>, // Always sorted. Usually empty.
         }
 
-        impl PartialOrd for TimePoint {
+        impl Ord for TimePoint {
             #[inline(always)]
-            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            fn cmp(&self, other: &Self) -> Ordering {
                 // wrapping_add(1) converts ROOT into 0 for proper comparisons.
                 // TODO: Consider pulling this out
                 let ord = self.last.wrapping_add(1).cmp(&other.last.wrapping_add(1));
 
                 // All merges should come before all single items, and sort all merges.
-                Some(if ord == Ordering::Equal {
+                if ord == Ordering::Equal {
                     other.merged_with.is_empty().cmp(&self.merged_with.is_empty())
-                } else { ord })
+                } else { ord }
+            }
+        }
+
+        impl PartialOrd for TimePoint {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
             }
         }
 
@@ -284,7 +287,7 @@ impl History {
         impl From<&[Time]> for TimePoint {
             fn from(frontier: &[Time]) -> Self {
                 debug_assert!(frontier_is_sorted(frontier));
-                assert!(frontier.len() >= 1);
+                assert!(!frontier.is_empty());
 
                 let mut result = Self {
                     // Bleh.
@@ -352,7 +355,7 @@ impl History {
 
             // Consume all other changes within this txn.
             loop {
-                if let Some((peek_time, peek_flag)) = queue.peek() {
+                if let Some((peek_time, _peek_flag)) = queue.peek() {
                     // println!("peek {:?}", &peek_time);
                     // Might be simpler to use containing_txn.contains(peek_time.last).
                     if peek_time.last != ROOT_TIME && peek_time.last >= containing_txn.span.start {
@@ -451,6 +454,8 @@ pub struct ConflictZone {
 }
 
 impl History {
+    // Turns out I'm not finding this variant useful. Might be worth discarding it?
+    #[allow(unused)]
     pub(crate) fn find_conflicting_simple(&self, a: &[Time], b: &[Time]) -> ConflictZone {
         let mut spans = smallvec![];
         let common_ancestor = self.find_conflicting(a, b, |span, _flag| {
@@ -477,7 +482,7 @@ impl OpSet {
 #[cfg(test)]
 pub mod test {
     use std::ops::Range;
-    use smallvec::{smallvec, SmallVec};
+    use smallvec::smallvec;
     use rle::{AppendRle, MergableSpan};
 
     use crate::list::{Frontier, Time};

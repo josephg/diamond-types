@@ -1,5 +1,5 @@
 use std::pin::Pin;
-use content_tree::{ContentTreeRaw, ContentTreeWithIndex, FullMetricsU32, null_notify};
+use content_tree::{ContentTreeWithIndex, FullMetricsU32, null_notify};
 use rle::HasLength;
 use crate::{AgentId, ROOT_TIME};
 use crate::list::{ListCRDT, Time};
@@ -82,8 +82,6 @@ impl ListCRDT {
 
 #[cfg(test)]
 mod tests {
-    use smallvec::smallvec;
-
     use crate::list::ListCRDT;
     use crate::list::operation::{Operation};
 

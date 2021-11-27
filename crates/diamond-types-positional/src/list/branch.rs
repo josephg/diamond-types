@@ -6,8 +6,7 @@ use rle::HasLength;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
-use crate::{AgentId, ROOT_TIME};
-use crate::unicount::consume_chars;
+use crate::ROOT_TIME;
 
 impl Branch {
     pub fn new() -> Self {
@@ -43,11 +42,9 @@ impl Branch {
     }
 
     /// Apply a set of operations. Does not update frontier.
+    #[allow(unused)]
     pub(crate) fn apply(&mut self, ops: &[Operation]) {
         for c in ops {
-            // let content = if c.tag == Ins && c.content_known {
-            //     consume_chars(&mut content, c.len())
-            // } else { "" };
             self.apply_1(c);
         }
     }
@@ -71,5 +68,11 @@ impl Branch {
         let mut s = SmartString::new();
         s.extend(self.content.slice_chars(pos..pos+del_span));
         Operation::new_delete_with_content(pos, s)
+    }
+}
+
+impl Default for Branch {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -189,7 +189,7 @@ pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: Time) {
         start @ (UNDERWATER_START..=ROOT_TIME) => {
             fmt.field(name, &Underwater(start - UNDERWATER_START));
         },
-        start @ _ => {
+        start => {
             fmt.field(name, &start);
         }
     }

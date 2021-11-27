@@ -1,11 +1,6 @@
 use std::ops::Range;
-use content_tree::UnsafeCursor;
 use rle::{HasLength, MergableSpan, SplitableSpan};
-use crate::list::m2::M2Tracker;
-use crate::list::operation::InsDelTag;
-use crate::list::Time;
 use crate::localtime::TimeSpan;
-use crate::rle::KVPair;
 
 /// This is a TimeSpan which can be either a forwards range (1,2,3) or backwards (3,2,1), depending
 /// on what is most efficient.
@@ -23,13 +18,16 @@ pub struct TimeSpanRev {
 }
 
 impl TimeSpanRev {
-    pub fn offset_at_time(&self, time: Time) -> usize {
-        if self.reversed {
-            self.span.end - time - 1
-        } else {
-            time - self.span.start
-        }
-    }
+    // Works, but unused.
+    // pub fn offset_at_time(&self, time: Time) -> usize {
+    //     if self.reversed {
+    //         self.span.end - time - 1
+    //     } else {
+    //         time - self.span.start
+    //     }
+    // }
+
+    #[allow(unused)]
     pub fn time_at_offset(&self, offset: usize) -> usize {
         if self.reversed {
             self.span.end - offset - 1
@@ -162,7 +160,7 @@ mod test {
 
     #[test]
     fn split_fwd_rev() {
-        let mut fwd = TimeSpanRev {
+        let fwd = TimeSpanRev {
             span: (1..4).into(),
             reversed: false
         };
@@ -177,7 +175,7 @@ mod test {
             }
         ));
 
-        let mut rev = TimeSpanRev {
+        let rev = TimeSpanRev {
             span: (1..4).into(),
             reversed: true
         };

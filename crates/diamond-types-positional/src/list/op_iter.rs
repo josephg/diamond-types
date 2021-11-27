@@ -1,5 +1,5 @@
 use rle::{HasLength, SplitableSpan};
-use crate::list::{ListCRDT, OpSet, Time};
+use crate::list::OpSet;
 use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleVec};
@@ -37,7 +37,7 @@ impl<'a> Iterator for OpIter<'a> {
 impl<'a> OpIter<'a> {
     fn new(list: &'a RleVec<KVPair<Operation>>, range: TimeSpan) -> Self {
         OpIter {
-            list: &list,
+            list,
             idx: list.find_index(range.start).unwrap(),
             range
         }
@@ -68,13 +68,13 @@ mod test {
         ops.push(KVPair(0, Operation {
             pos: 100,
             len: 10,
-            rev: false, content_known: true, tag: Ins,
+            reversed: false, content_known: true, tag: Ins,
             content: "abcdeabcde".into()
         }));
         ops.push(KVPair(10, Operation {
             pos: 200,
             len: 20,
-            rev: false, content_known: false, tag: Del,
+            reversed: false, content_known: false, tag: Del,
             content: Default::default()
         }));
 
@@ -83,7 +83,7 @@ mod test {
         assert_eq!(OpIter::new(&ops, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, Operation {
             pos: 101,
             len: 4,
-            rev: false, content_known: true, tag: Ins,
+            reversed: false, content_known: true, tag: Ins,
             content: "bcde".into()
         })]);
 
@@ -91,13 +91,13 @@ mod test {
             KVPair(6, Operation {
                 pos: 106,
                 len: 4,
-                rev: false, content_known: true, tag: Ins,
+                reversed: false, content_known: true, tag: Ins,
                 content: "bcde".into()
             }),
             KVPair(10, Operation {
                 pos: 200,
                 len: 6,
-                rev: false, content_known: false, tag: Del,
+                reversed: false, content_known: false, tag: Del,
                 content: Default::default()
             }),
         ]);
