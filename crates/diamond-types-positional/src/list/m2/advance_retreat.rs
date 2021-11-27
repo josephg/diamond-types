@@ -36,10 +36,10 @@ impl M2Tracker {
                     let mut cursor = ContentTreeRaw::cursor_before_item(target_start, ptr);
                     ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
                         if tag == InsDelTag::Ins {
-                            println!("Re-inserting {:?}", e.id);
+                            // println!("Re-inserting {:?}", e.id);
                             e.state.mark_inserted();
                         } else {
-                            println!("Re-deleting {:?}", e.id);
+                            // println!("Re-deleting {:?}", e.id);
                             e.delete();
                         }
                     }, &mut cursor, len_remaining, notify_for(&mut self.index)).0

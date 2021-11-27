@@ -92,7 +92,8 @@ impl M2Tracker {
         let mut walker = OptimizedTxnsIter::new(&opset.history, rev_spans, ancestor);
         // let mut walker = opset.history.known_conflicting_txns_iter(conflict);
         while let Some(walk) = walker.next() {
-            // dbg!(&walk.consume);
+            // let walk = walk; // Work around intellij bug.
+            // dbg!(&walk);
 
             for range in walk.retreat {
                 tracker.retreat_by_range(range);
@@ -345,10 +346,13 @@ impl M2Tracker {
                 // 3. Use the integrate() method to actually insert - since we need to handle local
                 // conflicts.
 
+                // UNDERWATER_START = 4611686018427387903
+
                 let (origin_left, mut cursor) = if op.pos == 0 {
                     (ROOT_TIME, self.range_tree.mut_cursor_at_start())
                 } else {
-                    let mut cursor = self.range_tree.mut_cursor_at_content_pos((op.pos - 1) as usize, false);
+                    let mut cursor = self.range_tree.mut_cursor_at_content_pos(op.pos - 1, false);
+                    // dbg!(&cursor, cursor.get_raw_entry());
                     let origin_left = cursor.get_item().unwrap();
                     assert!(cursor.next_item());
                     (origin_left, cursor)
@@ -394,7 +398,7 @@ impl M2Tracker {
                 // act(result);
                 if let Some(to) = to {
                     // dbg!(&self.range_tree);
-                    println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
+                    // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                     assert!(op.content_known); // Ok if this is false - we'll just fill with junk.
                     assert!(ins_pos <= to.content.len_chars());
                     to.content.insert(ins_pos, &op.content);
@@ -407,7 +411,15 @@ impl M2Tracker {
                 let mut remaining_len = op.len;
 
                 let mut pos = op.pos;
-                let mut next_time = *time;
+                // let mut next_time = *time;
+
+                // This is needed because we're walking through the operation's span forwards
+                // (because thats simpler). But if the delete is reversed, we need to record the
+                // output time values in reverse order too.
+                let mut resulting_time = TimeSpanRev {
+                    span: (*time..*time + op.len).into(),
+                    rev: op.rev
+                };
 
                 // It would be tempting - and *nearly* correct to just use local_delete inside the
                 // range tree. Its hard to bake that logic in here though. We need to:
@@ -427,8 +439,8 @@ impl M2Tracker {
 
                     let (mut_len, target) = unsafe {
                         ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
-                            // dbg!(&e);
-                            println!("Delete {:?}", e.id);
+                            // println!("Delete {:?}", e.id);
+
                             // This will set the state to deleted, and mark ever_deleted in the
                             // entry.
                             e.delete();
@@ -463,61 +475,26 @@ impl M2Tracker {
 
                             // dbg!((&op, del_start, mut_len));
                             debug_assert!(to.content.len_chars() >= del_end);
-                            println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
+                            // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
                             to.content.remove(del_start..del_end);
                         } else {
-                            println!("Ignoring double delete of length {}", mut_len);
-
+                            // println!("Ignoring double delete of length {}", mut_len);
                         }
                     }
 
-                    pad_index_to(&mut self.index, next_time);
-                    self.index.replace_range_at_offset(next_time, MarkerEntry {
-                        len: target.len(),
+                    let time_here = resulting_time.truncate_keeping_right(mut_len);
+                    // pad_index_to(&mut self.index, next_time);
+                    self.index.replace_range_at_offset(time_here.span.start, MarkerEntry {
+                        len: mut_len,
                         ptr: None,
                         delete_info: Some(TimeSpanRev {
                             span: target,
-                            rev: op.rev
+                            rev: time_here.rev
                         })
                     });
 
                     remaining_len -= mut_len;
-                    next_time += mut_len;
                 }
-
-                // let deleted_items = self.range_tree.local_deactivate_at_content_notify(op.pos, op.len, notify_for(&mut self.index));
-
-                // dbg!(&deleted_items);
-                // let mut next_time = *time;
-                // let mut del_end = del_start;
-                //
-                // for item in deleted_items {
-                //     pad_index_to(&mut self.index, next_time);
-                //     self.index.replace_range_at_offset(next_time, MarkerEntry {
-                //         len: item.len(),
-                //         ptr: None,
-                //         delete_info: Some(TimeSpanRev {
-                //             span: item.id,
-                //             rev: op.rev
-                //         })
-                //     });
-                //     // self.deletes.push(KVPair(next_time, TimeSpanRev {
-                //     //     span: item.id,
-                //     //     rev: op.rev
-                //     // }));
-                //     next_time += item.len();
-                //
-                //     if !item.ever_deleted {
-                //         del_end += item.len();
-                //     } // Otherwise its a double-delete and the content is already deleted.
-                // }
-                //
-                // if del_end > del_start {
-                //     if let Some(to) = to {
-                //         println!("Delete {}..{} (len {}) '{}'", del_start, del_end, del_end - del_start, to.content.slice_chars(del_start..del_end).collect::<String>());
-                //         to.content.remove(del_start..del_end);
-                //     }
-                // }
             }
         }
 
@@ -526,6 +503,8 @@ impl M2Tracker {
         }
     }
 }
+
+const MAKE_GRAPHS: bool = false;
 
 impl Branch {
     /// Add everything in merge_frontier into the set.
@@ -578,9 +557,12 @@ impl Branch {
 
         let s1 = merge_frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
         let s2 = self.frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
-        let filename = format!("m{}_to_{}.svg", s1, s2);
-        opset.make_graph(&filename, dbg_all_ops.iter().copied());
-        println!("Saved graph to {}", filename);
+
+        if MAKE_GRAPHS {
+            let filename = format!("../../svgs/m{}_to_{}.svg", s1, s2);
+            opset.make_graph(&filename, dbg_all_ops.iter().copied());
+            println!("Saved graph to {}", filename);
+        }
 
         // dbg!(&opset.history);
         // dbg!((&new_ops, &conflict_ops, &common_ancestor));
@@ -602,7 +584,7 @@ impl Branch {
                     if can_ff {
                         let mut span = new_ops.pop().unwrap();
                         let remainder = span.trim(txn.span.end - span.start);
-                        println!("FF {:?}", &span);
+                        // println!("FF {:?}", &span);
                         self.apply_range_from(opset, span);
                         conflict_ops.push(span);
                         self.frontier = smallvec![span.last()];
@@ -636,7 +618,7 @@ impl Branch {
 
         // dbg!((&self.frontier, &, merge_frontier));
         let (mut tracker, branch) = M2Tracker::new_at(opset, common_ancestor.clone(), &conflict_ops);
-        if verbose { dbg!(&branch, &tracker); }
+        // if verbose { dbg!(&branch, &tracker); }
         // dbg!(&self.content);
 
         // Now walk through and merge the new edits.
@@ -646,7 +628,8 @@ impl Branch {
         while let Some(walk) = walker.next() {
             // TODO: This is basically the code at new_at. Unify.
             tracker.check_index();
-            // if verbose { dbg!(&walk); }
+            if verbose { dbg!(&walk); }
+            // dbg!(&walk);
             for range in walk.retreat {
                 tracker.retreat_by_range(range);
             }
@@ -655,7 +638,7 @@ impl Branch {
                 tracker.advance_by_range(range);
             }
 
-            // if verbose { dbg!(&tracker); }
+            if verbose { dbg!(&tracker.range_tree); }
             // dbg!(&tracker);
 
             debug_assert!(!walk.consume.is_empty());
@@ -663,11 +646,13 @@ impl Branch {
             advance_frontier_by(&mut self.frontier, &opset.history, walk.consume);
             tracker.apply_range(opset, walk.consume, Some(self));
 
-            if verbose { dbg!(&tracker, &self); }
+            // if verbose { dbg!(&tracker, &self); }
             // dbg!(&tracker);
 
             // dbg!(&self);
         }
+
+        if verbose { dbg!(&tracker.range_tree); }
     }
 }
 

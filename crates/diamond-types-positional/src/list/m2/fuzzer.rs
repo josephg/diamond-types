@@ -74,7 +74,7 @@ fn random_single_document() {
     doc.check(true);
 }
 
-fn merge_fuzz(seed: u64) {
+fn merge_fuzz(seed: u64, verbose: bool) {
     let mut rng = SmallRng::seed_from_u64(seed);
     let mut opset = OpSet::new();
     let mut branches = [Branch::new(), Branch::new(), Branch::new()];
@@ -86,7 +86,7 @@ fn merge_fuzz(seed: u64) {
     }
 
     for _i in 0..300 {
-        println!("\n\ni {}", _i);
+        if verbose { println!("\n\ni {}", _i); }
         // Generate some operations
         for _j in 0..2 {
         // for _j in 0..5 {
@@ -98,7 +98,7 @@ fn merge_fuzz(seed: u64) {
 
             branch.merge(&opset, &[v]);
             // make_random_change(doc, None, 0, &mut rng);
-            println!("branch {} content '{}'", idx, &branch.content);
+            // println!("branch {} content '{}'", idx, &branch.content);
         }
 
         // Then merge 2 branches at random
@@ -112,26 +112,32 @@ fn merge_fuzz(seed: u64) {
             let (start, end) = branches[..].split_at_mut(b_idx);
             let a = &mut start[a_idx];
             let b = &mut end[0];
-            println!("\n\n-----------");
-            println!("a content '{}'", a.content);
-            println!("b content '{}'", b.content);
-            println!("Merging a({}) {:?} and b({}) {:?}", a_idx, &a.frontier, b_idx, &b.frontier);
-            println!();
 
-            // dbg!(&a.text_content, &b.text_content);
-            // dbg!(&a.content_tree, &b.content_tree);
+            if verbose {
+                println!("\n\n-----------");
+                println!("a content '{}'", a.content);
+                println!("b content '{}'", b.content);
+                println!("Merging a({}) {:?} and b({}) {:?}", a_idx, &a.frontier, b_idx, &b.frontier);
+                println!();
+            }
+
+            // if _i == 253 {
+            //     dbg!(&opset.client_with_localtime);
+            // }
 
             // dbg!(&opset);
-            // println!("Merge b to a: {} -> {}", a_idx, b_idx);
-            println!("Merge b to a: {:?} -> {:?}", &b.frontier, &a.frontier);
-            a.merge2(&opset, &b.frontier, _i == 8);
-            // a.merge2(&opset, &b.frontier, _i == 16);
-            println!("-> a content '{}'", a.content);
-            println!("\n");
 
-            println!("Merge a to b: {:?} -> {:?}", &a.frontier, &b.frontier);
+            if verbose { println!("Merge b to a: {:?} -> {:?}", &b.frontier, &a.frontier); }
+            a.merge2(&opset, &b.frontier, false);
+            if verbose {
+                println!("-> a content '{}'\n", a.content);
+            }
+
+            if verbose { println!("Merge a to b: {:?} -> {:?}", &a.frontier, &b.frontier); }
             b.merge2(&opset, &a.frontier, false);
-            println!("-> b content '{}'", b.content);
+            if verbose {
+                println!("-> b content '{}'", b.content);
+            }
 
 
             // Our frontier should contain everything in the document.
@@ -145,7 +151,9 @@ fn merge_fuzz(seed: u64) {
                 dbg!(&b);
                 panic!("Documents do not match");
             } else {
-                println!("Merge {:?} -> '{}'", &a.frontier, a.content);
+                if verbose {
+                    println!("Merge {:?} -> '{}'", &a.frontier, a.content);
+                }
             }
         }
 
@@ -162,5 +170,17 @@ fn merge_fuzz(seed: u64) {
 #[test]
 #[ignore]
 fn fuzz_once() {
-    merge_fuzz(6);
+    merge_fuzz(2000 + 32106, true);
+}
+
+#[test]
+#[ignore]
+fn fuzz_many() {
+    for k in 0.. {
+        // println!("\n\n*** Iteration {} ***\n", k);
+        if k % 1000 == 0 {
+            println!("Iteration {}", k);
+        }
+        merge_fuzz(1000000 + k, false);
+    }
 }
