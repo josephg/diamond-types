@@ -581,7 +581,7 @@ impl Branch {
                 if let Some(span) = new_ops.last() {
                     let txn = opset.history.entries.find_packed(span.start);
                     let can_ff = txn.with_parents(span.start, |parents| {
-                        self.frontier == txn.parents
+                        self.frontier.as_slice() == parents
                     });
 
                     if can_ff {
