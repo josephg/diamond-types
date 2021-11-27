@@ -422,7 +422,7 @@ impl M2Tracker {
                 // output time values in reverse order too.
                 let mut resulting_time = TimeSpanRev {
                     span: (*time..*time + op.len).into(),
-                    rev: op.rev
+                    reversed: op.rev
                 };
 
                 // It would be tempting - and *nearly* correct to just use local_delete inside the
@@ -492,7 +492,7 @@ impl M2Tracker {
                         len: mut_len,
                         inner: DelTarget(TimeSpanRev {
                             span: target,
-                            rev: time_here.rev
+                            reversed: time_here.reversed
                         })
                     });
 

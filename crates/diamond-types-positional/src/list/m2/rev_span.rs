@@ -16,21 +16,22 @@ use crate::rle::KVPair;
 pub struct TimeSpanRev {
     /// The inner span.
     pub span: TimeSpan,
+
     /// If target is `1..4` then we either reference `1,2,3` (rev=false) or `3,2,1` (rev=true).
     /// TODO: Consider swapping this, and making it a fwd variable (default true).
-    pub rev: bool,
+    pub reversed: bool,
 }
 
 impl TimeSpanRev {
     pub fn offset_at_time(&self, time: Time) -> usize {
-        if self.rev {
+        if self.reversed {
             self.span.end - time - 1
         } else {
             time - self.span.start
         }
     }
     pub fn time_at_offset(&self, offset: usize) -> usize {
-        if self.rev {
+        if self.reversed {
             self.span.end - offset - 1
         } else {
             self.span.start + offset
@@ -49,7 +50,7 @@ impl TimeSpanRev {
         debug_assert!(self.span.start + offset_start <= self.span.end);
         debug_assert!(self.span.start + offset_end <= self.span.end);
 
-        if self.rev {
+        if self.reversed {
             TimeSpan {
                 start: self.span.end - offset_end,
                 end: self.span.end - offset_start
@@ -68,7 +69,7 @@ impl From<TimeSpan> for TimeSpanRev {
     fn from(target: TimeSpan) -> Self {
         TimeSpanRev {
             span: target,
-            rev: false,
+            reversed: false,
         }
     }
 }
@@ -76,7 +77,7 @@ impl From<Range<usize>> for TimeSpanRev {
     fn from(range: Range<usize>) -> Self {
         TimeSpanRev {
             span: range.into(),
-            rev: false,
+            reversed: false,
         }
     }
 }
@@ -84,7 +85,7 @@ impl From<Range<usize>> for TimeSpanRev {
 impl PartialEq for TimeSpanRev {
     fn eq(&self, other: &Self) -> bool {
         // Custom eq because if the two deletes have length 1, we don't care about rev.
-        self.span == other.span && (self.rev == other.rev || self.span.len() <= 1)
+        self.span == other.span && (self.reversed == other.reversed || self.span.len() <= 1)
     }
 }
 
@@ -95,12 +96,12 @@ impl HasLength for TimeSpanRev {
 impl SplitableSpan for TimeSpanRev {
     fn truncate(&mut self, at: usize) -> Self {
         TimeSpanRev {
-            span: if self.rev {
+            span: if self.reversed {
                 self.span.truncate_keeping_right(self.len() - at)
             } else {
                 self.span.truncate(at)
             },
-            rev: self.rev,
+            reversed: self.reversed,
         }
     }
 }
@@ -110,13 +111,13 @@ impl MergableSpan for TimeSpanRev {
         // Can we append forward?
         let self_len_1 = self.len() == 1;
         let other_len_1 = other.len() == 1;
-        if (self_len_1 || self.rev == false) && (other_len_1 || other.rev == false)
+        if (self_len_1 || !self.reversed) && (other_len_1 || !other.reversed)
             && other.span.start == self.span.end {
             return true;
         }
 
         // Can we append backwards?
-        if (self_len_1 || self.rev == true) && (other_len_1 || other.rev == true)
+        if (self_len_1 || self.reversed) && (other_len_1 || other.reversed)
             && other.span.end == self.span.start {
             return true;
         }
@@ -125,9 +126,9 @@ impl MergableSpan for TimeSpanRev {
     }
 
     fn append(&mut self, other: Self) {
-        self.rev = other.span.start < self.span.start;
+        self.reversed = other.span.start < self.span.start;
 
-        if self.rev {
+        if self.reversed {
             self.span.start = other.span.start;
         } else {
             self.span.end = other.span.end;
@@ -163,31 +164,31 @@ mod test {
     fn split_fwd_rev() {
         let mut fwd = TimeSpanRev {
             span: (1..4).into(),
-            rev: false
+            reversed: false
         };
         assert_eq!(fwd.split(1), (
             TimeSpanRev {
                 span: (1..2).into(),
-                rev: false
+                reversed: false
             },
             TimeSpanRev {
                 span: (2..4).into(),
-                rev: false
+                reversed: false
             }
         ));
 
         let mut rev = TimeSpanRev {
             span: (1..4).into(),
-            rev: true
+            reversed: true
         };
         assert_eq!(rev.split(1), (
             TimeSpanRev {
                 span: (3..4).into(),
-                rev: true
+                reversed: true
             },
             TimeSpanRev {
                 span: (1..3).into(),
-                rev: true
+                reversed: true
             }
         ));
     }
@@ -196,12 +197,12 @@ mod test {
     fn splitable_mergable() {
         test_splitable_methods_valid(TimeSpanRev {
             span: (1..5).into(),
-            rev: false
+            reversed: false
         });
 
         test_splitable_methods_valid(TimeSpanRev {
             span: (1..5).into(),
-            rev: true
+            reversed: true
         });
     }
 
@@ -210,7 +211,7 @@ mod test {
         for rev in [true, false] {
             let span = TimeSpanRev {
                 span: (1..5).into(),
-                rev
+                reversed: rev
             };
 
             for offset in 1..span.len() {
