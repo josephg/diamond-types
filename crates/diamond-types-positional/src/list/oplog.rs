@@ -249,7 +249,9 @@ impl OpSet {
         self.push(agent, parents, &[Operation::new_delete(pos, del_span)])
     }
 
-    pub fn inefficient_get_branch(&self) -> Frontier {
+    pub fn get_frontier_inefficiently(&self) -> Frontier {
+        // Could improve this by just looking at the last txn, and following shadows down.
+
         let mut b = smallvec![ROOT_TIME];
         for txn in self.history.entries.iter() {
             advance_frontier_by_known_run(&mut b, txn.parents.as_slice(), txn.span);

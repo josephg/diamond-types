@@ -28,7 +28,7 @@ impl Checkout {
     #[wasm_bindgen]
     pub fn all(opset: &OpSet) -> Self {
         let mut result = Self::new();
-        result.0.merge(&opset.inner, &opset.inner.inefficient_get_branch());
+        result.0.merge(&opset.inner, &opset.inner.get_frontier_inefficiently());
         result
     }
 
@@ -77,7 +77,7 @@ impl OpSet {
     #[wasm_bindgen(js_name = ins)]
     pub fn push_insert(&mut self, pos: usize, content: &str, parents_in: Option<Box<[isize]>>) -> usize {
         let parents = parents_in.map_or_else(|| {
-            self.inner.inefficient_get_branch()
+            self.inner.get_frontier_inefficiently()
         }, |p| map_parents(&p));
         self.inner.push_insert(self.agent_id, &parents, pos, content)
     }
@@ -85,7 +85,7 @@ impl OpSet {
     #[wasm_bindgen(js_name = del)]
     pub fn push_delete(&mut self, pos: usize, len: usize, parents_in: Option<Box<[isize]>>) -> usize {
         let parents = parents_in.map_or_else(|| {
-            self.inner.inefficient_get_branch()
+            self.inner.get_frontier_inefficiently()
         }, |p| map_parents(&p));
         self.inner.push_delete(self.agent_id, &parents, pos, len)
     }
@@ -108,7 +108,7 @@ impl OpSet {
 
     #[wasm_bindgen(js_name = getBranch)]
     pub fn get_branch(&self) -> Box<[Time]> {
-        self.inner.inefficient_get_branch().iter().copied().collect::<Box<[Time]>>()
+        self.inner.get_frontier_inefficiently().iter().copied().collect::<Box<[Time]>>()
     }
 }
 
