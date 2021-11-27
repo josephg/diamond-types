@@ -13,8 +13,12 @@ use crate::{AgentId, ROOT_TIME};
 use crate::list::frontier::{advance_frontier_by, frontier_eq, frontier_is_sorted};
 use crate::list::history_tools::Flag;
 use crate::list::m2::rev_span::TimeSpanRev;
+
+#[cfg(feature = "dot_export")]
 use crate::list::m2::dot::{DotColor, name_of};
+#[cfg(feature = "dot_export")]
 use crate::list::m2::dot::DotColor::*;
+
 use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
@@ -483,7 +487,8 @@ impl M2Tracker {
     }
 }
 
-const MAKE_GRAPHS: bool = false;
+#[cfg(feature = "dot_export")]
+const MAKE_GRAPHS: bool = true;
 
 impl Branch {
     /// Add everything in merge_frontier into the set.
@@ -510,6 +515,7 @@ impl Branch {
         let mut new_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
         let mut conflict_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
 
+        #[cfg(feature = "dot_export")]
         let mut dbg_all_ops: SmallVec<[(TimeSpan, DotColor); 4]> = smallvec![];
 
         let mut common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
@@ -522,22 +528,25 @@ impl Branch {
             };
             target.push_reversed_rle(span);
 
+            #[cfg(feature = "dot_export")]
             if MAKE_GRAPHS {
                 let color = match flag {
                     Flag::OnlyA => Blue,
                     Flag::OnlyB => Green,
-                    Flag::Shared => Black,
+                    Flag::Shared => Grey,
                 };
                 dbg_all_ops.push((span, color));
             }
         });
 
+        #[cfg(feature = "dot_export")]
         if MAKE_GRAPHS {
             let s1 = merge_frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
             let s2 = self.frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
 
             let filename = format!("../../svgs/m{}_to_{}.svg", s1, s2);
-            opset.make_graph(&filename, dbg_all_ops.iter().copied());
+            let content = self.content.to_string();
+            opset.make_graph(&filename, &content, dbg_all_ops.iter().copied());
             println!("Saved graph to {}", filename);
         }
 

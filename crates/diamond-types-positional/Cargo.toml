@@ -31,6 +31,7 @@ crdt-testdata = { path = "../crdt-testdata" }
 memusage = []
 inlinerope = []
 serde = ["serde_crate", "smallvec/serde", "smartstring/serde"]
+dot_export = []
 
 [lib]
 bench = false

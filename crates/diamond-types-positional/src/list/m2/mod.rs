@@ -25,6 +25,7 @@ mod metrics;
 mod rev_span;
 #[cfg(test)]
 mod fuzzer;
+#[cfg(feature = "dot_export")]
 mod dot;
 
 type DocRangeIndex = MarkerMetrics;

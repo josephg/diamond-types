@@ -15,14 +15,30 @@ pub fn name_of(time: Time) -> String {
 
 #[derive(Debug, Clone, Copy)]
 pub enum DotColor {
-    Red, Green, Blue, Black
+    Red, Green, Blue, Grey, Black
+}
+
+impl ToString for DotColor {
+    fn to_string(&self) -> String {
+        match self {
+            DotColor::Red => "red".into(),
+            DotColor::Green => "\"#98ea79\"".into(),
+            DotColor::Blue => "\"#84a7e8\"".into(),
+            DotColor::Grey => "\"#eeeeee\"".into(),
+            DotColor::Black => "black".into(),
+        }
+    }
 }
 
 impl OpSet {
-    pub fn make_graph<I: Iterator<Item=(TimeSpan, DotColor)>>(&self, filename: &str, iter: I) {
+    pub fn make_graph<I: Iterator<Item=(TimeSpan, DotColor)>>(&self, filename: &str, _starting_content: &str, iter: I) {
         let mut out = String::new();
-        out.write_str("strict digraph {\n").unwrap();
-        out.write_str("rankdir=\"BT\"\n").unwrap();
+        out.push_str("strict digraph {\n");
+        out.push_str("\trankdir=\"BT\"\n");
+        // out.write_fmt(format_args!("\tlabel=<Starting string:<b>'{}'</b>>\n", starting_content));
+        out.push_str("\tlabelloc=\"t\"\n");
+        out.push_str("\tnode [shape=box style=filled]\n");
+        out.push_str("\tedge [color=\"#333333\" dir=back]\n");
 
         for (span, color) in iter {
             for time in span.iter() {
@@ -38,20 +54,32 @@ impl OpSet {
 
                 // let label = if op.tag == Ins {
                 let label = if op.content_known {
-                    format!("{}: {:?} {} '{}'", time, op.tag, op.pos, &op.content)
+                    // <b>72</b><br align="left"/>  Del 7 <s>'n'</s>
+                    format!("<b>{}</b><br align=\"left\"/>{:?} {} '{}'", time, op.tag, op.pos, &op.content)
+                    // format!("{}: {:?} {} '{}'", time, op.tag, op.pos, &op.content)
                 } else {
                     format!("{}: {:?} {}", time, op.tag, op.pos)
                 };
-                out.write_fmt(format_args!("{} [color={:?} label=\"{}\"]\n", name, color, label)).unwrap();
+                out.write_fmt(format_args!("\t{} [fillcolor={} label=<{}>]\n", name, color.to_string(), label)).unwrap();
+
                 txn.with_parents(time, |parents| {
-                    for p in parents {
-                        out.write_fmt(format_args!("{} -> {}\n", name, name_of(*p))).unwrap();
+                    // let color = if parents.len() == 1 { DotColor::Black } else { DotColor::Blue };
+
+                    if parents.len() == 1 {
+                        out.write_fmt(format_args!("\t{} -> {} [arrowtail=none]\n", name, name_of(parents[0]))).unwrap();
+                    } else {
+                        for p in parents {
+                            out.write_fmt(format_args!("\t{} -> {} [color=\"#6b2828\" arrowtail=diamond]\n", name, name_of(*p))).unwrap();
+                            // out.write_fmt(format_args!("\t{} -> {} [color=\"#6b2828\" arrowtail=ediamond penwidth=1.5]\n", name, name_of(*p))).unwrap();
+                        }
                     }
+
+
                 });
             }
         }
 
-        out.write_str("}\n").unwrap();
+        out.push_str("}\n");
 
         let mut f = File::create("out.dot").unwrap();
         f.write_all(out.as_bytes()).unwrap();
@@ -88,6 +116,6 @@ mod test {
         ops.push_insert(1, &[ROOT_TIME], 0, "b");
         ops.push_delete(0, &[0, 1], 0, 2);
 
-        ops.make_graph("test.svg", [((0..ops.len()).into(), Red)].iter().copied());
+        ops.make_graph("test.svg", "asdf", [((0..ops.len()).into(), Red)].iter().copied());
     }
 }
