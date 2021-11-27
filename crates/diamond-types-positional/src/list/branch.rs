@@ -56,11 +56,7 @@ impl Branch {
     }
 
     pub fn merge(&mut self, ops: &OpSet, merge_frontier: &[Time]) {
-        self.merge_changes_m2(ops, merge_frontier, false);
-    }
-
-    pub fn merge2(&mut self, ops: &OpSet, merge_frontier: &[Time], verbose: bool) {
-        self.merge_changes_m2(ops, merge_frontier, verbose);
+        self.merge_changes_m2(ops, merge_frontier);
     }
 
     pub fn make_delete_op(&self, pos: usize, del_span: usize) -> Operation {

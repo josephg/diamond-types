@@ -53,7 +53,7 @@ pub(crate) struct OptimizedTxnsIter<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
     history: &'a History,
 
-    branch: Frontier,
+    frontier: Frontier,
 
     // TODO: Remove this. Use markers on txns or something instead.
     // consumed: BitBox,
@@ -91,11 +91,11 @@ impl<'a> OptimizedTxnsIter<'a> {
     }
 
     /// If starting_branch is not specified, the iterator starts at conflict.common_branch.
-    pub(crate) fn new(history: &'a History, rev_spans: &[TimeSpan], branch: Frontier) -> Self {
-
+    pub(crate) fn new(history: &'a History, rev_spans: &[TimeSpan], start_at: Frontier) -> Self {
         if cfg!(debug_assertions) {
             check_rev_sorted(rev_spans);
         }
+
         let mut input = smallvec![];
         let mut to_process = smallvec![];
 
@@ -141,7 +141,7 @@ impl<'a> OptimizedTxnsIter<'a> {
 
         Self {
             history,
-            branch,
+            frontier: start_at,
             input,
             to_process,
             num_consumed: 0,
@@ -159,8 +159,8 @@ impl<'a> OptimizedTxnsIter<'a> {
         }
     }
 
-    pub fn into_branch(self) -> Frontier {
-        self.branch
+    pub fn into_frontier(self) -> Frontier {
+        self.frontier
     }
 }
 
@@ -196,47 +196,43 @@ impl<'a> Iterator for OptimizedTxnsIter<'a> {
         let input_entry = &mut self.input[next_idx];
         let next_txn = &self.history.entries[input_entry.txn_idx];
 
-        // let (only_branch, only_txn) = if let Some(p) = next_txn.parent_at_time(input_entry.span.start) {
-        //     self.history.diff(&self.branch, &[p])
-        // } else {
-        //     self.history.diff(&self.branch, &next_txn.parents)
-        // };
-
         let parents = if let Some(p) = next_txn.parent_at_time(input_entry.span.start) {
             smallvec![p]
         } else {
             next_txn.parents.clone()
         };
 
-        // dbg!(&self.branch, &next_txn.parents);
-        let (only_branch, only_txn) = self.history.diff(&self.branch, &parents);
-        // let (only_branch, only_txn) = self.history.diff(&self.branch, &next_txn.parents);
-        // dbg!((&branch, &next_txn.parents, &only_branch, &only_txn));
+        let (only_branch, only_txn) = self.history.diff(&self.frontier, &parents);
+
         // Note that even if we're moving to one of our direct children we might see items only
         // in only_branch if the child has a parent in the middle of our txn.
         for range in &only_branch {
             // println!("Retreat branch {:?} by {:?}", &self.branch, range);
-            retreat_frontier_by(&mut self.branch, self.history, *range);
+            retreat_frontier_by(&mut self.frontier, self.history, *range);
             // println!(" -> {:?}", &self.branch);
             // dbg!(&branch);
         }
-        check_frontier(&self.branch, self.history);
+
+        if cfg!(debug_assertions) {
+            check_frontier(&self.frontier, self.history);
+        }
+
         for range in only_txn.iter().rev() {
             // println!("Advance branch by {:?}", range);
-            advance_frontier_by(&mut self.branch, self.history, *range);
+            advance_frontier_by(&mut self.frontier, self.history, *range);
             // dbg!(&branch);
         }
-        check_frontier(&self.branch, self.history);
+
+        if cfg!(debug_assertions) {
+            check_frontier(&self.frontier, self.history);
+        }
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());
         let input_span = input_entry.span;
-        // advance_branch_by_known(&mut self.branch, &next_txn.parents, input_span);
-        advance_frontier_by_known_run(&mut self.branch, &parents, input_span);
-        // dbg!(&branch);
-        // self.consumed.set(next_idx, true);
+        advance_frontier_by_known_run(&mut self.frontier, &parents, input_span);
+
         input_entry.visited = true;
         self.num_consumed += 1;
-        // self.to_process.push(next_idx);
         self.push_children(next_txn.child_indexes.as_slice());
 
         Some(TxnWalkItem {

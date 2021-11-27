@@ -3,16 +3,21 @@ use crate::list::history::History;
 use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
 
+/// Advance a frontier by the set of time spans in range
 pub(crate) fn advance_frontier_by(frontier: &mut Frontier, history: &History, mut range: TimeSpan) {
     let mut txn_idx = history.entries.find_index(range.start).unwrap();
     while !range.is_empty() {
         let txn = &history.entries[txn_idx];
+        debug_assert!(txn.contains(range.start));
+
         let end = txn.span.end.min(range.end);
         txn.with_parents(range.start, |parents| {
             advance_frontier_by_known_run(frontier, parents, (range.start..end).into());
         });
 
         range.start = end;
+        // The txns are in order, so we're guaranteed that subsequent ranges will be in subsequent
+        // txns in the list.
         txn_idx += 1;
     }
 }

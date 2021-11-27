@@ -127,13 +127,13 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             // dbg!(&opset);
 
             if verbose { println!("Merge b to a: {:?} -> {:?}", &b.frontier, &a.frontier); }
-            a.merge2(&opset, &b.frontier, false);
+            a.merge(&opset, &b.frontier);
             if verbose {
                 println!("-> a content '{}'\n", a.content);
             }
 
             if verbose { println!("Merge a to b: {:?} -> {:?}", &a.frontier, &b.frontier); }
-            b.merge2(&opset, &a.frontier, false);
+            b.merge(&opset, &a.frontier);
             if verbose {
                 println!("-> b content '{}'", b.content);
             }
@@ -164,6 +164,12 @@ fn merge_fuzz(seed: u64, verbose: bool) {
     // for doc in &branches {
     //     doc.check(true);
     // }
+}
+
+// Included in standard smoke tests.
+#[test]
+fn fuzz_once_quietly() {
+    merge_fuzz(0, false);
 }
 
 #[test]

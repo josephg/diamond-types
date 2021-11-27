@@ -36,20 +36,12 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
 }
 
 pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
-    // |_entry: YjsSpan2, _leaf| {}
     move |entry: YjsSpan2, leaf| {
         let start = entry.id.start;
         let len = entry.len();
 
-        // let index_len = index.len() as usize;
-        // if start > index_len {
-        //     // Insert extra dummy data to cover deletes.
-        //     len += start - index_len;
-        //     start = index_len;
-        // }
-
-        // TODO: Swap for a more efficient approach here in release mode.
-        pad_index_to(index, start);
+        // Note we can only mutate_entries when we have something to mutate. The list is started
+        // with a big placeholder "underwater" entry which will be split up as needed.
 
         let mut cursor = index.unsafe_cursor_at_offset_pos(start, false);
         unsafe {
@@ -60,10 +52,6 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull
                 marker.inner = InsPtr(leaf);
             }, &mut cursor, len, null_notify);
         }
-
-        // index.replace_range_at_offset(start, MarkerEntry {
-        //     ptr: Some(leaf), len
-        // });
     }
 }
 
@@ -79,34 +67,7 @@ impl M2Tracker {
         Self {
             range_tree,
             index,
-            // deletes: Default::default()
         }
-    }
-
-    pub(crate) fn new_at(opset: &OpSet, ancestor: Frontier, rev_spans: &[TimeSpan]) -> (Self, Frontier) {
-        let mut tracker = Self::new();
-
-        // dbg!(branch_a, branch_b);
-        let mut walker = OptimizedTxnsIter::new(&opset.history, rev_spans, ancestor);
-        // let mut walker = opset.history.known_conflicting_txns_iter(conflict);
-
-        for walk in &mut walker {
-            // dbg!(&walk);
-            for range in walk.retreat {
-                tracker.retreat_by_range(range);
-            }
-
-            for range in walk.advance_rev.into_iter().rev() {
-                tracker.advance_by_range(range);
-            }
-
-            debug_assert!(!walk.consume.is_empty());
-            tracker.apply_range(opset, walk.consume, None);
-        }
-
-        let branch = walker.into_branch();
-
-        (tracker, branch)
     }
 
     pub(super) fn marker_at(&self, time: Time) -> NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
@@ -496,6 +457,30 @@ impl M2Tracker {
             self.check_index();
         }
     }
+
+    /// Walk through a set of spans, adding them to this tracker.
+    ///
+    /// Returns the tracker's frontier after this has happened; which will be at some pretty
+    /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
+    fn walk(&mut self, opset: &OpSet, start_at: Frontier, rev_spans: &[TimeSpan], mut apply_to: Option<&mut Branch>) -> Frontier {
+        let mut walker = OptimizedTxnsIter::new(&opset.history, rev_spans, start_at);
+
+        for walk in &mut walker {
+            // dbg!(&walk);
+            for range in walk.retreat {
+                self.retreat_by_range(range);
+            }
+
+            for range in walk.advance_rev.into_iter().rev() {
+                self.advance_by_range(range);
+            }
+
+            debug_assert!(!walk.consume.is_empty());
+            self.apply_range(opset, walk.consume, apply_to.as_deref_mut());
+        }
+
+        walker.into_frontier()
+    }
 }
 
 const MAKE_GRAPHS: bool = false;
@@ -504,21 +489,13 @@ impl Branch {
     /// Add everything in merge_frontier into the set.
     ///
     /// Reexposed as merge_changes.
-    pub(crate) fn merge_changes_m2(&mut self, opset: &OpSet, merge_frontier: &[Time], verbose: bool) {
+    pub(crate) fn merge_changes_m2(&mut self, opset: &OpSet, merge_frontier: &[Time]) {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
         // 2. Generate the conflict set, and make a tracker for it (by iterating all the conflicting
         //    changes).
         // 3. Use OptTxnIter to iterate through the (new) merge set, merging along the way.
-
-        // if cfg!(debug_assertions) {
-        //     let (a, b) = opset.history.diff(&self.frontier, merge_frontier);
-        //     // We can't go backwards (yet).
-        //     assert!(a.is_empty());
-        // }
-
-        if verbose { dbg!((&self.frontier, merge_frontier)); }
 
         debug_assert!(frontier_is_sorted(merge_frontier));
         debug_assert!(frontier_is_sorted(&self.frontier));
@@ -528,12 +505,16 @@ impl Branch {
         // First lets see what we've got. I'll divide the conflicting range into two groups:
         // - The new operations we need to merge
         // - The conflict set. Ie, stuff we need to build a tracker around.
+        //
+        // Both of these lists are in reverse time order(!).
         let mut new_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
         let mut conflict_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
 
         let mut dbg_all_ops: SmallVec<[(TimeSpan, DotColor); 4]> = smallvec![];
 
         let mut common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
+            // Note we'll be visiting these operations in reverse order.
+
             // dbg!(&span, flag);
             let target = match flag {
                 Flag::OnlyB => &mut new_ops,
@@ -541,18 +522,20 @@ impl Branch {
             };
             target.push_reversed_rle(span);
 
-            let color = match flag {
-                Flag::OnlyA => Blue,
-                Flag::OnlyB => Green,
-                Flag::Shared => Black,
-            };
-            dbg_all_ops.push((span, color));
+            if MAKE_GRAPHS {
+                let color = match flag {
+                    Flag::OnlyA => Blue,
+                    Flag::OnlyB => Green,
+                    Flag::Shared => Black,
+                };
+                dbg_all_ops.push((span, color));
+            }
         });
 
-        let s1 = merge_frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
-        let s2 = self.frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
-
         if MAKE_GRAPHS {
+            let s1 = merge_frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
+            let s2 = self.frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
+
             let filename = format!("../../svgs/m{}_to_{}.svg", s1, s2);
             opset.make_graph(&filename, dbg_all_ops.iter().copied());
             println!("Saved graph to {}", filename);
@@ -603,6 +586,8 @@ impl Branch {
         if did_ff {
             // Since we ate some of the ops fast-forwarding, reset conflict_ops and common_ancestor
             // so we don't scan unnecessarily.
+            //
+            // We don't need to reset new_ops because that was updated above.
             conflict_ops.clear();
             common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
                 if flag != Flag::OnlyB {
@@ -613,43 +598,19 @@ impl Branch {
 
         // TODO: Also FF at the end!
 
-        // dbg!((&self.frontier, &, merge_frontier));
-        let (mut tracker, branch) = M2Tracker::new_at(opset, common_ancestor, &conflict_ops);
-        // if verbose { dbg!(&branch, &tracker); }
-        // dbg!(&self.content);
+        // For conflicting operations, we'll make a tracker starting at the common_ancestor and
+        // containing the conflicting_ops set. (Which is everything that is either common, or only
+        // in this branch).
+        let mut tracker = M2Tracker::new();
+        let frontier = tracker.walk(opset, common_ancestor, &conflict_ops, None);
 
-        // Now walk through and merge the new edits.
-        // dbg!(&conflict_ops, (&common_ancestor, &new_ops, &branch));
-        let mut walker = OptimizedTxnsIter::new(&opset.history, &new_ops, branch);
-        // dbg!(&walker);
-        for walk in &mut walker {
-            // TODO: This is basically the code at new_at. Unify.
-            tracker.check_index();
-            if verbose { dbg!(&walk); }
-            // dbg!(&walk);
-            for range in walk.retreat {
-                tracker.retreat_by_range(range);
-            }
+        // Then walk through and merge any new edits.
+        tracker.walk(&opset, frontier, &new_ops, Some(self));
 
-            for range in walk.advance_rev.into_iter().rev() {
-                tracker.advance_by_range(range);
-            }
-
-            if verbose { dbg!(&tracker.range_tree); }
-            // dbg!(&tracker);
-
-            debug_assert!(!walk.consume.is_empty());
-            // TODO: Add txn to walk, so we can use advance_branch_by_known.
-            advance_frontier_by(&mut self.frontier, &opset.history, walk.consume);
-            tracker.apply_range(opset, walk.consume, Some(self));
-
-            // if verbose { dbg!(&tracker, &self); }
-            // dbg!(&tracker);
-
-            // dbg!(&self);
+        // ... And update our frontier.
+        for range in new_ops.into_iter().rev() {
+            advance_frontier_by(&mut self.frontier, &opset.history, range);
         }
-
-        if verbose { dbg!(&tracker.range_tree); }
     }
 }
 
