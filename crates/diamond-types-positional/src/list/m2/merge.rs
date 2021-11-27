@@ -19,7 +19,8 @@ use crate::list::list::apply_local_operation;
 use crate::list::m2::rev_span::TimeSpanRev;
 use crate::list::m2::dot::{DotColor, name_of};
 use crate::list::m2::dot::DotColor::*;
-use crate::list::m2::markers::MarkerEntry;
+use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
+use crate::list::m2::markers::{Marker, MarkerEntry};
 use crate::list::m2::metrics::MarkerMetrics;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
 use crate::list::m2::yjsspan2::YjsSpanState::Inserted;
@@ -34,8 +35,7 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     if index_len < desired_len {
         index.push(MarkerEntry {
             len: desired_len - index_len,
-            ptr: None,
-            delete_info: None
+            inner: InsPtr(std::ptr::NonNull::dangling()),
         });
     }
 }
@@ -59,7 +59,10 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull
         let mut cursor = index.unsafe_cursor_at_offset_pos(start, false);
         unsafe {
             ContentTreeRaw::unsafe_mutate_entries_notify(|marker| {
-                marker.ptr = Some(leaf);
+                // The item should already be an insert entry.
+                debug_assert_eq!(marker.inner.tag(), Ins);
+
+                marker.inner = InsPtr(leaf);
             }, &mut cursor, len, null_notify);
         }
 
@@ -149,14 +152,15 @@ impl M2Tracker {
             //     ContentTreeRaw::cursor_before_item(time, entry.ptr.unwrap())
             // };
 
-            if let Some(mut target) = entry.delete_info {
-                // del.truncate_keeping_right(cursor.offset);
-                (Del, target, cursor.offset, None)
-            } else {
-                // For inserts, the target is simply the range of the item.
-                // let id = cursor.get_raw_entry().id;
-                let start = time - cursor.offset;
-                (Ins, (start..start+entry.len).into(), cursor.offset, entry.ptr)
+            match entry.inner {
+                InsPtr(ptr) => {
+                    // For inserts, the target is simply the range of the item.
+                    let start = time - cursor.offset;
+                    (Ins, (start..start+entry.len).into(), cursor.offset, Some(ptr))
+                }
+                DelTarget(mut target) => {
+                    (Del, target, cursor.offset, None)
+                }
             }
         }
     }
@@ -486,8 +490,7 @@ impl M2Tracker {
                     // pad_index_to(&mut self.index, next_time);
                     self.index.replace_range_at_offset(time_here.span.start, MarkerEntry {
                         len: mut_len,
-                        ptr: None,
-                        delete_info: Some(TimeSpanRev {
+                        inner: DelTarget(TimeSpanRev {
                             span: target,
                             rev: time_here.rev
                         })

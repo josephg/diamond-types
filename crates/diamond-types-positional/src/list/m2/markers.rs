@@ -8,26 +8,49 @@ use content_tree::ContentTraits;
 use rle::Searchable;
 use crate::list::m2::rev_span::TimeSpanRev;
 use crate::list::m2::DocRangeIndex;
+use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
 use crate::list::m2::yjsspan2::YjsSpan2;
-
-// use crate::common::IndexGet;
+use crate::list::operation::InsDelTag;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum Marker {
+    /// For inserts, we store a pointer to the leaf node containing the inserted item. This is only
+    /// used for inserts so we don't need to modify multiple entries when the inserted item is
+    /// moved.
+    InsPtr(NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>),
+
+    /// For deletes we name the delete's target. Note this contains redundant information - since
+    /// we already have a length field.
+    DelTarget(TimeSpanRev),
+}
+
+/// So this struct is a little weird. Its designed this way so I can reuse content-tree for two
+/// different structures:
+///
+/// - When we enable and disable inserts, we need a marker (index) into the b-tree node in the range
+///   tree containing that entry. This lets us find things in O(log n) time, which improves
+///   performance for large merges. (Though at a cost of extra bookkeeping overhead for small
+///   merges).
+/// - For deletes, we need to know the delete's target. Ie, which corresponding insert inserted the
+///   item which was deleted by this edit.
+///
+/// The cleanest implementation of this would store a TimeSpan for the ID of this edit instead of
+/// just storing a length field. And we'd use a variant of the content-tree which uses absolutely
+/// positioned items like a normal b-tree with RLE. But I don't have an implementation of that. So
+/// instead we end up with this slightly weird structure.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct MarkerEntry {
-    // TODO: Clean this mess up. Yikes! We only have either ptr or delete_info - replace with an enum.
-
-    // This is cleaner as a separate enum and struct, but doing it that way
-    // bumps it from 16 to 24 bytes per entry because of alignment.
     pub len: usize,
+    pub inner: Marker,
+}
 
-    /// This is the pointer to the leaf node containing the inserted item. For deletes, we do not
-    /// reuse this to store the pointer because when items are moved, we can't move the pointer too.
-    pub ptr: Option<NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>>,
-
-    // Could inline this. The reverse logic is complex though.
-    // Length is duplicated here during deletes for bad reasons.
-    // TODO: Clean this up.
-    pub delete_info: Option<TimeSpanRev>,
+impl Marker {
+    pub(super) fn tag(&self) -> InsDelTag {
+        match self {
+            Marker::InsPtr(_) => InsDelTag::Ins,
+            Marker::DelTarget(_) => InsDelTag::Del
+        }
+    }
 }
 
 impl HasLength for MarkerEntry {
@@ -36,11 +59,12 @@ impl HasLength for MarkerEntry {
     }
 }
 
-fn edit_mut<F: FnOnce(&mut G) -> R, G, R>(opt: &mut Option<G>, edit_fn: F) -> Option<R> {
-    if let Some(val) = opt {
-        Some(edit_fn(val))
-    } else {
-        None
+impl SplitableSpan for Marker {
+    fn truncate(&mut self, at: usize) -> Self {
+        match self {
+            InsPtr(_) => *self,
+            Marker::DelTarget(target) => DelTarget(target.truncate(at)),
+        }
     }
 }
 
@@ -50,48 +74,65 @@ impl SplitableSpan for MarkerEntry {
         self.len = at;
         MarkerEntry {
             len: remainder_len,
-            ptr: self.ptr,
-            delete_info: edit_mut(&mut self.delete_info, |d| d.truncate(at)),
+            inner: self.inner.truncate(at),
         }
     }
 
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
         let left = Self {
             len: at,
-            ptr: self.ptr,
-            delete_info: edit_mut(&mut self.delete_info, |d| d.truncate_keeping_right(at)),
+            inner: self.inner.truncate_keeping_right(at)
         };
         self.len -= at;
         left
     }
 }
 
-impl MergableSpan for MarkerEntry {
+impl MergableSpan for Marker {
     fn can_append(&self, other: &Self) -> bool {
-        self.ptr == other.ptr
-            && match (self.delete_info, other.delete_info) {
-            (None, None) => true,
-            (Some(a), Some(b)) => a.can_append(&b),
+        match (self, other) {
+            (InsPtr(ptr1), InsPtr(ptr2)) => {
+                ptr1 == ptr2
+            }
+            (DelTarget(t1), DelTarget(t2)) => t1.can_append(&t2),
             _ => false,
         }
     }
 
     fn append(&mut self, other: Self) {
-        self.len += other.len;
-        match (&mut self.delete_info, other.delete_info) {
-            (None, None) => {},
-            (Some(a), Some(b)) => a.append(b),
-            _ => panic!("Invalid append"),
+        match (self, other) {
+            (InsPtr(_), InsPtr(_)) => {},
+            (DelTarget(t1), DelTarget(t2)) => t1.append(t2),
+            _ => {
+                panic!("Internal consistency error: Invalid append");
+            },
         }
     }
 
     fn prepend(&mut self, other: Self) {
-        self.len += other.len;
-        match (&mut self.delete_info, other.delete_info) {
-            (None, None) => {},
-            (Some(a), Some(b)) => a.prepend(b),
-            _ => panic!("Invalid append"),
+        match (self, other) {
+            (InsPtr(_), InsPtr(_)) => {},
+            (DelTarget(t1), DelTarget(t2)) => t1.prepend(t2),
+            _ => {
+                panic!("Internal consistency error: Invalid prepend");
+            },
         }
+    }
+}
+
+impl MergableSpan for MarkerEntry {
+    fn can_append(&self, other: &Self) -> bool {
+        self.inner.can_append(&other.inner)
+    }
+
+    fn append(&mut self, other: Self) {
+        self.len += other.len;
+        self.inner.append(other.inner);
+    }
+
+    fn prepend(&mut self, other: Self) {
+        self.len += other.len;
+        self.inner.prepend(other.inner);
     }
 }
 
@@ -107,14 +148,21 @@ impl MergableSpan for MarkerEntry {
 
 impl Default for MarkerEntry {
     fn default() -> Self {
-        MarkerEntry {ptr: None, len: 0, delete_info: None }
+        MarkerEntry {
+            len: 0,
+            inner: InsPtr(std::ptr::NonNull::dangling()),
+        }
     }
 }
 
 
 impl MarkerEntry {
     pub fn unwrap_ptr(&self) -> NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
-        self.ptr.unwrap()
+        if let InsPtr(ptr) = self.inner {
+            ptr
+        } else {
+            panic!("Internal consistency error: Cannot unwrap delete");
+        }
     }
 }
 
@@ -126,40 +174,43 @@ impl Searchable for MarkerEntry {
     }
 
     fn at_offset(&self, _offset: usize) -> Self::Item {
-        self.ptr
+        if let InsPtr(ptr) = self.inner {
+            Some(ptr)
+        } else {
+            None
+        }
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use std::ptr::NonNull;
-//     use crate::list::Time;
-//
-//     #[test]
-//     fn test_sizes() {
-//         #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-//         pub enum MarkerOp {
-//             Ins(NonNull<usize>),
-//             Del(Time),
-//         }
-//
-//         #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-//         pub struct MarkerEntry1 {
-//             // The order / seq is implicit from the location in the list.
-//             pub len: u32,
-//             pub op: MarkerOp
-//         }
-//
-//         dbg!(std::mem::size_of::<MarkerEntry1>());
-//
-//         #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-//         pub enum MarkerEntry2 {
-//             Ins(u32, NonNull<usize>),
-//             Del(u32, Time, bool),
-//         }
-//         dbg!(std::mem::size_of::<MarkerEntry2>());
-//
-//         pub type MarkerEntry3 = (u64, Option<NonNull<usize>>);
-//         dbg!(std::mem::size_of::<MarkerEntry3>());
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use std::ptr::NonNull;
+    use rle::test_splitable_methods_valid;
+    use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
+    use crate::list::m2::markers::MarkerEntry;
+    use crate::list::m2::rev_span::TimeSpanRev;
+
+    #[test]
+    fn marker_split_merge() {
+        test_splitable_methods_valid(MarkerEntry {
+            len: 10,
+            inner: InsPtr(NonNull::dangling())
+        });
+
+        test_splitable_methods_valid(MarkerEntry {
+            len: 10,
+            inner: DelTarget(TimeSpanRev {
+                span: (0..10).into(),
+                rev: false
+            })
+        });
+
+        test_splitable_methods_valid(MarkerEntry {
+            len: 10,
+            inner: DelTarget(TimeSpanRev {
+                span: (0..10).into(),
+                rev: true
+            })
+        });
+    }
+}
