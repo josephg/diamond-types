@@ -181,7 +181,7 @@ impl ListCRDT {
         } else {
             let marker = self.marker_at(time);
             unsafe {
-                ContentTreeRaw::cursor_before_item(time, marker)
+                ContentTreeRaw::unsafe_cursor_before_item(time, marker)
             }
         }
     }
@@ -205,7 +205,7 @@ impl ListCRDT {
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
             // self.content_tree.
             let mut cursor = unsafe {
-                ContentTreeRaw::cursor_before_item(time, marker)
+                ContentTreeRaw::unsafe_cursor_before_item(time, marker)
             };
             // The cursor points to parent. This is safe because of guarantees provided by
             // cursor_before_item.

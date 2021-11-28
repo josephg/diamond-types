@@ -1,12 +1,20 @@
-use content_tree::{ContentLength, FindContent, FindOffset, Pair, TreeMetrics};
+use content_tree::{ContentLength, FindContent, Pair, TreeMetrics};
 use crate::list::m2::yjsspan2::YjsSpan2;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct MarkerMetrics;
 
-/// Item 0 is the current content length. This is returned to queries by content length,
-/// Item 1 is the upstream length. Ie, the length once everything has been applied. This is tagged
-/// as offset length, though the logic is sometimes a bit twisted.
+/// This is a helper trait to describe the indexes for YjsSpan items we're merging.
+///
+/// For each item we keep track of two values:
+///
+/// - The "current content length" - which is 1 for each item in the INSERTED state, and 0 for
+///   anything else. (This is field 0 in each internal pair)
+/// - The "upstream length". This is the length / position in the document we're merging into. This
+///   is 0 if the item has ever been deleted, or 1 otherwise. (Because anything we've merged must
+///   have been inserted at some point. (This is field 1).
+///
+/// The current length is tagged as "content length" to make cursor utility methods easier to use.
 impl TreeMetrics<YjsSpan2> for MarkerMetrics {
     type Update = Pair<isize>;
     type Value = Pair<usize>;
@@ -43,9 +51,8 @@ impl FindContent<YjsSpan2> for MarkerMetrics {
     }
 }
 
-// This is cheating a little to reuse a bunch of methods in ContentTree.
-impl FindOffset<YjsSpan2> for MarkerMetrics {
-    fn index_to_offset(offset: Self::Value) -> usize {
+impl MarkerMetrics {
+    pub(super) fn upstream_len(offset: <Self as TreeMetrics<YjsSpan2>>::Value) -> usize {
         offset.1
     }
 }

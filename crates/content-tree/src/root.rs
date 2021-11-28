@@ -416,10 +416,25 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
 
 impl<E: ContentTraits + Searchable, I: TreeMetrics<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     /// Returns a cursor right before the named location, referenced by the pointer.
-    pub unsafe fn cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> UnsafeCursor<E, I, IE, LE> {
+    #[inline]
+    pub unsafe fn unsafe_cursor_before_item(loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> UnsafeCursor<E, I, IE, LE> {
         // First make a cursor to the specified item
         let leaf = ptr.as_ref();
         leaf.find(loc).expect("Position not in named leaf")
+    }
+
+    pub fn cursor_before_item(&self, loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> Cursor<E, I, IE, LE> {
+        unsafe {
+            // Safe because &self is valid and the returned cursor is bound to the lifetime of &self
+            Cursor::unchecked_from_raw(self, Self::unsafe_cursor_before_item(loc, ptr))
+        }
+    }
+
+    pub fn mut_cursor_before_item<'a>(self: &'a mut Pin<Box<Self>>, loc: E::Item, ptr: NonNull<NodeLeaf<E, I, IE, LE>>) -> MutCursor<'a, E, I, IE, LE> {
+        unsafe {
+            // Safe because &self is valid and the returned cursor is bound to the lifetime of &self
+            MutCursor::unchecked_from_raw(self, Self::unsafe_cursor_before_item(loc, ptr))
+        }
     }
 }
 

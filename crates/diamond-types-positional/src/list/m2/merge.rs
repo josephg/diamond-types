@@ -21,6 +21,7 @@ use crate::list::m2::dot::DotColor::*;
 
 use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
 use crate::list::m2::markers::MarkerEntry;
+use crate::list::m2::metrics::MarkerMetrics;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
 use crate::list::operation::InsDelTag::{Del, Ins};
 
@@ -131,7 +132,7 @@ impl M2Tracker {
         } else {
             let marker = self.marker_at(time);
             unsafe {
-                ContentTreeRaw::cursor_before_item(time, marker)
+                ContentTreeRaw::unsafe_cursor_before_item(time, marker)
             }
         }
     }
@@ -140,16 +141,15 @@ impl M2Tracker {
         unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_before(time)) }
     }
 
-    pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+    // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+    pub(super) fn get_cursor_after(&self, time: Time, stick_end: bool) -> Cursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
         if time == ROOT_TIME {
-            self.range_tree.unsafe_cursor_at_start()
+            self.range_tree.cursor_at_start()
         } else {
             let marker = self.marker_at(time);
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
             // self.content_tree.
-            let mut cursor = unsafe {
-                ContentTreeRaw::cursor_before_item(time, marker)
-            };
+            let mut cursor = self.range_tree.cursor_before_item(time, marker);
             // The cursor points to parent. This is safe because of guarantees provided by
             // cursor_before_item.
             cursor.offset += 1;
@@ -158,8 +158,12 @@ impl M2Tracker {
         }
     }
 
+    /// An internal replacement for `cursor.unsafe_count_offset_pos()` which preserves the logic
+    /// for upstream queries better.
     unsafe fn upstream_cursor_pos(cursor: &UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
-        cursor.count_pos_raw(DocRangeIndex::index_to_offset, YjsSpan2::upstream_len, YjsSpan2::upstream_len_at)
+        cursor.count_pos_raw(MarkerMetrics::upstream_len,
+                             YjsSpan2::upstream_len,
+                             YjsSpan2::upstream_len_at)
     }
 
     pub(super) fn integrate(&mut self, opset: &OpSet, agent: AgentId, item: YjsSpan2, mut cursor: UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
@@ -187,12 +191,12 @@ impl M2Tracker {
             // anyway.
 
             let other_entry = *cursor.get_raw_entry();
-            // let other_order = other_entry.order + cursor.offset as u32;
-
+            // We can only be concurrent with other items which haven't been inserted yet at this
+            // point in time.
             debug_assert_eq!(other_entry.state, NOT_INSERTED_YET);
 
-            let other_left_order = other_entry.origin_left_at_offset(cursor.offset);
-            let other_left_cursor = self.get_unsafe_cursor_after(other_left_order, false);
+            let other_left_time = other_entry.origin_left_at_offset(cursor.offset);
+            let other_left_cursor = self.get_cursor_after(other_left_time, false);
 
             // YjsMod semantics
             match unsafe { other_left_cursor.unsafe_cmp(&left_cursor) } {
@@ -264,11 +268,10 @@ impl M2Tracker {
         }
 
         // Now insert here.
-        // let content_pos = unsafe { cursor.unsafe_count_offset_pos() };
         let content_pos = unsafe { Self::upstream_cursor_pos(&cursor) };
-        // dbg!(&cursor, content_pos);
-        // self.check_index();
-        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
+        let mut cursor = unsafe { MutCursor::unchecked_from_raw(&mut self.range_tree, cursor) };
+        cursor.insert_notify(item, notify_for(&mut self.index));
+        // unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
         // self.check_index();
         content_pos
     }

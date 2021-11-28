@@ -194,7 +194,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
     }
 
     pub unsafe fn unsafe_insert_notify<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_entry: E, mut notify: F)
-        where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
+    where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         let mut marker = I::Update::default();
         Self::insert_internal(&[new_entry], cursor, &mut marker, &mut notify);
 

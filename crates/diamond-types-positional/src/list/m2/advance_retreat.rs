@@ -31,7 +31,7 @@ impl M2Tracker {
                 let amt_modified = unsafe {
                     // We'll only get a pointer when we're inserting.
                     let ptr = ptr.unwrap_or_else(|| self.marker_at(target_start));
-                    let mut cursor = ContentTreeRaw::cursor_before_item(target_start, ptr);
+                    let mut cursor = ContentTreeRaw::unsafe_cursor_before_item(target_start, ptr);
                     ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
                         if tag == InsDelTag::Ins {
                             // println!("Re-inserting {:?}", e.id);
@@ -96,7 +96,7 @@ impl M2Tracker {
 
                     // TODO: We probably just fetched this pointer above. Reuse that!
                     let ptr = self.marker_at(next);
-                    let mut cursor = ContentTreeRaw::cursor_before_item(next, ptr);
+                    let mut cursor = ContentTreeRaw::unsafe_cursor_before_item(next, ptr);
                     // let mut cursor = ContentTreeRaw::cursor_before_item(next, ptr);
                     let amt_modified = ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
                         if tag == InsDelTag::Ins {
