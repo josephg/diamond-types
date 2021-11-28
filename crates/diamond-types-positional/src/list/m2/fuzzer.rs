@@ -160,10 +160,10 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             // Every little while, merge everything. This has 2 purposes:
             // 1. It stops the fuzzer being n^2. (Its really unfortunate we need this)
             // And 2. It makes sure n-way merging also works correctly.
-            let all_frontier = opset.get_frontier_inefficiently();
+            let all_frontier = opset.frontier.as_slice();
 
             for b in branches.iter_mut() {
-                b.merge(&opset, all_frontier.as_slice());
+                b.merge(&opset, all_frontier);
             }
             for w in branches.windows(2) {
                 assert_eq!(w[0].content, w[1].content);

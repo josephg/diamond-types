@@ -76,9 +76,6 @@ pub struct OpLog {
     // TODO: Replace me with a compact form of this data.
     operations: RleVec<KVPair<Operation>>,
 
-    // TODO: ?? Whats the best form for this data?
-    // inserted_content: String,
-
     /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
     /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
     /// remote changes.
@@ -87,6 +84,10 @@ pub struct OpLog {
     ///
     /// TODO: Consider renaming this field
     history: History,
+
+    /// This is the frontier of the entire oplog. So, if you merged every change we store into a
+    /// branch, this is the frontier of that branch.
+    frontier: Frontier,
 }
 
 /// This is the default (obvious) construction for a list.

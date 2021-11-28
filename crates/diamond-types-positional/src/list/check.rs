@@ -1,6 +1,7 @@
 use jumprope::JumpRope;
-use crate::list::{Branch, ListCRDT, OpLog};
+use crate::list::{Branch, Frontier, ListCRDT, OpLog};
 use smallvec::{SmallVec, smallvec};
+use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::History;
 use crate::ROOT_TIME;
 
@@ -19,8 +20,21 @@ impl Branch {
 }
 
 impl OpLog {
+    fn get_frontier_inefficiently(&self) -> Frontier {
+        // Could improve this by just looking at the last txn, and following shadows down.
+
+        let mut b = smallvec![ROOT_TIME];
+        for txn in self.history.entries.iter() {
+            advance_frontier_by_known_run(&mut b, txn.parents.as_slice(), txn.span);
+        }
+        b
+    }
+
     #[allow(unused)]
     pub fn check(&self, deep: bool) {
+        let actual_frontier = self.get_frontier_inefficiently();
+        assert_eq!(self.frontier, actual_frontier);
+
         if deep {
             self.history.check();
         }

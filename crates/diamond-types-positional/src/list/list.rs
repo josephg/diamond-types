@@ -10,6 +10,11 @@ use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::TimeSpan;
 use crate::remotespan::CRDTId;
 
+// pub fn apply_local_operation2(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) {
+//     oplog.push(agent, &branch.frontier, local_ops);
+//     branch.merge(oplog, &[oplog.len() - 1]);
+// }
+
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
 fn insert_history_local(opset: &mut OpLog, frontier: &mut Frontier, range: TimeSpan) {
     // Fast path for local edits. For some reason the code below is remarkably non-performant.
@@ -27,15 +32,15 @@ fn insert_history_local(opset: &mut OpLog, frontier: &mut Frontier, range: TimeS
     opset.insert_history(&txn_parents, range);
 }
 
-pub fn apply_local_operation(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) {
-    let first_time = opset.len();
+pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) {
+    let first_time = oplog.len();
     let mut next_time = first_time;
 
     let op_len = local_ops.iter().map(|c| c.len()).sum();
 
-    opset.assign_time_to_client(CRDTId {
+    oplog.assign_time_to_client(CRDTId {
         agent,
-        seq: opset.client_data[agent as usize].get_next_seq()
+        seq: oplog.client_data[agent as usize].get_next_seq()
     }, first_time, op_len);
 
     // for LocalOp { pos, ins_content, del_span } in local_ops {
@@ -55,14 +60,17 @@ pub fn apply_local_operation(opset: &mut OpLog, branch: &mut Branch, agent: Agen
             }
         }
 
-        opset.operations.push(KVPair(next_time, c.clone()));
+        oplog.operations.push(KVPair(next_time, c.clone()));
         next_time += len;
     }
 
-    insert_history_local(opset, &mut branch.frontier, TimeSpan {
+    let last_time = first_time + op_len;
+    insert_history_local(oplog, &mut branch.frontier, TimeSpan {
         start: first_time,
-        end: first_time + op_len
+        end: last_time
     });
+
+    oplog.frontier = smallvec![last_time - 1];
 }
 
 pub fn local_insert(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, ins_content: &str) {

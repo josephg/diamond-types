@@ -2,7 +2,7 @@ use smallvec::smallvec;
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{ClientData, Frontier, OpLog, Time};
+use crate::list::{ClientData, OpLog, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::HistoryEntry;
 use crate::list::operation::Operation;
@@ -45,7 +45,8 @@ impl OpLog {
             client_data: vec![],
             operations: Default::default(),
             // inserted_content: "".to_string(),
-            history: Default::default()
+            history: Default::default(),
+            frontier: smallvec![ROOT_TIME]
         }
     }
 
@@ -235,6 +236,13 @@ impl OpLog {
 
         self.insert_history(parents, TimeSpan { start: first_time, end: first_time + op_len });
 
+        if parents.len() == 1 && self.frontier.len() == 1 && parents[0] == self.frontier[0] {
+            // Short circuit the common case where time is just advancing linearly.
+            self.frontier[0] = next_time - 1;
+        } else {
+            advance_frontier_by_known_run(&mut self.frontier, parents, (first_time..next_time).into());
+        }
+
         next_time - 1
     }
 
@@ -248,17 +256,11 @@ impl OpLog {
         self.push(agent, parents, &[Operation::new_delete(pos, del_span)])
     }
 
-    pub fn get_frontier_inefficiently(&self) -> Frontier {
-        // Could improve this by just looking at the last txn, and following shadows down.
-
-        let mut b = smallvec![ROOT_TIME];
-        for txn in self.history.entries.iter() {
-            advance_frontier_by_known_run(&mut b, txn.parents.as_slice(), txn.span);
-        }
-        b
-    }
-
     pub fn iter_history(&self) -> impl Iterator<Item = &HistoryEntry> {
         self.history.entries.iter()
+    }
+
+    pub fn get_frontier(&self) -> &[Time] {
+        &self.frontier
     }
 }

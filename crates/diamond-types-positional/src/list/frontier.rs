@@ -128,6 +128,7 @@ pub(crate) fn advance_frontier_by_known_run(frontier: &mut Frontier, txn_parents
     // }
 
     if frontier.as_slice() == txn_parents {
+        // *frontier = smallvec![range.last()];
         frontier.truncate(1);
         frontier[0] = range.last();
         return;
