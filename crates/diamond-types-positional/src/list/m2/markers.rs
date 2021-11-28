@@ -11,6 +11,9 @@ use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
 use crate::list::m2::yjsspan2::YjsSpan2;
 use crate::list::operation::InsDelTag;
 
+// TODO: Consider refactoring this to be a single enum. Put len in InsPtr and use .len(). But this
+// might make the code way slower.
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Marker {
     /// For inserts, we store a pointer to the leaf node containing the inserted item. This is only

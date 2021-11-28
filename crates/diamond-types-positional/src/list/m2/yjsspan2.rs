@@ -45,13 +45,6 @@ impl Default for YjsSpanState {
 }
 
 impl YjsSpanState {
-    // pub(crate) fn is_deleted(&self) -> bool {
-    //     match self {
-    //         Deleted(_) => true,
-    //         _ => false
-    //     }
-    // }
-
     fn delete(&mut self) {
         match self {
             NotInsertedYet => panic!("Cannot deleted NIY item"),
@@ -111,11 +104,6 @@ impl YjsSpan2 {
         if offset == 0 { self.origin_left }
         else { self.id.start + offset - 1 }
     }
-
-    // pub fn clone_activated(mut self) -> Self {
-    //     self.len = self.len.abs();
-    //     self
-    // }
 
     pub fn new_underwater() -> Self {
         YjsSpan2 {

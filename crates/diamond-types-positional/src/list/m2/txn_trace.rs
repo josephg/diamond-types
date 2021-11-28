@@ -1,3 +1,17 @@
+/// This is a helper library for iterating through the time DAG (opset) in a depth-first order.
+/// This is better than naive local-time order because if operations are structured like this:
+///
+/// ```text
+///   1
+///  / \
+/// 2  |
+/// |  3
+/// 4  |
+/// |  5
+/// ...
+/// ```
+///
+/// Then traversal (and hence, merge) time complexity will be linear instead of quadratic.
 
 use smallvec::{SmallVec, smallvec};
 use crate::list::frontier::*;

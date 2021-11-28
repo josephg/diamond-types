@@ -1,3 +1,8 @@
+/// This file contains some helper code to create SVG images from time DAGs to show whats going on
+/// in a document.
+///
+/// It was mostly made as an aide to debugging. Compilation is behind a feature flag (dot_export)
+
 use std::fmt::{Write as _};
 use std::fs::File;
 use std::io::{Write as _};
