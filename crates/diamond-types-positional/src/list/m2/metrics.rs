@@ -1,4 +1,4 @@
-use content_tree::{ContentLength, FindContent, Pair, TreeMetrics};
+use content_tree::{ContentLength, Cursor, DEFAULT_IE, DEFAULT_LE, FindContent, Pair, TreeMetrics};
 use crate::list::m2::yjsspan2::YjsSpan2;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -55,4 +55,12 @@ impl MarkerMetrics {
     pub(super) fn upstream_len(offset: <Self as TreeMetrics<YjsSpan2>>::Value) -> usize {
         offset.1
     }
+}
+
+/// Get the upstream position of a cursor into a MarkerMetrics object. I'm not sure if this is the
+/// best place for this method, but it'll do.
+pub(super) fn upstream_cursor_pos(cursor: &Cursor<YjsSpan2, MarkerMetrics, DEFAULT_IE, DEFAULT_LE>) -> usize {
+    cursor.count_pos_raw(MarkerMetrics::upstream_len,
+                         YjsSpan2::upstream_len,
+                         YjsSpan2::upstream_len_at)
 }

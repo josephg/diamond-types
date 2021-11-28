@@ -21,9 +21,9 @@ use crate::list::m2::dot::DotColor::*;
 
 use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
 use crate::list::m2::markers::MarkerEntry;
-use crate::list::m2::metrics::MarkerMetrics;
+use crate::list::m2::metrics::upstream_cursor_pos;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
-use crate::list::operation::InsDelTag::{Del, Ins};
+use crate::list::operation::InsDelTag::Ins;
 
 const ALLOW_FF: bool = true;
 
@@ -61,7 +61,7 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull
 
 
 impl M2Tracker {
-    pub(crate) fn new() -> Self {
+    pub(super) fn new() -> Self {
         let mut range_tree = ContentTreeWithIndex::new();
         let mut index = ContentTreeWithIndex::new();
         let underwater = YjsSpan2::new_underwater();
@@ -91,41 +91,7 @@ impl M2Tracker {
         }
     }
 
-    /// Returns what happened here, target range, offset into range and a cursor into the range
-    /// tree.
-    ///
-    /// This should only be used with times we have advanced through.
-    ///
-    /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
-    pub(super) fn index_query(&self, time: usize) -> (InsDelTag, TimeSpanRev, usize, Option<NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>>) {
-        assert_ne!(time, ROOT_TIME); // Not sure what to do in this case.
-
-        let index_len = self.index.offset_len();
-        if time >= index_len {
-            panic!("Index query past the end");
-            // (Ins, (index_len..usize::MAX).into(), time - index_len, self.range_tree.unsafe_cursor_at_end())
-        } else {
-            let cursor = self.index.cursor_at_offset_pos(time, false);
-            let entry = cursor.get_raw_entry();
-
-            // let cursor = unsafe {
-            //     ContentTreeRaw::cursor_before_item(time, entry.ptr.unwrap())
-            // };
-
-            match entry.inner {
-                InsPtr(ptr) => {
-                    // For inserts, the target is simply the range of the item.
-                    let start = time - cursor.offset;
-                    (Ins, (start..start+entry.len).into(), cursor.offset, Some(ptr))
-                }
-                DelTarget(target) => {
-                    (Del, target, cursor.offset, None)
-                }
-            }
-        }
-    }
-
-    pub(crate) fn get_unsafe_cursor_before(&self, time: Time) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+    fn get_unsafe_cursor_before(&self, time: Time) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
         if time == ROOT_TIME {
             // Or maybe we should just abort?
             self.range_tree.unsafe_cursor_at_end()
@@ -137,12 +103,12 @@ impl M2Tracker {
         }
     }
 
-    pub(crate) fn get_cursor_before(&self, time: Time) -> Cursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+    fn get_cursor_before(&self, time: Time) -> Cursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
         unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_before(time)) }
     }
 
     // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
-    pub(super) fn get_cursor_after(&self, time: Time, stick_end: bool) -> Cursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+    fn get_cursor_after(&self, time: Time, stick_end: bool) -> Cursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
         if time == ROOT_TIME {
             self.range_tree.cursor_at_start()
         } else {
@@ -158,14 +124,7 @@ impl M2Tracker {
         }
     }
 
-    /// An internal replacement for `cursor.unsafe_count_offset_pos()` which preserves the logic
-    /// for upstream queries better.
-    unsafe fn upstream_cursor_pos(cursor: &UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
-        cursor.count_pos_raw(MarkerMetrics::upstream_len,
-                             YjsSpan2::upstream_len,
-                             YjsSpan2::upstream_len_at)
-    }
-
+    // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
     pub(super) fn integrate(&mut self, opset: &OpSet, agent: AgentId, item: YjsSpan2, mut cursor: UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
         assert!(item.len() > 0);
 
@@ -268,10 +227,13 @@ impl M2Tracker {
         }
 
         // Now insert here.
-        let content_pos = unsafe { Self::upstream_cursor_pos(&cursor) };
         let mut cursor = unsafe { MutCursor::unchecked_from_raw(&mut self.range_tree, cursor) };
-        cursor.insert_notify(item, notify_for(&mut self.index));
-        // unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
+        let content_pos = upstream_cursor_pos(&cursor);
+
+        // (Safe variant):
+        // cursor.insert_notify(item, notify_for(&mut self.index));
+
+        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
         // self.check_index();
         content_pos
     }
@@ -400,7 +362,7 @@ impl M2Tracker {
                     assert_eq!(e.state, INSERTED);
                     let ever_deleted = e.ever_deleted;
 
-                    let del_start_check = unsafe { Self::upstream_cursor_pos(&cursor.inner) };
+                    let del_start_check = upstream_cursor_pos(&cursor);
 
                     let (mut_len, target) = unsafe {
                         ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
@@ -428,7 +390,7 @@ impl M2Tracker {
 
                             // It seems this should be the position after the deleted entry, but the
                             // deleted item will have 0 upstream size.
-                            let del_start = unsafe { Self::upstream_cursor_pos(&cursor.inner) };
+                            let del_start = upstream_cursor_pos(&cursor);
                             debug_assert_eq!(del_start_check, del_start);
                             // dbg!(&self.range_tree);
                             // let del_start = del_end - mut_len;

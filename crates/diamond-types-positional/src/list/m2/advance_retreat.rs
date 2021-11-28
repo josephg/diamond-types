@@ -1,11 +1,47 @@
-use content_tree::ContentTreeRaw;
+use std::ptr::NonNull;
+use content_tree::{ContentTreeRaw, DEFAULT_IE, DEFAULT_LE, NodeLeaf};
 use rle::{HasLength, SplitableSpan};
-use crate::list::m2::M2Tracker;
+use crate::list::m2::{DocRangeIndex, M2Tracker};
+use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
 use crate::list::m2::merge::notify_for;
+use crate::list::m2::rev_span::TimeSpanRev;
+use crate::list::m2::yjsspan2::YjsSpan2;
 use crate::list::operation::InsDelTag;
+use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::localtime::TimeSpan;
+use crate::ROOT_TIME;
 
 impl M2Tracker {
+    /// Returns what happened here, target range, offset into range and a cursor into the range
+    /// tree.
+    ///
+    /// This should only be used with times we have advanced through.
+    ///
+    /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
+    fn index_query(&self, time: usize) -> (InsDelTag, TimeSpanRev, usize, Option<NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>>) {
+        assert_ne!(time, ROOT_TIME); // Not sure what to do in this case.
+
+        let index_len = self.index.offset_len();
+        if time >= index_len {
+            panic!("Index query past the end");
+            // (Ins, (index_len..usize::MAX).into(), time - index_len, self.range_tree.unsafe_cursor_at_end())
+        } else {
+            let cursor = self.index.cursor_at_offset_pos(time, false);
+            let entry = cursor.get_raw_entry();
+
+            match entry.inner {
+                InsPtr(ptr) => {
+                    // For inserts, the target is simply the range of the item.
+                    let start = time - cursor.offset;
+                    (Ins, (start..start+entry.len).into(), cursor.offset, Some(ptr))
+                }
+                DelTarget(target) => {
+                    (Del, target, cursor.offset, None)
+                }
+            }
+        }
+    }
+
     pub(crate) fn advance_by_range(&mut self, mut range: TimeSpan) {
         while !range.is_empty() {
             // Note the delete could be reversed - but we don't really care here; we just mark the
