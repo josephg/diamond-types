@@ -1,5 +1,5 @@
 use jumprope::JumpRope;
-use crate::list::{Branch, OpSet, Time};
+use crate::list::{Branch, OpLog, Time};
 use smallvec::smallvec;
 use smartstring::SmartString;
 use rle::HasLength;
@@ -49,13 +49,13 @@ impl Branch {
         }
     }
 
-    pub(crate) fn apply_range_from(&mut self, ops: &OpSet, range: TimeSpan) {
+    pub(crate) fn apply_range_from(&mut self, ops: &OpLog, range: TimeSpan) {
         for op in ops.iter_range(range) {
             self.apply_1(&op.1);
         }
     }
 
-    pub fn merge(&mut self, ops: &OpSet, merge_frontier: &[Time]) {
+    pub fn merge(&mut self, ops: &OpLog, merge_frontier: &[Time]) {
         self.merge_changes_m2(ops, merge_frontier);
     }
 

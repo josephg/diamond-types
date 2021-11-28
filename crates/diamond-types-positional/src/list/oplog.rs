@@ -2,7 +2,7 @@ use smallvec::smallvec;
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{ClientData, Frontier, OpSet, Time};
+use crate::list::{ClientData, Frontier, OpLog, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::HistoryEntry;
 use crate::list::operation::Operation;
@@ -32,13 +32,13 @@ impl ClientData {
     // }
 }
 
-impl Default for OpSet {
+impl Default for OpLog {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl OpSet {
+impl OpLog {
     pub fn new() -> Self {
         Self {
             client_with_localtime: RleVec::new(),
@@ -48,7 +48,6 @@ impl OpSet {
             history: Default::default()
         }
     }
-
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
         // Probably a nicer way to write this.

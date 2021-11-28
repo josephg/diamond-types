@@ -1,6 +1,6 @@
 use std::mem::replace;
 use humansize::{file_size_opts, FileSize};
-use crate::list::{Branch, Frontier, ListCRDT, OpSet};
+use crate::list::{Branch, Frontier, ListCRDT, OpLog};
 use crate::rle::KVPair;
 use smallvec::smallvec;
 use crate::AgentId;
@@ -11,7 +11,7 @@ use crate::localtime::TimeSpan;
 use crate::remotespan::CRDTId;
 
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
-fn insert_history_local(opset: &mut OpSet, frontier: &mut Frontier, range: TimeSpan) {
+fn insert_history_local(opset: &mut OpLog, frontier: &mut Frontier, range: TimeSpan) {
     // Fast path for local edits. For some reason the code below is remarkably non-performant.
     // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
     if frontier.len() == 1 && frontier[0] == range.start.wrapping_sub(1) {
@@ -27,7 +27,7 @@ fn insert_history_local(opset: &mut OpSet, frontier: &mut Frontier, range: TimeS
     opset.insert_history(&txn_parents, range);
 }
 
-pub fn apply_local_operation(opset: &mut OpSet, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) {
+pub fn apply_local_operation(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) {
     let first_time = opset.len();
     let mut next_time = first_time;
 
@@ -65,11 +65,11 @@ pub fn apply_local_operation(opset: &mut OpSet, branch: &mut Branch, agent: Agen
     });
 }
 
-pub fn local_insert(opset: &mut OpSet, branch: &mut Branch, agent: AgentId, pos: usize, ins_content: &str) {
+pub fn local_insert(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, ins_content: &str) {
     apply_local_operation(opset, branch, agent, &[Operation::new_insert(pos, ins_content)]);
 }
 
-pub fn local_delete(opset: &mut OpSet, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) {
+pub fn local_delete(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) {
     apply_local_operation(opset, branch, agent, &[Operation::new_delete(pos, del_span)]);
 }
 
@@ -83,7 +83,7 @@ impl ListCRDT {
     pub fn new() -> Self {
         Self {
             branch: Branch::new(),
-            ops: OpSet::new()
+            ops: OpLog::new()
         }
     }
 

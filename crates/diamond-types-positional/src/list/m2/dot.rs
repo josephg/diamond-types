@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io::{Write as _};
 use std::process::Command;
 use rle::SplitableSpan;
-use crate::list::{OpSet, Time};
+use crate::list::{OpLog, Time};
 use crate::localtime::TimeSpan;
 use crate::rle::KVPair;
 use crate::ROOT_TIME;
@@ -35,7 +35,7 @@ impl ToString for DotColor {
     }
 }
 
-impl OpSet {
+impl OpLog {
     pub fn make_graph<I: Iterator<Item=(TimeSpan, DotColor)>>(&self, filename: &str, _starting_content: &str, iter: I) {
         let mut out = String::new();
         out.push_str("strict digraph {\n");
@@ -109,12 +109,12 @@ impl OpSet {
 #[cfg(test)]
 mod test {
     use crate::list::m2::dot::DotColor::*;
-    use crate::list::OpSet;
+    use crate::list::OpLog;
     use crate::ROOT_TIME;
 
     #[test]
     fn foo() {
-        let mut ops = OpSet::new();
+        let mut ops = OpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
         ops.push_insert(0, &[ROOT_TIME], 0, "a");

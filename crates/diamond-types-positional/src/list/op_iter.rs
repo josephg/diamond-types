@@ -1,5 +1,5 @@
 use rle::{HasLength, SplitableSpan};
-use crate::list::OpSet;
+use crate::list::OpLog;
 use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleVec};
@@ -44,7 +44,7 @@ impl<'a> OpIter<'a> {
     }
 }
 
-impl OpSet {
+impl OpLog {
     pub fn iter_range(&self, range: TimeSpan) -> OpIter {
         OpIter::new(&self.operations, range)
     }

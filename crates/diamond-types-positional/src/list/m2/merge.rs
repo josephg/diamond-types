@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 use smallvec::{SmallVec, smallvec};
 use content_tree::*;
 use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
-use crate::list::{Frontier, Branch, OpSet, Time};
+use crate::list::{Frontier, Branch, OpLog, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::m2::yjsspan2::{INSERTED, NOT_INSERTED_YET, YjsSpan2};
 use crate::list::operation::{InsDelTag, Operation};
@@ -125,7 +125,7 @@ impl M2Tracker {
     }
 
     // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
-    pub(super) fn integrate(&mut self, opset: &OpSet, agent: AgentId, item: YjsSpan2, mut cursor: UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
+    pub(super) fn integrate(&mut self, opset: &OpLog, agent: AgentId, item: YjsSpan2, mut cursor: UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
         assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
@@ -238,7 +238,7 @@ impl M2Tracker {
         content_pos
     }
 
-    fn apply_range(&mut self, opset: &OpSet, range: TimeSpan, mut to: Option<&mut Branch>) {
+    fn apply_range(&mut self, opset: &OpLog, range: TimeSpan, mut to: Option<&mut Branch>) {
         if range.is_empty() { return; }
 
         for mut pair in opset.iter_range(range) {
@@ -258,7 +258,7 @@ impl M2Tracker {
     }
 
     /// This is for advancing us directly based on the edit.
-    fn apply(&mut self, opset: &OpSet, agent: AgentId, op_pair: &KVPair<Operation>, mut to: Option<&mut Branch>) {
+    fn apply(&mut self, opset: &OpLog, agent: AgentId, op_pair: &KVPair<Operation>, mut to: Option<&mut Branch>) {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
         let KVPair(time, op) = op_pair;
@@ -430,7 +430,7 @@ impl M2Tracker {
     ///
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
-    fn walk(&mut self, opset: &OpSet, start_at: Frontier, rev_spans: &[TimeSpan], mut apply_to: Option<&mut Branch>) -> Frontier {
+    fn walk(&mut self, opset: &OpLog, start_at: Frontier, rev_spans: &[TimeSpan], mut apply_to: Option<&mut Branch>) -> Frontier {
         let mut walker = OptimizedTxnsIter::new(&opset.history, rev_spans, start_at);
 
         for walk in &mut walker {
@@ -458,7 +458,7 @@ impl Branch {
     /// Add everything in merge_frontier into the set.
     ///
     /// Reexposed as merge_changes.
-    pub(crate) fn merge_changes_m2(&mut self, opset: &OpSet, merge_frontier: &[Time]) {
+    pub(crate) fn merge_changes_m2(&mut self, opset: &OpLog, merge_frontier: &[Time]) {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge

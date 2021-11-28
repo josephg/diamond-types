@@ -1,7 +1,7 @@
 use jumprope::JumpRope;
 use rand::prelude::*;
 use crate::AgentId;
-use crate::list::{Branch, ListCRDT, OpSet, Time};
+use crate::list::{Branch, ListCRDT, OpLog, Time};
 
 pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
     let mut str = String::new();
@@ -12,7 +12,7 @@ pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
     str
 }
 
-fn make_random_change_raw(opset: &mut OpSet, branch: &Branch, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> Time {
+fn make_random_change_raw(opset: &mut OpLog, branch: &Branch, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> Time {
     let doc_len = branch.len();
     let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
     let v = if doc_len == 0 || rng.gen_bool(insert_weight) {
@@ -75,7 +75,7 @@ fn random_single_document() {
 
 fn merge_fuzz(seed: u64, verbose: bool) {
     let mut rng = SmallRng::seed_from_u64(seed);
-    let mut opset = OpSet::new();
+    let mut opset = OpLog::new();
     let mut branches = [Branch::new(), Branch::new(), Branch::new()];
 
     // Each document will have a different local agent ID. I'm cheating here - just making agent

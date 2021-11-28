@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 // use serde_wasm_bindgen::Serializer;
 // use serde::{Serialize};
 use diamond_types_positional::{AgentId, ROOT_TIME};
-use diamond_types_positional::list::{ListCRDT, Time, Branch as DTCheckout, OpSet as DTOpSet};
+use diamond_types_positional::list::{ListCRDT, Time, Branch as DTCheckout, OpLog as DTOpSet};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.

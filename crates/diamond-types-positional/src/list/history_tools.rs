@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
-use crate::list::{Frontier, OpSet, Time};
+use crate::list::{Frontier, OpLog, Time};
 use crate::list::frontier::frontier_is_sorted;
 use crate::list::history::History;
 use crate::list::history_tools::Flag::{OnlyA, OnlyB, Shared};
@@ -468,7 +468,7 @@ impl History {
 
 /// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
 /// about branches, find diffs and move between branches.
-impl OpSet {
+impl OpLog {
     // Exported for the fuzzer. Not sure if I actually want this exposed.
     pub fn frontier_contains_time(&self, frontier: &[Time], target: Time) -> bool {
         self.history.frontier_contains_time(frontier, target)

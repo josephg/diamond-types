@@ -1,5 +1,5 @@
 use jumprope::JumpRope;
-use crate::list::{Branch, ListCRDT, OpSet};
+use crate::list::{Branch, ListCRDT, OpLog};
 use smallvec::{SmallVec, smallvec};
 use crate::list::history::History;
 use crate::ROOT_TIME;
@@ -18,7 +18,7 @@ impl Branch {
 
 }
 
-impl OpSet {
+impl OpLog {
     #[allow(unused)]
     pub fn check(&self, deep: bool) {
         if deep {

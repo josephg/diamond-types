@@ -59,7 +59,7 @@ pub struct Branch {
 }
 
 #[derive(Debug, Clone)]
-pub struct OpSet {
+pub struct OpLog {
     /// This is a bunch of ranges of (item order -> CRDT location span).
     /// The entries always have positive len.
     ///
@@ -93,7 +93,7 @@ pub struct OpSet {
 #[derive(Debug, Clone)]
 pub struct ListCRDT {
     pub branch: Branch,
-    pub ops: OpSet,
+    pub ops: OpLog,
 }
 
 // impl OpSet {
