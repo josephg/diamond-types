@@ -4,15 +4,25 @@ use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 use crate::list::Time;
 use crate::localtime::{debug_time, TimeSpan, UNDERWATER_START};
 use crate::ROOT_TIME;
-use YjsSpanState::*;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum YjsSpanState {
-    NotInsertedYet,
-    Inserted,
-    // TODO: Somehow guard against malicious delete overflows here.
-    Deleted(u16),
-}
+/// 0 = not inserted yet,
+/// 1 = inserted but not deleted
+/// 2+ = deleted n-1 times.
+/// TODO: Somehow guard against malicious delete overflows here. Maybe make this a u32?
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub struct YjsSpanState(u16);
+
+pub const NOT_INSERTED_YET: YjsSpanState = YjsSpanState(0);
+pub const INSERTED: YjsSpanState = YjsSpanState(1);
+pub const DELETED_ONCE: YjsSpanState = YjsSpanState(2);
+
+// #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+// pub enum YjsSpanState {
+//     NotInsertedYet,
+//     Inserted,
+//     // TODO: Somehow guard against malicious delete overflows here.
+//     Deleted(u16),
+// }
 
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
 pub struct YjsSpan2 {
@@ -30,60 +40,80 @@ pub struct YjsSpan2 {
      */
     pub origin_right: Time,
 
-    // TODO: Replace this field with an integer.
-    /// 0 = not inserted yet,
-    /// 1 = inserted but not deleted
-    /// 2+ = deleted n-1 times.
-    /// Enum is used for now to make the code more explicit.
+    /// Stores whether the item has been inserted, inserted and deleted, or not inserted yet at the
+    /// current moment in time.
     pub state: YjsSpanState,
 
     pub ever_deleted: bool,
 }
 
-impl Default for YjsSpanState {
-    fn default() -> Self { NotInsertedYet }
-}
+// impl Default for YjsSpanState {
+//     fn default() -> Self { NotInsertedYet }
+// }
 
 impl YjsSpanState {
+    // fn delete(&mut self) {
+    //     match self {
+    //         NOT_INSERTED_YET => panic!("Cannot deleted NIY item"),
+    //         INSERTED => {
+    //             // Most common case.
+    //             *self = DELETED_ONCE;
+    //             // *self = Deleted(0);
+    //         }
+    //         _ => {
+    //             self.0 += 1;
+    //         }
+    //         // Deleted(n) => {
+    //         //     *n += 1;
+    //         // }
+    //     }
+    // }
+
     fn delete(&mut self) {
-        match self {
-            NotInsertedYet => panic!("Cannot deleted NIY item"),
-            Inserted => {
-                // Most common case.
-                *self = Deleted(0);
-            }
-            Deleted(n) => {
-                *n += 1;
-            }
+        if self.0 == NOT_INSERTED_YET.0 {
+            panic!("Cannot deleted NIY item");
+        } else {
+            // Insert -> Delete, Delete -> Double delete, etc.
+            self.0 += 1;
         }
     }
 
     pub(crate) fn undelete(&mut self) {
-        if let Deleted(n) = self {
-            if *n > 0 { *n -= 1; }
-            else {
-                // Most common case.
-                *self = Inserted
-            }
+        if self.0 >= DELETED_ONCE.0 {
+            // Double delete -> single delete
+            // Deleted -> inserted
+            self.0 -= 1;
         } else {
-            // dbg!(self);
             panic!("Invalid undelete target");
         }
     }
 
+    // pub(crate) fn undelete(&mut self) {
+    //     if let Deleted(n) = self {
+    //         if *n > 0 { *n -= 1; }
+    //         else {
+    //             // Most common case.
+    //             *self = Inserted
+    //         }
+    //     } else {
+    //         // dbg!(self);
+    //         panic!("Invalid undelete target");
+    //     }
+    // }
+
     pub(crate) fn mark_inserted(&mut self) {
-        if *self != NotInsertedYet {
+        if *self != NOT_INSERTED_YET {
             panic!("Invalid insert target - item already marked as inserted");
         }
 
-        *self = Inserted;
+        *self = INSERTED;
     }
     pub(crate) fn mark_not_inserted_yet(&mut self) {
-        if *self != Inserted {
+        if *self != INSERTED {
             panic!("Invalid insert target - item not inserted");
         }
 
-        *self = NotInsertedYet;
+        *self = NOT_INSERTED_YET;
     }
 }
 
@@ -110,7 +140,7 @@ impl YjsSpan2 {
             id: TimeSpan::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
             origin_left: ROOT_TIME,
             origin_right: ROOT_TIME,
-            state: Inserted, // Underwater items are never in the NotInsertedYet state.
+            state: INSERTED, // Underwater items are never in the NotInsertedYet state.
             ever_deleted: false,
         }
     }
@@ -197,17 +227,17 @@ impl Searchable for YjsSpan2 {
 impl ContentLength for YjsSpan2 {
     #[inline(always)]
     fn content_len(&self) -> usize {
-        if self.state == Inserted { self.len() } else { 0 }
+        if self.state == INSERTED { self.len() } else { 0 }
     }
 
     fn content_len_at_offset(&self, offset: usize) -> usize {
-        if self.state == Inserted { offset } else { 0 }
+        if self.state == INSERTED { offset } else { 0 }
     }
 }
 
 impl Toggleable for YjsSpan2 {
     fn is_activated(&self) -> bool {
-        self.state == Inserted
+        self.state == INSERTED
         // self.state == Inserted && !self.ever_deleted
     }
 
@@ -243,7 +273,7 @@ mod tests {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
-            state: NotInsertedYet,
+            state: NOT_INSERTED_YET,
             ever_deleted: false,
         });
 
@@ -251,7 +281,7 @@ mod tests {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
-            state: Inserted,
+            state: INSERTED,
             ever_deleted: false
         });
 
@@ -259,7 +289,7 @@ mod tests {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
-            state: Deleted(0),
+            state: DELETED_ONCE,
             ever_deleted: false
         });
     }

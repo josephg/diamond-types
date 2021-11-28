@@ -5,7 +5,7 @@ use content_tree::*;
 use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
 use crate::list::{Frontier, Branch, OpSet, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
-use crate::list::m2::yjsspan2::{YjsSpan2, YjsSpanState};
+use crate::list::m2::yjsspan2::{INSERTED, NOT_INSERTED_YET, YjsSpan2};
 use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::{is_underwater, TimeSpan};
 use crate::rle::{KVPair, RleSpanHelpers};
@@ -22,7 +22,6 @@ use crate::list::m2::dot::DotColor::*;
 use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::txn_trace::OptimizedTxnsIter;
-use crate::list::m2::yjsspan2::YjsSpanState::Inserted;
 use crate::list::operation::InsDelTag::{Del, Ins};
 
 const ALLOW_FF: bool = true;
@@ -190,7 +189,7 @@ impl M2Tracker {
             let other_entry = *cursor.get_raw_entry();
             // let other_order = other_entry.order + cursor.offset as u32;
 
-            debug_assert_eq!(other_entry.state, YjsSpanState::NotInsertedYet);
+            debug_assert_eq!(other_entry.state, NOT_INSERTED_YET);
 
             let other_left_order = other_entry.origin_left_at_offset(cursor.offset);
             let other_left_cursor = self.get_unsafe_cursor_after(other_left_order, false);
@@ -331,7 +330,7 @@ impl M2Tracker {
                     loop {
                         let e = c2.try_get_raw_entry();
                         if let Some(e) = e {
-                            if e.state == YjsSpanState::NotInsertedYet {
+                            if e.state == NOT_INSERTED_YET {
                                 if !c2.next_entry() { break ROOT_TIME; }
                                 // Otherwise keep looping.
                             } else {
@@ -348,7 +347,7 @@ impl M2Tracker {
                     id: TimeSpan::new(*time, *time + op.len()),
                     origin_left,
                     origin_right,
-                    state: YjsSpanState::Inserted,
+                    state: INSERTED,
                     ever_deleted: false,
                 };
                 // dbg!(&item);
@@ -395,7 +394,7 @@ impl M2Tracker {
                     // dbg!(pos, &cursor);
                     // If we've never been deleted locally, we'll need to do that.
                     let e = cursor.get_raw_entry();
-                    assert_eq!(e.state, Inserted);
+                    assert_eq!(e.state, INSERTED);
                     let ever_deleted = e.ever_deleted;
 
                     let del_start_check = unsafe { Self::upstream_cursor_pos(&cursor.inner) };
