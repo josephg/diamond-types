@@ -8,21 +8,16 @@ use crate::ROOT_TIME;
 /// 0 = not inserted yet,
 /// 1 = inserted but not deleted
 /// 2+ = deleted n-1 times.
-/// TODO: Somehow guard against malicious delete overflows here. Maybe make this a u32?
+///
+/// Note a u16 (or even a u8) should be fine in practice. Double deletes almost never happen in
+/// reality - unless someone is maliciously generating them.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub struct YjsSpanState(u16);
+pub struct YjsSpanState(u32);
 
 pub const NOT_INSERTED_YET: YjsSpanState = YjsSpanState(0);
 pub const INSERTED: YjsSpanState = YjsSpanState(1);
 pub const DELETED_ONCE: YjsSpanState = YjsSpanState(2);
 
-// #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-// pub enum YjsSpanState {
-//     NotInsertedYet,
-//     Inserted,
-//     // TODO: Somehow guard against malicious delete overflows here.
-//     Deleted(u16),
-// }
 
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
 pub struct YjsSpan2 {
@@ -47,34 +42,22 @@ pub struct YjsSpan2 {
     pub ever_deleted: bool,
 }
 
-// impl Default for YjsSpanState {
-//     fn default() -> Self { NotInsertedYet }
-// }
-
 impl YjsSpanState {
-    // fn delete(&mut self) {
-    //     match self {
-    //         NOT_INSERTED_YET => panic!("Cannot deleted NIY item"),
-    //         INSERTED => {
-    //             // Most common case.
-    //             *self = DELETED_ONCE;
-    //             // *self = Deleted(0);
-    //         }
-    //         _ => {
-    //             self.0 += 1;
-    //         }
-    //         // Deleted(n) => {
-    //         //     *n += 1;
-    //         // }
-    //     }
-    // }
-
     fn delete(&mut self) {
         if self.0 == NOT_INSERTED_YET.0 {
             panic!("Cannot deleted NIY item");
         } else {
             // Insert -> Delete, Delete -> Double delete, etc.
-            self.0 += 1;
+            // self.0 += 1;
+
+            // So this case is interesting. Almost every item will only ever be deleted once.
+            // Occasionally two branches will delete the same item then merge - in which case we'll
+            // store 2. To overflow a u32, we need 4gb of edits which all repeatedly delete the same
+            // item in the document - which should never happen except maliciously. Panicking is
+            // probably a reasonable choice here. Try not to collaboratively edit documents with
+            // malicious actors - this code isn't BFT.
+            self.0 = self.0.checked_add(1)
+                .expect("Double delete overflow detected. Refusing to merge.");
         }
     }
 
@@ -87,19 +70,6 @@ impl YjsSpanState {
             panic!("Invalid undelete target");
         }
     }
-
-    // pub(crate) fn undelete(&mut self) {
-    //     if let Deleted(n) = self {
-    //         if *n > 0 { *n -= 1; }
-    //         else {
-    //             // Most common case.
-    //             *self = Inserted
-    //         }
-    //     } else {
-    //         // dbg!(self);
-    //         panic!("Invalid undelete target");
-    //     }
-    // }
 
     pub(crate) fn mark_inserted(&mut self) {
         if *self != NOT_INSERTED_YET {
@@ -292,5 +262,11 @@ mod tests {
             state: DELETED_ONCE,
             ever_deleted: false
         });
+    }
+
+    #[ignore]
+    #[test]
+    fn print_size() {
+        dbg!(std::mem::size_of::<YjsSpan2>());
     }
 }
