@@ -197,7 +197,7 @@ fn fuzz_once() {
 fn fuzz_many() {
     for k in 0.. {
         // println!("\n\n*** Iteration {} ***\n", k);
-        if k % 1000 == 0 {
+        if k % 100 == 0 {
             println!("Iteration {}", k);
         }
         merge_fuzz(1000000 + k, false);

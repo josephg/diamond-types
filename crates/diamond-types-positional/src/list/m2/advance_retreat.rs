@@ -51,23 +51,15 @@ impl M2Tracker {
 
             let len = usize::min(target.len() - offset, range.len());
 
-            // If the target span is reversed, we only really want the
-            // dbg!((range, tag, target, offset, len), target.range(offset, offset + len));
-            // let target_start = target.range(offset, len).start;
-            let mut target_start = target.range(offset, offset + len).start;
+            // If the target span is reversed, the part of target we eat each iteration changes.
+            let mut target_range = target.range(offset, offset + len);
 
-            // let t1 = target.range(offset, len).start;
-            // let t2 = target.range(offset, offset + len).start;
-            // let b = t1 != t2;
-
-            // let mut cursor = self.get_unsafe_cursor_before(target);
-
-            let mut len_remaining = len;
-            while len_remaining > 0 {
+            // let mut len_remaining = len;
+            while !target_range.is_empty() {
                 let amt_modified = unsafe {
                     // We'll only get a pointer when we're inserting.
-                    let ptr = ptr.unwrap_or_else(|| self.marker_at(target_start));
-                    let mut cursor = ContentTreeRaw::unsafe_cursor_before_item(target_start, ptr);
+                    let ptr = ptr.unwrap_or_else(|| self.marker_at(target_range.start));
+                    let mut cursor = ContentTreeRaw::unsafe_cursor_before_item(target_range.start, ptr);
                     ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
                         if tag == InsDelTag::Ins {
                             // println!("Re-inserting {:?}", e.id);
@@ -76,10 +68,9 @@ impl M2Tracker {
                             // println!("Re-deleting {:?}", e.id);
                             e.delete();
                         }
-                    }, &mut cursor, len_remaining, notify_for(&mut self.index)).0
+                    }, &mut cursor, target_range.len(), notify_for(&mut self.index)).0
                 };
-                target_start += amt_modified;
-                len_remaining -= amt_modified;
+                target_range.start += amt_modified;
             }
 
             range.truncate_keeping_right(len);
@@ -97,43 +88,31 @@ impl M2Tracker {
             // TODO: This is gross. Clean this up. There's totally a nicer way to write this.
             let req_time = range.last();
             let (tag, target, offset, _ptr) = self.index_query(req_time);
-            let e_start = req_time - offset;
 
-            let start = range.start.max(e_start);
-            let end = usize::min(range.end, e_start + target.len());
+            let chunk_start = req_time - offset;
+            let start = range.start.max(chunk_start);
+            let end = usize::min(range.end, chunk_start + target.len());
 
-            let e_offset = start - e_start;
+            let e_offset = start - chunk_start; // Usually 0.
 
             let len = end - start;
-            // dbg!((&range, &target, e_offset, len));
-            // target.truncate_keeping_right(e_offset);
-            let target_start = target.range(e_offset, e_offset + len).start;
-
-            // debug_assert_eq!(offset - e_offset + 1, len);
-
-            // dbg!((&self.range_tree, &self.index));
-            // dbg!((range, tag, target, len));
-            // len = len.min(range.len());
             debug_assert!(len <= range.len());
+            range.end -= len;
 
-            let new_end = range.end - len; // TODO: Hack. Just update range here.
+            let mut target_range = target.range(e_offset, e_offset + len);
+            
+            while !target_range.is_empty() {
+                // Because the tag is either entirely delete or entirely insert, its safe to move
+                // forwards in this child range. (Which I'm doing because that makes the code much
+                // easier to reason about).
 
-            let mut next = target_start; // TODO: Inline?
-            let mut len_remaining = len; // TODO: Inline.
-            while len_remaining > 0 {
-                // Because the tag is either entirely delete or entirely insert, its safe to move forwards.
-                // dbg!(target, &self.range_tree);
-                // let mut cursor = self.get_unsafe_cursor_before(target);
+                // We can't actually use the pointer returned by the index_query call because we
+                // mutate each loop iteraton.
 
+                // TODO: We probably just fetched this pointer above. Reuse that!
+                let ptr = self.marker_at(target_range.start);
+                let mut cursor = self.range_tree.cursor_before_item(target_range.start, ptr);
                 unsafe {
-                    // dbg!(next);
-                    // We can't actually use the pointer returned by the index_query call because we
-                    // mutate each loop iteraton.
-
-                    // TODO: We probably just fetched this pointer above. Reuse that!
-                    let ptr = self.marker_at(next);
-                    let mut cursor = ContentTreeRaw::unsafe_cursor_before_item(next, ptr);
-                    // let mut cursor = ContentTreeRaw::cursor_before_item(next, ptr);
                     let amt_modified = ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
                         if tag == InsDelTag::Ins {
                             // println!("Uninserting {:?}", e.id);
@@ -142,15 +121,11 @@ impl M2Tracker {
                             // println!("Undeleting {:?}", e.id);
                             e.state.undelete();
                         }
-                    }, &mut cursor, len_remaining, notify_for(&mut self.index)).0;
+                    }, &mut cursor, target_range.len(), notify_for(&mut self.index)).0;
 
-                    // dbg!(amt_modified);
-                    next += amt_modified;
-                    len_remaining -= amt_modified;
+                    target_range.start += amt_modified;
                 }
             }
-
-            range.end = new_end;
         }
 
         self.check_index();
