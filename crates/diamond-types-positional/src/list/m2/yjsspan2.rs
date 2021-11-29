@@ -43,6 +43,7 @@ pub struct YjsSpan2 {
 }
 
 impl YjsSpanState {
+    /// Note this doesn't (can't) set the ever_deleted flag. Use yjsspan.delete() instead.
     fn delete(&mut self) {
         if self.0 == NOT_INSERTED_YET.0 {
             panic!("Cannot deleted NIY item");

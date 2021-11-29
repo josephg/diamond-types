@@ -1,5 +1,5 @@
 use std::ptr::NonNull;
-use content_tree::{ContentTreeRaw, DEFAULT_IE, DEFAULT_LE, NodeLeaf};
+use content_tree::{DEFAULT_IE, DEFAULT_LE, NodeLeaf};
 use rle::{HasLength, SplitableSpan};
 use crate::list::m2::{DocRangeIndex, M2Tracker};
 use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
@@ -47,7 +47,7 @@ impl M2Tracker {
             // Note the delete could be reversed - but we don't really care here; we just mark the
             // whole range anyway.
             // let (tag, target, mut len) = self.next_action(range.start);
-            let (tag, target, offset, ptr) = self.index_query(range.start);
+            let (tag, target, offset, mut ptr) = self.index_query(range.start);
 
             let len = usize::min(target.len() - offset, range.len());
 
@@ -56,21 +56,21 @@ impl M2Tracker {
 
             // let mut len_remaining = len;
             while !target_range.is_empty() {
-                let amt_modified = unsafe {
-                    // We'll only get a pointer when we're inserting.
-                    let ptr = ptr.unwrap_or_else(|| self.marker_at(target_range.start));
-                    let mut cursor = ContentTreeRaw::unsafe_cursor_before_item(target_range.start, ptr);
-                    ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
+                // We'll only get a pointer when we're inserting. Note we can't reuse the ptr
+                // across subsequent invocations because we mutate the range_tree.
+                let ptr = ptr.take().unwrap_or_else(|| self.marker_at(target_range.start));
+                let mut cursor = self.range_tree.mut_cursor_before_item(target_range.start, ptr);
+                target_range.start += cursor.mutate_single_entry_notify(
+                    target_range.len(),
+                    notify_for(&mut self.index),
+                    |e| {
                         if tag == InsDelTag::Ins {
-                            // println!("Re-inserting {:?}", e.id);
                             e.state.mark_inserted();
                         } else {
-                            // println!("Re-deleting {:?}", e.id);
                             e.delete();
                         }
-                    }, &mut cursor, target_range.len(), notify_for(&mut self.index)).0
-                };
-                target_range.start += amt_modified;
+                    }
+                ).0;
             }
 
             range.truncate_keeping_right(len);
@@ -87,7 +87,7 @@ impl M2Tracker {
         while !range.is_empty() {
             // TODO: This is gross. Clean this up. There's totally a nicer way to write this.
             let req_time = range.last();
-            let (tag, target, offset, _ptr) = self.index_query(req_time);
+            let (tag, target, offset, mut ptr) = self.index_query(req_time);
 
             let chunk_start = req_time - offset;
             let start = range.start.max(chunk_start);
@@ -100,31 +100,28 @@ impl M2Tracker {
             range.end -= len;
 
             let mut target_range = target.range(e_offset, e_offset + len);
-            
+
             while !target_range.is_empty() {
                 // Because the tag is either entirely delete or entirely insert, its safe to move
                 // forwards in this child range. (Which I'm doing because that makes the code much
                 // easier to reason about).
 
-                // We can't actually use the pointer returned by the index_query call because we
-                // mutate each loop iteraton.
+                // We can't reuse the pointer returned by the index_query call because we mutate
+                // each loop iteration.
+                let ptr = ptr.take().unwrap_or_else(|| self.marker_at(target_range.start));
+                let mut cursor = self.range_tree.mut_cursor_before_item(target_range.start, ptr);
 
-                // TODO: We probably just fetched this pointer above. Reuse that!
-                let ptr = self.marker_at(target_range.start);
-                let mut cursor = self.range_tree.cursor_before_item(target_range.start, ptr);
-                unsafe {
-                    let amt_modified = ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
+                target_range.start += cursor.mutate_single_entry_notify(
+                    target_range.len(),
+                    notify_for(&mut self.index),
+                    |e| {
                         if tag == InsDelTag::Ins {
-                            // println!("Uninserting {:?}", e.id);
                             e.state.mark_not_inserted_yet();
                         } else {
-                            // println!("Undeleting {:?}", e.id);
                             e.state.undelete();
                         }
-                    }, &mut cursor, target_range.len(), notify_for(&mut self.index)).0;
-
-                    target_range.start += amt_modified;
-                }
+                    }
+                ).0;
             }
         }
 

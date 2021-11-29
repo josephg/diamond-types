@@ -171,6 +171,19 @@ impl<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> 
             ContentTreeRaw::unsafe_replace_entry_simple_notify(&mut self.inner, new_item, null_notify);
         }
     }
+
+    /// Mutate a single entry in-place. The entry to be modified is whatever is at this cursor, and
+    /// up to replace_max size.
+    ///
+    /// The function will be modified by the (passed) map_fn.
+    ///
+    /// Returns a tuple of (actual length replaced, map_fn return value).
+    pub fn mutate_single_entry_notify<MapFn, R, N>(&mut self, replace_max: usize, notify: N, map_fn: MapFn) -> (usize, R)
+    where N: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>), MapFn: FnOnce(&mut E) -> R {
+        unsafe {
+            ContentTreeRaw::unsafe_mutate_single_entry_notify(map_fn, self, replace_max, notify)
+        }
+    }
 }
 
 impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {

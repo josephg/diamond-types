@@ -91,20 +91,15 @@ impl M2Tracker {
         }
     }
 
-    fn get_unsafe_cursor_before(&self, time: Time) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+    fn get_cursor_before(&self, time: Time) -> Cursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
         if time == ROOT_TIME {
-            // Or maybe we should just abort?
-            self.range_tree.unsafe_cursor_at_end()
+            // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
+            // just panic() here.
+            self.range_tree.cursor_at_end()
         } else {
             let marker = self.marker_at(time);
-            unsafe {
-                ContentTreeRaw::unsafe_cursor_before_item(time, marker)
-            }
+            self.range_tree.cursor_before_item(time, marker)
         }
-    }
-
-    fn get_cursor_before(&self, time: Time) -> Cursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
-        unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_before(time)) }
     }
 
     // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {

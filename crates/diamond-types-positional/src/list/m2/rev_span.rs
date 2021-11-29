@@ -1,6 +1,5 @@
 use std::ops::Range;
 use rle::{HasLength, MergableSpan, SplitableSpan};
-use crate::list::Time;
 use crate::localtime::TimeSpan;
 
 /// This is a TimeSpan which can be either a forwards range (1,2,3) or backwards (3,2,1), depending
@@ -44,7 +43,6 @@ impl TimeSpanRev {
     /// Get the relative range from start + offset_start to start + offset_end.
     ///
     /// This is useful because reversed ranges are weird.
-    #[allow(unused)]
     pub fn range(&self, offset_start: usize, offset_end: usize) -> TimeSpan {
         debug_assert!(offset_start <= offset_end);
         debug_assert!(self.span.start + offset_start <= self.span.end);
@@ -63,19 +61,6 @@ impl TimeSpanRev {
             }
         }
     }
-    //
-    // pub fn range_start(&self, offset_start: usize, offset_end: usize) -> Time {
-    //     debug_assert!(offset_start <= offset_end);
-    //     debug_assert!(self.span.start + offset_start <= self.span.end);
-    //     debug_assert!(self.span.start + offset_end <= self.span.end);
-    //
-    //     if self.reversed {
-    //         self.span.end - offset_end
-    //     } else {
-    //         // Simple case.
-    //         self.span.start + offset_start
-    //     }
-    // }
 }
 
 impl From<TimeSpan> for TimeSpanRev {
