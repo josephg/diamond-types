@@ -90,7 +90,8 @@ impl OpLog {
 
         // I'm going to gather it all before writing because we don't actually store the number of
         // bytes!
-        let mut all_text = String::new();
+        let mut inserted_text = String::new();
+        let mut deleted_text = String::new();
         // let mut w = SpanWriter::new(|into, op| {
         //
         // });
@@ -112,7 +113,11 @@ impl OpLog {
             if use_content { assert!(op.content_known); }
 
             if use_content {
-                all_text.push_str(&op.content);
+                inserted_text.push_str(&op.content);
+            }
+
+            if op.tag == Del && op.content_known {
+                deleted_text.push_str(&op.content);
             }
 
             // Note I'm relying on the operation log itself to be iter_merged, which simplifies
@@ -178,27 +183,17 @@ impl OpLog {
                 pos += encode_u64(n2, &mut dest[pos..]);
             }
 
-            // let mut n = num_encode_zigzag_i64(cursor_movement);
-            // n = mix_bit_u64(n, op.len != 1);
-            // n = mix_bit_u64(n, op.tag == Del);
-            // if op.tag == Del { n = mix_bit_u64(n, reversed); }
-            //
-            // let mut dest = [0u8; 20];
-            // let mut pos = 0;
-            // pos += encode_u64(n, &mut dest[pos..]);
-            // if op.len != 1 {
-            //     pos += encode_u64(op.len as u64, &mut dest[pos..]);
-            // }
-
             op_data.extend_from_slice(&dest[..pos]);
         }
 
         if verbose {
             // dbg!(len_total, diff_zig_total, num_ops);
             println!("op_data.len() {}", &op_data.len());
+            println!("inserted text length {}", inserted_text.len());
+            println!("deleted text length {}", deleted_text.len());
         }
 
-        push_chunk(&mut result, Chunk::Content, &all_text.as_bytes());
+        push_chunk(&mut result, Chunk::Content, &inserted_text.as_bytes());
         push_chunk(&mut result, Chunk::Patches, &op_data);
 
         result

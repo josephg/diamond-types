@@ -28,14 +28,15 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
             // content.clear();
 
             if *del_span > 0 {
-                positional.push(Operation {
-                    pos: *pos,
-                    len: *del_span,
-                    reversed: false,
-                    content_known: false,
-                    tag: InsDelTag::Del,
-                    content: Default::default()
-                });
+                positional.push(doc.branch.make_delete_op(*pos, *del_span));
+                // positional.push(Operation {
+                //     pos: *pos,
+                //     len: *del_span,
+                //     reversed: false,
+                //     content_known: false,
+                //     tag: InsDelTag::Del,
+                //     content: Default::default()
+                // });
             }
 
             if !ins_content.is_empty() {
@@ -82,13 +83,14 @@ fn print_stats_for_file(name: &str) {
 
     doc.print_stats(false);
 
-    let as_bytes = doc.ops.encode(true);
-    println!("Encoded size {}", as_bytes.len());
+    let _as_bytes = doc.ops.encode(true);
+    println!("Branch size {}", doc.len());
+    // println!("---\nEncoded size {} (?? What do we include here?)", as_bytes.len());
 }
 
 fn main() {
     #[cfg(not(feature = "memusage"))]
-    eprintln!("Warning: Memory usage scanning not enabled. Run with --release --features memusage");
+    eprintln!("NOTE: Memory usage reporting disabled. Run with --release --features memusage");
 
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
