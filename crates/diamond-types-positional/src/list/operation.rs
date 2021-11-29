@@ -101,6 +101,8 @@ impl SplitableSpan for Operation {
             0
         };
 
+        // TODO: When we split items to a length of 1, consider clearing the reversed flag.
+        // This doesn't do anything - but it feels polite.
         let remainder = Self {
             pos: rem_first,
             len: self.len - at,
@@ -109,9 +111,11 @@ impl SplitableSpan for Operation {
             tag: self.tag,
             content: self.content.split_off(byte_split),
         };
+        // if remainder.len == 1 { remainder.reversed = false; }
 
         self.pos = self_first;
         self.len = at;
+        // self.reversed = if self.len == 1 { false } else { self.reversed };
 
         remainder
     }
@@ -122,8 +126,6 @@ impl MergableSpan for Operation {
         let tag = self.tag;
 
         if other.tag != tag || self.content_known != other.content_known { return false; }
-
-        if other.reversed != self.reversed && self.len > 1 && other.len > 1 { return false; }
 
         if (self.len == 1 || !self.reversed) && (other.len == 1 || !other.reversed) {
             // Try and append in the forward sort of way.

@@ -81,6 +81,9 @@ fn print_stats_for_file(name: &str) {
          get_thread_num_allocations() - start_count);
 
     doc.print_stats(false);
+
+    let as_bytes = doc.ops.encode(true);
+    println!("Encoded size {}", as_bytes.len());
 }
 
 fn main() {

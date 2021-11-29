@@ -38,6 +38,9 @@ fn merge_bksp(r1: &EditRun, r2: &EditRun) -> Option<EditRun> {
     if !r1.is_delete || !r2.is_delete { return None; }
     if !(r2.len == 1 && r2.diff == -1) { return None; }
 
+    // TODO: THIS IS BUGGY!! It merges items like this:
+    // {pos: 50, rev: true, len: 5} and {pos: 50, rev: false, len: 1}
+    // ^-- which shouldn't be merged!
     if r1.backspace_mode {
         return Some(EditRun {
             diff: r1.diff,
@@ -58,6 +61,8 @@ fn merge_bksp(r1: &EditRun, r2: &EditRun) -> Option<EditRun> {
 fn write_editrun(into: &mut Vec<u8>, val: EditRun) {
     let mut dest = [0u8; 20];
     let mut pos = 0;
+
+    println!("diff {} del {} rev {} len {}", val.diff, val.is_delete, val.backspace_mode, val.len);
 
     let mut n = num_encode_i64_with_extra_bit(val.diff as i64, val.len != 1);
     if val.is_delete {

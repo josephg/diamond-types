@@ -1,5 +1,5 @@
 // TODO: Take me out when we're feature complete.
-// #![allow(unused)]
+#![allow(unused, unused_imports)]
 
 pub mod alloc;
 pub mod list;
