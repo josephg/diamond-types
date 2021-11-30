@@ -17,10 +17,10 @@ impl ClientData {
         } else { 0 }
     }
 
-    // pub fn seq_to_time(&self, seq: usize) -> Time {
-    //     let (entry, offset) = self.item_orders.find_with_offset(seq).unwrap();
-    //     entry.1.start + offset
-    // }
+    pub(crate) fn seq_to_time(&self, seq: usize) -> Time {
+        let (entry, offset) = self.item_orders.find_with_offset(seq).unwrap();
+        entry.1.start + offset
+    }
 
     // /// Note the returned timespan might be shorter than seq_range.
     // pub fn seq_to_time_span(&self, seq_range: TimeSpan) -> TimeSpan {
@@ -37,6 +37,8 @@ impl Default for OpLog {
         Self::new()
     }
 }
+
+const ROOT_AGENT_NAME: &str = "ROOT";
 
 impl OpLog {
     pub fn new() -> Self {
@@ -76,7 +78,8 @@ impl OpLog {
     }
 
     pub(crate) fn get_agent_name(&self, agent: AgentId) -> &str {
-        self.client_data[agent as usize].name.as_str()
+        if agent == ROOT_AGENT { return ROOT_AGENT_NAME }
+        else { self.client_data[agent as usize].name.as_str() }
     }
 
     pub(crate) fn get_crdt_location(&self, time: usize) -> CRDTId {

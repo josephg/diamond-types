@@ -32,6 +32,9 @@ fn insert_history_local(opset: &mut OpLog, frontier: &mut Frontier, range: TimeS
     opset.insert_history(&txn_parents, range);
 }
 
+/// This is an optimized version of simply pushing the operation to the oplog and then merging it.
+///
+/// It is much faster; but I hate the duplicated code.
 pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) {
     let first_time = oplog.len();
     let mut next_time = first_time;

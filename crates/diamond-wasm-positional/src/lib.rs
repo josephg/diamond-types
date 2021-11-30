@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 // use serde_wasm_bindgen::Serializer;
 // use serde::{Serialize};
 use diamond_types_positional::{AgentId, ROOT_TIME};
-use diamond_types_positional::list::{ListCRDT, Time, Branch as DTCheckout, OpLog as DTOpSet};
+use diamond_types_positional::list::{ListCRDT, Time, Branch as DTBranch, OpLog as DTOpLog};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -14,19 +14,19 @@ use diamond_types_positional::list::{ListCRDT, Time, Branch as DTCheckout, OpLog
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
-pub struct Checkout(DTCheckout);
+pub struct Branch(DTBranch);
 
 #[wasm_bindgen]
-impl Checkout {
+impl Branch {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         utils::set_panic_hook();
 
-        Self(DTCheckout::new())
+        Self(DTBranch::new())
     }
 
     #[wasm_bindgen]
-    pub fn all(opset: &OpSet) -> Self {
+    pub fn all(opset: &OpLog) -> Self {
         let mut result = Self::new();
         result.0.merge(&opset.inner, &opset.inner.get_frontier());
         result
@@ -38,19 +38,19 @@ impl Checkout {
     }
 
     #[wasm_bindgen]
-    pub fn merge(&mut self, ops: &OpSet, branch: Time) {
+    pub fn merge(&mut self, ops: &OpLog, branch: Time) {
         self.0.merge(&ops.inner, &[branch]);
     }
 
-    #[wasm_bindgen(js_name = getBranch)]
-    pub fn get_branch(&self) -> Box<[Time]> {
+    #[wasm_bindgen(js_name = getLocalFrontier)]
+    pub fn get_local_frontier(&self) -> Box<[Time]> {
         self.0.frontier.iter().copied().collect::<Box<[Time]>>()
     }
 }
 
 #[wasm_bindgen]
-pub struct OpSet {
-    inner: DTOpSet,
+pub struct OpLog {
+    inner: DTOpLog,
     agent_id: AgentId,
 }
 
@@ -62,12 +62,12 @@ fn map_parents(parents_in: &[isize]) -> SmallVec<[Time; 4]> {
 }
 
 #[wasm_bindgen]
-impl OpSet {
+impl OpLog {
     #[wasm_bindgen(constructor)]
     pub fn new(agent_name: Option<String>) -> Self {
         utils::set_panic_hook();
 
-        let mut inner = DTOpSet::new();
+        let mut inner = DTOpLog::new();
         let name_str = agent_name.as_ref().map_or("seph", |s| s.as_str());
         let agent_id = inner.get_or_create_agent_id(name_str);
 
@@ -109,9 +109,17 @@ impl OpSet {
                 .map_err(|err| err.into())
     }
 
-    #[wasm_bindgen(js_name = getBranch)]
-    pub fn get_branch(&self) -> Box<[Time]> {
+    #[wasm_bindgen(js_name = getLocalFrontier)]
+    pub fn get_local_frontier(&self) -> Box<[Time]> {
         self.inner.get_frontier().iter().copied().collect::<Box<[Time]>>()
+    }
+
+    #[wasm_bindgen(js_name = getFrontier)]
+    pub fn get_frontier(&self) -> Result<JsValue, JsValue> {
+        // self.inner.get_frontier().iter().copied().collect::<Box<[Time]>>()
+        let frontier = self.inner.frontier_to_remote_ids(self.inner.get_frontier());
+        serde_wasm_bindgen::to_value(&frontier)
+            .map_err(|err| err.into())
     }
 }
 

@@ -5,30 +5,31 @@ global.console = new Console({
   inspectOptions: {depth: null}
 })
 
-const {Checkout, OpSet} = require('./pkg/diamond_wasm_positional.js')
+const {Branch, OpLog} = require('./pkg/diamond_wasm_positional.js')
 
-console.log(Checkout, OpSet)
+console.log(Branch, OpLog)
 
-const ops = new OpSet()
+const ops = new OpLog()
 let t = ops.ins(0, "hi there")
 console.log(t)
 let t2 = ops.del(3, 3)
 
-console.log("branch", ops.getBranch())
+console.log("local branch", ops.getLocalFrontier())
+console.log("branch", ops.getFrontier())
 console.log("ops", ops.toArray())
 console.log("history", ops.txns())
 
-const checkout = new Checkout()
-checkout.merge(ops, t)
-console.log('checkout', `"${checkout.get()}"`)
-console.log("checkout branch", checkout.getBranch())
+// const checkout = new Checkout()
+// checkout.merge(ops, t)
+// console.log('checkout', `"${checkout.get()}"`)
+// console.log("checkout branch", checkout.getFrontier())
 
-const c2 = Checkout.all(ops)
-console.log(c2.get())
+// const c2 = Checkout.all(ops)
+// console.log(c2.get())
 
 
 
-// const ops2 = new OpSet()
+// const ops2 = new OpLog()
 // ops2.ins(0, "aaa")
 // ops2.ins(0, "bbb", [-1])
 //

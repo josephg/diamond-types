@@ -74,13 +74,14 @@ pub(crate) fn retreat_frontier_by(frontier: &mut Frontier, history: &History, mu
     debug_assert_frontier_sorted(frontier.as_slice());
 }
 
+/// Frontiers should always be sorted smallest to largest.
 pub(crate) fn frontier_is_sorted(branch: &[Time]) -> bool {
     // For debugging.
     if branch.len() >= 2 {
         let mut last = branch[0];
         for t in &branch[1..] {
             debug_assert!(*t != last);
-            if *t < last { return false; }
+            if last > *t { return false; }
             last = *t;
         }
     }

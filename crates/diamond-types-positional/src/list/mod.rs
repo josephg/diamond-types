@@ -28,6 +28,7 @@ mod m2;
 mod oplog;
 mod branch;
 mod encoding;
+mod remote_ids;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
 // systems.
