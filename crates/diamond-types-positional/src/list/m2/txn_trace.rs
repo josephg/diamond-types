@@ -104,7 +104,6 @@ impl<'a> OptimizedTxnsIter<'a> {
         Self::new(history, &spans, smallvec![ROOT_TIME])
     }
 
-    /// If starting_branch is not specified, the iterator starts at conflict.common_branch.
     pub(crate) fn new(history: &'a History, rev_spans: &[TimeSpan], start_at: Frontier) -> Self {
         if cfg!(debug_assertions) {
             check_rev_sorted(rev_spans);

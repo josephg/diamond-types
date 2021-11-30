@@ -767,14 +767,12 @@ impl MergableSpan for Parents {
 fn write_parents(into: &mut Vec<u8>, val: Parents) {
     // dbg!(&val);
     let mut iter = val.parents.iter().peekable();
-    loop {
-        if let Some(&p) = iter.next() {
-            let is_last = iter.peek().is_none();
-            let mut diff = val.order.start.wrapping_sub(p);
-            diff = mix_bit_u32(diff, is_last);
-            // dbg!(diff);
-            push_u32(into, diff);
-        } else { break; }
+    while let Some(&p) = iter.next() {
+        let is_last = iter.peek().is_none();
+        let mut diff = val.order.start.wrapping_sub(p);
+        diff = mix_bit_u32(diff, is_last);
+        // dbg!(diff);
+        push_u32(into, diff);
     }
 
     push_u32(into, val.order.order_len());

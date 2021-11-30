@@ -83,7 +83,8 @@ fn print_stats_for_file(name: &str) {
 
     doc.print_stats(false);
 
-    let _as_bytes = doc.ops.encode(true);
+    // let _as_bytes = doc.ops.encode(true);
+    let _as_bytes = doc.ops.encode_operations_naively();
     println!("Branch size {}", doc.len());
     // println!("---\nEncoded size {} (?? What do we include here?)", as_bytes.len());
 }

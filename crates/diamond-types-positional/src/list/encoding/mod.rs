@@ -42,6 +42,24 @@ fn push_str(into: &mut Vec<u8>, val: &str) {
     into.extend_from_slice(bytes);
 }
 
+
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+struct Run<V: Clone + PartialEq + Eq> {
+    val: V,
+    len: usize,
+}
+
+fn push_run_u32(into: &mut Vec<u8>, run: Run<u32>) {
+    let mut dest = [0u8; 15];
+    let mut pos = 0;
+    pos += encode_u32_with_extra_bit(run.val, run.len != 1, &mut dest[..]);
+    if run.len != 1 {
+        pos += encode_u64(run.len as u64, &mut dest[pos..]);
+    }
+
+    into.extend_from_slice(&dest[..pos]);
+}
+
 // #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[repr(u32)]
