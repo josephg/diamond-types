@@ -3,8 +3,10 @@ use crate::list::encoding::*;
 use crate::list::history::HistoryEntry;
 use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::list::OpLog;
+use crate::list::{OpLog, Time};
+use crate::list::frontier::frontier_is_root;
 use crate::rle::KVPair;
+use crate::ROOT_TIME;
 
 const MAGIC_BYTES_SMALL: [u8; 8] = *b"DIAMONDp";
 
@@ -107,10 +109,26 @@ fn write_history_entry(dest: &mut Vec<u8>, entry: &HistoryEntry) {
 
     let mut iter = entry.parents.iter().peekable();
     while let Some(&p) = iter.next() {
-        let is_last = iter.peek().is_none();
+        let has_more = iter.peek().is_some();
         let mut n = start.wrapping_sub(p); // Handle ROOT parents
-        n = mix_bit_usize(n, is_last);
+        n = mix_bit_usize(n, has_more);
         push_usize(dest, n);
+    }
+}
+
+// We need to name the full branch in the output in a few different settings.
+fn write_full_frontier(oplog: &OpLog, dest: &mut Vec<u8>, frontier: &[Time]) {
+    if frontier_is_root(frontier) {
+        push_u32(dest, 0);
+    } else {
+        let mut iter = frontier.iter().peekable();
+        while let Some(t) = iter.next() {
+            let has_more = iter.peek().is_some();
+            let id = oplog.time_to_crdt_id(*t);
+            push_str(dest, oplog.client_data[id.agent as usize].name.as_str());
+            let n = mix_bit_usize(id.seq, has_more);
+            push_usize(dest, n);
+        }
     }
 }
 
@@ -124,31 +142,36 @@ impl OpLog {
             push_chunk(&mut result, c, &data);
         };
 
-        // TODO: Do this without the unnecessary allocation.
-        let mut agent_names = Vec::new();
+        let mut buf = Vec::new();
+        write_full_frontier(self, &mut buf, &[ROOT_TIME]);
+        handle_chunk(Chunk::StartFrontier, &buf);
+
+        write_full_frontier(self, &mut buf, &self.frontier);
+        handle_chunk(Chunk::EndFrontier, &buf);
+
         for client_data in self.client_data.iter() {
-            push_str(&mut agent_names, client_data.name.as_str());
+            push_str(&mut buf, client_data.name.as_str());
         }
-        // println!("Agent names data {}", agent_names.len());
-        handle_chunk(Chunk::AgentNames, &agent_names);
+        // println!("Agent names data {}", buf.len());
+        handle_chunk(Chunk::AgentNames, &buf);
 
-        let mut agent_data = Vec::new();
+        buf.clear();
         for KVPair(_, span) in self.client_with_localtime.iter() {
-            push_run_u32(&mut agent_data, Run { val: span.agent, len: span.len() });
+            push_run_u32(&mut buf, Run { val: span.agent, len: span.len() });
         }
-        handle_chunk(Chunk::AgentAssignment, &agent_data);
+        handle_chunk(Chunk::AgentAssignment, &buf);
 
-        let mut op_data = Vec::new();
+        buf.clear();
         for KVPair(_, op) in self.operations.iter_merged() {
-            write_op(&mut op_data, &op, &mut last_cursor_pos);
+            write_op(&mut buf, &op, &mut last_cursor_pos);
         }
-        handle_chunk(Chunk::Patches, &op_data);
+        handle_chunk(Chunk::PositionalPatches, &buf);
 
-        let mut parent_data = Vec::new();
+        buf.clear();
         for txn in self.history.entries.iter() {
-            write_history_entry(&mut parent_data, txn);
+            write_history_entry(&mut buf, txn);
         }
-        handle_chunk(Chunk::Parents, &parent_data);
+        handle_chunk(Chunk::TimeDAG, &buf);
 
         println!("== Total length {}", result.len());
 
@@ -178,12 +201,13 @@ impl OpLog {
         // figure out the frontier.
 
         let mut frontier_data = vec!();
-        for v in self.frontier.iter() {
-            // dbg!(v, local_to_remote_order(*v));
-            // push_u32(&mut frontier_data, local_to_remote_order(*v));
-            push_usize(&mut frontier_data, *v);
-        }
-        push_chunk(&mut result, Chunk::Frontier, &frontier_data);
+        write_full_frontier(self, &mut frontier_data, &self.frontier);
+        // for v in self.frontier.iter() {
+        //     // dbg!(v, local_to_remote_order(*v));
+        //     // push_u32(&mut frontier_data, local_to_remote_order(*v));
+        //     push_usize(&mut frontier_data, *v);
+        // }
+        push_chunk(&mut result, Chunk::EndFrontier, &frontier_data);
 
 
         // *** Inserted (text) content and operations ***
@@ -249,8 +273,8 @@ impl OpLog {
             println!("deleted text length {}", deleted_text.len());
         }
 
-        push_chunk(&mut result, Chunk::Content, &inserted_text.as_bytes());
-        push_chunk(&mut result, Chunk::Patches, &op_data);
+        push_chunk(&mut result, Chunk::InsertedContent, &inserted_text.as_bytes());
+        push_chunk(&mut result, Chunk::PositionalPatches, &op_data);
 
         result
     }

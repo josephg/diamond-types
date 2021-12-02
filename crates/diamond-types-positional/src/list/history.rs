@@ -12,7 +12,7 @@ use serde_crate::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct History {
-    pub(crate) entries: RleVec<HistoryEntry>,
+    pub entries: RleVec<HistoryEntry>,
 
     // The index of all items with ROOT as a direct parent.
     pub(crate) root_child_indexes: SmallVec<[usize; 2]>,

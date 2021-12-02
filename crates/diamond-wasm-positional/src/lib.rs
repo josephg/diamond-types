@@ -81,7 +81,7 @@ impl OpLog {
             // converting it to a slice again :p
             self.inner.get_frontier().into()
         }, |p| map_parents(&p));
-        self.inner.push_insert(self.agent_id, &parents, pos, content)
+        self.inner.push_insert_at(self.agent_id, &parents, pos, content)
     }
 
     #[wasm_bindgen(js_name = del)]
@@ -90,7 +90,7 @@ impl OpLog {
             // And here :p
             self.inner.get_frontier().into()
         }, |p| map_parents(&p));
-        self.inner.push_delete(self.agent_id, &parents, pos, len)
+        self.inner.push_delete_at(self.agent_id, &parents, pos, len)
     }
 
     #[wasm_bindgen(js_name = toArray)]

@@ -16,6 +16,18 @@ impl Branch {
         }
     }
 
+    pub fn new_at_frontier(oplog: &OpLog, frontier: &[Time]) -> Self {
+        let mut branch = Self::new();
+        branch.merge(oplog, frontier);
+        branch
+    }
+
+    pub fn new_at_tip(oplog: &OpLog) -> Self {
+        let mut branch = Self::new();
+        branch.merge(oplog, oplog.get_frontier());
+        branch
+    }
+
     pub fn len(&self) -> usize {
         self.content.len_chars()
     }
@@ -70,5 +82,24 @@ impl Branch {
 impl Default for Branch {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn branch_at_version() {
+        let mut oplog = OpLog::new();
+        oplog.get_or_create_agent_id("seph");
+        let after_ins = oplog.push_insert(0, 0, "hi there");
+        let after_del = oplog.push_delete(0, 2, " there".len());
+
+        let b1 = Branch::new_at_frontier(&oplog, &[after_ins]);
+        assert_eq!(b1.content, "hi there");
+
+        let b2 = Branch::new_at_frontier(&oplog, &[after_del]);
+        assert_eq!(b2.content, "hi");
     }
 }

@@ -29,6 +29,18 @@ pub struct RemoteIdSpan {
     pub seq_range: TimeSpan,
 }
 
+// So we need methods for:
+//
+// Remote id -> time
+// time -> remote id
+
+// frontier -> [remote id]
+// [remote id] -> frontier
+
+// (not done yet)
+// timespan -> remote id span
+// remote id span -> timespan
+
 impl OpLog {
     /// This panics if the ID isn't known to the document. TODO: Make a try- variant of this.
     pub fn remote_id_to_time(&self, id: &RemoteId) -> Time {
@@ -40,6 +52,18 @@ impl OpLog {
         }
     }
 
+    fn crdt_id_to_remote(&self, loc: CRDTId) -> RemoteId {
+        RemoteId {
+            agent: self.get_agent_name(loc.agent).into(),
+            seq: loc.seq
+        }
+    }
+
+    pub fn time_to_remote_id(&self, time: Time) -> RemoteId {
+        let crdt_id = self.time_to_crdt_id(time);
+        self.crdt_id_to_remote(crdt_id)
+    }
+
     pub fn remote_ids_to_frontier<I: Iterator<Item=RemoteId>>(&self, ids_iter: I) -> Frontier {
         let mut frontier: Frontier = ids_iter
             .map(|remote_id| self.remote_id_to_time(&remote_id))
@@ -49,18 +73,6 @@ impl OpLog {
             frontier.sort_unstable();
         }
         frontier
-    }
-
-    fn crdt_id_to_remote(&self, loc: CRDTId) -> RemoteId {
-        RemoteId {
-            agent: self.get_agent_name(loc.agent).into(),
-            seq: loc.seq
-        }
-    }
-
-    pub fn time_to_remote_id(&self, time: Time) -> RemoteId {
-        let crdt_id = self.get_crdt_location(time);
-        self.crdt_id_to_remote(crdt_id)
     }
 
     pub fn frontier_to_remote_ids(&self, frontier: &[Time]) -> SmallVec<[RemoteId; 4]> {
@@ -83,8 +95,8 @@ mod test {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
         oplog.get_or_create_agent_id("mike");
-        oplog.push_insert(0, &[ROOT_TIME], 0, "hi".into());
-        oplog.push_insert(1, &[ROOT_TIME], 0, "yooo".into());
+        oplog.push_insert_at(0, &[ROOT_TIME], 0, "hi".into());
+        oplog.push_insert_at(1, &[ROOT_TIME], 0, "yooo".into());
 
         assert_eq!(ROOT_TIME, oplog.remote_id_to_time(&RemoteId {
             agent: "ROOT".into(),

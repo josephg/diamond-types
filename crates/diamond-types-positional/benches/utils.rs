@@ -52,11 +52,11 @@ pub fn apply_edits_push_merge(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
             // content.clear();
 
             if *del_span > 0 {
-                last_parent = doc.ops.push_delete(id, &[last_parent], *pos, *del_span);
+                last_parent = doc.ops.push_delete_at(id, &[last_parent], *pos, *del_span);
             }
 
             if !ins_content.is_empty() {
-                last_parent = doc.ops.push_insert(id, &[last_parent], *pos, ins_content);
+                last_parent = doc.ops.push_insert_at(id, &[last_parent], *pos, ins_content);
             }
         }
     }

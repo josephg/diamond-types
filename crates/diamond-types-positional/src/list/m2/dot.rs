@@ -117,9 +117,9 @@ mod test {
         let mut ops = OpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
-        ops.push_insert(0, &[ROOT_TIME], 0, "a");
-        ops.push_insert(1, &[ROOT_TIME], 0, "b");
-        ops.push_delete(0, &[0, 1], 0, 2);
+        ops.push_insert_at(0, &[ROOT_TIME], 0, "a");
+        ops.push_insert_at(1, &[ROOT_TIME], 0, "b");
+        ops.push_delete_at(0, &[0, 1], 0, 2);
 
         ops.make_graph("test.svg", "asdf", [((0..ops.len()).into(), Red)].iter().copied());
     }

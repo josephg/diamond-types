@@ -82,7 +82,7 @@ impl OpLog {
         else { self.client_data[agent as usize].name.as_str() }
     }
 
-    pub(crate) fn get_crdt_location(&self, time: usize) -> CRDTId {
+    pub(crate) fn time_to_crdt_id(&self, time: usize) -> CRDTId {
         if time == ROOT_TIME { CRDT_DOC_ROOT }
         else {
             let (loc, offset) = self.client_with_localtime.find_packed_with_offset(time);
@@ -218,7 +218,7 @@ impl OpLog {
     /// Push new operations to the opset. Operation parents specified by parents parameter.
     ///
     /// Returns the single item frontier after merging.
-    pub fn push(&mut self, agent: AgentId, parents: &[Time], ops: &[Operation]) -> Time {
+    pub fn push_at(&mut self, agent: AgentId, parents: &[Time], ops: &[Operation]) -> Time {
         let first_time = self.len();
         let mut next_time = first_time;
 
@@ -250,13 +250,32 @@ impl OpLog {
     }
 
     /// Returns the single item frontier after the inserted change.
-    pub fn push_insert(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) -> Time {
-        self.push(agent, parents, &[Operation::new_insert(pos, ins_content)])
+    pub fn push_insert_at(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) -> Time {
+        self.push_at(agent, parents, &[Operation::new_insert(pos, ins_content)])
     }
 
     /// Returns the single item frontier after the inserted change.
-    pub fn push_delete(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) -> Time {
-        self.push(agent, parents, &[Operation::new_delete(pos, del_span)])
+    pub fn push_delete_at(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) -> Time {
+        self.push_at(agent, parents, &[Operation::new_delete(pos, del_span)])
+    }
+
+    // *** Helpers for pushing at the current version ***
+
+
+    pub fn push(&mut self, agent: AgentId, ops: &[Operation]) -> Time {
+        // TODO: Rewrite this to avoid the .clone().
+        let frontier = self.frontier.clone();
+        self.push_at(agent, &frontier, ops)
+    }
+
+    /// Returns the single item frontier after the inserted change.
+    pub fn push_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
+        self.push(agent, &[Operation::new_insert(pos, ins_content)])
+    }
+
+    /// Returns the single item frontier after the inserted change.
+    pub fn push_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
+        self.push(agent, &[Operation::new_delete(pos, del_span)])
     }
 
     pub fn iter_history(&self) -> impl Iterator<Item = &HistoryEntry> {

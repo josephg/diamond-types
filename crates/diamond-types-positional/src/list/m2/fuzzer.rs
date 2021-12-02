@@ -26,7 +26,7 @@ fn make_random_change_raw(opset: &mut OpLog, branch: &Branch, rope: Option<&mut 
         if let Some(rope) = rope {
             rope.insert(pos, content.as_str());
         }
-        opset.push_insert(agent, &branch.frontier, pos, &content)
+        opset.push_insert_at(agent, &branch.frontier, pos, &content)
     } else {
         // Delete something
         let pos = rng.gen_range(0..doc_len);
@@ -40,7 +40,7 @@ fn make_random_change_raw(opset: &mut OpLog, branch: &Branch, rope: Option<&mut 
 
         // I'm using this rather than push_delete to preserve the deleted content.
         let op = branch.make_delete_op(pos, span);
-        opset.push(agent, &branch.frontier, &[op])
+        opset.push_at(agent, &branch.frontier, &[op])
         // doc.local_delete(agent, pos, span)
     };
     // dbg!(&doc.markers);

@@ -168,7 +168,7 @@ impl M2Tracker {
                         let ins_here = match my_name.cmp(other_name) {
                             Ordering::Less => true,
                             Ordering::Equal => {
-                                opset.get_crdt_location(item.id.start) < opset.get_crdt_location(other_entry.id.start)
+                                opset.time_to_crdt_id(item.id.start) < opset.time_to_crdt_id(other_entry.id.start)
                             }
                             Ordering::Greater => false,
                         };
@@ -253,10 +253,32 @@ impl M2Tracker {
     }
 
     /// This is for advancing us directly based on the edit.
+    ///
+    /// This method does 2 things:
+    ///
+    /// 1. Advance the tracker (self) based on the passed operation. This will insert new items in
+    ///    to the tracker object, and should only be done exactly once for each operation in the set
+    ///    we care about
+    /// 2. If `to` is set to `Some(branch)` then modify the branch's content by this passed
+    ///    operation.
+    ///
+    /// For inserts, the expected behaviour is this:
+    ///
+    /// |           | OriginLeft | OriginRight |
+    /// |-----------|------------|-------------|
+    /// | NotInsYet | Before     | After       |
+    /// | Inserted  | After      | Before      |
+    /// | Deleted   | Before     | Before      |
     fn apply(&mut self, opset: &OpLog, agent: AgentId, op_pair: &KVPair<Operation>, mut to: Option<&mut Branch>) {
+        if let Some(to) = to.as_deref_mut() {
+            // TODO: It might be more efficient to do this all at once
+            advance_frontier_by(&mut to.frontier, &opset.history, op_pair.span());
+        }
+
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
         let KVPair(time, op) = op_pair;
+
         // dbg!(op);
         match op.tag {
             InsDelTag::Ins => {
@@ -576,9 +598,9 @@ impl Branch {
         tracker.walk(&opset, frontier, &new_ops, Some(self));
 
         // ... And update our frontier.
-        for range in new_ops.into_iter().rev() {
-            advance_frontier_by(&mut self.frontier, &opset.history, range);
-        }
+        // for range in new_ops.into_iter().rev() {
+        //     advance_frontier_by(&mut self.frontier, &opset.history, range);
+        // }
     }
 }
 
@@ -591,7 +613,7 @@ mod test {
     fn test_ff() {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("a");
-        list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
+        list.ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
 
         list.branch.merge(&list.ops, &[1]);
         list.branch.merge(&list.ops, &[2]);
@@ -606,14 +628,14 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
-        list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
+        list.ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.ops.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
         list.branch.merge(&list.ops, &[2, 5]);
 
         assert_eq!(list.branch.frontier.as_slice(), &[2, 5]);
         assert_eq!(list.branch.content, "aaabbb");
 
-        list.ops.push_insert(0, &[2, 5], 0, "ccc"); // 8
+        list.ops.push_insert_at(0, &[2, 5], 0, "ccc"); // 8
         list.branch.merge(&list.ops, &[8]);
 
         assert_eq!(list.branch.frontier.as_slice(), &[8]);
@@ -626,8 +648,8 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
-        list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
+        list.ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.ops.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
 
         list.branch.merge(&list.ops, &[2, 5]);
         // list.checkout.merge_changes_m2(&list.ops, &[2]);
@@ -647,8 +669,8 @@ mod test {
         list.local_insert(0, 0, "aaa");
         // list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
 
-        list.ops.push_delete(0, &[2], 1, 1); // &[3]
-        list.ops.push_delete(1, &[2], 0, 3); // &[6]
+        list.ops.push_delete_at(0, &[2], 1, 1); // &[3]
+        list.ops.push_delete_at(1, &[2], 0, 3); // &[6]
 
         // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
         // list.checkout.merge_changes_m2(&list.ops, (3..list.ops.len()).into());
@@ -662,9 +684,9 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        let t = list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
-        list.ops.push_delete(0, &[t], 1, 1); // 3
-        list.ops.push_delete(1, &[t], 0, 3); // 6
+        let t = list.ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.ops.push_delete_at(0, &[t], 1, 1); // 3
+        list.ops.push_delete_at(1, &[t], 0, 3); // 6
         // dbg!(&list.ops);
 
         // list.checkout.merge_changes_m2(&list.ops, (0..list.ops.len()).into());
@@ -680,8 +702,8 @@ mod test {
         list.get_or_create_agent_id("b");
         // list.local_insert(0, 0, "aaa");
 
-        list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
-        list.ops.push_insert(1, &[ROOT_TIME], 0, "bbb");
+        list.ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.ops.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
 
         let mut t = M2Tracker::new();
         t.apply_range(&list.ops, (0..3).into(), None);
@@ -699,8 +721,8 @@ mod test {
 
         list.local_insert(0, 0, "aaa");
 
-        list.ops.push_delete(0, &[2], 1, 1);
-        list.ops.push_delete(1, &[2], 0, 3);
+        list.ops.push_delete_at(0, &[2], 1, 1);
+        list.ops.push_delete_at(1, &[2], 0, 3);
 
         let mut t = M2Tracker::new();
         t.apply_range(&list.ops, (0..4).into(), None);
@@ -736,10 +758,10 @@ mod test {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("seph");
         let mut t = ROOT_TIME;
-        t = list.ops.push_insert(0, &[t], 0, "abc"); // 2
-        t = list.ops.push_delete(0, &[t], 2, 1); // 3 -> "ab_"
-        t = list.ops.push_delete(0, &[t], 1, 1); // 4 -> "a__"
-        t = list.ops.push_delete(0, &[t], 0, 1); // 5 -> "___"
+        t = list.ops.push_insert_at(0, &[t], 0, "abc"); // 2
+        t = list.ops.push_delete_at(0, &[t], 2, 1); // 3 -> "ab_"
+        t = list.ops.push_delete_at(0, &[t], 1, 1); // 4 -> "a__"
+        t = list.ops.push_delete_at(0, &[t], 0, 1); // 5 -> "___"
         assert_eq!(t, 5);
 
         let mut t = M2Tracker::new();
@@ -756,9 +778,9 @@ mod test {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("seph");
         let mut t = ROOT_TIME;
-        t = list.ops.push_insert(0, &[t], 0, "c");
-        t = list.ops.push_insert(0, &[t], 0, "b");
-        t = list.ops.push_insert(0, &[t], 0, "a");
+        t = list.ops.push_insert_at(0, &[t], 0, "c");
+        t = list.ops.push_insert_at(0, &[t], 0, "b");
+        t = list.ops.push_insert_at(0, &[t], 0, "a");
 
         dbg!(&list.ops);
         list.branch.merge(&list.ops, &[t]);

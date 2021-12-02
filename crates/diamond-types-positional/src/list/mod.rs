@@ -15,7 +15,7 @@ use crate::rle::{KVPair, RleVec};
 
 pub mod operation;
 mod history;
-mod list;
+pub mod list;
 mod check;
 mod history_tools;
 mod frontier;
@@ -85,7 +85,7 @@ pub struct OpLog {
     /// Along with deletes, this essentially contains the time DAG.
     ///
     /// TODO: Consider renaming this field
-    history: History,
+    pub history: History,
 
     /// This is the frontier of the entire oplog. So, if you merged every change we store into a
     /// branch, this is the frontier of that branch.

@@ -64,23 +64,34 @@ fn push_run_u32(into: &mut Vec<u8>, run: Run<u32>) {
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[repr(u32)]
 enum Chunk {
-    FileInfo = 1,
-    Content = 2,
+    FileInfo,
 
-    AgentNames = 3,
-    AgentAssignment = 4,
+    AgentNames,
+    AgentAssignment,
+    PositionalPatches,
+    TimeDAG,
 
-    Frontier = 5,
+    StartFrontier,
+    EndFrontier,
 
-    Parents = 6,
 
-    InsOrDelFlags = 7,
-    DelData = 8,
+    InsertedContent,
+    DeletedContent,
+    BranchContent,
 
-    InsOrders = 9, // Not used by encode_small.
-    InsOrigins = 10,
 
-    Patches = 11,
+    // Content = 2,
+    //
+    // AgentNames = 3,
+    // AgentAssignment = 4,
+    //
+    // Frontier = 5,
+    //
+    // Parents = 6,
+    //
+    // DelData = 8,
+    //
+    // Patches = 11,
 }
 
 fn push_chunk_header(into: &mut Vec<u8>, chunk_type: Chunk, len: usize) {
