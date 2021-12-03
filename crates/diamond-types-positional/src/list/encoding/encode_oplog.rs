@@ -108,7 +108,7 @@ fn write_history_entry(dest: &mut Vec<u8>, entry: &HistoryEntry) {
     let mut iter = entry.parents.iter().peekable();
     while let Some(&p) = iter.next() {
         let has_more = iter.peek().is_some();
-        let mut n = start.wrapping_sub(p); // Handle ROOT parents
+        let mut n = start.wrapping_sub(p); // Wrap so we can handle ROOT parents
         n = mix_bit_usize(n, has_more);
         push_usize(dest, n);
     }
@@ -151,35 +151,37 @@ impl OpLog {
         let mut buf = Vec::new();
         write_full_frontier(self, &mut buf, &[ROOT_TIME]);
         write_chunk(Chunk::StartFrontier, &buf);
+        buf.clear();
 
         write_full_frontier(self, &mut buf, &self.frontier);
         write_chunk(Chunk::EndFrontier, &buf);
-
         buf.clear();
+
         for client_data in self.client_data.iter() {
             push_str(&mut buf, client_data.name.as_str());
         }
         // println!("Agent names data {}", buf.len());
         write_chunk(Chunk::AgentNames, &buf);
-
         buf.clear();
+
         for KVPair(_, span) in self.client_with_localtime.iter() {
             push_run_u32(&mut buf, Run { val: span.agent, len: span.len() });
         }
         write_chunk(Chunk::AgentAssignment, &buf);
-
         buf.clear();
+
         let mut last_cursor_pos: usize = 0;
         for KVPair(_, op) in self.operations.iter_merged() {
             write_op(&mut buf, &op, &mut last_cursor_pos);
         }
         write_chunk(Chunk::PositionalPatches, &buf);
-
         buf.clear();
+
         for txn in self.history.entries.iter() {
             write_history_entry(&mut buf, txn);
         }
         write_chunk(Chunk::TimeDAG, &buf);
+        buf.clear();
 
         println!("== Total length {}", result.len());
 

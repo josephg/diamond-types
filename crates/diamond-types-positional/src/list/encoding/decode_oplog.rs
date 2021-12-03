@@ -32,6 +32,7 @@ pub enum ParseError {
 
 use ParseError::*;
 use crate::list::frontier::{frontier_is_root, frontier_is_sorted};
+use crate::list::history::HistoryEntry;
 use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::remotespan::{CRDTId, CRDTSpan};
@@ -305,6 +306,7 @@ impl OpLog {
             next_time += run.len;
         }
 
+        // *** Patches ***
         let mut patches_iter = ReadPatchesIter {
             buf: reader.expect_chunk(Chunk::PositionalPatches)?,
             last_cursor_pos: 0
@@ -316,6 +318,31 @@ impl OpLog {
             result.operations.push(KVPair(next_time, op));
             next_time += len;
         }
+
+        // *** History ***
+        let mut history_chunk = reader.expect_chunk(Chunk::TimeDAG)?;
+
+        let mut next_time = 0usize;
+        while !history_chunk.is_empty() {
+            let len = history_chunk.next_usize()?;
+
+            let mut parents = Frontier::new();
+            // And read parents.
+            loop {
+                let mut n = history_chunk.next_usize()?;
+                let has_more = strip_bit_usize2(&mut n);
+                let parent = next_time.wrapping_sub(n);
+                parents.push(parent);
+                if !has_more { break; }
+            }
+
+            // Bleh its gross passing a &[Time] into here when we have a Frontier already.
+            result.insert_history(&parents, (next_time..next_time + len).into());
+
+            next_time += len;
+        }
+
+        result.frontier = end_frontier_chunk.read_full_frontier(&result)?;
 
         Ok(result)
     }
