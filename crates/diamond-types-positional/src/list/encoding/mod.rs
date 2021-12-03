@@ -8,11 +8,13 @@
 
 mod varint;
 mod encode_oplog;
+mod decode_oplog;
 
 use std::fmt::Debug;
 use std::mem::{replace, size_of};
 use rle::MergableSpan;
 use crate::list::encoding::varint::*;
+use num_enum::TryFromPrimitive;
 
 fn push_u32(into: &mut Vec<u8>, val: u32) {
     let mut buf = [0u8; 5];
@@ -52,18 +54,20 @@ struct Run<V: Clone + PartialEq + Eq> {
 fn push_run_u32(into: &mut Vec<u8>, run: Run<u32>) {
     let mut dest = [0u8; 15];
     let mut pos = 0;
-    pos += encode_u32_with_extra_bit(run.val, run.len != 1, &mut dest[..]);
+    let n = mix_bit_u32(run.val, run.len != 1);
+    pos += encode_u32(n, &mut dest[..]);
+    // pos += encode_u32_with_extra_bit(run.val, run.len != 1, &mut dest[..]);
     if run.len != 1 {
-        pos += encode_u64(run.len as u64, &mut dest[pos..]);
+        pos += encode_usize(run.len, &mut dest[pos..]);
     }
 
     into.extend_from_slice(&dest[..pos]);
 }
 
-// #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+// #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]
-enum Chunk {
+pub enum Chunk {
     FileInfo,
 
     AgentNames,
@@ -158,4 +162,6 @@ impl<S: MergableSpan + Debug, F: FnMut(&mut Vec<u8>, S)> SpanWriter<S, F> {
         self.dest
     }
 }
+
+const MAGIC_BYTES_SMALL: [u8; 8] = *b"DIAMONDp";
 

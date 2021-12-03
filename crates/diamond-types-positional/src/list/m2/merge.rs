@@ -10,7 +10,7 @@ use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::{is_underwater, TimeSpan};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
-use crate::list::frontier::{advance_frontier_by, frontier_eq, frontier_is_sorted};
+use crate::list::frontier::{advance_frontier_by, frontier_eq, frontier_is_root, frontier_is_sorted};
 use crate::list::history_tools::Flag;
 use crate::list::m2::rev_span::TimeSpanRev;
 
@@ -26,6 +26,9 @@ use crate::list::m2::txn_trace::OptimizedTxnsIter;
 use crate::list::operation::InsDelTag::Ins;
 
 const ALLOW_FF: bool = true;
+
+#[cfg(feature = "dot_export")]
+const MAKE_GRAPHS: bool = true;
 
 fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     // TODO: Use dirty tricks to avoid this for more performance.
@@ -467,9 +470,6 @@ impl M2Tracker {
         walker.into_frontier()
     }
 }
-
-#[cfg(feature = "dot_export")]
-const MAKE_GRAPHS: bool = true;
 
 impl Branch {
     /// Add everything in merge_frontier into the set.

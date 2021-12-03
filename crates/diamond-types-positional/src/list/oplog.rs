@@ -17,9 +17,14 @@ impl ClientData {
         } else { 0 }
     }
 
+    #[inline]
+    pub(crate) fn try_seq_to_time(&self, seq: usize) -> Option<Time> {
+        let (entry, offset) = self.item_orders.find_with_offset(seq)?;
+        Some(entry.1.start + offset)
+    }
+
     pub(crate) fn seq_to_time(&self, seq: usize) -> Time {
-        let (entry, offset) = self.item_orders.find_with_offset(seq).unwrap();
-        entry.1.start + offset
+        self.try_seq_to_time(seq).unwrap()
     }
 
     // /// Note the returned timespan might be shorter than seq_range.
@@ -124,15 +129,18 @@ impl OpLog {
         self.client_with_localtime.is_empty()
     }
 
-    pub(crate) fn assign_time_to_client(&mut self, loc: CRDTId, time_start: usize, len: usize) {
-        self.client_with_localtime.push(KVPair(time_start, CRDTSpan {
-            agent: loc.agent,
-            seq_range: TimeSpan { start: loc.seq, end: loc.seq + len },
-        }));
+    pub(crate) fn assign_next_time_to_client(&mut self, agent: AgentId, time_start: usize, len: usize) {
+        let client_data = &mut self.client_data[agent as usize];
 
-        self.client_data[loc.agent as usize].item_orders.push(KVPair(loc.seq, TimeSpan {
+        let next_seq = client_data.get_next_seq();
+        client_data.item_orders.push(KVPair(next_seq, TimeSpan {
             start: time_start,
             end: time_start + len,
+        }));
+
+        self.client_with_localtime.push(KVPair(time_start, CRDTSpan {
+            agent,
+            seq_range: TimeSpan { start: next_seq, end: next_seq + len },
         }));
     }
 
@@ -224,10 +232,7 @@ impl OpLog {
 
         let op_len = ops.iter().map(|c| c.len()).sum();
 
-        self.assign_time_to_client(CRDTId {
-            agent,
-            seq: self.client_data[agent as usize].get_next_seq()
-        }, first_time, op_len);
+        self.assign_next_time_to_client(agent, first_time, op_len);
 
         for c in ops {
             let len = c.len();

@@ -41,10 +41,7 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
 
     let op_len = local_ops.iter().map(|c| c.len()).sum();
 
-    oplog.assign_time_to_client(CRDTId {
-        agent,
-        seq: oplog.client_data[agent as usize].get_next_seq()
-    }, first_time, op_len);
+    oplog.assign_next_time_to_client(agent, first_time, op_len);
 
     // for LocalOp { pos, ins_content, del_span } in local_ops {
     for c in local_ops {

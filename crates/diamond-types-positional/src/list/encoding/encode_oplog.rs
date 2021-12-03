@@ -8,8 +8,6 @@ use crate::list::frontier::frontier_is_root;
 use crate::rle::KVPair;
 use crate::ROOT_TIME;
 
-const MAGIC_BYTES_SMALL: [u8; 8] = *b"DIAMONDp";
-
 
 // #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 // pub struct EditRun {
@@ -61,7 +59,7 @@ fn write_op(dest: &mut Vec<u8>, op: &Operation, cursor: &mut usize) {
         op.pos
     };
 
-    let cursor_diff = isize::wrapping_sub(op_start as isize, *cursor as isize) as i64;
+    let cursor_diff = isize::wrapping_sub(op_start as isize, *cursor as isize);
     *cursor = op_end;
 
     // println!("pos {} diff {} {:?} rev {} len {}", op.pos cursor_movement, op.tag, reversed, op.len);
@@ -78,24 +76,24 @@ fn write_op(dest: &mut Vec<u8>, op: &Operation, cursor: &mut usize) {
 
     // TODO: Make usize variants of all of this and use that rather than u64 / i64.
     let mut n = if op.len != 1 {
-        let mut n = op.len as u64;
+        let mut n = op.len;
         // When len == 1, the item is never considered reversed.
-        if op.tag == Del { n = mix_bit_u64(n, reversed) };
+        if op.tag == Del { n = mix_bit_usize(n, reversed) };
         n
     } else if cursor_diff != 0 {
-        num_encode_zigzag_i64(cursor_diff)
+        num_encode_zigzag_isize(cursor_diff)
     } else {
         0
     };
 
-    n = mix_bit_u64(n, op.tag == Del);
-    n = mix_bit_u64(n, cursor_diff != 0);
-    n = mix_bit_u64(n, op.len != 1);
-    pos += encode_u64(n, &mut buf[pos..]);
+    n = mix_bit_usize(n, op.tag == Del);
+    n = mix_bit_usize(n, cursor_diff != 0);
+    n = mix_bit_usize(n, op.len != 1);
+    pos += encode_usize(n, &mut buf[pos..]);
 
     if op.len != 1 && cursor_diff != 0 {
-        let mut n2 = num_encode_zigzag_i64(cursor_diff);
-        pos += encode_u64(n2, &mut buf[pos..]);
+        let mut n2 = num_encode_zigzag_isize(cursor_diff);
+        pos += encode_usize(n2, &mut buf[pos..]);
     }
 
     dest.extend_from_slice(&buf[..pos]);
@@ -119,13 +117,17 @@ fn write_history_entry(dest: &mut Vec<u8>, entry: &HistoryEntry) {
 // We need to name the full branch in the output in a few different settings.
 fn write_full_frontier(oplog: &OpLog, dest: &mut Vec<u8>, frontier: &[Time]) {
     if frontier_is_root(frontier) {
-        push_u32(dest, 0);
+        // The root is written as a single item.
+        push_str(dest, "ROOT");
+        push_usize(dest, 0);
     } else {
         let mut iter = frontier.iter().peekable();
         while let Some(t) = iter.next() {
             let has_more = iter.peek().is_some();
             let id = oplog.time_to_crdt_id(*t);
+
             push_str(dest, oplog.client_data[id.agent as usize].name.as_str());
+
             let n = mix_bit_usize(id.seq, has_more);
             push_usize(dest, n);
         }
@@ -135,43 +137,49 @@ fn write_full_frontier(oplog: &OpLog, dest: &mut Vec<u8>, frontier: &[Time]) {
 impl OpLog {
     pub fn encode_operations_naively(&self) -> Vec<u8> {
         let mut result = Vec::new();
-        let mut last_cursor_pos: usize = 0;
+        result.extend_from_slice(&MAGIC_BYTES_SMALL);
 
-        let mut handle_chunk = |c: Chunk, data: &[u8]| {
+        let mut write_chunk = |c: Chunk, data: &[u8]| {
             println!("{:?} length {}", c, data.len());
             push_chunk(&mut result, c, &data);
         };
 
+        // TODO: The fileinfo chunk should specify DT version, encoding version and information
+        // about the data types we're encoding.
+        write_chunk(Chunk::FileInfo, &[]);
+
         let mut buf = Vec::new();
         write_full_frontier(self, &mut buf, &[ROOT_TIME]);
-        handle_chunk(Chunk::StartFrontier, &buf);
+        write_chunk(Chunk::StartFrontier, &buf);
 
         write_full_frontier(self, &mut buf, &self.frontier);
-        handle_chunk(Chunk::EndFrontier, &buf);
+        write_chunk(Chunk::EndFrontier, &buf);
 
+        buf.clear();
         for client_data in self.client_data.iter() {
             push_str(&mut buf, client_data.name.as_str());
         }
         // println!("Agent names data {}", buf.len());
-        handle_chunk(Chunk::AgentNames, &buf);
+        write_chunk(Chunk::AgentNames, &buf);
 
         buf.clear();
         for KVPair(_, span) in self.client_with_localtime.iter() {
             push_run_u32(&mut buf, Run { val: span.agent, len: span.len() });
         }
-        handle_chunk(Chunk::AgentAssignment, &buf);
+        write_chunk(Chunk::AgentAssignment, &buf);
 
         buf.clear();
+        let mut last_cursor_pos: usize = 0;
         for KVPair(_, op) in self.operations.iter_merged() {
             write_op(&mut buf, &op, &mut last_cursor_pos);
         }
-        handle_chunk(Chunk::PositionalPatches, &buf);
+        write_chunk(Chunk::PositionalPatches, &buf);
 
         buf.clear();
         for txn in self.history.entries.iter() {
             write_history_entry(&mut buf, txn);
         }
-        handle_chunk(Chunk::TimeDAG, &buf);
+        write_chunk(Chunk::TimeDAG, &buf);
 
         println!("== Total length {}", result.len());
 

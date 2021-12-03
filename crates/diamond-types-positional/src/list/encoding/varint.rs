@@ -93,6 +93,16 @@ pub fn encode_u32(mut value: u32, buf: &mut [u8]) -> usize {
     5
 }
 
+pub fn encode_usize(value: usize, buf: &mut [u8]) -> usize {
+    if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {
+        encode_u32(value as u32, buf)
+    } else if cfg!(target_pointer_width = "64") {
+        encode_u64(value as u64, buf)
+    } else {
+        panic!("Unsupported target pointer width")
+    }
+}
+
 // TODO: Make this return a Result<> of some sort.
 /// Returns (varint, number of bytes read).
 pub fn decode_u64_slow(buf: &[u8]) -> (u64, usize) {
@@ -176,6 +186,17 @@ pub fn num_encode_zigzag_i32(val: i32) -> u32 {
     val.abs() as u32 * 2 + val.is_negative() as u32
 }
 
+pub fn num_encode_zigzag_isize(val: isize) -> usize {
+    // TODO: Figure out a way to write this that gives compiler errors instead of runtime errors.
+    if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {
+        num_encode_zigzag_i32(val as i32) as usize
+    } else if cfg!(target_pointer_width = "64") {
+        num_encode_zigzag_i64(val as i64) as usize
+    } else {
+        panic!("Unsupported target pointer width")
+    }
+}
+
 pub fn encode_i64(value: i64, buf: &mut[u8]) -> usize {
     encode_u64(num_encode_zigzag_i64(value), buf)
 }
@@ -218,6 +239,27 @@ pub(crate) fn mix_bit_usize(value: usize, extra: bool) -> usize {
     }
 }
 
+pub(crate) fn strip_bit_u64(value: u64) -> (u64, bool) {
+    let bit = (value & 1) != 0;
+    (value >> 1, bit)
+}
+
+pub(crate) fn strip_bit_u32(value: u32) -> (u32, bool) {
+    let bit = (value & 1) != 0;
+    (value >> 1, bit)
+}
+
+pub(crate) fn strip_bit_usize(value: usize) -> (usize, bool) {
+    let bit = (value & 1) != 0;
+    (value >> 1, bit)
+}
+pub(crate) fn strip_bit_usize2(value: &mut usize) -> bool {
+    let bit = (*value & 1) != 0;
+    *value >>= 1;
+    bit
+}
+
+
 // TODO: Remove this method. Callers should just use mix_bit.
 // fn num_encode_i64_with_extra_bit(value: i64, extra: bool) -> u64 {
 //     // We only have enough remaining bits in the u64 encoding to fit +/- 2^62.
@@ -248,13 +290,14 @@ pub fn num_decode_zigzag_i64(val: u64) -> i64 {
     (val >> 1) as i64 * (if val & 1 == 1 { -1 } else { 1 })
 }
 
-pub fn num_decode_u32_with_extra_bit(value: u32) -> (u32, bool) {
-    let bit = (value & 1) != 0;
-    (value >> 1, bit)
-}
-pub fn num_decode_u64_with_extra_bit(value: u64) -> (u64, bool) {
-    let bit = (value & 1) != 0;
-    (value >> 1, bit)
+pub fn num_decode_zigzag_isize(val: usize) -> isize {
+    if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {
+        num_decode_zigzag_i32(val as u32) as isize
+    } else if cfg!(target_pointer_width = "64") {
+        num_decode_zigzag_i64(val as u64) as isize
+    } else {
+        panic!("Unsupported target pointer width")
+    }
 }
 
 pub fn num_decode_i64_with_extra_bit(value: u64) -> (i64, bool) {

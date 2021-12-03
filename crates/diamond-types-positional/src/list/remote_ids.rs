@@ -6,6 +6,7 @@ use smallvec::SmallVec;
 use crate::localtime::TimeSpan;
 use crate::{ROOT_AGENT, ROOT_TIME};
 use crate::list::frontier::{check_frontier, frontier_is_sorted};
+use crate::list::remote_ids::ConversionError::SeqInFuture;
 use crate::remotespan::CRDTId;
 
 /// This file contains utilities to convert remote IDs to local time and back.
@@ -41,8 +42,26 @@ pub struct RemoteIdSpan {
 // timespan -> remote id span
 // remote id span -> timespan
 
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum ConversionError {
+    UnknownAgent,
+    SeqInFuture,
+}
+
 impl OpLog {
-    /// This panics if the ID isn't known to the document. TODO: Make a try- variant of this.
+    pub fn try_remote_id_to_time(&self, id: &RemoteId) -> Result<Time, ConversionError> {
+        let agent = self.get_agent_id(id.agent.as_str())
+            .ok_or(ConversionError::UnknownAgent)?;
+
+        if agent == ROOT_AGENT { Ok(ROOT_TIME) }
+        else {
+            self.client_data[agent as usize]
+                .try_seq_to_time(id.seq)
+                .ok_or(SeqInFuture)
+        }
+    }
+
+    /// This panics if the ID isn't known to the document.
     pub fn remote_id_to_time(&self, id: &RemoteId) -> Time {
         let agent = self.get_agent_id(id.agent.as_str()).unwrap();
 
