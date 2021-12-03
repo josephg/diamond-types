@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::Path;
@@ -8,21 +7,23 @@ use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
 
 use diamond_types_positional::list::*;
-use diamond_types_positional::list::list::{local_delete, local_insert};
+use diamond_types_positional::list::list::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // let repo = Repository::open("/home/seph/3rdparty/node")?;
-    // let file = "src/node.cc";
-    // let path = Path
+    let repo = Repository::open("/home/seph/3rdparty/node")?;
+    let file = "src/node.cc";
     // let file = "Makefile";
 
-    let repo = Repository::open("/home/seph/3rdparty/yjs")?;
+    // let repo = Repository::open("/home/seph/3rdparty/yjs")?;
     // let file = "package.json";
-    let file = "y.js";
+    // let file = "y.js";
 
     // let repo = Repository::open("/home/seph/temp/g")?;
     // let file = "foo";
+
     let path = Path::new(file);
+
+    println!("Loading {:?} from {:?}", path, repo.path());
 
     let head = repo.head().unwrap();
     // let y = head.resolve().unwrap();
@@ -165,7 +166,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                             match tag {
                                 ChangeTag::Equal => pos += len,
                                 ChangeTag::Delete => {
-                                    local_delete(&mut oplog, &mut branch, agent, pos, len);
+                                    let op = branch.make_delete_op(pos, len);
+                                    apply_local_operation(&mut oplog, &mut branch, agent, &[op]);
+                                    // local_delete(&mut oplog, &mut branch, agent, pos, len);
                                 }
                                 ChangeTag::Insert => {
                                     local_insert(&mut oplog, &mut branch, agent, pos, str);
@@ -190,10 +193,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // dbg!(&oplog);
     let branch = Branch::new_at_tip(&oplog);
-    println!("{}: '{}'", file, branch.content);
+    // println!("{}: '{}'", file, branch.content);
     println!("Branch at {:?}", branch.frontier);
 
     dbg!(&oplog.history.entries.len());
+
+    oplog.encode_operations_naively();
+    oplog.encode(true);
 
     // c.parents()
 

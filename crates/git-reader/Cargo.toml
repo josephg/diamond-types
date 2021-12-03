@@ -8,4 +8,8 @@ edition = "2021"
 [dependencies]
 git2 = "*"
 diamond-types-positional = { path = "../diamond-types-positional" }
+#diamond-types-positional = { path = "../diamond-types-positional", features = ["dot_export"] }
 similar = "2"
+
+#[features]
+#dot_export = []
