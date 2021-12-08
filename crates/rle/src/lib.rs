@@ -7,6 +7,7 @@ pub use merge_iter::*;
 mod splitable_span;
 mod merge_iter;
 mod append_rle;
+pub mod zip;
 
 pub trait Searchable {
     type Item: Copy + Debug;
