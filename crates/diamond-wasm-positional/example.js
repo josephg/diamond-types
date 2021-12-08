@@ -19,6 +19,8 @@ console.log("branch", ops.getFrontier())
 console.log("ops", ops.toArray())
 console.log("history", ops.txns())
 
+console.log("bytes", ops.toBytes())
+
 // const checkout = new Checkout()
 // checkout.merge(ops, t)
 // console.log('checkout', `"${checkout.get()}"`)

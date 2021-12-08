@@ -6,6 +6,7 @@ use wasm_bindgen::prelude::*;
 // use serde::{Serialize};
 use diamond_types_positional::{AgentId, ROOT_TIME};
 use diamond_types_positional::list::{ListCRDT, Time, Branch as DTBranch, OpLog as DTOpLog};
+use diamond_types_positional::list::encoding::EncodeOptions;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -121,6 +122,26 @@ impl OpLog {
         serde_wasm_bindgen::to_value(&frontier)
             .map_err(|err| err.into())
     }
+
+    // This method adds 15kb to the wasm bundle, or 4kb to the brotli size.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let bytes = self.inner.encode(EncodeOptions::default());
+        bytes
+    }
+
+    // This method adds 17kb to the wasm bundle, or 5kb after brotli.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8], agent_name: Option<String>) -> Self {
+        utils::set_panic_hook();
+
+        let mut inner = DTOpLog::load_from(bytes).unwrap();
+        let name_str = agent_name.as_ref().map_or("seph", |s| s.as_str());
+        let agent_id = inner.get_or_create_agent_id(name_str);
+
+        Self { inner, agent_id }
+    }
+
 }
 
 #[wasm_bindgen]
