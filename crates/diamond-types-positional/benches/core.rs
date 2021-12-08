@@ -46,10 +46,35 @@ fn local_benchmarks(c: &mut Criterion) {
     }
 }
 
+fn encoding_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("encoding");
+    let bytes = std::fs::read("node_nodecc.dt").unwrap();
+    let oplog = OpLog::load_from(&bytes).unwrap();
+    // group.throughput(Throughput::Bytes(bytes.len() as _));
+    group.throughput(Throughput::Elements(oplog.len() as _));
+
+    group.bench_function("decode_nodecc", |b| {
+        let bytes = std::fs::read("node_nodecc.dt").unwrap();
+        b.iter(|| {
+            let oplog = OpLog::load_from(&bytes).unwrap();
+            black_box(oplog);
+        });
+    });
+
+    group.bench_function("merge", |b| {
+        b.iter(|| {
+            let branch = Branch::new_at_tip(&oplog);
+            black_box(branch);
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(benches,
     local_benchmarks,
     // remote_benchmarks,
     // ot_benchmarks,
-    // encoding_benchmarks,
+    encoding_benchmarks,
 );
 criterion_main!(benches);

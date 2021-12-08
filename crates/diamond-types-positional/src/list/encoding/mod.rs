@@ -15,6 +15,9 @@ use std::mem::{replace, size_of};
 use rle::MergableSpan;
 use crate::list::encoding::varint::*;
 use num_enum::TryFromPrimitive;
+pub use encode_oplog::EncodeOptions;
+
+const MAGIC_BYTES_SMALL: [u8; 8] = *b"DIAMONDp";
 
 fn push_u32(into: &mut Vec<u8>, val: u32) {
     let mut buf = [0u8; 5];
@@ -67,7 +70,7 @@ fn push_run_u32(into: &mut Vec<u8>, run: Run<u32>) {
 // #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]
-pub enum Chunk {
+enum Chunk {
     FileInfo,
 
     AgentNames,
@@ -162,6 +165,4 @@ impl<S: MergableSpan + Debug, F: FnMut(&mut Vec<u8>, S)> SpanWriter<S, F> {
         self.dest
     }
 }
-
-const MAGIC_BYTES_SMALL: [u8; 8] = *b"DIAMONDp";
 

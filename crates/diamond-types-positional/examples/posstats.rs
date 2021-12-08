@@ -15,6 +15,7 @@ use diamond_types_positional::list::operation::*;
 use diamond_types_positional::alloc::*;
 #[cfg(feature = "memusage")]
 use humansize::{FileSize, file_size_opts};
+use diamond_types_positional::list::encoding::EncodeOptions;
 
 pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
@@ -84,7 +85,7 @@ fn print_stats_for_file(name: &str) {
     doc.print_stats(false);
 
     // let _as_bytes = doc.ops.encode(true);
-    let _as_bytes = doc.ops.encode_operations_naively();
+    let _as_bytes = doc.ops.encode(EncodeOptions::default());
     println!("Branch size {}", doc.len());
     // println!("---\nEncoded size {} (?? What do we include here?)", as_bytes.len());
 }

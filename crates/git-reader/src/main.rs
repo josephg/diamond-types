@@ -7,6 +7,7 @@ use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
 
 use diamond_types_positional::list::*;
+use diamond_types_positional::list::encoding::EncodeOptions;
 use diamond_types_positional::list::list::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -27,10 +28,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let head = repo.head().unwrap();
     // let y = head.resolve().unwrap();
-    dbg!(&head.name(), head.target());
+    // dbg!(&head.name(), head.target());
 
     let c = head.peel_to_commit().unwrap();
-    dbg!(c.id());
+    // dbg!(c.id());
     // let c_t = c.tree().unwrap();
 
     let mut commits_seen = HashSet::new();
@@ -91,6 +92,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // let mut branch_vec = Vec::new();
 
+    // This is n^2 but whatever. This is essentially a script for generating test data. We only
+    // need to run it once.
     while !commits_not_processed.is_empty() {
         // Scan from the back of commits_rev looking for something where we've done all the parents
         // but we haven't done this item.
@@ -198,8 +201,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     dbg!(&oplog.history.entries.len());
 
-    oplog.encode_operations_naively();
-    oplog.encode(true);
+    let data = oplog.encode(EncodeOptions::default());
+    std::fs::write("data.dt", data.as_slice()).unwrap();
+    println!("Data written to 'data.dt'");
 
     // c.parents()
 

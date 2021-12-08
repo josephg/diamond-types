@@ -13,16 +13,17 @@ pub enum ParseError {
     InvalidChunkHeader,
     UnexpectedChunk {
         // I could use Chunk here, but I'd rather not expose them publicly.
-        expected: Chunk,
-        actual: Chunk,
-        // expected: u32,,
-        // actual: u32,
+        // expected: Chunk,
+        // actual: Chunk,
+        expected: u32,
+        actual: u32,
     },
     InvalidLength,
     UnexpectedEOF,
     // TODO: Consider elidiing the details here to keep the wasm binary small.
     InvalidUTF8(Utf8Error),
     InvalidRemoteID(ConversionError),
+    InvalidContent,
 
     /// This error is interesting. We're loading a chunk but missing some of the data. In the future
     /// I'd like to explicitly support this case, and allow the oplog to contain a somewhat- sparse
@@ -37,6 +38,7 @@ use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::remotespan::{CRDTId, CRDTSpan};
 use crate::rle::KVPair;
+use crate::unicount::consume_chars;
 
 impl<'a> BufReader<'a> {
     // fn check_has_bytes(&self, num: usize) {
@@ -306,17 +308,44 @@ impl OpLog {
             next_time += run.len;
         }
 
-        // *** Patches ***
+        // *** Content and Patches ***
+
+        // Here there's a few options based on how the encoder was configured. We'll either
+        // get a Content chunk followed by PositionalPatches or just PositionalPatches.
+
+        let next_chunk = reader.next_chunk()?;
+        let (mut ins_content, patches_chunk) = if next_chunk.0 == Chunk::InsertedContent {
+            let patches_chunk = reader.expect_chunk(Chunk::PositionalPatches)?;
+            let content = std::str::from_utf8(next_chunk.1.0)
+                .map_err(|e| InvalidUTF8(e))?;
+            (Some(content), patches_chunk)
+        } else {
+            (None, next_chunk.1)
+        };
+
         let mut patches_iter = ReadPatchesIter {
-            buf: reader.expect_chunk(Chunk::PositionalPatches)?,
+            buf: patches_chunk,
             last_cursor_pos: 0
         };
         let mut next_time = 0;
         for op in patches_iter {
-            let op = op?;
+            let mut op = op?;
             let len = op.len;
+            if op.tag == Ins {
+                if let Some(content) = ins_content.as_mut() {
+                    // TODO: Check this split point is valid.
+                    op.content = consume_chars(content, len).into();
+                    op.content_known = true;
+                }
+            }
             result.operations.push(KVPair(next_time, op));
             next_time += len;
+        }
+
+        if let Some(content) = ins_content {
+            if !content.is_empty() {
+                return Err(InvalidContent);
+            }
         }
 
         // *** History ***
@@ -352,17 +381,33 @@ impl OpLog {
 #[cfg(test)]
 mod tests {
     use crate::list::{ListCRDT, OpLog};
+    use crate::list::encoding::encode_oplog::EncodeOptions;
 
     #[test]
     fn encode_decode_smoke_test() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");
         doc.local_insert(0, 0, "hi there");
-        doc.local_delete(0, 3, 4);
+        doc.local_delete(0, 3, 4); // 'hi e'
+        doc.local_insert(0, 3, "m");
 
-        let data = doc.ops.encode_operations_naively();
+        let data = doc.ops.encode(EncodeOptions::default());
 
-        let result = OpLog::load_from(&data);
+        let result = OpLog::load_from(&data).unwrap();
+
+        // assert_eq!(&result, &doc.ops);
         dbg!(&result);
+    }
+
+    #[test]
+    #[ignore]
+    fn decode_example() {
+        let bytes = std::fs::read("../../node_nodecc.dt").unwrap();
+        let oplog = OpLog::load_from(&bytes).unwrap();
+
+        for c in &oplog.client_data {
+            println!("{} .. {}", c.name, c.get_next_seq());
+        }
+        // dbg!(oplog.operations.len());
     }
 }

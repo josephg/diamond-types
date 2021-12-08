@@ -41,6 +41,7 @@ pub struct Operation {
     /// TODO: Consider swapping this to fwd
     pub reversed: bool,
 
+    // TODO: Remove content_known by making content an Option(...)
     pub content_known: bool,
     pub tag: InsDelTag,
     // pub content_bytes_offset: usize,

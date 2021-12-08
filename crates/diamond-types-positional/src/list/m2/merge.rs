@@ -499,8 +499,16 @@ impl Branch {
         #[cfg(feature = "dot_export")]
         let mut dbg_all_ops: SmallVec<[(TimeSpan, DotColor); 4]> = smallvec![];
 
+        let mut shared_size = 0;
+        let mut shared_ranges = 0;
+
         let mut common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
             // Note we'll be visiting these operations in reverse order.
+
+            if flag == Flag::Shared {
+                shared_size += span.len();
+                shared_ranges += 1;
+            }
 
             // dbg!(&span, flag);
             let target = match flag {
@@ -525,7 +533,8 @@ impl Branch {
             let s1 = merge_frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
             let s2 = self.frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
 
-            let filename = format!("../../svgs/m{}_to_{}.svg", s1, s2);
+            // let filename = format!("../../svgs/m{}_to_{}.svg", s1, s2);
+            let filename = format!("svgs/m{}_to_{}.svg", s1, s2);
             let content = self.content.to_string();
             opset.make_graph(&filename, &content, dbg_all_ops.iter().copied());
             println!("Saved graph to {}", filename);
@@ -579,11 +588,24 @@ impl Branch {
             //
             // We don't need to reset new_ops because that was updated above.
             conflict_ops.clear();
+            shared_size = 0;
             common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
+                if flag == Flag::Shared {
+                    shared_size += span.len();
+                    shared_ranges += 1;
+                }
+
                 if flag != Flag::OnlyB {
                     conflict_ops.push_reversed_rle(span);
                 }
             });
+        }
+
+        if shared_size > 0 {
+            // println!("Shared size {} in {} ranges", shared_size, shared_ranges);
+            if frontier_is_root(&common_ancestor) {
+                // println!("(Common ancestor is ROOT!)");
+            }
         }
 
         // TODO: Also FF at the end!
