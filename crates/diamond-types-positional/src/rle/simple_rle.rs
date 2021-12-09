@@ -6,7 +6,7 @@ use std::slice::SliceIndex;
 
 use humansize::{file_size_opts, FileSize};
 
-use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, MergeIter};
+use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, MergeIter, SplitableSpan};
 use rle::Searchable;
 use crate::localtime::TimeSpan;
 
@@ -321,8 +321,69 @@ impl<T: HasLength + MergableSpan, I: SliceIndex<[T]>> Index<I> for RleVec<T> {
     }
 }
 
+impl<V: HasLength + SplitableSpan + RleKeyed + MergableSpan> RleVec<V> {
+    pub fn iter_range_packed(&self, range: TimeSpan) -> RleVecRangeIter<V> {
+        let idx = self.find_index(range.start).unwrap();
+
+        let entry = &self.0[idx];
+        let offset = range.start - entry.get_rle_key();
+
+        RleVecRangeIter {
+            offset,
+            idx,
+            len_remaining: range.len(),
+            data: &self.0
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RleVecRangeIter<'a, V: HasLength + SplitableSpan + Clone> {
+    offset: usize,
+    idx: usize,
+    len_remaining: usize,
+    data: &'a [V],
+}
+
+impl<'a, V: HasLength + SplitableSpan + Clone> Iterator for RleVecRangeIter<'a, V> {
+    type Item = V;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.len_remaining == 0 || self.idx >= self.data.len() { return None; }
+
+        let mut item = self.data[self.idx].clone();
+        if self.offset > 0 {
+            assert!(self.offset < item.len());
+            item.truncate_keeping_right(self.offset);
+            self.offset = 0;
+        }
+
+        if item.len() > self.len_remaining {
+            item.truncate(self.len_remaining);
+            self.len_remaining = 0;
+        } else {
+            self.idx += 1;
+            self.len_remaining -= item.len();
+        }
+
+        Some(item)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn rle_iter_range() {
+        let mut rle: RleVec<TimeSpan> = RleVec::new();
+        rle.push((0..10).into());
+
+        // This is a sad example.
+        let items = rle.iter_range_packed((5..8).into()).collect::<Vec<_>>();
+        assert_eq!(&items, &[(5..8).into()]);
+    }
+
     // use crate::order::OrderSpan;
     // use crate::rle::KVPair;
     // use crate::rle::simple_rle::RleVec;

@@ -11,8 +11,9 @@ mod encode_oplog;
 mod decode_oplog;
 
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::mem::{replace, size_of};
-use rle::MergableSpan;
+use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::list::encoding::varint::*;
 use num_enum::TryFromPrimitive;
 pub use encode_oplog::EncodeOptions;
@@ -54,13 +55,33 @@ struct Run<V: Clone + PartialEq + Eq> {
     len: usize,
 }
 
+impl<V: Clone + PartialEq + Eq> HasLength for Run<V> {
+    fn len(&self) -> usize { self.len }
+}
+impl<V: Clone + PartialEq + Eq> SplitableSpan for Run<V> {
+    fn truncate(&mut self, at: usize) -> Self {
+        let remainder = Self {
+            len: self.len - at,
+            val: self.val.clone()
+        };
+        self.len = at;
+        remainder
+    }
+}
+impl<V: Clone + PartialEq + Eq> MergableSpan for Run<V> {
+    fn can_append(&self, other: &Self) -> bool { self.val == other.val }
+    fn append(&mut self, other: Self) { self.len += other.len; }
+    fn prepend(&mut self, other: Self) { self.len += other.len; }
+}
+
 fn push_run_u32(into: &mut Vec<u8>, run: Run<u32>) {
     let mut dest = [0u8; 15];
     let mut pos = 0;
-    let n = mix_bit_u32(run.val, run.len != 1);
+    let send_length = run.len != 1;
+    let n = mix_bit_u32(run.val, send_length);
     pos += encode_u32(n, &mut dest[..]);
     // pos += encode_u32_with_extra_bit(run.val, run.len != 1, &mut dest[..]);
-    if run.len != 1 {
+    if send_length {
         pos += encode_usize(run.len, &mut dest[pos..]);
     }
 
@@ -111,6 +132,56 @@ fn push_chunk(into: &mut Vec<u8>, chunk_type: Chunk, data: &[u8]) {
     into.extend_from_slice(data);
 }
 
+
+struct Merger<S: MergableSpan, F: FnMut(S, &mut Ctx), Ctx = ()> {
+    last: Option<S>,
+    f: F,
+    _ctx: PhantomData<Ctx> // This is awful.
+}
+
+impl<S: MergableSpan, F: FnMut(S, &mut Ctx), Ctx> Merger<S, F, Ctx> {
+    pub fn new(f: F) -> Self {
+        Self { last: None, f, _ctx: PhantomData }
+    }
+
+    pub fn push2(&mut self, span: S, ctx: &mut Ctx) {
+        if let Some(last) = self.last.as_mut() {
+            if last.can_append(&span) {
+                last.append(span);
+            } else {
+                let old = replace(last, span);
+                (self.f)(old, ctx);
+            }
+        } else {
+            self.last = Some(span);
+        }
+    }
+
+    pub fn flush2(mut self, ctx: &mut Ctx) {
+        if let Some(span) = self.last.take() {
+            (self.f)(span, ctx);
+        }
+    }
+}
+
+// I hate this.
+impl<S: MergableSpan, F: FnMut(S, &mut ())> Merger<S, F, ()> {
+    pub fn push(&mut self, span: S) {
+        self.push2(span, &mut ());
+    }
+    pub fn flush(mut self) {
+        self.flush2(&mut ());
+    }
+}
+
+impl<S: MergableSpan, F: FnMut(S, &mut Ctx), Ctx> Drop for Merger<S, F, Ctx> {
+    fn drop(&mut self) {
+        if self.last.is_some() && !std::thread::panicking() {
+            panic!("Merger dropped with unprocessed data");
+        }
+    }
+}
+
 /// A SpanWriter is a helper struct for writing objects which implement MergableSpan. Essentially,
 /// this acts as a single-item buffer.
 ///
@@ -119,19 +190,19 @@ fn push_chunk(into: &mut Vec<u8>, chunk_type: Chunk, data: &[u8]) {
 struct SpanWriter<S: MergableSpan + Debug, F: FnMut(&mut Vec<u8>, S)> {
     dest: Vec<u8>,
     last: Option<S>,
-    flush: F,
+    write: F,
 
     // #[cfg(debug_assertions)]
     pub count: usize,
 }
 
 impl<S: MergableSpan + Debug, F: FnMut(&mut Vec<u8>, S)> SpanWriter<S, F> {
-    pub fn new(flush: F) -> Self {
+    pub fn new(write_fn: F) -> Self {
         Self {
             dest: vec![],
             last: None,
             count: 0,
-            flush
+            write: write_fn
         }
     }
 
@@ -149,7 +220,7 @@ impl<S: MergableSpan + Debug, F: FnMut(&mut Vec<u8>, S)> SpanWriter<S, F> {
             } else {
                 let old = replace(last, s);
                 self.count += 1;
-                (self.flush)(&mut self.dest, old);
+                (self.write)(&mut self.dest, old);
             }
         } else {
             self.last = Some(s);
@@ -160,7 +231,7 @@ impl<S: MergableSpan + Debug, F: FnMut(&mut Vec<u8>, S)> SpanWriter<S, F> {
     pub fn bake(mut self) -> Vec<u8> {
         if let Some(elem) = self.last.take() {
             self.count += 1;
-            (self.flush)(&mut self.dest, elem);
+            (self.write)(&mut self.dest, elem);
         }
         self.dest
     }

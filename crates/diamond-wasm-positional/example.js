@@ -21,6 +21,10 @@ console.log("history", ops.txns())
 
 console.log("bytes", ops.toBytes())
 
+oplog2 = OpLog.fromBytes(ops.toBytes())
+console.log("ops", oplog2.toArray())
+
+
 // const checkout = new Checkout()
 // checkout.merge(ops, t)
 // console.log('checkout', `"${checkout.get()}"`)

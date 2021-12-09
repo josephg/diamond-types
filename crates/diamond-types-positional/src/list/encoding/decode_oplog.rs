@@ -32,12 +32,13 @@ pub enum ParseError {
 }
 
 use ParseError::*;
-use crate::list::frontier::{frontier_is_root, frontier_is_sorted};
+use crate::list::frontier::{advance_frontier_by_known_run, frontier_is_root, frontier_is_sorted};
 use crate::list::history::HistoryEntry;
 use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::remotespan::{CRDTId, CRDTSpan};
 use crate::rle::KVPair;
+use crate::ROOT_TIME;
 use crate::unicount::consume_chars;
 
 impl<'a> BufReader<'a> {
@@ -287,7 +288,8 @@ impl OpLog {
         // The start header chunk should always be ROOT.
         if !frontier_is_root(&frontier) { return Err(DataMissing); }
 
-        let mut end_frontier_chunk = reader.expect_chunk(Chunk::EndFrontier)?;
+        // This isn't read anyway.
+        // let mut end_frontier_chunk = reader.expect_chunk(Chunk::EndFrontier)?;
         // Interestingly we can't read the end_frontier_chunk until we've parsed all the operations.
 
         let mut agent_names_chunk = reader.expect_chunk(Chunk::AgentNames)?;
@@ -359,19 +361,39 @@ impl OpLog {
             // And read parents.
             loop {
                 let mut n = history_chunk.next_usize()?;
+                let is_foreign = strip_bit_usize2(&mut n);
                 let has_more = strip_bit_usize2(&mut n);
-                let parent = next_time.wrapping_sub(n);
+
+                let parent = if is_foreign {
+                    if n == 0 {
+                        ROOT_TIME
+                    } else {
+                        let agent = n - 1;
+                        let seq = history_chunk.next_usize()?;
+                        if let Some(c) = result.client_data.get(agent) {
+                            c.try_seq_to_time(seq)
+                                .ok_or(InvalidLength)?
+                        } else {
+                            return Err(InvalidLength);
+                        }
+                    }
+                } else {
+                    next_time - n
+                };
+
                 parents.push(parent);
                 if !has_more { break; }
             }
 
             // Bleh its gross passing a &[Time] into here when we have a Frontier already.
-            result.insert_history(&parents, (next_time..next_time + len).into());
+            let span = (next_time..next_time + len).into();
+            result.insert_history(&parents, span);
+            result.advance_frontier(&parents, span);
 
             next_time += len;
         }
 
-        result.frontier = end_frontier_chunk.read_full_frontier(&result)?;
+        // result.frontier = end_frontier_chunk.read_full_frontier(&result)?;
 
         Ok(result)
     }

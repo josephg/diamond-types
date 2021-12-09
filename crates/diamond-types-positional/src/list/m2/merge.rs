@@ -22,7 +22,7 @@ use crate::list::m2::dot::DotColor::*;
 use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
 use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::metrics::upstream_cursor_pos;
-use crate::list::m2::txn_trace::OptimizedTxnsIter;
+use crate::list::m2::txn_trace::SpanningTreeWalker;
 use crate::list::operation::InsDelTag::Ins;
 
 const ALLOW_FF: bool = true;
@@ -451,7 +451,7 @@ impl M2Tracker {
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
     fn walk(&mut self, opset: &OpLog, start_at: Frontier, rev_spans: &[TimeSpan], mut apply_to: Option<&mut Branch>) -> Frontier {
-        let mut walker = OptimizedTxnsIter::new(&opset.history, rev_spans, start_at);
+        let mut walker = SpanningTreeWalker::new(&opset.history, rev_spans, start_at);
 
         for walk in &mut walker {
             // dbg!(&walk);

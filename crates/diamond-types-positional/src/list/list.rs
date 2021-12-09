@@ -1,6 +1,6 @@
 use std::mem::replace;
 use humansize::{file_size_opts, FileSize};
-use crate::list::{Branch, Frontier, ListCRDT, OpLog};
+use crate::list::{Branch, Frontier, ListCRDT, OpLog, Time};
 use crate::rle::KVPair;
 use smallvec::smallvec;
 use crate::AgentId;
@@ -35,7 +35,7 @@ fn insert_history_local(opset: &mut OpLog, frontier: &mut Frontier, range: TimeS
 /// This is an optimized version of simply pushing the operation to the oplog and then merging it.
 ///
 /// It is much faster; but I hate the duplicated code.
-pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) {
+pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) -> Time {
     let first_time = oplog.len();
     let mut next_time = first_time;
 
@@ -64,21 +64,23 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
         next_time += len;
     }
 
-    let last_time = first_time + op_len;
+    debug_assert_eq!(first_time + op_len, next_time);
+
     insert_history_local(oplog, &mut branch.frontier, TimeSpan {
         start: first_time,
-        end: last_time
+        end: next_time
     });
 
-    oplog.frontier = smallvec![last_time - 1];
+    oplog.frontier = smallvec![next_time - 1];
+    next_time - 1
 }
 
-pub fn local_insert(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, ins_content: &str) {
-    apply_local_operation(opset, branch, agent, &[Operation::new_insert(pos, ins_content)]);
+pub fn local_insert(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, ins_content: &str) -> Time {
+    apply_local_operation(opset, branch, agent, &[Operation::new_insert(pos, ins_content)])
 }
 
-pub fn local_delete(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) {
-    apply_local_operation(opset, branch, agent, &[Operation::new_delete(pos, del_span)]);
+pub fn local_delete(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) -> Time {
+    apply_local_operation(opset, branch, agent, &[Operation::new_delete(pos, del_span)])
 }
 
 impl Default for ListCRDT {
@@ -103,16 +105,16 @@ impl ListCRDT {
         self.branch.is_empty()
     }
 
-    pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[Operation]) {
-        apply_local_operation(&mut self.ops, &mut self.branch, agent, local_ops);
+    pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[Operation]) -> Time {
+        apply_local_operation(&mut self.ops, &mut self.branch, agent, local_ops)
     }
 
-    pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
-        local_insert(&mut self.ops, &mut self.branch, agent, pos, ins_content);
+    pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
+        local_insert(&mut self.ops, &mut self.branch, agent, pos, ins_content)
     }
 
-    pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) {
-        local_delete(&mut self.ops, &mut self.branch, agent, pos, del_span);
+    pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
+        local_delete(&mut self.ops, &mut self.branch, agent, pos, del_span)
     }
 
     pub fn print_stats(&self, detailed: bool) {

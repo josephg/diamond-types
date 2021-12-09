@@ -17,15 +17,11 @@ impl Branch {
     }
 
     pub fn new_at_frontier(oplog: &OpLog, frontier: &[Time]) -> Self {
-        let mut branch = Self::new();
-        branch.merge(oplog, frontier);
-        branch
+        oplog.checkout(frontier)
     }
 
     pub fn new_at_tip(oplog: &OpLog) -> Self {
-        let mut branch = Self::new();
-        branch.merge(oplog, oplog.get_frontier());
-        branch
+        oplog.checkout_tip()
     }
 
     pub fn len(&self) -> usize {

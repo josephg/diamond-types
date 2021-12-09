@@ -2,7 +2,7 @@ use smallvec::smallvec;
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{ClientData, OpLog, Time};
+use crate::list::{Branch, branch, ClientData, OpLog, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::HistoryEntry;
 use crate::list::operation::Operation;
@@ -55,6 +55,18 @@ impl OpLog {
             history: Default::default(),
             frontier: smallvec![ROOT_TIME]
         }
+    }
+
+    pub fn checkout(&self, frontier: &[Time]) -> Branch {
+        let mut branch = Branch::new();
+        branch.merge(self, frontier);
+        branch
+    }
+
+    pub fn checkout_tip(&self) -> Branch {
+        let mut branch = Branch::new();
+        branch.merge(self, &self.frontier);
+        branch
     }
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
@@ -223,6 +235,15 @@ impl OpLog {
         assert_eq!(will_merge, did_merge);
     }
 
+    pub(crate) fn advance_frontier(&mut self, parents: &[Time], span: TimeSpan) {
+        if parents.len() == 1 && self.frontier.len() == 1 && parents[0] == self.frontier[0] {
+            // Short circuit the common case where time is just advancing linearly.
+            self.frontier[0] = span.last();
+        } else {
+            advance_frontier_by_known_run(&mut self.frontier, parents, span);
+        }
+    }
+
     /// Push new operations to the opset. Operation parents specified by parents parameter.
     ///
     /// Returns the single item frontier after merging.
@@ -241,15 +262,11 @@ impl OpLog {
             self.operations.push(KVPair(next_time, c.clone()));
             next_time += len;
         }
+        debug_assert_eq!(next_time, first_time + op_len);
 
-        self.insert_history(parents, TimeSpan { start: first_time, end: first_time + op_len });
-
-        if parents.len() == 1 && self.frontier.len() == 1 && parents[0] == self.frontier[0] {
-            // Short circuit the common case where time is just advancing linearly.
-            self.frontier[0] = next_time - 1;
-        } else {
-            advance_frontier_by_known_run(&mut self.frontier, parents, (first_time..next_time).into());
-        }
+        let span = TimeSpan { start: first_time, end: first_time + op_len };
+        self.insert_history(parents, span);
+        self.advance_frontier(parents, span);
 
         next_time - 1
     }

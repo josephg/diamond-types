@@ -63,20 +63,17 @@ fn check_rev_sorted(spans: &[TimeSpan]) {
 // The code was manually unrolled into an iterator so we could walk it without needing to collect
 // this structure to a vec or something.
 #[derive(Debug)]
-pub(crate) struct OptimizedTxnsIter<'a> {
+pub(crate) struct SpanningTreeWalker<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
     history: &'a History,
 
     frontier: Frontier,
 
-    // TODO: Remove this. Use markers on txns or something instead.
-    // consumed: BitBox,
-
     input: SmallVec<[VisitEntry; 4]>,
-    // input: SmallVec<[VisitEntry<'a>; 4]>,
-    // visit_spans: SmallVec<[TimeSpan; 4]>,
 
-    /// List of input_idx
+    /// List of input_idx.
+    ///
+    /// This is sort of like a call stack of txns we push and pop from as we traverse
     to_process: SmallVec<[usize; 4]>, // smallvec? This will have an upper bound of the number of txns.
 
     num_consumed: usize, // For debugging.
@@ -91,7 +88,7 @@ pub(crate) struct TxnWalkItem {
     pub(crate) consume: TimeSpan,
 }
 
-impl<'a> OptimizedTxnsIter<'a> {
+impl<'a> SpanningTreeWalker<'a> {
     #[allow(unused)]
     pub(crate) fn new_all(history: &'a History) -> Self {
         let mut spans: SmallVec<[TimeSpan; 4]> = smallvec![];
@@ -177,7 +174,7 @@ impl<'a> OptimizedTxnsIter<'a> {
     }
 }
 
-impl<'a> Iterator for OptimizedTxnsIter<'a> {
+impl<'a> Iterator for SpanningTreeWalker<'a> {
     type Item = TxnWalkItem;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -264,8 +261,8 @@ impl History {
     /// behaviour in the presence of multiple interleaved branches. (Eg if you're streaming from two
     /// peers concurrently editing different branches).
     #[allow(unused)] // Used by testing at least.
-    pub(crate) fn txn_spanning_tree_iter(&self) -> OptimizedTxnsIter {
-        OptimizedTxnsIter::new_all(self)
+    pub(crate) fn txn_spanning_tree_iter(&self) -> SpanningTreeWalker {
+        SpanningTreeWalker::new_all(self)
     }
 
     // Works, but unused.
@@ -277,6 +274,12 @@ impl History {
     // pub(crate) fn conflicting_txns_iter(&self, a: &[Time], b: &[Time]) -> OptimizedTxnsIter {
     //     self.known_conflicting_txns_iter(self.find_conflicting_simple(a, b))
     // }
+
+    pub(crate) fn optimized_txns_between(&self, from: &[Time], to: &[Time]) -> SpanningTreeWalker {
+        let (_a, txns) = self.diff(from, to);
+        // _a might always be empty.
+        SpanningTreeWalker::new(self, &txns, from.into())
+    }
 }
 
 
@@ -376,35 +379,37 @@ mod test {
     #[test]
     fn two_chains() {
         let history = History::from_entries(&[
-            HistoryEntry {
+            HistoryEntry { // a
                 span: (0..1).into(), shadow: ROOT_TIME,
                 parents: smallvec![ROOT_TIME],
                 parent_indexes: smallvec![], child_indexes: smallvec![2]
             },
-            HistoryEntry {
+            HistoryEntry { // b
                 span: (1..2).into(), shadow: ROOT_TIME,
                 parents: smallvec![ROOT_TIME],
                 parent_indexes: smallvec![], child_indexes: smallvec![3]
             },
-            HistoryEntry {
+            HistoryEntry { // a
                 span: (2..3).into(), shadow: 2,
                 parents: smallvec![0],
                 parent_indexes: smallvec![0], child_indexes: smallvec![4]
             },
-            HistoryEntry {
+            HistoryEntry { // b
                 span: (3..4).into(), shadow: 3,
                 parents: smallvec![1],
                 parent_indexes: smallvec![1], child_indexes: smallvec![4]
             },
-            HistoryEntry {
+            HistoryEntry { // a+b
                 span: (4..5).into(), shadow: ROOT_TIME,
                 parents: smallvec![2, 3],
                 parent_indexes: smallvec![2, 3], child_indexes: smallvec![]
             },
         ]);
 
+        // dbg!(history.optimized_txns_between(&[3], &[4]).collect::<Vec<_>>());
+
         // history.traverse_txn_spanning_tree();
-        let iter = OptimizedTxnsIter::new_all(&history);
+        let iter = SpanningTreeWalker::new_all(&history);
         // for item in iter {
         //     dbg!(item);
         // }
@@ -463,7 +468,7 @@ mod test {
             common_ancestor: smallvec![5],
             spans: smallvec![(6..7).into()],
         });
-        let iter = OptimizedTxnsIter::new(&history, &conflict.spans, conflict.common_ancestor);
+        let iter = SpanningTreeWalker::new(&history, &conflict.spans, conflict.common_ancestor);
         // dbg!(&iter);
 
         assert!(iter.eq(std::array::IntoIter::new([
