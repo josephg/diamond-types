@@ -140,19 +140,16 @@ impl OpLog {
     pub fn is_empty(&self) -> bool {
         self.client_with_localtime.is_empty()
     }
-
-    pub(crate) fn assign_next_time_to_client(&mut self, agent: AgentId, time_start: usize, len: usize) {
+    
+    pub(crate) fn assign_next_time_to_client(&mut self, agent: AgentId, span: TimeSpan) {
         let client_data = &mut self.client_data[agent as usize];
 
         let next_seq = client_data.get_next_seq();
-        client_data.item_orders.push(KVPair(next_seq, TimeSpan {
-            start: time_start,
-            end: time_start + len,
-        }));
+        client_data.item_orders.push(KVPair(next_seq, span));
 
-        self.client_with_localtime.push(KVPair(time_start, CRDTSpan {
+        self.client_with_localtime.push(KVPair(span.start, CRDTSpan {
             agent,
-            seq_range: TimeSpan { start: next_seq, end: next_seq + len },
+            seq_range: TimeSpan { start: next_seq, end: next_seq + span.len() },
         }));
     }
 
@@ -251,10 +248,6 @@ impl OpLog {
         let first_time = self.len();
         let mut next_time = first_time;
 
-        let op_len = ops.iter().map(|c| c.len()).sum();
-
-        self.assign_next_time_to_client(agent, first_time, op_len);
-
         for c in ops {
             let len = c.len();
 
@@ -262,9 +255,8 @@ impl OpLog {
             self.operations.push(KVPair(next_time, c.clone()));
             next_time += len;
         }
-        debug_assert_eq!(next_time, first_time + op_len);
-
-        let span = TimeSpan { start: first_time, end: first_time + op_len };
+        let span = TimeSpan { start: first_time, end: next_time };
+        self.assign_next_time_to_client(agent, span);
         self.insert_history(parents, span);
         self.advance_frontier(parents, span);
 

@@ -36,6 +36,7 @@ use crate::list::frontier::{advance_frontier_by_known_run, frontier_is_root, fro
 use crate::list::history::HistoryEntry;
 use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::{Del, Ins};
+use crate::localtime::TimeSpan;
 use crate::remotespan::{CRDTId, CRDTSpan};
 use crate::rle::KVPair;
 use crate::ROOT_TIME;
@@ -306,8 +307,9 @@ impl OpLog {
                 return Err(ParseError::InvalidLength);
             }
 
-            result.assign_next_time_to_client(run.val, next_time, run.len);
-            next_time += run.len;
+            let span = TimeSpan { start: next_time, end: next_time + run.len };
+            result.assign_next_time_to_client(run.val, span);
+            next_time = span.end;
         }
 
         // *** Content and Patches ***

@@ -103,21 +103,6 @@ fn write_op(dest: &mut Vec<u8>, op: &Operation, cursor: &mut usize) {
     dest.extend_from_slice(&buf[..pos]);
 }
 
-// fn write_history_entry(dest: &mut Vec<u8>, entry: &HistoryEntry) {
-//     // The start point in each entry can be inferred from the previous stored item. We'll
-//     // use it as the basis for storing everything else.
-//     let start = entry.span.start;
-//     push_usize(dest, entry.span.len());
-//
-//     let mut iter = entry.parents.iter().peekable();
-//     while let Some(&p) = iter.next() {
-//         let has_more = iter.peek().is_some();
-//         let mut n = start.wrapping_sub(p); // Wrap so we can handle ROOT parents
-//         n = mix_bit_usize(n, has_more);
-//         push_usize(dest, n);
-//     }
-// }
-
 // We need to name the full branch in the output in a few different settings.
 //
 // TODO: Should this store strings or IDs?
@@ -425,40 +410,7 @@ impl OpLog {
             write_chunk(Chunk::DeletedContent, &deleted_text.as_bytes());
         }
         write_chunk(Chunk::PositionalPatches, &ops_chunk);
-
         write_chunk(Chunk::TimeDAG, &txns_chunk);
-
-
-
-        // TXNS:
-
-        // TODO(SEPH): Set default offset to the first walked item.
-        // Keep RLE set of all txns which don't match
-        // For parents, look up mapping -> map.
-        // The actual parents are "first" - since we need to map them via parents.
-
-        // const default_offset =
-
-
-
-
-        // println!("{}", inserted_text);
-
-        // if opts.verbose {
-            // dbg!(len_total, diff_zig_total, num_ops);
-            // println!("op_data.len() {}", &op_data.len());
-            // println!("inserted text length {}", inserted_text.len());
-            // println!("deleted text length {}", deleted_text.len());
-        // }
-
-        // buf.clear();
-
-        // for txn in self.history.entries.iter() {
-        //     write_history_entry(&mut buf, txn);
-        // }
-        // write_chunk(Chunk::TimeDAG, &buf);
-        // buf.clear();
-
 
         println!("== Total length {}", result.len());
 

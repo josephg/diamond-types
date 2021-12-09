@@ -39,10 +39,6 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
     let first_time = oplog.len();
     let mut next_time = first_time;
 
-    let op_len = local_ops.iter().map(|c| c.len()).sum();
-
-    oplog.assign_next_time_to_client(agent, first_time, op_len);
-
     // for LocalOp { pos, ins_content, del_span } in local_ops {
     for c in local_ops {
         let pos = c.pos as usize;
@@ -64,12 +60,13 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
         next_time += len;
     }
 
-    debug_assert_eq!(first_time + op_len, next_time);
-
-    insert_history_local(oplog, &mut branch.frontier, TimeSpan {
+    let span = TimeSpan {
         start: first_time,
         end: next_time
-    });
+    };
+
+    oplog.assign_next_time_to_client(agent, span);
+    insert_history_local(oplog, &mut branch.frontier, span);
 
     oplog.frontier = smallvec![next_time - 1];
     next_time - 1
