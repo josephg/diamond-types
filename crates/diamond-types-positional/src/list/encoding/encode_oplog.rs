@@ -133,7 +133,8 @@ struct MinimalHistoryEntry {
 
 impl MergableSpan for MinimalHistoryEntry {
     fn can_append(&self, other: &Self) -> bool {
-        other.parents.len() == 1
+        self.span.can_append(&other.span)
+            && other.parents.len() == 1
             && other.parents[0] == self.span.last()
     }
 
@@ -200,7 +201,7 @@ impl AgentMapping {
             let mapped = self.next_mapped_agent;
             self.map[agent] = Some(mapped);
             push_str(&mut self.output, oplog.client_data[agent].name.as_str());
-            println!("Mapped agent {} -> {}", oplog.client_data[agent].name, mapped);
+            // println!("Mapped agent {} -> {}", oplog.client_data[agent].name, mapped);
             self.next_mapped_agent += 1;
             mapped
         })
@@ -298,13 +299,18 @@ impl OpLog {
         let mut next_output_time = 0;
         let mut txns_chunk = Vec::new();
         let mut txns_writer = Merger::new(|txn: MinimalHistoryEntry, agent_mapping: &mut AgentMapping| {
+            // println!("Upstream {}-{}", txn.span.start, txn.span.end);
             // First add this entry to the txn map.
             let len = txn.span.len();
             let output_range = (next_output_time .. next_output_time + len).into();
-            txn_map.push(KVPair(txn.span.start, output_range));
+            // txn_map.push(KVPair(txn.span.start, output_range));
+            txn_map.insert(KVPair(txn.span.start, output_range));
             next_output_time = output_range.end;
 
+            // println!("len {}", len);
             push_usize(&mut txns_chunk, len);
+
+            let mut temp_parents = Frontier::new();
 
             // Then the parents.
             let mut iter = txn.parents.iter().peekable();
@@ -328,14 +334,18 @@ impl OpLog {
                     // the agent list. (Though we could!)
                     // This is written as "agent 0", and with no seq value (since thats not needed).
                     write_parent_diff(0, true);
+                    temp_parents.push(ROOT_TIME);
                 } else if let Some((map, offset)) = txn_map.find_with_offset(p) {
                     // Local change!
                     let mapped_parent = map.1.start + offset;
 
                     write_parent_diff(output_range.start - mapped_parent, false);
+
+                    temp_parents.push(mapped_parent);
                 } else {
                     // Foreign change
                     // println!("Region does not contain parent for {}", p);
+
                     let item = self.time_to_crdt_id(p);
                     let mapped_agent = agent_mapping.map(self, item.agent);
 
@@ -347,8 +357,13 @@ impl OpLog {
                     // I'm adding 1 to the mapped agent to make room for ROOT. This is quite dirty!
                     write_parent_diff(mapped_agent as usize + 1, true);
                     push_usize(&mut txns_chunk, item.seq);
+
+                    temp_parents.push(999999999);
                 }
             }
+
+            // println!("{}-{} parents {:?}", output_range.start, output_range.end, temp_parents);
+
         });
 
 

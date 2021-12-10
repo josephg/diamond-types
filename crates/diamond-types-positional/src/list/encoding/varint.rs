@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 /// We're using protobuf's encoding system for variable sized integers. Most numbers we store here
 /// follow a Parato distribution, so this ends up being a space savings overall.
 ///
@@ -167,6 +169,18 @@ pub fn decode_u32(buf: &[u8]) -> (u32, usize) {
     assert!(val < u32::MAX as u64, "varint is not a u32");
     debug_assert!(bytes_consumed <= 5);
     (val as u32, bytes_consumed)
+}
+
+pub fn decode_usize(buf: &[u8]) -> (usize, usize) {
+    if size_of::<usize>() <= size_of::<u32>() {
+        let (val, count) = decode_u32(buf);
+        (val as usize, count)
+    } else if size_of::<usize>() == size_of::<u64>() {
+        let (val, count) = decode_u64(buf);
+        (val as usize, count)
+    } else {
+        panic!("usize larger than u64 not supported");
+    }
 }
 
 // Who coded it better?

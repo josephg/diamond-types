@@ -205,6 +205,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     std::fs::write("data.dt", data.as_slice()).unwrap();
     println!("Data written to 'data.dt'");
 
+    // for e in oplog.history.entries.iter() {
+    //     println!("{}-{} parents {:?}", e.span.start, e.span.end, e.parents);
+    // }
+
     // c.parents()
 
     // let p = c.parent(0).unwrap();

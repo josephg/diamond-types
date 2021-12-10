@@ -95,9 +95,9 @@ impl<'a> BufReader<'a> {
 
     fn next_usize(&mut self) -> Result<usize, ParseError> {
         self.check_not_empty()?;
-        let (val, count) = decode_u64(self.0);
+        let (val, count) = decode_usize(self.0);
         self.consume(count);
-        Ok(val as usize)
+        Ok(val)
     }
 
     fn next_zigzag_isize(&mut self) -> Result<isize, ParseError> {
@@ -388,7 +388,10 @@ impl OpLog {
             }
 
             // Bleh its gross passing a &[Time] into here when we have a Frontier already.
-            let span = (next_time..next_time + len).into();
+            let span: TimeSpan = (next_time..next_time + len).into();
+
+            // println!("{}-{} parents {:?}", span.start, span.end, parents);
+
             result.insert_history(&parents, span);
             result.advance_frontier(&parents, span);
 
@@ -405,7 +408,7 @@ impl OpLog {
 #[cfg(test)]
 mod tests {
     use crate::list::{ListCRDT, OpLog};
-    use crate::list::encoding::encode_oplog::EncodeOptions;
+    use super::*;
 
     #[test]
     fn encode_decode_smoke_test() {

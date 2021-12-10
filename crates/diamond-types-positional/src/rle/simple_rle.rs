@@ -167,6 +167,8 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         })
     }
 
+    /// Insert an item at this location in the RLE list. This method is O(n) as it needs to shift
+    /// subsequent elements forward.
     #[allow(unused)]
     pub fn insert(&mut self, val: V) {
         let idx = self.find_index(val.get_rle_key()).expect_err("Item already exists");

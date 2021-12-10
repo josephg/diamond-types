@@ -138,7 +138,8 @@ impl HasLength for HistoryEntry {
 
 impl MergableSpan for HistoryEntry {
     fn can_append(&self, other: &Self) -> bool {
-        other.parents.len() == 1
+        self.span.can_append(&other.span)
+            && other.parents.len() == 1
             && other.parents[0] == self.last_time()
             && other.shadow == self.shadow
     }

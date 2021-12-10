@@ -63,7 +63,7 @@ fn encoding_benchmarks(c: &mut Criterion) {
 
     group.bench_function("merge", |b| {
         b.iter(|| {
-            let branch = Branch::new_at_tip(&oplog);
+            let branch = oplog.checkout_tip();
             black_box(branch);
         });
     });

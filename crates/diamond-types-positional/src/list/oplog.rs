@@ -140,7 +140,7 @@ impl OpLog {
     pub fn is_empty(&self) -> bool {
         self.client_with_localtime.is_empty()
     }
-    
+
     pub(crate) fn assign_next_time_to_client(&mut self, agent: AgentId, span: TimeSpan) {
         let client_data = &mut self.client_data[agent as usize];
 
