@@ -285,7 +285,7 @@ impl M2Tracker {
         // dbg!(op);
         match op.tag {
             InsDelTag::Ins => {
-                if op.reversed { unimplemented!("Implement me!") }
+                if !op.fwd { unimplemented!("Implement me!") }
 
                 // To implement this we need to:
                 // 1. Find the item directly before the requested position. This is our origin-left.
@@ -365,7 +365,7 @@ impl M2Tracker {
                 // output time values in reverse order too.
                 let mut resulting_time = TimeSpanRev {
                     span: (*time..*time + op.len).into(),
-                    fwd: !op.reversed
+                    fwd: op.fwd
                 };
 
                 // It would be tempting - and *nearly* correct to just use local_delete inside the

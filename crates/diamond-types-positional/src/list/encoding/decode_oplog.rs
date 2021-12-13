@@ -226,9 +226,9 @@ impl<'a> ReadPatchesIter<'a> {
         let diff_not_zero = strip_bit_usize2(&mut n);
         let tag = if strip_bit_usize2(&mut n) { Del } else { Ins };
 
-        let (len, diff, reversed) = if has_length {
+        let (len, diff, fwd) = if has_length {
             // n encodes len.
-            let reversed = if tag == Del {
+            let fwd = if tag == Del {
                 strip_bit_usize2(&mut n)
             } else { false };
 
@@ -236,7 +236,7 @@ impl<'a> ReadPatchesIter<'a> {
                 self.buf.next_zigzag_isize()?
             } else { 0 };
 
-            (n, diff, reversed)
+            (n, diff, fwd)
         } else {
             // n encodes diff.
             let diff = num_decode_zigzag_isize(n);
@@ -246,7 +246,7 @@ impl<'a> ReadPatchesIter<'a> {
         // dbg!(self.last_cursor_pos, diff);
         let pos = isize::wrapping_add(self.last_cursor_pos as isize, diff) as usize;
         // dbg!(pos);
-        self.last_cursor_pos = if tag == Ins && !reversed {
+        self.last_cursor_pos = if tag == Ins && fwd {
             pos + len
         } else {
             pos
@@ -255,7 +255,7 @@ impl<'a> ReadPatchesIter<'a> {
         Ok(Operation {
             pos,
             len,
-            reversed,
+            fwd,
             content_known: false,
             tag,
             content: Default::default()

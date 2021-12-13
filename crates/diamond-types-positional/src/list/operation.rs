@@ -44,8 +44,7 @@ pub struct Operation {
 
     /// rev marks the operation order as reversed. For now this is only supported on deletes, for
     /// backspacing.
-    /// TODO: Consider swapping this to fwd
-    pub reversed: bool,
+    pub fwd: bool,
 
     // TODO: Remove content_known by making content an Option(...)
     pub content_known: bool,
@@ -63,27 +62,27 @@ impl HasLength for Operation {
 impl Operation {
     pub fn new_insert(pos: usize, content: &str) -> Self {
         let len = count_chars(content);
-        Operation { pos, len, reversed: false, content_known: true, tag: Ins, content: content.into() }
+        Operation { pos, len, fwd: true, content_known: true, tag: Ins, content: content.into() }
     }
 
     pub fn new_delete(pos: usize, len: usize) -> Self {
-        Operation { pos, len, reversed: false, content_known: false, tag: Del, content: Default::default() }
+        Operation { pos, len, fwd: true, content_known: false, tag: Del, content: Default::default() }
     }
 
     pub fn new_delete_with_content(pos: usize, content: SmartString) -> Self {
         let len = count_chars(&content);
-        Operation { pos, len, reversed: false, content_known: true, tag: Del, content }
+        Operation { pos, len, fwd: true, content_known: true, tag: Del, content }
     }
 
     // Could just inline this into truncate() below. It won't be used in other contexts.
-    fn split_positions(&self, at: usize) -> (usize, usize) {
-        let first = self.pos;
-        match (self.reversed, self.tag) {
-            (false, Ins) => (first, first + at),
-            (true, Del) => (first + self.len - at, first),
-            _ => (first, first)
-        }
-    }
+    // fn split_positions(&self, at: usize) -> (usize, usize) {
+    //     let first = self.pos;
+    //     match (self.reversed, self.tag) {
+    //         (false, Ins) => (first, first + at),
+    //         (true, Del) => (first + self.len - at, first),
+    //         _ => (first, first)
+    //     }
+    // }
 
     pub fn range(&self) -> TimeSpan {
         TimeSpan {
@@ -98,7 +97,7 @@ impl SplitableSpan for Operation {
         // let (self_first, rem_first) = self.split_positions(at);
         let (self_span, other_span) = split_op_span(TimeSpanRev {
             span: (self.pos..self.pos + self.len).into(),
-            fwd: !self.reversed
+            fwd: self.fwd
         }, self.tag, at);
 
         let byte_split = if self.content_known {
@@ -112,7 +111,7 @@ impl SplitableSpan for Operation {
         let remainder = Self {
             pos: other_span.start,
             len: other_span.len(),
-            reversed: self.reversed,
+            fwd: self.fwd,
             content_known: self.content_known,
             tag: self.tag,
             content: self.content.split_off(byte_split),
@@ -142,7 +141,7 @@ impl MergableSpan for Operation {
         let tag = self.tag;
         if other.tag != tag || self.content_known != other.content_known { return false; }
 
-        if (self.len == 1 || !self.reversed) && (other.len == 1 || !other.reversed)
+        if (self.len == 1 || self.fwd) && (other.len == 1 || other.fwd)
             && ((tag == Ins && other.pos == self.pos + self.len)
                 || (tag == Del && other.pos == self.pos)) {
             // Append in the forward sort of way.
@@ -150,7 +149,7 @@ impl MergableSpan for Operation {
         }
 
         // TODO: Handling reversed items is currently limited to Del. Undo this.
-        if self.tag == Del && (self.len == 1 || self.reversed) && (other.len == 1 || other.reversed)
+        if self.tag == Del && (self.len == 1 || !self.fwd) && (other.len == 1 || !other.fwd)
             && ((tag == Ins && other.pos == self.pos)
                 || (tag == Del && other.pos + other.len == self.pos)) {
             // We can append in a reverse sort of way
@@ -161,11 +160,12 @@ impl MergableSpan for Operation {
     }
 
     fn append(&mut self, other: Self) {
-        self.reversed = other.pos < self.pos || (other.pos == self.pos && self.tag == Ins);
+        // self.reversed = other.pos < self.pos || (other.pos == self.pos && self.tag == Ins);
+        self.fwd = other.pos >= self.pos && (other.pos != self.pos || self.tag == Del);
 
         self.len += other.len;
 
-        if self.tag == Del && self.reversed {
+        if self.tag == Del && !self.fwd {
             self.pos = other.pos;
         }
 
@@ -175,9 +175,10 @@ impl MergableSpan for Operation {
     }
 
     fn prepend(&mut self, mut other: Self) {
-        self.reversed = self.pos < other.pos || (other.pos == self.pos && self.tag == Ins);
+        // self.reversed = self.pos < other.pos || (other.pos == self.pos && self.tag == Ins);
+        self.fwd = self.pos >= other.pos && (other.pos != self.pos || self.tag == Del);
 
-        if self.tag == Ins || !self.reversed {
+        if self.tag == Ins || self.fwd {
             self.pos = other.pos;
         }
         self.len += other.len;
@@ -201,7 +202,7 @@ mod test {
         let a = Operation {
             pos: 100,
             len: 1,
-            reversed: false,
+            fwd: true,
             content_known: true,
             tag: Del,
             content: Default::default()
@@ -209,7 +210,7 @@ mod test {
         let b = Operation {
             pos: 99,
             len: 1,
-            reversed: false,
+            fwd: true,
             content_known: true,
             tag: Del,
             content: Default::default()
@@ -222,7 +223,7 @@ mod test {
         let expect = Operation {
             pos: 99,
             len: 2,
-            reversed: true,
+            fwd: false,
             content_known: true,
             tag: Del,
             content: Default::default()
@@ -238,13 +239,13 @@ mod test {
 
     #[test]
     fn positional_component_splitable() {
-        for rev in [true, false] {
+        for fwd in [true, false] {
             for content_known in [true, false] {
-                if !rev {
+                if fwd {
                     test_splitable_methods_valid(Operation {
                         pos: 10,
                         len: 5,
-                        reversed: rev,
+                        fwd,
                         content_known: true,
                         tag: Ins,
                         content: "abcde".into()
@@ -254,7 +255,7 @@ mod test {
                 test_splitable_methods_valid(Operation {
                     pos: 10,
                     len: 5,
-                    reversed: rev,
+                    fwd,
                     content_known,
                     tag: Del,
                     content: Default::default()

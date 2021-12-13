@@ -68,13 +68,13 @@ mod test {
         ops.push(KVPair(0, Operation {
             pos: 100,
             len: 10,
-            reversed: false, content_known: true, tag: Ins,
+            fwd: true, content_known: true, tag: Ins,
             content: "abcdeabcde".into()
         }));
         ops.push(KVPair(10, Operation {
             pos: 200,
             len: 20,
-            reversed: false, content_known: false, tag: Del,
+            fwd: true, content_known: false, tag: Del,
             content: Default::default()
         }));
 
@@ -83,7 +83,7 @@ mod test {
         assert_eq!(OpIter::new(&ops, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, Operation {
             pos: 101,
             len: 4,
-            reversed: false, content_known: true, tag: Ins,
+            fwd: true, content_known: true, tag: Ins,
             content: "bcde".into()
         })]);
 
@@ -91,13 +91,13 @@ mod test {
             KVPair(6, Operation {
                 pos: 106,
                 len: 4,
-                reversed: false, content_known: true, tag: Ins,
+                fwd: true, content_known: true, tag: Ins,
                 content: "bcde".into()
             }),
             KVPair(10, Operation {
                 pos: 200,
                 len: 6,
-                reversed: false, content_known: false, tag: Del,
+                fwd: true, content_known: false, tag: Del,
                 content: Default::default()
             }),
         ]);

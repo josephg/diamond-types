@@ -44,20 +44,21 @@ fn write_op(dest: &mut Vec<u8>, op: &Operation, cursor: &mut usize) {
     // We could store .reversed for all operations (including when length=1) and pick a reversed
     // flag here which minimizes the cursor deltas. But that approach results in more complexity and
     // worse filesize overall.
-    let reversed = op.reversed && op.len > 1;
+    // let reversed = !op.fwd && op.len > 1;
+    let fwd = op.fwd || op.len == 1;
 
     // let reversed = op.reversed;
     // if op.len == 1 { assert!(!op.reversed); }
 
     // let op_start = op.pos;
-    let op_start = if op.tag == Del && reversed {
+    let op_start = if op.tag == Del && !fwd {
         op.pos + op.len
     } else {
         op.pos
     };
 
     // let op_end = op.pos;
-    let op_end = if op.tag == Ins && !reversed {
+    let op_end = if op.tag == Ins && fwd {
         op.pos + op.len
     } else {
         op.pos
@@ -82,7 +83,7 @@ fn write_op(dest: &mut Vec<u8>, op: &Operation, cursor: &mut usize) {
     let mut n = if op.len != 1 {
         let mut n = op.len;
         // When len == 1, the item is never considered reversed.
-        if op.tag == Del { n = mix_bit_usize(n, reversed) };
+        if op.tag == Del { n = mix_bit_usize(n, fwd) };
         n
     } else if cursor_diff != 0 {
         num_encode_zigzag_isize(cursor_diff)

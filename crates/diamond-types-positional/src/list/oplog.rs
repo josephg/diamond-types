@@ -328,14 +328,14 @@ impl OpLog {
         let mut d_n = 0;
         let mut d_r = 0;
         for op in self.operations.iter_merged() {
-            match (op.1.len(), op.1.tag, op.1.reversed) {
+            match (op.1.len(), op.1.tag, op.1.fwd) {
                 (1, InsDelTag::Ins, _) => { i_1 += 1; }
-                (_, InsDelTag::Ins, false) => { i_n += 1; }
-                (_, InsDelTag::Ins, true) => { i_r += 1; }
+                (_, InsDelTag::Ins, true) => { i_n += 1; }
+                (_, InsDelTag::Ins, false) => { i_r += 1; }
 
                 (1, InsDelTag::Del, _) => { d_1 += 1; }
-                (_, InsDelTag::Del, false) => { d_n += 1; }
-                (_, InsDelTag::Del, true) => { d_r += 1; }
+                (_, InsDelTag::Del, true) => { d_n += 1; }
+                (_, InsDelTag::Del, false) => { d_r += 1; }
             }
         }
         // These stats might make more sense as percentages.

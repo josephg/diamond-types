@@ -44,7 +44,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
                 positional.push(Operation {
                     pos: *pos,
                     len: ins_content.chars().count(),
-                    reversed: false,
+                    fwd: true,
                     content_known: true,
                     tag: InsDelTag::Ins,
                     content: ins_content.into()
