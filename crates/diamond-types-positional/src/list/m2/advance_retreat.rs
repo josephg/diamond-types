@@ -4,7 +4,7 @@ use rle::{HasLength, SplitableSpan};
 use crate::list::m2::{DocRangeIndex, M2Tracker};
 use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
 use crate::list::m2::merge::notify_for;
-use crate::list::m2::rev_span::TimeSpanRev;
+use crate::rev_span::TimeSpanRev;
 use crate::list::m2::yjsspan2::YjsSpan2;
 use crate::list::operation::InsDelTag;
 use crate::list::operation::InsDelTag::{Del, Ins};

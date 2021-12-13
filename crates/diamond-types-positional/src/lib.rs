@@ -7,6 +7,7 @@ mod rle;
 mod localtime;
 mod unicount;
 mod remotespan;
+mod rev_span;
 
 pub type AgentId = u32;
 pub const ROOT_AGENT: AgentId = AgentId::MAX;

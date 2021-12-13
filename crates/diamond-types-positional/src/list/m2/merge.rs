@@ -12,7 +12,7 @@ use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
 use crate::list::frontier::{advance_frontier_by, frontier_eq, frontier_is_root, frontier_is_sorted};
 use crate::list::history_tools::Flag;
-use crate::list::m2::rev_span::TimeSpanRev;
+use crate::rev_span::TimeSpanRev;
 
 #[cfg(feature = "dot_export")]
 use crate::list::m2::dot::{DotColor, name_of};

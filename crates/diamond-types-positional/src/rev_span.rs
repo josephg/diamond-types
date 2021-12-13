@@ -124,6 +124,7 @@ impl MergableSpan for TimeSpanRev {
     }
 
     fn append(&mut self, other: Self) {
+        debug_assert!(self.can_append(&other));
         self.fwd = other.span.start >= self.span.start;
 
         if self.fwd {

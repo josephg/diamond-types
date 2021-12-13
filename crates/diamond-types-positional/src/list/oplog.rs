@@ -51,6 +51,8 @@ impl OpLog {
         Self {
             client_with_localtime: RleVec::new(),
             client_data: vec![],
+            ins_content: String::new(),
+            del_content: String::new(),
             operations: Default::default(),
             // inserted_content: "".to_string(),
             history: Default::default(),

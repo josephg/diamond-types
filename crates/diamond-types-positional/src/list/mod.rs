@@ -76,6 +76,8 @@ pub struct OpLog {
     /// This is used to map external CRDT locations -> Order numbers.
     client_data: Vec<ClientData>,
 
+    ins_content: String,
+    del_content: String,
     // TODO: Replace me with a compact form of this data.
     operations: RleVec<KVPair<Operation>>,
 

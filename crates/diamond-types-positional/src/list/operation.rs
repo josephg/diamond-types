@@ -10,7 +10,9 @@ use InsDelTag::*;
 use crate::unicount::{chars_to_bytes, count_chars};
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
+use crate::list::internal_op::split_op_span;
 use crate::localtime::TimeSpan;
+use crate::rev_span::TimeSpanRev;
 
 /// So I might use this more broadly, for all edits. If so, move this out of OT.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -93,7 +95,12 @@ impl Operation {
 
 impl SplitableSpan for Operation {
     fn truncate(&mut self, at: usize) -> Self {
-        let (self_first, rem_first) = self.split_positions(at);
+        // let (self_first, rem_first) = self.split_positions(at);
+        let (self_span, other_span) = split_op_span(TimeSpanRev {
+            span: (self.pos..self.pos + self.len).into(),
+            fwd: !self.reversed
+        }, self.tag, at);
+
         let byte_split = if self.content_known {
             chars_to_bytes(&self.content, at)
         } else {
@@ -103,8 +110,8 @@ impl SplitableSpan for Operation {
         // TODO: When we split items to a length of 1, consider clearing the reversed flag.
         // This doesn't do anything - but it feels polite.
         let remainder = Self {
-            pos: rem_first,
-            len: self.len - at,
+            pos: other_span.start,
+            len: other_span.len(),
             reversed: self.reversed,
             content_known: self.content_known,
             tag: self.tag,
@@ -112,8 +119,8 @@ impl SplitableSpan for Operation {
         };
         // if remainder.len == 1 { remainder.reversed = false; }
 
-        self.pos = self_first;
-        self.len = at;
+        self.pos = self_span.start;
+        self.len = self_span.len();
         // self.reversed = if self.len == 1 { false } else { self.reversed };
 
         remainder
@@ -122,21 +129,32 @@ impl SplitableSpan for Operation {
 
 impl MergableSpan for Operation {
     fn can_append(&self, other: &Self) -> bool {
-        let tag = self.tag;
+        // The logic below "simplifies" to this, but godbolt says there's no real difference anyway:
+        // (other.tag == tag && self.content_known == other.content_known)
+        //     && (
+        //     ((self.len == 1 || !self.reversed) && (other.len == 1 || !other.reversed)
+        //         && ((tag == Ins && other.pos == self.pos + self.len)
+        //         || (tag == Del && other.pos == self.pos)))
+        //         || (self.tag == Del && (self.len == 1 || self.reversed) && (other.len == 1 || other.reversed)
+        //         && ((tag == Ins && other.pos == self.pos)
+        //         || (tag == Del && other.pos + other.len == self.pos))))
 
+        let tag = self.tag;
         if other.tag != tag || self.content_known != other.content_known { return false; }
 
-        if (self.len == 1 || !self.reversed) && (other.len == 1 || !other.reversed) {
-            // Try and append in the forward sort of way.
-            if (tag == Ins && other.pos == self.pos + self.len)
-                || (tag == Del && other.pos == self.pos) { return true; }
+        if (self.len == 1 || !self.reversed) && (other.len == 1 || !other.reversed)
+            && ((tag == Ins && other.pos == self.pos + self.len)
+                || (tag == Del && other.pos == self.pos)) {
+            // Append in the forward sort of way.
+            return true;
         }
 
         // TODO: Handling reversed items is currently limited to Del. Undo this.
-        if self.tag == Del && (self.len == 1 || self.reversed) && (other.len == 1 || other.reversed) {
-            // Try an append in a reverse sort of way
-            if (tag == Ins && other.pos == self.pos)
-                || (tag == Del && other.pos + other.len == self.pos) { return true; }
+        if self.tag == Del && (self.len == 1 || self.reversed) && (other.len == 1 || other.reversed)
+            && ((tag == Ins && other.pos == self.pos)
+                || (tag == Del && other.pos + other.len == self.pos)) {
+            // We can append in a reverse sort of way
+            return true;
         }
 
         false

@@ -5,7 +5,7 @@ use rle::{HasLength, MergableSpan, SplitableSpan};
 
 use content_tree::*;
 use rle::Searchable;
-use crate::list::m2::rev_span::TimeSpanRev;
+use crate::rev_span::TimeSpanRev;
 use crate::list::m2::DocRangeIndex;
 use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
 use crate::list::m2::yjsspan2::YjsSpan2;
@@ -190,7 +190,7 @@ mod tests {
     use rle::test_splitable_methods_valid;
     use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
     use crate::list::m2::markers::MarkerEntry;
-    use crate::list::m2::rev_span::TimeSpanRev;
+    use crate::rev_span::TimeSpanRev;
 
     #[test]
     fn marker_split_merge() {

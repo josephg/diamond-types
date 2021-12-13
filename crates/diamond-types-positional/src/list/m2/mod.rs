@@ -22,7 +22,6 @@ mod markers;
 mod advance_retreat;
 mod txn_trace;
 mod metrics;
-mod rev_span;
 #[cfg(test)]
 mod fuzzer;
 #[cfg(feature = "dot_export")]
