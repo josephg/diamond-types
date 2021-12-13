@@ -170,6 +170,8 @@ mod tests {
         assert_eq!(doc.branch.content, "hoi");
 
         doc.check(true);
-        dbg!(doc);
+        // dbg!(doc);
+
+        doc.ops.dbg_print_all();
     }
 }

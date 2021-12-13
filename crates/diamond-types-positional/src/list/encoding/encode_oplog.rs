@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 use rle::HasLength;
 use rle::zip::rle_zip;
 use crate::list::encoding::*;
-use crate::list::history::HistoryEntry;
+use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
 use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::list::{Frontier, OpLog, Time};
@@ -125,34 +125,6 @@ fn write_full_frontier(oplog: &OpLog, dest: &mut Vec<u8>, frontier: &[Time]) {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-struct MinimalHistoryEntry {
-    span: TimeSpan,
-    parents: SmallVec<[usize; 2]>,
-}
-
-impl MergableSpan for MinimalHistoryEntry {
-    fn can_append(&self, other: &Self) -> bool {
-        self.span.can_append(&other.span)
-            && other.parents.len() == 1
-            && other.parents[0] == self.span.last()
-    }
-
-    fn append(&mut self, other: Self) {
-        self.span.append(other.span);
-    }
-
-    fn prepend(&mut self, other: Self) {
-        self.span.prepend(other.span);
-        self.parents = other.parents;
-    }
-}
-
-impl HasLength for MinimalHistoryEntry {
-    fn len(&self) -> usize { self.span.len() }
-}
-
-
 #[derive(Debug, Clone)]
 pub struct EncodeOptions {
     // NYI.
@@ -219,7 +191,9 @@ impl OpLog {
         // And contains a series of chunks. Each chunk has a chunk header (chunk type, length).
         // The first chunk is always the FileInfo chunk - which names the file format.
         let mut write_chunk = |c: Chunk, data: &[u8]| {
-            println!("{:?} length {}", c, data.len());
+            if opts.verbose {
+                println!("{:?} length {}", c, data.len());
+            }
             // dbg!(&data);
             push_chunk(&mut result, c, &data);
         };
@@ -307,10 +281,7 @@ impl OpLog {
             txn_map.insert(KVPair(txn.span.start, output_range));
             next_output_time = output_range.end;
 
-            // println!("len {}", len);
             push_usize(&mut txns_chunk, len);
-
-            let mut temp_parents = Frontier::new();
 
             // Then the parents.
             let mut iter = txn.parents.iter().peekable();
@@ -334,14 +305,11 @@ impl OpLog {
                     // the agent list. (Though we could!)
                     // This is written as "agent 0", and with no seq value (since thats not needed).
                     write_parent_diff(0, true);
-                    temp_parents.push(ROOT_TIME);
                 } else if let Some((map, offset)) = txn_map.find_with_offset(p) {
                     // Local change!
                     let mapped_parent = map.1.start + offset;
 
                     write_parent_diff(output_range.start - mapped_parent, false);
-
-                    temp_parents.push(mapped_parent);
                 } else {
                     // Foreign change
                     // println!("Region does not contain parent for {}", p);
@@ -357,13 +325,8 @@ impl OpLog {
                     // I'm adding 1 to the mapped agent to make room for ROOT. This is quite dirty!
                     write_parent_diff(mapped_agent as usize + 1, true);
                     push_usize(&mut txns_chunk, item.seq);
-
-                    temp_parents.push(999999999);
                 }
             }
-
-            // println!("{}-{} parents {:?}", output_range.start, output_range.end, temp_parents);
-
         });
 
 
@@ -427,7 +390,9 @@ impl OpLog {
         write_chunk(Chunk::PositionalPatches, &ops_chunk);
         write_chunk(Chunk::TimeDAG, &txns_chunk);
 
-        println!("== Total length {}", result.len());
+        if opts.verbose {
+            println!("== Total length {}", result.len());
+        }
 
         result
     }
@@ -446,7 +411,9 @@ impl OpLog {
         // And contains a series of chunks. Each chunk has a chunk header (chunk type, length).
         // The first chunk is always the FileInfo chunk - which names the file format.
         let mut write_chunk = |c: Chunk, data: &[u8]| {
-            println!("{:?} length {}", c, data.len());
+            if opts.verbose {
+                println!("{:?} length {}", c, data.len());
+            }
             push_chunk(&mut result, c, &data);
         };
 
@@ -579,8 +546,9 @@ impl OpLog {
         write_chunk(Chunk::TimeDAG, &buf);
         buf.clear();
 
-
-        println!("== Total length {}", result.len());
+        if opts.verbose {
+            println!("== Total length {}", result.len());
+        }
 
         result
     }

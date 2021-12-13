@@ -1,6 +1,6 @@
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 
-use rle::{HasLength, MergableSpan};
+use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::list::Time;
 
 use crate::rle::{RleKeyed, RleVec};
@@ -12,7 +12,7 @@ use serde_crate::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct History {
-    pub entries: RleVec<HistoryEntry>,
+    pub(crate) entries: RleVec<HistoryEntry>,
 
     // The index of all items with ROOT as a direct parent.
     pub(crate) root_child_indexes: SmallVec<[usize; 2]>,
@@ -48,14 +48,13 @@ impl History {
 /// This type stores metadata for a run of transactions created by the users.
 ///
 /// Both individual inserts and deletes will use up txn numbers.
+/// TODO: Consider renaming this to HistoryEntryInternal or something.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
-pub struct HistoryEntry {
+pub(crate) struct HistoryEntry {
     pub span: TimeSpan, // TODO: Make the span u64s instead of usize.
 
     /// All txns in this span are direct descendants of all operations from order down to shadow.
     /// This is derived from other fields and used as an optimization for some calculations.
-    #[cfg_attr(feature = "serde", serde(skip))]
     pub shadow: usize,
 
     /// The parents vector of the first txn in this span. Must contain at least 1 entry (and will
@@ -65,9 +64,8 @@ pub struct HistoryEntry {
 
     /// This is a list of the index of other txns which have a parent within this transaction.
     /// TODO: Consider constraining this to not include the next child. Complexity vs memory.
-    #[cfg_attr(feature = "serde", serde(skip))]
     pub parent_indexes: SmallVec<[usize; 2]>,
-    #[cfg_attr(feature = "serde", serde(skip))]
+
     pub child_indexes: SmallVec<[usize; 2]>,
 }
 
@@ -122,19 +120,6 @@ impl HasLength for HistoryEntry {
         self.span.len()
     }
 }
-    // fn truncate(&mut self, _at: usize) -> Self {
-    //     unimplemented!("TxnSpan cannot be truncated");
-    //     // debug_assert!(at >= 1);
-    //     // let at = at as u32;
-    //     // let other = Self {
-    //     //     order: self.order + at,
-    //     //     len: self.len - at,
-    //     //     shadow: self.shadow,
-    //     //     parents: smallvec![self.order + at - 1],
-    //     // };
-    //     // self.len = at as u32;
-    //     // other
-    // }
 
 impl MergableSpan for HistoryEntry {
     fn can_append(&self, other: &Self) -> bool {
@@ -163,21 +148,71 @@ impl RleKeyed for HistoryEntry {
     }
 }
 
+/// This is a simplified history entry for exporting and viewing externally.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct MinimalHistoryEntry {
+    pub span: TimeSpan,
+    pub parents: SmallVec<[usize; 2]>,
+}
+
+impl MergableSpan for MinimalHistoryEntry {
+    fn can_append(&self, other: &Self) -> bool {
+        self.span.can_append(&other.span)
+            && other.parents.len() == 1
+            && other.parents[0] == self.span.last()
+    }
+
+    fn append(&mut self, other: Self) {
+        self.span.append(other.span);
+    }
+
+    fn prepend(&mut self, other: Self) {
+        self.span.prepend(other.span);
+        self.parents = other.parents;
+    }
+}
+
+impl HasLength for MinimalHistoryEntry {
+    fn len(&self) -> usize { self.span.len() }
+}
+
+impl SplitableSpan for MinimalHistoryEntry {
+    fn truncate(&mut self, at: usize) -> Self {
+        debug_assert!(at >= 1);
+
+        MinimalHistoryEntry {
+            span: self.span.truncate(at),
+            parents: smallvec![self.span.start + at - 1]
+        }
+    }
+}
+
+impl From<HistoryEntry> for MinimalHistoryEntry {
+    fn from(entry: HistoryEntry) -> Self {
+        Self {
+            span: entry.span,
+            parents: entry.parents
+        }
+    }
+}
+
+impl From<&HistoryEntry> for MinimalHistoryEntry {
+    fn from(entry: &HistoryEntry) -> Self {
+        Self {
+            span: entry.span,
+            parents: entry.parents.clone()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use smallvec::smallvec;
-    use rle::MergableSpan;
+    use rle::{MergableSpan, test_splitable_methods_valid};
+    use crate::list::history::MinimalHistoryEntry;
+    use crate::ROOT_TIME;
     use super::HistoryEntry;
-
-    // #[test]
-    // fn txn_entry_valid() {
-    //     test_splitable_methods_valid(TxnSpan {
-    //         order: 1000,
-    //         len: 5,
-    //         shadow: 999,
-    //         parents: smallvec![999]
-    //     });
-    // }
 
     #[test]
     fn test_txn_appends() {
@@ -200,5 +235,13 @@ mod tests {
             parents: smallvec![999],
             parent_indexes: smallvec![], child_indexes: smallvec![],
         })
+    }
+
+    #[test]
+    fn txn_entry_valid() {
+        test_splitable_methods_valid(MinimalHistoryEntry {
+            span: (10..20).into(),
+            parents: smallvec![0]
+        });
     }
 }

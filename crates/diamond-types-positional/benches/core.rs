@@ -7,6 +7,7 @@ mod utils;
 use criterion::{criterion_group, criterion_main, black_box, Criterion, BenchmarkId, Throughput};
 use crdt_testdata::{load_testing_data, TestData};
 use diamond_types_positional::list::*;
+use diamond_types_positional::list::encoding::EncodeOptions;
 use crate::utils::*;
 
 fn testing_data(name: &str) -> TestData {
@@ -54,10 +55,30 @@ fn encoding_benchmarks(c: &mut Criterion) {
     group.throughput(Throughput::Elements(oplog.len() as _));
 
     group.bench_function("decode_nodecc", |b| {
-        let bytes = std::fs::read("node_nodecc.dt").unwrap();
         b.iter(|| {
             let oplog = OpLog::load_from(&bytes).unwrap();
             black_box(oplog);
+        });
+    });
+
+    group.bench_function("encode_nodecc", |b| {
+        b.iter(|| {
+            let bytes = oplog.encode(EncodeOptions {
+                store_inserted_content: false,
+                store_deleted_content: false,
+                verbose: false
+            });
+            black_box(bytes);
+        });
+    });
+    group.bench_function("encode_nodecc_old", |b| {
+        b.iter(|| {
+            let bytes = oplog.encode_old(EncodeOptions {
+                store_inserted_content: false,
+                store_deleted_content: false,
+                verbose: false
+            });
+            black_box(bytes);
         });
     });
 

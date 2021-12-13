@@ -203,7 +203,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let data = oplog.encode(EncodeOptions::default());
     std::fs::write("data.dt", data.as_slice()).unwrap();
-    println!("Data written to 'data.dt'");
+    println!("{} bytes written to 'data.dt'", data.len());
+
+    let data_old = oplog.encode_old(EncodeOptions::default());
+    println!("(vs {} bytes)", data_old.len());
+
 
     // for e in oplog.history.entries.iter() {
     //     println!("{}-{} parents {:?}", e.span.start, e.span.end, e.parents);

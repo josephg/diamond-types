@@ -358,6 +358,7 @@ impl OpLog {
         let mut next_time = 0usize;
         while !history_chunk.is_empty() {
             let len = history_chunk.next_usize()?;
+            // println!("len {}", len);
 
             let mut parents = Frontier::new();
             // And read parents.
@@ -432,9 +433,30 @@ mod tests {
         let bytes = std::fs::read("../../node_nodecc.dt").unwrap();
         let oplog = OpLog::load_from(&bytes).unwrap();
 
-        for c in &oplog.client_data {
-            println!("{} .. {}", c.name, c.get_next_seq());
+        // for c in &oplog.client_data {
+        //     println!("{} .. {}", c.name, c.get_next_seq());
+        // }
+        dbg!(oplog.operations.len());
+        dbg!(oplog.history.entries.len());
+    }
+
+    #[test]
+    #[ignore]
+    fn crazy() {
+        let bytes = std::fs::read("../../node_nodecc.dt").unwrap();
+        let mut reader = BufReader(&bytes);
+        reader.read_magic().unwrap();
+
+        loop {
+            let (chunk, mut r) = reader.next_chunk().unwrap();
+            if chunk == Chunk::TimeDAG {
+                println!("Found it");
+                while !r.is_empty() {
+                    let n = r.next_usize().unwrap();
+                    println!("n {}", n);
+                }
+                break;
+            }
         }
-        // dbg!(oplog.operations.len());
     }
 }

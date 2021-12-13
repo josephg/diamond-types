@@ -116,6 +116,24 @@ impl<S: MergableSpan> MergableSpan for ReverseSpan<S> {
     fn prepend(&mut self, other: Self) { self.0.append(other.0); }
 }
 
+impl<A, B> MergableSpan for (A, B) where A: MergableSpan, B: MergableSpan {
+    fn can_append(&self, other: &Self) -> bool {
+        self.0.can_append(&other.0) && self.1.can_append(&other.1)
+    }
+
+    fn append(&mut self, other: Self) {
+        self.0.append(other.0);
+        self.1.append(other.1);
+    }
+}
+
+impl<A, B> HasLength for (A, B) where A: HasLength {
+    fn len(&self) -> usize {
+        // debug_assert_eq!(self.0.len(), self.1.len());
+        self.0.len()
+    }
+}
+
 /// A splitablespan which contains a single element repeated N times. This is used in some examples.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq, Default)]
 pub struct RleRun<T: Clone + Eq> {

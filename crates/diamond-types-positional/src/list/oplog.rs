@@ -1,10 +1,11 @@
 use smallvec::smallvec;
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
+use rle::zip::rle_zip;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::list::{Branch, branch, ClientData, OpLog, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
-use crate::list::history::HistoryEntry;
+use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
 use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 use crate::remotespan::*;
@@ -292,11 +293,24 @@ impl OpLog {
         self.push(agent, &[Operation::new_delete(pos, del_span)])
     }
 
-    pub fn iter_history(&self) -> impl Iterator<Item = &HistoryEntry> {
-        self.history.entries.iter()
+    pub fn iter_history(&self) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
+        self.history.entries.iter().map(|e| e.into())
     }
 
     pub fn get_frontier(&self) -> &[Time] {
         &self.frontier
+    }
+
+    /// TODO: Consider removing this
+    #[allow(unused)]
+    pub fn dbg_print_all(&self) {
+        // self.iter_history()
+        // self.operations.iter()
+        for x in rle_zip(
+            self.iter_history(),
+            self.operations.iter().map(|p| p.1.clone())
+        ) {
+            println!("{:?}", x);
+        }
     }
 }
