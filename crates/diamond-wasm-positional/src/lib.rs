@@ -96,7 +96,7 @@ impl OpLog {
 
     #[wasm_bindgen(js_name = toArray)]
     pub fn to_arr(&self) -> Result<JsValue, JsValue> {
-        let ops = self.inner.iter_metrics().map(|pair| pair.1).collect::<Vec<_>>();
+        let ops = self.inner.iter().collect::<Vec<_>>();
 
         serde_wasm_bindgen::to_value(&ops)
                 .map_err(|err| err.into())

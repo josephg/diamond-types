@@ -40,6 +40,7 @@ impl Default for InsDelTag {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct Operation {
     // For now only backspaces are ever reversed.
+    #[cfg_attr(feature = "serde", serde(flatten))]
     pub span: TimeSpanRev,
 
     // TODO: Remove content_known by making content an Option(...)
