@@ -134,6 +134,12 @@ impl<A, B> HasLength for (A, B) where A: HasLength {
     }
 }
 
+impl<A, B> SplitableSpan for (A, B) where A: SplitableSpan, B: SplitableSpan {
+    fn truncate(&mut self, at: usize) -> Self {
+        (self.0.truncate(at), self.1.truncate(at))
+    }
+}
+
 /// A splitablespan which contains a single element repeated N times. This is used in some examples.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq, Default)]
 pub struct RleRun<T: Clone + Eq> {

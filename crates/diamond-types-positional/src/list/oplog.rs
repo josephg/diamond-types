@@ -6,7 +6,7 @@ use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::list::{Branch, branch, ClientData, OpLog, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
-use crate::list::operation::Operation;
+use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::TimeSpan;
 use crate::remotespan::*;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
@@ -308,9 +308,39 @@ impl OpLog {
         // self.operations.iter()
         for x in rle_zip(
             self.iter_history(),
-            self.operations.iter().map(|p| p.1.clone())
+            // self.operations.iter().cloned() //.map(|p| p.1.clone())
+            self.operations.iter().map(|p| p.1.clone()) // Only the ops.
         ) {
             println!("{:?}", x);
         }
+    }
+
+    pub fn print_stats(&self, detailed: bool) {
+        self.operations.print_stats("Operations", detailed);
+
+        // Get some stats on how operations are distributed
+        let mut i_1 = 0;
+        let mut d_1 = 0;
+        let mut i_n = 0;
+        let mut i_r = 0;
+        let mut d_n = 0;
+        let mut d_r = 0;
+        for op in self.operations.iter_merged() {
+            match (op.1.len(), op.1.tag, op.1.reversed) {
+                (1, InsDelTag::Ins, _) => { i_1 += 1; }
+                (_, InsDelTag::Ins, false) => { i_n += 1; }
+                (_, InsDelTag::Ins, true) => { i_r += 1; }
+
+                (1, InsDelTag::Del, _) => { d_1 += 1; }
+                (_, InsDelTag::Del, false) => { d_n += 1; }
+                (_, InsDelTag::Del, true) => { d_r += 1; }
+            }
+        }
+        // These stats might make more sense as percentages.
+        println!("ins: singles {}, fwd {}, rev {}", i_1, i_n, i_r);
+        println!("del: singles {}, fwd {}, rev {}", d_1, d_n, d_r);
+
+        self.client_with_localtime.print_stats("Client localtime map", detailed);
+        self.history.entries.print_stats("History", detailed);
     }
 }

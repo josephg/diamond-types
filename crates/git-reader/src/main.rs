@@ -199,7 +199,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // println!("{}: '{}'", file, branch.content);
     println!("Branch at {:?}", branch.frontier);
 
-    dbg!(&oplog.history.entries.len());
+    // dbg!(&oplog.history.entries.len());
 
     let data = oplog.encode(EncodeOptions::default());
     std::fs::write("data.dt", data.as_slice()).unwrap();
@@ -208,6 +208,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let data_old = oplog.encode_old(EncodeOptions::default());
     println!("(vs {} bytes)", data_old.len());
 
+    // oplog.dbg_print_all();
 
     // for e in oplog.history.entries.iter() {
     //     println!("{}-{} parents {:?}", e.span.start, e.span.end, e.parents);

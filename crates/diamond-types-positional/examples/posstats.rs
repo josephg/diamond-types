@@ -57,7 +57,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     }
 }
 
-fn print_stats_for_file(name: &str) {
+fn print_stats_for_testdata(name: &str) {
     let filename = format!("benchmark_data/{}.json.gz", name);
     let test_data = load_testing_data(&filename);
     assert_eq!(test_data.start_content.len(), 0);
@@ -90,6 +90,24 @@ fn print_stats_for_file(name: &str) {
     // println!("---\nEncoded size {} (?? What do we include here?)", as_bytes.len());
 }
 
+fn print_stats_for_file(name: &str) {
+    let contents = std::fs::read(name).unwrap();
+    println!("\n\nLoaded testing data from {} ({} bytes)", name, contents.len());
+
+    #[cfg(feature = "memusage")]
+    let start_bytes = get_thread_memory_usage();
+    #[cfg(feature = "memusage")]
+    let start_count = get_thread_num_allocations();
+
+    let oplog = OpLog::load_from(&contents).unwrap();
+    #[cfg(feature = "memusage")]
+    println!("allocated {} bytes in {} blocks",
+             (get_thread_memory_usage() - start_bytes).file_size(file_size_opts::CONVENTIONAL).unwrap(),
+             get_thread_num_allocations() - start_count);
+
+    oplog.print_stats(false);
+}
+
 fn main() {
     #[cfg(not(feature = "memusage"))]
     eprintln!("NOTE: Memory usage reporting disabled. Run with --release --features memusage");
@@ -97,8 +115,9 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    print_stats_for_file("automerge-paper");
-    print_stats_for_file("rustcode");
-    print_stats_for_file("sveltecomponent");
-    print_stats_for_file("seph-blog1");
+    print_stats_for_file("node_nodecc.dt");
+    print_stats_for_testdata("automerge-paper");
+    print_stats_for_testdata("rustcode");
+    print_stats_for_testdata("sveltecomponent");
+    print_stats_for_testdata("seph-blog1");
 }

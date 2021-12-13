@@ -120,32 +120,7 @@ impl ListCRDT {
         println!("Content memory size: {}", self.branch.content.mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
         println!("(Efficient size: {})", self.branch.content.len_bytes().file_size(file_size_opts::CONVENTIONAL).unwrap());
 
-        self.ops.operations.print_stats("Operations", detailed);
-
-        // Get some stats on how operations are distributed
-        let mut i_1 = 0;
-        let mut d_1 = 0;
-        let mut i_n = 0;
-        let mut i_r = 0;
-        let mut d_n = 0;
-        let mut d_r = 0;
-        for op in self.ops.operations.iter_merged() {
-            match (op.1.len(), op.1.tag, op.1.reversed) {
-                (1, InsDelTag::Ins, _) => { i_1 += 1; }
-                (_, InsDelTag::Ins, false) => { i_n += 1; }
-                (_, InsDelTag::Ins, true) => { i_r += 1; }
-
-                (1, InsDelTag::Del, _) => { d_1 += 1; }
-                (_, InsDelTag::Del, false) => { d_n += 1; }
-                (_, InsDelTag::Del, true) => { d_r += 1; }
-            }
-        }
-        // These stats might make more sense as percentages.
-        println!("ins: singles {}, fwd {}, rev {}", i_1, i_n, i_r);
-        println!("del: singles {}, fwd {}, rev {}", d_1, d_n, d_r);
-
-        self.ops.client_with_localtime.print_stats("Client localtime map", detailed);
-        self.ops.history.entries.print_stats("History", detailed);
+        self.ops.print_stats(detailed);
     }
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {

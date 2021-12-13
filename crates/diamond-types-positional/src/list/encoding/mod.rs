@@ -236,4 +236,3 @@ impl<S: MergableSpan + Debug, F: FnMut(&mut Vec<u8>, S)> SpanWriter<S, F> {
         self.dest
     }
 }
-
