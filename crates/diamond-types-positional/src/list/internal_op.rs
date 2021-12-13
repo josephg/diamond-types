@@ -1,6 +1,7 @@
 use rle::{HasLength, MergableSpan, SplitableSpan};
-use crate::list::operation::InsDelTag;
+use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::*;
+use crate::list::OpLog;
 use crate::localtime::TimeSpan;
 use crate::rev_span::TimeSpanRev;
 use crate::unicount::chars_to_bytes;
@@ -65,6 +66,18 @@ impl OperationInternal {
         let mut other = self.clone();
         *self = other.truncate(at, content);
         other
+    }
+
+    pub(crate) fn get_content<'a>(&self, oplog: &'a OpLog) -> Option<&'a str> {
+        self.content_pos.map(|span| {
+            let c = oplog.content_str(self.tag);
+            &c[span.start..span.end]
+        })
+    }
+
+    pub(crate) fn to_operation(&self, oplog: &OpLog) -> Operation {
+        let content = self.get_content(oplog);
+        (self, content).into()
     }
 }
 

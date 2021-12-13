@@ -170,6 +170,17 @@ impl From<(OperationInternal, Option<&str>)> for Operation {
     }
 }
 
+impl From<(&OperationInternal, Option<&str>)> for Operation {
+    fn from((op, content): (&OperationInternal, Option<&str>)) -> Self {
+        Operation {
+            span: op.span,
+            content_known: content.is_some(),
+            tag: op.tag,
+            content: content.map_or_else(|| Default::default(), |str| str.into())
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod test {

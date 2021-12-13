@@ -51,7 +51,7 @@ impl OpLog {
 
                 // This is horribly inefficient but I don't care.
                 let (KVPair(_, op), offset) = self.operations.find_packed_with_offset(time);
-                let mut op = op.clone();
+                let mut op = op.to_operation(self);
                 op.truncate_keeping_right(offset);
                 op.truncate(1);
 
@@ -60,10 +60,10 @@ impl OpLog {
                 // let label = if op.tag == Ins {
                 let label = if op.content_known {
                     // <b>72</b><br align="left"/>  Del 7 <s>'n'</s>
-                    format!("<b>{}</b><br align=\"left\"/>{:?} {} '{}'", time, op.tag, op.pos, &op.content)
+                    format!("<b>{}</b><br align=\"left\"/>{:?} {} '{}'", time, op.tag, op.start(), &op.content)
                     // format!("{}: {:?} {} '{}'", time, op.tag, op.pos, &op.content)
                 } else {
-                    format!("{}: {:?} {}", time, op.tag, op.pos)
+                    format!("{}: {:?} {}", time, op.tag, op.start())
                 };
                 out.write_fmt(format_args!("\t{} [fillcolor={} label=<{}>]\n", name, color.to_string(), label)).unwrap();
 
