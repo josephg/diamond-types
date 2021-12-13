@@ -83,7 +83,7 @@ fn write_op(dest: &mut Vec<u8>, op: &Operation, cursor: &mut usize) {
     let mut n = if op.len != 1 {
         let mut n = op.len;
         // When len == 1, the item is never considered reversed.
-        if op.tag == Del { n = mix_bit_usize(n, fwd) };
+        if op.tag == Del { n = mix_bit_usize(n, !fwd) };
         n
     } else if cursor_diff != 0 {
         num_encode_zigzag_isize(cursor_diff)

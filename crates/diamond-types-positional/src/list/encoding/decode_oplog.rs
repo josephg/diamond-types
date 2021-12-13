@@ -229,8 +229,8 @@ impl<'a> ReadPatchesIter<'a> {
         let (len, diff, fwd) = if has_length {
             // n encodes len.
             let fwd = if tag == Del {
-                strip_bit_usize2(&mut n)
-            } else { false };
+                !strip_bit_usize2(&mut n)
+            } else { true };
 
             let diff = if diff_not_zero {
                 self.buf.next_zigzag_isize()?
@@ -240,7 +240,7 @@ impl<'a> ReadPatchesIter<'a> {
         } else {
             // n encodes diff.
             let diff = num_decode_zigzag_isize(n);
-            (1, diff, false)
+            (1, diff, true)
         };
 
         // dbg!(self.last_cursor_pos, diff);

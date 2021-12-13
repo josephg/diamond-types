@@ -17,7 +17,7 @@ pub fn apply_edits_local(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
                 positional.push(Operation {
                     pos: *pos,
                     len: *del_span,
-                    reversed: false,
+                    fwd: true,
                     content_known: false,
                     tag: InsDelTag::Del,
                     content: Default::default()
@@ -28,7 +28,7 @@ pub fn apply_edits_local(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
                 positional.push(Operation {
                     pos: *pos,
                     len: ins_content.chars().count(),
-                    reversed: false,
+                    fwd: true,
                     content_known: true,
                     tag: InsDelTag::Ins,
                     content: ins_content.into(),
