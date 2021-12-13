@@ -10,6 +10,7 @@ use InsDelTag::*;
 use crate::unicount::{chars_to_bytes, count_chars};
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
+use crate::list::internal_op::OperationInternal;
 use crate::localtime::TimeSpan;
 use crate::rev_span::TimeSpanRev;
 
@@ -155,6 +156,17 @@ impl MergableSpan for Operation {
     //         self.content = other.content;
     //     }
     // }
+}
+
+impl From<(OperationInternal, Option<&str>)> for Operation {
+    fn from((op, content): (OperationInternal, Option<&str>)) -> Self {
+        Operation {
+            span: op.span,
+            content_known: content.is_some(),
+            tag: op.tag,
+            content: content.map_or_else(|| Default::default(), |str| str.into())
+        }
+    }
 }
 
 

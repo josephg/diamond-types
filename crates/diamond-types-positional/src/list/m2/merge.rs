@@ -12,6 +12,7 @@ use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
 use crate::list::frontier::{advance_frontier_by, frontier_eq, frontier_is_root, frontier_is_sorted};
 use crate::list::history_tools::Flag;
+use crate::list::internal_op::OperationInternal;
 use crate::rev_span::TimeSpanRev;
 
 #[cfg(feature = "dot_export")]
@@ -24,6 +25,7 @@ use crate::list::m2::markers::MarkerEntry;
 use crate::list::m2::metrics::upstream_cursor_pos;
 use crate::list::m2::txn_trace::SpanningTreeWalker;
 use crate::list::operation::InsDelTag::Ins;
+use crate::unicount::consume_chars;
 
 const ALLOW_FF: bool = true;
 
@@ -62,6 +64,11 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull
     }
 }
 
+fn take_content<'a>(x: Option<&mut &'a str>, len: usize) -> Option<&'a str> {
+    if let Some(s) = x {
+        Some(consume_chars(s, len))
+    } else { None }
+}
 
 impl M2Tracker {
     pub(super) fn new() -> Self {
@@ -239,16 +246,26 @@ impl M2Tracker {
     fn apply_range(&mut self, opset: &OpLog, range: TimeSpan, mut to: Option<&mut Branch>) {
         if range.is_empty() { return; }
 
-        for mut pair in opset.iter_range(range) {
+        for (mut pair, mut content) in opset.iter_range(range) {
             loop {
                 // let span = list.get_crdt_span(TimeSpan { start: pair.0, end: pair.0 + pair.1.len });
                 let span = opset.get_crdt_span(pair.span());
-                if span.len() < pair.1.len() {
-                    let local_pair = pair.truncate_keeping_right(span.len());
+                let len = span.len();
+                if len < pair.1.len() {
+                    // This is awful. TODO: Clean this up.
+                    // I'm inlining the code for KVPair::truncate_keeping_right so I can pass
+                    // context to OperationInternal.
+                    let old_key = pair.0;
+                    pair.0 += len;
+                    let trimmed = pair.1.truncate_keeping_right(len, opset.content_str(pair.1.tag));
+                    let local_pair = KVPair(old_key, trimmed);
 
-                    self.apply(opset, span.agent, &local_pair, to.as_deref_mut());
+                    // let local_pair = pair.truncate_keeping_right(len);
+                    let local_content = take_content(content.as_mut(), len);
+
+                    self.apply(opset, span.agent, &local_pair, local_content, to.as_deref_mut());
                 } else {
-                    self.apply(opset, span.agent, &pair, to.as_deref_mut());
+                    self.apply(opset, span.agent, &pair, content, to.as_deref_mut());
                     break;
                 }
             }
@@ -272,7 +289,7 @@ impl M2Tracker {
     /// | NotInsYet | Before     | After       |
     /// | Inserted  | After      | Before      |
     /// | Deleted   | Before     | Before      |
-    fn apply(&mut self, opset: &OpLog, agent: AgentId, op_pair: &KVPair<Operation>, mut to: Option<&mut Branch>) {
+    fn apply(&mut self, opset: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, content: Option<&str>, mut to: Option<&mut Branch>) {
         if let Some(to) = to.as_deref_mut() {
             // TODO: It might be more efficient to do this all at once
             advance_frontier_by(&mut to.frontier, &opset.history, op_pair.span());
@@ -347,9 +364,10 @@ impl M2Tracker {
                 if let Some(to) = to {
                     // dbg!(&self.range_tree);
                     // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
-                    assert!(op.content_known); // Ok if this is false - we'll just fill with junk.
+                    debug_assert!(op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
+                    let content = content.unwrap();
                     assert!(ins_pos <= to.content.len_chars());
-                    to.content.insert(ins_pos, &op.content);
+                    to.content.insert(ins_pos, content);
                 }
             }
 

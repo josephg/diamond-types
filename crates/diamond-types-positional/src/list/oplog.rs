@@ -3,12 +3,15 @@ use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use rle::zip::rle_zip;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{Branch, branch, ClientData, OpLog, Time};
+use crate::list::{Branch, branch, ClientData, OpLog, switch, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
+use crate::list::internal_op::OperationInternal;
 use crate::list::operation::{InsDelTag, Operation};
+use crate::list::operation::InsDelTag::Ins;
 use crate::localtime::TimeSpan;
 use crate::remotespan::*;
+use crate::rev_span::TimeSpanRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 
 impl ClientData {
@@ -244,6 +247,22 @@ impl OpLog {
         }
     }
 
+    pub(crate) fn push_op_internal(&mut self, next_time: Time, span: TimeSpanRev, tag: InsDelTag, content: Option<&str>) {
+        let content_pos = if let Some(c) = content {
+            let storage = if tag == Ins { &mut self.ins_content } else { &mut self.del_content };
+            let start = storage.len();
+            storage.push_str(c);
+            Some(start)
+        } else { None };
+
+        // self.operations.push(KVPair(next_time, c.clone()));
+        self.operations.push(KVPair(next_time, OperationInternal {
+            span,
+            tag,
+            content_pos
+        }));
+    }
+
     /// Push new operations to the opset. Operation parents specified by parents parameter.
     ///
     /// Returns the single item frontier after merging.
@@ -251,13 +270,14 @@ impl OpLog {
         let first_time = self.len();
         let mut next_time = first_time;
 
-        for c in ops {
-            let len = c.len();
+        for op in ops {
+            let len = op.len();
 
-            // TODO: Remove this .clone().
-            self.operations.push(KVPair(next_time, c.clone()));
+            let content = if op.content_known { Some(op.content.as_str()) } else { None };
+            self.push_op_internal(next_time, op.span, op.tag, content);
             next_time += len;
         }
+
         let span = TimeSpan { start: first_time, end: next_time };
         self.assign_next_time_to_client(agent, span);
         self.insert_history(parents, span);
@@ -303,6 +323,10 @@ impl OpLog {
         &self.frontier
     }
 
+    pub(crate) fn content_str(&self, tag: InsDelTag) -> &str {
+        switch(tag, &self.ins_content, &self.del_content)
+    }
+
     /// TODO: Consider removing this
     #[allow(unused)]
     pub fn dbg_print_all(&self) {
@@ -310,8 +334,8 @@ impl OpLog {
         // self.operations.iter()
         for x in rle_zip(
             self.iter_history(),
-            // self.operations.iter().cloned() //.map(|p| p.1.clone())
-            self.operations.iter().map(|p| p.1.clone()) // Only the ops.
+            // self.operations.iter().map(|p| p.1.clone()) // Only the ops.
+            self.iter()
         ) {
             println!("{:?}", x);
         }
@@ -341,6 +365,9 @@ impl OpLog {
         // These stats might make more sense as percentages.
         println!("ins: singles {}, fwd {}, rev {}", i_1, i_n, i_r);
         println!("del: singles {}, fwd {}, rev {}", d_1, d_n, d_r);
+
+        println!("Insert content length {}", self.ins_content.len());
+        println!("Delete content length {}", self.del_content.len());
 
         self.client_with_localtime.print_stats("Client localtime map", detailed);
         self.history.entries.print_stats("History", detailed);

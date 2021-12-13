@@ -10,11 +10,6 @@ use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::TimeSpan;
 use crate::remotespan::CRDTId;
 
-// pub fn apply_local_operation2(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) {
-//     oplog.push(agent, &branch.frontier, local_ops);
-//     branch.merge(oplog, &[oplog.len() - 1]);
-// }
-
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
 fn insert_history_local(opset: &mut OpLog, frontier: &mut Frontier, range: TimeSpan) {
     // Fast path for local edits. For some reason the code below is remarkably non-performant.
@@ -31,6 +26,13 @@ fn insert_history_local(opset: &mut OpLog, frontier: &mut Frontier, range: TimeS
     let txn_parents = replace(frontier, smallvec![range.last()]);
     opset.insert_history(&txn_parents, range);
 }
+
+// Slow / small version.
+// pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) -> Time {
+//     let time = oplog.push(agent, local_ops);
+//     branch.merge(oplog, &[time]);
+//     time
+// }
 
 /// This is an optimized version of simply pushing the operation to the oplog and then merging it.
 ///
@@ -56,7 +58,10 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
             }
         }
 
-        oplog.operations.push(KVPair(next_time, c.clone()));
+        // oplog.operations.push(KVPair(next_time, c.clone()));
+        oplog.push_op_internal(next_time, c.span, c.tag, if c.content_known {
+            Some(&c.content)
+        } else { None });
         next_time += len;
     }
 

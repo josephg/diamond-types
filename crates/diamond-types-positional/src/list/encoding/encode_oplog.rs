@@ -10,6 +10,7 @@ use crate::list::{Frontier, OpLog, Time};
 use crate::list::frontier::frontier_is_root;
 use crate::rle::{KVPair, RleVec};
 use crate::{AgentId, ROOT_TIME};
+use crate::list::internal_op::OperationInternal;
 use crate::localtime::TimeSpan;
 
 
@@ -36,7 +37,7 @@ use crate::localtime::TimeSpan;
 //     }
 // }
 
-fn write_op(dest: &mut Vec<u8>, op: &Operation, cursor: &mut usize) {
+fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
     // Note I'm relying on the operation log itself to be iter_merged, which simplifies things here
     // greatly.
 
@@ -354,16 +355,23 @@ impl OpLog {
             }
 
             // 2. Operations!
-            for ops in self.operations.iter_range_packed(walk.consume) {
-                let op = ops.1;
+            // for ops in self.operations.iter_range_packed(walk.consume) {
+            for (op, content) in self.iter_range(walk.consume) {
+                let op = op.1;
+
+                // DANGER!! Its super important we pull out the content here rather than in
+                // ops_writer somehow. The reason is that the content_pos field on the merged
+                // OperationInternal objects will be invalid! Total foot gun there :p
 
                 if op.tag == Ins && opts.store_inserted_content {
-                    assert!(op.content_known);
-                    inserted_text.push_str(&op.content);
+                    // assert!(op.content_known);
+                    inserted_text.push_str(content.unwrap());
                 }
 
-                if op.tag == Del && op.content_known && opts.store_deleted_content {
-                    deleted_text.push_str(&op.content);
+                if op.tag == Del && opts.store_deleted_content {
+                    if let Some(s) = content {
+                        deleted_text.push_str(s);
+                    }
                 }
 
                 ops_writer.push(op);
@@ -480,15 +488,17 @@ impl OpLog {
 
         // The cursor position of the previous edit. We're differential, baby.
         let mut last_cursor_pos: usize = 0;
-        for KVPair(_, op) in self.operations.iter_merged() {
+        for (KVPair(_, op), content) in self.iter_fast() {
             // For now I'm ignoring known content in delete operations.
             if op.tag == Ins {
-                assert!(op.content_known);
-                inserted_text.push_str(&op.content);
+                // assert!(op.content_known);
+                inserted_text.push_str(content.unwrap());
             }
 
-            if op.tag == Del && op.content_known && opts.store_deleted_content {
-                deleted_text.push_str(&op.content);
+            if op.tag == Del && opts.store_deleted_content {
+                if let Some(s) = content {
+                    deleted_text.push_str(s);
+                }
             }
 
             write_op(&mut buf, &op, &mut last_cursor_pos);

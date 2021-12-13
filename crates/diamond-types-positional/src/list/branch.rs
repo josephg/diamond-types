@@ -3,6 +3,7 @@ use crate::list::{Branch, OpLog, Time};
 use smallvec::smallvec;
 use smartstring::SmartString;
 use rle::HasLength;
+use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
@@ -49,6 +50,22 @@ impl Branch {
         }
     }
 
+    // TODO: Probably don't need both this and apply_1 above.
+    fn apply_1_internal(&mut self, op: &OperationInternal, content: Option<&str>) {
+        let pos = op.start();
+
+        match op.tag {
+            Ins => {
+                // assert!(op.content_known);
+                self.content.insert(pos, content.unwrap());
+            }
+
+            Del => {
+                self.content.remove(pos..pos + op.len());
+            }
+        }
+    }
+
     /// Apply a set of operations. Does not update frontier.
     #[allow(unused)]
     pub(crate) fn apply(&mut self, ops: &[Operation]) {
@@ -58,8 +75,9 @@ impl Branch {
     }
 
     pub(crate) fn apply_range_from(&mut self, ops: &OpLog, range: TimeSpan) {
-        for op in ops.iter_range(range) {
-            self.apply_1(&op.1);
+        for (op, content) in ops.iter_range(range) {
+            // self.apply_1(&op.1);
+            self.apply_1_internal(&op.1, content);
         }
     }
 

@@ -3,9 +3,20 @@ use crate::list::operation::InsDelTag;
 use crate::list::operation::InsDelTag::*;
 use crate::localtime::TimeSpan;
 use crate::rev_span::TimeSpanRev;
+use crate::unicount::chars_to_bytes;
 
+/// This is an internal structure for passing around information about a change. Notably the content
+/// of the change is not stored here - but is instead stored in a contiguous array in the oplog
+/// itself. This has 2 benefits:
+///
+/// - Speed / size improvements. The number of items each operation references varies wildly, and
+///   storing the content itself in a block in the oplog keeps fragmentation down.
+/// - This makes supporting other data types much easier - because there's a lot less code which
+///   needs to adapt to the content type itself.
+///
+/// Note that OperationInternal can't directly implement
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct OperationInternal {
+pub(crate) struct OperationInternal {
     pub span: TimeSpanRev,
 
     pub tag: InsDelTag,
@@ -15,6 +26,62 @@ pub struct OperationInternal {
     /// Note this number is a *byte offset*.
     pub content_pos: Option<usize>,
 }
+
+impl OperationInternal {
+    #[inline]
+    pub fn start(&self) -> usize {
+        self.span.span.start
+    }
+
+    #[inline]
+    pub fn end(&self) -> usize {
+        self.span.span.end
+    }
+
+    // Note we can't implement SplitableSpan because we can't adjust content_pos correctly without
+    // reference to the contained data.
+    pub(crate) fn truncate(&mut self, at: usize, content: &str) -> Self {
+        // Note we can't use self.span.truncate() because it assumes the span is absolute, but
+        // actually how the span splits depends on the tag (and some other stuff).
+        // let (a, b) = TimeSpanRev::split_op_span(self.span, self.tag, at);
+        // self.span.span = a;
+        let span = self.span.truncate_tagged_span(self.tag, at);
+
+        OperationInternal {
+            span: TimeSpanRev { span, fwd: self.span.fwd },
+            tag: self.tag,
+            content_pos: self.content_pos.map(|p| {
+                let bytes = chars_to_bytes(&content[p..], at);
+                p + bytes
+            }),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn truncate_keeping_right(&mut self, at: usize, content: &str) -> Self {
+        let mut other = self.clone();
+        *self = other.truncate(at, content);
+        other
+    }
+}
+
+
+// impl SplitableSpan for OperationInternal {
+//     fn truncate(&mut self, at: usize) -> Self {
+//         // Note we can't use self.span.truncate() because it assumes the span is absolute, but
+//         // actually how the span splits depends on the tag (and some other stuff).
+//         // let (a, b) = TimeSpanRev::split_op_span(self.span, self.tag, at);
+//         // self.span.span = a;
+//         let rem = self.span.truncate_tagged_span(self.tag, at);
+//
+//         OperationInternal {
+//             span: TimeSpanRev { span: rem, fwd: self.span.fwd },
+//             tag: self.tag,
+//             content_pos: self.content_pos.map(|p| p + at),
+//         }
+//     }
+// }
+
 
 impl HasLength for OperationInternal {
     fn len(&self) -> usize {
@@ -109,37 +176,16 @@ impl TimeSpanRev {
     }
 }
 
-impl SplitableSpan for OperationInternal {
-    fn truncate(&mut self, at: usize) -> Self {
-        // Note we can't use self.span.truncate() because it assumes the span is absolute, but
-        // actually how the span splits depends on the tag (and some other stuff).
-        // let (a, b) = TimeSpanRev::split_op_span(self.span, self.tag, at);
-        // self.span.span = a;
-        let rem = self.span.truncate_tagged_span(self.tag, at);
+impl MergableSpan for OperationInternal {
+    fn can_append(&self, other: &Self) -> bool {
+        // Note: This compares content_pos but does not actually check the content positions are
+        // adjacent! Callers must do this themselves!
+        self.tag == other.tag
+            && self.content_pos.is_some() == other.content_pos.is_some()
+            && TimeSpanRev::can_append_ops(self.tag, &self.span, &other.span)
+    }
 
-        OperationInternal {
-            span: TimeSpanRev { span: rem, fwd: self.span.fwd },
-            tag: self.tag,
-            content_pos: self.content_pos.map(|p| p + at),
-        }
+    fn append(&mut self, other: Self) {
+        self.span.append_ops(self.tag, other.span);
     }
 }
-
-// impl MergableSpan for OperationInternal {
-//     fn can_append(&self, other: &Self) -> bool {
-//         let content_can_append = match (self.content_pos, other.content_pos) {
-//             (None, None) => true,
-//             (Some(a), Some(b)) => {
-//
-//             },
-//         };
-//
-//         self.tag == other.tag
-//             && self.span.can_append(&other.span)
-//             && content_can_append
-//     }
-//
-//     fn append(&mut self, other: Self) {
-//         self.span.append(other.span);
-//     }
-// }

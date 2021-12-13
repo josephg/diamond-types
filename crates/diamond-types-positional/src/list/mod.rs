@@ -7,8 +7,9 @@ use jumprope::JumpRope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
-use crate::list::operation::Operation;
+use crate::list::operation::{InsDelTag, Operation};
 use crate::list::history::History;
+use crate::list::internal_op::OperationInternal;
 use crate::localtime::TimeSpan;
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
@@ -79,7 +80,7 @@ pub struct OpLog {
     ins_content: String,
     del_content: String,
     // TODO: Replace me with a compact form of this data.
-    operations: RleVec<KVPair<Operation>>,
+    operations: RleVec<KVPair<OperationInternal>>,
 
     /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
     /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
@@ -107,3 +108,10 @@ pub struct ListCRDT {
 //         self.history.diff(a, b).common_branch[0] == ROOT_TIME
 //     }
 // }
+
+fn switch<T>(tag: InsDelTag, ins: T, del: T) -> T {
+    match tag {
+        InsDelTag::Ins => ins,
+        InsDelTag::Del => del,
+    }
+}

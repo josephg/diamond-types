@@ -34,6 +34,7 @@ pub enum ParseError {
 use ParseError::*;
 use crate::list::frontier::{advance_frontier_by_known_run, frontier_is_root, frontier_is_sorted};
 use crate::list::history::HistoryEntry;
+use crate::list::internal_op::OperationInternal;
 use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::localtime::TimeSpan;
@@ -220,7 +221,7 @@ struct ReadPatchesIter<'a> {
 }
 
 impl<'a> ReadPatchesIter<'a> {
-    fn next_internal(&mut self) -> Result<Operation, ParseError> {
+    fn next_internal(&mut self) -> Result<OperationInternal, ParseError> {
         let mut n = self.buf.next_usize()?;
         // This is in the opposite order from write_op.
         let has_length = strip_bit_usize2(&mut n);
@@ -255,20 +256,19 @@ impl<'a> ReadPatchesIter<'a> {
             start
         };
 
-        Ok(Operation {
+        Ok(OperationInternal {
             span: TimeSpanRev { // TODO: Probably a nicer way to construct this.
                 span: (start..end).into(),
                 fwd
             },
-            content_known: false,
             tag,
-            content: Default::default()
+            content_pos: None
         })
     }
 }
 
 impl<'a> Iterator for ReadPatchesIter<'a> {
-    type Item = Result<Operation, ParseError>;
+    type Item = Result<OperationInternal, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.buf.is_empty() { None }
@@ -339,14 +339,15 @@ impl OpLog {
         for op in patches_iter {
             let mut op = op?;
             let len = op.len();
-            if op.tag == Ins {
+            let content = if op.tag == Ins {
                 if let Some(content) = ins_content.as_mut() {
                     // TODO: Check this split point is valid.
-                    op.content = consume_chars(content, len).into();
-                    op.content_known = true;
-                }
-            }
-            result.operations.push(KVPair(next_time, op));
+                    Some(consume_chars(content, len))
+                } else { None }
+            } else { None };
+
+            // result.operations.push(KVPair(next_time, op));
+            result.push_op_internal(next_time, op.span, op.tag, content);
             next_time += len;
         }
 
