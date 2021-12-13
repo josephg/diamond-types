@@ -17,6 +17,10 @@ use crate::localtime::TimeSpan;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub enum InsDelTag { Ins, Del }
 
+impl Default for InsDelTag {
+    fn default() -> Self { InsDelTag::Ins } // Arbitrary.
+}
+
 /// So the span here is interesting. For inserts, this is the range of positions the inserted
 /// characters *will have* after they've been inserted.
 ///
@@ -48,10 +52,6 @@ pub struct Operation {
     pub content: SmartString,
 }
 
-impl Default for InsDelTag {
-    fn default() -> Self { InsDelTag::Ins } // Arbitrary.
-}
-
 impl HasLength for Operation {
     fn len(&self) -> usize {
         self.len
@@ -76,12 +76,10 @@ impl Operation {
     // Could just inline this into truncate() below. It won't be used in other contexts.
     fn split_positions(&self, at: usize) -> (usize, usize) {
         let first = self.pos;
-        if !self.reversed && self.tag == Ins {
-            (first, first + at)
-        } else if self.reversed && self.tag == Del {
-            (first + self.len - at, first)
-        } else {
-            (first, first)
+        match (self.reversed, self.tag) {
+            (false, Ins) => (first, first + at),
+            (true, Del) => (first + self.len - at, first),
+            _ => (first, first)
         }
     }
 

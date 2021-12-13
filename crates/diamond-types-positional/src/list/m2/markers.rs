@@ -203,7 +203,7 @@ mod tests {
             len: 10,
             inner: DelTarget(TimeSpanRev {
                 span: (0..10).into(),
-                reversed: false
+                fwd: true,
             })
         });
 
@@ -211,7 +211,7 @@ mod tests {
             len: 10,
             inner: DelTarget(TimeSpanRev {
                 span: (0..10).into(),
-                reversed: true
+                fwd: false,
             })
         });
     }
