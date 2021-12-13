@@ -489,9 +489,10 @@ impl OpLog {
         // The cursor position of the previous edit. We're differential, baby.
         let mut last_cursor_pos: usize = 0;
         for (KVPair(_, op), content) in self.iter_fast() {
+        // for KVPair(_, op) in self.iter_metrics() {
             // For now I'm ignoring known content in delete operations.
-            if op.tag == Ins {
-                // assert!(op.content_known);
+            if op.tag == Ins && opts.store_inserted_content {
+            //     assert!(op.content_known);
                 inserted_text.push_str(content.unwrap());
             }
 
@@ -505,9 +506,11 @@ impl OpLog {
         }
         if opts.store_inserted_content {
             write_chunk(Chunk::InsertedContent, &inserted_text.as_bytes());
+            // write_chunk(Chunk::InsertedContent, &self.ins_content.as_bytes());
         }
         if opts.store_deleted_content {
             write_chunk(Chunk::DeletedContent, &deleted_text.as_bytes());
+            // write_chunk(Chunk::DeletedContent, &self.del_content.as_bytes());
         }
         write_chunk(Chunk::PositionalPatches, &buf);
 

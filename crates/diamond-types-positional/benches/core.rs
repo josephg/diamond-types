@@ -74,7 +74,7 @@ fn encoding_benchmarks(c: &mut Criterion) {
     group.bench_function("encode_nodecc_old", |b| {
         b.iter(|| {
             let bytes = oplog.encode_old(EncodeOptions {
-                store_inserted_content: false,
+                store_inserted_content: true,
                 store_deleted_content: false,
                 verbose: false
             });

@@ -21,10 +21,11 @@ pub(crate) struct OperationInternal {
 
     pub tag: InsDelTag,
 
-    /// Offset into self.ins_content or del_content. This is essentially a poor man's pointer.
+    /// Byte range in self.ins_content or del_content where our content is being held. This is
+    /// essentially a poor man's pointer.
     ///
     /// Note this number is a *byte offset*.
-    pub content_pos: Option<usize>,
+    pub content_pos: Option<TimeSpan>,
 }
 
 impl OperationInternal {
@@ -47,13 +48,15 @@ impl OperationInternal {
         // self.span.span = a;
         let span = self.span.truncate_tagged_span(self.tag, at);
 
+        let content_pos = if let Some(p) = &mut self.content_pos {
+            let byte_offset = chars_to_bytes(&content[p.start..p.end], at);
+            Some(p.truncate(byte_offset))
+        } else { None };
+
         OperationInternal {
             span: TimeSpanRev { span, fwd: self.span.fwd },
             tag: self.tag,
-            content_pos: self.content_pos.map(|p| {
-                let bytes = chars_to_bytes(&content[p..], at);
-                p + bytes
-            }),
+            content_pos,
         }
     }
 
@@ -178,14 +181,21 @@ impl TimeSpanRev {
 
 impl MergableSpan for OperationInternal {
     fn can_append(&self, other: &Self) -> bool {
-        // Note: This compares content_pos but does not actually check the content positions are
-        // adjacent! Callers must do this themselves!
+        let can_append_content = match (&self.content_pos, &other.content_pos) {
+            (Some(a), Some(b)) => a.can_append(b),
+            (None, None) => true,
+            _ => false
+        };
+
         self.tag == other.tag
-            && self.content_pos.is_some() == other.content_pos.is_some()
+            && can_append_content
             && TimeSpanRev::can_append_ops(self.tag, &self.span, &other.span)
     }
 
     fn append(&mut self, other: Self) {
         self.span.append_ops(self.tag, other.span);
+        if let (Some(a), Some(b)) = (&mut self.content_pos, other.content_pos) {
+            a.append(b);
+        }
     }
 }

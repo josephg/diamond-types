@@ -252,7 +252,7 @@ impl OpLog {
             let storage = if tag == Ins { &mut self.ins_content } else { &mut self.del_content };
             let start = storage.len();
             storage.push_str(c);
-            Some(start)
+            Some((start..start + c.len()).into())
         } else { None };
 
         // self.operations.push(KVPair(next_time, c.clone()));

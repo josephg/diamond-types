@@ -50,9 +50,7 @@ impl<'a> Iterator for OpIterFast<'a> {
         let metrics = self.0.next()?;
         let content = metrics.1.content_pos.map(|pos| {
             let c = switch(metrics.1.tag, self.0.ins_content, self.0.del_content);
-            let start = &c[pos..];
-            let num_bytes = chars_to_bytes(start, metrics.len());
-            &start[..num_bytes]
+            &c[pos.start..pos.end]
         });
         Some((metrics, content))
     }
@@ -112,7 +110,7 @@ mod test {
         ops.push(KVPair(0, OperationInternal {
             span: (100..110).into(),
             tag: Ins,
-            content_pos: Some(0),
+            content_pos: Some((0..10).into()),
         }));
         ops.push(KVPair(10, OperationInternal {
             span: (200..220).into(),
@@ -128,14 +126,14 @@ mod test {
         assert_eq!(OpMetricsIter::new(&ops, ins_content, del_content, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, OperationInternal {
             span: (101..105).into(),
             tag: Ins,
-            content_pos: Some(1),
+            content_pos: Some((1..5).into()),
         })]);
 
         assert_eq!(OpMetricsIter::new(&ops, ins_content, del_content, (6..16).into()).collect::<Vec<_>>(), &[
             KVPair(6, OperationInternal {
                 span: (106..110).into(),
                 tag: Ins,
-                content_pos: Some(6),
+                content_pos: Some((6..10).into()),
             }),
             KVPair(10, OperationInternal {
                 span: (200..206).into(),
