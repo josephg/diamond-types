@@ -229,7 +229,7 @@ impl<'a> ReadPatchesIter<'a> {
         let (len, diff, fwd) = if has_length {
             // n encodes len.
             let fwd = if tag == Del {
-                !strip_bit_usize2(&mut n)
+                strip_bit_usize2(&mut n)
             } else { true };
 
             let diff = if diff_not_zero {
