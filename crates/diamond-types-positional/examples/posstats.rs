@@ -30,26 +30,10 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
 
             if *del_span > 0 {
                 positional.push(doc.branch.make_delete_op(*pos, *del_span));
-                // positional.push(Operation {
-                //     pos: *pos,
-                //     len: *del_span,
-                //     reversed: false,
-                //     content_known: false,
-                //     tag: InsDelTag::Del,
-                //     content: Default::default()
-                // });
             }
 
             if !ins_content.is_empty() {
-                positional.push(Operation {
-                    pos: *pos,
-                    len: ins_content.chars().count(),
-                    fwd: true,
-                    content_known: true,
-                    tag: InsDelTag::Ins,
-                    content: ins_content.into()
-                });
-                // content.push_str();
+                positional.push(Operation::new_insert(*pos, ins_content));
             }
 
             doc.apply_local_operation(id, positional.as_slice());

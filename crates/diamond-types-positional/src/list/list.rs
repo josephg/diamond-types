@@ -41,8 +41,8 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
 
     // for LocalOp { pos, ins_content, del_span } in local_ops {
     for c in local_ops {
-        let pos = c.pos as usize;
-        let len = c.len() as usize;
+        let pos = c.span.span.start;
+        let len = c.len();
 
         match c.tag {
             Ins => {

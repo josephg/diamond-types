@@ -285,7 +285,7 @@ impl M2Tracker {
         // dbg!(op);
         match op.tag {
             InsDelTag::Ins => {
-                if !op.fwd { unimplemented!("Implement me!") }
+                if !op.span.fwd { unimplemented!("Implement me!") }
 
                 // To implement this we need to:
                 // 1. Find the item directly before the requested position. This is our origin-left.
@@ -296,10 +296,10 @@ impl M2Tracker {
 
                 // UNDERWATER_START = 4611686018427387903
 
-                let (origin_left, mut cursor) = if op.pos == 0 {
+                let (origin_left, mut cursor) = if op.start() == 0 {
                     (ROOT_TIME, self.range_tree.mut_cursor_at_start())
                 } else {
-                    let mut cursor = self.range_tree.mut_cursor_at_content_pos(op.pos - 1, false);
+                    let mut cursor = self.range_tree.mut_cursor_at_content_pos(op.start() - 1, false);
                     // dbg!(&cursor, cursor.get_raw_entry());
                     let origin_left = cursor.get_item().unwrap();
                     assert!(cursor.next_item());
@@ -342,7 +342,7 @@ impl M2Tracker {
                 let ins_pos = self.integrate(opset, agent, item, cursor);
 
                 let mut result = op.clone();
-                result.pos = ins_pos;
+                result.span.span.start = ins_pos;
                 // act(result);
                 if let Some(to) = to {
                     // dbg!(&self.range_tree);
@@ -356,16 +356,16 @@ impl M2Tracker {
             InsDelTag::Del => {
                 // We need to loop here because the deleted span might have been broken up by
                 // subsequent inserts.
-                let mut remaining_len = op.len;
+                let mut remaining_len = op.len();
 
-                let pos = op.pos;
+                let pos = op.start();
 
                 // This is needed because we're walking through the operation's span forwards
                 // (because thats simpler). But if the delete is reversed, we need to record the
                 // output time values in reverse order too.
                 let mut resulting_time = TimeSpanRev {
-                    span: (*time..*time + op.len).into(),
-                    fwd: op.fwd
+                    span: (*time..*time + op.len()).into(),
+                    fwd: op.span.fwd
                 };
 
                 // It would be tempting - and *nearly* correct to just use local_delete inside the

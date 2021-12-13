@@ -38,6 +38,7 @@ use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::localtime::TimeSpan;
 use crate::remotespan::{CRDTId, CRDTSpan};
+use crate::rev_span::TimeSpanRev;
 use crate::rle::KVPair;
 use crate::ROOT_TIME;
 use crate::unicount::consume_chars;
@@ -244,18 +245,21 @@ impl<'a> ReadPatchesIter<'a> {
         };
 
         // dbg!(self.last_cursor_pos, diff);
-        let pos = isize::wrapping_add(self.last_cursor_pos as isize, diff) as usize;
+        let start = isize::wrapping_add(self.last_cursor_pos as isize, diff) as usize;
+        let end = start + len;
+
         // dbg!(pos);
         self.last_cursor_pos = if tag == Ins && fwd {
-            pos + len
+            end
         } else {
-            pos
+            start
         };
 
         Ok(Operation {
-            pos,
-            len,
-            fwd,
+            span: TimeSpanRev { // TODO: Probably a nicer way to construct this.
+                span: (start..end).into(),
+                fwd
+            },
             content_known: false,
             tag,
             content: Default::default()
@@ -334,7 +338,7 @@ impl OpLog {
         let mut next_time = 0;
         for op in patches_iter {
             let mut op = op?;
-            let len = op.len;
+            let len = op.len();
             if op.tag == Ins {
                 if let Some(content) = ins_content.as_mut() {
                     // TODO: Check this split point is valid.

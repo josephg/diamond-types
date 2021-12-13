@@ -45,23 +45,23 @@ fn write_op(dest: &mut Vec<u8>, op: &Operation, cursor: &mut usize) {
     // flag here which minimizes the cursor deltas. But that approach results in more complexity and
     // worse filesize overall.
     // let reversed = !op.fwd && op.len > 1;
-    let fwd = op.fwd || op.len == 1;
+    let fwd = op.span.fwd || op.len() == 1;
 
     // let reversed = op.reversed;
     // if op.len == 1 { assert!(!op.reversed); }
 
     // let op_start = op.pos;
     let op_start = if op.tag == Del && !fwd {
-        op.pos + op.len
+        op.end()
     } else {
-        op.pos
+        op.start()
     };
 
     // let op_end = op.pos;
     let op_end = if op.tag == Ins && fwd {
-        op.pos + op.len
+        op.end()
     } else {
-        op.pos
+        op.start()
     };
 
     let cursor_diff = isize::wrapping_sub(op_start as isize, *cursor as isize);
@@ -80,8 +80,9 @@ fn write_op(dest: &mut Vec<u8>, op: &Operation, cursor: &mut usize) {
     let mut pos = 0;
 
     // TODO: Make usize variants of all of this and use that rather than u64 / i64.
-    let mut n = if op.len != 1 {
-        let mut n = op.len;
+    let len = op.len();
+    let mut n = if len != 1 {
+        let mut n = len;
         // When len == 1, the item is never considered reversed.
         if op.tag == Del { n = mix_bit_usize(n, fwd) };
         n
@@ -93,10 +94,10 @@ fn write_op(dest: &mut Vec<u8>, op: &Operation, cursor: &mut usize) {
 
     n = mix_bit_usize(n, op.tag == Del);
     n = mix_bit_usize(n, cursor_diff != 0);
-    n = mix_bit_usize(n, op.len != 1);
+    n = mix_bit_usize(n, len != 1);
     pos += encode_usize(n, &mut buf[pos..]);
 
-    if op.len != 1 && cursor_diff != 0 {
+    if len != 1 && cursor_diff != 0 {
         let mut n2 = num_encode_zigzag_isize(cursor_diff);
         pos += encode_usize(n2, &mut buf[pos..]);
     }

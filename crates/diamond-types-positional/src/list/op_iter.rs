@@ -66,38 +66,33 @@ mod test {
         let mut ops: RleVec<KVPair<Operation>> = RleVec::new();
 
         ops.push(KVPair(0, Operation {
-            pos: 100,
-            len: 10,
-            fwd: true, content_known: true, tag: Ins,
+            span: (100..110).into(),
+            content_known: true, tag: Ins,
             content: "abcdeabcde".into()
         }));
         ops.push(KVPair(10, Operation {
-            pos: 200,
-            len: 20,
-            fwd: true, content_known: false, tag: Del,
+            span: (200..220).into(),
+            content_known: false, tag: Del,
             content: Default::default()
         }));
 
         assert_eq!(OpIter::new(&ops, (0..30).into()).collect::<Vec<_>>(), ops.0.as_slice());
         
         assert_eq!(OpIter::new(&ops, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, Operation {
-            pos: 101,
-            len: 4,
-            fwd: true, content_known: true, tag: Ins,
+            span: (101..105).into(),
+            content_known: true, tag: Ins,
             content: "bcde".into()
         })]);
 
         assert_eq!(OpIter::new(&ops, (6..16).into()).collect::<Vec<_>>(), &[
             KVPair(6, Operation {
-                pos: 106,
-                len: 4,
-                fwd: true, content_known: true, tag: Ins,
+                span: (106..110).into(),
+                content_known: true, tag: Ins,
                 content: "bcde".into()
             }),
             KVPair(10, Operation {
-                pos: 200,
-                len: 6,
-                fwd: true, content_known: false, tag: Del,
+                span: (200..206).into(),
+                content_known: false, tag: Del,
                 content: Default::default()
             }),
         ]);

@@ -35,7 +35,7 @@ impl Branch {
     /// Apply a single operation. This method does not update the frontier - that is left as an
     /// exercise for the caller.
     pub(crate) fn apply_1(&mut self, op: &Operation) {
-        let pos = op.pos;
+        let pos = op.start();
 
         match op.tag {
             Ins => {

@@ -328,7 +328,7 @@ impl OpLog {
         let mut d_n = 0;
         let mut d_r = 0;
         for op in self.operations.iter_merged() {
-            match (op.1.len(), op.1.tag, op.1.fwd) {
+            match (op.1.len(), op.1.tag, op.1.span.fwd) {
                 (1, InsDelTag::Ins, _) => { i_1 += 1; }
                 (_, InsDelTag::Ins, true) => { i_n += 1; }
                 (_, InsDelTag::Ins, false) => { i_r += 1; }

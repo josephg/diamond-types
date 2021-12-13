@@ -1,6 +1,6 @@
 use diamond_types_positional::list::*;
 use crdt_testdata::{TestTxn, TestPatch};
-use diamond_types_positional::list::operation::{InsDelTag, Operation};
+use diamond_types_positional::list::operation::Operation;
 
 pub fn apply_edits_local(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
@@ -14,25 +14,11 @@ pub fn apply_edits_local(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
             // content.clear();
 
             if *del_span > 0 {
-                positional.push(Operation {
-                    pos: *pos,
-                    len: *del_span,
-                    fwd: true,
-                    content_known: false,
-                    tag: InsDelTag::Del,
-                    content: Default::default()
-                });
+                positional.push(Operation::new_delete(*pos, *del_span));
             }
 
             if !ins_content.is_empty() {
-                positional.push(Operation {
-                    pos: *pos,
-                    len: ins_content.chars().count(),
-                    fwd: true,
-                    content_known: true,
-                    tag: InsDelTag::Ins,
-                    content: ins_content.into(),
-                });
+                positional.push(Operation::new_insert(*pos, ins_content));
                 // content.push_str(ins_content.as_str());
             }
 

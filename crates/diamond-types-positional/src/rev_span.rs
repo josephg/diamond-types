@@ -7,6 +7,13 @@ use crate::localtime::TimeSpan;
 ///
 /// The inner span is always "forwards" - where span.start <= span.end. But if rev is true, this
 /// span should be iterated in the reverse order.
+///
+/// Note that time spans are used with some other (more complex) semantics in operations. The
+/// implementation of SplitableSpan and MergableSpan here uses (assumes) the span refers to absolute
+/// positions. So:
+///     (0..10) + (10..20) = (0..20)
+/// This is *not true* for example with delete operations, where:
+///     (Del 0..10) + (Del 0..10) = (Del 0..20)
 #[derive(Copy, Clone, Debug, Eq, Default)] // Default needed for ContentTree.
 pub struct TimeSpanRev {
     /// The inner span.
@@ -135,18 +142,6 @@ impl MergableSpan for TimeSpanRev {
     }
 }
 
-// impl M2Tracker {
-//     /// This method is the equivalent of RleVec::find_sparse.
-//     // TODO: Move this into ContentTree or something. This is a terrible place for it.
-//     fn find_delete_sparse(&self, time: usize) -> (Result<&KVPair<Delete>, TimeSpan>, usize) {
-//         if time >= self.deletes.offset_len() {
-//             Err(self.deletes.offset_len())
-//         }
-//         let cursor = self.deletes.cursor_at_offset_pos(time, false);
-//         let entry = cursor.get_raw_entry();
-//
-//     }
-// }
 
 // pub(super) fn btree_set<E: SplitableSpan + MergableSpan + HasLength>(map: &mut BTreeMap<usize, E>, key: usize, val: E) {
 //     let end = key + val.len();
