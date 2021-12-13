@@ -22,24 +22,37 @@ impl HasLength for OperationInternal {
     }
 }
 
-
-// pub(crate) fn truncate_tagged_span(range: &mut TimeSpanRev, tag: InsDelTag, at: usize) -> TimeSpan {
-//     let len = range.len();
-//
-//     let start2 = if range.fwd && tag == Ins {
-//         range.span.start + at
-//     } else {
-//         range.span.start
-//     };
-//
-//     if !range.fwd && tag == Del {
-//         range.span.start = range.span.end - at;
-//     }
-//
-//     TimeSpan { start: start2, end: start2 + len - at }
-// }
-
 impl TimeSpanRev {
+    #[inline]
+    pub(crate) fn truncate_tagged_span(&mut self, tag: InsDelTag, at: usize) -> TimeSpan {
+        let len = self.len();
+
+        let start2 = if self.fwd && tag == Ins {
+            self.span.start + at
+        } else {
+            self.span.start
+        };
+
+        if !self.fwd && tag == Del {
+            self.span.start = self.span.end - at;
+        }
+        self.span.end = self.span.start + at;
+
+        TimeSpan { start: start2, end: start2 + len - at }
+    }
+
+    // pub(crate) fn truncate_tagged_span(&mut self, tag: InsDelTag, at: usize) -> TimeSpan {
+    //     let len = self.len();
+    //     let (start1, start2) = match (self.fwd, tag) {
+    //         (true, Ins) => (self.span.start, self.span.start + at),
+    //         (false, Del) => (self.span.end - at, self.span.start),
+    //         _ => (self.span.start, self.span.start)
+    //     };
+    //
+    //     self.span = TimeSpan { start: start1, end: start1 + at };
+    //     TimeSpan { start: start2, end: start2 + len - at }
+    // }
+
     // TODO: Consider rewriting this as some form of truncate().
     #[inline]
     pub(crate) fn split_op_span(range: TimeSpanRev, tag: InsDelTag, at: usize) -> (TimeSpan, TimeSpan) {
@@ -100,11 +113,12 @@ impl SplitableSpan for OperationInternal {
     fn truncate(&mut self, at: usize) -> Self {
         // Note we can't use self.span.truncate() because it assumes the span is absolute, but
         // actually how the span splits depends on the tag (and some other stuff).
-        let (a, b) = TimeSpanRev::split_op_span(self.span, self.tag, at);
-        self.span.span = a;
+        // let (a, b) = TimeSpanRev::split_op_span(self.span, self.tag, at);
+        // self.span.span = a;
+        let rem = self.span.truncate_tagged_span(self.tag, at);
 
         OperationInternal {
-            span: TimeSpanRev { span: b, fwd: self.span.fwd },
+            span: TimeSpanRev { span: rem, fwd: self.span.fwd },
             tag: self.tag,
             content_pos: self.content_pos.map(|p| p + at),
         }

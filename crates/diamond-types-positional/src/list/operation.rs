@@ -38,13 +38,8 @@ impl Default for InsDelTag {
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct Operation {
+    // For now only backspaces are ever reversed.
     pub span: TimeSpanRev,
-    // pub pos: usize,
-    // pub len: usize,
-    //
-    // /// rev marks the operation order as reversed. For now this is only supported on deletes, for
-    // /// backspacing.
-    // pub fwd: bool,
 
     // TODO: Remove content_known by making content an Option(...)
     pub content_known: bool,
@@ -76,10 +71,10 @@ impl Operation {
 
     // Could just inline this into truncate() below. It won't be used in other contexts.
     // fn split_positions(&self, at: usize) -> (usize, usize) {
-    //     let first = self.pos;
-    //     match (self.reversed, self.tag) {
-    //         (false, Ins) => (first, first + at),
-    //         (true, Del) => (first + self.len - at, first),
+    //     let first = self.span.span.start;
+    //     match (self.span.fwd, self.tag) {
+    //         (true, Ins) => (first, first + at),
+    //         (false, Del) => (first + self.len - at, first),
     //         _ => (first, first)
     //     }
     // }
@@ -101,8 +96,8 @@ impl Operation {
 
 impl SplitableSpan for Operation {
     fn truncate(&mut self, at: usize) -> Self {
-        // let (self_first, rem_first) = self.split_positions(at);
-        let (self_span, other_span) = TimeSpanRev::split_op_span(self.span, self.tag, at);
+        // let (self_span, other_span) = TimeSpanRev::split_op_span(self.span, self.tag, at);
+        let other_span = self.span.truncate_tagged_span(self.tag, at);
 
         let byte_split = if self.content_known {
             chars_to_bytes(&self.content, at)
@@ -123,9 +118,7 @@ impl SplitableSpan for Operation {
         };
         // if remainder.len == 1 { remainder.reversed = false; }
 
-        // self.pos = self_span.start;
-        // self.len = self_span.len();
-        self.span.span = self_span;
+        // self.span.span = self_span;
 
         // self.reversed = if self.len == 1 { false } else { self.reversed };
 
