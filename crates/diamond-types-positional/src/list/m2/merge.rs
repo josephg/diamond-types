@@ -30,7 +30,7 @@ use crate::unicount::consume_chars;
 const ALLOW_FF: bool = true;
 
 #[cfg(feature = "dot_export")]
-const MAKE_GRAPHS: bool = true;
+const MAKE_GRAPHS: bool = false;
 
 fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     // TODO: Use dirty tricks to avoid this for more performance.
@@ -554,7 +554,7 @@ impl Branch {
             // let filename = format!("../../svgs/m{}_to_{}.svg", s1, s2);
             let filename = format!("svgs/m{}_to_{}.svg", s1, s2);
             let content = self.content.to_string();
-            opset.make_graph(&filename, &content, dbg_all_ops.iter().copied());
+            opset.make_merge_graph(&filename, &content, dbg_all_ops.iter().copied());
             println!("Saved graph to {}", filename);
         }
 

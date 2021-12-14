@@ -7,7 +7,7 @@ use std::fmt::{Write as _};
 use std::fs::File;
 use std::io::{Write as _};
 use std::process::Command;
-use rle::SplitableSpan;
+use rle::{HasLength, SplitableSpan};
 use crate::list::{OpLog, Time};
 use crate::localtime::TimeSpan;
 use crate::rle::KVPair;
@@ -36,7 +36,94 @@ impl ToString for DotColor {
 }
 
 impl OpLog {
-    pub fn make_graph<I: Iterator<Item=(TimeSpan, DotColor)>>(&self, filename: &str, _starting_content: &str, iter: I) {
+    pub fn make_time_dag_graph(&self, filename: &str) {
+        let mut out = String::new();
+        out.push_str("strict digraph {\n");
+        out.push_str("\trankdir=\"BT\"\n");
+        // out.write_fmt(format_args!("\tlabel=<Starting string:<b>'{}'</b>>\n", starting_content));
+        out.push_str("\tlabelloc=\"t\"\n");
+        out.push_str("\tnode [shape=box style=filled]\n");
+        out.push_str("\tedge [color=\"#333333\" dir=back]\n");
+
+        write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string());
+        for txn in self.history.entries.iter() {
+            // dbg!(txn);
+            // Each txn needs to be split so we can actually connect children to parents.
+            // let mut children = txn.child_indexes.clone();
+            // children.sort_unstable();
+            // let mut iter = children.iter();
+            let mut range = txn.span;
+            let mut prev = None;
+            // dbg!(range);
+
+            let mut processed_parents = false;
+
+            loop {
+                // Look through our children to find the next split point.
+                let mut earlist_parent = range.last();
+
+                for idx in &txn.child_indexes {
+                    let child_txn = &self.history.entries[*idx];
+                    for p in &child_txn.parents {
+                        if range.contains(*p) && *p < earlist_parent {
+                            earlist_parent = *p;
+                        }
+                    }
+                }
+
+                // dbg!(earlist_parent, range, (earlist_parent - range.start + 1));
+                let next = range.truncate(earlist_parent - range.start + 1);
+
+                write!(&mut out, "\t{} [label=<{} (Len {})>]\n", range.last(), range.start, range.len());
+                if let Some(prev) = prev {
+                    write!(&mut out, "\t{} -> {}\n", range.last(), prev);
+                }
+
+                if !processed_parents {
+                    processed_parents = true;
+
+                    for p in txn.parents.iter() {
+                        if *p == ROOT_TIME {
+                            write!(&mut out, "\t{} -> ROOT\n", range.last());
+                        } else {
+                            // let parent_entry = self.history.entries.find_packed(*p);
+                            // write!(&mut out, "\t{} -> {} [headlabel={}]\n", txn.span.last(), parent_entry.span.start, *p);
+
+                            write!(&mut out, "\t{} -> {} [headlabel={}]\n", range.last(), *p, *p);
+                        }
+                    }
+                }
+
+                if !next.is_empty() {
+                    prev = Some(range.last());
+                    range = next;
+                } else { break; }
+            }
+
+        }
+
+        out.push_str("}\n");
+
+        let mut f = File::create("out.dot").unwrap();
+        f.write_all(out.as_bytes()).unwrap();
+        f.flush().unwrap();
+        drop(f);
+
+        let out = Command::new("dot")
+            // .arg("-Tpng")
+            .arg("-Tsvg")
+            .stdin(File::open("out.dot").unwrap())
+            .output().unwrap();
+
+        // dbg!(out.status);
+        // stdout().write_all(&out.stdout);
+        // stderr().write_all(&out.stderr);
+
+        let mut f = File::create(filename).unwrap();
+        f.write_all(&out.stdout).unwrap();
+    }
+
+    pub fn make_merge_graph<I: Iterator<Item=(TimeSpan, DotColor)>>(&self, filename: &str, _starting_content: &str, iter: I) {
         let mut out = String::new();
         out.push_str("strict digraph {\n");
         out.push_str("\trankdir=\"BT\"\n");
@@ -102,7 +189,6 @@ impl OpLog {
 
         let mut f = File::create(filename).unwrap();
         f.write_all(&out.stdout).unwrap();
-
     }
 }
 
@@ -113,7 +199,8 @@ mod test {
     use crate::ROOT_TIME;
 
     #[test]
-    fn foo() {
+    #[ignore]
+    fn test1() {
         let mut ops = OpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
@@ -121,6 +208,20 @@ mod test {
         ops.push_insert_at(1, &[ROOT_TIME], 0, "b");
         ops.push_delete_at(0, &[0, 1], 0, 2);
 
-        ops.make_graph("test.svg", "asdf", [((0..ops.len()).into(), Red)].iter().copied());
+        ops.make_merge_graph("test.svg", "asdf", [((0..ops.len()).into(), Red)].iter().copied());
+    }
+
+    #[test]
+    #[ignore]
+    fn test2() {
+        let mut ops = OpLog::new();
+        ops.get_or_create_agent_id("seph");
+        ops.get_or_create_agent_id("mike");
+        let a = ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        let b = ops.push_insert_at(1, &[ROOT_TIME], 0, "b");
+        ops.push_delete_at(0, &[1, b], 0, 2);
+        // dbg!(&ops);
+
+        ops.make_time_dag_graph("dag.svg");
     }
 }

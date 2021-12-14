@@ -41,6 +41,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     }
 }
 
+#[allow(unused)]
 fn print_stats_for_testdata(name: &str) {
     let filename = format!("benchmark_data/{}.json.gz", name);
     let test_data = load_testing_data(&filename);
@@ -90,6 +91,7 @@ fn print_stats_for_file(name: &str) {
              get_thread_num_allocations() - start_count);
 
     oplog.print_stats(false);
+    // oplog.make_time_dag_graph("node_cc.svg");
 }
 
 fn main() {

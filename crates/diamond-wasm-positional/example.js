@@ -15,7 +15,7 @@ console.log(t)
 let t2 = ops.del(3, 3)
 
 console.log("local branch", ops.getLocalFrontier())
-console.log("branch", ops.getFrontier())
+console.log("frontier", ops.getFrontier())
 console.log("ops", ops.toArray())
 console.log("history", ops.txns())
 
@@ -25,10 +25,10 @@ oplog2 = OpLog.fromBytes(ops.toBytes())
 console.log("ops", oplog2.toArray())
 
 
-// const checkout = new Checkout()
-// checkout.merge(ops, t)
-// console.log('checkout', `"${checkout.get()}"`)
-// console.log("checkout branch", checkout.getFrontier())
+// const branch = new Branch()
+// branch.merge(ops, t)
+// console.log('branch', `"${branch.get()}"`)
+// console.log("branch branch", branch.getFrontier())
 
 // const c2 = Checkout.all(ops)
 // console.log(c2.get())

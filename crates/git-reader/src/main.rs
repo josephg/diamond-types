@@ -52,36 +52,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let c = repo.find_commit(c)?;
 
-        // let tree = c.tree()?;
-
-        // if let Ok(pathentry) = tree.get_path(path) {
-        //     if pathentry.kind() == Some(Blob) {
-        //         println!("looking at {}", pathentry.name().unwrap());
-        //     }
-        // }
-        // for entry in tree.iter() {
-        //     if entry.kind() == Some(Blob) {
-        //
-        //         println!("looking at {}", entry.name().unwrap());
-        //         // dbg!(&entry.name(), entry.kind());
-        //         // let obj = entry.to_object(&repo)?;
-        //         // let _blob = obj.as_blob().unwrap();
-        //
-        //         // dbg!(std::str::from_utf8(blob.content())?);
-        //     }
-        // }
-
-        // dbg!(&c);
-        // dbg!(&tree);
-
         for p in c.parents() {
             let p_id = p.id();
             // dbg!(&p_id);
             frontier.push(p_id);
         }
     }
-
-    println!("\n\n\n\n");
 
     let mut oplog = OpLog::new();
     // let empty_branch = Branch::new();
@@ -201,118 +177,18 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // dbg!(&oplog.history.entries.len());
 
-    let data = oplog.encode(EncodeOptions::default());
+    let data = oplog.encode(EncodeOptions {
+        store_inserted_content: true,
+        store_deleted_content: false,
+        verbose: true
+    });
     std::fs::write("data.dt", data.as_slice()).unwrap();
     println!("{} bytes written to 'data.dt'", data.len());
 
     let data_old = oplog.encode_old(EncodeOptions::default());
     println!("(vs {} bytes)", data_old.len());
 
-    // oplog.dbg_print_all();
-
-    // for e in oplog.history.entries.iter() {
-    //     println!("{}-{} parents {:?}", e.span.start, e.span.end, e.parents);
-    // }
-
-    // c.parents()
-
-    // let p = c.parent(0).unwrap();
-    // let p_t = p.tree().unwrap();
-    // dbg!(p.id());
-    // if let Some(a) = p.author().email() {
-    //     dbg!(a);
-    // }
-
-    // let diff = repo.diff_tree_to_tree(Some(&p_t), Some(&c_t), None)?;
-
-    // for (i, delta) in diff.deltas().enumerate() {
-    //     dbg!(delta.status());
-    //     dbg!(delta.nfiles());
-    //     dbg!(delta.flags());
-    //     let a = delta.old_file();
-    //     let b = delta.new_file();
-    //
-    //     dbg!(a.id());
-    //     dbg!(b.id());
-    //
-    //     let a_blob = repo.find_blob(a.id())?;
-    //     let a_content = a_blob.content();
-    //     dbg!(std::str::from_utf8(a_content));
-    //
-    //     let patch = Patch::from_diff(&diff, i)?;
-    //     if let Some(p) = patch {
-    //         dbg!(p.line_stats()?);
-    //         for h in 0..p.num_hunks() {
-    //             let (hunk, lines) = p.hunk(h)?;
-    //
-    //             let header = hunk.header();
-    //             dbg!(std::str::from_utf8(header));
-    //             dbg!(hunk.old_start(), hunk.old_lines(), hunk.new_start(), hunk.new_lines());
-    //
-    //
-    //         }
-    //     }
-    // }
-
-
-
-    // diff.print(DiffFormat::Patch, |delta, hunk, line| {
-    //     let origin = line.origin();
-    //     if origin != '+' && origin != '-' { return true; }
-    //     dbg!(line.origin());
-    //     // match line.origin() {
-    //     //     '+' | '-' | ' ' => print!("{}", line.origin()),
-    //     //     _ => {}
-    //     // }
-    //
-    //     dbg!(delta.status());
-    //     dbg!(delta.nfiles());
-    //     dbg!(delta.flags());
-    //     let a = delta.old_file();
-    //     let b = delta.new_file();
-    //
-    //     dbg!(a.id());
-    //     dbg!(b.id());
-    //     if let Some(h) = hunk {
-    //         let header = h.header();
-    //         dbg!(std::str::from_utf8(header));
-    //         dbg!(h.old_start(), h.old_lines(), h.new_start(), h.new_lines());
-    //     }
-    //     dbg!(&line);
-    //     dbg!(std::str::from_utf8(line.content()));
-    //     true
-    // });
-
-
-    // c.p
-    // dbg!(c.oid
-
-    // let tree = head.peel_to_tree().unwrap();
-    // tree.
-
-    // for s in repo.remotes()?.iter() {
-    //     dbg!(s);
-    // }
-
-    // for branch in repo.branches(None)? {
-    //     let (b, t) = branch?;
-    //
-    //     // b.get().
-    //     // let s = std::str::from_utf8(b.name_bytes()?)?;
-    //
-    //     dbg!(b.get().shorthand(), t);
-    //
-    //     b.get().
-    // }
-
-    // let commit = repo.find_commit(Oid::from_str("ac6a0e7667b2dfe56b22e5e8633d3602b87abcef")?)?;
-    // dbg!(commit.id());
-    // dbg!(commit.summary());
-    //
-    // let x = commit.parents().map(|c| c.id());
-    // for xx in x {
-    //     dbg!(xx);
-    // }
+    // oplog.make_time_dag_graph("makefile.svg");
 
     Ok(())
 }
