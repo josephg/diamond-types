@@ -13,6 +13,7 @@ use crate::localtime::TimeSpan;
 use crate::remotespan::*;
 use crate::rev_span::TimeSpanRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
+use crate::unicount::count_chars;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> usize {
@@ -263,6 +264,12 @@ impl OpLog {
         }));
     }
 
+    fn assign_internal(&mut self, agent: AgentId, parents: &[Time], span: TimeSpan) {
+        self.assign_next_time_to_client(agent, span);
+        self.insert_history(parents, span);
+        self.advance_frontier(parents, span);
+    }
+
     /// Push new operations to the opset. Operation parents specified by parents parameter.
     ///
     /// Returns the single item frontier after merging.
@@ -273,27 +280,40 @@ impl OpLog {
         for op in ops {
             let len = op.len();
 
-            let content = if op.content_known { Some(op.content.as_str()) } else { None };
-            self.push_op_internal(next_time, op.span, op.tag, content);
+            // let content = if op.content_known { Some(op.content.as_str()) } else { None };
+            // let content = op.content.map(|c| c.as_str());
+            self.push_op_internal(next_time, op.span, op.tag, op.content_as_str());
             next_time += len;
         }
 
-        let span = TimeSpan { start: first_time, end: next_time };
-        self.assign_next_time_to_client(agent, span);
-        self.insert_history(parents, span);
-        self.advance_frontier(parents, span);
-
+        self.assign_internal(agent, parents, TimeSpan { start: first_time, end: next_time });
         next_time - 1
     }
 
     /// Returns the single item frontier after the inserted change.
     pub fn push_insert_at(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) -> Time {
-        self.push_at(agent, parents, &[Operation::new_insert(pos, ins_content)])
+        // This could just call push_at() but this is significantly faster according to benchmarks.
+        // Equivalent to:
+        // self.push_at(agent, parents, &[Operation::new_insert(pos, ins_content)])
+        let len = count_chars(ins_content);
+        let start = self.len();
+        let end = start + len;
+
+        self.push_op_internal(start, (pos..pos+len).into(), InsDelTag::Ins, Some(ins_content));
+        self.assign_internal(agent, parents, TimeSpan { start, end });
+        end - 1
     }
 
     /// Returns the single item frontier after the inserted change.
-    pub fn push_delete_at(&mut self, agent: AgentId, parents: &[Time], pos: usize, del_span: usize) -> Time {
-        self.push_at(agent, parents, &[Operation::new_delete(pos, del_span)])
+    pub fn push_delete_at(&mut self, agent: AgentId, parents: &[Time], pos: usize, len: usize) -> Time {
+        // Equivalent to:
+        // self.push_at(agent, parents, &[Operation::new_delete(pos, len)])
+        let start = self.len();
+        let end = start + len;
+
+        self.push_op_internal(start, (pos..pos+len).into(), InsDelTag::Del, None);
+        self.assign_internal(agent, parents, TimeSpan { start, end });
+        end - 1
     }
 
     // *** Helpers for pushing at the current version ***

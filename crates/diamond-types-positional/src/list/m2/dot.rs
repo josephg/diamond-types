@@ -145,9 +145,10 @@ impl OpLog {
                 let txn = self.history.entries.find_packed(time);
 
                 // let label = if op.tag == Ins {
-                let label = if op.content_known {
+                // let label = if op.content_known {
+                let label = if let Some(s) = &op.content {
                     // <b>72</b><br align="left"/>  Del 7 <s>'n'</s>
-                    format!("<b>{}</b><br align=\"left\"/>{:?} {} '{}'", time, op.tag, op.start(), &op.content)
+                    format!("<b>{}</b><br align=\"left\"/>{:?} {} '{}'", time, op.tag, op.start(), s)
                     // format!("{}: {:?} {} '{}'", time, op.tag, op.pos, &op.content)
                 } else {
                     format!("{}: {:?} {}", time, op.tag, op.start())

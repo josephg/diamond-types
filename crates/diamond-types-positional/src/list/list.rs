@@ -48,9 +48,9 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
 
         match c.tag {
             Ins => {
-                assert!(c.content_known);
+                // assert!(c.);
                 // let new_content = consume_chars(&mut content, len);
-                branch.content.insert(pos, &c.content);
+                branch.content.insert(pos, &c.content.as_ref().unwrap());
             }
 
             Del => {
@@ -59,9 +59,7 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
         }
 
         // oplog.operations.push(KVPair(next_time, c.clone()));
-        oplog.push_op_internal(next_time, c.span, c.tag, if c.content_known {
-            Some(&c.content)
-        } else { None });
+        oplog.push_op_internal(next_time, c.span, c.tag, c.content_as_str());
         next_time += len;
     }
 

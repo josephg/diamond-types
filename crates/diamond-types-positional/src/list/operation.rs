@@ -44,10 +44,10 @@ pub struct Operation {
     pub span: TimeSpanRev,
 
     // TODO: Remove content_known by making content an Option(...)
-    pub content_known: bool,
+    // pub content_known: bool,
     pub tag: InsDelTag,
     // pub content_bytes_offset: usize,
-    pub content: SmartString,
+    pub content: Option<SmartString>,
 }
 
 impl HasLength for Operation {
@@ -59,16 +59,16 @@ impl HasLength for Operation {
 impl Operation {
     pub fn new_insert(pos: usize, content: &str) -> Self {
         let len = count_chars(content);
-        Operation { span: (pos..pos+len).into(), content_known: true, tag: Ins, content: content.into() }
+        Operation { span: (pos..pos+len).into(), tag: Ins, content: Some(content.into()) }
     }
 
     pub fn new_delete(pos: usize, len: usize) -> Self {
-        Operation { span: (pos..pos+len).into(), content_known: false, tag: Del, content: Default::default() }
+        Operation { span: (pos..pos+len).into(), tag: Del, content: None }
     }
 
     pub fn new_delete_with_content(pos: usize, content: SmartString) -> Self {
         let len = count_chars(&content);
-        Operation { span: (pos..pos+len).into(), content_known: true, tag: Del, content }
+        Operation { span: (pos..pos+len).into(), tag: Del, content: Some(content) }
     }
 
     // Could just inline this into truncate() below. It won't be used in other contexts.
@@ -94,6 +94,12 @@ impl Operation {
     pub fn end(&self) -> usize {
         self.span.span.end
     }
+
+    pub fn content_as_str(&self) -> Option<&str> {
+        if let Some(c) = &self.content {
+            Some(c.as_str())
+        } else { None }
+    }
 }
 
 impl SplitableSpan for Operation {
@@ -101,11 +107,16 @@ impl SplitableSpan for Operation {
         // let (self_span, other_span) = TimeSpanRev::split_op_span(self.span, self.tag, at);
         let other_span = self.span.truncate_tagged_span(self.tag, at);
 
-        let byte_split = if self.content_known {
-            chars_to_bytes(&self.content, at)
-        } else {
-            0
-        };
+        let rem_content = self.content.as_mut().map(|c| {
+            let byte_split = chars_to_bytes(c, at);
+            c.split_off(byte_split)
+        });
+
+        // let byte_split = if let Some(c) = &self.content {
+        //     chars_to_bytes(c, at)
+        // } else {
+        //     0
+        // };
 
         // TODO: When we split items to a length of 1, consider clearing the reversed flag.
         // This doesn't do anything - but it feels polite.
@@ -114,9 +125,8 @@ impl SplitableSpan for Operation {
                 span: other_span,
                 fwd: self.span.fwd
             },
-            content_known: self.content_known,
             tag: self.tag,
-            content: self.content.split_off(byte_split),
+            content: rem_content,
         };
         // if remainder.len == 1 { remainder.reversed = false; }
 
@@ -130,7 +140,7 @@ impl SplitableSpan for Operation {
 
 impl MergableSpan for Operation {
     fn can_append(&self, other: &Self) -> bool {
-        if other.tag != self.tag || self.content_known != other.content_known { return false; }
+        if other.tag != self.tag || self.content.is_some() != other.content.is_some() { return false; }
 
         TimeSpanRev::can_append_ops(self.tag, &self.span, &other.span)
     }
@@ -138,8 +148,8 @@ impl MergableSpan for Operation {
     fn append(&mut self, other: Self) {
         self.span.append_ops(self.tag, other.span);
 
-        if self.content_known {
-            self.content.push_str(&other.content);
+        if let Some(c) = &mut self.content {
+            c.push_str(&other.content.unwrap());
         }
     }
 
@@ -163,9 +173,8 @@ impl From<(OperationInternal, Option<&str>)> for Operation {
     fn from((op, content): (OperationInternal, Option<&str>)) -> Self {
         Operation {
             span: op.span,
-            content_known: content.is_some(),
             tag: op.tag,
-            content: content.map_or_else(|| Default::default(), |str| str.into())
+            content: content.map(|str| str.into())
         }
     }
 }
@@ -174,9 +183,8 @@ impl From<(&OperationInternal, Option<&str>)> for Operation {
     fn from((op, content): (&OperationInternal, Option<&str>)) -> Self {
         Operation {
             span: op.span,
-            content_known: content.is_some(),
             tag: op.tag,
-            content: content.map_or_else(|| Default::default(), |str| str.into())
+            content: content.map(|str| str.into())
         }
     }
 }
@@ -192,15 +200,13 @@ mod test {
         // Make sure deletes collapse.
         let a = Operation {
             span: (100..101).into(),
-            content_known: true,
             tag: Del,
-            content: Default::default()
+            content: Some("a".into()),
         };
         let b = Operation {
             span: (99..100).into(),
-            content_known: true,
             tag: Del,
-            content: Default::default()
+            content: Some("b".into()),
         };
         assert!(a.can_append(&b));
 
@@ -212,9 +218,8 @@ mod test {
                 span: (99..101).into(),
                 fwd: false
             },
-            content_known: true,
             tag: Del,
-            content: Default::default()
+            content: Some("ab".into()),
         };
         assert_eq!(merged, expect);
 
@@ -228,16 +233,15 @@ mod test {
     #[test]
     fn positional_component_splitable() {
         for fwd in [true, false] {
-            for content_known in [true, false] {
+            for content in [Some("abcde".into()), None] {
                 if fwd {
                     test_splitable_methods_valid(Operation {
                         span: TimeSpanRev {
                             span: (10..15).into(),
                             fwd
                         },
-                        content_known: true,
                         tag: Ins,
-                        content: "abcde".into()
+                        content: content.clone(),
                     });
                 }
 
@@ -246,9 +250,8 @@ mod test {
                         span: (10..15).into(),
                         fwd
                     },
-                    content_known,
                     tag: Del,
-                    content: Default::default()
+                    content
                 });
             }
         }
