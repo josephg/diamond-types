@@ -161,7 +161,7 @@ impl Searchable for TimeSpan {
 // This is used for vector clocks. Note if you want order spans keyed by something else, use
 // KVPair<OrderSpan> instead.
 impl RleKeyed for TimeSpan {
-    fn get_rle_key(&self) -> usize {
+    fn rle_key(&self) -> usize {
         self.start
     }
 }

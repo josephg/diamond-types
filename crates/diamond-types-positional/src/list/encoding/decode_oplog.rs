@@ -405,6 +405,8 @@ impl OpLog {
                         }
                     }
                 } else {
+                    // Local parents (parents inside this chunk of data) are stored using their
+                    // local time offset.
                     next_time - n
                 };
 
@@ -462,12 +464,13 @@ mod tests {
     fn decode_in_parts() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");
+        doc.get_or_create_agent_id("mike");
         doc.local_insert(0, 0, "hi there");
 
         let data_1 = doc.ops.encode(EncodeOptions::default());
         let f1 = doc.ops.frontier.clone();
 
-        doc.local_delete(0, 3, 4); // 'hi e'
+        doc.local_delete(1, 3, 4); // 'hi e'
         doc.local_insert(0, 3, "m");
 
         let data_2 = doc.ops.encode_from(EncodeOptions::default(), &f1);
@@ -475,7 +478,7 @@ mod tests {
         let mut d2 = OpLog::new();
         d2 = d2.merge_data(&data_1).unwrap();
         d2 = d2.merge_data(&data_2).unwrap();
-        // dbg!(&doc.ops, &d2);
+        dbg!(&doc.ops, &d2);
     }
 
     #[test]

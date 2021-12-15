@@ -143,7 +143,7 @@ impl MergableSpan for HistoryEntry {
 }
 
 impl RleKeyed for HistoryEntry {
-    fn get_rle_key(&self) -> usize {
+    fn rle_key(&self) -> usize {
         self.span.start
     }
 }

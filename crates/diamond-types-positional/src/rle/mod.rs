@@ -7,16 +7,16 @@ use crate::localtime::TimeSpan;
 pub mod simple_rle;
 
 pub trait RleKeyed {
-    fn get_rle_key(&self) -> usize;
+    fn rle_key(&self) -> usize;
 }
 
 pub trait RleSpanHelpers: RleKeyed + HasLength {
     fn end(&self) -> usize {
-        self.get_rle_key() + self.len()
+        self.rle_key() + self.len()
     }
 
     fn span(&self) -> TimeSpan {
-        let start = self.get_rle_key();
+        let start = self.rle_key();
         TimeSpan { start, end: start + self.len() }
     }
 }
@@ -27,7 +27,7 @@ impl<V: RleKeyed + HasLength> RleSpanHelpers for V {}
 pub struct KVPair<V>(pub usize, pub V);
 
 impl<V> RleKeyed for KVPair<V> {
-    fn get_rle_key(&self) -> usize {
+    fn rle_key(&self) -> usize {
         self.0
     }
 }
@@ -79,6 +79,53 @@ impl<V: Default> Default for KVPair<V> {
         KVPair(0, V::default())
     }
 }
+
+#[allow(unused)]
+pub fn try_trim<V>(mut x: V, target_span: TimeSpan) -> Option<V>
+    where V: RleKeyed + HasLength + SplitableSpan
+{
+    let x_span = x.span();
+    if x_span.start < target_span.start {
+        if x_span.end <= target_span.start { return None; }
+        x.truncate_keeping_right(target_span.start - x_span.start);
+    }
+
+    if x_span.end > target_span.end {
+        if x_span.start >= target_span.end { return None; }
+        x.truncate(target_span.end - x_span.start);
+    }
+
+    Some(x)
+}
+
+#[allow(unused)]
+pub fn trim<V>(val: V, span: TimeSpan) -> V
+    where V: RleKeyed + HasLength + SplitableSpan
+{
+    try_trim(val, span).unwrap()
+}
+
+// pub fn intersect<A, B>(mut a: A, mut b: B) -> Option<(A, B)>
+//     where A: RleKeyed + HasLength + SplitableSpan,
+//           B: RleKeyed + HasLength + SplitableSpan
+// {
+//     let a_span = a.span();
+//     let b_span = b.span();
+//
+//     if a.start <= b.start {
+//         if a.end <= b.start { return None; }
+//         a.truncate_keeping_right(b.start - a.start);
+//     } else { // b.start < a.start
+//         if b.end <= a.start { return None; }
+//         b.truncate_keeping_right(a.start - b.start);
+//     }
+//
+//     // And trim the end too.
+//
+//
+//     Some((a, b))
+// }
+
 
 // #[cfg(test)]
 // mod test {

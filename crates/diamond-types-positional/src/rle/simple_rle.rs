@@ -60,7 +60,7 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
 impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     pub(crate) fn find_index(&self, needle: usize) -> Result<usize, usize> {
         self.0.binary_search_by(|entry| {
-            let key = entry.get_rle_key();
+            let key = entry.rle_key();
             if needle < key { Greater }
             else if needle >= key + entry.len() { Less }
             else { Equal }
@@ -104,13 +104,28 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         self.find(needle).unwrap()
     }
 
+    /// Find the item at range, cloning and trimming it down to size. This is generally less
+    /// efficient than using find_with_offset and friends, but its much more convenient.
+    ///
+    /// Note the returned value might be smaller than the passed range.
+    #[allow(unused)]
+    pub fn find_packed_and_split(&self, range: TimeSpan) -> V where V: SplitableSpan {
+        let (item, offset) = self.find_packed_with_offset(range.start);
+        let mut item = item.clone();
+        item.truncate_keeping_right(offset);
+        if item.len() > range.len() {
+            item.truncate(range.len());
+        }
+        item
+    }
+
     /// Find an entry in the list with the specified key using binary search.
     ///
     /// If found returns Some((found value, internal offset))
     pub fn find_with_offset(&self, needle: usize) -> Option<(&V, usize)> {
         self.find_index(needle).ok().map(|idx| {
             let entry = &self.0[idx];
-            (entry, needle - entry.get_rle_key())
+            (entry, needle - entry.rle_key())
         })
     }
 
@@ -136,11 +151,11 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         match self.find_index(needle) {
             Ok(idx) => {
                 let entry = &self.0[idx];
-                (Ok(entry), needle - entry.get_rle_key())
+                (Ok(entry), needle - entry.rle_key())
             }
             Err(idx) => {
                 let next_key = if let Some(entry) = self.0.get(idx) {
-                    entry.get_rle_key()
+                    entry.rle_key()
                 } else {
                     usize::MAX
                 };
@@ -162,7 +177,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     pub fn find_mut(&mut self, needle: usize) -> Option<(&mut V, usize)> {
         self.find_index(needle).ok().map(move |idx| {
             let entry = &mut self.0[idx];
-            let offset = needle - entry.get_rle_key();
+            let offset = needle - entry.rle_key();
             (entry, offset)
         })
     }
@@ -171,7 +186,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     /// subsequent elements forward.
     #[allow(unused)]
     pub fn insert(&mut self, val: V) {
-        let idx = self.find_index(val.get_rle_key()).expect_err("Item already exists");
+        let idx = self.find_index(val.rle_key()).expect_err("Item already exists");
 
         // Extend the next / previous item if possible
         if idx >= 1 {
@@ -184,7 +199,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
 
         if idx < self.0.len() {
             let next = &mut self.0[idx];
-            debug_assert!(val.get_rle_key() + val.len() <= next.get_rle_key(), "Items overlap");
+            debug_assert!(val.rle_key() + val.len() <= next.rle_key(), "Items overlap");
 
             if val.can_append(next) {
                 next.prepend(val);
@@ -203,10 +218,10 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
             // TODO: Is this bounds checking? It shouldn't need to... Fix if it is.
             let e = &self[*idx];
             if needle < e.end() {
-                return if needle >= e.get_rle_key() {
+                return if needle >= e.rle_key() {
                     Ok(e)
                 } else {
-                    Err(e.get_rle_key())
+                    Err(e.rle_key())
                 };
             }
 
@@ -229,7 +244,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         // wrapping_sub - so when we reach the end the index wraps around and we'll hit usize::MAX.
         while *idx < self.len() {
             let e = &self[*idx];
-            if needle >= e.get_rle_key() {
+            if needle >= e.rle_key() {
                 return if needle < e.end() {
                     Ok(e)
                 } else {
@@ -249,7 +264,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         let mut key = 0;
 
         for e in self.iter() {
-            let next_key = e.get_rle_key();
+            let next_key = e.rle_key();
             if key < next_key {
                 // Visit the empty range
                 visitor(Err(key..next_key));
@@ -328,7 +343,7 @@ impl<V: HasLength + SplitableSpan + RleKeyed + MergableSpan> RleVec<V> {
         let idx = self.find_index(range.start).unwrap();
 
         let entry = &self.0[idx];
-        let offset = range.start - entry.get_rle_key();
+        let offset = range.start - entry.rle_key();
 
         RleVecRangeIter {
             offset,

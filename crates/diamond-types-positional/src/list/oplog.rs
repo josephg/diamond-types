@@ -22,6 +22,10 @@ impl ClientData {
         } else { 0 }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.item_orders.is_empty()
+    }
+
     #[inline]
     pub(crate) fn try_seq_to_time(&self, seq: usize) -> Option<Time> {
         let (entry, offset) = self.item_orders.find_with_offset(seq)?;
@@ -33,12 +37,12 @@ impl ClientData {
     }
 
     // /// Note the returned timespan might be shorter than seq_range.
-    // pub fn seq_to_time_span(&self, seq_range: TimeSpan) -> TimeSpan {
-    //     let (entry, offset) = self.item_orders.find_with_offset(seq_range.start).unwrap();
+    // pub fn try_seq_to_time_span(&self, seq_range: TimeSpan) -> Option<TimeSpan> {
+    //     let (KVPair(_, entry), offset) = self.item_orders.find_with_offset(seq_range.start)?;
     //
-    //     let start = entry.1.start + offset;
-    //     let end = usize::min(entry.1.end, start + seq_range.len());
-    //     TimeSpan { start, end }
+    //     let start = entry.start + offset;
+    //     let end = usize::min(entry.end, start + seq_range.len());
+    //     Some(TimeSpan { start, end })
     // }
 }
 
@@ -111,6 +115,16 @@ impl OpLog {
         else {
             let (loc, offset) = self.client_with_localtime.find_packed_with_offset(time);
             loc.1.at_offset(offset as usize)
+        }
+    }
+
+    #[allow(unused)]
+    pub(crate) fn crdt_id_to_time(&self, id: CRDTId) -> Time {
+        if id.agent == ROOT_AGENT {
+            ROOT_TIME
+        } else {
+            let client = &self.client_data[id.agent as usize];
+            client.seq_to_time(id.seq)
         }
     }
 
