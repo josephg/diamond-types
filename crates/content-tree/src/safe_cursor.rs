@@ -1,3 +1,5 @@
+#![allow(clippy::needless_lifetimes)] // Clippy doesn't understand the need for some lifetimes below
+
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::ops::{Deref, AddAssign, DerefMut};

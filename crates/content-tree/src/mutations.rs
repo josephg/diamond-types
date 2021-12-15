@@ -233,6 +233,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
     ///
     /// Items must have a maximum length of 3, due to limitations in split_insert above.
     /// The cursor's offset is ignored. The cursor ends up at the end of the inserted items.
+    #[allow(clippy::len_zero)]
     unsafe fn replace_entry<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, items: &[E], flush_marker: &mut I::Update, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         assert!(items.len() >= 1 && items.len() <= 3);

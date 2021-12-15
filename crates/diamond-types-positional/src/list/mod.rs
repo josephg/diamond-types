@@ -7,7 +7,7 @@ use jumprope::JumpRope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
-use crate::list::operation::{InsDelTag, Operation};
+use crate::list::operation::InsDelTag;
 use crate::list::history::History;
 use crate::list::internal_op::OperationInternal;
 use crate::localtime::TimeSpan;

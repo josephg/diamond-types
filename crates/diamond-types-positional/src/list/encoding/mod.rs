@@ -169,7 +169,7 @@ impl<S: MergableSpan, F: FnMut(S, &mut ())> Merger<S, F, ()> {
     pub fn push(&mut self, span: S) {
         self.push2(span, &mut ());
     }
-    pub fn flush(mut self) {
+    pub fn flush(self) {
         self.flush2(&mut ());
     }
 }
@@ -179,60 +179,5 @@ impl<S: MergableSpan, F: FnMut(S, &mut Ctx), Ctx> Drop for Merger<S, F, Ctx> {
         if self.last.is_some() && !std::thread::panicking() {
             panic!("Merger dropped with unprocessed data");
         }
-    }
-}
-
-/// A SpanWriter is a helper struct for writing objects which implement MergableSpan. Essentially,
-/// this acts as a single-item buffer.
-///
-/// It would probably be possible to replace this with clever uses of merge_iter.
-#[derive(Debug, Clone, Default)]
-struct SpanWriter<S: MergableSpan + Debug, F: FnMut(&mut Vec<u8>, S)> {
-    dest: Vec<u8>,
-    last: Option<S>,
-    write: F,
-
-    // #[cfg(debug_assertions)]
-    pub count: usize,
-}
-
-impl<S: MergableSpan + Debug, F: FnMut(&mut Vec<u8>, S)> SpanWriter<S, F> {
-    pub fn new(write_fn: F) -> Self {
-        Self {
-            dest: vec![],
-            last: None,
-            count: 0,
-            write: write_fn
-        }
-    }
-
-    pub fn new_with_val(val: S, flush: F) -> Self {
-        let mut result = Self::new(flush);
-        result.last = Some(val);
-        result
-    }
-
-    pub fn push(&mut self, s: S) {
-        // assert!(s.len() > 0);
-        if let Some(last) = self.last.as_mut() {
-            if last.can_append(&s) {
-                last.append(s);
-            } else {
-                let old = replace(last, s);
-                self.count += 1;
-                (self.write)(&mut self.dest, old);
-            }
-        } else {
-            self.last = Some(s);
-        }
-    }
-
-    /// Write the last item and consume the writer into its inner Vec<u8>
-    pub fn bake(mut self) -> Vec<u8> {
-        if let Some(elem) = self.last.take() {
-            self.count += 1;
-            (self.write)(&mut self.dest, elem);
-        }
-        self.dest
     }
 }

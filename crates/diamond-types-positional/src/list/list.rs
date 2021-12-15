@@ -1,14 +1,12 @@
 use std::mem::replace;
 use humansize::{file_size_opts, FileSize};
 use crate::list::{Branch, Frontier, ListCRDT, OpLog, Time};
-use crate::rle::KVPair;
 use smallvec::smallvec;
 use crate::AgentId;
 use rle::HasLength;
 use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::list::operation::{InsDelTag, Operation};
+use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
-use crate::remotespan::CRDTId;
 
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
 fn insert_history_local(opset: &mut OpLog, frontier: &mut Frontier, range: TimeSpan) {
@@ -50,7 +48,7 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
             Ins => {
                 // assert!(c.);
                 // let new_content = consume_chars(&mut content, len);
-                branch.content.insert(pos, &c.content.as_ref().unwrap());
+                branch.content.insert(pos, c.content.as_ref().unwrap());
             }
 
             Del => {

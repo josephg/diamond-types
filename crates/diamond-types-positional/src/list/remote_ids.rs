@@ -5,7 +5,7 @@ use serde_crate::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::localtime::TimeSpan;
 use crate::{ROOT_AGENT, ROOT_TIME};
-use crate::list::frontier::{check_frontier, frontier_is_sorted};
+use crate::list::frontier::frontier_is_sorted;
 use crate::list::remote_ids::ConversionError::SeqInFuture;
 use crate::remotespan::CRDTId;
 
@@ -107,7 +107,7 @@ impl OpLog {
 mod test {
     use crate::list::OpLog;
     use crate::list::remote_ids::RemoteId;
-    use crate::{ROOT_AGENT, ROOT_TIME};
+    use crate::ROOT_TIME;
 
     #[test]
     fn id_smoke_test() {

@@ -1,3 +1,7 @@
+// Clippy complains about .as_mut_ref() below. But that construction is needed for the borrow
+// checker.
+#![allow(clippy::needless_option_as_deref)]
+
 use std::cmp::Ordering;
 use std::ptr::NonNull;
 use smallvec::{SmallVec, smallvec};
@@ -6,7 +10,7 @@ use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
 use crate::list::{Frontier, Branch, OpLog, Time};
 use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::m2::yjsspan2::{INSERTED, NOT_INSERTED_YET, YjsSpan2};
-use crate::list::operation::{InsDelTag, Operation};
+use crate::list::operation::InsDelTag;
 use crate::localtime::{is_underwater, TimeSpan};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
@@ -635,7 +639,7 @@ impl Branch {
         let frontier = tracker.walk(opset, common_ancestor, &conflict_ops, None);
 
         // Then walk through and merge any new edits.
-        tracker.walk(&opset, frontier, &new_ops, Some(self));
+        tracker.walk(opset, frontier, &new_ops, Some(self));
 
         // ... And update our frontier.
         // for range in new_ops.into_iter().rev() {

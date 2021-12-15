@@ -3,6 +3,14 @@ use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
 use crate::list::{Frontier, OpLog};
 use crate::list::remote_ids::{ConversionError, RemoteId};
+use crate::list::frontier::{frontier_is_root, frontier_is_sorted};
+use crate::list::internal_op::OperationInternal;
+use crate::list::operation::InsDelTag::{Del, Ins};
+use crate::localtime::TimeSpan;
+use crate::rev_span::TimeSpanRev;
+use crate::ROOT_TIME;
+use crate::unicount::consume_chars;
+use ParseError::*;
 
 #[derive(Debug)]
 struct BufReader<'a>(&'a [u8]);
@@ -31,19 +39,6 @@ pub enum ParseError {
     DataMissing,
 }
 
-use ParseError::*;
-use crate::list::frontier::{advance_frontier_by_known_run, frontier_is_root, frontier_is_sorted};
-use crate::list::history::HistoryEntry;
-use crate::list::internal_op::OperationInternal;
-use crate::list::operation::{InsDelTag, Operation};
-use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::localtime::TimeSpan;
-use crate::remotespan::{CRDTId, CRDTSpan};
-use crate::rev_span::TimeSpanRev;
-use crate::rle::KVPair;
-use crate::ROOT_TIME;
-use crate::unicount::consume_chars;
-
 impl<'a> BufReader<'a> {
     // fn check_has_bytes(&self, num: usize) {
     //     assert!(self.0.len() >= num);
@@ -64,6 +59,7 @@ impl<'a> BufReader<'a> {
         self.0.is_empty()
     }
 
+    #[allow(unused)]
     fn len(&self) -> usize {
         self.0.len()
     }
@@ -74,7 +70,7 @@ impl<'a> BufReader<'a> {
 
     fn read_magic(&mut self) -> Result<(), ParseError> {
         self.check_has_bytes(8)?;
-        if &self.0[..MAGIC_BYTES_SMALL.len()] != MAGIC_BYTES_SMALL {
+        if self.0[..MAGIC_BYTES_SMALL.len()] != MAGIC_BYTES_SMALL {
             return Err(InvalidMagic);
         }
         self.consume(8);
@@ -88,6 +84,7 @@ impl<'a> BufReader<'a> {
         Ok(val)
     }
 
+    #[allow(unused)]
     fn next_u64(&mut self) -> Result<u64, ParseError> {
         self.check_not_empty()?;
         let (val, count) = decode_u64(self.0);
@@ -150,13 +147,13 @@ impl<'a> BufReader<'a> {
         if len > self.0.len() { return Err(InvalidLength); }
 
         let bytes = self.next_n_bytes(len)?;
-        std::str::from_utf8(bytes).map_err(|e| InvalidUTF8(e))
+        std::str::from_utf8(bytes).map_err(InvalidUTF8)
     }
 
     fn next_run_u32(&mut self) -> Result<Option<Run<u32>>, ParseError> {
         if self.0.is_empty() { return Ok(None); }
 
-        let mut n = self.next_u32()?;
+        let n = self.next_u32()?;
         let (val, has_len) = strip_bit_u32(n);
 
         let len = if has_len {
@@ -198,7 +195,7 @@ impl<'a> BufReader<'a> {
             let time = oplog.try_remote_id_to_time(&RemoteId {
                 agent: agent.into(),
                 seq
-            }).map_err(|err| InvalidRemoteID(err))?;
+            }).map_err(InvalidRemoteID)?;
 
             result.push(time);
 
@@ -221,6 +218,13 @@ struct ReadPatchesIter<'a> {
 }
 
 impl<'a> ReadPatchesIter<'a> {
+    fn new(buf: BufReader<'a>) -> Self {
+        Self {
+            buf,
+            last_cursor_pos: 0
+        }
+    }
+
     fn next_internal(&mut self) -> Result<OperationInternal, ParseError> {
         let mut n = self.buf.next_usize()?;
         // This is in the opposite order from write_op.
@@ -325,25 +329,19 @@ impl OpLog {
         let (mut ins_content, patches_chunk) = if next_chunk.0 == Chunk::InsertedContent {
             let patches_chunk = reader.expect_chunk(Chunk::PositionalPatches)?;
             let content = std::str::from_utf8(next_chunk.1.0)
-                .map_err(|e| InvalidUTF8(e))?;
+                .map_err(InvalidUTF8)?;
             (Some(content), patches_chunk)
         } else {
             (None, next_chunk.1)
         };
 
-        let mut patches_iter = ReadPatchesIter {
-            buf: patches_chunk,
-            last_cursor_pos: 0
-        };
         let mut next_time = 0;
-        for op in patches_iter {
-            let mut op = op?;
+        for op in ReadPatchesIter::new(patches_chunk) {
+            let op = op?;
             let len = op.len();
             let content = if op.tag == Ins {
-                if let Some(content) = ins_content.as_mut() {
-                    // TODO: Check this split point is valid.
-                    Some(consume_chars(content, len))
-                } else { None }
+                // TODO: Check this split point is valid.
+                ins_content.as_mut().map(|content| consume_chars(content, len))
             } else { None };
 
             // result.operations.push(KVPair(next_time, op));

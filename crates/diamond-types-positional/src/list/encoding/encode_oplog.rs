@@ -1,12 +1,8 @@
-use std::cmp::Ordering::*;
-use smallvec::SmallVec;
 use rle::HasLength;
-use rle::zip::rle_zip;
 use crate::list::encoding::*;
-use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
-use crate::list::operation::{InsDelTag, Operation};
+use crate::list::history::MinimalHistoryEntry;
 use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::list::{Frontier, OpLog, Time};
+use crate::list::{OpLog, Time};
 use crate::list::frontier::frontier_is_root;
 use crate::rle::{KVPair, RleVec};
 use crate::{AgentId, ROOT_TIME};
@@ -99,7 +95,7 @@ fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
     pos += encode_usize(n, &mut buf[pos..]);
 
     if len != 1 && cursor_diff != 0 {
-        let mut n2 = num_encode_zigzag_isize(cursor_diff);
+        let n2 = num_encode_zigzag_isize(cursor_diff);
         pos += encode_usize(n2, &mut buf[pos..]);
     }
 
@@ -198,7 +194,7 @@ impl OpLog {
                 println!("{:?} length {}", c, data.len());
             }
             // dbg!(&data);
-            push_chunk(&mut result, c, &data);
+            push_chunk(&mut result, c, data);
         };
 
         // TODO: The fileinfo chunk should specify DT version, encoding version and information
@@ -392,10 +388,10 @@ impl OpLog {
         write_chunk(Chunk::AgentAssignment, &agent_assignment_chunk);
 
         if opts.store_inserted_content {
-            write_chunk(Chunk::InsertedContent, &inserted_text.as_bytes());
+            write_chunk(Chunk::InsertedContent, inserted_text.as_bytes());
         }
         if opts.store_deleted_content {
-            write_chunk(Chunk::DeletedContent, &deleted_text.as_bytes());
+            write_chunk(Chunk::DeletedContent, deleted_text.as_bytes());
         }
         write_chunk(Chunk::PositionalPatches, &ops_chunk);
         write_chunk(Chunk::TimeDAG, &txns_chunk);
@@ -424,7 +420,7 @@ impl OpLog {
             if opts.verbose {
                 println!("{:?} length {}", c, data.len());
             }
-            push_chunk(&mut result, c, &data);
+            push_chunk(&mut result, c, data);
         };
 
         // TODO: The fileinfo chunk should specify DT version, encoding version and information
@@ -505,11 +501,11 @@ impl OpLog {
             write_op(&mut buf, &op, &mut last_cursor_pos);
         }
         if opts.store_inserted_content {
-            write_chunk(Chunk::InsertedContent, &inserted_text.as_bytes());
+            write_chunk(Chunk::InsertedContent, inserted_text.as_bytes());
             // write_chunk(Chunk::InsertedContent, &self.ins_content.as_bytes());
         }
         if opts.store_deleted_content {
-            write_chunk(Chunk::DeletedContent, &deleted_text.as_bytes());
+            write_chunk(Chunk::DeletedContent, deleted_text.as_bytes());
             // write_chunk(Chunk::DeletedContent, &self.del_content.as_bytes());
         }
         write_chunk(Chunk::PositionalPatches, &buf);
@@ -573,7 +569,6 @@ impl OpLog {
 mod tests {
     use crate::list::encoding::EncodeOptions;
     use crate::list::ListCRDT;
-    use crate::ROOT_TIME;
 
     #[test]
     fn encoding_smoke_test() {

@@ -68,6 +68,7 @@ impl OperationInternal {
         other
     }
 
+    #[allow(unused)]
     pub(crate) fn get_content<'a>(&self, oplog: &'a OpLog) -> Option<&'a str> {
         self.content_pos.map(|span| {
             let c = oplog.content_str(self.tag);
@@ -75,29 +76,12 @@ impl OperationInternal {
         })
     }
 
+    #[allow(unused)]
     pub(crate) fn to_operation(&self, oplog: &OpLog) -> Operation {
         let content = self.get_content(oplog);
         (self, content).into()
     }
 }
-
-
-// impl SplitableSpan for OperationInternal {
-//     fn truncate(&mut self, at: usize) -> Self {
-//         // Note we can't use self.span.truncate() because it assumes the span is absolute, but
-//         // actually how the span splits depends on the tag (and some other stuff).
-//         // let (a, b) = TimeSpanRev::split_op_span(self.span, self.tag, at);
-//         // self.span.span = a;
-//         let rem = self.span.truncate_tagged_span(self.tag, at);
-//
-//         OperationInternal {
-//             span: TimeSpanRev { span: rem, fwd: self.span.fwd },
-//             tag: self.tag,
-//             content_pos: self.content_pos.map(|p| p + at),
-//         }
-//     }
-// }
-
 
 impl HasLength for OperationInternal {
     fn len(&self) -> usize {
@@ -106,6 +90,10 @@ impl HasLength for OperationInternal {
 }
 
 impl TimeSpanRev {
+    // These are 3 versions of essentially the same function. TODO: decide which version of this
+    // logic to keep. (Only keep 1!).
+    //
+    // In godbolt these variants all look pretty similar.
     #[inline]
     pub(crate) fn truncate_tagged_span(&mut self, tag: InsDelTag, at: usize) -> TimeSpan {
         let len = self.len();
@@ -136,8 +124,9 @@ impl TimeSpanRev {
     //     TimeSpan { start: start2, end: start2 + len - at }
     // }
 
-    // TODO: Consider rewriting this as some form of truncate().
+    // This logic is interchangable with truncate_tagged_span above.
     #[inline]
+    #[allow(unused)] // FOR NOW...
     pub(crate) fn split_op_span(range: TimeSpanRev, tag: InsDelTag, at: usize) -> (TimeSpan, TimeSpan) {
         let (start1, start2) = match (range.fwd, tag) {
             (true, Ins) => (range.span.start, range.span.start + at),
@@ -210,5 +199,38 @@ impl MergableSpan for OperationInternal {
         if let (Some(a), Some(b)) = (&mut self.content_pos, other.content_pos) {
             a.append(b);
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::list::operation::InsDelTag;
+    use crate::localtime::TimeSpan;
+    use crate::rev_span::TimeSpanRev;
+
+    #[test]
+    #[allow(dead_code)] // Don't complain about unused fields.
+    fn foo() {
+        struct V1 {
+            span: TimeSpanRev,
+            tag: InsDelTag,
+            content_pos: Option<TimeSpan>,
+        }
+        struct V2 {
+            span: TimeSpan,
+            rev: bool,
+            tag: InsDelTag,
+            content_pos: Option<TimeSpan>,
+        }
+        struct V3 {
+            span: TimeSpan,
+            rev: bool,
+            tag: InsDelTag,
+            content_pos: TimeSpan,
+        }
+
+        dbg!(std::mem::size_of::<V1>());
+        dbg!(std::mem::size_of::<V2>());
+        dbg!(std::mem::size_of::<V3>());
     }
 }

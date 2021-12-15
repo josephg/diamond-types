@@ -3,7 +3,7 @@ use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use rle::zip::rle_zip;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{Branch, branch, ClientData, OpLog, switch, Time};
+use crate::list::{Branch, ClientData, OpLog, switch, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
 use crate::list::internal_op::OperationInternal;
@@ -102,7 +102,7 @@ impl OpLog {
     }
 
     pub(crate) fn get_agent_name(&self, agent: AgentId) -> &str {
-        if agent == ROOT_AGENT { return ROOT_AGENT_NAME }
+        if agent == ROOT_AGENT { ROOT_AGENT_NAME }
         else { self.client_data[agent as usize].name.as_str() }
     }
 
@@ -318,7 +318,6 @@ impl OpLog {
 
     // *** Helpers for pushing at the current version ***
 
-
     pub fn push(&mut self, agent: AgentId, ops: &[Operation]) -> Time {
         // TODO: Rewrite this to avoid the .clone().
         let frontier = self.frontier.clone();
@@ -326,6 +325,7 @@ impl OpLog {
     }
 
     /// Returns the single item frontier after the inserted change.
+    /// TODO: Optimize these functions like push_insert_at / push_delete_at.
     pub fn push_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
         self.push(agent, &[Operation::new_insert(pos, ins_content)])
     }

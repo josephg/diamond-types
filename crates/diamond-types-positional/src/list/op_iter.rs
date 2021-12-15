@@ -1,11 +1,10 @@
-use rle::{HasLength, SplitableSpan};
+use rle::HasLength;
 use crate::list;
 use crate::list::internal_op::OperationInternal;
 use crate::list::{OpLog, switch};
-use crate::list::operation::{InsDelTag, Operation};
+use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleVec};
-use crate::unicount::chars_to_bytes;
 
 pub(crate) struct OpMetricsIter<'a> {
     list: &'a RleVec<KVPair<OperationInternal>>,
@@ -75,10 +74,13 @@ impl<'a> OpIterFast<'a> {
 }
 
 impl OpLog {
+    // TODO: Consider removing these functions if they're never used.
+    #[allow(unused)]
     pub(crate) fn iter_metrics_range(&self, range: TimeSpan) -> OpMetricsIter {
         OpMetricsIter::new(&self.operations, &self.ins_content, &self.del_content, range)
     }
 
+    #[allow(unused)]
     pub(crate) fn iter_metrics(&self) -> OpMetricsIter {
         self.iter_metrics_range((0..self.len()).into())
     }
@@ -99,7 +101,7 @@ impl OpLog {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::list::operation::{InsDelTag, Operation};
+    use crate::list::operation::InsDelTag;
     use crate::rle::{KVPair, RleVec};
     use InsDelTag::*;
 

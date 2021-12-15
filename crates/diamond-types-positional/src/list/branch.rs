@@ -41,7 +41,7 @@ impl Branch {
         match op.tag {
             Ins => {
                 // assert!(op.content_known);
-                self.content.insert(pos, &op.content.as_ref().unwrap());
+                self.content.insert(pos, op.content.as_ref().unwrap());
             }
 
             Del => {

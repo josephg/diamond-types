@@ -45,7 +45,7 @@ impl OpLog {
         out.push_str("\tnode [shape=box style=filled]\n");
         out.push_str("\tedge [color=\"#333333\" dir=back]\n");
 
-        write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string());
+        write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
         for txn in self.history.entries.iter() {
             // dbg!(txn);
             // Each txn needs to be split so we can actually connect children to parents.
@@ -74,9 +74,9 @@ impl OpLog {
                 // dbg!(earlist_parent, range, (earlist_parent - range.start + 1));
                 let next = range.truncate(earlist_parent - range.start + 1);
 
-                write!(&mut out, "\t{} [label=<{} (Len {})>]\n", range.last(), range.start, range.len());
+                write!(&mut out, "\t{} [label=<{} (Len {})>]\n", range.last(), range.start, range.len()).unwrap();
                 if let Some(prev) = prev {
-                    write!(&mut out, "\t{} -> {}\n", range.last(), prev);
+                    write!(&mut out, "\t{} -> {}\n", range.last(), prev).unwrap();
                 }
 
                 if !processed_parents {
@@ -84,12 +84,12 @@ impl OpLog {
 
                     for p in txn.parents.iter() {
                         if *p == ROOT_TIME {
-                            write!(&mut out, "\t{} -> ROOT\n", range.last());
+                            write!(&mut out, "\t{} -> ROOT\n", range.last()).unwrap();
                         } else {
                             // let parent_entry = self.history.entries.find_packed(*p);
                             // write!(&mut out, "\t{} -> {} [headlabel={}]\n", txn.span.last(), parent_entry.span.start, *p);
 
-                            write!(&mut out, "\t{} -> {} [headlabel={}]\n", range.last(), *p, *p);
+                            write!(&mut out, "\t{} -> {} [headlabel={}]\n", range.last(), *p, *p).unwrap();
                         }
                     }
                 }
@@ -218,7 +218,7 @@ mod test {
         let mut ops = OpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
-        let a = ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        let _a = ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
         let b = ops.push_insert_at(1, &[ROOT_TIME], 0, "b");
         ops.push_delete_at(0, &[1, b], 0, 2);
         // dbg!(&ops);

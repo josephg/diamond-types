@@ -1,3 +1,5 @@
+#![allow(clippy::needless_lifetimes)] // Clippy doesn't understand the need for some lifetimes below
+
 use std::mem::size_of;
 
 use humansize::{file_size_opts, FileSize};

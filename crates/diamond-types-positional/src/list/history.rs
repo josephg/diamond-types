@@ -70,11 +70,11 @@ pub(crate) struct HistoryEntry {
 }
 
 impl HistoryEntry {
-    pub fn parent_at_offset(&self, at: usize) -> Option<usize> {
-        if at > 0 {
-            Some(self.span.start + at - 1)
-        } else { None } // look at .parents field.
-    }
+    // pub fn parent_at_offset(&self, at: usize) -> Option<usize> {
+    //     if at > 0 {
+    //         Some(self.span.start + at - 1)
+    //     } else { None } // look at .parents field.
+    // }
 
     pub fn parent_at_time(&self, time: usize) -> Option<usize> {
         if time > self.span.start {
@@ -211,7 +211,6 @@ mod tests {
     use smallvec::smallvec;
     use rle::{MergableSpan, test_splitable_methods_valid};
     use crate::list::history::MinimalHistoryEntry;
-    use crate::ROOT_TIME;
     use super::HistoryEntry;
 
     #[test]

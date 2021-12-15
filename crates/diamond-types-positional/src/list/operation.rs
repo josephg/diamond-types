@@ -42,11 +42,7 @@ pub struct Operation {
     // For now only backspaces are ever reversed.
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub span: TimeSpanRev,
-
-    // TODO: Remove content_known by making content an Option(...)
-    // pub content_known: bool,
     pub tag: InsDelTag,
-    // pub content_bytes_offset: usize,
     pub content: Option<SmartString>,
 }
 
@@ -70,16 +66,6 @@ impl Operation {
         let len = count_chars(&content);
         Operation { span: (pos..pos+len).into(), tag: Del, content: Some(content) }
     }
-
-    // Could just inline this into truncate() below. It won't be used in other contexts.
-    // fn split_positions(&self, at: usize) -> (usize, usize) {
-    //     let first = self.span.span.start;
-    //     match (self.span.fwd, self.tag) {
-    //         (true, Ins) => (first, first + at),
-    //         (false, Del) => (first + self.len - at, first),
-    //         _ => (first, first)
-    //     }
-    // }
 
     pub fn range(&self) -> TimeSpan {
         self.span.span
@@ -112,29 +98,16 @@ impl SplitableSpan for Operation {
             c.split_off(byte_split)
         });
 
-        // let byte_split = if let Some(c) = &self.content {
-        //     chars_to_bytes(c, at)
-        // } else {
-        //     0
-        // };
-
         // TODO: When we split items to a length of 1, consider clearing the reversed flag.
         // This doesn't do anything - but it feels polite.
-        let remainder = Self {
+        Self {
             span: TimeSpanRev {
                 span: other_span,
                 fwd: self.span.fwd
             },
             tag: self.tag,
             content: rem_content,
-        };
-        // if remainder.len == 1 { remainder.reversed = false; }
-
-        // self.span.span = self_span;
-
-        // self.reversed = if self.len == 1 { false } else { self.reversed };
-
-        remainder
+        }
     }
 }
 
