@@ -164,26 +164,6 @@ impl<'a> BufReader<'a> {
         Ok(Some(Run { val, len }))
     }
 
-    // fn next_u32_diff_run<const INC: bool>(&mut self, last: &mut u32) -> Option<Run<u32>> {
-    //     let (diff, has_len) = num_decode_i64_with_extra_bit(self.next()?);
-    //     *last = last.wrapping_add(diff as i32 as u32);
-    //     let base_val = *last;
-    //     let len = if has_len {
-    //         self.next().unwrap()
-    //     } else {
-    //         1
-    //     };
-    //     // println!("LO order {} len {}", last, len);
-    //     if INC {
-    //         // This is kinda gross. Why -1?
-    //         *last = last.wrapping_add(len as u32 - 1);
-    //     }
-    //     Some(Run {
-    //         val: base_val,
-    //         len: len as usize
-    //     })
-    // }
-
     fn read_full_frontier(&mut self, oplog: &OpLog) -> Result<Frontier, ParseError> {
         let mut result = Frontier::new();
         // All frontiers contain at least one item.
@@ -283,16 +263,21 @@ impl<'a> Iterator for ReadPatchesIter<'a> {
 
 impl OpLog {
     pub fn load_from(data: &[u8]) -> Result<Self, ParseError> {
-        // Written to be symmetric with encode_operations_naively().
         let mut result = Self::new();
+        result.merge_data(data)?;
+        Ok(result)
+    }
 
+    // Not pub because this method is not implemented properly yet for non-empty documents.
+    fn merge_data(&mut self, data: &[u8]) -> Result<(), ParseError> {
+        // Written to be symmetric with encode functions.
         let mut reader = BufReader(data);
         reader.read_magic()?;
 
         let _info = reader.expect_chunk(Chunk::FileInfo)?;
 
         let mut start_frontier_chunk = reader.expect_chunk(Chunk::StartFrontier)?;
-        let frontier = start_frontier_chunk.read_full_frontier(&result)?;
+        let frontier = start_frontier_chunk.read_full_frontier(&self)?;
 
         // The start header chunk should always be ROOT.
         if !frontier_is_root(&frontier) { return Err(DataMissing); }
@@ -304,19 +289,19 @@ impl OpLog {
         let mut agent_names_chunk = reader.expect_chunk(Chunk::AgentNames)?;
         while !agent_names_chunk.0.is_empty() {
             let name = agent_names_chunk.next_str()?;
-            result.get_or_create_agent_id(name);
+            self.get_or_create_agent_id(name);
         }
 
         let mut agent_assignment_chunk = reader.expect_chunk(Chunk::AgentAssignment)?;
 
         let mut next_time = 0;
         while let Some(run) = agent_assignment_chunk.next_run_u32()? {
-            if run.val as usize >= result.client_data.len() {
+            if run.val as usize >= self.client_data.len() {
                 return Err(ParseError::InvalidLength);
             }
 
             let span = TimeSpan { start: next_time, end: next_time + run.len };
-            result.assign_next_time_to_client(run.val, span);
+            self.assign_next_time_to_client(run.val, span);
             next_time = span.end;
         }
 
@@ -327,13 +312,22 @@ impl OpLog {
 
         let next_chunk = reader.next_chunk()?;
         let (mut ins_content, patches_chunk) = if next_chunk.0 == Chunk::InsertedContent {
+            let content_chunk = next_chunk.1;
             let patches_chunk = reader.expect_chunk(Chunk::PositionalPatches)?;
-            let content = std::str::from_utf8(next_chunk.1.0)
+
+            // let decompressed_len = content_chunk.next_usize()?;
+            // let decompressed_data = lz4_flex::decompress(content_chunk.0, decompressed_len).unwrap();
+            // let content = String::from_utf8(decompressed_data).unwrap();
+            //     // .map_err(InvalidUTF8)?;
+
+            let content = std::str::from_utf8(content_chunk.0)
                 .map_err(InvalidUTF8)?;
             (Some(content), patches_chunk)
         } else {
             (None, next_chunk.1)
         };
+
+        // let mut xx = ins_content.as_ref().map(|s| s.as_str());
 
         let mut next_time = 0;
         for op in ReadPatchesIter::new(patches_chunk) {
@@ -341,11 +335,12 @@ impl OpLog {
             let len = op.len();
             let content = if op.tag == Ins {
                 // TODO: Check this split point is valid.
+                // xx.as_mut().map(|content| consume_chars(content, len))
                 ins_content.as_mut().map(|content| consume_chars(content, len))
             } else { None };
 
-            // result.operations.push(KVPair(next_time, op));
-            result.push_op_internal(next_time, op.span, op.tag, content);
+            // self.operations.push(KVPair(next_time, op));
+            self.push_op_internal(next_time, op.span, op.tag, content);
             next_time += len;
         }
 
@@ -376,7 +371,7 @@ impl OpLog {
                     } else {
                         let agent = n - 1;
                         let seq = history_chunk.next_usize()?;
-                        if let Some(c) = result.client_data.get(agent) {
+                        if let Some(c) = self.client_data.get(agent) {
                             c.try_seq_to_time(seq)
                                 .ok_or(InvalidLength)?
                         } else {
@@ -396,15 +391,15 @@ impl OpLog {
 
             // println!("{}-{} parents {:?}", span.start, span.end, parents);
 
-            result.insert_history(&parents, span);
-            result.advance_frontier(&parents, span);
+            self.insert_history(&parents, span);
+            self.advance_frontier(&parents, span);
 
             next_time += len;
         }
 
-        // result.frontier = end_frontier_chunk.read_full_frontier(&result)?;
+        // self.frontier = end_frontier_chunk.read_full_frontier(&self)?;
 
-        Ok(result)
+        Ok(())
     }
 }
 

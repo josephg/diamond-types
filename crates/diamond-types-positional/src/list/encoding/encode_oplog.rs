@@ -388,6 +388,13 @@ impl OpLog {
         write_chunk(Chunk::AgentAssignment, &agent_assignment_chunk);
 
         if opts.store_inserted_content {
+            // let max_compressed_size = lz4_flex::block::get_maximum_output_size(inserted_text.len());
+            // let mut compressed = Vec::with_capacity(5 + max_compressed_size);
+            // compressed.resize(compressed.capacity(), 0);
+            // let mut pos = encode_usize(inserted_text.len(), &mut compressed);
+            // pos += lz4_flex::compress_into(inserted_text.as_bytes(), &mut compressed[pos..]).unwrap();
+            // write_chunk(Chunk::InsertedContent, &compressed[..pos]);
+
             write_chunk(Chunk::InsertedContent, inserted_text.as_bytes());
         }
         if opts.store_deleted_content {
@@ -571,6 +578,7 @@ mod tests {
     use crate::list::ListCRDT;
 
     #[test]
+    #[ignore]
     fn encoding_smoke_test() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");

@@ -20,6 +20,8 @@ humansize = "1.1"
 #bitvec = "0.22.3"
 num_enum = "0.5"
 
+#lz4_flex = "0.9.2"
+
 [dev-dependencies]
 criterion = "^0.3"
 rand = { version = "^0.8", features = ["small_rng"] }
