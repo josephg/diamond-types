@@ -66,7 +66,7 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
         end: next_time
     };
 
-    oplog.assign_next_time_to_client(agent, span);
+    oplog.assign_next_time_to_client_known(agent, span);
     insert_history_local(oplog, &mut branch.frontier, span);
 
     oplog.frontier = smallvec![next_time - 1];

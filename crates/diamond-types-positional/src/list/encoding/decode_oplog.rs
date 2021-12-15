@@ -3,7 +3,7 @@ use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
 use crate::list::{Frontier, OpLog};
 use crate::list::remote_ids::{ConversionError, RemoteId};
-use crate::list::frontier::{frontier_is_root, frontier_is_sorted};
+use crate::list::frontier::{frontier_eq, frontier_is_sorted};
 use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::localtime::TimeSpan;
@@ -263,13 +263,15 @@ impl<'a> Iterator for ReadPatchesIter<'a> {
 
 impl OpLog {
     pub fn load_from(data: &[u8]) -> Result<Self, ParseError> {
-        let mut result = Self::new();
-        result.merge_data(data)?;
-        Ok(result)
+        Self::new().merge_data(data)
     }
 
-    // Not pub because this method is not implemented properly yet for non-empty documents.
-    fn merge_data(&mut self, data: &[u8]) -> Result<(), ParseError> {
+    /// Merge data from the remote source into our local document state.
+    ///
+    /// NOTE: This code is quite new.
+    /// TODO: Currently if this method returns an error, the local state is undefined & invalid.
+    /// Until this is fixed, the signature of the method will stay kinda weird to prevent misuse.
+    pub fn merge_data(mut self, data: &[u8]) -> Result<Self, ParseError> {
         // Written to be symmetric with encode functions.
         let mut reader = BufReader(data);
         reader.read_magic()?;
@@ -277,33 +279,55 @@ impl OpLog {
         let _info = reader.expect_chunk(Chunk::FileInfo)?;
 
         let mut start_frontier_chunk = reader.expect_chunk(Chunk::StartFrontier)?;
-        let frontier = start_frontier_chunk.read_full_frontier(&self)?;
+        let frontier = start_frontier_chunk.read_full_frontier(&self).map_err(|e| {
+            // We can't read a frontier if it names agents or sequence numbers we haven't seen
+            // before. If this happens, its because we're trying to load a data set from the future.
+            if let InvalidRemoteID(_) = e {
+                DataMissing
+            } else { e }
+        })?;
 
-        // The start header chunk should always be ROOT.
-        if !frontier_is_root(&frontier) { return Err(DataMissing); }
+        // Usually the version data will be strictly separated. Either we're loading data into an
+        // empty document, or we've been sent catchup data from a remote peer. If the data set
+        // overlaps, we need to actively filter out operations & txns from that data set.
+        let data_overlapping = !frontier_eq(&frontier, &self.frontier);
 
-        // This isn't read anyway.
-        // let mut end_frontier_chunk = reader.expect_chunk(Chunk::EndFrontier)?;
-        // Interestingly we can't read the end_frontier_chunk until we've parsed all the operations.
+        if data_overlapping { todo!("Overlapping data sets not implemented!"); }
+
+        let first_new_time = self.len();
 
         let mut agent_names_chunk = reader.expect_chunk(Chunk::AgentNames)?;
+
+        // Map from agent IDs in the file (idx) to agent IDs in self.
+        //
+        // This will quite often just be 0,1,2,3,4...
+        let mut file_to_self_agent_map = Vec::new();
+
         while !agent_names_chunk.0.is_empty() {
             let name = agent_names_chunk.next_str()?;
-            self.get_or_create_agent_id(name);
+            let id = self.get_or_create_agent_id(name);
+            file_to_self_agent_map.push(id);
         }
 
         let mut agent_assignment_chunk = reader.expect_chunk(Chunk::AgentAssignment)?;
 
-        let mut next_time = 0;
+        // The file we're loading has a list of operations. The list's item order is shared in a
+        // handful of lists of data - agent assignment, operations, content and txns.
+
+        let mut next_time = first_new_time;
         while let Some(run) = agent_assignment_chunk.next_run_u32()? {
             if run.val as usize >= self.client_data.len() {
                 return Err(ParseError::InvalidLength);
             }
 
+            // TODO: When I enable partial loads, this will need to filter operations.
             let span = TimeSpan { start: next_time, end: next_time + run.len };
-            self.assign_next_time_to_client(run.val, span);
+            self.assign_next_time_to_client_known(file_to_self_agent_map[run.val as usize], span);
             next_time = span.end;
         }
+
+        // We'll count the lengths in each section to make sure they all match up with each other.
+        let final_agent_assignment_len = next_time;
 
         // *** Content and Patches ***
 
@@ -329,7 +353,7 @@ impl OpLog {
 
         // let mut xx = ins_content.as_ref().map(|s| s.as_str());
 
-        let mut next_time = 0;
+        let mut next_time = first_new_time;
         for op in ReadPatchesIter::new(patches_chunk) {
             let op = op?;
             let len = op.len();
@@ -344,6 +368,9 @@ impl OpLog {
             next_time += len;
         }
 
+        let final_patches_len = next_time;
+        if final_agent_assignment_len != final_patches_len { return Err(InvalidLength); }
+
         if let Some(content) = ins_content {
             if !content.is_empty() {
                 return Err(InvalidContent);
@@ -353,7 +380,7 @@ impl OpLog {
         // *** History ***
         let mut history_chunk = reader.expect_chunk(Chunk::TimeDAG)?;
 
-        let mut next_time = 0usize;
+        let mut next_time = first_new_time;
         while !history_chunk.is_empty() {
             let len = history_chunk.next_usize()?;
             // println!("len {}", len);
@@ -369,11 +396,10 @@ impl OpLog {
                     if n == 0 {
                         ROOT_TIME
                     } else {
-                        let agent = n - 1;
+                        let agent = file_to_self_agent_map[n - 1];
                         let seq = history_chunk.next_usize()?;
-                        if let Some(c) = self.client_data.get(agent) {
-                            c.try_seq_to_time(seq)
-                                .ok_or(InvalidLength)?
+                        if let Some(c) = self.client_data.get(agent as usize) {
+                            c.try_seq_to_time(seq).ok_or(InvalidLength)?
                         } else {
                             return Err(InvalidLength);
                         }
@@ -397,9 +423,12 @@ impl OpLog {
             next_time += len;
         }
 
+        let final_history_len = next_time;
+        if final_history_len != final_patches_len { return Err(InvalidLength); }
+
         // self.frontier = end_frontier_chunk.read_full_frontier(&self)?;
 
-        Ok(())
+        Ok(self)
     }
 }
 
@@ -409,20 +438,44 @@ mod tests {
     use crate::list::{ListCRDT, OpLog};
     use super::*;
 
-    #[test]
-    fn encode_decode_smoke_test() {
+    fn simple_doc() -> ListCRDT {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");
         doc.local_insert(0, 0, "hi there");
         doc.local_delete(0, 3, 4); // 'hi e'
         doc.local_insert(0, 3, "m");
+        doc
+    }
 
+    #[test]
+    fn encode_decode_smoke_test() {
+        let doc = simple_doc();
         let data = doc.ops.encode(EncodeOptions::default());
 
         let result = OpLog::load_from(&data).unwrap();
 
         // assert_eq!(&result, &doc.ops);
         dbg!(&result);
+    }
+
+    #[test]
+    fn decode_in_parts() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("seph");
+        doc.local_insert(0, 0, "hi there");
+
+        let data_1 = doc.ops.encode(EncodeOptions::default());
+        let f1 = doc.ops.frontier.clone();
+
+        doc.local_delete(0, 3, 4); // 'hi e'
+        doc.local_insert(0, 3, "m");
+
+        let data_2 = doc.ops.encode_from(EncodeOptions::default(), &f1);
+
+        let mut d2 = OpLog::new();
+        d2 = d2.merge_data(&data_1).unwrap();
+        d2 = d2.merge_data(&data_2).unwrap();
+        // dbg!(&doc.ops, &d2);
     }
 
     #[test]

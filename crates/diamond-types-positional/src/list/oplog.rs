@@ -148,7 +148,17 @@ impl OpLog {
         self.client_with_localtime.is_empty()
     }
 
-    pub(crate) fn assign_next_time_to_client(&mut self, agent: AgentId, span: TimeSpan) {
+    // Unused for now, but it should work.
+    // #[allow(unused)]
+    // pub(crate) fn assign_next_time_to_client(&mut self, agent: AgentId, len: usize) {
+    //     let start = self.len();
+    //     self.assign_next_time_to_client_known(agent, (start..start+len).into());
+    // }
+
+    /// span is the local timespan we're assigning to the named agent.
+    pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: TimeSpan) {
+        debug_assert_eq!(span.start, self.len());
+
         let client_data = &mut self.client_data[agent as usize];
 
         let next_seq = client_data.get_next_seq();
@@ -249,6 +259,8 @@ impl OpLog {
     }
 
     pub(crate) fn push_op_internal(&mut self, next_time: Time, span: TimeSpanRev, tag: InsDelTag, content: Option<&str>) {
+        // next_time should almost always be self.len - except when loading, or modifying the data
+        // in some complex way.
         let content_pos = if let Some(c) = content {
             let storage = if tag == Ins { &mut self.ins_content } else { &mut self.del_content };
             let start = storage.len();
@@ -265,7 +277,7 @@ impl OpLog {
     }
 
     fn assign_internal(&mut self, agent: AgentId, parents: &[Time], span: TimeSpan) {
-        self.assign_next_time_to_client(agent, span);
+        self.assign_next_time_to_client_known(agent, span);
         self.insert_history(parents, span);
         self.advance_frontier(parents, span);
     }
