@@ -83,7 +83,7 @@ impl PartialEq<Self> for OpLog {
 
         // Note this should be optimized if its going to be used for more than fuzz testing.
         // But this is pretty neat!
-        for ((mut op, txn), KVPair(_, mut crdt_id)) in rle_zip(
+        for ((mut op, mut txn), KVPair(_, mut crdt_id)) in rle_zip(
             rle_zip(
                 self.iter(),
                 self.iter_history()
@@ -95,18 +95,11 @@ impl PartialEq<Self> for OpLog {
             // grabbing as much of it as we can at a time.
             loop {
                 // Look up the corresponding operation in other.
-                // let other_agent = agent_a_to_b[crdt_id.agent as usize];
-                // let other_timespan = unwrap_or_false!(
-                //     other.client_data[other_agent as usize].try_seq_to_time_span(crdt_id.seq_range)
-                // );
 
                 // This maps via agents - so I think that sort of implicitly checks out.
                 let other_time = map_time_to_other(txn.span.start);
 
                 // Lets take a look at the operation.
-                // let range_here = (txn.span.start..txn.span.start + other_timespan.len()).into();
-
-                // let KVPair(start, other_op_int) = other.operations.find_packed(range_here.start);
                 let (KVPair(_, other_op_int), offset) = other.operations.find_packed_with_offset(other_time);
                 let mut other_op = other_op_int.to_operation(other);
                 if offset > 0 { other_op.truncate_keeping_right(offset); }
@@ -123,7 +116,7 @@ impl PartialEq<Self> for OpLog {
                 let len_here = op.len();
 
                 if op != other_op {
-                    if VERBOSE { println!("Ops do not match {:?} {:?}", op, other_op); }
+                    if VERBOSE { println!("Ops do not match:\n{:?}\n{:?}", op, other_op); }
                     return false;
                 }
 
@@ -150,8 +143,9 @@ impl PartialEq<Self> for OpLog {
 
                 if let Some(rem) = remainder {
                     op = rem;
-                    crdt_id.seq_range.start += len_here;
                 } else { break; }
+                crdt_id.seq_range.start += len_here;
+                txn.truncate_keeping_right(len_here);
             }
         }
 
@@ -167,23 +161,44 @@ mod test {
     use crate::list::OpLog;
     use crate::ROOT_TIME;
 
+    fn is_eq(a: &OpLog, b: &OpLog) -> bool {
+        let a_eq_b = a.eq(b);
+        let b_eq_a = b.eq(a);
+        if a_eq_b != b_eq_a { dbg!(a_eq_b, b_eq_a); }
+        assert_eq!(a_eq_b, b_eq_a);
+        a_eq_b
+    }
+
     #[test]
     #[ignore]
     fn foo() {
         let mut a = OpLog::new();
         a.get_or_create_agent_id("seph");
         a.get_or_create_agent_id("mike");
-        a.push_insert_at(0, &[ROOT_TIME], 0, "a");
+        a.push_insert_at(0, &[ROOT_TIME], 0, "Aa");
         a.push_insert_at(1, &[ROOT_TIME], 0, "b");
-        // a.push_delete_at(0, &[0, 1], 0, 2);
+        a.push_delete_at(0, &[1, 2], 0, 2);
 
+        // Same history, different order.
         let mut b = OpLog::new();
         b.get_or_create_agent_id("mike");
         b.get_or_create_agent_id("seph");
         b.push_insert_at(0, &[ROOT_TIME], 0, "b");
-        b.push_insert_at(1, &[ROOT_TIME], 0, "a");
-        // b.push_delete_at(1, &[0, 1], 0, 2);
+        b.push_insert_at(1, &[ROOT_TIME], 0, "Aa");
+        b.push_delete_at(1, &[0, 2], 0, 2);
 
-        dbg!(a.eq(&b));
+        assert!(is_eq(&a, &b));
+
+        // And now with the edits interleaved
+        let mut c = OpLog::new();
+        c.get_or_create_agent_id("seph");
+        c.get_or_create_agent_id("mike");
+        c.push_insert_at(0, &[ROOT_TIME], 0, "A");
+        c.push_insert_at(1, &[ROOT_TIME], 0, "b");
+        c.push_insert_at(0, &[0], 1, "a");
+        c.push_delete_at(0, &[1, 2], 0, 2);
+
+        assert!(is_eq(&a, &c));
+        assert!(is_eq(&b, &c));
     }
 }
