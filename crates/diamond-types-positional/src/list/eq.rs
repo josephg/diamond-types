@@ -17,15 +17,6 @@ use crate::rle::KVPair;
 
 const VERBOSE: bool = true;
 
-// macro_rules! unwrap_or_false {
-//     ( $e:expr ) => {
-//         match $e {
-//             Some(x) => x,
-//             None => return false,
-//         }
-//     }
-// }
-
 impl PartialEq<Self> for OpLog {
     fn eq(&self, other: &Self) -> bool {
         // This implementation is based on the equivalent version in the original diamond types
@@ -170,8 +161,7 @@ mod test {
     }
 
     #[test]
-    #[ignore]
-    fn foo() {
+    fn eq_smoke_test() {
         let mut a = OpLog::new();
         a.get_or_create_agent_id("seph");
         a.get_or_create_agent_id("mike");

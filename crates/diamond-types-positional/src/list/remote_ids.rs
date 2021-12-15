@@ -4,7 +4,7 @@ use smartstring::alias::String as SmartString;
 use serde_crate::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::localtime::TimeSpan;
-use crate::{ROOT_AGENT, ROOT_TIME};
+use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::list::frontier::frontier_is_sorted;
 use crate::list::remote_ids::ConversionError::SeqInFuture;
 use crate::remotespan::CRDTId;
@@ -101,6 +101,27 @@ impl OpLog {
             .map(|time| self.time_to_remote_id(*time))
             .collect()
     }
+
+    /// Get the vector clock for this oplog.
+    ///
+    /// NOTE: This is different from the frontier:
+    /// - The vector clock contains an entry for every agent which has *ever* edited this document.
+    /// - The vector clock specifies the *next* version for each useragent, not the last
+    ///
+    /// In general the vector clock is much bigger than the frontier set. It will grow unbounded
+    /// in large documents.
+    ///
+    /// This is currently used for replication because frontiers are not always comparable. But
+    /// ideally I'd like to retire this and use something closer to Automerge's probabilistic
+    /// solution for replication instead.
+    pub fn get_vector_clock(&self) -> SmallVec<[RemoteId; 4]> {
+        self.client_data.iter().enumerate().map(|(agent, c)| {
+            self.crdt_id_to_remote(CRDTId {
+                agent: agent as AgentId,
+                seq: c.get_next_seq()
+            })
+        }).collect()
+    }
 }
 
 #[cfg(test)]
@@ -146,5 +167,16 @@ mod test {
             let expect_time = oplog.remote_id_to_time(&id);
             assert_eq!(time, expect_time);
         }
+
+        assert_eq!(oplog.get_vector_clock().as_slice(), &[
+            RemoteId {
+                agent: "seph".into(),
+                seq: 2,
+            },
+            RemoteId {
+                agent: "mike".into(),
+                seq: 4,
+            },
+        ]);
     }
 }
