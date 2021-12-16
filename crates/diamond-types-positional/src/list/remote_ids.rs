@@ -4,7 +4,7 @@ use smartstring::alias::String as SmartString;
 use serde_crate::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::localtime::TimeSpan;
-use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
+use crate::{ROOT_AGENT, ROOT_TIME};
 use crate::list::frontier::frontier_is_sorted;
 use crate::list::remote_ids::ConversionError::SeqInFuture;
 use crate::remotespan::CRDTId;
@@ -102,26 +102,106 @@ impl OpLog {
             .collect()
     }
 
-    /// Get the vector clock for this oplog.
-    ///
-    /// NOTE: This is different from the frontier:
-    /// - The vector clock contains an entry for every agent which has *ever* edited this document.
-    /// - The vector clock specifies the *next* version for each useragent, not the last
-    ///
-    /// In general the vector clock is much bigger than the frontier set. It will grow unbounded
-    /// in large documents.
-    ///
-    /// This is currently used for replication because frontiers are not always comparable. But
-    /// ideally I'd like to retire this and use something closer to Automerge's probabilistic
-    /// solution for replication instead.
-    pub fn get_vector_clock(&self) -> SmallVec<[RemoteId; 4]> {
-        self.client_data.iter().enumerate().map(|(agent, c)| {
-            self.crdt_id_to_remote(CRDTId {
-                agent: agent as AgentId,
-                seq: c.get_next_seq()
-            })
-        }).collect()
-    }
+    // /// Get the vector clock for this oplog.
+    // ///
+    // /// NOTE: This is different from the frontier:
+    // /// - The vector clock contains an entry for every agent which has *ever* edited this document.
+    // /// - The vector clock specifies the *next* version for each useragent, not the last
+    // ///
+    // /// In general the vector clock is much bigger than the frontier set. It will grow unbounded
+    // /// in large documents.
+    // ///
+    // /// This is currently used for replication because frontiers are not always comparable. But
+    // /// ideally I'd like to retire this and use something closer to Automerge's probabilistic
+    // /// solution for replication instead.
+    // pub fn get_vector_clock(&self) -> SmallVec<[RemoteId; 4]> {
+    //     self.client_data.iter().map(|c| {
+    //         RemoteId {
+    //             agent: c.name.clone(),
+    //             seq: c.get_next_seq()
+    //         }
+    //     }).collect()
+    // }
+    //
+    // /// This method returns the list of spans of orders which will bring a client up to date
+    // /// from the specified vector clock version.
+    // #[allow(unused)]
+    // pub(crate) fn time_spans_since_vector_clock<B>(&self, vector_clock: &[RemoteId]) -> B
+    //     where B: Default + AppendRle<TimeSpan>
+    // {
+    //     #[derive(Clone, Copy, Debug, Eq)]
+    //     struct OpSpan {
+    //         agent_id: usize,
+    //         next_time: Time,
+    //         idx: usize,
+    //     }
+    //
+    //     impl PartialEq for OpSpan {
+    //         fn eq(&self, other: &Self) -> bool {
+    //             self.next_time == other.next_time
+    //         }
+    //     }
+    //
+    //     impl PartialOrd for OpSpan {
+    //         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    //             self.next_time.partial_cmp(&other.next_time)
+    //         }
+    //     }
+    //
+    //     impl Ord for OpSpan {
+    //         fn cmp(&self, other: &Self) -> Ordering {
+    //             self.next_time.cmp(&other.next_time)
+    //         }
+    //     }
+    //
+    //     let mut heap = BinaryHeap::new();
+    //     // We need to go through all clients in the local document because we also need to include
+    //     // all entries for any client which *isn't* named in the vector clock.
+    //     for (agent_id, client) in self.client_data.iter().enumerate() {
+    //         let from_seq = vector_clock.iter()
+    //             .find(|rid| rid.agent == client.name)
+    //             .map_or(0, |rid| rid.seq);
+    //
+    //         let idx = client.item_orders.find_index(from_seq).unwrap_or_else(|idx| idx);
+    //         if idx < client.item_orders.0.len() {
+    //             let entry = &client.item_orders.0[idx];
+    //
+    //             heap.push(Reverse(OpSpan {
+    //                 agent_id,
+    //                 next_time: entry.1.start + from_seq.saturating_sub(entry.0),
+    //                 idx,
+    //             }));
+    //         }
+    //     }
+    //
+    //     let mut result = B::default();
+    //
+    //     while let Some(Reverse(e)) = heap.pop() {
+    //         let e = e; // Urgh intellij.
+    //         // Append a span of times from here and requeue.
+    //         let c = &self.client_data[e.agent_id];
+    //         let KVPair(_, span) = c.item_orders.0[e.idx];
+    //
+    //         let start = span.start.max(e.next_time);
+    //         result.push_rle(TimeSpan {
+    //             // Kinda gross but at least its branchless.
+    //             start,
+    //             // end: start + (span.end - e.next_time),
+    //             end: span.end,
+    //         });
+    //
+    //         // And potentially requeue this agent.
+    //         if e.idx + 1 < c.item_orders.0.len() {
+    //             heap.push(Reverse(OpSpan {
+    //                 agent_id: e.agent_id,
+    //                 next_time: c.item_orders.0[e.idx + 1].1.start,
+    //                 idx: e.idx + 1,
+    //             }));
+    //         }
+    //     }
+    //
+    //     result
+    // }
 }
 
 #[cfg(test)]
@@ -162,21 +242,50 @@ mod test {
             seq: 0
         }));
 
-        for time in 0..5 {
+        for time in 0..oplog.len() {
             let id = oplog.time_to_remote_id(time);
             let expect_time = oplog.remote_id_to_time(&id);
             assert_eq!(time, expect_time);
         }
 
-        assert_eq!(oplog.get_vector_clock().as_slice(), &[
-            RemoteId {
-                agent: "seph".into(),
-                seq: 2,
-            },
-            RemoteId {
-                agent: "mike".into(),
-                seq: 4,
-            },
-        ]);
+        // assert_eq!(oplog.get_vector_clock().as_slice(), &[
+        //     RemoteId {
+        //         agent: "seph".into(),
+        //         seq: 2,
+        //     },
+        //     RemoteId {
+        //         agent: "mike".into(),
+        //         seq: 4,
+        //     },
+        // ]);
     }
+
+    // #[test]
+    // fn test_versions_since() {
+    //     let mut oplog = OpLog::new();
+    //     oplog.get_or_create_agent_id("seph"); // 0
+    //     oplog.push_insert(0, 0, "hi");
+    //     oplog.get_or_create_agent_id("mike"); // 0
+    //     oplog.push_insert(1, 2, "yo");
+    //     oplog.push_insert(0, 4, "a");
+    //
+    //     // When passed an empty vector clock, we fetch all versions from the start.
+    //     let vs = oplog.time_spans_since_vector_clock::<Vec<_>>(&[]);
+    //     assert_eq!(vs, vec![TimeSpan { start: 0, end: 5 }]);
+    //
+    //     let vs = oplog.time_spans_since_vector_clock::<Vec<_>>(&[RemoteId {
+    //         agent: "seph".into(),
+    //         seq: 2
+    //     }]);
+    //     assert_eq!(vs, vec![TimeSpan { start: 2, end: 5 }]);
+    //
+    //     let vs = oplog.time_spans_since_vector_clock::<Vec<_>>(&[RemoteId {
+    //         agent: "seph".into(),
+    //         seq: 100
+    //     }, RemoteId {
+    //         agent: "mike".into(),
+    //         seq: 100
+    //     }]);
+    //     assert_eq!(vs, vec![]);
+    // }
 }

@@ -49,7 +49,7 @@ struct ClientData {
     ///
     /// Each entry in this list is grounded at the client's sequence number and maps to the span of
     /// local time entries.
-    item_orders: RleVec<KVPair<TimeSpan>>,
+    item_orders: RleVec<KVPair<TimeSpan>>, // TODO: Rename me!
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
