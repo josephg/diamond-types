@@ -17,18 +17,18 @@ use crate::unicount::count_chars;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> usize {
-        if let Some(last) = self.item_orders.last() {
+        if let Some(last) = self.item_times.last() {
             last.end()
         } else { 0 }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.item_orders.is_empty()
+        self.item_times.is_empty()
     }
 
     #[inline]
     pub(crate) fn try_seq_to_time(&self, seq: usize) -> Option<Time> {
-        let (entry, offset) = self.item_orders.find_with_offset(seq)?;
+        let (entry, offset) = self.item_times.find_with_offset(seq)?;
         Some(entry.1.start + offset)
     }
 
@@ -90,7 +90,7 @@ impl OpLog {
             // Create a new id.
             self.client_data.push(ClientData {
                 name: SmartString::from(name),
-                item_orders: RleVec::new()
+                item_times: RleVec::new()
             });
             (self.client_data.len() - 1) as AgentId
         }
@@ -176,7 +176,7 @@ impl OpLog {
         let client_data = &mut self.client_data[agent as usize];
 
         let next_seq = client_data.get_next_seq();
-        client_data.item_orders.push(KVPair(next_seq, span));
+        client_data.item_times.push(KVPair(next_seq, span));
 
         self.client_with_localtime.push(KVPair(span.start, CRDTSpan {
             agent,

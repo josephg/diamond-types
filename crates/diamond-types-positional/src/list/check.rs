@@ -42,7 +42,7 @@ impl OpLog {
 
     #[allow(unused)]
     pub fn check_all_changes_rle_merged(&self) {
-        assert_eq!(self.client_data[0].item_orders.len(), 1);
+        assert_eq!(self.client_data[0].item_times.len(), 1);
         // .. And operation log.
         assert_eq!(self.history.entries.len(), 1);
     }
