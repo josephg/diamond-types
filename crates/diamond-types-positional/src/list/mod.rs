@@ -49,6 +49,13 @@ struct ClientData {
     ///
     /// Each entry in this list is grounded at the client's sequence number and maps to the span of
     /// local time entries.
+    ///
+    /// A single agent ID might be used to modify multiple concurrent branches. Because of this, and
+    /// the propensity of diamond types to reorder operations for performance, the
+    /// time spans here will *almost* always (but not always) be monotonically increasing. Eg, they
+    /// might be ordered as (0, 2, 1). This will only happen when changes are concurrent. The order
+    /// of time spans must always obey the partial order of changes. But it will not necessarily
+    /// agree with the order amongst time spans.
     item_times: RleVec<KVPair<TimeSpan>>,
 }
 
