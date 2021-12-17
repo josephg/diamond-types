@@ -42,6 +42,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut scan_frontier = Vec::new();
     let mut fwd_frontier = Vec::new();
+
+    // Could wrap this stuff up in a struct or something, but its not a big deal.
     let mut commit_children = HashMap::<Oid, SmallVec<[Oid; 3]>>::new();
     let mut commit_parents = HashMap::<Oid, SmallVec<[Oid; 3]>>::new();
 
@@ -55,10 +57,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // println!("Scanning {:?}", c);
 
-        let c = repo.find_commit(c_id)?;
+        let commit = repo.find_commit(c_id)?;
 
-        commit_parents.insert(c_id, c.parents().map(|p| p.id()).collect());
-        for p in c.parents() {
+        commit_parents.insert(c_id, commit.parents().map(|p| p.id()).collect());
+        for p in commit.parents() {
             let p_id = p.id();
             // dbg!(&p_id);
             scan_frontier.push(p_id);
@@ -67,8 +69,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .push(c_id);
         }
 
-        if c.parent_count() == 0 {
-            fwd_frontier.push(c.id());
+        if commit.parent_count() == 0 {
+            fwd_frontier.push(commit.id());
         }
     }
 
