@@ -70,7 +70,10 @@ fn print_stats_for_testdata(name: &str) {
     doc.print_stats(false);
 
     // let _as_bytes = doc.ops.encode(true);
-    let _as_bytes = doc.ops.encode(EncodeOptions::default());
+    let _as_bytes = doc.ops.encode(EncodeOptions {
+        verbose: true,
+        ..Default::default()
+    });
     println!("Branch size {}", doc.len());
     // println!("---\nEncoded size {} (?? What do we include here?)", as_bytes.len());
 }

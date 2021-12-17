@@ -73,12 +73,15 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
     next_time - 1
 }
 
+// TODO: Give these methods some love, and avoid constructing Operation at all here.
 pub fn local_insert(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, ins_content: &str) -> Time {
     apply_local_operation(opset, branch, agent, &[Operation::new_insert(pos, ins_content)])
 }
-
 pub fn local_delete(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) -> Time {
     apply_local_operation(opset, branch, agent, &[Operation::new_delete(pos, del_span)])
+}
+pub fn local_delete_with_content(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) -> Time {
+    apply_local_operation(opset, branch, agent, &[branch.make_delete_op(pos, del_span)])
 }
 
 impl Default for ListCRDT {
@@ -113,6 +116,10 @@ impl ListCRDT {
 
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
         local_delete(&mut self.ops, &mut self.branch, agent, pos, del_span)
+    }
+
+    pub fn local_delete_with_content(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
+        local_delete_with_content(&mut self.ops, &mut self.branch, agent, pos, del_span)
     }
 
     pub fn print_stats(&self, detailed: bool) {

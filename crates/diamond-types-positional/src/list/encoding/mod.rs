@@ -91,7 +91,8 @@ fn push_run_u32(into: &mut Vec<u8>, run: Run<u32>) {
 // #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]
-enum Chunk {
+// enum Chunk {
+pub enum Chunk {
     FileInfo,
 
     AgentNames,

@@ -1,16 +1,17 @@
 use std::str::Utf8Error;
 use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
-use crate::list::{Frontier, OpLog};
+use crate::list::{Frontier, OpLog, switch};
 use crate::list::remote_ids::{ConversionError, RemoteId};
 use crate::list::frontier::{frontier_eq, frontier_is_sorted};
 use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::localtime::TimeSpan;
 use crate::rev_span::TimeSpanRev;
-use crate::ROOT_TIME;
+use crate::{AgentId, ROOT_TIME};
 use crate::unicount::consume_chars;
 use ParseError::*;
+use crate::remotespan::CRDTSpan;
 
 #[derive(Debug)]
 struct BufReader<'a>(&'a [u8]);
@@ -21,10 +22,10 @@ pub enum ParseError {
     InvalidChunkHeader,
     UnexpectedChunk {
         // I could use Chunk here, but I'd rather not expose them publicly.
-        // expected: Chunk,
-        // actual: Chunk,
-        expected: u32,
-        actual: u32,
+        expected: Chunk,
+        actual: Chunk,
+        // expected: u32,
+        // actual: u32,
     },
     InvalidLength,
     UnexpectedEOF,
@@ -112,6 +113,15 @@ impl<'a> BufReader<'a> {
         Ok(data)
     }
 
+    // fn peek_u32(&self) -> Result<u32, ParseError> {
+    //     self.check_not_empty()?;
+    //     Ok(decode_u32(self.0).0)
+    // }
+    //
+    // fn peek_chunk_type(&self) -> Result<Chunk, ParseError> {
+    //     Ok(Chunk::try_from(self.peek_u32()?).map_err(|_| InvalidChunkHeader)?)
+    // }
+
     fn next_chunk(&mut self) -> Result<(Chunk, BufReader<'a>), ParseError> {
         let chunk_type = Chunk::try_from(self.next_u32()?)
             .map_err(|_| InvalidChunkHeader)?;
@@ -150,18 +160,53 @@ impl<'a> BufReader<'a> {
         std::str::from_utf8(bytes).map_err(InvalidUTF8)
     }
 
-    fn next_run_u32(&mut self) -> Result<Option<Run<u32>>, ParseError> {
+    // fn next_run_u32(&mut self) -> Result<Option<Run<u32>>, ParseError> {
+    //     if self.0.is_empty() { return Ok(None); }
+    //
+    //     let n = self.next_u32()?;
+    //     let (val, has_len) = strip_bit_u32(n);
+    //
+    //     let len = if has_len {
+    //         self.next_usize()?
+    //     } else {
+    //         1
+    //     };
+    //     Ok(Some(Run { val, len }))
+    // }
+
+    fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {
+        // Agent assignments are almost always (but not always) linear. They can have gaps, and
+        // they can be reordered if the same agent ID is used to contribute to multiple branches.
+        //
+        // I'm still not sure if this is a good idea.
+
         if self.0.is_empty() { return Ok(None); }
 
-        let n = self.next_u32()?;
-        let (val, has_len) = strip_bit_u32(n);
+        let mut n = self.next_usize()?;
+        let has_jump = strip_bit_usize2(&mut n);
+        let len = self.next_usize()?;
 
-        let len = if has_len {
-            self.next_usize()?
-        } else {
-            1
-        };
-        Ok(Some(Run { val, len }))
+        let jump = if has_jump {
+            self.next_zigzag_isize()?
+        } else { 0 };
+
+        let inner_agent = n;
+        if inner_agent >= map.len() {
+            return Err(ParseError::InvalidLength);
+        }
+
+        let entry = &mut map[inner_agent];
+        let agent = entry.0;
+
+        // TODO: Error if this overflows.
+        let start = (entry.1 as isize + jump) as usize;
+        let end = start + len;
+        entry.1 = end;
+
+        Ok(Some(CRDTSpan {
+            agent,
+            seq_range: (start..end).into()
+        }))
     }
 
     fn read_full_frontier(&mut self, oplog: &OpLog) -> Result<Frontier, ParseError> {
@@ -191,6 +236,8 @@ impl<'a> BufReader<'a> {
     }
 }
 
+// I could just pass &mut last_cursor_pos to a flat read() function. Eh. Once again, generators
+// would make this way cleaner.
 #[derive(Debug)]
 struct ReadPatchesIter<'a> {
     buf: BufReader<'a>,
@@ -205,6 +252,8 @@ impl<'a> ReadPatchesIter<'a> {
         }
     }
 
+    // The actual next function. The only reason I did it like this is so I can take advantage of
+    // the ergonomics of try?.
     fn next_internal(&mut self) -> Result<OperationInternal, ParseError> {
         let mut n = self.buf.next_usize()?;
         // This is in the opposite order from write_op.
@@ -298,7 +347,7 @@ impl OpLog {
 
         let mut agent_names_chunk = reader.expect_chunk(Chunk::AgentNames)?;
 
-        // Map from agent IDs in the file (idx) to agent IDs in self.
+        // Map from agent IDs in the file (idx) to agent IDs in self, and the seq cursors.
         //
         // This will quite often just be 0,1,2,3,4...
         let mut file_to_self_agent_map = Vec::new();
@@ -306,7 +355,7 @@ impl OpLog {
         while !agent_names_chunk.0.is_empty() {
             let name = agent_names_chunk.next_str()?;
             let id = self.get_or_create_agent_id(name);
-            file_to_self_agent_map.push(id);
+            file_to_self_agent_map.push((id, 0));
         }
 
         let mut agent_assignment_chunk = reader.expect_chunk(Chunk::AgentAssignment)?;
@@ -315,15 +364,17 @@ impl OpLog {
         // handful of lists of data - agent assignment, operations, content and txns.
 
         let mut next_time = first_new_time;
-        while let Some(run) = agent_assignment_chunk.next_run_u32()? {
-            if run.val as usize >= self.client_data.len() {
+        while let Some(crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut file_to_self_agent_map)? {
+            // dbg!(crdt_span);
+            if crdt_span.agent as usize >= self.client_data.len() {
                 return Err(ParseError::InvalidLength);
             }
 
             // TODO: When I enable partial loads, this will need to filter operations.
-            let span = TimeSpan { start: next_time, end: next_time + run.len };
-            self.assign_next_time_to_client_known(file_to_self_agent_map[run.val as usize], span);
-            next_time = span.end;
+            // let span = TimeSpan { start: next_time, end: next_time + crdt_span.len };
+            self.assign_next_time_to_crdt_span(next_time, crdt_span);
+            // next_time = span.end;
+            next_time += crdt_span.len();
         }
 
         // We'll count the lengths in each section to make sure they all match up with each other.
@@ -334,37 +385,43 @@ impl OpLog {
         // Here there's a few options based on how the encoder was configured. We'll either
         // get a Content chunk followed by PositionalPatches or just PositionalPatches.
 
-        let next_chunk = reader.next_chunk()?;
-        let (mut ins_content, patches_chunk) = if next_chunk.0 == Chunk::InsertedContent {
-            let content_chunk = next_chunk.1;
-            let patches_chunk = reader.expect_chunk(Chunk::PositionalPatches)?;
+        let mut ins_content = None;
+        let mut del_content = None;
 
-            // let decompressed_len = content_chunk.next_usize()?;
-            // let decompressed_data = lz4_flex::decompress(content_chunk.0, decompressed_len).unwrap();
-            // let content = String::from_utf8(decompressed_data).unwrap();
-            //     // .map_err(InvalidUTF8)?;
-
-            let content = std::str::from_utf8(content_chunk.0)
-                .map_err(InvalidUTF8)?;
-            (Some(content), patches_chunk)
-        } else {
-            (None, next_chunk.1)
+        let patches_chunk = loop {
+            let (chunk_type, chunk) = reader.next_chunk()?;
+            match chunk_type {
+                Chunk::InsertedContent => {
+                    ins_content = Some(std::str::from_utf8(chunk.0)
+                        .map_err(InvalidUTF8)?);
+                    // let decompressed_len = content_chunk.next_usize()?;
+                    // let decompressed_data = lz4_flex::decompress(content_chunk.0, decompressed_len).unwrap();
+                    // let content = String::from_utf8(decompressed_data).unwrap();
+                    //     // .map_err(InvalidUTF8)?;
+                }
+                Chunk::DeletedContent => {
+                    del_content = Some(std::str::from_utf8(chunk.0)
+                        .map_err(InvalidUTF8)?);
+                }
+                Chunk::PositionalPatches => {
+                    break chunk;
+                }
+                _ => { panic!("Unexpected chunk {}", chunk_type as u32); }
+            }
         };
-
-        // let mut xx = ins_content.as_ref().map(|s| s.as_str());
 
         let mut next_time = first_new_time;
         for op in ReadPatchesIter::new(patches_chunk) {
             let op = op?;
             let len = op.len();
-            let content = if op.tag == Ins {
-                // TODO: Check this split point is valid.
-                // xx.as_mut().map(|content| consume_chars(content, len))
-                ins_content.as_mut().map(|content| consume_chars(content, len))
-            } else { None };
+            let content = switch(op.tag, &mut ins_content, &mut del_content);
+
+            // TODO: Check this split point is valid.
+            let content_here = content.as_mut()
+                .map(|content| consume_chars(content, len));
 
             // self.operations.push(KVPair(next_time, op));
-            self.push_op_internal(next_time, op.span, op.tag, content);
+            self.push_op_internal(next_time, op.span, op.tag, content_here);
             next_time += len;
         }
 
@@ -396,7 +453,7 @@ impl OpLog {
                     if n == 0 {
                         ROOT_TIME
                     } else {
-                        let agent = file_to_self_agent_map[n - 1];
+                        let agent = file_to_self_agent_map[n - 1].0;
                         let seq = history_chunk.next_usize()?;
                         if let Some(c) = self.client_data.get(agent as usize) {
                             c.try_seq_to_time(seq).ok_or(InvalidLength)?
@@ -449,6 +506,20 @@ mod tests {
         doc
     }
 
+    fn check_encode_decode_matches(oplog: &OpLog) {
+        let data = oplog.encode(EncodeOptions {
+            store_inserted_content: true,
+            store_deleted_content: true,
+            verbose: false
+        });
+
+        let oplog2 = OpLog::load_from(&data).unwrap();
+
+        dbg!(oplog, &oplog2);
+
+        assert_eq!(oplog, &oplog2);
+    }
+
     #[test]
     fn encode_decode_smoke_test() {
         let doc = simple_doc();
@@ -456,8 +527,8 @@ mod tests {
 
         let result = OpLog::load_from(&data).unwrap();
 
-        // assert_eq!(&result, &doc.ops);
-        dbg!(&result);
+        assert_eq!(&result, &doc.ops);
+        // dbg!(&result);
     }
 
     #[test]
@@ -479,6 +550,42 @@ mod tests {
         d2 = d2.merge_data(&data_1).unwrap();
         d2 = d2.merge_data(&data_2).unwrap();
         dbg!(&doc.ops, &d2);
+    }
+
+    #[test]
+    fn with_deleted_content() {
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("seph");
+        doc.local_insert(0, 0, "abcd");
+        doc.local_delete_with_content(0, 1, 2); // delete "bc"
+
+        check_encode_decode_matches(&doc.ops);
+    }
+
+    #[test]
+    fn encode_reordered() {
+        let mut oplog = OpLog::new();
+        oplog.get_or_create_agent_id("seph");
+        oplog.get_or_create_agent_id("mike");
+        let a = oplog.push_insert_at(0, &[ROOT_TIME], 0, "a");
+        oplog.push_insert_at(1, &[ROOT_TIME], 0, "b");
+        oplog.push_insert_at(0, &[a], 1, "c");
+
+        // dbg!(&oplog);
+        check_encode_decode_matches(&oplog);
+    }
+
+    #[test]
+    fn encode_with_agent_shared_between_branches() {
+        // Same as above, but only one agent ID.
+        let mut oplog = OpLog::new();
+        oplog.get_or_create_agent_id("seph");
+        let a = oplog.push_insert_at(0, &[ROOT_TIME], 0, "a");
+        oplog.push_insert_at(0, &[ROOT_TIME], 0, "b");
+        oplog.push_insert_at(0, &[a], 1, "c");
+
+        // dbg!(&oplog);
+        check_encode_decode_matches(&oplog);
     }
 
     #[test]

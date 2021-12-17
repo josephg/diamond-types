@@ -203,7 +203,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     std::fs::write("data.dt", data.as_slice()).unwrap();
     println!("{} bytes written to 'data.dt'", data.len());
 
-    let data_old = oplog.encode_old(EncodeOptions::default());
+    let data_old = oplog.encode_simple(EncodeOptions::default());
     println!("(vs {} bytes)", data_old.len());
 
     // oplog.make_time_dag_graph("makefile.svg");

@@ -9,30 +9,7 @@ use crate::{AgentId, ROOT_TIME};
 use crate::list::internal_op::OperationInternal;
 use crate::localtime::TimeSpan;
 
-
-// #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-// pub struct EditRun {
-//     cursor_diff: isize, // Cursor movement from previous item
-//     len: usize,
-//     tag: InsDelTag,
-//     reversed: bool,
-//     has_content: bool,
-// }
-//
-// impl HasLength for EditRun {
-//     fn len(&self) -> usize { self.len }
-// }
-//
-// impl MergableSpan for EditRun {
-//     fn can_append(&self, other: &Self) -> bool {
-//         self.tag == other.tag && self.has_content == other.has_content
-//     }
-//
-//     fn append(&mut self, other: Self) {
-//         todo!()
-//     }
-// }
-
+/// Write an operation to the passed writer.
 fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
     // Note I'm relying on the operation log itself to be iter_merged, which simplifies things here
     // greatly.
@@ -147,9 +124,60 @@ impl Default for EncodeOptions {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+struct AgentAssignmentRun {
+    agent: AgentId,
+    delta: isize,
+    len: usize,
+}
+
+impl MergableSpan for AgentAssignmentRun {
+    fn can_append(&self, other: &Self) -> bool {
+        self.agent == other.agent && other.delta == 0
+    }
+
+    fn append(&mut self, other: Self) {
+        self.len += other.len;
+    }
+}
+
+impl HasLength for AgentAssignmentRun {
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+fn write_assignment_run(dest: &mut Vec<u8>, run: AgentAssignmentRun) {
+    // Its rare, but possible for the agent assignment sequence to jump around a little.
+    // This can happen when:
+    // - The sequence numbers are shared with other documents, and hence the seqs are sparse
+    // - Or the same agent made concurrent changes to multiple branches. The operations may
+    //   be reordered to any order which obeys the time dag's partial order.
+    let mut buf = [0u8; 25];
+    let mut pos = 0;
+
+    // I tried adding an extra bit field to mark len != 1 - so we can skip encoding the
+    // length. But in all the data sets I've looked at, len is so rarely 1 that it increased
+    // filesize.
+    let has_jump = run.delta != 0;
+
+    // dbg!(run);
+    let n = mix_bit_u32(run.agent, has_jump);
+    pos += encode_u32(n, &mut buf);
+    pos += encode_usize(run.len, &mut buf[pos..]);
+
+    if has_jump {
+        pos += encode_i64(run.delta as i64, &mut buf[pos..]);
+    }
+
+    dest.extend_from_slice(&buf[..pos]);
+}
+
 #[derive(Debug, Clone)]
 struct AgentMapping {
-    map: Vec<Option<AgentId>>,
+    /// Map from oplog's agent ID to the agent id in the file. Paired with the last assigned agent
+    /// ID, to support agent IDs bouncing around.
+    map: Vec<Option<(AgentId, usize)>>,
     next_mapped_agent: AgentId,
     output: Vec<u8>,
 }
@@ -168,14 +196,21 @@ impl AgentMapping {
 
     fn map(&mut self, oplog: &OpLog, agent: AgentId) -> AgentId {
         let agent = agent as usize;
-        self.map[agent].unwrap_or_else(|| {
+        self.map[agent].map_or_else(|| {
             let mapped = self.next_mapped_agent;
-            self.map[agent] = Some(mapped);
+            self.map[agent] = Some((mapped, 0));
             push_str(&mut self.output, oplog.client_data[agent].name.as_str());
             // println!("Mapped agent {} -> {}", oplog.client_data[agent].name, mapped);
             self.next_mapped_agent += 1;
             mapped
-        })
+        }, |v| v.0)
+    }
+
+    fn seq_delta(&mut self, agent: AgentId, span: TimeSpan) -> isize {
+        let item = self.map[agent as usize].as_mut().unwrap();
+        let old_seq = item.1;
+        item.1 = span.end;
+        (span.start as isize) - (old_seq as isize)
     }
 }
 
@@ -253,8 +288,8 @@ impl OpLog {
 
         // let mut agent_assignment_chunk = SpanWriter::new(push_run_u32);
         let mut agent_assignment_chunk = Vec::new();
-        let mut agent_assignment_writer = Merger::new(|run, _| {
-            push_run_u32(&mut agent_assignment_chunk, run);
+        let mut agent_assignment_writer = Merger::new(|run: AgentAssignmentRun, _| {
+            write_assignment_run(&mut agent_assignment_chunk, run);
         });
 
         let mut ops_chunk = Vec::new();
@@ -341,11 +376,14 @@ impl OpLog {
             for span in self.client_with_localtime.iter_range_packed(walk.consume) {
                 // Mark the agent as in-use (if we haven't already)
                 let mapped_agent = agent_mapping.map(self, span.1.agent);
-                // dbg!(&span, mapped_agent);
+
+                // dbg!(&span);
 
                 // agent_assignment is a list of (agent, len) pairs.
-                agent_assignment_writer.push(Run {
-                    val: mapped_agent,
+                // dbg!(span);
+                agent_assignment_writer.push(AgentAssignmentRun {
+                    agent: mapped_agent,
+                    delta: agent_mapping.seq_delta(span.1.agent, span.1.seq_range),
                     len: span.len()
                 });
             }
@@ -416,7 +454,7 @@ impl OpLog {
 
     /// Encode the data stored in the OpLog into a (custom) compact binary form suitable for saving
     /// to disk, or sending over the network.
-    pub fn encode_old(&self, opts: EncodeOptions) -> Vec<u8> {
+    pub fn encode_simple(&self, opts: EncodeOptions) -> Vec<u8> {
         let mut result = Vec::new();
         // The file starts with MAGIC_BYTES
         result.extend_from_slice(&MAGIC_BYTES_SMALL);
@@ -584,7 +622,7 @@ mod tests {
         doc.get_or_create_agent_id("seph");
         doc.local_insert(0, 0, "hi there");
 
-        let d1 = doc.ops.encode_old(EncodeOptions::default());
+        let d1 = doc.ops.encode_simple(EncodeOptions::default());
         let d2 = doc.ops.encode(EncodeOptions::default());
         assert_eq!(d1, d2);
         // let data = doc.ops.encode_old(EncodeOptions::default());

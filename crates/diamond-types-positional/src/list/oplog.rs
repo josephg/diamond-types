@@ -169,6 +169,29 @@ impl OpLog {
     //     self.assign_next_time_to_client_known(agent, (start..start+len).into());
     // }
 
+    // This is a modified version of assign_next_time_to_client_known to support arbitrary CRDTSpans
+    // loaded from remote peers / files.
+    pub(crate) fn assign_next_time_to_crdt_span(&mut self, start: Time, span: CRDTSpan) {
+        debug_assert_eq!(start, self.len());
+
+        let CRDTSpan { agent, seq_range } = span;
+        let client_data = &mut self.client_data[agent as usize];
+
+        let next_seq = client_data.get_next_seq();
+        let timespan = (start..start + span.len()).into();
+
+        // Could just optimize .insert() to efficiently handle both of these cases.
+        if next_seq <= seq_range.start {
+            // 99.9% of the time we'll hit this case. Its really rare for seq numbers to go
+            // backwards.
+            client_data.item_times.push(KVPair(seq_range.start, timespan));
+        } else {
+            client_data.item_times.insert(KVPair(seq_range.start, timespan));
+        }
+
+        self.client_with_localtime.push(KVPair(start, span));
+    }
+
     /// span is the local timespan we're assigning to the named agent.
     pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: TimeSpan) {
         debug_assert_eq!(span.start, self.len());
