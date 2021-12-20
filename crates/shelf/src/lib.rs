@@ -1,16 +1,7 @@
 //! A shelf is a value tagged with a version. You can think of them as a tuple in the form `(VALUE, VERSION)`.
-//!
-//! The rules for merging two shelves `(A, A#)` and `(B, B#)` are as follows:
-//!
-//! 1. If `A#` is greater than `B#`, return `(A, A#)`.
-//! 2. If `B#` is greater than `A#`, return `(B, B#)`.
-//! 3. If `A` and `B` are both objects, recursively merge all keys, return `(X, B#)`
-//! 4. Otherwise, pick `(B, B#)`.
 
-use std::hash::{Hash, Hasher};
 use std::{cmp::Ordering, collections::BTreeMap};
 
-use fxhash::hash32;
 use serde::{Deserialize, Serialize};
 
 pub type ItemMap<T> = BTreeMap<String, Shelf<T>>;
@@ -33,43 +24,18 @@ pub type ItemMap<T> = BTreeMap<String, Shelf<T>>;
 /// map.insert("b".into(), 43.into());
 /// let item: Item<usize> = map.into();
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Item<T>
 where
-    T: Hash,
+    T: PartialOrd,
 {
     Value(T),
     Map(ItemMap<T>),
 }
 
-impl<T> PartialEq for Item<T>
-where
-    T: Hash,
-{
-    fn eq(&self, other: &Self) -> bool {
-        // Relies on hashing, rather than PartialEq, so that PartialEq does not need to be implemented for T.
-        hash32(self) == hash32(other)
-    }
-}
-
-impl<T> Hash for Item<T>
-where
-    T: Hash,
-{
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        // WARNING: Changing order of fields will change order of hashes used to merge shelves.
-        //          Therefore, it must be considered a breaking change.
-        core::mem::discriminant(self).hash(state);
-        match self {
-            Item::Map(map) => map.hash(state),
-            Item::Value(v) => v.hash(state),
-        };
-    }
-}
-
 impl<T> From<T> for Item<T>
 where
-    T: Hash,
+    T: PartialOrd,
 {
     /// Creates a new shelf with a version of 0
     fn from(value: T) -> Self {
@@ -79,7 +45,7 @@ where
 
 impl<T> From<ItemMap<T>> for Item<T>
 where
-    T: Hash,
+    T: PartialOrd,
 {
     /// Creates a new shelf with a version of 0
     fn from(value: ItemMap<T>) -> Self {
@@ -94,8 +60,11 @@ where
 ///
 /// 1. If `A#` is greater than `B#`, return `(A, A#)`.
 /// 2. If `B#` is greater than `A#`, return `(B, B#)`.
-/// 3. If `A` and `B` are both objects, recursively merge all keys, return `(X, B#)`
-/// 4. Otherwise, pick `(B, B#)`.
+/// 3. If `A` and `B` are both maps, recursively merge all keys, return `(X, A#)`
+/// 4. If `A` is a map, return `(A, A#)`
+/// 5. If `B` is a map, return `(B, B#)`
+/// 4. If an `A` and `B` have an order to them, such as a lexicographical ordering for strings, return `(A, A#)` if it is larger than or equal to B, else `(B, B#)`
+/// 5. Otherwise, return `(A, A#)`
 ///
 /// # Examples
 /// ```
@@ -110,10 +79,10 @@ where
 /// assert_eq!(merged, Shelf::new(43.into(), 1));
 /// ```
 ///
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Shelf<T>
 where
-    T: Hash,
+    T: PartialOrd,
 {
     value: Item<T>,
     version: usize,
@@ -121,7 +90,7 @@ where
 
 impl<T> Shelf<T>
 where
-    T: Hash,
+    T: PartialOrd,
 {
     /// Creates a new shelf with a specified version
     pub fn new(value: Item<T>, version: usize) -> Self {
@@ -137,19 +106,16 @@ where
     /// Recursively merges this shelf with another.
     ///
     /// Both the shelves are consumed in this operation, to avoid allocation.
-    /// The rules for merging two shelves – `(A, A#)` and `(B, B#)` are as follows:
-    ///
-    /// 1. If `A#` is greater than `B#`, return `(A, A#)`.
-    /// 2. If `B#` is greater than `A#`, return `(B, B#)`.
-    /// 3. If `A` and `B` are both objects, recursively merge all keys, return `(X, B#)`
-    /// 4. Otherwise, pick `(B, B#)`.
+    /// Under some circumstances, the merging algorithm will try to order the values of the shelves.
+    /// If the partial ordering function for T returns `None`, a non-deterministic merge will occur.
+    /// For this reason, care should be taken when storing floats in shelves, as they can return `None` when compared.
     pub fn merge(mut self, other: Shelf<T>) -> Shelf<T> {
         match self.version.cmp(&other.version) {
             // If A# > B#, pick A
             Ordering::Greater => self,
             // If A# < B#, pick B
             Ordering::Less => other,
-            // If A# == B#, try to recursively merge
+            // If A# == B#, try to resolve conflict
             Ordering::Equal => {
                 if let Item::Map(map_a) = &mut self.value {
                     if let Item::Map(map_b) = other.value {
@@ -162,50 +128,48 @@ where
                                 map_a.insert(key, value_b);
                             }
                         }
-                        return self;
+                    }
+                    // If B is a map, it has been recusively merged.
+                    // If B is a value, it is discarded as the map in A takes precedence.
+                    return self;
+                } else if let Item::Map(_) = &other.value {
+                    // A is not a map, but B is a map.
+                    // A discarded as the map in B takes precedence.
+                    return other;
+                }
+
+                // Fallback case: A and B are both values.
+                // These if statements should never not be true
+                if let Item::Value(lhs) = &self.value {
+                    if let Item::Value(rhs) = &other.value {
+                        return match lhs.partial_cmp(rhs) {
+                            // Return B if A < B
+                            Some(Ordering::Less) => other,
+                            // Return A if A > B
+                            // Return A if A = B
+                            // Return A if, for some reason, they can't be compared. This is non-deterministic, as it depends upon the order in which the shelves were passed to this function.
+                            _ => self,
+                        };
                     }
                 }
 
-                // Fallback case: hash the shelves to generate a predictable result, regardless of the order in which they are passed to the function.
-                // The hash algorithm must be consistent across architectures and platforms, as the tie between shelves must always be broken with the same result.
-                // That is why the DefaultHasher supplied by Rust is not used – the algorithm is not defined and can vary across versions.
-                let self_hash = hash32(&self.value);
-                let other_hash = hash32(&other.value);
-
-                if self_hash > other_hash {
-                    self
-                } else {
-                    other
-                }
+                // There are four possible combinations of values for A and B
+                // A B
+                // M M -> recursively merged, above
+                // M V -> A wins, above
+                // V M -> B wins, above
+                // V V -> deterministic ordering, above
+                //
+                // Therefore, there are no scenarios in which we should arrive at this part of the function.
+                unreachable!();
             }
         }
     }
 }
 
-impl<T> Hash for Shelf<T>
-where
-    T: Hash,
-{
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        // WARNING: Changing order of fields will change order of hashes used to merge shelves.
-        //          Therefore, it must be considered a breaking change.
-        self.value.hash(state);
-        self.version.hash(state);
-    }
-}
-
-impl<T> PartialEq for Shelf<T>
-where
-    T: Hash,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.value == other.value && self.version == other.version
-    }
-}
-
 impl<T> From<T> for Shelf<T>
 where
-    T: Hash,
+    T: PartialOrd,
 {
     /// Creates a new shelf with a version of 0
     fn from(value: T) -> Self {
@@ -215,7 +179,7 @@ where
 
 impl<T> From<ItemMap<T>> for Shelf<T>
 where
-    T: Hash,
+    T: PartialOrd,
 {
     /// Creates a new shelf with a version of 0
     fn from(value: ItemMap<T>) -> Self {
@@ -244,9 +208,7 @@ mod tests {
         // When A# == B#, merging returns a deterministic result
         assert_eq!(a.clone().merge(b.clone()), b);
         // When B# == A#, merging returns a deterministic result
-        assert_eq!(b.clone().merge(a.clone()), b);
-        // B wins because the hash of it's item is greater
-        assert!(hash32(&b.value) > hash32(&a.value));
+        assert_eq!(b.clone().merge(a), b);
     }
 
     #[test]
@@ -281,16 +243,5 @@ mod tests {
 
         let actual_shelf = a_shelf.merge(b_shelf);
         assert_eq!(actual_shelf, expected_shelf);
-    }
-
-    #[test]
-    #[allow(clippy::eq_op)]
-    fn equality() {
-        let a: Shelf<usize> = 42.into();
-        let b: Shelf<usize> = Shelf::new(43.into(), 1);
-        assert_ne!(a, b);
-        assert_ne!(b, a);
-        assert_eq!(a, a);
-        assert_eq!(b, b);
     }
 }
