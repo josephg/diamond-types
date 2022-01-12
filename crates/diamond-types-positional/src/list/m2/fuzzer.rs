@@ -92,6 +92,7 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             let idx = rng.gen_range(0..branches.len());
             let branch = &mut branches[idx];
 
+            // This should + does also work if we set idx=0 and use the same agent for all changes.
             let v = make_random_change_raw(&mut opset, branch, None, idx as AgentId, &mut rng);
             // dbg!(opset.iter_range((v..v+1).into()).next().unwrap());
 

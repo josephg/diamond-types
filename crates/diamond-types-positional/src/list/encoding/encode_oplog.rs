@@ -108,7 +108,6 @@ pub struct EncodeOptions {
 
     pub store_inserted_content: bool,
 
-    // NYI.
     pub store_deleted_content: bool,
 
     pub verbose: bool,
