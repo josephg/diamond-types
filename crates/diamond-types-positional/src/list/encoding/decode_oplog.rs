@@ -35,6 +35,8 @@ pub enum ParseError {
     InvalidRemoteID(ConversionError),
     InvalidContent,
 
+    ChecksumFailed,
+
     /// This error is interesting. We're loading a chunk but missing some of the data. In the future
     /// I'd like to explicitly support this case, and allow the oplog to contain a somewhat- sparse
     /// set of data, and load more as needed.
@@ -89,6 +91,13 @@ impl<'a> BufReader<'a> {
         self.check_not_empty()?;
         let (val, count) = decode_u32(self.0);
         self.consume(count);
+        Ok(val)
+    }
+
+    fn next_u32_le(&mut self) -> Result<u32, ParseError> {
+        // self.check_has_bytes(size_of::<u32>())?;
+        let val = u32::from_le_bytes(self.0[0..4].try_into().map_err(|_| UnexpectedEOF)?);
+        self.consume(size_of::<u32>());
         Ok(val)
     }
 
@@ -543,11 +552,20 @@ impl OpLog {
         let final_history_len = next_time;
         if final_history_len != final_patches_len { return Err(InvalidLength); }
 
+        // TODO: Move checksum check to the start, so if it fails we don't modify the document.
+        let reader_len = reader.0.len();
+        if let Some(mut crc_reader) = reader.read_chunk(Chunk::CRC)? {
+            // So this is a bit dirty. The bytes which have been checksummed is everything up to
+            // (but NOT INCLUDING) the CRC chunk. I could adapt BufReader to store the offset /
+            // length. But we can just subtract off the remaining length from the original data??
+            // O_o
+            let expected_crc = crc_reader.next_u32_le()?;
+            let checksummed_data = &data[..data.len() - reader_len];
 
-        if let Some(checksum) = reader.read_chunk(Chunk::CRC)? {
-
-        } else {
-            println!("NO CHECKSUMMM");
+            // TODO: Add flag to ignore invalid checksum.
+            if checksum(checksummed_data) != expected_crc {
+                return Err(ChecksumFailed);
+            }
         }
 
         // self.frontier = end_frontier_chunk.read_full_frontier(&self)?;
