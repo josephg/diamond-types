@@ -18,7 +18,8 @@ use crate::list::encoding::varint::*;
 use num_enum::TryFromPrimitive;
 pub use encode_oplog::EncodeOptions;
 
-const MAGIC_BYTES_SMALL: [u8; 8] = *b"DIAMONDp";
+const MAGIC_BYTES: [u8; 8] = *b"DMNDTYPS";
+const PROTOCOL_VERSION: usize = 0;
 
 fn push_u32(into: &mut Vec<u8>, val: u32) {
     let mut buf = [0u8; 5];
@@ -48,6 +49,17 @@ fn push_str(into: &mut Vec<u8>, val: &str) {
     into.extend_from_slice(bytes);
 }
 
+fn push_u32_le(into: &mut Vec<u8>, val: u32) {
+    // This is used for the checksum. Using LE because varint is LE.
+    let bytes = val.to_le_bytes();
+    into.extend_from_slice(&bytes);
+}
+
+fn checksum(data: &[u8]) -> u32 {
+    // This is crc32c. Using the crc library because the resulting binary size is much smaller.
+    // let checksum = crc32c::crc32c(&result);
+    crc::Crc::<u32>::new(&crc::CRC_32_ISCSI).checksum(data)
+}
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 struct Run<V: Clone + PartialEq + Eq> {
@@ -74,19 +86,20 @@ impl<V: Clone + PartialEq + Eq> MergableSpan for Run<V> {
     fn prepend(&mut self, other: Self) { self.len += other.len; }
 }
 
-fn push_run_u32(into: &mut Vec<u8>, run: Run<u32>) {
-    let mut dest = [0u8; 15];
-    let mut pos = 0;
-    let send_length = run.len != 1;
-    let n = mix_bit_u32(run.val, send_length);
-    pos += encode_u32(n, &mut dest[..]);
-    // pos += encode_u32_with_extra_bit(run.val, run.len != 1, &mut dest[..]);
-    if send_length {
-        pos += encode_usize(run.len, &mut dest[pos..]);
-    }
-
-    into.extend_from_slice(&dest[..pos]);
-}
+// Works, but unused.
+// fn push_run_u32(into: &mut Vec<u8>, run: Run<u32>) {
+//     let mut dest = [0u8; 15];
+//     let mut pos = 0;
+//     let send_length = run.len != 1;
+//     let n = mix_bit_u32(run.val, send_length);
+//     pos += encode_u32(n, &mut dest[..]);
+//     // pos += encode_u32_with_extra_bit(run.val, run.len != 1, &mut dest[..]);
+//     if send_length {
+//         pos += encode_usize(run.len, &mut dest[pos..]);
+//     }
+//
+//     into.extend_from_slice(&dest[..pos]);
+// }
 
 // #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
@@ -94,20 +107,21 @@ fn push_run_u32(into: &mut Vec<u8>, run: Run<u32>) {
 // enum Chunk {
 pub enum Chunk {
     FileInfo,
-
+    UserData,
     AgentNames,
+
+    StartBranch,
+    Frontier,
+    Content,
+
+    Patches,
     AgentAssignment,
     PositionalPatches,
     TimeDAG,
-
-    StartFrontier,
-    EndFrontier,
-
-
     InsertedContent,
     DeletedContent,
-    BranchContent,
 
+    CRC,
 
     // Content = 2,
     //
@@ -121,6 +135,15 @@ pub enum Chunk {
     // DelData = 8,
     //
     // Patches = 11,
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
+#[repr(u32)]
+pub enum DataType {
+    Bool,
+    PlainText,
+    VarUInt,
+    VarInt,
 }
 
 fn push_chunk_header(into: &mut Vec<u8>, chunk_type: Chunk, len: usize) {

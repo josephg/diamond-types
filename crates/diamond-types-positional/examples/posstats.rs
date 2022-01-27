@@ -79,14 +79,16 @@ fn print_stats_for_testdata(name: &str) {
 
     let out_file = format!("{}.dt", name);
     let data = doc.ops.encode(EncodeOptions {
+        user_data: None,
         store_inserted_content: true,
-        store_deleted_content: true,
+        store_deleted_content: false,
         verbose: true
     });
     std::fs::write(out_file.clone(), data.as_slice()).unwrap();
     println!("Saved to {}", out_file);
 }
 
+#[allow(unused)]
 fn print_stats_for_file(name: &str) {
     let contents = std::fs::read(name).unwrap();
     println!("\n\nLoaded testing data from {} ({} bytes)", name, contents.len());
@@ -113,7 +115,7 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    print_stats_for_file("node_nodecc.dt");
+    // print_stats_for_file("node_nodecc.dt");
     print_stats_for_testdata("automerge-paper");
     print_stats_for_testdata("rustcode");
     print_stats_for_testdata("sveltecomponent");

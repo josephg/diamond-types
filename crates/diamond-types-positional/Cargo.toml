@@ -20,6 +20,10 @@ humansize = "1.1"
 #bitvec = "0.22.3"
 num_enum = "0.5"
 
+# crc32c might be faster, but it adds 10kb to the wasm bundle size. crc only adds 1kb.
+#crc32c = "0.6"
+crc = "2"
+
 #lz4_flex = "0.9.2"
 
 [dev-dependencies]

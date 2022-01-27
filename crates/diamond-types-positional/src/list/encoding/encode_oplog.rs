@@ -1,11 +1,11 @@
+use jumprope::JumpRope;
 use rle::HasLength;
 use crate::list::encoding::*;
 use crate::list::history::MinimalHistoryEntry;
 use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::list::{OpLog, Time};
-use crate::list::frontier::frontier_is_root;
+use crate::list::{Branch, OpLog, Time};
 use crate::rle::{KVPair, RleVec};
-use crate::{AgentId, ROOT_TIME};
+use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::list::internal_op::OperationInternal;
 use crate::localtime::TimeSpan;
 
@@ -79,30 +79,11 @@ fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
     dest.extend_from_slice(&buf[..pos]);
 }
 
-// We need to name the full branch in the output in a few different settings.
-//
-// TODO: Should this store strings or IDs?
-fn write_full_frontier(oplog: &OpLog, dest: &mut Vec<u8>, frontier: &[Time]) {
-    if frontier_is_root(frontier) {
-        // The root is written as a single item.
-        push_str(dest, "ROOT");
-        push_usize(dest, 0);
-    } else {
-        let mut iter = frontier.iter().peekable();
-        while let Some(t) = iter.next() {
-            let has_more = iter.peek().is_some();
-            let id = oplog.time_to_crdt_id(*t);
-
-            push_str(dest, oplog.client_data[id.agent as usize].name.as_str());
-
-            let n = mix_bit_usize(id.seq, has_more);
-            push_usize(dest, n);
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
-pub struct EncodeOptions {
+pub struct EncodeOptions<'a> {
+    pub user_data: Option<&'a [u8]>,
+
     // NYI.
     // pub from_frontier: Frontier,
 
@@ -113,9 +94,10 @@ pub struct EncodeOptions {
     pub verbose: bool,
 }
 
-impl Default for EncodeOptions {
+impl<'a> Default for EncodeOptions<'a> {
     fn default() -> Self {
         Self {
+            user_data: None,
             store_inserted_content: true,
             store_deleted_content: false,
             verbose: false
@@ -186,7 +168,7 @@ impl AgentMapping {
         let client_len = oplog.client_data.len();
         let mut result = Self {
             map: Vec::with_capacity(client_len),
-            next_mapped_agent: 0,
+            next_mapped_agent: 1, // 0 is implicitly assigned to ROOT.
             output: Vec::new()
         };
         result.map.resize(client_len, None);
@@ -194,7 +176,10 @@ impl AgentMapping {
     }
 
     fn map(&mut self, oplog: &OpLog, agent: AgentId) -> AgentId {
+        // 0 is implicitly ROOT.
+        if agent == ROOT_AGENT { return 0; }
         let agent = agent as usize;
+
         self.map[agent].map_or_else(|| {
             let mapped = self.next_mapped_agent;
             self.map[agent] = Some((mapped, 0));
@@ -211,44 +196,105 @@ impl AgentMapping {
         item.1 = span.end;
         (span.start as isize) - (old_seq as isize)
     }
+
+    fn consume(self) -> Vec<u8> {
+        self.output
+    }
+}
+
+// // We need to name the full branch in the output in a few different settings.
+// //
+// // TODO: Should this store strings or IDs?
+// fn write_full_frontier(oplog: &OpLog, dest: &mut Vec<u8>, frontier: &[Time]) {
+//     if frontier_is_root(frontier) {
+//         // The root is written as a single item.
+//         push_str(dest, "ROOT");
+//         push_usize(dest, 0);
+//     } else {
+//         let mut iter = frontier.iter().peekable();
+//         while let Some(t) = iter.next() {
+//             let has_more = iter.peek().is_some();
+//             let id = oplog.time_to_crdt_id(*t);
+//
+//             push_str(dest, oplog.client_data[id.agent as usize].name.as_str());
+//
+//             let n = mix_bit_usize(id.seq, has_more);
+//             push_usize(dest, n);
+//         }
+//     }
+// }
+
+impl Branch {
+    fn write_frontier(dest: &mut Vec<u8>, frontier: &[Time], map: &mut AgentMapping, oplog: &OpLog) {
+        // I'm sad that I need the buf here + copying. It'd be faster if it was zero-copy.
+        let mut buf = Vec::new();
+        let mut iter = frontier.iter().peekable();
+        while let Some(t) = iter.next() {
+            let has_more = iter.peek().is_some();
+            let id = oplog.time_to_crdt_id(*t);
+
+            // (Mapped agent ID, seq) pairs. Agent id has mixed in bit for has_more.
+            let mapped = map.map(oplog, id.agent);
+            let n = mix_bit_usize(mapped as _, has_more);
+            push_usize(&mut buf, n);
+            push_usize(&mut buf, id.seq);
+        }
+        push_chunk(dest, Chunk::Frontier, &buf);
+        buf.clear();
+    }
+
+    fn write_content_rope(dest: &mut Vec<u8>, rope: &JumpRope) {
+        let mut buf = Vec::new(); // :(
+        push_u32(&mut buf, DataType::PlainText as _);
+        push_usize(&mut buf, rope.len_bytes());
+        for (str, _) in rope.chunks() {
+            buf.extend_from_slice(str.as_bytes());
+        }
+        push_chunk(dest, Chunk::Content, &buf);
+    }
+
+    #[allow(unused)]
+    fn write_content_str(dest: &mut Vec<u8>, s: &str) {
+        let mut buf = Vec::new(); // :(
+        push_u32(&mut buf, DataType::PlainText as _);
+        push_str(dest, s);
+        push_chunk(dest, Chunk::Content, &buf);
+    }
+
+    #[allow(unused)] // TODO: Remove annotation.
+    fn write_branch(&self, dest: &mut Vec<u8>, map: &mut AgentMapping, oplog: &OpLog) {
+        // Frontier
+        Self::write_frontier(dest, &self.frontier, map, oplog);
+
+        // Content
+        Self::write_content_rope(dest, &self.content);
+    }
+
 }
 
 impl OpLog {
     /// Encode the data stored in the OpLog into a (custom) compact binary form suitable for saving
     /// to disk, or sending over the network.
     pub fn encode_from(&self, opts: EncodeOptions, from_frontier: &[Time]) -> Vec<u8> {
+        // if !frontier_is_root(from_frontier) {
+        //     unimplemented!("Encoding from a non-root frontier is not implemented");
+        // }
+
         let mut result = Vec::new();
         // The file starts with MAGIC_BYTES
-        result.extend_from_slice(&MAGIC_BYTES_SMALL);
+        result.extend_from_slice(&MAGIC_BYTES);
+        push_usize(&mut result, PROTOCOL_VERSION);
 
         // And contains a series of chunks. Each chunk has a chunk header (chunk type, length).
         // The first chunk is always the FileInfo chunk - which names the file format.
-        let mut write_chunk = |c: Chunk, data: &[u8]| {
+        let mut write_chunk = |c: Chunk, data: &mut Vec<u8>| {
             if opts.verbose {
                 println!("{:?} length {}", c, data.len());
             }
             // dbg!(&data);
-            push_chunk(&mut result, c, data);
+            push_chunk(&mut result, c, data.as_slice());
+            data.clear();
         };
-
-        // TODO: The fileinfo chunk should specify DT version, encoding version and information
-        // about the data types we're encoding.
-        write_chunk(Chunk::FileInfo, &[]);
-
-        let mut buf = Vec::new();
-
-        // We'll name the starting frontier for the file. TODO: Support partial data sets.
-        // TODO: Consider moving this into the FileInfo chunk.
-        write_full_frontier(self, &mut buf, from_frontier);
-        write_chunk(Chunk::StartFrontier, &buf);
-        buf.clear();
-
-        // // TODO: This is redundant. Do I want to keep this or what?
-        // write_full_frontier(self, &mut buf, &self.frontier);
-        // write_chunk(Chunk::EndFrontier, &buf);
-        // buf.clear();
-
-
 
         // *** Inserted (text) content and operations ***
 
@@ -275,7 +321,6 @@ impl OpLog {
         // - Interleaved would be easier to consume, because we wouldn't need to match up inserts
         //   with the text
         // - Interleaved it would compress much less well with snappy / lz4.
-
 
         let mut inserted_text = String::new();
         let mut deleted_text = String::new();
@@ -349,6 +394,7 @@ impl OpLog {
 
                     let item = self.time_to_crdt_id(p);
                     let mapped_agent = agent_mapping.map(self, item.agent);
+                    debug_assert!(mapped_agent >= 1);
 
                     // There are probably more compact ways to do this, but the txn data set is
                     // usually quite small anyway, even in large histories. And most parents objects
@@ -356,7 +402,7 @@ impl OpLog {
                     // here.
                     //
                     // I'm adding 1 to the mapped agent to make room for ROOT. This is quite dirty!
-                    write_parent_diff(mapped_agent as usize + 1, true);
+                    write_parent_diff(mapped_agent as usize, true);
                     push_usize(&mut txns_chunk, item.seq);
                 }
             }
@@ -421,8 +467,31 @@ impl OpLog {
         ops_writer.flush();
         txns_writer.flush2(&mut agent_mapping);
 
-        write_chunk(Chunk::AgentNames, &agent_mapping.output);
-        write_chunk(Chunk::AgentAssignment, &agent_assignment_chunk);
+        // This nominally needs to happen before we write out agent_mapping.
+        // TODO: Support partial data sets. (from_frontier)
+        // let mut start_branch = Vec::new();
+        // Branch::write_frontier(&mut start_branch, from_frontier, &mut agent_mapping, self);
+        // Branch::write_content_str(&mut start_branch, ""); // TODO - support non-root!
+
+        // TODO: The fileinfo chunk should specify encoding version and information
+        // about the data types we're encoding.
+
+        // *** FileInfo ***
+        let mut buf = Vec::new();
+
+        // User data
+        if let Some(data) = opts.user_data {
+            push_chunk(&mut buf, Chunk::UserData, data);
+        }
+        // agent names
+        push_chunk(&mut buf, Chunk::AgentNames, &agent_mapping.consume());
+        write_chunk(Chunk::FileInfo, &mut buf);
+
+        // *** Start Branch - which was filled in above. ***
+        // write_chunk(Chunk::StartBranch, &mut start_branch);
+
+        // *** Patches ***
+        // I'll just assemble it in buf. There's a lot of sloppy use of vec<u8>'s in here.
 
         if opts.store_inserted_content {
             // let max_compressed_size = lz4_flex::block::get_maximum_output_size(inserted_text.len());
@@ -432,13 +501,26 @@ impl OpLog {
             // pos += lz4_flex::compress_into(inserted_text.as_bytes(), &mut compressed[pos..]).unwrap();
             // write_chunk(Chunk::InsertedContent, &compressed[..pos]);
 
-            write_chunk(Chunk::InsertedContent, inserted_text.as_bytes());
+            push_chunk(&mut buf,Chunk::InsertedContent, inserted_text.as_bytes());
         }
         if opts.store_deleted_content {
-            write_chunk(Chunk::DeletedContent, deleted_text.as_bytes());
+            push_chunk(&mut buf,Chunk::DeletedContent, deleted_text.as_bytes());
         }
-        write_chunk(Chunk::PositionalPatches, &ops_chunk);
-        write_chunk(Chunk::TimeDAG, &txns_chunk);
+
+        push_chunk(&mut buf, Chunk::AgentAssignment, &agent_assignment_chunk);
+        push_chunk(&mut buf, Chunk::PositionalPatches, &ops_chunk);
+        push_chunk(&mut buf, Chunk::TimeDAG, &txns_chunk);
+
+        write_chunk(Chunk::Patches, &mut buf);
+
+        // TODO (later): Final branch content.
+
+        // println!("checksum {checksum}");
+        let checksum = checksum(&result);
+        push_u32_le(&mut buf, checksum);
+        push_chunk(&mut result, Chunk::CRC, &buf);
+        // write_chunk(Chunk::CRC, &mut buf);
+        // push_u32(&mut result, checksum);
 
         if opts.verbose {
             println!("== Total length {}", result.len());
@@ -453,160 +535,163 @@ impl OpLog {
 
     /// Encode the data stored in the OpLog into a (custom) compact binary form suitable for saving
     /// to disk, or sending over the network.
-    pub fn encode_simple(&self, opts: EncodeOptions) -> Vec<u8> {
-        let mut result = Vec::new();
-        // The file starts with MAGIC_BYTES
-        result.extend_from_slice(&MAGIC_BYTES_SMALL);
-
-        // And contains a series of chunks. Each chunk has a chunk header (chunk type, length).
-        // The first chunk is always the FileInfo chunk - which names the file format.
-        let mut write_chunk = |c: Chunk, data: &[u8]| {
-            if opts.verbose {
-                println!("{:?} length {}", c, data.len());
-            }
-            push_chunk(&mut result, c, data);
-        };
-
-        // TODO: The fileinfo chunk should specify DT version, encoding version and information
-        // about the data types we're encoding.
-        write_chunk(Chunk::FileInfo, &[]);
-
-        let mut buf = Vec::new();
-
-        // We'll name the starting frontier for the file. TODO: Support partial data sets.
-        // TODO: Consider moving this into the FileInfo chunk.
-        write_full_frontier(self, &mut buf, &[ROOT_TIME]);
-        write_chunk(Chunk::StartFrontier, &buf);
-        buf.clear();
-
-        // // TODO: This is redundant. Do I want to keep this or what?
-        // write_full_frontier(self, &mut buf, &self.frontier);
-        // write_chunk(Chunk::EndFrontier, &buf);
-        // buf.clear();
-
-        // The AgentAssignment data indexes into the agents named here.
-        for client_data in self.client_data.iter() {
-            push_str(&mut buf, client_data.name.as_str());
-        }
-        write_chunk(Chunk::AgentNames, &buf);
-        buf.clear();
-
-        // List of (agent, len) pairs for all changes.
-        for KVPair(_, span) in self.client_with_localtime.iter() {
-            push_run_u32(&mut buf, Run { val: span.agent, len: span.len() });
-        }
-        write_chunk(Chunk::AgentAssignment, &buf);
-        buf.clear();
-
-        // *** Inserted (text) content and operations ***
-
-        // There's two ways I could iterate through the operations:
-        //
-        // 1. In local operation order. Each operation at that operation's local time. This is much
-        //    simpler and faster - since we're essentially just copying oplog into the file.
-        // 2. In optimized order. This would use txn_trace to reorder the operations in the
-        //    operation log to maximize runs (and thus minimize file size). At some point I'd like
-        //    to do this optimization - but I'm not sure where. (Maybe we should optimize in-place?)
-
-        // Note I'm going to push the text of all insert operations separately from the operation
-        // data itself.
-        //
-        // Note for now this includes text that was later deleted. It is also in time-order not
-        // document-order.
-        //
-        // Another way of storing this content would be to interleave it with the operations
-        // themselves. That would work fine but:
-        //
-        // - The interleaved approach would be a bit more complex when dealing with other (non-text)
-        //   data types.
-        // - Interleaved would result in a slightly smaller file size (tens of bytes smaller)
-        // - Interleaved would be easier to consume, because we wouldn't need to match up inserts
-        //   with the text
-        // - Interleaved it would compress much less well with snappy / lz4.
-        let mut inserted_text = String::new();
-        let mut deleted_text = String::new();
-
-        // The cursor position of the previous edit. We're differential, baby.
-        let mut last_cursor_pos: usize = 0;
-        for (KVPair(_, op), content) in self.iter_fast() {
-        // for KVPair(_, op) in self.iter_metrics() {
-            // For now I'm ignoring known content in delete operations.
-            if op.tag == Ins && opts.store_inserted_content {
-            //     assert!(op.content_known);
-                inserted_text.push_str(content.unwrap());
-            }
-
-            if op.tag == Del && opts.store_deleted_content {
-                if let Some(s) = content {
-                    deleted_text.push_str(s);
-                }
-            }
-
-            write_op(&mut buf, &op, &mut last_cursor_pos);
-        }
-        if opts.store_inserted_content {
-            write_chunk(Chunk::InsertedContent, inserted_text.as_bytes());
-            // write_chunk(Chunk::InsertedContent, &self.ins_content.as_bytes());
-        }
-        if opts.store_deleted_content {
-            write_chunk(Chunk::DeletedContent, deleted_text.as_bytes());
-            // write_chunk(Chunk::DeletedContent, &self.del_content.as_bytes());
-        }
-        write_chunk(Chunk::PositionalPatches, &buf);
-
-        // println!("{}", inserted_text);
-
-        // if opts.verbose {
-            // dbg!(len_total, diff_zig_total, num_ops);
-            // println!("op_data.len() {}", &op_data.len());
-            // println!("inserted text length {}", inserted_text.len());
-            // println!("deleted text length {}", deleted_text.len());
-        // }
-
-        buf.clear();
-
-        for txn in self.history.entries.iter() {
-            // First add this entry to the txn map.
-            push_usize(&mut buf, txn.len());
-
-            // Then the parents.
-            let mut iter = txn.parents.iter().peekable();
-            while let Some(&p) = iter.next() {
-                let p = p; // intellij bug
-                let has_more = iter.peek().is_some();
-
-                let mut write_parent_diff = |mut n: usize, is_foreign: bool| {
-                    n = mix_bit_usize(n, has_more);
-                    n = mix_bit_usize(n, is_foreign);
-                    push_usize(&mut buf, n);
-                };
-
-                // Parents are either local or foreign. Local changes are changes we've written
-                // (already) to the file. And foreign changes are changes that point outside the
-                // local part of the DAG we're sending.
-                //
-                // Most parents will be local.
-                if p == ROOT_TIME {
-                    // ROOT is special cased, since its foreign but we don't put the root item in
-                    // the agent list. (Though we could!)
-                    // This is written as "agent 0", and with no seq value (since thats not needed).
-                    write_parent_diff(0, true);
-                } else {
-                    // Local change!
-                    write_parent_diff(txn.span.start - p, false);
-                }
-            }
-            // write_history_entry(&mut buf, txn);
-        }
-        write_chunk(Chunk::TimeDAG, &buf);
-        buf.clear();
-
-        if opts.verbose {
-            println!("== Total length {}", result.len());
-        }
-
-        result
+    pub fn encode_simple(&self, _opts: EncodeOptions) -> Vec<u8> {
+        unimplemented!()
     }
+    // pub fn encode_simple(&self, opts: EncodeOptions) -> Vec<u8> {
+    //     let mut result = Vec::new();
+    //     // The file starts with MAGIC_BYTES
+    //     result.extend_from_slice(&MAGIC_BYTES);
+    //
+    //     // And contains a series of chunks. Each chunk has a chunk header (chunk type, length).
+    //     // The first chunk is always the FileInfo chunk - which names the file format.
+    //     let mut write_chunk = |c: Chunk, data: &[u8]| {
+    //         if opts.verbose {
+    //             println!("{:?} length {}", c, data.len());
+    //         }
+    //         push_chunk(&mut result, c, data);
+    //     };
+    //
+    //     // TODO: The fileinfo chunk should specify DT version, encoding version and information
+    //     // about the data types we're encoding.
+    //     write_chunk(Chunk::FileInfo, &[]);
+    //
+    //     let mut buf = Vec::new();
+    //
+    //     // We'll name the starting frontier for the file. TODO: Support partial data sets.
+    //     // TODO: Consider moving this into the FileInfo chunk.
+    //     write_full_frontier(self, &mut buf, &[ROOT_TIME]);
+    //     write_chunk(Chunk::StartFrontier, &buf);
+    //     buf.clear();
+    //
+    //     // // TODO: This is redundant. Do I want to keep this or what?
+    //     // write_full_frontier(self, &mut buf, &self.frontier);
+    //     // write_chunk(Chunk::EndFrontier, &buf);
+    //     // buf.clear();
+    //
+    //     // The AgentAssignment data indexes into the agents named here.
+    //     for client_data in self.client_data.iter() {
+    //         push_str(&mut buf, client_data.name.as_str());
+    //     }
+    //     write_chunk(Chunk::AgentNames, &buf);
+    //     buf.clear();
+    //
+    //     // List of (agent, len) pairs for all changes.
+    //     for KVPair(_, span) in self.client_with_localtime.iter() {
+    //         push_run_u32(&mut buf, Run { val: span.agent, len: span.len() });
+    //     }
+    //     write_chunk(Chunk::AgentAssignment, &buf);
+    //     buf.clear();
+    //
+    //     // *** Inserted (text) content and operations ***
+    //
+    //     // There's two ways I could iterate through the operations:
+    //     //
+    //     // 1. In local operation order. Each operation at that operation's local time. This is much
+    //     //    simpler and faster - since we're essentially just copying oplog into the file.
+    //     // 2. In optimized order. This would use txn_trace to reorder the operations in the
+    //     //    operation log to maximize runs (and thus minimize file size). At some point I'd like
+    //     //    to do this optimization - but I'm not sure where. (Maybe we should optimize in-place?)
+    //
+    //     // Note I'm going to push the text of all insert operations separately from the operation
+    //     // data itself.
+    //     //
+    //     // Note for now this includes text that was later deleted. It is also in time-order not
+    //     // document-order.
+    //     //
+    //     // Another way of storing this content would be to interleave it with the operations
+    //     // themselves. That would work fine but:
+    //     //
+    //     // - The interleaved approach would be a bit more complex when dealing with other (non-text)
+    //     //   data types.
+    //     // - Interleaved would result in a slightly smaller file size (tens of bytes smaller)
+    //     // - Interleaved would be easier to consume, because we wouldn't need to match up inserts
+    //     //   with the text
+    //     // - Interleaved it would compress much less well with snappy / lz4.
+    //     let mut inserted_text = String::new();
+    //     let mut deleted_text = String::new();
+    //
+    //     // The cursor position of the previous edit. We're differential, baby.
+    //     let mut last_cursor_pos: usize = 0;
+    //     for (KVPair(_, op), content) in self.iter_fast() {
+    //     // for KVPair(_, op) in self.iter_metrics() {
+    //         // For now I'm ignoring known content in delete operations.
+    //         if op.tag == Ins && opts.store_inserted_content {
+    //         //     assert!(op.content_known);
+    //             inserted_text.push_str(content.unwrap());
+    //         }
+    //
+    //         if op.tag == Del && opts.store_deleted_content {
+    //             if let Some(s) = content {
+    //                 deleted_text.push_str(s);
+    //             }
+    //         }
+    //
+    //         write_op(&mut buf, &op, &mut last_cursor_pos);
+    //     }
+    //     if opts.store_inserted_content {
+    //         write_chunk(Chunk::InsertedContent, inserted_text.as_bytes());
+    //         // write_chunk(Chunk::InsertedContent, &self.ins_content.as_bytes());
+    //     }
+    //     if opts.store_deleted_content {
+    //         write_chunk(Chunk::DeletedContent, deleted_text.as_bytes());
+    //         // write_chunk(Chunk::DeletedContent, &self.del_content.as_bytes());
+    //     }
+    //     write_chunk(Chunk::PositionalPatches, &buf);
+    //
+    //     // println!("{}", inserted_text);
+    //
+    //     // if opts.verbose {
+    //         // dbg!(len_total, diff_zig_total, num_ops);
+    //         // println!("op_data.len() {}", &op_data.len());
+    //         // println!("inserted text length {}", inserted_text.len());
+    //         // println!("deleted text length {}", deleted_text.len());
+    //     // }
+    //
+    //     buf.clear();
+    //
+    //     for txn in self.history.entries.iter() {
+    //         // First add this entry to the txn map.
+    //         push_usize(&mut buf, txn.len());
+    //
+    //         // Then the parents.
+    //         let mut iter = txn.parents.iter().peekable();
+    //         while let Some(&p) = iter.next() {
+    //             let p = p; // intellij bug
+    //             let has_more = iter.peek().is_some();
+    //
+    //             let mut write_parent_diff = |mut n: usize, is_foreign: bool| {
+    //                 n = mix_bit_usize(n, has_more);
+    //                 n = mix_bit_usize(n, is_foreign);
+    //                 push_usize(&mut buf, n);
+    //             };
+    //
+    //             // Parents are either local or foreign. Local changes are changes we've written
+    //             // (already) to the file. And foreign changes are changes that point outside the
+    //             // local part of the DAG we're sending.
+    //             //
+    //             // Most parents will be local.
+    //             if p == ROOT_TIME {
+    //                 // ROOT is special cased, since its foreign but we don't put the root item in
+    //                 // the agent list. (Though we could!)
+    //                 // This is written as "agent 0", and with no seq value (since thats not needed).
+    //                 write_parent_diff(0, true);
+    //             } else {
+    //                 // Local change!
+    //                 write_parent_diff(txn.span.start - p, false);
+    //             }
+    //         }
+    //         // write_history_entry(&mut buf, txn);
+    //     }
+    //     write_chunk(Chunk::TimeDAG, &buf);
+    //     buf.clear();
+    //
+    //     if opts.verbose {
+    //         println!("== Total length {}", result.len());
+    //     }
+    //
+    //     result
+    // }
 }
 
 #[cfg(test)]

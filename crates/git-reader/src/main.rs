@@ -196,6 +196,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // dbg!(&oplog.history.entries.len());
 
     let data = oplog.encode(EncodeOptions {
+        user_data: None,
         store_inserted_content: true,
         store_deleted_content: false,
         verbose: true

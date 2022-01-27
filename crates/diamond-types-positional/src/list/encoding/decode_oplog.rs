@@ -2,7 +2,7 @@ use std::str::Utf8Error;
 use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
 use crate::list::{Frontier, OpLog, switch};
-use crate::list::remote_ids::{ConversionError, RemoteId};
+use crate::list::remote_ids::ConversionError;
 use crate::list::frontier::{frontier_eq, frontier_is_sorted};
 use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag::{Del, Ins};
@@ -11,7 +11,7 @@ use crate::rev_span::TimeSpanRev;
 use crate::{AgentId, ROOT_TIME};
 use crate::unicount::consume_chars;
 use ParseError::*;
-use crate::remotespan::CRDTSpan;
+use crate::remotespan::{CRDTId, CRDTSpan};
 
 #[derive(Debug)]
 struct BufReader<'a>(&'a [u8]);
@@ -19,6 +19,7 @@ struct BufReader<'a>(&'a [u8]);
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum ParseError {
     InvalidMagic,
+    UnsupportedProtocolVersion,
     InvalidChunkHeader,
     UnexpectedChunk {
         // I could use Chunk here, but I'd rather not expose them publicly.
@@ -71,11 +72,17 @@ impl<'a> BufReader<'a> {
 
     fn read_magic(&mut self) -> Result<(), ParseError> {
         self.check_has_bytes(8)?;
-        if self.0[..MAGIC_BYTES_SMALL.len()] != MAGIC_BYTES_SMALL {
+        if self.0[..MAGIC_BYTES.len()] != MAGIC_BYTES {
             return Err(InvalidMagic);
         }
         self.consume(8);
         Ok(())
+    }
+
+    fn peek_u32(&self) -> Option<u32> {
+        if self.is_empty() { return None; }
+        // Some(decode_u32(self.0))
+        Some(decode_u32(self.0).0)
     }
 
     fn next_u32(&mut self) -> Result<u32, ParseError> {
@@ -135,6 +142,21 @@ impl<'a> BufReader<'a> {
         Ok((chunk_type, BufReader(self.next_n_bytes(len)?)))
     }
 
+    /// Read a chunk with the named type. Returns None if the next chunk isn't the specified type,
+    /// or we hit EOF.
+    fn read_chunk(&mut self, expect_chunk_type: Chunk) -> Result<Option<BufReader<'a>>, ParseError> {
+        if let Some(actual_chunk_type) = self.peek_u32() {
+            if actual_chunk_type != (expect_chunk_type as _) {
+                // Chunk doesn't match requested type.
+                return Ok(None);
+            }
+            self.next_chunk().map(|(_type, c)| Some(c))
+        } else {
+            // EOF.
+            Ok(None)
+        }
+    }
+
     fn expect_chunk(&mut self, expect_chunk_type: Chunk) -> Result<BufReader<'a>, ParseError> {
         let (actual_chunk_type, r) = self.next_chunk()?;
         if expect_chunk_type != actual_chunk_type {
@@ -190,7 +212,13 @@ impl<'a> BufReader<'a> {
             self.next_zigzag_isize()?
         } else { 0 };
 
-        let inner_agent = n;
+        // The agent mapping uses 0 to refer to ROOT, but no actual operations can be assigned to
+        // the root agent.
+        if n == 0 {
+            return Err(ParseError::InvalidLength);
+        }
+
+        let inner_agent = n - 1;
         if inner_agent >= map.len() {
             return Err(ParseError::InvalidLength);
         }
@@ -209,19 +237,16 @@ impl<'a> BufReader<'a> {
         }))
     }
 
-    fn read_full_frontier(&mut self, oplog: &OpLog) -> Result<Frontier, ParseError> {
+    fn read_frontier(&mut self, oplog: &OpLog, agent_map: &[(AgentId, usize)]) -> Result<Frontier, ParseError> {
         let mut result = Frontier::new();
         // All frontiers contain at least one item.
         loop {
-            let agent = self.next_str()?;
-            let n = self.next_usize()?;
-            let (seq, has_more) = strip_bit_usize(n);
+            // let agent = self.next_str()?;
+            let (mapped_agent, has_more) = strip_bit_usize(self.next_usize()?);
+            let agent = agent_map[mapped_agent].0;
+            let seq = self.next_usize()?;
 
-            let time = oplog.try_remote_id_to_time(&RemoteId {
-                agent: agent.into(),
-                seq
-            }).map_err(InvalidRemoteID)?;
-
+            let time = oplog.crdt_id_to_time(CRDTId { agent, seq });
             result.push(time);
 
             if !has_more { break; }
@@ -234,6 +259,31 @@ impl<'a> BufReader<'a> {
 
         Ok(result)
     }
+    // fn read_full_frontier(&mut self, oplog: &OpLog) -> Result<Frontier, ParseError> {
+    //     let mut result = Frontier::new();
+    //     // All frontiers contain at least one item.
+    //     loop {
+    //         let agent = self.next_str()?;
+    //         let n = self.next_usize()?;
+    //         let (seq, has_more) = strip_bit_usize(n);
+    //
+    //         let time = oplog.try_remote_id_to_time(&RemoteId {
+    //             agent: agent.into(),
+    //             seq
+    //         }).map_err(InvalidRemoteID)?;
+    //
+    //         result.push(time);
+    //
+    //         if !has_more { break; }
+    //     }
+    //
+    //     if !frontier_is_sorted(result.as_slice()) {
+    //         // TODO: Check how this effects wasm bundle size.
+    //         result.sort_unstable();
+    //     }
+    //
+    //     Ok(result)
+    // }
 }
 
 // I could just pass &mut last_cursor_pos to a flat read() function. Eh. Once again, generators
@@ -324,45 +374,79 @@ impl OpLog {
         // Written to be symmetric with encode functions.
         let mut reader = BufReader(data);
         reader.read_magic()?;
+        let protocol_version = reader.next_usize()?;
+        if protocol_version != PROTOCOL_VERSION {
+            return Err(UnsupportedProtocolVersion);
+        }
 
-        let _info = reader.expect_chunk(Chunk::FileInfo)?;
+        let mut fileinfo = reader.expect_chunk(Chunk::FileInfo)?;
+        // fileinfo has UserData and AgentNames.
 
-        let mut start_frontier_chunk = reader.expect_chunk(Chunk::StartFrontier)?;
-        let frontier = start_frontier_chunk.read_full_frontier(&self).map_err(|e| {
-            // We can't read a frontier if it names agents or sequence numbers we haven't seen
-            // before. If this happens, its because we're trying to load a data set from the future.
-            if let InvalidRemoteID(_) = e {
-                DataMissing
-            } else { e }
-        })?;
-
-        // Usually the version data will be strictly separated. Either we're loading data into an
-        // empty document, or we've been sent catchup data from a remote peer. If the data set
-        // overlaps, we need to actively filter out operations & txns from that data set.
-        let data_overlapping = !frontier_eq(&frontier, &self.frontier);
-
-        if data_overlapping { todo!("Overlapping data sets not implemented!"); }
-
-        let first_new_time = self.len();
-
-        let mut agent_names_chunk = reader.expect_chunk(Chunk::AgentNames)?;
+        let _userdata = fileinfo.read_chunk(Chunk::UserData)?;
+        let mut agent_names_chunk = fileinfo.expect_chunk(Chunk::AgentNames)?;
 
         // Map from agent IDs in the file (idx) to agent IDs in self, and the seq cursors.
         //
-        // This will quite often just be 0,1,2,3,4...
+        // This will usually just be 0,1,2,3,4...
+        //
+        // 0 implicitly maps to ROOT.
+        // let mut file_to_self_agent_map = vec![(ROOT_AGENT, 0)];
         let mut file_to_self_agent_map = Vec::new();
-
         while !agent_names_chunk.0.is_empty() {
             let name = agent_names_chunk.next_str()?;
             let id = self.get_or_create_agent_id(name);
             file_to_self_agent_map.push((id, 0));
         }
 
-        let mut agent_assignment_chunk = reader.expect_chunk(Chunk::AgentAssignment)?;
+        // Done with fileinfo.
+        drop(fileinfo);
+
+        // *** StartBranch ***
+        if let Some(mut start_branch) = reader.read_chunk(Chunk::StartBranch)? {
+            let mut start_frontier_chunk = start_branch.expect_chunk(Chunk::Frontier)?;
+            let frontier = start_frontier_chunk.read_frontier(&self, &file_to_self_agent_map).map_err(|e| {
+                // We can't read a frontier if it names agents or sequence numbers we haven't seen
+                // before. If this happens, its because we're trying to load a data set from the future.
+                if let InvalidRemoteID(_) = e {
+                    DataMissing
+                } else { e }
+            })?;
+
+            let data_overlapping = !frontier_eq(&frontier, &self.frontier);
+
+            // Usually the version data will be strictly separated. Either we're loading data into an
+            // empty document, or we've been sent catchup data from a remote peer. If the data set
+            // overlaps, we need to actively filter out operations & txns from that data set.
+            if data_overlapping { todo!("Overlapping data sets not implemented!"); }
+        }
+
+        // *** Patches ***
+        // This chunk contains the actual set of edits to the document.
+        let mut patch_chunk = reader.expect_chunk(Chunk::Patches)?;
+
+        let mut ins_content = None;
+        let mut del_content = None;
+
+        if let Some(chunk) = patch_chunk.read_chunk(Chunk::InsertedContent)? {
+            // let decompressed_len = content_chunk.next_usize()?;
+            // let decompressed_data = lz4_flex::decompress(content_chunk.0, decompressed_len).unwrap();
+            // let content = String::from_utf8(decompressed_data).unwrap();
+            //     // .map_err(InvalidUTF8)?;
+
+            ins_content = Some(std::str::from_utf8(chunk.0)
+                .map_err(InvalidUTF8)?);
+        }
+
+        if let Some(chunk) = patch_chunk.read_chunk(Chunk::DeletedContent)? {
+            del_content = Some(std::str::from_utf8(chunk.0)
+                .map_err(InvalidUTF8)?);
+        }
+
+        let mut agent_assignment_chunk = patch_chunk.expect_chunk(Chunk::AgentAssignment)?;
 
         // The file we're loading has a list of operations. The list's item order is shared in a
         // handful of lists of data - agent assignment, operations, content and txns.
-
+        let first_new_time = self.len();
         let mut next_time = first_new_time;
         while let Some(crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut file_to_self_agent_map)? {
             // dbg!(crdt_span);
@@ -382,36 +466,10 @@ impl OpLog {
 
         // *** Content and Patches ***
 
-        // Here there's a few options based on how the encoder was configured. We'll either
-        // get a Content chunk followed by PositionalPatches or just PositionalPatches.
 
-        let mut ins_content = None;
-        let mut del_content = None;
-
-        let patches_chunk = loop {
-            let (chunk_type, chunk) = reader.next_chunk()?;
-            match chunk_type {
-                Chunk::InsertedContent => {
-                    ins_content = Some(std::str::from_utf8(chunk.0)
-                        .map_err(InvalidUTF8)?);
-                    // let decompressed_len = content_chunk.next_usize()?;
-                    // let decompressed_data = lz4_flex::decompress(content_chunk.0, decompressed_len).unwrap();
-                    // let content = String::from_utf8(decompressed_data).unwrap();
-                    //     // .map_err(InvalidUTF8)?;
-                }
-                Chunk::DeletedContent => {
-                    del_content = Some(std::str::from_utf8(chunk.0)
-                        .map_err(InvalidUTF8)?);
-                }
-                Chunk::PositionalPatches => {
-                    break chunk;
-                }
-                _ => { panic!("Unexpected chunk {}", chunk_type as u32); }
-            }
-        };
-
+        let pos_patches_chunk = patch_chunk.expect_chunk(Chunk::PositionalPatches)?;
         let mut next_time = first_new_time;
-        for op in ReadPatchesIter::new(patches_chunk) {
+        for op in ReadPatchesIter::new(pos_patches_chunk) {
             let op = op?;
             let len = op.len();
             let content = switch(op.tag, &mut ins_content, &mut del_content);
@@ -435,7 +493,7 @@ impl OpLog {
         }
 
         // *** History ***
-        let mut history_chunk = reader.expect_chunk(Chunk::TimeDAG)?;
+        let mut history_chunk = patch_chunk.expect_chunk(Chunk::TimeDAG)?;
 
         let mut next_time = first_new_time;
         while !history_chunk.is_empty() {
@@ -485,6 +543,13 @@ impl OpLog {
         let final_history_len = next_time;
         if final_history_len != final_patches_len { return Err(InvalidLength); }
 
+
+        if let Some(checksum) = reader.read_chunk(Chunk::CRC)? {
+
+        } else {
+            println!("NO CHECKSUMMM");
+        }
+
         // self.frontier = end_frontier_chunk.read_full_frontier(&self)?;
 
         Ok(self)
@@ -508,6 +573,7 @@ mod tests {
 
     fn check_encode_decode_matches(oplog: &OpLog) {
         let data = oplog.encode(EncodeOptions {
+            user_data: None,
             store_inserted_content: true,
             store_deleted_content: true,
             verbose: false
