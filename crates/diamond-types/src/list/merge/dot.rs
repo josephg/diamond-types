@@ -195,7 +195,7 @@ impl OpLog {
 
 #[cfg(test)]
 mod test {
-    use crate::list::m2::dot::DotColor::*;
+    use crate::list::merge::dot::DotColor::*;
     use crate::list::OpLog;
     use crate::ROOT_TIME;
 

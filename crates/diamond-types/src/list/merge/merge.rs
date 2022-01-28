@@ -8,8 +8,8 @@ use smallvec::{SmallVec, smallvec};
 use content_tree::*;
 use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
 use crate::list::{Frontier, Branch, OpLog, Time};
-use crate::list::m2::{DocRangeIndex, M2Tracker, SpaceIndex};
-use crate::list::m2::yjsspan2::{INSERTED, NOT_INSERTED_YET, YjsSpan2};
+use crate::list::merge::{DocRangeIndex, M2Tracker, SpaceIndex};
+use crate::list::merge::yjsspan2::{INSERTED, NOT_INSERTED_YET, YjsSpan2};
 use crate::list::operation::InsDelTag;
 use crate::localtime::{is_underwater, TimeSpan};
 use crate::rle::{KVPair, RleSpanHelpers};
@@ -20,14 +20,14 @@ use crate::list::internal_op::OperationInternal;
 use crate::rev_span::TimeSpanRev;
 
 #[cfg(feature = "dot_export")]
-use crate::list::m2::dot::{DotColor, name_of};
+use crate::list::merge::dot::{DotColor, name_of};
 #[cfg(feature = "dot_export")]
-use crate::list::m2::dot::DotColor::*;
+use crate::list::merge::dot::DotColor::*;
 
-use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
-use crate::list::m2::markers::MarkerEntry;
-use crate::list::m2::metrics::upstream_cursor_pos;
-use crate::list::m2::txn_trace::SpanningTreeWalker;
+use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
+use crate::list::merge::markers::MarkerEntry;
+use crate::list::merge::metrics::upstream_cursor_pos;
+use crate::list::merge::txn_trace::SpanningTreeWalker;
 use crate::list::operation::InsDelTag::Ins;
 use crate::unicount::consume_chars;
 

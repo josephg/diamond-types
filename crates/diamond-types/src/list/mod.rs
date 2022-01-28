@@ -22,10 +22,7 @@ mod history_tools;
 mod frontier;
 mod op_iter;
 
-// m1 is still wip.
-// mod m1;
-
-mod m2;
+mod merge;
 mod oplog;
 mod branch;
 pub mod encoding;

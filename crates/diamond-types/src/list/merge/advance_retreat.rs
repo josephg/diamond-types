@@ -1,11 +1,11 @@
 use std::ptr::NonNull;
 use content_tree::{DEFAULT_IE, DEFAULT_LE, NodeLeaf};
 use rle::{HasLength, SplitableSpan};
-use crate::list::m2::{DocRangeIndex, M2Tracker};
-use crate::list::m2::markers::Marker::{DelTarget, InsPtr};
-use crate::list::m2::merge::notify_for;
+use crate::list::merge::{DocRangeIndex, M2Tracker};
+use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
+use crate::list::merge::merge::notify_for;
 use crate::rev_span::TimeSpanRev;
-use crate::list::m2::yjsspan2::YjsSpan2;
+use crate::list::merge::yjsspan2::YjsSpan2;
 use crate::list::operation::InsDelTag;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::localtime::TimeSpan;

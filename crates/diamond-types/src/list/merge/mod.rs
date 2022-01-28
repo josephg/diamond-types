@@ -12,9 +12,9 @@
 
 use std::pin::Pin;
 use content_tree::{ContentTreeWithIndex, RawPositionMetricsUsize};
-use crate::list::m2::markers::MarkerEntry;
-use crate::list::m2::metrics::MarkerMetrics;
-use crate::list::m2::yjsspan2::YjsSpan2;
+use crate::list::merge::markers::MarkerEntry;
+use crate::list::merge::metrics::MarkerMetrics;
+use crate::list::merge::yjsspan2::YjsSpan2;
 
 mod yjsspan2;
 mod merge;
