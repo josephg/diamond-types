@@ -25,7 +25,7 @@ pub(crate) struct OperationInternal {
     /// Byte range in self.ins_content or del_content where our content is being held. This is
     /// essentially a poor man's pointer.
     ///
-    /// Note this number is a *byte offset*.
+    /// Note this stores a *byte offset*.
     pub content_pos: Option<TimeSpan>,
 }
 

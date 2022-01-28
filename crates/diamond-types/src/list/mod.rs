@@ -82,6 +82,8 @@ pub struct OpLog {
     /// This is used to map external CRDT locations -> Order numbers.
     client_data: Vec<ClientData>,
 
+    /// This contains all content ever inserted into the document, in time order (not document
+    /// order). This object is indexed by the operation set.
     ins_content: String,
     del_content: String,
     // TODO: Replace me with a compact form of this data.
@@ -94,10 +96,14 @@ pub struct OpLog {
     /// Along with deletes, this essentially contains the time DAG.
     ///
     /// TODO: Consider renaming this field
+    /// TODO: Remove pub marker.
     pub history: History,
 
     /// This is the frontier of the entire oplog. So, if you merged every change we store into a
     /// branch, this is the frontier of that branch.
+    ///
+    /// This is only stored as a convenience - we could recalculate it as needed from history. But
+    /// it takes up very little space, and its mildly convenient. So here it is!
     frontier: Frontier,
 }
 
@@ -107,12 +113,6 @@ pub struct ListCRDT {
     pub branch: Branch,
     pub ops: OpLog,
 }
-
-// impl OpSet {
-//     pub fn blah(&self, a: &[Time], b: &[Time]) -> bool {
-//         self.history.diff(a, b).common_branch[0] == ROOT_TIME
-//     }
-// }
 
 fn switch<T>(tag: InsDelTag, ins: T, del: T) -> T {
     match tag {

@@ -10,17 +10,22 @@ fn print_stats_for_file(name: &str) {
 
     let oplog = OpLog::load_from(&contents).unwrap();
 
+    println!("\nOperations:");
     for op in oplog.iter() {
         println!("{:?}", op);
     }
 
+    println!("\nHistory:");
     for hist in oplog.iter_history() {
         println!("{:?}", hist);
     }
 
+    println!("\nAgent assignment mappings:");
     for m in oplog.iter_mappings() {
-        println!("{:?}", m);
+        println!("{:?} ('{}')", m, oplog.get_agent_name(m.agent));
     }
+
+    // for c in oplog.
 
     // for x in rle_zip3(
     //     oplog.iter_mappings(),
@@ -37,6 +42,7 @@ fn print_stats_for_file(name: &str) {
     //     println!("{:?}", x);
     // }
 
+    println!();
     oplog.encode(EncodeOptions {
         user_data: None,
         store_inserted_content: true,

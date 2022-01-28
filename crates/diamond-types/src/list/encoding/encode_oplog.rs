@@ -500,10 +500,15 @@ impl OpLog {
             // let mut pos = encode_usize(inserted_text.len(), &mut compressed);
             // pos += lz4_flex::compress_into(inserted_text.as_bytes(), &mut compressed[pos..]).unwrap();
             // write_chunk(Chunk::InsertedContent, &compressed[..pos]);
-
+            if opts.verbose {
+                println!("Inserted text length {}", inserted_text.len());
+            }
             push_chunk(&mut buf,Chunk::InsertedContent, inserted_text.as_bytes());
         }
         if opts.store_deleted_content {
+            if opts.verbose {
+                println!("Deleted text length {}", deleted_text.len());
+            }
             push_chunk(&mut buf,Chunk::DeletedContent, deleted_text.as_bytes());
         }
 

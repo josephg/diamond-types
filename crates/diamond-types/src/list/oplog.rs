@@ -105,7 +105,7 @@ impl OpLog {
         }
     }
 
-    pub(crate) fn get_agent_name(&self, agent: AgentId) -> &str {
+    pub fn get_agent_name(&self, agent: AgentId) -> &str {
         if agent == ROOT_AGENT { ROOT_AGENT_NAME }
         else { self.client_data[agent as usize].name.as_str() }
     }

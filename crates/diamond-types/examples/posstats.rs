@@ -18,7 +18,7 @@ use humansize::{FileSize, file_size_opts};
 use diamond_types::list::encoding::EncodeOptions;
 
 pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
-    let id = doc.get_or_create_agent_id("jeremy");
+    let id = doc.get_or_create_agent_id("test_user");
 
     let mut positional: Vec<Operation> = Vec::with_capacity(3);
     // let mut content = String::new();
