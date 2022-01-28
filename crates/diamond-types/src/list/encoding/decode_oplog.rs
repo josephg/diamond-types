@@ -23,10 +23,10 @@ pub enum ParseError {
     InvalidChunkHeader,
     UnexpectedChunk {
         // I could use Chunk here, but I'd rather not expose them publicly.
-        expected: Chunk,
-        actual: Chunk,
-        // expected: u32,
-        // actual: u32,
+        // expected: Chunk,
+        // actual: Chunk,
+        expected: u32,
+        actual: u32,
     },
     InvalidLength,
     UnexpectedEOF,

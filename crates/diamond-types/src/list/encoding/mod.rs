@@ -104,46 +104,32 @@ impl<V: Clone + PartialEq + Eq> MergableSpan for Run<V> {
 // #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]
-// enum Chunk {
-pub enum Chunk {
-    FileInfo,
-    UserData,
-    AgentNames,
+enum Chunk {
+    FileInfo = 1,
+    UserData = 2,
+    AgentNames = 3,
 
-    StartBranch,
-    Frontier,
-    Content,
+    StartBranch = 4,
+    Frontier = 5,
+    Content = 6,
 
-    Patches,
-    AgentAssignment,
-    PositionalPatches,
-    TimeDAG,
-    InsertedContent,
-    DeletedContent,
+    Patches = 7,
+    AgentAssignment = 8,
+    PositionalPatches = 9,
+    TimeDAG = 10,
+    InsertedContent = 11,
+    DeletedContent = 12,
 
-    CRC,
-
-    // Content = 2,
-    //
-    // AgentNames = 3,
-    // AgentAssignment = 4,
-    //
-    // Frontier = 5,
-    //
-    // Parents = 6,
-    //
-    // DelData = 8,
-    //
-    // Patches = 11,
+    CRC = 13,
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]
 pub enum DataType {
-    Bool,
-    PlainText,
-    VarUInt,
-    VarInt,
+    Bool = 1,
+    VarUInt = 2,
+    VarInt = 3,
+    PlainText = 4,
 }
 
 fn push_chunk_header(into: &mut Vec<u8>, chunk_type: Chunk, len: usize) {
