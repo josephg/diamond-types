@@ -12,7 +12,7 @@ use diamond_types_positional::list::encoding::EncodeOptions;
 use diamond_types_positional::list::list::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let repo = Repository::open("/home/seph/3rdparty/node")?;
+    let repo = Repository::open("/Users/seph/3rdparty/node")?;
     let file = "src/node.cc";
     // let file = "Makefile";
 
