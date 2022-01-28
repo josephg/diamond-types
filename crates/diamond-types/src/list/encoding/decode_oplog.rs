@@ -610,6 +610,7 @@ mod tests {
         let data = doc.ops.encode(EncodeOptions::default());
 
         let result = OpLog::load_from(&data).unwrap();
+        // dbg!(&result);
 
         assert_eq!(&result, &doc.ops);
         // dbg!(&result);

@@ -1,6 +1,6 @@
-use diamond_types_positional::list::*;
+use diamond_types::list::*;
 use crdt_testdata::{TestTxn, TestPatch};
-use diamond_types_positional::list::operation::Operation;
+use diamond_types::list::operation::Operation;
 
 pub fn apply_edits_local(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");

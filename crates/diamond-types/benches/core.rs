@@ -6,8 +6,8 @@ mod utils;
 
 use criterion::{criterion_group, criterion_main, black_box, Criterion, BenchmarkId, Throughput};
 use crdt_testdata::{load_testing_data, TestData};
-use diamond_types_positional::list::*;
-use diamond_types_positional::list::encoding::EncodeOptions;
+use diamond_types::list::{ListCRDT, OpLog};
+use diamond_types::list::encoding::EncodeOptions;
 use crate::utils::*;
 
 fn testing_data(name: &str) -> TestData {
@@ -64,6 +64,7 @@ fn encoding_benchmarks(c: &mut Criterion) {
     group.bench_function("encode_nodecc", |b| {
         b.iter(|| {
             let bytes = oplog.encode(EncodeOptions {
+                user_data: None,
                 store_inserted_content: false,
                 store_deleted_content: false,
                 verbose: false
@@ -74,6 +75,7 @@ fn encoding_benchmarks(c: &mut Criterion) {
     group.bench_function("encode_nodecc_old", |b| {
         b.iter(|| {
             let bytes = oplog.encode_simple(EncodeOptions {
+                user_data: None,
                 store_inserted_content: true,
                 store_deleted_content: false,
                 verbose: false

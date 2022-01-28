@@ -27,9 +27,9 @@ impl Branch {
     }
 
     #[wasm_bindgen]
-    pub fn all(opset: &OpLog) -> Self {
+    pub fn all(oplog: &OpLog) -> Self {
         let mut result = Self::new();
-        result.0.merge(&opset.inner, &opset.inner.get_frontier());
+        result.0.merge(&oplog.inner, &oplog.inner.get_frontier());
         result
     }
 
@@ -38,6 +38,7 @@ impl Branch {
         self.0.content.to_string()
     }
 
+    /// Merge in from some named point in time
     #[wasm_bindgen]
     pub fn merge(&mut self, ops: &OpLog, branch: Time) {
         self.0.merge(&ops.inner, &[branch]);
