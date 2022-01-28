@@ -5,7 +5,7 @@ use crate::list::merge::{DocRangeIndex, M2Tracker};
 use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
 use crate::list::merge::merge::notify_for;
 use crate::rev_span::TimeSpanRev;
-use crate::list::merge::yjsspan2::YjsSpan2;
+use crate::list::merge::yjsspan::YjsSpan;
 use crate::list::operation::InsDelTag;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::localtime::TimeSpan;
@@ -18,7 +18,7 @@ impl M2Tracker {
     /// This should only be used with times we have advanced through.
     ///
     /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
-    fn index_query(&self, time: usize) -> (InsDelTag, TimeSpanRev, usize, Option<NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>>) {
+    fn index_query(&self, time: usize) -> (InsDelTag, TimeSpanRev, usize, Option<NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>>) {
         assert_ne!(time, ROOT_TIME); // Not sure what to do in this case.
 
         let index_len = self.index.offset_len();

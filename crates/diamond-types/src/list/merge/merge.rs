@@ -9,7 +9,7 @@ use content_tree::*;
 use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
 use crate::list::{Frontier, Branch, OpLog, Time};
 use crate::list::merge::{DocRangeIndex, M2Tracker, SpaceIndex};
-use crate::list::merge::yjsspan2::{INSERTED, NOT_INSERTED_YET, YjsSpan2};
+use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::InsDelTag;
 use crate::localtime::{is_underwater, TimeSpan};
 use crate::rle::{KVPair, RleSpanHelpers};
@@ -48,8 +48,8 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     }
 }
 
-pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan2, NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
-    move |entry: YjsSpan2, leaf| {
+pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
+    move |entry: YjsSpan, leaf| {
         let start = entry.id.start;
         let len = entry.len();
 
@@ -78,7 +78,7 @@ impl M2Tracker {
     pub(super) fn new() -> Self {
         let mut range_tree = ContentTreeWithIndex::new();
         let mut index = ContentTreeWithIndex::new();
-        let underwater = YjsSpan2::new_underwater();
+        let underwater = YjsSpan::new_underwater();
         pad_index_to(&mut index, underwater.id.end);
         range_tree.push_notify(underwater, notify_for(&mut index));
 
@@ -88,7 +88,7 @@ impl M2Tracker {
         }
     }
 
-    pub(super) fn marker_at(&self, time: Time) -> NonNull<NodeLeaf<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
+    pub(super) fn marker_at(&self, time: Time) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
         let cursor = self.index.cursor_at_offset_pos(time, false);
         // Gross.
         cursor.get_item().unwrap().unwrap()
@@ -105,7 +105,7 @@ impl M2Tracker {
         }
     }
 
-    fn get_cursor_before(&self, time: Time) -> Cursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+    fn get_cursor_before(&self, time: Time) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
         if time == ROOT_TIME {
             // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
             // just panic() here.
@@ -117,7 +117,7 @@ impl M2Tracker {
     }
 
     // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
-    fn get_cursor_after(&self, time: Time, stick_end: bool) -> Cursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+    fn get_cursor_after(&self, time: Time, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
         if time == ROOT_TIME {
             self.range_tree.cursor_at_start()
         } else {
@@ -134,7 +134,7 @@ impl M2Tracker {
     }
 
     // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
-    pub(super) fn integrate(&mut self, opset: &OpLog, agent: AgentId, item: YjsSpan2, mut cursor: UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
+    pub(super) fn integrate(&mut self, opset: &OpLog, agent: AgentId, item: YjsSpan, mut cursor: UnsafeCursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
         assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
@@ -349,7 +349,7 @@ impl M2Tracker {
 
                 // let origin_right = cursor.get_item().unwrap_or(ROOT_TIME);
 
-                let item = YjsSpan2 {
+                let item = YjsSpan {
                     id: TimeSpan::new(*time, *time + op.len()),
                     origin_left,
                     origin_right,
@@ -497,7 +497,7 @@ impl Branch {
     /// Add everything in merge_frontier into the set.
     ///
     /// Reexposed as merge_changes.
-    pub(crate) fn merge_changes_m2(&mut self, opset: &OpLog, merge_frontier: &[Time]) {
+    pub fn merge(&mut self, opset: &OpLog, merge_frontier: &[Time]) {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge

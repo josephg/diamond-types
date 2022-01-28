@@ -81,9 +81,9 @@ impl Branch {
         }
     }
 
-    pub fn merge(&mut self, ops: &OpLog, merge_frontier: &[Time]) {
-        self.merge_changes_m2(ops, merge_frontier);
-    }
+    // pub fn merge(&mut self, ops: &OpLog, merge_frontier: &[Time]) {
+    //     self.merge_changes_m2(ops, merge_frontier);
+    // }
 
     pub fn make_delete_op(&self, pos: usize, del_span: usize) -> Operation {
         assert!(pos + del_span <= self.content.len_chars());

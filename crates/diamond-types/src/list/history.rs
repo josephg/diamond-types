@@ -24,6 +24,10 @@ impl History {
         Self::default()
     }
 
+    pub fn num_entries(&self) -> usize {
+        self.entries.len()
+    }
+
     // This is mostly for testing.
     #[allow(unused)]
     pub(crate) fn from_entries(entries: &[HistoryEntry]) -> Self {

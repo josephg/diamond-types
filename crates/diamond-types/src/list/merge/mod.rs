@@ -14,9 +14,9 @@ use std::pin::Pin;
 use content_tree::{ContentTreeWithIndex, RawPositionMetricsUsize};
 use crate::list::merge::markers::MarkerEntry;
 use crate::list::merge::metrics::MarkerMetrics;
-use crate::list::merge::yjsspan2::YjsSpan2;
+use crate::list::merge::yjsspan::YjsSpan;
 
-mod yjsspan2;
+mod yjsspan;
 mod merge;
 mod markers;
 mod advance_retreat;
@@ -28,7 +28,7 @@ mod fuzzer;
 mod dot;
 
 type DocRangeIndex = MarkerMetrics;
-type CRDTList2 = Pin<Box<ContentTreeWithIndex<YjsSpan2, DocRangeIndex>>>;
+type CRDTList2 = Pin<Box<ContentTreeWithIndex<YjsSpan, DocRangeIndex>>>;
 
 type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry, RawPositionMetricsUsize>>>;
 

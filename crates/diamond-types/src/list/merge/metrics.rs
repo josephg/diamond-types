@@ -1,5 +1,5 @@
 use content_tree::{ContentLength, Cursor, DEFAULT_IE, DEFAULT_LE, FindContent, Pair, TreeMetrics};
-use crate::list::merge::yjsspan2::YjsSpan2;
+use crate::list::merge::yjsspan::YjsSpan;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct MarkerMetrics;
@@ -15,16 +15,16 @@ pub struct MarkerMetrics;
 ///   have been inserted at some point. (This is field 1).
 ///
 /// The current length is tagged as "content length" to make cursor utility methods easier to use.
-impl TreeMetrics<YjsSpan2> for MarkerMetrics {
+impl TreeMetrics<YjsSpan> for MarkerMetrics {
     type Update = Pair<isize>;
     type Value = Pair<usize>;
 
-    fn increment_marker(marker: &mut Self::Update, entry: &YjsSpan2) {
+    fn increment_marker(marker: &mut Self::Update, entry: &YjsSpan) {
         marker.0 += entry.content_len() as isize;
         marker.1 += entry.upstream_len() as isize;
     }
 
-    fn decrement_marker(marker: &mut Self::Update, entry: &YjsSpan2) {
+    fn decrement_marker(marker: &mut Self::Update, entry: &YjsSpan) {
         marker.0 -= entry.content_len() as isize;
         marker.1 -= entry.upstream_len() as isize;
     }
@@ -39,28 +39,28 @@ impl TreeMetrics<YjsSpan2> for MarkerMetrics {
         offset.1 = offset.1.wrapping_add(by.1 as usize);
     }
 
-    fn increment_offset(offset: &mut Self::Value, by: &YjsSpan2) {
+    fn increment_offset(offset: &mut Self::Value, by: &YjsSpan) {
         offset.0 += by.content_len();
         offset.1 += by.upstream_len();
     }
 }
 
-impl FindContent<YjsSpan2> for MarkerMetrics {
+impl FindContent<YjsSpan> for MarkerMetrics {
     fn index_to_content(offset: Self::Value) -> usize {
         offset.0
     }
 }
 
 impl MarkerMetrics {
-    pub(super) fn upstream_len(offset: <Self as TreeMetrics<YjsSpan2>>::Value) -> usize {
+    pub(super) fn upstream_len(offset: <Self as TreeMetrics<YjsSpan>>::Value) -> usize {
         offset.1
     }
 }
 
 /// Get the upstream position of a cursor into a MarkerMetrics object. I'm not sure if this is the
 /// best place for this method, but it'll do.
-pub(super) fn upstream_cursor_pos(cursor: &Cursor<YjsSpan2, MarkerMetrics, DEFAULT_IE, DEFAULT_LE>) -> usize {
+pub(super) fn upstream_cursor_pos(cursor: &Cursor<YjsSpan, MarkerMetrics, DEFAULT_IE, DEFAULT_LE>) -> usize {
     cursor.count_pos_raw(MarkerMetrics::upstream_len,
-                         YjsSpan2::upstream_len,
-                         YjsSpan2::upstream_len_at)
+                         YjsSpan::upstream_len,
+                         YjsSpan::upstream_len_at)
 }

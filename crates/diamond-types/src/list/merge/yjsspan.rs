@@ -20,7 +20,7 @@ pub const DELETED_ONCE: YjsSpanState = YjsSpanState(2);
 
 
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
-pub struct YjsSpan2 {
+pub struct YjsSpan {
     /// The local times for this entry
     pub id: TimeSpan,
 
@@ -88,7 +88,7 @@ impl YjsSpanState {
     }
 }
 
-impl Debug for YjsSpan2 {
+impl Debug for YjsSpan {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("YjsSpan");
         s.field("id", &self.id);
@@ -100,14 +100,14 @@ impl Debug for YjsSpan2 {
     }
 }
 
-impl YjsSpan2 {
+impl YjsSpan {
     pub fn origin_left_at_offset(&self, offset: Time) -> Time {
         if offset == 0 { self.origin_left }
         else { self.id.start + offset - 1 }
     }
 
     pub fn new_underwater() -> Self {
-        YjsSpan2 {
+        YjsSpan {
             id: TimeSpan::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
             origin_left: ROOT_TIME,
             origin_right: ROOT_TIME,
@@ -140,16 +140,16 @@ impl YjsSpan2 {
 //
 // I could make a custom index for this, but I'm gonna be lazy and say content length = current,
 // and "offset length" = upstream.
-impl HasLength for YjsSpan2 {
+impl HasLength for YjsSpan {
     #[inline(always)]
     fn len(&self) -> usize { self.id.len() }
 }
 
-impl SplitableSpan for YjsSpan2 {
+impl SplitableSpan for YjsSpan {
     fn truncate(&mut self, offset: usize) -> Self {
         debug_assert!(offset > 0);
         // let at_signed = offset as i32 * self.len.signum();
-        YjsSpan2 {
+        YjsSpan {
             id: self.id.truncate(offset),
             origin_left: self.id.start + offset - 1,
             origin_right: self.origin_right,
@@ -159,7 +159,7 @@ impl SplitableSpan for YjsSpan2 {
     }
 }
 
-impl MergableSpan for YjsSpan2 {
+impl MergableSpan for YjsSpan {
     // Could have a custom truncate_keeping_right method here - I once did. But the optimizer
     // does a great job flattening the generic implementation anyway.
 
@@ -183,7 +183,7 @@ impl MergableSpan for YjsSpan2 {
     }
 }
 
-impl Searchable for YjsSpan2 {
+impl Searchable for YjsSpan {
     type Item = Time;
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
@@ -195,7 +195,7 @@ impl Searchable for YjsSpan2 {
     }
 }
 
-impl ContentLength for YjsSpan2 {
+impl ContentLength for YjsSpan {
     #[inline(always)]
     fn content_len(&self) -> usize {
         if self.state == INSERTED { self.len() } else { 0 }
@@ -206,7 +206,7 @@ impl ContentLength for YjsSpan2 {
     }
 }
 
-impl Toggleable for YjsSpan2 {
+impl Toggleable for YjsSpan {
     fn is_activated(&self) -> bool {
         self.state == INSERTED
         // self.state == Inserted && !self.ever_deleted
@@ -235,12 +235,12 @@ mod tests {
     #[test]
     fn print_span_sizes() {
         // 40 bytes (compared to just 16 bytes in the older implementation).
-        println!("size of YjsSpan {}", size_of::<YjsSpan2>());
+        println!("size of YjsSpan {}", size_of::<YjsSpan>());
     }
 
     #[test]
     fn yjsspan_entry_valid() {
-        test_splitable_methods_valid(YjsSpan2 {
+        test_splitable_methods_valid(YjsSpan {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
@@ -248,7 +248,7 @@ mod tests {
             ever_deleted: false,
         });
 
-        test_splitable_methods_valid(YjsSpan2 {
+        test_splitable_methods_valid(YjsSpan {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
@@ -256,7 +256,7 @@ mod tests {
             ever_deleted: false
         });
 
-        test_splitable_methods_valid(YjsSpan2 {
+        test_splitable_methods_valid(YjsSpan {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
@@ -268,6 +268,6 @@ mod tests {
     #[ignore]
     #[test]
     fn print_size() {
-        dbg!(std::mem::size_of::<YjsSpan2>());
+        dbg!(std::mem::size_of::<YjsSpan>());
     }
 }
