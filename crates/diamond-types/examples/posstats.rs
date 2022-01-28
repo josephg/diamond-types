@@ -8,14 +8,14 @@
 // $ cargo run --release --features memusage --example stats
 
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
-use diamond_types_positional::list::*;
-use diamond_types_positional::list::operation::*;
+use diamond_types::list::*;
+use diamond_types::list::operation::*;
 
 #[cfg(feature = "memusage")]
-use diamond_types_positional::alloc::*;
+use diamond_types::alloc::*;
 #[cfg(feature = "memusage")]
 use humansize::{FileSize, file_size_opts};
-use diamond_types_positional::list::encoding::EncodeOptions;
+use diamond_types::list::encoding::EncodeOptions;
 
 pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");

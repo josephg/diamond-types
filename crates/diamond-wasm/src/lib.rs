@@ -4,9 +4,9 @@ use smallvec::SmallVec;
 use wasm_bindgen::prelude::*;
 // use serde_wasm_bindgen::Serializer;
 // use serde::{Serialize};
-use diamond_types_positional::{AgentId, ROOT_TIME};
-use diamond_types_positional::list::{ListCRDT, Time, Branch as DTBranch, OpLog as DTOpLog};
-use diamond_types_positional::list::encoding::EncodeOptions;
+use diamond_types::{AgentId, ROOT_TIME};
+use diamond_types::list::{ListCRDT, Time, Branch as DTBranch, OpLog as DTOpLog};
+use diamond_types::list::encoding::EncodeOptions;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.

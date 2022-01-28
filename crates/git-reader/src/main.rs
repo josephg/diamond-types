@@ -7,9 +7,9 @@ use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
 use smallvec::SmallVec;
 
-use diamond_types_positional::list::*;
-use diamond_types_positional::list::encoding::EncodeOptions;
-use diamond_types_positional::list::list::*;
+use diamond_types::list::*;
+use diamond_types::list::encoding::EncodeOptions;
+use diamond_types::list::list::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let repo = Repository::open("/Users/seph/3rdparty/node")?;

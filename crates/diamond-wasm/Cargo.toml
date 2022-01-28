@@ -1,5 +1,5 @@
 [package]
-name = "diamond-wasm-positional"
+name = "diamond-wasm"
 version = "0.1.0"
 authors = ["Seph Gentle <me@josephg.com>"]
 edition = "2021"
@@ -39,7 +39,7 @@ console_error_panic_hook = { version = "0.1.6", optional = true }
 
 #diamond-types = { version = "0.1.0", features = ["serde"] }
 #diamond-core = { path = "../diamond-core" }
-diamond-types-positional = { path = "../diamond-types-positional", features = ["serde"] }
+diamond-types = { path = "../diamond-types", features = ["serde"] }
 
 
 [dev-dependencies]
