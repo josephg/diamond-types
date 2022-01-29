@@ -24,6 +24,7 @@ impl History {
         Self::default()
     }
 
+    #[allow(unused)]
     pub fn num_entries(&self) -> usize {
         self.entries.len()
     }

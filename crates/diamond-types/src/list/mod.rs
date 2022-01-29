@@ -1,7 +1,9 @@
-//! This is a rewrite from diamond type lists to prototype out the positional update approach.
-//! It is not yet feature complete in any way.
+//! This module contains all the code to handle list CRDTs.
 //!
-//! This module should not share any code with list/.
+//! Some code in here will be moved out when diamond types supports more data structures.
+//!
+//! Currently this code only supports lists of unicode characters (text documents). Support for
+//! more data types will be added over time.
 
 use jumprope::JumpRope;
 use smallvec::SmallVec;
@@ -26,7 +28,7 @@ mod merge;
 mod oplog;
 mod branch;
 pub mod encoding;
-mod remote_ids;
+pub mod remote_ids;
 mod internal_op;
 mod eq;
 
@@ -55,6 +57,17 @@ struct ClientData {
     /// agree with the order amongst time spans.
     item_times: RleVec<KVPair<TimeSpan>>,
 }
+
+// TODO!
+// trait InlineReplace<T> {
+//     fn insert(pos: usize, vals: &[T]);
+//     fn remove(pos: usize, num: usize);
+// }
+//
+// trait ListValueType {
+//     type EditableList: InlineReplace<T>;
+//
+// }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Branch {
@@ -97,7 +110,7 @@ pub struct OpLog {
     ///
     /// TODO: Consider renaming this field
     /// TODO: Remove pub marker.
-    pub history: History,
+    history: History,
 
     /// This is the frontier of the entire oplog. So, if you merged every change we store into a
     /// branch, this is the frontier of that branch.

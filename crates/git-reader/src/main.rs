@@ -198,7 +198,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Branch at {:?}", branch.frontier);
 
     // dbg!(&oplog.history.entries.len());
-    println!("Number of entries in history: {}", &oplog.history.num_entries());
+    // println!("Number of entries in history: {}", &oplog.history.num_entries());
 
     let data = oplog.encode(EncodeOptions {
         user_data: None,

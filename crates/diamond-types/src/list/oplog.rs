@@ -212,6 +212,9 @@ impl OpLog {
     //     self.insert_history_internal(txn_parents, range);
     // }
 
+    /// Insert a new history entry for the specified range of patches, and the named parents.
+    ///
+    /// This method will try to extend the last entry if it can.
     pub(crate) fn insert_history(&mut self, txn_parents: &[Time], range: TimeSpan) {
         // Fast path. The code below is weirdly slow, but most txns just append.
         if let Some(last) = self.history.entries.0.last_mut() {
@@ -286,6 +289,7 @@ impl OpLog {
         assert_eq!(will_merge, did_merge);
     }
 
+    /// Advance self.frontier by the named span of time.
     pub(crate) fn advance_frontier(&mut self, parents: &[Time], span: TimeSpan) {
         if parents.len() == 1 && self.frontier.len() == 1 && parents[0] == self.frontier[0] {
             // Short circuit the common case where time is just advancing linearly.
@@ -367,6 +371,15 @@ impl OpLog {
 
     // *** Helpers for pushing at the current version ***
 
+    /// Append local operations to the oplog. This method is used to make local changes to the
+    /// document. Before calling this, first generate an agent ID using
+    /// [`get_or_create_agent_id`](OpLog::get_or_create_agent_id). This method will:
+    ///
+    /// - Store the new operations
+    /// - Assign the operations IDs based on the next available sequence numbers from the specified
+    /// agent
+    /// - Store the operation's parents as the most recent known version. (Use
+    /// [`push_at`](OpLog::push_at) instead when pushing to a branch).
     pub fn push(&mut self, agent: AgentId, ops: &[Operation]) -> Time {
         // TODO: Rewrite this to avoid the .clone().
         let frontier = self.frontier.clone();
@@ -374,16 +387,19 @@ impl OpLog {
     }
 
     /// Returns the single item frontier after the inserted change.
+    /// This is a shorthand for `oplog.push(agent, *insert(pos, content)*)`
     /// TODO: Optimize these functions like push_insert_at / push_delete_at.
     pub fn push_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
         self.push(agent, &[Operation::new_insert(pos, ins_content)])
     }
 
     /// Returns the single item frontier after the inserted change.
+    /// This is a shorthand for `oplog.push(agent, *delete(pos, del_span)*)`
     pub fn push_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
         self.push(agent, &[Operation::new_delete(pos, del_span)])
     }
 
+    ///
     pub fn iter_history(&self) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
         self.history.entries.iter().map(|e| e.into())
     }
