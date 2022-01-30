@@ -134,7 +134,7 @@ impl M2Tracker {
     }
 
     // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
-    pub(super) fn integrate(&mut self, opset: &OpLog, agent: AgentId, item: YjsSpan, mut cursor: UnsafeCursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
+    pub(super) fn integrate(&mut self, oplog: &OpLog, agent: AgentId, item: YjsSpan, mut cursor: UnsafeCursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
         assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
@@ -173,16 +173,16 @@ impl M2Tracker {
                 Ordering::Equal => {
                     if item.origin_right == other_entry.origin_right {
                         // Origin_right matches. Items are concurrent. Order by agent names.
-                        let my_name = opset.get_agent_name(agent);
-                        let other_loc = opset.client_with_localtime.get(other_order);
-                        let other_name = opset.get_agent_name(other_loc.agent);
+                        let my_name = oplog.get_agent_name(agent);
+                        let other_loc = oplog.client_with_localtime.get(other_order);
+                        let other_name = oplog.get_agent_name(other_loc.agent);
 
                         // Its possible for a user to conflict with themself if they commit to
                         // multiple branches. In this case, sort by seq number.
                         let ins_here = match my_name.cmp(other_name) {
                             Ordering::Less => true,
                             Ordering::Equal => {
-                                opset.time_to_crdt_id(item.id.start) < opset.time_to_crdt_id(other_entry.id.start)
+                                oplog.time_to_crdt_id(item.id.start) < oplog.time_to_crdt_id(other_entry.id.start)
                             }
                             Ordering::Greater => false,
                         };
@@ -247,13 +247,13 @@ impl M2Tracker {
         content_pos
     }
 
-    fn apply_range(&mut self, opset: &OpLog, range: TimeSpan, mut to: Option<&mut Branch>) {
+    fn apply_range(&mut self, oplog: &OpLog, range: TimeSpan, mut to: Option<&mut Branch>) {
         if range.is_empty() { return; }
 
-        for (mut pair, mut content) in opset.iter_range(range) {
+        for (mut pair, mut content) in oplog.iter_range(range) {
             loop {
                 // let span = list.get_crdt_span(TimeSpan { start: pair.0, end: pair.0 + pair.1.len });
-                let span = opset.get_crdt_span(pair.span());
+                let span = oplog.get_crdt_span(pair.span());
                 let len = span.len();
                 if len < pair.1.len() {
                     // This is awful. TODO: Clean this up.
@@ -261,15 +261,15 @@ impl M2Tracker {
                     // context to OperationInternal.
                     let old_key = pair.0;
                     pair.0 += len;
-                    let trimmed = pair.1.truncate_keeping_right(len, opset.content_str(pair.1.tag));
+                    let trimmed = pair.1.truncate_keeping_right(len, oplog.content_str(pair.1.tag));
                     let local_pair = KVPair(old_key, trimmed);
 
                     // let local_pair = pair.truncate_keeping_right(len);
                     let local_content = take_content(content.as_mut(), len);
 
-                    self.apply(opset, span.agent, &local_pair, local_content, to.as_deref_mut());
+                    self.apply(oplog, span.agent, &local_pair, local_content, to.as_deref_mut());
                 } else {
-                    self.apply(opset, span.agent, &pair, content, to.as_deref_mut());
+                    self.apply(oplog, span.agent, &pair, content, to.as_deref_mut());
                     break;
                 }
             }
@@ -293,10 +293,10 @@ impl M2Tracker {
     /// | NotInsYet | Before     | After       |
     /// | Inserted  | After      | Before      |
     /// | Deleted   | Before     | Before      |
-    fn apply(&mut self, opset: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, content: Option<&str>, mut to: Option<&mut Branch>) {
+    fn apply(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, content: Option<&str>, mut to: Option<&mut Branch>) {
         if let Some(to) = to.as_deref_mut() {
             // TODO: It might be more efficient to do this all at once
-            advance_frontier_by(&mut to.frontier, &opset.history, op_pair.span());
+            advance_frontier_by(&mut to.frontier, &oplog.history, op_pair.span());
         }
 
         // self.check_index();
@@ -360,7 +360,7 @@ impl M2Tracker {
 
                 // This is dirty because the cursor's lifetime is not associated with self.
                 let cursor = cursor.inner;
-                let ins_pos = self.integrate(opset, agent, item, cursor);
+                let ins_pos = self.integrate(oplog, agent, item, cursor);
 
                 let mut result = op.clone();
                 result.span.span.start = ins_pos;
@@ -422,7 +422,7 @@ impl M2Tracker {
                         // dbg!(*time, &target);
 
                         // Deletes must always dominate item they're deleting in the time dag.
-                        assert!(opset.history.frontier_contains_time(&[*time], target.start));
+                        assert!(oplog.history.frontier_contains_time(&[*time], target.start));
                     }
 
                     if let Some(to) = to.as_deref_mut() {
@@ -472,8 +472,8 @@ impl M2Tracker {
     ///
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
-    fn walk(&mut self, opset: &OpLog, start_at: Frontier, rev_spans: &[TimeSpan], mut apply_to: Option<&mut Branch>) -> Frontier {
-        let mut walker = SpanningTreeWalker::new(&opset.history, rev_spans, start_at);
+    fn walk(&mut self, oplog: &OpLog, start_at: Frontier, rev_spans: &[TimeSpan], mut apply_to: Option<&mut Branch>) -> Frontier {
+        let mut walker = SpanningTreeWalker::new(&oplog.history, rev_spans, start_at);
 
         for walk in &mut walker {
             // dbg!(&walk);
@@ -486,7 +486,7 @@ impl M2Tracker {
             }
 
             debug_assert!(!walk.consume.is_empty());
-            self.apply_range(opset, walk.consume, apply_to.as_deref_mut());
+            self.apply_range(oplog, walk.consume, apply_to.as_deref_mut());
         }
 
         walker.into_frontier()
@@ -497,7 +497,7 @@ impl Branch {
     /// Add everything in merge_frontier into the set.
     ///
     /// Reexposed as merge_changes.
-    pub fn merge(&mut self, opset: &OpLog, merge_frontier: &[Time]) {
+    pub fn merge(&mut self, oplog: &OpLog, merge_frontier: &[Time]) {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
@@ -524,7 +524,7 @@ impl Branch {
         let mut shared_size = 0;
         let mut shared_ranges = 0;
 
-        let mut common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
+        let mut common_ancestor = oplog.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
             // Note we'll be visiting these operations in reverse order.
 
             if flag == Flag::Shared {
@@ -558,7 +558,7 @@ impl Branch {
             // let filename = format!("../../svgs/m{}_to_{}.svg", s1, s2);
             let filename = format!("svgs/m{}_to_{}.svg", s1, s2);
             let content = self.content.to_string();
-            opset.make_merge_graph(&filename, &content, dbg_all_ops.iter().copied());
+            oplog.make_merge_graph(&filename, &content, dbg_all_ops.iter().copied());
             println!("Saved graph to {}", filename);
         }
 
@@ -574,7 +574,7 @@ impl Branch {
         if ALLOW_FF {
             loop {
                 if let Some(span) = new_ops.last() {
-                    let txn = opset.history.entries.find_packed(span.start);
+                    let txn = oplog.history.entries.find_packed(span.start);
                     let can_ff = txn.with_parents(span.start, |parents| {
                         // Previously this said:
                         //   self.frontier == txn.parents
@@ -586,7 +586,7 @@ impl Branch {
                         let mut span = new_ops.pop().unwrap();
                         let remainder = span.trim(txn.span.end - span.start);
                         // println!("FF {:?}", &span);
-                        self.apply_range_from(opset, span);
+                        self.apply_range_from(oplog, span);
                         conflict_ops.push(span);
                         self.frontier = smallvec![span.last()];
 
@@ -611,7 +611,7 @@ impl Branch {
             // We don't need to reset new_ops because that was updated above.
             conflict_ops.clear();
             shared_size = 0;
-            common_ancestor = opset.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
+            common_ancestor = oplog.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
                 if flag == Flag::Shared {
                     shared_size += span.len();
                     shared_ranges += 1;
@@ -636,10 +636,10 @@ impl Branch {
         // containing the conflicting_ops set. (Which is everything that is either common, or only
         // in this branch).
         let mut tracker = M2Tracker::new();
-        let frontier = tracker.walk(opset, common_ancestor, &conflict_ops, None);
+        let frontier = tracker.walk(oplog, common_ancestor, &conflict_ops, None);
 
         // Then walk through and merge any new edits.
-        tracker.walk(opset, frontier, &new_ops, Some(self));
+        tracker.walk(oplog, frontier, &new_ops, Some(self));
 
         // ... And update our frontier.
         // for range in new_ops.into_iter().rev() {

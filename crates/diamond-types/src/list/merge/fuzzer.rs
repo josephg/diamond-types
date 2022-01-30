@@ -12,7 +12,7 @@ pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
     str
 }
 
-fn make_random_change_raw(opset: &mut OpLog, branch: &Branch, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> Time {
+fn make_random_change_raw(oplog: &mut OpLog, branch: &Branch, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> Time {
     let doc_len = branch.len();
     let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
     let v = if doc_len == 0 || rng.gen_bool(insert_weight) {
@@ -26,7 +26,7 @@ fn make_random_change_raw(opset: &mut OpLog, branch: &Branch, rope: Option<&mut 
         if let Some(rope) = rope {
             rope.insert(pos, content.as_str());
         }
-        opset.push_insert_at(agent, &branch.frontier, pos, &content)
+        oplog.push_insert_at(agent, &branch.frontier, pos, &content)
     } else {
         // Delete something
         let pos = rng.gen_range(0..doc_len);
@@ -40,11 +40,11 @@ fn make_random_change_raw(opset: &mut OpLog, branch: &Branch, rope: Option<&mut 
 
         // I'm using this rather than push_delete to preserve the deleted content.
         let op = branch.make_delete_op(pos, span);
-        opset.push_at(agent, &branch.frontier, &[op])
+        oplog.push_at(agent, &branch.frontier, &[op])
         // doc.local_delete(agent, pos, span)
     };
     // dbg!(&doc.markers);
-    opset.check(false);
+    oplog.check(false);
     v
 }
 
@@ -75,13 +75,13 @@ fn random_single_document() {
 
 fn merge_fuzz(seed: u64, verbose: bool) {
     let mut rng = SmallRng::seed_from_u64(seed);
-    let mut opset = OpLog::new();
+    let mut oplog = OpLog::new();
     let mut branches = [Branch::new(), Branch::new(), Branch::new()];
 
     // Each document will have a different local agent ID. I'm cheating here - just making agent
     // 0 for all of them.
     for i in 0..branches.len() {
-        opset.get_or_create_agent_id(format!("agent {}", i).as_str());
+        oplog.get_or_create_agent_id(format!("agent {}", i).as_str());
     }
 
     for _i in 0..300 {
@@ -93,10 +93,10 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             let branch = &mut branches[idx];
 
             // This should + does also work if we set idx=0 and use the same agent for all changes.
-            let v = make_random_change_raw(&mut opset, branch, None, idx as AgentId, &mut rng);
+            let v = make_random_change_raw(&mut oplog, branch, None, idx as AgentId, &mut rng);
             // dbg!(opset.iter_range((v..v+1).into()).next().unwrap());
 
-            branch.merge(&opset, &[v]);
+            branch.merge(&oplog, &[v]);
             // make_random_change(doc, None, 0, &mut rng);
             // println!("branch {} content '{}'", idx, &branch.content);
         }
@@ -128,13 +128,13 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             // dbg!(&opset);
 
             if verbose { println!("Merge b to a: {:?} -> {:?}", &b.frontier, &a.frontier); }
-            a.merge(&opset, &b.frontier);
+            a.merge(&oplog, &b.frontier);
             if verbose {
                 println!("-> a content '{}'\n", a.content);
             }
 
             if verbose { println!("Merge a to b: {:?} -> {:?}", &a.frontier, &b.frontier); }
-            b.merge(&opset, &a.frontier);
+            b.merge(&oplog, &a.frontier);
             if verbose {
                 println!("-> b content '{}'", b.content);
             }
@@ -161,10 +161,10 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             // Every little while, merge everything. This has 2 purposes:
             // 1. It stops the fuzzer being n^2. (Its really unfortunate we need this)
             // And 2. It makes sure n-way merging also works correctly.
-            let all_frontier = opset.frontier.as_slice();
+            let all_frontier = oplog.frontier.as_slice();
 
             for b in branches.iter_mut() {
-                b.merge(&opset, all_frontier);
+                b.merge(&oplog, all_frontier);
             }
             for w in branches.windows(2) {
                 assert_eq!(w[0].content, w[1].content);

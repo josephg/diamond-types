@@ -1,4 +1,4 @@
-/// This is a helper library for iterating through the time DAG (opset) in a depth-first order.
+/// This is a helper library for iterating through the time DAG (oplog) in a depth-first order.
 /// This is better than naive local-time order because if operations are structured like this:
 ///
 /// ```text

@@ -9,11 +9,11 @@ use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
-fn insert_history_local(opset: &mut OpLog, frontier: &mut Frontier, range: TimeSpan) {
+fn insert_history_local(oplog: &mut OpLog, frontier: &mut Frontier, range: TimeSpan) {
     // Fast path for local edits. For some reason the code below is remarkably non-performant.
     // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
     if frontier.len() == 1 && frontier[0] == range.start.wrapping_sub(1) {
-        if let Some(last) = opset.history.entries.0.last_mut() {
+        if let Some(last) = oplog.history.entries.0.last_mut() {
             last.span.end = range.end;
             frontier[0] = range.last();
             return;
@@ -22,7 +22,7 @@ fn insert_history_local(opset: &mut OpLog, frontier: &mut Frontier, range: TimeS
 
     // Otherwise use the slow version.
     let txn_parents = replace(frontier, smallvec![range.last()]);
-    opset.insert_history(&txn_parents, range);
+    oplog.insert_history(&txn_parents, range);
 }
 
 // Slow / small version.
@@ -74,14 +74,14 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
 }
 
 // TODO: Give these methods some love, and avoid constructing Operation at all here.
-pub fn local_insert(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, ins_content: &str) -> Time {
-    apply_local_operation(opset, branch, agent, &[Operation::new_insert(pos, ins_content)])
+pub fn local_insert(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, ins_content: &str) -> Time {
+    apply_local_operation(oplog, branch, agent, &[Operation::new_insert(pos, ins_content)])
 }
-pub fn local_delete(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) -> Time {
-    apply_local_operation(opset, branch, agent, &[Operation::new_delete(pos, del_span)])
+pub fn local_delete(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) -> Time {
+    apply_local_operation(oplog, branch, agent, &[Operation::new_delete(pos, del_span)])
 }
-pub fn local_delete_with_content(opset: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) -> Time {
-    apply_local_operation(opset, branch, agent, &[branch.make_delete_op(pos, del_span)])
+pub fn local_delete_with_content(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) -> Time {
+    apply_local_operation(oplog, branch, agent, &[branch.make_delete_op(pos, del_span)])
 }
 
 impl Default for ListCRDT {
