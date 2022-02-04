@@ -6,6 +6,7 @@ use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::list::{Branch, OpLog, Time};
 use crate::rle::{KVPair, RleVec};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
+use crate::list::frontier::frontier_is_root;
 use crate::list::internal_op::OperationInternal;
 use crate::localtime::TimeSpan;
 
@@ -262,7 +263,7 @@ impl Branch {
     }
 
     #[allow(unused)] // TODO: Remove annotation.
-    fn write_branch(&self, dest: &mut Vec<u8>, map: &mut AgentMapping, oplog: &OpLog) {
+    fn write(&self, dest: &mut Vec<u8>, map: &mut AgentMapping, oplog: &OpLog) {
         // Frontier
         Self::write_frontier(dest, &self.frontier, map, oplog);
 
@@ -469,8 +470,16 @@ impl OpLog {
 
         // This nominally needs to happen before we write out agent_mapping.
         // TODO: Support partial data sets. (from_frontier)
-        // let mut start_branch = Vec::new();
-        // Branch::write_frontier(&mut start_branch, from_frontier, &mut agent_mapping, self);
+        let mut start_branch = Vec::new();
+        if frontier_is_root(from_frontier) {
+            // Optimization. TODO: Check if this is worth it.
+            Branch::write_frontier(&mut start_branch, from_frontier, &mut agent_mapping, self);
+            Branch::write_content_str(&mut start_branch, "");
+        } else {
+            let branch_here = Branch::new_at_frontier(self, &from_frontier);
+            dbg!(&branch_here);
+            branch_here.write(&mut start_branch, &mut agent_mapping, self);
+        }
         // Branch::write_content_str(&mut start_branch, ""); // TODO - support non-root!
 
         // TODO: The fileinfo chunk should specify encoding version and information
@@ -488,7 +497,7 @@ impl OpLog {
         write_chunk(Chunk::FileInfo, &mut buf);
 
         // *** Start Branch - which was filled in above. ***
-        // write_chunk(Chunk::StartBranch, &mut start_branch);
+        write_chunk(Chunk::StartBranch, &mut start_branch);
 
         // *** Patches ***
         // I'll just assemble it in buf. There's a lot of sloppy use of vec<u8>'s in here.

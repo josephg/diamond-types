@@ -23,6 +23,15 @@ pub trait RleSpanHelpers: RleKeyed + HasLength {
 
 impl<V: RleKeyed + HasLength> RleSpanHelpers for V {}
 
+pub trait RleKeyedAndSplitable: RleKeyed + SplitableSpan {
+    #[inline(always)]
+    fn truncate_keeping_right_from(&mut self, at: usize) -> Self {
+        self.truncate_keeping_right(at - self.rle_key())
+    }
+}
+
+impl<V: RleKeyed + SplitableSpan> RleKeyedAndSplitable for V {}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct KVPair<V>(pub usize, pub V);
 

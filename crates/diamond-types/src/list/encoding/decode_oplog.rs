@@ -8,10 +8,11 @@ use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::localtime::TimeSpan;
 use crate::rev_span::TimeSpanRev;
-use crate::{AgentId, ROOT_TIME};
+use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::unicount::consume_chars;
 use ParseError::*;
 use crate::remotespan::{CRDTId, CRDTSpan};
+use crate::rle::{RleKeyedAndSplitable, RleSpanHelpers};
 
 #[derive(Debug)]
 struct BufReader<'a>(&'a [u8]);
@@ -252,10 +253,16 @@ impl<'a> BufReader<'a> {
         loop {
             // let agent = self.next_str()?;
             let (mapped_agent, has_more) = strip_bit_usize(self.next_usize()?);
-            let agent = agent_map[mapped_agent].0;
             let seq = self.next_usize()?;
 
-            let time = oplog.crdt_id_to_time(CRDTId { agent, seq });
+            let id = if mapped_agent == 0 {
+                CRDTId { agent: ROOT_AGENT, seq: 0 }
+            } else {
+                let agent = agent_map[mapped_agent - 1].0;
+                CRDTId { agent, seq }
+            };
+
+            let time = oplog.crdt_id_to_time(id);
             result.push(time);
 
             if !has_more { break; }
@@ -293,6 +300,22 @@ impl<'a> BufReader<'a> {
     //
     //     Ok(result)
     // }
+}
+
+// This is a simple wrapper to give us an iterator for agent assignments. The
+struct AgentAssignments<'a>(BufReader<'a>, &'a mut [(AgentId, usize)]);
+impl<'a> Iterator for AgentAssignments<'a> {
+    type Item = Result<CRDTSpan, ParseError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Convert Result<Option<...>> to Option<Result<...>>. There's probably a better way to do
+        // this.
+        match self.0.read_next_agent_assignment(self.1) {
+            Ok(Some(val)) => Some(Ok(val)),
+            Ok(None) => None,
+            Err(err) => Some(Err(err))
+        }
+    }
 }
 
 // I could just pass &mut last_cursor_pos to a flat read() function. Eh. Once again, generators
@@ -388,30 +411,31 @@ impl OpLog {
             return Err(UnsupportedProtocolVersion);
         }
 
-        let mut fileinfo = reader.expect_chunk(Chunk::FileInfo)?;
-        // fileinfo has UserData and AgentNames.
-
-        let _userdata = fileinfo.read_chunk(Chunk::UserData)?;
-        let mut agent_names_chunk = fileinfo.expect_chunk(Chunk::AgentNames)?;
-
-        // Map from agent IDs in the file (idx) to agent IDs in self, and the seq cursors.
-        //
-        // This will usually just be 0,1,2,3,4...
-        //
-        // 0 implicitly maps to ROOT.
-        // let mut file_to_self_agent_map = vec![(ROOT_AGENT, 0)];
         let mut file_to_self_agent_map = Vec::new();
-        while !agent_names_chunk.0.is_empty() {
-            let name = agent_names_chunk.next_str()?;
-            let id = self.get_or_create_agent_id(name);
-            file_to_self_agent_map.push((id, 0));
+
+        // *** FileInfo ***
+        {
+            let mut fileinfo = reader.expect_chunk(Chunk::FileInfo)?;
+            // fileinfo has UserData and AgentNames.
+
+            let _userdata = fileinfo.read_chunk(Chunk::UserData)?;
+            let mut agent_names_chunk = fileinfo.expect_chunk(Chunk::AgentNames)?;
+
+            // Map from agent IDs in the file (idx) to agent IDs in self, and the seq cursors.
+            //
+            // This will usually just be 0,1,2,3,4...
+            //
+            // 0 implicitly maps to ROOT.
+            // let mut file_to_self_agent_map = vec![(ROOT_AGENT, 0)];
+            while !agent_names_chunk.0.is_empty() {
+                let name = agent_names_chunk.next_str()?;
+                let id = self.get_or_create_agent_id(name);
+                file_to_self_agent_map.push((id, 0));
+            }
         }
 
-        // Done with fileinfo.
-        drop(fileinfo);
-
         // *** StartBranch ***
-        if let Some(mut start_branch) = reader.read_chunk(Chunk::StartBranch)? {
+        let start_frontier = if let Some(mut start_branch) = reader.read_chunk(Chunk::StartBranch)? {
             let mut start_frontier_chunk = start_branch.expect_chunk(Chunk::Frontier)?;
             let frontier = start_frontier_chunk.read_frontier(&self, &file_to_self_agent_map).map_err(|e| {
                 // We can't read a frontier if it names agents or sequence numbers we haven't seen
@@ -421,136 +445,180 @@ impl OpLog {
                 } else { e }
             })?;
 
-            let data_overlapping = !frontier_eq(&frontier, &self.frontier);
+            Some(frontier)
+        } else { None };
 
-            // Usually the version data will be strictly separated. Either we're loading data into an
-            // empty document, or we've been sent catchup data from a remote peer. If the data set
-            // overlaps, we need to actively filter out operations & txns from that data set.
-            if data_overlapping { todo!("Overlapping data sets not implemented!"); }
-        }
+        // Usually the version data will be strictly separated. Either we're loading data into an
+        // empty document, or we've been sent catchup data from a remote peer. If the data set
+        // overlaps, we need to actively filter out operations & txns from that data set.
+        let patches_overlap = start_frontier.map_or(true, |f|
+            !frontier_eq(&f, &self.frontier)
+        );
+        dbg!(patches_overlap);
 
         // *** Patches ***
-        // This chunk contains the actual set of edits to the document.
-        let mut patch_chunk = reader.expect_chunk(Chunk::Patches)?;
+        {
+            // This chunk contains the actual set of edits to the document.
+            let mut patch_chunk = reader.expect_chunk(Chunk::Patches)?;
 
-        let mut ins_content = None;
-        let mut del_content = None;
+            let mut ins_content = None;
+            let mut del_content = None;
 
-        if let Some(chunk) = patch_chunk.read_chunk(Chunk::InsertedContent)? {
-            // let decompressed_len = content_chunk.next_usize()?;
-            // let decompressed_data = lz4_flex::decompress(content_chunk.0, decompressed_len).unwrap();
-            // let content = String::from_utf8(decompressed_data).unwrap();
-            //     // .map_err(InvalidUTF8)?;
+            if let Some(chunk) = patch_chunk.read_chunk(Chunk::InsertedContent)? {
+                // let decompressed_len = content_chunk.next_usize()?;
+                // let decompressed_data = lz4_flex::decompress(content_chunk.0, decompressed_len).unwrap();
+                // let content = String::from_utf8(decompressed_data).unwrap();
+                //     // .map_err(InvalidUTF8)?;
 
-            ins_content = Some(std::str::from_utf8(chunk.0)
-                .map_err(InvalidUTF8)?);
-        }
-
-        if let Some(chunk) = patch_chunk.read_chunk(Chunk::DeletedContent)? {
-            del_content = Some(std::str::from_utf8(chunk.0)
-                .map_err(InvalidUTF8)?);
-        }
-
-        let mut agent_assignment_chunk = patch_chunk.expect_chunk(Chunk::AgentAssignment)?;
-
-        // The file we're loading has a list of operations. The list's item order is shared in a
-        // handful of lists of data - agent assignment, operations, content and txns.
-        let first_new_time = self.len();
-        let mut next_time = first_new_time;
-        while let Some(crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut file_to_self_agent_map)? {
-            // dbg!(crdt_span);
-            if crdt_span.agent as usize >= self.client_data.len() {
-                return Err(ParseError::InvalidLength);
+                ins_content = Some(std::str::from_utf8(chunk.0)
+                    .map_err(InvalidUTF8)?);
             }
 
-            // TODO: When I enable partial loads, this will need to filter operations.
-            // let span = TimeSpan { start: next_time, end: next_time + crdt_span.len };
-            self.assign_next_time_to_crdt_span(next_time, crdt_span);
-            // next_time = span.end;
-            next_time += crdt_span.len();
-        }
-
-        // We'll count the lengths in each section to make sure they all match up with each other.
-        let final_agent_assignment_len = next_time;
-
-        // *** Content and Patches ***
-
-
-        let pos_patches_chunk = patch_chunk.expect_chunk(Chunk::PositionalPatches)?;
-        let mut next_time = first_new_time;
-        for op in ReadPatchesIter::new(pos_patches_chunk) {
-            let op = op?;
-            let len = op.len();
-            let content = switch(op.tag, &mut ins_content, &mut del_content);
-
-            // TODO: Check this split point is valid.
-            let content_here = content.as_mut()
-                .map(|content| consume_chars(content, len));
-
-            // self.operations.push(KVPair(next_time, op));
-            self.push_op_internal(next_time, op.span, op.tag, content_here);
-            next_time += len;
-        }
-
-        let final_patches_len = next_time;
-        if final_agent_assignment_len != final_patches_len { return Err(InvalidLength); }
-
-        if let Some(content) = ins_content {
-            if !content.is_empty() {
-                return Err(InvalidContent);
+            if let Some(chunk) = patch_chunk.read_chunk(Chunk::DeletedContent)? {
+                del_content = Some(std::str::from_utf8(chunk.0)
+                    .map_err(InvalidUTF8)?);
             }
-        }
 
-        // *** History ***
-        let mut history_chunk = patch_chunk.expect_chunk(Chunk::TimeDAG)?;
+            // So note that the file we're loading from may contain changes we already have locally.
+            // We (may) need to filter out operations from the patch stream, which we read from
+            // below. To do that without extra need to read both the agent assignments and patches together.
+            let mut agent_assignment_chunk = patch_chunk.expect_chunk(Chunk::AgentAssignment)?;
 
-        let mut next_time = first_new_time;
-        while !history_chunk.is_empty() {
-            let len = history_chunk.next_usize()?;
-            // println!("len {}", len);
+            // The file we're loading has a list of operations. The list's item order is shared in a
+            // handful of lists of data - agent assignment, operations, content and txns.
+            let first_new_time = self.len();
+            let mut next_time = first_new_time;
+            while let Some(mut crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut file_to_self_agent_map)? {
+                // dbg!(crdt_span);
+                if crdt_span.agent as usize >= self.client_data.len() {
+                    return Err(ParseError::InvalidLength);
+                }
 
-            let mut parents = Frontier::new();
-            // And read parents.
-            loop {
-                let mut n = history_chunk.next_usize()?;
-                let is_foreign = strip_bit_usize2(&mut n);
-                let has_more = strip_bit_usize2(&mut n);
+                if patches_overlap {
+                    // Sooo, if the current document overlaps with the data we're loading, we need
+                    // to filter out all the operations we already have from the stream.
+                    while !crdt_span.seq_range.is_empty() {
+                        // dbg!(&crdt_span);
+                        let client = &self.client_data[crdt_span.agent as usize];
+                        let (span, _offset) = client.item_times.find_sparse(crdt_span.seq_range.start);
+                        match span {
+                            Ok(entry) => {
+                                // Skip the entry.
+                                crdt_span.seq_range.start = crdt_span.seq_range.end.min(entry.end());
+                                // println!("Skip to {}", crdt_span.seq_range.start);
+                            }
+                            Err(empty_span) => {
+                                let end = crdt_span.seq_range.end.min(empty_span.end);
 
-                let parent = if is_foreign {
-                    if n == 0 {
-                        ROOT_TIME
-                    } else {
-                        let agent = file_to_self_agent_map[n - 1].0;
-                        let seq = history_chunk.next_usize()?;
-                        if let Some(c) = self.client_data.get(agent as usize) {
-                            c.try_seq_to_time(seq).ok_or(InvalidLength)?
-                        } else {
-                            return Err(InvalidLength);
+                                let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
+                                // println!("consume {:?} (agent {})", consume_here, crdt_span.agent);
+                                // dbg!(consume_here);
+
+                                self.assign_next_time_to_crdt_span(next_time, CRDTSpan {
+                                    agent: crdt_span.agent,
+                                    seq_range: consume_here
+                                });
+                                next_time += consume_here.len();
+                                // dbg!(&crdt_span);
+                            }
                         }
                     }
+                    // dbg!(span);
                 } else {
-                    // Local parents (parents inside this chunk of data) are stored using their
-                    // local time offset.
-                    next_time - n
-                };
+                    // Optimization - don't bother with the filtering code above if loaded changes
+                    // follow local changes. Most calls to this function load into an empty
+                    // document, and this is the case.
+                    self.assign_next_time_to_crdt_span(next_time, crdt_span);
+                    next_time += crdt_span.len();
+                }
 
-                parents.push(parent);
-                if !has_more { break; }
+                // if !consume_everything &&
+
+                // TODO: When I enable partial loads, this will need to filter operations.
+                // self.assign_next_time_to_crdt_span(next_time, crdt_span);
+                // next_time += crdt_span.len();
             }
 
-            // Bleh its gross passing a &[Time] into here when we have a Frontier already.
-            let span: TimeSpan = (next_time..next_time + len).into();
+            // We'll count the lengths in each section to make sure they all match up with each other.
+            let final_agent_assignment_len = next_time;
 
-            // println!("{}-{} parents {:?}", span.start, span.end, parents);
+            // *** Content and Patches ***
+            let pos_patches_chunk = patch_chunk.expect_chunk(Chunk::PositionalPatches)?;
+            let mut next_time = first_new_time;
+            for op in ReadPatchesIter::new(pos_patches_chunk) {
+                let op = op?;
+                let len = op.len();
+                let content = switch(op.tag, &mut ins_content, &mut del_content);
 
-            self.insert_history(&parents, span);
-            self.advance_frontier(&parents, span);
+                // TODO: Check this split point is valid.
+                let content_here = content.as_mut()
+                    .map(|content| consume_chars(content, len));
 
-            next_time += len;
-        }
+                // self.operations.push(KVPair(next_time, op));
+                self.push_op_internal(next_time, op.span, op.tag, content_here);
+                next_time += len;
+            }
 
-        let final_history_len = next_time;
-        if final_history_len != final_patches_len { return Err(InvalidLength); }
+            let final_patches_len = next_time;
+            if final_agent_assignment_len != final_patches_len { return Err(InvalidLength); }
+
+            if let Some(content) = ins_content {
+                if !content.is_empty() {
+                    return Err(InvalidContent);
+                }
+            }
+
+            // *** History ***
+            let mut history_chunk = patch_chunk.expect_chunk(Chunk::TimeDAG)?;
+
+            let mut next_time = first_new_time;
+            while !history_chunk.is_empty() {
+                let len = history_chunk.next_usize()?;
+                // println!("len {}", len);
+
+                let mut parents = Frontier::new();
+                // And read parents.
+                loop {
+                    let mut n = history_chunk.next_usize()?;
+                    let is_foreign = strip_bit_usize2(&mut n);
+                    let has_more = strip_bit_usize2(&mut n);
+
+                    let parent = if is_foreign {
+                        if n == 0 {
+                            ROOT_TIME
+                        } else {
+                            let agent = file_to_self_agent_map[n - 1].0;
+                            let seq = history_chunk.next_usize()?;
+                            if let Some(c) = self.client_data.get(agent as usize) {
+                                c.try_seq_to_time(seq).ok_or(InvalidLength)?
+                            } else {
+                                return Err(InvalidLength);
+                            }
+                        }
+                    } else {
+                        // Local parents (parents inside this chunk of data) are stored using their
+                        // local time offset.
+                        next_time - n
+                    };
+
+                    parents.push(parent);
+                    if !has_more { break; }
+                }
+
+                // Bleh its gross passing a &[Time] into here when we have a Frontier already.
+                let span: TimeSpan = (next_time..next_time + len).into();
+
+                // println!("{}-{} parents {:?}", span.start, span.end, parents);
+
+                self.insert_history(&parents, span);
+                self.advance_frontier(&parents, span);
+
+                next_time += len;
+            }
+
+            let final_history_len = next_time;
+            if final_history_len != final_patches_len { return Err(InvalidLength); }
+        } // End of patches
 
         // TODO: Move checksum check to the start, so if it fails we don't modify the document.
         let reader_len = reader.0.len();
@@ -634,7 +702,25 @@ mod tests {
         let mut d2 = OpLog::new();
         d2 = d2.merge_data(&data_1).unwrap();
         d2 = d2.merge_data(&data_2).unwrap();
-        dbg!(&doc.ops, &d2);
+
+        assert_eq!(&d2, &doc.ops);
+        // dbg!(&doc.ops, &d2);
+    }
+
+    #[test]
+    #[ignore]
+    fn merge_parts() {
+        let mut oplog = OpLog::new();
+        oplog.get_or_create_agent_id("seph");
+        oplog.push_insert(0, 0, "hi");
+        let data_1 = oplog.encode(EncodeOptions::default());
+        oplog.push_insert(0, 2, " there");
+        let data_2 = oplog.encode(EncodeOptions::default());
+
+        let log2 = OpLog::load_from(&data_1).unwrap();
+        println!("\n------\n");
+        let log2 = log2.merge_data(&data_2).unwrap();
+        assert_eq!(&oplog, &log2);
     }
 
     #[test]
