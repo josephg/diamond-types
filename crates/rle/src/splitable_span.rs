@@ -173,6 +173,33 @@ impl<T: Clone + Eq> MergableSpan for RleRun<T> {
     }
 }
 
+impl<T, E> SplitableSpan for Result<T, E> where T: SplitableSpan + Clone, E: Clone {
+    fn truncate(&mut self, at: usize) -> Self {
+        match self {
+            Ok(v) => Result::Ok(v.truncate(at)),
+            Err(e) => Result::Err(e.clone())
+        }
+    }
+}
+
+impl<T, E> HasLength for Result<T, E> where T: HasLength, Result<T, E>: Clone {
+    fn len(&self) -> usize {
+        match self {
+            Ok(val) => val.len(),
+            Err(_) => 1
+        }
+    }
+}
+
+impl<V> SplitableSpan for Option<V> where V: SplitableSpan {
+    fn truncate(&mut self, at: usize) -> Self {
+        match self {
+            None => None,
+            Some(v) => Some(v.truncate(at))
+        }
+    }
+}
+
 // This will implement SplitableSpan for u8, u16, u32, u64, u128, usize
 // impl<T: Add<Output=T> + Sub + Copy + Eq> SplitableSpan for Range<T>
 // where usize: From<<T as Sub>::Output>, T: From<usize>

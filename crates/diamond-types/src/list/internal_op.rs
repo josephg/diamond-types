@@ -89,6 +89,16 @@ impl HasLength for OperationInternal {
     }
 }
 
+impl SplitableSpan for OperationInternal {
+    fn truncate(&mut self, at: usize) -> Self {
+        Self {
+            span: self.span.truncate(at),
+            tag: self.tag,
+            content_pos: self.content_pos.truncate(at)
+        }
+    }
+}
+
 impl TimeSpanRev {
     // These are 3 versions of essentially the same function. TODO: decide which version of this
     // logic to keep. (Only keep 1!).
@@ -204,9 +214,22 @@ impl MergableSpan for OperationInternal {
 
 #[cfg(test)]
 mod test {
+    use rle::test_splitable_methods_valid;
+    use crate::list::internal_op::OperationInternal;
     use crate::list::operation::InsDelTag;
     use crate::localtime::TimeSpan;
     use crate::rev_span::TimeSpanRev;
+
+    #[test]
+    fn internal_op_splitable() {
+        let op = OperationInternal {
+            span: (10..20).into(),
+            tag: InsDelTag::Ins,
+            content_pos: Some((1000..1010).into()),
+        };
+
+        test_splitable_methods_valid(op);
+    }
 
     #[test]
     #[allow(dead_code)] // Don't complain about unused fields.

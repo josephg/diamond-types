@@ -1,16 +1,18 @@
 use std::str::Utf8Error;
+use smallvec::SmallVec;
 use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
-use crate::list::{Frontier, OpLog, switch};
+use crate::list::{Frontier, OpLog, switch, Time};
 use crate::list::remote_ids::ConversionError;
 use crate::list::frontier::{frontier_eq, frontier_is_sorted};
 use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::localtime::TimeSpan;
 use crate::rev_span::TimeSpanRev;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::unicount::consume_chars;
 use ParseError::*;
+use rle::take_max_iter::TakeMaxFns;
+use crate::list::history::MinimalHistoryEntry;
 use crate::remotespan::{CRDTId, CRDTSpan};
 use crate::rle::{RleKeyedAndSplitable, RleSpanHelpers};
 
@@ -300,6 +302,45 @@ impl<'a> BufReader<'a> {
     //
     //     Ok(result)
     // }
+
+    fn next_history_entry(&mut self, next_time: Time, agent_map: &[(AgentId, usize)], oplog: &OpLog) -> Result<MinimalHistoryEntry, ParseError> {
+        let mut parents = SmallVec::<[usize; 2]>::new();
+
+        let len = self.next_usize()?;
+        // And read parents.
+        loop {
+            let mut n = self.next_usize()?;
+            let is_foreign = strip_bit_usize2(&mut n);
+            let has_more = strip_bit_usize2(&mut n);
+
+            let parent = if is_foreign {
+                if n == 0 {
+                    ROOT_TIME
+                } else {
+                    let agent = agent_map[n - 1].0;
+                    let seq = self.next_usize()?;
+                    if let Some(c) = oplog.client_data.get(agent as usize) {
+                        c.try_seq_to_time(seq).ok_or(InvalidLength)?
+                    } else {
+                        return Err(InvalidLength);
+                    }
+                }
+            } else {
+                // Local parents (parents inside this chunk of data) are stored using their
+                // local time offset.
+                next_time - n
+            };
+
+            parents.push(parent);
+            if !has_more { break; }
+        }
+
+        // Bleh its gross passing a &[Time] into here when we have a Frontier already.
+        Ok(MinimalHistoryEntry {
+            span: (next_time..next_time + len).into(),
+            parents
+        })
+    }
 }
 
 // This is a simple wrapper to give us an iterator for agent assignments. The
@@ -483,12 +524,48 @@ impl OpLog {
             // We (may) need to filter out operations from the patch stream, which we read from
             // below. To do that without extra need to read both the agent assignments and patches together.
             let mut agent_assignment_chunk = patch_chunk.expect_chunk(Chunk::AgentAssignment)?;
+            let pos_patches_chunk = patch_chunk.expect_chunk(Chunk::PositionalPatches)?;
+
+            let mut iter = ReadPatchesIter::new(pos_patches_chunk)
+                .take_max();
+
+            let first_new_time = self.len();
+            let mut next_patch_time = first_new_time;
+
+            // Take and merge the next exactly n patches
+            let mut parse_next_patches = |oplog: &mut OpLog, mut n: usize, keep: bool| -> Result<(), ParseError> {
+                while n > 0 {
+                    if let Some(op) = iter.next(n) {
+                        let op = op?;
+                        dbg!((n, &op));
+                        let len = op.len();
+                        assert!(op.len() > 0);
+                        n -= len;
+
+                        let content = switch(op.tag, &mut ins_content, &mut del_content);
+
+                        // TODO: Check this split point is valid.
+                        let content_here = content.as_mut()
+                            .map(|content| consume_chars(content, len));
+
+                        // self.operations.push(KVPair(next_time, op));
+                        if keep {
+                            oplog.push_op_internal(next_patch_time, op.span, op.tag, content_here);
+                            next_patch_time += len;
+                        }
+                    } else {
+                        return Err(InvalidLength);
+                    }
+                }
+
+                Ok(())
+            };
 
             // The file we're loading has a list of operations. The list's item order is shared in a
             // handful of lists of data - agent assignment, operations, content and txns.
-            let first_new_time = self.len();
-            let mut next_time = first_new_time;
+            let mut next_assignment_time = first_new_time;
             while let Some(mut crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut file_to_self_agent_map)? {
+                // let mut crdt_span = crdt_span; // TODO: Remove me. Blerp clion.
                 // dbg!(crdt_span);
                 if crdt_span.agent as usize >= self.client_data.len() {
                     return Err(ParseError::InvalidLength);
@@ -504,21 +581,25 @@ impl OpLog {
                         match span {
                             Ok(entry) => {
                                 // Skip the entry.
-                                crdt_span.seq_range.start = crdt_span.seq_range.end.min(entry.end());
+                                let end = crdt_span.seq_range.end.min(entry.end());
+                                let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
                                 // println!("Skip to {}", crdt_span.seq_range.start);
+                                parse_next_patches(&mut self, consume_here.len(), false)?;
                             }
                             Err(empty_span) => {
+                                // Consume the entry
                                 let end = crdt_span.seq_range.end.min(empty_span.end);
 
                                 let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
                                 // println!("consume {:?} (agent {})", consume_here, crdt_span.agent);
                                 // dbg!(consume_here);
 
-                                self.assign_next_time_to_crdt_span(next_time, CRDTSpan {
+                                self.assign_next_time_to_crdt_span(next_assignment_time, CRDTSpan {
                                     agent: crdt_span.agent,
                                     seq_range: consume_here
                                 });
-                                next_time += consume_here.len();
+                                parse_next_patches(&mut self, consume_here.len(), true)?;
+                                next_assignment_time += consume_here.len();
                                 // dbg!(&crdt_span);
                             }
                         }
@@ -528,8 +609,9 @@ impl OpLog {
                     // Optimization - don't bother with the filtering code above if loaded changes
                     // follow local changes. Most calls to this function load into an empty
                     // document, and this is the case.
-                    self.assign_next_time_to_crdt_span(next_time, crdt_span);
-                    next_time += crdt_span.len();
+                    self.assign_next_time_to_crdt_span(next_assignment_time, crdt_span);
+                    parse_next_patches(&mut self, crdt_span.len(), true)?;
+                    next_assignment_time += crdt_span.len();
                 }
 
                 // if !consume_everything &&
@@ -540,27 +622,7 @@ impl OpLog {
             }
 
             // We'll count the lengths in each section to make sure they all match up with each other.
-            let final_agent_assignment_len = next_time;
-
-            // *** Content and Patches ***
-            let pos_patches_chunk = patch_chunk.expect_chunk(Chunk::PositionalPatches)?;
-            let mut next_time = first_new_time;
-            for op in ReadPatchesIter::new(pos_patches_chunk) {
-                let op = op?;
-                let len = op.len();
-                let content = switch(op.tag, &mut ins_content, &mut del_content);
-
-                // TODO: Check this split point is valid.
-                let content_here = content.as_mut()
-                    .map(|content| consume_chars(content, len));
-
-                // self.operations.push(KVPair(next_time, op));
-                self.push_op_internal(next_time, op.span, op.tag, content_here);
-                next_time += len;
-            }
-
-            let final_patches_len = next_time;
-            if final_agent_assignment_len != final_patches_len { return Err(InvalidLength); }
+            if next_patch_time != next_assignment_time { return Err(InvalidLength); }
 
             if let Some(content) = ins_content {
                 if !content.is_empty() {
@@ -571,53 +633,61 @@ impl OpLog {
             // *** History ***
             let mut history_chunk = patch_chunk.expect_chunk(Chunk::TimeDAG)?;
 
-            let mut next_time = first_new_time;
+            let mut next_history_time = first_new_time;
+            // let process_history = |oplog: &OpLog, mut n: usize| -> Result<(), ParseError> {
+            //
+            //     todo!()
+            // };
+
             while !history_chunk.is_empty() {
-                let len = history_chunk.next_usize()?;
-                // println!("len {}", len);
+                let entry = history_chunk.next_history_entry(next_history_time, &file_to_self_agent_map, &self)?;
 
-                let mut parents = Frontier::new();
-                // And read parents.
-                loop {
-                    let mut n = history_chunk.next_usize()?;
-                    let is_foreign = strip_bit_usize2(&mut n);
-                    let has_more = strip_bit_usize2(&mut n);
-
-                    let parent = if is_foreign {
-                        if n == 0 {
-                            ROOT_TIME
-                        } else {
-                            let agent = file_to_self_agent_map[n - 1].0;
-                            let seq = history_chunk.next_usize()?;
-                            if let Some(c) = self.client_data.get(agent as usize) {
-                                c.try_seq_to_time(seq).ok_or(InvalidLength)?
-                            } else {
-                                return Err(InvalidLength);
-                            }
-                        }
-                    } else {
-                        // Local parents (parents inside this chunk of data) are stored using their
-                        // local time offset.
-                        next_time - n
-                    };
-
-                    parents.push(parent);
-                    if !has_more { break; }
-                }
-
-                // Bleh its gross passing a &[Time] into here when we have a Frontier already.
-                let span: TimeSpan = (next_time..next_time + len).into();
+                // let len = history_chunk.next_usize()?;
+                // // println!("len {}", len);
+                //
+                // let mut parents = Frontier::new();
+                // // And read parents.
+                // loop {
+                //     let mut n = history_chunk.next_usize()?;
+                //     let is_foreign = strip_bit_usize2(&mut n);
+                //     let has_more = strip_bit_usize2(&mut n);
+                //
+                //     let parent = if is_foreign {
+                //         if n == 0 {
+                //             ROOT_TIME
+                //         } else {
+                //             let agent = file_to_self_agent_map[n - 1].0;
+                //             let seq = history_chunk.next_usize()?;
+                //             if let Some(c) = self.client_data.get(agent as usize) {
+                //                 c.try_seq_to_time(seq).ok_or(InvalidLength)?
+                //             } else {
+                //                 return Err(InvalidLength);
+                //             }
+                //         }
+                //     } else {
+                //         // Local parents (parents inside this chunk of data) are stored using their
+                //         // local time offset.
+                //         next_history_time - n
+                //     };
+                //
+                //     parents.push(parent);
+                //     if !has_more { break; }
+                // }
+                //
+                // // Bleh its gross passing a &[Time] into here when we have a Frontier already.
+                // let span: TimeSpan = (next_history_time..next_history_time + len).into();
 
                 // println!("{}-{} parents {:?}", span.start, span.end, parents);
 
-                self.insert_history(&parents, span);
-                self.advance_frontier(&parents, span);
+                self.insert_history(&entry.parents, entry.span);
+                self.advance_frontier(&entry.parents, entry.span);
+                // self.insert_history(&parents, span);
+                // self.advance_frontier(&parents, span);
 
-                next_time += len;
+                next_history_time += entry.len();
             }
 
-            let final_history_len = next_time;
-            if final_history_len != final_patches_len { return Err(InvalidLength); }
+            if next_history_time != next_assignment_time { return Err(InvalidLength); }
         } // End of patches
 
         // TODO: Move checksum check to the start, so if it fails we don't modify the document.
