@@ -11,6 +11,7 @@ use crate::rev_span::TimeSpanRev;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::unicount::consume_chars;
 use ParseError::*;
+use rle::iter_ctx::IteratorWithCtx;
 use rle::take_max_iter::TakeMaxFns;
 use crate::list::history::MinimalHistoryEntry;
 use crate::remotespan::{CRDTId, CRDTSpan};
@@ -303,7 +304,7 @@ impl<'a> BufReader<'a> {
     //     Ok(result)
     // }
 
-    fn next_history_entry(&mut self, next_time: Time, agent_map: &[(AgentId, usize)], oplog: &OpLog) -> Result<MinimalHistoryEntry, ParseError> {
+    fn next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<MinimalHistoryEntry, ParseError> {
         let mut parents = SmallVec::<[usize; 2]>::new();
 
         let len = self.next_usize()?;
@@ -341,9 +342,27 @@ impl<'a> BufReader<'a> {
             parents
         })
     }
+
+    fn try_next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Option<Result<MinimalHistoryEntry, ParseError>> {
+        if self.is_empty() { return None; }
+        Some(self.next_history_entry(oplog, next_time, agent_map))
+    }
+}
+
+//  Result<MinimalHistoryEntry, ParseError> {
+#[derive(Debug)]
+struct HistoryEntries<'a>(BufReader<'a>);
+impl<'a, 'b> IteratorWithCtx<'b> for HistoryEntries<'a> {
+    type Item = Result<MinimalHistoryEntry, ParseError>;
+    type Ctx = (&'b OpLog, Time, &'b [(AgentId, usize)]);
+
+    fn next_ctx(&mut self, ctx: Self::Ctx) -> Option<Self::Item> {
+        self.0.try_next_history_entry(ctx.0, ctx.1, ctx.2)
+    }
 }
 
 // This is a simple wrapper to give us an iterator for agent assignments. The
+#[derive(Debug)]
 struct AgentAssignments<'a>(BufReader<'a>, &'a mut [(AgentId, usize)]);
 impl<'a> Iterator for AgentAssignments<'a> {
     type Item = Result<CRDTSpan, ParseError>;
@@ -639,50 +658,11 @@ impl OpLog {
             //     todo!()
             // };
 
-            while !history_chunk.is_empty() {
-                let entry = history_chunk.next_history_entry(next_history_time, &file_to_self_agent_map, &self)?;
-
-                // let len = history_chunk.next_usize()?;
-                // // println!("len {}", len);
-                //
-                // let mut parents = Frontier::new();
-                // // And read parents.
-                // loop {
-                //     let mut n = history_chunk.next_usize()?;
-                //     let is_foreign = strip_bit_usize2(&mut n);
-                //     let has_more = strip_bit_usize2(&mut n);
-                //
-                //     let parent = if is_foreign {
-                //         if n == 0 {
-                //             ROOT_TIME
-                //         } else {
-                //             let agent = file_to_self_agent_map[n - 1].0;
-                //             let seq = history_chunk.next_usize()?;
-                //             if let Some(c) = self.client_data.get(agent as usize) {
-                //                 c.try_seq_to_time(seq).ok_or(InvalidLength)?
-                //             } else {
-                //                 return Err(InvalidLength);
-                //             }
-                //         }
-                //     } else {
-                //         // Local parents (parents inside this chunk of data) are stored using their
-                //         // local time offset.
-                //         next_history_time - n
-                //     };
-                //
-                //     parents.push(parent);
-                //     if !has_more { break; }
-                // }
-                //
-                // // Bleh its gross passing a &[Time] into here when we have a Frontier already.
-                // let span: TimeSpan = (next_history_time..next_history_time + len).into();
-
-                // println!("{}-{} parents {:?}", span.start, span.end, parents);
-
+            let mut iter = HistoryEntries(history_chunk);
+            while let Some(entry) = iter.next_ctx((&self, next_history_time, &file_to_self_agent_map)) {
+                let entry = entry?;
                 self.insert_history(&entry.parents, entry.span);
                 self.advance_frontier(&entry.parents, entry.span);
-                // self.insert_history(&parents, span);
-                // self.advance_frontier(&parents, span);
 
                 next_history_time += entry.len();
             }
@@ -778,7 +758,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn merge_parts() {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
