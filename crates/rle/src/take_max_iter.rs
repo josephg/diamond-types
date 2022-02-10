@@ -1,36 +1,32 @@
 //! This file implements an iterator which can take up to n items at a time from a splitablespan
 //! iterator.
 
-use std::marker::PhantomData;
 use crate::{HasLength, SplitableSpan};
-use crate::iter_ctx::IteratorWithCtx;
 
 #[derive(Clone, Debug)]
-pub struct TakeMaxIter<'a, Iter, Item, Ctx>
-    where Iter: IteratorWithCtx<'a, Item = Item, Ctx=Ctx>, Item: SplitableSpan + HasLength, Ctx: 'a
+pub struct TakeMaxIter<Iter, Item>
+    where Iter: Iterator<Item = Item>, Item: SplitableSpan + HasLength
 {
     iter: Iter,
     remainder: Option<Item>,
-    _phantom: PhantomData<&'a Ctx> // Gross.
 }
 
-impl<'a, Iter, Item, Ctx> TakeMaxIter<'a, Iter, Item, Ctx>
-    where Iter: IteratorWithCtx<'a, Item = Item, Ctx=Ctx>, Item: SplitableSpan + HasLength
+impl<Iter, Item> TakeMaxIter<Iter, Item>
+    where Iter: Iterator<Item = Item>, Item: SplitableSpan + HasLength
 {
     pub fn new(iter: Iter) -> Self {
         Self {
             iter,
             remainder: None,
-            _phantom: Default::default()
         }
     }
 
     #[inline]
-    pub fn next_with_ctx(&mut self, ctx: Ctx, max_size: usize) -> Option<Item> {
+    pub fn next(&mut self, max_size: usize) -> Option<Item> {
         let mut chunk = if let Some(r) = self.remainder.take() {
             r
         } else {
-            if let Some(r) = self.iter.next_ctx(ctx) {
+            if let Some(r) = self.iter.next() {
                 r
             } else {
                 return None;
@@ -46,25 +42,25 @@ impl<'a, Iter, Item, Ctx> TakeMaxIter<'a, Iter, Item, Ctx>
     }
 }
 
-impl<'a, Iter, Item> TakeMaxIter<'a, Iter, Item, ()>
-    where Iter: IteratorWithCtx<'a, Item = Item, Ctx=()>, Item: SplitableSpan + HasLength
-{
-    #[inline]
-    pub fn next(&mut self, max_size: usize) -> Option<Item> {
-        self.next_with_ctx((), max_size)
-    }
-}
+// impl<Iter, Item> TakeMaxIter<Iter, Item, ()>
+//     where Iter: Iterator<Item = Item, Ctx=()>, Item: SplitableSpan + HasLength
+// {
+//     #[inline]
+//     pub fn next(&mut self, max_size: usize) -> Option<Item> {
+//         self.next_ctx((), max_size)
+//     }
+// }
 
-pub trait TakeMaxFns<'a, I, Ctx>
-    where Self: IteratorWithCtx<'a, Item = I, Ctx = Ctx> + Sized, I: SplitableSpan + HasLength
+pub trait TakeMaxFns<I>
+    where Self: Iterator<Item = I> + Sized, I: SplitableSpan + HasLength
 {
-    fn take_max(self) -> TakeMaxIter<'a, Self, I, Ctx> {
+    fn take_max(self) -> TakeMaxIter<Self, I> {
         TakeMaxIter::new(self)
     }
 }
 
-impl<'a, Iter, Item, Ctx> TakeMaxFns<'a, Item, Ctx> for Iter
-    where Iter: IteratorWithCtx<'a, Item = Item, Ctx = Ctx>, Item: SplitableSpan + HasLength {}
+impl<Iter, Item> TakeMaxFns<Item> for Iter
+    where Iter: Iterator<Item = Item>, Item: SplitableSpan + HasLength {}
 
 #[cfg(test)]
 mod tests {
