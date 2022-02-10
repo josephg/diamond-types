@@ -11,8 +11,7 @@ use crate::rev_span::TimeSpanRev;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::unicount::consume_chars;
 use ParseError::*;
-use rle::iter_ctx::IteratorWithCtx;
-use rle::take_max_iter::TakeMaxFns;
+use rle::take_max_iter::{Rem, TakeMaxFns};
 use crate::list::history::MinimalHistoryEntry;
 use crate::remotespan::{CRDTId, CRDTSpan};
 use crate::rle::{RleKeyedAndSplitable, RleSpanHelpers};
@@ -65,6 +64,11 @@ impl<'a> BufReader<'a> {
 
     fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    fn expect_empty(&self) -> Result<(), ParseError> {
+        if self.is_empty() { Ok(()) }
+        else { Err(InvalidLength) }
     }
 
     #[allow(unused)]
@@ -343,23 +347,32 @@ impl<'a> BufReader<'a> {
         })
     }
 
-    fn try_next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Option<Result<MinimalHistoryEntry, ParseError>> {
-        if self.is_empty() { return None; }
-        Some(self.next_history_entry(oplog, next_time, agent_map))
-    }
+    // fn try_next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Option<Result<MinimalHistoryEntry, ParseError>> {
+    //     if self.is_empty() { return None; }
+    //     Some(self.next_history_entry(oplog, next_time, agent_map))
+    // }
 }
 
 //  Result<MinimalHistoryEntry, ParseError> {
-#[derive(Debug)]
-struct HistoryEntries<'a>(BufReader<'a>);
-impl<'a, 'b> IteratorWithCtx<'b> for HistoryEntries<'a> {
-    type Item = Result<MinimalHistoryEntry, ParseError>;
-    type Ctx = (&'b OpLog, Time, &'b [(AgentId, usize)]);
+// #[derive(Debug)]
+// struct HistoryEntries<'a>(BufReader<'a>);
+//
+// impl<'a> HistoryEntries<'a> {
+//     fn next_ctx(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Option<Self::Item> {
+//         self.0.try_next_history_entry(oplog, next_time, agent_map)
+//     }
+// }
 
-    fn next_ctx(&mut self, ctx: Self::Ctx) -> Option<Self::Item> {
-        self.0.try_next_history_entry(ctx.0, ctx.1, ctx.2)
-    }
-}
+//     type Item = Result<MinimalHistoryEntry, ParseError>;
+//     type Ctx = (&'b OpLog, Time, &'b [(AgentId, usize)]);
+//
+//     fn next_ctx(&mut self, ctx: Self::Ctx) -> Option<Self::Item> {
+//         self.0.try_next_history_entry(ctx.0, ctx.1, ctx.2)
+//     }
+// }
+
+
+
 
 // This is a simple wrapper to give us an iterator for agent assignments. The
 #[derive(Debug)]
@@ -544,12 +557,19 @@ impl OpLog {
             // below. To do that without extra need to read both the agent assignments and patches together.
             let mut agent_assignment_chunk = patch_chunk.expect_chunk(Chunk::AgentAssignment)?;
             let pos_patches_chunk = patch_chunk.expect_chunk(Chunk::PositionalPatches)?;
+            let mut history_chunk = patch_chunk.expect_chunk(Chunk::TimeDAG)?;
 
             let mut iter = ReadPatchesIter::new(pos_patches_chunk)
                 .take_max();
 
             let first_new_time = self.len();
             let mut next_patch_time = first_new_time;
+
+            // The file we're loading has a list of operations. The list's item order is shared in a
+            // handful of lists of data - agent assignment, operations, content and txns.
+            let mut next_assignment_time = first_new_time;
+            let mut next_history_time = first_new_time;
+
 
             // Take and merge the next exactly n patches
             let mut parse_next_patches = |oplog: &mut OpLog, mut n: usize, keep: bool| -> Result<(), ParseError> {
@@ -580,9 +600,29 @@ impl OpLog {
                 Ok(())
             };
 
-            // The file we're loading has a list of operations. The list's item order is shared in a
-            // handful of lists of data - agent assignment, operations, content and txns.
-            let mut next_assignment_time = first_new_time;
+            // let mut hist_entry_skip = 0;
+            let mut next_hist_entry = Rem::new();
+
+            let mut parse_next_history = |oplog: &mut OpLog, agent_map: &[(AgentId, usize)], mut n: usize, keep: bool| -> Result<(), ParseError> {
+                while n > 0 {
+                    let entry = next_hist_entry.take_max_result(n, || {
+                        history_chunk.next_history_entry(oplog, next_history_time, &agent_map)
+                    })?;
+
+                    dbg!(&entry);
+
+                    if keep {
+                        oplog.insert_history(&entry.parents, entry.span);
+                        oplog.advance_frontier(&entry.parents, entry.span);
+                        next_history_time += entry.len();
+                    }
+
+                    n -= entry.len();
+                }
+                Ok(())
+            };
+
+
             while let Some(mut crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut file_to_self_agent_map)? {
                 // let mut crdt_span = crdt_span; // TODO: Remove me. Blerp clion.
                 // dbg!(crdt_span);
@@ -597,31 +637,56 @@ impl OpLog {
                         // dbg!(&crdt_span);
                         let client = &self.client_data[crdt_span.agent as usize];
                         let (span, _offset) = client.item_times.find_sparse(crdt_span.seq_range.start);
-                        match span {
-                            Ok(entry) => {
-                                // Skip the entry.
-                                let end = crdt_span.seq_range.end.min(entry.end());
-                                let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
-                                // println!("Skip to {}", crdt_span.seq_range.start);
-                                parse_next_patches(&mut self, consume_here.len(), false)?;
-                            }
-                            Err(empty_span) => {
-                                // Consume the entry
-                                let end = crdt_span.seq_range.end.min(empty_span.end);
+                        let (span_end, keep) = match span {
+                            // Skip the entry.
+                            Ok(entry) => (entry.end(), false),
+                            // Consume the entry
+                            Err(empty_span) => (empty_span.end, true),
+                        };
 
-                                let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
-                                // println!("consume {:?} (agent {})", consume_here, crdt_span.agent);
-                                // dbg!(consume_here);
+                        let end = crdt_span.seq_range.end.min(span_end);
+                        let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
 
-                                self.assign_next_time_to_crdt_span(next_assignment_time, CRDTSpan {
-                                    agent: crdt_span.agent,
-                                    seq_range: consume_here
-                                });
-                                parse_next_patches(&mut self, consume_here.len(), true)?;
-                                next_assignment_time += consume_here.len();
-                                // dbg!(&crdt_span);
-                            }
+                        if keep {
+                            self.assign_next_time_to_crdt_span(next_assignment_time, CRDTSpan {
+                                agent: crdt_span.agent,
+                                seq_range: consume_here
+                            });
+                            next_assignment_time += consume_here.len();
                         }
+
+                        parse_next_patches(&mut self, consume_here.len(), keep)?;
+
+                        // And deal with history.
+                        parse_next_history(&mut self, &file_to_self_agent_map, consume_here.len(), keep)?;
+
+
+                        // match span {
+                        //     Ok(entry) => {
+                        //         // Skip the entry.
+                        //         let end = crdt_span.seq_range.end.min(entry.end());
+                        //         let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
+                        //         // println!("Skip to {}", crdt_span.seq_range.start);
+                        //         parse_next_patches(&mut self, consume_here.len(), false)?;
+                        //     }
+                        //     Err(empty_span) => {
+                        //         // Consume the entry
+                        //         let end = crdt_span.seq_range.end.min(empty_span.end);
+                        //
+                        //         let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
+                        //         // println!("consume {:?} (agent {})", consume_here, crdt_span.agent);
+                        //         // dbg!(consume_here);
+                        //
+                        //         self.assign_next_time_to_crdt_span(next_assignment_time, CRDTSpan {
+                        //             agent: crdt_span.agent,
+                        //             seq_range: consume_here
+                        //         });
+                        //         parse_next_patches(&mut self, consume_here.len(), true)?;
+                        //         next_assignment_time += consume_here.len();
+                        //         // dbg!(&crdt_span);
+                        //     }
+                        // }
+
                     }
                     // dbg!(span);
                 } else {
@@ -629,8 +694,11 @@ impl OpLog {
                     // follow local changes. Most calls to this function load into an empty
                     // document, and this is the case.
                     self.assign_next_time_to_crdt_span(next_assignment_time, crdt_span);
-                    parse_next_patches(&mut self, crdt_span.len(), true)?;
-                    next_assignment_time += crdt_span.len();
+                    let len = crdt_span.len();
+                    parse_next_patches(&mut self, len, true)?;
+                    parse_next_history(&mut self, &file_to_self_agent_map, len, true)?;
+
+                    next_assignment_time += len;
                 }
 
                 // if !consume_everything &&
@@ -642,6 +710,11 @@ impl OpLog {
 
             // We'll count the lengths in each section to make sure they all match up with each other.
             if next_patch_time != next_assignment_time { return Err(InvalidLength); }
+            if next_patch_time != next_history_time { return Err(InvalidLength); }
+
+            dbg!(&patch_chunk);
+            patch_chunk.expect_empty()?;
+            history_chunk.expect_empty()?;
 
             if let Some(content) = ins_content {
                 if !content.is_empty() {
@@ -650,24 +723,38 @@ impl OpLog {
             }
 
             // *** History ***
-            let mut history_chunk = patch_chunk.expect_chunk(Chunk::TimeDAG)?;
 
-            let mut next_history_time = first_new_time;
-            // let process_history = |oplog: &OpLog, mut n: usize| -> Result<(), ParseError> {
+            // let mut next_history_time = first_new_time;
+
+
+            // let mut iter = HistoryEntries(history_chunk).take_max();
+            // let mut iter = HistoryEntries(history_chunk);
+
+            // let mut process_history = |oplog: &mut OpLog, mut n: usize, map: &mut [(AgentId, usize)]| -> Result<(), ParseError> {
+            //     if let Some(entry) = iter.next_ctx((oplog, next_history_time, map), n) {
+            //     // if let Some(entry) = iter.next_ctx((oplog, next_history_time, map)) {
+            //         let entry = entry?;
+            //         oplog.insert_history(&entry.parents, entry.span);
+            //         oplog.advance_frontier(&entry.parents, entry.span);
             //
-            //     todo!()
+            //         next_history_time += entry.len();
+            //     } else {
+            //         println!("blerp");
+            //     }
+            //     Ok(())
             // };
 
-            let mut iter = HistoryEntries(history_chunk);
-            while let Some(entry) = iter.next_ctx((&self, next_history_time, &file_to_self_agent_map)) {
-                let entry = entry?;
-                self.insert_history(&entry.parents, entry.span);
-                self.advance_frontier(&entry.parents, entry.span);
+            // process_history(&mut self, 1000, &mut file_to_self_agent_map)?;
 
-                next_history_time += entry.len();
-            }
+            // while let Some(entry) = iter.next_ctx((&self, next_history_time, &file_to_self_agent_map)) {
+            //     let entry = entry?;
+            //     self.insert_history(&entry.parents, entry.span);
+            //     self.advance_frontier(&entry.parents, entry.span);
+            //
+            //     next_history_time += entry.len();
+            // }
 
-            if next_history_time != next_assignment_time { return Err(InvalidLength); }
+            // if next_history_time != next_assignment_time { return Err(InvalidLength); }
         } // End of patches
 
         // TODO: Move checksum check to the start, so if it fails we don't modify the document.
@@ -758,6 +845,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn merge_parts() {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");

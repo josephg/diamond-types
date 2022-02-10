@@ -3,12 +3,56 @@
 
 use crate::{HasLength, SplitableSpan};
 
+#[derive(Debug, Clone)]
+pub struct Rem<T: SplitableSpan + HasLength>(Option<T>);
+
+impl<T: SplitableSpan + HasLength> Rem<T> {
+    pub fn new() -> Self {
+        Self(None)
+    }
+
+    pub fn take_max_opt<F: FnOnce() -> Option<T>>(&mut self, max_size: usize, f: F) -> Option<T> {
+        let mut chunk = if let Some(r) = self.0.take() {
+            r
+        } else {
+            f()?
+            // if let Some(r) = f() {
+            //     r
+            // } else {
+            //     return None;
+            // }
+        };
+
+        if chunk.len() > max_size {
+            let new_remainder = chunk.truncate(max_size);
+            self.0 = Some(new_remainder);
+        }
+
+        Some(chunk)
+    }
+
+    pub fn take_max_result<E, F: FnOnce() -> Result<T, E>>(&mut self, max_size: usize, f: F) -> Result<T, E> {
+        let mut chunk = if let Some(r) = self.0.take() {
+            r
+        } else {
+            f()?
+        };
+
+        if chunk.len() > max_size {
+            let new_remainder = chunk.truncate(max_size);
+            self.0 = Some(new_remainder);
+        }
+
+        Ok(chunk)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TakeMaxIter<Iter, Item>
     where Iter: Iterator<Item = Item>, Item: SplitableSpan + HasLength
 {
     iter: Iter,
-    remainder: Option<Item>,
+    remainder: Rem<Item>
 }
 
 impl<Iter, Item> TakeMaxIter<Iter, Item>
@@ -17,28 +61,15 @@ impl<Iter, Item> TakeMaxIter<Iter, Item>
     pub fn new(iter: Iter) -> Self {
         Self {
             iter,
-            remainder: None,
+            remainder: Rem::new(),
         }
     }
 
     #[inline]
     pub fn next(&mut self, max_size: usize) -> Option<Item> {
-        let mut chunk = if let Some(r) = self.remainder.take() {
-            r
-        } else {
-            if let Some(r) = self.iter.next() {
-                r
-            } else {
-                return None;
-            }
-        };
-
-        if chunk.len() > max_size {
-            let new_remainder = chunk.truncate(max_size);
-            self.remainder = Some(new_remainder);
-        }
-
-        Some(chunk)
+        self.remainder.take_max_opt(max_size, || {
+            self.iter.next()
+        })
     }
 }
 
