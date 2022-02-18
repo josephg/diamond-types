@@ -61,46 +61,6 @@ fn checksum(data: &[u8]) -> u32 {
     crc::Crc::<u32>::new(&crc::CRC_32_ISCSI).checksum(data)
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
-struct Run<V: Clone + PartialEq + Eq> {
-    val: V,
-    len: usize,
-}
-
-impl<V: Clone + PartialEq + Eq> HasLength for Run<V> {
-    fn len(&self) -> usize { self.len }
-}
-impl<V: Clone + PartialEq + Eq> SplitableSpan for Run<V> {
-    fn truncate(&mut self, at: usize) -> Self {
-        let remainder = Self {
-            len: self.len - at,
-            val: self.val.clone()
-        };
-        self.len = at;
-        remainder
-    }
-}
-impl<V: Clone + PartialEq + Eq> MergableSpan for Run<V> {
-    fn can_append(&self, other: &Self) -> bool { self.val == other.val }
-    fn append(&mut self, other: Self) { self.len += other.len; }
-    fn prepend(&mut self, other: Self) { self.len += other.len; }
-}
-
-// Works, but unused.
-// fn push_run_u32(into: &mut Vec<u8>, run: Run<u32>) {
-//     let mut dest = [0u8; 15];
-//     let mut pos = 0;
-//     let send_length = run.len != 1;
-//     let n = mix_bit_u32(run.val, send_length);
-//     pos += encode_u32(n, &mut dest[..]);
-//     // pos += encode_u32_with_extra_bit(run.val, run.len != 1, &mut dest[..]);
-//     if send_length {
-//         pos += encode_usize(run.len, &mut dest[pos..]);
-//     }
-//
-//     into.extend_from_slice(&dest[..pos]);
-// }
-
 // #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]

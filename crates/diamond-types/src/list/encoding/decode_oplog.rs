@@ -26,13 +26,14 @@ pub enum ParseError {
     InvalidMagic,
     UnsupportedProtocolVersion,
     InvalidChunkHeader,
-    UnexpectedChunk {
-        // I could use Chunk here, but I'd rather not expose them publicly.
-        // expected: Chunk,
-        // actual: Chunk,
-        expected: u32,
-        actual: u32,
-    },
+    MissingChunk(u32),
+    // UnexpectedChunk {
+    //     // I could use Chunk here, but I'd rather not expose them publicly.
+    //     // expected: Chunk,
+    //     // actual: Chunk,
+    //     expected: u32,
+    //     actual: u32,
+    // },
     InvalidLength,
     UnexpectedEOF,
     // TODO: Consider elidiing the details here to keep the wasm binary small.
@@ -175,17 +176,15 @@ impl<'a> BufReader<'a> {
     }
 
     fn expect_chunk(&mut self, expect_chunk_type: Chunk) -> Result<BufReader<'a>, ParseError> {
-        let (actual_chunk_type, r) = self.next_chunk()?;
-        if expect_chunk_type != actual_chunk_type {
-            dbg!(expect_chunk_type, actual_chunk_type);
-
-            return Err(UnexpectedChunk {
-                expected: expect_chunk_type as _,
-                actual: actual_chunk_type as _,
-            });
+        // Scan chunks until we find expect_chunk_type. Error if the chunk is missing from the file.
+        while !self.is_empty() {
+            let (actual_chunk_type, r) = self.next_chunk()?;
+            if expect_chunk_type == actual_chunk_type {
+                // dbg!(expect_chunk_type, actual_chunk_type);
+                return Ok(r);
+            }
         }
-
-        Ok(r)
+        Err(MissingChunk(expect_chunk_type as _))
     }
 
     // Note the result is attached to the lifetime 'a, not the lifetime of self.
@@ -198,20 +197,6 @@ impl<'a> BufReader<'a> {
         let bytes = self.next_n_bytes(len)?;
         std::str::from_utf8(bytes).map_err(InvalidUTF8)
     }
-
-    // fn next_run_u32(&mut self) -> Result<Option<Run<u32>>, ParseError> {
-    //     if self.0.is_empty() { return Ok(None); }
-    //
-    //     let n = self.next_u32()?;
-    //     let (val, has_len) = strip_bit_u32(n);
-    //
-    //     let len = if has_len {
-    //         self.next_usize()?
-    //     } else {
-    //         1
-    //     };
-    //     Ok(Some(Run { val, len }))
-    // }
 
     fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {
         // Agent assignments are almost always (but not always) linear. They can have gaps, and
@@ -352,73 +337,34 @@ impl<'a> BufReader<'a> {
         })
     }
 
+    fn read_fileinfo(&mut self, oplog: &mut OpLog) -> Result<(Option<BufReader>, Vec<(AgentId, usize)>), ParseError> {
+        let mut fileinfo = self.expect_chunk(Chunk::FileInfo)?;
+        // fileinfo has UserData and AgentNames.
 
-    // fn next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)],
-    //                       internal_skip: &mut usize, max_len: usize) -> Result<MinimalHistoryEntry, ParseError> {
-    //     // Sooo this function is more complex than I'd like in the case where we're filtering out
-    //     // data from the file.
-    //     //
-    //     // The problem is that we can't just use .split() methods on the result because the time
-    //     // values need to be mapped to self.
-    //
-    //     // So this function does 2 things:
-    //     // - It reads the next history entry (as advertised)
-    //     // - And it maintains internal_skip.
-    //
-    //     // Keep looping until we've burned through internal_skip and we can return something.
-    //     loop {
-    //         let unmodified_slice = self.0;
-    //
-    //         let file_entry_len = self.next_usize()?;
-    //         // Even if we don't use them, we need to read the parents out of the file to skip past
-    //         // these bytes.
-    //         let real_parents = self.read_parents(oplog, next_time, agent_map)?;
-    //
-    //         if file_entry_len <= *internal_skip {
-    //             *internal_skip -= file_entry_len;
-    //             // And continue!
-    //         } else {
-    //             // Len > internal_skip. We'll keep some content here!
-    //             let len_remaining = file_entry_len - internal_skip;
-    //             let len = usize::min(len_remaining, max_len);
-    //
-    //             let entry = MinimalHistoryEntry {
-    //                 span: (next_time..next_time + len).into(),
-    //                 parents: if *internal_skip == 0 {
-    //                     real_parents
-    //                 } else {
-    //                     smallvec![next_time - 1]
-    //                 }
-    //             };
-    //
-    //             if len_remaining > max_len {
-    //                 // We didn't take it all. Mark as such. We'll re-parse this file entry next
-    //                 // iteration. (Which is a bit inefficient, but eh.)
-    //                 *internal_skip += len;
-    //                 self.0 = unmodified_slice;
-    //             } else {
-    //                 // We consumed to the end of the item. Next call should eat the next entry.
-    //                 *internal_skip = 0;
-    //             }
-    //
-    //             return Ok(entry);
-    //         }
-    //     }
-    // }
+        let userdata = fileinfo.read_chunk(Chunk::UserData)?;
+        let mut agent_names_chunk = fileinfo.expect_chunk(Chunk::AgentNames)?;
 
+        // Map from agent IDs in the file (idx) to agent IDs in self, and the seq cursors.
+        //
+        // This will usually just be 0,1,2,3,4...
+        //
+        // 0 implicitly maps to ROOT.
+        // let mut file_to_self_agent_map = vec![(ROOT_AGENT, 0)];
+        let mut agent_map = Vec::new();
+        while !agent_names_chunk.0.is_empty() {
+            let name = agent_names_chunk.next_str()?;
+            let id = oplog.get_or_create_agent_id(name);
+            agent_map.push((id, 0));
+        }
 
-
-    // fn try_next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Option<Result<MinimalHistoryEntry, ParseError>> {
-    //     if self.is_empty() { return None; }
-    //     Some(self.next_history_entry(oplog, next_time, agent_map))
-    // }
+        Ok((userdata, agent_map))
+    }
 }
 
 
 /// Returns (mapped span, remainder).
 /// The returned remainder is *NOT MAPPED*. This allows this method to be called in a loop.
 fn history_entry_map_and_truncate(mut hist_entry: MinimalHistoryEntry, version_map: &RleVec<KVPair<TimeSpan>>) -> (MinimalHistoryEntry, Option<MinimalHistoryEntry>) {
-
     let (map_entry, offset) = version_map.find_packed_with_offset(hist_entry.span.start);
 
     let mut map_entry = map_entry.1;
@@ -564,33 +510,16 @@ impl OpLog {
             return Err(UnsupportedProtocolVersion);
         }
 
-        let mut file_to_self_agent_map = Vec::new();
-
         // *** FileInfo ***
-        {
-            let mut fileinfo = reader.expect_chunk(Chunk::FileInfo)?;
-            // fileinfo has UserData and AgentNames.
-
-            let _userdata = fileinfo.read_chunk(Chunk::UserData)?;
-            let mut agent_names_chunk = fileinfo.expect_chunk(Chunk::AgentNames)?;
-
-            // Map from agent IDs in the file (idx) to agent IDs in self, and the seq cursors.
-            //
-            // This will usually just be 0,1,2,3,4...
-            //
-            // 0 implicitly maps to ROOT.
-            // let mut file_to_self_agent_map = vec![(ROOT_AGENT, 0)];
-            while !agent_names_chunk.0.is_empty() {
-                let name = agent_names_chunk.next_str()?;
-                let id = self.get_or_create_agent_id(name);
-                file_to_self_agent_map.push((id, 0));
-            }
-        }
+        // fileinfo has UserData and AgentNames.
+        // The agent_map is a map from agent_id in the file to agent_id in self.
+        // This method adds missing agents to self.
+        let (_userdata, mut agent_map) = reader.read_fileinfo(&mut self)?;
 
         // *** StartBranch ***
         let start_frontier = if let Some(mut start_branch) = reader.read_chunk(Chunk::StartBranch)? {
             let mut start_frontier_chunk = start_branch.expect_chunk(Chunk::Frontier)?;
-            let frontier = start_frontier_chunk.read_frontier(&self, &file_to_self_agent_map).map_err(|e| {
+            let frontier = start_frontier_chunk.read_frontier(&self, &agent_map).map_err(|e| {
                 // We can't read a frontier if it names agents or sequence numbers we haven't seen
                 // before. If this happens, its because we're trying to load a data set from the future.
                 if let InvalidRemoteID(_) = e {
@@ -639,7 +568,7 @@ impl OpLog {
             let pos_patches_chunk = patch_chunk.expect_chunk(Chunk::PositionalPatches)?;
             let mut history_chunk = patch_chunk.expect_chunk(Chunk::TimeDAG)?;
 
-            let mut iter = ReadPatchesIter::new(pos_patches_chunk)
+            let mut patches_iter = ReadPatchesIter::new(pos_patches_chunk)
                 .take_max();
 
             let first_new_time = self.len();
@@ -664,7 +593,7 @@ impl OpLog {
             // Take and merge the next exactly n patches
             let mut parse_next_patches = |oplog: &mut OpLog, mut n: usize, keep: bool| -> Result<(), ParseError> {
                 while n > 0 {
-                    if let Some(op) = iter.next(n) {
+                    if let Some(op) = patches_iter.next(n) {
                         let op = op?;
                         // dbg!((n, &op));
                         let len = op.len();
@@ -690,7 +619,7 @@ impl OpLog {
                 Ok(())
             };
 
-            while let Some(mut crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut file_to_self_agent_map)? {
+            while let Some(mut crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut agent_map)? {
                 // let mut crdt_span = crdt_span; // TODO: Remove me. Blerp clion.
                 // dbg!(crdt_span);
                 if crdt_span.agent as usize >= self.client_data.len() {
@@ -715,8 +644,10 @@ impl OpLog {
                         let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
                         let len = consume_here.len();
 
-                        if let Some(overlap) = overlap {
+                        let keep = if let Some(overlap) = overlap {
+                            // There's overlap. We'll filter out this item.
                             version_map.push_rle(KVPair(next_file_time, overlap));
+                            false
                         } else {
                             self.assign_next_time_to_crdt_span(next_assignment_time, CRDTSpan {
                                 agent: crdt_span.agent,
@@ -727,13 +658,12 @@ impl OpLog {
                                 (next_assignment_time..next_assignment_time + len).into(),
                             ));
                             next_assignment_time += len;
-
-                        }
+                            true
+                        };
                         next_file_time += len;
 
                         // dbg!(&file_to_local_version_map);
 
-                        let keep = overlap.is_none();
                         parse_next_patches(&mut self, len, keep)?;
 
                         // And deal with history.
@@ -762,7 +692,7 @@ impl OpLog {
             next_file_time = 0;
             // dbg!(&version_map);
             while !history_chunk.is_empty() {
-                let mut entry = history_chunk.next_history_entry(&self, next_file_time, &file_to_self_agent_map)?;
+                let mut entry = history_chunk.next_history_entry(&self, next_file_time, &agent_map)?;
                 next_file_time += entry.len();
                 // dbg!(&entry);
 
