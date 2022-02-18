@@ -1,228 +1,194 @@
-/// This file implements equality checking for ListCRDT objects. This implementation is reasonably
-/// inefficient. Its mostly just to aid in unit testing & support for fuzzing.
+// This file contains an implementation of Eq / PartialEq for OpLog. The implementation is quite
+// complex because:
+//
+// - Operation logs don't have a canonical ordering (because of bubbles)
+// - Internal agent IDs are arbitrary.
+//
+// This implementation of Eq is mostly designed to help fuzz testing. It is not optimized for
+// performance.
 
-use crate::list::{ListCRDT, Time, ROOT_AGENT, Branch};
-use crate::rle::RleVec;
-use crate::list::span::YjsSpan;
 use rle::{HasLength, SplitableSpan};
-// use std::fs::File;
-// use std::io::Write;
-use crate::order::TimeSpan;
-use diamond_core::*;
-// use smallvec::smallvec;
+use rle::zip::rle_zip;
+use crate::{ROOT_AGENT, ROOT_TIME};
+use crate::list::frontier::frontier_eq;
+use crate::list::{OpLog, Time};
+use crate::list::history::MinimalHistoryEntry;
+use crate::rle::KVPair;
 
-// TODO: Not gonna lie... I kinda hate these typedefs. Remove them?
-type AgentMap = Vec<Option<AgentId>>;
-type AgentMapRef<'a> = &'a [Option<AgentId>];
+const VERBOSE: bool = true;
 
-fn agent_map_from(a: &ListCRDT, b: &ListCRDT) -> AgentMap {
-    a.client_data.iter()
-        .map(|client| b.get_agent_id(client.name.as_str()))
-        .collect()
-}
-
-fn map_agent(map: AgentMapRef, agent: AgentId) -> AgentId {
-    if agent == ROOT_AGENT { ROOT_AGENT }
-    else { map[agent as usize].unwrap() }
-}
-
-fn map_crdt_location(map: AgentMapRef, loc: CRDTId) -> CRDTId {
-    CRDTId {
-        agent: map_agent(map, loc.agent),
-        seq: loc.seq
-    }
-}
-
-fn set_eq(a: &[Time], b: &[Time]) -> bool {
-    if a.len() != b.len() { return false; }
-    for aa in a.iter() {
-        if !b.contains(aa) { return false; }
-    }
-    true
-}
-
-// const DEBUG_EQ: bool = true;
-const DEBUG_EQ: bool = false;
-
-impl PartialEq for ListCRDT {
+impl PartialEq<Self> for OpLog {
     fn eq(&self, other: &Self) -> bool {
-        // There's a few ways list CRDT objects can end up using different bytes to represent the
-        // same data. The main two are:
-        // - Different peers can use different IDs to describe the same agent IDs
-        // - If different peers see concurrent operations in different orders, the ops will have
-        //   different order numbers assigned
+        // This implementation is based on the equivalent version in the original diamond types
+        // implementation.
 
-        let agent_a_to_b = agent_map_from(self, other);
-        // let agent_b_to_a = agent_map_from(other, self);
+        // Fields to check:
+        // - [x] client_with_localtime, client_data,
+        // - [x] operations (+ ins_content / del_content)
+        // - [x] history
+        // - [x] frontier
 
-        // We need to check equality of a bunch of things.
+        if !frontier_eq(&self.frontier, &other.frontier) { return false; }
+        assert_eq!(self.len(), other.len(), "Oplog lengths must match if frontiers match");
 
-        // 1. Frontiers should match. The frontier property is a set, so order is not guaranteed.
-        if self.frontier.len() != other.frontier.len() { return false; }
-
-        let a_to_b_order = |order: Time| {
-            let a_loc = self.get_crdt_location(order);
-            let b_loc = map_crdt_location(&agent_a_to_b, a_loc);
-            other.crdt_to_localtime(b_loc)
-        };
-
-        let a_to_b_span = |order: Time, max: u32| {
-            let a_span = self.get_crdt_span(order, max);
-            let b_loc = map_crdt_location(&agent_a_to_b, a_span.loc);
-            other.crdt_span_to_localtime(b_loc, a_span.len)
-        };
-
-        for order in self.frontier.iter() {
-            // O(n^2). Could do better by sorting each, but n is very small so its nbd.
-            let other_order = a_to_b_order(*order);
-            if !other.frontier.contains(&other_order) {
-                if DEBUG_EQ { eprintln!("Frontier does not match"); }
-                return false;
-            }
-        }
-
-        // 2. Compare the range trees. This is the money subject, right here.
-
-        // This is inefficient. Use a double iterator or something if this is a hot path and not
-        // just for testing.
-        let mut a_items: RleVec<YjsSpan> = RleVec::new();
-        let mut b_items: RleVec<YjsSpan> = RleVec::new();
-
-        for mut entry in self.range_tree.raw_iter() {
-            // dbg!(entry);
-            // Map the entry to a. The entry could be a mix from multiple user agents. Split it
-            // up if so.
-            loop {
-                let TimeSpan {
-                    start: order, len
-                } = a_to_b_span(entry.time, entry.len() as u32);
-
-                a_items.push(YjsSpan {
-                    time: order,
-                    origin_left: a_to_b_order(entry.origin_left),
-                    origin_right: a_to_b_order(entry.origin_right),
-                    len: len as i32 * entry.len.signum()
-                });
-
-                if len == entry.len() as u32 {
-                    break;
-                } else {
-                    // Trim from entry and iterate
-                    entry.truncate_keeping_right(len as usize);
+        // [self.agent] => other.agent.
+        // let agent_a_to_b = agent_map_from(self, other);
+        let mut agent_a_to_b = Vec::new();
+        for c in self.client_data.iter() {
+            // If there's no corresponding client in other (and the agent is actually in use), the
+            // oplogs don't match.
+            let other_agent = if let Some(other_agent) = other.get_agent_id(&c.name) {
+                if other.client_data[other_agent as usize].get_next_seq() != c.get_next_seq() {
+                    // Make sure we have exactly the same number of edits for each agent.
+                    return false;
                 }
+
+                other_agent
+            } else {
+                if c.is_empty() {
+                    ROOT_AGENT // Just using this as a placeholder. Could use None but its awkward.
+                } else {
+                    // Agent missing.
+                    if VERBOSE {
+                        println!("Oplog does not match because agent ID is missing");
+                    }
+                    return false;
+                }
+            };
+            agent_a_to_b.push(other_agent);
+        }
+
+        let map_time_to_other = |t: Time| -> Time {
+            if t == ROOT_TIME { return ROOT_TIME; }
+            let mut crdt_id = self.time_to_crdt_id(t);
+            crdt_id.agent = agent_a_to_b[crdt_id.agent as usize];
+            other.crdt_id_to_time(crdt_id)
+        };
+
+        // The core strategy here is we'll iterate through our local operations and make sure they
+        // each have a corresponding operation in other. Because self.len == other.len, this will be
+        // sufficient.
+
+        // The other approach here would be to go through each agent in self.clients and scan the
+        // corresponding changes in other.
+
+        // Note this should be optimized if its going to be used for more than fuzz testing.
+        // But this is pretty neat!
+        for ((mut op, mut txn), KVPair(_, mut crdt_id)) in rle_zip(
+            rle_zip(
+                self.iter(),
+                self.iter_history()
+            ), self.client_with_localtime.iter().cloned()) {
+
+            // println!("op {:?} txn {:?} crdt {:?}", op, txn, crdt_id);
+
+            // Unfortunately the operation range we found might be split up in other. We'll loop
+            // grabbing as much of it as we can at a time.
+            loop {
+                // Look up the corresponding operation in other.
+
+                // This maps via agents - so I think that sort of implicitly checks out.
+                let other_time = map_time_to_other(txn.span.start);
+
+                // Lets take a look at the operation.
+                let (KVPair(_, other_op_int), offset) = other.operations.find_packed_with_offset(other_time);
+                let mut other_op = other_op_int.to_operation(other);
+                if offset > 0 { other_op.truncate_keeping_right(offset); }
+
+                if other_op.len() > op.len() {
+                    other_op.truncate(op.len());
+                }
+
+                let remainder = if op.len() > other_op.len() {
+                    Some(op.truncate(other_op.len()))
+                } else { None };
+
+                // Whew.
+                let len_here = op.len();
+
+                if op != other_op {
+                    if VERBOSE { println!("Ops do not match:\n{:?}\n{:?}", op, other_op); }
+                    return false;
+                }
+
+                // Ok, and we also need to check the txns match.
+                let (other_txn_entry, offset) = other.history.entries.find_packed_with_offset(other_time);
+                let mut other_txn: MinimalHistoryEntry = other_txn_entry.clone().into();
+                if offset > 0 { other_txn.truncate_keeping_right(offset); }
+                if other_txn.len() > len_here {
+                    other_txn.truncate(len_here);
+                }
+
+                // We can't just compare txns because the parents need to be mapped!
+                let mapped_start = map_time_to_other(txn.span.start);
+                let mut mapped_txn = MinimalHistoryEntry {
+                    span: (mapped_start..mapped_start + len_here).into(),
+                    parents: txn.parents.iter().map(|t| map_time_to_other(*t)).collect()
+                };
+                mapped_txn.parents.sort_unstable();
+
+                if other_txn != mapped_txn {
+                    if VERBOSE { println!("Txns do not match {:?} (was {:?}) != {:?}", mapped_txn, txn, other_txn); }
+                    return false;
+                }
+
+                if let Some(rem) = remainder {
+                    op = rem;
+                } else { break; }
+                crdt_id.seq_range.start += len_here;
+                txn.truncate_keeping_right(len_here);
             }
-        }
-        for entry in other.range_tree.raw_iter() {
-            b_items.push(entry);
-        }
-        // dbg!(&a_items, &b_items);
-        if a_items != b_items {
-            if DEBUG_EQ {
-                println!("Items do not match:");
-                self.debug_print_segments();
-                println!("\n ----- \n");
-                other.debug_print_segments();
-                // println!("a {:#?}", &a_items);
-                // println!("b {:#?}", &b_items);
-
-                // For debugging.
-                // let mut a = File::create("a").unwrap();
-                // a.write_fmt(format_args!("{:#?}", &a_items)).unwrap();
-                // let mut b = File::create("b").unwrap();
-                // b.write_fmt(format_args!("{:#?}", &b_items)).unwrap();
-                // println!("Item lists written to 'a' and 'b'");
-
-                // dbg!(&self);
-                // dbg!(a_to_b_order(84));
-                // dbg!(a_to_b_order(85));
-                // dbg!(self.client_with_order.find(84));
-                // dbg!(self.client_with_order.find(85));
-                // dbg!(a_to_b_span(84, 2));
-            }
-            return false;
-        }
-
-        // 3. Compare the delete lists
-        // let mut mapped = Rle::new();
-        // for del in self.deletes.iter() {
-        //     // mapped.append(KVPair())
-        // }
-
-        // 4. Compare txn parents.
-        // Almost all txns simply have their immediate ancestor as a parent. This might bite me
-        // later but I'm just going to compare the first txn in each span.
-        // This is dodgy because txn coalescing might be different in each peer. We should probably
-        // do this both ways around.
-        for txn in self.txns.iter() {
-            let other_order = a_to_b_order(txn.time);
-            let expect_parents = txn.parents.iter()
-                .map(|p| a_to_b_order(*p)).collect::<Branch>();
-
-            let (other_txn, offset) = other.txns.find_with_offset(other_order).unwrap();
-            if let Some(actual_parent) = other_txn.parent_at_offset(offset as usize) {
-                if expect_parents.len() != 1 || expect_parents[0] != actual_parent { return false; }
-            } else if !set_eq(&expect_parents, &other_txn.parents) { return false; }
-        }
-
-        // 5. The contained text content should also match. If we've gotten this far and it doesn't
-        // match, its probably due to an error - it might be worth panicking instead of returning
-        // false.
-        if let (Some(a), Some(b)) = (&self.text_content, &other.text_content) {
-            if a != b { return false; }
         }
 
         true
     }
 }
 
-impl Eq for ListCRDT {}
+impl Eq for OpLog {}
 
 
 #[cfg(test)]
-mod tests {
-    use crate::list::ListCRDT;
+mod test {
+    use crate::list::OpLog;
+    use crate::ROOT_TIME;
 
-    #[test]
-    fn eq_empty() {
-        let a = ListCRDT::new();
-        let b = ListCRDT::new();
-        assert_eq!(a, b);
+    fn is_eq(a: &OpLog, b: &OpLog) -> bool {
+        let a_eq_b = a.eq(b);
+        let b_eq_a = b.eq(a);
+        if a_eq_b != b_eq_a { dbg!(a_eq_b, b_eq_a); }
+        assert_eq!(a_eq_b, b_eq_a);
+        a_eq_b
     }
 
     #[test]
-    fn simple_eq() {
-        let mut a = ListCRDT::new();
+    fn eq_smoke_test() {
+        let mut a = OpLog::new();
         a.get_or_create_agent_id("seph");
-        a.local_insert(0, 0, "hi".into());
-        assert_eq!(a, a); // reflexive
-
-        let mut b = ListCRDT::new();
-        b.get_or_create_agent_id("seph");
-        b.local_insert(0, 0, "hi".into());
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn concurrent_simple() {
-        let mut a = ListCRDT::new();
         a.get_or_create_agent_id("mike");
-        a.local_insert(0, 0, "aaa".into());
+        a.push_insert_at(0, &[ROOT_TIME], 0, "Aa");
+        a.push_insert_at(1, &[ROOT_TIME], 0, "b");
+        a.push_delete_at(0, &[1, 2], 0, 2);
 
-        let mut b = ListCRDT::new();
+        // Same history, different order.
+        let mut b = OpLog::new();
+        b.get_or_create_agent_id("mike");
         b.get_or_create_agent_id("seph");
-        b.local_insert(0, 0, "bb".into());
+        b.push_insert_at(0, &[ROOT_TIME], 0, "b");
+        b.push_insert_at(1, &[ROOT_TIME], 0, "Aa");
+        b.push_delete_at(1, &[0, 2], 0, 2);
 
-        a.replicate_into(&mut b);
-        b.replicate_into(&mut a);
-        assert_eq!(a, b);
+        assert!(is_eq(&a, &b));
 
-        a.local_delete(0, 2, 2);
-        a.replicate_into(&mut b);
-        assert_eq!(a, b);
+        // And now with the edits interleaved
+        let mut c = OpLog::new();
+        c.get_or_create_agent_id("seph");
+        c.get_or_create_agent_id("mike");
+        c.push_insert_at(0, &[ROOT_TIME], 0, "A");
+        c.push_insert_at(1, &[ROOT_TIME], 0, "b");
+        c.push_insert_at(0, &[0], 1, "a");
+        c.push_delete_at(0, &[1, 2], 0, 2);
 
-        // dbg!(&a.content_tree, &b.content_tree);
-
-        // dbg!(&a.frontier, &b.frontier);
-
+        assert!(is_eq(&a, &c));
+        assert!(is_eq(&b, &c));
     }
 }

@@ -1,126 +1,106 @@
-use std::pin::Pin;
-use jumprope::JumpRope;
+//! This module contains all the code to handle list CRDTs.
+//!
+//! Some code in here will be moved out when diamond types supports more data structures.
+//!
+//! Currently this code only supports lists of unicode characters (text documents). Support for
+//! more data types will be added over time.
 
+use jumprope::JumpRope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
-use content_tree::*;
-use diamond_core::AgentId;
-pub use ot::traversal::TraversalComponent;
-pub use positional::{PositionalComponent, PositionalOp, InsDelTag};
-
-use crate::common::ClientName;
-use crate::crdtspan::CRDTSpan;
-use crate::list::double_delete::DoubleDelete;
-use crate::list::markers::MarkerEntry;
-use crate::list::span::YjsSpan;
-use crate::list::txn::TxnSpan;
-use crate::order::TimeSpan;
-// use crate::list::delete::DeleteEntry;
+use crate::list::operation::InsDelTag;
+use crate::list::history::History;
+use crate::list::internal_op::OperationInternal;
+use crate::localtime::TimeSpan;
+use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 
-mod span;
-mod doc;
-mod markers;
-mod txn;
-mod double_delete;
-pub mod external_txn;
-mod eq;
-mod encoding;
+pub mod operation;
+mod history;
+pub mod list;
 mod check;
-mod ot;
+mod history_tools;
+mod frontier;
+mod op_iter;
+
+mod merge;
+mod oplog;
 mod branch;
-pub mod time;
-pub mod positional;
-mod merge_positional;
+pub mod encoding;
+pub mod remote_ids;
+mod internal_op;
+mod eq;
 
-#[cfg(test)]
-mod positional_fuzzer;
+// TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
+// systems.
+pub type Time = usize;
 
-// #[cfg(inlinerope)]
-// pub const USE_INNER_ROPE: bool = true;
-// #[cfg(not(inlinerope))]
-// pub const USE_INNER_ROPE: bool = false;
+pub type Frontier = SmallVec<[Time; 4]>;
 
-// #[cfg(test)]
-// mod tests;
-
-pub type Time = u32;
-pub const ROOT_TIME: Time = Time::MAX;
-pub const ROOT_AGENT: AgentId = AgentId::MAX;
 
 #[derive(Clone, Debug)]
 struct ClientData {
     /// Used to map from client's name / hash to its numerical ID.
-    name: ClientName,
+    name: SmartString,
 
-    /// This is a run-length-encoded in-order list of all items inserted by this client.
+    /// This is a packed RLE in-order list of all operations from this client.
     ///
-    /// Each entry in this list internally has (seq base, {order base, len}). This maps CRDT
-    /// location range -> item orders
+    /// Each entry in this list is grounded at the client's sequence number and maps to the span of
+    /// local time entries.
     ///
-    /// The OrderMarkers here always have positive len.
-    item_localtime: RleVec<KVPair<TimeSpan>>,
+    /// A single agent ID might be used to modify multiple concurrent branches. Because of this, and
+    /// the propensity of diamond types to reorder operations for performance, the
+    /// time spans here will *almost* always (but not always) be monotonically increasing. Eg, they
+    /// might be ordered as (0, 2, 1). This will only happen when changes are concurrent. The order
+    /// of time spans must always obey the partial order of changes. But it will not necessarily
+    /// agree with the order amongst time spans.
+    item_times: RleVec<KVPair<TimeSpan>>,
 }
 
-pub(crate) const INDEX_IE: usize = DEFAULT_IE;
-pub(crate) const INDEX_LE: usize = DEFAULT_LE;
+// TODO!
+// trait InlineReplace<T> {
+//     fn insert(pos: usize, vals: &[T]);
+//     fn remove(pos: usize, num: usize);
+// }
+//
+// trait ListValueType {
+//     type EditableList: InlineReplace<T>;
+//
+// }
 
-pub(crate) const DOC_IE: usize = DEFAULT_IE;
-pub(crate) const DOC_LE: usize = DEFAULT_LE;
-// const DOC_LE: usize = 32;
-
-// type DocRangeIndex = ContentIndex;
-type DocRangeIndex = FullMetricsU32;
-
-pub(crate) type RangeTree = Pin<Box<ContentTreeWithIndex<YjsSpan, DocRangeIndex>>>;
-pub(crate) type RangeTreeLeaf = NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>;
-
-type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionMetricsU32>>>;
-
-pub type DoubleDeleteList = RleVec<KVPair<DoubleDelete>>;
-
-pub type Branch = SmallVec<[Time; 4]>;
-
-#[derive(Debug)]
-pub struct ListCRDT {
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Branch {
     /// The set of txn orders with no children in the document. With a single writer this will
     /// always just be the last order we've seen.
     ///
     /// Never empty. Starts at usize::max (which is the root order).
-    frontier: Branch,
+    pub frontier: Frontier,
 
-    /// This is a bunch of ranges of (item time -> CRDT location span).
+    pub content: JumpRope,
+}
+
+#[derive(Debug, Clone)]
+pub struct OpLog {
+    /// This is a bunch of ranges of (item order -> CRDT location span).
     /// The entries always have positive len.
     ///
-    /// This is used to map time -> External CRDT locations.
-    client_with_time: RleVec<KVPair<CRDTSpan>>,
+    /// This is used to map Local time -> External CRDT locations.
+    ///
+    /// List is packed.
+    client_with_localtime: RleVec<KVPair<CRDTSpan>>,
 
     /// For each client, we store some data (above). This is indexed by AgentId.
     ///
-    /// This is used to map external CRDT locations -> Time numbers.
+    /// This is used to map external CRDT locations -> Order numbers.
     client_data: Vec<ClientData>,
 
-    /// The range tree maps from document positions to btree entries.
-    ///
-    /// This is the CRDT chum for the space DAG.
-    range_tree: RangeTree,
-
-    /// We need to be able to map each location to an item in the associated BST.
-    /// Note for inserts which insert a lot of contiguous characters, this will
-    /// contain a lot of repeated pointers. I'm trading off memory for simplicity
-    /// here - which might or might not be the right approach.
-    ///
-    /// This is a map from insert time -> a pointer to the leaf node which contains that insert.
-    index: SpaceIndex,
-
-    /// This is a set of all deletes. Each delete names the set of times of inserts which were
-    /// deleted. Keyed by the delete order, NOT the order of the item *being* deleted.
-    deletes: RleVec<KVPair<TimeSpan>>,
-
-    /// List of document items which have been deleted more than once. Usually empty. Keyed by the
-    /// item *being* deleted (like content_tree, unlike deletes).
-    double_deletes: DoubleDeleteList,
+    /// This contains all content ever inserted into the document, in time order (not document
+    /// order). This object is indexed by the operation set.
+    ins_content: String,
+    del_content: String,
+    // TODO: Replace me with a compact form of this data.
+    operations: RleVec<KVPair<OperationInternal>>,
 
     /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
     /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
@@ -129,10 +109,27 @@ pub struct ListCRDT {
     /// Along with deletes, this essentially contains the time DAG.
     ///
     /// TODO: Consider renaming this field
-    txns: RleVec<TxnSpan>,
+    /// TODO: Remove pub marker.
+    history: History,
 
-    // Temporary. This will be moved out into a reference to another data structure I think.
-    text_content: Option<JumpRope>,
-    /// This is a big ol' string containing everything that's been deleted (self.deletes) in order.
-    deleted_content: Option<String>,
+    /// This is the frontier of the entire oplog. So, if you merged every change we store into a
+    /// branch, this is the frontier of that branch.
+    ///
+    /// This is only stored as a convenience - we could recalculate it as needed from history. But
+    /// it takes up very little space, and its mildly convenient. So here it is!
+    frontier: Frontier,
+}
+
+/// This is the default (obvious) construction for a list.
+#[derive(Debug, Clone)]
+pub struct ListCRDT {
+    pub branch: Branch,
+    pub ops: OpLog,
+}
+
+fn switch<T>(tag: InsDelTag, ins: T, del: T) -> T {
+    match tag {
+        InsDelTag::Ins => ins,
+        InsDelTag::Del => del,
+    }
 }

@@ -7,13 +7,17 @@ use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
 use smallvec::SmallVec;
 
-use diamond_types_positional::list::*;
-use diamond_types_positional::list::encoding::EncodeOptions;
-use diamond_types_positional::list::list::*;
+use diamond_types::list::*;
+use diamond_types::list::encoding::EncodeOptions;
+use diamond_types::list::list::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let repo = Repository::open("/home/seph/3rdparty/node")?;
-    let file = "src/node.cc";
+    // TODO: Just take this as a program argument.
+    let repo = Repository::open("/Users/seph/src/diamond-types")?;
+    let file = "src/range_tree/mutations.rs";
+
+    // let repo = Repository::open("/Users/seph/3rdparty/node")?;
+    // let file = "src/node.cc";
     // let file = "Makefile";
 
     // let repo = Repository::open("/home/seph/3rdparty/yjs")?;
@@ -194,8 +198,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Branch at {:?}", branch.frontier);
 
     // dbg!(&oplog.history.entries.len());
+    // println!("Number of entries in history: {}", &oplog.history.num_entries());
 
     let data = oplog.encode(EncodeOptions {
+        user_data: None,
         store_inserted_content: true,
         store_deleted_content: false,
         verbose: true
@@ -203,8 +209,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     std::fs::write("data.dt", data.as_slice()).unwrap();
     println!("{} bytes written to 'data.dt'", data.len());
 
-    let data_old = oplog.encode_simple(EncodeOptions::default());
-    println!("(vs {} bytes)", data_old.len());
+    // let data_old = oplog.encode_simple(EncodeOptions::default());
+    // println!("(vs {} bytes)", data_old.len());
 
     // oplog.make_time_dag_graph("makefile.svg");
 

@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 /// We're using protobuf's encoding system for variable sized integers. Most numbers we store here
 /// follow a Parato distribution, so this ends up being a space savings overall.
 ///
@@ -93,6 +95,16 @@ pub fn encode_u32(mut value: u32, buf: &mut [u8]) -> usize {
     5
 }
 
+pub fn encode_usize(value: usize, buf: &mut [u8]) -> usize {
+    if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {
+        encode_u32(value as u32, buf)
+    } else if cfg!(target_pointer_width = "64") {
+        encode_u64(value as u64, buf)
+    } else {
+        panic!("Unsupported target pointer width")
+    }
+}
+
 // TODO: Make this return a Result<> of some sort.
 /// Returns (varint, number of bytes read).
 pub fn decode_u64_slow(buf: &[u8]) -> (u64, usize) {
@@ -159,6 +171,18 @@ pub fn decode_u32(buf: &[u8]) -> (u32, usize) {
     (val as u32, bytes_consumed)
 }
 
+pub fn decode_usize(buf: &[u8]) -> (usize, usize) {
+    if size_of::<usize>() <= size_of::<u32>() {
+        let (val, count) = decode_u32(buf);
+        (val as usize, count)
+    } else if size_of::<usize>() == size_of::<u64>() {
+        let (val, count) = decode_u64(buf);
+        (val as usize, count)
+    } else {
+        panic!("usize larger than u64 not supported");
+    }
+}
+
 // Who coded it better?
 // pub fn encode_zig_zag_32(n: i32) -> u32 {
 //     ((n << 1) ^ (n >> 31)) as u32
@@ -168,12 +192,23 @@ pub fn decode_u32(buf: &[u8]) -> (u32, usize) {
 //     ((n << 1) ^ (n >> 63)) as u64
 // }
 
-fn num_encode_zigzag_i64(val: i64) -> u64 {
+pub fn num_encode_zigzag_i64(val: i64) -> u64 {
     val.abs() as u64 * 2 + val.is_negative() as u64
 }
 
-fn num_encode_zigzag_i32(val: i32) -> u32 {
+pub fn num_encode_zigzag_i32(val: i32) -> u32 {
     val.abs() as u32 * 2 + val.is_negative() as u32
+}
+
+pub fn num_encode_zigzag_isize(val: isize) -> usize {
+    // TODO: Figure out a way to write this that gives compiler errors instead of runtime errors.
+    if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {
+        num_encode_zigzag_i32(val as i32) as usize
+    } else if cfg!(target_pointer_width = "64") {
+        num_encode_zigzag_i64(val as i64) as usize
+    } else {
+        panic!("Unsupported target pointer width")
+    }
 }
 
 pub fn encode_i64(value: i64, buf: &mut[u8]) -> usize {
@@ -196,23 +231,56 @@ pub fn encode_u32_with_extra_bit_2(value: u32, extra_1: bool, extra_2: bool, buf
     encode_u32(val_2, buf)
 }
 
+#[inline]
 pub(crate) fn mix_bit_u64(value: u64, extra: bool) -> u64 {
-    debug_assert!(value < u64::MAX / 2);
+    debug_assert!(value < u64::MAX >> 1);
     value * 2 + extra as u64
 }
 
 pub(crate) fn mix_bit_u32(value: u32, extra: bool) -> u32 {
-    debug_assert!(value < u32::MAX / 2);
+    debug_assert!(value < u32::MAX >> 1);
     value * 2 + extra as u32
 }
 
-// TODO: Remove this method. Callers should just use mix_bit.
-pub(crate) fn num_encode_i64_with_extra_bit(value: i64, extra: bool) -> u64 {
-    // We only have enough remaining bits in the u64 encoding to fit +/- 2^62.
-    debug_assert!(value.abs() < (i64::MAX / 2));
-    let val_1 = num_encode_zigzag_i64(value);
-    mix_bit_u64(val_1, extra)
+pub(crate) fn mix_bit_usize(value: usize, extra: bool) -> usize {
+    debug_assert!(value < usize::MAX >> 1);
+    if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {
+        mix_bit_u32(value as u32, extra) as usize
+    } else if cfg!(target_pointer_width = "64") {
+        mix_bit_u64(value as u64, extra) as usize
+    } else {
+        panic!("Unsupported target pointer width")
+    }
 }
+
+pub(crate) fn strip_bit_u64(value: u64) -> (u64, bool) {
+    let bit = (value & 1) != 0;
+    (value >> 1, bit)
+}
+
+pub(crate) fn strip_bit_u32(value: u32) -> (u32, bool) {
+    let bit = (value & 1) != 0;
+    (value >> 1, bit)
+}
+
+pub(crate) fn strip_bit_usize(value: usize) -> (usize, bool) {
+    let bit = (value & 1) != 0;
+    (value >> 1, bit)
+}
+pub(crate) fn strip_bit_usize2(value: &mut usize) -> bool {
+    let bit = (*value & 1) != 0;
+    *value >>= 1;
+    bit
+}
+
+
+// TODO: Remove this method. Callers should just use mix_bit.
+// fn num_encode_i64_with_extra_bit(value: i64, extra: bool) -> u64 {
+//     // We only have enough remaining bits in the u64 encoding to fit +/- 2^62.
+//     debug_assert!(value.abs() < (i64::MAX / 2));
+//     let val_1 = num_encode_zigzag_i64(value);
+//     mix_bit_u64(val_1, extra)
+// }
 
 // pub(crate) fn num_encode_i64_with_extra_bit_2(value: i64, extra_1: bool, extra_2: bool) -> u64 {
 //     // We only have enough remaining bits in the u64 encoding to fit +/- 2^62.
@@ -222,9 +290,9 @@ pub(crate) fn num_encode_i64_with_extra_bit(value: i64, extra: bool) -> u64 {
 //     mix_bit_u64(val_2, extra_2)
 // }
 
-pub fn encode_i64_with_extra_bit(value: i64, extra: bool, buf: &mut[u8]) -> usize {
-    encode_u64(num_encode_i64_with_extra_bit(value, extra), buf)
-}
+// pub fn encode_i64_with_extra_bit(value: i64, extra: bool, buf: &mut[u8]) -> usize {
+//     encode_u64(num_encode_i64_with_extra_bit(value, extra), buf)
+// }
 
 pub fn num_decode_zigzag_i32(val: u32) -> i32 {
     // dbg!(val);
@@ -236,13 +304,14 @@ pub fn num_decode_zigzag_i64(val: u64) -> i64 {
     (val >> 1) as i64 * (if val & 1 == 1 { -1 } else { 1 })
 }
 
-pub fn num_decode_u32_with_extra_bit(value: u32) -> (u32, bool) {
-    let bit = (value & 1) != 0;
-    (value >> 1, bit)
-}
-pub fn num_decode_u64_with_extra_bit(value: u64) -> (u64, bool) {
-    let bit = (value & 1) != 0;
-    (value >> 1, bit)
+pub fn num_decode_zigzag_isize(val: usize) -> isize {
+    if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {
+        num_decode_zigzag_i32(val as u32) as isize
+    } else if cfg!(target_pointer_width = "64") {
+        num_decode_zigzag_i64(val as u64) as isize
+    } else {
+        panic!("Unsupported target pointer width")
+    }
 }
 
 pub fn num_decode_i64_with_extra_bit(value: u64) -> (i64, bool) {
@@ -297,12 +366,12 @@ mod test {
         let actual = num_decode_zigzag_i64(zz);
         assert_eq!(val, actual);
 
-        if val.abs() < i64::MAX / 2 {
-            let zz_true = num_encode_i64_with_extra_bit(val, true);
-            assert_eq!((val, true), num_decode_i64_with_extra_bit(zz_true));
-            let zz_false = num_encode_i64_with_extra_bit(val, false);
-            assert_eq!((val, false), num_decode_i64_with_extra_bit(zz_false));
-        }
+        // if val.abs() < i64::MAX / 2 {
+        //     let zz_true = num_encode_i64_with_extra_bit(val, true);
+        //     assert_eq!((val, true), num_decode_i64_with_extra_bit(zz_true));
+        //     let zz_false = num_encode_i64_with_extra_bit(val, false);
+        //     assert_eq!((val, false), num_decode_i64_with_extra_bit(zz_false));
+        // }
 
         if val.abs() <= i32::MAX as i64 {
             let val = val as i32;

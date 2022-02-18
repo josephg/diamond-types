@@ -8,6 +8,8 @@ mod splitable_span;
 mod merge_iter;
 mod append_rle;
 pub mod zip;
+pub mod take_max_iter;
+// pub mod iter_ctx;
 
 pub trait Searchable {
     type Item: Copy + Debug;

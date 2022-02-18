@@ -1,4 +1,3 @@
-const {uniToStrPos} = require('unicount')
 const {Console} = require('console')
 global.console = new Console({
   stdout: process.stdout,
@@ -6,98 +5,44 @@ global.console = new Console({
   inspectOptions: {depth: null}
 })
 
-const traversal_to_op = t => {
-  let {content, traversal, components} = t
+const {Branch, OpLog} = require('./pkg/diamond_wasm_positional.js')
 
-  let map_component = c => {
-    // console.log(c)
-    if (c.Retain != null) {
-      return c.Retain
+console.log(Branch, OpLog)
 
-    } else if (c.Ins != null) {
-      // console.log(c)
-      if (c.Ins.content_known) {
+const ops = new OpLog()
+let t = ops.ins(0, "hi there")
+console.log(t)
+let t2 = ops.del(3, 3)
 
-        let pos = uniToStrPos(content, c.Ins.len)
-        let start = content.substring(0, pos)
-        content = content.substring(pos)
+console.log("local branch", ops.getLocalFrontier())
+console.log("frontier", ops.getFrontier())
+console.log("ops", ops.toArray())
+console.log("history", ops.txns())
 
-        return start
-      } else {
-        return 'x'.repeat(c.Ins.len)
-      }
+console.log("bytes", ops.toBytes())
 
-    } else if (c.Del != null) {
-      return {d: c.Del}
-
-    } else {
-      console.error('component', c)
-      throw Error('Invalid component')
-    }
-  }
-
-  return traversal != null
-      ? traversal.map(map_component)
-      : components.map(t => t.map(map_component))
-}
-
-const {Doc} = require('./pkg/diamond_js.js')
-const d = new Doc("aaaa")
-
-d.ins(0, "hi there")
-d.del(3, 5) // "hi "
-d.ins(3, "everyone!")
-
-console.log(`doc content '${d.get()}'`)
-console.log('order', d.get_next_order())
-
-console.log('all traversal changes', traversal_to_op(d.traversal_ops_flat(0)))
-console.log('all traversal changes', traversal_to_op(d.traversal_ops_since(0)))
-
-// const all_txns = d.get_txn_since()
-// console.log('all txns', all_txns)
+oplog2 = OpLog.fromBytes(ops.toBytes())
+console.log("ops", oplog2.toArray())
 
 
-// console.log('positional changes', d.positional_ops_since(0))
-// console.log('all traversal changes flat', traversal_to_op(d.traversal_ops_flat(8)))
+// const branch = new Branch()
+// branch.merge(ops, t)
+// console.log('branch', `"${branch.get()}"`)
+// console.log("branch branch", branch.getFrontier())
 
-// console.log('some traversal changes', traversal_to_op(d.traversal_ops_since_branch([
-//   {agent: 'aaaa', seq: 8}
-// ])))
-
-// const [patches, attr] = d.attributed_patches_since(0)
-// console.log('patches since 0', traversal_to_op(patches))
-// console.log('by', attr)
-
-d.ins_at_order(0, "QQQQQ", 0, true)
-console.log(d.get())
+// const c2 = Checkout.all(ops)
+// console.log(c2.get())
 
 
 
+// const ops2 = new OpLog()
+// ops2.ins(0, "aaa")
+// ops2.ins(0, "bbb", [-1])
+//
+// const checkout2 = Checkout.all(ops2)
+// console.log(checkout2.get())
+// console.log("checkout branch", checkout2.getBranch())
 
+// console.log(ops2.toArray())
+// console.log(ops2.txns())
 
-
-
-
-
-
-
-
-
-
-
-
-
-// const version = d.get_vector_clock()
-// console.log('vector clock', version)
-
-// const all_txns = d.get_txn_since()
-// console.log('all txns', all_txns)
-
-// const d2 = new Doc('bbbb')
-// d2.ins(0, 'yoooo')
-// d2.merge_remote_txns(all_txns)
-// console.log(`resulting document '${d2.get()}'`) // 'hi there'
-
-// const frontier = d.get_frontier()
-// console.log('frontier', frontier)

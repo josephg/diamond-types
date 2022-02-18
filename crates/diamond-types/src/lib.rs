@@ -1,203 +1,190 @@
-#![allow(dead_code)] // TODO: turn this off and clean up before releasing.
+//! This is a super fast CRDT implemented in rust. It currently only supports plain text documents
+//! but the plan is to support all kinds of data.
+//!
+//! Diamond types is built on top of two core abstractions:
+//!
+//! 1. The [Operation Log](list::OpLog)
+//! 2. [Branches](list::Branch)
+//!
+//! A branch is a copy of the document state at some point in time. The most common & useful way to
+//! use branches is to make a single branch at the most recent version of the document. When more
+//! changes come in, a branch can be moved forward in time by calling [`merge`](list::Branch::merge).
+//!
+//! Branches in diamond types aren't the same as branches in git. They're a lower level construct.
+//! Diamond types doesn't store a list of the active branches in your data set. A branch is much
+//! simplier than that - internally its just a temporary in-memory tuple of
+//! (version, document state).
+//!
+//! Branches can change over time by referencing the *Operation Log* (OpLog). The oplog is an
+//! append-only log of all the changes which have happened to a document over time. The operation
+//! log can be replayed to generate a branch at any point of time within its range.
+//!
+//! For every operation in the oplog we store a few fields:
+//!
+//! - What the change actually is (eg *insert 'hi' at position 20*)
+//! - Parents (A logical clock of *when* an operation happened)
+//! - ID (Agent & Sequence number). The agent can be used to figure out who made the change.
+//!
+//! ## Example
+//!
+//! For local edits to an oplog, just use [`oplog.push_insert`](list::OpLog::push_insert) or
+//! [`oplog.push_delete`](list::OpLog::push_delete):
+//!
+//! ```
+//! use diamond_types::list::*;
+//!
+//! let mut oplog = OpLog::new();
+//! let fred = oplog.get_or_create_agent_id("fred");
+//! oplog.push_insert(fred, 0, "abc");
+//! oplog.push_delete(fred, 1, 1); // Delete the 'b'
+//! ```
+//!
+//! There are also other methods like [`oplog.push_insert_at`](list::OpLog::push_insert_at) which
+//! append a change at some specific point in time. This is useful if you want to append a change to
+//! a branch.
+//!
+//! To create a branch from an oplog, use [`Branch::new` methods](list::Branch::new_at_tip):
+//!
+//! ```
+//! use diamond_types::list::*;
+//! let mut oplog = OpLog::new();
+//! // ...
+//! let mut branch = Branch::new_at_tip(&oplog);
+//! // Equivalent to let mut branch = Branch::new_at_frontier(&oplog, oplog.get_frontier());
+//! println!("branch content {}", branch.content.to_string());
+//! ```
+//!
+//! Once a branch has been created, you can merge new changes using [`branch.merge`](list::Branch::merge):
+//!
+//! ```
+//! use diamond_types::list::*;
+//! let mut oplog = OpLog::new();
+//! // ...
+//! let mut branch = Branch::new_at_tip(&oplog);
+//! let george = oplog.get_or_create_agent_id("george");
+//! oplog.push_insert(george, 0, "asdf");
+//! branch.merge(&oplog, oplog.get_frontier());
+//! ```
+//!
+//! If you aren't using branches, you can use the simplified [`ListCRDT` API](list::ListCRDT). The
+//! ListCRDT struct simply wraps an oplog and a branch together so you don't need to muck about
+//! with manual merging. This API is also slightly faster.
+//!
+//! I'm holding off on adding examples using this API for now because the API is in flux. TODO: Fix!
+//!
+//!
+//! ## Consuming IDs
+//!
+//! The ID of a change is made up of an agent ID (usually an opaque string) and a sequence number.
+//! Each successive change from the same agent will use the next sequence number - eg: (*fred*, 0),
+//! (*fred*, 1), (*fred*, 2), etc.
+//!
+//! But its important to note what constitutes a change! In diamond types, every inserted character
+//! or deleted character increments (consumes) a sequence number. Typing a run of characters one at
+//! a time is indistinguishable from pasting the same run of characters all at once.
+//!
+//! Note that this is a departure from other CRDTs. Automerge does not work this way.
+//!
+//! For example,
+//!
+//! ```
+//! use diamond_types::list::*;
+//! let mut oplog = OpLog::new();
+//! let fred = oplog.get_or_create_agent_id("fred");
+//! oplog.push_insert(fred, 0, "a");
+//! oplog.push_insert(fred, 1, "b");
+//! oplog.push_insert(fred, 2, "c");
+//! ```
+//!
+//! Produces an identical oplog to this:
+//!
+//! ```
+//! use diamond_types::list::*;
+//! let mut oplog = OpLog::new();
+//! let fred = oplog.get_or_create_agent_id("fred");
+//! oplog.push_insert(fred, 0, "abc");
+//! ```
+//!
+//! Diamond types does this by very aggressively run-length encoding everything it can whenever
+//! possible.
+//!
+//! ### Warning: Do not reuse IDs 💣!
+//!
+//! Every ID in diamond types *must be unique*. If two operations are created with the same ID,
+//! peers will only merge one of them - and the document state will diverge. This is really bad!
+//!
+//! Its tempting to reuse agent IDs because they waste disk space. But there's lots of ways to
+//! introduce subtle bugs if you try. Disk space is cheap. Bugs are expensive.
+//!
+//! I recommend instead just generating a new agent ID in every editing session. So, in a text
+//! editor, generate an ID in memory when the user opens the document. Don't save the ID to disk.
+//! Just discard it when the user's editing session ends.
+//!
+//!
+//! ### Aside on atomic transactions
+//!
+//! Grouping changes in atomic blocks is out of the scope of diamond types. But you can implement it
+//! in the code you write which consumes diamond types. Briefly, either:
+//!
+//! 1. Make all the changes you want to make atomically in diamond types, but delay sending those
+//! changes over the network until you're ready, or
+//! 2. Add a special commit message to your network protocol which "commits" marks when a set of
+//! operations in the oplog is safe to merge.
+//!
+//! Diamond types does not (yet) support deleting operations from the oplog. If this matters to you,
+//! please start open an issue about it.
+//!
+//!
+//! ## Parents
+//!
+//! The parents list names the version of the document right before it was changed. An new,
+//! empty document always has the version of *ROOT*. After an operation has happened, the version of
+//! the document is the same as that operation's ID.
+//!
+//! Sometimes changes are concurrent. This can happen in realtime - for example, two users type in a
+//! collaborative document at the same time. Or it can happen asyncronously - for example, two users
+//! edit two different branches, and later merge their results. We can describe what happened with
+//! a *time DAG*, where each change is represented by a node in a DAG (Directed Acyclic Graph).
+//! Edges represent the *directly after* relationship. See [INTERNALS.md](INTERNALS.md) in this
+//! repository for more theoretical information.
+//!
+//! For example, in this time DAG operations `a` and `b` are concurrent:
+//!
+//! ```text
+//!   ROOT
+//!   / \
+//!  a   b
+//!   \ /
+//!    c
+//! ```
+//!
+//! Concurrent changes have some repercussions for the oplog:
+//!
+//! - The order of changes in the oplog isn't canonical. Other peers may have oplogs with a
+//! different order. This is fine. DT uses "local time" numbers heavily internally - which refer to
+//! the local index of a change, as if it were stored in an array. But these indexes cannot be
+//! shared with other peers. However, the order of changes must always obey the partial order of
+//! chronology. If operation A happened before operation B, they must maintain that relative order
+//! in the oplog. In the diagram above, the operations could be stored in the order `[a, b, c]` or
+//! `[b, a, c]` but not `[a, c, b]` because `c` comes after both `a` and `b`.
+//! - We represent a point in time in the oplog using a *list* of (agent, seq) pairs. This list
+//! usually only contains one entry - which is the ID of the preceding operation. But sometimes
+//! we need to merge two threads of history together. In this case, the parents list names all
+//! immediate predecessors. In the diagram above, operation `c` has a parents list of both `a` and
+//! `b`.
+//!
+//! Unlike git (and some other CRDTs), diamond types represents merges *implicitly*. We don't create
+//! a special node in the time DAG for merges. Merges simply happen whenever an operation has
+//! multiple parents.
 
-use crate::list::external_txn::RemoteId;
-
+pub mod alloc;
 pub mod list;
-
-mod common;
-mod order;
 mod rle;
+mod localtime;
 mod unicount;
-mod crdtspan;
-mod rangeextra;
+mod remotespan;
+mod rev_span;
 
-// TODO: Move this somewhere else.
-pub fn root_id() -> RemoteId {
-    RemoteId {
-        agent: "ROOT".into(),
-        seq: u32::MAX
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    // As per smartstring's documentation.
-    #[test]
-    fn validate_smartstring() {
-        smartstring::validate();
-    }
-
-    // #[test]
-    // fn print_sizes() {
-    //     use smartstring::alias::{String as SmartString};
-    //
-    //     dbg!(std::mem::size_of::<SmartString>());
-    //     dbg!(std::mem::size_of::<String>());
-    // }
-}
-
-#[cfg(test)]
-pub mod test_helpers {
-    use rand::prelude::*;
-    use ropey::Rope;
-
-    use diamond_core::AgentId;
-
-    use crate::list::{ListCRDT, PositionalOp};
-    use rand::seq::index::sample;
-
-    pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
-        let mut str = String::new();
-        let alphabet: Vec<char> = "abcdefghijklmnop_".chars().collect();
-        for _ in 0..len {
-            str.push(alphabet[rng.gen_range(0..alphabet.len())]);
-        }
-        str
-    }
-
-    pub fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentId, rng: &mut SmallRng) -> PositionalOp {
-        let doc_len = doc.len();
-        let insert_weight = if doc_len < 100 { 0.6 } else { 0.4 };
-        let op = if doc_len == 0 || rng.gen_bool(insert_weight) {
-            // Insert something.
-            let pos = rng.gen_range(0..=doc_len);
-            let len: usize = rng.gen_range(1..2); // Ideally skew toward smaller inserts.
-            // let len: usize = rng.gen_range(1..10); // Ideally skew toward smaller inserts.
-
-            let content = random_str(len as usize, rng);
-            // println!("Inserting '{}' at position {}", content, pos);
-            if let Some(rope) = rope {
-                rope.insert(pos, content.as_str());
-            }
-
-            PositionalOp::new_insert(pos as u32, content)
-            // doc.local_insert(agent, pos, content.as_str());
-            // len as usize
-        } else {
-            // Delete something
-            let pos = rng.gen_range(0..doc_len);
-            // println!("range {}", u32::min(10, doc_len - pos));
-            let span = rng.gen_range(1..=usize::min(10, doc_len - pos));
-            // dbg!(&state.marker_tree, pos, len);
-            // println!("deleting {} at position {}", span, pos);
-            if let Some(rope) = rope {
-                rope.remove(pos..pos + span);
-            }
-            // doc.local_delete(agent, pos, span);
-            // span
-            PositionalOp::new_delete(pos as u32, span as u32)
-        };
-
-        doc.apply_local_txn(agent, (&op).into());
-
-        // dbg!(&doc.markers);
-        doc.check(false);
-        op
-    }
-
-    /// A simple iterator over an infinite list of documents with random single-user edit histories
-    #[derive(Debug)]
-    pub struct RandomSingleDocIter(SmallRng, usize);
-
-    impl RandomSingleDocIter {
-        pub fn new(seed: u64, num_edits: usize) -> Self {
-            Self(SmallRng::seed_from_u64(seed), num_edits)
-        }
-    }
-
-    impl Iterator for RandomSingleDocIter {
-        type Item = ListCRDT;
-
-        fn next(&mut self) -> Option<Self::Item> {
-            let mut doc = ListCRDT::new();
-            let agent_0 = doc.get_or_create_agent_id("0");
-            for _i in 0..self.1 {
-                make_random_change(&mut doc, None, agent_0, &mut self.0);
-            }
-
-            Some(doc)
-        }
-    }
-
-    /// This is a fuzz helper which constructs and permutes an endless stream of documents for
-    /// testing. The documents are edited by complex multi user histories.
-    ///
-    /// I tried to write this as an iterator but failed to make something which borrow checks.
-    ///
-    /// This code is based on run_fuzzer_iteration.
-    pub fn each_complex_random_doc_pair<F: FnMut(usize, &ListCRDT, &ListCRDT)>(seed: u64, iter: usize, mut f: F) -> [ListCRDT; 3] {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let mut docs = [ListCRDT::new(), ListCRDT::new(), ListCRDT::new()];
-
-        // Each document will have a different local agent ID. I'm cheating here - just making agent
-        // 0 for all of them.
-        for (i, doc) in docs.iter_mut().enumerate() {
-            doc.get_or_create_agent_id(format!("agent {}", i).as_str());
-        }
-
-        for _i in 0..iter {
-            // Generate some operations
-            for _j in 0..5 {
-                let doc = docs.choose_mut(&mut rng).unwrap();
-                make_random_change(doc, None, 0, &mut rng);
-            }
-
-            // Then merge 2 documents at random. I'd use sample_multiple but it doesn't return
-            // mutable references to the sampled items.
-            let idxs = sample(&mut rng, docs.len(), 2);
-            let a_idx = idxs.index(0);
-            let b_idx = idxs.index(1);
-            assert_ne!(a_idx, b_idx);
-
-            // Oh god this is awful. I can't take mutable references to two array items.
-            let (a_idx, b_idx) = if a_idx < b_idx { (a_idx, b_idx) } else { (b_idx, a_idx) };
-            // a<b.
-            let (start, end) = docs[..].split_at_mut(b_idx);
-            let a = &mut start[a_idx];
-            let b = &mut end[0];
-
-            a.replicate_into(b);
-            b.replicate_into(a);
-
-            if a != b {
-                println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);
-                panic!("Documents do not match");
-            }
-
-            f(_i, &a, &b);
-
-            for doc in &docs {
-                doc.check(false);
-            }
-        }
-
-        for doc in &docs {
-            doc.check(false);
-        }
-
-        docs
-    }
-
-    pub fn gen_complex_docs(seed: u64, iter: usize) -> [ListCRDT; 3] {
-        each_complex_random_doc_pair(seed, iter, |_, _, _| {})
-    }
-}
-
-#[cfg(test)]
-mod size_info {
-    use std::mem::size_of;
-    use content_tree::*;
-    use crate::crdtspan::CRDTSpan;
-
-    #[test]
-    #[ignore]
-    fn print_memory_stats() {
-        let x = ContentTreeRaw::<CRDTSpan, ContentMetrics, DEFAULT_IE, DEFAULT_LE>::new();
-        x.print_stats("", false);
-        let x = ContentTreeRaw::<CRDTSpan, FullMetricsU32, DEFAULT_IE, DEFAULT_LE>::new();
-        x.print_stats("", false);
-
-        println!("sizeof ContentIndex offset {}", size_of::<<ContentMetrics as TreeMetrics<CRDTSpan>>::Value>());
-        println!("sizeof FullIndex offset {}", size_of::<<FullMetricsU32 as TreeMetrics<CRDTSpan>>::Value>());
-    }
-}
+pub type AgentId = u32;
+pub const ROOT_AGENT: AgentId = AgentId::MAX;
+pub const ROOT_TIME: usize = usize::MAX;

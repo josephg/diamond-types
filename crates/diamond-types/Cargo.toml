@@ -1,16 +1,12 @@
 [package]
 name = "diamond-types"
 version = "0.1.0"
-authors = ["Seph Gentle <me@josephg.com>"]
 edition = "2021"
-license = "ISC OR Apache-2.0"
-description = "Small and fast CRDT data types for collaborative editing"
-repository = "https://github.com/josephg/diamond-types"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-diamond-core = { path = "../diamond-core" }
+#diamond-core = { path = "../diamond-core" }
 smartstring = "0.2"
 ropey = "1"
 smallvec = { version = "1", features = ["union"] }
@@ -18,12 +14,17 @@ lazy_static = "1.4"
 serde_crate = { package = "serde", version = "1", features = ["derive"], optional = true }
 rle = { version = "0.1", path = "../rle" }
 content-tree = { version = "0.1", path = "../content-tree" }
-bitvec = "0.22.3"
+#bitvec = "0.22.3"
 jumprope = { version = "0.4" }
-
-# Only used for printing stats. TODO: Move me to dev-dependencies!
 humansize = "1.1"
+#bitvec = "0.22.3"
 num_enum = "0.5"
+
+# crc32c might be faster, but it adds 10kb to the wasm bundle size. crc only adds 1kb.
+#crc32c = "0.6"
+crc = "2"
+
+#lz4_flex = "0.9.2"
 
 [dev-dependencies]
 criterion = "^0.3"
@@ -31,19 +32,16 @@ rand = { version = "^0.8", features = ["small_rng"] }
 crdt-testdata = { path = "../crdt-testdata" }
 
 # For OT fuzz data tests
-json_minimal = "0.1.3"
+#json_minimal = "0.1.3"
 
 [features]
 memusage = []
 inlinerope = []
 serde = ["serde_crate", "smallvec/serde", "smartstring/serde"]
+dot_export = []
 
 [lib]
 bench = false
-
-[[bench]]
-name = "ropey"
-harness = false
 
 [[bench]]
 name = "core"
