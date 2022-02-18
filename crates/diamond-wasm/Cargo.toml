@@ -14,21 +14,21 @@ crate-type = ["cdylib", "rlib"]
 default = ["console_error_panic_hook"]
 
 [dependencies]
-wasm-bindgen = "0.2"
-serde-wasm-bindgen = "0.3"
-smallvec = { version = "1.6.1", features = ["union"] }
-serde = "1.0"
+wasm-bindgen = "0.2.79"
+serde-wasm-bindgen = "0.4.2"
+smallvec = { version = "1.8.0", features = ["union"] }
+serde = "1.0.136"
 
 # Needed for jumprope.
-getrandom = { version = "0.2.3", features = ["js"] }
+getrandom = { version = "0.2.4", features = ["js"] }
 # Small.
-jumprope = { version = "0.4", default-features = false }
+jumprope = { version = "0.4.0", default-features = false }
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires
 # all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
 # code size when deploying.
-console_error_panic_hook = { version = "0.1.6", optional = true }
+console_error_panic_hook = { version = "0.1.7", optional = true }
 
 # `wee_alloc` is a tiny allocator for wasm that is only ~1K in code size
 # compared to the default allocator's ~10K. It is slower than the default

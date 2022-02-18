@@ -6,11 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-git2 = "*"
+git2 = "0.13.25"
 diamond-types = { path = "../diamond-types" }
 #diamond-types = { path = "../diamond-types", features = ["dot_export"] }
-similar = "2"
-smallvec = "1"
+similar = "2.1.0"
+smallvec = "1.8.0"
 
 #[features]
 #dot_export = []
