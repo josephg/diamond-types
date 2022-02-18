@@ -410,6 +410,10 @@ impl OpLog {
         }
     }
 
+    pub fn iter_mappings(&self) -> impl Iterator<Item = CRDTSpan> + '_ {
+        self.client_with_localtime.iter().map(|item| item.1)
+    }
+
     pub fn print_stats(&self, detailed: bool) {
         self.operations.print_stats("Operations", detailed);
 

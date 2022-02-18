@@ -102,106 +102,72 @@ impl OpLog {
             .collect()
     }
 
-    // /// Get the vector clock for this oplog.
-    // ///
-    // /// NOTE: This is different from the frontier:
-    // /// - The vector clock contains an entry for every agent which has *ever* edited this document.
-    // /// - The vector clock specifies the *next* version for each useragent, not the last
-    // ///
-    // /// In general the vector clock is much bigger than the frontier set. It will grow unbounded
-    // /// in large documents.
-    // ///
-    // /// This is currently used for replication because frontiers are not always comparable. But
-    // /// ideally I'd like to retire this and use something closer to Automerge's probabilistic
-    // /// solution for replication instead.
-    // pub fn get_vector_clock(&self) -> SmallVec<[RemoteId; 4]> {
-    //     self.client_data.iter().map(|c| {
-    //         RemoteId {
-    //             agent: c.name.clone(),
-    //             seq: c.get_next_seq()
-    //         }
-    //     }).collect()
-    // }
-    //
-    // /// This method returns the list of spans of orders which will bring a client up to date
-    // /// from the specified vector clock version.
-    // #[allow(unused)]
-    // pub(crate) fn time_spans_since_vector_clock<B>(&self, vector_clock: &[RemoteId]) -> B
-    //     where B: Default + AppendRle<TimeSpan>
-    // {
-    //     #[derive(Clone, Copy, Debug, Eq)]
-    //     struct OpSpan {
-    //         agent_id: usize,
-    //         next_time: Time,
-    //         idx: usize,
-    //     }
-    //
-    //     impl PartialEq for OpSpan {
-    //         fn eq(&self, other: &Self) -> bool {
-    //             self.next_time == other.next_time
-    //         }
-    //     }
-    //
-    //     impl PartialOrd for OpSpan {
-    //         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    //             self.next_time.partial_cmp(&other.next_time)
-    //         }
-    //     }
-    //
-    //     impl Ord for OpSpan {
-    //         fn cmp(&self, other: &Self) -> Ordering {
-    //             self.next_time.cmp(&other.next_time)
-    //         }
-    //     }
-    //
-    //     let mut heap = BinaryHeap::new();
-    //     // We need to go through all clients in the local document because we also need to include
-    //     // all entries for any client which *isn't* named in the vector clock.
-    //     for (agent_id, client) in self.client_data.iter().enumerate() {
-    //         let from_seq = vector_clock.iter()
-    //             .find(|rid| rid.agent == client.name)
-    //             .map_or(0, |rid| rid.seq);
-    //
-    //         let idx = client.item_orders.find_index(from_seq).unwrap_or_else(|idx| idx);
-    //         if idx < client.item_orders.0.len() {
-    //             let entry = &client.item_orders.0[idx];
-    //
-    //             heap.push(Reverse(OpSpan {
-    //                 agent_id,
-    //                 next_time: entry.1.start + from_seq.saturating_sub(entry.0),
-    //                 idx,
-    //             }));
-    //         }
-    //     }
-    //
-    //     let mut result = B::default();
-    //
-    //     while let Some(Reverse(e)) = heap.pop() {
-    //         let e = e; // Urgh intellij.
-    //         // Append a span of times from here and requeue.
-    //         let c = &self.client_data[e.agent_id];
-    //         let KVPair(_, span) = c.item_orders.0[e.idx];
-    //
-    //         let start = span.start.max(e.next_time);
-    //         result.push_rle(TimeSpan {
-    //             // Kinda gross but at least its branchless.
-    //             start,
-    //             // end: start + (span.end - e.next_time),
-    //             end: span.end,
-    //         });
-    //
-    //         // And potentially requeue this agent.
-    //         if e.idx + 1 < c.item_orders.0.len() {
-    //             heap.push(Reverse(OpSpan {
-    //                 agent_id: e.agent_id,
-    //                 next_time: c.item_orders.0[e.idx + 1].1.start,
-    //                 idx: e.idx + 1,
-    //             }));
-    //         }
-    //     }
-    //
-    //     result
-    // }
+    /// Sooo, when 2 peers love each other very much...
+    ///
+    /// They connect together. And they need to find the shared point in time from which they should
+    /// send changes.
+    ///
+    /// Over the network this problem fundamentally pits round-trip time against bandwidth overhead.
+    /// The algorithmic approach which would result in the fewest round-trips would just be for both
+    /// peers to send their entire histories immediately. But this would waste bandwidth. And the
+    /// approach using the least bandwidth would have peers essentially do a distributed binary
+    /// search to find a common point in time. But this would take log(n) round-trips, and over long
+    /// network distances this is really slow.
+    ///
+    /// In practice this is usually mostly unnecessary - usually one peer's version is a direct
+    /// ancestor of the other peer's version. (Eg, I'm modifying a document and you're just
+    /// observing it.)
+    ///
+    /// Ny design here is a hybrid approach. I'm going to construct a fixed-sized chunk of known
+    /// versions we can send to our remote peer. (And the remote peer can do the same with us). The
+    /// chunk will contain exponentially less information the further back in time we scan; so the
+    /// more time which has passed since we have a common ancestor, the more wasted bytes of changes
+    /// we'll send to the remote peer. But this approach will always only need 1RTT to sync.
+    ///
+    /// Its not perfect, but it'll do donkey. It'll do.
+    #[allow(unused)]
+    fn get_stochastic_version(&self, target_count: usize) -> Vec<CRDTId> {
+        let target_count = target_count.max(self.frontier.len());
+        let mut result = Vec::with_capacity(target_count + 10);
+
+        let time_len = self.len();
+
+        // If we have no changes, just return the empty set. Descending from ROOT is implied anyway.
+        if time_len == 0 { return result; }
+
+        let mut push_time = |t: Time| {
+            result.push(self.time_to_crdt_id(t));
+        };
+
+        // No matter what, we'll send the current frontier:
+        for t in &self.frontier {
+            push_time(*t);
+        }
+
+        // So we want about target_count items. I'm assuming there's an exponentially decaying
+        // probability of syncing as we go further back in time. This is a big assumption - and
+        // probably not true in practice. But it'll do. (TODO: Quadratic might be better?)
+        //
+        // Given factor, the approx number of operations we'll return is log_f(|ops|).
+        // Solving for f gives f = |ops|^(1/target).
+        if target_count > self.frontier.len() {
+            // Note I'm using n_ops here rather than time, since this easily scales time by the
+            // approximate size of the transmitted operations. TODO: This might be a faulty
+            // assumption given we're probably sending inserted content? Hm!
+            let remaining_count = target_count - self.frontier.len();
+            let n_ops = self.operations.0.len();
+            let factor = f32::powf(n_ops as f32, 1f32 / (remaining_count) as f32);
+
+            let mut t_inv = 1f32;
+            while t_inv < time_len as f32 {
+                dbg!(t_inv);
+                push_time(time_len - (t_inv as usize));
+                t_inv *= factor;
+            }
+        }
+
+        result
+    }
 }
 
 #[cfg(test)]
@@ -260,32 +226,17 @@ mod test {
         // ]);
     }
 
-    // #[test]
-    // fn test_versions_since() {
-    //     let mut oplog = OpLog::new();
-    //     oplog.get_or_create_agent_id("seph"); // 0
-    //     oplog.push_insert(0, 0, "hi");
-    //     oplog.get_or_create_agent_id("mike"); // 0
-    //     oplog.push_insert(1, 2, "yo");
-    //     oplog.push_insert(0, 4, "a");
-    //
-    //     // When passed an empty vector clock, we fetch all versions from the start.
-    //     let vs = oplog.time_spans_since_vector_clock::<Vec<_>>(&[]);
-    //     assert_eq!(vs, vec![TimeSpan { start: 0, end: 5 }]);
-    //
-    //     let vs = oplog.time_spans_since_vector_clock::<Vec<_>>(&[RemoteId {
-    //         agent: "seph".into(),
-    //         seq: 2
-    //     }]);
-    //     assert_eq!(vs, vec![TimeSpan { start: 2, end: 5 }]);
-    //
-    //     let vs = oplog.time_spans_since_vector_clock::<Vec<_>>(&[RemoteId {
-    //         agent: "seph".into(),
-    //         seq: 100
-    //     }, RemoteId {
-    //         agent: "mike".into(),
-    //         seq: 100
-    //     }]);
-    //     assert_eq!(vs, vec![]);
-    // }
+    #[test]
+    fn test_versions_since() {
+        let mut oplog = OpLog::new();
+        // Should be an empty set
+        assert_eq!(oplog.get_stochastic_version(10), &[]);
+
+        oplog.get_or_create_agent_id("seph");
+        oplog.push_insert(0, 0, "a");
+        oplog.push_insert(0, 0, "a");
+        oplog.push_insert(0, 0, "a");
+        oplog.push_insert(0, 0, "a");
+        dbg!(oplog.get_stochastic_version(10));
+    }
 }

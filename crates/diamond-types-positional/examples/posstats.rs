@@ -76,6 +76,15 @@ fn print_stats_for_testdata(name: &str) {
     });
     println!("Branch size {}", doc.len());
     // println!("---\nEncoded size {} (?? What do we include here?)", as_bytes.len());
+
+    let out_file = format!("{}.dt", name);
+    let data = doc.ops.encode(EncodeOptions {
+        store_inserted_content: true,
+        store_deleted_content: true,
+        verbose: true
+    });
+    std::fs::write(out_file.clone(), data.as_slice()).unwrap();
+    println!("Saved to {}", out_file);
 }
 
 fn print_stats_for_file(name: &str) {

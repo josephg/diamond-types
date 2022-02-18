@@ -86,6 +86,13 @@ pub fn rle_zip<A, B, AIter, BIter>(a: AIter, b: BIter) -> RleZip<A, B, AIter, BI
     }
 }
 
+pub fn rle_zip3<A, B, C, AIter, BIter, CIter>(a: AIter, b: BIter, c: CIter) -> impl Iterator<Item=(A, B, C)>
+    where A: SplitableSpan + HasLength, B: SplitableSpan + HasLength, C: SplitableSpan + HasLength,
+        AIter: Iterator<Item = A>, BIter: Iterator<Item = B>, CIter: Iterator<Item = C>
+{
+    rle_zip(rle_zip(a, b), c).map(|((a, b), c)| (a, b, c))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
