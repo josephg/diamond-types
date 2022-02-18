@@ -13,11 +13,11 @@ use diamond_types::list::list::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // TODO: Just take this as a program argument.
-    let repo = Repository::open("/Users/seph/src/diamond-types")?;
-    let file = "src/range_tree/mutations.rs";
+    // let repo = Repository::open("/Users/seph/src/diamond-types")?;
+    // let file = "src/range_tree/mutations.rs";
 
-    // let repo = Repository::open("/Users/seph/3rdparty/node")?;
-    // let file = "src/node.cc";
+    let repo = Repository::open("/home/seph/3rdparty/node")?;
+    let file = "src/node.cc";
     // let file = "Makefile";
 
     // let repo = Repository::open("/home/seph/3rdparty/yjs")?;

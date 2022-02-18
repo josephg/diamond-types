@@ -11,10 +11,12 @@ use crate::rev_span::TimeSpanRev;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::unicount::consume_chars;
 use ParseError::*;
-use rle::take_max_iter::{Rem, TakeMaxFns};
+use rle::AppendRle;
+use rle::take_max_iter::TakeMaxFns;
 use crate::list::history::MinimalHistoryEntry;
+use crate::localtime::{TimeSpan, UNDERWATER_START};
 use crate::remotespan::{CRDTId, CRDTSpan};
-use crate::rle::{RleKeyedAndSplitable, RleSpanHelpers};
+use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 
 #[derive(Debug)]
 struct BufReader<'a>(&'a [u8]);
@@ -58,8 +60,7 @@ impl<'a> BufReader<'a> {
 
     #[inline]
     fn check_has_bytes(&self, num: usize) -> Result<(), ParseError> {
-        if self.0.len() < num { Err(UnexpectedEOF) }
-        else { Ok(()) }
+        if self.0.len() < num { Err(UnexpectedEOF) } else { Ok(()) }
     }
 
     fn is_empty(&self) -> bool {
@@ -67,8 +68,7 @@ impl<'a> BufReader<'a> {
     }
 
     fn expect_empty(&self) -> Result<(), ParseError> {
-        if self.is_empty() { Ok(()) }
-        else { Err(InvalidLength) }
+        if self.is_empty() { Ok(()) } else { Err(InvalidLength) }
     }
 
     #[allow(unused)]
@@ -250,7 +250,7 @@ impl<'a> BufReader<'a> {
 
         Ok(Some(CRDTSpan {
             agent,
-            seq_range: (start..end).into()
+            seq_range: (start..end).into(),
         }))
     }
 
@@ -308,11 +308,8 @@ impl<'a> BufReader<'a> {
     //     Ok(result)
     // }
 
-    fn next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<MinimalHistoryEntry, ParseError> {
+    fn read_parents(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<SmallVec<[usize; 2]>, ParseError> {
         let mut parents = SmallVec::<[usize; 2]>::new();
-
-        let len = self.next_usize()?;
-        // And read parents.
         loop {
             let mut n = self.next_usize()?;
             let is_foreign = strip_bit_usize2(&mut n);
@@ -325,7 +322,9 @@ impl<'a> BufReader<'a> {
                     let agent = agent_map[n - 1].0;
                     let seq = self.next_usize()?;
                     if let Some(c) = oplog.client_data.get(agent as usize) {
-                        c.try_seq_to_time(seq).ok_or(InvalidLength)?
+                        // Adding UNDERWATER_START for foreign parents in a horrible hack.
+                        // I'm so sorry. This gets pulled back out in history_entry_map_and_truncate
+                        UNDERWATER_START + c.try_seq_to_time(seq).ok_or(InvalidLength)?
                     } else {
                         return Err(InvalidLength);
                     }
@@ -339,13 +338,75 @@ impl<'a> BufReader<'a> {
             parents.push(parent);
             if !has_more { break; }
         }
+        Ok(parents)
+    }
+
+    fn next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<MinimalHistoryEntry, ParseError> {
+        let len = self.next_usize()?;
+        let parents = self.read_parents(oplog, next_time, agent_map)?;
 
         // Bleh its gross passing a &[Time] into here when we have a Frontier already.
         Ok(MinimalHistoryEntry {
             span: (next_time..next_time + len).into(),
-            parents
+            parents,
         })
     }
+
+
+    // fn next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)],
+    //                       internal_skip: &mut usize, max_len: usize) -> Result<MinimalHistoryEntry, ParseError> {
+    //     // Sooo this function is more complex than I'd like in the case where we're filtering out
+    //     // data from the file.
+    //     //
+    //     // The problem is that we can't just use .split() methods on the result because the time
+    //     // values need to be mapped to self.
+    //
+    //     // So this function does 2 things:
+    //     // - It reads the next history entry (as advertised)
+    //     // - And it maintains internal_skip.
+    //
+    //     // Keep looping until we've burned through internal_skip and we can return something.
+    //     loop {
+    //         let unmodified_slice = self.0;
+    //
+    //         let file_entry_len = self.next_usize()?;
+    //         // Even if we don't use them, we need to read the parents out of the file to skip past
+    //         // these bytes.
+    //         let real_parents = self.read_parents(oplog, next_time, agent_map)?;
+    //
+    //         if file_entry_len <= *internal_skip {
+    //             *internal_skip -= file_entry_len;
+    //             // And continue!
+    //         } else {
+    //             // Len > internal_skip. We'll keep some content here!
+    //             let len_remaining = file_entry_len - internal_skip;
+    //             let len = usize::min(len_remaining, max_len);
+    //
+    //             let entry = MinimalHistoryEntry {
+    //                 span: (next_time..next_time + len).into(),
+    //                 parents: if *internal_skip == 0 {
+    //                     real_parents
+    //                 } else {
+    //                     smallvec![next_time - 1]
+    //                 }
+    //             };
+    //
+    //             if len_remaining > max_len {
+    //                 // We didn't take it all. Mark as such. We'll re-parse this file entry next
+    //                 // iteration. (Which is a bit inefficient, but eh.)
+    //                 *internal_skip += len;
+    //                 self.0 = unmodified_slice;
+    //             } else {
+    //                 // We consumed to the end of the item. Next call should eat the next entry.
+    //                 *internal_skip = 0;
+    //             }
+    //
+    //             return Ok(entry);
+    //         }
+    //     }
+    // }
+
+
 
     // fn try_next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Option<Result<MinimalHistoryEntry, ParseError>> {
     //     if self.is_empty() { return None; }
@@ -353,30 +414,50 @@ impl<'a> BufReader<'a> {
     // }
 }
 
-//  Result<MinimalHistoryEntry, ParseError> {
-// #[derive(Debug)]
-// struct HistoryEntries<'a>(BufReader<'a>);
-//
-// impl<'a> HistoryEntries<'a> {
-//     fn next_ctx(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Option<Self::Item> {
-//         self.0.try_next_history_entry(oplog, next_time, agent_map)
-//     }
-// }
 
-//     type Item = Result<MinimalHistoryEntry, ParseError>;
-//     type Ctx = (&'b OpLog, Time, &'b [(AgentId, usize)]);
-//
-//     fn next_ctx(&mut self, ctx: Self::Ctx) -> Option<Self::Item> {
-//         self.0.try_next_history_entry(ctx.0, ctx.1, ctx.2)
-//     }
-// }
+/// Returns (mapped span, remainder).
+/// The returned remainder is *NOT MAPPED*. This allows this method to be called in a loop.
+fn history_entry_map_and_truncate(mut hist_entry: MinimalHistoryEntry, version_map: &RleVec<KVPair<TimeSpan>>) -> (MinimalHistoryEntry, Option<MinimalHistoryEntry>) {
 
+    let (map_entry, offset) = version_map.find_packed_with_offset(hist_entry.span.start);
 
+    let mut map_entry = map_entry.1;
+    map_entry.truncate_keeping_right(offset);
 
+    let remainder = if hist_entry.len() > map_entry.len() {
+        Some(hist_entry.truncate(map_entry.len()))
+    } else {
+        None
+    };
+
+    // Keep entire history entry. Just map it.
+    let len = hist_entry.len();
+    hist_entry.span.start = map_entry.start;
+    hist_entry.span.end = hist_entry.span.start + len;
+
+    // Map parents.
+    const UNDERWATER_LAST: usize = ROOT_TIME - 1;
+    for p in hist_entry.parents.iter_mut() {
+        match *p {
+            ROOT_TIME => {},
+            UNDERWATER_START..=UNDERWATER_LAST => {
+                // Foreign parents. Just use what we got.
+                *p -= UNDERWATER_START;
+            }
+            _ => {
+                let (span, offset) = version_map.find_packed_with_offset(*p);
+                *p = span.1.start + offset;
+            }
+        }
+    }
+
+    (hist_entry, remainder)
+}
 
 // This is a simple wrapper to give us an iterator for agent assignments. The
 #[derive(Debug)]
 struct AgentAssignments<'a>(BufReader<'a>, &'a mut [(AgentId, usize)]);
+
 impl<'a> Iterator for AgentAssignments<'a> {
     type Item = Result<CRDTSpan, ParseError>;
 
@@ -403,7 +484,7 @@ impl<'a> ReadPatchesIter<'a> {
     fn new(buf: BufReader<'a>) -> Self {
         Self {
             buf,
-            last_cursor_pos: 0
+            last_cursor_pos: 0,
         }
     }
 
@@ -447,10 +528,10 @@ impl<'a> ReadPatchesIter<'a> {
         Ok(OperationInternal {
             span: TimeSpanRev { // TODO: Probably a nicer way to construct this.
                 span: (start..end).into(),
-                fwd
+                fwd,
             },
             tag,
-            content_pos: None
+            content_pos: None,
         })
     }
 }
@@ -459,8 +540,7 @@ impl<'a> Iterator for ReadPatchesIter<'a> {
     type Item = Result<OperationInternal, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.buf.is_empty() { None }
-        else { Some(self.next_internal()) }
+        if self.buf.is_empty() { None } else { Some(self.next_internal()) }
     }
 }
 
@@ -525,9 +605,9 @@ impl OpLog {
         // empty document, or we've been sent catchup data from a remote peer. If the data set
         // overlaps, we need to actively filter out operations & txns from that data set.
         let patches_overlap = start_frontier.map_or(true, |f|
-            !frontier_eq(&f, &self.frontier)
+            !frontier_eq(&f, &self.frontier),
         );
-        dbg!(patches_overlap);
+        // dbg!(patches_overlap);
 
         // *** Patches ***
         {
@@ -567,16 +647,26 @@ impl OpLog {
 
             // The file we're loading has a list of operations. The list's item order is shared in a
             // handful of lists of data - agent assignment, operations, content and txns.
+
+            // Only used for new (not overlapped) operations.
             let mut next_assignment_time = first_new_time;
             let mut next_history_time = first_new_time;
+            let mut next_file_time = 0;
 
+            // Mapping from "file order" (numbered from 0) to the resulting local order. Using a
+            // smallvec here because it'll almost always just be a single entry, and that prevents
+            // an allocation in the common case. This is needed for merging overlapped file data.
+            // let mut version_map: SmallVec<[KVPair<TimeSpan>; 1]> = SmallVec::new();
+
+            // TODO: Replace with SmallVec to avoid an allocation in the common case here.
+            let mut version_map = RleVec::new();
 
             // Take and merge the next exactly n patches
             let mut parse_next_patches = |oplog: &mut OpLog, mut n: usize, keep: bool| -> Result<(), ParseError> {
                 while n > 0 {
                     if let Some(op) = iter.next(n) {
                         let op = op?;
-                        dbg!((n, &op));
+                        // dbg!((n, &op));
                         let len = op.len();
                         assert!(op.len() > 0);
                         n -= len;
@@ -600,29 +690,6 @@ impl OpLog {
                 Ok(())
             };
 
-            // let mut hist_entry_skip = 0;
-            let mut next_hist_entry = Rem::new();
-
-            let mut parse_next_history = |oplog: &mut OpLog, agent_map: &[(AgentId, usize)], mut n: usize, keep: bool| -> Result<(), ParseError> {
-                while n > 0 {
-                    let entry = next_hist_entry.take_max_result(n, || {
-                        history_chunk.next_history_entry(oplog, next_history_time, &agent_map)
-                    })?;
-
-                    dbg!(&entry);
-
-                    if keep {
-                        oplog.insert_history(&entry.parents, entry.span);
-                        oplog.advance_frontier(&entry.parents, entry.span);
-                        next_history_time += entry.len();
-                    }
-
-                    n -= entry.len();
-                }
-                Ok(())
-            };
-
-
             while let Some(mut crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut file_to_self_agent_map)? {
                 // let mut crdt_span = crdt_span; // TODO: Remove me. Blerp clion.
                 // dbg!(crdt_span);
@@ -637,56 +704,40 @@ impl OpLog {
                         // dbg!(&crdt_span);
                         let client = &self.client_data[crdt_span.agent as usize];
                         let (span, _offset) = client.item_times.find_sparse(crdt_span.seq_range.start);
-                        let (span_end, keep) = match span {
+                        let (span_end, overlap) = match span {
                             // Skip the entry.
-                            Ok(entry) => (entry.end(), false),
+                            Ok(entry) => (entry.end(), Some(entry.1)),
                             // Consume the entry
-                            Err(empty_span) => (empty_span.end, true),
+                            Err(empty_span) => (empty_span.end, None),
                         };
 
                         let end = crdt_span.seq_range.end.min(span_end);
                         let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
+                        let len = consume_here.len();
 
-                        if keep {
+                        if let Some(overlap) = overlap {
+                            version_map.push_rle(KVPair(next_file_time, overlap));
+                        } else {
                             self.assign_next_time_to_crdt_span(next_assignment_time, CRDTSpan {
                                 agent: crdt_span.agent,
-                                seq_range: consume_here
+                                seq_range: consume_here,
                             });
-                            next_assignment_time += consume_here.len();
-                        }
+                            version_map.push_rle(KVPair(
+                                next_file_time,
+                                (next_assignment_time..next_assignment_time + len).into(),
+                            ));
+                            next_assignment_time += len;
 
-                        parse_next_patches(&mut self, consume_here.len(), keep)?;
+                        }
+                        next_file_time += len;
+
+                        // dbg!(&file_to_local_version_map);
+
+                        let keep = overlap.is_none();
+                        parse_next_patches(&mut self, len, keep)?;
 
                         // And deal with history.
-                        parse_next_history(&mut self, &file_to_self_agent_map, consume_here.len(), keep)?;
-
-
-                        // match span {
-                        //     Ok(entry) => {
-                        //         // Skip the entry.
-                        //         let end = crdt_span.seq_range.end.min(entry.end());
-                        //         let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
-                        //         // println!("Skip to {}", crdt_span.seq_range.start);
-                        //         parse_next_patches(&mut self, consume_here.len(), false)?;
-                        //     }
-                        //     Err(empty_span) => {
-                        //         // Consume the entry
-                        //         let end = crdt_span.seq_range.end.min(empty_span.end);
-                        //
-                        //         let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
-                        //         // println!("consume {:?} (agent {})", consume_here, crdt_span.agent);
-                        //         // dbg!(consume_here);
-                        //
-                        //         self.assign_next_time_to_crdt_span(next_assignment_time, CRDTSpan {
-                        //             agent: crdt_span.agent,
-                        //             seq_range: consume_here
-                        //         });
-                        //         parse_next_patches(&mut self, consume_here.len(), true)?;
-                        //         next_assignment_time += consume_here.len();
-                        //         // dbg!(&crdt_span);
-                        //     }
-                        // }
-
+                        // parse_next_history(&mut self, &file_to_self_agent_map, &version_map, len, keep)?;
                     }
                     // dbg!(span);
                 } else {
@@ -695,24 +746,55 @@ impl OpLog {
                     // document, and this is the case.
                     self.assign_next_time_to_crdt_span(next_assignment_time, crdt_span);
                     let len = crdt_span.len();
+                    // file_to_local_version_map.push_rle((next_assignment_time..next_assignment_time + len).into());
+                    version_map.push_rle(KVPair(
+                        next_file_time,
+                        (next_assignment_time..next_assignment_time + len).into(),
+                    ));
                     parse_next_patches(&mut self, len, true)?;
-                    parse_next_history(&mut self, &file_to_self_agent_map, len, true)?;
+                    // parse_next_history(&mut self, &file_to_self_agent_map, &version_map, len, true)?;
 
                     next_assignment_time += len;
+                    next_file_time += len;
                 }
+            }
 
-                // if !consume_everything &&
+            next_file_time = 0;
+            // dbg!(&version_map);
+            while !history_chunk.is_empty() {
+                let mut entry = history_chunk.next_history_entry(&self, next_file_time, &file_to_self_agent_map)?;
+                next_file_time += entry.len();
+                // dbg!(&entry);
 
-                // TODO: When I enable partial loads, this will need to filter operations.
-                // self.assign_next_time_to_crdt_span(next_time, crdt_span);
-                // next_time += crdt_span.len();
+                loop {
+                    let (mut mapped, remainder) = history_entry_map_and_truncate(entry, &version_map);
+                    // dbg!(&mapped);
+                    assert!(mapped.span.start <= next_history_time);
+
+                    if mapped.span.end > next_history_time {
+                        // We'll merge items from mapped.
+                        if mapped.span.start < next_history_time {
+                            mapped.truncate_keeping_right(next_history_time - mapped.span.start);
+                        }
+
+                        self.insert_history(&mapped.parents, mapped.span);
+                        self.advance_frontier(&mapped.parents, mapped.span);
+                        next_history_time += mapped.len();
+                    } // else we already have these entries. Filter them out.
+
+                    if let Some(remainder) = remainder {
+                        entry = remainder;
+                    } else {
+                        break;
+                    }
+                }
             }
 
             // We'll count the lengths in each section to make sure they all match up with each other.
             if next_patch_time != next_assignment_time { return Err(InvalidLength); }
             if next_patch_time != next_history_time { return Err(InvalidLength); }
 
-            dbg!(&patch_chunk);
+            // dbg!(&patch_chunk);
             patch_chunk.expect_empty()?;
             history_chunk.expect_empty()?;
 
@@ -722,39 +804,7 @@ impl OpLog {
                 }
             }
 
-            // *** History ***
-
-            // let mut next_history_time = first_new_time;
-
-
-            // let mut iter = HistoryEntries(history_chunk).take_max();
-            // let mut iter = HistoryEntries(history_chunk);
-
-            // let mut process_history = |oplog: &mut OpLog, mut n: usize, map: &mut [(AgentId, usize)]| -> Result<(), ParseError> {
-            //     if let Some(entry) = iter.next_ctx((oplog, next_history_time, map), n) {
-            //     // if let Some(entry) = iter.next_ctx((oplog, next_history_time, map)) {
-            //         let entry = entry?;
-            //         oplog.insert_history(&entry.parents, entry.span);
-            //         oplog.advance_frontier(&entry.parents, entry.span);
-            //
-            //         next_history_time += entry.len();
-            //     } else {
-            //         println!("blerp");
-            //     }
-            //     Ok(())
-            // };
-
-            // process_history(&mut self, 1000, &mut file_to_self_agent_map)?;
-
-            // while let Some(entry) = iter.next_ctx((&self, next_history_time, &file_to_self_agent_map)) {
-            //     let entry = entry?;
-            //     self.insert_history(&entry.parents, entry.span);
-            //     self.advance_frontier(&entry.parents, entry.span);
-            //
-            //     next_history_time += entry.len();
-            // }
-
-            // if next_history_time != next_assignment_time { return Err(InvalidLength); }
+            // dbg!(&version_map);
         } // End of patches
 
         // TODO: Move checksum check to the start, so if it fails we don't modify the document.
@@ -799,12 +849,12 @@ mod tests {
             user_data: None,
             store_inserted_content: true,
             store_deleted_content: true,
-            verbose: false
+            verbose: false,
         });
 
         let oplog2 = OpLog::load_from(&data).unwrap();
 
-        dbg!(oplog, &oplog2);
+        // dbg!(oplog, &oplog2);
 
         assert_eq!(oplog, &oplog2);
     }
@@ -845,7 +895,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn merge_parts() {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
