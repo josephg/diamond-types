@@ -181,18 +181,23 @@ impl Debug for RootTime {
     }
 }
 
-pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: Time) {
+pub(crate) fn debug_time_raw<F: FnOnce(&dyn Debug) -> R, R>(val: Time, f: F) -> R {
+    const LAST_TIME: usize = ROOT_TIME - 1;
     match val {
         ROOT_TIME => {
-            fmt.field(name, &RootTime);
+            f(&RootTime)
         },
-        start @ (UNDERWATER_START..=ROOT_TIME) => {
-            fmt.field(name, &Underwater(start - UNDERWATER_START));
+        start @ (UNDERWATER_START..=LAST_TIME) => {
+            f(&Underwater(start - UNDERWATER_START))
         },
         start => {
-            fmt.field(name, &start);
+            f(&start)
         }
     }
+}
+
+pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: Time) {
+    debug_time_raw(val, |v| { fmt.field(name, v); });
 }
 
 // #[derive(Debug)]
@@ -206,10 +211,11 @@ impl Debug for Underwater {
 
 impl Debug for TimeSpan {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut s = f.debug_struct("TimeSpan");
-        debug_time(&mut s, "start", self.start);
-        debug_time(&mut s, "end", self.end);
-        s.finish()
+        write!(f, "T ")?;
+        debug_time_raw(self.start, |v| v.fmt(f) )?;
+        write!(f, "..")?;
+        debug_time_raw(self.end, |v| v.fmt(f) )?;
+        Ok(())
     }
 }
 

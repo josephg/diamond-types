@@ -1,8 +1,8 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 pub use simple_rle::RleVec;
-use crate::localtime::TimeSpan;
+use crate::localtime::{debug_time_raw, TimeSpan};
 
 pub mod simple_rle;
 
@@ -32,8 +32,18 @@ pub trait RleKeyedAndSplitable: RleKeyed + SplitableSpan {
 
 impl<V: RleKeyed + SplitableSpan> RleKeyedAndSplitable for V {}
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct KVPair<V>(pub usize, pub V);
+
+impl<V: Debug> Debug for KVPair<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_tuple("KVPair");
+        debug_time_raw(self.0, |v| { s.field(v); });
+        s.field(&self.1);
+        s.finish()
+    }
+}
+
 
 impl<V> RleKeyed for KVPair<V> {
     fn rle_key(&self) -> usize {
