@@ -55,7 +55,7 @@ impl OperationInternal {
         } else { None };
 
         OperationInternal {
-            span: TimeSpanRev { span, fwd: self.span.fwd },
+            span,
             tag: self.tag,
             content_pos,
         }
@@ -92,7 +92,7 @@ impl HasLength for OperationInternal {
 impl SplitableSpan for OperationInternal {
     fn truncate(&mut self, at: usize) -> Self {
         Self {
-            span: self.span.truncate(at),
+            span: self.span.truncate_tagged_span(self.tag, at),
             tag: self.tag,
             content_pos: self.content_pos.truncate(at)
         }
@@ -105,7 +105,7 @@ impl TimeSpanRev {
     //
     // In godbolt these variants all look pretty similar.
     #[inline]
-    pub(crate) fn truncate_tagged_span(&mut self, tag: InsDelTag, at: usize) -> TimeSpan {
+    pub(crate) fn truncate_tagged_span(&mut self, tag: InsDelTag, at: usize) -> TimeSpanRev {
         let len = self.len();
 
         let start2 = if self.fwd && tag == Ins {
@@ -119,7 +119,10 @@ impl TimeSpanRev {
         }
         self.span.end = self.span.start + at;
 
-        TimeSpan { start: start2, end: start2 + len - at }
+        TimeSpanRev {
+            span: TimeSpan { start: start2, end: start2 + len - at },
+            fwd: self.fwd
+        }
     }
 
     // pub(crate) fn truncate_tagged_span(&mut self, tag: InsDelTag, at: usize) -> TimeSpan {
@@ -214,7 +217,7 @@ impl MergableSpan for OperationInternal {
 
 #[cfg(test)]
 mod test {
-    use rle::test_splitable_methods_valid;
+    use rle::{SplitableSpan, test_splitable_methods_valid};
     use crate::list::internal_op::OperationInternal;
     use crate::list::operation::InsDelTag;
     use crate::localtime::TimeSpan;
@@ -222,18 +225,47 @@ mod test {
 
     #[test]
     fn internal_op_splitable() {
-        let op = OperationInternal {
+        test_splitable_methods_valid(OperationInternal {
             span: (10..20).into(),
             tag: InsDelTag::Ins,
             content_pos: Some((1000..1010).into()),
-        };
+        });
 
-        test_splitable_methods_valid(op);
+        // I can't test the other splitablespan variants like this because they don't support
+        // appending.
     }
 
     #[test]
+    fn truncate_fwd_delete() {
+        // Regression.
+        let mut op = OperationInternal {
+            span: (10..15).into(),
+            tag: InsDelTag::Del,
+            content_pos: Some((0..5).into()),
+        };
+
+        // let rem = op.truncate(2, "abcde");
+        let rem = SplitableSpan::truncate(&mut op, 2);
+
+        assert_eq!(op, OperationInternal {
+            span: (10..12).into(),
+            tag: InsDelTag::Del,
+            content_pos: Some((0..2).into())
+        });
+
+        assert_eq!(rem, OperationInternal {
+            span: (10..13).into(),
+            tag: InsDelTag::Del,
+            content_pos: Some((2..5).into())
+        });
+
+        dbg!(op, rem);
+    }
+
+    #[test]
+    #[ignore]
     #[allow(dead_code)] // Don't complain about unused fields.
-    fn foo() {
+    fn print_sizes() {
         struct V1 {
             span: TimeSpanRev,
             tag: InsDelTag,

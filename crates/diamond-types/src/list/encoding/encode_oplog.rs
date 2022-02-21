@@ -25,29 +25,32 @@ fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
     // let reversed = op.reversed;
     // if op.len == 1 { assert!(!op.reversed); }
 
-    // let op_start = op.pos;
+    // For some reason the compiler slightly prefers this code to the match below. O_o
     let op_start = if op.tag == Del && !fwd {
         op.end()
     } else {
         op.start()
     };
 
-    // let op_end = op.pos;
     let op_end = if op.tag == Ins && fwd {
         op.end()
     } else {
         op.start()
     };
 
+    // Code above is equivalent to this:
+    // let (op_start, op_end) = match (op.tag, fwd) {
+    //     (Ins, true) => (op.start(), op.end()),
+    //     (Del, false) => (op.end(), op.start()),
+    //     (_, _) => (op.start(), op.start()),
+    // };
+
+
     let cursor_diff = isize::wrapping_sub(op_start as isize, *cursor as isize);
+    // dbg!((op, op_start, op_end, *cursor, cursor_diff));
     *cursor = op_end;
 
     // println!("pos {} diff {} {:?} rev {} len {}", op.pos cursor_movement, op.tag, reversed, op.len);
-
-    // if op.len != 1 { len_total += op.len as u64; }
-    // diff_zig_total += num_encode_zigzag_i64(cursor_movement);
-    // diff_zig_total += cursor_diff.abs() as u64;
-    // num_ops += 1;
 
     // So generally about 40% of changes have length of 1, and about 40% of changes (even
     // after RLE) happen without the cursor moving.

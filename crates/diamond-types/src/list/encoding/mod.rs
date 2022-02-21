@@ -9,6 +9,8 @@
 mod varint;
 mod encode_oplog;
 mod decode_oplog;
+#[cfg(test)]
+mod fuzzer;
 
 use std::fmt::Debug;
 use std::marker::PhantomData;

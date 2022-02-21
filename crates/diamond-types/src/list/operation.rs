@@ -91,7 +91,7 @@ impl Operation {
 impl SplitableSpan for Operation {
     fn truncate(&mut self, at: usize) -> Self {
         // let (self_span, other_span) = TimeSpanRev::split_op_span(self.span, self.tag, at);
-        let other_span = self.span.truncate_tagged_span(self.tag, at);
+        let span = self.span.truncate_tagged_span(self.tag, at);
 
         let rem_content = self.content.as_mut().map(|c| {
             let byte_split = chars_to_bytes(c, at);
@@ -101,10 +101,7 @@ impl SplitableSpan for Operation {
         // TODO: When we split items to a length of 1, consider clearing the reversed flag.
         // This doesn't do anything - but it feels polite.
         Self {
-            span: TimeSpanRev {
-                span: other_span,
-                fwd: self.span.fwd
-            },
+            span,
             tag: self.tag,
             content: rem_content,
         }

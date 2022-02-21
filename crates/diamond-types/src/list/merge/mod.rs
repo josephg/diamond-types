@@ -23,7 +23,7 @@ mod advance_retreat;
 mod txn_trace;
 mod metrics;
 #[cfg(test)]
-mod fuzzer;
+pub mod fuzzer;
 #[cfg(feature = "dot_export")]
 mod dot;
 

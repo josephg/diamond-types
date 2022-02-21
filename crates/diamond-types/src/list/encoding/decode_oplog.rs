@@ -456,15 +456,21 @@ impl<'a> ReadPatchesIter<'a> {
         };
 
         // dbg!(self.last_cursor_pos, diff);
-        let start = isize::wrapping_add(self.last_cursor_pos as isize, diff) as usize;
+        let raw_start = isize::wrapping_add(self.last_cursor_pos as isize, diff) as usize;
+
+        let (start, raw_end) = match (tag, fwd) {
+            (Ins, true) => (raw_start, raw_start + len),
+            (Ins, false) => (raw_start, raw_start),
+            (Del, true) => (raw_start, raw_start),
+            (Del, false) => (raw_start - len, raw_start - len),
+        };
+        // dbg!((raw_start, tag, fwd, len, start, raw_end));
+
         let end = start + len;
 
         // dbg!(pos);
-        self.last_cursor_pos = if tag == Ins && fwd {
-            end
-        } else {
-            start
-        };
+        self.last_cursor_pos = raw_end;
+        // dbg!(self.last_cursor_pos);
 
         Ok(OperationInternal {
             span: TimeSpanRev { // TODO: Probably a nicer way to construct this.

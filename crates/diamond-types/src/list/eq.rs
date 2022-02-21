@@ -14,7 +14,7 @@ use crate::list::{OpLog, Time};
 use crate::list::history::MinimalHistoryEntry;
 use crate::rle::KVPair;
 
-const VERBOSE: bool = true;
+const VERBOSE: bool = false;
 
 impl PartialEq<Self> for OpLog {
     fn eq(&self, other: &Self) -> bool {
@@ -68,9 +68,13 @@ impl PartialEq<Self> for OpLog {
         for t in &self.frontier {
             let other_time = map_time_to_other(*t);
             if let Some(other_time) = other_time {
-                if !other.frontier.contains(&other_time) { return false; }
+                if !other.frontier.contains(&other_time) {
+                    if VERBOSE { println!("Frontier is not contained by other frontier"); }
+                    return false;
+                }
             } else {
                 // The time is unknown.
+                if VERBOSE { println!("Frontier is not known in other doc"); }
                 return false;
             }
         }
@@ -119,7 +123,7 @@ impl PartialEq<Self> for OpLog {
                 let len_here = op.len();
 
                 if op != other_op {
-                    if VERBOSE { println!("Ops do not match:\n{:?}\n{:?}", op, other_op); }
+                    if VERBOSE { println!("Ops do not match at {}:\n{:?}\n{:?}", txn.span.start, op, other_op); }
                     return false;
                 }
 

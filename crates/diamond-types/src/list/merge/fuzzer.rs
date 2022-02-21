@@ -3,7 +3,7 @@ use rand::prelude::*;
 use crate::AgentId;
 use crate::list::{Branch, ListCRDT, OpLog, Time};
 
-pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
+pub(crate) fn random_str(len: usize, rng: &mut SmallRng) -> String {
     let mut str = String::new();
     let alphabet: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars().collect();
     for _ in 0..len {
@@ -12,7 +12,7 @@ pub fn random_str(len: usize, rng: &mut SmallRng) -> String {
     str
 }
 
-fn make_random_change_raw(oplog: &mut OpLog, branch: &Branch, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> Time {
+pub(crate) fn make_random_change_raw(oplog: &mut OpLog, branch: &Branch, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> Time {
     let doc_len = branch.len();
     let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
     let v = if doc_len == 0 || rng.gen_bool(insert_weight) {
@@ -48,7 +48,7 @@ fn make_random_change_raw(oplog: &mut OpLog, branch: &Branch, rope: Option<&mut 
     v
 }
 
-fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) {
+pub(crate) fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) {
     let v = make_random_change_raw(&mut doc.ops, &doc.branch, rope, agent, rng);
     doc.branch.merge(&doc.ops, &[v]);
     // doc.check(true);
