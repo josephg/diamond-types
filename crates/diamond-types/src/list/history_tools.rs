@@ -6,7 +6,7 @@ use rle::{AppendRle, SplitableSpan};
 use crate::list::{Frontier, OpLog, Time};
 use crate::list::frontier::frontier_is_sorted;
 use crate::list::history::History;
-use crate::list::history_tools::Flag::{OnlyA, OnlyB, Shared};
+use crate::list::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
 use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
 
@@ -15,7 +15,7 @@ use crate::ROOT_TIME;
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Flag { OnlyA, OnlyB, Shared }
+pub enum DiffFlag { OnlyA, OnlyB, Shared }
 
 impl History {
     fn shadow_of(&self, time: Time) -> Time {
@@ -157,11 +157,11 @@ impl History {
         let mut only_b = smallvec![];
 
         // marks range [ord_start..ord_end] *inclusive* with flag in our output.
-        let mark_run = |ord_start, ord_end, flag: Flag| {
+        let mark_run = |ord_start, ord_end, flag: DiffFlag| {
             let target = match flag {
-                Flag::OnlyA => { &mut only_a }
-                Flag::OnlyB => { &mut only_b }
-                Flag::Shared => { return; }
+                DiffFlag::OnlyA => { &mut only_a }
+                DiffFlag::OnlyB => { &mut only_b }
+                DiffFlag::Shared => { return; }
             };
             // dbg!((ord_start, ord_end));
 
@@ -173,28 +173,28 @@ impl History {
     }
 
     fn diff_slow_internal<F>(&self, a: &[Time], b: &[Time], mut mark_run: F)
-        where F: FnMut(Time, Time, Flag) {
+        where F: FnMut(Time, Time, DiffFlag) {
         // Sorted highest to lowest.
-        let mut queue: BinaryHeap<(Time, Flag)> = BinaryHeap::new();
+        let mut queue: BinaryHeap<(Time, DiffFlag)> = BinaryHeap::new();
         for a_ord in a {
-            if *a_ord != ROOT_TIME { queue.push((*a_ord, Flag::OnlyA)); }
+            if *a_ord != ROOT_TIME { queue.push((*a_ord, DiffFlag::OnlyA)); }
         }
         for b_ord in b {
-            if *b_ord != ROOT_TIME { queue.push((*b_ord, Flag::OnlyB)); }
+            if *b_ord != ROOT_TIME { queue.push((*b_ord, DiffFlag::OnlyB)); }
         }
 
         let mut num_shared_entries = 0;
 
         while let Some((mut ord, mut flag)) = queue.pop() {
-            if flag == Flag::Shared { num_shared_entries -= 1; }
+            if flag == DiffFlag::Shared { num_shared_entries -= 1; }
 
             // dbg!((ord, flag));
             while let Some((peek_ord, peek_flag)) = queue.peek() {
                 if *peek_ord != ord { break; } // Normal case.
                 else {
                     // 3 cases if peek_flag != flag. We set flag = Shared in all cases.
-                    if *peek_flag != flag { flag = Flag::Shared; }
-                    if *peek_flag == Flag::Shared { num_shared_entries -= 1; }
+                    if *peek_flag != flag { flag = DiffFlag::Shared; }
+                    if *peek_flag == DiffFlag::Shared { num_shared_entries -= 1; }
                     queue.pop();
                 }
             }
@@ -202,7 +202,7 @@ impl History {
             // Grab the txn containing ord. This will usually be at prev_txn_idx - 1.
             // TODO: Remove usually redundant binary search
 
-            let containing_txn = self.entries.find(ord).unwrap();
+            let containing_txn = self.entries.find_packed(ord);
 
             // There's essentially 2 cases here:
             // 1. This item and the first item in the queue are part of the same txn. Mark down to
@@ -220,9 +220,9 @@ impl History {
                         mark_run(*peek_ord + 1, ord, flag);
                         ord = *peek_ord;
                         // offset -= ord - peek_ord;
-                        flag = Flag::Shared;
+                        flag = DiffFlag::Shared;
                     }
-                    if *peek_flag == Flag::Shared { num_shared_entries -= 1; }
+                    if *peek_flag == DiffFlag::Shared { num_shared_entries -= 1; }
                     queue.pop();
                 }
             }
@@ -234,7 +234,7 @@ impl History {
             for p in containing_txn.parents.iter() {
                 if *p != ROOT_TIME {
                     queue.push((*p, flag));
-                    if flag == Flag::Shared { num_shared_entries += 1; }
+                    if flag == DiffFlag::Shared { num_shared_entries += 1; }
                 }
             }
 
@@ -246,7 +246,7 @@ impl History {
     // *** Conflicts! ***
 
     fn find_conflicting_slow<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> Frontier
-    where V: FnMut(TimeSpan, Flag) {
+    where V: FnMut(TimeSpan, DiffFlag) {
         // dbg!(a, b);
 
         // Sorted highest to lowest (so we get the highest item first).
@@ -307,7 +307,7 @@ impl History {
         }
 
         // The heap is sorted such that we pull the highest items first.
-        let mut queue: BinaryHeap<(TimePoint, Flag)> = BinaryHeap::new();
+        let mut queue: BinaryHeap<(TimePoint, DiffFlag)> = BinaryHeap::new();
         queue.push((a.into(), OnlyA));
         queue.push((b.into(), OnlyB));
 
@@ -413,7 +413,7 @@ impl History {
     ///
     /// I'm assuming b is a parent of a, but it should all work if thats not the case.
     pub fn find_conflicting<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> Frontier
-        where V: FnMut(TimeSpan, Flag) {
+        where V: FnMut(TimeSpan, DiffFlag) {
         debug_assert!(!a.is_empty());
         debug_assert!(!b.is_empty());
 
@@ -487,8 +487,8 @@ pub mod test {
 
     use crate::list::{Frontier, Time};
     use crate::list::history::{History, HistoryEntry};
-    use crate::list::history_tools::{DiffResult, Flag};
-    use crate::list::history_tools::Flag::{OnlyA, OnlyB, Shared};
+    use crate::list::history_tools::{DiffResult, DiffFlag};
+    use crate::list::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
     use crate::localtime::TimeSpan;
     use crate::rle::RleVec;
     use crate::ROOT_TIME;
@@ -502,9 +502,9 @@ pub mod test {
         history.find_conflicting(a, b, |span, flag| {
             // dbg!((span, flag));
             let target = match flag {
-                Flag::OnlyA => { &mut only_a }
-                Flag::OnlyB => { &mut only_b }
-                Flag::Shared => { return; }
+                DiffFlag::OnlyA => { &mut only_a }
+                DiffFlag::OnlyB => { &mut only_b }
+                DiffFlag::Shared => { return; }
             };
             // dbg!((ord_start, ord_end));
 
@@ -517,10 +517,10 @@ pub mod test {
     #[derive(Debug, Eq, PartialEq)]
     pub struct ConflictFull {
         pub(crate) common_branch: Frontier,
-        pub(crate) spans: Vec<(TimeSpan, Flag)>,
+        pub(crate) spans: Vec<(TimeSpan, DiffFlag)>,
     }
 
-    fn push_rle(list: &mut Vec<(TimeSpan, Flag)>, span: TimeSpan, flag: Flag) {
+    fn push_rle(list: &mut Vec<(TimeSpan, DiffFlag)>, span: TimeSpan, flag: DiffFlag) {
         if let Some((last_span, last_flag)) = list.last_mut() {
             if span.can_append(last_span) && flag == *last_flag {
                 last_span.prepend(span);
@@ -552,8 +552,8 @@ pub mod test {
         }
     }
 
-    fn assert_conflicting(history: &History, a: &[Time], b: &[Time], expect_spans: &[(Range<usize>, Flag)], expect_common: &[Time]) {
-        let expect: Vec<(TimeSpan, Flag)> = expect_spans.iter().rev().map(|(r, flag)| (r.clone().into(), *flag)).collect();
+    fn assert_conflicting(history: &History, a: &[Time], b: &[Time], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[Time]) {
+        let expect: Vec<(TimeSpan, DiffFlag)> = expect_spans.iter().rev().map(|(r, flag)| (r.clone().into(), *flag)).collect();
         let actual = find_conflicting(history, a, b);
         assert_eq!(actual.common_branch.as_slice(), expect_common);
         assert_eq!(actual.spans, expect);

@@ -58,6 +58,8 @@ impl ListCRDT {
 
 impl History {
     fn check(&self) {
+        self.entries.check_packed();
+
         let expect_root_children = self.entries
         .iter()
         .enumerate()

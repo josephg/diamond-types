@@ -15,7 +15,7 @@ use crate::localtime::{is_underwater, TimeSpan};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
 use crate::list::frontier::{advance_frontier_by, frontier_eq, frontier_is_root, frontier_is_sorted};
-use crate::list::history_tools::Flag;
+use crate::list::history_tools::DiffFlag;
 use crate::list::internal_op::OperationInternal;
 use crate::rev_span::TimeSpanRev;
 
@@ -527,14 +527,14 @@ impl Branch {
         let mut common_ancestor = oplog.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
             // Note we'll be visiting these operations in reverse order.
 
-            if flag == Flag::Shared {
+            if flag == DiffFlag::Shared {
                 shared_size += span.len();
                 shared_ranges += 1;
             }
 
             // dbg!(&span, flag);
             let target = match flag {
-                Flag::OnlyB => &mut new_ops,
+                DiffFlag::OnlyB => &mut new_ops,
                 _ => &mut conflict_ops
             };
             target.push_reversed_rle(span);
@@ -542,9 +542,9 @@ impl Branch {
             #[cfg(feature = "dot_export")]
             if MAKE_GRAPHS {
                 let color = match flag {
-                    Flag::OnlyA => Blue,
-                    Flag::OnlyB => Green,
-                    Flag::Shared => Grey,
+                    DiffFlag::OnlyA => Blue,
+                    DiffFlag::OnlyB => Green,
+                    DiffFlag::Shared => Grey,
                 };
                 dbg_all_ops.push((span, color));
             }
@@ -612,12 +612,12 @@ impl Branch {
             conflict_ops.clear();
             shared_size = 0;
             common_ancestor = oplog.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
-                if flag == Flag::Shared {
+                if flag == DiffFlag::Shared {
                     shared_size += span.len();
                     shared_ranges += 1;
                 }
 
-                if flag != Flag::OnlyB {
+                if flag != DiffFlag::OnlyB {
                     conflict_ops.push_reversed_rle(span);
                 }
             });

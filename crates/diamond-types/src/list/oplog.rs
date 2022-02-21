@@ -120,11 +120,22 @@ impl OpLog {
 
     #[allow(unused)]
     pub(crate) fn crdt_id_to_time(&self, id: CRDTId) -> Time {
+        // if id.agent == ROOT_AGENT {
+        //     ROOT_TIME
+        // } else {
+        //     let client = &self.client_data[id.agent as usize];
+        //     client.seq_to_time(id.seq)
+        // }
+        self.try_crdt_id_to_time(id).unwrap()
+    }
+
+    #[allow(unused)]
+    pub(crate) fn try_crdt_id_to_time(&self, id: CRDTId) -> Option<Time> {
         if id.agent == ROOT_AGENT {
-            ROOT_TIME
+            Some(ROOT_TIME)
         } else {
             let client = &self.client_data[id.agent as usize];
-            client.seq_to_time(id.seq)
+            client.try_seq_to_time(id.seq)
         }
     }
 
@@ -171,7 +182,7 @@ impl OpLog {
 
     // This is a modified version of assign_next_time_to_client_known to support arbitrary CRDTSpans
     // loaded from remote peers / files.
-    pub(crate) fn assign_next_time_to_crdt_span(&mut self, start: Time, span: CRDTSpan) {
+    pub(crate) fn assign_time_to_crdt_span(&mut self, start: Time, span: CRDTSpan) {
         debug_assert_eq!(start, self.len());
 
         let CRDTSpan { agent, seq_range } = span;
@@ -183,7 +194,8 @@ impl OpLog {
         // Could just optimize .insert() to efficiently handle both of these cases.
         if next_seq <= seq_range.start {
             // 99.9% of the time we'll hit this case. Its really rare for seq numbers to go
-            // backwards.
+            // backwards, but its possible for malicious clients to do it and introduce N^2
+            // behaviour.
             client_data.item_times.push(KVPair(seq_range.start, timespan));
         } else {
             client_data.item_times.insert(KVPair(seq_range.start, timespan));
@@ -299,6 +311,10 @@ impl OpLog {
         }
     }
 
+    /// Append to operations list without adjusting metadata.
+    ///
+    /// NOTE: This method is destructive on its own. It must be paired with assign_internal() or
+    /// something like that.
     pub(crate) fn push_op_internal(&mut self, next_time: Time, span: TimeSpanRev, tag: InsDelTag, content: Option<&str>) {
         // next_time should almost always be self.len - except when loading, or modifying the data
         // in some complex way.
@@ -399,9 +415,13 @@ impl OpLog {
         self.push(agent, &[Operation::new_delete(pos, del_span)])
     }
 
-    ///
+    /// Iterate through history entries
     pub fn iter_history(&self) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
         self.history.entries.iter().map(|e| e.into())
+    }
+
+    pub fn iter_history_range(&self, range: TimeSpan) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
+        self.history.entries.iter_range_map_packed(range, |e| e.into())
     }
 
     pub fn get_frontier(&self) -> &[Time] {
@@ -428,6 +448,10 @@ impl OpLog {
 
     pub fn iter_mappings(&self) -> impl Iterator<Item = CRDTSpan> + '_ {
         self.client_with_localtime.iter().map(|item| item.1)
+    }
+
+    pub fn iter_mappings_range(&self, range: TimeSpan) -> impl Iterator<Item = CRDTSpan> + '_ {
+        self.client_with_localtime.iter_range_packed(range).map(|item| item.1)
     }
 
     pub fn print_stats(&self, detailed: bool) {

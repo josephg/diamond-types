@@ -61,7 +61,7 @@ impl<'a> OpMetricsIter<'a> {
             list,
             ins_content,
             del_content,
-            idx: list.find_index(range.start).unwrap(),
+            idx: if range.is_empty() { 0 } else { list.find_index(range.start).unwrap() },
             range
         }
     }

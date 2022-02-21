@@ -280,6 +280,18 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
             visitor(Err(key..end));
         }
     }
+
+    /// Check that the RLE is contiguous and packed. Panic if not.
+    #[allow(unused)]
+    pub(crate) fn check_packed(&self) {
+        let mut expect_next = 0;
+        for (i, entry) in self.0.iter().enumerate() {
+            if i != 0 {
+                assert_eq!(entry.rle_key(), expect_next);
+            }
+            expect_next = entry.end();
+        }
+    }
 }
 
 impl<V: HasLength + MergableSpan + Sized> FromIterator<V> for RleVec<V> {
@@ -338,8 +350,18 @@ impl<T: HasLength + MergableSpan, I: SliceIndex<[T]>> Index<I> for RleVec<T> {
     }
 }
 
+fn id_clone<V: Clone>(v: &V) -> V {
+    v.clone()
+}
+
 impl<V: HasLength + SplitableSpan + RleKeyed + MergableSpan> RleVec<V> {
-    pub fn iter_range_packed(&self, range: TimeSpan) -> RleVecRangeIter<V> {
+    pub fn iter_range_packed(&self, range: TimeSpan) -> RleVecRangeIter<V, V, impl Fn(&V) -> V> {
+        self.iter_range_map_packed(range, id_clone)
+    }
+}
+
+impl<V: HasLength + RleKeyed + MergableSpan> RleVec<V> {
+    pub fn iter_range_map_packed<I: SplitableSpan + HasLength, F: Fn(&V) -> I>(&self, range: TimeSpan, map_fn: F) -> RleVecRangeIter<V, I, F> {
         let idx = self.find_index(range.start).unwrap();
 
         let entry = &self.0[idx];
@@ -349,26 +371,28 @@ impl<V: HasLength + SplitableSpan + RleKeyed + MergableSpan> RleVec<V> {
             offset,
             idx,
             len_remaining: range.len(),
+            map_fn,
             data: &self.0
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct RleVecRangeIter<'a, V: HasLength + SplitableSpan + Clone> {
+pub struct RleVecRangeIter<'a, V: HasLength + MergableSpan, I: HasLength + SplitableSpan, F: Fn(&V) -> I> {
     offset: usize,
     idx: usize,
     len_remaining: usize,
+    map_fn: F,
     data: &'a [V],
 }
 
-impl<'a, V: HasLength + SplitableSpan + Clone> Iterator for RleVecRangeIter<'a, V> {
-    type Item = V;
+impl<'a, V: HasLength + MergableSpan, I: HasLength + SplitableSpan, F: Fn(&V) -> I> Iterator for RleVecRangeIter<'a, V, I, F> {
+    type Item = I;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.len_remaining == 0 || self.idx >= self.data.len() { return None; }
 
-        let mut item = self.data[self.idx].clone();
+        let mut item = (self.map_fn)(&self.data[self.idx]);
         if self.offset > 0 {
             assert!(self.offset < item.len());
             item.truncate_keeping_right(self.offset);

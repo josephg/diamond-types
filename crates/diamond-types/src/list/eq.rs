@@ -10,7 +10,6 @@
 use rle::{HasLength, SplitableSpan};
 use rle::zip::rle_zip;
 use crate::{ROOT_AGENT, ROOT_TIME};
-use crate::list::frontier::frontier_eq;
 use crate::list::{OpLog, Time};
 use crate::list::history::MinimalHistoryEntry;
 use crate::rle::KVPair;
@@ -28,11 +27,10 @@ impl PartialEq<Self> for OpLog {
         // - [x] history
         // - [x] frontier
 
-        if !frontier_eq(&self.frontier, &other.frontier) { return false; }
-        assert_eq!(self.len(), other.len(), "Oplog lengths must match if frontiers match");
+        // This check isn't sufficient. We'll check the frontier entries more thoroughly below.
+        if self.frontier.len() != other.frontier.len() { return false; }
 
         // [self.agent] => other.agent.
-        // let agent_a_to_b = agent_map_from(self, other);
         let mut agent_a_to_b = Vec::new();
         for c in self.client_data.iter() {
             // If there's no corresponding client in other (and the agent is actually in use), the
@@ -58,12 +56,24 @@ impl PartialEq<Self> for OpLog {
             agent_a_to_b.push(other_agent);
         }
 
-        let map_time_to_other = |t: Time| -> Time {
-            if t == ROOT_TIME { return ROOT_TIME; }
+        let map_time_to_other = |t: Time| -> Option<Time> {
+            if t == ROOT_TIME { return Some(ROOT_TIME); }
             let mut crdt_id = self.time_to_crdt_id(t);
             crdt_id.agent = agent_a_to_b[crdt_id.agent as usize];
-            other.crdt_id_to_time(crdt_id)
+            other.try_crdt_id_to_time(crdt_id)
         };
+
+        // Check frontier contents. Note this is O(n^2) with the size of the respective frontiers.
+        // Which should be fine in normal use, but its a DDOS risk.
+        for t in &self.frontier {
+            let other_time = map_time_to_other(*t);
+            if let Some(other_time) = other_time {
+                if !other.frontier.contains(&other_time) { return false; }
+            } else {
+                // The time is unknown.
+                return false;
+            }
+        }
 
         // The core strategy here is we'll iterate through our local operations and make sure they
         // each have a corresponding operation in other. Because self.len == other.len, this will be
@@ -88,7 +98,9 @@ impl PartialEq<Self> for OpLog {
                 // Look up the corresponding operation in other.
 
                 // This maps via agents - so I think that sort of implicitly checks out.
-                let other_time = map_time_to_other(txn.span.start);
+                let other_time = if let Some(other_time) = map_time_to_other(txn.span.start) {
+                    other_time
+                } else { return false; };
 
                 // Lets take a look at the operation.
                 let (KVPair(_, other_op_int), offset) = other.operations.find_packed_with_offset(other_time);
@@ -120,10 +132,15 @@ impl PartialEq<Self> for OpLog {
                 }
 
                 // We can't just compare txns because the parents need to be mapped!
-                let mapped_start = map_time_to_other(txn.span.start);
+                let mapped_start = if let Some(mapped) = map_time_to_other(txn.span.start) {
+                    mapped
+                } else { return false; };
+
                 let mut mapped_txn = MinimalHistoryEntry {
                     span: (mapped_start..mapped_start + len_here).into(),
-                    parents: txn.parents.iter().map(|t| map_time_to_other(*t)).collect()
+                    // .unwrap() should be safe here because we've already walked past this item's
+                    // parents.
+                    parents: txn.parents.iter().map(|t| map_time_to_other(*t).unwrap()).collect()
                 };
                 mapped_txn.parents.sort_unstable();
 
@@ -163,6 +180,7 @@ mod test {
     #[test]
     fn eq_smoke_test() {
         let mut a = OpLog::new();
+        assert!(is_eq(&a, &a));
         a.get_or_create_agent_id("seph");
         a.get_or_create_agent_id("mike");
         a.push_insert_at(0, &[ROOT_TIME], 0, "Aa");

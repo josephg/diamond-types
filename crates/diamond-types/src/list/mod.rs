@@ -31,6 +31,7 @@ pub mod encoding;
 pub mod remote_ids;
 mod internal_op;
 mod eq;
+mod oplog_merge;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
 // systems.

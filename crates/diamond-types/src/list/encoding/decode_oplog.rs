@@ -309,7 +309,7 @@ impl<'a> BufReader<'a> {
                     if let Some(c) = oplog.client_data.get(agent as usize) {
                         // Adding UNDERWATER_START for foreign parents in a horrible hack.
                         // I'm so sorry. This gets pulled back out in history_entry_map_and_truncate
-                        UNDERWATER_START + c.try_seq_to_time(seq).ok_or(InvalidLength)?
+                        c.try_seq_to_time(seq).ok_or(InvalidLength)?
                     } else {
                         return Err(InvalidLength);
                     }
@@ -377,23 +377,18 @@ fn history_entry_map_and_truncate(mut hist_entry: MinimalHistoryEntry, version_m
     };
 
     // Keep entire history entry. Just map it.
-    let len = hist_entry.len();
+    let len = hist_entry.len(); // hist_entry <= map_entry here.
     hist_entry.span.start = map_entry.start;
     hist_entry.span.end = hist_entry.span.start + len;
 
-    // Map parents.
-    const UNDERWATER_LAST: usize = ROOT_TIME - 1;
+    // dbg!(&hist_entry.parents);
+
+    // Map parents. Parents are underwater when they're local to the file, and need mapping.
+    // const UNDERWATER_LAST: usize = ROOT_TIME - 1;
     for p in hist_entry.parents.iter_mut() {
-        match *p {
-            ROOT_TIME => {},
-            UNDERWATER_START..=UNDERWATER_LAST => {
-                // Foreign parents. Just use what we got.
-                *p -= UNDERWATER_START;
-            }
-            _ => {
-                let (span, offset) = version_map.find_packed_with_offset(*p);
-                *p = span.1.start + offset;
-            }
+        if *p >= UNDERWATER_START && *p != ROOT_TIME {
+            let (span, offset) = version_map.find_packed_with_offset(*p);
+            *p = span.1.start + offset;
         }
     }
 
@@ -579,8 +574,7 @@ impl OpLog {
 
             // Only used for new (not overlapped) operations.
             let mut next_assignment_time = first_new_time;
-            let mut next_history_time = first_new_time;
-            let mut next_file_time = 0;
+            let mut next_file_time = UNDERWATER_START;
 
             // Mapping from "file order" (numbered from 0) to the resulting local order. Using a
             // smallvec here because it'll almost always just be a single entry, and that prevents
@@ -647,12 +641,17 @@ impl OpLog {
                         let keep = if let Some(overlap) = overlap {
                             // There's overlap. We'll filter out this item.
                             version_map.push_rle(KVPair(next_file_time, overlap));
+                            // println!("push overlap {:?}", KVPair(next_file_time, overlap));
                             false
                         } else {
-                            self.assign_next_time_to_crdt_span(next_assignment_time, CRDTSpan {
+                            self.assign_time_to_crdt_span(next_assignment_time, CRDTSpan {
                                 agent: crdt_span.agent,
                                 seq_range: consume_here,
                             });
+                            // println!("push end {:?}", KVPair(
+                            //     next_file_time,
+                            //     TimeSpan::from(next_assignment_time..next_assignment_time + len),
+                            // ));
                             version_map.push_rle(KVPair(
                                 next_file_time,
                                 (next_assignment_time..next_assignment_time + len).into(),
@@ -674,7 +673,7 @@ impl OpLog {
                     // Optimization - don't bother with the filtering code above if loaded changes
                     // follow local changes. Most calls to this function load into an empty
                     // document, and this is the case.
-                    self.assign_next_time_to_crdt_span(next_assignment_time, crdt_span);
+                    self.assign_time_to_crdt_span(next_assignment_time, crdt_span);
                     let len = crdt_span.len();
                     // file_to_local_version_map.push_rle((next_assignment_time..next_assignment_time + len).into());
                     version_map.push_rle(KVPair(
@@ -689,10 +688,17 @@ impl OpLog {
                 }
             }
 
-            next_file_time = 0;
+            next_file_time = UNDERWATER_START;
             // dbg!(&version_map);
+            let mut next_history_time = first_new_time;
+
             while !history_chunk.is_empty() {
                 let mut entry = history_chunk.next_history_entry(&self, next_file_time, &agent_map)?;
+                // So at this point the entry has underwater entry spans, and parents are underwater
+                // when they're local to the file (and non-underwater when they refer to our items).
+                // This makes the entry safe to truncate(), but we need to map it before we can use
+                // it.
+
                 next_file_time += entry.len();
                 // dbg!(&entry);
 
@@ -825,7 +831,6 @@ mod tests {
     }
 
     #[test]
-    // #[ignore]
     fn merge_parts() {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
@@ -838,6 +843,33 @@ mod tests {
         println!("\n------\n");
         let log2 = log2.merge_data(&data_2).unwrap();
         assert_eq!(&oplog, &log2);
+    }
+
+    #[test]
+    #[ignore]
+    fn merge_parts_2() {
+        let mut oplog_a = OpLog::new();
+        oplog_a.get_or_create_agent_id("a");
+        oplog_a.get_or_create_agent_id("b");
+
+        let t1 = oplog_a.push_insert(0, 0, "aa");
+        let data_a = oplog_a.encode(EncodeOptions::default());
+
+        oplog_a.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        let data_b = oplog_a.encode_from(EncodeOptions::default(), &[t1]);
+
+        // Now we should be able to merge a then b, or b then a and get the same result.
+        let a_then_b = OpLog::new();
+        let a_then_b = a_then_b.merge_data(&data_a).unwrap();
+        let a_then_b = a_then_b.merge_data(&data_b).unwrap();
+        assert_eq!(a_then_b, oplog_a);
+
+        println!("\n------\n");
+
+        let b_then_a = OpLog::new();
+        let b_then_a = b_then_a.merge_data(&data_b).unwrap();
+        let b_then_a = b_then_a.merge_data(&data_a).unwrap();
+        assert_eq!(b_then_a, oplog_a);
     }
 
     #[test]
