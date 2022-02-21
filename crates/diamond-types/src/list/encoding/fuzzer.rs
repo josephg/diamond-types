@@ -81,3 +81,12 @@ fn fuzz_encode_decode_once(seed: u64) {
 fn encode_decode_fuzz_once() {
     fuzz_encode_decode_once(2);
 }
+
+#[test]
+#[ignore]
+fn encode_decode_fuzz_forever() {
+    for seed in 0.. {
+        if seed % 10 == 0 { println!("seed {seed}"); }
+        fuzz_encode_decode_once(seed);
+    }
+}
