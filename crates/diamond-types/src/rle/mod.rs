@@ -1,10 +1,10 @@
 use std::fmt::{Debug, Formatter};
 
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
-pub use simple_rle::RleVec;
+pub use rle_vec::RleVec;
 use crate::localtime::{debug_time_raw, TimeSpan};
 
-pub mod simple_rle;
+pub mod rle_vec;
 
 pub trait RleKeyed {
     fn rle_key(&self) -> usize;
