@@ -72,17 +72,17 @@ fn encoding_benchmarks(c: &mut Criterion) {
             black_box(bytes);
         });
     });
-    group.bench_function("encode_nodecc_old", |b| {
-        b.iter(|| {
-            let bytes = oplog.encode_simple(EncodeOptions {
-                user_data: None,
-                store_inserted_content: true,
-                store_deleted_content: false,
-                verbose: false
-            });
-            black_box(bytes);
-        });
-    });
+    // group.bench_function("encode_nodecc_old", |b| {
+    //     b.iter(|| {
+    //         let bytes = oplog.encode_simple(EncodeOptions {
+    //             user_data: None,
+    //             store_inserted_content: true,
+    //             store_deleted_content: false,
+    //             verbose: false
+    //         });
+    //         black_box(bytes);
+    //     });
+    // });
 
     group.bench_function("merge", |b| {
         b.iter(|| {

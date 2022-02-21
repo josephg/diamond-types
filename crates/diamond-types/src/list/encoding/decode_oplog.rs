@@ -574,7 +574,8 @@ impl OpLog {
 
             // Only used for new (not overlapped) operations.
             let mut next_assignment_time = first_new_time;
-            let mut next_file_time = UNDERWATER_START;
+            let new_op_start = if patches_overlap { UNDERWATER_START } else { first_new_time };
+            let mut next_file_time = new_op_start;
 
             // Mapping from "file order" (numbered from 0) to the resulting local order. Using a
             // smallvec here because it'll almost always just be a single entry, and that prevents
@@ -652,6 +653,7 @@ impl OpLog {
                             //     next_file_time,
                             //     TimeSpan::from(next_assignment_time..next_assignment_time + len),
                             // ));
+
                             version_map.push_rle(KVPair(
                                 next_file_time,
                                 (next_assignment_time..next_assignment_time + len).into(),
@@ -688,7 +690,7 @@ impl OpLog {
                 }
             }
 
-            next_file_time = UNDERWATER_START;
+            next_file_time = new_op_start;
             // dbg!(&version_map);
             let mut next_history_time = first_new_time;
 
@@ -702,6 +704,13 @@ impl OpLog {
                 next_file_time += entry.len();
                 // dbg!(&entry);
 
+                // If patches don't overlap, this code can be simplified to this:
+                //     self.insert_history(&entry.parents, entry.span);
+                //     self.advance_frontier(&entry.parents, entry.span);
+                //     next_history_time += entry.len();
+                // But benchmarks show it doesn't make any real difference in practice, so I'm not
+                // going to sweat it.
+
                 loop {
                     let (mut mapped, remainder) = history_entry_map_and_truncate(entry, &version_map);
                     // dbg!(&mapped);
@@ -709,6 +718,10 @@ impl OpLog {
 
                     if mapped.span.end > next_history_time {
                         // We'll merge items from mapped.
+
+                        // This is needed because the overlapping & new items aren't strictly
+                        // separated in version_map. Its kinda ugly though - I'd like a better way
+                        // to deal with this case.
                         if mapped.span.start < next_history_time {
                             mapped.truncate_keeping_right(next_history_time - mapped.span.start);
                         }
