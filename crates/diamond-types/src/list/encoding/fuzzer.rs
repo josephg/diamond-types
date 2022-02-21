@@ -1,9 +1,7 @@
 use rand::prelude::*;
-// use rle::MergeableIterator;
-// use rle::zip::{rle_zip, rle_zip3};
 use crate::list::{ListCRDT, OpLog};
 use crate::list::encoding::EncodeOptions;
-use crate::list::merge::fuzzer::make_random_change;
+use crate::list::fuzzer_tools::make_random_change;
 
 // This fuzzer will make an oplog, spam it with random changes from a single peer. Then save & load
 // it back to make sure the result doesn't change.
@@ -33,44 +31,6 @@ fn fuzz_encode_decode_once(seed: u64) {
         if doc.ops != decoded {
             // eprintln!("Original doc {:#?}", &doc.ops);
             // eprintln!("Loaded doc {:#?}", &decoded);
-
-
-            // for (time, op) in rle_zip(
-            //     doc.ops.iter_history().map(|h| h.span).merge_spans(),
-            //     doc.ops.iter()
-            // ) {
-            //     println!("{:?} Op: {:?}", time, op);
-            // }
-            //
-            // println!("\n\nReloaded:");
-            //
-            // for (time, op) in rle_zip(
-            //     decoded.iter_history().map(|h| h.span).merge_spans(),
-            //     decoded.iter()
-            // ) {
-            //     println!("{:?} Op: {:?}", time, op);
-            // }
-
-            //
-            // for (time, map, op) in rle_zip3(
-            //     doc.ops.iter_history().map(|h| h.span).merge_spans(),
-            //     doc.ops.iter_mappings(),
-            //     doc.ops.iter()
-            // ) {
-            //     println!("{:?} M: {:?} Op: {:?}", time, map, op);
-            // }
-            //
-            // println!("\n\nReloaded:");
-            //
-            // for (time, map, op) in rle_zip3(
-            //     decoded.iter_history().map(|h| h.span).merge_spans(),
-            //     decoded.iter_mappings(),
-            //     decoded.iter()
-            // ) {
-            //     println!("{:?} M: {:?} Op: {:?}", time, map, op);
-            // }
-            //
-
             panic!("Docs do not match!");
         }
         // assert_eq!(decoded, doc.ops);
