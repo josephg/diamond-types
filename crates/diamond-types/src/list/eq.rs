@@ -8,7 +8,7 @@
 // performance.
 
 use rle::{HasLength, SplitableSpan};
-use rle::zip::rle_zip;
+use rle::zip::{rle_zip3};
 use crate::{ROOT_AGENT, ROOT_TIME};
 use crate::list::{OpLog, Time};
 use crate::list::history::MinimalHistoryEntry;
@@ -88,11 +88,11 @@ impl PartialEq<Self> for OpLog {
 
         // Note this should be optimized if its going to be used for more than fuzz testing.
         // But this is pretty neat!
-        for ((mut op, mut txn), KVPair(_, mut crdt_id)) in rle_zip(
-            rle_zip(
-                self.iter(),
-                self.iter_history()
-            ), self.client_with_localtime.iter().cloned()) {
+        for (mut op, mut txn, KVPair(_, mut crdt_id)) in rle_zip3(
+            self.iter(),
+            self.iter_history(),
+            self.client_with_localtime.iter().cloned()
+        ) {
 
             // println!("op {:?} txn {:?} crdt {:?}", op, txn, crdt_id);
 
@@ -108,19 +108,34 @@ impl PartialEq<Self> for OpLog {
 
                 // Lets take a look at the operation.
                 let (KVPair(_, other_op_int), offset) = other.operations.find_packed_with_offset(other_time);
+
                 let mut other_op = other_op_int.to_operation(other);
                 if offset > 0 { other_op.truncate_keeping_right(offset); }
 
-                if other_op.len() > op.len() {
-                    other_op.truncate(op.len());
+                // Although op is contiguous, and all in a run from the same agent, the same isn't
+                // necessarily true of other_op! The max length we can consume here is limited by
+                // other_op's size in agent assignments.
+                let (run, offset) = other.client_with_localtime.find_packed_with_offset(other_time);
+                let mut other_id = run.1;
+                if offset > 0 { other_id.truncate_keeping_right(offset); }
+
+                if agent_a_to_b[crdt_id.agent as usize] != other_id.agent {
+                    if VERBOSE { println!("Ops do not match because agents differ"); }
+                    return false;
+                }
+                if crdt_id.seq_range.start != other_id.seq_range.start {
+                    if VERBOSE { println!("Ops do not match because CRDT sequence numbers differ"); }
+                    return false;
                 }
 
-                let remainder = if op.len() > other_op.len() {
-                    Some(op.truncate(other_op.len()))
-                } else { None };
+                let len_here = usize::min(other_op.len(), usize::min(op.len(), other_id.len()));
+                if other_op.len() > len_here {
+                    other_op.truncate(len_here);
+                }
 
-                // Whew.
-                let len_here = op.len();
+                let remainder = if op.len() > len_here {
+                    Some(op.truncate(len_here))
+                } else { None };
 
                 if op != other_op {
                     if VERBOSE { println!("Ops do not match at {}:\n{:?}\n{:?}", txn.span.start, op, other_op); }
@@ -138,7 +153,10 @@ impl PartialEq<Self> for OpLog {
                 // We can't just compare txns because the parents need to be mapped!
                 let mapped_start = if let Some(mapped) = map_time_to_other(txn.span.start) {
                     mapped
-                } else { return false; };
+                } else {
+                    panic!("I think this should be unreachable, since we check the agent / seq matches above.");
+                    // return false;
+                };
 
                 let mut mapped_txn = MinimalHistoryEntry {
                     span: (mapped_start..mapped_start + len_here).into(),

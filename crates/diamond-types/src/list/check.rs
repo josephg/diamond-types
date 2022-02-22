@@ -1,7 +1,7 @@
 use jumprope::JumpRope;
 use crate::list::{Branch, Frontier, ListCRDT, OpLog};
 use smallvec::{SmallVec, smallvec};
-use crate::list::frontier::advance_frontier_by_known_run;
+use crate::list::frontier::{advance_frontier_by_known_run, debug_assert_frontier_sorted};
 use crate::list::history::History;
 use crate::ROOT_TIME;
 
@@ -79,6 +79,8 @@ impl History {
         for (idx, hist) in self.entries.iter().enumerate() {
             assert!(hist.span.end > hist.span.start);
 
+            debug_assert_frontier_sorted(&hist.parents);
+
             // We contain prev_txn_order *and more*! See if we can extend the shadow by
             // looking at the other entries of parents.
             let mut parents = hist.parents.clone();
@@ -100,7 +102,8 @@ impl History {
                 if hist.span.start == 0 { expect_shadow = ROOT_TIME; }
                 assert!(hist.parent_indexes.is_empty());
             } else {
-                parents.sort_by(|a, b| b.cmp(a)); // descending order
+                // We'll resort parents into descending order.
+                parents.sort_unstable_by(|a, b| b.cmp(a)); // descending order
                 let mut expect_parent_idx: SmallVec<[usize; 2]> = smallvec![];
 
                 // By induction, we can assume the previous shadows are correct.

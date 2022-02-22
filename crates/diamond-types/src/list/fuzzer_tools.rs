@@ -78,8 +78,22 @@ pub(crate) fn choose_2<'a, T>(arr: &'a mut [T], rng: &mut SmallRng) -> (usize, &
 }
 
 impl OpLog {
+    /// TODO: Consider removing this
     #[allow(unused)]
-    fn dbg_print_ops(&self) {
+    pub fn dbg_print_all(&self) {
+        // self.iter_history()
+        // self.operations.iter()
+        for x in rle_zip(
+            self.iter_history(),
+            // self.operations.iter().map(|p| p.1.clone()) // Only the ops.
+            self.iter()
+        ) {
+            println!("{:?}", x);
+        }
+    }
+
+    #[allow(unused)]
+    pub(crate) fn dbg_print_ops(&self) {
         for (time, op) in rle_zip(
             self.iter_history().map(|h| h.span).merge_spans(),
             self.iter()
@@ -89,7 +103,7 @@ impl OpLog {
     }
 
     #[allow(unused)]
-    fn dbg_print_assignments_and_ops(&self) {
+    pub(crate) fn dbg_print_assignments_and_ops(&self) {
         for (time, map, op) in rle_zip3(
             self.iter_history().map(|h| h.span).merge_spans(),
             self.iter_mappings(),

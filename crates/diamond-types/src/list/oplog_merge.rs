@@ -5,6 +5,7 @@ use crate::list::OpLog;
 use crate::localtime::TimeSpan;
 use crate::rle::KVPair;
 use crate::{AgentId, ROOT_TIME};
+use crate::list::frontier::debug_assert_frontier_sorted;
 use crate::list::history::MinimalHistoryEntry;
 
 impl OpLog {
@@ -38,6 +39,17 @@ impl OpLog {
             //  (agent,seq) pairs. If we find something we know, add to result and end. If not,
             //  add parents to queue.
             let containing_txn = other.history.entries.find_packed(ord);
+
+            // Discard any other entries from queue which name the same txn
+
+            while let Some(peek_ord) = queue.peek() {
+                let peek_ord = peek_ord;
+                if *peek_ord >= containing_txn.span.start {
+                    queue.pop();
+                } else {
+                    break;
+                }
+            }
 
             loop { // Add as much as we can from this txn.
                 let (other_span, offset) = other.client_with_localtime.find_packed_with_offset(ord);
@@ -90,30 +102,50 @@ impl OpLog {
         // backwards through other, looking for changes which are missing in self.
 
         let spans = self.to_merge(other, &agent_map);
+        // dbg!(&spans);
 
         let mut time = self.len();
         for &s in spans.iter().rev() {
             // Operations
             let mut t = time;
             for (KVPair(_, op), content) in other.iter_range(s) {
+                // Operations don't need to be mapped at all.
+                // dbg!(&op, content);
                 self.push_op_internal(t, op.span, op.tag, content);
                 t += op.len();
             }
 
             // Agent assignments
             t = time;
-            for span in other.iter_mappings_range(s) {
+            for mut span in other.iter_mappings_range(s) {
+                // Map other agent ID -> self agent IDs.
+                span.agent = agent_map[span.agent as usize];
                 self.assign_time_to_crdt_span(t, span);
                 t += span.len();
             }
 
             // History entries (parents)
             t = time;
-            for hist_entry in other.history.entries
+            for mut hist_entry in other.history.entries
                 .iter_range_map_packed(s, |e| MinimalHistoryEntry::from(e)) {
 
                 let len = hist_entry.len();
                 let span = (t..t + len).into();
+                // We need to convert other parents to self parents. This is a bit gross but eh.
+                // dbg!(&hist_entry.parents);
+                for t in &mut hist_entry.parents {
+                    if *t != ROOT_TIME {
+                        let mut id = other.time_to_crdt_id(*t);
+                        id.agent = agent_map[id.agent as usize];
+                        let self_time = self.crdt_id_to_time(id);
+                        *t = self_time;
+                    }
+                }
+
+                hist_entry.parents.sort_unstable_by(|a, b| a.cmp(b));
+                debug_assert_frontier_sorted(&hist_entry.parents);
+                // dbg!(&hist_entry.parents);
+
                 self.insert_history(&hist_entry.parents, span);
                 self.advance_frontier(&hist_entry.parents, span);
                 t += len;

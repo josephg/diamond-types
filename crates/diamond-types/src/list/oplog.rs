@@ -1,7 +1,6 @@
 use smallvec::smallvec;
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
-use rle::zip::rle_zip;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::list::{Branch, ClientData, OpLog, switch, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
@@ -228,6 +227,7 @@ impl OpLog {
     ///
     /// This method will try to extend the last entry if it can.
     pub(crate) fn insert_history(&mut self, txn_parents: &[Time], range: TimeSpan) {
+        // dbg!(txn_parents, range, &self.history.entries);
         // Fast path. The code below is weirdly slow, but most txns just append.
         if let Some(last) = self.history.entries.0.last_mut() {
             if txn_parents.len() == 1
@@ -430,20 +430,6 @@ impl OpLog {
 
     pub(crate) fn content_str(&self, tag: InsDelTag) -> &str {
         switch(tag, &self.ins_content, &self.del_content)
-    }
-
-    /// TODO: Consider removing this
-    #[allow(unused)]
-    pub fn dbg_print_all(&self) {
-        // self.iter_history()
-        // self.operations.iter()
-        for x in rle_zip(
-            self.iter_history(),
-            // self.operations.iter().map(|p| p.1.clone()) // Only the ops.
-            self.iter()
-        ) {
-            println!("{:?}", x);
-        }
     }
 
     pub fn iter_mappings(&self) -> impl Iterator<Item = CRDTSpan> + '_ {
