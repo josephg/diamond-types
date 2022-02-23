@@ -303,12 +303,12 @@ mod test {
             HistoryEntry {
                 span: (0..10).into(), shadow: 0,
                 parents: smallvec![ROOT_TIME],
-                parent_indexes: smallvec![], child_indexes: smallvec![]
+                child_indexes: smallvec![]
             },
             HistoryEntry {
                 span: (10..30).into(), shadow: 0,
                 parents: smallvec![ROOT_TIME],
-                parent_indexes: smallvec![], child_indexes: smallvec![]
+                child_indexes: smallvec![]
             }
         ]);
         let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
@@ -336,17 +336,17 @@ mod test {
             HistoryEntry {
                 span: (0..10).into(), shadow: 0,
                 parents: smallvec![ROOT_TIME],
-                parent_indexes: smallvec![], child_indexes: smallvec![2]
+                child_indexes: smallvec![2]
             },
             HistoryEntry {
                 span: (10..30).into(), shadow: 10,
                 parents: smallvec![ROOT_TIME],
-                parent_indexes: smallvec![], child_indexes: smallvec![2]
+                child_indexes: smallvec![2]
             },
             HistoryEntry {
                 span: (30..50).into(), shadow: 0,
                 parents: smallvec![9, 29],
-                parent_indexes: smallvec![0, 1], child_indexes: smallvec![]
+                child_indexes: smallvec![]
             },
         ]);
         let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
@@ -382,27 +382,27 @@ mod test {
             HistoryEntry { // a
                 span: (0..1).into(), shadow: ROOT_TIME,
                 parents: smallvec![ROOT_TIME],
-                parent_indexes: smallvec![], child_indexes: smallvec![2]
+                child_indexes: smallvec![2]
             },
             HistoryEntry { // b
                 span: (1..2).into(), shadow: ROOT_TIME,
                 parents: smallvec![ROOT_TIME],
-                parent_indexes: smallvec![], child_indexes: smallvec![3]
+                child_indexes: smallvec![3]
             },
             HistoryEntry { // a
                 span: (2..3).into(), shadow: 2,
                 parents: smallvec![0],
-                parent_indexes: smallvec![0], child_indexes: smallvec![4]
+                child_indexes: smallvec![4]
             },
             HistoryEntry { // b
                 span: (3..4).into(), shadow: 3,
                 parents: smallvec![1],
-                parent_indexes: smallvec![1], child_indexes: smallvec![4]
+                child_indexes: smallvec![4]
             },
             HistoryEntry { // a+b
                 span: (4..5).into(), shadow: ROOT_TIME,
                 parents: smallvec![2, 3],
-                parent_indexes: smallvec![2, 3], child_indexes: smallvec![]
+                child_indexes: smallvec![]
             },
         ]);
 
@@ -458,7 +458,6 @@ mod test {
                 span: (0..10).into(),
                 shadow: ROOT_TIME,
                 parents: smallvec![ROOT_TIME],
-                parent_indexes: smallvec![],
                 child_indexes: smallvec![]
             },
         ]);

@@ -253,7 +253,7 @@ impl OpLog {
             txn_parents.len() == 1 && txn_parents[0] == last.last_time() && shadow == last.shadow
         } else { false };
 
-        let mut parent_indexes = smallvec![];
+        // let mut parent_indexes = smallvec![];
         if !will_merge {
             // The item wasn't merged. So we need to go through the parents and wire up children.
             let new_idx = self.history.entries.0.len();
@@ -266,8 +266,8 @@ impl OpLog {
                     // Interestingly the parent_idx array will always end up the same length as parents
                     // because it would be invalid for multiple parents to point to the same entry in
                     // txns. (That would imply one parent is a descendant of another.)
-                    debug_assert!(!parent_indexes.contains(&parent_idx));
-                    parent_indexes.push(parent_idx);
+                    // debug_assert!(!parent_indexes.contains(&parent_idx));
+                    // parent_indexes.push(parent_idx);
 
                     let parent_children = &mut self.history.entries.0[parent_idx].child_indexes;
                     if !parent_children.contains(&new_idx) {
@@ -293,7 +293,7 @@ impl OpLog {
             span: range,
             shadow,
             parents: txn_parents.iter().copied().collect(),
-            parent_indexes,
+            // parent_indexes,
             child_indexes: smallvec![]
         };
 

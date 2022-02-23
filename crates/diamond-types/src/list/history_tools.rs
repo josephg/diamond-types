@@ -598,22 +598,22 @@ pub mod test {
                 HistoryEntry { // 0-2
                     span: (0..3).into(), shadow: 0,
                     parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![2, 3],
+                    child_indexes: smallvec![2, 3],
                 },
                 HistoryEntry { // 3-5
                     span: (3..6).into(), shadow: 3,
                     parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![2],
+                    child_indexes: smallvec![2],
                 },
                 HistoryEntry { // 6-8
                     span: (6..9).into(), shadow: 6,
                     parents: smallvec![1, 4],
-                    parent_indexes: smallvec![0, 1], child_indexes: smallvec![3],
+                    child_indexes: smallvec![3],
                 },
                 HistoryEntry { // 9
                     span: (9..11).into(), shadow: ROOT_TIME,
                     parents: smallvec![2, 8],
-                    parent_indexes: smallvec![2, 0], child_indexes: smallvec![],
+                    child_indexes: smallvec![],
                 },
             ]),
             root_child_indexes: smallvec![0, 1],
@@ -705,17 +705,17 @@ pub mod test {
                 HistoryEntry {
                     span: (0..1).into(), shadow: ROOT_TIME,
                     parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![2]
+                    child_indexes: smallvec![2]
                 },
                 HistoryEntry {
                     span: (1..2).into(), shadow: ROOT_TIME,
                     parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![3]
+                    child_indexes: smallvec![3]
                 },
                 HistoryEntry {
                     span: (2..3).into(), shadow: 2,
                     parents: smallvec![0],
-                    parent_indexes: smallvec![0], child_indexes: smallvec![4]
+                    child_indexes: smallvec![4]
                 },
             ]),
             root_child_indexes: smallvec![0, 1],
@@ -738,19 +738,19 @@ pub mod test {
                     span: (0..1).into(),
                     shadow: ROOT_TIME,
                     parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![],
+                    child_indexes: smallvec![],
                 },
                 HistoryEntry {
                     span: (1..2).into(),
                     shadow: 1,
                     parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![],
+                    child_indexes: smallvec![],
                 },
                 HistoryEntry {
                     span: (2..3).into(),
                     shadow: 2,
                     parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![], child_indexes: smallvec![],
+                    child_indexes: smallvec![],
                 },
             ]),
             root_child_indexes: smallvec![0, 1, 2],
@@ -781,21 +781,18 @@ pub mod test {
                     span: (0..3).into(),
                     shadow: ROOT_TIME,
                     parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![],
                     child_indexes: smallvec![2],
                 },
                 HistoryEntry {
                     span: (3..5).into(),
                     shadow: 3,
                     parents: smallvec![ROOT_TIME],
-                    parent_indexes: smallvec![],
                     child_indexes: smallvec![2],
                 },
                 HistoryEntry {
                     span: (5..6).into(),
                     shadow: ROOT_TIME,
                     parents: smallvec![2,4],
-                    parent_indexes: smallvec![0,1],
                     child_indexes: smallvec![],
                 },
             ]),
@@ -817,28 +814,24 @@ pub mod test {
                 span: (0..1).into(),
                 shadow: ROOT_TIME,
                 parents: smallvec![ROOT_TIME],
-                parent_indexes: smallvec![],
                 child_indexes: smallvec![1, 2],
             },
             HistoryEntry {
                 span: (1..2).into(),
                 shadow: 1,
                 parents: smallvec![ROOT_TIME],
-                parent_indexes: smallvec![],
                 child_indexes: smallvec![1, 2],
             },
             HistoryEntry {
                 span: (2..3).into(),
                 shadow: ROOT_TIME,
                 parents: smallvec![0, 1],
-                parent_indexes: smallvec![0, 1],
                 child_indexes: smallvec![],
             },
             HistoryEntry {
                 span: (3..4).into(),
                 shadow: 3,
                 parents: smallvec![0, 1],
-                parent_indexes: smallvec![0, 1],
                 child_indexes: smallvec![],
             },
         ]);

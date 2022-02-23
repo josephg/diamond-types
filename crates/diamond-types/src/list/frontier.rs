@@ -180,7 +180,7 @@ mod test {
             HistoryEntry {
                 span: (0..10).into(), shadow: ROOT_TIME,
                 parents: smallvec![ROOT_TIME],
-                parent_indexes: smallvec![], child_indexes: smallvec![]
+                child_indexes: smallvec![]
             }
         ]);
 
@@ -197,17 +197,17 @@ mod test {
             HistoryEntry {
                 span: (0..2).into(), shadow: ROOT_TIME,
                 parents: smallvec![ROOT_TIME],
-                parent_indexes: smallvec![], child_indexes: smallvec![]
+                child_indexes: smallvec![]
             },
             HistoryEntry {
                 span: (2..6).into(), shadow: ROOT_TIME,
                 parents: smallvec![0],
-                parent_indexes: smallvec![], child_indexes: smallvec![]
+                child_indexes: smallvec![]
             },
             HistoryEntry {
                 span: (6..50).into(), shadow: 6,
                 parents: smallvec![0],
-                parent_indexes: smallvec![], child_indexes: smallvec![]
+                child_indexes: smallvec![]
             },
         ]);
 

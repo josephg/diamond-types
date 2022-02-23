@@ -67,10 +67,6 @@ pub(crate) struct HistoryEntry {
     /// changes).
     pub parents: SmallVec<[usize; 2]>,
 
-    /// This is a list of the index of other txns which have a parent within this transaction.
-    /// TODO: Consider constraining this to not include the next child. Complexity vs memory.
-    pub parent_indexes: SmallVec<[usize; 2]>,
-
     pub child_indexes: SmallVec<[usize; 2]>,
 }
 
@@ -135,12 +131,12 @@ impl MergableSpan for HistoryEntry {
     }
 
     fn append(&mut self, other: Self) {
-        debug_assert!(other.parent_indexes.is_empty());
+        debug_assert!(other.child_indexes.is_empty());
         self.span.append(other.span);
     }
 
     fn prepend(&mut self, other: Self) {
-        debug_assert!(self.parent_indexes.is_empty());
+        debug_assert!(self.child_indexes.is_empty());
         self.span.prepend(other.span);
         self.parents = other.parents;
         debug_assert_eq!(self.shadow, other.shadow);
@@ -223,12 +219,12 @@ mod tests {
         let mut txn_a = HistoryEntry {
             span: (1000..1010).into(), shadow: 500,
             parents: smallvec![999],
-            parent_indexes: smallvec![], child_indexes: smallvec![],
+            child_indexes: smallvec![],
         };
         let txn_b = HistoryEntry {
             span: (1010..1015).into(), shadow: 500,
             parents: smallvec![1009],
-            parent_indexes: smallvec![], child_indexes: smallvec![],
+            child_indexes: smallvec![],
         };
 
         assert!(txn_a.can_append(&txn_b));
@@ -237,7 +233,7 @@ mod tests {
         assert_eq!(txn_a, HistoryEntry {
             span: (1000..1015).into(), shadow: 500,
             parents: smallvec![999],
-            parent_indexes: smallvec![], child_indexes: smallvec![],
+            child_indexes: smallvec![],
         })
     }
 

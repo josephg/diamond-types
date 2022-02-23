@@ -100,20 +100,15 @@ impl History {
                 // if it shows up at all it should be the only item in parents.
                 debug_assert_eq!(parents.len(), 1);
                 if hist.span.start == 0 { expect_shadow = ROOT_TIME; }
-                assert!(hist.parent_indexes.is_empty());
+                // assert!(hist.parent_indexes.is_empty());
             } else {
                 // We'll resort parents into descending order.
                 parents.sort_unstable_by(|a, b| b.cmp(a)); // descending order
-                let mut expect_parent_idx: SmallVec<[usize; 2]> = smallvec![];
 
                 // By induction, we can assume the previous shadows are correct.
                 for parent_order in parents {
                     // Note parent_order could point in the middle of a txn run.
                     let parent_idx = self.entries.find_index(parent_order).unwrap();
-                    if !expect_parent_idx.contains(&parent_idx) {
-                        expect_parent_idx.push(parent_idx);
-                    }
-
                     let parent_txn = &self.entries.0[parent_idx];
                     let offs = parent_order - parent_txn.span.start;
 
@@ -127,16 +122,12 @@ impl History {
                     }
                 }
 
-                expect_parent_idx.sort_unstable();
-                let mut actual_parent_idx = hist.parent_indexes.clone();
-                actual_parent_idx.sort_unstable();
-
                 // if expect_parent_idx != actual_parent_idx {
                 //     dbg!(&self.txns.0[..=idx]);
                 //     dbg!(&expect_parent_idx);
                 //     dbg!(&txn);
                 // }
-                assert_eq!(expect_parent_idx, actual_parent_idx);
+                // assert_eq!(expect_parent_idx, actual_parent_idx);
             }
 
             assert_eq!(hist.shadow, expect_shadow);
