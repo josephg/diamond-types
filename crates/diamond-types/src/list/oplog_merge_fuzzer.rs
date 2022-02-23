@@ -2,7 +2,7 @@ use rand::prelude::*;
 use crate::list::fuzzer_tools::make_random_change;
 use crate::list::{fuzzer_tools, ListCRDT};
 
-fn merge_fuzz(seed: u64, verbose: bool) {
+fn oplog_merge_fuzz(seed: u64, verbose: bool) {
     let mut rng = SmallRng::seed_from_u64(seed);
     let mut docs = [ListCRDT::new(), ListCRDT::new(), ListCRDT::new()];
 
@@ -64,6 +64,15 @@ fn merge_fuzz(seed: u64, verbose: bool) {
 }
 
 #[test]
-fn merge_fuzz_once() {
-    merge_fuzz(321, true);
+fn oplog_merge_fuzz_once() {
+    oplog_merge_fuzz(321, true);
+}
+
+#[test]
+#[ignore]
+fn oplog_merge_fuzz_forever() {
+    for seed in 0.. {
+        if seed % 10 == 0 { println!("seed {seed}"); }
+        oplog_merge_fuzz(seed, false);
+    }
 }
