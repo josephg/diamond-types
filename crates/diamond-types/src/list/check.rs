@@ -1,6 +1,6 @@
 use jumprope::JumpRope;
 use crate::list::{Branch, Frontier, ListCRDT, OpLog};
-use smallvec::{SmallVec, smallvec};
+use smallvec::smallvec;
 use crate::list::frontier::{advance_frontier_by_known_run, debug_assert_frontier_sorted};
 use crate::list::history::History;
 use crate::ROOT_TIME;
@@ -42,9 +42,9 @@ impl OpLog {
 
     #[allow(unused)]
     pub fn check_all_changes_rle_merged(&self) {
-        assert_eq!(self.client_data[0].item_times.len(), 1);
+        assert_eq!(self.client_data[0].item_times.num_entries(), 1);
         // .. And operation log.
-        assert_eq!(self.history.entries.len(), 1);
+        assert_eq!(self.history.entries.num_entries(), 1);
     }
 }
 
@@ -121,13 +121,6 @@ impl History {
                         expect_shadow = parent_txn.shadow;
                     }
                 }
-
-                // if expect_parent_idx != actual_parent_idx {
-                //     dbg!(&self.txns.0[..=idx]);
-                //     dbg!(&expect_parent_idx);
-                //     dbg!(&txn);
-                // }
-                // assert_eq!(expect_parent_idx, actual_parent_idx);
             }
 
             assert_eq!(hist.shadow, expect_shadow);

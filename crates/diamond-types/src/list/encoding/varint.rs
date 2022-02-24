@@ -1,4 +1,6 @@
 use std::mem::size_of;
+use crate::list::encoding::ParseError;
+use crate::list::encoding::ParseError::{InvalidVarInt, UnexpectedEOF};
 
 /// We're using protobuf's encoding system for variable sized integers. Most numbers we store here
 /// follow a Parato distribution, so this ends up being a space savings overall.
@@ -105,41 +107,43 @@ pub fn encode_usize(value: usize, buf: &mut [u8]) -> usize {
     }
 }
 
-// TODO: Make this return a Result<> of some sort.
-/// Returns (varint, number of bytes read).
-pub fn decode_u64_slow(buf: &[u8]) -> (u64, usize) {
+/// Returns (varint, number of bytes read). Or an empty Err if the parsing failed.
+///
+/// TODO: Make some ParseError struct or enum or something.
+pub fn decode_u64_slow(buf: &[u8]) -> Result<(u64, usize), ParseError> {
     let mut r: u64 = 0;
     let mut i = 0;
-    loop {
+    while i < buf.len() {
         if i == 10 {
-            panic!("Invalid varint");
+            return Err(InvalidVarInt)
         }
         let b = buf[i];
         if i == 9 && (b & 0x7f) > 1 {
-            panic!("Invalid varint");
+            return Err(InvalidVarInt)
         }
         r |= ((b & 0x7f) as u64) << (i * 7);
         i += 1;
         if b < 0x80 {
-            return (r, i)
+            return Ok((r, i))
         }
     }
+    Err(UnexpectedEOF)
 }
 
 // TODO: This is from rust-protobuf. Check this is actually faster than decode_u64_slow.
 /// Returns (varint, number of bytes read).
-pub fn decode_u64(buf: &[u8]) -> (u64, usize) {
+pub fn decode_u64(buf: &[u8]) -> Result<(u64, usize), ParseError> {
     if buf.is_empty() {
-        panic!("Not enough bytes in buffer");
+        Err(UnexpectedEOF)
     } else if buf[0] < 0x80 {
         // The most common case
-        (buf[0] as u64, 1)
+        Ok((buf[0] as u64, 1))
     } else if buf.len() >= 2 && buf[1] < 0x80 {
         // Handle the case of two bytes too
-        (
+        Ok((
             (buf[0] & 0x7f) as u64 | (buf[1] as u64) << 7,
             2
-        )
+        ))
     } else if buf.len() >= 10 {
         // Read from array when buf at at least 10 bytes, which is the max len for varint.
         let mut r: u64 = 0;
@@ -150,34 +154,37 @@ pub fn decode_u64(buf: &[u8]) -> (u64, usize) {
             let b = buf[i];
 
             if i == 9 && (b & 0x7f) > 1 {
-                panic!("Invalid varint");
+                return Err(InvalidVarInt);
             }
             r |= ((b & 0x7f) as u64) << (i as u64 * 7);
             i += 1;
             if b < 0x80 {
-                return (r, i);
+                return Ok((r, i));
             }
         }
-        panic!("Invalid varint");
+        return Err(InvalidVarInt);
     } else {
         decode_u64_slow(buf)
     }
 }
 
-pub fn decode_u32(buf: &[u8]) -> (u32, usize) {
-    let (val, bytes_consumed) = decode_u64(buf);
-    assert!(val < u32::MAX as u64, "varint is not a u32");
+pub fn decode_u32(buf: &[u8]) -> Result<(u32, usize), ParseError> {
+    let (val, bytes_consumed) = decode_u64(buf)?;
+    if val >= u32::MAX as u64 {
+        // varint is not a u32!
+        return Err(InvalidVarInt);
+    }
     debug_assert!(bytes_consumed <= 5);
-    (val as u32, bytes_consumed)
+    Ok((val as u32, bytes_consumed))
 }
 
-pub fn decode_usize(buf: &[u8]) -> (usize, usize) {
+pub fn decode_usize(buf: &[u8]) -> Result<(usize, usize), ParseError> {
     if size_of::<usize>() <= size_of::<u32>() {
-        let (val, count) = decode_u32(buf);
-        (val as usize, count)
+        let (val, count) = decode_u32(buf)?;
+        Ok((val as usize, count))
     } else if size_of::<usize>() == size_of::<u64>() {
-        let (val, count) = decode_u64(buf);
-        (val as usize, count)
+        let (val, count) = decode_u64(buf)?;
+        Ok((val as usize, count))
     } else {
         panic!("usize larger than u64 not supported");
     }
@@ -329,11 +336,11 @@ mod test {
         let mut buf = [0u8; 10];
         let bytes_used = encode_u64(val, &mut buf);
 
-        let v1 = decode_u64_slow(&buf);
+        let v1 = decode_u64_slow(&buf).unwrap();
         assert_eq!(v1, (val, bytes_used));
-        let v2 = decode_u64(&buf);
+        let v2 = decode_u64(&buf).unwrap();
         assert_eq!(v2, (val, bytes_used));
-        let v3 = decode_u64_slow(&buf[..bytes_used]);
+        let v3 = decode_u64_slow(&buf[..bytes_used]).unwrap();
         assert_eq!(v3, (val, bytes_used));
 
         if val < u32::MAX as u64 {

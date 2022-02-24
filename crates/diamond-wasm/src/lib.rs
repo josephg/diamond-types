@@ -143,6 +143,14 @@ impl OpLog {
         Self { inner, agent_id }
     }
 
+    #[wasm_bindgen(js_name = mergeBytes)]
+    pub fn merge_bytes(&mut self, bytes: &[u8]) {
+        let result = self.inner.merge_data(bytes);
+        // TODO: Map this error correctly.
+        result.unwrap();
+        // result.map_err(|err| err.into())
+    }
+
 }
 
 #[wasm_bindgen]

@@ -19,8 +19,40 @@ use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::list::encoding::varint::*;
 use num_enum::TryFromPrimitive;
 pub use encode_oplog::EncodeOptions;
+use std::str::Utf8Error;
+use crate::list::remote_ids::ConversionError;
 
 const MAGIC_BYTES: [u8; 8] = *b"DMNDTYPS";
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum ParseError {
+    InvalidMagic,
+    UnsupportedProtocolVersion,
+    InvalidChunkHeader,
+    MissingChunk(u32),
+    // UnexpectedChunk {
+    //     // I could use Chunk here, but I'd rather not expose them publicly.
+    //     // expected: Chunk,
+    //     // actual: Chunk,
+    //     expected: u32,
+    //     actual: u32,
+    // },
+    InvalidLength,
+    UnexpectedEOF,
+    // TODO: Consider elidiing the details here to keep the wasm binary small.
+    InvalidUTF8(Utf8Error),
+    InvalidRemoteID(ConversionError),
+    InvalidVarInt,
+    InvalidContent,
+
+    ChecksumFailed,
+
+    /// This error is interesting. We're loading a chunk but missing some of the data. In the future
+    /// I'd like to explicitly support this case, and allow the oplog to contain a somewhat- sparse
+    /// set of data, and load more as needed.
+    DataMissing,
+}
+
 const PROTOCOL_VERSION: usize = 0;
 
 fn push_u32(into: &mut Vec<u8>, val: u32) {
@@ -99,11 +131,11 @@ fn push_chunk_header(into: &mut Vec<u8>, chunk_type: Chunk, len: usize) {
     push_usize(into, len);
 }
 
+
 fn push_chunk(into: &mut Vec<u8>, chunk_type: Chunk, data: &[u8]) {
     push_chunk_header(into, chunk_type, data.len());
     into.extend_from_slice(data);
 }
-
 
 struct Merger<S: MergableSpan, F: FnMut(S, &mut Ctx), Ctx = ()> {
     last: Option<S>,

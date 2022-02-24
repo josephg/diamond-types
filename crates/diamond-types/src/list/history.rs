@@ -26,7 +26,7 @@ impl History {
 
     #[allow(unused)]
     pub fn num_entries(&self) -> usize {
-        self.entries.len()
+        self.entries.num_entries()
     }
 
     // This is mostly for testing.

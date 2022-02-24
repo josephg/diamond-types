@@ -1,16 +1,14 @@
-use std::str::Utf8Error;
 use smallvec::SmallVec;
 use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
 use crate::list::{Frontier, OpLog, switch, Time};
-use crate::list::remote_ids::ConversionError;
 use crate::list::frontier::{frontier_eq, frontier_is_sorted};
 use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::rev_span::TimeSpanRev;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::unicount::consume_chars;
-use ParseError::*;
+use crate::list::encoding::ParseError::*;
 use rle::AppendRle;
 use rle::take_max_iter::TakeMaxFns;
 use crate::list::history::MinimalHistoryEntry;
@@ -20,34 +18,6 @@ use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 
 #[derive(Debug)]
 struct BufReader<'a>(&'a [u8]);
-
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub enum ParseError {
-    InvalidMagic,
-    UnsupportedProtocolVersion,
-    InvalidChunkHeader,
-    MissingChunk(u32),
-    // UnexpectedChunk {
-    //     // I could use Chunk here, but I'd rather not expose them publicly.
-    //     // expected: Chunk,
-    //     // actual: Chunk,
-    //     expected: u32,
-    //     actual: u32,
-    // },
-    InvalidLength,
-    UnexpectedEOF,
-    // TODO: Consider elidiing the details here to keep the wasm binary small.
-    InvalidUTF8(Utf8Error),
-    InvalidRemoteID(ConversionError),
-    InvalidContent,
-
-    ChecksumFailed,
-
-    /// This error is interesting. We're loading a chunk but missing some of the data. In the future
-    /// I'd like to explicitly support this case, and allow the oplog to contain a somewhat- sparse
-    /// set of data, and load more as needed.
-    DataMissing,
-}
 
 impl<'a> BufReader<'a> {
     // fn check_has_bytes(&self, num: usize) {
@@ -90,15 +60,15 @@ impl<'a> BufReader<'a> {
         Ok(())
     }
 
-    fn peek_u32(&self) -> Option<u32> {
+    fn peek_u32(&self) -> Option<Result<u32, ParseError>> {
         if self.is_empty() { return None; }
         // Some(decode_u32(self.0))
-        Some(decode_u32(self.0).0)
+        Some(decode_u32(self.0).map(|v| v.0))
     }
 
     fn next_u32(&mut self) -> Result<u32, ParseError> {
         self.check_not_empty()?;
-        let (val, count) = decode_u32(self.0);
+        let (val, count) = decode_u32(self.0)?;
         self.consume(count);
         Ok(val)
     }
@@ -113,14 +83,14 @@ impl<'a> BufReader<'a> {
     #[allow(unused)]
     fn next_u64(&mut self) -> Result<u64, ParseError> {
         self.check_not_empty()?;
-        let (val, count) = decode_u64(self.0);
+        let (val, count) = decode_u64(self.0)?;
         self.consume(count);
         Ok(val)
     }
 
     fn next_usize(&mut self) -> Result<usize, ParseError> {
         self.check_not_empty()?;
-        let (val, count) = decode_usize(self.0);
+        let (val, count) = decode_usize(self.0)?;
         self.consume(count);
         Ok(val)
     }
@@ -164,6 +134,7 @@ impl<'a> BufReader<'a> {
     /// or we hit EOF.
     fn read_chunk(&mut self, expect_chunk_type: Chunk) -> Result<Option<BufReader<'a>>, ParseError> {
         if let Some(actual_chunk_type) = self.peek_u32() {
+            let actual_chunk_type = actual_chunk_type?;
             if actual_chunk_type != (expect_chunk_type as _) {
                 // Chunk doesn't match requested type.
                 return Ok(None);
@@ -491,10 +462,141 @@ impl<'a> Iterator for ReadPatchesIter<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct DecodeOptions {
+    /// Ignore CRC check failures. This is mostly used for debugging.
+    ignore_crc: bool,
+}
+
+impl Default for DecodeOptions {
+    fn default() -> Self {
+        Self {
+            ignore_crc: false
+        }
+    }
+}
 
 impl OpLog {
     pub fn load_from(data: &[u8]) -> Result<Self, ParseError> {
-        Self::new().merge_data(data)
+        let mut oplog = Self::new();
+        oplog.merge_data_internal(data, DecodeOptions::default())?;
+        Ok(oplog)
+    }
+
+    pub fn load_from_opts(data: &[u8], opts: DecodeOptions) -> Result<Self, ParseError> {
+        let mut oplog = Self::new();
+        oplog.merge_data_internal(data, opts)?;
+        Ok(oplog)
+    }
+
+    pub fn merge_data(&mut self, data: &[u8]) -> Result<(), ParseError> {
+        self.merge_data_opts(data, DecodeOptions::default())
+    }
+
+    pub fn merge_data_opts(&mut self, data: &[u8], opts: DecodeOptions) -> Result<(), ParseError> {
+        // In order to merge data safely, when an error happens we need to unwind all the merged
+        // operations before returning. Otherwise self is in an invalid state.
+        //
+        // The merge_data method is append-only, so really we just need to trim back all the data
+        // that has been (partially) added.
+
+        // Number of operations before merging happens
+        let len = self.len();
+
+        // We could regenerate the frontier, but this is much lazier.
+        let old_frontier = self.frontier.clone();
+        let num_known_agents = self.client_data.len();
+        let ins_content_length = self.ins_content.len();
+        let del_content_length = self.del_content.len();
+
+        let result = self.merge_data_internal(data, opts);
+
+        if result.is_err() {
+            // Unwind changes back to len.
+            // This would be nicer with an RleVec iterator, but the iter implementation doesn't
+            // support iterating backwards.
+            while let Some(last) = self.client_with_localtime.0.last_mut() {
+                debug_assert!(len <= last.end());
+                if len == last.end() { break; }
+                else {
+                    // Truncate!
+                    let KVPair(_, removed) = if len <= last.0 {
+                        // Drop entire entry
+                        self.client_with_localtime.0.pop().unwrap()
+                    } else {
+                        last.truncate(len - last.0)
+                    };
+
+                    let client_data = &mut self.client_data[removed.agent as usize];
+                    client_data.item_times.remove(removed.seq_range);
+                }
+            }
+
+            let num_operations = self.operations.end();
+            if num_operations > len {
+                self.operations.remove((len..num_operations).into());
+            }
+
+            // Trim history
+            let hist_entries = &mut self.history.entries;
+            let history_length = hist_entries.end();
+            if history_length > len {
+                // We can't use entries.remove because HistoryEntry doesn't support SplitableSpan.
+                // And also because we need to update child_indexes.
+                let del_span_start = len;
+
+                let first_idx = hist_entries.find_index(len).unwrap();
+
+                let e = &mut hist_entries.0[first_idx];
+                let first_truncated_idx = if del_span_start > e.span.start {
+                    // The first entry just needs to be trimmed down.
+                    e.span.truncate_from(del_span_start);
+                    first_idx + 1
+                } else {
+                    first_idx
+                };
+
+                let mut idx = first_truncated_idx;
+
+                // Go through and unwind from idx.
+                while idx < hist_entries.num_entries() {
+                    // Cloning here is an ugly and kinda slow hack to work around the borrow
+                    // checker. But this whole case is rare anyway, so idk.
+                    let parents = hist_entries.0[idx].parents.clone();
+
+                    for p in parents {
+                        if p < len {
+                            let parent_entry = hist_entries.find_mut(p).unwrap().0;
+                            while let Some(&c_idx) = parent_entry.child_indexes.last() {
+                                if c_idx >= first_truncated_idx {
+                                    parent_entry.child_indexes.pop();
+                                } else { break; }
+                            }
+                        }
+                    }
+
+                    idx += 1;
+                }
+
+                self.history.entries.0.truncate(idx);
+
+                while let Some(&last_idx) = self.history.root_child_indexes.last() {
+                    if last_idx >= self.history.entries.num_entries() {
+                        self.history.root_child_indexes.pop();
+                    } else { break; }
+                }
+            }
+
+            // Remove excess agents
+            self.client_data.truncate(num_known_agents);
+
+            self.ins_content.truncate(ins_content_length);
+            self.del_content.truncate(del_content_length);
+
+            self.frontier = old_frontier;
+        }
+
+        result
     }
 
     /// Merge data from the remote source into our local document state.
@@ -502,7 +604,7 @@ impl OpLog {
     /// NOTE: This code is quite new.
     /// TODO: Currently if this method returns an error, the local state is undefined & invalid.
     /// Until this is fixed, the signature of the method will stay kinda weird to prevent misuse.
-    pub fn merge_data(mut self, data: &[u8]) -> Result<Self, ParseError> {
+    fn merge_data_internal(&mut self, data: &[u8], opts: DecodeOptions) -> Result<(), ParseError> {
         // Written to be symmetric with encode functions.
         let mut reader = BufReader(data);
         reader.read_magic()?;
@@ -514,8 +616,8 @@ impl OpLog {
         // *** FileInfo ***
         // fileinfo has UserData and AgentNames.
         // The agent_map is a map from agent_id in the file to agent_id in self.
-        // This method adds missing agents to self.
-        let (_userdata, mut agent_map) = reader.read_fileinfo(&mut self)?;
+        // self is &mut because this method adds missing agents to self.
+        let (_userdata, mut agent_map) = reader.read_fileinfo(self)?;
 
         // *** StartBranch ***
         let start_frontier = if let Some(mut start_branch) = reader.read_chunk(Chunk::StartBranch)? {
@@ -671,7 +773,7 @@ impl OpLog {
 
                         // dbg!(&file_to_local_version_map);
 
-                        parse_next_patches(&mut self, len, keep)?;
+                        parse_next_patches(self, len, keep)?;
 
                         // And deal with history.
                         // parse_next_history(&mut self, &file_to_self_agent_map, &version_map, len, keep)?;
@@ -688,7 +790,7 @@ impl OpLog {
                         next_file_time,
                         (next_assignment_time..next_assignment_time + len).into(),
                     ));
-                    parse_next_patches(&mut self, len, true)?;
+                    parse_next_patches(self, len, true)?;
                     // parse_next_history(&mut self, &file_to_self_agent_map, &version_map, len, true)?;
 
                     next_assignment_time += len;
@@ -769,18 +871,20 @@ impl OpLog {
             // (but NOT INCLUDING) the CRC chunk. I could adapt BufReader to store the offset /
             // length. But we can just subtract off the remaining length from the original data??
             // O_o
-            let expected_crc = crc_reader.next_u32_le()?;
-            let checksummed_data = &data[..data.len() - reader_len];
+            if !opts.ignore_crc {
+                let expected_crc = crc_reader.next_u32_le()?;
+                let checksummed_data = &data[..data.len() - reader_len];
 
-            // TODO: Add flag to ignore invalid checksum.
-            if checksum(checksummed_data) != expected_crc {
-                return Err(ChecksumFailed);
+                // TODO: Add flag to ignore invalid checksum.
+                if checksum(checksummed_data) != expected_crc {
+                    return Err(ChecksumFailed);
+                }
             }
         }
 
         // self.frontier = end_frontier_chunk.read_full_frontier(&self)?;
 
-        Ok(self)
+        Ok(())
     }
 }
 
@@ -842,8 +946,8 @@ mod tests {
         let data_2 = doc.ops.encode_from(EncodeOptions::default(), &f1);
 
         let mut d2 = OpLog::new();
-        d2 = d2.merge_data(&data_1).unwrap();
-        d2 = d2.merge_data(&data_2).unwrap();
+        d2.merge_data(&data_1).unwrap();
+        d2.merge_data(&data_2).unwrap();
 
         assert_eq!(&d2, &doc.ops);
         // dbg!(&doc.ops, &d2);
@@ -858,9 +962,9 @@ mod tests {
         oplog.push_insert(0, 2, " there");
         let data_2 = oplog.encode(EncodeOptions::default());
 
-        let log2 = OpLog::load_from(&data_1).unwrap();
+        let mut log2 = OpLog::load_from(&data_1).unwrap();
         println!("\n------\n");
-        let log2 = log2.merge_data(&data_2).unwrap();
+        log2.merge_data(&data_2).unwrap();
         assert_eq!(&oplog, &log2);
     }
 
@@ -878,16 +982,16 @@ mod tests {
         let data_b = oplog_a.encode_from(EncodeOptions::default(), &[t1]);
 
         // Now we should be able to merge a then b, or b then a and get the same result.
-        let a_then_b = OpLog::new();
-        let a_then_b = a_then_b.merge_data(&data_a).unwrap();
-        let a_then_b = a_then_b.merge_data(&data_b).unwrap();
+        let mut a_then_b = OpLog::new();
+        a_then_b.merge_data(&data_a).unwrap();
+        a_then_b.merge_data(&data_b).unwrap();
         assert_eq!(a_then_b, oplog_a);
 
         println!("\n------\n");
 
-        let b_then_a = OpLog::new();
-        let b_then_a = b_then_a.merge_data(&data_b).unwrap();
-        let b_then_a = b_then_a.merge_data(&data_a).unwrap();
+        let mut b_then_a = OpLog::new();
+        b_then_a.merge_data(&data_b).unwrap();
+        b_then_a.merge_data(&data_a).unwrap();
         assert_eq!(b_then_a, oplog_a);
     }
 
@@ -936,8 +1040,8 @@ mod tests {
         // for c in &oplog.client_data {
         //     println!("{} .. {}", c.name, c.get_next_seq());
         // }
-        dbg!(oplog.operations.len());
-        dbg!(oplog.history.entries.len());
+        dbg!(oplog.operations.0.len());
+        dbg!(oplog.history.entries.0.len());
     }
 
     #[test]
@@ -958,5 +1062,36 @@ mod tests {
                 break;
             }
         }
+    }
+
+    fn check_unroll_works(oplog: &OpLog) {
+        // So we're going to decode the oplog with all the different bytes corrupted. The result
+        // should always fail if we check the CRC.
+
+        let encoded_proper = oplog.encode(EncodeOptions {
+            user_data: None,
+            store_inserted_content: true,
+            store_deleted_content: true,
+            verbose: false
+        });
+
+        dbg!(encoded_proper.len());
+        for i in 0..encoded_proper.len() {
+            println!("{i}");
+            // We'll corrupt that byte and try to read the document back.
+            let mut corrupted = encoded_proper.clone();
+            corrupted[i] = !corrupted[i];
+
+            // Because we're checking the CRC code, we should always get an error here.
+            let result = OpLog::load_from(&corrupted);
+            result.unwrap_err();
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn error_unrolling() {
+        let doc = simple_doc();
+        check_unroll_works(&doc.ops);
     }
 }

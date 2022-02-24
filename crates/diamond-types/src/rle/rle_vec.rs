@@ -10,7 +10,7 @@ use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, MergeIter, Spli
 use rle::Searchable;
 use crate::localtime::TimeSpan;
 
-use crate::rle::{RleKeyed, RleSpanHelpers};
+use crate::rle::{RleKeyed, RleKeyedAndSplitable, RleSpanHelpers};
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -36,11 +36,24 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
 
     // Forward to vec.
     pub fn last(&self) -> Option<&V> { self.0.last() }
+
     #[allow(unused)]
-    pub fn len(&self) -> usize { self.0.len() }
+    pub fn num_entries(&self) -> usize { self.0.len() }
+
+    /// Returns past the end of the last key.
+    pub fn end(&self) -> usize where V: RleKeyed {
+        if let Some(v) = self.last() {
+            v.end()
+        } else {
+            0
+        }
+    }
+
     #[allow(unused)]
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
+
     pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
+
     pub fn iter_merged(&self) -> MergeIter<Cloned<std::slice::Iter<V>>> { self.0.iter().cloned().merge_spans() }
 
     pub fn print_stats(&self, name: &str, _detailed: bool) {
@@ -210,11 +223,100 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         self.0.insert(idx, val);
     }
 
+    /// Remove an item. This may need to shuffle indexes around. This method is O(n) with the number
+    /// of items between this entry and the end of the list.
+    ///
+    /// This method silently ignores requests to delete ranges we don't have.
+    pub fn remove(&mut self, mut deleted_range: TimeSpan) where V: SplitableSpan {
+        // Fast case - the requested entry is at the end.
+        loop {
+            if let Some(last) = self.0.last_mut() {
+                let last_span = last.span();
+
+                // Range is past the end of the list. Nothing to do here!
+                if deleted_range.start >= last_span.end { return; }
+
+                // Need slow approach.
+                if deleted_range.end < last_span.end { break; }
+
+                if deleted_range.start <= last_span.start {
+                    // Remove entire last entry.
+                    self.0.pop();
+                    if deleted_range.start == last_span.start {
+                        // Easiest case. We're done.
+                        return;
+                    }
+                } else {
+                    // Truncate last entry and return.
+                    last.truncate_from(deleted_range.start);
+                    return;
+                }
+            } else {
+                // The list is empty. Nothing more to do.
+                return;
+            }
+        }
+
+        // Slow case - the requested range is in the middle of the list somewhere. We need to carve
+        // it out.
+        let mut idx = match self.find_index(deleted_range.start) {
+            Ok(idx) => idx,
+            Err(idx) => {
+                if let Some(entry) = self.0.get(idx) {
+                    deleted_range.truncate_keeping_right_from(entry.rle_key());
+                } else { return; }
+                idx
+            }
+        };
+
+        loop {
+            if idx >= self.0.len() { break; }
+            let e = &mut self.0[idx];
+
+            debug_assert!(e.rle_key() <= deleted_range.start);
+
+            // There's 4 cases here.
+
+            let e_end = e.end();
+
+            let keep_start = e.rle_key() < deleted_range.start;
+            let keep_end = e_end > deleted_range.end();
+            match (keep_start, keep_end) {
+                (false, false) => {
+                    // Remove the entry and iterate.
+                    self.0.remove(idx);
+                },
+
+                (false, true) => {
+                    // Trim the start, trim the end.
+                    e.truncate_keeping_right_from(deleted_range.start);
+                    break;
+                },
+
+                (true, false) => {
+                    // Trim the end
+                    e.truncate_from(deleted_range.start);
+                    idx += 1;
+                }
+
+                (true, true) => {
+                    // Trim in the middle.
+                    let mut remainder = e.truncate_from(deleted_range.start);
+                    remainder.truncate_keeping_right_from(deleted_range.end);
+                    self.insert(remainder);
+                    break;
+                }
+            }
+
+            if e_end == deleted_range.end() { break; }
+        }
+    }
+
     /// Search forward from idx until we find needle. idx is modified. Returns either the item if
     /// successful, or the key of the subsequent item.
     #[allow(unused)]
     pub(crate) fn search_scanning_sparse(&self, needle: usize, idx: &mut usize) -> Result<&V, usize> {
-        while *idx < self.len() {
+        while *idx < self.0.len() {
             // TODO: Is this bounds checking? It shouldn't need to... Fix if it is.
             let e = &self[*idx];
             if needle < e.end() {
@@ -242,7 +344,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     pub(crate) fn search_scanning_backwards_sparse(&self, needle: usize, idx: &mut usize) -> Result<&V, usize> {
         // This conditional looks inverted given we're looping backwards, but I'm using
         // wrapping_sub - so when we reach the end the index wraps around and we'll hit usize::MAX.
-        while *idx < self.len() {
+        while *idx < self.0.len() {
             let e = &self[*idx];
             if needle >= e.rle_key() {
                 return if needle < e.end() {

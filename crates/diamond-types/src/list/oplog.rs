@@ -270,20 +270,8 @@ impl OpLog {
                     // parent_indexes.push(parent_idx);
 
                     let parent_children = &mut self.history.entries.0[parent_idx].child_indexes;
-                    if !parent_children.contains(&new_idx) {
-                        parent_children.push(new_idx);
-
-                        // This is a tiny optimization for txn_trace. We store the child_indexes in
-                        // order of their first parent - which will usually be the order in which we
-                        // want to iterate them.
-                        // TODO: Make this work and benchmark.
-                        // if parent_children.len() > 1 {
-                        //     parent_children.sort_unstable_by(|&a, &b| {
-                        //         u32::cmp(&self.txns.0[a].parents[0].wrapping_add(1),
-                        //                  &self.txns.0[b].parents[0].wrapping_add(1))
-                        //     });
-                        // }
-                    }
+                    debug_assert!(!parent_children.contains(&new_idx));
+                    parent_children.push(new_idx);
                 }
 
             }

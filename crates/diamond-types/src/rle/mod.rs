@@ -25,6 +25,11 @@ impl<V: RleKeyed + HasLength> RleSpanHelpers for V {}
 
 pub trait RleKeyedAndSplitable: RleKeyed + SplitableSpan {
     #[inline(always)]
+    fn truncate_from(&mut self, at: usize) -> Self {
+        self.truncate(at - self.rle_key())
+    }
+
+    #[inline(always)]
     fn truncate_keeping_right_from(&mut self, at: usize) -> Self {
         self.truncate_keeping_right(at - self.rle_key())
     }
