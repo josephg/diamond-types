@@ -7,17 +7,23 @@ use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::rev_span::TimeSpanRev;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::unicount::consume_chars;
+use crate::unicount::{consume_chars, count_chars};
 use crate::list::encoding::ParseError::*;
 use rle::AppendRle;
 use rle::take_max_iter::TakeMaxFns;
+use crate::list::encoding::Chunk::{FileInfo, Patches, StartBranch};
 use crate::list::history::MinimalHistoryEntry;
 use crate::localtime::{TimeSpan, UNDERWATER_START};
 use crate::remotespan::{CRDTId, CRDTSpan};
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct BufReader<'a>(&'a [u8]);
+
+// If this is set to false, the compiler can optimize out the verbose printing code. This makes the
+// compiled output slightly smaller.
+const ALLOW_VERBOSE: bool = false;
+// const ALLOW_VERBOSE: bool = true;
 
 impl<'a> BufReader<'a> {
     // fn check_has_bytes(&self, num: usize) {
@@ -119,7 +125,7 @@ impl<'a> BufReader<'a> {
 
     fn next_chunk(&mut self) -> Result<(Chunk, BufReader<'a>), ParseError> {
         let chunk_type = Chunk::try_from(self.next_u32()?)
-            .map_err(|_| InvalidChunkHeader)?;
+            .map_err(|_| UnknownChunk);
 
         // This in no way guarantees we're good.
         let len = self.next_usize()?;
@@ -127,7 +133,11 @@ impl<'a> BufReader<'a> {
             return Err(InvalidLength);
         }
 
-        Ok((chunk_type, BufReader(self.next_n_bytes(len)?)))
+        let reader = BufReader(self.next_n_bytes(len)?);
+
+        // Note we're try-ing chunk_type here so we still read all the bytes if we can, even if
+        // the chunk type is unknown.
+        Ok((chunk_type?, reader))
     }
 
     /// Read a chunk with the named type. Returns None if the next chunk isn't the specified type,
@@ -149,7 +159,13 @@ impl<'a> BufReader<'a> {
     fn expect_chunk(&mut self, expect_chunk_type: Chunk) -> Result<BufReader<'a>, ParseError> {
         // Scan chunks until we find expect_chunk_type. Error if the chunk is missing from the file.
         while !self.is_empty() {
-            let (actual_chunk_type, r) = self.next_chunk()?;
+            let chunk = self.next_chunk();
+
+            // Ignore unknown chunks for forwards compatibility.
+            if let Err(UnknownChunk) = chunk { continue; }
+
+            // Otherwise we'll just try unwrap as usual.
+            let (actual_chunk_type, r) = chunk?;
             if expect_chunk_type == actual_chunk_type {
                 // dbg!(expect_chunk_type, actual_chunk_type);
                 return Ok(r);
@@ -330,6 +346,39 @@ impl<'a> BufReader<'a> {
 
         Ok((userdata, agent_map))
     }
+
+    fn dbg_print_chunk_tree_internal(mut self) -> Result<(), ParseError> {
+        println!("Total file size {}", self.len());
+        let total_len = self.len();
+        println!("magic at {}", total_len - self.len());
+        self.read_magic()?;
+        let protocol_version = self.next_usize()?;
+        println!("Protocol version {protocol_version}");
+
+        loop { // gross
+            let position = total_len - self.len();
+            if let Ok((chunk, mut inner_reader)) = self.next_chunk() {
+                println!("Chunk {:?} at {} ({} bytes)", chunk, position, inner_reader.len());
+
+                let inner_len = inner_reader.len();
+                if chunk == FileInfo || chunk == StartBranch || chunk == Patches {
+                    loop {
+                        let inner_position = position + inner_len - inner_reader.len();
+                        if let Ok((chunk, inner_inner_reader)) = inner_reader.next_chunk() {
+                            println!("  Chunk {:?} at {} ({} bytes)", chunk, inner_position, inner_inner_reader.len());
+                        } else { break; }
+                    }
+                }
+            } else { break; }
+        }
+        Ok(())
+    }
+
+    fn dbg_print_chunk_tree(self) {
+        if let Err(e) = self.dbg_print_chunk_tree_internal() {
+            eprintln!("-> Error parsing ({:?})", e);
+        }
+    }
 }
 
 
@@ -466,12 +515,15 @@ impl<'a> Iterator for ReadPatchesIter<'a> {
 pub struct DecodeOptions {
     /// Ignore CRC check failures. This is mostly used for debugging.
     ignore_crc: bool,
+
+    verbose: bool,
 }
 
 impl Default for DecodeOptions {
     fn default() -> Self {
         Self {
-            ignore_crc: false
+            ignore_crc: false,
+            verbose: false,
         }
     }
 }
@@ -607,6 +659,12 @@ impl OpLog {
     fn merge_data_internal(&mut self, data: &[u8], opts: DecodeOptions) -> Result<(), ParseError> {
         // Written to be symmetric with encode functions.
         let mut reader = BufReader(data);
+
+        let verbose = ALLOW_VERBOSE && opts.verbose;
+        if verbose {
+            reader.clone().dbg_print_chunk_tree();
+        }
+
         reader.read_magic()?;
         let protocol_version = reader.next_usize()?;
         if protocol_version != PROTOCOL_VERSION {
@@ -655,13 +713,17 @@ impl OpLog {
                 // let content = String::from_utf8(decompressed_data).unwrap();
                 //     // .map_err(InvalidUTF8)?;
 
-                ins_content = Some(std::str::from_utf8(chunk.0)
-                    .map_err(InvalidUTF8)?);
+                let content = std::str::from_utf8(chunk.0).map_err(InvalidUTF8)?;
+                let len = count_chars(content);
+                ins_content = Some((content, len));
             }
 
+            // TODO: DRY.
             if let Some(chunk) = patch_chunk.read_chunk(Chunk::DeletedContent)? {
-                del_content = Some(std::str::from_utf8(chunk.0)
-                    .map_err(InvalidUTF8)?);
+                let content = std::str::from_utf8(chunk.0).map_err(InvalidUTF8)?;
+                let len = count_chars(content);
+
+                del_content = Some((content, len));
             }
 
             // So note that the file we're loading from may contain changes we already have locally.
@@ -705,9 +767,15 @@ impl OpLog {
 
                         let content = switch(op.tag, &mut ins_content, &mut del_content);
 
-                        // TODO: Check this split point is valid.
-                        let content_here = content.as_mut()
-                            .map(|content| consume_chars(content, len));
+                        let content_here = if let Some((content, len_remaining)) = content.as_mut() {
+                            if *len_remaining < len {
+                                return Err(InvalidLength);
+                            }
+                            *len_remaining -= len;
+                            Some(consume_chars(content, len))
+                        } else { None };
+
+                        // dbg!(content, len, content_here);
 
                         // self.operations.push(KVPair(next_time, op));
                         if keep {
@@ -855,8 +923,9 @@ impl OpLog {
             patch_chunk.expect_empty()?;
             history_chunk.expect_empty()?;
 
-            if let Some(content) = ins_content {
+            if let Some((content, len)) = ins_content {
                 if !content.is_empty() {
+                    debug_assert_eq!(len, 0);
                     return Err(InvalidContent);
                 }
             }
@@ -888,6 +957,10 @@ impl OpLog {
     }
 }
 
+#[allow(unused)]
+fn dbg_print_chunks_in(bytes: &[u8]) {
+    BufReader(bytes).dbg_print_chunk_tree();
+}
 
 #[cfg(test)]
 mod tests {
@@ -1064,34 +1137,76 @@ mod tests {
         }
     }
 
-    fn check_unroll_works(oplog: &OpLog) {
+    fn check_unroll_works(dest: &OpLog, src: &OpLog) {
         // So we're going to decode the oplog with all the different bytes corrupted. The result
         // should always fail if we check the CRC.
 
-        let encoded_proper = oplog.encode(EncodeOptions {
+        let encoded_proper = src.encode(EncodeOptions {
             user_data: None,
             store_inserted_content: true,
             store_deleted_content: true,
             verbose: false
         });
 
-        dbg!(encoded_proper.len());
+        // dbg!(encoded_proper.len());
         for i in 0..encoded_proper.len() {
+            // let i = 57;
             println!("{i}");
             // We'll corrupt that byte and try to read the document back.
             let mut corrupted = encoded_proper.clone();
             corrupted[i] = !corrupted[i];
+            // dbg!(corrupted[i]);
 
-            // Because we're checking the CRC code, we should always get an error here.
-            let result = OpLog::load_from(&corrupted);
-            result.unwrap_err();
+            let mut actual_output = dest.clone();
+
+            // In theory, we should always get an error here. But we don't, because the CRC check
+            // is optional and the corrupted data can just remove the CRC check entirely!
+
+            let result = actual_output.merge_data_opts(&corrupted, DecodeOptions {
+                ignore_crc: false,
+                verbose: true,
+            });
+
+            if let Err(_err) = result {
+                assert_eq!(&actual_output, dest);
+            } else {
+                dbg!(&actual_output);
+                dbg!(src);
+                assert_eq!(&actual_output, src);
+            }
+            // Otherwise the data loaded correctly!
+
         }
     }
 
     #[test]
-    #[ignore]
     fn error_unrolling() {
         let doc = simple_doc();
-        check_unroll_works(&doc.ops);
+
+        check_unroll_works(&OpLog::new(), &doc.ops);
+    }
+
+    #[test]
+    #[ignore]
+    fn save_load_save_load() {
+        let oplog1 = simple_doc().ops;
+        let bytes = oplog1.encode(EncodeOptions {
+            user_data: None,
+            store_inserted_content: false,
+            store_deleted_content: false,
+            verbose: false
+        });
+        dbg_print_chunks_in(&bytes);
+        let oplog2 = OpLog::load_from(&bytes).unwrap();
+
+        let bytes2 = oplog1.encode(EncodeOptions {
+            user_data: None,
+            store_inserted_content: true,
+            store_deleted_content: true,
+            verbose: false
+        });
+        let oplog3 = OpLog::load_from(&bytes2).unwrap();
+
+        assert_eq!(oplog2, oplog3);
     }
 }
