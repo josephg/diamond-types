@@ -414,7 +414,7 @@ mod test {
         //     dbg!(item);
         // }
 
-        assert!(iter.eq(std::array::IntoIter::new([
+        assert!(iter.eq(IntoIterator::into_iter([
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
@@ -470,7 +470,7 @@ mod test {
         let iter = SpanningTreeWalker::new(&history, &conflict.spans, conflict.common_ancestor);
         // dbg!(&iter);
 
-        assert!(iter.eq(std::array::IntoIter::new([
+        assert!(iter.eq(IntoIterator::into_iter([
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],

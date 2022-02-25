@@ -58,7 +58,7 @@ impl<T: SplitAndJoinSpan + Copy + Debug + Default> ContentTraits for T {}
 ///     TestRange { id: 0, len: 150, is_activated: true }
 /// ]);
 /// ```
-pub struct ContentTreeRaw<E: ContentTraits, I: TreeMetrics<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
+pub struct ContentTreeRaw<E: ContentTraits, I: TreeMetrics<E>, const INT_ENTRIES: usize = DEFAULT_IE, const LEAF_ENTRIES: usize = DEFAULT_LE> {
     count: I::Value,
 
     // There's a bit of double-deref going on when you access the first node in the tree, but I
