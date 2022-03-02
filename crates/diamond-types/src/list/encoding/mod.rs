@@ -24,7 +24,7 @@ use crate::list::remote_ids::ConversionError;
 
 const MAGIC_BYTES: [u8; 8] = *b"DMNDTYPS";
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum ParseError {
     InvalidMagic,
     UnsupportedProtocolVersion,
@@ -99,7 +99,7 @@ fn checksum(data: &[u8]) -> u32 {
 // #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]
-enum Chunk {
+enum ChunkType {
     /// FileInfo contains optional UserData and AgentNames.
     FileInfo = 1,
     UserData = 2,
@@ -107,18 +107,19 @@ enum Chunk {
 
     /// The StartBranch chunk describes the state of the document before included patches have been
     /// applied.
-    StartBranch = 4,
-    Frontier = 5,
-    Content = 6,
+    StartBranch = 10,
+    Frontier = 12,
+    Content = 13,
 
-    Patches = 7,
-    AgentAssignment = 8,
-    PositionalPatches = 9,
-    TimeDAG = 10,
-    InsertedContent = 11,
-    DeletedContent = 12,
+    Patches = 20,
+    Version = 21,
+    OpTypeAndPosition = 22,
+    Parents = 23,
 
-    CRC = 13,
+    PatchContent = 24,
+    ContentKnown = 25,
+
+    Crc = 100,
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
@@ -130,17 +131,18 @@ pub enum DataType {
     PlainText = 4,
 }
 
-fn push_chunk_header(into: &mut Vec<u8>, chunk_type: Chunk, len: usize) {
+fn push_chunk_header(into: &mut Vec<u8>, chunk_type: ChunkType, len: usize) {
     push_u32(into, chunk_type as u32);
     push_usize(into, len);
 }
 
 
-fn push_chunk(into: &mut Vec<u8>, chunk_type: Chunk, data: &[u8]) {
+fn push_chunk(into: &mut Vec<u8>, chunk_type: ChunkType, data: &[u8]) {
     push_chunk_header(into, chunk_type, data.len());
     into.extend_from_slice(data);
 }
 
+#[derive(Clone)]
 struct Merger<S: MergableSpan, F: FnMut(S, &mut Ctx), Ctx = ()> {
     last: Option<S>,
     f: F,

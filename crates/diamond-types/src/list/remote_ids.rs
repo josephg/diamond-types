@@ -42,7 +42,7 @@ pub struct RemoteIdSpan {
 // timespan -> remote id span
 // remote id span -> timespan
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum ConversionError {
     UnknownAgent,
     SeqInFuture,

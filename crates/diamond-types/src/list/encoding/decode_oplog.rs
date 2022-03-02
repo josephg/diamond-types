@@ -7,12 +7,13 @@ use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::rev_span::TimeSpanRev;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::unicount::{consume_chars, count_chars};
+use crate::unicount::{consume_chars, count_chars, split_at_char};
 use crate::list::encoding::ParseError::*;
 use rle::AppendRle;
 use rle::take_max_iter::TakeMaxFns;
-use crate::list::encoding::Chunk::{FileInfo, Patches, StartBranch};
+use crate::list::encoding::ChunkType::{Content, ContentKnown, FileInfo, Patches, StartBranch};
 use crate::list::history::MinimalHistoryEntry;
+use crate::list::operation::InsDelTag;
 use crate::localtime::{TimeSpan, UNDERWATER_START};
 use crate::remotespan::{CRDTId, CRDTSpan};
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
@@ -66,10 +67,10 @@ impl<'a> BufReader<'a> {
         Ok(())
     }
 
-    fn peek_u32(&self) -> Option<Result<u32, ParseError>> {
-        if self.is_empty() { return None; }
+    fn peek_u32(&self) -> Result<Option<u32>, ParseError> {
+        if self.is_empty() { return Ok(None); }
         // Some(decode_u32(self.0))
-        Some(decode_u32(self.0).map(|v| v.0))
+        Ok(Some(decode_u32(self.0)?.0))
     }
 
     fn next_u32(&mut self) -> Result<u32, ParseError> {
@@ -123,8 +124,21 @@ impl<'a> BufReader<'a> {
     //     Ok(Chunk::try_from(self.peek_u32()?).map_err(|_| InvalidChunkHeader)?)
     // }
 
-    fn next_chunk(&mut self) -> Result<(Chunk, BufReader<'a>), ParseError> {
-        let chunk_type = Chunk::try_from(self.next_u32()?)
+    // TODO: Remove this?
+    #[allow(unused)]
+    fn peek_chunk(&self) -> Result<Option<ChunkType>, ParseError> {
+        // TODO: There's probably a way to write this more cleanly?? Clippy halp
+        if let Some(num) = self.peek_u32()? {
+            let chunk_type = ChunkType::try_from(num)
+                .map_err(|_| UnknownChunk)?;
+            Ok(Some(chunk_type))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn next_chunk(&mut self) -> Result<(ChunkType, BufReader<'a>), ParseError> {
+        let chunk_type = ChunkType::try_from(self.next_u32()?)
             .map_err(|_| UnknownChunk);
 
         // This in no way guarantees we're good.
@@ -142,9 +156,8 @@ impl<'a> BufReader<'a> {
 
     /// Read a chunk with the named type. Returns None if the next chunk isn't the specified type,
     /// or we hit EOF.
-    fn read_chunk(&mut self, expect_chunk_type: Chunk) -> Result<Option<BufReader<'a>>, ParseError> {
-        if let Some(actual_chunk_type) = self.peek_u32() {
-            let actual_chunk_type = actual_chunk_type?;
+    fn read_chunk(&mut self, expect_chunk_type: ChunkType) -> Result<Option<BufReader<'a>>, ParseError> {
+        if let Some(actual_chunk_type) = self.peek_u32()? {
             if actual_chunk_type != (expect_chunk_type as _) {
                 // Chunk doesn't match requested type.
                 return Ok(None);
@@ -156,7 +169,7 @@ impl<'a> BufReader<'a> {
         }
     }
 
-    fn expect_chunk(&mut self, expect_chunk_type: Chunk) -> Result<BufReader<'a>, ParseError> {
+    fn expect_chunk(&mut self, expect_chunk_type: ChunkType) -> Result<BufReader<'a>, ParseError> {
         // Scan chunks until we find expect_chunk_type. Error if the chunk is missing from the file.
         while !self.is_empty() {
             let chunk = self.next_chunk();
@@ -183,6 +196,20 @@ impl<'a> BufReader<'a> {
 
         let bytes = self.next_n_bytes(len)?;
         std::str::from_utf8(bytes).map_err(InvalidUTF8)
+    }
+
+    /// Read the next string thats encoded in this content chunk
+    fn read_content_str(&mut self) -> Result<&'a str, ParseError> {
+        // dbg!(&self.0);
+        let data_type = self.next_u32()?;
+        if data_type != (DataType::PlainText as u32) {
+            return Err(UnknownChunk);
+        }
+        let len = self.next_usize()?;
+        if len > self.0.len() {
+            return Err(InvalidLength);
+        }
+        std::str::from_utf8(&self.0[0..len]).map_err(InvalidUTF8)
     }
 
     fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {
@@ -325,11 +352,11 @@ impl<'a> BufReader<'a> {
     }
 
     fn read_fileinfo(&mut self, oplog: &mut OpLog) -> Result<(Option<BufReader>, Vec<(AgentId, usize)>), ParseError> {
-        let mut fileinfo = self.expect_chunk(Chunk::FileInfo)?;
+        let mut fileinfo = self.expect_chunk(ChunkType::FileInfo)?;
         // fileinfo has UserData and AgentNames.
 
-        let userdata = fileinfo.read_chunk(Chunk::UserData)?;
-        let mut agent_names_chunk = fileinfo.expect_chunk(Chunk::AgentNames)?;
+        let userdata = fileinfo.read_chunk(ChunkType::UserData)?;
+        let mut agent_names_chunk = fileinfo.expect_chunk(ChunkType::AgentNames)?;
 
         // Map from agent IDs in the file (idx) to agent IDs in self, and the seq cursors.
         //
@@ -511,6 +538,86 @@ impl<'a> Iterator for ReadPatchesIter<'a> {
     }
 }
 
+#[derive(Debug)]
+struct ReadPatchContentIter<'a> {
+    run_chunk: BufReader<'a>,
+    content: &'a str,
+}
+
+#[derive(Debug, Clone)]
+struct ContentItem<'a> {
+    len: usize,
+    content: Option<&'a str>,
+}
+
+impl<'a> SplitableSpan for ContentItem<'a> {
+    fn truncate(&mut self, at: usize) -> Self {
+        let content_remainder = if let Some(str) = self.content.as_mut() {
+            let (here, remainder) = split_at_char(*str, at);
+            *str = here;
+            Some(remainder)
+        } else { None };
+
+        let remainder = ContentItem {
+            len: self.len - at,
+            content: content_remainder,
+        };
+        self.len = at;
+        remainder
+    }
+}
+
+impl<'a> HasLength for ContentItem<'a> {
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl<'a> ReadPatchContentIter<'a> {
+    fn new(mut chunk: BufReader<'a>) -> Result<(InsDelTag, Self), ParseError> {
+        let tag = match chunk.next_u32()? {
+            0 => Ins,
+            1 => Del,
+            _ => { return Err(InvalidContent); }
+        };
+
+        let mut content_chunk = chunk.expect_chunk(Content)?;
+        let content = content_chunk.read_content_str()?;
+
+        let run_chunk = chunk.expect_chunk(ContentKnown)?;
+
+        Ok((tag, Self { run_chunk, content }))
+    }
+
+    fn next_internal(&mut self) -> Result<ContentItem<'a>, ParseError> {
+        let n = self.run_chunk.next_usize()?;
+        let (len, known) = strip_bit_usize(n);
+        let content = if known {
+            let content = consume_chars(&mut self.content, len);
+            if count_chars(content) != len { // Having a duplicate strlen here is gross.
+                // We couldn't pull as many chars as requested from self.content.
+                return Err(UnexpectedEOF);
+            }
+            Some(content)
+        } else { None };
+
+        Ok(ContentItem { len, content })
+    }
+}
+
+impl<'a> Iterator for ReadPatchContentIter<'a> {
+    type Item = Result<ContentItem<'a>, ParseError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match (self.run_chunk.is_empty(), self.content.is_empty()) {
+            (true, true) => None,
+            (false, false) => Some(self.next_internal()),
+            (_, _) => Some(Err(ParseError::UnexpectedEOF)),
+        }
+    }
+}
+
+
 #[derive(Debug, Clone)]
 pub struct DecodeOptions {
     /// Ignore CRC check failures. This is mostly used for debugging.
@@ -519,6 +626,7 @@ pub struct DecodeOptions {
     verbose: bool,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for DecodeOptions {
     fn default() -> Self {
         Self {
@@ -678,9 +786,9 @@ impl OpLog {
         let (_userdata, mut agent_map) = reader.read_fileinfo(self)?;
 
         // *** StartBranch ***
-        let start_frontier = if let Some(mut start_branch) = reader.read_chunk(Chunk::StartBranch)? {
-            let mut start_frontier_chunk = start_branch.expect_chunk(Chunk::Frontier)?;
-            let frontier = start_frontier_chunk.read_frontier(&self, &agent_map).map_err(|e| {
+        let start_frontier = if let Some(mut start_branch) = reader.read_chunk(ChunkType::StartBranch)? {
+            let mut start_frontier_chunk = start_branch.expect_chunk(ChunkType::Frontier)?;
+            let frontier = start_frontier_chunk.read_frontier(self, &agent_map).map_err(|e| {
                 // We can't read a frontier if it names agents or sequence numbers we haven't seen
                 // before. If this happens, its because we're trying to load a data set from the future.
                 if let InvalidRemoteID(_) = e {
@@ -702,36 +810,45 @@ impl OpLog {
         // *** Patches ***
         {
             // This chunk contains the actual set of edits to the document.
-            let mut patch_chunk = reader.expect_chunk(Chunk::Patches)?;
+            let mut patch_chunk = reader.expect_chunk(ChunkType::Patches)?;
 
             let mut ins_content = None;
             let mut del_content = None;
 
-            if let Some(chunk) = patch_chunk.read_chunk(Chunk::InsertedContent)? {
-                // let decompressed_len = content_chunk.next_usize()?;
-                // let decompressed_data = lz4_flex::decompress(content_chunk.0, decompressed_len).unwrap();
-                // let content = String::from_utf8(decompressed_data).unwrap();
-                //     // .map_err(InvalidUTF8)?;
-
-                let content = std::str::from_utf8(chunk.0).map_err(InvalidUTF8)?;
-                let len = count_chars(content);
-                ins_content = Some((content, len));
+            while let Some(chunk) = patch_chunk.read_chunk(ChunkType::PatchContent)? {
+                let (tag, content_chunk) = ReadPatchContentIter::new(chunk)?;
+                let iter = content_chunk.take_max();
+                match tag {
+                    Ins => { ins_content = Some(iter); }
+                    Del => { del_content = Some(iter); }
+                }
             }
 
-            // TODO: DRY.
-            if let Some(chunk) = patch_chunk.read_chunk(Chunk::DeletedContent)? {
-                let content = std::str::from_utf8(chunk.0).map_err(InvalidUTF8)?;
-                let len = count_chars(content);
-
-                del_content = Some((content, len));
-            }
+            // if let Some(chunk) = patch_chunk.read_chunk(ChunkType::InsertedContent)? {
+            //     // let decompressed_len = content_chunk.next_usize()?;
+            //     // let decompressed_data = lz4_flex::decompress(content_chunk.0, decompressed_len).unwrap();
+            //     // let content = String::from_utf8(decompressed_data).unwrap();
+            //     //     // .map_err(InvalidUTF8)?;
+            //
+            //     let content = std::str::from_utf8(chunk.0).map_err(InvalidUTF8)?;
+            //     let len = count_chars(content);
+            //     ins_content = Some((content, len));
+            // }
+            //
+            // // TODO: DRY.
+            // if let Some(chunk) = patch_chunk.read_chunk(ChunkType::DeletedContent)? {
+            //     let content = std::str::from_utf8(chunk.0).map_err(InvalidUTF8)?;
+            //     let len = count_chars(content);
+            //
+            //     del_content = Some((content, len));
+            // }
 
             // So note that the file we're loading from may contain changes we already have locally.
             // We (may) need to filter out operations from the patch stream, which we read from
             // below. To do that without extra need to read both the agent assignments and patches together.
-            let mut agent_assignment_chunk = patch_chunk.expect_chunk(Chunk::AgentAssignment)?;
-            let pos_patches_chunk = patch_chunk.expect_chunk(Chunk::PositionalPatches)?;
-            let mut history_chunk = patch_chunk.expect_chunk(Chunk::TimeDAG)?;
+            let mut agent_assignment_chunk = patch_chunk.expect_chunk(ChunkType::Version)?;
+            let pos_patches_chunk = patch_chunk.expect_chunk(ChunkType::OpTypeAndPosition)?;
+            let mut history_chunk = patch_chunk.expect_chunk(ChunkType::Parents)?;
 
             let mut patches_iter = ReadPatchesIter::new(pos_patches_chunk)
                 .take_max();
@@ -758,21 +875,34 @@ impl OpLog {
             // Take and merge the next exactly n patches
             let mut parse_next_patches = |oplog: &mut OpLog, mut n: usize, keep: bool| -> Result<(), ParseError> {
                 while n > 0 {
-                    if let Some(op) = patches_iter.next(n) {
+                    let mut max_len = n;
+
+                    // This is way longer than it should be. Gross!
+                    if let Some(Ok(op)) = patches_iter.peek() {
+                        max_len = max_len.min(op.len());
+
+                        if let Some(content) = switch(op.tag, &mut ins_content, &mut del_content) {
+                            if let Some(Ok(item)) = content.peek() {
+                                max_len = max_len.min(item.len());
+                            }
+                        }
+                    } // If this returns anything else we're erroring, but we'll handle that below.
+
+                    if let Some(op) = patches_iter.next(max_len) {
                         let op = op?;
                         // dbg!((n, &op));
                         let len = op.len();
                         assert!(op.len() > 0);
                         n -= len;
 
-                        let content = switch(op.tag, &mut ins_content, &mut del_content);
-
-                        let content_here = if let Some((content, len_remaining)) = content.as_mut() {
-                            if *len_remaining < len {
+                        let content_here = if let Some(content_iter) = switch(op.tag, &mut ins_content, &mut del_content) {
+                            if let Some(content) = content_iter.next(max_len) {
+                                let content = content?;
+                                assert_eq!(content.len(), max_len);
+                                content.content
+                            } else {
                                 return Err(InvalidLength);
                             }
-                            *len_remaining -= len;
-                            Some(consume_chars(content, len))
                         } else { None };
 
                         // dbg!(content, len, content_here);
@@ -871,7 +1001,7 @@ impl OpLog {
             let mut next_history_time = first_new_time;
 
             while !history_chunk.is_empty() {
-                let mut entry = history_chunk.next_history_entry(&self, next_file_time, &agent_map)?;
+                let mut entry = history_chunk.next_history_entry(self, next_file_time, &agent_map)?;
                 // So at this point the entry has underwater entry spans, and parents are underwater
                 // when they're local to the file (and non-underwater when they refer to our items).
                 // This makes the entry safe to truncate(), but we need to map it before we can use
@@ -923,9 +1053,14 @@ impl OpLog {
             patch_chunk.expect_empty()?;
             history_chunk.expect_empty()?;
 
-            if let Some((content, len)) = ins_content {
-                if !content.is_empty() {
-                    debug_assert_eq!(len, 0);
+            if let Some(mut iter) = ins_content {
+                if iter.peek().is_some() {
+                    return Err(InvalidContent);
+                }
+            }
+
+            if let Some(mut iter) = del_content {
+                if iter.peek().is_some() {
                     return Err(InvalidContent);
                 }
             }
@@ -935,7 +1070,7 @@ impl OpLog {
 
         // TODO: Move checksum check to the start, so if it fails we don't modify the document.
         let reader_len = reader.0.len();
-        if let Some(mut crc_reader) = reader.read_chunk(Chunk::CRC)? {
+        if let Some(mut crc_reader) = reader.read_chunk(ChunkType::Crc)? {
             // So this is a bit dirty. The bytes which have been checksummed is everything up to
             // (but NOT INCLUDING) the CRC chunk. I could adapt BufReader to store the offset /
             // length. But we can just subtract off the remaining length from the original data??
@@ -979,6 +1114,7 @@ mod tests {
     fn check_encode_decode_matches(oplog: &OpLog) {
         let data = oplog.encode(EncodeOptions {
             user_data: None,
+            store_start_branch_content: true,
             store_inserted_content: true,
             store_deleted_content: true,
             verbose: false,
@@ -1126,7 +1262,7 @@ mod tests {
 
         loop {
             let (chunk, mut r) = reader.next_chunk().unwrap();
-            if chunk == Chunk::TimeDAG {
+            if chunk == ChunkType::Parents {
                 println!("Found it");
                 while !r.is_empty() {
                     let n = r.next_usize().unwrap();
@@ -1143,6 +1279,7 @@ mod tests {
 
         let encoded_proper = src.encode(EncodeOptions {
             user_data: None,
+            store_start_branch_content: true,
             store_inserted_content: true,
             store_deleted_content: true,
             verbose: false
@@ -1192,8 +1329,11 @@ mod tests {
         let oplog1 = simple_doc().ops;
         let bytes = oplog1.encode(EncodeOptions {
             user_data: None,
-            store_inserted_content: false,
-            store_deleted_content: false,
+            store_start_branch_content: true,
+            store_inserted_content: true,
+            store_deleted_content: true,
+            // store_inserted_content: false,
+            // store_deleted_content: false,
             verbose: false
         });
         dbg_print_chunks_in(&bytes);
@@ -1201,6 +1341,7 @@ mod tests {
 
         let bytes2 = oplog1.encode(EncodeOptions {
             user_data: None,
+            store_start_branch_content: true,
             store_inserted_content: true,
             store_deleted_content: true,
             verbose: false

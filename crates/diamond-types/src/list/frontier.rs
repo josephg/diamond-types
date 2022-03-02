@@ -95,7 +95,8 @@ pub(crate) fn debug_assert_frontier_sorted(frontier: &[Time]) {
 pub(crate) fn check_frontier(frontier: &[Time], history: &History) {
     assert!(frontier_is_sorted(frontier));
     if frontier.len() >= 2 {
-        let mut frontier = frontier.iter().copied().collect::<Vec<_>>();
+        // let mut frontier = frontier.iter().copied().collect::<Vec<_>>();
+        let mut frontier = frontier.to_vec();
         for i in 0..frontier.len() {
             let removed = frontier.remove(i);
             assert!(!history.frontier_contains_time(&frontier, removed));

@@ -1,13 +1,14 @@
 use jumprope::JumpRope;
-use rle::HasLength;
+use rle::{HasLength, RleRun};
 use crate::list::encoding::*;
 use crate::list::history::MinimalHistoryEntry;
 use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::list::{Branch, OpLog, Time};
+use crate::list::{Branch, OpLog, switch, Time};
 use crate::rle::{KVPair, RleVec};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::list::frontier::frontier_is_root;
 use crate::list::internal_op::OperationInternal;
+use crate::list::operation::InsDelTag;
 use crate::localtime::TimeSpan;
 
 /// Write an operation to the passed writer.
@@ -91,8 +92,9 @@ pub struct EncodeOptions<'a> {
     // NYI.
     // pub from_frontier: Frontier,
 
-    pub store_inserted_content: bool,
+    pub store_start_branch_content: bool,
 
+    pub store_inserted_content: bool,
     pub store_deleted_content: bool,
 
     pub verbose: bool,
@@ -102,6 +104,7 @@ impl<'a> Default for EncodeOptions<'a> {
     fn default() -> Self {
         Self {
             user_data: None,
+            store_start_branch_content: true,
             store_inserted_content: true,
             store_deleted_content: false,
             verbose: false
@@ -228,52 +231,110 @@ impl AgentMapping {
 //     }
 // }
 
-impl Branch {
-    fn write_frontier(dest: &mut Vec<u8>, frontier: &[Time], map: &mut AgentMapping, oplog: &OpLog) {
-        // I'm sad that I need the buf here + copying. It'd be faster if it was zero-copy.
+
+fn write_frontier(dest: &mut Vec<u8>, frontier: &[Time], map: &mut AgentMapping, oplog: &OpLog) {
+    // I'm sad that I need the buf here + copying. It'd be faster if it was zero-copy.
+    let mut buf = Vec::new();
+    let mut iter = frontier.iter().peekable();
+    while let Some(t) = iter.next() {
+        let has_more = iter.peek().is_some();
+        let id = oplog.time_to_crdt_id(*t);
+
+        // (Mapped agent ID, seq) pairs. Agent id has mixed in bit for has_more.
+        let mapped = map.map(oplog, id.agent);
+        let n = mix_bit_usize(mapped as _, has_more);
+        push_usize(&mut buf, n);
+        push_usize(&mut buf, id.seq);
+    }
+    push_chunk(dest, ChunkType::Frontier, &buf);
+    buf.clear();
+}
+
+fn write_content_rope(dest: &mut Vec<u8>, rope: &JumpRope) {
+    let mut buf = Vec::new(); // :(
+    push_u32(&mut buf, DataType::PlainText as _);
+    push_usize(&mut buf, rope.len_bytes());
+    for (str, _) in rope.chunks() {
+        buf.extend_from_slice(str.as_bytes());
+    }
+    push_chunk(dest, ChunkType::Content, &buf);
+}
+
+// #[allow(unused)]
+fn write_content_str(dest: &mut Vec<u8>, s: &str) {
+    let mut buf = Vec::new(); // :(
+    push_u32(&mut buf, DataType::PlainText as _);
+    push_str(&mut buf, s);
+    push_chunk(dest, ChunkType::Content, &buf);
+}
+
+// TODO:
+// #[allow(unused)]
+// fn write(&self, dest: &mut Vec<u8>, map: &mut AgentMapping, oplog: &OpLog, write_content: bool) {
+//     // Frontier
+//     Self::write_frontier(dest, &self.frontier, map, oplog);
+//
+//     // Content
+//     if write_content {
+//         Self::write_content_rope(dest, &self.content);
+//     }
+// }
+
+fn write_bit_run(run: RleRun<bool>, into: &mut Vec<u8>) {
+    // dbg!(run);
+    let mut n = run.len;
+    n = mix_bit_usize(n, run.val);
+    push_usize(into, n);
+}
+
+/// Simple helper struct for content (ins / del) chunks. These have two parts:
+/// - A RLE bit vector describing which elements of the specified type have known lengths
+/// - The data itself
+///
+/// Its gross that I need to pass a generic parameter here, since it'll always be write_bit_run.
+/// I wish there were a cleaner way to write this.
+struct ContentChunk<F: FnMut(RleRun<bool>, &mut Vec<u8>)> {
+    tag: InsDelTag,
+    known_out: Vec<u8>,
+    bit_writer: Merger<RleRun<bool>, F, Vec<u8>>,
+    content: String
+}
+
+// impl<F: FnMut(S, &mut Vec<u8>)> ContentChunk<F> {
+impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
+    fn new(f: F, tag: InsDelTag) -> Self {
+        Self {
+            tag,
+            known_out: Vec::new(),
+            bit_writer: Merger::new(f),
+            content: String::new(),
+        }
+    }
+
+    fn push(&mut self, content: Option<&str>, len: usize) {
+        let known = if let Some(content) = content {
+            self.content.push_str(content);
+            true
+        } else {
+            false
+        };
+
+        self.bit_writer.push2(RleRun::new(known, len), &mut self.known_out);
+    }
+
+    fn flush(mut self) -> Vec<u8> {
+        self.bit_writer.flush2(&mut self.known_out);
+
         let mut buf = Vec::new();
-        let mut iter = frontier.iter().peekable();
-        while let Some(t) = iter.next() {
-            let has_more = iter.peek().is_some();
-            let id = oplog.time_to_crdt_id(*t);
+        // Operation type
+        push_u32(&mut buf, match self.tag { Ins => 0, Del => 1 });
 
-            // (Mapped agent ID, seq) pairs. Agent id has mixed in bit for has_more.
-            let mapped = map.map(oplog, id.agent);
-            let n = mix_bit_usize(mapped as _, has_more);
-            push_usize(&mut buf, n);
-            push_usize(&mut buf, id.seq);
-        }
-        push_chunk(dest, Chunk::Frontier, &buf);
-        buf.clear();
+        // This writes a length-prefixed string, which it really doesn't need to do.
+        write_content_str(&mut buf, &self.content);
+        // push_chunk(&mut buf, ChunkType::Content, self.content.as_bytes());
+        push_chunk(&mut buf, ChunkType::ContentKnown, &self.known_out);
+        buf
     }
-
-    fn write_content_rope(dest: &mut Vec<u8>, rope: &JumpRope) {
-        let mut buf = Vec::new(); // :(
-        push_u32(&mut buf, DataType::PlainText as _);
-        push_usize(&mut buf, rope.len_bytes());
-        for (str, _) in rope.chunks() {
-            buf.extend_from_slice(str.as_bytes());
-        }
-        push_chunk(dest, Chunk::Content, &buf);
-    }
-
-    #[allow(unused)]
-    fn write_content_str(dest: &mut Vec<u8>, s: &str) {
-        let mut buf = Vec::new(); // :(
-        push_u32(&mut buf, DataType::PlainText as _);
-        push_str(dest, s);
-        push_chunk(dest, Chunk::Content, &buf);
-    }
-
-    #[allow(unused)] // TODO: Remove annotation.
-    fn write(&self, dest: &mut Vec<u8>, map: &mut AgentMapping, oplog: &OpLog) {
-        // Frontier
-        Self::write_frontier(dest, &self.frontier, map, oplog);
-
-        // Content
-        Self::write_content_rope(dest, &self.content);
-    }
-
 }
 
 impl OpLog {
@@ -291,7 +352,7 @@ impl OpLog {
 
         // And contains a series of chunks. Each chunk has a chunk header (chunk type, length).
         // The first chunk is always the FileInfo chunk - which names the file format.
-        let mut write_chunk = |c: Chunk, data: &mut Vec<u8>| {
+        let mut write_chunk = |c: ChunkType, data: &mut Vec<u8>| {
             if opts.verbose {
                 println!("{:?} length {}", c, data.len());
             }
@@ -326,8 +387,12 @@ impl OpLog {
         //   with the text
         // - Interleaved it would compress much less well with snappy / lz4.
 
-        let mut inserted_text = String::new();
-        let mut deleted_text = String::new();
+        let mut inserted_content = if opts.store_inserted_content {
+            Some(ContentChunk::new(write_bit_run, Ins))
+        } else { None };
+        let mut deleted_content = if opts.store_deleted_content {
+            Some(ContentChunk::new(write_bit_run, Del))
+        } else { None };
 
         // Map from old agent ID -> new agent ID in the file.
         //
@@ -447,14 +512,17 @@ impl OpLog {
                 // OperationInternal objects will be invalid! Total foot gun there :p
 
                 if op.tag == Ins && opts.store_inserted_content {
-                    // assert!(op.content_known);
-                    inserted_text.push_str(content.unwrap());
+                    // For now at least, we can't skip inserted content for inserts.
+                    // TODO: Reconsider this at some point.
+                    assert!(content.is_some());
                 }
 
-                if op.tag == Del && opts.store_deleted_content {
-                    if let Some(s) = content {
-                        deleted_text.push_str(s);
-                    }
+                let content_chunk = switch(op.tag,
+                    &mut inserted_content,
+                    &mut deleted_content
+                );
+                if let Some(content_chunk) = content_chunk {
+                    content_chunk.push(content, op.len());
                 }
 
                 ops_writer.push(op);
@@ -474,14 +542,16 @@ impl OpLog {
         // This nominally needs to happen before we write out agent_mapping.
         // TODO: Support partial data sets. (from_frontier)
         let mut start_branch = Vec::new();
-        if frontier_is_root(from_frontier) {
-            // Optimization. TODO: Check if this is worth it.
-            Branch::write_frontier(&mut start_branch, from_frontier, &mut agent_mapping, self);
-            Branch::write_content_str(&mut start_branch, "");
-        } else {
-            let branch_here = Branch::new_at_frontier(self, &from_frontier);
-            dbg!(&branch_here);
-            branch_here.write(&mut start_branch, &mut agent_mapping, self);
+        write_frontier(&mut start_branch, from_frontier, &mut agent_mapping, self);
+        if opts.store_start_branch_content {
+            if frontier_is_root(from_frontier) {
+                // Optimization. TODO: Check if this is worth it.
+                write_content_str(&mut start_branch, "");
+            } else {
+                let branch_here = Branch::new_at_frontier(self, from_frontier);
+                // dbg!(&branch_here);
+                write_content_rope(&mut start_branch, &branch_here.content);
+            }
         }
         // Branch::write_content_str(&mut start_branch, ""); // TODO - support non-root!
 
@@ -493,19 +563,19 @@ impl OpLog {
 
         // User data
         if let Some(data) = opts.user_data {
-            push_chunk(&mut buf, Chunk::UserData, data);
+            push_chunk(&mut buf, ChunkType::UserData, data);
         }
         // agent names
-        push_chunk(&mut buf, Chunk::AgentNames, &agent_mapping.consume());
-        write_chunk(Chunk::FileInfo, &mut buf);
+        push_chunk(&mut buf, ChunkType::AgentNames, &agent_mapping.consume());
+        write_chunk(ChunkType::FileInfo, &mut buf);
 
         // *** Start Branch - which was filled in above. ***
-        write_chunk(Chunk::StartBranch, &mut start_branch);
+        write_chunk(ChunkType::StartBranch, &mut start_branch);
 
         // *** Patches ***
         // I'll just assemble it in buf. There's a lot of sloppy use of vec<u8>'s in here.
 
-        if opts.store_inserted_content {
+        if let Some(inserted_content) = inserted_content {
             // let max_compressed_size = lz4_flex::block::get_maximum_output_size(inserted_text.len());
             // let mut compressed = Vec::with_capacity(5 + max_compressed_size);
             // compressed.resize(compressed.capacity(), 0);
@@ -513,29 +583,33 @@ impl OpLog {
             // pos += lz4_flex::compress_into(inserted_text.as_bytes(), &mut compressed[pos..]).unwrap();
             // write_chunk(Chunk::InsertedContent, &compressed[..pos]);
             if opts.verbose {
-                println!("Inserted text length {}", inserted_text.len());
+                println!("Inserted text length {}", inserted_content.content.len());
             }
-            push_chunk(&mut buf,Chunk::InsertedContent, inserted_text.as_bytes());
+            // dbg!(ins_content_bytes);
+
+            let bytes = inserted_content.flush();
+            push_chunk(&mut buf, ChunkType::PatchContent, &bytes);
         }
-        if opts.store_deleted_content {
+        if let Some(deleted_content) = deleted_content {
             if opts.verbose {
-                println!("Deleted text length {}", deleted_text.len());
+                println!("Deleted text length {}", deleted_content.content.len());
             }
-            push_chunk(&mut buf,Chunk::DeletedContent, deleted_text.as_bytes());
+            let bytes = deleted_content.flush();
+            push_chunk(&mut buf, ChunkType::PatchContent, &bytes);
         }
 
-        push_chunk(&mut buf, Chunk::AgentAssignment, &agent_assignment_chunk);
-        push_chunk(&mut buf, Chunk::PositionalPatches, &ops_chunk);
-        push_chunk(&mut buf, Chunk::TimeDAG, &txns_chunk);
+        push_chunk(&mut buf, ChunkType::Version, &agent_assignment_chunk);
+        push_chunk(&mut buf, ChunkType::OpTypeAndPosition, &ops_chunk);
+        push_chunk(&mut buf, ChunkType::Parents, &txns_chunk);
 
-        write_chunk(Chunk::Patches, &mut buf);
+        write_chunk(ChunkType::Patches, &mut buf);
 
         // TODO (later): Final branch content.
 
         // println!("checksum {checksum}");
         let checksum = checksum(&result);
         push_u32_le(&mut buf, checksum);
-        push_chunk(&mut result, Chunk::CRC, &buf);
+        push_chunk(&mut result, ChunkType::Crc, &buf);
         // write_chunk(Chunk::CRC, &mut buf);
         // push_u32(&mut result, checksum);
 

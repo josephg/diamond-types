@@ -45,6 +45,7 @@ fn print_stats_for_file(name: &str) {
     println!();
     oplog.encode(EncodeOptions {
         user_data: None,
+        store_start_branch_content: false,
         store_inserted_content: true,
         store_deleted_content: true,
         verbose: true,

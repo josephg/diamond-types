@@ -162,7 +162,7 @@ pub fn decode_u64(buf: &[u8]) -> Result<(u64, usize), ParseError> {
                 return Ok((r, i));
             }
         }
-        return Err(InvalidVarInt);
+        Err(InvalidVarInt)
     } else {
         decode_u64_slow(buf)
     }

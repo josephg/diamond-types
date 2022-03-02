@@ -22,6 +22,7 @@ fn fuzz_encode_decode_once(seed: u64) {
 
         let bytes = doc.ops.encode(EncodeOptions {
             user_data: None,
+            store_start_branch_content: true,
             store_inserted_content: true,
             store_deleted_content: true,
             verbose: false

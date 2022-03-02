@@ -193,10 +193,11 @@ impl<T, E> HasLength for Result<T, E> where T: HasLength, Result<T, E>: Clone {
 
 impl<V> SplitableSpan for Option<V> where V: SplitableSpan {
     fn truncate(&mut self, at: usize) -> Self {
-        match self {
-            None => None,
-            Some(v) => Some(v.truncate(at))
-        }
+        self.as_mut().map(|v| v.truncate(at))
+        // match self {
+        //     None => None,
+        //     Some(v) => Some(v.truncate(at))
+        // }
     }
 }
 
