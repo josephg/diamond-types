@@ -253,9 +253,11 @@ fn write_frontier(dest: &mut Vec<u8>, frontier: &[Time], map: &mut AgentMapping,
 }
 
 fn write_content_rope(dest: &mut Vec<u8>, rope: &JumpRope) {
+    // This content type uses up the entire chunk, so there's no need to store a length along with
+    // the string.
     let mut buf = Vec::new(); // :(
     push_u32(&mut buf, DataType::PlainText as _);
-    push_usize(&mut buf, rope.len_bytes());
+    // push_usize(&mut buf, rope.len_bytes());
     for (str, _) in rope.chunks() {
         buf.extend_from_slice(str.as_bytes());
     }
@@ -266,7 +268,8 @@ fn write_content_rope(dest: &mut Vec<u8>, rope: &JumpRope) {
 fn write_content_str(dest: &mut Vec<u8>, s: &str) {
     let mut buf = Vec::new(); // :(
     push_u32(&mut buf, DataType::PlainText as _);
-    push_str(&mut buf, s);
+    // push_str(&mut buf, s);
+    buf.extend_from_slice(s.as_bytes());
     push_chunk(dest, ChunkType::Content, &buf);
 }
 
@@ -813,10 +816,14 @@ mod tests {
         doc.get_or_create_agent_id("seph"); // 0
         doc.get_or_create_agent_id("mike"); // 1
         let _t1 = doc.local_insert(0, 0, "hi from seph!\n");
+        let mut ops2 = doc.ops.clone();
+
         let _t2 = doc.local_insert(1, 0, "hi from mike!\n");
 
         // let data = doc.ops.encode_from(EncodeOptions::default(), &[ROOT_TIME]);
         let data = doc.ops.encode_from(EncodeOptions::default(), &[_t1]);
+        ops2.merge_data(&data).unwrap();
+        assert_eq!(ops2, doc.ops);
         // let data = doc.ops.encode_from(EncodeOptions::default(), &[_t2]);
         // dbg!(data);
         // let data = doc.ops.encode_old(EncodeOptions::default());

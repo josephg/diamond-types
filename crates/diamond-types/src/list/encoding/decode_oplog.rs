@@ -205,11 +205,11 @@ impl<'a> BufReader<'a> {
         if data_type != (DataType::PlainText as u32) {
             return Err(UnknownChunk);
         }
-        let len = self.next_usize()?;
-        if len > self.0.len() {
-            return Err(InvalidLength);
-        }
-        std::str::from_utf8(&self.0[0..len]).map_err(InvalidUTF8)
+        // let len = self.next_usize()?;
+        // if len > self.0.len() {
+        //     return Err(InvalidLength);
+        // }
+        std::str::from_utf8(&self.0).map_err(InvalidUTF8)
     }
 
     fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {
@@ -1326,7 +1326,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn save_load_save_load() {
         let oplog1 = simple_doc().ops;
         let bytes = oplog1.encode(EncodeOptions {
