@@ -124,8 +124,7 @@ impl<'a> SpanningTreeWalker<'a> {
                 // We don't care about any parents outside of the input spans.
                 let parent_idxs: SmallVec<[usize; 4]> = txn.parents.iter()
                     .filter(|t| **t != ROOT_TIME)
-                    .map(|t| find_entry_idx(&input, *t))
-                    .flatten()
+                    .filter_map(|t| find_entry_idx(&input, *t))
                     .collect();
 
                 if parent_idxs.is_empty() {

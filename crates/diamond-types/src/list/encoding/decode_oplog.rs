@@ -610,9 +610,9 @@ impl<'a> Iterator for ReadPatchContentIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match (self.run_chunk.is_empty(), self.content.is_empty()) {
+            (false, _) => Some(self.next_internal()),
             (true, true) => None,
-            (false, false) => Some(self.next_internal()),
-            (_, _) => Some(Err(ParseError::UnexpectedEOF)),
+            (true, false) => Some(Err(ParseError::UnexpectedEOF)),
         }
     }
 }
@@ -879,6 +879,8 @@ impl OpLog {
 
                     // This is way longer than it should be. Gross!
                     if let Some(Ok(op)) = patches_iter.peek() {
+                        // let op = op;
+                        // dbg!(op.tag);
                         max_len = max_len.min(op.len());
 
                         if let Some(content) = switch(op.tag, &mut ins_content, &mut del_content) {
@@ -1288,7 +1290,7 @@ mod tests {
         // dbg!(encoded_proper.len());
         for i in 0..encoded_proper.len() {
             // let i = 57;
-            println!("{i}");
+            // println!("{i}");
             // We'll corrupt that byte and try to read the document back.
             let mut corrupted = encoded_proper.clone();
             corrupted[i] = !corrupted[i];
@@ -1330,24 +1332,26 @@ mod tests {
         let bytes = oplog1.encode(EncodeOptions {
             user_data: None,
             store_start_branch_content: true,
-            store_inserted_content: true,
-            store_deleted_content: true,
-            // store_inserted_content: false,
-            // store_deleted_content: false,
+            // store_inserted_content: true,
+            // store_deleted_content: true,
+            store_inserted_content: false,
+            store_deleted_content: false,
             verbose: false
         });
         dbg_print_chunks_in(&bytes);
         let oplog2 = OpLog::load_from(&bytes).unwrap();
+        // dbg!(&oplog2);
 
-        let bytes2 = oplog1.encode(EncodeOptions {
+        let bytes2 = oplog2.encode(EncodeOptions {
             user_data: None,
             store_start_branch_content: true,
-            store_inserted_content: true,
+            store_inserted_content: false, // Need to say false here to avoid an assert for this.
             store_deleted_content: true,
             verbose: false
         });
         let oplog3 = OpLog::load_from(&bytes2).unwrap();
 
+        // dbg!(oplog3);
         assert_eq!(oplog2, oplog3);
     }
 }

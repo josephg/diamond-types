@@ -11,6 +11,8 @@ use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag;
 use crate::localtime::TimeSpan;
 
+const ALLOW_VERBOSE: bool = false;
+
 /// Write an operation to the passed writer.
 fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
     // Note I'm relying on the operation log itself to be iter_merged, which simplifies things here
@@ -344,6 +346,7 @@ impl OpLog {
         // if !frontier_is_root(from_frontier) {
         //     unimplemented!("Encoding from a non-root frontier is not implemented");
         // }
+        let verbose = ALLOW_VERBOSE && opts.verbose;
 
         let mut result = Vec::new();
         // The file starts with MAGIC_BYTES
@@ -353,7 +356,7 @@ impl OpLog {
         // And contains a series of chunks. Each chunk has a chunk header (chunk type, length).
         // The first chunk is always the FileInfo chunk - which names the file format.
         let mut write_chunk = |c: ChunkType, data: &mut Vec<u8>| {
-            if opts.verbose {
+            if verbose {
                 println!("{:?} length {}", c, data.len());
             }
             // dbg!(&data);
@@ -582,7 +585,7 @@ impl OpLog {
             // let mut pos = encode_usize(inserted_text.len(), &mut compressed);
             // pos += lz4_flex::compress_into(inserted_text.as_bytes(), &mut compressed[pos..]).unwrap();
             // write_chunk(Chunk::InsertedContent, &compressed[..pos]);
-            if opts.verbose {
+            if verbose {
                 println!("Inserted text length {}", inserted_content.content.len());
             }
             // dbg!(ins_content_bytes);
@@ -591,7 +594,7 @@ impl OpLog {
             push_chunk(&mut buf, ChunkType::PatchContent, &bytes);
         }
         if let Some(deleted_content) = deleted_content {
-            if opts.verbose {
+            if verbose {
                 println!("Deleted text length {}", deleted_content.content.len());
             }
             let bytes = deleted_content.flush();
@@ -613,7 +616,7 @@ impl OpLog {
         // write_chunk(Chunk::CRC, &mut buf);
         // push_u32(&mut result, checksum);
 
-        if opts.verbose {
+        if verbose {
             println!("== Total length {}", result.len());
         }
 
@@ -815,7 +818,7 @@ mod tests {
         // let data = doc.ops.encode_from(EncodeOptions::default(), &[ROOT_TIME]);
         let data = doc.ops.encode_from(EncodeOptions::default(), &[_t1]);
         // let data = doc.ops.encode_from(EncodeOptions::default(), &[_t2]);
-        dbg!(data);
+        // dbg!(data);
         // let data = doc.ops.encode_old(EncodeOptions::default());
         // dbg!(data.len(), data);
     }
