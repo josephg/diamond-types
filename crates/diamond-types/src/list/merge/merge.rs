@@ -268,7 +268,7 @@ impl M2Tracker {
 
                 let content = iter.get_content(&pair);
 
-                self.apply2(oplog, span.agent, &pair, content, to.as_deref_mut().map(|b| &mut b.content));
+                self.apply_to(oplog, span.agent, &pair, content, to.as_deref_mut().map(|b| &mut b.content));
                 // self.apply_working(oplog, span.agent, &pair, content, to.as_deref_mut().map(|b| &mut b.content));
 
                 if let Some(r) = remainder {
@@ -278,7 +278,7 @@ impl M2Tracker {
         }
     }
 
-    fn apply2(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, content: Option<&str>, mut to: Option<&mut JumpRope>) {
+    fn apply_to(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, content: Option<&str>, mut to: Option<&mut JumpRope>) {
         let mut op_pair = op_pair.clone();
 
         loop {
@@ -312,7 +312,10 @@ impl M2Tracker {
 
             if let Some(r) = remainder {
                 op_pair = r;
-                assert_ne!(op_pair.1.tag, InsDelTag::Ins);
+                // Curiously, we don't need to update content because we only use content for
+                // inserts, and inserts are always processed in one go. (Ie, there's never a
+                // remainder to worry about).
+                debug_assert_ne!(op_pair.1.tag, InsDelTag::Ins);
             } else { break; }
         }
     }
@@ -419,74 +422,59 @@ impl M2Tracker {
                 // let mut remaining_len = op.len();
 
                 let fwd = op.span.fwd;
-                if !fwd {
-                    let last_origin_pos = op.span.span.last();
-                    // Find the last entry
-                    let mut cursor = self.range_tree.mut_cursor_at_content_pos(last_origin_pos, false);
-                    let e = cursor.get_raw_entry();
-                    assert_eq!(e.state, INSERTED);
-                    let ever_deleted = e.ever_deleted;
 
-                    let entry_origin_start = last_origin_pos - cursor.offset;
+                let (mut cursor, len) = if fwd {
+                    let start_pos = op.start();
+                    let cursor = self.range_tree.mut_cursor_at_content_pos(start_pos, false);
+                    (cursor, op.len())
+                } else {
+                    // We're moving backwards. We need to delete as many items as we can before the
+                    // end of the op.
+                    let last_pos = op.span.span.last();
+                    // Find the last entry
+                    let mut cursor = self.range_tree.mut_cursor_at_content_pos(last_pos, false);
+
+                    let entry_origin_start = last_pos - cursor.offset;
                     let edit_start = entry_origin_start.max(op.start());
                     let len = op.end() - edit_start;
                     cursor.offset -= len - 1;
 
-                    let del_start_transformed = upstream_cursor_pos(&cursor);
+                    (cursor, len)
+                };
 
-                    let (len2, target) = unsafe {
-                        ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
-                            // println!("Delete {:?}", e.id);
-                            // This will set the state to deleted, and mark ever_deleted in the entry.
-                            e.delete();
-                            e.id
-                        }, &mut cursor.inner, len, notify_for(&mut self.index))
-                    };
-                    assert_eq!(len2, len); // ContentTree should come to the same length conclusion as us.
+                let e = cursor.get_raw_entry();
+                assert_eq!(e.state, INSERTED);
 
-                    self.index.replace_range_at_offset(op_pair.0, MarkerEntry {
-                        len,
-                        inner: DelTarget(TimeSpanRev {
-                            span: target,
-                            fwd
-                        })
-                    });
-
-                    return (len, if !ever_deleted {
-                        Some(del_start_transformed)
-                    } else {
-                        None
-                    });
-                }
-
-                let start_pos = op.start();
-
-                // It would be tempting - and *nearly* correct to just use local_delete inside the
-                // range tree. Its hard to bake that logic in here though. We need to:
-                // - Skip anything not in the Inserted state
-                // - If an item is
+                // If we've never been deleted locally, we'll need to do that.
+                let ever_deleted = e.ever_deleted;
 
                 // TODO(perf): Reuse cursor. After mutate_single_entry we'll often be at another
                 // entry that we can delete in a run.
-                let mut cursor = self.range_tree.mut_cursor_at_content_pos(start_pos, false);
-                // dbg!(pos, &cursor);
-                // If we've never been deleted locally, we'll need to do that.
-                let e = cursor.get_raw_entry();
-                assert_eq!(e.state, INSERTED);
-                let ever_deleted = e.ever_deleted;
 
-                let del_start = upstream_cursor_pos(&cursor);
+                // The transformed position that this delete is at. Only actually needed if we're
+                // modifying
+                let del_start_xf = upstream_cursor_pos(&cursor);
 
-                let (mut_len, target) = unsafe {
+                let (len2, target) = unsafe {
+                    // It would be tempting - and *nearly* correct to just use local_delete inside the
+                    // range tree. Its hard to bake that logic in here though.
+
+                    // TODO(perf): Reuse cursor. After mutate_single_entry we'll often be at another
+                    // entry that we can delete in a run.
                     ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
                         // println!("Delete {:?}", e.id);
                         // This will set the state to deleted, and mark ever_deleted in the entry.
                         e.delete();
                         e.id
-                    }, &mut cursor.inner, op.len(), notify_for(&mut self.index))
+                    }, &mut cursor.inner, len, notify_for(&mut self.index))
                 };
-                debug_assert_eq!(mut_len, target.len());
-                debug_assert_eq!(del_start, upstream_cursor_pos(&cursor));
+
+                // ContentTree should come to the same length conclusion as us.
+                if !fwd { debug_assert_eq!(len2, len); }
+                let len = len2;
+
+                debug_assert_eq!(len, target.len());
+                debug_assert_eq!(del_start_xf, upstream_cursor_pos(&cursor));
 
                 let time_start = op_pair.0;
                 if !is_underwater(target.start) {
@@ -495,10 +483,10 @@ impl M2Tracker {
                 }
 
                 self.index.replace_range_at_offset(time_start, MarkerEntry {
-                    len: mut_len,
+                    len,
                     inner: DelTarget(TimeSpanRev {
                         span: target,
-                        fwd: op.span.fwd
+                        fwd
                     })
                 });
 
@@ -506,8 +494,8 @@ impl M2Tracker {
                     self.check_index();
                 }
 
-                (mut_len, if !ever_deleted {
-                    Some(del_start)
+                (len, if !ever_deleted {
+                    Some(del_start_xf)
                 } else {
                     None
                 })
