@@ -4,6 +4,7 @@ use crate::list::{Branch, Frontier, ListCRDT, OpLog, Time};
 use smallvec::smallvec;
 use crate::AgentId;
 use rle::HasLength;
+use crate::list::encoding::ParseError;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
@@ -94,8 +95,22 @@ impl ListCRDT {
     pub fn new() -> Self {
         Self {
             branch: Branch::new(),
-            ops: OpLog::new()
+            oplog: OpLog::new()
         }
+    }
+
+    pub fn load_from(bytes: &[u8]) -> Result<Self, ParseError> {
+        let oplog = OpLog::load_from(bytes)?;
+        let branch = oplog.checkout_tip();
+        Ok(Self {
+            branch, oplog
+        })
+    }
+
+    pub fn merge_data_and_ff(&mut self, bytes: &[u8]) -> Result<(), ParseError> {
+        self.oplog.merge_data(bytes)?;
+        self.branch.merge(&self.oplog, &self.oplog.frontier);
+        Ok(())
     }
 
     pub fn len(&self) -> usize {
@@ -107,19 +122,19 @@ impl ListCRDT {
     }
 
     pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[Operation]) -> Time {
-        apply_local_operation(&mut self.ops, &mut self.branch, agent, local_ops)
+        apply_local_operation(&mut self.oplog, &mut self.branch, agent, local_ops)
     }
 
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
-        local_insert(&mut self.ops, &mut self.branch, agent, pos, ins_content)
+        local_insert(&mut self.oplog, &mut self.branch, agent, pos, ins_content)
     }
 
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
-        local_delete(&mut self.ops, &mut self.branch, agent, pos, del_span)
+        local_delete(&mut self.oplog, &mut self.branch, agent, pos, del_span)
     }
 
     pub fn local_delete_with_content(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
-        local_delete_with_content(&mut self.ops, &mut self.branch, agent, pos, del_span)
+        local_delete_with_content(&mut self.oplog, &mut self.branch, agent, pos, del_span)
     }
 
     pub fn print_stats(&self, detailed: bool) {
@@ -128,11 +143,11 @@ impl ListCRDT {
         println!("Content memory size: {}", self.branch.content.mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
         println!("(Efficient size: {})", self.branch.content.len_bytes().file_size(file_size_opts::CONVENTIONAL).unwrap());
 
-        self.ops.print_stats(detailed);
+        self.oplog.print_stats(detailed);
     }
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
-        self.ops.get_or_create_agent_id(name)
+        self.oplog.get_or_create_agent_id(name)
     }
 }
 
@@ -155,6 +170,6 @@ mod tests {
         doc.check(true);
         // dbg!(doc);
 
-        doc.ops.dbg_print_all();
+        doc.oplog.dbg_print_all();
     }
 }

@@ -75,7 +75,7 @@ impl Branch {
     }
 
     pub(crate) fn apply_range_from(&mut self, ops: &OpLog, range: TimeSpan) {
-        for (op, content) in ops.iter_range(range) {
+        for (op, content) in ops.iter_range_simple(range) {
             // self.apply_1(&op.1);
             self.apply_1_internal(&op.1, content);
         }

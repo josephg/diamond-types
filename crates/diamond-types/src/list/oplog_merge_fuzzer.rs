@@ -40,21 +40,21 @@ fn oplog_merge_fuzz(seed: u64, verbose: bool) {
         // b.ops.dbg_print_assignments_and_ops();
 
         // dbg!((&a.ops, &b.ops));
-        a.ops.merge_entries_from(&b.ops);
+        a.oplog.merge_entries_from(&b.oplog);
         // a.check(true);
         // println!("->c {_a_idx} length {}", a.ops.len());
 
-        b.ops.merge_entries_from(&a.ops);
+        b.oplog.merge_entries_from(&a.oplog);
         // b.check(true);
         // println!("->c {_b_idx} length {}", b.ops.len());
 
 
         // dbg!((&a.ops, &b.ops));
 
-        assert_eq!(a.ops, b.ops);
+        assert_eq!(a.oplog, b.oplog);
 
-        a.branch.merge(&a.ops, &a.ops.frontier);
-        b.branch.merge(&b.ops, &b.ops.frontier);
+        a.branch.merge(&a.oplog, &a.oplog.frontier);
+        b.branch.merge(&b.oplog, &b.oplog.frontier);
         assert_eq!(a.branch.content, b.branch.content);
     }
 

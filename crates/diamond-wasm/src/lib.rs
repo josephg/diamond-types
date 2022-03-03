@@ -6,13 +6,16 @@ use wasm_bindgen::prelude::*;
 // use serde::{Serialize};
 use diamond_types::{AgentId, ROOT_TIME};
 use diamond_types::list::{ListCRDT, Time, Branch as DTBranch, OpLog as DTOpLog};
-use diamond_types::list::encoding::EncodeOptions;
+use diamond_types::list::encoding::{ENCODE_FULL, ENCODE_PATCH};
+use diamond_types::list::operation::Operation;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
+type WasmResult<T = JsValue> = Result<T, serde_wasm_bindgen::Error>;
 
 #[wasm_bindgen]
 pub struct Branch(DTBranch);
@@ -40,8 +43,12 @@ impl Branch {
 
     /// Merge in from some named point in time
     #[wasm_bindgen]
-    pub fn merge(&mut self, ops: &OpLog, branch: Time) {
-        self.0.merge(&ops.inner, &[branch]);
+    pub fn merge(&mut self, ops: &OpLog, branch: Option<Time>) {
+        if let Some(branch) = branch {
+            self.0.merge(&ops.inner, &[branch]);
+        } else {
+            self.0.merge(&ops.inner, &ops.inner.get_frontier());
+        }
     }
 
     #[wasm_bindgen(js_name = getLocalFrontier)]
@@ -50,17 +57,88 @@ impl Branch {
     }
 }
 
-#[wasm_bindgen]
-pub struct OpLog {
-    inner: DTOpLog,
-    agent_id: AgentId,
-}
-
 fn map_parents(parents_in: &[isize]) -> SmallVec<[Time; 4]> {
     parents_in
         .iter()
         .map(|p| if *p < 0 { ROOT_TIME } else { *p as usize })
         .collect()
+}
+
+// pub fn checkout(&self) -> Branch {
+//     let mut result = DTBranch::new();
+//     result.merge(&self.0, &self.0.get_frontier());
+//     Branch(result)
+// }
+
+// trait AsOpLog {
+//     fn as_oplog(&self) -> &DTOpLog;
+//     fn as_mut_oplog(&mut self) -> &mut DTOpLog;
+//
+//
+// }
+
+pub fn get_ops(oplog: &DTOpLog) -> WasmResult {
+    let ops = oplog.iter().collect::<Vec<_>>();
+    serde_wasm_bindgen::to_value(&ops)
+}
+
+pub fn get_ops_since(oplog: &DTOpLog, frontier: &[Time]) -> WasmResult {
+    let ops = oplog.iter_range_since(frontier)
+        .collect::<Box<[Operation]>>();
+    serde_wasm_bindgen::to_value(&ops)
+}
+
+// pub fn to_ar
+
+pub fn to_txn_arr(oplog: &DTOpLog) -> WasmResult {
+    let txns = oplog.iter_history().collect::<Vec<_>>();
+
+    serde_wasm_bindgen::to_value(&txns)
+}
+
+pub fn get_local_frontier(oplog: &DTOpLog) -> Box<[Time]> {
+    oplog.get_frontier().iter().copied().collect::<Box<[Time]>>()
+}
+
+// #[wasm_bindgen]
+// pub fn local_to_remote_time(oplog: &DTOpLog, time: Time) -> Result<JsValue, serde_wasm_bindgen::Error> {
+//     let remote_time = oplog.time_to_remote_id(time);
+//     serde_wasm_bindgen::to_value(&remote_time)
+// }
+pub fn frontier_to_remote_time(oplog: &DTOpLog, time: &[Time]) -> WasmResult {
+    let remote_time = oplog.frontier_to_remote_ids(time);
+    serde_wasm_bindgen::to_value(&remote_time)
+}
+
+pub fn get_frontier(oplog: &DTOpLog) -> WasmResult {
+    // oplog.get_frontier().iter().copied().collect::<Box<[Time]>>()
+    let frontier = oplog.frontier_to_remote_ids(oplog.get_frontier());
+    serde_wasm_bindgen::to_value(&frontier)
+}
+
+// This method adds 15kb to the wasm bundle, or 4kb to the brotli size.
+pub fn to_bytes(oplog: &DTOpLog) -> Vec<u8> {
+    let bytes = oplog.encode(ENCODE_FULL);
+    bytes
+}
+
+pub fn to_patch_since(oplog: &DTOpLog, from_version: &[usize]) -> Vec<u8> {
+    // let from_version = map_parents(&version);
+    let bytes = oplog.encode_from(ENCODE_PATCH, &from_version);
+    bytes
+}
+
+pub fn merge_bytes(oplog: &mut DTOpLog, bytes: &[u8]) {
+    let result = oplog.merge_data(bytes);
+    // TODO: Map this error correctly.
+    result.unwrap();
+    // result.map_err(|err| err.into())
+}
+
+#[wasm_bindgen]
+pub struct OpLog {
+    inner: DTOpLog,
+    agent_id: AgentId,
 }
 
 #[wasm_bindgen]
@@ -74,6 +152,17 @@ impl OpLog {
         let agent_id = inner.get_or_create_agent_id(name_str);
 
         Self { inner, agent_id }
+    }
+
+    #[wasm_bindgen(js_name = clone)]
+    pub fn js_clone(&self) -> Self {
+        let name = self.inner.get_agent_name(self.agent_id);
+        let mut new_oplog = self.inner.clone();
+        let agent_id = new_oplog.get_or_create_agent_id(name);
+        Self {
+            inner: new_oplog,
+            agent_id
+        }
     }
 
     #[wasm_bindgen(js_name = ins)]
@@ -95,40 +184,74 @@ impl OpLog {
         self.inner.push_delete_at(self.agent_id, &parents, pos, len)
     }
 
-    #[wasm_bindgen(js_name = toArray)]
-    pub fn to_arr(&self) -> Result<JsValue, JsValue> {
-        let ops = self.inner.iter().collect::<Vec<_>>();
+    // This adds like 70kb of size to the WASM binary.
+    // #[wasm_bindgen]
+    // pub fn apply_op(&mut self, op: JsValue) -> WasmResult<usize> {
+    //     let op_inner: Operation = serde_wasm_bindgen::from_value(op)?;
+    //     Ok(self.inner.push(self.agent_id, &[op_inner]))
+    // }
 
-        serde_wasm_bindgen::to_value(&ops)
-                .map_err(|err| err.into())
+    // #[wasm_bindgen]
+    // pub fn apply_op(&mut self, isInsert: bool, start: usize, end: usize, fwd: bool, content: &str) -> WasmResult<usize> {
+    //     let op_inner: Operation = Operation {
+    //         span: (start..end).into(),
+    //         tag: if isInsert { InsDelTag::Ins } else { InsDelTag::Del },
+    //         content: Some(content.into())
+    //     };
+    //     Ok(self.inner.push(self.agent_id, &[op_inner]))
+    // }
+
+    #[wasm_bindgen]
+    pub fn checkout(&self) -> Branch {
+        Branch::all(self)
     }
 
-    #[wasm_bindgen(js_name = txns)]
-    pub fn to_txn_arr(&self) -> Result<JsValue, JsValue> {
-        let txns = self.inner.iter_history().collect::<Vec<_>>();
+    #[wasm_bindgen(js_name = getOps)]
+    pub fn get_ops(&self) -> WasmResult {
+        get_ops(&self.inner)
+    }
 
-        serde_wasm_bindgen::to_value(&txns)
-                .map_err(|err| err.into())
+    #[wasm_bindgen(js_name = getOpsSince)]
+    pub fn get_ops_since(&self, frontier: &[Time]) -> WasmResult {
+        get_ops_since(&self.inner, frontier)
+    }
+
+    // pub fn to_ar
+
+    #[wasm_bindgen(js_name = txns)]
+    pub fn to_txn_arr(&self) -> WasmResult {
+        to_txn_arr(&self.inner)
     }
 
     #[wasm_bindgen(js_name = getLocalFrontier)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        self.inner.get_frontier().iter().copied().collect::<Box<[Time]>>()
+        get_local_frontier(&self.inner)
+    }
+
+    // #[wasm_bindgen]
+    // pub fn local_to_remote_time(&self, time: Time) -> Result<JsValue, serde_wasm_bindgen::Error> {
+    //     let remote_time = self.inner.time_to_remote_id(time);
+    //     serde_wasm_bindgen::to_value(&remote_time)
+    // }
+    #[wasm_bindgen]
+    pub fn frontier_to_remote_time(&self, time: &[Time]) -> WasmResult {
+        frontier_to_remote_time(&self.inner, time)
     }
 
     #[wasm_bindgen(js_name = getFrontier)]
-    pub fn get_frontier(&self) -> Result<JsValue, JsValue> {
-        // self.inner.get_frontier().iter().copied().collect::<Box<[Time]>>()
-        let frontier = self.inner.frontier_to_remote_ids(self.inner.get_frontier());
-        serde_wasm_bindgen::to_value(&frontier)
-            .map_err(|err| err.into())
+    pub fn get_frontier(&self) -> WasmResult {
+        get_frontier(&self.inner)
     }
 
     // This method adds 15kb to the wasm bundle, or 4kb to the brotli size.
     #[wasm_bindgen(js_name = toBytes)]
     pub fn to_bytes(&self) -> Vec<u8> {
-        let bytes = self.inner.encode(EncodeOptions::default());
-        bytes
+        to_bytes(&self.inner)
+    }
+
+    #[wasm_bindgen(js_name = toPatchSince)]
+    pub fn to_patch_since(&self, from_version: &[usize]) -> Vec<u8> {
+        to_patch_since(&self.inner, from_version)
     }
 
     // This method adds 17kb to the wasm bundle, or 5kb after brotli.
@@ -145,10 +268,7 @@ impl OpLog {
 
     #[wasm_bindgen(js_name = mergeBytes)]
     pub fn merge_bytes(&mut self, bytes: &[u8]) {
-        let result = self.inner.merge_data(bytes);
-        // TODO: Map this error correctly.
-        result.unwrap();
-        // result.map_err(|err| err.into())
+        merge_bytes(&mut self.inner, bytes)
     }
 
 }
@@ -200,8 +320,43 @@ impl Doc {
 
     #[wasm_bindgen]
     pub fn merge(&mut self, branch: &[Time]) {
-        self.inner.branch.merge(&self.inner.ops, branch);
+        self.inner.branch.merge(&self.inner.oplog, branch);
     }
+
+    // TODO: Do better error handling here.
+    // pub fn from_bytes(bytes: &[u8], agent_name: Option<String>) -> WasmResult<Doc> {
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8], agent_name: Option<String>) -> Self {
+        utils::set_panic_hook();
+
+        // let mut inner = ListCRDT::load_from(bytes).map_err(|e| e.into())?;
+        let mut inner = ListCRDT::load_from(bytes).unwrap();
+        let name_str = agent_name.as_ref().map_or("seph", |s| s.as_str());
+        let agent_id = inner.get_or_create_agent_id(name_str);
+
+        Self {
+            inner,
+            agent_id
+        }
+    }
+
+    #[wasm_bindgen(js_name = mergeBytes)]
+    pub fn merge_bytes(&mut self, bytes: &[u8]) {
+        self.inner.merge_data_and_ff(bytes).unwrap()
+    }
+
+    // TODO: This is identical to get_ops_since in OpLog (above). Remove duplicate code here.
+    #[wasm_bindgen(js_name = getOpsSince)]
+    pub fn get_ops_since(&self, frontier: &[Time]) -> WasmResult {
+        get_ops_since(&self.inner.oplog, frontier)
+    }
+
+    #[wasm_bindgen(js_name = getLocalFrontier)]
+    pub fn get_local_frontier(&self) -> Box<[Time]> {
+        get_local_frontier(&self.inner.oplog)
+    }
+
+
 
     // #[wasm_bindgen]
     // pub fn get_vector_clock(&self) -> Result<JsValue, JsValue> {

@@ -1132,12 +1132,12 @@ mod tests {
     #[test]
     fn encode_decode_smoke_test() {
         let doc = simple_doc();
-        let data = doc.ops.encode(EncodeOptions::default());
+        let data = doc.oplog.encode(EncodeOptions::default());
 
         let result = OpLog::load_from(&data).unwrap();
         // dbg!(&result);
 
-        assert_eq!(&result, &doc.ops);
+        assert_eq!(&result, &doc.oplog);
         // dbg!(&result);
     }
 
@@ -1148,19 +1148,19 @@ mod tests {
         doc.get_or_create_agent_id("mike");
         doc.local_insert(0, 0, "hi there");
 
-        let data_1 = doc.ops.encode(EncodeOptions::default());
-        let f1 = doc.ops.frontier.clone();
+        let data_1 = doc.oplog.encode(EncodeOptions::default());
+        let f1 = doc.oplog.frontier.clone();
 
         doc.local_delete(1, 3, 4); // 'hi e'
         doc.local_insert(0, 3, "m");
 
-        let data_2 = doc.ops.encode_from(EncodeOptions::default(), &f1);
+        let data_2 = doc.oplog.encode_from(EncodeOptions::default(), &f1);
 
         let mut d2 = OpLog::new();
         d2.merge_data(&data_1).unwrap();
         d2.merge_data(&data_2).unwrap();
 
-        assert_eq!(&d2, &doc.ops);
+        assert_eq!(&d2, &doc.oplog);
         // dbg!(&doc.ops, &d2);
     }
 
@@ -1213,7 +1213,7 @@ mod tests {
         doc.local_insert(0, 0, "abcd");
         doc.local_delete_with_content(0, 1, 2); // delete "bc"
 
-        check_encode_decode_matches(&doc.ops);
+        check_encode_decode_matches(&doc.oplog);
     }
 
     #[test]
@@ -1322,12 +1322,12 @@ mod tests {
     fn error_unrolling() {
         let doc = simple_doc();
 
-        check_unroll_works(&OpLog::new(), &doc.ops);
+        check_unroll_works(&OpLog::new(), &doc.oplog);
     }
 
     #[test]
     fn save_load_save_load() {
-        let oplog1 = simple_doc().ops;
+        let oplog1 = simple_doc().oplog;
         let bytes = oplog1.encode(EncodeOptions {
             user_data: None,
             store_start_branch_content: true,

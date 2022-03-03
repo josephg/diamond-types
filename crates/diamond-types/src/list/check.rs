@@ -52,7 +52,7 @@ impl ListCRDT {
     // Used for testing.
     #[allow(unused)]
     pub fn check(&self, deep: bool) {
-        self.ops.check(deep);
+        self.oplog.check(deep);
     }
 }
 

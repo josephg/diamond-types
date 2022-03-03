@@ -250,7 +250,7 @@ impl M2Tracker {
     fn apply_range(&mut self, oplog: &OpLog, range: TimeSpan, mut to: Option<&mut Branch>) {
         if range.is_empty() { return; }
 
-        for (mut pair, mut content) in oplog.iter_range(range) {
+        for (mut pair, mut content) in oplog.iter_range_simple(range) {
             loop {
                 // let span = list.get_crdt_span(TimeSpan { start: pair.0, end: pair.0 + pair.1.len });
                 let span = oplog.get_crdt_span(pair.span());
@@ -657,10 +657,10 @@ mod test {
     fn test_ff() {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("a");
-        list.ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
 
-        list.branch.merge(&list.ops, &[1]);
-        list.branch.merge(&list.ops, &[2]);
+        list.branch.merge(&list.oplog, &[1]);
+        list.branch.merge(&list.oplog, &[2]);
 
         assert_eq!(list.branch.frontier.as_slice(), &[2]);
         assert_eq!(list.branch.content, "aaa");
@@ -672,15 +672,15 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        list.ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.ops.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
-        list.branch.merge(&list.ops, &[2, 5]);
+        list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        list.branch.merge(&list.oplog, &[2, 5]);
 
         assert_eq!(list.branch.frontier.as_slice(), &[2, 5]);
         assert_eq!(list.branch.content, "aaabbb");
 
-        list.ops.push_insert_at(0, &[2, 5], 0, "ccc"); // 8
-        list.branch.merge(&list.ops, &[8]);
+        list.oplog.push_insert_at(0, &[2, 5], 0, "ccc"); // 8
+        list.branch.merge(&list.oplog, &[8]);
 
         assert_eq!(list.branch.frontier.as_slice(), &[8]);
         assert_eq!(list.branch.content, "cccaaabbb");
@@ -692,10 +692,10 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        list.ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.ops.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
 
-        list.branch.merge(&list.ops, &[2, 5]);
+        list.branch.merge(&list.oplog, &[2, 5]);
         // list.checkout.merge_changes_m2(&list.ops, &[2]);
         // list.checkout.merge_changes_m2(&list.ops, &[5]);
 
@@ -713,12 +713,12 @@ mod test {
         list.local_insert(0, 0, "aaa");
         // list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
 
-        list.ops.push_delete_at(0, &[2], 1, 1); // &[3]
-        list.ops.push_delete_at(1, &[2], 0, 3); // &[6]
+        list.oplog.push_delete_at(0, &[2], 1, 1); // &[3]
+        list.oplog.push_delete_at(1, &[2], 0, 3); // &[6]
 
         // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
         // list.checkout.merge_changes_m2(&list.ops, (3..list.ops.len()).into());
-        list.branch.merge(&list.ops, &[3, 6]);
+        list.branch.merge(&list.oplog, &[3, 6]);
         assert_eq!(list.branch.content, "");
     }
 
@@ -728,13 +728,13 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        let t = list.ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.ops.push_delete_at(0, &[t], 1, 1); // 3
-        list.ops.push_delete_at(1, &[t], 0, 3); // 6
+        let t = list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.push_delete_at(0, &[t], 1, 1); // 3
+        list.oplog.push_delete_at(1, &[t], 0, 3); // 6
         // dbg!(&list.ops);
 
         // list.checkout.merge_changes_m2(&list.ops, (0..list.ops.len()).into());
-        list.branch.merge(&list.ops, &[3, 6]);
+        list.branch.merge(&list.oplog, &[3, 6]);
         dbg!(&list.branch);
         // assert_eq!(list.checkout.content, "");
     }
@@ -746,13 +746,13 @@ mod test {
         list.get_or_create_agent_id("b");
         // list.local_insert(0, 0, "aaa");
 
-        list.ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.ops.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
 
         let mut t = M2Tracker::new();
-        t.apply_range(&list.ops, (0..3).into(), None);
+        t.apply_range(&list.oplog, (0..3).into(), None);
         t.retreat_by_range((0..3).into());
-        t.apply_range(&list.ops, (3..6).into(), None);
+        t.apply_range(&list.oplog, (3..6).into(), None);
         dbg!(&t);
         // t.apply_range_at_version()
     }
@@ -765,13 +765,13 @@ mod test {
 
         list.local_insert(0, 0, "aaa");
 
-        list.ops.push_delete_at(0, &[2], 1, 1);
-        list.ops.push_delete_at(1, &[2], 0, 3);
+        list.oplog.push_delete_at(0, &[2], 1, 1);
+        list.oplog.push_delete_at(1, &[2], 0, 3);
 
         let mut t = M2Tracker::new();
-        t.apply_range(&list.ops, (0..4).into(), None);
+        t.apply_range(&list.oplog, (0..4).into(), None);
         t.retreat_by_range((3..4).into());
-        t.apply_range(&list.ops, (4..7).into(), None);
+        t.apply_range(&list.oplog, (4..7).into(), None);
         dbg!(&t);
         // t.apply_range_at_version()
     }
@@ -785,9 +785,9 @@ mod test {
 
         let mut t = M2Tracker::new();
 
-        let end = list.ops.len();
+        let end = list.oplog.len();
         dbg!(end);
-        t.apply_range(&list.ops, (0..end).into(), None);
+        t.apply_range(&list.oplog, (0..end).into(), None);
 
         // dbg!(&t);
 
@@ -802,14 +802,14 @@ mod test {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("seph");
         let mut t = ROOT_TIME;
-        t = list.ops.push_insert_at(0, &[t], 0, "abc"); // 2
-        t = list.ops.push_delete_at(0, &[t], 2, 1); // 3 -> "ab_"
-        t = list.ops.push_delete_at(0, &[t], 1, 1); // 4 -> "a__"
-        t = list.ops.push_delete_at(0, &[t], 0, 1); // 5 -> "___"
+        t = list.oplog.push_insert_at(0, &[t], 0, "abc"); // 2
+        t = list.oplog.push_delete_at(0, &[t], 2, 1); // 3 -> "ab_"
+        t = list.oplog.push_delete_at(0, &[t], 1, 1); // 4 -> "a__"
+        t = list.oplog.push_delete_at(0, &[t], 0, 1); // 5 -> "___"
         assert_eq!(t, 5);
 
         let mut t = M2Tracker::new();
-        t.apply_range(&list.ops, (3..6).into(), None);
+        t.apply_range(&list.oplog, (3..6).into(), None);
         t.retreat_by_range((5..6).into());
         dbg!(&t);
 
@@ -822,12 +822,12 @@ mod test {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("seph");
         let mut t = ROOT_TIME;
-        t = list.ops.push_insert_at(0, &[t], 0, "c");
-        t = list.ops.push_insert_at(0, &[t], 0, "b");
-        t = list.ops.push_insert_at(0, &[t], 0, "a");
+        t = list.oplog.push_insert_at(0, &[t], 0, "c");
+        t = list.oplog.push_insert_at(0, &[t], 0, "b");
+        t = list.oplog.push_insert_at(0, &[t], 0, "a");
 
-        dbg!(&list.ops);
-        list.branch.merge(&list.ops, &[t]);
+        dbg!(&list.oplog);
+        list.branch.merge(&list.oplog, &[t]);
         dbg!(&list.branch);
     }
 }

@@ -102,15 +102,29 @@ pub struct EncodeOptions<'a> {
     pub verbose: bool,
 }
 
+pub const ENCODE_PATCH: EncodeOptions = EncodeOptions {
+    user_data: None,
+    store_start_branch_content: false,
+    store_inserted_content: true,
+    store_deleted_content: false,
+    verbose: false
+};
+
+pub const ENCODE_FULL: EncodeOptions = EncodeOptions {
+    user_data: None,
+    store_start_branch_content: true,
+    store_inserted_content: true,
+    store_deleted_content: false, // ?? Not sure about this one!
+    verbose: false
+};
+
+// impl<'a> EncodeOptions<'a> {
+//     pub fn full
+// }
+
 impl<'a> Default for EncodeOptions<'a> {
     fn default() -> Self {
-        Self {
-            user_data: None,
-            store_start_branch_content: true,
-            store_inserted_content: true,
-            store_deleted_content: false,
-            verbose: false
-        }
+        ENCODE_FULL
     }
 }
 
@@ -327,18 +341,22 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
         self.bit_writer.push2(RleRun::new(known, len), &mut self.known_out);
     }
 
-    fn flush(mut self) -> Vec<u8> {
+    fn flush(mut self) -> Option<Vec<u8>> {
         self.bit_writer.flush2(&mut self.known_out);
 
-        let mut buf = Vec::new();
-        // Operation type
-        push_u32(&mut buf, match self.tag { Ins => 0, Del => 1 });
+        if self.content.is_empty() {
+            None
+        } else {
+            let mut buf = Vec::new();
+            // Operation type
+            push_u32(&mut buf, match self.tag { Ins => 0, Del => 1 });
 
-        // This writes a length-prefixed string, which it really doesn't need to do.
-        write_content_str(&mut buf, &self.content);
-        // push_chunk(&mut buf, ChunkType::Content, self.content.as_bytes());
-        push_chunk(&mut buf, ChunkType::ContentKnown, &self.known_out);
-        buf
+            // This writes a length-prefixed string, which it really doesn't need to do.
+            write_content_str(&mut buf, &self.content);
+            // push_chunk(&mut buf, ChunkType::Content, self.content.as_bytes());
+            push_chunk(&mut buf, ChunkType::ContentKnown, &self.known_out);
+            Some(buf)
+        }
     }
 }
 
@@ -510,7 +528,7 @@ impl OpLog {
 
             // 2. Operations!
             // for ops in self.operations.iter_range_packed(walk.consume) {
-            for (op, content) in self.iter_range(walk.consume) {
+            for (op, content) in self.iter_range_simple(walk.consume) {
                 let op = op.1;
 
                 // DANGER!! Its super important we pull out the content here rather than in
@@ -593,15 +611,17 @@ impl OpLog {
             }
             // dbg!(ins_content_bytes);
 
-            let bytes = inserted_content.flush();
-            push_chunk(&mut buf, ChunkType::PatchContent, &bytes);
+            if let Some(bytes) = inserted_content.flush() {
+                push_chunk(&mut buf, ChunkType::PatchContent, &bytes);
+            }
         }
         if let Some(deleted_content) = deleted_content {
             if verbose {
                 println!("Deleted text length {}", deleted_content.content.len());
             }
-            let bytes = deleted_content.flush();
-            push_chunk(&mut buf, ChunkType::PatchContent, &bytes);
+            if let Some(bytes) = deleted_content.flush() {
+                push_chunk(&mut buf, ChunkType::PatchContent, &bytes);
+            }
         }
 
         push_chunk(&mut buf, ChunkType::Version, &agent_assignment_chunk);
@@ -803,8 +823,8 @@ mod tests {
         doc.get_or_create_agent_id("seph");
         doc.local_insert(0, 0, "hi there");
 
-        let d1 = doc.ops.encode_simple(EncodeOptions::default());
-        let d2 = doc.ops.encode(EncodeOptions::default());
+        let d1 = doc.oplog.encode_simple(EncodeOptions::default());
+        let d2 = doc.oplog.encode(EncodeOptions::default());
         assert_eq!(d1, d2);
         // let data = doc.ops.encode_old(EncodeOptions::default());
         // dbg!(data.len(), data);
@@ -816,14 +836,14 @@ mod tests {
         doc.get_or_create_agent_id("seph"); // 0
         doc.get_or_create_agent_id("mike"); // 1
         let _t1 = doc.local_insert(0, 0, "hi from seph!\n");
-        let mut ops2 = doc.ops.clone();
+        let mut ops2 = doc.oplog.clone();
 
         let _t2 = doc.local_insert(1, 0, "hi from mike!\n");
 
         // let data = doc.ops.encode_from(EncodeOptions::default(), &[ROOT_TIME]);
-        let data = doc.ops.encode_from(EncodeOptions::default(), &[_t1]);
+        let data = doc.oplog.encode_from(EncodeOptions::default(), &[_t1]);
         ops2.merge_data(&data).unwrap();
-        assert_eq!(ops2, doc.ops);
+        assert_eq!(ops2, doc.oplog);
         // let data = doc.ops.encode_from(EncodeOptions::default(), &[_t2]);
         // dbg!(data);
         // let data = doc.ops.encode_old(EncodeOptions::default());

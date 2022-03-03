@@ -38,6 +38,9 @@ mod fuzzer_tools;
 #[cfg(test)]
 mod oplog_merge_fuzzer;
 
+#[cfg(feature = "serde")]
+mod serde;
+
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
 // systems.
 pub type Time = usize;
@@ -130,7 +133,7 @@ pub struct OpLog {
 #[derive(Debug, Clone)]
 pub struct ListCRDT {
     pub branch: Branch,
-    pub ops: OpLog,
+    pub oplog: OpLog,
 }
 
 fn switch<T>(tag: InsDelTag, ins: T, del: T) -> T {

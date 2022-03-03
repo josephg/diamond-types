@@ -70,7 +70,7 @@ fn print_stats_for_testdata(name: &str) {
     doc.print_stats(false);
 
     // let _as_bytes = doc.ops.encode(true);
-    let _as_bytes = doc.ops.encode(EncodeOptions {
+    let _as_bytes = doc.oplog.encode(EncodeOptions {
         verbose: true,
         ..Default::default()
     });
@@ -78,7 +78,7 @@ fn print_stats_for_testdata(name: &str) {
     // println!("---\nEncoded size {} (?? What do we include here?)", as_bytes.len());
 
     let out_file = format!("{}.dt", name);
-    let data = doc.ops.encode(EncodeOptions {
+    let data = doc.oplog.encode(EncodeOptions {
         user_data: None,
         store_start_branch_content: false,
         store_inserted_content: true,

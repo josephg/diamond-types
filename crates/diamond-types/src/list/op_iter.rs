@@ -1,11 +1,13 @@
+use smallvec::SmallVec;
 use rle::HasLength;
 use crate::list;
 use crate::list::internal_op::OperationInternal;
-use crate::list::{OpLog, switch};
+use crate::list::{OpLog, switch, Time};
 use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleVec};
 
+#[derive(Debug)]
 pub(crate) struct OpMetricsIter<'a> {
     list: &'a RleVec<KVPair<OperationInternal>>,
     ins_content: &'a str,
@@ -15,6 +17,7 @@ pub(crate) struct OpMetricsIter<'a> {
     range: TimeSpan,
 }
 
+#[derive(Debug)]
 pub(crate) struct OpIterFast<'a>(OpMetricsIter<'a>);
 
 impl<'a> Iterator for OpMetricsIter<'a> {
@@ -57,19 +60,63 @@ impl<'a> Iterator for OpIterFast<'a> {
 
 impl<'a> OpMetricsIter<'a> {
     fn new(list: &'a RleVec<KVPair<OperationInternal>>, ins_content: &'a str, del_content: &'a str, range: TimeSpan) -> Self {
-        OpMetricsIter {
+        let mut iter = OpMetricsIter {
             list,
             ins_content,
             del_content,
-            idx: if range.is_empty() { 0 } else { list.find_index(range.start).unwrap() },
+            idx: 0,
             range
-        }
+        };
+        iter.prime(range);
+        iter
+    }
+
+    fn prime(&mut self, range: TimeSpan) {
+        self.range = range;
+        self.idx = if range.is_empty() { 0 } else { self.list.find_index(range.start).unwrap() };
     }
 }
 
 impl<'a> OpIterFast<'a> {
     fn new(oplog: &'a OpLog, range: TimeSpan) -> Self {
         Self(OpMetricsIter::new(&oplog.operations, &oplog.ins_content, &oplog.del_content, range))
+    }
+}
+
+/// This is a variant on OpIterFast which returns operations since some (complex) point in time in
+/// a document.
+#[derive(Debug)]
+struct OpIterRanges<'a> {
+    ranges: SmallVec<[TimeSpan; 4]>, // We own this. This is in descending order.
+    current: OpIterFast<'a>
+}
+
+impl<'a> OpIterRanges<'a> {
+    fn new(oplog: &'a OpLog, mut r: SmallVec<[TimeSpan; 4]>) -> Self {
+        let last = r.pop().unwrap_or((0..0).into());
+        Self {
+            ranges: r,
+            current: OpIterFast::new(oplog, last)
+        }
+    }
+}
+
+impl<'a> Iterator for OpIterRanges<'a> {
+    // type Item = KVPair<OperationInternal>;
+    type Item = (KVPair<OperationInternal>, Option<&'a str>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let inner_next = self.current.next();
+        if inner_next.is_some() { return inner_next; }
+
+        if let Some(range) = self.ranges.pop() {
+            debug_assert!(!range.is_empty());
+            self.current.0.prime(range);
+            let inner_next = self.current.next();
+            if inner_next.is_some() { return inner_next; }
+        }
+
+        None
     }
 }
 
@@ -85,8 +132,16 @@ impl OpLog {
         self.iter_metrics_range((0..self.len()).into())
     }
 
-    pub(crate) fn iter_range(&self, range: TimeSpan) -> OpIterFast {
+    pub(crate) fn iter_range_simple(&self, range: TimeSpan) -> OpIterFast {
         OpIterFast::new(self, range)
+    }
+
+    pub fn iter_range_since(&self, frontier: &[Time]) -> impl Iterator<Item=Operation> + '_ {
+        let (only_a, only_b) = self.history.diff(frontier, &self.frontier);
+        assert!(only_a.is_empty());
+
+        OpIterRanges::new(self, only_b)
+            .map(|pair| (pair.0.1, pair.1).into())
     }
 
     pub(crate) fn iter_fast(&self) -> OpIterFast {

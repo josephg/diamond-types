@@ -20,7 +20,7 @@ fn fuzz_encode_decode_once(seed: u64) {
             make_random_change(&mut doc, None, agent, &mut rng);
         }
 
-        let bytes = doc.ops.encode(EncodeOptions {
+        let bytes = doc.oplog.encode(EncodeOptions {
             user_data: None,
             store_start_branch_content: true,
             store_inserted_content: true,
@@ -29,7 +29,7 @@ fn fuzz_encode_decode_once(seed: u64) {
         });
 
         let decoded = OpLog::load_from(&bytes).unwrap();
-        if doc.ops != decoded {
+        if doc.oplog != decoded {
             // eprintln!("Original doc {:#?}", &doc.ops);
             // eprintln!("Loaded doc {:#?}", &decoded);
             panic!("Docs do not match!");

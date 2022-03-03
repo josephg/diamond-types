@@ -1,8 +1,9 @@
 use std::ops::Range;
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::localtime::TimeSpan;
+
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
+use serde_crate::{Deserialize};
 
 /// This is a TimeSpan which can be either a forwards range (1,2,3) or backwards (3,2,1), depending
 /// on what is most efficient.
@@ -17,7 +18,7 @@ use serde_crate::{Deserialize, Serialize};
 /// This is *not true* for example with delete operations, where:
 ///     (Del 0..10) + (Del 0..10) = (Del 0..20)
 #[derive(Copy, Clone, Debug, Eq, Default)] // Default needed for ContentTree.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Deserialize), serde(crate="serde_crate"))]
 pub struct TimeSpanRev {
     /// The inner span.
     #[cfg_attr(feature = "serde", serde(flatten))]

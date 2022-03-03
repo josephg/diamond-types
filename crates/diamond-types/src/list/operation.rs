@@ -8,11 +8,16 @@ use smartstring::alias::{String as SmartString};
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use InsDelTag::*;
 use crate::unicount::{chars_to_bytes, count_chars};
-#[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
 use crate::list::internal_op::OperationInternal;
 use crate::localtime::TimeSpan;
 use crate::rev_span::TimeSpanRev;
+
+#[cfg(feature = "serde")]
+use serde_crate::{Deserialize, Serialize, Serializer};
+#[cfg(feature = "serde")]
+use serde_crate::ser::SerializeStruct;
+#[cfg(feature = "serde")]
+use crate::list::serde::FlattenSerializable;
 
 /// So I might use this more broadly, for all edits. If so, move this out of OT.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -37,7 +42,7 @@ impl Default for InsDelTag {
 /// orders. But it gives us way better compression for some data sets on disk. And this structure
 /// is designed to match the on-disk file format.
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Deserialize), serde(crate="serde_crate"))]
 pub struct Operation {
     // For now only backspaces are ever reversed.
     #[cfg_attr(feature = "serde", serde(flatten))]
@@ -49,6 +54,37 @@ pub struct Operation {
 impl HasLength for Operation {
     fn len(&self) -> usize {
         self.span.len()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for Operation {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        self.serialize_struct(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl FlattenSerializable for Operation {
+    fn struct_name() -> &'static str {
+        "Operation"
+    }
+
+    fn num_serialized_fields() -> usize {
+        2 + <TimeSpanRev as FlattenSerializable>::num_serialized_fields()
+    }
+
+    fn serialize_fields<S>(&self, s: &mut S::SerializeStruct) -> Result<(), S::Error> where S: Serializer {
+        s.serialize_field("tag", match self.tag {
+            Ins => "Ins",
+            Del => "Del",
+        })?;
+        self.span.serialize_fields::<S>(s)?;
+        s.serialize_field("content", &self.content)?;
+        // if let Some(content) = self.content.as_ref() {
+        //     s.serialize_field("content", content)?;
+        // }
+        Ok(())
     }
 }
 

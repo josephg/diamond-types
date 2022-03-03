@@ -52,8 +52,8 @@ pub(crate) fn make_random_change_raw(oplog: &mut OpLog, branch: &Branch, rope: O
 }
 
 pub(crate) fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) {
-    let v = make_random_change_raw(&mut doc.ops, &doc.branch, rope, agent, rng);
-    doc.branch.merge(&doc.ops, &[v]);
+    let v = make_random_change_raw(&mut doc.oplog, &doc.branch, rope, agent, rng);
+    doc.branch.merge(&doc.oplog, &[v]);
     // doc.check(true);
     // doc.check(false);
 }

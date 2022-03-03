@@ -18,7 +18,7 @@ use std::mem::{replace, size_of};
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::list::encoding::varint::*;
 use num_enum::TryFromPrimitive;
-pub use encode_oplog::EncodeOptions;
+pub use encode_oplog::{EncodeOptions, ENCODE_FULL, ENCODE_PATCH};
 use std::str::Utf8Error;
 use crate::list::remote_ids::ConversionError;
 
