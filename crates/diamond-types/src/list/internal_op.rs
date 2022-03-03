@@ -18,8 +18,16 @@ use crate::unicount::chars_to_bytes;
 /// Note that OperationInternal can't directly implement
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct OperationInternal {
+    /// The span of content which is inserted or deleted.
+    ///
+    /// For inserts, this describes the resulting location (span) of the new characters.
+    /// For deletes, this names the range of the set of characters deleted.
+    ///
+    /// This span is reversible. The span.rev tag specifies if the span is reversed chronologically.
+    /// That is, characters are inserted or deleted in the reverse order chronologically.
     pub span: TimeSpanRev,
 
+    /// Is this an insert or delete?
     pub tag: InsDelTag,
 
     /// Byte range in self.ins_content or del_content where our content is being held. This is

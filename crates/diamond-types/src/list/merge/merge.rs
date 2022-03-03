@@ -76,8 +76,8 @@ fn take_content<'a>(x: Option<&mut &'a str>, len: usize) -> Option<&'a str> {
 
 impl M2Tracker {
     pub(super) fn new() -> Self {
-        let mut range_tree = ContentTreeWithIndex::new();
-        let mut index = ContentTreeWithIndex::new();
+        let mut range_tree = ContentTreeRaw::new();
+        let mut index = ContentTreeRaw::new();
         let underwater = YjsSpan::new_underwater();
         pad_index_to(&mut index, underwater.id.end);
         range_tree.push_notify(underwater, notify_for(&mut index));
@@ -587,7 +587,6 @@ impl Branch {
                         let remainder = span.trim(txn.span.end - span.start);
                         // println!("FF {:?}", &span);
                         self.apply_range_from(oplog, span);
-                        conflict_ops.push(span);
                         self.frontier = smallvec![span.last()];
 
                         if let Some(r) = remainder {
@@ -609,6 +608,10 @@ impl Branch {
             // so we don't scan unnecessarily.
             //
             // We don't need to reset new_ops because that was updated above.
+
+            // This sometimes adds the FF'ed ops to the conflict_ops set so we add them to the
+            // merge set. This is a pretty bad way to do this - if we're gonna add them to
+            // conflict_ops then FF is pointless.
             conflict_ops.clear();
             shared_size = 0;
             common_ancestor = oplog.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
@@ -623,12 +626,12 @@ impl Branch {
             });
         }
 
-        if shared_size > 0 {
-            // println!("Shared size {} in {} ranges", shared_size, shared_ranges);
-            if frontier_is_root(&common_ancestor) {
-                // println!("(Common ancestor is ROOT!)");
-            }
-        }
+        // if shared_size > 0 {
+        //     // println!("Shared size {} in {} ranges", shared_size, shared_ranges);
+        //     if frontier_is_root(&common_ancestor) {
+        //         // println!("(Common ancestor is ROOT!)");
+        //     }
+        // }
 
         // TODO: Also FF at the end!
 

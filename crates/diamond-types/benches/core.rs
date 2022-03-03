@@ -65,7 +65,8 @@ fn encoding_benchmarks(c: &mut Criterion) {
         b.iter(|| {
             let bytes = oplog.encode(EncodeOptions {
                 user_data: None,
-                store_inserted_content: false,
+                store_start_branch_content: false,
+                store_inserted_content: true,
                 store_deleted_content: false,
                 verbose: false
             });

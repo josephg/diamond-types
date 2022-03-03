@@ -11,7 +11,7 @@
 //! time.
 
 use std::pin::Pin;
-use content_tree::{ContentTreeWithIndex, RawPositionMetricsUsize};
+use content_tree::{ContentTreeRaw, RawPositionMetricsUsize};
 use crate::list::merge::markers::MarkerEntry;
 use crate::list::merge::metrics::MarkerMetrics;
 use crate::list::merge::yjsspan::YjsSpan;
@@ -28,9 +28,9 @@ pub mod fuzzer;
 mod dot;
 
 type DocRangeIndex = MarkerMetrics;
-type CRDTList2 = Pin<Box<ContentTreeWithIndex<YjsSpan, DocRangeIndex>>>;
+type CRDTList2 = Pin<Box<ContentTreeRaw<YjsSpan, DocRangeIndex>>>;
 
-type SpaceIndex = Pin<Box<ContentTreeWithIndex<MarkerEntry, RawPositionMetricsUsize>>>;
+type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry, RawPositionMetricsUsize>>>;
 
 #[derive(Debug)]
 struct M2Tracker {

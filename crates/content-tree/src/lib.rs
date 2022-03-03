@@ -92,6 +92,7 @@ impl<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> 
 }
 
 /// An alias for ContentTreeRaw which uses the default sizes for internal elements.
+#[deprecated]
 pub type ContentTreeWithIndex<E, I> = ContentTreeRaw<E, I, DEFAULT_IE, DEFAULT_LE>;
 pub type ContentTree<E> = ContentTreeRaw<E, RawPositionMetricsU32, DEFAULT_IE, DEFAULT_LE>;
 

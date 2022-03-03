@@ -8,7 +8,7 @@ use similar::utils::TextDiffRemapper;
 use smallvec::SmallVec;
 
 use diamond_types::list::*;
-use diamond_types::list::encoding::EncodeOptions;
+use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
 use diamond_types::list::list::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -200,12 +200,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // dbg!(&oplog.history.entries.len());
     // println!("Number of entries in history: {}", &oplog.history.num_entries());
 
-    let data = oplog.encode(EncodeOptions {
-        user_data: None,
-        store_inserted_content: true,
-        store_deleted_content: false,
-        verbose: true
-    });
+    let data = oplog.encode(ENCODE_FULL);
     std::fs::write("data.dt", data.as_slice()).unwrap();
     println!("{} bytes written to 'data.dt'", data.len());
 
