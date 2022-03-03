@@ -116,7 +116,7 @@ pub(crate) struct NodeInternal<E: ContentTraits, I: TreeMetrics<E>, const INT_EN
 ///
 /// See diamond-types for an example of this.
 #[derive(Debug)]
-pub struct NodeLeaf<E: ContentTraits, I: TreeMetrics<E>, const INT_ENTRIES: usize, const LEAF_ENTRIES: usize> {
+pub struct NodeLeaf<E: ContentTraits, I: TreeMetrics<E>, const INT_ENTRIES: usize = DEFAULT_IE, const LEAF_ENTRIES: usize = DEFAULT_LE> {
     parent: ParentPtr<E, I, INT_ENTRIES, LEAF_ENTRIES>,
     num_entries: u8, // Number of entries which have been populated
     data: [E; LEAF_ENTRIES],
@@ -126,21 +126,21 @@ pub struct NodeLeaf<E: ContentTraits, I: TreeMetrics<E>, const INT_ENTRIES: usiz
 }
 
 #[derive(Debug)]
-pub(crate) enum Node<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> {
+pub(crate) enum Node<E: ContentTraits, I: TreeMetrics<E>, const IE: usize = DEFAULT_IE, const LE: usize = DEFAULT_LE> {
     Internal(Pin<Box<NodeInternal<E, I, IE, LE>>>),
     Leaf(Pin<Box<NodeLeaf<E, I, IE, LE>>>),
 }
 
 // I hate that I need this, but its used all over the place when traversing the tree.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum NodePtr<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> {
+pub(crate) enum NodePtr<E: ContentTraits, I: TreeMetrics<E>, const IE: usize = DEFAULT_IE, const LE: usize = DEFAULT_LE> {
     Internal(NonNull<NodeInternal<E, I, IE, LE>>),
     Leaf(NonNull<NodeLeaf<E, I, IE, LE>>),
 }
 
 // TODO: Consider just reusing NodePtr for this.
 #[derive(Copy, Clone, Debug, Eq)]
-pub(crate) enum ParentPtr<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> {
+pub(crate) enum ParentPtr<E: ContentTraits, I: TreeMetrics<E>, const IE: usize = DEFAULT_IE, const LE: usize = DEFAULT_LE> {
     Root(NonNull<ContentTreeRaw<E, I, IE, LE>>),
     Internal(NonNull<NodeInternal<E, I, IE, LE>>)
 }
@@ -157,7 +157,7 @@ pub(crate) enum ParentPtr<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, 
 /// The caller must ensure any reads and mutations through an UnsafeCursor are valid WRT the
 /// mutability and lifetime of the implicitly referenced content tree. Use Cursor and MutCursor.
 #[derive(Clone, Debug)]
-pub struct UnsafeCursor<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> {
+pub struct UnsafeCursor<E: ContentTraits, I: TreeMetrics<E>, const IE: usize = DEFAULT_IE, const LE: usize = DEFAULT_LE> {
     node: NonNull<NodeLeaf<E, I, IE, LE>>,
     idx: usize,
     pub offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
@@ -165,7 +165,7 @@ pub struct UnsafeCursor<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, co
 
 #[repr(transparent)]
 #[derive(Clone, Debug)]
-pub struct SafeCursor<R, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> {
+pub struct SafeCursor<R, E: ContentTraits, I: TreeMetrics<E>, const IE: usize = DEFAULT_IE, const LE: usize = DEFAULT_LE> {
     pub inner: UnsafeCursor<E, I, IE, LE>,
     marker: marker::PhantomData<R>
 }
@@ -173,7 +173,8 @@ pub struct SafeCursor<R, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, c
 /// A cursor into an immutable ContentTree. A cursor is the primary way to read entries in the
 /// content tree. A cursor points to a specific offset at a specific entry in a specific node in
 /// the content tree.
-pub type Cursor<'a, E, I, const IE: usize, const LE: usize> = SafeCursor<&'a ContentTreeRaw<E, I, IE, LE>, E, I, IE, LE>;
+pub type Cursor<'a, E, I, const IE: usize = DEFAULT_IE, const LE: usize = DEFAULT_LE>
+    = SafeCursor<&'a ContentTreeRaw<E, I, IE, LE>, E, I, IE, LE>;
 
 /// A mutable cursor into a ContentTree. Mutable cursors inherit all the functionality of Cursor,
 /// and can also be used to modify the content tree.

@@ -1,5 +1,5 @@
 use std::ptr::NonNull;
-use content_tree::{DEFAULT_IE, DEFAULT_LE, NodeLeaf};
+use content_tree::NodeLeaf;
 use rle::{HasLength, SplitableSpan};
 use crate::list::merge::{DocRangeIndex, M2Tracker};
 use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
@@ -18,7 +18,7 @@ impl M2Tracker {
     /// This should only be used with times we have advanced through.
     ///
     /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
-    fn index_query(&self, time: usize) -> (InsDelTag, TimeSpanRev, usize, Option<NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>>) {
+    fn index_query(&self, time: usize) -> (InsDelTag, TimeSpanRev, usize, Option<NonNull<NodeLeaf<YjsSpan, DocRangeIndex>>>) {
         assert_ne!(time, ROOT_TIME); // Not sure what to do in this case.
 
         let index_len = self.index.offset_len();
@@ -31,6 +31,7 @@ impl M2Tracker {
 
             match entry.inner {
                 InsPtr(ptr) => {
+                    debug_assert!(ptr != NonNull::dangling());
                     // For inserts, the target is simply the range of the item.
                     let start = time - cursor.offset;
                     (Ins, (start..start+entry.len).into(), cursor.offset, Some(ptr))

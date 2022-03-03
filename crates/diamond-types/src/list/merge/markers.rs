@@ -19,7 +19,7 @@ pub enum Marker {
     /// For inserts, we store a pointer to the leaf node containing the inserted item. This is only
     /// used for inserts so we don't need to modify multiple entries when the inserted item is
     /// moved.
-    InsPtr(NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>),
+    InsPtr(NonNull<NodeLeaf<YjsSpan, DocRangeIndex>>),
 
     /// For deletes we name the delete's target. Note this contains redundant information - since
     /// we already have a length field.
@@ -169,7 +169,7 @@ impl Default for MarkerEntry {
 // }
 
 impl Searchable for MarkerEntry {
-    type Item = Option<NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>>;
+    type Item = Option<NonNull<NodeLeaf<YjsSpan, DocRangeIndex>>>;
 
     fn get_offset(&self, _loc: Self::Item) -> Option<usize> {
         panic!("Should never be used")

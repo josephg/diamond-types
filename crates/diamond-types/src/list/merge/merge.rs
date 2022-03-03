@@ -52,6 +52,7 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
 
 pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
     move |entry: YjsSpan, leaf| {
+        debug_assert!(leaf != NonNull::dangling());
         let start = entry.id.start;
         let len = entry.len();
 
@@ -103,6 +104,7 @@ impl M2Tracker {
         // Go through each entry in the range tree and make sure we can find it using the index.
         for entry in self.range_tree.raw_iter() {
             let marker = self.marker_at(entry.id.start);
+            debug_assert!(marker != NonNull::dangling());
             unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
         }
     }
@@ -136,7 +138,7 @@ impl M2Tracker {
     }
 
     // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
-    pub(super) fn integrate(&mut self, oplog: &OpLog, agent: AgentId, item: YjsSpan, mut cursor: UnsafeCursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
+    pub(super) fn integrate(&mut self, oplog: &OpLog, agent: AgentId, item: YjsSpan, mut cursor: UnsafeCursor<YjsSpan, DocRangeIndex>) -> usize {
         assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
@@ -265,12 +267,53 @@ impl M2Tracker {
                 let remainder = pair.trim(len);
 
                 let content = iter.get_content(&pair);
-                self.apply(oplog, span.agent, &pair, content, to.as_deref_mut().map(|b| &mut b.content));
+
+                self.apply2(oplog, span.agent, &pair, content, to.as_deref_mut().map(|b| &mut b.content));
+                // self.apply_working(oplog, span.agent, &pair, content, to.as_deref_mut().map(|b| &mut b.content));
 
                 if let Some(r) = remainder {
                     pair = r;
                 } else { break; }
             }
+        }
+    }
+
+    fn apply2(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, content: Option<&str>, mut to: Option<&mut JumpRope>) {
+        let mut op_pair = op_pair.clone();
+
+        loop {
+            let (len_here, transformed_pos) = self.apply(oplog, agent, &op_pair);
+
+            let remainder = op_pair.trim(len_here);
+
+            // dbg!((&op_pair, len_here, transformed_pos));
+            if let Some(pos) = transformed_pos {
+                if let Some(to) = to.as_mut() {
+                    // Apply the operation here.
+                    match op_pair.1.tag {
+                        InsDelTag::Ins => {
+                            // dbg!(&self.range_tree);
+                            // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
+                            debug_assert!(op_pair.1.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
+                            let content = content.unwrap();
+                            assert!(pos <= to.len_chars());
+                            to.insert(pos, content);
+                        }
+                        InsDelTag::Del => {
+                            // Actually delete the item locally.
+                            let del_end = pos + len_here;
+                            debug_assert!(to.len_chars() >= del_end);
+                            // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
+                            to.remove(pos..del_end);
+                        }
+                    }
+                }
+            }
+
+            if let Some(r) = remainder {
+                op_pair = r;
+                assert_ne!(op_pair.1.tag, InsDelTag::Ins);
+            } else { break; }
         }
     }
 
@@ -281,8 +324,12 @@ impl M2Tracker {
     /// 1. Advance the tracker (self) based on the passed operation. This will insert new items in
     ///    to the tracker object, and should only be done exactly once for each operation in the set
     ///    we care about
-    /// 2. If `to` is set to `Some(branch)` then modify the branch's content by this passed
-    ///    operation.
+    /// 2. Figure out where the operation will land in the resulting document (if anywhere).
+    ///    The resulting operation could happen never (if its a double delete), once (inserts)
+    ///    or generate many individual edits (eg if a delete is split). This method should be called
+    ///    in a loop.
+    ///
+    /// Returns (size here, transformed insert / delete position).
     ///
     /// For inserts, the expected behaviour is this:
     ///
@@ -291,10 +338,9 @@ impl M2Tracker {
     /// | NotInsYet | Before     | After       |
     /// | Inserted  | After      | Before      |
     /// | Deleted   | Before     | Before      |
-    fn apply(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, content: Option<&str>, mut to: Option<&mut JumpRope>) {
+    fn apply(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>) -> (usize, Option<usize>) {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
-        let span = op_pair.span();
         let op = &op_pair.1;
 
         // dbg!(op);
@@ -343,8 +389,9 @@ impl M2Tracker {
 
                 // let origin_right = cursor.get_item().unwrap_or(ROOT_TIME);
 
+                let time_span = op_pair.span();
                 let item = YjsSpan {
-                    id: span,
+                    id: time_span,
                     origin_left,
                     origin_right,
                     state: INSERTED,
@@ -355,110 +402,116 @@ impl M2Tracker {
                 // This is dirty because the cursor's lifetime is not associated with self.
                 let cursor = cursor.inner;
                 let ins_pos = self.integrate(oplog, agent, item, cursor);
+                // self.range_tree.check();
+                // self.check_index();
 
                 let mut result = op.clone();
                 result.span.span.start = ins_pos;
-                // act(result);
-                if let Some(to) = to {
-                    // dbg!(&self.range_tree);
-                    // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
-                    debug_assert!(op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
-                    let content = content.unwrap();
-                    assert!(ins_pos <= to.len_chars());
-                    to.insert(ins_pos, content);
-                }
+
+                (time_span.len(), Some(ins_pos))
             }
 
             InsDelTag::Del => {
-                // We need to loop here because the deleted span might have been broken up by
-                // subsequent inserts.
-                let mut remaining_len = op.len();
+                // Delete as much as we can. We might not be able to delete everything because of
+                // double deletes and inserts inside the deleted range. This is extra annoying
+                // because we need to move backwards through the deleted items if we're rev.
+                debug_assert!(op.len() > 0);
+                // let mut remaining_len = op.len();
 
-                let pos = op.start();
+                let fwd = op.span.fwd;
+                if !fwd {
+                    let last_origin_pos = op.span.span.last();
+                    // Find the last entry
+                    let mut cursor = self.range_tree.mut_cursor_at_content_pos(last_origin_pos, false);
+                    let e = cursor.get_raw_entry();
+                    assert_eq!(e.state, INSERTED);
+                    let ever_deleted = e.ever_deleted;
 
-                // This is needed because we're walking through the operation's span forwards
-                // (because thats simpler). But if the delete is reversed, we need to record the
-                // output time values in reverse order too.
-                let mut resulting_time = TimeSpanRev {
-                    span,
-                    fwd: op.span.fwd
-                };
+                    let entry_origin_start = last_origin_pos - cursor.offset;
+                    let edit_start = entry_origin_start.max(op.start());
+                    let len = op.end() - edit_start;
+                    cursor.offset -= len - 1;
+
+                    let del_start_transformed = upstream_cursor_pos(&cursor);
+
+                    let (len2, target) = unsafe {
+                        ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
+                            // println!("Delete {:?}", e.id);
+                            // This will set the state to deleted, and mark ever_deleted in the entry.
+                            e.delete();
+                            e.id
+                        }, &mut cursor.inner, len, notify_for(&mut self.index))
+                    };
+                    assert_eq!(len2, len); // ContentTree should come to the same length conclusion as us.
+
+                    self.index.replace_range_at_offset(op_pair.0, MarkerEntry {
+                        len,
+                        inner: DelTarget(TimeSpanRev {
+                            span: target,
+                            fwd
+                        })
+                    });
+
+                    return (len, if !ever_deleted {
+                        Some(del_start_transformed)
+                    } else {
+                        None
+                    });
+                }
+
+                let start_pos = op.start();
 
                 // It would be tempting - and *nearly* correct to just use local_delete inside the
                 // range tree. Its hard to bake that logic in here though. We need to:
                 // - Skip anything not in the Inserted state
                 // - If an item is
-                while remaining_len > 0 {
-                    // TODO(perf): Reuse cursor. After mutate_single_entry we'll often be at another
-                    // entry that we can delete.
-                    let mut cursor = self.range_tree.mut_cursor_at_content_pos(pos, false);
-                    // dbg!(pos, &cursor);
-                    // If we've never been deleted locally, we'll need to do that.
-                    let e = cursor.get_raw_entry();
-                    assert_eq!(e.state, INSERTED);
-                    let ever_deleted = e.ever_deleted;
 
-                    let del_start_check = upstream_cursor_pos(&cursor);
+                // TODO(perf): Reuse cursor. After mutate_single_entry we'll often be at another
+                // entry that we can delete in a run.
+                let mut cursor = self.range_tree.mut_cursor_at_content_pos(start_pos, false);
+                // dbg!(pos, &cursor);
+                // If we've never been deleted locally, we'll need to do that.
+                let e = cursor.get_raw_entry();
+                assert_eq!(e.state, INSERTED);
+                let ever_deleted = e.ever_deleted;
 
-                    let (mut_len, target) = unsafe {
-                        ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
-                            // println!("Delete {:?}", e.id);
+                let del_start = upstream_cursor_pos(&cursor);
 
-                            // This will set the state to deleted, and mark ever_deleted in the
-                            // entry.
-                            e.delete();
-                            e.id
-                        }, &mut cursor.inner, remaining_len, notify_for(&mut self.index))
-                    };
-                    debug_assert_eq!(mut_len, target.len());
+                let (mut_len, target) = unsafe {
+                    ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
+                        // println!("Delete {:?}", e.id);
+                        // This will set the state to deleted, and mark ever_deleted in the entry.
+                        e.delete();
+                        e.id
+                    }, &mut cursor.inner, op.len(), notify_for(&mut self.index))
+                };
+                debug_assert_eq!(mut_len, target.len());
+                debug_assert_eq!(del_start, upstream_cursor_pos(&cursor));
 
-                    if cfg!(debug_assertions) && !is_underwater(target.start) {
-                        // dbg!(*time, &target);
-
-                        // Deletes must always dominate item they're deleting in the time dag.
-                        assert!(oplog.history.frontier_contains_time(&[span.start], target.start));
-                    }
-
-                    if let Some(to) = to.as_deref_mut() {
-                        if !ever_deleted {
-                            // Actually delete the item locally.
-                            // let del_end = cursor.count_offset_pos();
-
-                            // It seems this should be the position after the deleted entry, but the
-                            // deleted item will have 0 upstream size.
-                            let del_start = upstream_cursor_pos(&cursor);
-                            debug_assert_eq!(del_start_check, del_start);
-                            // dbg!(&self.range_tree);
-                            // let del_start = del_end - mut_len;
-                            let del_end = del_start + mut_len;
-                            // dbg!(del_start_check, del_end, mut_len, del_start);
-
-                            // dbg!((&op, del_start, mut_len));
-                            debug_assert!(to.len_chars() >= del_end);
-                            // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
-                            to.remove(del_start..del_end);
-                        } else {
-                            // println!("Ignoring double delete of length {}", mut_len);
-                        }
-                    }
-
-                    let time_here = resulting_time.truncate_keeping_right(mut_len);
-                    // pad_index_to(&mut self.index, next_time);
-                    self.index.replace_range_at_offset(time_here.span.start, MarkerEntry {
-                        len: mut_len,
-                        inner: DelTarget(TimeSpanRev {
-                            span: target,
-                            fwd: time_here.fwd
-                        })
-                    });
-
-                    remaining_len -= mut_len;
+                let time_start = op_pair.0;
+                if !is_underwater(target.start) {
+                    // Deletes must always dominate the item they're deleting in the time dag.
+                    debug_assert!(oplog.history.frontier_contains_time(&[time_start], target.start));
                 }
-            }
-        }
 
-        if cfg!(debug_assertions) {
-            self.check_index();
+                self.index.replace_range_at_offset(time_start, MarkerEntry {
+                    len: mut_len,
+                    inner: DelTarget(TimeSpanRev {
+                        span: target,
+                        fwd: op.span.fwd
+                    })
+                });
+
+                if cfg!(debug_assertions) {
+                    self.check_index();
+                }
+
+                (mut_len, if !ever_deleted {
+                    Some(del_start)
+                } else {
+                    None
+                })
+            }
         }
     }
 
@@ -484,6 +537,251 @@ impl M2Tracker {
         }
 
         walker.into_frontier()
+    }
+}
+
+#[derive(Debug)]
+struct TransformedOpsIter<'a> {
+    oplog: &'a OpLog,
+    op_iter: Option<OpMetricsIter<'a>>,
+    ff_mode: bool,
+    // ff_idx: usize,
+    did_ff: bool, // TODO: Do I really need this?
+
+    merge_frontier: Frontier,
+
+    common_ancestor: Frontier,
+    conflict_ops: SmallVec<[TimeSpan; 4]>,
+    new_ops: SmallVec<[TimeSpan; 4]>,
+
+    next_frontier: Frontier,
+
+    // TODO: This tracker allocates - which we don't need to do if we're FF-ing.
+    phase2: Option<(M2Tracker, SpanningTreeWalker<'a>)>,
+}
+
+impl<'a> TransformedOpsIter<'a> {
+    fn new(oplog: &'a OpLog, from_frontier: &[Time], merge_frontier: &[Time]) -> Self {
+        // The strategy here looks like this:
+        // We have some set of new changes to merge with a unified set of parents.
+        // 1. Find the parent set of the spans to merge
+        // 2. Generate the conflict set, and make a tracker for it (by iterating all the conflicting
+        //    changes).
+        // 3. Use OptTxnIter to iterate through the (new) merge set, merging along the way.
+
+        debug_assert!(frontier_is_sorted(merge_frontier));
+        debug_assert!(frontier_is_sorted(&from_frontier));
+
+        // let mut diff = opset.history.diff(&self.frontier, merge_frontier);
+
+        // First lets see what we've got. I'll divide the conflicting range into two groups:
+        // - The new operations we need to merge
+        // - The conflict set. Ie, stuff we need to build a tracker around.
+        //
+        // Both of these lists are in reverse time order(!).
+        let mut new_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
+        let mut conflict_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
+
+        let common_ancestor = oplog.history.find_conflicting(&from_frontier, merge_frontier, |span, flag| {
+            // Note we'll be visiting these operations in reverse order.
+
+            // dbg!(&span, flag);
+            let target = match flag {
+                DiffFlag::OnlyB => &mut new_ops,
+                _ => &mut conflict_ops
+            };
+            target.push_reversed_rle(span);
+        });
+
+
+        // dbg!(&opset.history);
+        // dbg!((&new_ops, &conflict_ops, &common_ancestor));
+
+        debug_assert!(frontier_is_sorted(&common_ancestor));
+
+        Self {
+            oplog,
+            op_iter: None,
+            ff_mode: true,
+            did_ff: false,
+            merge_frontier: merge_frontier.into(),
+            common_ancestor,
+            conflict_ops,
+            new_ops,
+            next_frontier: from_frontier.into(),
+            phase2: None,
+        }
+    }
+}
+
+impl<'a> Iterator for TransformedOpsIter<'a> {
+    /// Iterator over transformed operations. The KVPair.0 holds the original time of the operation.
+    type Item = KVPair<OperationInternal>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // We're done when we've merged everything in self.new_ops.
+        if self.op_iter.is_none() && self.new_ops.is_empty() { return None; }
+
+        if self.ff_mode {
+            // Keep trying to fast forward. If we have an op_iter while ff_mode is set, we can just
+            // eat operations out of it without transforming, as fast as we can.
+            if let Some(iter) = self.op_iter.as_mut() {
+                // Keep iterating through this iter.
+                let result = iter.next();
+                if result.is_some() {
+                    // Could ditch the iterator if its empty now...
+                    return result;
+                } else {
+                    self.op_iter = None;
+                    // This is needed because we could be sitting on an empty op_iter.
+                    if self.new_ops.is_empty() { return None; }
+                }
+            }
+
+            debug_assert!(self.op_iter.is_none());
+            debug_assert!(!self.new_ops.is_empty());
+
+            let span = self.new_ops.last().unwrap();
+            let txn = self.oplog.history.entries.find_packed(span.start);
+            let can_ff = txn.with_parents(span.start, |parents| {
+                frontier_eq(&self.next_frontier, parents)
+            });
+
+            if can_ff {
+                let mut span = self.new_ops.pop().unwrap();
+
+                let remainder = span.trim(txn.span.end - span.start);
+
+                debug_assert!(!span.is_empty());
+
+                self.next_frontier = smallvec![span.last()];
+
+                if let Some(r) = remainder {
+                    self.new_ops.push(r);
+                }
+                self.did_ff = true;
+
+                let mut iter = self.oplog.iter_metrics_range(span);
+
+                // Pull the first item off the iterator and keep it for later.
+                let result = iter.next();
+                // A fresh iterator should always return something!
+                assert!(result.is_some());
+
+                self.op_iter = Some(iter);
+                return result;
+            } else {
+                self.ff_mode = false;
+                if self.did_ff {
+                    // Since we ate some of the ops fast-forwarding, reset conflict_ops and common_ancestor
+                    // so we don't scan unnecessarily.
+                    //
+                    // We don't need to reset new_ops because that was updated above.
+
+                    // This sometimes adds the FF'ed ops to the conflict_ops set so we add them to the
+                    // merge set. This is a pretty bad way to do this - if we're gonna add them to
+                    // conflict_ops then FF is pointless.
+                    self.conflict_ops.clear();
+                    self.common_ancestor = self.oplog.history.find_conflicting(&self.next_frontier, &self.merge_frontier, |span, flag| {
+                        if flag != DiffFlag::OnlyB {
+                            self.conflict_ops.push_reversed_rle(span);
+                        }
+                    });
+                }
+            }
+        }
+
+        // Ok, time for serious mode.
+
+        // For conflicting operations, we'll make a tracker starting at the common_ancestor and
+        // containing the conflicting_ops set. (Which is everything that is either common, or only
+        // in this branch).
+
+        // So first we can just call .walk() to setup the tracker "hot".
+        if self.phase2.is_none() {
+            let mut tracker = M2Tracker::new();
+            let frontier = tracker.walk(
+                self.oplog,
+                std::mem::take(&mut self.common_ancestor), // Gross. TODO: Is this better than .clone()
+                &self.conflict_ops,
+                None);
+
+            let walker = SpanningTreeWalker::new(&self.oplog.history, &self.new_ops, frontier);
+            self.phase2 = Some((tracker, walker));
+        }
+
+        // This is a kinda gross way to do this. TODO: Rewrite without .unwrap().
+        let (tracker, walker) = self.phase2.as_mut().unwrap();
+        if self.op_iter.is_none() {
+            // Advance to the next chunk from walker.
+
+            // If this returns None, we're done. But its kinda awkward here right?
+            let walk = walker.next()?;
+
+            // dbg!(&walk);
+            for range in walk.retreat {
+                tracker.retreat_by_range(range);
+            }
+
+            for range in walk.advance_rev.into_iter().rev() {
+                tracker.advance_by_range(range);
+            }
+
+            self.op_iter = Some(self.oplog.iter_metrics_range(walk.consume));
+        }
+
+        // TODO: Also gross.
+        // let iter = self.op_iter.as_mut().unwrap();
+        // let pair = iter.next().unwrap();
+        // if iter.is_empty() { self.op_iter = None; } // TODO: Blergh.
+
+        // let span = self.oplog.get_crdt_span(pair.span());
+        // let len = span.len();
+        // if len < pair.1.len() {
+        //     // This is awful. TODO: Clean this up.
+        //     // I'm inlining the code for KVPair::truncate_keeping_right so I can pass
+        //     // context to OperationInternal.
+        //     let old_key = pair.0;
+        //     pair.0 += len;
+        //     let trimmed = pair.1.truncate_keeping_right(len, oplog.content_str(pair.1.tag));
+        //     let local_pair = KVPair(old_key, trimmed);
+        //
+        //     // let local_pair = pair.truncate_keeping_right(len);
+        //     let local_content = take_content(content.as_mut(), len);
+        //
+        //     self.apply(oplog, span.agent, &local_pair, local_content, to.as_deref_mut());
+        // } else {
+        //     self.apply(oplog, span.agent, &pair, content, to.as_deref_mut());
+        //     break;
+        // }
+
+
+        // for (mut pair, mut content) in oplog.iter_range_simple(range) {
+        //     loop {
+        //     }
+        // }
+
+        // for walk in &mut walker {
+        //     // dbg!(&walk);
+        //     for range in walk.retreat {
+        //         self.retreat_by_range(range);
+        //     }
+        //
+        //     for range in walk.advance_rev.into_iter().rev() {
+        //         self.advance_by_range(range);
+        //     }
+        //
+        //     debug_assert!(!walk.consume.is_empty());
+        //     self.apply_range(oplog, walk.consume, apply_to.as_deref_mut());
+        // }
+
+
+        // Then walk through and merge any new edits.
+        // tracker.walk(oplog, frontier, &new_ops, Some(self));
+
+        // TODO: Also FF at the end!
+
+        todo!()
     }
 }
 
@@ -827,4 +1125,23 @@ mod test {
         list.branch.merge(&list.oplog, &[t]);
         dbg!(&list.branch);
     }
+
+    #[test]
+    fn test_ff_2() {
+        let mut list = ListCRDT::new();
+        list.get_or_create_agent_id("a");
+        list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+
+        let iter = TransformedOpsIter::new(&list.oplog, &[ROOT_TIME], &list.oplog.frontier);
+        dbg!(&iter);
+        for x in iter {
+            dbg!(x);
+        }
+        // list.branch.merge(&list.oplog, &[1]);
+        // list.branch.merge(&list.oplog, &[2]);
+        //
+        // assert_eq!(list.branch.frontier.as_slice(), &[2]);
+        // assert_eq!(list.branch.content, "aaa");
+    }
+
 }

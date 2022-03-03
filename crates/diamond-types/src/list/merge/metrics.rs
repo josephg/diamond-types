@@ -1,4 +1,4 @@
-use content_tree::{ContentLength, Cursor, DEFAULT_IE, DEFAULT_LE, FindContent, Pair, TreeMetrics};
+use content_tree::{ContentLength, Cursor, FindContent, Pair, TreeMetrics};
 use crate::list::merge::yjsspan::YjsSpan;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -59,7 +59,7 @@ impl MarkerMetrics {
 
 /// Get the upstream position of a cursor into a MarkerMetrics object. I'm not sure if this is the
 /// best place for this method, but it'll do.
-pub(super) fn upstream_cursor_pos(cursor: &Cursor<YjsSpan, MarkerMetrics, DEFAULT_IE, DEFAULT_LE>) -> usize {
+pub(super) fn upstream_cursor_pos(cursor: &Cursor<YjsSpan, MarkerMetrics>) -> usize {
     cursor.count_pos_raw(MarkerMetrics::upstream_len,
                          YjsSpan::upstream_len,
                          YjsSpan::upstream_len_at)
