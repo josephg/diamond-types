@@ -4,6 +4,7 @@
 
 use std::cmp::Ordering;
 use std::ptr::NonNull;
+use jumprope::JumpRope;
 use smallvec::{SmallVec, smallvec};
 use content_tree::*;
 use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
@@ -14,7 +15,7 @@ use crate::list::operation::InsDelTag;
 use crate::localtime::{is_underwater, TimeSpan};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
-use crate::list::frontier::{advance_frontier_by, frontier_eq, frontier_is_root, frontier_is_sorted};
+use crate::list::frontier::{advance_frontier_by, frontier_eq, frontier_is_sorted};
 use crate::list::history_tools::DiffFlag;
 use crate::list::internal_op::OperationInternal;
 use crate::rev_span::TimeSpanRev;
@@ -28,6 +29,7 @@ use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
 use crate::list::merge::markers::MarkerEntry;
 use crate::list::merge::metrics::upstream_cursor_pos;
 use crate::list::merge::txn_trace::SpanningTreeWalker;
+use crate::list::op_iter::OpMetricsIter;
 use crate::list::operation::InsDelTag::Ins;
 use crate::unicount::consume_chars;
 
@@ -250,28 +252,24 @@ impl M2Tracker {
     fn apply_range(&mut self, oplog: &OpLog, range: TimeSpan, mut to: Option<&mut Branch>) {
         if range.is_empty() { return; }
 
-        for (mut pair, mut content) in oplog.iter_range_simple(range) {
+        if let Some(to) = to.as_deref_mut() {
+            advance_frontier_by(&mut to.frontier, &oplog.history, range);
+        }
+
+        let mut iter = oplog.iter_metrics_range(range);
+        while let Some(mut pair) = iter.next() {
             loop {
-                // let span = list.get_crdt_span(TimeSpan { start: pair.0, end: pair.0 + pair.1.len });
                 let span = oplog.get_crdt_span(pair.span());
+
                 let len = span.len();
-                if len < pair.1.len() {
-                    // This is awful. TODO: Clean this up.
-                    // I'm inlining the code for KVPair::truncate_keeping_right so I can pass
-                    // context to OperationInternal.
-                    let old_key = pair.0;
-                    pair.0 += len;
-                    let trimmed = pair.1.truncate_keeping_right(len, oplog.content_str(pair.1.tag));
-                    let local_pair = KVPair(old_key, trimmed);
+                let remainder = pair.trim(len);
 
-                    // let local_pair = pair.truncate_keeping_right(len);
-                    let local_content = take_content(content.as_mut(), len);
+                let content = iter.get_content(&pair);
+                self.apply(oplog, span.agent, &pair, content, to.as_deref_mut().map(|b| &mut b.content));
 
-                    self.apply(oplog, span.agent, &local_pair, local_content, to.as_deref_mut());
-                } else {
-                    self.apply(oplog, span.agent, &pair, content, to.as_deref_mut());
-                    break;
-                }
+                if let Some(r) = remainder {
+                    pair = r;
+                } else { break; }
             }
         }
     }
@@ -293,15 +291,11 @@ impl M2Tracker {
     /// | NotInsYet | Before     | After       |
     /// | Inserted  | After      | Before      |
     /// | Deleted   | Before     | Before      |
-    fn apply(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, content: Option<&str>, mut to: Option<&mut Branch>) {
-        if let Some(to) = to.as_deref_mut() {
-            // TODO: It might be more efficient to do this all at once
-            advance_frontier_by(&mut to.frontier, &oplog.history, op_pair.span());
-        }
-
+    fn apply(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, content: Option<&str>, mut to: Option<&mut JumpRope>) {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
-        let KVPair(time, op) = op_pair;
+        let span = op_pair.span();
+        let op = &op_pair.1;
 
         // dbg!(op);
         match op.tag {
@@ -350,7 +344,7 @@ impl M2Tracker {
                 // let origin_right = cursor.get_item().unwrap_or(ROOT_TIME);
 
                 let item = YjsSpan {
-                    id: TimeSpan::new(*time, *time + op.len()),
+                    id: span,
                     origin_left,
                     origin_right,
                     state: INSERTED,
@@ -370,8 +364,8 @@ impl M2Tracker {
                     // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                     debug_assert!(op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
                     let content = content.unwrap();
-                    assert!(ins_pos <= to.content.len_chars());
-                    to.content.insert(ins_pos, content);
+                    assert!(ins_pos <= to.len_chars());
+                    to.insert(ins_pos, content);
                 }
             }
 
@@ -386,7 +380,7 @@ impl M2Tracker {
                 // (because thats simpler). But if the delete is reversed, we need to record the
                 // output time values in reverse order too.
                 let mut resulting_time = TimeSpanRev {
-                    span: (*time..*time + op.len()).into(),
+                    span,
                     fwd: op.span.fwd
                 };
 
@@ -422,7 +416,7 @@ impl M2Tracker {
                         // dbg!(*time, &target);
 
                         // Deletes must always dominate item they're deleting in the time dag.
-                        assert!(oplog.history.frontier_contains_time(&[*time], target.start));
+                        assert!(oplog.history.frontier_contains_time(&[span.start], target.start));
                     }
 
                     if let Some(to) = to.as_deref_mut() {
@@ -440,9 +434,9 @@ impl M2Tracker {
                             // dbg!(del_start_check, del_end, mut_len, del_start);
 
                             // dbg!((&op, del_start, mut_len));
-                            debug_assert!(to.content.len_chars() >= del_end);
+                            debug_assert!(to.len_chars() >= del_end);
                             // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
-                            to.content.remove(del_start..del_end);
+                            to.remove(del_start..del_end);
                         } else {
                             // println!("Ignoring double delete of length {}", mut_len);
                         }

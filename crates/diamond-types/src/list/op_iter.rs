@@ -50,10 +50,7 @@ impl<'a> Iterator for OpIterFast<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let metrics = self.0.next()?;
-        let content = metrics.1.content_pos.map(|pos| {
-            let c = switch(metrics.1.tag, self.0.ins_content, self.0.del_content);
-            &c[pos.start..pos.end]
-        });
+        let content = self.0.get_content(&metrics);
         Some((metrics, content))
     }
 }
@@ -74,6 +71,17 @@ impl<'a> OpMetricsIter<'a> {
     fn prime(&mut self, range: TimeSpan) {
         self.range = range;
         self.idx = if range.is_empty() { 0 } else { self.list.find_index(range.start).unwrap() };
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.idx >= self.list.0.len() || self.range.is_empty()
+    }
+
+    pub(crate) fn get_content(&self, metrics: &KVPair<OperationInternal>) -> Option<&'a str> {
+        metrics.1.content_pos.map(|pos| {
+            let c = switch(metrics.1.tag, self.ins_content, self.del_content);
+            &c[pos.start..pos.end]
+        })
     }
 }
 
