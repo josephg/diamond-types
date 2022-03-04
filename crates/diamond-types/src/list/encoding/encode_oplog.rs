@@ -511,7 +511,7 @@ impl OpLog {
             // We need to update *lots* of stuff in here!!
 
             // 1. Agent names and agent assignment
-            for span in self.client_with_localtime.iter_range_packed(walk.consume) {
+            for span in self.client_with_localtime.iter_range_packed_ctx(walk.consume, &()) {
                 // Mark the agent as in-use (if we haven't already)
                 let mapped_agent = agent_mapping.map(self, span.1.agent);
 

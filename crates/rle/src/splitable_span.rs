@@ -1,4 +1,4 @@
-use std::ops::{Range};
+use std::ops::{Deref, DerefMut, Range};
 
 pub trait HasLength {
     /// The number of child items in the entry. This is indexed with the size used in truncate.
@@ -6,6 +6,36 @@ pub trait HasLength {
 
     fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+pub trait SplitableSpanCtx: Clone {
+    type Ctx: ?Sized;
+
+    /// Split the entry, returning the part of the entry which was jettisoned. After truncating at
+    /// `pos`, self.len() == `pos` and the returned value contains the rest of the items.
+    ///
+    /// ```ignore
+    /// let initial_len = entry.len();
+    /// let rest = entry.truncate(truncate_at);
+    /// assert!(initial_len == truncate_at + rest.len());
+    /// ```
+    ///
+    /// `at` parameter must strictly obey *0 < at < entry.len()*
+    fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self;
+
+    /// The inverse of truncate. This method mutably truncates an item, keeping all content from
+    /// at..item.len() and returning the item range from 0..at.
+    #[inline(always)]
+    fn truncate_keeping_right_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+        let mut other = self.clone();
+        *self = other.truncate_ctx(at, ctx);
+        other
+    }
+
+    fn split_ctx(mut self, at: usize, ctx: &Self::Ctx) -> (Self, Self) {
+        let remainder = self.truncate_ctx(at, ctx);
+        (self, remainder)
     }
 }
 
@@ -37,18 +67,112 @@ pub trait SplitableSpan: Clone {
     }
 }
 
-pub trait Trim: SplitableSpan + HasLength {
+impl<T: SplitableSpan> SplitableSpanCtx for T {
+    type Ctx = ();
+
+    fn truncate_ctx(&mut self, at: usize, _ctx: &()) -> Self {
+        self.truncate(at)
+    }
+
+    fn truncate_keeping_right_ctx(&mut self, at: usize, _ctx: &()) -> Self {
+        self.truncate_keeping_right(at)
+    }
+
+    fn split_ctx(self, at: usize, _ctx: &()) -> (Self, Self) {
+        self.split(at)
+    }
+}
+
+// This is a bit of a hack. This wrapper trait lets us use regular splitablespan methods in lots of
+// situations.
+#[derive(Debug)]
+pub struct WithCtx<'a, T: SplitableSpanCtx + Clone>(pub T, pub &'a T::Ctx);
+
+impl<'a, T: SplitableSpanCtx + Clone> Deref for WithCtx<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a, T: SplitableSpanCtx + Clone> DerefMut for WithCtx<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a, T: SplitableSpanCtx + Clone> WithCtx<'a, T> {
+    pub fn new(t: T, ctx: &'a T::Ctx) -> Self {
+        Self(t, ctx)
+    }
+
+    pub fn to_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<'a, T: SplitableSpanCtx + Clone> Clone for WithCtx<'a, T> {
+    fn clone(&self) -> Self {
+        WithCtx(self.0.clone(), self.1)
+    }
+}
+
+impl<'a, T: SplitableSpanCtx> SplitableSpan for WithCtx<'a, T> {
+    fn truncate(&mut self, at: usize) -> Self {
+        WithCtx(self.0.truncate_ctx(at, self.1), self.1)
+    }
+
+    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+        WithCtx(self.0.truncate_keeping_right_ctx(at, self.1), self.1)
+    }
+}
+
+impl<'a, T: SplitableSpanCtx + HasLength> HasLength for WithCtx<'a, T> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+// struct WithoutCtx<T: SplitableSpanCtx<Ctx=()>>(T);
+
+
+// impl<T: SplitableSpanCtx<Ctx=()>> SplitableSpan for T {
+//     fn truncate(&mut self, at: usize) -> Self {
+//         self.truncate_ctx(at, &())
+//     }
+//
+//     fn truncate_keeping_right(&mut self, at: usize) -> Self {
+//         self.truncate_keeping_right_ctx(at, &())
+//     }
+//
+//     fn split(self, at: usize) -> (Self, Self) {
+//         self.split_ctx(at, &())
+//     }
+// }
+
+pub trait TrimCtx: SplitableSpanCtx + HasLength {
     /// Trim self to at most `at` items. Remainder (if any) is returned.
-    fn trim(&mut self, at: usize) -> Option<Self> {
+    fn trim_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Option<Self> {
         if at >= self.len() {
             None
         } else {
-            Some(self.truncate(at))
+            Some(self.truncate_ctx(at, ctx))
         }
     }
 }
 
+impl<T: SplitableSpanCtx + HasLength> TrimCtx for T {}
+
+pub trait Trim: SplitableSpan + HasLength {
+    fn trim(&mut self, at: usize) -> Option<Self> {
+        self.trim_ctx(at, &())
+    }
+}
+
 impl<T: SplitableSpan + HasLength> Trim for T {}
+
+
 
 pub trait MergableSpan: Clone {
     /// See if the other item can be appended to self. `can_append` will always be called
@@ -78,6 +202,9 @@ pub trait MergableSpan: Clone {
 /// entries internally.
 pub trait SplitAndJoinSpan: HasLength + SplitableSpan + MergableSpan {}
 impl<T: HasLength + SplitableSpan + MergableSpan> SplitAndJoinSpan for T {}
+
+pub trait SplitAndJoinSpanCtx: HasLength + SplitableSpanCtx + MergableSpan {}
+impl<T: HasLength + SplitableSpanCtx + MergableSpan> SplitAndJoinSpanCtx for T {}
 
 /// A SplitableSpan wrapper for any single item.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq, Default)]
@@ -140,6 +267,15 @@ impl<A, B> SplitableSpan for (A, B) where A: SplitableSpan, B: SplitableSpan {
     }
 }
 
+// impl<A, B> SplitableSpanCtx for (A, B) where A: SplitableSpanCtx, B: SplitableSpanCtx, A::Ctx: Sized, B::Ctx: Sized {
+//     type Ctx = (A::Ctx, B::Ctx);
+//
+//     fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+//         (self.0.truncate_ctx(at, &ctx.0), self.1.truncate_ctx(at, &ctx.1))
+//     }
+// }
+
+
 /// A splitablespan which contains a single element repeated N times. This is used in some examples.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq, Default)]
 pub struct RleRun<T: Clone + Eq> {
@@ -173,10 +309,21 @@ impl<T: Clone + Eq> MergableSpan for RleRun<T> {
     }
 }
 
-impl<T, E> SplitableSpan for Result<T, E> where T: SplitableSpan + Clone, E: Clone {
-    fn truncate(&mut self, at: usize) -> Self {
+// impl<T, E> SplitableSpan for Result<T, E> where T: SplitableSpan + Clone, E: Clone {
+//     fn truncate(&mut self, at: usize) -> Self {
+//         match self {
+//             Ok(v) => Result::Ok(v.truncate(at)),
+//             Err(e) => Result::Err(e.clone())
+//         }
+//     }
+// }
+
+impl<T, E> SplitableSpanCtx for Result<T, E> where T: SplitableSpanCtx + Clone, E: Clone {
+    type Ctx = T::Ctx;
+
+    fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
         match self {
-            Ok(v) => Result::Ok(v.truncate(at)),
+            Ok(v) => Result::Ok(v.truncate_ctx(at, ctx)),
             Err(e) => Result::Err(e.clone())
         }
     }
@@ -250,13 +397,17 @@ impl MergableSpan for Range<u32> {
 /// Use this to test splitablespan implementations in tests.
 // #[cfg(test)]
 pub fn test_splitable_methods_valid<E: SplitAndJoinSpan + std::fmt::Debug + Clone + Eq>(entry: E) {
+    test_splitable_methods_valid_ctx(entry, &());
+}
+
+pub fn test_splitable_methods_valid_ctx<E: SplitAndJoinSpanCtx + std::fmt::Debug + Clone + Eq>(entry: E, ctx: &E::Ctx) {
     assert!(entry.len() >= 2, "Call this with a larger entry");
     // dbg!(&entry);
 
     for i in 1..entry.len() {
         // Split here and make sure we get the expected results.
         let mut start = entry.clone();
-        let end = start.truncate(i);
+        let end = start.truncate_ctx(i, ctx);
         // dbg!(&start, &end);
 
         assert_eq!(start.len(), i);
@@ -278,7 +429,7 @@ pub fn test_splitable_methods_valid<E: SplitAndJoinSpan + std::fmt::Debug + Clon
 
         // Split using truncate_keeping_right. We should get the same behaviour.
         let mut end2 = entry.clone();
-        let start2 = end2.truncate_keeping_right(i);
+        let start2 = end2.truncate_keeping_right_ctx(i, ctx);
         assert_eq!(end2, end);
         assert_eq!(start2, start);
     }

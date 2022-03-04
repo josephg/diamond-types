@@ -6,7 +6,7 @@ use std::slice::SliceIndex;
 
 use humansize::{file_size_opts, FileSize};
 
-use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, MergeIter, SplitableSpan};
+use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, MergeIter, SplitableSpan, SplitableSpanCtx};
 use rle::Searchable;
 use crate::localtime::TimeSpan;
 
@@ -123,11 +123,16 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     /// Note the returned value might be smaller than the passed range.
     #[allow(unused)]
     pub fn find_packed_and_split(&self, range: TimeSpan) -> V where V: SplitableSpan {
+        self.find_packed_and_split_ctx(range, &())
+    }
+
+    #[allow(unused)]
+    pub fn find_packed_and_split_ctx(&self, range: TimeSpan, ctx: &V::Ctx) -> V where V: SplitableSpanCtx {
         let (item, offset) = self.find_packed_with_offset(range.start);
         let mut item = item.clone();
-        item.truncate_keeping_right(offset);
+        item.truncate_keeping_right_ctx(offset, ctx);
         if item.len() > range.len() {
-            item.truncate(range.len());
+            item.truncate_ctx(range.len(), ctx);
         }
         item
     }
@@ -227,7 +232,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     /// of items between this entry and the end of the list.
     ///
     /// This method silently ignores requests to delete ranges we don't have.
-    pub fn remove(&mut self, mut deleted_range: TimeSpan) where V: SplitableSpan {
+    pub fn remove_ctx(&mut self, mut deleted_range: TimeSpan, ctx: &V::Ctx) where V: SplitableSpanCtx {
         // Fast case - the requested entry is at the end.
         loop {
             if let Some(last) = self.0.last_mut() {
@@ -248,7 +253,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
                     }
                 } else {
                     // Truncate last entry and return.
-                    last.truncate_from(deleted_range.start);
+                    last.truncate_from_ctx(deleted_range.start, ctx);
                     return;
                 }
             } else {
@@ -289,20 +294,20 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
 
                 (false, true) => {
                     // Trim the start, trim the end.
-                    e.truncate_keeping_right_from(deleted_range.start);
+                    e.truncate_keeping_right_from_ctx(deleted_range.start, ctx);
                     break;
                 },
 
                 (true, false) => {
                     // Trim the end
-                    e.truncate_from(deleted_range.start);
+                    e.truncate_from_ctx(deleted_range.start, ctx);
                     idx += 1;
                 }
 
                 (true, true) => {
                     // Trim in the middle.
-                    let mut remainder = e.truncate_from(deleted_range.start);
-                    remainder.truncate_keeping_right_from(deleted_range.end);
+                    let mut remainder = e.truncate_from_ctx(deleted_range.start, ctx);
+                    remainder.truncate_keeping_right_from_ctx(deleted_range.end, ctx);
                     self.insert(remainder);
                     break;
                 }
@@ -457,13 +462,24 @@ fn id_clone<V: Clone>(v: &V) -> V {
 }
 
 impl<V: HasLength + SplitableSpan + RleKeyed + MergableSpan> RleVec<V> {
+    #[allow(unused)]
     pub fn iter_range_packed(&self, range: TimeSpan) -> RleVecRangeIter<V, V, impl Fn(&V) -> V> {
-        self.iter_range_map_packed(range, id_clone)
+        self.iter_range_map_packed_ctx(range, &(), id_clone)
+    }
+}
+
+impl<V: HasLength + SplitableSpanCtx + RleKeyed + MergableSpan> RleVec<V> {
+    pub fn iter_range_packed_ctx<'a>(&'a self, range: TimeSpan, ctx: &'a V::Ctx) -> RleVecRangeIter<'a, V, V, impl Fn(&V) -> V> {
+        self.iter_range_map_packed_ctx(range, ctx, id_clone)
     }
 }
 
 impl<V: HasLength + RleKeyed + MergableSpan> RleVec<V> {
     pub fn iter_range_map_packed<I: SplitableSpan + HasLength, F: Fn(&V) -> I>(&self, range: TimeSpan, map_fn: F) -> RleVecRangeIter<V, I, F> {
+        self.iter_range_map_packed_ctx(range, &(), map_fn)
+    }
+
+    pub fn iter_range_map_packed_ctx<'a, I: SplitableSpanCtx + HasLength, F: Fn(&V) -> I>(&'a self, range: TimeSpan, ctx: &'a I::Ctx, map_fn: F) -> RleVecRangeIter<'a, V, I, F> {
         let idx = self.find_index(range.start).unwrap();
 
         let entry = &self.0[idx];
@@ -474,21 +490,24 @@ impl<V: HasLength + RleKeyed + MergableSpan> RleVec<V> {
             idx,
             len_remaining: range.len(),
             map_fn,
-            data: &self.0
+            data: &self.0,
+            ctx,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct RleVecRangeIter<'a, V: HasLength + MergableSpan, I: HasLength + SplitableSpan, F: Fn(&V) -> I> {
+pub struct RleVecRangeIter<'a, V: HasLength + MergableSpan, I: HasLength + SplitableSpanCtx, F: Fn(&V) -> I> {
     offset: usize,
     idx: usize,
     len_remaining: usize,
     map_fn: F,
     data: &'a [V],
+
+    ctx: &'a I::Ctx, // This could have a different lifetime specifier.
 }
 
-impl<'a, V: HasLength + MergableSpan, I: HasLength + SplitableSpan, F: Fn(&V) -> I> Iterator for RleVecRangeIter<'a, V, I, F> {
+impl<'a, V: HasLength + MergableSpan, I: HasLength + SplitableSpanCtx, F: Fn(&V) -> I> Iterator for RleVecRangeIter<'a, V, I, F> {
     type Item = I;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -497,12 +516,12 @@ impl<'a, V: HasLength + MergableSpan, I: HasLength + SplitableSpan, F: Fn(&V) ->
         let mut item = (self.map_fn)(&self.data[self.idx]);
         if self.offset > 0 {
             assert!(self.offset < item.len());
-            item.truncate_keeping_right(self.offset);
+            item.truncate_keeping_right_ctx(self.offset, self.ctx);
             self.offset = 0;
         }
 
         if item.len() > self.len_remaining {
-            item.truncate(self.len_remaining);
+            item.truncate_ctx(self.len_remaining, self.ctx);
             self.len_remaining = 0;
         } else {
             self.idx += 1;

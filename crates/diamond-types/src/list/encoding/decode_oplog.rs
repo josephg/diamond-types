@@ -3,14 +3,14 @@ use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
 use crate::list::{Frontier, OpLog, switch, Time};
 use crate::list::frontier::{frontier_eq, frontier_is_sorted};
-use crate::list::internal_op::OperationInternal;
+use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::rev_span::TimeSpanRev;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::unicount::{consume_chars, count_chars, split_at_char};
 use crate::list::encoding::ParseError::*;
-use rle::AppendRle;
-use rle::take_max_iter::TakeMaxFns;
+use rle::{AppendRle, SplitableSpanCtx, Trim, TrimCtx};
+use crate::list::buffered_iter::Buffered;
 use crate::list::encoding::ChunkType::{Content, ContentKnown, FileInfo, Patches, StartBranch};
 use crate::list::history::MinimalHistoryEntry;
 use crate::list::operation::InsDelTag;
@@ -666,8 +666,8 @@ impl OpLog {
         // We could regenerate the frontier, but this is much lazier.
         let old_frontier = self.frontier.clone();
         let num_known_agents = self.client_data.len();
-        let ins_content_length = self.ins_content.len();
-        let del_content_length = self.del_content.len();
+        let ins_content_length = self.operation_ctx.ins_content.len();
+        let del_content_length = self.operation_ctx.del_content.len();
 
         let result = self.merge_data_internal(data, opts);
 
@@ -684,17 +684,17 @@ impl OpLog {
                         // Drop entire entry
                         self.client_with_localtime.0.pop().unwrap()
                     } else {
-                        last.truncate(len - last.0)
+                        last.truncate_ctx(len - last.0, &())
                     };
 
                     let client_data = &mut self.client_data[removed.agent as usize];
-                    client_data.item_times.remove(removed.seq_range);
+                    client_data.item_times.remove_ctx(removed.seq_range, &());
                 }
             }
 
             let num_operations = self.operations.end();
             if num_operations > len {
-                self.operations.remove((len..num_operations).into());
+                self.operations.remove_ctx((len..num_operations).into(), &self.operation_ctx);
             }
 
             // Trim history
@@ -750,8 +750,8 @@ impl OpLog {
             // Remove excess agents
             self.client_data.truncate(num_known_agents);
 
-            self.ins_content.truncate(ins_content_length);
-            self.del_content.truncate(del_content_length);
+            self.operation_ctx.ins_content.truncate(ins_content_length);
+            self.operation_ctx.del_content.truncate(del_content_length);
 
             self.frontier = old_frontier;
         }
@@ -817,7 +817,8 @@ impl OpLog {
 
             while let Some(chunk) = patch_chunk.read_chunk(ChunkType::PatchContent)? {
                 let (tag, content_chunk) = ReadPatchContentIter::new(chunk)?;
-                let iter = content_chunk.take_max();
+                // let iter = content_chunk.take_max();
+                let iter = content_chunk.buffered();
                 match tag {
                     Ins => { ins_content = Some(iter); }
                     Del => { del_content = Some(iter); }
@@ -850,8 +851,13 @@ impl OpLog {
             let pos_patches_chunk = patch_chunk.expect_chunk(ChunkType::OpTypeAndPosition)?;
             let mut history_chunk = patch_chunk.expect_chunk(ChunkType::Parents)?;
 
+            // We need an insert ctx in some situations, though it'll never be accessed.
+            let dummy_ctx = OperationCtx::new();
+
+            // let mut patches_iter = ReadPatchesIter::new(pos_patches_chunk)
+            //     .take_max();
             let mut patches_iter = ReadPatchesIter::new(pos_patches_chunk)
-                .take_max();
+                .buffered();
 
             let first_new_time = self.len();
             let mut next_patch_time = first_new_time;
@@ -877,42 +883,42 @@ impl OpLog {
                 while n > 0 {
                     let mut max_len = n;
 
-                    // This is way longer than it should be. Gross!
-                    if let Some(Ok(op)) = patches_iter.peek() {
-                        // let op = op;
-                        // dbg!(op.tag);
+                    if let Some(op) = patches_iter.next() {
+                        let mut op = op?;
+                        // dbg!((n, &op));
                         max_len = max_len.min(op.len());
 
-                        if let Some(content) = switch(op.tag, &mut ins_content, &mut del_content) {
-                            if let Some(Ok(item)) = content.peek() {
-                                max_len = max_len.min(item.len());
-                            }
-                        }
-                    } // If this returns anything else we're erroring, but we'll handle that below.
-
-                    if let Some(op) = patches_iter.next(max_len) {
-                        let op = op?;
-                        // dbg!((n, &op));
-                        let len = op.len();
-                        assert!(op.len() > 0);
-                        n -= len;
-
-                        let content_here = if let Some(content_iter) = switch(op.tag, &mut ins_content, &mut del_content) {
-                            if let Some(content) = content_iter.next(max_len) {
-                                let content = content?;
-                                assert_eq!(content.len(), max_len);
+                        // Trim down the operation to size.
+                        let content_here = if let Some(iter) = switch(op.tag, &mut ins_content, &mut del_content) {
+                            // There's probably a way to do this with helper magic but ?? idk.
+                            if let Some(content) = iter.next() {
+                                let mut content = content?;
+                                max_len = max_len.min(content.len);
+                                // Put the rest (if any) back into the iterator.
+                                if let Some(r) = content.trim(max_len) {
+                                    iter.push_back(Ok(r));
+                                }
                                 content.content
                             } else {
                                 return Err(InvalidLength);
                             }
                         } else { None };
 
+                        assert!(max_len > 0);
+                        n -= max_len;
+
+                        let remainder = op.trim_ctx(max_len, &dummy_ctx);
+
                         // dbg!(content, len, content_here);
 
                         // self.operations.push(KVPair(next_time, op));
                         if keep {
                             oplog.push_op_internal(next_patch_time, op.span, op.tag, content_here);
-                            next_patch_time += len;
+                            next_patch_time += max_len;
+                        }
+
+                        if let Some(r) = remainder {
+                            patches_iter.push_back(Ok(r));
                         }
                     } else {
                         return Err(InvalidLength);
@@ -1056,13 +1062,13 @@ impl OpLog {
             history_chunk.expect_empty()?;
 
             if let Some(mut iter) = ins_content {
-                if iter.peek().is_some() {
+                if iter.next().is_some() {
                     return Err(InvalidContent);
                 }
             }
 
             if let Some(mut iter) = del_content {
-                if iter.peek().is_some() {
+                if iter.next().is_some() {
                     return Err(InvalidContent);
                 }
             }

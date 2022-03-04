@@ -7,7 +7,7 @@ use std::ptr::NonNull;
 use jumprope::JumpRope;
 use smallvec::{SmallVec, smallvec};
 use content_tree::*;
-use rle::{AppendRle, HasLength, Searchable, SplitableSpan, Trim};
+use rle::{AppendRle, HasLength, Searchable, Trim, TrimCtx};
 use crate::list::{Frontier, Branch, OpLog, Time};
 use crate::list::merge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
@@ -18,6 +18,7 @@ use crate::{AgentId, ROOT_TIME};
 use crate::list::frontier::{advance_frontier_by, frontier_eq, frontier_is_sorted};
 use crate::list::history_tools::DiffFlag;
 use crate::list::internal_op::OperationInternal;
+use crate::list::buffered_iter::BufferedIter;
 use crate::rev_span::TimeSpanRev;
 
 #[cfg(feature = "dot_export")]
@@ -27,6 +28,7 @@ use crate::list::merge::dot::DotColor::*;
 
 use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
 use crate::list::merge::markers::MarkerEntry;
+use crate::list::merge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::list::merge::metrics::upstream_cursor_pos;
 use crate::list::merge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
@@ -71,6 +73,7 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<
     }
 }
 
+#[allow(unused)]
 fn take_content<'a>(x: Option<&mut &'a str>, len: usize) -> Option<&'a str> {
     if let Some(s) = x {
         Some(consume_chars(s, len))
@@ -264,7 +267,7 @@ impl M2Tracker {
                 let span = oplog.get_crdt_span(pair.span());
 
                 let len = span.len();
-                let remainder = pair.trim(len);
+                let remainder = pair.trim_ctx(len, iter.ctx);
 
                 let content = iter.get_content(&pair);
 
@@ -284,10 +287,10 @@ impl M2Tracker {
         loop {
             let (len_here, transformed_pos) = self.apply(oplog, agent, &op_pair);
 
-            let remainder = op_pair.trim(len_here);
+            let remainder = op_pair.trim_ctx(len_here, &oplog.operation_ctx);
 
             // dbg!((&op_pair, len_here, transformed_pos));
-            if let Some(pos) = transformed_pos {
+            if let BaseMoved(pos) = transformed_pos {
                 if let Some(to) = to.as_mut() {
                     // Apply the operation here.
                     match op_pair.1.tag {
@@ -341,7 +344,7 @@ impl M2Tracker {
     /// | NotInsYet | Before     | After       |
     /// | Inserted  | After      | Before      |
     /// | Deleted   | Before     | Before      |
-    fn apply(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>) -> (usize, Option<usize>) {
+    fn apply(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>) -> (usize, TransformedResult) {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
         let op = &op_pair.1;
@@ -411,7 +414,7 @@ impl M2Tracker {
                 let mut result = op.clone();
                 result.span.span.start = ins_pos;
 
-                (time_span.len(), Some(ins_pos))
+                (time_span.len(), BaseMoved(ins_pos))
             }
 
             InsDelTag::Del => {
@@ -495,9 +498,9 @@ impl M2Tracker {
                 }
 
                 (len, if !ever_deleted {
-                    Some(del_start_xf)
+                    BaseMoved(del_start_xf)
                 } else {
-                    None
+                    DeleteAlreadyHappened
                 })
             }
         }
@@ -531,7 +534,7 @@ impl M2Tracker {
 #[derive(Debug)]
 struct TransformedOpsIter<'a> {
     oplog: &'a OpLog,
-    op_iter: Option<OpMetricsIter<'a>>,
+    op_iter: Option<BufferedIter<OpMetricsIter<'a>>>,
     ff_mode: bool,
     // ff_idx: usize,
     did_ff: bool, // TODO: Do I really need this?
@@ -602,9 +605,24 @@ impl<'a> TransformedOpsIter<'a> {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum TransformedResult {
+    BaseMoved(usize),
+    DeleteAlreadyHappened,
+}
+
+type TransformedTriple = (Time, OperationInternal, TransformedResult);
+
+impl TransformedResult {
+    fn notMoved(op_pair: KVPair<OperationInternal>) -> TransformedTriple {
+        let start = op_pair.1.start();
+        (op_pair.0, op_pair.1, TransformedResult::BaseMoved(start))
+    }
+}
+
 impl<'a> Iterator for TransformedOpsIter<'a> {
     /// Iterator over transformed operations. The KVPair.0 holds the original time of the operation.
-    type Item = KVPair<OperationInternal>;
+    type Item = (Time, OperationInternal, TransformedResult);
 
     fn next(&mut self) -> Option<Self::Item> {
         // We're done when we've merged everything in self.new_ops.
@@ -615,10 +633,10 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             // eat operations out of it without transforming, as fast as we can.
             if let Some(iter) = self.op_iter.as_mut() {
                 // Keep iterating through this iter.
-                let result = iter.next();
-                if result.is_some() {
+                if let Some(result) = iter.next() {
                     // Could ditch the iterator if its empty now...
-                    return result;
+                    // return result;
+                    return Some(TransformedResult::notMoved(result));
                 } else {
                     self.op_iter = None;
                     // This is needed because we could be sitting on an empty op_iter.
@@ -652,12 +670,12 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 let mut iter = self.oplog.iter_metrics_range(span);
 
                 // Pull the first item off the iterator and keep it for later.
-                let result = iter.next();
                 // A fresh iterator should always return something!
-                assert!(result.is_some());
+                let result = iter.next().unwrap();
+                // assert!(result.is_some());
 
-                self.op_iter = Some(iter);
-                return result;
+                self.op_iter = Some(iter.into());
+                return Some(TransformedResult::notMoved(result));
             } else {
                 self.ff_mode = false;
                 if self.did_ff {
@@ -686,24 +704,33 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
         // in this branch).
 
         // So first we can just call .walk() to setup the tracker "hot".
-        if self.phase2.is_none() {
-            let mut tracker = M2Tracker::new();
-            let frontier = tracker.walk(
-                self.oplog,
-                std::mem::take(&mut self.common_ancestor), // Gross. TODO: Is this better than .clone()
-                &self.conflict_ops,
-                None);
+        let (tracker, walker) = match self.phase2.as_mut() {
+            Some(phase2) => phase2,
+            None => {
+                let mut tracker = M2Tracker::new();
+                let frontier = tracker.walk(
+                    self.oplog,
+                    std::mem::take(&mut self.common_ancestor), // Gross. TODO: Is this better than .clone()
+                    &self.conflict_ops,
+                    None);
 
-            let walker = SpanningTreeWalker::new(&self.oplog.history, &self.new_ops, frontier);
-            self.phase2 = Some((tracker, walker));
-        }
+                let walker = SpanningTreeWalker::new(&self.oplog.history, &self.new_ops, frontier);
+                self.phase2 = Some((tracker, walker));
+                // This is a kinda gross way to do this. TODO: Rewrite without .unwrap() somehow?
+                self.phase2.as_mut().unwrap()
+            }
+        };
 
-        // This is a kinda gross way to do this. TODO: Rewrite without .unwrap().
-        let (tracker, walker) = self.phase2.as_mut().unwrap();
-        if self.op_iter.is_none() {
-            // Advance to the next chunk from walker.
+        let (mut pair, op_iter) = loop {
+            if let Some(op_iter) = self.op_iter.as_mut() {
+                if let Some(pair) = op_iter.next() {
+                    break (pair, op_iter);
+                }
+            }
 
-            // If this returns None, we're done. But its kinda awkward here right?
+            // Otherwise advance to the next chunk from walker.
+
+            // If this returns None, we're done.
             let walk = walker.next()?;
 
             // dbg!(&walk);
@@ -715,57 +742,34 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 tracker.advance_by_range(range);
             }
 
-            self.op_iter = Some(self.oplog.iter_metrics_range(walk.consume));
+            assert!(!walk.consume.is_empty());
+
+            // Only really advancing the frontier so we can consume into it. The resulting frontier
+            // is interesting in lots of places.
+            //
+            // The walker can be unwrapped into its inner frontier, but that won't include
+            // everything. (TODO: Look into fixing that?)
+            advance_frontier_by(&mut self.next_frontier, &self.oplog.history, walk.consume);
+            self.op_iter = Some(self.oplog.iter_metrics_range(walk.consume).into());
+        };
+
+        // Ok, try to consume as much as we can from pair.
+        let span = self.oplog.get_crdt_span(pair.span());
+        let len = span.len();
+
+        // let (consumed_here, result) = tracker.apply(&self.oplog, span.agent, &pair, span.len());
+        let (consumed_here, result) = tracker.apply(&self.oplog, span.agent, &pair);
+
+        let remainder = pair.trim_ctx(consumed_here, &self.oplog.operation_ctx);
+
+        // let content = iter.get_content(&pair);
+        //
+        // self.apply_to(oplog, span.agent, &pair, content, to.as_deref_mut().map(|b| &mut b.content));
+        // // self.apply_working(oplog, span.agent, &pair, content, to.as_deref_mut().map(|b| &mut b.content));
+        //
+        if let Some(r) = remainder {
+            op_iter.push_back(r);
         }
-
-        // TODO: Also gross.
-        // let iter = self.op_iter.as_mut().unwrap();
-        // let pair = iter.next().unwrap();
-        // if iter.is_empty() { self.op_iter = None; } // TODO: Blergh.
-
-        // let span = self.oplog.get_crdt_span(pair.span());
-        // let len = span.len();
-        // if len < pair.1.len() {
-        //     // This is awful. TODO: Clean this up.
-        //     // I'm inlining the code for KVPair::truncate_keeping_right so I can pass
-        //     // context to OperationInternal.
-        //     let old_key = pair.0;
-        //     pair.0 += len;
-        //     let trimmed = pair.1.truncate_keeping_right(len, oplog.content_str(pair.1.tag));
-        //     let local_pair = KVPair(old_key, trimmed);
-        //
-        //     // let local_pair = pair.truncate_keeping_right(len);
-        //     let local_content = take_content(content.as_mut(), len);
-        //
-        //     self.apply(oplog, span.agent, &local_pair, local_content, to.as_deref_mut());
-        // } else {
-        //     self.apply(oplog, span.agent, &pair, content, to.as_deref_mut());
-        //     break;
-        // }
-
-
-        // for (mut pair, mut content) in oplog.iter_range_simple(range) {
-        //     loop {
-        //     }
-        // }
-
-        // for walk in &mut walker {
-        //     // dbg!(&walk);
-        //     for range in walk.retreat {
-        //         self.retreat_by_range(range);
-        //     }
-        //
-        //     for range in walk.advance_rev.into_iter().rev() {
-        //         self.advance_by_range(range);
-        //     }
-        //
-        //     debug_assert!(!walk.consume.is_empty());
-        //     self.apply_range(oplog, walk.consume, apply_to.as_deref_mut());
-        // }
-
-
-        // Then walk through and merge any new edits.
-        // tracker.walk(oplog, frontier, &new_ops, Some(self));
 
         // TODO: Also FF at the end!
 

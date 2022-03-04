@@ -1,7 +1,7 @@
-use rle::{HasLength, MergableSpan, SplitableSpan};
+use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
 use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::*;
-use crate::list::OpLog;
+use crate::list::{OpLog, switch};
 use crate::localtime::TimeSpan;
 use crate::rev_span::TimeSpanRev;
 use crate::unicount::chars_to_bytes;
@@ -48,43 +48,13 @@ impl OperationInternal {
         self.span.span.end
     }
 
-    // Note we can't implement SplitableSpan because we can't adjust content_pos correctly without
-    // reference to the contained data.
-    pub(crate) fn truncate(&mut self, at: usize, content: &str) -> Self {
-        // Note we can't use self.span.truncate() because it assumes the span is absolute, but
-        // actually how the span splits depends on the tag (and some other stuff).
-        // let (a, b) = TimeSpanRev::split_op_span(self.span, self.tag, at);
-        // self.span.span = a;
-        let span = self.span.truncate_tagged_span(self.tag, at);
-
-        let content_pos = if let Some(p) = &mut self.content_pos {
-            let byte_offset = chars_to_bytes(&content[p.start..p.end], at);
-            Some(p.truncate(byte_offset))
-        } else { None };
-
-        OperationInternal {
-            span,
-            tag: self.tag,
-            content_pos,
-        }
-    }
-
-    #[inline]
-    pub(crate) fn truncate_keeping_right(&mut self, at: usize, content: &str) -> Self {
-        let mut other = self.clone();
-        *self = other.truncate(at, content);
-        other
-    }
-
-    #[allow(unused)]
     pub(crate) fn get_content<'a>(&self, oplog: &'a OpLog) -> Option<&'a str> {
         self.content_pos.map(|span| {
-            let c = oplog.content_str(self.tag);
+            let c = oplog.operation_ctx.switch(self.tag);
             &c[span.start..span.end]
         })
     }
 
-    #[allow(unused)]
     pub(crate) fn to_operation(&self, oplog: &OpLog) -> Operation {
         let content = self.get_content(oplog);
         (self, content).into()
@@ -97,14 +67,67 @@ impl HasLength for OperationInternal {
     }
 }
 
-impl SplitableSpan for OperationInternal {
-    fn truncate(&mut self, at: usize) -> Self {
+#[derive(Debug, Clone)]
+pub(crate) struct OperationCtx {
+    pub ins_content: String,
+    pub del_content: String,
+}
+
+impl OperationCtx {
+    pub fn new() -> Self {
         Self {
-            span: self.span.truncate_tagged_span(self.tag, at),
-            tag: self.tag,
-            content_pos: self.content_pos.truncate(at)
+            ins_content: String::new(),
+            del_content: String::new()
         }
     }
+
+    pub(crate) fn switch(&self, tag: InsDelTag) -> &str {
+        switch(tag, self.ins_content.as_str(), self.del_content.as_str())
+    }
+}
+
+impl SplitableSpanCtx for OperationInternal {
+    type Ctx = OperationCtx;
+
+    // Note we can't implement SplitableSpan because we can't adjust content_pos correctly without
+    // reference to the contained data.
+    fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+        debug_assert!(self.span.span.start + at <= self.span.span.end);
+
+        // Note we can't use self.span.truncate() because it assumes the span is absolute, but
+        // actually how the span splits depends on the tag (and some other stuff).
+        // let (a, b) = TimeSpanRev::split_op_span(self.span, self.tag, at);
+        // self.span.span = a;
+        let span = self.span.truncate_tagged_span(self.tag, at);
+
+        let content_pos = if let Some(p) = &mut self.content_pos {
+            let content = switch(self.tag, &ctx.ins_content, &ctx.del_content);
+            let byte_offset = chars_to_bytes(&content[p.start..p.end], at);
+            Some(p.truncate(byte_offset))
+        } else { None };
+
+        OperationInternal {
+            span,
+            tag: self.tag,
+            content_pos,
+        }
+    }
+
+    #[inline]
+    fn truncate_keeping_right_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+        let mut other = self.clone();
+        *self = other.truncate_ctx(at, ctx);
+        other
+    }
+
+    // fn truncate(&mut self, at: usize) -> Self {
+    //     // panic!("This is")
+    //     Self {
+    //         span: self.span.truncate_tagged_span(self.tag, at),
+    //         tag: self.tag,
+    //         content_pos: self.content_pos.truncate(at)
+    //     }
+    // }
 }
 
 impl TimeSpanRev {
@@ -225,18 +248,31 @@ impl MergableSpan for OperationInternal {
 
 #[cfg(test)]
 mod test {
-    use rle::{SplitableSpan, test_splitable_methods_valid};
-    use crate::list::internal_op::OperationInternal;
+    use rle::{SplitableSpanCtx, test_splitable_methods_valid_ctx};
+    use crate::list::internal_op::{OperationCtx, OperationInternal};
     use crate::list::operation::InsDelTag;
     use crate::localtime::TimeSpan;
     use crate::rev_span::TimeSpanRev;
 
     #[test]
     fn internal_op_splitable() {
-        test_splitable_methods_valid(OperationInternal {
+        test_splitable_methods_valid_ctx(OperationInternal {
             span: (10..20).into(),
             tag: InsDelTag::Ins,
-            content_pos: Some((1000..1010).into()),
+            content_pos: Some((0..10).into()),
+        }, &OperationCtx {
+            ins_content: "0123456789".to_string(),
+            del_content: "".to_string()
+        });
+
+        let s2 = "↯1↯3↯5↯7↯9";
+        test_splitable_methods_valid_ctx(OperationInternal {
+            span: (10..20).into(),
+            tag: InsDelTag::Ins,
+            content_pos: Some((0..s2.len()).into()),
+        }, &OperationCtx {
+            ins_content: s2.to_string(), // too easy? Maybe..
+            del_content: "".to_string()
         });
 
         // I can't test the other splitablespan variants like this because they don't support
@@ -253,7 +289,10 @@ mod test {
         };
 
         // let rem = op.truncate(2, "abcde");
-        let rem = SplitableSpan::truncate(&mut op, 2);
+        let rem = op.truncate_ctx(2, &OperationCtx {
+            ins_content: "".to_string(),
+            del_content: "abcde".to_string()
+        });
 
         assert_eq!(op, OperationInternal {
             span: (10..12).into(),
@@ -268,6 +307,33 @@ mod test {
         });
 
         dbg!(op, rem);
+    }
+
+    #[test]
+    fn split_around_unicode() {
+        // The ¥ symbol is a 2-byte encoding. And ↯ is 3 bytes.
+        let ctx = OperationCtx {
+            ins_content: "¥123↯".to_string(),
+            del_content: "¥123↯".to_string()
+        };
+
+        let op = OperationInternal {
+            span: (10..15).into(),
+            tag: InsDelTag::Ins,
+            content_pos: Some((0..ctx.ins_content.len()).into())
+        };
+
+        let (a, b) = op.split_ctx(1, &ctx);
+        assert_eq!(a, OperationInternal {
+            span: (10..11).into(),
+            tag: InsDelTag::Ins,
+            content_pos: Some((0..2).into())
+        });
+        assert_eq!(b, OperationInternal {
+            span: (11..15).into(),
+            tag: InsDelTag::Ins,
+            content_pos: Some((2..ctx.ins_content.len()).into())
+        });
     }
 
     #[test]

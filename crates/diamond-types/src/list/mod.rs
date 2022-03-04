@@ -11,7 +11,7 @@ use smartstring::alias::String as SmartString;
 
 use crate::list::operation::InsDelTag;
 use crate::list::history::History;
-use crate::list::internal_op::OperationInternal;
+use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::localtime::TimeSpan;
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
@@ -40,6 +40,7 @@ mod oplog_merge_fuzzer;
 
 #[cfg(feature = "serde")]
 mod serde;
+mod buffered_iter;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
 // systems.
@@ -106,8 +107,7 @@ pub struct OpLog {
 
     /// This contains all content ever inserted into the document, in time order (not document
     /// order). This object is indexed by the operation set.
-    ins_content: String,
-    del_content: String,
+    operation_ctx: OperationCtx,
     // TODO: Replace me with a compact form of this data.
     operations: RleVec<KVPair<OperationInternal>>,
 

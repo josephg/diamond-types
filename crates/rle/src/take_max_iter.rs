@@ -1,12 +1,12 @@
 //! This file implements an iterator which can take up to n items at a time from a splitablespan
 //! iterator.
 
-use crate::{HasLength, SplitableSpan};
+use crate::{HasLength, SplitableSpanCtx};
 
 #[derive(Debug, Clone, Default)]
-pub struct Rem<T: SplitableSpan + HasLength>(Option<T>);
+pub struct Rem<T: SplitableSpanCtx + HasLength>(Option<T>);
 
-impl<T: SplitableSpan + HasLength> Rem<T> {
+impl<T: SplitableSpanCtx + HasLength> Rem<T> {
     pub fn new() -> Self {
         Self(None)
     }
@@ -17,17 +17,17 @@ impl<T: SplitableSpan + HasLength> Rem<T> {
         }
     }
 
-    fn take_max_primed(&mut self, max_size: usize) -> T {
+    fn take_max_primed(&mut self, max_size: usize, ctx: &T::Ctx) -> T {
         let mut r = self.0.take().unwrap();
 
         if r.len() > max_size {
-            self.0 = Some(r.truncate(max_size));
+            self.0 = Some(r.truncate_ctx(max_size, ctx));
         }
 
         r
     }
 
-    pub fn take_max_opt<F: FnOnce() -> Option<T>>(&mut self, max_size: usize, f: F) -> Option<T> {
+    pub fn take_max_opt<F: FnOnce() -> Option<T>>(&mut self, max_size: usize, f: F, ctx: &T::Ctx) -> Option<T> {
         let mut chunk = if let Some(r) = self.0.take() {
             r
         } else {
@@ -35,14 +35,14 @@ impl<T: SplitableSpan + HasLength> Rem<T> {
         };
 
         if chunk.len() > max_size {
-            let new_remainder = chunk.truncate(max_size);
+            let new_remainder = chunk.truncate_ctx(max_size, ctx);
             self.0 = Some(new_remainder);
         }
 
         Some(chunk)
     }
 
-    pub fn take_max_result<E, F: FnOnce() -> Result<T, E>>(&mut self, max_size: usize, f: F) -> Result<T, E> {
+    pub fn take_max_result<E, F: FnOnce() -> Result<T, E>>(&mut self, max_size: usize, f: F, ctx: &T::Ctx) -> Result<T, E> {
         let mut chunk = if let Some(r) = self.0.take() {
             r
         } else {
@@ -50,7 +50,7 @@ impl<T: SplitableSpan + HasLength> Rem<T> {
         };
 
         if chunk.len() > max_size {
-            let new_remainder = chunk.truncate(max_size);
+            let new_remainder = chunk.truncate_ctx(max_size, ctx);
             self.0 = Some(new_remainder);
         }
 
@@ -60,14 +60,14 @@ impl<T: SplitableSpan + HasLength> Rem<T> {
 
 #[derive(Clone, Debug)]
 pub struct TakeMaxIter<Iter, Item>
-    where Iter: Iterator<Item = Item>, Item: SplitableSpan + HasLength
+    where Iter: Iterator<Item = Item>, Item: SplitableSpanCtx + HasLength
 {
     iter: Iter,
     remainder: Rem<Item>
 }
 
 impl<Iter, Item> TakeMaxIter<Iter, Item>
-    where Iter: Iterator<Item = Item>, Item: SplitableSpan + HasLength
+    where Iter: Iterator<Item = Item>, Item: SplitableSpanCtx + HasLength
 {
     pub fn new(iter: Iter) -> Self {
         Self {
@@ -77,8 +77,8 @@ impl<Iter, Item> TakeMaxIter<Iter, Item>
     }
 
     #[inline]
-    pub fn next(&mut self, max_size: usize) -> Option<Item> {
-        self.remainder.take_max_opt(max_size, || self.iter.next())
+    pub fn next_ctx(&mut self, max_size: usize, ctx: &Item::Ctx) -> Option<Item> {
+        self.remainder.take_max_opt(max_size, || self.iter.next(), ctx)
     }
 
     /// Peek at the next item to be returned. Note this takes a &mut self because it may consume
@@ -90,8 +90,8 @@ impl<Iter, Item> TakeMaxIter<Iter, Item>
 
     // <Iter, Item> TakeMaxIter<Iter, Item>
     // where Iter: Iterator<Item = Item>, Item: SplitableSpan + HasLength
-    pub fn zip_next<Iter2, Item2>(a: &mut Self, b: &mut TakeMaxIter<Iter2, Item2>, max_size: usize) -> Option<(Item, Item2)>
-        where Iter2: Iterator<Item = Item2>, Item2: SplitableSpan + HasLength
+    pub fn zip_next<Iter2, Item2>(a: &mut Self, b: &mut TakeMaxIter<Iter2, Item2>, max_size: usize, ctx1: &Item::Ctx, ctx2: &Item2::Ctx) -> Option<(Item, Item2)>
+        where Iter2: Iterator<Item = Item2>, Item2: SplitableSpanCtx + HasLength
     {
         a.remainder.prime(|| a.iter.next());
         b.remainder.prime(|| b.iter.next());
@@ -106,11 +106,20 @@ impl<Iter, Item> TakeMaxIter<Iter, Item>
                 let take_here = max_size.min(len1).min(len2);
 
                 Some((
-                    a.remainder.take_max_primed(take_here),
-                    b.remainder.take_max_primed(take_here)
+                    a.remainder.take_max_primed(take_here, ctx1),
+                    b.remainder.take_max_primed(take_here, ctx2)
                 ))
             }
         }
+    }
+}
+
+impl<Iter, Item> TakeMaxIter<Iter, Item>
+    where Iter: Iterator<Item = Item>, Item: SplitableSpanCtx<Ctx=()> + HasLength
+{
+    #[inline]
+    pub fn next(&mut self, max_size: usize) -> Option<Item> {
+        self.remainder.take_max_opt(max_size, || self.iter.next(), &())
     }
 }
 
@@ -125,7 +134,7 @@ impl<Iter, Item> TakeMaxIter<Iter, Item>
 // }
 
 pub trait TakeMaxFns<I>
-    where Self: Iterator<Item = I> + Sized, I: SplitableSpan + HasLength
+    where Self: Iterator<Item = I> + Sized, I: SplitableSpanCtx + HasLength
 {
     fn take_max(self) -> TakeMaxIter<Self, I> {
         TakeMaxIter::new(self)
@@ -133,7 +142,7 @@ pub trait TakeMaxFns<I>
 }
 
 impl<Iter, Item> TakeMaxFns<Item> for Iter
-    where Iter: Iterator<Item = Item>, Item: SplitableSpan + HasLength {}
+    where Iter: Iterator<Item = Item>, Item: SplitableSpanCtx + HasLength {}
 
 #[cfg(test)]
 mod tests {
@@ -146,7 +155,7 @@ mod tests {
 
         let mut out = Vec::new();
         let mut iter = items.into_iter().take_max();
-        while let Some(v) = iter.next(3) {
+        while let Some(v) = iter.next(3, &()) {
             out.push(v);
         }
 

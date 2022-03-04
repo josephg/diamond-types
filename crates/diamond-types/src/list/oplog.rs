@@ -5,9 +5,8 @@ use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::list::{Branch, ClientData, OpLog, switch, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
-use crate::list::internal_op::OperationInternal;
+use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::{InsDelTag, Operation};
-use crate::list::operation::InsDelTag::Ins;
 use crate::localtime::TimeSpan;
 use crate::remotespan::*;
 use crate::rev_span::TimeSpanRev;
@@ -58,8 +57,7 @@ impl OpLog {
         Self {
             client_with_localtime: RleVec::new(),
             client_data: vec![],
-            ins_content: String::new(),
-            del_content: String::new(),
+            operation_ctx: OperationCtx::new(),
             operations: Default::default(),
             // inserted_content: "".to_string(),
             history: Default::default(),
@@ -307,7 +305,7 @@ impl OpLog {
         // next_time should almost always be self.len - except when loading, or modifying the data
         // in some complex way.
         let content_pos = if let Some(c) = content {
-            let storage = if tag == Ins { &mut self.ins_content } else { &mut self.del_content };
+            let storage = switch(tag, &mut self.operation_ctx.ins_content, &mut self.operation_ctx.del_content);
             let start = storage.len();
             storage.push_str(c);
             Some((start..start + c.len()).into())
@@ -416,16 +414,16 @@ impl OpLog {
         &self.frontier
     }
 
-    pub(crate) fn content_str(&self, tag: InsDelTag) -> &str {
-        switch(tag, &self.ins_content, &self.del_content)
-    }
+    // pub(crate) fn content_str(&self, tag: InsDelTag) -> &str {
+    //     switch(tag, &self.ins_content, &self.del_content)
+    // }
 
     pub fn iter_mappings(&self) -> impl Iterator<Item = CRDTSpan> + '_ {
         self.client_with_localtime.iter().map(|item| item.1)
     }
 
     pub fn iter_mappings_range(&self, range: TimeSpan) -> impl Iterator<Item = CRDTSpan> + '_ {
-        self.client_with_localtime.iter_range_packed(range).map(|item| item.1)
+        self.client_with_localtime.iter_range_packed_ctx(range, &()).map(|item| item.1)
     }
 
     pub fn print_stats(&self, detailed: bool) {
@@ -453,8 +451,8 @@ impl OpLog {
         println!("ins: singles {}, fwd {}, rev {}", i_1, i_n, i_r);
         println!("del: singles {}, fwd {}, rev {}", d_1, d_n, d_r);
 
-        println!("Insert content length {}", self.ins_content.len());
-        println!("Delete content length {}", self.del_content.len());
+        println!("Insert content length {}", self.operation_ctx.ins_content.len());
+        println!("Delete content length {}", self.operation_ctx.del_content.len());
 
         self.client_with_localtime.print_stats("Client localtime map", detailed);
         self.history.entries.print_stats("History", detailed);

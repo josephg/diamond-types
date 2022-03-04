@@ -1,8 +1,7 @@
 use smallvec::SmallVec;
-use rle::HasLength;
-use crate::list;
-use crate::list::internal_op::OperationInternal;
-use crate::list::{OpLog, switch, Time};
+use rle::{HasLength, SplitableSpanCtx};
+use crate::list::internal_op::{OperationCtx, OperationInternal};
+use crate::list::{OpLog, Time};
 use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 use crate::rle::{KVPair, RleVec};
@@ -10,8 +9,7 @@ use crate::rle::{KVPair, RleVec};
 #[derive(Debug)]
 pub(crate) struct OpMetricsIter<'a> {
     list: &'a RleVec<KVPair<OperationInternal>>,
-    ins_content: &'a str,
-    del_content: &'a str,
+    pub(crate) ctx: &'a OperationCtx,
 
     idx: usize,
     range: TimeSpan,
@@ -30,13 +28,12 @@ impl<'a> Iterator for OpMetricsIter<'a> {
         let KVPair(mut time, mut c) = self.list[self.idx].clone();
         if time >= self.range.end { return None; }
 
-        let content = list::switch(c.tag, self.ins_content, self.del_content);
         if time + c.len() > self.range.end {
-            c.truncate(self.range.end - time, content);
+            c.truncate_ctx(self.range.end - time, self.ctx);
         }
 
         if time < self.range.start {
-            c.truncate_keeping_right(self.range.start - time, content);
+            c.truncate_keeping_right_ctx(self.range.start - time, self.ctx);
             time = self.range.start;
         }
 
@@ -56,11 +53,10 @@ impl<'a> Iterator for OpIterFast<'a> {
 }
 
 impl<'a> OpMetricsIter<'a> {
-    fn new(list: &'a RleVec<KVPair<OperationInternal>>, ins_content: &'a str, del_content: &'a str, range: TimeSpan) -> Self {
+    fn new(list: &'a RleVec<KVPair<OperationInternal>>, ctx: &'a OperationCtx, range: TimeSpan) -> Self {
         let mut iter = OpMetricsIter {
             list,
-            ins_content,
-            del_content,
+            ctx,
             idx: 0,
             range
         };
@@ -73,13 +69,14 @@ impl<'a> OpMetricsIter<'a> {
         self.idx = if range.is_empty() { 0 } else { self.list.find_index(range.start).unwrap() };
     }
 
+    #[allow(unused)]
     pub(crate) fn is_empty(&self) -> bool {
         self.idx >= self.list.0.len() || self.range.is_empty()
     }
 
     pub(crate) fn get_content(&self, metrics: &KVPair<OperationInternal>) -> Option<&'a str> {
         metrics.1.content_pos.map(|pos| {
-            let c = switch(metrics.1.tag, self.ins_content, self.del_content);
+            let c = self.ctx.switch(metrics.1.tag);
             &c[pos.start..pos.end]
         })
     }
@@ -87,7 +84,7 @@ impl<'a> OpMetricsIter<'a> {
 
 impl<'a> OpIterFast<'a> {
     fn new(oplog: &'a OpLog, range: TimeSpan) -> Self {
-        Self(OpMetricsIter::new(&oplog.operations, &oplog.ins_content, &oplog.del_content, range))
+        Self(OpMetricsIter::new(&oplog.operations, &oplog.operation_ctx, range))
     }
 }
 
@@ -132,7 +129,7 @@ impl OpLog {
     // TODO: Consider removing these functions if they're never used.
     #[allow(unused)]
     pub(crate) fn iter_metrics_range(&self, range: TimeSpan) -> OpMetricsIter {
-        OpMetricsIter::new(&self.operations, &self.ins_content, &self.del_content, range)
+        OpMetricsIter::new(&self.operations, &self.operation_ctx, range)
     }
 
     #[allow(unused)]
@@ -183,18 +180,20 @@ mod test {
             content_pos: None,
         }));
 
-        let ins_content = "0123456789";
-        let del_content = "";
+        let ctx = OperationCtx {
+            ins_content: "0123456789".to_string(),
+            del_content: "".to_string()
+        };
 
-        assert_eq!(OpMetricsIter::new(&ops, ins_content, del_content, (0..30).into()).collect::<Vec<_>>(), ops.0.as_slice());
+        assert_eq!(OpMetricsIter::new(&ops, &ctx, (0..30).into()).collect::<Vec<_>>(), ops.0.as_slice());
         
-        assert_eq!(OpMetricsIter::new(&ops, ins_content, del_content, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, OperationInternal {
+        assert_eq!(OpMetricsIter::new(&ops, &ctx, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, OperationInternal {
             span: (101..105).into(),
             tag: Ins,
             content_pos: Some((1..5).into()),
         })]);
 
-        assert_eq!(OpMetricsIter::new(&ops, ins_content, del_content, (6..16).into()).collect::<Vec<_>>(), &[
+        assert_eq!(OpMetricsIter::new(&ops, &ctx, (6..16).into()).collect::<Vec<_>>(), &[
             KVPair(6, OperationInternal {
                 span: (106..110).into(),
                 tag: Ins,

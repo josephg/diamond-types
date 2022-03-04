@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 
-use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
+use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanCtx};
 pub use rle_vec::RleVec;
 use crate::localtime::{debug_time_raw, TimeSpan};
 
@@ -23,19 +23,29 @@ pub trait RleSpanHelpers: RleKeyed + HasLength {
 
 impl<V: RleKeyed + HasLength> RleSpanHelpers for V {}
 
-pub trait RleKeyedAndSplitable: RleKeyed + SplitableSpan {
+pub trait RleKeyedAndSplitable: RleKeyed + SplitableSpanCtx {
     #[inline(always)]
-    fn truncate_from(&mut self, at: usize) -> Self {
+    fn truncate_from_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+        self.truncate_ctx(at - self.rle_key(), ctx)
+    }
+
+    #[inline(always)]
+    fn truncate_keeping_right_from_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+        self.truncate_keeping_right_ctx(at - self.rle_key(), ctx)
+    }
+
+    #[inline(always)]
+    fn truncate_from(&mut self, at: usize) -> Self where Self: SplitableSpan {
         self.truncate(at - self.rle_key())
     }
 
     #[inline(always)]
-    fn truncate_keeping_right_from(&mut self, at: usize) -> Self {
+    fn truncate_keeping_right_from(&mut self, at: usize) -> Self where Self: SplitableSpan {
         self.truncate_keeping_right(at - self.rle_key())
     }
 }
 
-impl<V: RleKeyed + SplitableSpan> RleKeyedAndSplitable for V {}
+impl<V: RleKeyed + SplitableSpanCtx> RleKeyedAndSplitable for V {}
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct KVPair<V>(pub usize, pub V);
@@ -60,22 +70,28 @@ impl<V: HasLength> HasLength for KVPair<V> {
     fn len(&self) -> usize { self.1.len() }
 }
 
-impl<V: SplitableSpan> SplitableSpan for KVPair<V> {
-    fn truncate(&mut self, at: usize) -> Self {
-        // debug_assert!(at > 0);
-        // debug_assert!(at < self.1.len());
+impl<V: SplitableSpanCtx> SplitableSpanCtx for KVPair<V> {
+    type Ctx = V::Ctx;
 
-        let remainder = self.1.truncate(at);
+    #[inline]
+    fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+        // debug_assert!(at > 0);
+        // debug_assert!(at <= self.len());
+
+        let remainder = self.1.truncate_ctx(at, ctx);
         KVPair(self.0 + at, remainder)
     }
 
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+    #[inline]
+    fn truncate_keeping_right_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+        // debug_assert!(at <= self.len());
         let old_key = self.0;
         self.0 += at;
-        let trimmed = self.1.truncate_keeping_right(at);
+        let trimmed = self.1.truncate_keeping_right_ctx(at, ctx);
         KVPair(old_key, trimmed)
     }
 }
+
 impl<V: MergableSpan + HasLength> MergableSpan for KVPair<V> {
     fn can_append(&self, other: &Self) -> bool {
         other.0 == self.end() && self.1.can_append(&other.1)

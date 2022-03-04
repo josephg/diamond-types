@@ -6,11 +6,21 @@ use rle::zip::{rle_zip, rle_zip3};
 use crate::AgentId;
 use crate::list::{Branch, ListCRDT, OpLog, Time};
 
+const UCHARS: [char; 23] = [
+    'a', 'b', 'c', '1', '2', '3', ' ', '\n', // ASCII
+    '©', '¥', '½', // The Latin-1 suppliment (U+80 - U+ff)
+    'Ύ', 'Δ', 'δ', 'Ϡ', // Greek (U+0370 - U+03FF)
+    '←', '↯', '↻', '⇈', // Arrows (U+2190 – U+21FF)
+    '𐆐', '𐆔', '𐆘', '𐆚', // Ancient roman symbols (U+10190 – U+101CF)
+];
+
 pub(crate) fn random_str(len: usize, rng: &mut SmallRng) -> String {
     let mut str = String::new();
-    let alphabet: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars().collect();
+    // let alphabet: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars().collect();
+
     for _ in 0..len {
-        str.push(alphabet[rng.gen_range(0..alphabet.len())]);
+        // str.push(alphabet[rng.gen_range(0..alphabet.len())]);
+        str.push(UCHARS[rng.gen_range(0..UCHARS.len())]);
     }
     str
 }

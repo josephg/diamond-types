@@ -88,10 +88,10 @@ impl PartialEq<Self> for OpLog {
 
         // Note this should be optimized if its going to be used for more than fuzz testing.
         // But this is pretty neat!
-        for (mut op, mut txn, KVPair(_, mut crdt_id)) in rle_zip3(
+        for (mut op, mut txn, mut crdt_id) in rle_zip3(
             self.iter(),
             self.iter_history(),
-            self.client_with_localtime.iter().cloned()
+            self.client_with_localtime.iter().map(|pair| pair.1.clone())
         ) {
 
             // println!("op {:?} txn {:?} crdt {:?}", op, txn, crdt_id);
