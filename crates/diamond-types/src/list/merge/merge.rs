@@ -285,7 +285,7 @@ impl M2Tracker {
         let mut op_pair = op_pair.clone();
 
         loop {
-            let (len_here, transformed_pos) = self.apply(oplog, agent, &op_pair);
+            let (len_here, transformed_pos) = self.apply(oplog, agent, &op_pair, usize::MAX);
 
             let remainder = op_pair.trim_ctx(len_here, &oplog.operation_ctx);
 
@@ -344,9 +344,10 @@ impl M2Tracker {
     /// | NotInsYet | Before     | After       |
     /// | Inserted  | After      | Before      |
     /// | Deleted   | Before     | Before      |
-    fn apply(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>) -> (usize, TransformedResult) {
+    fn apply(&mut self, oplog: &OpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, max_len: usize) -> (usize, TransformedResult) {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
+        let len = max_len.min(op_pair.len());
         let op = &op_pair.1;
 
         // dbg!(op);
@@ -395,7 +396,9 @@ impl M2Tracker {
 
                 // let origin_right = cursor.get_item().unwrap_or(ROOT_TIME);
 
-                let time_span = op_pair.span();
+                let mut time_span = op_pair.span();
+                time_span.trim(len);
+
                 let item = YjsSpan {
                     id: time_span,
                     origin_left,
@@ -411,10 +414,11 @@ impl M2Tracker {
                 // self.range_tree.check();
                 // self.check_index();
 
-                let mut result = op.clone();
-                result.span.span.start = ins_pos;
+                // let mut result = op.clone();
+                // result.span.span.start = ins_pos;
 
-                (time_span.len(), BaseMoved(ins_pos))
+                // let consumed_len =
+                (len, BaseMoved(ins_pos))
             }
 
             InsDelTag::Del => {
@@ -429,7 +433,7 @@ impl M2Tracker {
                 let (mut cursor, len) = if fwd {
                     let start_pos = op.start();
                     let cursor = self.range_tree.mut_cursor_at_content_pos(start_pos, false);
-                    (cursor, op.len())
+                    (cursor, len)
                 } else {
                     // We're moving backwards. We need to delete as many items as we can before the
                     // end of the op.
@@ -438,8 +442,10 @@ impl M2Tracker {
                     let mut cursor = self.range_tree.mut_cursor_at_content_pos(last_pos, false);
 
                     let entry_origin_start = last_pos - cursor.offset;
-                    let edit_start = entry_origin_start.max(op.start());
+                    // let edit_start = entry_origin_start.max(op.start());
+                    let edit_start = entry_origin_start.max(op.end() - len);
                     let len = op.end() - edit_start;
+                    debug_assert!(len <= max_len);
                     cursor.offset -= len - 1;
 
                     (cursor, len)
@@ -603,6 +609,10 @@ impl<'a> TransformedOpsIter<'a> {
             phase2: None,
         }
     }
+
+    pub(crate) fn into_frontier(self) -> Frontier {
+        self.next_frontier
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -614,7 +624,7 @@ enum TransformedResult {
 type TransformedTriple = (Time, OperationInternal, TransformedResult);
 
 impl TransformedResult {
-    fn notMoved(op_pair: KVPair<OperationInternal>) -> TransformedTriple {
+    fn not_moved(op_pair: KVPair<OperationInternal>) -> TransformedTriple {
         let start = op_pair.1.start();
         (op_pair.0, op_pair.1, TransformedResult::BaseMoved(start))
     }
@@ -636,7 +646,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 if let Some(result) = iter.next() {
                     // Could ditch the iterator if its empty now...
                     // return result;
-                    return Some(TransformedResult::notMoved(result));
+                    return Some(TransformedResult::not_moved(result));
                 } else {
                     self.op_iter = None;
                     // This is needed because we could be sitting on an empty op_iter.
@@ -675,7 +685,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 // assert!(result.is_some());
 
                 self.op_iter = Some(iter.into());
-                return Some(TransformedResult::notMoved(result));
+                return Some(TransformedResult::not_moved(result));
             } else {
                 self.ff_mode = false;
                 if self.did_ff {
@@ -755,25 +765,21 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
 
         // Ok, try to consume as much as we can from pair.
         let span = self.oplog.get_crdt_span(pair.span());
-        let len = span.len();
+        let len = span.len().min(pair.len());
 
-        // let (consumed_here, result) = tracker.apply(&self.oplog, span.agent, &pair, span.len());
-        let (consumed_here, result) = tracker.apply(&self.oplog, span.agent, &pair);
+        let (consumed_here, xf_result) = tracker.apply(&self.oplog, span.agent, &pair, len);
 
         let remainder = pair.trim_ctx(consumed_here, &self.oplog.operation_ctx);
 
-        // let content = iter.get_content(&pair);
-        //
-        // self.apply_to(oplog, span.agent, &pair, content, to.as_deref_mut().map(|b| &mut b.content));
-        // // self.apply_working(oplog, span.agent, &pair, content, to.as_deref_mut().map(|b| &mut b.content));
-        //
+        // (Time, OperationInternal, TransformedResult)
+        let result = (pair.0, pair.1, xf_result);
+
         if let Some(r) = remainder {
             op_iter.push_back(r);
         }
 
+        Some(result)
         // TODO: Also FF at the end!
-
-        todo!()
     }
 }
 
@@ -782,6 +788,34 @@ impl Branch {
     ///
     /// Reexposed as merge_changes.
     pub fn merge(&mut self, oplog: &OpLog, merge_frontier: &[Time]) {
+        let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
+
+        for (_time, origin_op, xf) in &mut iter {
+            match (origin_op.tag, xf) {
+                (InsDelTag::Ins, BaseMoved(pos)) => {
+                    // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
+                    debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
+                    let content = origin_op.get_content(oplog).unwrap();
+                    assert!(pos <= self.content.len_chars());
+                    self.content.insert(pos, content);
+                }
+
+                (_, DeleteAlreadyHappened) => {}, // Discard.
+
+                (InsDelTag::Del, BaseMoved(pos)) => {
+                    let del_end = pos + origin_op.len();
+                    debug_assert!(self.content.len_chars() >= del_end);
+                    // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
+                    self.content.remove(pos..del_end);
+                }
+            }
+        }
+
+        self.frontier = iter.into_frontier();
+    }
+
+    #[deprecated]
+    pub fn merge_old(&mut self, oplog: &OpLog, merge_frontier: &[Time]) {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
@@ -1040,7 +1074,7 @@ mod test {
         t.apply_range(&list.oplog, (0..3).into(), None);
         t.retreat_by_range((0..3).into());
         t.apply_range(&list.oplog, (3..6).into(), None);
-        dbg!(&t);
+        // dbg!(&t);
         // t.apply_range_at_version()
     }
 

@@ -153,6 +153,7 @@ impl<'a, T: SplitableSpanCtx + HasLength> HasLength for WithCtx<'a, T> {
 
 pub trait TrimCtx: SplitableSpanCtx + HasLength {
     /// Trim self to at most `at` items. Remainder (if any) is returned.
+    #[inline]
     fn trim_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Option<Self> {
         if at >= self.len() {
             None
@@ -165,6 +166,7 @@ pub trait TrimCtx: SplitableSpanCtx + HasLength {
 impl<T: SplitableSpanCtx + HasLength> TrimCtx for T {}
 
 pub trait Trim: SplitableSpan + HasLength {
+    #[inline]
     fn trim(&mut self, at: usize) -> Option<Self> {
         self.trim_ctx(at, &())
     }
