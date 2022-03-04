@@ -43,6 +43,7 @@ pub struct RemoteIdSpan {
 // remote id span -> timespan
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize), serde(crate="serde_crate"))]
 pub enum ConversionError {
     UnknownAgent,
     SeqInFuture,

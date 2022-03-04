@@ -51,7 +51,7 @@ impl Branch {
         }
     }
 
-    #[wasm_bindgen(js_name = getLocalFrontier)]
+    #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
         self.0.frontier.iter().copied().collect::<Box<[Time]>>()
     }
@@ -122,16 +122,23 @@ pub fn to_bytes(oplog: &DTOpLog) -> Vec<u8> {
     bytes
 }
 
-pub fn to_patch_since(oplog: &DTOpLog, from_version: &[usize]) -> Vec<u8> {
+pub fn get_patch_since(oplog: &DTOpLog, from_version: &[usize]) -> Vec<u8> {
     // let from_version = map_parents(&version);
     let bytes = oplog.encode_from(ENCODE_PATCH, &from_version);
     bytes
 }
 
-pub fn merge_bytes(oplog: &mut DTOpLog, bytes: &[u8]) {
+pub fn merge_bytes(oplog: &mut DTOpLog, bytes: &[u8]) -> WasmResult<()> {
     let result = oplog.merge_data(bytes);
     // TODO: Map this error correctly.
-    result.unwrap();
+    result.map_err(|e| {
+        // JsValue::
+        // serde_wasm_bindgen::Error::from()
+        // let x: JsValue = e.into();
+        let s = format!("Error merging {:?}", e);
+        let js: JsValue = s.into();
+        js.into()
+    })
     // result.map_err(|err| err.into())
 }
 
@@ -236,7 +243,7 @@ impl OpLog {
         to_txn_arr(&self.inner)
     }
 
-    #[wasm_bindgen(js_name = getLocalFrontier)]
+    #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
         get_local_frontier(&self.inner)
     }
@@ -262,9 +269,9 @@ impl OpLog {
         to_bytes(&self.inner)
     }
 
-    #[wasm_bindgen(js_name = toPatchSince)]
-    pub fn to_patch_since(&self, from_version: &[usize]) -> Vec<u8> {
-        to_patch_since(&self.inner, from_version)
+    #[wasm_bindgen(js_name = getPatchSince)]
+    pub fn get_patch_since(&self, from_version: &[usize]) -> Vec<u8> {
+        get_patch_since(&self.inner, from_version)
     }
 
     // This method adds 17kb to the wasm bundle, or 5kb after brotli.
@@ -280,7 +287,7 @@ impl OpLog {
     }
 
     #[wasm_bindgen(js_name = mergeBytes)]
-    pub fn merge_bytes(&mut self, bytes: &[u8]) {
+    pub fn merge_bytes(&mut self, bytes: &[u8]) -> WasmResult<()> {
         merge_bytes(&mut self.inner, bytes)
     }
 
@@ -346,6 +353,11 @@ impl Doc {
         self.inner.branch.merge(&self.inner.oplog, branch);
     }
 
+    #[wasm_bindgen(js_name = getPatchSince)]
+    pub fn get_patch_since(&self, from_version: &[usize]) -> Vec<u8> {
+        get_patch_since(&self.inner.oplog, from_version)
+    }
+
     // TODO: Do better error handling here.
     // pub fn from_bytes(bytes: &[u8], agent_name: Option<String>) -> WasmResult<Doc> {
     #[wasm_bindgen(js_name = fromBytes)]
@@ -364,8 +376,12 @@ impl Doc {
     }
 
     #[wasm_bindgen(js_name = mergeBytes)]
-    pub fn merge_bytes(&mut self, bytes: &[u8]) {
-        self.inner.merge_data_and_ff(bytes).unwrap()
+    pub fn merge_bytes(&mut self, bytes: &[u8]) -> WasmResult<()> {
+        self.inner.merge_data_and_ff(bytes).map_err(|e| {
+            let s = format!("Error merging {:?}", e);
+            let js: JsValue = s.into();
+            js.into()
+        })
     }
 
     // TODO: This is identical to get_ops_since in OpLog (above). Remove duplicate code here.
@@ -374,7 +390,7 @@ impl Doc {
         get_ops_since(&self.inner.oplog, frontier)
     }
 
-    #[wasm_bindgen(js_name = getLocalFrontier)]
+    #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
         get_local_frontier(&self.inner.oplog)
     }

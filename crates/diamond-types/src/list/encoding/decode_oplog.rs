@@ -195,7 +195,8 @@ impl<'a> BufReader<'a> {
         if len > self.0.len() { return Err(InvalidLength); }
 
         let bytes = self.next_n_bytes(len)?;
-        std::str::from_utf8(bytes).map_err(InvalidUTF8)
+        // std::str::from_utf8(bytes).map_err(InvalidUTF8)
+        std::str::from_utf8(bytes).map_err(|_| InvalidUTF8)
     }
 
     /// Read the next string thats encoded in this content chunk
@@ -209,7 +210,7 @@ impl<'a> BufReader<'a> {
         // if len > self.0.len() {
         //     return Err(InvalidLength);
         // }
-        std::str::from_utf8(&self.0).map_err(InvalidUTF8)
+        std::str::from_utf8(&self.0).map_err(|_| InvalidUTF8)
     }
 
     fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {

@@ -12,19 +12,23 @@ mod decode_oplog;
 #[cfg(test)]
 mod fuzzer;
 
-use std::fmt::Debug;
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::mem::{replace, size_of};
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::list::encoding::varint::*;
 use num_enum::TryFromPrimitive;
 pub use encode_oplog::{EncodeOptions, ENCODE_FULL, ENCODE_PATCH};
-use std::str::Utf8Error;
 use crate::list::remote_ids::ConversionError;
+
+#[cfg(feature = "serde")]
+use serde_crate::Serialize;
 
 const MAGIC_BYTES: [u8; 8] = *b"DMNDTYPS";
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize), serde(crate="serde_crate"))]
 pub enum ParseError {
     InvalidMagic,
     UnsupportedProtocolVersion,
@@ -41,7 +45,8 @@ pub enum ParseError {
     InvalidLength,
     UnexpectedEOF,
     // TODO: Consider elidiing the details here to keep the wasm binary small.
-    InvalidUTF8(Utf8Error),
+    // InvalidUTF8(Utf8Error),
+    InvalidUTF8,
     InvalidRemoteID(ConversionError),
     InvalidVarInt,
     InvalidContent,
@@ -53,6 +58,14 @@ pub enum ParseError {
     /// set of data, and load more as needed.
     DataMissing,
 }
+
+impl Display for ParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ParseError {:?}", self)
+    }
+}
+
+impl Error for ParseError {}
 
 const PROTOCOL_VERSION: usize = 0;
 
