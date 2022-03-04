@@ -2,6 +2,7 @@
 
 use std::env;
 use diamond_types::list::{OpLog, encoding::EncodeOptions};
+use diamond_types::ROOT_TIME;
 use rle::zip::rle_zip;
 
 fn print_stats_for_file(name: &str) {
@@ -24,6 +25,23 @@ fn print_stats_for_file(name: &str) {
     for m in oplog.iter_mappings() {
         println!("{:?} ('{}')", m, oplog.get_agent_name(m.agent));
     }
+
+    // println!("\nTransformed operations:");
+    // for (origin_op, (span, xf_op)) in rle_zip(oplog.iter(), oplog.get_all_transformed_operations()) {
+    //     if let Some(xf_op) = xf_op {
+    //         if origin_op.span != xf_op.span {
+    //             let amt = xf_op.start() as isize - origin_op.start() as isize;
+    //             println!("{:?} moved by {} ({:?} {:?})", span, amt, origin_op.tag, origin_op.content);
+    //             // println!("{:?} moved {:?} -> {:?} {:?} {:?}", span, origin_op.span, xf_op.span, origin_op.tag, origin_op.content);
+    //         }
+    //     } else {
+    //         println!("{:?} double deleted", span);
+    //     }
+    // }
+
+    // for (span, op) in oplog.get_all_transformed_operations() {
+    //     println!("{:?} {:?}", span, op);
+    // }
 
     // for c in oplog.
 

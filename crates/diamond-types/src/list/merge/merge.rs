@@ -11,7 +11,7 @@ use rle::{AppendRle, HasLength, Searchable, Trim, TrimCtx};
 use crate::list::{Frontier, Branch, OpLog, Time};
 use crate::list::merge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
-use crate::list::operation::InsDelTag;
+use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::{is_underwater, TimeSpan};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
@@ -538,7 +538,7 @@ impl M2Tracker {
 }
 
 #[derive(Debug)]
-struct TransformedOpsIter<'a> {
+pub(crate) struct TransformedOpsIter<'a> {
     oplog: &'a OpLog,
     op_iter: Option<BufferedIter<OpMetricsIter<'a>>>,
     ff_mode: bool,
@@ -616,7 +616,7 @@ impl<'a> TransformedOpsIter<'a> {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum TransformedResult {
+pub(crate) enum TransformedResult {
     BaseMoved(usize),
     DeleteAlreadyHappened,
 }
@@ -783,12 +783,39 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
     }
 }
 
+impl OpLog {
+    pub(crate) fn get_xf_operations_full(&self, from: &[Time], merging: &[Time]) -> TransformedOpsIter {
+        TransformedOpsIter::new(self, from, merging)
+    }
+
+    pub fn get_xf_operations(&self, from: &[Time], merging: &[Time]) -> impl Iterator<Item=(TimeSpan, Option<Operation>)> + '_ {
+        TransformedOpsIter::new(self, from, merging)
+            .map(|(time, mut origin_op, xf)| {
+                let len = origin_op.len();
+                let op: Option<Operation> = match xf {
+                    BaseMoved(base) => {
+                        origin_op.span.span = (base..base+len).into();
+                        let content = origin_op.get_content(self);
+                        Some((origin_op, content).into())
+                    }
+                    DeleteAlreadyHappened => None,
+                };
+                ((time..time+len).into(), op)
+            })
+    }
+
+    pub fn get_all_xf_operations(&self) -> impl Iterator<Item=(TimeSpan, Option<Operation>)> + '_ {
+        self.get_xf_operations(&[ROOT_TIME], &self.frontier)
+    }
+}
+
 impl Branch {
     /// Add everything in merge_frontier into the set.
     ///
     /// Reexposed as merge_changes.
     pub fn merge(&mut self, oplog: &OpLog, merge_frontier: &[Time]) {
-        let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
+        // let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
+        let mut iter = oplog.get_xf_operations_full(&self.frontier, merge_frontier);
 
         for (_time, origin_op, xf) in &mut iter {
             match (origin_op.tag, xf) {
