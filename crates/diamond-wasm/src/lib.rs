@@ -135,6 +135,14 @@ pub fn merge_bytes(oplog: &mut DTOpLog, bytes: &[u8]) {
     // result.map_err(|err| err.into())
 }
 
+pub fn xf_since(oplog: &DTOpLog, from_version: &[usize]) -> WasmResult {
+    let xf = oplog.get_xf_operations(from_version, &oplog.get_frontier())
+        .filter_map(|(_v, op)| op)
+        .collect::<Vec<_>>();
+
+    serde_wasm_bindgen::to_value(&xf)
+}
+
 #[wasm_bindgen]
 pub struct OpLog {
     inner: DTOpLog,
@@ -152,6 +160,11 @@ impl OpLog {
         let agent_id = inner.get_or_create_agent_id(name_str);
 
         Self { inner, agent_id }
+    }
+
+    #[wasm_bindgen(js_name = setAgent)]
+    pub fn set_agent(&mut self, agent: &str) {
+        self.agent_id = self.inner.get_or_create_agent_id(agent);
     }
 
     #[wasm_bindgen(js_name = clone)]
@@ -271,6 +284,16 @@ impl OpLog {
         merge_bytes(&mut self.inner, bytes)
     }
 
+    // pub fn xf_since(&self, from_version: &[usize]) -> WasmResult {
+    #[wasm_bindgen(js_name = getXF)]
+    pub fn get_xf(&self) -> WasmResult {
+        xf_since(&self.inner, &[ROOT_TIME])
+    }
+
+    #[wasm_bindgen(js_name = getXFSince)]
+    pub fn get_xf_since(&self, from_version: &[usize]) -> WasmResult {
+        xf_since(&self.inner, from_version)
+    }
 }
 
 #[wasm_bindgen]
@@ -356,6 +379,10 @@ impl Doc {
         get_local_frontier(&self.inner.oplog)
     }
 
+    #[wasm_bindgen(js_name = xfSince)]
+    pub fn xf_since(&self, from_version: &[usize]) -> WasmResult {
+        xf_since(&self.inner.oplog, from_version)
+    }
 
 
     // #[wasm_bindgen]

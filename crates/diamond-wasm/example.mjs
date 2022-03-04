@@ -46,6 +46,29 @@ const wasmReady = init(wasmModule)
 
   // console.log(new OpLog().toBytes())
 
+  console.log('\n\n')
+  let oplog3 = new OpLog()
+  oplog3.setAgent('a')
+  oplog3.ins(0, 'AAA', [-1])
+  oplog3.setAgent('b')
+  oplog3.ins(0, 'BBB', [-1])
+  console.log(oplog3.getOps())
+  // console.log(oplog3.getXFSince([-1]))
+  console.log(oplog3.getXF())
+
+  console.log('\n\n')
+  let oplog4 = new OpLog()
+  let t = oplog4.ins(0, 'aaa')
+  // And double delete
+  oplog4.setAgent('a')
+  oplog4.del(0, 2, [t])
+  oplog4.setAgent('b')
+  oplog4.del(1, 2, [t])
+  console.log(oplog4.getOps())
+  // console.log(oplog4.getXFSince([-1]))
+  console.log(oplog4.getXF())
+
+
 })()
 
 
