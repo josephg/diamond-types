@@ -18,20 +18,20 @@ impl<A, B> Default for Remainder<A, B> {
 ///
 /// The iterator ends at the min of A and B.
 #[derive(Clone, Debug)]
-pub struct RleZip<A, B, AIter, BIter>
-    where A: SplitableSpan + HasLength, B: SplitableSpan + HasLength,
-          AIter: Iterator<Item = A>, BIter: Iterator<Item = B>
+pub struct RleZip<A, B>
+    where A: Iterator, B: Iterator,
+          A::Item: SplitableSpan + HasLength, B::Item: SplitableSpan + HasLength,
 {
-    rem: Remainder<A, B>,
-    a: AIter,
-    b: BIter,
+    rem: Remainder<A::Item, B::Item>,
+    a: A,
+    b: B,
 }
 
-impl<A, B, AIter, BIter> Iterator for RleZip<A, B, AIter, BIter>
-    where A: SplitableSpan + HasLength, B: SplitableSpan + HasLength,
-          AIter: Iterator<Item = A>, BIter: Iterator<Item = B>
+impl<A, B> Iterator for RleZip<A, B>
+    where A: Iterator, B: Iterator,
+          A::Item: SplitableSpan + HasLength, B::Item: SplitableSpan + HasLength
 {
-    type Item = (A, B);
+    type Item = (A::Item, B::Item);
 
     fn next(&mut self) -> Option<Self::Item> {
         let (mut a, mut b) = match take(&mut self.rem) {
@@ -75,9 +75,9 @@ impl<A, B, AIter, BIter> Iterator for RleZip<A, B, AIter, BIter>
     }
 }
 
-pub fn rle_zip<A, B, AIter, BIter>(a: AIter, b: BIter) -> RleZip<A, B, AIter, BIter>
-    where A: SplitableSpan + HasLength, B: SplitableSpan + HasLength,
-        AIter: Iterator<Item = A>, BIter: Iterator<Item = B>
+pub fn rle_zip<A, B>(a: A, b: B) -> RleZip<A, B>
+    where A: Iterator, B: Iterator,
+          A::Item: SplitableSpan + HasLength, B::Item: SplitableSpan + HasLength
 {
     RleZip {
         rem: Remainder::Nothing,
@@ -86,9 +86,11 @@ pub fn rle_zip<A, B, AIter, BIter>(a: AIter, b: BIter) -> RleZip<A, B, AIter, BI
     }
 }
 
-pub fn rle_zip3<A, B, C, AIter, BIter, CIter>(a: AIter, b: BIter, c: CIter) -> impl Iterator<Item=(A, B, C)>
-    where A: SplitableSpan + HasLength, B: SplitableSpan + HasLength, C: SplitableSpan + HasLength,
-        AIter: Iterator<Item = A>, BIter: Iterator<Item = B>, CIter: Iterator<Item = C>
+pub fn rle_zip3<A, B, C>(a: A, b: B, c: C) -> impl Iterator<Item=(A::Item, B::Item, C::Item)>
+    where A: Iterator, B: Iterator, C: Iterator,
+          A::Item: SplitableSpan + HasLength,
+          B::Item: SplitableSpan + HasLength,
+          C::Item: SplitableSpan + HasLength,
 {
     rle_zip(rle_zip(a, b), c).map(|((a, b), c)| (a, b, c))
 }
