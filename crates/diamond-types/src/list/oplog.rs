@@ -290,12 +290,7 @@ impl OpLog {
 
     /// Advance self.frontier by the named span of time.
     pub(crate) fn advance_frontier(&mut self, parents: &[Time], span: TimeSpan) {
-        if parents.len() == 1 && self.frontier.len() == 1 && parents[0] == self.frontier[0] {
-            // Short circuit the common case where time is just advancing linearly.
-            self.frontier[0] = span.last();
-        } else {
-            advance_frontier_by_known_run(&mut self.frontier, parents, span);
-        }
+        advance_frontier_by_known_run(&mut self.frontier, parents, span);
     }
 
     /// Append to operations list without adjusting metadata.

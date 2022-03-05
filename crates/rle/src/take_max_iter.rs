@@ -155,7 +155,7 @@ mod tests {
 
         let mut out = Vec::new();
         let mut iter = items.into_iter().take_max();
-        while let Some(v) = iter.next(3, &()) {
+        while let Some(v) = iter.next(3) {
             out.push(v);
         }
 

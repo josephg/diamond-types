@@ -128,18 +128,15 @@ pub fn get_patch_since(oplog: &DTOpLog, from_version: &[usize]) -> Vec<u8> {
     bytes
 }
 
-pub fn merge_bytes(oplog: &mut DTOpLog, bytes: &[u8]) -> WasmResult<()> {
-    let result = oplog.merge_data(bytes);
-    // TODO: Map this error correctly.
-    result.map_err(|e| {
-        // JsValue::
-        // serde_wasm_bindgen::Error::from()
-        // let x: JsValue = e.into();
-        let s = format!("Error merging {:?}", e);
-        let js: JsValue = s.into();
-        js.into()
-    })
-    // result.map_err(|err| err.into())
+pub fn merge_bytes(oplog: &mut DTOpLog, bytes: &[u8]) -> WasmResult {
+    match oplog.merge_data(bytes) {
+        Ok(frontier) => serde_wasm_bindgen::to_value(&frontier),
+        Err(e) => {
+            let s = format!("Error merging {:?}", e);
+            let js: JsValue = s.into();
+            Err(js.into())
+        }
+    }
 }
 
 pub fn xf_since(oplog: &DTOpLog, from_version: &[usize]) -> WasmResult {
@@ -287,7 +284,7 @@ impl OpLog {
     }
 
     #[wasm_bindgen(js_name = mergeBytes)]
-    pub fn merge_bytes(&mut self, bytes: &[u8]) -> WasmResult<()> {
+    pub fn merge_bytes(&mut self, bytes: &[u8]) -> WasmResult {
         merge_bytes(&mut self.inner, bytes)
     }
 

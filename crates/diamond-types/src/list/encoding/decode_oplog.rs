@@ -2,7 +2,7 @@ use smallvec::SmallVec;
 use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
 use crate::list::{Frontier, OpLog, switch, Time};
-use crate::list::frontier::{frontier_eq, frontier_is_sorted};
+use crate::list::frontier::{advance_frontier_by_known_run, frontier_eq, frontier_is_sorted};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::rev_span::TimeSpanRev;
@@ -269,7 +269,8 @@ impl<'a> BufReader<'a> {
                 CRDTId { agent, seq }
             };
 
-            let time = oplog.crdt_id_to_time(id);
+            let time = oplog.try_crdt_id_to_time(id)
+                .ok_or_else(|| BaseVersionUnknown)?;
             result.push(time);
 
             if !has_more { break; }
@@ -436,11 +437,7 @@ fn history_entry_map_and_truncate(mut hist_entry: MinimalHistoryEntry, version_m
     let mut map_entry = map_entry.1;
     map_entry.truncate_keeping_right(offset);
 
-    let remainder = if hist_entry.len() > map_entry.len() {
-        Some(hist_entry.truncate(map_entry.len()))
-    } else {
-        None
-    };
+    let remainder = hist_entry.trim(map_entry.len());
 
     // Keep entire history entry. Just map it.
     let len = hist_entry.len(); // hist_entry <= map_entry here.
@@ -668,11 +665,15 @@ impl OpLog {
         Ok(oplog)
     }
 
-    pub fn merge_data(&mut self, data: &[u8]) -> Result<(), ParseError> {
+    pub fn merge_data(&mut self, data: &[u8]) -> Result<Frontier, ParseError> {
         self.merge_data_opts(data, DecodeOptions::default())
     }
 
-    pub fn merge_data_opts(&mut self, data: &[u8], opts: DecodeOptions) -> Result<(), ParseError> {
+    /// Merge data from a file / over the network into this document.
+    ///
+    /// If successful, returns the version of the loaded data (which could be different from the
+    /// local frontier!)
+    pub fn merge_data_opts(&mut self, data: &[u8], opts: DecodeOptions) -> Result<Frontier, ParseError> {
         // In order to merge data safely, when an error happens we need to unwind all the merged
         // operations before returning. Otherwise self is in an invalid state.
         //
@@ -786,7 +787,7 @@ impl OpLog {
     /// NOTE: This code is quite new.
     /// TODO: Currently if this method returns an error, the local state is undefined & invalid.
     /// Until this is fixed, the signature of the method will stay kinda weird to prevent misuse.
-    fn merge_data_internal(&mut self, data: &[u8], opts: DecodeOptions) -> Result<(), ParseError> {
+    fn merge_data_internal(&mut self, data: &[u8], opts: DecodeOptions) -> Result<Frontier, ParseError> {
         // Written to be symmetric with encode functions.
         let mut reader = BufReader(data);
 
@@ -841,7 +842,7 @@ impl OpLog {
         // dbg!(patches_overlap);
 
         // *** Patches ***
-        {
+        let file_frontier = {
             // This chunk contains the actual set of edits to the document.
             let mut patch_chunk = reader.expect_chunk(ChunkType::Patches)?;
 
@@ -858,25 +859,6 @@ impl OpLog {
                 }
             }
 
-            // if let Some(chunk) = patch_chunk.read_chunk(ChunkType::InsertedContent)? {
-            //     // let decompressed_len = content_chunk.next_usize()?;
-            //     // let decompressed_data = lz4_flex::decompress(content_chunk.0, decompressed_len).unwrap();
-            //     // let content = String::from_utf8(decompressed_data).unwrap();
-            //     //     // .map_err(InvalidUTF8)?;
-            //
-            //     let content = std::str::from_utf8(chunk.0).map_err(InvalidUTF8)?;
-            //     let len = count_chars(content);
-            //     ins_content = Some((content, len));
-            // }
-            //
-            // // TODO: DRY.
-            // if let Some(chunk) = patch_chunk.read_chunk(ChunkType::DeletedContent)? {
-            //     let content = std::str::from_utf8(chunk.0).map_err(InvalidUTF8)?;
-            //     let len = count_chars(content);
-            //
-            //     del_content = Some((content, len));
-            // }
-
             // So note that the file we're loading from may contain changes we already have locally.
             // We (may) need to filter out operations from the patch stream, which we read from
             // below. To do that without extra need to read both the agent assignments and patches together.
@@ -887,8 +869,6 @@ impl OpLog {
             // We need an insert ctx in some situations, though it'll never be accessed.
             let dummy_ctx = OperationCtx::new();
 
-            // let mut patches_iter = ReadPatchesIter::new(pos_patches_chunk)
-            //     .take_max();
             let mut patches_iter = ReadPatchesIter::new(pos_patches_chunk)
                 .buffered();
 
@@ -906,9 +886,15 @@ impl OpLog {
             // Mapping from "file order" (numbered from 0) to the resulting local order. Using a
             // smallvec here because it'll almost always just be a single entry, and that prevents
             // an allocation in the common case. This is needed for merging overlapped file data.
-            // let mut version_map: SmallVec<[KVPair<TimeSpan>; 1]> = SmallVec::new();
+            //
+            // If the data (key) overlaps, the value is the location in the document where the
+            // overlap happens.
+            //
+            // If the data does not overlap (so we're gonna merge & keep this data), this maps to
+            // the set of local version numbers which will be used for this data.
 
             // TODO: Replace with SmallVec to avoid an allocation in the common case here.
+            // let mut version_map: SmallVec<[KVPair<TimeSpan>; 1]> = SmallVec::new();
             let mut version_map = RleVec::new();
 
             // Take and merge the next exactly n patches
@@ -923,7 +909,7 @@ impl OpLog {
 
                         // Trim down the operation to size.
                         let content_here = if let Some(iter) = switch(op.tag, &mut ins_content, &mut del_content) {
-                            // There's probably a way to do this with helper magic but ?? idk.
+                            // There's probably a way to compact with Option helpers magic but ??
                             if let Some(content) = iter.next() {
                                 let mut content = content?;
                                 max_len = max_len.min(content.len);
@@ -1024,11 +1010,9 @@ impl OpLog {
                     // document, and this is the case.
                     self.assign_time_to_crdt_span(next_assignment_time, crdt_span);
                     let len = crdt_span.len();
+                    let timespan = (next_assignment_time..next_assignment_time+len).into();
                     // file_to_local_version_map.push_rle((next_assignment_time..next_assignment_time + len).into());
-                    version_map.push_rle(KVPair(
-                        next_file_time,
-                        (next_assignment_time..next_assignment_time + len).into(),
-                    ));
+                    version_map.push_rle(KVPair(next_file_time, timespan));
                     parse_next_patches(self, len, true)?;
                     // parse_next_history(&mut self, &file_to_self_agent_map, &version_map, len, true)?;
 
@@ -1040,6 +1024,8 @@ impl OpLog {
             next_file_time = new_op_start;
             // dbg!(&version_map);
             let mut next_history_time = first_new_time;
+
+            let mut file_frontier = Frontier::new();
 
             while !history_chunk.is_empty() {
                 let mut entry = history_chunk.next_history_entry(self, next_file_time, &agent_map)?;
@@ -1075,6 +1061,8 @@ impl OpLog {
 
                         self.insert_history(&mapped.parents, mapped.span);
                         self.advance_frontier(&mapped.parents, mapped.span);
+                        advance_frontier_by_known_run(&mut file_frontier, &mapped.parents, mapped.span);
+
                         next_history_time += mapped.len();
                     } // else we already have these entries. Filter them out.
 
@@ -1107,7 +1095,8 @@ impl OpLog {
             }
 
             // dbg!(&version_map);
-        } // End of patches
+            file_frontier
+        }; // End of patches
 
         // TODO: Move checksum check to the start, so if it fails we don't modify the document.
         let reader_len = reader.0.len();
@@ -1129,7 +1118,7 @@ impl OpLog {
 
         // self.frontier = end_frontier_chunk.read_full_frontier(&self)?;
 
-        Ok(())
+        Ok(file_frontier)
     }
 }
 
@@ -1192,12 +1181,16 @@ mod tests {
 
         doc.local_delete(1, 3, 4); // 'hi e'
         doc.local_insert(0, 3, "m");
+        let f2 = doc.oplog.frontier.clone();
 
         let data_2 = doc.oplog.encode_from(EncodeOptions::default(), &f1);
 
         let mut d2 = OpLog::new();
-        d2.merge_data(&data_1).unwrap();
-        d2.merge_data(&data_2).unwrap();
+        let m1 = d2.merge_data(&data_1).unwrap();
+        assert_eq!(m1, f1);
+        let m2 = d2.merge_data(&data_2).unwrap();
+        assert_eq!(m2, f2);
+        // dbg!(m1, m2);
 
         assert_eq!(&d2, &doc.oplog);
         // dbg!(&doc.ops, &d2);
@@ -1214,10 +1207,23 @@ mod tests {
 
         let mut log2 = OpLog::load_from(&data_1).unwrap();
         println!("\n------\n");
-        log2.merge_data(&data_2).unwrap();
+        let final_v = log2.merge_data(&data_2).unwrap();
         assert_eq!(&oplog, &log2);
+        assert_eq!(final_v, oplog.frontier);
     }
 
+    #[test]
+    fn merge_future_patch_errors() {
+        let oplog = simple_doc().oplog;
+        let v = oplog.frontier[0];
+        let bytes = oplog.encode_from(ENCODE_FULL, &[v-1]);
+
+        let err = OpLog::load_from(&bytes).unwrap_err();
+        assert_eq!(err, BaseVersionUnknown);
+    }
+
+    // This test is ignored because it errors (arguably correctly) when reading the base version at
+    // an unknown point in time. TODO: Rewrite this to make it work.
     #[test]
     #[ignore]
     fn merge_parts_2() {

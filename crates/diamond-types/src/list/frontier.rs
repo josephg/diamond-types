@@ -115,11 +115,10 @@ fn add_to_frontier(frontier: &mut Frontier, new_item: Time) {
     debug_assert_frontier_sorted(frontier.as_slice());
 }
 
-/// Advance branch frontier by a transaction. This is written creating a new branch, which is
-/// somewhat inefficient (especially if the frontier is spilled).
+/// Advance branch frontier by a transaction.
 ///
-/// This is ONLY VALID the range is entirely within a txn.
-pub(crate) fn advance_frontier_by_known_run(frontier: &mut Frontier, txn_parents: &[Time], range: TimeSpan) {
+/// This is ONLY VALID if the range is entirely within a txn.
+pub(crate) fn advance_frontier_by_known_run(frontier: &mut Frontier, parents: &[Time], span: TimeSpan) {
     // TODO: Check the branch contains everything in txn_parents, but not txn_id:
     // Check the operation fits. The operation should not be in the branch, but
     // all the operation's parents should be.
@@ -129,21 +128,26 @@ pub(crate) fn advance_frontier_by_known_run(frontier: &mut Frontier, txn_parents
     //    assert(branchContainsVersion(db, parent, branch), 'operation in the future')
     // }
 
-    if frontier.as_slice() == txn_parents {
-        // *frontier = smallvec![range.last()];
+    if parents.len() == 1 && frontier.len() == 1 && parents[0] == frontier[0] {
+        // Short circuit the common case where time is just advancing linearly.
+        frontier[0] = span.last();
+        return;
+    } else if frontier.as_slice() == parents {
+        // TODO: This is another short circuit. Can probably remove this?
         frontier.truncate(1);
-        frontier[0] = range.last();
+        frontier[0] = span.last();
         return;
     }
 
-    assert!(!frontier.contains(&range.start)); // Remove this when branch_contains_version works.
+    assert!(!frontier.contains(&span.start)); // Remove this when branch_contains_version works.
     debug_assert_frontier_sorted(frontier.as_slice());
 
-    frontier.retain(|o| !txn_parents.contains(o)); // Usually removes all elements.
+    frontier.retain(|o| !parents.contains(o)); // Usually removes all elements.
 
     // In order to maintain the order of items in the branch, we want to insert the new item in the
     // appropriate place.
-    add_to_frontier(frontier, range.last());
+    // TODO: Check if its faster to try and append it to the end first.
+    add_to_frontier(frontier, span.last());
 }
 
 pub fn frontier_eq(a: &[Time], b: &[Time]) -> bool {

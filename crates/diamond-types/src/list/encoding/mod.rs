@@ -33,6 +33,7 @@ pub enum ParseError {
     InvalidMagic,
     UnsupportedProtocolVersion,
     DocIdMismatch,
+    BaseVersionUnknown,
     UnknownChunk,
     InvalidChunkHeader,
     MissingChunk(u32),

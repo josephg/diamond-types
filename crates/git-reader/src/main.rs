@@ -8,7 +8,7 @@ use similar::utils::TextDiffRemapper;
 use smallvec::SmallVec;
 
 use diamond_types::list::*;
-use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
+use diamond_types::list::encoding::ENCODE_FULL;
 use diamond_types::list::list::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
