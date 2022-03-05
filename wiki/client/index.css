@@ -1,0 +1,57 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background-color: #9d35db;
+}
+
+textarea {
+  position: fixed;
+  height: calc(100vh - 4em);
+  width: calc(100vw - 4em);
+  margin: 2em;
+  resize: none;
+  padding: 1.2em;
+  border: 5px solid #0f0d6b;
+
+  font-family: monospace;
+  font-size: 16px;
+
+  color: #87001d;
+  background-color: #f9fff9;
+}
+
+textarea:focus {
+  outline: none;
+}
+
+/* #connstatus {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px;
+  font-family: monospace;
+  font-size: 16px;
+  font-weight: bold;
+  background-color: rgba(244, 76, 255, 0.6);
+}
+
+#connstatus.waiting {
+  background-color: red;
+}
+#connstatus.connecting {
+  background-color: yellow;
+}
+
+#connstatus.connected:before {
+  content: 'Connected'
+}
+#connstatus.connecting:before {
+  content: 'Connecting'
+}
+#connstatus.waiting:before {
+  content: 'Not connected! Waiting to reconnect'
+}
+ */
