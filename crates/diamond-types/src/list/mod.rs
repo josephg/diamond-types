@@ -92,6 +92,12 @@ pub struct Branch {
 
 #[derive(Debug, Clone)]
 pub struct OpLog {
+    /// The ID of the document (if any). This is useful if you want to give a document a GUID or
+    /// something to make sure you're merging into the right place.
+    ///
+    /// Optional - only used if you set it.
+    doc_id: Option<SmartString>,
+
     /// This is a bunch of ranges of (item order -> CRDT location span).
     /// The entries always have positive len.
     ///

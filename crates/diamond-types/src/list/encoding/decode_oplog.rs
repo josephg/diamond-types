@@ -11,7 +11,7 @@ use crate::unicount::{consume_chars, count_chars, split_at_char};
 use crate::list::encoding::ParseError::*;
 use rle::{AppendRle, SplitableSpanCtx, Trim, TrimCtx};
 use crate::list::buffered_iter::Buffered;
-use crate::list::encoding::ChunkType::{Content, ContentKnown, FileInfo, Patches, StartBranch};
+use crate::list::encoding::ChunkType::*;
 use crate::list::history::MinimalHistoryEntry;
 use crate::list::operation::InsDelTag;
 use crate::localtime::{TimeSpan, UNDERWATER_START};
@@ -210,7 +210,7 @@ impl<'a> BufReader<'a> {
         // if len > self.0.len() {
         //     return Err(InvalidLength);
         // }
-        std::str::from_utf8(&self.0).map_err(|_| InvalidUTF8)
+        std::str::from_utf8(self.0).map_err(|_| InvalidUTF8)
     }
 
     fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {
@@ -351,13 +351,27 @@ impl<'a> BufReader<'a> {
             parents,
         })
     }
+}
 
-    fn read_fileinfo(&mut self, oplog: &mut OpLog) -> Result<(Option<BufReader>, Vec<(AgentId, usize)>), ParseError> {
+// Returning a tuple was getting too unwieldy.
+#[derive(Debug)]
+struct FileInfoData<'a> {
+    userdata: Option<BufReader<'a>>,
+    doc_id: Option<&'a str>,
+    agent_map: Vec<(AgentId, usize)>,
+}
+
+impl<'a> BufReader<'a> {
+    fn read_fileinfo(&mut self, oplog: &mut OpLog) -> Result<FileInfoData, ParseError> {
         let mut fileinfo = self.expect_chunk(ChunkType::FileInfo)?;
-        // fileinfo has UserData and AgentNames.
 
-        let userdata = fileinfo.read_chunk(ChunkType::UserData)?;
+        let doc_id = fileinfo.read_chunk(ChunkType::DocId)?;
         let mut agent_names_chunk = fileinfo.expect_chunk(ChunkType::AgentNames)?;
+        let userdata = fileinfo.read_chunk(ChunkType::UserData)?;
+
+        let doc_id = if let Some(mut doc_id) = doc_id {
+            Some(doc_id.read_content_str()?)
+        } else { None };
 
         // Map from agent IDs in the file (idx) to agent IDs in self, and the seq cursors.
         //
@@ -372,7 +386,11 @@ impl<'a> BufReader<'a> {
             agent_map.push((id, 0));
         }
 
-        Ok((userdata, agent_map))
+        Ok(FileInfoData {
+            userdata,
+            doc_id,
+            agent_map,
+        })
     }
 
     fn dbg_print_chunk_tree_internal(mut self) -> Result<(), ParseError> {
@@ -665,6 +683,7 @@ impl OpLog {
         let len = self.len();
 
         // We could regenerate the frontier, but this is much lazier.
+        let doc_id = self.doc_id.clone();
         let old_frontier = self.frontier.clone();
         let num_known_agents = self.client_data.len();
         let ins_content_length = self.operation_ctx.ins_content.len();
@@ -676,6 +695,8 @@ impl OpLog {
             // Unwind changes back to len.
             // This would be nicer with an RleVec iterator, but the iter implementation doesn't
             // support iterating backwards.
+            self.doc_id = doc_id;
+
             while let Some(last) = self.client_with_localtime.0.last_mut() {
                 debug_assert!(len <= last.end());
                 if len == last.end() { break; }
@@ -781,10 +802,21 @@ impl OpLog {
         }
 
         // *** FileInfo ***
-        // fileinfo has UserData and AgentNames.
+        // fileinfo has DocID, UserData and AgentNames.
         // The agent_map is a map from agent_id in the file to agent_id in self.
-        // self is &mut because this method adds missing agents to self.
-        let (_userdata, mut agent_map) = reader.read_fileinfo(self)?;
+        let FileInfoData {
+            userdata: _userdata, doc_id, mut agent_map,
+        } = reader.read_fileinfo(self)?;
+
+        // If we already have a doc_id, make sure they match before merging.
+        if let Some(file_doc_id) = doc_id {
+            if let Some(local_doc_id) = self.doc_id.as_ref() {
+                if file_doc_id != local_doc_id && !self.is_empty() {
+                    return Err(DocIdMismatch);
+                }
+            }
+            self.doc_id = Some(file_doc_id.into());
+        }
 
         // *** StartBranch ***
         let start_frontier = if let Some(mut start_branch) = reader.read_chunk(ChunkType::StartBranch)? {
@@ -1359,5 +1391,48 @@ mod tests {
 
         // dbg!(oplog3);
         assert_eq!(oplog2, oplog3);
+    }
+
+    #[test]
+    fn doc_id_preserved() {
+        let mut oplog = simple_doc().oplog;
+        oplog.doc_id = Some("hi".into());
+        let bytes = oplog.encode(ENCODE_FULL);
+        let result = OpLog::load_from(&bytes).unwrap();
+
+        // Eq should check correctly.
+        assert_eq!(oplog, result);
+        // But we'll make sure here because its easy.
+        assert_eq!(oplog.doc_id, result.doc_id);
+    }
+
+    #[test]
+    fn mismatched_doc_id_errors() {
+        let mut oplog1 = simple_doc().oplog;
+        oplog1.doc_id = Some("aaa".into());
+
+        let mut oplog2 = simple_doc().oplog;
+        oplog2.doc_id = Some("bbb".into());
+
+        let bytes = oplog1.encode(ENCODE_FULL);
+        assert_eq!(oplog2.merge_data(&bytes).unwrap_err(), ParseError::DocIdMismatch);
+        assert_eq!(oplog2.doc_id, Some("bbb".into())); // And the doc ID should be unchanged
+    }
+
+    #[test]
+    fn doc_id_preserved_when_error_happens() {
+        let mut oplog1 = OpLog::new();
+
+        let mut oplog2 = simple_doc().oplog;
+        oplog2.doc_id = Some("bbb".into());
+
+        let mut bytes = oplog2.encode(ENCODE_FULL);
+        let last_byte = bytes.last_mut().unwrap();
+        *last_byte = !*last_byte; // Any change should mess up the checksum and fail.
+
+        // Merging should fail
+        oplog1.merge_data(&bytes).unwrap_err();
+        // And the oplog's doc_id should be unchanged.
+        assert_eq!(oplog1.doc_id, None);
     }
 }

@@ -32,6 +32,7 @@ const MAGIC_BYTES: [u8; 8] = *b"DMNDTYPS";
 pub enum ParseError {
     InvalidMagic,
     UnsupportedProtocolVersion,
+    DocIdMismatch,
     UnknownChunk,
     InvalidChunkHeader,
     MissingChunk(u32),
@@ -115,8 +116,9 @@ fn checksum(data: &[u8]) -> u32 {
 enum ChunkType {
     /// FileInfo contains optional UserData and AgentNames.
     FileInfo = 1,
-    UserData = 2,
+    DocId = 2,
     AgentNames = 3,
+    UserData = 4,
 
     /// The StartBranch chunk describes the state of the document before included patches have been
     /// applied.

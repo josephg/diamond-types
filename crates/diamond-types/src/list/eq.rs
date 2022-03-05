@@ -18,6 +18,8 @@ const VERBOSE: bool = false;
 
 impl PartialEq<Self> for OpLog {
     fn eq(&self, other: &Self) -> bool {
+        if self.doc_id != other.doc_id { return false; }
+
         // This implementation is based on the equivalent version in the original diamond types
         // implementation.
 
@@ -91,7 +93,7 @@ impl PartialEq<Self> for OpLog {
         for (mut op, mut txn, mut crdt_id) in rle_zip3(
             self.iter(),
             self.iter_history(),
-            self.client_with_localtime.iter().map(|pair| pair.1.clone())
+            self.client_with_localtime.iter().map(|pair| pair.1)
         ) {
 
             // println!("op {:?} txn {:?} crdt {:?}", op, txn, crdt_id);

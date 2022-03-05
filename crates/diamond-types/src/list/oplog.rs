@@ -55,6 +55,7 @@ const ROOT_AGENT_NAME: &str = "ROOT";
 impl OpLog {
     pub fn new() -> Self {
         Self {
+            doc_id: None,
             client_with_localtime: RleVec::new(),
             client_data: vec![],
             operation_ctx: OperationCtx::new(),

@@ -278,13 +278,12 @@ fn write_content_rope(dest: &mut Vec<u8>, rope: &JumpRope) {
     push_chunk(dest, ChunkType::Content, &buf);
 }
 
-// #[allow(unused)]
-fn write_content_str(dest: &mut Vec<u8>, s: &str) {
+fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ChunkType) {
     let mut buf = Vec::new(); // :(
     push_u32(&mut buf, DataType::PlainText as _);
     // push_str(&mut buf, s);
     buf.extend_from_slice(s.as_bytes());
-    push_chunk(dest, ChunkType::Content, &buf);
+    push_chunk(dest, chunk_type, &buf);
 }
 
 // TODO:
@@ -352,7 +351,7 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
             push_u32(&mut buf, match self.tag { Ins => 0, Del => 1 });
 
             // This writes a length-prefixed string, which it really doesn't need to do.
-            write_content_str(&mut buf, &self.content);
+            write_chunk_str(&mut buf, &self.content, ChunkType::Content);
             // push_chunk(&mut buf, ChunkType::Content, self.content.as_bytes());
             push_chunk(&mut buf, ChunkType::ContentKnown, &self.known_out);
             Some(buf)
@@ -570,7 +569,7 @@ impl OpLog {
         if opts.store_start_branch_content {
             if frontier_is_root(from_frontier) {
                 // Optimization. TODO: Check if this is worth it.
-                write_content_str(&mut start_branch, "");
+                write_chunk_str(&mut start_branch, "", ChunkType::Content);
             } else {
                 let branch_here = Branch::new_at_frontier(self, from_frontier);
                 // dbg!(&branch_here);
@@ -585,12 +584,19 @@ impl OpLog {
         // *** FileInfo ***
         let mut buf = Vec::new();
 
+        // DocId
+        if let Some(name) = self.doc_id.as_ref() {
+            write_chunk_str(&mut buf, name.as_str(), ChunkType::DocId);
+        }
+
+        // agent names
+        push_chunk(&mut buf, ChunkType::AgentNames, &agent_mapping.consume());
+
         // User data
         if let Some(data) = opts.user_data {
             push_chunk(&mut buf, ChunkType::UserData, data);
         }
-        // agent names
-        push_chunk(&mut buf, ChunkType::AgentNames, &agent_mapping.consume());
+
         write_chunk(ChunkType::FileInfo, &mut buf);
 
         // *** Start Branch - which was filled in above. ***
