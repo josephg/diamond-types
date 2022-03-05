@@ -26,14 +26,15 @@ const wasmReady = init(wasmModule)
 
   let oplog2 = oplog.clone()
 
-  let v = oplog.getLocalFrontier()
+  let v = oplog.getLocalVersion()
   console.log('v', v, oplog.frontier_to_remote_time(v))
   oplog.del(1, 2)
-  let patch = oplog.toPatchSince(v)
+  let patch = oplog.getPatchSince(v)
 
   console.log('patch', patch)
 
-  oplog2.mergeBytes(patch)
+  let result_v = oplog2.mergeBytes(patch)
+  console.log('mergebytes returned', result_v)
   console.log(oplog.getOps())
   console.log(oplog2.getOps())
 
@@ -83,7 +84,7 @@ const wasmReady = init(wasmModule)
 // console.log(t)
 // let t2 = ops.del(3, 3)
 //
-// console.log("local branch", ops.getLocalFrontier())
+// console.log("local branch", ops.getLocalVersion())
 // console.log("frontier", ops.getFrontier())
 // console.log("ops", ops.getOps())
 // console.log("history", ops.txns())
