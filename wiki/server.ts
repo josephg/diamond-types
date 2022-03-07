@@ -37,9 +37,10 @@ const clientCode = sirv('dist-client', {
   // immutable: true,
   brotli: true,
   dev: process.env.NODE_ENV !== 'production',
+  single: true,
 });
 
-const app = polka().use(assets).use(clientCode)
+const app = polka().use(assets)
 
 type DocStuff = {
   oplog: OpLog,
@@ -246,6 +247,7 @@ app.post(`${DATA_URL_BASE}*`, raw({type: 'application/dt'}), async (req, res, ne
   }
 })
 
+app.get('*', clientCode)
 
 // let x = new OpLog()
 // const bytes = x.toBytes()

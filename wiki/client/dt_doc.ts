@@ -1,6 +1,6 @@
 // This contains the mechanismy code for interacting with diamond types
 
-import { subscribe } from "@braid-protocol/client"
+import { ClientOpts, subscribe } from "@braid-protocol/client"
 import { default as init, Doc } from "diamond-wasm"
 import { strPosToUni, uniToStrPos } from "unicount"
 import { calcDiff, transformPosition } from "./utils"
@@ -41,7 +41,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
   // server_version each time we get a patch. But I'm not using the headers
   // from braid - instead I'm pulling out the versions from the doc itself
   // (and mergeBytes()).
-  const braid = await subscribe<[Doc, Uint32Array]>(url, {
+  const braidOpts: ClientOpts = {
     parseDoc(contentType, data) {
       const id = randomId()
       console.log('parseDoc', id)
@@ -53,13 +53,14 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
     },
     applyPatch([doc, version], patchType, patch) {
       console.log('applyPatch')
-      console.log('doc', JSON.stringify(Array.from(doc.toBytes())))
-      console.log('patch', JSON.stringify(Array.from(patch)))
+      // console.log('doc', JSON.stringify(Array.from(doc.toBytes())))
+      // console.log('patch', JSON.stringify(Array.from(patch)))
       let merge_version = doc.mergeBytes(patch)
       let new_version = doc.mergeVersions(version, merge_version)
       return [doc, new_version]
     }
-  })
+  }
+  let braid = await subscribe<[Doc, Uint32Array]>(url, braidOpts)
   elem.placeholder = placeholder
   // elem.disabled = false
 
@@ -79,41 +80,78 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
 
   elem.value = last_value
 
+  const mergeChanges = (new_server_version: Uint32Array) => {
+    // Got a remote change!
+    //
+    // We need to:
+    // - Update the contents of the document
+    // - And update the user's cursor
+    let new_version = doc.getLocalVersion()
+    if (vEq(new_version, last_version)) return
+
+    server_version = new_server_version
+    console.log('server version ->', Array.from(server_version))
+
+    let new_value = doc.get()
+
+    let {selectionStart, selectionEnd} = elem
+    selectionStart = strPosToUni(last_value, selectionStart)
+    selectionEnd = strPosToUni(last_value, selectionEnd)
+
+    for (const op of doc.xfSince(last_version)) {
+      selectionStart = transformPosition(selectionStart, op, true)
+      selectionEnd = transformPosition(selectionEnd, op, true)
+    }
+
+    // Need to update the value before we set the selection range back out.
+    elem.value = last_value = new_value
+    last_version = new_version
+
+    elem.setSelectionRange(
+      uniToStrPos(new_value, selectionStart),
+      uniToStrPos(new_value, selectionEnd)
+    )
+
+    assert(vEq(doc.getLocalVersion(), last_version))
+  }
+
 
   ;(async () => {
-    for await (const msg of braid.updates) {
-      // Got a remote change!
-      //
-      // We need to:
-      // - Update the contents of the document
-      // - And update the user's cursor
-      let new_version = doc.getLocalVersion()
-      if (vEq(new_version, last_version)) continue
-
-      server_version = msg.value![1]
-      console.log('server version ->', Array.from(server_version))
-
-      let new_value = doc.get()
-
-      let {selectionStart, selectionEnd} = elem
-      selectionStart = strPosToUni(last_value, selectionStart)
-      selectionEnd = strPosToUni(last_value, selectionEnd)
-
-      for (const op of doc.xfSince(last_version)) {
-        selectionStart = transformPosition(selectionStart, op, true)
-        selectionEnd = transformPosition(selectionEnd, op, true)
+    while (true) {
+      for await (const msg of braid.updates) {
+        mergeChanges(msg.value![1]);
       }
 
-      // Need to update the value before we set the selection range back out.
-      elem.value = last_value = new_value
-      last_version = new_version
+      console.warn('connection GONE')
 
-      elem.setSelectionRange(
-        uniToStrPos(new_value, selectionStart),
-        uniToStrPos(new_value, selectionEnd)
-      )
+      while (true) {
+        console.log('Waiting...')
+        await wait(3000)
+        console.warn('Reconnecting...')
 
-      assert(vEq(doc.getLocalVersion(), last_version))
+        try {
+          braid = await subscribe<[Doc, Uint32Array]>(url, {
+            // knownAtVersion: doc.(),
+            ...braidOpts,
+            knownDoc: [doc, last_version],
+            // This is super dirty.
+            parseDoc(contentType, data) {
+              console.log('parseDoc reconnect')
+              // We're getting a new snapshot here, but we can just merge it into
+              // the document state.
+              let version = doc.mergeBytes(data)
+              // console.log('v', Array.from(version))
+              return [doc, version]
+            },
+          })
+
+          mergeChanges(braid.initialValue[1])
+          console.log('reconnected!')
+          break;
+        } catch (e) {
+          console.warn('Could not reconnect:', e)
+        }
+      }
     }
   })()
 
