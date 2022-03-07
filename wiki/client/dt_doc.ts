@@ -33,6 +33,10 @@ const wait = (time: number = 1000) => (
 export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
   await init()
 
+  let placeholder = elem.placeholder
+  elem.placeholder = 'Loading...'
+  // elem.disabled = true
+
   // So this is a bit dirty. I want to pull out the document and update
   // server_version each time we get a patch. But I'm not using the headers
   // from braid - instead I'm pulling out the versions from the doc itself
@@ -56,6 +60,8 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
       return [doc, new_version]
     }
   })
+  elem.placeholder = placeholder
+  // elem.disabled = false
 
   const [doc, initialVersion] = braid.initialValue
 
