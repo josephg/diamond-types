@@ -1,6 +1,5 @@
 mod utils;
 
-use smallvec::SmallVec;
 use wasm_bindgen::prelude::*;
 // use serde_wasm_bindgen::Serializer;
 // use serde::{Serialize};
@@ -55,13 +54,6 @@ impl Branch {
     pub fn get_local_frontier(&self) -> Box<[Time]> {
         self.0.frontier.iter().copied().collect::<Box<[Time]>>()
     }
-}
-
-fn map_parents(parents_in: &[isize]) -> SmallVec<[Time; 4]> {
-    parents_in
-        .iter()
-        .map(|p| if *p < 0 { ROOT_TIME } else { *p as usize })
-        .collect()
 }
 
 // pub fn checkout(&self) -> Branch {
@@ -147,6 +139,10 @@ pub fn xf_since(oplog: &DTOpLog, from_version: &[usize]) -> WasmResult {
     serde_wasm_bindgen::to_value(&xf)
 }
 
+pub fn merge_versions(oplog: &DTOpLog, a: &[usize], b: &[usize]) -> Box<[usize]> {
+    oplog.merge_versions(a, b).into_iter().collect()
+}
+
 #[wasm_bindgen]
 pub struct OpLog {
     inner: DTOpLog,
@@ -183,21 +179,21 @@ impl OpLog {
     }
 
     #[wasm_bindgen(js_name = ins)]
-    pub fn push_insert(&mut self, pos: usize, content: &str, parents_in: Option<Box<[isize]>>) -> usize {
-        let parents = parents_in.map_or_else(|| {
+    pub fn push_insert(&mut self, pos: usize, content: &str, parents_in: Option<Box<[usize]>>) -> usize {
+        let parents = parents_in.unwrap_or_else(|| {
             // Its gross here - I'm converting the frontier into a smallvec then immediately
             // converting it to a slice again :p
             self.inner.get_frontier().into()
-        }, |p| map_parents(&p));
+        });
         self.inner.push_insert_at(self.agent_id, &parents, pos, content)
     }
 
     #[wasm_bindgen(js_name = del)]
-    pub fn push_delete(&mut self, pos: usize, len: usize, parents_in: Option<Box<[isize]>>) -> usize {
-        let parents = parents_in.map_or_else(|| {
+    pub fn push_delete(&mut self, pos: usize, len: usize, parents_in: Option<Box<[usize]>>) -> usize {
+        let parents = parents_in.unwrap_or_else(|| {
             // And here :p
             self.inner.get_frontier().into()
-        }, |p| map_parents(&p));
+        });
         self.inner.push_delete_at(self.agent_id, &parents, pos, len)
     }
 
@@ -298,6 +294,13 @@ impl OpLog {
     pub fn get_xf_since(&self, from_version: &[usize]) -> WasmResult {
         xf_since(&self.inner, from_version)
     }
+
+    #[wasm_bindgen(js_name = mergeVersions)]
+    pub fn merge_versions(&self, a: &[usize], b: &[usize]) -> Box<[usize]> {
+        merge_versions(&self.inner, a, b)
+    }
+
+    // pub fn merge_versions(&self, a: &[usize], b: &[usize]) ->
 }
 
 #[wasm_bindgen]
@@ -305,6 +308,15 @@ pub struct Doc {
     inner: ListCRDT,
     agent_id: AgentId,
 }
+
+
+// #[wasm_bindgen]
+// extern "C" {
+//     // Use `js_namespace` here to bind `console.log(..)` instead of just
+//     // `log(..)`
+//     #[wasm_bindgen(js_namespace = console)]
+//     fn log(s: &str);
+// }
 
 #[wasm_bindgen]
 impl Doc {
@@ -350,6 +362,11 @@ impl Doc {
         self.inner.branch.merge(&self.inner.oplog, branch);
     }
 
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        to_bytes(&self.inner.oplog)
+    }
+
     #[wasm_bindgen(js_name = getPatchSince)]
     pub fn get_patch_since(&self, from_version: &[usize]) -> Vec<u8> {
         get_patch_since(&self.inner.oplog, from_version)
@@ -373,13 +390,28 @@ impl Doc {
     }
 
     #[wasm_bindgen(js_name = mergeBytes)]
-    pub fn merge_bytes(&mut self, bytes: &[u8]) -> WasmResult<()> {
-        self.inner.merge_data_and_ff(bytes).map_err(|e| {
-            let s = format!("Error merging {:?}", e);
-            let js: JsValue = s.into();
-            js.into()
-        })
+    pub fn merge_bytes(&mut self, bytes: &[u8]) -> WasmResult<Box<[usize]>> {
+    // pub fn merge_bytes(&mut self, bytes: &[u8]) -> WasmResult {
+        match self.inner.merge_data_and_ff(bytes) {
+            Err(e) => {
+                let s = format!("Error merging {:?}", e);
+                let js: JsValue = s.into();
+                Err(js.into())
+            },
+            Ok(frontier) => Ok(frontier.into_iter().collect())
+        }
     }
+    // #[wasm_bindgen(js_name = mergeBytes)]
+    // pub fn merge_bytes(&mut self, bytes: &[u8]) -> WasmResult {
+    //     match self.inner.merge_data_and_ff(bytes) {
+    //         Err(e) => {
+    //             let s = format!("Error merging {:?}", e);
+    //             let js: JsValue = s.into();
+    //             Err(js.into())
+    //         },
+    //         Ok(frontier) => serde_wasm_bindgen::to_value(&frontier),
+    //     }
+    // }
 
     // TODO: This is identical to get_ops_since in OpLog (above). Remove duplicate code here.
     #[wasm_bindgen(js_name = getOpsSince)]
@@ -397,6 +429,10 @@ impl Doc {
         xf_since(&self.inner.oplog, from_version)
     }
 
+    #[wasm_bindgen(js_name = mergeVersions)]
+    pub fn merge_versions(&self, a: &[usize], b: &[usize]) -> Box<[usize]> {
+        merge_versions(&self.inner.oplog, a, b)
+    }
 
     // #[wasm_bindgen]
     // pub fn get_vector_clock(&self) -> Result<JsValue, JsValue> {

@@ -456,7 +456,7 @@ impl OpLog {
             // Then the parents.
             let mut iter = txn.parents.iter().peekable();
             while let Some(&p) = iter.next() {
-                let p = p; // intellij bug
+                // let p = p; // intellij bug
                 let has_more = iter.peek().is_some();
 
                 let mut write_parent_diff = |mut n: usize, is_foreign: bool| {
@@ -477,6 +477,10 @@ impl OpLog {
                     write_parent_diff(0, true);
                 } else if let Some((map, offset)) = txn_map.find_with_offset(p) {
                     // Local change!
+                    // TODO: There's a sort of bug here. Local parents should (probably?) be sorted
+                    // in the file, but this mapping doesn't guarantee that. Currently I'm
+                    // re-sorting after reading - which is necessary for external parents anyway.
+                    // But allowing unsorted local parents is vaguely upsetting.
                     let mapped_parent = map.1.start + offset;
 
                     write_parent_diff(output_range.start - mapped_parent, false);
@@ -582,28 +586,29 @@ impl OpLog {
         // about the data types we're encoding.
 
         // *** FileInfo ***
-        let mut buf = Vec::new();
+        let mut fileinfo_buf = Vec::new();
 
         // DocId
         if let Some(name) = self.doc_id.as_ref() {
-            write_chunk_str(&mut buf, name.as_str(), ChunkType::DocId);
+            write_chunk_str(&mut fileinfo_buf, name.as_str(), ChunkType::DocId);
         }
 
         // agent names
-        push_chunk(&mut buf, ChunkType::AgentNames, &agent_mapping.consume());
+        push_chunk(&mut fileinfo_buf, ChunkType::AgentNames, &agent_mapping.consume());
 
         // User data
         if let Some(data) = opts.user_data {
-            push_chunk(&mut buf, ChunkType::UserData, data);
+            push_chunk(&mut fileinfo_buf, ChunkType::UserData, data);
         }
 
-        write_chunk(ChunkType::FileInfo, &mut buf);
+        write_chunk(ChunkType::FileInfo, &mut fileinfo_buf);
 
         // *** Start Branch - which was filled in above. ***
         write_chunk(ChunkType::StartBranch, &mut start_branch);
 
         // *** Patches ***
         // I'll just assemble it in buf. There's a lot of sloppy use of vec<u8>'s in here.
+        let mut patches_buf = fileinfo_buf;
 
         if let Some(inserted_content) = inserted_content {
             // let max_compressed_size = lz4_flex::block::get_maximum_output_size(inserted_text.len());
@@ -618,7 +623,7 @@ impl OpLog {
             // dbg!(ins_content_bytes);
 
             if let Some(bytes) = inserted_content.flush() {
-                push_chunk(&mut buf, ChunkType::PatchContent, &bytes);
+                push_chunk(&mut patches_buf, ChunkType::PatchContent, &bytes);
             }
         }
         if let Some(deleted_content) = deleted_content {
@@ -626,22 +631,22 @@ impl OpLog {
                 println!("Deleted text length {}", deleted_content.content.len());
             }
             if let Some(bytes) = deleted_content.flush() {
-                push_chunk(&mut buf, ChunkType::PatchContent, &bytes);
+                push_chunk(&mut patches_buf, ChunkType::PatchContent, &bytes);
             }
         }
 
-        push_chunk(&mut buf, ChunkType::Version, &agent_assignment_chunk);
-        push_chunk(&mut buf, ChunkType::OpTypeAndPosition, &ops_chunk);
-        push_chunk(&mut buf, ChunkType::Parents, &txns_chunk);
+        push_chunk(&mut patches_buf, ChunkType::Version, &agent_assignment_chunk);
+        push_chunk(&mut patches_buf, ChunkType::OpTypeAndPosition, &ops_chunk);
+        push_chunk(&mut patches_buf, ChunkType::Parents, &txns_chunk);
 
-        write_chunk(ChunkType::Patches, &mut buf);
+        write_chunk(ChunkType::Patches, &mut patches_buf);
 
         // TODO (later): Final branch content.
 
         // println!("checksum {checksum}");
         let checksum = checksum(&result);
-        push_u32_le(&mut buf, checksum);
-        push_chunk(&mut result, ChunkType::Crc, &buf);
+        push_u32_le(&mut patches_buf, checksum);
+        push_chunk(&mut result, ChunkType::Crc, &patches_buf);
         // write_chunk(Chunk::CRC, &mut buf);
         // push_u32(&mut result, checksum);
 

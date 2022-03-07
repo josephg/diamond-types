@@ -107,10 +107,10 @@ impl ListCRDT {
         })
     }
 
-    pub fn merge_data_and_ff(&mut self, bytes: &[u8]) -> Result<(), ParseError> {
-        self.oplog.merge_data(bytes)?;
+    pub fn merge_data_and_ff(&mut self, bytes: &[u8]) -> Result<Frontier, ParseError> {
+        let v = self.oplog.merge_data(bytes)?;
         self.branch.merge(&self.oplog, &self.oplog.frontier);
-        Ok(())
+        Ok(v)
     }
 
     pub fn len(&self) -> usize {

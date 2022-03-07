@@ -4,7 +4,7 @@ use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
 use crate::list::{Frontier, OpLog, Time};
-use crate::list::frontier::frontier_is_sorted;
+use crate::list::frontier::{advance_frontier_by, frontier_is_sorted};
 use crate::list::history::History;
 use crate::list::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
 use crate::localtime::TimeSpan;
@@ -15,7 +15,7 @@ use crate::ROOT_TIME;
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum DiffFlag { OnlyA, OnlyB, Shared }
+pub(crate) enum DiffFlag { OnlyA, OnlyB, Shared }
 
 impl History {
     fn shadow_of(&self, time: Time) -> Time {
@@ -114,7 +114,7 @@ impl History {
     }
 }
 
-pub type DiffResult = (SmallVec<[TimeSpan; 4]>, SmallVec<[TimeSpan; 4]>);
+pub(crate) type DiffResult = (SmallVec<[TimeSpan; 4]>, SmallVec<[TimeSpan; 4]>);
 
 impl History {
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
@@ -240,6 +240,25 @@ impl History {
 
             // If there's only shared entries left, abort.
             if queue.len() == num_shared_entries { break; }
+        }
+    }
+
+    /// Given 2 versions, return a version which contains all the operations in both.
+    pub fn merge_versions(&self, a: &[Time], b: &[Time]) -> Frontier {
+        // This method could be written to use diff_internal's closure. That would be faster, but it
+        // would probably add a fair bit of code size from monomorphizing for something thats just a
+        // utility method. So eh.
+        let (only_a, only_b) = self.diff(a, b);
+        if only_a.is_empty() {
+            b.into()
+        } else if only_b.is_empty() {
+            a.into()
+        } else {
+            let mut result = a.into();
+            for span in only_b {
+                advance_frontier_by(&mut result, self, span);
+            }
+            result
         }
     }
 
@@ -412,7 +431,7 @@ impl History {
     /// a single localtime, but it might be the result of a merge of multiple edits.
     ///
     /// I'm assuming b is a parent of a, but it should all work if thats not the case.
-    pub fn find_conflicting<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> Frontier
+    pub(crate) fn find_conflicting<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> Frontier
         where V: FnMut(TimeSpan, DiffFlag) {
         debug_assert!(!a.is_empty());
         debug_assert!(!b.is_empty());
@@ -448,7 +467,7 @@ impl History {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct ConflictZone {
+pub(crate) struct ConflictZone {
     pub(crate) common_ancestor: Frontier,
     pub(crate) spans: SmallVec<[TimeSpan; 4]>,
 }
@@ -476,6 +495,10 @@ impl OpLog {
 
     pub fn linear_changes_since(&self, start: Time) -> TimeSpan {
         TimeSpan::new(start, self.len())
+    }
+
+    pub fn merge_versions(&self, a: &[Time], b: &[Time]) -> Frontier {
+        self.history.merge_versions(a, b)
     }
 }
 

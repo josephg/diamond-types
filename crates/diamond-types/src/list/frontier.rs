@@ -105,7 +105,7 @@ pub(crate) fn check_frontier(frontier: &[Time], history: &History) {
     }
 }
 
-fn add_to_frontier(frontier: &mut Frontier, new_item: Time) {
+pub(crate) fn add_to_frontier(frontier: &mut Frontier, new_item: Time) {
     // In order to maintain the order of items in the branch, we want to insert the new item in the
     // appropriate place.
 

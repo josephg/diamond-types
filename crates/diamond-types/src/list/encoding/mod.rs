@@ -125,6 +125,7 @@ enum ChunkType {
     /// applied.
     StartBranch = 10,
     Frontier = 12,
+    /// StartBranch content is optional.
     Content = 13,
 
     Patches = 20,
