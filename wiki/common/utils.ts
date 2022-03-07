@@ -1,4 +1,20 @@
 
+export const vEq = (a: Uint32Array, b: Uint32Array): boolean => {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+export const assert = (expr: boolean) => {
+  if (!expr) throw Error('Assertion failure')
+}
+
+export const wait = (time: number = 1000) => (
+  new Promise((res) => setTimeout(res, time))
+)
+
 export type DiffResult = {pos: number, del: number, ins: string}
 
 export const calcDiff = (oldval: string, newval: string): DiffResult => {

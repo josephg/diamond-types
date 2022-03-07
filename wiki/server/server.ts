@@ -7,7 +7,8 @@ import fsp from 'fs/promises'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import rateLimit from './ratelimit.js'
+import rateLimit from '../common/ratelimit.js'
+import { vEq } from '../common/utils.js'
 
 // process.on('unhandledRejection', (err: Error) => {
 //   console.log(err.stack)
@@ -204,14 +205,6 @@ app.get(`${DATA_URL_BASE}*`, async (req, res, next) => {
 
   // res.end(`oh hai ${path}`)
 })
-
-const vEq = (a: Uint32Array, b: Uint32Array): boolean => {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}
 
 app.post(`${DATA_URL_BASE}*`, raw({type: 'application/dt'}), async (req, res, next) => {
   const docName = req.path.slice(DATA_URL_BASE.length)

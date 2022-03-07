@@ -27,6 +27,15 @@ textarea:focus {
   outline: none;
 }
 
+.status {
+  position: absolute;
+  right: 1.2em;
+  bottom: 0;
+  font-variant: small-caps;
+  font-weight: 700;
+  opacity: 50%;
+}
+
 /* #connstatus {
   position: fixed;
   left: 50%;

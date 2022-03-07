@@ -3,7 +3,7 @@
 import { ClientOpts, subscribe } from "@braid-protocol/client"
 import { default as init, Doc } from "diamond-wasm"
 import { strPosToUni, uniToStrPos } from "unicount"
-import { calcDiff, transformPosition } from "./utils"
+import { assert, calcDiff, transformPosition, vEq, wait } from "../common/utils"
 
 ;(window as any)['Doc'] = Doc
 
@@ -14,23 +14,15 @@ const randomId = (len = 12) => (
     .join('')
 )
 
-const vEq = (a: Uint32Array, b: Uint32Array): boolean => {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
+export enum Status {
+  Connecting,
+  Connected,
+  Waiting,
 }
 
-const assert = (expr: boolean) => {
-  if (!expr) throw Error('Assertion failure')
-}
+const empty = () => {}
 
-const wait = (time: number = 1000) => (
-  new Promise((res) => setTimeout(res, time))
-)
-
-export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
+export async function subscribeDT(url: string, elem: HTMLTextAreaElement, statusChanged: (s: Status) => void = empty) {
   await init()
 
   let placeholder = elem.placeholder
@@ -60,6 +52,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
       return [doc, new_version]
     }
   }
+  statusChanged(Status.Connecting)
   let braid = await subscribe<[Doc, Uint32Array]>(url, braidOpts)
   elem.placeholder = placeholder
   // elem.disabled = false
@@ -79,6 +72,8 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
   // console.log('server version', Array.from(server_version))
 
   elem.value = last_value
+
+  statusChanged(Status.Connected)
 
   const mergeChanges = (new_server_version: Uint32Array) => {
     // Got a remote change!
@@ -115,7 +110,6 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
     assert(vEq(doc.getLocalVersion(), last_version))
   }
 
-
   ;(async () => {
     while (true) {
       for await (const msg of braid.updates) {
@@ -125,9 +119,11 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
       console.warn('connection GONE')
 
       while (true) {
+        statusChanged(Status.Waiting)
         console.log('Waiting...')
         await wait(3000)
         console.warn('Reconnecting...')
+        statusChanged(Status.Connecting)
 
         try {
           braid = await subscribe<[Doc, Uint32Array]>(url, {
@@ -147,6 +143,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
 
           mergeChanges(braid.initialValue[1])
           console.log('reconnected!')
+          statusChanged(Status.Connected)
           break;
         } catch (e) {
           console.warn('Could not reconnect:', e)
@@ -157,6 +154,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
 
   // I'm going to limit flush() to only allow 1 request in-flight at a time.
   let req_inflight = false
+  let req_queued = false
 
   const actuallyFlush = async () => {
     assert(vEq(doc.getLocalVersion(), last_version))
@@ -188,7 +186,13 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement) {
       console.error('Error flushing', e)
       req_inflight = false
       // Try again every few seconds.
-      setTimeout(tryFlush, 3000)
+      if (!req_queued) {
+        setTimeout(() => {
+          req_queued = false
+          tryFlush()
+        }, 3000)
+        req_queued = true
+      }
     }
   }
   function tryFlush() {
