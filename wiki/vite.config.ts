@@ -16,7 +16,7 @@ export default defineConfig({
   },
   plugins: [solidPlugin()],
   build: {
-    minify: false,
+    minify: true,
     sourcemap: true,
     outDir: 'dist-client',
     target: 'esnext',
