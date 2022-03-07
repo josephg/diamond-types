@@ -468,6 +468,11 @@ fn history_entry_map_and_truncate(mut hist_entry: MinimalHistoryEntry, version_m
         }
     }
 
+    if !frontier_is_sorted(&hist_entry.parents) {
+        // Parents can become unsorted here because they might not map cleanly.
+        hist_entry.parents.sort_unstable();
+    }
+
     (hist_entry, remainder)
 }
 
@@ -974,9 +979,10 @@ impl OpLog {
                         // dbg!(&crdt_span);
                         let client = &self.client_data[crdt_span.agent as usize];
                         let (span, offset) = client.item_times.find_sparse(crdt_span.seq_range.start);
-                        let (span_end, overlap) = match span {
+                        // dbg!((crdt_span.seq_range, span, offset));
+                        let (span_end, overlap_start) = match span {
                             // Skip the entry.
-                            Ok(entry) => (entry.end(), Some((offset..entry.1.end).into())),
+                            Ok(entry) => (entry.end(), Some(entry.1.start + offset)),
                             // Consume the entry
                             Err(empty_span) => (empty_span.end, None),
                         };
@@ -985,7 +991,8 @@ impl OpLog {
                         let consume_here = crdt_span.seq_range.truncate_keeping_right_from(end);
                         let len = consume_here.len();
 
-                        let keep = if let Some(overlap) = overlap {
+                        let keep = if let Some(overlap_start) = overlap_start {
+                            let overlap = (overlap_start .. overlap_start + len).into();
                             // There's overlap. We'll filter out this item.
                             version_map.push_rle(KVPair(next_file_time, overlap));
                             // println!("push overlap {:?}", KVPair(next_file_time, overlap));
@@ -996,7 +1003,7 @@ impl OpLog {
                                 seq_range: consume_here,
                             });
 
-                            // println!("push end {:?}", KVPair(
+                            // println!("push to end {:?}", KVPair(
                             //     next_file_time,
                             //     TimeSpan::from(next_assignment_time..next_assignment_time + len),
                             // ));
@@ -1048,7 +1055,7 @@ impl OpLog {
                 // it.
 
                 next_file_time += entry.len();
-                // dbg!((&entry, &file_frontier));
+                // dbg!(&entry);
 
                 // If patches don't overlap, this code can be simplified to this:
                 //     self.insert_history(&entry.parents, entry.span);
@@ -1059,8 +1066,8 @@ impl OpLog {
 
                 loop {
                     let (mut mapped, remainder) = history_entry_map_and_truncate(entry, &version_map);
-                    debug_assert!(frontier_is_sorted(&mapped.parents));
                     // dbg!(&mapped);
+                    debug_assert!(frontier_is_sorted(&mapped.parents));
                     assert!(mapped.span.start <= next_history_time);
 
                     // We'll update merge parents even if nothing is merged.

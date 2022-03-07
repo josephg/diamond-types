@@ -14,6 +14,7 @@ use crate::list::{OpLog, Time};
 use crate::list::history::MinimalHistoryEntry;
 use crate::rle::KVPair;
 
+// const VERBOSE: bool = true;
 const VERBOSE: bool = false;
 
 impl PartialEq<Self> for OpLog {
