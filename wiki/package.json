@@ -3,7 +3,7 @@
   "scripts": {
     "start": "node dist/server/server.js",
     "dev": "vite",
-    "build": "vite build && npx tsc"
+    "build": "vite build && npx tsc && brotli -k dist-client/assets/*.wasm"
   },
   "dependencies": {
     "@braid-protocol/client": "^1.0.0",
