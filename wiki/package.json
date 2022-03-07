@@ -1,10 +1,9 @@
 {
   "type": "module",
   "scripts": {
-    "start": "vite",
+    "start": "node dist/server/server.js",
     "dev": "vite",
-    "build": "vite build",
-    "serve": "vite preview"
+    "build": "vite build && npx tsc"
   },
   "dependencies": {
     "@braid-protocol/client": "^1.0.0",

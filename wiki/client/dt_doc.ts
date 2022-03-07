@@ -44,7 +44,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
       return [doc, version]
     },
     applyPatch([doc, version], patchType, patch) {
-      console.log('applyPatch')
+      // console.log('applyPatch')
       // console.log('doc', JSON.stringify(Array.from(doc.toBytes())))
       // console.log('patch', JSON.stringify(Array.from(patch)))
       let merge_version = doc.mergeBytes(patch)
@@ -85,7 +85,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
     if (vEq(new_version, last_version)) return
 
     server_version = new_server_version
-    console.log('server version ->', Array.from(server_version))
+    // console.log('server version ->', Array.from(server_version))
 
     let new_value = doc.get()
 
@@ -120,9 +120,9 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
 
       while (true) {
         statusChanged(Status.Waiting)
-        console.log('Waiting...')
+        // console.log('Waiting...')
         await wait(3000)
-        console.warn('Reconnecting...')
+        // console.warn('Reconnecting...')
         statusChanged(Status.Connecting)
 
         try {
@@ -162,7 +162,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
     // console.log('flushing', merge_version, server_version)
 
     let patch = doc.getPatchSince(server_version)
-    console.log('sending patch', patch, Array.from(server_version), '->', Array.from(merge_version))
+    // console.log('sending patch', patch, Array.from(server_version), '->', Array.from(merge_version))
 
     req_inflight = true
     try {
@@ -177,7 +177,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
       // This is sort of unnecessary because the server will send us our own patch
       // back anyway. But it should be harmess.
       server_version = doc.mergeVersions(server_version, merge_version)
-      console.log('resp server version ->', Array.from(server_version))
+      // console.log('resp server version ->', Array.from(server_version))
       req_inflight = false
 
       // Flush again
@@ -213,7 +213,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
 
           if (del > 0) doc.del(pos, del)
           if (ins !== '') doc.ins(pos, ins)
-          console.log('server version', Array.from(server_version))
+          // console.log('server version', Array.from(server_version))
 
           last_version = doc.getLocalVersion()
           last_value = new_value
