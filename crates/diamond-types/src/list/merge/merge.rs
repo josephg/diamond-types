@@ -6,6 +6,7 @@ use std::cmp::Ordering;
 use std::ptr::NonNull;
 use jumprope::JumpRope;
 use smallvec::{SmallVec, smallvec};
+use smartstring::alias::String as SmartString;
 use content_tree::*;
 use rle::{AppendRle, HasLength, Searchable, Trim, TrimCtx};
 use crate::list::{Frontier, Branch, OpLog, Time};
@@ -414,10 +415,6 @@ impl M2Tracker {
                 // self.range_tree.check();
                 // self.check_index();
 
-                // let mut result = op.clone();
-                // result.span.span.start = ins_pos;
-
-                // let consumed_len =
                 (len, BaseMoved(ins_pos))
             }
 
@@ -809,6 +806,12 @@ impl OpLog {
     }
 }
 
+fn reverse_str(s: &str) -> SmartString {
+    let mut result = SmartString::new();
+    result.extend(s.chars().rev());
+    result
+}
+
 impl Branch {
     /// Add everything in merge_frontier into the set.
     ///
@@ -824,7 +827,13 @@ impl Branch {
                     debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
                     let content = origin_op.get_content(oplog).unwrap();
                     assert!(pos <= self.content.len_chars());
-                    self.content.insert(pos, content);
+                    if origin_op.span.fwd {
+                        self.content.insert(pos, content);
+                    } else {
+                        // We need to insert the content in reverse order.
+                        let c = reverse_str(content);
+                        self.content.insert(pos, &c);
+                    }
                 }
 
                 (_, DeleteAlreadyHappened) => {}, // Discard.

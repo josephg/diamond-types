@@ -157,7 +157,8 @@ impl OpLog {
             // assumption given we're probably sending inserted content? Hm!
             let remaining_count = target_count - self.frontier.len();
             let n_ops = self.operations.0.len();
-            let factor = f32::powf(n_ops as f32, 1f32 / (remaining_count) as f32);
+            let mut factor = f32::powf(n_ops as f32, 1f32 / (remaining_count) as f32);
+            factor = factor.max(1.1);
 
             let mut t_inv = 1f32;
             while t_inv < time_len as f32 {

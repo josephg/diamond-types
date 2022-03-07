@@ -6,7 +6,7 @@ use crate::list::fuzzer_tools::choose_2;
 
 #[test]
 fn random_single_document() {
-    let mut rng = SmallRng::seed_from_u64(3);
+    let mut rng = SmallRng::seed_from_u64(10);
     let mut doc = ListCRDT::new();
 
     let agent = doc.get_or_create_agent_id("seph");
@@ -135,7 +135,7 @@ fn fuzz_once() {
 
 #[test]
 #[ignore]
-fn fuzz_many() {
+fn fuzz_merge_forever() {
     for k in 0.. {
         // println!("\n\n*** Iteration {} ***\n", k);
         if k % 100 == 0 {
