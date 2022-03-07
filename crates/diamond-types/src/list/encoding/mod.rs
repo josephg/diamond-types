@@ -135,6 +135,8 @@ enum ChunkType {
     PatchContent = 24,
     ContentKnown = 25,
 
+    TransformedPositions = 26, // Currently unused
+
     Crc = 100,
 }
 

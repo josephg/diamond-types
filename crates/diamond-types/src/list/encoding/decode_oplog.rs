@@ -820,25 +820,24 @@ impl OpLog {
         }
 
         // *** StartBranch ***
-        let start_frontier = if let Some(mut start_branch) = reader.read_chunk(ChunkType::StartBranch)? {
-            let mut start_frontier_chunk = start_branch.expect_chunk(ChunkType::Frontier)?;
-            let frontier = start_frontier_chunk.read_frontier(self, &agent_map).map_err(|e| {
-                // We can't read a frontier if it names agents or sequence numbers we haven't seen
-                // before. If this happens, its because we're trying to load a data set from the future.
-                if let InvalidRemoteID(_) = e {
-                    DataMissing
-                } else { e }
-            })?;
+        let mut start_branch = reader.expect_chunk(ChunkType::StartBranch)?;
+        let mut start_frontier_chunk = start_branch.expect_chunk(ChunkType::Frontier)?;
+        let start_frontier = start_frontier_chunk.read_frontier(self, &agent_map).map_err(|e| {
+            // We can't read a frontier if it names agents or sequence numbers we haven't seen
+            // before. If this happens, its because we're trying to load a data set from the future.
 
-            Some(frontier)
-        } else { None };
+            // TODO: Remove this!
+            if let InvalidRemoteID(_) = e {
+                DataMissing
+            } else { e }
+        })?;
+        // The start frontier also optionally contains the document content at this version, but
+        // we can't parse it yet. TODO!
 
         // Usually the version data will be strictly separated. Either we're loading data into an
         // empty document, or we've been sent catchup data from a remote peer. If the data set
         // overlaps, we need to actively filter out operations & txns from that data set.
-        let patches_overlap = start_frontier.map_or(true, |f|
-            !frontier_eq(&f, &self.frontier),
-        );
+        let patches_overlap = !frontier_eq(&start_frontier, &self.frontier);
         // dbg!(patches_overlap);
 
         // *** Patches ***
@@ -1025,7 +1024,7 @@ impl OpLog {
             // dbg!(&version_map);
             let mut next_history_time = first_new_time;
 
-            let mut file_frontier = Frontier::new();
+            let mut file_frontier = start_frontier;
 
             while !history_chunk.is_empty() {
                 let mut entry = history_chunk.next_history_entry(self, next_file_time, &agent_map)?;
@@ -1049,6 +1048,9 @@ impl OpLog {
                     // dbg!(&mapped);
                     assert!(mapped.span.start <= next_history_time);
 
+                    // We'll update merge parents even if nothing is merged.
+                    advance_frontier_by_known_run(&mut file_frontier, &mapped.parents, mapped.span);
+
                     if mapped.span.end > next_history_time {
                         // We'll merge items from mapped.
 
@@ -1061,7 +1063,6 @@ impl OpLog {
 
                         self.insert_history(&mapped.parents, mapped.span);
                         self.advance_frontier(&mapped.parents, mapped.span);
-                        advance_frontier_by_known_run(&mut file_frontier, &mapped.parents, mapped.span);
 
                         next_history_time += mapped.len();
                     } // else we already have these entries. Filter them out.
@@ -1440,5 +1441,43 @@ mod tests {
         oplog1.merge_data(&bytes).unwrap_err();
         // And the oplog's doc_id should be unchanged.
         assert_eq!(oplog1.doc_id, None);
+    }
+
+    #[test]
+    fn merge_returns_root_for_empty_file() {
+        let oplog = OpLog::new();
+        let bytes = oplog.encode(ENCODE_FULL);
+
+        let mut result = OpLog::new();
+        let version = result.merge_data(&bytes).unwrap();
+        assert!(frontier_eq(&version, &[ROOT_TIME]));
+    }
+
+    #[test]
+    fn merge_returns_version_even_with_overlap() {
+        let oplog = simple_doc().oplog;
+        let bytes = oplog.encode(ENCODE_FULL);
+
+        let mut oplog2 = oplog.clone();
+        let version = oplog2.merge_data(&bytes).unwrap();
+
+        assert!(frontier_eq(&version, oplog2.get_frontier()));
+    }
+
+    #[test]
+    fn merge_patch_returns_correct_version() {
+        // This was returning [4, ROOT_VERSION] or some nonsense.
+        let mut oplog = simple_doc().oplog;
+        let v = oplog.frontier.clone();
+        let mut oplog2 = oplog.clone();
+
+        oplog.push_insert(0, 0, "x");
+
+        let bytes = oplog.encode_from(ENCODE_FULL, &v);
+
+        let version = oplog2.merge_data(&bytes).unwrap();
+
+        // dbg!(version);
+        assert!(frontier_eq(&version, oplog2.get_frontier()));
     }
 }
