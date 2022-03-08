@@ -1,5 +1,5 @@
 /* @refresh reload */
-import { render } from 'solid-js/web';
+import { render, Show } from 'solid-js/web';
 import {createSignal, onMount} from 'solid-js'
 import './index.css';
 
@@ -20,21 +20,27 @@ const apiUrl = `/api/data/${docName}`
 const Editor = (props: Record<string, any>) => {
   let textarea: HTMLTextAreaElement
 
-  const [status, setStatus] = createSignal('Loading')
+  const [status, setStatus] = createSignal('')
 
   onMount(() => {
     subscribeDT(apiUrl, textarea, status => {
       console.log('STATUS', status)
       switch (status) {
-        case Status.Connected: setStatus('Connected'); break
-        case Status.Connecting: setStatus('Connecting'); break
-        case Status.Waiting: setStatus('Disconnected!! Waiting to reconnect...'); break
+        case 'connected': setStatus(''); break
+        case 'connecting': setStatus('Connecting'); break
+        case 'waiting': setStatus('Disconnected!! Waiting to reconnect...'); break
       }
     })
   })
 
   return (<>
-      <div class='status'>{status()}</div>
+      <div id='statusContainer'>
+        <Show when={status() !== ''}>
+          <div class='status'>
+            {status()}
+          </div>
+        </Show>
+      </div>
       <textarea ref={textarea!} placeholder='Type here yo' autofocus>
       </textarea>
     </>)

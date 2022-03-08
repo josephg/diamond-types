@@ -14,11 +14,7 @@ const randomId = (len = 12) => (
     .join('')
 )
 
-export enum Status {
-  Connecting,
-  Connected,
-  Waiting,
-}
+export type Status = 'connecting' | 'connected' | 'waiting'
 
 const empty = () => {}
 
@@ -40,7 +36,9 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
       // console.log('data', data)
       let doc = Doc.fromBytes(data as any, id)
       let version = doc.getLocalVersion()
-      // console.log('v', Array.from(version))
+      console.log('v', Array.from(version), 'contents', JSON.stringify(doc.get()))
+      console.log([...doc.get()])
+
       return [doc, version]
     },
     applyPatch([doc, version], patchType, patch) {
@@ -52,7 +50,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
       return [doc, new_version]
     }
   }
-  statusChanged(Status.Connecting)
+  statusChanged('connecting')
   let braid = await subscribe<[Doc, Uint32Array]>(url, braidOpts)
   elem.placeholder = placeholder
   // elem.disabled = false
@@ -73,7 +71,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
 
   elem.value = last_value
 
-  statusChanged(Status.Connected)
+  statusChanged('connected')
 
   const mergeChanges = (new_server_version: Uint32Array) => {
     // Got a remote change!
@@ -119,11 +117,11 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
       console.warn('connection GONE')
 
       while (true) {
-        statusChanged(Status.Waiting)
+        statusChanged('waiting')
         // console.log('Waiting...')
         await wait(3000)
         // console.warn('Reconnecting...')
-        statusChanged(Status.Connecting)
+        statusChanged('connecting')
 
         try {
           braid = await subscribe<[Doc, Uint32Array]>(url, {
@@ -143,7 +141,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
 
           mergeChanges(braid.initialValue[1])
           console.log('reconnected!')
-          statusChanged(Status.Connected)
+          statusChanged('connected')
           break;
         } catch (e) {
           console.warn('Could not reconnect:', e)
@@ -166,7 +164,12 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
 
     req_inflight = true
     try {
-      // await wait(3000)
+      // Add a delay for demos on /delay! TODO: Take me out
+      if (url === '/api/data/wiki/delay') {
+        await wait(3000)
+      }
+
+
       await fetch(url, {
         method: 'POST',
         headers: {

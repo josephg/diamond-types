@@ -27,13 +27,23 @@ textarea:focus {
   outline: none;
 }
 
-.status {
+#statusContainer {
   position: absolute;
-  right: 1.2em;
-  bottom: 0;
-  font-variant: small-caps;
+  left: 0;
+  right: 0;
+  top: 0;
+  font-family: sans-serif;
+  letter-spacing: 1px;
   font-weight: 700;
-  opacity: 50%;
+  display: flex;
+  justify-content: center;
+}
+
+.status {
+  background-color: rgb(218, 33, 95);
+  padding: 3px;
+  /* margin-top: -5px; */
+  /* position: relative; */
 }
 
 /* #connstatus {

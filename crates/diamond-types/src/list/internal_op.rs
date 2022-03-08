@@ -199,6 +199,7 @@ impl TimeSpanRev {
         }
 
         // TODO: Handling reversed items is currently limited to Del. Undo this.
+        // if (a.len() == 1 || !a.fwd) && (b.len() == 1 || !b.fwd)
         if tag == Del && (a.len() == 1 || !a.fwd) && (b.len() == 1 || !b.fwd)
             && ((tag == Ins && b.span.start == a.span.start)
             || (tag == Del && b.span.end == a.span.start)) {
