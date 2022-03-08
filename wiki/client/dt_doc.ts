@@ -194,13 +194,20 @@ server: ${JSON.stringify([...server_version])}
         await wait(3000)
       }
 
-      await fetch(url, {
+      const response = await fetch(url, {
         method: 'PATCH',
         headers: {
           'content-type': 'application/diamond-types',
         },
+        redirect: 'follow',
         body: patch,
       })
+
+      if (response.status >= 400) {
+        // Bump to error case below.
+        throw Error('Network error')
+      }
+
       // This is sort of unnecessary because the server will send us our own patch
       // back anyway. But it should be harmess.
       server_version = doc.mergeVersions(server_version, merge_version)
