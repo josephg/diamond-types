@@ -246,7 +246,7 @@ impl OpLog {
     //     let remote_time = self.inner.time_to_remote_id(time);
     //     serde_wasm_bindgen::to_value(&remote_time)
     // }
-    #[wasm_bindgen]
+    #[wasm_bindgen(js_name = localToRemoteVersion)]
     pub fn frontier_to_remote_time(&self, time: &[Time]) -> WasmResult {
         frontier_to_remote_time(&self.inner, time)
     }
@@ -422,6 +422,11 @@ impl Doc {
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
         get_local_frontier(&self.inner.oplog)
+    }
+
+    #[wasm_bindgen(js_name = localToRemoteVersion)]
+    pub fn frontier_to_remote_time(&self, time: &[Time]) -> WasmResult {
+        frontier_to_remote_time(&self.inner.oplog, time)
     }
 
     #[wasm_bindgen(js_name = xfSince)]

@@ -27,7 +27,7 @@ const wasmReady = init(wasmModule)
   let oplog2 = oplog.clone()
 
   let v = oplog.getLocalVersion()
-  console.log('v', v, oplog.frontier_to_remote_time(v))
+  console.log('v', v, oplog.localToRemoteVersion(v))
   oplog.del(1, 2)
   let patch = oplog.getPatchSince(v)
 
@@ -38,7 +38,7 @@ const wasmReady = init(wasmModule)
   console.log(oplog.getOps())
   console.log(oplog2.getOps())
 
-  console.log(oplog2.frontier_to_remote_time([2, 3]))
+  console.log(oplog2.localToRemoteVersion([2, 3]))
 
   // let oplog3 = new OpLog()
   // oplog3.apply_op({ tag: 'Ins', start: 0, end: 8, fwd: true, content: 'yooo' })
