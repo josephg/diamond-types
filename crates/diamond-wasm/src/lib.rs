@@ -88,8 +88,8 @@ pub fn to_txn_arr(oplog: &DTOpLog) -> WasmResult {
     serde_wasm_bindgen::to_value(&txns)
 }
 
-pub fn get_local_frontier(oplog: &DTOpLog) -> Box<[Time]> {
-    oplog.get_frontier().iter().copied().collect::<Box<[Time]>>()
+pub fn get_local_frontier(frontier: &[Time]) -> Box<[Time]> {
+    frontier.iter().copied().collect::<Box<[Time]>>()
 }
 
 // #[wasm_bindgen]
@@ -238,7 +238,7 @@ impl OpLog {
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        get_local_frontier(&self.inner)
+        get_local_frontier(&self.inner.get_frontier())
     }
 
     // #[wasm_bindgen]
@@ -247,12 +247,12 @@ impl OpLog {
     //     serde_wasm_bindgen::to_value(&remote_time)
     // }
     #[wasm_bindgen(js_name = localToRemoteVersion)]
-    pub fn frontier_to_remote_time(&self, time: &[Time]) -> WasmResult {
+    pub fn local_to_remote_version(&self, time: &[Time]) -> WasmResult {
         frontier_to_remote_time(&self.inner, time)
     }
 
-    #[wasm_bindgen(js_name = getFrontier)]
-    pub fn get_frontier(&self) -> WasmResult {
+    #[wasm_bindgen(js_name = getRemoteVersion)]
+    pub fn get_remote_version(&self) -> WasmResult {
         get_frontier(&self.inner)
     }
 
@@ -421,12 +421,17 @@ impl Doc {
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        get_local_frontier(&self.inner.oplog)
+        get_local_frontier(&self.inner.branch.frontier)
     }
 
     #[wasm_bindgen(js_name = localToRemoteVersion)]
-    pub fn frontier_to_remote_time(&self, time: &[Time]) -> WasmResult {
+    pub fn local_to_remote_version(&self, time: &[Time]) -> WasmResult {
         frontier_to_remote_time(&self.inner.oplog, time)
+    }
+
+    #[wasm_bindgen(js_name = getRemoteVersion)]
+    pub fn get_remote_version(&self) -> WasmResult {
+        frontier_to_remote_time(&self.inner.oplog, &self.inner.branch.frontier)
     }
 
     #[wasm_bindgen(js_name = xfSince)]
