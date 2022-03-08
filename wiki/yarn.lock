@@ -579,10 +579,10 @@ depd@~1.1.2:
   resolved "https://registry.yarnpkg.com/depd/-/depd-1.1.2.tgz#9bcd52e14c097763e749b274c4346ed2e560b5a9"
   integrity sha1-m81S4UwJd2PnSbJ0xDRu0uVgtak=
 
-diamond-wasm@^0.1.0:
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/diamond-wasm/-/diamond-wasm-0.1.0.tgz#3ae66b41f5ecc7b04d722b4010592b5787cf1e84"
-  integrity sha512-7YxBknQL/54biGlNozCyOqXDt2UaS8VMW+Qx0vPiAYLhB/5jSEVHjzyMVjp7WoT3Upy805zKOuSf5Al6HFnKpA==
+diamond-wasm@^0.1.1:
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/diamond-wasm/-/diamond-wasm-0.1.1.tgz#80c4828f3503fe0bb43ade778659631b03057110"
+  integrity sha512-+ZT+hvOnrlMZ/Y1Zv1R6gsLi9ev2pXbKyD271ei6ISWxYvP/+z5H1ch4E70gtBlh0zrcULenPaCGxgjib2NGEw==
 
 diff@^4.0.1:
   version "4.0.2"
