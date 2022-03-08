@@ -18,8 +18,16 @@ export type Status = 'connecting' | 'connected' | 'waiting'
 
 const empty = () => {}
 
-export async function subscribeDT(url: string, elem: HTMLTextAreaElement, statusChanged: (s: Status) => void = empty) {
+interface DTOpts {
+  setStatus?(s: Status): void,
+  setInfo?(info: string): void,
+}
+
+export async function subscribeDT(url: string, elem: HTMLTextAreaElement, opts: DTOpts = {}) {
   await init()
+
+  const setStatus = opts.setStatus ?? empty
+  const setInfo = opts.setInfo ?? empty
 
   let placeholder = elem.placeholder
   elem.placeholder = 'Loading...'
@@ -50,7 +58,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
       return [doc, new_version]
     }
   }
-  statusChanged('connecting')
+  setStatus('connecting')
   let braid = await subscribe<[Doc, Uint32Array]>(url, braidOpts)
   elem.placeholder = placeholder
   // elem.disabled = false
@@ -69,9 +77,20 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
   let server_version = last_version
   // console.log('server version', Array.from(server_version))
 
+  const updateInfo = () => {
+    setInfo(`${vEq(last_version, server_version) ? 'Up to date' : 'Versions differ!'}
+
+local: ${JSON.stringify([...last_version])}
+(${JSON.stringify(doc.localToRemoteVersion(last_version))})
+
+server: ${JSON.stringify([...server_version])}
+(${JSON.stringify(doc.localToRemoteVersion(server_version))})`)
+  }
+  updateInfo()
+
   elem.value = last_value
 
-  statusChanged('connected')
+  setStatus('connected')
 
   const mergeChanges = (new_server_version: Uint32Array) => {
     // Got a remote change!
@@ -106,6 +125,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
     )
 
     assert(vEq(doc.getLocalVersion(), last_version))
+    updateInfo()
   }
 
   ;(async () => {
@@ -117,11 +137,11 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
       console.warn('connection GONE')
 
       while (true) {
-        statusChanged('waiting')
+        setStatus('waiting')
         // console.log('Waiting...')
         await wait(3000)
         // console.warn('Reconnecting...')
-        statusChanged('connecting')
+        setStatus('connecting')
 
         try {
           braid = await subscribe<[Doc, Uint32Array]>(url, {
@@ -134,6 +154,10 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
               // We're getting a new snapshot here, but we can just merge it into
               // the document state.
               let version = doc.mergeBytes(data)
+
+              // If the server has rolled back somehow, update the server.
+              server_version = version
+
               // console.log('v', Array.from(version))
               return [doc, version]
             },
@@ -141,7 +165,8 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
 
           mergeChanges(braid.initialValue[1])
           console.log('reconnected!')
-          statusChanged('connected')
+          setStatus('connected')
+          tryFlush()
           break;
         } catch (e) {
           console.warn('Could not reconnect:', e)
@@ -169,7 +194,6 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
         await wait(3000)
       }
 
-
       await fetch(url, {
         method: 'POST',
         headers: {
@@ -182,6 +206,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
       server_version = doc.mergeVersions(server_version, merge_version)
       // console.log('resp server version ->', Array.from(server_version))
       req_inflight = false
+      updateInfo()
 
       // Flush again
       tryFlush()
@@ -222,6 +247,7 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, status
           last_value = new_value
 
           tryFlush()
+          updateInfo()
         }
       }, 0)
     }, false)

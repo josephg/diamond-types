@@ -17,32 +17,45 @@ const docName = `wiki${location.pathname}`
 console.log(`Editing ${docName}`)
 const apiUrl = `/api/data/${docName}`
 
+const connectionMsg: {[K in Status]: string} = {
+  connected: 'Connected',
+  connecting: 'Connecting...',
+  waiting: 'Disconnected!! Waiting to reconnect...'
+}
+
 const Editor = (props: Record<string, any>) => {
   let textarea: HTMLTextAreaElement
 
-  const [status, setStatus] = createSignal('')
+  const [status, setStatus] = createSignal<Status>('connecting')
+  const [info, setInfo] = createSignal<string>('Loading...')
+  const [showInfo, setShowInfo] = createSignal<boolean>(false)
+  const toggleShow = () => setShowInfo(!showInfo())
+  // const toggleShow = () => {
+  //   console.log('xxx')
+  //   setShowInfo(true)
+  // }
 
   onMount(() => {
-    subscribeDT(apiUrl, textarea, status => {
-      console.log('STATUS', status)
-      switch (status) {
-        case 'connected': setStatus(''); break
-        case 'connecting': setStatus('Connecting'); break
-        case 'waiting': setStatus('Disconnected!! Waiting to reconnect...'); break
-      }
+    subscribeDT(apiUrl, textarea, {
+      setStatus(status) {
+        console.log('STATUS', status)
+        setStatus(status)
+      },
+      setInfo
     })
   })
 
   return (<>
       <div id='statusContainer'>
-        <Show when={status() !== ''}>
-          <div class='status'>
-            {status()}
-          </div>
-        </Show>
+        <div class={status()}></div>
       </div>
-      <textarea ref={textarea!} placeholder='Type here yo' autofocus>
-      </textarea>
+
+      <textarea ref={textarea!} placeholder='Type here yo' autofocus></textarea>
+
+      <Show when={showInfo()}>
+        <div id='info'>{info()}</div>
+      </Show>
+      <button id='showInfo' onClick={toggleShow}>info</button>
     </>)
 }
 

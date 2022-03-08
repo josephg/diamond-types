@@ -37,40 +37,53 @@ textarea:focus {
   font-weight: 700;
   display: flex;
   justify-content: center;
+  /* transform: translateY(-50%); */
 }
 
-.status {
+#statusContainer > * {
   background-color: rgb(218, 33, 95);
   padding: 3px;
-  /* margin-top: -5px; */
-  /* position: relative; */
+
+  transition: 0.2s linear;
+  transition-property: transform background-color;
 }
 
-/* #connstatus {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 4px;
+#statusContainer > *.connected {
+  background-color: rgb(48, 218, 33);
+  transform: translateY(-100%);
+}
+#statusContainer > *.connected::before {
+  content: 'Yay'
+}
+
+#statusContainer > *.connecting {
+  background-color: rgb(218, 33, 95);
+}
+#statusContainer > *.connecting::before {
+  content: 'Connecting...'
+}
+
+#statusContainer > *.waiting {
+  background-color: rgb(218, 33, 95);
+}
+#statusContainer > *.waiting::before {
+  content: 'Disconnected!! Waiting to reconnect...'
+}
+
+#info {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(128, 128, 128, 0.5);
+  padding: 1em;
+  white-space: pre;
   font-family: monospace;
   font-size: 16px;
-  font-weight: bold;
-  background-color: rgba(244, 76, 255, 0.6);
 }
 
-#connstatus.waiting {
-  background-color: red;
+#showInfo {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  opacity: 30%;
 }
-#connstatus.connecting {
-  background-color: yellow;
-}
-
-#connstatus.connected:before {
-  content: 'Connected'
-}
-#connstatus.connecting:before {
-  content: 'Connecting'
-}
-#connstatus.waiting:before {
-  content: 'Not connected! Waiting to reconnect'
-}
- */

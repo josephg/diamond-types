@@ -52,12 +52,22 @@ type DocStuff = {
 const docs = new Map<string, DocStuff>()
 const braid_clients = new Map<string, Set<BraidStream>>()
 
-const dirname = path.dirname(fileURLToPath(import.meta.url))
+const dirnameHere = path.dirname(fileURLToPath(import.meta.url))
+const dirname = dirnameHere.endsWith('/dist/server')
+  ? dirnameHere.slice(0, dirnameHere.length - '/dist/server'.length)
+  : dirnameHere
+
 const DATA_DIR = path.resolve(dirname, 'data')
-console.log('data', DATA_DIR)
+
+console.log('Storing DT data files in', DATA_DIR)
 // fs.mkdirSync(DATA_DIR, {recursive: true})
 
-const getFilename = (name: string): string => path.resolve(DATA_DIR, `${name}.dt`)
+const getFilename = (name: string): string => {
+  if (name.endsWith(path.sep)) {
+    name += 'index'
+  }
+  return path.resolve(DATA_DIR, `${name}.dt`)
+}
 
 // const save = async (name: string, oplog: OpLog) => {
 //   await fsp.writeFile(getFilename(name), oplog.toBytes())
@@ -137,8 +147,7 @@ const getDocStuff = async (name: string): Promise<DocStuff> => {
 const broadcastPatch = (name: string, oplog: OpLog, since_version: Uint32Array) => {
   const clients = clientsForDoc(name)
 
-
-  const version = JSON.stringify(oplog.getFrontier())
+  const version = JSON.stringify(oplog.getRemoteVersion())
   const patch = oplog.getPatchSince(since_version)
 
   console.log(`broadcasting ${patch.length} bytes to ${name} (${clients.size} peers)`)
