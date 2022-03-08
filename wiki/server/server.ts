@@ -2,7 +2,7 @@ import {default as init, Branch, Doc, OpLog} from 'diamond-wasm'
 import {default as polka} from 'polka'
 import {default as sirv} from 'sirv'
 import {BraidStream, stream as braidStream} from '@braid-protocol/server'
-import {default as bp} from 'body-parser'
+import {default as bodyParser} from 'body-parser'
 import fsp from 'fs/promises'
 import fs from 'fs'
 import path from 'path'
@@ -15,7 +15,7 @@ import { vEq } from '../common/utils.js'
 //   throw err
 // })
 
-const {raw} = bp
+const {raw} = bodyParser
 
 // This works if we add --experimental-import-meta-resolve
 // console.log(import.meta.resolve!('diamond-wasm/diamond_wasm_bg.wasm'))
@@ -161,25 +161,6 @@ const broadcastPatch = (name: string, oplog: OpLog, since_version: Uint32Array) 
   }
 }
 
-// setInterval(async () => {
-//   const doc = await getOpLog('foo')
-//   // const clients = clientsForDoc('foo')
-
-//   const before = doc.getLocalVersion()
-//   doc.ins(0, Math.random() > 0.5 ? 'x' : '_')
-//   broadcastPatch('foo', doc, before)
-
-//   // // console.log('Appended to foo', patch.length)
-//   // const version = JSON.stringify(doc.getFrontier())
-//   // for (const c of clients) {
-//   //   // TODO: This is resending the document every time!
-//   //   c.append({
-//   //     version,
-//   //     patches: [patch],
-//   //   })
-//   // }
-// }, 1000)
-
 // All documents implicitly exist.
 const DATA_URL_BASE = '/api/data/'
 app.get(`${DATA_URL_BASE}*`, async (req, res, next) => {
@@ -215,7 +196,8 @@ app.get(`${DATA_URL_BASE}*`, async (req, res, next) => {
   // res.end(`oh hai ${path}`)
 })
 
-app.post(`${DATA_URL_BASE}*`, raw({type: 'application/dt'}), async (req, res, next) => {
+app.patch(`${DATA_URL_BASE}*`, raw({type: 'application/diamond-types'}), async (req, res, next) => {
+  // console.log(res, res.end, res.sendStatus)
   const docName = req.path.slice(DATA_URL_BASE.length)
   if (docName == null || docName == '') return next()
 
@@ -224,9 +206,10 @@ app.post(`${DATA_URL_BASE}*`, raw({type: 'application/dt'}), async (req, res, ne
 
   // console.log('body', req.headers, req.body)
   if (req.body == null || !Buffer.isBuffer(req.body)) {
-    res.sendStatus(406)
+    res.writeHead(406)
     res.end('Invalid data')
     console.log('invalid body', req.body)
+    return
   }
 
   try {

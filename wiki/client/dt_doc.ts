@@ -195,9 +195,9 @@ server: ${JSON.stringify([...server_version])}
       }
 
       await fetch(url, {
-        method: 'POST',
+        method: 'PATCH',
         headers: {
-          'content-type': 'application/dt',
+          'content-type': 'application/diamond-types',
         },
         body: patch,
       })
