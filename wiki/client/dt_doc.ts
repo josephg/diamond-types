@@ -81,10 +81,10 @@ export async function subscribeDT(url: string, elem: HTMLTextAreaElement, opts: 
     setInfo(`${vEq(last_version, server_version) ? 'Up to date' : 'Versions differ!'}
 
 local: ${JSON.stringify([...last_version])}
-(${JSON.stringify(doc.localToRemoteVersion(last_version))})
+${JSON.stringify(doc.localToRemoteVersion(last_version))}
 
 server: ${JSON.stringify([...server_version])}
-(${JSON.stringify(doc.localToRemoteVersion(server_version))})`)
+${JSON.stringify(doc.localToRemoteVersion(server_version))}`)
   }
   updateInfo()
 
