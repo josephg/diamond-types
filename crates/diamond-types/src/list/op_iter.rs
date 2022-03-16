@@ -76,8 +76,7 @@ impl<'a> OpMetricsIter<'a> {
 
     pub(crate) fn get_content(&self, metrics: &KVPair<OperationInternal>) -> Option<&'a str> {
         metrics.1.content_pos.map(|pos| {
-            let c = self.ctx.switch(metrics.1.tag);
-            &c[pos.start..pos.end]
+            self.ctx.get_str(metrics.1.tag, pos)
         })
     }
 }
@@ -181,8 +180,8 @@ mod test {
         }));
 
         let ctx = OperationCtx {
-            ins_content: "0123456789".to_string(),
-            del_content: "".to_string()
+            ins_content: "0123456789".to_string().into_bytes(),
+            del_content: "".to_string().into_bytes()
         };
 
         assert_eq!(OpMetricsIter::new(&ops, &ctx, (0..30).into()).collect::<Vec<_>>(), ops.0.as_slice());

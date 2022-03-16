@@ -9,7 +9,7 @@ use crate::rev_span::TimeSpanRev;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::unicount::{consume_chars, count_chars, split_at_char};
 use crate::list::encoding::ParseError::*;
-use rle::{AppendRle, SplitableSpanCtx, Trim, TrimCtx};
+use rle::{AppendRle, SplitableSpanCtx, SplitableSpanHelpers, Trim, TrimCtx};
 use crate::list::buffered_iter::Buffered;
 use crate::list::encoding::ChunkType::*;
 use crate::list::history::MinimalHistoryEntry;
@@ -584,8 +584,8 @@ struct ContentItem<'a> {
     content: Option<&'a str>,
 }
 
-impl<'a> SplitableSpan for ContentItem<'a> {
-    fn truncate(&mut self, at: usize) -> Self {
+impl<'a> SplitableSpanHelpers for ContentItem<'a> {
+    fn truncate_h(&mut self, at: usize) -> Self {
         let content_remainder = if let Some(str) = self.content.as_mut() {
             let (here, remainder) = split_at_char(*str, at);
             *str = here;

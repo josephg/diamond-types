@@ -50,8 +50,7 @@ impl OperationInternal {
 
     pub(crate) fn get_content<'a>(&self, oplog: &'a OpLog) -> Option<&'a str> {
         self.content_pos.map(|span| {
-            let c = oplog.operation_ctx.switch(self.tag);
-            &c[span.start..span.end]
+            oplog.operation_ctx.get_str(self.tag, span)
         })
     }
 
@@ -69,20 +68,42 @@ impl HasLength for OperationInternal {
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationCtx {
-    pub ins_content: String,
-    pub del_content: String,
+    pub(crate) ins_content: Vec<u8>,
+    pub(crate) del_content: Vec<u8>,
 }
 
 impl OperationCtx {
     pub fn new() -> Self {
         Self {
-            ins_content: String::new(),
-            del_content: String::new()
+            ins_content: Vec::new(),
+            del_content: Vec::new()
         }
     }
 
-    pub(crate) fn switch(&self, tag: InsDelTag) -> &str {
-        switch(tag, self.ins_content.as_str(), self.del_content.as_str())
+    pub(crate) fn get_str(&self, tag: InsDelTag, range: TimeSpan) -> &str {
+        unsafe { std::str::from_utf8_unchecked(&self.switch(tag)[range.start..range.end]) }
+    }
+
+    // pub(crate) fn switch_str(&self, tag: InsDelTag) -> &str {
+    //     unsafe { std::str::from_utf8_unchecked(self.switch_bytes(tag)) }
+    //     // switch(tag, self.ins_content.as_str(), self.del_content.as_str())
+    // }
+
+    pub(crate) fn switch(&self, tag: InsDelTag) -> &[u8] {
+        switch(tag, &self.ins_content, &self.del_content)
+    }
+
+    pub(crate) fn switch_mut(&mut self, tag: InsDelTag) -> &mut Vec<u8> {
+        switch(tag, &mut self.ins_content, &mut self.del_content)
+    }
+
+    pub(crate) fn push_str(&mut self, tag: InsDelTag, s: &str) -> TimeSpan {
+        let storage = self.switch_mut(tag);
+        let start = storage.len();
+        storage.extend_from_slice(s.as_bytes());
+        let end = storage.len();
+
+        (start..end).into()
     }
 }
 
@@ -101,8 +122,8 @@ impl SplitableSpanCtx for OperationInternal {
         let span = self.span.truncate_tagged_span(self.tag, at);
 
         let content_pos = if let Some(p) = &mut self.content_pos {
-            let content = switch(self.tag, &ctx.ins_content, &ctx.del_content);
-            let byte_offset = chars_to_bytes(&content[p.start..p.end], at);
+            let content = ctx.get_str(self.tag, *p);
+            let byte_offset = chars_to_bytes(content, at);
             Some(p.truncate(byte_offset))
         } else { None };
 
@@ -262,8 +283,8 @@ mod test {
             tag: InsDelTag::Ins,
             content_pos: Some((0..10).into()),
         }, &OperationCtx {
-            ins_content: "0123456789".to_string(),
-            del_content: "".to_string()
+            ins_content: "0123456789".as_bytes().to_owned(),
+            del_content: "".as_bytes().to_owned()
         });
 
         let s2 = "↯1↯3↯5↯7↯9";
@@ -272,8 +293,8 @@ mod test {
             tag: InsDelTag::Ins,
             content_pos: Some((0..s2.len()).into()),
         }, &OperationCtx {
-            ins_content: s2.to_string(), // too easy? Maybe..
-            del_content: "".to_string()
+            ins_content: s2.as_bytes().to_owned(), // too easy? Maybe..
+            del_content: "".as_bytes().to_owned()
         });
 
         // I can't test the other splitablespan variants like this because they don't support
@@ -291,8 +312,8 @@ mod test {
 
         // let rem = op.truncate(2, "abcde");
         let rem = op.truncate_ctx(2, &OperationCtx {
-            ins_content: "".to_string(),
-            del_content: "abcde".to_string()
+            ins_content: "".as_bytes().to_owned(),
+            del_content: "abcde".as_bytes().to_owned()
         });
 
         assert_eq!(op, OperationInternal {
@@ -314,8 +335,8 @@ mod test {
     fn split_around_unicode() {
         // The ¥ symbol is a 2-byte encoding. And ↯ is 3 bytes.
         let ctx = OperationCtx {
-            ins_content: "¥123↯".to_string(),
-            del_content: "¥123↯".to_string()
+            ins_content: "¥123↯".as_bytes().to_owned(),
+            del_content: "¥123↯".as_bytes().to_owned()
         };
 
         let op = OperationInternal {

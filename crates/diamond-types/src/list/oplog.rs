@@ -2,7 +2,7 @@ use smallvec::smallvec;
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{Branch, ClientData, OpLog, switch, Time};
+use crate::list::{Branch, ClientData, OpLog, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
@@ -301,10 +301,7 @@ impl OpLog {
         // next_time should almost always be self.len - except when loading, or modifying the data
         // in some complex way.
         let content_pos = if let Some(c) = content {
-            let storage = switch(tag, &mut self.operation_ctx.ins_content, &mut self.operation_ctx.del_content);
-            let start = storage.len();
-            storage.push_str(c);
-            Some((start..start + c.len()).into())
+            Some(self.operation_ctx.push_str(tag, c))
         } else { None };
 
         // self.operations.push(KVPair(next_time, c.clone()));

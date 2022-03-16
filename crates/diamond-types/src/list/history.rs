@@ -1,6 +1,6 @@
 use smallvec::{SmallVec, smallvec};
 
-use rle::{HasLength, MergableSpan, SplitableSpan};
+use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::list::Time;
 
 use crate::rle::{RleKeyed, RleVec};
@@ -178,8 +178,8 @@ impl HasLength for MinimalHistoryEntry {
     fn len(&self) -> usize { self.span.len() }
 }
 
-impl SplitableSpan for MinimalHistoryEntry {
-    fn truncate(&mut self, at: usize) -> Self {
+impl SplitableSpanHelpers for MinimalHistoryEntry {
+    fn truncate_h(&mut self, at: usize) -> Self {
         debug_assert!(at >= 1);
 
         MinimalHistoryEntry {

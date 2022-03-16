@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use content_tree::{ContentLength, Toggleable};
-use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
+use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::list::Time;
 use crate::localtime::{debug_time, TimeSpan, UNDERWATER_START};
 use crate::ROOT_TIME;
@@ -145,8 +145,8 @@ impl HasLength for YjsSpan {
     fn len(&self) -> usize { self.id.len() }
 }
 
-impl SplitableSpan for YjsSpan {
-    fn truncate(&mut self, offset: usize) -> Self {
+impl SplitableSpanHelpers for YjsSpan {
+    fn truncate_h(&mut self, offset: usize) -> Self {
         debug_assert!(offset > 0);
         // let at_signed = offset as i32 * self.len.signum();
         YjsSpan {

@@ -1,4 +1,4 @@
-use rle::{HasLength, MergableSpan, SplitableSpan};
+use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::{Toggleable, ContentLength};
 use rle::Searchable;
 
@@ -23,8 +23,8 @@ impl Default for TestRange {
 impl HasLength for TestRange {
     fn len(&self) -> usize { self.len as usize }
 }
-impl SplitableSpan for TestRange {
-    fn truncate(&mut self, at: usize) -> Self {
+impl SplitableSpanHelpers for TestRange {
+    fn truncate_h(&mut self, at: usize) -> Self {
         assert!(at > 0 && at < self.len as usize);
         let other = Self {
             id: self.id + at as u32,
@@ -35,7 +35,7 @@ impl SplitableSpan for TestRange {
         other
     }
 
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+    fn truncate_keeping_right_h(&mut self, at: usize) -> Self {
         let mut other = *self;
         *self = other.truncate(at);
         other

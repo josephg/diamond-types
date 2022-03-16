@@ -1,5 +1,5 @@
 use std::ops::Range;
-use rle::{HasLength, MergableSpan, SplitableSpan};
+use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::localtime::TimeSpan;
 
 #[cfg(feature = "serde")]
@@ -103,8 +103,8 @@ impl HasLength for TimeSpanRev {
     fn len(&self) -> usize { self.span.len() }
 }
 
-impl SplitableSpan for TimeSpanRev {
-    fn truncate(&mut self, at: usize) -> Self {
+impl SplitableSpanHelpers for TimeSpanRev {
+    fn truncate_h(&mut self, at: usize) -> Self {
         TimeSpanRev {
             span: if self.fwd {
                 self.span.truncate(at)
@@ -165,7 +165,7 @@ mod test {
             span: (1..4).into(),
             fwd: true
         };
-        assert_eq!(fwd.split(1), (
+        assert_eq!(fwd.split_h(1), (
             TimeSpanRev {
                 span: (1..2).into(),
                 fwd: true
@@ -180,7 +180,7 @@ mod test {
             span: (1..4).into(),
             fwd: false
         };
-        assert_eq!(rev.split(1), (
+        assert_eq!(rev.split_h(1), (
             TimeSpanRev {
                 span: (3..4).into(),
                 fwd: false
@@ -214,7 +214,7 @@ mod test {
             };
 
             for offset in 1..span.len() {
-                let (a, b) = span.split(offset);
+                let (a, b) = span.split_h(offset);
                 assert_eq!(span.time_at_offset(offset - 1), a.time_at_offset(offset - 1));
                 assert_eq!(span.time_at_offset(offset), b.time_at_offset(0));
                 // assert_eq!(span.time_at_offset(offset), a.time_at_offset(0));

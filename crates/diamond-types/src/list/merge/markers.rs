@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::ptr::NonNull;
 
-use rle::{HasLength, MergableSpan, SplitableSpan};
+use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 
 use content_tree::*;
 use rle::Searchable;
@@ -61,8 +61,8 @@ impl HasLength for MarkerEntry {
     }
 }
 
-impl SplitableSpan for Marker {
-    fn truncate(&mut self, at: usize) -> Self {
+impl SplitableSpanHelpers for Marker {
+    fn truncate_h(&mut self, at: usize) -> Self {
         match self {
             InsPtr(_) => *self,
             Marker::DelTarget(target) => DelTarget(target.truncate(at)),
@@ -70,8 +70,8 @@ impl SplitableSpan for Marker {
     }
 }
 
-impl SplitableSpan for MarkerEntry {
-    fn truncate(&mut self, at: usize) -> Self {
+impl SplitableSpanHelpers for MarkerEntry {
+    fn truncate_h(&mut self, at: usize) -> Self {
         let remainder_len = self.len - at;
         self.len = at;
         MarkerEntry {
@@ -80,7 +80,7 @@ impl SplitableSpan for MarkerEntry {
         }
     }
 
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+    fn truncate_keeping_right_h(&mut self, at: usize) -> Self {
         let left = Self {
             len: at,
             inner: self.inner.truncate_keeping_right(at)

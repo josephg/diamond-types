@@ -9,6 +9,43 @@ pub trait HasLength {
     }
 }
 
+pub trait SplitableSpanHelpers: Clone {
+    /// Split the entry, returning the part of the entry which was jettisoned. After truncating at
+    /// `pos`, self.len() == `pos` and the returned value contains the rest of the items.
+    ///
+    /// ```ignore
+    /// let initial_len = entry.len();
+    /// let rest = entry.truncate(truncate_at);
+    /// assert!(initial_len == truncate_at + rest.len());
+    /// ```
+    ///
+    /// `at` parameter must strictly obey *0 < at < entry.len()*
+    fn truncate_h(&mut self, at: usize) -> Self;
+
+    /// The inverse of truncate. This method mutably truncates an item, keeping all content from
+    /// at..item.len() and returning the item range from 0..at.
+    #[inline(always)]
+    fn truncate_keeping_right_h(&mut self, at: usize) -> Self {
+        let mut other = self.clone();
+        *self = other.truncate_h(at);
+        other
+    }
+
+    fn split(mut self, at: usize) -> (Self, Self) {
+        let remainder = self.truncate_h(at);
+        (self, remainder)
+    }
+}
+impl<T: SplitableSpanHelpers> SplitableSpanCtx for T {
+    type Ctx = ();
+
+    fn truncate_ctx(&mut self, at: usize, _ctx: &Self::Ctx) -> Self {
+        self.truncate_h(at)
+        // SplitableSpanHelpers::truncate(self, at)
+        // <self as SplitableSpanHelpers>::truncate(self, at)
+    }
+}
+
 pub trait SplitableSpanCtx: Clone {
     type Ctx: ?Sized;
 
@@ -39,7 +76,8 @@ pub trait SplitableSpanCtx: Clone {
     }
 }
 
-pub trait SplitableSpan: Clone {
+// Do not implement this directly.
+pub trait SplitableSpan: SplitableSpanCtx<Ctx=()> {
     /// Split the entry, returning the part of the entry which was jettisoned. After truncating at
     /// `pos`, self.len() == `pos` and the returned value contains the rest of the items.
     ///
@@ -50,38 +88,24 @@ pub trait SplitableSpan: Clone {
     /// ```
     ///
     /// `at` parameter must strictly obey *0 < at < entry.len()*
-    fn truncate(&mut self, at: usize) -> Self;
+    fn truncate(&mut self, at: usize) -> Self {
+        self.truncate_ctx(at, &())
+    }
 
     /// The inverse of truncate. This method mutably truncates an item, keeping all content from
     /// at..item.len() and returning the item range from 0..at.
     #[inline(always)]
     fn truncate_keeping_right(&mut self, at: usize) -> Self {
-        let mut other = self.clone();
-        *self = other.truncate(at);
-        other
+        self.truncate_keeping_right_ctx(at, &())
     }
 
-    fn split(mut self, at: usize) -> (Self, Self) {
-        let remainder = self.truncate(at);
+    fn split_h(mut self, at: usize) -> (Self, Self) {
+        let remainder = self.truncate_ctx(at, &());
         (self, remainder)
     }
 }
 
-impl<T: SplitableSpan> SplitableSpanCtx for T {
-    type Ctx = ();
-
-    fn truncate_ctx(&mut self, at: usize, _ctx: &()) -> Self {
-        self.truncate(at)
-    }
-
-    fn truncate_keeping_right_ctx(&mut self, at: usize, _ctx: &()) -> Self {
-        self.truncate_keeping_right(at)
-    }
-
-    fn split_ctx(self, at: usize, _ctx: &()) -> (Self, Self) {
-        self.split(at)
-    }
-}
+impl<T: SplitableSpanCtx<Ctx=()>> SplitableSpan for T {}
 
 // This is a bit of a hack. This wrapper trait lets us use regular splitablespan methods in lots of
 // situations.
@@ -118,12 +142,14 @@ impl<'a, T: SplitableSpanCtx + Clone> Clone for WithCtx<'a, T> {
     }
 }
 
-impl<'a, T: SplitableSpanCtx> SplitableSpan for WithCtx<'a, T> {
-    fn truncate(&mut self, at: usize) -> Self {
+impl<'a, T: SplitableSpanCtx> SplitableSpanCtx for WithCtx<'a, T> {
+    type Ctx = ();
+
+    fn truncate_ctx(&mut self, at: usize, _ctx: &Self::Ctx) -> Self {
         WithCtx(self.0.truncate_ctx(at, self.1), self.1)
     }
 
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+    fn truncate_keeping_right_ctx(&mut self, at: usize, _ctx: &Self::Ctx) -> Self {
         WithCtx(self.0.truncate_keeping_right_ctx(at, self.1), self.1)
     }
 }
@@ -219,9 +245,10 @@ pub struct ReverseSpan<S>(pub S);
 impl<T> HasLength for Single<T> {
     fn len(&self) -> usize { 1 }
 }
-impl<T: Clone> SplitableSpan for Single<T> {
+impl<T: Clone> SplitableSpanCtx for Single<T> {
+    type Ctx = ();
     // This is a valid impl because truncate can never be called for single items.
-    fn truncate(&mut self, _at: usize) -> Self { panic!("Cannot truncate single sized item"); }
+    fn truncate_ctx(&mut self, _at: usize, _ctx: &Self::Ctx) -> Self { panic!("Cannot truncate single sized item"); }
 }
 impl<T: Clone> MergableSpan for Single<T> {
     fn can_append(&self, _other: &Self) -> bool { false }
@@ -231,11 +258,12 @@ impl<T: Clone> MergableSpan for Single<T> {
 impl<S: HasLength> HasLength for ReverseSpan<S> {
     fn len(&self) -> usize { self.0.len() }
 }
-impl<S: SplitableSpan> SplitableSpan for ReverseSpan<S> {
-    fn truncate(&mut self, at: usize) -> Self {
+impl<S: SplitableSpanCtx<Ctx=()>> SplitableSpanCtx for ReverseSpan<S> {
+    type Ctx = ();
+    fn truncate_ctx(&mut self, at: usize, _ctx: &Self::Ctx) -> Self {
         ReverseSpan(self.0.truncate_keeping_right(at))
     }
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+    fn truncate_keeping_right_ctx(&mut self, at: usize, _ctx: &Self::Ctx) -> Self {
         ReverseSpan(self.0.truncate(at))
     }
 }
@@ -263,8 +291,8 @@ impl<A, B> HasLength for (A, B) where A: HasLength {
     }
 }
 
-impl<A, B> SplitableSpan for (A, B) where A: SplitableSpan, B: SplitableSpan {
-    fn truncate(&mut self, at: usize) -> Self {
+impl<A, B> SplitableSpanHelpers for (A, B) where A: SplitableSpan, B: SplitableSpan {
+    fn truncate_h(&mut self, at: usize) -> Self {
         (self.0.truncate(at), self.1.truncate(at))
     }
 }
@@ -294,8 +322,8 @@ impl<T: Clone + Eq> RleRun<T> {
 impl<T: Clone + Eq> HasLength for RleRun<T> {
     fn len(&self) -> usize { self.len }
 }
-impl<T: Clone + Eq> SplitableSpan for RleRun<T> {
-    fn truncate(&mut self, at: usize) -> Self {
+impl<T: Clone + Eq> SplitableSpanHelpers for RleRun<T> {
+    fn truncate_h(&mut self, at: usize) -> Self {
         let remainder = self.len - at;
         self.len = at;
         Self { val: self.val.clone(), len: remainder }
@@ -340,8 +368,8 @@ impl<T, E> HasLength for Result<T, E> where T: HasLength, Result<T, E>: Clone {
     }
 }
 
-impl<V> SplitableSpan for Option<V> where V: SplitableSpan {
-    fn truncate(&mut self, at: usize) -> Self {
+impl<V> SplitableSpanHelpers for Option<V> where V: SplitableSpan {
+    fn truncate_h(&mut self, at: usize) -> Self {
         self.as_mut().map(|v| v.truncate(at))
         // match self {
         //     None => None,
@@ -375,9 +403,9 @@ impl<V> SplitableSpan for Option<V> where V: SplitableSpan {
 impl HasLength for Range<u32> {
     fn len(&self) -> usize { (self.end - self.start) as _ }
 }
-impl SplitableSpan for Range<u32> {
+impl SplitableSpanHelpers for Range<u32> {
     // This is a valid impl because truncate can never be called for single items.
-    fn truncate(&mut self, at: usize) -> Self {
+    fn truncate_h(&mut self, at: usize) -> Self {
         let old_end = self.end;
         self.end = self.start + at as u32;
         Self { start: self.end, end: old_end }

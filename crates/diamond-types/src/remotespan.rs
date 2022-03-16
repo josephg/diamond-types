@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use content_tree::ContentLength;
-use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
+use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::{AgentId, ROOT_AGENT};
 use crate::localtime::TimeSpan;
 
@@ -83,15 +83,15 @@ impl HasLength for CRDTSpan {
         self.seq_range.len()
     }
 }
-impl SplitableSpan for CRDTSpan {
-    fn truncate(&mut self, at: usize) -> Self {
+impl SplitableSpanHelpers for CRDTSpan {
+    fn truncate_h(&mut self, at: usize) -> Self {
         CRDTSpan {
             agent: self.agent,
             seq_range: self.seq_range.truncate(at)
         }
     }
 
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+    fn truncate_keeping_right_h(&mut self, at: usize) -> Self {
         CRDTSpan {
             agent: self.agent,
             seq_range: self.seq_range.truncate_keeping_right(at)

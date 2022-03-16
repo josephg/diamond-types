@@ -5,7 +5,7 @@
 /// Updates are made up of a series of insert / delete components, each at some position.
 
 use smartstring::alias::{String as SmartString};
-use rle::{HasLength, MergableSpan, SplitableSpan};
+use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 use InsDelTag::*;
 use crate::unicount::{chars_to_bytes, count_chars};
 use crate::list::internal_op::OperationInternal;
@@ -124,8 +124,8 @@ impl Operation {
     }
 }
 
-impl SplitableSpan for Operation {
-    fn truncate(&mut self, at: usize) -> Self {
+impl SplitableSpanHelpers for Operation {
+    fn truncate_h(&mut self, at: usize) -> Self {
         // let (self_span, other_span) = TimeSpanRev::split_op_span(self.span, self.tag, at);
         let span = self.span.truncate_tagged_span(self.tag, at);
 

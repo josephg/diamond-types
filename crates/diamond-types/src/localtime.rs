@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt::{Debug, DebugStruct, Formatter};
-use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
+use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
 
 use crate::rle::RleKeyed;
 use std::ops::Range;
@@ -95,8 +95,8 @@ impl HasLength for TimeSpan {
     }
 }
 
-impl SplitableSpan for TimeSpan {
-    fn truncate(&mut self, at: usize) -> Self {
+impl SplitableSpanHelpers for TimeSpan {
+    fn truncate_h(&mut self, at: usize) -> Self {
         let split = self.start + at;
         let other = TimeSpan {
             start: split,
@@ -108,7 +108,7 @@ impl SplitableSpan for TimeSpan {
     }
 
     #[inline]
-    fn truncate_keeping_right(&mut self, at: usize) -> Self {
+    fn truncate_keeping_right_h(&mut self, at: usize) -> Self {
         let split = self.start + at;
         let other = TimeSpan {
             start: self.start,
