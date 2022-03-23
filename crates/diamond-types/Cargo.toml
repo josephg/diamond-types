@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 #diamond-core = { path = "../diamond-core" }
-smartstring = "0.2.9"
+smartstring = "1.0.0"
 str_indices = "0.3.1"
 smallvec = { version = "1.8.0", features = ["union"] }
 lazy_static = "1.4.0"
