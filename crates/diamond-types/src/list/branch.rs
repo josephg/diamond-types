@@ -2,15 +2,14 @@ use jumprope::JumpRope;
 use crate::list::{Branch, OpLog, Time};
 use smallvec::smallvec;
 use smartstring::SmartString;
-use rle::HasLength;
-use crate::list::internal_op::OperationInternal;
 use crate::list::list::apply_local_operation;
 use crate::list::operation::InsDelTag::*;
-use crate::list::operation::Operation;
+use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::TimeSpan;
 use crate::{AgentId, ROOT_TIME};
 
 impl Branch {
+    /// Create a new (empty) branch at the start of history. The branch will be an empty list.
     pub fn new() -> Self {
         Self {
             version: smallvec![ROOT_TIME],
@@ -18,51 +17,48 @@ impl Branch {
         }
     }
 
+    /// Create a new branch as a checkout from the specified oplog, at the specified local time.
+    /// This method equivalent to calling [`oplog.checkout(version)`](OpLog::checkout).
     pub fn new_at_local_version(oplog: &OpLog, version: &[Time]) -> Self {
         oplog.checkout(version)
     }
 
+    /// Create a new branch as a checkout from the specified oplog by merging all changes into a
+    /// single view of time. This method equivalent to calling
+    /// [`oplog.checkout_tip()`](OpLog::checkout_tip).
     pub fn new_at_tip(oplog: &OpLog) -> Self {
         oplog.checkout_tip()
     }
 
+    /// Return the current version of the branch.
+    pub fn local_version(&self) -> &[Time] { &self.version }
+
+    /// Return the current document contents. Note there is no mutable variant of this method
+    /// because mutating the document's content directly would violate the constraint that all
+    /// changes must bump the document's version.
+    pub fn content(&self) -> &JumpRope { &self.content }
+
+    /// Returns the document's content length.
+    ///
+    /// Note this is different from the oplog's length (which returns the number of operations).
     pub fn len(&self) -> usize {
         self.content.len_chars()
     }
 
+    /// Returns true if the document's content is empty.
     pub fn is_empty(&self) -> bool {
         self.content.is_empty()
     }
 
-    /// Apply a single operation. This method does not update the version - that is left as an
-    /// exercise for the caller.
-    pub(crate) fn apply_1(&mut self, op: &Operation) {
-        let pos = op.start();
-
-        match op.tag {
+    /// Apply a single operation. This method does not update the version.
+    fn apply_internal(&mut self, tag: InsDelTag, pos: TimeSpan, content: Option<&str>) {
+        match tag {
             Ins => {
-                // assert!(op.content_known);
-                self.content.insert(pos, op.content.as_ref().unwrap());
+                self.content.insert(pos.start, content.unwrap());
             }
 
             Del => {
-                self.content.remove(pos..pos + op.len());
-            }
-        }
-    }
-
-    // TODO: Probably don't need both this and apply_1 above.
-    fn apply_1_internal(&mut self, op: &OperationInternal, content: Option<&str>) {
-        let pos = op.start();
-
-        match op.tag {
-            Ins => {
-                // assert!(op.content_known);
-                self.content.insert(pos, content.unwrap());
-            }
-
-            Del => {
-                self.content.remove(pos..pos + op.len());
+                self.content.remove(pos.into());
             }
         }
     }
@@ -70,21 +66,19 @@ impl Branch {
     /// Apply a set of operations. Does not update version.
     #[allow(unused)]
     pub(crate) fn apply(&mut self, ops: &[Operation]) {
-        for c in ops {
-            self.apply_1(c);
+        for op in ops {
+            self.apply_internal(op.tag, op.span.span, op.content
+                .as_ref()
+                .map(|s| s.as_str())
+            );
         }
     }
 
     pub(crate) fn apply_range_from(&mut self, ops: &OpLog, range: TimeSpan) {
         for (op, content) in ops.iter_range_simple(range) {
-            // self.apply_1(&op.1);
-            self.apply_1_internal(&op.1, content);
+            self.apply_internal(op.1.tag, op.1.span.span, content);
         }
     }
-
-    // pub fn merge(&mut self, ops: &OpLog, merge_frontier: &[Time]) {
-    //     self.merge_changes_m2(ops, merge_frontier);
-    // }
 
     pub fn make_delete_op(&self, pos: usize, del_span: usize) -> Operation {
         assert!(pos + del_span <= self.content.len_chars());
@@ -108,11 +102,28 @@ impl Branch {
     pub fn delete(&mut self, oplog: &mut OpLog, agent: AgentId, pos: usize, del_span: usize) -> Time {
         apply_local_operation(oplog, self, agent, &[self.make_delete_op(pos, del_span)])
     }
+
+    /// Consume the Branch and return the contained rope content.
+    pub fn into_inner(self) -> JumpRope {
+        self.content
+    }
 }
 
 impl Default for Branch {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<Branch> for JumpRope {
+    fn from(branch: Branch) -> Self {
+        branch.into_inner()
+    }
+}
+
+impl From<Branch> for String {
+    fn from(branch: Branch) -> Self {
+        branch.into_inner().to_string()
     }
 }
 

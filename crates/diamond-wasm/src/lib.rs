@@ -37,7 +37,7 @@ impl Branch {
 
     #[wasm_bindgen]
     pub fn get(&self) -> String {
-        self.0.content.to_string()
+        self.0.content().to_string()
     }
 
     /// Merge in from some named point in time
@@ -52,7 +52,7 @@ impl Branch {
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        self.0.version.iter().copied().collect::<Box<[Time]>>()
+        self.0.local_version().iter().copied().collect::<Box<[Time]>>()
     }
 }
 
@@ -354,7 +354,7 @@ impl Doc {
 
     #[wasm_bindgen]
     pub fn get(&self) -> String {
-        self.inner.branch.content.to_string()
+        self.inner.branch.content().to_string()
     }
 
     #[wasm_bindgen]
@@ -421,7 +421,7 @@ impl Doc {
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        get_local_frontier(&self.inner.branch.version)
+        get_local_frontier(&self.inner.branch.local_version())
     }
 
     #[wasm_bindgen(js_name = localToRemoteVersion)]
@@ -431,7 +431,7 @@ impl Doc {
 
     #[wasm_bindgen(js_name = getRemoteVersion)]
     pub fn get_remote_version(&self) -> WasmResult {
-        frontier_to_remote_time(&self.inner.oplog, &self.inner.branch.version)
+        frontier_to_remote_time(&self.inner.oplog, &self.inner.branch.local_version())
     }
 
     #[wasm_bindgen(js_name = xfSince)]

@@ -863,8 +863,11 @@ impl Branch {
         self.version = iter.into_frontier();
     }
 
-    #[deprecated]
-    pub fn merge_old(&mut self, oplog: &OpLog, merge_frontier: &[Time]) {
+    // This is the earlier implementation of merge, before I rewrote it to use iterators.
+    //
+    // TODO: Remove me!
+    #[allow(unused)]
+    fn merge_old(&mut self, oplog: &OpLog, merge_frontier: &[Time]) {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge

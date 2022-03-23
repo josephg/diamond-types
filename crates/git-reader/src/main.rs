@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let mut branch = branch_at_oid[&first_parent.id()].clone();
 
             for p in iter {
-                let frontier = &branch_at_oid[&p.id()].version;
+                let frontier = branch_at_oid[&p.id()].local_version();
                 branch.merge(&oplog, frontier);
             }
 
@@ -127,13 +127,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let blob = obj.as_blob().unwrap();
                 let new = std::str::from_utf8(blob.content())?;
 
-                if branch.content != new {
+                if branch.content() != new {
                     // branch.to_owned();
                     let sig = commit.author();
                     let author = sig.name().unwrap_or("unknown");
                     let agent = oplog.get_or_create_agent_id(author);
 
-                    let branch_string = branch.content.to_string();
+                    let branch_string = branch.content().to_string();
                     let old = branch_string.as_str();
                     let diff = TextDiff::from_chars(old, new);
                     // I could just consume diff.ops() directly here - but that would be awkward
@@ -167,7 +167,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
 
-                    assert_eq!(&branch.content, new);
+                    assert_eq!(branch.content(), new);
                     // println!("branch '{}' -> '{}'", old, branch.content);
                 } else {
                     // println!("Branch content matches expected: '{}'", branch.content);
@@ -196,7 +196,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // dbg!(&oplog);
     let branch = Branch::new_at_tip(&oplog);
     // println!("{}: '{}'", file, branch.content);
-    println!("Branch at {:?}", branch.version);
+    println!("Branch at {:?}", branch.local_version());
 
     // dbg!(&oplog.history.entries.len());
     // println!("Number of entries in history: {}", &oplog.history.num_entries());

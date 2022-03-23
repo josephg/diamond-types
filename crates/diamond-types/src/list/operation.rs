@@ -44,6 +44,7 @@ impl Default for InsDelTag {
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize), serde(crate="serde_crate"))]
 pub struct Operation {
+    /// Where in the document the operation modifies. This is a *where* not a *when*.
     // For now only backspaces are ever reversed.
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub span: TimeSpanRev,

@@ -51,7 +51,7 @@
 //! // ...
 //! let mut branch = Branch::new_at_tip(&oplog);
 //! // Equivalent to let mut branch = Branch::new_at_local_version(&oplog, oplog.get_local_version());
-//! println!("branch content {}", branch.content.to_string());
+//! println!("branch content {}", branch.content().to_string());
 //! ```
 //!
 //! Once a branch has been created, you can merge new changes using [`branch.merge`](list::Branch::merge):
