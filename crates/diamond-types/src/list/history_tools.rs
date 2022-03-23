@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
-use crate::list::{Frontier, OpLog, Time};
+use crate::list::{LocalVersion, OpLog, Time};
 use crate::list::frontier::{advance_frontier_by, frontier_is_sorted};
 use crate::list::history::History;
 use crate::list::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
@@ -54,7 +54,7 @@ impl History {
             || (a != ROOT_TIME && a > b && self.entries.find(a).unwrap().contains(b))
     }
 
-    pub(crate) fn frontier_contains_time(&self, frontier: &[Time], target: Time) -> bool {
+    pub(crate) fn version_contains_time(&self, frontier: &[Time], target: Time) -> bool {
         assert!(!frontier.is_empty());
         if target == ROOT_TIME || frontier.contains(&target) { return true; }
         if frontier == [ROOT_TIME] { return false; }
@@ -244,7 +244,7 @@ impl History {
     }
 
     /// Given 2 versions, return a version which contains all the operations in both.
-    pub fn merge_versions(&self, a: &[Time], b: &[Time]) -> Frontier {
+    pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
         // This method could be written to use diff_internal's closure. That would be faster, but it
         // would probably add a fair bit of code size from monomorphizing for something thats just a
         // utility method. So eh.
@@ -264,7 +264,7 @@ impl History {
 
     // *** Conflicts! ***
 
-    fn find_conflicting_slow<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> Frontier
+    fn find_conflicting_slow<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> LocalVersion
     where V: FnMut(TimeSpan, DiffFlag) {
         // dbg!(a, b);
 
@@ -331,7 +331,7 @@ impl History {
         queue.push((b.into(), OnlyB));
 
         // Loop until we've collapsed the graph down to a single element.
-        let frontier: Frontier = 'outer: loop {
+        let frontier: LocalVersion = 'outer: loop {
             let (time, mut flag) = queue.pop().unwrap();
             let t = time.last;
             // dbg!((&time, flag));
@@ -353,7 +353,7 @@ impl History {
 
             if queue.is_empty() {
                 // In this order because time.last > time.merged_with.
-                let mut frontier: Frontier = time.merged_with.as_slice().into();
+                let mut frontier: LocalVersion = time.merged_with.as_slice().into();
                 // branch.extend(time.merged_with.into_iter());
                 frontier.push(t);
                 break frontier;
@@ -431,7 +431,7 @@ impl History {
     /// a single localtime, but it might be the result of a merge of multiple edits.
     ///
     /// I'm assuming b is a parent of a, but it should all work if thats not the case.
-    pub(crate) fn find_conflicting<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> Frontier
+    pub(crate) fn find_conflicting<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> LocalVersion
         where V: FnMut(TimeSpan, DiffFlag) {
         debug_assert!(!a.is_empty());
         debug_assert!(!b.is_empty());
@@ -468,7 +468,7 @@ impl History {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ConflictZone {
-    pub(crate) common_ancestor: Frontier,
+    pub(crate) common_ancestor: LocalVersion,
     pub(crate) spans: SmallVec<[TimeSpan; 4]>,
 }
 
@@ -488,17 +488,31 @@ impl History {
 /// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
 /// about branches, find diffs and move between branches.
 impl OpLog {
+    /// Check if the specified version contains the specified point in time.
     // Exported for the fuzzer. Not sure if I actually want this exposed.
-    pub fn frontier_contains_time(&self, frontier: &[Time], target: Time) -> bool {
-        self.history.frontier_contains_time(frontier, target)
+    pub fn version_contains_time(&self, local_version: &[Time], target: Time) -> bool {
+        if local_version.is_empty() { true }
+        else { self.history.version_contains_time(local_version, target) }
     }
 
-    pub fn linear_changes_since(&self, start: Time) -> TimeSpan {
-        TimeSpan::new(start, self.len())
-    }
+    // /// Returns all the changes since some (static) point in time.
+    // pub fn linear_changes_since(&self, start: Time) -> TimeSpan {
+    //     TimeSpan::new(start, self.len())
+    // }
 
-    pub fn merge_versions(&self, a: &[Time], b: &[Time]) -> Frontier {
-        self.history.merge_versions(a, b)
+    /// Take the union of two versions.
+    ///
+    /// One way to think of a version is the name of some subset of operations in the operation log.
+    /// But a local time array only explicitly names versions at the "tip" of the time DAG. For
+    /// example, if we have 3 operations: A, B, C with ROOT <- A <- B <- C, then the local version
+    /// will only name `{C}`, since A and B are implicit.
+    ///
+    /// version_union takes two versions and figures out the set union for all the contained
+    /// changes, and returns the version name for that union. `version_union(a, b)` will often
+    /// simply return `a` or `b`. This happens when one of the versions is a strict subset of the
+    /// other.
+    pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
+        self.history.version_union(a, b)
     }
 }
 
@@ -508,7 +522,7 @@ pub mod test {
     use smallvec::smallvec;
     use rle::{AppendRle, MergableSpan};
 
-    use crate::list::{Frontier, Time};
+    use crate::list::{LocalVersion, Time};
     use crate::list::history::{History, HistoryEntry};
     use crate::list::history_tools::{DiffResult, DiffFlag};
     use crate::list::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
@@ -539,7 +553,7 @@ pub mod test {
 
     #[derive(Debug, Eq, PartialEq)]
     pub struct ConflictFull {
-        pub(crate) common_branch: Frontier,
+        pub(crate) common_branch: LocalVersion,
         pub(crate) spans: Vec<(TimeSpan, DiffFlag)>,
     }
 
@@ -603,14 +617,14 @@ pub mod test {
 
         for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
             for o in spans {
-                assert!(history.frontier_contains_time(branch, o.start));
-                assert!(history.frontier_contains_time(branch, o.last()));
+                assert!(history.version_contains_time(branch, o.start));
+                assert!(history.version_contains_time(branch, o.last()));
             }
 
             if branch.len() == 1 {
                 // dbg!(&other, branch[0], &spans);
                 let expect = spans.is_empty();
-                assert_eq!(expect, history.frontier_contains_time(other, branch[0]));
+                assert_eq!(expect, history.version_contains_time(other, branch[0]));
             }
         }
     }
@@ -690,30 +704,30 @@ pub mod test {
 
         let history = fancy_history();
 
-        assert!(history.frontier_contains_time(&[ROOT_TIME], ROOT_TIME));
-        assert!(history.frontier_contains_time(&[0], 0));
-        assert!(history.frontier_contains_time(&[0], ROOT_TIME));
+        assert!(history.version_contains_time(&[ROOT_TIME], ROOT_TIME));
+        assert!(history.version_contains_time(&[0], 0));
+        assert!(history.version_contains_time(&[0], ROOT_TIME));
 
-        assert!(history.frontier_contains_time(&[2], 0));
-        assert!(history.frontier_contains_time(&[2], 1));
-        assert!(history.frontier_contains_time(&[2], 2));
+        assert!(history.version_contains_time(&[2], 0));
+        assert!(history.version_contains_time(&[2], 1));
+        assert!(history.version_contains_time(&[2], 2));
 
-        assert!(!history.frontier_contains_time(&[0], 1));
-        assert!(!history.frontier_contains_time(&[1], 2));
+        assert!(!history.version_contains_time(&[0], 1));
+        assert!(!history.version_contains_time(&[1], 2));
 
-        assert!(history.frontier_contains_time(&[8], 0));
-        assert!(history.frontier_contains_time(&[8], 1));
-        assert!(!history.frontier_contains_time(&[8], 2));
-        assert!(!history.frontier_contains_time(&[8], 5));
+        assert!(history.version_contains_time(&[8], 0));
+        assert!(history.version_contains_time(&[8], 1));
+        assert!(!history.version_contains_time(&[8], 2));
+        assert!(!history.version_contains_time(&[8], 5));
 
-        assert!(history.frontier_contains_time(&[1,4], 0));
-        assert!(history.frontier_contains_time(&[1,4], 1));
-        assert!(!history.frontier_contains_time(&[1,4], 2));
-        assert!(!history.frontier_contains_time(&[1,4], 5));
+        assert!(history.version_contains_time(&[1,4], 0));
+        assert!(history.version_contains_time(&[1,4], 1));
+        assert!(!history.version_contains_time(&[1,4], 2));
+        assert!(!history.version_contains_time(&[1,4], 5));
 
-        assert!(history.frontier_contains_time(&[9], 2));
-        assert!(history.frontier_contains_time(&[9], 1));
-        assert!(history.frontier_contains_time(&[9], 0));
+        assert!(history.version_contains_time(&[9], 2));
+        assert!(history.version_contains_time(&[9], 1));
+        assert!(history.version_contains_time(&[9], 0));
     }
 
     #[test]
@@ -859,8 +873,8 @@ pub mod test {
             },
         ]);
 
-        assert_eq!(false, history.frontier_contains_time(&[2], 3));
-        assert_eq!(false, history.frontier_contains_time(&[3], 2));
+        assert_eq!(false, history.version_contains_time(&[2], 3));
+        assert_eq!(false, history.version_contains_time(&[3], 2));
         assert_diff_eq(&history, &[2], &[3], &[(2..3).into()], &[(3..4).into()]);
     }
 

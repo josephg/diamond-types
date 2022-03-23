@@ -1,6 +1,6 @@
 use std::mem::replace;
 use humansize::{file_size_opts, FileSize};
-use crate::list::{Branch, Frontier, ListCRDT, OpLog, Time};
+use crate::list::{Branch, LocalVersion, ListCRDT, OpLog, Time};
 use smallvec::smallvec;
 use crate::AgentId;
 use rle::HasLength;
@@ -10,7 +10,7 @@ use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
 
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
-fn insert_history_local(oplog: &mut OpLog, frontier: &mut Frontier, range: TimeSpan) {
+fn insert_history_local(oplog: &mut OpLog, frontier: &mut LocalVersion, range: TimeSpan) {
     // Fast path for local edits. For some reason the code below is remarkably non-performant.
     // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
     if frontier.len() == 1 && frontier[0] == range.start.wrapping_sub(1) {
@@ -74,9 +74,9 @@ pub(crate) fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agen
     };
 
     oplog.assign_next_time_to_client_known(agent, span);
-    insert_history_local(oplog, &mut branch.frontier, span);
+    insert_history_local(oplog, &mut branch.version, span);
 
-    oplog.frontier = smallvec![next_time - 1];
+    oplog.version = smallvec![next_time - 1];
     next_time - 1
 }
 
@@ -102,9 +102,9 @@ impl ListCRDT {
         })
     }
 
-    pub fn merge_data_and_ff(&mut self, bytes: &[u8]) -> Result<Frontier, ParseError> {
-        let v = self.oplog.merge_data(bytes)?;
-        self.branch.merge(&self.oplog, &self.oplog.frontier);
+    pub fn merge_data_and_ff(&mut self, bytes: &[u8]) -> Result<LocalVersion, ParseError> {
+        let v = self.oplog.decode_and_add(bytes)?;
+        self.branch.merge(&self.oplog, &self.oplog.version);
         Ok(v)
     }
 
@@ -166,7 +166,7 @@ mod tests {
         doc.delete(0, 1, 3);
         assert_eq!(doc.branch.content, "hoi");
 
-        doc.check(true);
+        doc.dbg_check(true);
         // dbg!(doc);
 
         doc.oplog.dbg_print_all();

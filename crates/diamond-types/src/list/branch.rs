@@ -13,13 +13,13 @@ use crate::{AgentId, ROOT_TIME};
 impl Branch {
     pub fn new() -> Self {
         Self {
-            frontier: smallvec![ROOT_TIME],
+            version: smallvec![ROOT_TIME],
             content: JumpRope::new(),
         }
     }
 
-    pub fn new_at_frontier(oplog: &OpLog, frontier: &[Time]) -> Self {
-        oplog.checkout(frontier)
+    pub fn new_at_local_version(oplog: &OpLog, version: &[Time]) -> Self {
+        oplog.checkout(version)
     }
 
     pub fn new_at_tip(oplog: &OpLog) -> Self {
@@ -34,7 +34,7 @@ impl Branch {
         self.content.is_empty()
     }
 
-    /// Apply a single operation. This method does not update the frontier - that is left as an
+    /// Apply a single operation. This method does not update the version - that is left as an
     /// exercise for the caller.
     pub(crate) fn apply_1(&mut self, op: &Operation) {
         let pos = op.start();
@@ -67,7 +67,7 @@ impl Branch {
         }
     }
 
-    /// Apply a set of operations. Does not update frontier.
+    /// Apply a set of operations. Does not update version.
     #[allow(unused)]
     pub(crate) fn apply(&mut self, ops: &[Operation]) {
         for c in ops {
@@ -124,13 +124,13 @@ mod test {
     fn branch_at_version() {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
-        let after_ins = oplog.push_insert(0, 0, "hi there");
-        let after_del = oplog.push_delete(0, 2, " there".len());
+        let after_ins = oplog.add_insert(0, 0, "hi there");
+        let after_del = oplog.add_delete_without_content(0, 2, " there".len());
 
-        let b1 = Branch::new_at_frontier(&oplog, &[after_ins]);
+        let b1 = Branch::new_at_local_version(&oplog, &[after_ins]);
         assert_eq!(b1.content, "hi there");
 
-        let b2 = Branch::new_at_frontier(&oplog, &[after_del]);
+        let b2 = Branch::new_at_local_version(&oplog, &[after_del]);
         assert_eq!(b2.content, "hi");
     }
 }

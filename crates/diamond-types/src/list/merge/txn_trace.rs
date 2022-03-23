@@ -16,7 +16,7 @@
 use smallvec::{SmallVec, smallvec};
 use crate::list::frontier::*;
 use rle::{HasLength, SplitableSpan};
-use crate::list::{Frontier, Time};
+use crate::list::{LocalVersion, Time};
 use crate::list::history::History;
 use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
@@ -67,7 +67,7 @@ pub(crate) struct SpanningTreeWalker<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
     history: &'a History,
 
-    frontier: Frontier,
+    frontier: LocalVersion,
 
     input: SmallVec<[VisitEntry; 4]>,
 
@@ -101,7 +101,7 @@ impl<'a> SpanningTreeWalker<'a> {
         Self::new(history, &spans, smallvec![ROOT_TIME])
     }
 
-    pub(crate) fn new(history: &'a History, rev_spans: &[TimeSpan], start_at: Frontier) -> Self {
+    pub(crate) fn new(history: &'a History, rev_spans: &[TimeSpan], start_at: LocalVersion) -> Self {
         if cfg!(debug_assertions) {
             check_rev_sorted(rev_spans);
         }
@@ -168,7 +168,7 @@ impl<'a> SpanningTreeWalker<'a> {
         }
     }
 
-    pub fn into_frontier(self) -> Frontier {
+    pub fn into_frontier(self) -> LocalVersion {
         self.frontier
     }
 }

@@ -1,11 +1,11 @@
-use crate::list::{Frontier, OpLog, Time};
+use crate::list::{LocalVersion, OpLog, Time};
 use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::localtime::TimeSpan;
 use crate::{ROOT_AGENT, ROOT_TIME};
-use crate::list::frontier::frontier_is_sorted;
+use crate::list::frontier::clean_version;
 use crate::list::remote_ids::ConversionError::SeqInFuture;
 use crate::remotespan::CRDTId;
 
@@ -50,7 +50,7 @@ pub enum ConversionError {
 }
 
 impl OpLog {
-    pub fn try_remote_id_to_time(&self, id: &RemoteId) -> Result<Time, ConversionError> {
+    pub fn try_remote_to_local_time(&self, id: &RemoteId) -> Result<Time, ConversionError> {
         let agent = self.get_agent_id(id.agent.as_str())
             .ok_or(ConversionError::UnknownAgent)?;
 
@@ -63,7 +63,7 @@ impl OpLog {
     }
 
     /// This panics if the ID isn't known to the document.
-    pub fn remote_id_to_time(&self, id: &RemoteId) -> Time {
+    pub fn remote_to_local_time(&self, id: &RemoteId) -> Time {
         let agent = self.get_agent_id(id.agent.as_str()).unwrap();
 
         if agent == ROOT_AGENT { ROOT_TIME }
@@ -79,27 +79,41 @@ impl OpLog {
         }
     }
 
-    pub fn time_to_remote_id(&self, time: Time) -> RemoteId {
+    pub fn local_to_remote_time(&self, time: Time) -> RemoteId {
         let crdt_id = self.time_to_crdt_id(time);
         self.crdt_id_to_remote(crdt_id)
     }
 
-    pub fn remote_ids_to_frontier<I: Iterator<Item=RemoteId>>(&self, ids_iter: I) -> Frontier {
-        let mut frontier: Frontier = ids_iter
-            .map(|remote_id| self.remote_id_to_time(&remote_id))
-            .collect();
-        if !frontier_is_sorted(frontier.as_slice()) {
-            // TODO: Check how this effects wasm bundle size.
-            frontier.sort_unstable();
+    pub fn try_remote_to_local_version<I: Iterator<Item=RemoteId>>(&self, ids_iter: I) -> Result<LocalVersion, ConversionError> {
+        let mut version: LocalVersion = ids_iter
+            .map(|remote_id| self.try_remote_to_local_time(&remote_id))
+            .collect::<Result<LocalVersion, ConversionError>>()?;
+
+        // This is weird, but it lets us use [] to refer to [ROOT_TIME] in wasm.
+        if version.is_empty() {
+            version.push(ROOT_TIME);
         }
-        frontier
+        clean_version(&mut version);
+        Ok(version)
     }
 
-    pub fn frontier_to_remote_ids(&self, frontier: &[Time]) -> SmallVec<[RemoteId; 4]> {
+    pub fn remote_to_local_version<I: Iterator<Item=RemoteId>>(&self, ids_iter: I) -> LocalVersion {
+        let mut version: LocalVersion = ids_iter
+            .map(|remote_id| self.remote_to_local_time(&remote_id))
+            .collect();
+
+        if version.is_empty() {
+            version.push(ROOT_TIME);
+        }
+        clean_version(&mut version);
+        version
+    }
+
+    pub fn local_to_remote_version(&self, local_version: &[Time]) -> SmallVec<[RemoteId; 4]> {
         // Could return an impl Iterator here instead.
-        frontier
+        local_version
             .iter()
-            .map(|time| self.time_to_remote_id(*time))
+            .map(|time| self.local_to_remote_time(*time))
             .collect()
     }
 
@@ -128,7 +142,8 @@ impl OpLog {
     /// Its not perfect, but it'll do donkey. It'll do.
     #[allow(unused)]
     fn get_stochastic_version(&self, target_count: usize) -> Vec<CRDTId> {
-        let target_count = target_count.max(self.frontier.len());
+        // TODO: WIP.
+        let target_count = target_count.max(self.version.len());
         let mut result = Vec::with_capacity(target_count + 10);
 
         let time_len = self.len();
@@ -141,7 +156,7 @@ impl OpLog {
         };
 
         // No matter what, we'll send the current frontier:
-        for t in &self.frontier {
+        for t in &self.version {
             push_time(*t);
         }
 
@@ -151,11 +166,11 @@ impl OpLog {
         //
         // Given factor, the approx number of operations we'll return is log_f(|ops|).
         // Solving for f gives f = |ops|^(1/target).
-        if target_count > self.frontier.len() {
+        if target_count > self.version.len() {
             // Note I'm using n_ops here rather than time, since this easily scales time by the
             // approximate size of the transmitted operations. TODO: This might be a faulty
             // assumption given we're probably sending inserted content? Hm!
-            let remaining_count = target_count - self.frontier.len();
+            let remaining_count = target_count - self.version.len();
             let n_ops = self.operations.0.len();
             let mut factor = f32::powf(n_ops as f32, 1f32 / (remaining_count) as f32);
             factor = factor.max(1.1);
@@ -183,36 +198,36 @@ mod test {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
         oplog.get_or_create_agent_id("mike");
-        oplog.push_insert_at(0, &[ROOT_TIME], 0, "hi".into());
-        oplog.push_insert_at(1, &[ROOT_TIME], 0, "yooo".into());
+        oplog.add_insert_at(0, &[ROOT_TIME], 0, "hi".into());
+        oplog.add_insert_at(1, &[ROOT_TIME], 0, "yooo".into());
 
-        assert_eq!(ROOT_TIME, oplog.remote_id_to_time(&RemoteId {
+        assert_eq!(ROOT_TIME, oplog.remote_to_local_time(&RemoteId {
             agent: "ROOT".into(),
             seq: 0
         }));
 
-        assert_eq!(oplog.time_to_remote_id(ROOT_TIME), RemoteId {
+        assert_eq!(oplog.local_to_remote_time(ROOT_TIME), RemoteId {
             agent: "ROOT".into(),
             seq: 0
         });
 
-        assert_eq!(0, oplog.remote_id_to_time(&RemoteId {
+        assert_eq!(0, oplog.remote_to_local_time(&RemoteId {
             agent: "seph".into(),
             seq: 0
         }));
-        assert_eq!(1, oplog.remote_id_to_time(&RemoteId {
+        assert_eq!(1, oplog.remote_to_local_time(&RemoteId {
             agent: "seph".into(),
             seq: 1
         }));
 
-        assert_eq!(2, oplog.remote_id_to_time(&RemoteId {
+        assert_eq!(2, oplog.remote_to_local_time(&RemoteId {
             agent: "mike".into(),
             seq: 0
         }));
 
         for time in 0..oplog.len() {
-            let id = oplog.time_to_remote_id(time);
-            let expect_time = oplog.remote_id_to_time(&id);
+            let id = oplog.local_to_remote_time(time);
+            let expect_time = oplog.remote_to_local_time(&id);
             assert_eq!(time, expect_time);
         }
 
@@ -235,10 +250,16 @@ mod test {
         assert_eq!(oplog.get_stochastic_version(10), &[]);
 
         oplog.get_or_create_agent_id("seph");
-        oplog.push_insert(0, 0, "a");
-        oplog.push_insert(0, 0, "a");
-        oplog.push_insert(0, 0, "a");
-        oplog.push_insert(0, 0, "a");
+        oplog.add_insert(0, 0, "a");
+        oplog.add_insert(0, 0, "a");
+        oplog.add_insert(0, 0, "a");
+        oplog.add_insert(0, 0, "a");
         dbg!(oplog.get_stochastic_version(10));
+    }
+
+    #[test]
+    fn remote_versions_can_be_empty() {
+        let oplog = OpLog::new();
+        assert_eq!(&[ROOT_TIME], oplog.remote_to_local_version(std::iter::empty()).as_slice());
     }
 }

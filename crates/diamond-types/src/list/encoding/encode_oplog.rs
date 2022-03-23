@@ -6,7 +6,7 @@ use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::list::{Branch, OpLog, switch, Time};
 use crate::rle::{KVPair, RleVec};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::frontier::frontier_is_root;
+use crate::list::frontier::local_version_is_root;
 use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag;
 use crate::localtime::TimeSpan;
@@ -92,7 +92,7 @@ pub struct EncodeOptions<'a> {
     pub user_data: Option<&'a [u8]>,
 
     // NYI.
-    // pub from_frontier: Frontier,
+    // pub from_version: LocalVersion,
 
     pub store_start_branch_content: bool,
 
@@ -262,7 +262,7 @@ fn write_frontier(dest: &mut Vec<u8>, frontier: &[Time], map: &mut AgentMapping,
         push_usize(&mut buf, n);
         push_usize(&mut buf, id.seq);
     }
-    push_chunk(dest, ChunkType::Frontier, &buf);
+    push_chunk(dest, ChunkType::Version, &buf);
     buf.clear();
 }
 
@@ -362,7 +362,7 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
 impl OpLog {
     /// Encode the data stored in the OpLog into a (custom) compact binary form suitable for saving
     /// to disk, or sending over the network.
-    pub fn encode_from(&self, opts: EncodeOptions, from_frontier: &[Time]) -> Vec<u8> {
+    pub fn encode_from(&self, opts: EncodeOptions, from_version: &[Time]) -> Vec<u8> {
         // if !frontier_is_root(from_frontier) {
         //     unimplemented!("Encoding from a non-root frontier is not implemented");
         // }
@@ -508,7 +508,7 @@ impl OpLog {
         // If we just iterate in the current order, this code would be way simpler :p
         // let iter = self.history.optimized_txns_between(from_frontier, &self.frontier);
         // for walk in iter {
-        for walk in self.history.optimized_txns_between(from_frontier, &self.frontier) {
+        for walk in self.history.optimized_txns_between(from_version, &self.version) {
             // We only care about walk.consume and parents.
 
             // We need to update *lots* of stuff in here!!
@@ -569,13 +569,13 @@ impl OpLog {
         // This nominally needs to happen before we write out agent_mapping.
         // TODO: Support partial data sets. (from_frontier)
         let mut start_branch = Vec::new();
-        write_frontier(&mut start_branch, from_frontier, &mut agent_mapping, self);
+        write_frontier(&mut start_branch, from_version, &mut agent_mapping, self);
         if opts.store_start_branch_content {
-            if frontier_is_root(from_frontier) {
+            if local_version_is_root(from_version) {
                 // Optimization. TODO: Check if this is worth it.
                 write_chunk_str(&mut start_branch, "", ChunkType::Content);
             } else {
-                let branch_here = Branch::new_at_frontier(self, from_frontier);
+                let branch_here = Branch::new_at_local_version(self, from_version);
                 // dbg!(&branch_here);
                 write_content_rope(&mut start_branch, &branch_here.content);
             }
@@ -635,9 +635,9 @@ impl OpLog {
             }
         }
 
-        push_chunk(&mut patches_buf, ChunkType::Version, &agent_assignment_chunk);
+        push_chunk(&mut patches_buf, ChunkType::OpVersions, &agent_assignment_chunk);
         push_chunk(&mut patches_buf, ChunkType::OpTypeAndPosition, &ops_chunk);
-        push_chunk(&mut patches_buf, ChunkType::Parents, &txns_chunk);
+        push_chunk(&mut patches_buf, ChunkType::OpParents, &txns_chunk);
 
         write_chunk(ChunkType::Patches, &mut patches_buf);
 
@@ -853,7 +853,7 @@ mod tests {
 
         // let data = doc.ops.encode_from(EncodeOptions::default(), &[ROOT_TIME]);
         let data = doc.oplog.encode_from(EncodeOptions::default(), &[_t1]);
-        ops2.merge_data(&data).unwrap();
+        ops2.decode_and_add(&data).unwrap();
         assert_eq!(ops2, doc.oplog);
         // let data = doc.ops.encode_from(EncodeOptions::default(), &[_t2]);
         // dbg!(data);

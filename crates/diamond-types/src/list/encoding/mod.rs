@@ -124,14 +124,14 @@ enum ChunkType {
     /// The StartBranch chunk describes the state of the document before included patches have been
     /// applied.
     StartBranch = 10,
-    Frontier = 12,
+    Version = 12,
     /// StartBranch content is optional.
     Content = 13,
 
     Patches = 20,
-    Version = 21,
+    OpVersions = 21,
     OpTypeAndPosition = 22,
-    Parents = 23,
+    OpParents = 23,
 
     PatchContent = 24,
     ContentKnown = 25,

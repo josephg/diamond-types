@@ -27,19 +27,19 @@
 //!
 //! ## Example
 //!
-//! For local edits to an oplog, just use [`oplog.push_insert`](list::OpLog::push_insert) or
-//! [`oplog.push_delete`](list::OpLog::push_delete):
+//! For local edits to an oplog, just use [`oplog.add_insert`](list::OpLog::add_insert) or
+//! [`oplog.add_delete_without_content`](list::OpLog::add_delete_without_content):
 //!
 //! ```
 //! use diamond_types::list::*;
 //!
 //! let mut oplog = OpLog::new();
 //! let fred = oplog.get_or_create_agent_id("fred");
-//! oplog.push_insert(fred, 0, "abc");
-//! oplog.push_delete(fred, 1, 1); // Delete the 'b'
+//! oplog.add_insert(fred, 0, "abc");
+//! oplog.add_delete_without_content(fred, 1, 1); // Delete the 'b'
 //! ```
 //!
-//! There are also other methods like [`oplog.push_insert_at`](list::OpLog::push_insert_at) which
+//! There are also other methods like [`oplog.add_insert_at`](list::OpLog::add_insert_at) which
 //! append a change at some specific point in time. This is useful if you want to append a change to
 //! a branch.
 //!
@@ -50,7 +50,7 @@
 //! let mut oplog = OpLog::new();
 //! // ...
 //! let mut branch = Branch::new_at_tip(&oplog);
-//! // Equivalent to let mut branch = Branch::new_at_frontier(&oplog, oplog.get_frontier());
+//! // Equivalent to let mut branch = Branch::new_at_local_version(&oplog, oplog.get_local_version());
 //! println!("branch content {}", branch.content.to_string());
 //! ```
 //!
@@ -62,8 +62,8 @@
 //! // ...
 //! let mut branch = Branch::new_at_tip(&oplog);
 //! let george = oplog.get_or_create_agent_id("george");
-//! oplog.push_insert(george, 0, "asdf");
-//! branch.merge(&oplog, oplog.get_frontier());
+//! oplog.add_insert(george, 0, "asdf");
+//! branch.merge(&oplog, oplog.local_version());
 //! ```
 //!
 //! If you aren't using branches, you can use the simplified [`ListCRDT` API](list::ListCRDT). The
@@ -91,9 +91,9 @@
 //! use diamond_types::list::*;
 //! let mut oplog = OpLog::new();
 //! let fred = oplog.get_or_create_agent_id("fred");
-//! oplog.push_insert(fred, 0, "a");
-//! oplog.push_insert(fred, 1, "b");
-//! oplog.push_insert(fred, 2, "c");
+//! oplog.add_insert(fred, 0, "a");
+//! oplog.add_insert(fred, 1, "b");
+//! oplog.add_insert(fred, 2, "c");
 //! ```
 //!
 //! Produces an identical oplog to this:
@@ -102,7 +102,7 @@
 //! use diamond_types::list::*;
 //! let mut oplog = OpLog::new();
 //! let fred = oplog.get_or_create_agent_id("fred");
-//! oplog.push_insert(fred, 0, "abc");
+//! oplog.add_insert(fred, 0, "abc");
 //! ```
 //!
 //! Diamond types does this by very aggressively run-length encoding everything it can whenever
@@ -176,6 +176,10 @@
 //! Unlike git (and some other CRDTs), diamond types represents merges *implicitly*. We don't create
 //! a special node in the time DAG for merges. Merges simply happen whenever an operation has
 //! multiple parents.
+
+#![allow(clippy::module_inception)]
+
+extern crate core;
 
 pub mod list;
 mod rle;

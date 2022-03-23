@@ -11,6 +11,7 @@ use rle::{HasLength, SplitableSpan};
 use rle::zip::{rle_zip3};
 use crate::{ROOT_AGENT, ROOT_TIME};
 use crate::list::{OpLog, Time};
+use crate::list::frontier::clean_version;
 use crate::list::history::MinimalHistoryEntry;
 use crate::rle::KVPair;
 
@@ -31,7 +32,7 @@ impl PartialEq<Self> for OpLog {
         // - [x] frontier
 
         // This check isn't sufficient. We'll check the frontier entries more thoroughly below.
-        if self.frontier.len() != other.frontier.len() { return false; }
+        if self.version.len() != other.version.len() { return false; }
 
         // [self.agent] => other.agent.
         let mut agent_a_to_b = Vec::new();
@@ -46,6 +47,7 @@ impl PartialEq<Self> for OpLog {
 
                 other_agent
             } else {
+                #[allow(clippy::collapsible_else_if)]
                 if c.is_empty() {
                     ROOT_AGENT // Just using this as a placeholder. Could use None but its awkward.
                 } else {
@@ -68,10 +70,10 @@ impl PartialEq<Self> for OpLog {
 
         // Check frontier contents. Note this is O(n^2) with the size of the respective frontiers.
         // Which should be fine in normal use, but its a DDOS risk.
-        for t in &self.frontier {
+        for t in &self.version {
             let other_time = map_time_to_other(*t);
             if let Some(other_time) = other_time {
-                if !other.frontier.contains(&other_time) {
+                if !other.version.contains(&other_time) {
                     if VERBOSE { println!("Frontier is not contained by other frontier"); }
                     return false;
                 }
@@ -167,7 +169,8 @@ impl PartialEq<Self> for OpLog {
                     // parents.
                     parents: txn.parents.iter().map(|t| map_time_to_other(*t).unwrap()).collect()
                 };
-                mapped_txn.parents.sort_unstable();
+                // mapped_txn.parents.sort_unstable();
+                clean_version(&mut mapped_txn.parents);
 
                 if other_txn != mapped_txn {
                     if VERBOSE { println!("Txns do not match {:?} (was {:?}) != {:?}", mapped_txn, txn, other_txn); }
@@ -208,17 +211,17 @@ mod test {
         assert!(is_eq(&a, &a));
         a.get_or_create_agent_id("seph");
         a.get_or_create_agent_id("mike");
-        a.push_insert_at(0, &[ROOT_TIME], 0, "Aa");
-        a.push_insert_at(1, &[ROOT_TIME], 0, "b");
-        a.push_delete_at(0, &[1, 2], 0, 2);
+        a.add_insert_at(0, &[ROOT_TIME], 0, "Aa");
+        a.add_insert_at(1, &[ROOT_TIME], 0, "b");
+        a.add_delete_at(0, &[1, 2], 0, 2);
 
         // Same history, different order.
         let mut b = OpLog::new();
         b.get_or_create_agent_id("mike");
         b.get_or_create_agent_id("seph");
-        b.push_insert_at(0, &[ROOT_TIME], 0, "b");
-        b.push_insert_at(1, &[ROOT_TIME], 0, "Aa");
-        b.push_delete_at(1, &[0, 2], 0, 2);
+        b.add_insert_at(0, &[ROOT_TIME], 0, "b");
+        b.add_insert_at(1, &[ROOT_TIME], 0, "Aa");
+        b.add_delete_at(1, &[0, 2], 0, 2);
 
         assert!(is_eq(&a, &b));
 
@@ -226,10 +229,10 @@ mod test {
         let mut c = OpLog::new();
         c.get_or_create_agent_id("seph");
         c.get_or_create_agent_id("mike");
-        c.push_insert_at(0, &[ROOT_TIME], 0, "A");
-        c.push_insert_at(1, &[ROOT_TIME], 0, "b");
-        c.push_insert_at(0, &[0], 1, "a");
-        c.push_delete_at(0, &[1, 2], 0, 2);
+        c.add_insert_at(0, &[ROOT_TIME], 0, "A");
+        c.add_insert_at(1, &[ROOT_TIME], 0, "b");
+        c.add_insert_at(0, &[0], 1, "a");
+        c.add_delete_at(0, &[1, 2], 0, 2);
 
         assert!(is_eq(&a, &c));
         assert!(is_eq(&b, &c));

@@ -30,7 +30,7 @@ For example:
 
 Unlike some other systems, merging is represented *implicitly*. Merges happen whenever an operation (a node) has multiple parents. Before the operation is applied, all parents are first merged together. Then the operation happens.
 
-The current state of a document is named by the set of operations in the time DAG which have no children. This is called the *Frontier*. In the example above, the document containing all of those operations has the frontier of `[(a, 3)]`. By convention, the frontier never contains redundant items. Eg, `[(b, 1), (a, 2)]` should be simplified to `[(a, 2)]`.
+The current state of a document is named by the set of operations in the time DAG which have no children. This is called the *LocalVersion*. In the example above, the document containing all of those operations has the frontier of `[(a, 3)]`. By convention, the frontier never contains redundant items. Eg, `[(b, 1), (a, 2)]` should be simplified to `[(a, 2)]`.
 
 Given an operation log, the document state at any point in time is well defined and computable.
 

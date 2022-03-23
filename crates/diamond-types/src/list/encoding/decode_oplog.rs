@@ -1,8 +1,8 @@
 use smallvec::SmallVec;
 use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
-use crate::list::{Frontier, OpLog, switch, Time};
-use crate::list::frontier::{advance_frontier_by_known_run, frontier_eq, frontier_is_sorted};
+use crate::list::{LocalVersion, OpLog, switch, Time};
+use crate::list::frontier::{advance_frontier_by_known_run, clean_version, local_version_eq, frontier_is_sorted};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::rev_span::TimeSpanRev;
@@ -254,8 +254,8 @@ impl<'a> BufReader<'a> {
         }))
     }
 
-    fn read_frontier(&mut self, oplog: &OpLog, agent_map: &[(AgentId, usize)]) -> Result<Frontier, ParseError> {
-        let mut result = Frontier::new();
+    fn read_frontier(&mut self, oplog: &OpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
+        let mut result = LocalVersion::new();
         // All frontiers contain at least one item.
         loop {
             // let agent = self.next_str()?;
@@ -270,16 +270,13 @@ impl<'a> BufReader<'a> {
             };
 
             let time = oplog.try_crdt_id_to_time(id)
-                .ok_or_else(|| BaseVersionUnknown)?;
+                .ok_or(BaseVersionUnknown)?;
             result.push(time);
 
             if !has_more { break; }
         }
 
-        if !frontier_is_sorted(result.as_slice()) {
-            // TODO: Check how this effects wasm bundle size.
-            result.sort_unstable();
-        }
+        clean_version(&mut result);
 
         Ok(result)
     }
@@ -343,15 +340,12 @@ impl<'a> BufReader<'a> {
             if !has_more { break; }
         }
 
-        if !frontier_is_sorted(&parents) {
-            // So this is awkward. There's two reasons this could happen:
-            // 1. The file is invalid. All local (non-foreign) changes should be in order).
-            // or 2. We have foreign items - and they're not sorted based on the local versions.
-            // This is fine and we should just re-sort.
+        // So this is awkward. There's two reasons parents could end up unsorted:
+        // 1. The file is invalid. All local (non-foreign) changes should be in order).
+        // or 2. We have foreign items - and they're not sorted based on the local versions.
+        // This is fine and we should just re-sort.
+        clean_version(&mut parents);
 
-            // TODO: Check how this effects wasm bundle size. (There's another similar call above)
-            parents.sort_unstable();
-        }
         Ok(parents)
     }
 
@@ -468,10 +462,8 @@ fn history_entry_map_and_truncate(mut hist_entry: MinimalHistoryEntry, version_m
         }
     }
 
-    if !frontier_is_sorted(&hist_entry.parents) {
-        // Parents can become unsorted here because they might not map cleanly.
-        hist_entry.parents.sort_unstable();
-    }
+    // Parents can become unsorted here because they might not map cleanly. Thanks, fuzzer.
+    clean_version(&mut hist_entry.parents);
 
     (hist_entry, remainder)
 }
@@ -673,25 +665,34 @@ impl Default for DecodeOptions {
 impl OpLog {
     pub fn load_from(data: &[u8]) -> Result<Self, ParseError> {
         let mut oplog = Self::new();
-        oplog.merge_data_internal(data, DecodeOptions::default())?;
+        oplog.decode_internal(data, DecodeOptions::default())?;
         Ok(oplog)
     }
 
     pub fn load_from_opts(data: &[u8], opts: DecodeOptions) -> Result<Self, ParseError> {
         let mut oplog = Self::new();
-        oplog.merge_data_internal(data, opts)?;
+        oplog.decode_internal(data, opts)?;
         Ok(oplog)
     }
 
-    pub fn merge_data(&mut self, data: &[u8]) -> Result<Frontier, ParseError> {
-        self.merge_data_opts(data, DecodeOptions::default())
+    /// Add all operations from a binary chunk into this document.
+    ///
+    /// Any duplicate operations are ignored.
+    ///
+    /// This method is a convenience method for calling
+    /// [`oplog.decode_and_add_opts(data, DecodeOptions::default())`](OpLog::decode_and_add_opts).
+    pub fn decode_and_add(&mut self, data: &[u8]) -> Result<LocalVersion, ParseError> {
+        self.decode_and_add_opts(data, DecodeOptions::default())
     }
 
-    /// Merge data from a file / over the network into this document.
+    /// Add all operations from a binary chunk into this document.
     ///
     /// If successful, returns the version of the loaded data (which could be different from the
-    /// local frontier!)
-    pub fn merge_data_opts(&mut self, data: &[u8], opts: DecodeOptions) -> Result<Frontier, ParseError> {
+    /// local version!)
+    ///
+    /// This method takes an options object, which for now doesn't do much. Most users should just
+    /// call [`OpLog::decode_and_add`](OpLog::decode_and_add)
+    pub fn decode_and_add_opts(&mut self, data: &[u8], opts: DecodeOptions) -> Result<LocalVersion, ParseError> {
         // In order to merge data safely, when an error happens we need to unwind all the merged
         // operations before returning. Otherwise self is in an invalid state.
         //
@@ -703,12 +704,12 @@ impl OpLog {
 
         // We could regenerate the frontier, but this is much lazier.
         let doc_id = self.doc_id.clone();
-        let old_frontier = self.frontier.clone();
+        let old_frontier = self.version.clone();
         let num_known_agents = self.client_data.len();
         let ins_content_length = self.operation_ctx.ins_content.len();
         let del_content_length = self.operation_ctx.del_content.len();
 
-        let result = self.merge_data_internal(data, opts);
+        let result = self.decode_internal(data, opts);
 
         if result.is_err() {
             // Unwind changes back to len.
@@ -794,7 +795,7 @@ impl OpLog {
             self.operation_ctx.ins_content.truncate(ins_content_length);
             self.operation_ctx.del_content.truncate(del_content_length);
 
-            self.frontier = old_frontier;
+            self.version = old_frontier;
         }
 
         result
@@ -805,7 +806,7 @@ impl OpLog {
     /// NOTE: This code is quite new.
     /// TODO: Currently if this method returns an error, the local state is undefined & invalid.
     /// Until this is fixed, the signature of the method will stay kinda weird to prevent misuse.
-    fn merge_data_internal(&mut self, data: &[u8], opts: DecodeOptions) -> Result<Frontier, ParseError> {
+    fn decode_internal(&mut self, data: &[u8], opts: DecodeOptions) -> Result<LocalVersion, ParseError> {
         // Written to be symmetric with encode functions.
         let mut reader = BufReader(data);
 
@@ -839,8 +840,8 @@ impl OpLog {
 
         // *** StartBranch ***
         let mut start_branch = reader.expect_chunk(ChunkType::StartBranch)?;
-        let mut start_frontier_chunk = start_branch.expect_chunk(ChunkType::Frontier)?;
-        let start_frontier: Frontier = start_frontier_chunk.read_frontier(self, &agent_map).map_err(|e| {
+        let mut start_frontier_chunk = start_branch.expect_chunk(ChunkType::Version)?;
+        let start_frontier: LocalVersion = start_frontier_chunk.read_frontier(self, &agent_map).map_err(|e| {
             // We can't read a frontier if it names agents or sequence numbers we haven't seen
             // before. If this happens, its because we're trying to load a data set from the future.
 
@@ -856,7 +857,7 @@ impl OpLog {
         // empty document, or we've been sent catchup data from a remote peer. If the data set
         // overlaps, we need to actively filter out operations & txns from that data set.
         // dbg!(&start_frontier, &self.frontier);
-        let patches_overlap = !frontier_eq(&start_frontier, &self.frontier);
+        let patches_overlap = !local_version_eq(&start_frontier, &self.version);
         // dbg!(patches_overlap);
 
         // *** Patches ***
@@ -880,9 +881,9 @@ impl OpLog {
             // So note that the file we're loading from may contain changes we already have locally.
             // We (may) need to filter out operations from the patch stream, which we read from
             // below. To do that without extra need to read both the agent assignments and patches together.
-            let mut agent_assignment_chunk = patch_chunk.expect_chunk(ChunkType::Version)?;
+            let mut agent_assignment_chunk = patch_chunk.expect_chunk(ChunkType::OpVersions)?;
             let pos_patches_chunk = patch_chunk.expect_chunk(ChunkType::OpTypeAndPosition)?;
-            let mut history_chunk = patch_chunk.expect_chunk(ChunkType::Parents)?;
+            let mut history_chunk = patch_chunk.expect_chunk(ChunkType::OpParents)?;
 
             // We need an insert ctx in some situations, though it'll never be accessed.
             let dummy_ctx = OperationCtx::new();
@@ -1203,18 +1204,18 @@ mod tests {
         doc.insert(0, 0, "hi there");
 
         let data_1 = doc.oplog.encode(EncodeOptions::default());
-        let f1 = doc.oplog.frontier.clone();
+        let f1 = doc.oplog.version.clone();
 
         doc.delete_without_content(1, 3, 4); // 'hi e'
         doc.insert(0, 3, "m");
-        let f2 = doc.oplog.frontier.clone();
+        let f2 = doc.oplog.version.clone();
 
         let data_2 = doc.oplog.encode_from(EncodeOptions::default(), &f1);
 
         let mut d2 = OpLog::new();
-        let m1 = d2.merge_data(&data_1).unwrap();
+        let m1 = d2.decode_and_add(&data_1).unwrap();
         assert_eq!(m1, f1);
-        let m2 = d2.merge_data(&data_2).unwrap();
+        let m2 = d2.decode_and_add(&data_2).unwrap();
         assert_eq!(m2, f2);
         // dbg!(m1, m2);
 
@@ -1226,22 +1227,22 @@ mod tests {
     fn merge_parts() {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
-        oplog.push_insert(0, 0, "hi");
+        oplog.add_insert(0, 0, "hi");
         let data_1 = oplog.encode(EncodeOptions::default());
-        oplog.push_insert(0, 2, " there");
+        oplog.add_insert(0, 2, " there");
         let data_2 = oplog.encode(EncodeOptions::default());
 
         let mut log2 = OpLog::load_from(&data_1).unwrap();
         println!("\n------\n");
-        let final_v = log2.merge_data(&data_2).unwrap();
+        let final_v = log2.decode_and_add(&data_2).unwrap();
         assert_eq!(&oplog, &log2);
-        assert_eq!(final_v, oplog.frontier);
+        assert_eq!(final_v, oplog.version);
     }
 
     #[test]
     fn merge_future_patch_errors() {
         let oplog = simple_doc().oplog;
-        let v = oplog.frontier[0];
+        let v = oplog.version[0];
         let bytes = oplog.encode_from(ENCODE_FULL, &[v-1]);
 
         let err = OpLog::load_from(&bytes).unwrap_err();
@@ -1257,23 +1258,23 @@ mod tests {
         oplog_a.get_or_create_agent_id("a");
         oplog_a.get_or_create_agent_id("b");
 
-        let t1 = oplog_a.push_insert(0, 0, "aa");
+        let t1 = oplog_a.add_insert(0, 0, "aa");
         let data_a = oplog_a.encode(EncodeOptions::default());
 
-        oplog_a.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        oplog_a.add_insert_at(1, &[ROOT_TIME], 0, "bbb");
         let data_b = oplog_a.encode_from(EncodeOptions::default(), &[t1]);
 
         // Now we should be able to merge a then b, or b then a and get the same result.
         let mut a_then_b = OpLog::new();
-        a_then_b.merge_data(&data_a).unwrap();
-        a_then_b.merge_data(&data_b).unwrap();
+        a_then_b.decode_and_add(&data_a).unwrap();
+        a_then_b.decode_and_add(&data_b).unwrap();
         assert_eq!(a_then_b, oplog_a);
 
         println!("\n------\n");
 
         let mut b_then_a = OpLog::new();
-        b_then_a.merge_data(&data_b).unwrap();
-        b_then_a.merge_data(&data_a).unwrap();
+        b_then_a.decode_and_add(&data_b).unwrap();
+        b_then_a.decode_and_add(&data_a).unwrap();
         assert_eq!(b_then_a, oplog_a);
     }
 
@@ -1292,9 +1293,9 @@ mod tests {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
         oplog.get_or_create_agent_id("mike");
-        let a = oplog.push_insert_at(0, &[ROOT_TIME], 0, "a");
-        oplog.push_insert_at(1, &[ROOT_TIME], 0, "b");
-        oplog.push_insert_at(0, &[a], 1, "c");
+        let a = oplog.add_insert_at(0, &[ROOT_TIME], 0, "a");
+        oplog.add_insert_at(1, &[ROOT_TIME], 0, "b");
+        oplog.add_insert_at(0, &[a], 1, "c");
 
         // dbg!(&oplog);
         check_encode_decode_matches(&oplog);
@@ -1305,9 +1306,9 @@ mod tests {
         // Same as above, but only one agent ID.
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
-        let a = oplog.push_insert_at(0, &[ROOT_TIME], 0, "a");
-        oplog.push_insert_at(0, &[ROOT_TIME], 0, "b");
-        oplog.push_insert_at(0, &[a], 1, "c");
+        let a = oplog.add_insert_at(0, &[ROOT_TIME], 0, "a");
+        oplog.add_insert_at(0, &[ROOT_TIME], 0, "b");
+        oplog.add_insert_at(0, &[a], 1, "c");
 
         // dbg!(&oplog);
         check_encode_decode_matches(&oplog);
@@ -1335,7 +1336,7 @@ mod tests {
 
         loop {
             let (chunk, mut r) = reader.next_chunk().unwrap();
-            if chunk == ChunkType::Parents {
+            if chunk == ChunkType::OpParents {
                 println!("Found it");
                 while !r.is_empty() {
                     let n = r.next_usize().unwrap();
@@ -1372,7 +1373,7 @@ mod tests {
             // In theory, we should always get an error here. But we don't, because the CRC check
             // is optional and the corrupted data can just remove the CRC check entirely!
 
-            let result = actual_output.merge_data_opts(&corrupted, DecodeOptions {
+            let result = actual_output.decode_and_add_opts(&corrupted, DecodeOptions {
                 ignore_crc: false,
                 verbose: true,
             });
@@ -1447,7 +1448,7 @@ mod tests {
         oplog2.doc_id = Some("bbb".into());
 
         let bytes = oplog1.encode(ENCODE_FULL);
-        assert_eq!(oplog2.merge_data(&bytes).unwrap_err(), ParseError::DocIdMismatch);
+        assert_eq!(oplog2.decode_and_add(&bytes).unwrap_err(), ParseError::DocIdMismatch);
         assert_eq!(oplog2.doc_id, Some("bbb".into())); // And the doc ID should be unchanged
     }
 
@@ -1463,7 +1464,7 @@ mod tests {
         *last_byte = !*last_byte; // Any change should mess up the checksum and fail.
 
         // Merging should fail
-        oplog1.merge_data(&bytes).unwrap_err();
+        oplog1.decode_and_add(&bytes).unwrap_err();
         // And the oplog's doc_id should be unchanged.
         assert_eq!(oplog1.doc_id, None);
     }
@@ -1474,8 +1475,8 @@ mod tests {
         let bytes = oplog.encode(ENCODE_FULL);
 
         let mut result = OpLog::new();
-        let version = result.merge_data(&bytes).unwrap();
-        assert!(frontier_eq(&version, &[ROOT_TIME]));
+        let version = result.decode_and_add(&bytes).unwrap();
+        assert!(local_version_eq(&version, &[ROOT_TIME]));
     }
 
     #[test]
@@ -1484,26 +1485,26 @@ mod tests {
         let bytes = oplog.encode(ENCODE_FULL);
 
         let mut oplog2 = oplog.clone();
-        let version = oplog2.merge_data(&bytes).unwrap();
+        let version = oplog2.decode_and_add(&bytes).unwrap();
 
-        assert!(frontier_eq(&version, oplog2.get_frontier()));
+        assert!(local_version_eq(&version, oplog2.local_version()));
     }
 
     #[test]
     fn merge_patch_returns_correct_version() {
         // This was returning [4, ROOT_VERSION] or some nonsense.
         let mut oplog = simple_doc().oplog;
-        let v = oplog.frontier.clone();
+        let v = oplog.version.clone();
         let mut oplog2 = oplog.clone();
 
-        oplog.push_insert(0, 0, "x");
+        oplog.add_insert(0, 0, "x");
 
         let bytes = oplog.encode_from(ENCODE_FULL, &v);
 
-        let version = oplog2.merge_data(&bytes).unwrap();
+        let version = oplog2.decode_and_add(&bytes).unwrap();
 
         // dbg!(version);
-        assert!(frontier_eq(&version, oplog2.get_frontier()));
+        assert!(local_version_eq(&version, oplog2.local_version()));
     }
 
     #[test]
@@ -1511,7 +1512,7 @@ mod tests {
         let data: Vec<u8> = vec![68,77,78,68,84,89,80,83,0,1,224,1,3,221,1,12,52,111,114,55,75,56,78,112,52,109,122,113,12,90,77,80,70,45,69,49,95,116,114,114,74,12,68,80,84,95,104,99,107,75,121,55,102,77,12,82,56,108,87,77,99,112,54,76,68,99,83,12,53,98,78,79,116,82,85,56,120,88,113,83,12,100,85,101,81,83,77,66,54,122,45,72,115,12,50,105,105,80,104,101,116,101,85,107,57,49,12,108,65,71,75,68,90,68,53,108,111,99,75,12,78,113,55,109,65,70,55,104,67,56,52,122,12,116,51,113,52,84,101,121,73,76,85,54,53,12,120,95,120,51,68,95,105,109,81,100,78,115,12,102,120,103,87,90,100,82,111,105,108,73,99,12,115,87,67,73,67,97,78,100,68,65,77,86,12,110,100,56,118,55,74,79,45,114,81,122,45,12,110,85,69,75,69,73,53,81,49,49,45,83,12,120,97,55,121,102,81,88,98,45,120,54,87,12,85,116,82,100,98,71,117,106,57,49,98,49,10,7,12,2,0,0,13,1,4,20,157,2,24,182,1,0,13,174,1,4,120,100,102,120,120,102,100,115,49,120,120,121,122,113,119,101,114,115,100,102,115,100,115,100,97,115,100,115,100,115,100,115,100,97,115,100,97,115,100,113,119,101,119,113,101,119,113,119,107,106,107,106,107,106,107,107,106,107,106,107,108,106,108,107,106,108,107,106,108,107,106,101,101,114,108,106,107,114,101,108,107,116,101,114,116,101,111,114,106,116,111,105,101,106,114,116,111,105,119,106,100,97,98,99,49,49,49,57,49,98,115,110,102,103,104,102,100,103,104,100,102,103,104,100,103,104,100,102,103,104,100,102,103,104,100,107,106,102,108,107,115,100,106,102,108,115,59,107,106,107,108,106,59,107,106,107,106,107,106,59,107,106,108,59,107,106,59,107,108,106,107,106,108,25,2,219,2,21,44,2,3,4,1,6,4,8,1,10,1,12,10,14,1,16,1,18,1,20,4,22,4,24,18,26,99,28,58,30,4,28,1,30,1,32,3,34,2,32,1,34,23,32,39,22,31,81,175,1,21,177,2,239,4,77,169,3,223,6,107,33,79,9,0,26,47,3,0,19,3,18,42,177,1,187,2,43,23,19,211,1,1,1,8,3,10,4,1,8,2,6,8,1,8,22,4,39,96,100,4,142,143,169,235];
         let oplog = OpLog::load_from(&data).unwrap();
         // dbg!(&oplog);
-        oplog.check(true);
+        oplog.dbg_check(true);
         oplog.checkout_tip();
     }
 
@@ -1525,7 +1526,7 @@ mod tests {
         let mut oplog = OpLog::load_from(&doc_data).unwrap();
         dbg!(&oplog);
         println!("\n\n");
-        oplog.merge_data(&patch_data).unwrap();
-        oplog.check(true);
+        oplog.decode_and_add(&patch_data).unwrap();
+        oplog.dbg_check(true);
     }
 }

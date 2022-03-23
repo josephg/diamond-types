@@ -19,7 +19,7 @@ fn random_single_document() {
         assert_eq!(doc.branch.content, expected_content);
     }
 
-    doc.check(true);
+    doc.dbg_check(true);
 }
 
 fn merge_fuzz(seed: u64, verbose: bool) {
@@ -58,7 +58,7 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             println!("\n\n-----------");
             println!("a content '{}'", a.content);
             println!("b content '{}'", b.content);
-            println!("Merging a({}) {:?} and b({}) {:?}", a_idx, &a.frontier, b_idx, &b.frontier);
+            println!("Merging a({}) {:?} and b({}) {:?}", a_idx, &a.version, b_idx, &b.version);
             println!();
         }
 
@@ -68,14 +68,14 @@ fn merge_fuzz(seed: u64, verbose: bool) {
 
         // dbg!(&opset);
 
-        if verbose { println!("Merge b to a: {:?} -> {:?}", &b.frontier, &a.frontier); }
-        a.merge(&oplog, &b.frontier);
+        if verbose { println!("Merge b to a: {:?} -> {:?}", &b.version, &a.version); }
+        a.merge(&oplog, &b.version);
         if verbose {
             println!("-> a content '{}'\n", a.content);
         }
 
-        if verbose { println!("Merge a to b: {:?} -> {:?}", &a.frontier, &b.frontier); }
-        b.merge(&oplog, &a.frontier);
+        if verbose { println!("Merge a to b: {:?} -> {:?}", &a.version, &b.version); }
+        b.merge(&oplog, &a.version);
         if verbose {
             println!("-> b content '{}'", b.content);
         }
@@ -93,7 +93,7 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             panic!("Documents do not match");
         } else {
             if verbose {
-                println!("Merge {:?} -> '{}'", &a.frontier, a.content);
+                println!("Merge {:?} -> '{}'", &a.version, a.content);
             }
         }
 
@@ -101,7 +101,7 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             // Every little while, merge everything. This has 2 purposes:
             // 1. It stops the fuzzer being n^2. (Its really unfortunate we need this)
             // And 2. It makes sure n-way merging also works correctly.
-            let all_frontier = oplog.frontier.as_slice();
+            let all_frontier = oplog.version.as_slice();
 
             for b in branches.iter_mut() {
                 b.merge(&oplog, all_frontier);

@@ -1,4 +1,4 @@
-use smallvec::smallvec;
+use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
@@ -7,6 +7,7 @@ use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::{InsDelTag, Operation};
+use crate::list::remote_ids::RemoteId;
 use crate::localtime::TimeSpan;
 use crate::remotespan::*;
 use crate::rev_span::TimeSpanRev;
@@ -62,19 +63,19 @@ impl OpLog {
             operations: Default::default(),
             // inserted_content: "".to_string(),
             history: Default::default(),
-            frontier: smallvec![ROOT_TIME]
+            version: smallvec![ROOT_TIME]
         }
     }
 
-    pub fn checkout(&self, frontier: &[Time]) -> Branch {
+    pub fn checkout(&self, local_version: &[Time]) -> Branch {
         let mut branch = Branch::new();
-        branch.merge(self, frontier);
+        branch.merge(self, local_version);
         branch
     }
 
     pub fn checkout_tip(&self) -> Branch {
         let mut branch = Branch::new();
-        branch.merge(self, &self.frontier);
+        branch.merge(self, &self.version);
         branch
     }
 
@@ -290,7 +291,7 @@ impl OpLog {
 
     /// Advance self.frontier by the named span of time.
     pub(crate) fn advance_frontier(&mut self, parents: &[Time], span: TimeSpan) {
-        advance_frontier_by_known_run(&mut self.frontier, parents, span);
+        advance_frontier_by_known_run(&mut self.version, parents, span);
     }
 
     /// Append to operations list without adjusting metadata.
@@ -320,8 +321,9 @@ impl OpLog {
 
     /// Push new operations to the opset. Operation parents specified by parents parameter.
     ///
-    /// Returns the single item frontier after merging.
-    pub fn push_at(&mut self, agent: AgentId, parents: &[Time], ops: &[Operation]) -> Time {
+    /// Returns the single item version after merging. (The resulting LocalVersion after calling
+    /// this method will be `[time]`).
+    pub fn add_operations_at(&mut self, agent: AgentId, parents: &[Time], ops: &[Operation]) -> Time {
         let first_time = self.len();
         let mut next_time = first_time;
 
@@ -338,11 +340,11 @@ impl OpLog {
         next_time - 1
     }
 
-    /// Returns the single item frontier after the inserted change.
-    pub fn push_insert_at(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) -> Time {
-        // This could just call push_at() but this is significantly faster according to benchmarks.
+    /// Returns the single item localtime after the inserted change.
+    pub fn add_insert_at(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) -> Time {
+        // This could just call add_operations_at() but this is significantly faster according to benchmarks.
         // Equivalent to:
-        // self.push_at(agent, parents, &[Operation::new_insert(pos, ins_content)])
+        // self.add_operations_at(agent, parents, &[Operation::new_insert(pos, ins_content)])
         let len = count_chars(ins_content);
         let start = self.len();
         let end = start + len;
@@ -352,8 +354,8 @@ impl OpLog {
         end - 1
     }
 
-    /// Returns the single item frontier after the inserted change.
-    pub fn push_delete_at(&mut self, agent: AgentId, parents: &[Time], pos: usize, len: usize) -> Time {
+    /// Returns the single item localtime after the inserted change.
+    pub fn add_delete_at(&mut self, agent: AgentId, parents: &[Time], pos: usize, len: usize) -> Time {
         // Equivalent to:
         // self.push_at(agent, parents, &[Operation::new_delete(pos, len)])
         let start = self.len();
@@ -374,24 +376,43 @@ impl OpLog {
     /// - Assign the operations IDs based on the next available sequence numbers from the specified
     /// agent
     /// - Store the operation's parents as the most recent known version. (Use
-    /// [`push_at`](OpLog::push_at) instead when pushing to a branch).
-    pub fn push(&mut self, agent: AgentId, ops: &[Operation]) -> Time {
+    /// [`branch.apply_local_operations`](Branch::apply_local_operations) instead when pushing to a
+    /// branch).
+    pub fn add_operations(&mut self, agent: AgentId, ops: &[Operation]) -> Time {
         // TODO: Rewrite this to avoid the .clone().
-        let frontier = self.frontier.clone();
-        self.push_at(agent, &frontier, ops)
+        let frontier = self.version.clone();
+        self.add_operations_at(agent, &frontier, ops)
     }
 
-    /// Returns the single item frontier after the inserted change.
+    /// Add an insert operation to the oplog at the current version.
+    ///
+    /// Returns the single item localtime after the inserted change.
     /// This is a shorthand for `oplog.push(agent, *insert(pos, content)*)`
     /// TODO: Optimize these functions like push_insert_at / push_delete_at.
-    pub fn push_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
-        self.push(agent, &[Operation::new_insert(pos, ins_content)])
+    pub fn add_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
+        self.add_operations(agent, &[Operation::new_insert(pos, ins_content)])
     }
 
+    /// Add a local delete operation to the oplog. This variant of the method allows a user to pass
+    /// the content of the delete into the oplog. This can be useful for undos and things like that
+    /// but it is NOT CHECKED. If you don't have access to the deleted content, use
+    /// [`add_delete_without_content`](OpLog::add_delete_without_content) instead.
+    ///
+    /// If you have a local branch, its easier, faster, and safer to just call
+    /// [`branch.delete(agent, pos, len)`](Branch::delete).
+    ///
+    /// # Safety
+    /// The deleted content must match the content in the document at that range, at the
+    /// current time.
+    pub unsafe fn add_delete_with_unchecked_content(&mut self, agent: AgentId, pos: usize, del_content: &str) -> Time {
+        self.add_operations(agent, &[Operation::new_delete_with_content(pos, del_content.into())])
+    }
+
+    /// Add a local delete operation to the oplog.
     /// Returns the single item frontier after the inserted change.
     /// This is a shorthand for `oplog.push(agent, *delete(pos, del_span)*)`
-    pub fn push_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
-        self.push(agent, &[Operation::new_delete(pos, del_span)])
+    pub fn add_delete_without_content(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
+        self.add_operations(agent, &[Operation::new_delete(pos, del_span)])
     }
 
     /// Iterate through history entries
@@ -403,8 +424,12 @@ impl OpLog {
         self.history.entries.iter_range_map_packed(range, |e| e.into())
     }
 
-    pub fn get_frontier(&self) -> &[Time] {
-        &self.frontier
+    pub fn local_version(&self) -> &[Time] {
+        &self.version
+    }
+
+    pub fn remote_version(&self) -> SmallVec<[RemoteId; 4]> {
+        self.local_to_remote_version(&self.version)
     }
 
     // pub(crate) fn content_str(&self, tag: InsDelTag) -> &str {

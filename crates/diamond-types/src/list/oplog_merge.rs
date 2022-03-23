@@ -23,7 +23,7 @@ impl OpLog {
 
         let mut queue = BinaryHeap::new();
         // dbg!(&other.frontier, &other.history);
-        for ord in &other.frontier {
+        for ord in &other.version {
             if *ord != ROOT_TIME { queue.push(*ord); }
         }
 
@@ -86,9 +86,9 @@ impl OpLog {
         result
     }
 
-    /// Merge all missing entries from the other oplog into this oplog. This method is mostly used
+    /// Add all missing operations from the other oplog into this oplog. This method is mostly used
     /// by testing code, since you rarely have two local oplogs to merge together.
-    pub fn merge_entries_from(&mut self, other: &Self) {
+    pub fn add_missing_operations_from(&mut self, other: &Self) {
         // [other.agent] => self.agent
         let mut agent_map = Vec::with_capacity(other.client_data.len());
 
@@ -142,7 +142,8 @@ impl OpLog {
                     }
                 }
 
-                hist_entry.parents.sort_unstable_by(|a, b| a.cmp(b));
+                hist_entry.parents.sort_unstable();
+                // hist_entry.parents.sort_unstable_by(|a, b| a.cmp(b));
                 debug_assert_frontier_sorted(&hist_entry.parents);
                 // dbg!(&hist_entry.parents);
 
@@ -162,20 +163,20 @@ mod test {
 
     fn merge_into_and_check(dest: &mut OpLog, src: &OpLog) {
         // dbg!(&dest);
-        dest.merge_entries_from(&src);
-        dest.check(true);
+        dest.add_missing_operations_from(&src);
+        dest.dbg_check(true);
         // dbg!(&dest);
         assert_eq!(dest, src);
     }
 
     fn merge_both_and_check(a: &mut OpLog, b: &mut OpLog) {
         // dbg!(&dest);
-        a.merge_entries_from(&b);
+        a.add_missing_operations_from(&b);
         // dbg!(&a);
-        a.check(true);
+        a.dbg_check(true);
 
-        b.merge_entries_from(&a);
-        b.check(true);
+        b.add_missing_operations_from(&a);
+        b.dbg_check(true);
         // dbg!(&dest);
 
         dbg!(&a, &b);
@@ -190,13 +191,13 @@ mod test {
         // merge_and_check(&mut a, &b);
 
         a.get_or_create_agent_id("seph");
-        a.push_insert(0, 0, "hi");
+        a.add_insert(0, 0, "hi");
         merge_into_and_check(&mut b, &a);
 
         // Ok now we'll append data to both oplogs
-        a.push_insert(0, 0, "aaa");
+        a.add_insert(0, 0, "aaa");
         b.get_or_create_agent_id("mike");
-        b.push_delete(1, 0, 2);
+        b.add_delete_without_content(1, 0, 2);
 
         merge_both_and_check(&mut a, &mut b);
     }

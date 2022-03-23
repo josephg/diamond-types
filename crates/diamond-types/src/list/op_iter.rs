@@ -97,7 +97,7 @@ struct OpIterRanges<'a> {
 
 impl<'a> OpIterRanges<'a> {
     fn new(oplog: &'a OpLog, mut r: SmallVec<[TimeSpan; 4]>) -> Self {
-        let last = r.pop().unwrap_or((0..0).into());
+        let last = r.pop().unwrap_or_else(|| (0..0).into());
         Self {
             ranges: r,
             current: OpIterFast::new(oplog, last)
@@ -140,8 +140,8 @@ impl OpLog {
         OpIterFast::new(self, range)
     }
 
-    pub fn iter_range_since(&self, frontier: &[Time]) -> impl Iterator<Item=Operation> + '_ {
-        let (only_a, only_b) = self.history.diff(frontier, &self.frontier);
+    pub fn iter_range_since(&self, local_version: &[Time]) -> impl Iterator<Item=Operation> + '_ {
+        let (only_a, only_b) = self.history.diff(local_version, &self.version);
         assert!(only_a.is_empty());
 
         OpIterRanges::new(self, only_b)

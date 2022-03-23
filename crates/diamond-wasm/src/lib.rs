@@ -31,7 +31,7 @@ impl Branch {
     #[wasm_bindgen]
     pub fn all(oplog: &OpLog) -> Self {
         let mut result = Self::new();
-        result.0.merge(&oplog.inner, &oplog.inner.get_frontier());
+        result.0.merge(&oplog.inner, &oplog.inner.local_version());
         result
     }
 
@@ -46,13 +46,13 @@ impl Branch {
         if let Some(branch) = branch {
             self.0.merge(&ops.inner, &[branch]);
         } else {
-            self.0.merge(&ops.inner, &ops.inner.get_frontier());
+            self.0.merge(&ops.inner, &ops.inner.local_version());
         }
     }
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        self.0.frontier.iter().copied().collect::<Box<[Time]>>()
+        self.0.version.iter().copied().collect::<Box<[Time]>>()
     }
 }
 
@@ -98,13 +98,13 @@ pub fn get_local_frontier(frontier: &[Time]) -> Box<[Time]> {
 //     serde_wasm_bindgen::to_value(&remote_time)
 // }
 pub fn frontier_to_remote_time(oplog: &DTOpLog, time: &[Time]) -> WasmResult {
-    let remote_time = oplog.frontier_to_remote_ids(time);
+    let remote_time = oplog.local_to_remote_version(time);
     serde_wasm_bindgen::to_value(&remote_time)
 }
 
 pub fn get_frontier(oplog: &DTOpLog) -> WasmResult {
     // oplog.get_frontier().iter().copied().collect::<Box<[Time]>>()
-    let frontier = oplog.frontier_to_remote_ids(oplog.get_frontier());
+    let frontier = oplog.local_to_remote_version(oplog.local_version());
     serde_wasm_bindgen::to_value(&frontier)
 }
 
@@ -121,7 +121,7 @@ pub fn get_patch_since(oplog: &DTOpLog, from_version: &[usize]) -> Vec<u8> {
 }
 
 pub fn merge_bytes(oplog: &mut DTOpLog, bytes: &[u8]) -> WasmResult {
-    match oplog.merge_data(bytes) {
+    match oplog.decode_and_add(bytes) {
         Ok(frontier) => serde_wasm_bindgen::to_value(&frontier),
         Err(e) => {
             let s = format!("Error merging {:?}", e);
@@ -132,7 +132,7 @@ pub fn merge_bytes(oplog: &mut DTOpLog, bytes: &[u8]) -> WasmResult {
 }
 
 pub fn xf_since(oplog: &DTOpLog, from_version: &[usize]) -> WasmResult {
-    let xf = oplog.get_xf_operations(from_version, &oplog.get_frontier())
+    let xf = oplog.iter_xf_operations_from(from_version, &oplog.local_version())
         .filter_map(|(_v, op)| op)
         .collect::<Vec<_>>();
 
@@ -140,7 +140,7 @@ pub fn xf_since(oplog: &DTOpLog, from_version: &[usize]) -> WasmResult {
 }
 
 pub fn merge_versions(oplog: &DTOpLog, a: &[usize], b: &[usize]) -> Box<[usize]> {
-    oplog.merge_versions(a, b).into_iter().collect()
+    oplog.version_union(a, b).into_iter().collect()
 }
 
 #[wasm_bindgen]
@@ -183,18 +183,18 @@ impl OpLog {
         let parents = parents_in.unwrap_or_else(|| {
             // Its gross here - I'm converting the frontier into a smallvec then immediately
             // converting it to a slice again :p
-            self.inner.get_frontier().into()
+            self.inner.local_version().into()
         });
-        self.inner.push_insert_at(self.agent_id, &parents, pos, content)
+        self.inner.add_insert_at(self.agent_id, &parents, pos, content)
     }
 
     #[wasm_bindgen(js_name = del)]
     pub fn push_delete(&mut self, pos: usize, len: usize, parents_in: Option<Box<[usize]>>) -> usize {
         let parents = parents_in.unwrap_or_else(|| {
             // And here :p
-            self.inner.get_frontier().into()
+            self.inner.local_version().into()
         });
-        self.inner.push_delete_at(self.agent_id, &parents, pos, len)
+        self.inner.add_delete_at(self.agent_id, &parents, pos, len)
     }
 
     // This adds like 70kb of size to the WASM binary.
@@ -238,7 +238,7 @@ impl OpLog {
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        get_local_frontier(&self.inner.get_frontier())
+        get_local_frontier(&self.inner.local_version())
     }
 
     // #[wasm_bindgen]
@@ -421,7 +421,7 @@ impl Doc {
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        get_local_frontier(&self.inner.branch.frontier)
+        get_local_frontier(&self.inner.branch.version)
     }
 
     #[wasm_bindgen(js_name = localToRemoteVersion)]
@@ -431,7 +431,7 @@ impl Doc {
 
     #[wasm_bindgen(js_name = getRemoteVersion)]
     pub fn get_remote_version(&self) -> WasmResult {
-        frontier_to_remote_time(&self.inner.oplog, &self.inner.branch.frontier)
+        frontier_to_remote_time(&self.inner.oplog, &self.inner.branch.version)
     }
 
     #[wasm_bindgen(js_name = xfSince)]

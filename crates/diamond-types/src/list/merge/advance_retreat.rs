@@ -11,6 +11,14 @@ use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
 
+#[derive(Debug)]
+pub(super) struct QueryResult {
+    tag: InsDelTag,
+    target: TimeSpanRev,
+    offset: usize,
+    ptr: Option<NonNull<NodeLeaf<YjsSpan, DocRangeIndex>>>
+}
+
 impl M2Tracker {
     /// Returns what happened here, target range, offset into range and a cursor into the range
     /// tree.
@@ -18,7 +26,7 @@ impl M2Tracker {
     /// This should only be used with times we have advanced through.
     ///
     /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
-    fn index_query(&self, time: usize) -> (InsDelTag, TimeSpanRev, usize, Option<NonNull<NodeLeaf<YjsSpan, DocRangeIndex>>>) {
+    fn index_query(&self, time: usize) -> QueryResult {
         assert_ne!(time, ROOT_TIME); // Not sure what to do in this case.
 
         let index_len = self.index.offset_len();
@@ -34,10 +42,15 @@ impl M2Tracker {
                     debug_assert!(ptr != NonNull::dangling());
                     // For inserts, the target is simply the range of the item.
                     let start = time - cursor.offset;
-                    (Ins, (start..start+entry.len).into(), cursor.offset, Some(ptr))
+                    QueryResult {
+                        tag: Ins,
+                        target: (start..start+entry.len).into(),
+                        offset: cursor.offset,
+                        ptr: Some(ptr)
+                    }
                 }
                 DelTarget(target) => {
-                    (Del, target, cursor.offset, None)
+                    QueryResult { tag: Del, target, offset: cursor.offset, ptr: None }
                 }
             }
         }
@@ -48,7 +61,7 @@ impl M2Tracker {
             // Note the delete could be reversed - but we don't really care here; we just mark the
             // whole range anyway.
             // let (tag, target, mut len) = self.next_action(range.start);
-            let (tag, target, offset, mut ptr) = self.index_query(range.start);
+            let QueryResult { tag, target, offset, mut ptr } = self.index_query(range.start);
 
             let len = usize::min(target.len() - offset, range.len());
 
@@ -88,7 +101,7 @@ impl M2Tracker {
         while !range.is_empty() {
             // TODO: This is gross. Clean this up. There's totally a nicer way to write this.
             let req_time = range.last();
-            let (tag, target, offset, mut ptr) = self.index_query(req_time);
+            let QueryResult { tag, target, offset, mut ptr } = self.index_query(req_time);
 
             let chunk_start = req_time - offset;
             let start = range.start.max(chunk_start);

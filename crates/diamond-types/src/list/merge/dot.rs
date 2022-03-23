@@ -205,9 +205,9 @@ mod test {
         let mut ops = OpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
-        ops.push_insert_at(0, &[ROOT_TIME], 0, "a");
-        ops.push_insert_at(1, &[ROOT_TIME], 0, "b");
-        ops.push_delete_at(0, &[0, 1], 0, 2);
+        ops.add_insert_at(0, &[ROOT_TIME], 0, "a");
+        ops.add_insert_at(1, &[ROOT_TIME], 0, "b");
+        ops.add_delete_at(0, &[0, 1], 0, 2);
 
         ops.make_merge_graph("test.svg", "asdf", [((0..ops.len()).into(), Red)].iter().copied());
     }
@@ -218,9 +218,9 @@ mod test {
         let mut ops = OpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
-        let _a = ops.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        let b = ops.push_insert_at(1, &[ROOT_TIME], 0, "b");
-        ops.push_delete_at(0, &[1, b], 0, 2);
+        let _a = ops.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        let b = ops.add_insert_at(1, &[ROOT_TIME], 0, "b");
+        ops.add_delete_at(0, &[1, b], 0, 2);
         // dbg!(&ops);
 
         ops.make_time_dag_graph("dag.svg");

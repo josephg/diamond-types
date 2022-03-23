@@ -1,5 +1,5 @@
 use jumprope::JumpRope;
-use crate::list::{Branch, Frontier, ListCRDT, OpLog};
+use crate::list::{Branch, LocalVersion, ListCRDT, OpLog};
 use smallvec::smallvec;
 use crate::list::frontier::{advance_frontier_by_known_run, debug_assert_frontier_sorted};
 use crate::list::history::History;
@@ -20,7 +20,7 @@ impl Branch {
 }
 
 impl OpLog {
-    fn get_frontier_inefficiently(&self) -> Frontier {
+    fn get_frontier_inefficiently(&self) -> LocalVersion {
         // Could improve this by just looking at the last txn, and following shadows down.
 
         let mut b = smallvec![ROOT_TIME];
@@ -30,10 +30,17 @@ impl OpLog {
         b
     }
 
+    /// Check the internal state of the diamond types list. This is only exported for integration
+    /// testing.
+    ///
+    /// You shouldn't have any reason to call this method.
+    ///
+    /// This method is public, but do not depend on it as part of the DT API. It could be removed at
+    /// any time.
     #[allow(unused)]
-    pub fn check(&self, deep: bool) {
+    pub fn dbg_check(&self, deep: bool) {
         let actual_frontier = self.get_frontier_inefficiently();
-        assert_eq!(self.frontier, actual_frontier);
+        assert_eq!(self.version, actual_frontier);
 
         if deep {
             self.history.check();
@@ -41,7 +48,7 @@ impl OpLog {
     }
 
     #[allow(unused)]
-    pub fn check_all_changes_rle_merged(&self) {
+    pub(crate) fn check_all_changes_rle_merged(&self) {
         assert_eq!(self.client_data[0].item_times.num_entries(), 1);
         // .. And operation log.
         assert_eq!(self.history.entries.num_entries(), 1);
@@ -49,10 +56,16 @@ impl OpLog {
 }
 
 impl ListCRDT {
-    // Used for testing.
+    /// Check the internal state of the diamond types document. This is only exported for
+    /// integration testing.
+    ///
+    /// You shouldn't have any reason to call this method.
+    ///
+    /// This method is public, but do not depend on it as part of the DT API. It could be removed at
+    /// any time.
     #[allow(unused)]
-    pub fn check(&self, deep: bool) {
-        self.oplog.check(deep);
+    pub fn dbg_check(&self, deep: bool) {
+        self.oplog.dbg_check(deep);
     }
 }
 

@@ -46,7 +46,15 @@ mod buffered_iter;
 // systems.
 pub type Time = usize;
 
-pub type Frontier = SmallVec<[Time; 4]>;
+/// A LocalVersion is a set of local Time values which point at the set of changes with no children
+/// at this point in time. When there's a single writer this will
+/// always just be the last order we've seen.
+///
+/// This is never empty.
+///
+/// At the start of time (when there are no changes), LocalVersion is usize::max (which is the root
+/// order).
+pub type LocalVersion = SmallVec<[Time; 4]>;
 
 #[derive(Clone, Debug)]
 struct ClientData {
@@ -80,11 +88,7 @@ struct ClientData {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Branch {
-    /// The set of txn orders with no children in the document. With a single writer this will
-    /// always just be the last order we've seen.
-    ///
-    /// Never empty. Starts at usize::max (which is the root order).
-    pub frontier: Frontier,
+    pub version: LocalVersion,
 
     pub content: JumpRope,
 }
@@ -126,12 +130,13 @@ pub struct OpLog {
     /// TODO: Remove pub marker.
     history: History,
 
-    /// This is the frontier of the entire oplog. So, if you merged every change we store into a
-    /// branch, this is the frontier of that branch.
+    /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into
+    /// a branch, this is the version of that branch.
     ///
-    /// This is only stored as a convenience - we could recalculate it as needed from history. But
-    /// it takes up very little space, and its mildly convenient. So here it is!
-    frontier: Frontier,
+    /// This is only stored as a convenience - we could recalculate it as needed from history when
+    /// needed, but thats a hassle. And it takes up very little space, and its very convenient to
+    /// have on hand! So here it is.
+    version: LocalVersion,
 }
 
 /// This is the default (obvious) construction for a list.

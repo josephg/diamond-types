@@ -1,10 +1,11 @@
-use crate::list::{Frontier, Time};
+use smallvec::{Array, SmallVec};
+use crate::list::{LocalVersion, Time};
 use crate::list::history::History;
 use crate::localtime::TimeSpan;
 use crate::ROOT_TIME;
 
 /// Advance a frontier by the set of time spans in range
-pub(crate) fn advance_frontier_by(frontier: &mut Frontier, history: &History, mut range: TimeSpan) {
+pub(crate) fn advance_frontier_by(frontier: &mut LocalVersion, history: &History, mut range: TimeSpan) {
     let mut txn_idx = history.entries.find_index(range.start).unwrap();
     while !range.is_empty() {
         let txn = &history.entries[txn_idx];
@@ -22,7 +23,7 @@ pub(crate) fn advance_frontier_by(frontier: &mut Frontier, history: &History, mu
     }
 }
 
-pub(crate) fn retreat_frontier_by(frontier: &mut Frontier, history: &History, mut range: TimeSpan) {
+pub(crate) fn retreat_frontier_by(frontier: &mut LocalVersion, history: &History, mut range: TimeSpan) {
     if range.is_empty() { return; }
 
     debug_assert_frontier_sorted(frontier.as_slice());
@@ -55,7 +56,7 @@ pub(crate) fn retreat_frontier_by(frontier: &mut Frontier, history: &History, mu
                     // turn for each item in branch.
                     debug_assert!(!frontier.is_empty());
                     // TODO: At least check shadow directly.
-                    if !history.frontier_contains_time(frontier, *parent) {
+                    if !history.version_contains_time(frontier, *parent) {
                         add_to_frontier(frontier, *parent);
                     }
                 }
@@ -88,6 +89,13 @@ pub(crate) fn frontier_is_sorted(branch: &[Time]) -> bool {
     true
 }
 
+pub(crate) fn clean_version<T: Array<Item=usize>>(v: &mut SmallVec<T>) {
+    debug_assert!(!v.is_empty());
+    if !frontier_is_sorted(v.as_slice()) {
+        v.sort_unstable();
+    }
+}
+
 pub(crate) fn debug_assert_frontier_sorted(frontier: &[Time]) {
     debug_assert!(frontier_is_sorted(frontier));
 }
@@ -99,13 +107,13 @@ pub(crate) fn check_frontier(frontier: &[Time], history: &History) {
         let mut frontier = frontier.to_vec();
         for i in 0..frontier.len() {
             let removed = frontier.remove(i);
-            assert!(!history.frontier_contains_time(&frontier, removed));
+            assert!(!history.version_contains_time(&frontier, removed));
             frontier.insert(i, removed);
         }
     }
 }
 
-pub(crate) fn add_to_frontier(frontier: &mut Frontier, new_item: Time) {
+pub(crate) fn add_to_frontier(frontier: &mut LocalVersion, new_item: Time) {
     // In order to maintain the order of items in the branch, we want to insert the new item in the
     // appropriate place.
 
@@ -118,7 +126,7 @@ pub(crate) fn add_to_frontier(frontier: &mut Frontier, new_item: Time) {
 /// Advance branch frontier by a transaction.
 ///
 /// This is ONLY VALID if the range is entirely within a txn.
-pub(crate) fn advance_frontier_by_known_run(frontier: &mut Frontier, parents: &[Time], span: TimeSpan) {
+pub(crate) fn advance_frontier_by_known_run(frontier: &mut LocalVersion, parents: &[Time], span: TimeSpan) {
     // TODO: Check the branch contains everything in txn_parents, but not txn_id:
     // Check the operation fits. The operation should not be in the branch, but
     // all the operation's parents should be.
@@ -150,7 +158,7 @@ pub(crate) fn advance_frontier_by_known_run(frontier: &mut Frontier, parents: &[
     add_to_frontier(frontier, span.last());
 }
 
-pub fn frontier_eq(a: &[Time], b: &[Time]) -> bool {
+pub fn local_version_eq(a: &[Time], b: &[Time]) -> bool {
     // Almost all branches only have one element in them.
     debug_assert_frontier_sorted(a);
     debug_assert_frontier_sorted(b);
@@ -161,7 +169,7 @@ pub fn frontier_eq(a: &[Time], b: &[Time]) -> bool {
 }
 
 #[allow(unused)]
-pub fn frontier_is_root(branch: &[Time]) -> bool {
+pub fn local_version_is_root(branch: &[Time]) -> bool {
     branch.len() == 1 && branch[0] == ROOT_TIME
 }
 
@@ -169,7 +177,7 @@ pub fn frontier_is_root(branch: &[Time]) -> bool {
 mod test {
     use smallvec::smallvec;
 
-    use crate::list::Frontier;
+    use crate::list::LocalVersion;
     use crate::list::history::HistoryEntry;
     use crate::ROOT_TIME;
 
@@ -177,7 +185,7 @@ mod test {
 
     #[test]
     fn frontier_movement_smoke_tests() {
-        let mut branch: Frontier = smallvec![ROOT_TIME];
+        let mut branch: LocalVersion = smallvec![ROOT_TIME];
         advance_frontier_by_known_run(&mut branch, &[ROOT_TIME], (0..10).into());
         assert_eq!(branch.as_slice(), &[9]);
 
@@ -216,7 +224,7 @@ mod test {
             },
         ]);
 
-        let mut branch: Frontier = smallvec![1, 10];
+        let mut branch: LocalVersion = smallvec![1, 10];
         advance_frontier_by(&mut branch, &history, (2..4).into());
         assert_eq!(branch.as_slice(), &[1, 3, 10]);
 

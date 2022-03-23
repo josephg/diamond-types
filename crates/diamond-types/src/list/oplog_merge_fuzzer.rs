@@ -40,11 +40,11 @@ fn oplog_merge_fuzz(seed: u64, verbose: bool) {
         // b.ops.dbg_print_assignments_and_ops();
 
         // dbg!((&a.ops, &b.ops));
-        a.oplog.merge_entries_from(&b.oplog);
+        a.oplog.add_missing_operations_from(&b.oplog);
         // a.check(true);
         // println!("->c {_a_idx} length {}", a.ops.len());
 
-        b.oplog.merge_entries_from(&a.oplog);
+        b.oplog.add_missing_operations_from(&a.oplog);
         // b.check(true);
         // println!("->c {_b_idx} length {}", b.ops.len());
 
@@ -53,13 +53,13 @@ fn oplog_merge_fuzz(seed: u64, verbose: bool) {
 
         assert_eq!(a.oplog, b.oplog);
 
-        a.branch.merge(&a.oplog, &a.oplog.frontier);
-        b.branch.merge(&b.oplog, &b.oplog.frontier);
+        a.branch.merge(&a.oplog, &a.oplog.version);
+        b.branch.merge(&b.oplog, &b.oplog.version);
         assert_eq!(a.branch.content, b.branch.content);
     }
 
     for doc in &docs {
-        doc.check(true);
+        doc.dbg_check(true);
     }
 }
 

@@ -9,14 +9,14 @@ use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
 use content_tree::*;
 use rle::{AppendRle, HasLength, Searchable, Trim, TrimCtx};
-use crate::list::{Frontier, Branch, OpLog, Time};
+use crate::list::{LocalVersion, Branch, OpLog, Time};
 use crate::list::merge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{InsDelTag, Operation};
 use crate::localtime::{is_underwater, TimeSpan};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
-use crate::list::frontier::{advance_frontier_by, frontier_eq, frontier_is_sorted};
+use crate::list::frontier::{advance_frontier_by, local_version_eq, frontier_is_sorted};
 use crate::list::history_tools::DiffFlag;
 use crate::list::internal_op::OperationInternal;
 use crate::list::buffered_iter::BufferedIter;
@@ -259,7 +259,7 @@ impl M2Tracker {
         if range.is_empty() { return; }
 
         if let Some(to) = to.as_deref_mut() {
-            advance_frontier_by(&mut to.frontier, &oplog.history, range);
+            advance_frontier_by(&mut to.version, &oplog.history, range);
         }
 
         let mut iter = oplog.iter_metrics_range(range);
@@ -485,7 +485,7 @@ impl M2Tracker {
                 let time_start = op_pair.0;
                 if !is_underwater(target.start) {
                     // Deletes must always dominate the item they're deleting in the time dag.
-                    debug_assert!(oplog.history.frontier_contains_time(&[time_start], target.start));
+                    debug_assert!(oplog.history.version_contains_time(&[time_start], target.start));
                 }
 
                 self.index.replace_range_at_offset(time_start, MarkerEntry {
@@ -513,7 +513,7 @@ impl M2Tracker {
     ///
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
-    fn walk(&mut self, oplog: &OpLog, start_at: Frontier, rev_spans: &[TimeSpan], mut apply_to: Option<&mut Branch>) -> Frontier {
+    fn walk(&mut self, oplog: &OpLog, start_at: LocalVersion, rev_spans: &[TimeSpan], mut apply_to: Option<&mut Branch>) -> LocalVersion {
         let mut walker = SpanningTreeWalker::new(&oplog.history, rev_spans, start_at);
 
         for walk in &mut walker {
@@ -542,13 +542,13 @@ pub(crate) struct TransformedOpsIter<'a> {
     // ff_idx: usize,
     did_ff: bool, // TODO: Do I really need this?
 
-    merge_frontier: Frontier,
+    merge_frontier: LocalVersion,
 
-    common_ancestor: Frontier,
+    common_ancestor: LocalVersion,
     conflict_ops: SmallVec<[TimeSpan; 4]>,
     new_ops: SmallVec<[TimeSpan; 4]>,
 
-    next_frontier: Frontier,
+    next_frontier: LocalVersion,
 
     // TODO: This tracker allocates - which we don't need to do if we're FF-ing.
     phase2: Option<(M2Tracker, SpanningTreeWalker<'a>)>,
@@ -564,7 +564,7 @@ impl<'a> TransformedOpsIter<'a> {
         // 3. Use OptTxnIter to iterate through the (new) merge set, merging along the way.
 
         debug_assert!(frontier_is_sorted(merge_frontier));
-        debug_assert!(frontier_is_sorted(&from_frontier));
+        debug_assert!(frontier_is_sorted(from_frontier));
 
         // let mut diff = opset.history.diff(&self.frontier, merge_frontier);
 
@@ -576,7 +576,7 @@ impl<'a> TransformedOpsIter<'a> {
         let mut new_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
         let mut conflict_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
 
-        let common_ancestor = oplog.history.find_conflicting(&from_frontier, merge_frontier, |span, flag| {
+        let common_ancestor = oplog.history.find_conflicting(from_frontier, merge_frontier, |span, flag| {
             // Note we'll be visiting these operations in reverse order.
 
             // dbg!(&span, flag);
@@ -607,7 +607,7 @@ impl<'a> TransformedOpsIter<'a> {
         }
     }
 
-    pub(crate) fn into_frontier(self) -> Frontier {
+    pub(crate) fn into_frontier(self) -> LocalVersion {
         self.next_frontier
     }
 }
@@ -657,7 +657,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             let span = self.new_ops.last().unwrap();
             let txn = self.oplog.history.entries.find_packed(span.start);
             let can_ff = txn.with_parents(span.start, |parents| {
-                frontier_eq(&self.next_frontier, parents)
+                local_version_eq(&self.next_frontier, parents)
             });
 
             if can_ff {
@@ -764,7 +764,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
         let span = self.oplog.get_crdt_span(pair.span());
         let len = span.len().min(pair.len());
 
-        let (consumed_here, xf_result) = tracker.apply(&self.oplog, span.agent, &pair, len);
+        let (consumed_here, xf_result) = tracker.apply(self.oplog, span.agent, &pair, len);
 
         let remainder = pair.trim_ctx(consumed_here, &self.oplog.operation_ctx);
 
@@ -785,7 +785,14 @@ impl OpLog {
         TransformedOpsIter::new(self, from, merging)
     }
 
-    pub fn get_xf_operations(&self, from: &[Time], merging: &[Time]) -> impl Iterator<Item=(TimeSpan, Option<Operation>)> + '_ {
+    /// Iterate through all the *transformed* operations from some point in time. Internally, the
+    /// OpLog stores all changes as they were when they were created. This makes a lot of sense from
+    /// CRDT academic point of view (and makes signatures and all that easy). But its is rarely
+    /// useful for a text editor.
+    ///
+    /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
+    /// changes that could be applied linearly to a document to bring it up to date.
+    pub fn iter_xf_operations_from(&self, from: &[Time], merging: &[Time]) -> impl Iterator<Item=(TimeSpan, Option<Operation>)> + '_ {
         TransformedOpsIter::new(self, from, merging)
             .map(|(time, mut origin_op, xf)| {
                 let len = origin_op.len();
@@ -801,8 +808,14 @@ impl OpLog {
             })
     }
 
-    pub fn get_all_xf_operations(&self) -> impl Iterator<Item=(TimeSpan, Option<Operation>)> + '_ {
-        self.get_xf_operations(&[ROOT_TIME], &self.frontier)
+    /// Get all transformed operations from the start of time.
+    ///
+    /// This is a shorthand for `oplog.get_xf_operations(&[ROOT_TIME], oplog.local_version)`, but
+    /// I hope that future optimizations make this method way faster.
+    ///
+    /// See [OpLog::iter_xf_operations_from](OpLog::iter_xf_operations_from) for more information.
+    pub fn iter_xf_operations(&self) -> impl Iterator<Item=(TimeSpan, Option<Operation>)> + '_ {
+        self.iter_xf_operations_from(&[ROOT_TIME], &self.version)
     }
 }
 
@@ -818,7 +831,7 @@ impl Branch {
     /// Reexposed as merge_changes.
     pub fn merge(&mut self, oplog: &OpLog, merge_frontier: &[Time]) {
         // let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
-        let mut iter = oplog.get_xf_operations_full(&self.frontier, merge_frontier);
+        let mut iter = oplog.get_xf_operations_full(&self.version, merge_frontier);
 
         for (_time, origin_op, xf) in &mut iter {
             match (origin_op.tag, xf) {
@@ -847,7 +860,7 @@ impl Branch {
             }
         }
 
-        self.frontier = iter.into_frontier();
+        self.version = iter.into_frontier();
     }
 
     #[deprecated]
@@ -860,7 +873,7 @@ impl Branch {
         // 3. Use OptTxnIter to iterate through the (new) merge set, merging along the way.
 
         debug_assert!(frontier_is_sorted(merge_frontier));
-        debug_assert!(frontier_is_sorted(&self.frontier));
+        debug_assert!(frontier_is_sorted(&self.version));
 
         // let mut diff = opset.history.diff(&self.frontier, merge_frontier);
 
@@ -878,7 +891,7 @@ impl Branch {
         let mut shared_size = 0;
         let mut shared_ranges = 0;
 
-        let mut common_ancestor = oplog.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
+        let mut common_ancestor = oplog.history.find_conflicting(&self.version, merge_frontier, |span, flag| {
             // Note we'll be visiting these operations in reverse order.
 
             if flag == DiffFlag::Shared {
@@ -907,7 +920,7 @@ impl Branch {
         #[cfg(feature = "dot_export")]
         if MAKE_GRAPHS {
             let s1 = merge_frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
-            let s2 = self.frontier.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
+            let s2 = self.version.iter().map(|t| name_of(*t)).collect::<Vec<_>>().join("-");
 
             // let filename = format!("../../svgs/m{}_to_{}.svg", s1, s2);
             let filename = format!("svgs/m{}_to_{}.svg", s1, s2);
@@ -933,7 +946,7 @@ impl Branch {
                         // Previously this said:
                         //   self.frontier == txn.parents
                         // and the tests still passed. TODO: Was that code wrong? If so make a test case.
-                        frontier_eq(self.frontier.as_slice(), parents)
+                        local_version_eq(self.version.as_slice(), parents)
                     });
 
                     if can_ff {
@@ -941,7 +954,7 @@ impl Branch {
                         let remainder = span.trim(txn.span.end - span.start);
                         // println!("FF {:?}", &span);
                         self.apply_range_from(oplog, span);
-                        self.frontier = smallvec![span.last()];
+                        self.version = smallvec![span.last()];
 
                         if let Some(r) = remainder {
                             new_ops.push(r);
@@ -968,7 +981,7 @@ impl Branch {
             // conflict_ops then FF is pointless.
             conflict_ops.clear();
             shared_size = 0;
-            common_ancestor = oplog.history.find_conflicting(&self.frontier, merge_frontier, |span, flag| {
+            common_ancestor = oplog.history.find_conflicting(&self.version, merge_frontier, |span, flag| {
                 if flag == DiffFlag::Shared {
                     shared_size += span.len();
                     shared_ranges += 1;
@@ -1014,12 +1027,12 @@ mod test {
     fn test_ff() {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("a");
-        list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
 
         list.branch.merge(&list.oplog, &[1]);
         list.branch.merge(&list.oplog, &[2]);
 
-        assert_eq!(list.branch.frontier.as_slice(), &[2]);
+        assert_eq!(list.branch.version.as_slice(), &[2]);
         assert_eq!(list.branch.content, "aaa");
     }
 
@@ -1029,17 +1042,17 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.oplog.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.add_insert_at(1, &[ROOT_TIME], 0, "bbb");
         list.branch.merge(&list.oplog, &[2, 5]);
 
-        assert_eq!(list.branch.frontier.as_slice(), &[2, 5]);
+        assert_eq!(list.branch.version.as_slice(), &[2, 5]);
         assert_eq!(list.branch.content, "aaabbb");
 
-        list.oplog.push_insert_at(0, &[2, 5], 0, "ccc"); // 8
+        list.oplog.add_insert_at(0, &[2, 5], 0, "ccc"); // 8
         list.branch.merge(&list.oplog, &[8]);
 
-        assert_eq!(list.branch.frontier.as_slice(), &[8]);
+        assert_eq!(list.branch.version.as_slice(), &[8]);
         assert_eq!(list.branch.content, "cccaaabbb");
     }
 
@@ -1049,15 +1062,15 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.oplog.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.add_insert_at(1, &[ROOT_TIME], 0, "bbb");
 
         list.branch.merge(&list.oplog, &[2, 5]);
         // list.checkout.merge_changes_m2(&list.ops, &[2]);
         // list.checkout.merge_changes_m2(&list.ops, &[5]);
 
         // dbg!(list.checkout);
-        assert_eq!(list.branch.frontier.as_slice(), &[2, 5]);
+        assert_eq!(list.branch.version.as_slice(), &[2, 5]);
         assert_eq!(list.branch.content, "aaabbb");
     }
 
@@ -1070,8 +1083,8 @@ mod test {
         list.insert(0, 0, "aaa");
         // list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
 
-        list.oplog.push_delete_at(0, &[2], 1, 1); // &[3]
-        list.oplog.push_delete_at(1, &[2], 0, 3); // &[6]
+        list.oplog.add_delete_at(0, &[2], 1, 1); // &[3]
+        list.oplog.add_delete_at(1, &[2], 0, 3); // &[6]
 
         // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
         // list.checkout.merge_changes_m2(&list.ops, (3..list.ops.len()).into());
@@ -1085,9 +1098,9 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        let t = list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.oplog.push_delete_at(0, &[t], 1, 1); // 3
-        list.oplog.push_delete_at(1, &[t], 0, 3); // 6
+        let t = list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.add_delete_at(0, &[t], 1, 1); // 3
+        list.oplog.add_delete_at(1, &[t], 0, 3); // 6
         // dbg!(&list.ops);
 
         // list.checkout.merge_changes_m2(&list.ops, (0..list.ops.len()).into());
@@ -1103,8 +1116,8 @@ mod test {
         list.get_or_create_agent_id("b");
         // list.local_insert(0, 0, "aaa");
 
-        list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.oplog.push_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.add_insert_at(1, &[ROOT_TIME], 0, "bbb");
 
         let mut t = M2Tracker::new();
         t.apply_range(&list.oplog, (0..3).into(), None);
@@ -1122,8 +1135,8 @@ mod test {
 
         list.insert(0, 0, "aaa");
 
-        list.oplog.push_delete_at(0, &[2], 1, 1);
-        list.oplog.push_delete_at(1, &[2], 0, 3);
+        list.oplog.add_delete_at(0, &[2], 1, 1);
+        list.oplog.add_delete_at(1, &[2], 0, 3);
 
         let mut t = M2Tracker::new();
         t.apply_range(&list.oplog, (0..4).into(), None);
@@ -1159,10 +1172,10 @@ mod test {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("seph");
         let mut t = ROOT_TIME;
-        t = list.oplog.push_insert_at(0, &[t], 0, "abc"); // 2
-        t = list.oplog.push_delete_at(0, &[t], 2, 1); // 3 -> "ab_"
-        t = list.oplog.push_delete_at(0, &[t], 1, 1); // 4 -> "a__"
-        t = list.oplog.push_delete_at(0, &[t], 0, 1); // 5 -> "___"
+        t = list.oplog.add_insert_at(0, &[t], 0, "abc"); // 2
+        t = list.oplog.add_delete_at(0, &[t], 2, 1); // 3 -> "ab_"
+        t = list.oplog.add_delete_at(0, &[t], 1, 1); // 4 -> "a__"
+        t = list.oplog.add_delete_at(0, &[t], 0, 1); // 5 -> "___"
         assert_eq!(t, 5);
 
         let mut t = M2Tracker::new();
@@ -1179,9 +1192,9 @@ mod test {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("seph");
         let mut t = ROOT_TIME;
-        t = list.oplog.push_insert_at(0, &[t], 0, "c");
-        t = list.oplog.push_insert_at(0, &[t], 0, "b");
-        t = list.oplog.push_insert_at(0, &[t], 0, "a");
+        t = list.oplog.add_insert_at(0, &[t], 0, "c");
+        t = list.oplog.add_insert_at(0, &[t], 0, "b");
+        t = list.oplog.add_insert_at(0, &[t], 0, "a");
 
         dbg!(&list.oplog);
         list.branch.merge(&list.oplog, &[t]);
@@ -1192,9 +1205,9 @@ mod test {
     fn test_ff_2() {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("a");
-        list.oplog.push_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
 
-        let iter = TransformedOpsIter::new(&list.oplog, &[ROOT_TIME], &list.oplog.frontier);
+        let iter = TransformedOpsIter::new(&list.oplog, &[ROOT_TIME], &list.oplog.version);
         dbg!(&iter);
         for x in iter {
             dbg!(x);
