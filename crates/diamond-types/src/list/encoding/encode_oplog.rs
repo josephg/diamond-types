@@ -832,7 +832,7 @@ mod tests {
     fn encoding_smoke_test() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");
-        doc.local_insert(0, 0, "hi there");
+        doc.insert(0, 0, "hi there");
 
         let d1 = doc.oplog.encode_simple(EncodeOptions::default());
         let d2 = doc.oplog.encode(EncodeOptions::default());
@@ -846,10 +846,10 @@ mod tests {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph"); // 0
         doc.get_or_create_agent_id("mike"); // 1
-        let _t1 = doc.local_insert(0, 0, "hi from seph!\n");
+        let _t1 = doc.insert(0, 0, "hi from seph!\n");
         let mut ops2 = doc.oplog.clone();
 
-        let _t2 = doc.local_insert(1, 0, "hi from mike!\n");
+        let _t2 = doc.insert(1, 0, "hi from mike!\n");
 
         // let data = doc.ops.encode_from(EncodeOptions::default(), &[ROOT_TIME]);
         let data = doc.oplog.encode_from(EncodeOptions::default(), &[_t1]);

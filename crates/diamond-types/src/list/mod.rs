@@ -18,7 +18,7 @@ use crate::rle::{KVPair, RleVec};
 
 pub mod operation;
 mod history;
-pub mod list;
+mod list;
 mod check;
 mod history_tools;
 mod frontier;
@@ -47,7 +47,6 @@ mod buffered_iter;
 pub type Time = usize;
 
 pub type Frontier = SmallVec<[Time; 4]>;
-
 
 #[derive(Clone, Debug)]
 struct ClientData {

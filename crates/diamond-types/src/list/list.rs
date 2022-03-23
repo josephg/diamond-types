@@ -33,10 +33,16 @@ fn insert_history_local(oplog: &mut OpLog, frontier: &mut Frontier, range: TimeS
 //     time
 // }
 
-/// This is an optimized version of simply pushing the operation to the oplog and then merging it.
+/// Most of the time when you have a local branch, you need to both append the new change to the
+/// oplog and merge the new change into your local branch.
 ///
-/// It is much faster; but I hate the duplicated code.
-pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) -> Time {
+/// Doing both of these steps at the same time is much faster because we don't need to worry about
+/// concurrent edits. (The origin position == transformed position for the change).
+///
+/// This method does that.
+///
+/// (I low key hate the duplicated code though.)
+pub(crate) fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) -> Time {
     let first_time = oplog.len();
     let mut next_time = first_time;
 
@@ -72,17 +78,6 @@ pub fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: Agen
 
     oplog.frontier = smallvec![next_time - 1];
     next_time - 1
-}
-
-// TODO: Give these methods some love, and avoid constructing Operation at all here.
-pub fn local_insert(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, ins_content: &str) -> Time {
-    apply_local_operation(oplog, branch, agent, &[Operation::new_insert(pos, ins_content)])
-}
-pub fn local_delete(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) -> Time {
-    apply_local_operation(oplog, branch, agent, &[Operation::new_delete(pos, del_span)])
-}
-pub fn local_delete_with_content(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, pos: usize, del_span: usize) -> Time {
-    apply_local_operation(oplog, branch, agent, &[branch.make_delete_op(pos, del_span)])
 }
 
 impl Default for ListCRDT {
@@ -125,16 +120,20 @@ impl ListCRDT {
         apply_local_operation(&mut self.oplog, &mut self.branch, agent, local_ops)
     }
 
-    pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
-        local_insert(&mut self.oplog, &mut self.branch, agent, pos, ins_content)
+    pub fn insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
+        self.branch.insert(&mut self.oplog, agent, pos, ins_content)
     }
 
-    pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
-        local_delete(&mut self.oplog, &mut self.branch, agent, pos, del_span)
+    // pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
+    //     local_delete(&mut self.oplog, &mut self.branch, agent, pos, del_span)
+    // }
+
+    pub fn delete_without_content(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
+        self.branch.delete_without_content(&mut self.oplog, agent, pos, del_span)
     }
 
-    pub fn local_delete_with_content(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
-        local_delete_with_content(&mut self.oplog, &mut self.branch, agent, pos, del_span)
+    pub fn delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
+        self.branch.delete(&mut self.oplog, agent, pos, del_span)
     }
 
     pub fn print_stats(&self, detailed: bool) {
@@ -160,11 +159,11 @@ mod tests {
     fn smoke() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph"); // 0
-        doc.local_insert(0, 0, "hi".into());
-        doc.local_insert(0, 1, "yooo".into());
+        doc.insert(0, 0, "hi".into());
+        doc.insert(0, 1, "yooo".into());
         // "hyoooi"
         assert_eq!(doc.branch.content, "hyoooi");
-        doc.local_delete(0, 1, 3);
+        doc.delete(0, 1, 3);
         assert_eq!(doc.branch.content, "hoi");
 
         doc.check(true);

@@ -1067,7 +1067,7 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        list.local_insert(0, 0, "aaa");
+        list.insert(0, 0, "aaa");
         // list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
 
         list.oplog.push_delete_at(0, &[2], 1, 1); // &[3]
@@ -1120,7 +1120,7 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        list.local_insert(0, 0, "aaa");
+        list.insert(0, 0, "aaa");
 
         list.oplog.push_delete_at(0, &[2], 1, 1);
         list.oplog.push_delete_at(1, &[2], 0, 3);
@@ -1137,8 +1137,8 @@ mod test {
     fn foo() {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("seph");
-        list.local_insert(0, 0, "hi there");
-        list.local_delete(0, 2, 3);
+        list.insert(0, 0, "hi there");
+        list.delete(0, 2, 3);
 
         let mut t = M2Tracker::new();
 

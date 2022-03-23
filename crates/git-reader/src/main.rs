@@ -9,7 +9,6 @@ use smallvec::SmallVec;
 
 use diamond_types::list::*;
 use diamond_types::list::encoding::ENCODE_FULL;
-use diamond_types::list::list::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // TODO: Just take this as a program argument.
@@ -155,12 +154,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                         match tag {
                             ChangeTag::Equal => pos += len,
                             ChangeTag::Delete => {
-                                let op = branch.make_delete_op(pos, len);
-                                apply_local_operation(&mut oplog, &mut branch, agent, &[op]);
-                                // local_delete(&mut oplog, &mut branch, agent, pos, len);
+                                branch.delete(&mut oplog, agent, pos, len);
+
+                                // let op = branch.make_delete_op(pos, len);
+                                // apply_local_operation(&mut oplog, &mut branch, agent, &[op]);
                             }
                             ChangeTag::Insert => {
-                                local_insert(&mut oplog, &mut branch, agent, pos, str);
+                                branch.insert(&mut oplog, agent, pos, str);
+                                // local_insert(&mut oplog, &mut branch, agent, pos, str);
                                 pos += len;
                             }
                         }

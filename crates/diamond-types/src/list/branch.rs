@@ -4,10 +4,11 @@ use smallvec::smallvec;
 use smartstring::SmartString;
 use rle::HasLength;
 use crate::list::internal_op::OperationInternal;
+use crate::list::list::apply_local_operation;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::Operation;
 use crate::localtime::TimeSpan;
-use crate::ROOT_TIME;
+use crate::{AgentId, ROOT_TIME};
 
 impl Branch {
     pub fn new() -> Self {
@@ -90,6 +91,22 @@ impl Branch {
         let mut s = SmartString::new();
         s.extend(self.content.slice_chars(pos..pos+del_span));
         Operation::new_delete_with_content(pos, s)
+    }
+
+    pub fn apply_local_operations(&mut self, oplog: &mut OpLog, agent: AgentId, ops: &[Operation]) -> Time {
+        apply_local_operation(oplog, self, agent, ops)
+    }
+
+    pub fn insert(&mut self, oplog: &mut OpLog, agent: AgentId, pos: usize, ins_content: &str) -> Time {
+        apply_local_operation(oplog, self, agent, &[Operation::new_insert(pos, ins_content)])
+    }
+
+    pub fn delete_without_content(&mut self, oplog: &mut OpLog, agent: AgentId, pos: usize, del_span: usize) -> Time {
+        apply_local_operation(oplog, self, agent, &[Operation::new_delete(pos, del_span)])
+    }
+
+    pub fn delete(&mut self, oplog: &mut OpLog, agent: AgentId, pos: usize, del_span: usize) -> Time {
+        apply_local_operation(oplog, self, agent, &[self.make_delete_op(pos, del_span)])
     }
 }
 

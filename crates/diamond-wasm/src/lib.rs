@@ -334,12 +334,12 @@ impl Doc {
     #[wasm_bindgen]
     pub fn ins(&mut self, pos: usize, content: &str) {
         // let id = self.0.get_or_create_agent_id("seph");
-        self.inner.local_insert(self.agent_id, pos, content);
+        self.inner.insert(self.agent_id, pos, content);
     }
 
     #[wasm_bindgen]
     pub fn del(&mut self, pos: usize, del_span: usize) {
-        self.inner.local_delete(self.agent_id, pos, del_span);
+        self.inner.delete(self.agent_id, pos, del_span);
     }
 
     #[wasm_bindgen]

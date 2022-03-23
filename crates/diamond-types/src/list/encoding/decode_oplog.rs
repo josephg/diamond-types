@@ -158,7 +158,7 @@ impl<'a> BufReader<'a> {
     /// or we hit EOF.
     fn read_chunk(&mut self, expect_chunk_type: ChunkType) -> Result<Option<BufReader<'a>>, ParseError> {
         if let Some(actual_chunk_type) = self.peek_u32()? {
-            if actual_chunk_type != (expect_chunk_type as _) {
+            if actual_chunk_type != (expect_chunk_type as u32) {
                 // Chunk doesn't match requested type.
                 return Ok(None);
             }
@@ -1160,9 +1160,10 @@ mod tests {
     fn simple_doc() -> ListCRDT {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");
-        doc.local_insert(0, 0, "hi there");
-        doc.local_delete(0, 3, 4); // 'hi e'
-        doc.local_insert(0, 3, "m");
+        doc.insert(0, 0, "hi there");
+        // TODO: Make another test where we store this stuff...
+        doc.delete_without_content(0, 3, 4); // 'hi e'
+        doc.insert(0, 3, "m");
         doc
     }
 
@@ -1199,13 +1200,13 @@ mod tests {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");
         doc.get_or_create_agent_id("mike");
-        doc.local_insert(0, 0, "hi there");
+        doc.insert(0, 0, "hi there");
 
         let data_1 = doc.oplog.encode(EncodeOptions::default());
         let f1 = doc.oplog.frontier.clone();
 
-        doc.local_delete(1, 3, 4); // 'hi e'
-        doc.local_insert(0, 3, "m");
+        doc.delete_without_content(1, 3, 4); // 'hi e'
+        doc.insert(0, 3, "m");
         let f2 = doc.oplog.frontier.clone();
 
         let data_2 = doc.oplog.encode_from(EncodeOptions::default(), &f1);
@@ -1280,8 +1281,8 @@ mod tests {
     fn with_deleted_content() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");
-        doc.local_insert(0, 0, "abcd");
-        doc.local_delete_with_content(0, 1, 2); // delete "bc"
+        doc.insert(0, 0, "abcd");
+        doc.delete(0, 1, 2); // delete "bc"
 
         check_encode_decode_matches(&doc.oplog);
     }
