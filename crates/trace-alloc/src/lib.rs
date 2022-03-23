@@ -2,6 +2,11 @@
 //! memory allocations in tests.
 //!
 //! This only used when compiled with the `memusage` feature flag is enabled.
+//!
+//! This code is not part of the standard diamond types API surface. It will be removed at some
+//! point (or moved into testing code). DO NOT DEPEND ON THIS.
+//!
+//! TODO: Make this not public (or move it into a private module).
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::RefCell;

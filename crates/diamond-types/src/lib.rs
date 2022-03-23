@@ -177,7 +177,6 @@
 //! a special node in the time DAG for merges. Merges simply happen whenever an operation has
 //! multiple parents.
 
-pub mod alloc;
 pub mod list;
 mod rle;
 mod localtime;

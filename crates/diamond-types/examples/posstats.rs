@@ -12,7 +12,7 @@ use diamond_types::list::*;
 use diamond_types::list::operation::*;
 
 #[cfg(feature = "memusage")]
-use diamond_types::alloc::*;
+use trace_alloc::*;
 #[cfg(feature = "memusage")]
 use humansize::{FileSize, file_size_opts};
 use diamond_types::list::encoding::EncodeOptions;

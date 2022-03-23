@@ -30,6 +30,7 @@ crc = "2.1.0"
 criterion = "0.3.5"
 rand = { version = "0.8.5", features = ["small_rng"] }
 crdt-testdata = { path = "../crdt-testdata" }
+trace-alloc = { path = "../trace-alloc" }
 
 # For OT fuzz data tests
 #json_minimal = "0.1.3"
