@@ -9,25 +9,26 @@ use crate::ROOT_TIME;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 
-
-/// A time span defines a ... well, span in time. This is equivalent to Range<u64>, but it
-/// implements Copy (which Range does not) and it has some locally useful methods.
+/// This is an internal replacement for Range<usize>. The main use for this is that std::Range
+/// doesn't implement Copy (urgh), and we need that for lots of types. But ultimately, this is just
+/// a start and end pair. DTRange can be converted to and from std::Range with .from() and .into().
+/// It also has some locally useful methods.
 #[derive(Copy, Clone, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
-pub struct TimeSpan {
+pub struct DTRange {
     pub start: usize,
     pub end: usize
 }
 
-impl TimeSpan {
+impl DTRange {
     #[inline]
-    pub fn new(start: usize, end: usize) -> TimeSpan {
-        TimeSpan { start, end }
+    pub fn new(start: usize, end: usize) -> DTRange {
+        DTRange { start, end }
     }
 
     #[inline]
-    pub fn new_from_len(start: usize, len: usize) -> TimeSpan {
-        TimeSpan { start, end: start + len }
+    pub fn new_from_len(start: usize, len: usize) -> DTRange {
+        DTRange { start, end: start + len }
     }
 
     pub fn consume_start(&mut self, amt: usize) {
@@ -49,8 +50,8 @@ impl TimeSpan {
         self.start == self.end
     }
 
-    pub fn intersect(&self, other: &Self) -> Option<TimeSpan> {
-        let result = TimeSpan {
+    pub fn intersect(&self, other: &Self) -> Option<DTRange> {
+        let result = DTRange {
             start: self.start.max(other.start),
             end: self.end.min(other.end),
         };
@@ -69,36 +70,36 @@ impl TimeSpan {
     }
 }
 
-impl From<Range<usize>> for TimeSpan {
+impl From<Range<usize>> for DTRange {
     fn from(range: Range<usize>) -> Self {
-        TimeSpan {
+        DTRange {
             start: range.start,
             end: range.end,
         }
     }
 }
 
-impl From<TimeSpan> for Range<usize> {
-    fn from(span: TimeSpan) -> Self {
+impl From<DTRange> for Range<usize> {
+    fn from(span: DTRange) -> Self {
         span.start..span.end
     }
 }
-impl From<&TimeSpan> for Range<usize> {
-    fn from(span: &TimeSpan) -> Self {
+impl From<&DTRange> for Range<usize> {
+    fn from(span: &DTRange) -> Self {
         span.start..span.end
     }
 }
 
-impl HasLength for TimeSpan {
+impl HasLength for DTRange {
     fn len(&self) -> usize {
         self.end - self.start
     }
 }
 
-impl SplitableSpanHelpers for TimeSpan {
+impl SplitableSpanHelpers for DTRange {
     fn truncate_h(&mut self, at: usize) -> Self {
         let split = self.start + at;
-        let other = TimeSpan {
+        let other = DTRange {
             start: split,
             end: self.end,
         };
@@ -110,7 +111,7 @@ impl SplitableSpanHelpers for TimeSpan {
     #[inline]
     fn truncate_keeping_right_h(&mut self, at: usize) -> Self {
         let split = self.start + at;
-        let other = TimeSpan {
+        let other = DTRange {
             start: self.start,
             end: split,
         };
@@ -119,7 +120,7 @@ impl SplitableSpanHelpers for TimeSpan {
     }
 }
 
-impl MergableSpan for TimeSpan {
+impl MergableSpan for DTRange {
     // #[inline]
     fn can_append(&self, other: &Self) -> bool {
         other.start == self.end
@@ -135,7 +136,7 @@ impl MergableSpan for TimeSpan {
     }
 }
 
-impl Searchable for TimeSpan {
+impl Searchable for DTRange {
     type Item = usize; // Time
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
@@ -160,7 +161,7 @@ impl Searchable for TimeSpan {
 
 // This is used for vector clocks. Note if you want order spans keyed by something else, use
 // KVPair<OrderSpan> instead.
-impl RleKeyed for TimeSpan {
+impl RleKeyed for DTRange {
     fn rle_key(&self) -> usize {
         self.start
     }
@@ -209,7 +210,7 @@ impl Debug for Underwater {
     }
 }
 
-impl Debug for TimeSpan {
+impl Debug for DTRange {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "T ")?;
         debug_time_raw(self.start, |v| v.fmt(f) )?;
@@ -223,10 +224,10 @@ impl Debug for TimeSpan {
 #[cfg(test)]
 mod tests {
     use rle::test_splitable_methods_valid;
-    use crate::localtime::TimeSpan;
+    use crate::dtrange::DTRange;
 
     #[test]
     fn splitable_timespan() {
-        test_splitable_methods_valid(TimeSpan::new(10, 20));
+        test_splitable_methods_valid(DTRange::new(10, 20));
     }
 }

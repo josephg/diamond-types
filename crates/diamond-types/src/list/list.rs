@@ -7,10 +7,10 @@ use rle::HasLength;
 use crate::list::encoding::ParseError;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::list::operation::Operation;
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
-fn insert_history_local(oplog: &mut OpLog, frontier: &mut LocalVersion, range: TimeSpan) {
+fn insert_history_local(oplog: &mut OpLog, frontier: &mut LocalVersion, range: DTRange) {
     // Fast path for local edits. For some reason the code below is remarkably non-performant.
     // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
     if frontier.len() == 1 && frontier[0] == range.start.wrapping_sub(1) {
@@ -68,7 +68,7 @@ pub(crate) fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agen
         next_time += len;
     }
 
-    let span = TimeSpan {
+    let span = DTRange {
         start: first_time,
         end: next_time
     };

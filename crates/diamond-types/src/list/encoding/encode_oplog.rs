@@ -9,7 +9,7 @@ use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::list::frontier::local_version_is_root;
 use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag;
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 
 const ALLOW_VERBOSE: bool = false;
 
@@ -213,7 +213,7 @@ impl AgentMapping {
         }, |v| v.0)
     }
 
-    fn seq_delta(&mut self, agent: AgentId, span: TimeSpan) -> isize {
+    fn seq_delta(&mut self, agent: AgentId, span: DTRange) -> isize {
         let item = self.map[agent as usize].as_mut().unwrap();
         let old_seq = item.1;
         item.1 = span.end;
@@ -439,7 +439,7 @@ impl OpLog {
         //
         // Each entry's key is the internal local time, and the value (entry.1) is the range in the
         // output.
-        let mut txn_map = RleVec::<KVPair<TimeSpan>>::new();
+        let mut txn_map = RleVec::<KVPair<DTRange>>::new();
         let mut next_output_time = 0;
         let mut txns_chunk = Vec::new();
         let mut txns_writer = Merger::new(|txn: MinimalHistoryEntry, agent_mapping: &mut AgentMapping| {

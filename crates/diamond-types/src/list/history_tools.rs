@@ -7,7 +7,7 @@ use crate::list::{LocalVersion, OpLog, Time};
 use crate::list::frontier::{advance_frontier_by, frontier_is_sorted};
 use crate::list::history::History;
 use crate::list::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::ROOT_TIME;
 
 // use smartstring::alias::{String as SmartString};
@@ -114,7 +114,7 @@ impl History {
     }
 }
 
-pub(crate) type DiffResult = (SmallVec<[TimeSpan; 4]>, SmallVec<[TimeSpan; 4]>);
+pub(crate) type DiffResult = (SmallVec<[DTRange; 4]>, SmallVec<[DTRange; 4]>);
 
 impl History {
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
@@ -165,7 +165,7 @@ impl History {
             };
             // dbg!((ord_start, ord_end));
 
-            target.push_reversed_rle(TimeSpan::new(ord_start, ord_end + 1));
+            target.push_reversed_rle(DTRange::new(ord_start, ord_end + 1));
         };
 
         self.diff_slow_internal(a, b, mark_run);
@@ -265,7 +265,7 @@ impl History {
     // *** Conflicts! ***
 
     fn find_conflicting_slow<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> LocalVersion
-    where V: FnMut(TimeSpan, DiffFlag) {
+    where V: FnMut(DTRange, DiffFlag) {
         // dbg!(a, b);
 
         // Sorted highest to lowest (so we get the highest item first).
@@ -370,7 +370,7 @@ impl History {
             let containing_txn = self.entries.find(t).unwrap();
 
             // I want an inclusive iterator :p
-            let mut range = TimeSpan { start: containing_txn.span.start, end: t + 1 };
+            let mut range = DTRange { start: containing_txn.span.start, end: t + 1 };
 
             // Consume all other changes within this txn.
             loop {
@@ -432,7 +432,7 @@ impl History {
     ///
     /// I'm assuming b is a parent of a, but it should all work if thats not the case.
     pub(crate) fn find_conflicting<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> LocalVersion
-        where V: FnMut(TimeSpan, DiffFlag) {
+        where V: FnMut(DTRange, DiffFlag) {
         debug_assert!(!a.is_empty());
         debug_assert!(!b.is_empty());
 
@@ -469,7 +469,7 @@ impl History {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ConflictZone {
     pub(crate) common_ancestor: LocalVersion,
-    pub(crate) spans: SmallVec<[TimeSpan; 4]>,
+    pub(crate) spans: SmallVec<[DTRange; 4]>,
 }
 
 impl History {
@@ -526,7 +526,7 @@ pub mod test {
     use crate::list::history::{History, HistoryEntry};
     use crate::list::history_tools::{DiffResult, DiffFlag};
     use crate::list::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
-    use crate::localtime::TimeSpan;
+    use crate::dtrange::DTRange;
     use crate::rle::RleVec;
     use crate::ROOT_TIME;
 
@@ -554,10 +554,10 @@ pub mod test {
     #[derive(Debug, Eq, PartialEq)]
     pub struct ConflictFull {
         pub(crate) common_branch: LocalVersion,
-        pub(crate) spans: Vec<(TimeSpan, DiffFlag)>,
+        pub(crate) spans: Vec<(DTRange, DiffFlag)>,
     }
 
-    fn push_rle(list: &mut Vec<(TimeSpan, DiffFlag)>, span: TimeSpan, flag: DiffFlag) {
+    fn push_rle(list: &mut Vec<(DTRange, DiffFlag)>, span: DTRange, flag: DiffFlag) {
         if let Some((last_span, last_flag)) = list.last_mut() {
             if span.can_append(last_span) && flag == *last_flag {
                 last_span.prepend(span);
@@ -590,7 +590,7 @@ pub mod test {
     }
 
     fn assert_conflicting(history: &History, a: &[Time], b: &[Time], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[Time]) {
-        let expect: Vec<(TimeSpan, DiffFlag)> = expect_spans.iter().rev().map(|(r, flag)| (r.clone().into(), *flag)).collect();
+        let expect: Vec<(DTRange, DiffFlag)> = expect_spans.iter().rev().map(|(r, flag)| (r.clone().into(), *flag)).collect();
         let actual = find_conflicting(history, a, b);
         assert_eq!(actual.common_branch.as_slice(), expect_common);
         assert_eq!(actual.spans, expect);
@@ -602,7 +602,7 @@ pub mod test {
         // assert_eq!(fast.common_branch.as_slice(), expect_common);
     }
 
-    fn assert_diff_eq(history: &History, a: &[Time], b: &[Time], expect_a: &[TimeSpan], expect_b: &[TimeSpan]) {
+    fn assert_diff_eq(history: &History, a: &[Time], b: &[Time], expect_a: &[DTRange], expect_b: &[DTRange]) {
         let slow_result = history.diff_slow(a, b);
         let fast_result = history.diff(a, b);
         let c_result = diff_via_conflicting(history, a, b);

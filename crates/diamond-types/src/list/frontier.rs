@@ -1,11 +1,11 @@
 use smallvec::{Array, SmallVec};
 use crate::list::{LocalVersion, Time};
 use crate::list::history::History;
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::ROOT_TIME;
 
 /// Advance a frontier by the set of time spans in range
-pub(crate) fn advance_frontier_by(frontier: &mut LocalVersion, history: &History, mut range: TimeSpan) {
+pub(crate) fn advance_frontier_by(frontier: &mut LocalVersion, history: &History, mut range: DTRange) {
     let mut txn_idx = history.entries.find_index(range.start).unwrap();
     while !range.is_empty() {
         let txn = &history.entries[txn_idx];
@@ -23,7 +23,7 @@ pub(crate) fn advance_frontier_by(frontier: &mut LocalVersion, history: &History
     }
 }
 
-pub(crate) fn retreat_frontier_by(frontier: &mut LocalVersion, history: &History, mut range: TimeSpan) {
+pub(crate) fn retreat_frontier_by(frontier: &mut LocalVersion, history: &History, mut range: DTRange) {
     if range.is_empty() { return; }
 
     debug_assert_frontier_sorted(frontier.as_slice());
@@ -126,7 +126,7 @@ pub(crate) fn add_to_frontier(frontier: &mut LocalVersion, new_item: Time) {
 /// Advance branch frontier by a transaction.
 ///
 /// This is ONLY VALID if the range is entirely within a txn.
-pub(crate) fn advance_frontier_by_known_run(frontier: &mut LocalVersion, parents: &[Time], span: TimeSpan) {
+pub(crate) fn advance_frontier_by_known_run(frontier: &mut LocalVersion, parents: &[Time], span: DTRange) {
     // TODO: Check the branch contains everything in txn_parents, but not txn_id:
     // Check the operation fits. The operation should not be in the branch, but
     // all the operation's parents should be.

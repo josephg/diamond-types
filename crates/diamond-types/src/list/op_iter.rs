@@ -3,7 +3,7 @@ use rle::{HasLength, SplitableSpanCtx};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::{OpLog, Time};
 use crate::list::operation::Operation;
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::rle::{KVPair, RleVec};
 
 #[derive(Debug)]
@@ -12,7 +12,7 @@ pub(crate) struct OpMetricsIter<'a> {
     pub(crate) ctx: &'a OperationCtx,
 
     idx: usize,
-    range: TimeSpan,
+    range: DTRange,
 }
 
 #[derive(Debug)]
@@ -53,7 +53,7 @@ impl<'a> Iterator for OpIterFast<'a> {
 }
 
 impl<'a> OpMetricsIter<'a> {
-    fn new(list: &'a RleVec<KVPair<OperationInternal>>, ctx: &'a OperationCtx, range: TimeSpan) -> Self {
+    fn new(list: &'a RleVec<KVPair<OperationInternal>>, ctx: &'a OperationCtx, range: DTRange) -> Self {
         let mut iter = OpMetricsIter {
             list,
             ctx,
@@ -64,7 +64,7 @@ impl<'a> OpMetricsIter<'a> {
         iter
     }
 
-    fn prime(&mut self, range: TimeSpan) {
+    fn prime(&mut self, range: DTRange) {
         self.range = range;
         self.idx = if range.is_empty() { 0 } else { self.list.find_index(range.start).unwrap() };
     }
@@ -82,7 +82,7 @@ impl<'a> OpMetricsIter<'a> {
 }
 
 impl<'a> OpIterFast<'a> {
-    fn new(oplog: &'a OpLog, range: TimeSpan) -> Self {
+    fn new(oplog: &'a OpLog, range: DTRange) -> Self {
         Self(OpMetricsIter::new(&oplog.operations, &oplog.operation_ctx, range))
     }
 }
@@ -91,12 +91,12 @@ impl<'a> OpIterFast<'a> {
 /// a document.
 #[derive(Debug)]
 struct OpIterRanges<'a> {
-    ranges: SmallVec<[TimeSpan; 4]>, // We own this. This is in descending order.
+    ranges: SmallVec<[DTRange; 4]>, // We own this. This is in descending order.
     current: OpIterFast<'a>
 }
 
 impl<'a> OpIterRanges<'a> {
-    fn new(oplog: &'a OpLog, mut r: SmallVec<[TimeSpan; 4]>) -> Self {
+    fn new(oplog: &'a OpLog, mut r: SmallVec<[DTRange; 4]>) -> Self {
         let last = r.pop().unwrap_or_else(|| (0..0).into());
         Self {
             ranges: r,
@@ -127,7 +127,7 @@ impl<'a> Iterator for OpIterRanges<'a> {
 impl OpLog {
     // TODO: Consider removing these functions if they're never used.
     #[allow(unused)]
-    pub(crate) fn iter_metrics_range(&self, range: TimeSpan) -> OpMetricsIter {
+    pub(crate) fn iter_metrics_range(&self, range: DTRange) -> OpMetricsIter {
         OpMetricsIter::new(&self.operations, &self.operation_ctx, range)
     }
 
@@ -136,7 +136,7 @@ impl OpLog {
         self.iter_metrics_range((0..self.len()).into())
     }
 
-    pub(crate) fn iter_range_simple(&self, range: TimeSpan) -> OpIterFast {
+    pub(crate) fn iter_range_simple(&self, range: DTRange) -> OpIterFast {
         OpIterFast::new(self, range)
     }
 

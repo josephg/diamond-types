@@ -13,7 +13,7 @@ use crate::list::{LocalVersion, Branch, OpLog, Time};
 use crate::list::merge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{InsDelTag, Operation};
-use crate::localtime::{is_underwater, TimeSpan};
+use crate::dtrange::{is_underwater, DTRange};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, ROOT_TIME};
 use crate::list::frontier::{advance_frontier_by, local_version_eq, frontier_is_sorted};
@@ -255,7 +255,7 @@ impl M2Tracker {
         content_pos
     }
 
-    fn apply_range(&mut self, oplog: &OpLog, range: TimeSpan, mut to: Option<&mut Branch>) {
+    fn apply_range(&mut self, oplog: &OpLog, range: DTRange, mut to: Option<&mut Branch>) {
         if range.is_empty() { return; }
 
         if let Some(to) = to.as_deref_mut() {
@@ -513,7 +513,7 @@ impl M2Tracker {
     ///
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
-    fn walk(&mut self, oplog: &OpLog, start_at: LocalVersion, rev_spans: &[TimeSpan], mut apply_to: Option<&mut Branch>) -> LocalVersion {
+    fn walk(&mut self, oplog: &OpLog, start_at: LocalVersion, rev_spans: &[DTRange], mut apply_to: Option<&mut Branch>) -> LocalVersion {
         let mut walker = SpanningTreeWalker::new(&oplog.history, rev_spans, start_at);
 
         for walk in &mut walker {
@@ -545,8 +545,8 @@ pub(crate) struct TransformedOpsIter<'a> {
     merge_frontier: LocalVersion,
 
     common_ancestor: LocalVersion,
-    conflict_ops: SmallVec<[TimeSpan; 4]>,
-    new_ops: SmallVec<[TimeSpan; 4]>,
+    conflict_ops: SmallVec<[DTRange; 4]>,
+    new_ops: SmallVec<[DTRange; 4]>,
 
     next_frontier: LocalVersion,
 
@@ -573,8 +573,8 @@ impl<'a> TransformedOpsIter<'a> {
         // - The conflict set. Ie, stuff we need to build a tracker around.
         //
         // Both of these lists are in reverse time order(!).
-        let mut new_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
-        let mut conflict_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
+        let mut new_ops: SmallVec<[DTRange; 4]> = smallvec![];
+        let mut conflict_ops: SmallVec<[DTRange; 4]> = smallvec![];
 
         let common_ancestor = oplog.history.find_conflicting(from_frontier, merge_frontier, |span, flag| {
             // Note we'll be visiting these operations in reverse order.
@@ -792,7 +792,7 @@ impl OpLog {
     ///
     /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
     /// changes that could be applied linearly to a document to bring it up to date.
-    pub fn iter_xf_operations_from(&self, from: &[Time], merging: &[Time]) -> impl Iterator<Item=(TimeSpan, Option<Operation>)> + '_ {
+    pub fn iter_xf_operations_from(&self, from: &[Time], merging: &[Time]) -> impl Iterator<Item=(DTRange, Option<Operation>)> + '_ {
         TransformedOpsIter::new(self, from, merging)
             .map(|(time, mut origin_op, xf)| {
                 let len = origin_op.len();
@@ -814,7 +814,7 @@ impl OpLog {
     /// I hope that future optimizations make this method way faster.
     ///
     /// See [OpLog::iter_xf_operations_from](OpLog::iter_xf_operations_from) for more information.
-    pub fn iter_xf_operations(&self) -> impl Iterator<Item=(TimeSpan, Option<Operation>)> + '_ {
+    pub fn iter_xf_operations(&self) -> impl Iterator<Item=(DTRange, Option<Operation>)> + '_ {
         self.iter_xf_operations_from(&[ROOT_TIME], &self.version)
     }
 }
@@ -885,11 +885,11 @@ impl Branch {
         // - The conflict set. Ie, stuff we need to build a tracker around.
         //
         // Both of these lists are in reverse time order(!).
-        let mut new_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
-        let mut conflict_ops: SmallVec<[TimeSpan; 4]> = smallvec![];
+        let mut new_ops: SmallVec<[DTRange; 4]> = smallvec![];
+        let mut conflict_ops: SmallVec<[DTRange; 4]> = smallvec![];
 
         #[cfg(feature = "dot_export")]
-        let mut dbg_all_ops: SmallVec<[(TimeSpan, DotColor); 4]> = smallvec![];
+        let mut dbg_all_ops: SmallVec<[(DTRange, DotColor); 4]> = smallvec![];
 
         let mut shared_size = 0;
         let mut shared_ranges = 0;

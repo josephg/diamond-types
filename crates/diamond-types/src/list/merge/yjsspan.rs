@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 use content_tree::{ContentLength, Toggleable};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::list::Time;
-use crate::localtime::{debug_time, TimeSpan, UNDERWATER_START};
+use crate::dtrange::{debug_time, DTRange, UNDERWATER_START};
 use crate::ROOT_TIME;
 
 /// 0 = not inserted yet,
@@ -22,7 +22,7 @@ pub const DELETED_ONCE: YjsSpanState = YjsSpanState(2);
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
 pub struct YjsSpan {
     /// The local times for this entry
-    pub id: TimeSpan,
+    pub id: DTRange,
 
     /**
      * NOTE: The origin_left is only for the first item in the span. Each subsequent item has an
@@ -108,7 +108,7 @@ impl YjsSpan {
 
     pub fn new_underwater() -> Self {
         YjsSpan {
-            id: TimeSpan::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
+            id: DTRange::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
             origin_left: ROOT_TIME,
             origin_right: ROOT_TIME,
             state: INSERTED, // Underwater items are never in the NotInsertedYet state.

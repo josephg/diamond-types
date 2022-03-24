@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use content_tree::ContentLength;
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::{AgentId, ROOT_AGENT};
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct CRDTId {
@@ -12,7 +12,7 @@ pub struct CRDTId {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct CRDTSpan {
     pub agent: AgentId,
-    pub seq_range: TimeSpan,
+    pub seq_range: DTRange,
 }
 
 // impl Default for CRDTId {

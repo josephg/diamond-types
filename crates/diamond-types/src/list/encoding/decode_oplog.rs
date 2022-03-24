@@ -14,7 +14,7 @@ use crate::list::buffered_iter::Buffered;
 use crate::list::encoding::ChunkType::*;
 use crate::list::history::MinimalHistoryEntry;
 use crate::list::operation::InsDelTag;
-use crate::localtime::{TimeSpan, UNDERWATER_START};
+use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::remotespan::{CRDTId, CRDTSpan};
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 
@@ -438,7 +438,7 @@ impl<'a> BufReader<'a> {
 
 /// Returns (mapped span, remainder).
 /// The returned remainder is *NOT MAPPED*. This allows this method to be called in a loop.
-fn history_entry_map_and_truncate(mut hist_entry: MinimalHistoryEntry, version_map: &RleVec<KVPair<TimeSpan>>) -> (MinimalHistoryEntry, Option<MinimalHistoryEntry>) {
+fn history_entry_map_and_truncate(mut hist_entry: MinimalHistoryEntry, version_map: &RleVec<KVPair<DTRange>>) -> (MinimalHistoryEntry, Option<MinimalHistoryEntry>) {
     let (map_entry, offset) = version_map.find_packed_with_offset(hist_entry.span.start);
 
     let mut map_entry = map_entry.1;

@@ -3,7 +3,7 @@ use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::{ROOT_AGENT, ROOT_TIME};
 use crate::list::frontier::clean_version;
 use crate::list::remote_ids::ConversionError::SeqInFuture;
@@ -27,7 +27,7 @@ pub struct RemoteId {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 pub struct RemoteIdSpan {
     pub agent: SmartString,
-    pub seq_range: TimeSpan,
+    pub seq_range: DTRange,
 }
 
 // So we need methods for:

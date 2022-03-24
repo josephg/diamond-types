@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanCtx};
 pub use rle_vec::RleVec;
-use crate::localtime::{debug_time_raw, TimeSpan};
+use crate::dtrange::{debug_time_raw, DTRange};
 
 pub mod rle_vec;
 
@@ -15,9 +15,9 @@ pub trait RleSpanHelpers: RleKeyed + HasLength {
         self.rle_key() + self.len()
     }
 
-    fn span(&self) -> TimeSpan {
+    fn span(&self) -> DTRange {
         let start = self.rle_key();
-        TimeSpan { start, end: start + self.len() }
+        DTRange { start, end: start + self.len() }
     }
 }
 
@@ -121,7 +121,7 @@ impl<V: Default> Default for KVPair<V> {
 }
 
 #[allow(unused)]
-pub fn try_trim<V>(mut x: V, target_span: TimeSpan) -> Option<V>
+pub fn try_trim<V>(mut x: V, target_span: DTRange) -> Option<V>
     where V: RleKeyed + HasLength + SplitableSpan
 {
     let x_span = x.span();
@@ -139,7 +139,7 @@ pub fn try_trim<V>(mut x: V, target_span: TimeSpan) -> Option<V>
 }
 
 #[allow(unused)]
-pub fn trim<V>(val: V, span: TimeSpan) -> V
+pub fn trim<V>(val: V, span: DTRange) -> V
     where V: RleKeyed + HasLength + SplitableSpan
 {
     try_trim(val, span).unwrap()

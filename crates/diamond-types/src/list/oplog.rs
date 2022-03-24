@@ -8,7 +8,7 @@ use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::{InsDelTag, Operation};
 use crate::list::remote_ids::RemoteId;
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::remotespan::*;
 use crate::rev_span::TimeSpanRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
@@ -138,7 +138,7 @@ impl OpLog {
         }
     }
 
-    pub(crate) fn get_crdt_span(&self, time: TimeSpan) -> CRDTSpan {
+    pub(crate) fn get_crdt_span(&self, time: DTRange) -> CRDTSpan {
         if time.start == ROOT_TIME { CRDTSpan { agent: ROOT_AGENT, seq_range: Default::default() } }
         else {
             let (loc, offset) = self.client_with_localtime.find_packed_with_offset(time.start);
@@ -146,7 +146,7 @@ impl OpLog {
             let end = usize::min(loc.1.seq_range.end, start + time.len());
             CRDTSpan {
                 agent: loc.1.agent,
-                seq_range: TimeSpan { start, end }
+                seq_range: DTRange { start, end }
             }
         }
     }
@@ -204,7 +204,7 @@ impl OpLog {
     }
 
     /// span is the local timespan we're assigning to the named agent.
-    pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: TimeSpan) {
+    pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
         debug_assert_eq!(span.start, self.len());
 
         let client_data = &mut self.client_data[agent as usize];
@@ -214,7 +214,7 @@ impl OpLog {
 
         self.client_with_localtime.push(KVPair(span.start, CRDTSpan {
             agent,
-            seq_range: TimeSpan { start: next_seq, end: next_seq + span.len() },
+            seq_range: DTRange { start: next_seq, end: next_seq + span.len() },
         }));
     }
 
@@ -226,7 +226,7 @@ impl OpLog {
     /// Insert a new history entry for the specified range of patches, and the named parents.
     ///
     /// This method will try to extend the last entry if it can.
-    pub(crate) fn insert_history(&mut self, txn_parents: &[Time], range: TimeSpan) {
+    pub(crate) fn insert_history(&mut self, txn_parents: &[Time], range: DTRange) {
         // dbg!(txn_parents, range, &self.history.entries);
         // Fast path. The code below is weirdly slow, but most txns just append.
         if let Some(last) = self.history.entries.0.last_mut() {
@@ -290,7 +290,7 @@ impl OpLog {
     }
 
     /// Advance self.frontier by the named span of time.
-    pub(crate) fn advance_frontier(&mut self, parents: &[Time], span: TimeSpan) {
+    pub(crate) fn advance_frontier(&mut self, parents: &[Time], span: DTRange) {
         advance_frontier_by_known_run(&mut self.version, parents, span);
     }
 
@@ -313,7 +313,7 @@ impl OpLog {
         }));
     }
 
-    fn assign_internal(&mut self, agent: AgentId, parents: &[Time], span: TimeSpan) {
+    fn assign_internal(&mut self, agent: AgentId, parents: &[Time], span: DTRange) {
         self.assign_next_time_to_client_known(agent, span);
         self.insert_history(parents, span);
         self.advance_frontier(parents, span);
@@ -336,7 +336,7 @@ impl OpLog {
             next_time += len;
         }
 
-        self.assign_internal(agent, parents, TimeSpan { start: first_time, end: next_time });
+        self.assign_internal(agent, parents, DTRange { start: first_time, end: next_time });
         next_time - 1
     }
 
@@ -350,7 +350,7 @@ impl OpLog {
         let end = start + len;
 
         self.push_op_internal(start, (pos..pos+len).into(), InsDelTag::Ins, Some(ins_content));
-        self.assign_internal(agent, parents, TimeSpan { start, end });
+        self.assign_internal(agent, parents, DTRange { start, end });
         end - 1
     }
 
@@ -362,7 +362,7 @@ impl OpLog {
         let end = start + len;
 
         self.push_op_internal(start, (pos..pos+len).into(), InsDelTag::Del, None);
-        self.assign_internal(agent, parents, TimeSpan { start, end });
+        self.assign_internal(agent, parents, DTRange { start, end });
         end - 1
     }
 
@@ -420,7 +420,7 @@ impl OpLog {
         self.history.entries.iter().map(|e| e.into())
     }
 
-    pub fn iter_history_range(&self, range: TimeSpan) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
+    pub fn iter_history_range(&self, range: DTRange) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
         self.history.entries.iter_range_map_packed(range, |e| e.into())
     }
 
@@ -440,7 +440,7 @@ impl OpLog {
         self.client_with_localtime.iter().map(|item| item.1)
     }
 
-    pub fn iter_mappings_range(&self, range: TimeSpan) -> impl Iterator<Item = CRDTSpan> + '_ {
+    pub fn iter_mappings_range(&self, range: DTRange) -> impl Iterator<Item = CRDTSpan> + '_ {
         self.client_with_localtime.iter_range_packed_ctx(range, &()).map(|item| item.1)
     }
 

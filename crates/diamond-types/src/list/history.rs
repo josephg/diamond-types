@@ -4,7 +4,7 @@ use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::list::Time;
 
 use crate::rle::{RleKeyed, RleVec};
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::ROOT_TIME;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
@@ -56,7 +56,7 @@ impl History {
 /// TODO: Consider renaming this to HistoryEntryInternal or something.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HistoryEntry {
-    pub span: TimeSpan, // TODO: Make the span u64s instead of usize.
+    pub span: DTRange, // TODO: Make the span u64s instead of usize.
 
     /// All txns in this span are direct descendants of all operations from order down to shadow.
     /// This is derived from other fields and used as an optimization for some calculations.
@@ -153,7 +153,7 @@ impl RleKeyed for HistoryEntry {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct MinimalHistoryEntry {
-    pub span: TimeSpan,
+    pub span: DTRange,
     pub parents: SmallVec<[usize; 2]>,
 }
 

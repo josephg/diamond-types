@@ -12,7 +12,7 @@ use smartstring::alias::String as SmartString;
 use crate::list::operation::InsDelTag;
 use crate::list::history::History;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 
@@ -72,7 +72,7 @@ struct ClientData {
     /// might be ordered as (0, 2, 1). This will only happen when changes are concurrent. The order
     /// of time spans must always obey the partial order of changes. But it will not necessarily
     /// agree with the order amongst time spans.
-    item_times: RleVec<KVPair<TimeSpan>>,
+    item_times: RleVec<KVPair<DTRange>>,
 }
 
 // TODO!

@@ -2,7 +2,7 @@ use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
 use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::*;
 use crate::list::{OpLog, switch};
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::rev_span::TimeSpanRev;
 use crate::unicount::chars_to_bytes;
 
@@ -34,7 +34,7 @@ pub(crate) struct OperationInternal {
     /// essentially a poor man's pointer.
     ///
     /// Note this stores a *byte offset*.
-    pub content_pos: Option<TimeSpan>,
+    pub content_pos: Option<DTRange>,
 }
 
 impl OperationInternal {
@@ -80,7 +80,7 @@ impl OperationCtx {
         }
     }
 
-    pub(crate) fn get_str(&self, tag: InsDelTag, range: TimeSpan) -> &str {
+    pub(crate) fn get_str(&self, tag: InsDelTag, range: DTRange) -> &str {
         unsafe { std::str::from_utf8_unchecked(&self.switch(tag)[range.start..range.end]) }
     }
 
@@ -97,7 +97,7 @@ impl OperationCtx {
         switch(tag, &mut self.ins_content, &mut self.del_content)
     }
 
-    pub(crate) fn push_str(&mut self, tag: InsDelTag, s: &str) -> TimeSpan {
+    pub(crate) fn push_str(&mut self, tag: InsDelTag, s: &str) -> DTRange {
         let storage = self.switch_mut(tag);
         let start = storage.len();
         storage.extend_from_slice(s.as_bytes());
@@ -172,7 +172,7 @@ impl TimeSpanRev {
         self.span.end = self.span.start + at;
 
         TimeSpanRev {
-            span: TimeSpan { start: start2, end: start2 + len - at },
+            span: DTRange { start: start2, end: start2 + len - at },
             fwd: self.fwd
         }
     }
@@ -192,7 +192,7 @@ impl TimeSpanRev {
     // This logic is interchangable with truncate_tagged_span above.
     #[inline]
     #[allow(unused)] // FOR NOW...
-    pub(crate) fn split_op_span(range: TimeSpanRev, tag: InsDelTag, at: usize) -> (TimeSpan, TimeSpan) {
+    pub(crate) fn split_op_span(range: TimeSpanRev, tag: InsDelTag, at: usize) -> (DTRange, DTRange) {
         let (start1, start2) = match (range.fwd, tag) {
             (true, Ins) => (range.span.start, range.span.start + at),
             (false, Del) => (range.span.end - at, range.span.start),
@@ -200,8 +200,8 @@ impl TimeSpanRev {
         };
 
         (
-            TimeSpan { start: start1, end: start1 + at },
-            TimeSpan { start: start2, end: start2 + range.len() - at },
+            DTRange { start: start1, end: start1 + at },
+            DTRange { start: start2, end: start2 + range.len() - at },
         )
     }
 
@@ -273,7 +273,7 @@ mod test {
     use rle::{SplitableSpanCtx, test_splitable_methods_valid_ctx};
     use crate::list::internal_op::{OperationCtx, OperationInternal};
     use crate::list::operation::InsDelTag;
-    use crate::localtime::TimeSpan;
+    use crate::dtrange::DTRange;
     use crate::rev_span::TimeSpanRev;
 
     #[test]
@@ -365,19 +365,19 @@ mod test {
         struct V1 {
             span: TimeSpanRev,
             tag: InsDelTag,
-            content_pos: Option<TimeSpan>,
+            content_pos: Option<DTRange>,
         }
         struct V2 {
-            span: TimeSpan,
+            span: DTRange,
             rev: bool,
             tag: InsDelTag,
-            content_pos: Option<TimeSpan>,
+            content_pos: Option<DTRange>,
         }
         struct V3 {
-            span: TimeSpan,
+            span: DTRange,
             rev: bool,
             tag: InsDelTag,
-            content_pos: TimeSpan,
+            content_pos: DTRange,
         }
 
         dbg!(std::mem::size_of::<V1>());

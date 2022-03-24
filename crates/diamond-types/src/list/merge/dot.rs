@@ -9,7 +9,7 @@ use std::io::{Write as _};
 use std::process::Command;
 use rle::{HasLength, SplitableSpan};
 use crate::list::{OpLog, Time};
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::rle::KVPair;
 use crate::ROOT_TIME;
 
@@ -123,7 +123,7 @@ impl OpLog {
         f.write_all(&out.stdout).unwrap();
     }
 
-    pub fn make_merge_graph<I: Iterator<Item=(TimeSpan, DotColor)>>(&self, filename: &str, _starting_content: &str, iter: I) {
+    pub fn make_merge_graph<I: Iterator<Item=(DTRange, DotColor)>>(&self, filename: &str, _starting_content: &str, iter: I) {
         let mut out = String::new();
         out.push_str("strict digraph {\n");
         out.push_str("\trankdir=\"BT\"\n");

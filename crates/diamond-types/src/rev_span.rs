@@ -1,6 +1,6 @@
 use std::ops::Range;
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize};
@@ -22,7 +22,7 @@ use serde_crate::{Deserialize};
 pub struct TimeSpanRev {
     /// The inner span.
     #[cfg_attr(feature = "serde", serde(flatten))]
-    pub span: TimeSpan,
+    pub span: DTRange,
 
     /// If target is `1..4` then we either reference `1,2,3` (rev=false) or `3,2,1` (rev=true).
     /// TODO: Consider swapping this, and making it a fwd variable (default true).
@@ -55,19 +55,19 @@ impl TimeSpanRev {
     /// Get the relative range from start + offset_start to start + offset_end.
     ///
     /// This is useful because reversed ranges are weird.
-    pub fn range(&self, offset_start: usize, offset_end: usize) -> TimeSpan {
+    pub fn range(&self, offset_start: usize, offset_end: usize) -> DTRange {
         debug_assert!(offset_start <= offset_end);
         debug_assert!(self.span.start + offset_start <= self.span.end);
         debug_assert!(self.span.start + offset_end <= self.span.end);
 
         if self.fwd {
             // Simple case.
-            TimeSpan {
+            DTRange {
                 start: self.span.start + offset_start,
                 end: self.span.start + offset_end
             }
         } else {
-            TimeSpan {
+            DTRange {
                 start: self.span.end - offset_end,
                 end: self.span.end - offset_start
             }
@@ -75,8 +75,8 @@ impl TimeSpanRev {
     }
 }
 
-impl From<TimeSpan> for TimeSpanRev {
-    fn from(target: TimeSpan) -> Self {
+impl From<DTRange> for TimeSpanRev {
+    fn from(target: DTRange) -> Self {
         TimeSpanRev {
             span: target,
             fwd: true,

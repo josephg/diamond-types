@@ -5,7 +5,7 @@ use smartstring::SmartString;
 use crate::list::list::apply_local_operation;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::{InsDelTag, Operation};
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::{AgentId, ROOT_TIME};
 
 impl Branch {
@@ -51,7 +51,7 @@ impl Branch {
     }
 
     /// Apply a single operation. This method does not update the version.
-    fn apply_internal(&mut self, tag: InsDelTag, pos: TimeSpan, content: Option<&str>) {
+    fn apply_internal(&mut self, tag: InsDelTag, pos: DTRange, content: Option<&str>) {
         match tag {
             Ins => {
                 self.content.insert(pos.start, content.unwrap());
@@ -74,7 +74,7 @@ impl Branch {
         }
     }
 
-    pub(crate) fn apply_range_from(&mut self, ops: &OpLog, range: TimeSpan) {
+    pub(crate) fn apply_range_from(&mut self, ops: &OpLog, range: DTRange) {
         for (op, content) in ops.iter_range_simple(range) {
             self.apply_internal(op.1.tag, op.1.span.span, content);
         }

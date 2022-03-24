@@ -18,13 +18,13 @@ use crate::list::frontier::*;
 use rle::{HasLength, SplitableSpan};
 use crate::list::{LocalVersion, Time};
 use crate::list::history::History;
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::ROOT_TIME;
 
 #[derive(Debug)]
 // struct VisitEntry<'a> {
 struct VisitEntry {
-    span: TimeSpan,
+    span: DTRange,
     txn_idx: usize,
     // entry: &'a HistoryEntry,
     visited: bool,
@@ -40,7 +40,7 @@ fn find_entry_idx(input: &SmallVec<[VisitEntry; 4]>, time: Time) -> Option<usize
     }).ok()
 }
 
-fn check_rev_sorted(spans: &[TimeSpan]) {
+fn check_rev_sorted(spans: &[DTRange]) {
     let mut last_end = None;
     for s in spans.iter().rev() {
         if let Some(end) = last_end {
@@ -81,17 +81,17 @@ pub(crate) struct SpanningTreeWalker<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TxnWalkItem {
-    pub(crate) retreat: SmallVec<[TimeSpan; 4]>,
-    pub(crate) advance_rev: SmallVec<[TimeSpan; 4]>,
+    pub(crate) retreat: SmallVec<[DTRange; 4]>,
+    pub(crate) advance_rev: SmallVec<[DTRange; 4]>,
     // txn: &'a TxnSpan,
     pub(crate) parents: SmallVec<[Time; 2]>,
-    pub(crate) consume: TimeSpan,
+    pub(crate) consume: DTRange,
 }
 
 impl<'a> SpanningTreeWalker<'a> {
     #[allow(unused)]
     pub(crate) fn new_all(history: &'a History) -> Self {
-        let mut spans: SmallVec<[TimeSpan; 4]> = smallvec![];
+        let mut spans: SmallVec<[DTRange; 4]> = smallvec![];
         if history.get_next_time() > 0 {
             // Kinda gross. Only add the span if the document isn't empty.
             spans.push((0..history.get_next_time()).into());
@@ -101,7 +101,7 @@ impl<'a> SpanningTreeWalker<'a> {
         Self::new(history, &spans, smallvec![ROOT_TIME])
     }
 
-    pub(crate) fn new(history: &'a History, rev_spans: &[TimeSpan], start_at: LocalVersion) -> Self {
+    pub(crate) fn new(history: &'a History, rev_spans: &[DTRange], start_at: LocalVersion) -> Self {
         if cfg!(debug_assertions) {
             check_rev_sorted(rev_spans);
         }

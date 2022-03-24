@@ -8,7 +8,7 @@ use crate::rev_span::TimeSpanRev;
 use crate::list::merge::yjsspan::YjsSpan;
 use crate::list::operation::InsDelTag;
 use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::ROOT_TIME;
 
 #[derive(Debug)]
@@ -56,7 +56,7 @@ impl M2Tracker {
         }
     }
 
-    pub(crate) fn advance_by_range(&mut self, mut range: TimeSpan) {
+    pub(crate) fn advance_by_range(&mut self, mut range: DTRange) {
         while !range.is_empty() {
             // Note the delete could be reversed - but we don't really care here; we just mark the
             // whole range anyway.
@@ -92,7 +92,7 @@ impl M2Tracker {
     }
 
 
-    pub(crate) fn retreat_by_range(&mut self, mut range: TimeSpan) {
+    pub(crate) fn retreat_by_range(&mut self, mut range: DTRange) {
         // We need to go through the range in reverse order to make sure if we visit an insert then
         // delete of the same item, we un-delete before un-inserting.
         // TODO: Could probably relax this restriction when I feel more comfortable about overall

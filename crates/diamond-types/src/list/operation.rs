@@ -9,7 +9,7 @@ use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 use InsDelTag::*;
 use crate::unicount::{chars_to_bytes, count_chars};
 use crate::list::internal_op::OperationInternal;
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::rev_span::TimeSpanRev;
 
 #[cfg(feature = "serde")]
@@ -104,7 +104,7 @@ impl Operation {
         Operation { span: (pos..pos+len).into(), tag: Del, content: Some(content) }
     }
 
-    pub fn range(&self) -> TimeSpan {
+    pub fn range(&self) -> DTRange {
         self.span.span
     }
 

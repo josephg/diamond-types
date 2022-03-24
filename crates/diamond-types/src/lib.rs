@@ -183,7 +183,7 @@ extern crate core;
 
 pub mod list;
 mod rle;
-mod localtime;
+mod dtrange;
 mod unicount;
 mod remotespan;
 mod rev_span;

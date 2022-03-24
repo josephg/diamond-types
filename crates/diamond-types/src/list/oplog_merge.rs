@@ -2,7 +2,7 @@ use std::collections::BinaryHeap;
 use smallvec::SmallVec;
 use rle::{AppendRle, HasLength};
 use crate::list::OpLog;
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 use crate::rle::KVPair;
 use crate::{AgentId, ROOT_TIME};
 use crate::list::frontier::debug_assert_frontier_sorted;
@@ -10,7 +10,7 @@ use crate::list::history::MinimalHistoryEntry;
 
 impl OpLog {
     /// Find all the items to merge from other into self.
-    fn to_merge(&self, other: &Self, agent_map: &[AgentId]) -> SmallVec<[TimeSpan; 4]> {
+    fn to_merge(&self, other: &Self, agent_map: &[AgentId]) -> SmallVec<[DTRange; 4]> {
         // This method is in many ways a baby version of diff_slow, with some changes:
         // - We only look at the frontier. (This is not configurable - but it could be)
         // - It maps spans from other -> self

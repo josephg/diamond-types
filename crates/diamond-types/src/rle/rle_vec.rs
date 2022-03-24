@@ -8,7 +8,7 @@ use humansize::{file_size_opts, FileSize};
 
 use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, MergeIter, SplitableSpan, SplitableSpanCtx};
 use rle::Searchable;
-use crate::localtime::TimeSpan;
+use crate::dtrange::DTRange;
 
 use crate::rle::{RleKeyed, RleKeyedAndSplitable, RleSpanHelpers};
 
@@ -122,12 +122,12 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     ///
     /// Note the returned value might be smaller than the passed range.
     #[allow(unused)]
-    pub fn find_packed_and_split(&self, range: TimeSpan) -> V where V: SplitableSpan {
+    pub fn find_packed_and_split(&self, range: DTRange) -> V where V: SplitableSpan {
         self.find_packed_and_split_ctx(range, &())
     }
 
     #[allow(unused)]
-    pub fn find_packed_and_split_ctx(&self, range: TimeSpan, ctx: &V::Ctx) -> V where V: SplitableSpanCtx {
+    pub fn find_packed_and_split_ctx(&self, range: DTRange, ctx: &V::Ctx) -> V where V: SplitableSpanCtx {
         let (item, offset) = self.find_packed_with_offset(range.start);
         let mut item = item.clone();
         item.truncate_keeping_right_ctx(offset, ctx);
@@ -165,7 +165,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     ///
     /// Returns (Ok(elem), offset) if item is found, otherwise (Err(void range), offset into void)
     #[allow(unused)]
-    pub fn find_sparse(&self, needle: usize) -> (Result<&V, TimeSpan>, usize) {
+    pub fn find_sparse(&self, needle: usize) -> (Result<&V, DTRange>, usize) {
         match self.find_index(needle) {
             Ok(idx) => {
                 let entry = &self.0[idx];
@@ -232,7 +232,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     /// of items between this entry and the end of the list.
     ///
     /// This method silently ignores requests to delete ranges we don't have.
-    pub fn remove_ctx(&mut self, mut deleted_range: TimeSpan, ctx: &V::Ctx) where V: SplitableSpanCtx {
+    pub fn remove_ctx(&mut self, mut deleted_range: DTRange, ctx: &V::Ctx) where V: SplitableSpanCtx {
         // Fast case - the requested entry is at the end.
         loop {
             if let Some(last) = self.0.last_mut() {
@@ -463,23 +463,23 @@ fn id_clone<V: Clone>(v: &V) -> V {
 
 impl<V: HasLength + SplitableSpan + RleKeyed + MergableSpan> RleVec<V> {
     #[allow(unused)]
-    pub fn iter_range_packed(&self, range: TimeSpan) -> RleVecRangeIter<V, V, impl Fn(&V) -> V> {
+    pub fn iter_range_packed(&self, range: DTRange) -> RleVecRangeIter<V, V, impl Fn(&V) -> V> {
         self.iter_range_map_packed_ctx(range, &(), id_clone)
     }
 }
 
 impl<V: HasLength + SplitableSpanCtx + RleKeyed + MergableSpan> RleVec<V> {
-    pub fn iter_range_packed_ctx<'a>(&'a self, range: TimeSpan, ctx: &'a V::Ctx) -> RleVecRangeIter<'a, V, V, impl Fn(&V) -> V> {
+    pub fn iter_range_packed_ctx<'a>(&'a self, range: DTRange, ctx: &'a V::Ctx) -> RleVecRangeIter<'a, V, V, impl Fn(&V) -> V> {
         self.iter_range_map_packed_ctx(range, ctx, id_clone)
     }
 }
 
 impl<V: HasLength + RleKeyed + MergableSpan> RleVec<V> {
-    pub fn iter_range_map_packed<I: SplitableSpan + HasLength, F: Fn(&V) -> I>(&self, range: TimeSpan, map_fn: F) -> RleVecRangeIter<V, I, F> {
+    pub fn iter_range_map_packed<I: SplitableSpan + HasLength, F: Fn(&V) -> I>(&self, range: DTRange, map_fn: F) -> RleVecRangeIter<V, I, F> {
         self.iter_range_map_packed_ctx(range, &(), map_fn)
     }
 
-    pub fn iter_range_map_packed_ctx<'a, I: SplitableSpanCtx + HasLength, F: Fn(&V) -> I>(&'a self, range: TimeSpan, ctx: &'a I::Ctx, map_fn: F) -> RleVecRangeIter<'a, V, I, F> {
+    pub fn iter_range_map_packed_ctx<'a, I: SplitableSpanCtx + HasLength, F: Fn(&V) -> I>(&'a self, range: DTRange, ctx: &'a I::Ctx, map_fn: F) -> RleVecRangeIter<'a, V, I, F> {
         let idx = self.find_index(range.start).unwrap();
 
         let entry = &self.0[idx];
@@ -538,7 +538,7 @@ mod tests {
 
     #[test]
     fn rle_iter_range() {
-        let mut rle: RleVec<TimeSpan> = RleVec::new();
+        let mut rle: RleVec<DTRange> = RleVec::new();
         rle.push((0..10).into());
 
         // This is a sad example.
