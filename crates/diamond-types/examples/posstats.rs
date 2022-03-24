@@ -29,7 +29,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
             // content.clear();
 
             if *del_span > 0 {
-                positional.push(doc.branch.make_delete_op(*pos, *del_span));
+                positional.push(doc.branch.make_delete_op(*pos .. *pos + *del_span));
             }
 
             if !ins_content.is_empty() {

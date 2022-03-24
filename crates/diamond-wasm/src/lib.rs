@@ -194,7 +194,7 @@ impl OpLog {
             // And here :p
             self.inner.local_version().into()
         });
-        self.inner.add_delete_at(self.agent_id, &parents, pos, len)
+        self.inner.add_delete_at(self.agent_id, &parents, pos..pos + len)
     }
 
     // This adds like 70kb of size to the WASM binary.
@@ -339,7 +339,7 @@ impl Doc {
 
     #[wasm_bindgen]
     pub fn del(&mut self, pos: usize, del_span: usize) {
-        self.inner.delete(self.agent_id, pos, del_span);
+        self.inner.delete(self.agent_id, pos .. pos + del_span);
     }
 
     #[wasm_bindgen]

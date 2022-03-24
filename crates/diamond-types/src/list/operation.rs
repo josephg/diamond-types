@@ -1,3 +1,4 @@
+use std::ops::Range;
 /// Positional updates are a kind of operation (patch) which is larger than traversals but
 /// retains temporal information. So, we know when each change happened relative to all other
 /// changes.
@@ -105,9 +106,14 @@ impl Operation {
         Operation { loc: (pos..pos+len).into(), tag: Del, content: None }
     }
 
+    pub fn new_delete_with_content_range(loc: Range<usize>, content: SmartString) -> Self {
+        debug_assert_eq!(count_chars(&content), loc.len());
+        Operation { loc: loc.into(), tag: Del, content: Some(content) }
+    }
+
     pub fn new_delete_with_content(pos: usize, content: SmartString) -> Self {
         let len = count_chars(&content);
-        Operation { loc: (pos..pos+len).into(), tag: Del, content: Some(content) }
+        Self::new_delete_with_content_range(pos..pos+len, content)
     }
 
     pub fn range(&self) -> DTRange {

@@ -213,7 +213,7 @@ mod test {
         a.get_or_create_agent_id("mike");
         a.add_insert_at(0, &[ROOT_TIME], 0, "Aa");
         a.add_insert_at(1, &[ROOT_TIME], 0, "b");
-        a.add_delete_at(0, &[1, 2], 0, 2);
+        a.add_delete_at(0, &[1, 2], 0..2);
 
         // Same history, different order.
         let mut b = OpLog::new();
@@ -221,7 +221,7 @@ mod test {
         b.get_or_create_agent_id("seph");
         b.add_insert_at(0, &[ROOT_TIME], 0, "b");
         b.add_insert_at(1, &[ROOT_TIME], 0, "Aa");
-        b.add_delete_at(1, &[0, 2], 0, 2);
+        b.add_delete_at(1, &[0, 2], 0..2);
 
         assert!(is_eq(&a, &b));
 
@@ -232,7 +232,7 @@ mod test {
         c.add_insert_at(0, &[ROOT_TIME], 0, "A");
         c.add_insert_at(1, &[ROOT_TIME], 0, "b");
         c.add_insert_at(0, &[0], 1, "a");
-        c.add_delete_at(0, &[1, 2], 0, 2);
+        c.add_delete_at(0, &[1, 2], 0..2);
 
         assert!(is_eq(&a, &c));
         assert!(is_eq(&b, &c));

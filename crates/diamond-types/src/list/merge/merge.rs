@@ -1086,8 +1086,8 @@ mod test {
         list.insert(0, 0, "aaa");
         // list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
 
-        list.oplog.add_delete_at(0, &[2], 1, 1); // &[3]
-        list.oplog.add_delete_at(1, &[2], 0, 3); // &[6]
+        list.oplog.add_delete_at(0, &[2], 1..2); // &[3]
+        list.oplog.add_delete_at(1, &[2], 0..3); // &[6]
 
         // M2Tracker::apply_to_checkout(&mut list.checkout, &list.ops, (0..list.ops.len()).into());
         // list.checkout.merge_changes_m2(&list.ops, (3..list.ops.len()).into());
@@ -1102,8 +1102,8 @@ mod test {
         list.get_or_create_agent_id("b");
 
         let t = list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.oplog.add_delete_at(0, &[t], 1, 1); // 3
-        list.oplog.add_delete_at(1, &[t], 0, 3); // 6
+        list.oplog.add_delete_at(0, &[t], 1..2); // 3
+        list.oplog.add_delete_at(1, &[t], 0..3); // 6
         // dbg!(&list.ops);
 
         // list.checkout.merge_changes_m2(&list.ops, (0..list.ops.len()).into());
@@ -1138,8 +1138,8 @@ mod test {
 
         list.insert(0, 0, "aaa");
 
-        list.oplog.add_delete_at(0, &[2], 1, 1);
-        list.oplog.add_delete_at(1, &[2], 0, 3);
+        list.oplog.add_delete_at(0, &[2], 1..2);
+        list.oplog.add_delete_at(1, &[2], 0..3);
 
         let mut t = M2Tracker::new();
         t.apply_range(&list.oplog, (0..4).into(), None);
@@ -1154,7 +1154,7 @@ mod test {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("seph");
         list.insert(0, 0, "hi there");
-        list.delete(0, 2, 3);
+        list.delete(0, 2..5);
 
         let mut t = M2Tracker::new();
 
@@ -1176,9 +1176,9 @@ mod test {
         list.get_or_create_agent_id("seph");
         let mut t = ROOT_TIME;
         t = list.oplog.add_insert_at(0, &[t], 0, "abc"); // 2
-        t = list.oplog.add_delete_at(0, &[t], 2, 1); // 3 -> "ab_"
-        t = list.oplog.add_delete_at(0, &[t], 1, 1); // 4 -> "a__"
-        t = list.oplog.add_delete_at(0, &[t], 0, 1); // 5 -> "___"
+        t = list.oplog.add_delete_at(0, &[t], 2..3); // 3 -> "ab_"
+        t = list.oplog.add_delete_at(0, &[t], 1..2); // 4 -> "a__"
+        t = list.oplog.add_delete_at(0, &[t], 0..1); // 5 -> "___"
         assert_eq!(t, 5);
 
         let mut t = M2Tracker::new();

@@ -1,3 +1,4 @@
+use std::ops::Range;
 use jumprope::JumpRope;
 use crate::list::{Branch, OpLog, Time};
 use smallvec::smallvec;
@@ -80,11 +81,11 @@ impl Branch {
         }
     }
 
-    pub fn make_delete_op(&self, pos: usize, del_span: usize) -> Operation {
-        assert!(pos + del_span <= self.content.len_chars());
+    pub fn make_delete_op(&self, loc: Range<usize>) -> Operation {
+        assert!(loc.end <= self.content.len_chars());
         let mut s = SmartString::new();
-        s.extend(self.content.slice_chars(pos..pos+del_span));
-        Operation::new_delete_with_content(pos, s)
+        s.extend(self.content.slice_chars(loc.clone()));
+        Operation::new_delete_with_content_range(loc, s)
     }
 
     pub fn apply_local_operations(&mut self, oplog: &mut OpLog, agent: AgentId, ops: &[Operation]) -> Time {
@@ -99,8 +100,8 @@ impl Branch {
         apply_local_operation(oplog, self, agent, &[Operation::new_delete(pos, del_span)])
     }
 
-    pub fn delete(&mut self, oplog: &mut OpLog, agent: AgentId, pos: usize, del_span: usize) -> Time {
-        apply_local_operation(oplog, self, agent, &[self.make_delete_op(pos, del_span)])
+    pub fn delete(&mut self, oplog: &mut OpLog, agent: AgentId, del_span: Range<usize>) -> Time {
+        apply_local_operation(oplog, self, agent, &[self.make_delete_op(del_span)])
     }
 
     #[cfg(feature = "wchar_conversion")]
@@ -110,10 +111,10 @@ impl Branch {
     }
 
     #[cfg(feature = "wchar_conversion")]
-    pub fn delete_at_wchar(&mut self, oplog: &mut OpLog, agent: AgentId, wchar_pos: usize, del_span: usize) -> Time {
-        let start_pos = self.content.wchars_to_chars(wchar_pos);
-        let end_pos = self.content.wchars_to_chars(wchar_pos + del_span);
-        apply_local_operation(oplog, self, agent, &[self.make_delete_op(start_pos, end_pos - start_pos)])
+    pub fn delete_at_wchar(&mut self, oplog: &mut OpLog, agent: AgentId, del_span_wchar: Range<usize>) -> Time {
+        let start_pos = self.content.wchars_to_chars(del_span_wchar.start);
+        let end_pos = self.content.wchars_to_chars(del_span_wchar.end);
+        apply_local_operation(oplog, self, agent, &[self.make_delete_op(start_pos .. end_pos)])
     }
 
     /// Consume the Branch and return the contained rope content.

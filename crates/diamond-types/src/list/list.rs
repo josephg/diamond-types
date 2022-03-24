@@ -1,4 +1,5 @@
 use std::mem::replace;
+use std::ops::Range;
 use humansize::{file_size_opts, FileSize};
 use crate::list::{Branch, LocalVersion, ListCRDT, OpLog, Time};
 use smallvec::smallvec;
@@ -132,8 +133,8 @@ impl ListCRDT {
         self.branch.delete_without_content(&mut self.oplog, agent, pos, del_span)
     }
 
-    pub fn delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
-        self.branch.delete(&mut self.oplog, agent, pos, del_span)
+    pub fn delete(&mut self, agent: AgentId, range: Range<usize>) -> Time {
+        self.branch.delete(&mut self.oplog, agent, range)
     }
 
     pub fn print_stats(&self, detailed: bool) {
@@ -163,7 +164,7 @@ mod tests {
         doc.insert(0, 1, "yooo".into());
         // "hyoooi"
         assert_eq!(doc.branch.content, "hyoooi");
-        doc.delete(0, 1, 3);
+        doc.delete(0, 1..4);
         assert_eq!(doc.branch.content, "hoi");
 
         doc.dbg_check(true);

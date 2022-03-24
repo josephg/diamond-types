@@ -1,3 +1,4 @@
+use std::ops::Range;
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
@@ -354,16 +355,19 @@ impl OpLog {
         end - 1
     }
 
+    /// Create and add a new operation from the specified agent which deletes the items (characters)
+    /// in the passed range.
+    ///
     /// Returns the single item localtime after the inserted change.
-    pub fn add_delete_at(&mut self, agent: AgentId, parents: &[Time], pos: usize, len: usize) -> Time {
+    pub fn add_delete_at(&mut self, agent: AgentId, parents: &[Time], loc: Range<usize>) -> Time {
         // Equivalent to:
         // self.push_at(agent, parents, &[Operation::new_delete(pos, len)])
-        let start = self.len();
-        let end = start + len;
+        let start_time = self.len();
+        let end_time = start_time + loc.len();
 
-        self.push_op_internal(start, (pos..pos+len).into(), InsDelTag::Del, None);
-        self.assign_internal(agent, parents, DTRange { start, end });
-        end - 1
+        self.push_op_internal(start_time, loc.into(), InsDelTag::Del, None);
+        self.assign_internal(agent, parents, DTRange { start: start_time, end: end_time });
+        end_time - 1
     }
 
     // *** Helpers for pushing at the current version ***

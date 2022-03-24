@@ -154,7 +154,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         match tag {
                             ChangeTag::Equal => pos += len,
                             ChangeTag::Delete => {
-                                branch.delete(&mut oplog, agent, pos, len);
+                                branch.delete(&mut oplog, agent, pos .. pos+len);
 
                                 // let op = branch.make_delete_op(pos, len);
                                 // apply_local_operation(&mut oplog, &mut branch, agent, &[op]);

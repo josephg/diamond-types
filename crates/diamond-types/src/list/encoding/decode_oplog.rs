@@ -1283,7 +1283,7 @@ mod tests {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id("seph");
         doc.insert(0, 0, "abcd");
-        doc.delete(0, 1, 2); // delete "bc"
+        doc.delete(0, 1..3); // delete "bc"
 
         check_encode_decode_matches(&doc.oplog);
     }
