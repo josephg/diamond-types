@@ -6,7 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#diamond-core = { path = "../diamond-core" }
 smartstring = "1.0.0"
 str_indices = "0.3.1"
 smallvec = { version = "1.8.0", features = ["union"] }
@@ -14,11 +13,10 @@ lazy_static = "1.4.0"
 serde_crate = { package = "serde", version = "1.0.136", features = ["derive"], optional = true }
 rle = { version = "0.1.1", path = "../rle" }
 content-tree = { version = "0.1.0", path = "../content-tree" }
-#bitvec = "0.22.3"
 jumprope = "0.5.2"
 humansize = "1.1.1"
-#bitvec = "0.22.3"
 num_enum = "0.5.6"
+#bitvec = "0.22.3"
 
 # crc32c might be faster, but it adds 10kb to the wasm bundle size. crc only adds 1kb.
 #crc32c = "0.6"
@@ -40,6 +38,7 @@ memusage = []
 inlinerope = []
 serde = ["serde_crate", "smallvec/serde", "smartstring/serde"]
 dot_export = []
+wchar_conversion = ["jumprope/wchar_conversion"]
 
 [lib]
 bench = false

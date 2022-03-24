@@ -103,6 +103,19 @@ impl Branch {
         apply_local_operation(oplog, self, agent, &[self.make_delete_op(pos, del_span)])
     }
 
+    #[cfg(feature = "wchar_conversion")]
+    pub fn insert_at_wchar(&mut self, oplog: &mut OpLog, agent: AgentId, wchar_pos: usize, ins_content: &str) -> Time {
+        let char_pos = self.content.wchars_to_chars(wchar_pos);
+        self.insert(oplog, agent, char_pos, ins_content)
+    }
+
+    #[cfg(feature = "wchar_conversion")]
+    pub fn delete_at_wchar(&mut self, oplog: &mut OpLog, agent: AgentId, wchar_pos: usize, del_span: usize) -> Time {
+        let start_pos = self.content.wchars_to_chars(wchar_pos);
+        let end_pos = self.content.wchars_to_chars(wchar_pos + del_span);
+        apply_local_operation(oplog, self, agent, &[self.make_delete_op(start_pos, end_pos - start_pos)])
+    }
+
     /// Consume the Branch and return the contained rope content.
     pub fn into_inner(self) -> JumpRope {
         self.content
