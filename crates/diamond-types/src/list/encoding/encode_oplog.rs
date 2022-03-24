@@ -23,7 +23,7 @@ fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
     // flag here which minimizes the cursor deltas. But that approach results in more complexity and
     // worse filesize overall.
     // let reversed = !op.fwd && op.len > 1;
-    let fwd = op.span.fwd || op.len() == 1;
+    let fwd = op.loc.fwd || op.len() == 1;
 
     // let reversed = op.reversed;
     // if op.len == 1 { assert!(!op.reversed); }

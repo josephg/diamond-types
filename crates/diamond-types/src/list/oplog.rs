@@ -298,7 +298,7 @@ impl OpLog {
     ///
     /// NOTE: This method is destructive on its own. It must be paired with assign_internal() or
     /// something like that.
-    pub(crate) fn push_op_internal(&mut self, next_time: Time, span: RangeRev, tag: InsDelTag, content: Option<&str>) {
+    pub(crate) fn push_op_internal(&mut self, next_time: Time, loc: RangeRev, tag: InsDelTag, content: Option<&str>) {
         // next_time should almost always be self.len - except when loading, or modifying the data
         // in some complex way.
         let content_pos = if let Some(c) = content {
@@ -307,7 +307,7 @@ impl OpLog {
 
         // self.operations.push(KVPair(next_time, c.clone()));
         self.operations.push(KVPair(next_time, OperationInternal {
-            span,
+            loc,
             tag,
             content_pos
         }));
@@ -332,7 +332,7 @@ impl OpLog {
 
             // let content = if op.content_known { Some(op.content.as_str()) } else { None };
             // let content = op.content.map(|c| c.as_str());
-            self.push_op_internal(next_time, op.span, op.tag, op.content_as_str());
+            self.push_op_internal(next_time, op.loc, op.tag, op.content_as_str());
             next_time += len;
         }
 
@@ -455,7 +455,7 @@ impl OpLog {
         let mut d_n = 0;
         let mut d_r = 0;
         for op in self.operations.iter_merged() {
-            match (op.1.len(), op.1.tag, op.1.span.fwd) {
+            match (op.1.len(), op.1.tag, op.1.loc.fwd) {
                 (1, InsDelTag::Ins, _) => { i_1 += 1; }
                 (_, InsDelTag::Ins, true) => { i_n += 1; }
                 (_, InsDelTag::Ins, false) => { i_r += 1; }

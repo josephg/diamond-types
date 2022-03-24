@@ -25,7 +25,7 @@ pub(crate) struct OperationInternal {
     ///
     /// This span is reversible. The span.rev tag specifies if the span is reversed chronologically.
     /// That is, characters are inserted or deleted in the reverse order chronologically.
-    pub span: RangeRev,
+    pub loc: RangeRev,
 
     /// Is this an insert or delete?
     pub tag: InsDelTag,
@@ -40,12 +40,12 @@ pub(crate) struct OperationInternal {
 impl OperationInternal {
     #[inline]
     pub fn start(&self) -> usize {
-        self.span.span.start
+        self.loc.span.start
     }
 
     #[inline]
     pub fn end(&self) -> usize {
-        self.span.span.end
+        self.loc.span.end
     }
 
     pub(crate) fn get_content<'a>(&self, oplog: &'a OpLog) -> Option<&'a str> {
@@ -62,7 +62,7 @@ impl OperationInternal {
 
 impl HasLength for OperationInternal {
     fn len(&self) -> usize {
-        self.span.len()
+        self.loc.len()
     }
 }
 
@@ -113,13 +113,13 @@ impl SplitableSpanCtx for OperationInternal {
     // Note we can't implement SplitableSpan because we can't adjust content_pos correctly without
     // reference to the contained data.
     fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
-        debug_assert!(self.span.span.start + at <= self.span.span.end);
+        debug_assert!(self.loc.span.start + at <= self.loc.span.end);
 
         // Note we can't use self.span.truncate() because it assumes the span is absolute, but
         // actually how the span splits depends on the tag (and some other stuff).
         // let (a, b) = TimeSpanRev::split_op_span(self.span, self.tag, at);
         // self.span.span = a;
-        let span = self.span.truncate_tagged_span(self.tag, at);
+        let loc = self.loc.truncate_tagged_span(self.tag, at);
 
         let content_pos = if let Some(p) = &mut self.content_pos {
             let content = ctx.get_str(self.tag, *p);
@@ -128,7 +128,7 @@ impl SplitableSpanCtx for OperationInternal {
         } else { None };
 
         OperationInternal {
-            span,
+            loc,
             tag: self.tag,
             content_pos,
         }
@@ -257,11 +257,11 @@ impl MergableSpan for OperationInternal {
 
         self.tag == other.tag
             && can_append_content
-            && RangeRev::can_append_ops(self.tag, &self.span, &other.span)
+            && RangeRev::can_append_ops(self.tag, &self.loc, &other.loc)
     }
 
     fn append(&mut self, other: Self) {
-        self.span.append_ops(self.tag, other.span);
+        self.loc.append_ops(self.tag, other.loc);
         if let (Some(a), Some(b)) = (&mut self.content_pos, other.content_pos) {
             a.append(b);
         }
@@ -279,7 +279,7 @@ mod test {
     #[test]
     fn internal_op_splitable() {
         test_splitable_methods_valid_ctx(OperationInternal {
-            span: (10..20).into(),
+            loc: (10..20).into(),
             tag: InsDelTag::Ins,
             content_pos: Some((0..10).into()),
         }, &OperationCtx {
@@ -289,7 +289,7 @@ mod test {
 
         let s2 = "↯1↯3↯5↯7↯9";
         test_splitable_methods_valid_ctx(OperationInternal {
-            span: (10..20).into(),
+            loc: (10..20).into(),
             tag: InsDelTag::Ins,
             content_pos: Some((0..s2.len()).into()),
         }, &OperationCtx {
@@ -305,7 +305,7 @@ mod test {
     fn truncate_fwd_delete() {
         // Regression.
         let mut op = OperationInternal {
-            span: (10..15).into(),
+            loc: (10..15).into(),
             tag: InsDelTag::Del,
             content_pos: Some((0..5).into()),
         };
@@ -317,13 +317,13 @@ mod test {
         });
 
         assert_eq!(op, OperationInternal {
-            span: (10..12).into(),
+            loc: (10..12).into(),
             tag: InsDelTag::Del,
             content_pos: Some((0..2).into())
         });
 
         assert_eq!(rem, OperationInternal {
-            span: (10..13).into(),
+            loc: (10..13).into(),
             tag: InsDelTag::Del,
             content_pos: Some((2..5).into())
         });
@@ -340,19 +340,19 @@ mod test {
         };
 
         let op = OperationInternal {
-            span: (10..15).into(),
+            loc: (10..15).into(),
             tag: InsDelTag::Ins,
             content_pos: Some((0..ctx.ins_content.len()).into())
         };
 
         let (a, b) = op.split_ctx(1, &ctx);
         assert_eq!(a, OperationInternal {
-            span: (10..11).into(),
+            loc: (10..11).into(),
             tag: InsDelTag::Ins,
             content_pos: Some((0..2).into())
         });
         assert_eq!(b, OperationInternal {
-            span: (11..15).into(),
+            loc: (11..15).into(),
             tag: InsDelTag::Ins,
             content_pos: Some((2..ctx.ins_content.len()).into())
         });

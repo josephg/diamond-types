@@ -169,12 +169,12 @@ mod test {
         let mut ops: RleVec<KVPair<OperationInternal>> = RleVec::new();
 
         ops.push(KVPair(0, OperationInternal {
-            span: (100..110).into(),
+            loc: (100..110).into(),
             tag: Ins,
             content_pos: Some((0..10).into()),
         }));
         ops.push(KVPair(10, OperationInternal {
-            span: (200..220).into(),
+            loc: (200..220).into(),
             tag: Del,
             content_pos: None,
         }));
@@ -187,19 +187,19 @@ mod test {
         assert_eq!(OpMetricsIter::new(&ops, &ctx, (0..30).into()).collect::<Vec<_>>(), ops.0.as_slice());
         
         assert_eq!(OpMetricsIter::new(&ops, &ctx, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, OperationInternal {
-            span: (101..105).into(),
+            loc: (101..105).into(),
             tag: Ins,
             content_pos: Some((1..5).into()),
         })]);
 
         assert_eq!(OpMetricsIter::new(&ops, &ctx, (6..16).into()).collect::<Vec<_>>(), &[
             KVPair(6, OperationInternal {
-                span: (106..110).into(),
+                loc: (106..110).into(),
                 tag: Ins,
                 content_pos: Some((6..10).into()),
             }),
             KVPair(10, OperationInternal {
-                span: (200..206).into(),
+                loc: (200..206).into(),
                 tag: Del,
                 content_pos: None,
             }),

@@ -44,17 +44,23 @@ impl Default for InsDelTag {
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize), serde(crate="serde_crate"))]
 pub struct Operation {
-    /// Where in the document the operation modifies. This is a *where* not a *when*.
+    /// The range of items in the document being modified by this operation.
     // For now only backspaces are ever reversed.
     #[cfg_attr(feature = "serde", serde(flatten))]
-    pub span: RangeRev,
+    pub loc: RangeRev,
+
+    /// Is this operation an insert or a delete?
     pub tag: InsDelTag,
+
+    /// What content is being inserted or deleted. This is optional for deletes. (And eventually
+    /// inserts too, though that code path isn't exercised and may for now cause panics in some
+    /// cases).
     pub content: Option<SmartString>,
 }
 
 impl HasLength for Operation {
     fn len(&self) -> usize {
-        self.span.len()
+        self.loc.len()
     }
 }
 
@@ -80,7 +86,7 @@ impl FlattenSerializable for Operation {
             Ins => "Ins",
             Del => "Del",
         })?;
-        self.span.serialize_fields::<S>(s)?;
+        self.loc.serialize_fields::<S>(s)?;
         s.serialize_field("content", &self.content)?;
         // if let Some(content) = self.content.as_ref() {
         //     s.serialize_field("content", content)?;
@@ -92,30 +98,30 @@ impl FlattenSerializable for Operation {
 impl Operation {
     pub fn new_insert(pos: usize, content: &str) -> Self {
         let len = count_chars(content);
-        Operation { span: (pos..pos+len).into(), tag: Ins, content: Some(content.into()) }
+        Operation { loc: (pos..pos+len).into(), tag: Ins, content: Some(content.into()) }
     }
 
     pub fn new_delete(pos: usize, len: usize) -> Self {
-        Operation { span: (pos..pos+len).into(), tag: Del, content: None }
+        Operation { loc: (pos..pos+len).into(), tag: Del, content: None }
     }
 
     pub fn new_delete_with_content(pos: usize, content: SmartString) -> Self {
         let len = count_chars(&content);
-        Operation { span: (pos..pos+len).into(), tag: Del, content: Some(content) }
+        Operation { loc: (pos..pos+len).into(), tag: Del, content: Some(content) }
     }
 
     pub fn range(&self) -> DTRange {
-        self.span.span
+        self.loc.span
     }
 
     #[inline]
     pub fn start(&self) -> usize {
-        self.span.span.start
+        self.loc.span.start
     }
 
     #[inline]
     pub fn end(&self) -> usize {
-        self.span.span.end
+        self.loc.span.end
     }
 
     pub fn content_as_str(&self) -> Option<&str> {
@@ -128,7 +134,7 @@ impl Operation {
 impl SplitableSpanHelpers for Operation {
     fn truncate_h(&mut self, at: usize) -> Self {
         // let (self_span, other_span) = TimeSpanRev::split_op_span(self.span, self.tag, at);
-        let span = self.span.truncate_tagged_span(self.tag, at);
+        let span = self.loc.truncate_tagged_span(self.tag, at);
 
         let rem_content = self.content.as_mut().map(|c| {
             let byte_split = chars_to_bytes(c, at);
@@ -138,7 +144,7 @@ impl SplitableSpanHelpers for Operation {
         // TODO: When we split items to a length of 1, consider clearing the reversed flag.
         // This doesn't do anything - but it feels polite.
         Self {
-            span,
+            loc: span,
             tag: self.tag,
             content: rem_content,
         }
@@ -149,11 +155,11 @@ impl MergableSpan for Operation {
     fn can_append(&self, other: &Self) -> bool {
         if other.tag != self.tag || self.content.is_some() != other.content.is_some() { return false; }
 
-        RangeRev::can_append_ops(self.tag, &self.span, &other.span)
+        RangeRev::can_append_ops(self.tag, &self.loc, &other.loc)
     }
 
     fn append(&mut self, other: Self) {
-        self.span.append_ops(self.tag, other.span);
+        self.loc.append_ops(self.tag, other.loc);
 
         if let Some(c) = &mut self.content {
             c.push_str(&other.content.unwrap());
@@ -179,7 +185,7 @@ impl MergableSpan for Operation {
 impl From<(OperationInternal, Option<&str>)> for Operation {
     fn from((op, content): (OperationInternal, Option<&str>)) -> Self {
         Operation {
-            span: op.span,
+            loc: op.loc,
             tag: op.tag,
             content: content.map(|str| str.into())
         }
@@ -189,7 +195,7 @@ impl From<(OperationInternal, Option<&str>)> for Operation {
 impl From<(&OperationInternal, Option<&str>)> for Operation {
     fn from((op, content): (&OperationInternal, Option<&str>)) -> Self {
         Operation {
-            span: op.span,
+            loc: op.loc,
             tag: op.tag,
             content: content.map(|str| str.into())
         }
@@ -206,12 +212,12 @@ mod test {
     fn test_backspace_merges() {
         // Make sure deletes collapse.
         let a = Operation {
-            span: (100..101).into(),
+            loc: (100..101).into(),
             tag: Del,
             content: Some("a".into()),
         };
         let b = Operation {
-            span: (99..100).into(),
+            loc: (99..100).into(),
             tag: Del,
             content: Some("b".into()),
         };
@@ -221,7 +227,7 @@ mod test {
         merged.append(b.clone());
         // dbg!(&a);
         let expect = Operation {
-            span: RangeRev {
+            loc: RangeRev {
                 span: (99..101).into(),
                 fwd: false
             },
@@ -243,7 +249,7 @@ mod test {
             for content in [Some("abcde".into()), None] {
                 if fwd {
                     test_splitable_methods_valid(Operation {
-                        span: RangeRev {
+                        loc: RangeRev {
                             span: (10..15).into(),
                             fwd
                         },
@@ -253,7 +259,7 @@ mod test {
                 }
 
                 test_splitable_methods_valid(Operation {
-                    span: RangeRev {
+                    loc: RangeRev {
                         span: (10..15).into(),
                         fwd
                     },

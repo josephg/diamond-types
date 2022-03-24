@@ -546,7 +546,7 @@ impl<'a> ReadPatchesIter<'a> {
         // dbg!(self.last_cursor_pos);
 
         Ok(OperationInternal {
-            span: RangeRev { // TODO: Probably a nicer way to construct this.
+            loc: RangeRev { // TODO: Probably a nicer way to construct this.
                 span: (start..end).into(),
                 fwd,
             },
@@ -951,7 +951,7 @@ impl OpLog {
 
                         // self.operations.push(KVPair(next_time, op));
                         if keep {
-                            oplog.push_op_internal(next_patch_time, op.span, op.tag, content_here);
+                            oplog.push_op_internal(next_patch_time, op.loc, op.tag, content_here);
                             next_patch_time += max_len;
                         }
 

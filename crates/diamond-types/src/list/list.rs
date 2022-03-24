@@ -48,7 +48,7 @@ pub(crate) fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agen
 
     // for LocalOp { pos, ins_content, del_span } in local_ops {
     for c in local_ops {
-        let pos = c.span.span.start;
+        let pos = c.loc.span.start;
         let len = c.len();
 
         match c.tag {
@@ -64,7 +64,7 @@ pub(crate) fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agen
         }
 
         // oplog.operations.push(KVPair(next_time, c.clone()));
-        oplog.push_op_internal(next_time, c.span, c.tag, c.content_as_str());
+        oplog.push_op_internal(next_time, c.loc, c.tag, c.content_as_str());
         next_time += len;
     }
 

@@ -67,7 +67,7 @@ impl Branch {
     #[allow(unused)]
     pub(crate) fn apply(&mut self, ops: &[Operation]) {
         for op in ops {
-            self.apply_internal(op.tag, op.span.span, op.content
+            self.apply_internal(op.tag, op.loc.span, op.content
                 .as_ref()
                 .map(|s| s.as_str())
             );
@@ -76,7 +76,7 @@ impl Branch {
 
     pub(crate) fn apply_range_from(&mut self, ops: &OpLog, range: DTRange) {
         for (op, content) in ops.iter_range_simple(range) {
-            self.apply_internal(op.1.tag, op.1.span.span, content);
+            self.apply_internal(op.1.tag, op.1.loc.span, content);
         }
     }
 

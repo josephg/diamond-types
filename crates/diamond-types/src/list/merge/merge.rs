@@ -354,7 +354,7 @@ impl M2Tracker {
         // dbg!(op);
         match op.tag {
             InsDelTag::Ins => {
-                if !op.span.fwd { unimplemented!("Implement me!") }
+                if !op.loc.fwd { unimplemented!("Implement me!") }
 
                 // To implement this we need to:
                 // 1. Find the item directly before the requested position. This is our origin-left.
@@ -425,7 +425,7 @@ impl M2Tracker {
                 debug_assert!(op.len() > 0);
                 // let mut remaining_len = op.len();
 
-                let fwd = op.span.fwd;
+                let fwd = op.loc.fwd;
 
                 let (mut cursor, len) = if fwd {
                     let start_pos = op.start();
@@ -434,7 +434,7 @@ impl M2Tracker {
                 } else {
                     // We're moving backwards. We need to delete as many items as we can before the
                     // end of the op.
-                    let last_pos = op.span.span.last();
+                    let last_pos = op.loc.span.last();
                     // Find the last entry
                     let mut cursor = self.range_tree.mut_cursor_at_content_pos(last_pos, false);
 
@@ -798,7 +798,7 @@ impl OpLog {
                 let len = origin_op.len();
                 let op: Option<Operation> = match xf {
                     BaseMoved(base) => {
-                        origin_op.span.span = (base..base+len).into();
+                        origin_op.loc.span = (base..base+len).into();
                         let content = origin_op.get_content(self);
                         Some((origin_op, content).into())
                     }
@@ -840,7 +840,7 @@ impl Branch {
                     debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
                     let content = origin_op.get_content(oplog).unwrap();
                     assert!(pos <= self.content.len_chars());
-                    if origin_op.span.fwd {
+                    if origin_op.loc.fwd {
                         self.content.insert(pos, content);
                     } else {
                         // We need to insert the content in reverse order.
