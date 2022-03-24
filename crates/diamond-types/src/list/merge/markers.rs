@@ -5,7 +5,7 @@ use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 
 use content_tree::*;
 use rle::Searchable;
-use crate::rev_span::TimeSpanRev;
+use crate::rev_range::RangeRev;
 use crate::list::merge::DocRangeIndex;
 use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
 use crate::list::merge::yjsspan::YjsSpan;
@@ -23,7 +23,7 @@ pub enum Marker {
 
     /// For deletes we name the delete's target. Note this contains redundant information - since
     /// we already have a length field.
-    DelTarget(TimeSpanRev),
+    DelTarget(RangeRev),
 }
 
 /// So this struct is a little weird. Its designed this way so I can reuse content-tree for two
@@ -190,7 +190,7 @@ mod tests {
     use rle::test_splitable_methods_valid;
     use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
     use crate::list::merge::markers::MarkerEntry;
-    use crate::rev_span::TimeSpanRev;
+    use crate::rev_range::RangeRev;
 
     #[test]
     fn marker_split_merge() {
@@ -201,7 +201,7 @@ mod tests {
 
         test_splitable_methods_valid(MarkerEntry {
             len: 10,
-            inner: DelTarget(TimeSpanRev {
+            inner: DelTarget(RangeRev {
                 span: (0..10).into(),
                 fwd: true,
             })
@@ -209,7 +209,7 @@ mod tests {
 
         test_splitable_methods_valid(MarkerEntry {
             len: 10,
-            inner: DelTarget(TimeSpanRev {
+            inner: DelTarget(RangeRev {
                 span: (0..10).into(),
                 fwd: false,
             })

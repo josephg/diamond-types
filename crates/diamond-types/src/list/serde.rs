@@ -2,7 +2,7 @@ use serde_crate::{Serialize, Serializer};
 // use serde_crate::de::{EnumAccess, Error, MapAccess, SeqAccess};
 use serde_crate::ser::SerializeStruct;
 // use serde_crate::de::Visitor;
-use crate::rev_span::TimeSpanRev;
+use crate::rev_range::RangeRev;
 
 #[cfg(feature = "serde")]
 pub(crate) trait FlattenSerializable {
@@ -19,14 +19,14 @@ pub(crate) trait FlattenSerializable {
 
 // I can't use the default flattening code because bleh.
 #[cfg(feature = "serde")]
-impl Serialize for TimeSpanRev {
+impl Serialize for RangeRev {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         self.serialize_struct(serializer)
     }
 }
 
 #[cfg(feature = "serde")]
-impl FlattenSerializable for TimeSpanRev {
+impl FlattenSerializable for RangeRev {
     fn struct_name() -> &'static str {
         "TimeSpanRev"
     }

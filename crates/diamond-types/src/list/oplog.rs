@@ -10,7 +10,7 @@ use crate::list::operation::{InsDelTag, Operation};
 use crate::list::remote_ids::RemoteId;
 use crate::dtrange::DTRange;
 use crate::remotespan::*;
-use crate::rev_span::TimeSpanRev;
+use crate::rev_range::RangeRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::unicount::count_chars;
 
@@ -298,7 +298,7 @@ impl OpLog {
     ///
     /// NOTE: This method is destructive on its own. It must be paired with assign_internal() or
     /// something like that.
-    pub(crate) fn push_op_internal(&mut self, next_time: Time, span: TimeSpanRev, tag: InsDelTag, content: Option<&str>) {
+    pub(crate) fn push_op_internal(&mut self, next_time: Time, span: RangeRev, tag: InsDelTag, content: Option<&str>) {
         // next_time should almost always be self.len - except when loading, or modifying the data
         // in some complex way.
         let content_pos = if let Some(c) = content {

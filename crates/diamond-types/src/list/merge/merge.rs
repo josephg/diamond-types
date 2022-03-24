@@ -20,7 +20,7 @@ use crate::list::frontier::{advance_frontier_by, local_version_eq, frontier_is_s
 use crate::list::history_tools::DiffFlag;
 use crate::list::internal_op::OperationInternal;
 use crate::list::buffered_iter::BufferedIter;
-use crate::rev_span::TimeSpanRev;
+use crate::rev_range::RangeRev;
 
 #[cfg(feature = "dot_export")]
 use crate::list::merge::dot::{DotColor, name_of};
@@ -490,7 +490,7 @@ impl M2Tracker {
 
                 self.index.replace_range_at_offset(time_start, MarkerEntry {
                     len,
-                    inner: DelTarget(TimeSpanRev {
+                    inner: DelTarget(RangeRev {
                         span: target,
                         fwd
                     })

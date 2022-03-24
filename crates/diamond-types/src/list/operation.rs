@@ -10,7 +10,7 @@ use InsDelTag::*;
 use crate::unicount::{chars_to_bytes, count_chars};
 use crate::list::internal_op::OperationInternal;
 use crate::dtrange::DTRange;
-use crate::rev_span::TimeSpanRev;
+use crate::rev_range::RangeRev;
 
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize, Serializer};
@@ -47,7 +47,7 @@ pub struct Operation {
     /// Where in the document the operation modifies. This is a *where* not a *when*.
     // For now only backspaces are ever reversed.
     #[cfg_attr(feature = "serde", serde(flatten))]
-    pub span: TimeSpanRev,
+    pub span: RangeRev,
     pub tag: InsDelTag,
     pub content: Option<SmartString>,
 }
@@ -72,7 +72,7 @@ impl FlattenSerializable for Operation {
     }
 
     fn num_serialized_fields() -> usize {
-        2 + <TimeSpanRev as FlattenSerializable>::num_serialized_fields()
+        2 + <RangeRev as FlattenSerializable>::num_serialized_fields()
     }
 
     fn serialize_fields<S>(&self, s: &mut S::SerializeStruct) -> Result<(), S::Error> where S: Serializer {
@@ -149,7 +149,7 @@ impl MergableSpan for Operation {
     fn can_append(&self, other: &Self) -> bool {
         if other.tag != self.tag || self.content.is_some() != other.content.is_some() { return false; }
 
-        TimeSpanRev::can_append_ops(self.tag, &self.span, &other.span)
+        RangeRev::can_append_ops(self.tag, &self.span, &other.span)
     }
 
     fn append(&mut self, other: Self) {
@@ -221,7 +221,7 @@ mod test {
         merged.append(b.clone());
         // dbg!(&a);
         let expect = Operation {
-            span: TimeSpanRev {
+            span: RangeRev {
                 span: (99..101).into(),
                 fwd: false
             },
@@ -243,7 +243,7 @@ mod test {
             for content in [Some("abcde".into()), None] {
                 if fwd {
                     test_splitable_methods_valid(Operation {
-                        span: TimeSpanRev {
+                        span: RangeRev {
                             span: (10..15).into(),
                             fwd
                         },
@@ -253,7 +253,7 @@ mod test {
                 }
 
                 test_splitable_methods_valid(Operation {
-                    span: TimeSpanRev {
+                    span: RangeRev {
                         span: (10..15).into(),
                         fwd
                     },

@@ -4,7 +4,7 @@ use rle::{HasLength, SplitableSpan};
 use crate::list::merge::{DocRangeIndex, M2Tracker};
 use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
 use crate::list::merge::merge::notify_for;
-use crate::rev_span::TimeSpanRev;
+use crate::rev_range::RangeRev;
 use crate::list::merge::yjsspan::YjsSpan;
 use crate::list::operation::InsDelTag;
 use crate::list::operation::InsDelTag::{Del, Ins};
@@ -14,7 +14,7 @@ use crate::ROOT_TIME;
 #[derive(Debug)]
 pub(super) struct QueryResult {
     tag: InsDelTag,
-    target: TimeSpanRev,
+    target: RangeRev,
     offset: usize,
     ptr: Option<NonNull<NodeLeaf<YjsSpan, DocRangeIndex>>>
 }

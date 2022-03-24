@@ -186,7 +186,7 @@ mod rle;
 mod dtrange;
 mod unicount;
 mod remotespan;
-mod rev_span;
+mod rev_range;
 
 pub type AgentId = u32;
 pub const ROOT_AGENT: AgentId = AgentId::MAX;

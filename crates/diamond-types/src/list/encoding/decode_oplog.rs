@@ -5,7 +5,7 @@ use crate::list::{LocalVersion, OpLog, switch, Time};
 use crate::list::frontier::{advance_frontier_by_known_run, clean_version, local_version_eq, frontier_is_sorted};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::InsDelTag::{Del, Ins};
-use crate::rev_span::TimeSpanRev;
+use crate::rev_range::RangeRev;
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
 use crate::unicount::{consume_chars, count_chars, split_at_char};
 use crate::list::encoding::ParseError::*;
@@ -546,7 +546,7 @@ impl<'a> ReadPatchesIter<'a> {
         // dbg!(self.last_cursor_pos);
 
         Ok(OperationInternal {
-            span: TimeSpanRev { // TODO: Probably a nicer way to construct this.
+            span: RangeRev { // TODO: Probably a nicer way to construct this.
                 span: (start..end).into(),
                 fwd,
             },

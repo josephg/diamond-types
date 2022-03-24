@@ -5,10 +5,9 @@ use crate::dtrange::DTRange;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize};
 
-/// This is a TimeSpan which can be either a forwards range (1,2,3) or backwards (3,2,1), depending
-/// on what is most efficient.
+/// This is a DTRange which can be either a forwards range (1,2,3) or backwards (3,2,1).
 ///
-/// The inner span is always "forwards" - where span.start <= span.end. But if rev is true, this
+/// The inner span is always "forwards" - where span.start <= span.end. But if fwd is false, this
 /// span should be iterated in the reverse order.
 ///
 /// Note that time spans are used with some other (more complex) semantics in operations. The
@@ -19,7 +18,7 @@ use serde_crate::{Deserialize};
 ///     (Del 0..10) + (Del 0..10) = (Del 0..20)
 #[derive(Copy, Clone, Debug, Eq, Default)] // Default needed for ContentTree.
 #[cfg_attr(feature = "serde", derive(Deserialize), serde(crate="serde_crate"))]
-pub struct TimeSpanRev {
+pub struct RangeRev {
     /// The inner span.
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub span: DTRange,
@@ -29,7 +28,7 @@ pub struct TimeSpanRev {
     pub fwd: bool,
 }
 
-impl TimeSpanRev {
+impl RangeRev {
     // Works, but unused.
     // pub fn offset_at_time(&self, time: Time) -> usize {
     //     if self.reversed {
@@ -75,37 +74,37 @@ impl TimeSpanRev {
     }
 }
 
-impl From<DTRange> for TimeSpanRev {
+impl From<DTRange> for RangeRev {
     fn from(target: DTRange) -> Self {
-        TimeSpanRev {
+        RangeRev {
             span: target,
             fwd: true,
         }
     }
 }
-impl From<Range<usize>> for TimeSpanRev {
+impl From<Range<usize>> for RangeRev {
     fn from(range: Range<usize>) -> Self {
-        TimeSpanRev {
+        RangeRev {
             span: range.into(),
             fwd: true,
         }
     }
 }
 
-impl PartialEq for TimeSpanRev {
+impl PartialEq for RangeRev {
     fn eq(&self, other: &Self) -> bool {
         // Custom eq because if the two deletes have length 1, we don't care about rev.
         self.span == other.span && (self.fwd == other.fwd || self.span.len() <= 1)
     }
 }
 
-impl HasLength for TimeSpanRev {
+impl HasLength for RangeRev {
     fn len(&self) -> usize { self.span.len() }
 }
 
-impl SplitableSpanHelpers for TimeSpanRev {
+impl SplitableSpanHelpers for RangeRev {
     fn truncate_h(&mut self, at: usize) -> Self {
-        TimeSpanRev {
+        RangeRev {
             span: if self.fwd {
                 self.span.truncate(at)
             } else {
@@ -116,7 +115,7 @@ impl SplitableSpanHelpers for TimeSpanRev {
     }
 }
 
-impl MergableSpan for TimeSpanRev {
+impl MergableSpan for RangeRev {
     fn can_append(&self, other: &Self) -> bool {
         // Can we append forward?
         let self_len_1 = self.len() == 1;
@@ -161,31 +160,31 @@ mod test {
 
     #[test]
     fn split_fwd_rev() {
-        let fwd = TimeSpanRev {
+        let fwd = RangeRev {
             span: (1..4).into(),
             fwd: true
         };
         assert_eq!(fwd.split_h(1), (
-            TimeSpanRev {
+            RangeRev {
                 span: (1..2).into(),
                 fwd: true
             },
-            TimeSpanRev {
+            RangeRev {
                 span: (2..4).into(),
                 fwd: true
             }
         ));
 
-        let rev = TimeSpanRev {
+        let rev = RangeRev {
             span: (1..4).into(),
             fwd: false
         };
         assert_eq!(rev.split_h(1), (
-            TimeSpanRev {
+            RangeRev {
                 span: (3..4).into(),
                 fwd: false
             },
-            TimeSpanRev {
+            RangeRev {
                 span: (1..3).into(),
                 fwd: false
             }
@@ -194,12 +193,12 @@ mod test {
 
     #[test]
     fn splitable_mergable() {
-        test_splitable_methods_valid(TimeSpanRev {
+        test_splitable_methods_valid(RangeRev {
             span: (1..5).into(),
             fwd: true
         });
 
-        test_splitable_methods_valid(TimeSpanRev {
+        test_splitable_methods_valid(RangeRev {
             span: (1..5).into(),
             fwd: false
         });
@@ -208,7 +207,7 @@ mod test {
     #[test]
     fn at_offset() {
         for fwd in [true, false] {
-            let span = TimeSpanRev {
+            let span = RangeRev {
                 span: (1..5).into(),
                 fwd
             };

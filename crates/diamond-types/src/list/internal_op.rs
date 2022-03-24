@@ -3,7 +3,7 @@ use crate::list::operation::{InsDelTag, Operation};
 use crate::list::operation::InsDelTag::*;
 use crate::list::{OpLog, switch};
 use crate::dtrange::DTRange;
-use crate::rev_span::TimeSpanRev;
+use crate::rev_range::RangeRev;
 use crate::unicount::chars_to_bytes;
 
 /// This is an internal structure for passing around information about a change. Notably the content
@@ -25,7 +25,7 @@ pub(crate) struct OperationInternal {
     ///
     /// This span is reversible. The span.rev tag specifies if the span is reversed chronologically.
     /// That is, characters are inserted or deleted in the reverse order chronologically.
-    pub span: TimeSpanRev,
+    pub span: RangeRev,
 
     /// Is this an insert or delete?
     pub tag: InsDelTag,
@@ -151,13 +151,13 @@ impl SplitableSpanCtx for OperationInternal {
     // }
 }
 
-impl TimeSpanRev {
+impl RangeRev {
     // These are 3 versions of essentially the same function. TODO: decide which version of this
     // logic to keep. (Only keep 1!).
     //
     // In godbolt these variants all look pretty similar.
     #[inline]
-    pub(crate) fn truncate_tagged_span(&mut self, tag: InsDelTag, at: usize) -> TimeSpanRev {
+    pub(crate) fn truncate_tagged_span(&mut self, tag: InsDelTag, at: usize) -> RangeRev {
         let len = self.len();
 
         let start2 = if self.fwd && tag == Ins {
@@ -171,7 +171,7 @@ impl TimeSpanRev {
         }
         self.span.end = self.span.start + at;
 
-        TimeSpanRev {
+        RangeRev {
             span: DTRange { start: start2, end: start2 + len - at },
             fwd: self.fwd
         }
@@ -192,7 +192,7 @@ impl TimeSpanRev {
     // This logic is interchangable with truncate_tagged_span above.
     #[inline]
     #[allow(unused)] // FOR NOW...
-    pub(crate) fn split_op_span(range: TimeSpanRev, tag: InsDelTag, at: usize) -> (DTRange, DTRange) {
+    pub(crate) fn split_op_span(range: RangeRev, tag: InsDelTag, at: usize) -> (DTRange, DTRange) {
         let (start1, start2) = match (range.fwd, tag) {
             (true, Ins) => (range.span.start, range.span.start + at),
             (false, Del) => (range.span.end - at, range.span.start),
@@ -208,7 +208,7 @@ impl TimeSpanRev {
     // TODO: Move this method. I'd like to put it in TimeSpanRev's file, but we only define
     // InsDelTag locally so that doesn't make sense. Eh.
     #[inline]
-    pub(crate) fn can_append_ops(tag: InsDelTag, a: &TimeSpanRev, b: &TimeSpanRev) -> bool {
+    pub(crate) fn can_append_ops(tag: InsDelTag, a: &RangeRev, b: &RangeRev) -> bool {
         // This logic can be simplified to a single expression, but godbolt says the compiler still
         // produces branchy code anyway so eh.
 
@@ -231,7 +231,7 @@ impl TimeSpanRev {
         false
     }
 
-    pub(crate) fn append_ops(&mut self, tag: InsDelTag, other: TimeSpanRev) {
+    pub(crate) fn append_ops(&mut self, tag: InsDelTag, other: RangeRev) {
         debug_assert!(Self::can_append_ops(tag, self, &other));
 
         self.fwd = other.span.start >= self.span.start && (other.span.start != self.span.start || tag == Del);
@@ -257,7 +257,7 @@ impl MergableSpan for OperationInternal {
 
         self.tag == other.tag
             && can_append_content
-            && TimeSpanRev::can_append_ops(self.tag, &self.span, &other.span)
+            && RangeRev::can_append_ops(self.tag, &self.span, &other.span)
     }
 
     fn append(&mut self, other: Self) {
@@ -274,7 +274,7 @@ mod test {
     use crate::list::internal_op::{OperationCtx, OperationInternal};
     use crate::list::operation::InsDelTag;
     use crate::dtrange::DTRange;
-    use crate::rev_span::TimeSpanRev;
+    use crate::rev_range::RangeRev;
 
     #[test]
     fn internal_op_splitable() {
@@ -363,7 +363,7 @@ mod test {
     #[allow(dead_code)] // Don't complain about unused fields.
     fn print_sizes() {
         struct V1 {
-            span: TimeSpanRev,
+            span: RangeRev,
             tag: InsDelTag,
             content_pos: Option<DTRange>,
         }
