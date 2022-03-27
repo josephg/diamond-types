@@ -38,7 +38,7 @@ pub fn apply_edits_push_merge(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
             // content.clear();
 
             if *del_span > 0 {
-                last_parent = doc.oplog.add_delete_at(id, &[last_parent], *pos, *del_span);
+                last_parent = doc.oplog.add_delete_at(id, &[last_parent], *pos..*pos + *del_span);
             }
 
             if !ins_content.is_empty() {
