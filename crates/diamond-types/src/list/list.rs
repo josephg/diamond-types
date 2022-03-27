@@ -75,9 +75,12 @@ pub(crate) fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agen
     };
 
     oplog.assign_next_time_to_client_known(agent, span);
+
+    oplog.advance_frontier(&branch.version, span);
     insert_history_local(oplog, &mut branch.version, span);
 
-    oplog.version = smallvec![next_time - 1];
+    // oplog.version = smallvec![next_time - 1];
+
     next_time - 1
 }
 

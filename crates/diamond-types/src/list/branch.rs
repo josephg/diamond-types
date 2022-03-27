@@ -1,13 +1,14 @@
 use std::ops::Range;
 use jumprope::JumpRope;
 use crate::list::{Branch, OpLog, Time};
-use smallvec::smallvec;
+use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use crate::list::list::apply_local_operation;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::{InsDelTag, Operation};
 use crate::dtrange::DTRange;
 use crate::{AgentId, ROOT_TIME};
+use crate::list::remote_ids::RemoteId;
 
 impl Branch {
     /// Create a new (empty) branch at the start of history. The branch will be an empty list.
@@ -31,8 +32,13 @@ impl Branch {
         oplog.checkout_tip()
     }
 
-    /// Return the current version of the branch.
+    /// Return the current version of the branch in local form
     pub fn local_version(&self) -> &[Time] { &self.version }
+
+    /// Return the current version of the branch in remote form
+    pub fn remote_version(&self, oplog: &OpLog) -> SmallVec<[RemoteId; 4]> {
+        oplog.local_to_remote_version(&self.version)
+    }
 
     /// Return the current document contents. Note there is no mutable variant of this method
     /// because mutating the document's content directly would violate the constraint that all
@@ -157,5 +163,20 @@ mod test {
 
         let b2 = Branch::new_at_local_version(&oplog, &[after_del]);
         assert_eq!(b2.content, "hi");
+    }
+
+    #[test]
+    fn branch_at_early_version_applies_cleanly() {
+        // Regression.
+        let mut oplog = OpLog::new();
+        oplog.get_or_create_agent_id("seph");
+
+        let mut branch1 = oplog.checkout(&[ROOT_TIME]);
+        branch1.insert(&mut oplog, 0, 0, "aaa");
+
+        let mut branch2 = oplog.checkout(&[ROOT_TIME]);
+        branch2.insert(&mut oplog, 0, 0, "bbb");
+
+        oplog.dbg_check(true);
     }
 }
