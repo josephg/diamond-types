@@ -66,7 +66,7 @@ pub fn get_ops_since(oplog: &DTOpLog, version: &[Time]) -> WasmResult {
 
 // pub fn to_ar
 
-pub fn to_txn_arr(oplog: &DTOpLog) -> WasmResult {
+pub fn get_history(oplog: &DTOpLog) -> WasmResult {
     let mut txns = oplog.iter_history().collect::<Vec<_>>();
 
     // Internally the rust code uses [ROOT_TIME] for root parents, but from JS land we're using an
@@ -279,9 +279,9 @@ impl OpLog {
 
     // pub fn to_ar
 
-    #[wasm_bindgen(js_name = txns)]
-    pub fn to_txn_arr(&self) -> WasmResult {
-        to_txn_arr(&self.inner)
+    #[wasm_bindgen(js_name = getHistory)]
+    pub fn get_history(&self) -> WasmResult {
+        get_history(&self.inner)
     }
 
     #[wasm_bindgen(js_name = getLocalVersion)]
@@ -489,6 +489,11 @@ impl Doc {
     #[wasm_bindgen(js_name = xfSince)]
     pub fn xf_since(&self, from_version: &[usize]) -> WasmResult {
         xf_since(&self.inner.oplog, from_version)
+    }
+
+    #[wasm_bindgen(js_name = getHistory)]
+    pub fn get_history(&self) -> WasmResult {
+        get_history(&self.inner.oplog)
     }
 
     #[wasm_bindgen(js_name = mergeVersions)]
