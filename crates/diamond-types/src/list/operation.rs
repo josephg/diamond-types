@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::ops::Range;
 /// Positional updates are a kind of operation (patch) which is larger than traversals but
 /// retains temporal information. So, we know when each change happened relative to all other
@@ -27,6 +28,15 @@ pub enum InsDelTag { Ins, Del }
 
 impl Default for InsDelTag {
     fn default() -> Self { InsDelTag::Ins } // Arbitrary.
+}
+
+impl Display for InsDelTag {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Ins => f.write_str("Ins"),
+            Del => f.write_str("Del")
+        }
+    }
 }
 
 /// So the span here is interesting. For inserts, this is the range of positions the inserted

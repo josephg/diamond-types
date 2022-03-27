@@ -84,12 +84,12 @@ impl OpLog {
         self.crdt_id_to_remote(crdt_id)
     }
 
-    pub fn try_remote_to_local_version<I: Iterator<Item=RemoteId>>(&self, ids_iter: I) -> Result<LocalVersion, ConversionError> {
+    pub fn try_remote_to_local_version<'a, I: Iterator<Item=&'a RemoteId> + 'a>(&self, ids_iter: I) -> Result<LocalVersion, ConversionError> {
         let mut version: LocalVersion = ids_iter
-            .map(|remote_id| self.try_remote_to_local_time(&remote_id))
+            .map(|remote_id| self.try_remote_to_local_time(remote_id))
             .collect::<Result<LocalVersion, ConversionError>>()?;
 
-        // This is weird, but it lets us use [] to refer to [ROOT_TIME] in wasm.
+        // This is weird, but it lets us use [] to refer to [ROOT_TIME] in wasm and in the CLI.
         if version.is_empty() {
             version.push(ROOT_TIME);
         }
@@ -97,9 +97,9 @@ impl OpLog {
         Ok(version)
     }
 
-    pub fn remote_to_local_version<I: Iterator<Item=RemoteId>>(&self, ids_iter: I) -> LocalVersion {
+    pub fn remote_to_local_version<'a, I: Iterator<Item=&'a RemoteId> + 'a>(&self, ids_iter: I) -> LocalVersion {
         let mut version: LocalVersion = ids_iter
-            .map(|remote_id| self.remote_to_local_time(&remote_id))
+            .map(|remote_id| self.remote_to_local_time(remote_id))
             .collect();
 
         if version.is_empty() {
