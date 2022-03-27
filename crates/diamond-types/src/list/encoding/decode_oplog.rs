@@ -533,8 +533,7 @@ impl<'a> ReadPatchesIter<'a> {
 
         let (start, raw_end) = match (tag, fwd) {
             (Ins, true) => (raw_start, raw_start + len),
-            (Ins, false) => (raw_start, raw_start),
-            (Del, true) => (raw_start, raw_start),
+            (Ins, false) | (Del, true) => (raw_start, raw_start), // Weird symmetry!
             (Del, false) => (raw_start - len, raw_start - len),
         };
         // dbg!((raw_start, tag, fwd, len, start, raw_end));

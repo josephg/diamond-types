@@ -28,6 +28,7 @@ use serde_crate::Serialize;
 const MAGIC_BYTES: [u8; 8] = *b"DMNDTYPS";
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(Serialize), serde(crate="serde_crate"))]
 pub enum ParseError {
     InvalidMagic,

@@ -248,10 +248,10 @@ impl AgentMapping {
 // }
 
 
-fn write_frontier(dest: &mut Vec<u8>, frontier: &[Time], map: &mut AgentMapping, oplog: &OpLog) {
+fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapping, oplog: &OpLog) {
     // I'm sad that I need the buf here + copying. It'd be faster if it was zero-copy.
     let mut buf = Vec::new();
-    let mut iter = frontier.iter().peekable();
+    let mut iter = version.iter().peekable();
     while let Some(t) = iter.next() {
         let has_more = iter.peek().is_some();
         let id = oplog.time_to_crdt_id(*t);
@@ -569,7 +569,7 @@ impl OpLog {
         // This nominally needs to happen before we write out agent_mapping.
         // TODO: Support partial data sets. (from_frontier)
         let mut start_branch = Vec::new();
-        write_frontier(&mut start_branch, from_version, &mut agent_mapping, self);
+        write_local_version(&mut start_branch, from_version, &mut agent_mapping, self);
         if opts.store_start_branch_content {
             if local_version_is_root(from_version) {
                 // Optimization. TODO: Check if this is worth it.
