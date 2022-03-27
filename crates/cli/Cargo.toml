@@ -1,0 +1,20 @@
+[package]
+name = "diamond-cli"
+version = "0.1.0"
+edition = "2021"
+description = "CLI for interacting with diamond-types data"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "dt"
+path = "src/main.rs"
+
+[dependencies]
+diamond-types = { path = "../diamond-types", features = ["serde"] }
+clap = { version = "3.1.6", features = ["derive"] }
+similar = "2.1.0"
+rand = "0.8.5"
+serde = "1.0.136"
+serde_json = "1.0.79"
+anyhow = "1.0.56"

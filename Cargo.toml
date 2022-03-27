@@ -12,3 +12,8 @@ codegen-units = 1
 opt-level = 2
 #opt-level = "s"
 #debugging = true
+
+[profile.release.package.diamond-cli]
+opt-level = "z"
+#lto = false
+#strip = true
