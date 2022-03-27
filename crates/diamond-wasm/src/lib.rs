@@ -16,6 +16,12 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 type WasmResult<T = JsValue> = Result<T, serde_wasm_bindgen::Error>;
 
+// // The versions we consume from javascript cannot really represent ROOT_TIME. (Actually ROOT_TIME
+// // is sort of unnecessary internally in DT anyway). We'll map [ROOT_TIME] -> [].
+// fn normalize_local_version(v: &[Time]) -> LocalVersion {
+//     v.iter().filter(|t| t != ROOT_TIME).collect()
+// }
+
 #[wasm_bindgen]
 pub struct Branch(DTBranch);
 
@@ -143,10 +149,14 @@ pub fn merge_versions(oplog: &DTOpLog, a: &[usize], b: &[usize]) -> Box<[usize]>
     oplog.version_union(a, b).into_iter().collect()
 }
 
+fn unwrap_agentid(agent_id: Option<AgentId>) -> AgentId {
+    agent_id.expect_throw("Agent missing. Set agent before modifying oplog.")
+}
+
 #[wasm_bindgen]
 pub struct OpLog {
     inner: DTOpLog,
-    agent_id: AgentId,
+    agent_id: Option<AgentId>,
 }
 
 #[wasm_bindgen]
@@ -156,22 +166,25 @@ impl OpLog {
         utils::set_panic_hook();
 
         let mut inner = DTOpLog::new();
-        let name_str = agent_name.as_ref().map_or("seph", |s| s.as_str());
-        let agent_id = inner.get_or_create_agent_id(name_str);
+        let agent_id = agent_name.map(|name| {
+            inner.get_or_create_agent_id(name.as_str())
+        });
 
         Self { inner, agent_id }
     }
 
     #[wasm_bindgen(js_name = setAgent)]
     pub fn set_agent(&mut self, agent: &str) {
-        self.agent_id = self.inner.get_or_create_agent_id(agent);
+        self.agent_id = Some(self.inner.get_or_create_agent_id(agent));
     }
 
     #[wasm_bindgen(js_name = clone)]
     pub fn js_clone(&self) -> Self {
-        let name = self.inner.get_agent_name(self.agent_id);
+        // We can't trust the .clone() process to preserve the agent_id.
+        let name = self.agent_id.map(|id| self.inner.get_agent_name(id));
         let mut new_oplog = self.inner.clone();
-        let agent_id = new_oplog.get_or_create_agent_id(name);
+        let agent_id = name.map(|name| new_oplog.get_or_create_agent_id(name));
+
         Self {
             inner: new_oplog,
             agent_id
@@ -179,22 +192,22 @@ impl OpLog {
     }
 
     #[wasm_bindgen(js_name = ins)]
-    pub fn push_insert(&mut self, pos: usize, content: &str, parents_in: Option<Box<[usize]>>) -> usize {
+    pub fn add_insert(&mut self, pos: usize, content: &str, parents_in: Option<Box<[usize]>>) -> usize {
         let parents = parents_in.unwrap_or_else(|| {
             // Its gross here - I'm converting the frontier into a smallvec then immediately
             // converting it to a slice again :p
             self.inner.local_version().into()
         });
-        self.inner.add_insert_at(self.agent_id, &parents, pos, content)
+        self.inner.add_insert_at(unwrap_agentid(self.agent_id), &parents, pos, content)
     }
 
     #[wasm_bindgen(js_name = del)]
-    pub fn push_delete(&mut self, pos: usize, len: usize, parents_in: Option<Box<[usize]>>) -> usize {
+    pub fn add_delete(&mut self, pos: usize, len: usize, parents_in: Option<Box<[usize]>>) -> usize {
         let parents = parents_in.unwrap_or_else(|| {
             // And here :p
             self.inner.local_version().into()
         });
-        self.inner.add_delete_at(self.agent_id, &parents, pos..pos + len)
+        self.inner.add_delete_at(unwrap_agentid(self.agent_id), &parents, pos..pos + len)
     }
 
     // This adds like 70kb of size to the WASM binary.
@@ -273,8 +286,9 @@ impl OpLog {
         utils::set_panic_hook();
 
         let mut inner = DTOpLog::load_from(bytes).unwrap();
-        let name_str = agent_name.as_ref().map_or("seph", |s| s.as_str());
-        let agent_id = inner.get_or_create_agent_id(name_str);
+        let agent_id = agent_name.map(|name| {
+            inner.get_or_create_agent_id(name.as_str())
+        });
 
         Self { inner, agent_id }
     }
@@ -306,7 +320,7 @@ impl OpLog {
 #[wasm_bindgen]
 pub struct Doc {
     inner: ListCRDT,
-    agent_id: AgentId,
+    agent_id: Option<AgentId>,
 }
 
 
@@ -325,8 +339,9 @@ impl Doc {
         utils::set_panic_hook();
 
         let mut inner = ListCRDT::new();
-        let name_str = agent_name.as_ref().map_or("seph", |s| s.as_str());
-        let agent_id = inner.get_or_create_agent_id(name_str);
+        let agent_id = agent_name.map(|name| {
+            inner.get_or_create_agent_id(name.as_str())
+        });
 
         Doc { inner, agent_id }
     }
@@ -334,12 +349,12 @@ impl Doc {
     #[wasm_bindgen]
     pub fn ins(&mut self, pos: usize, content: &str) {
         // let id = self.0.get_or_create_agent_id("seph");
-        self.inner.insert(self.agent_id, pos, content);
+        self.inner.insert(unwrap_agentid(self.agent_id), pos, content);
     }
 
     #[wasm_bindgen]
     pub fn del(&mut self, pos: usize, del_span: usize) {
-        self.inner.delete(self.agent_id, pos .. pos + del_span);
+        self.inner.delete(unwrap_agentid(self.agent_id), pos .. pos + del_span);
     }
 
     #[wasm_bindgen]
@@ -380,8 +395,9 @@ impl Doc {
 
         // let mut inner = ListCRDT::load_from(bytes).map_err(|e| e.into())?;
         let mut inner = ListCRDT::load_from(bytes).unwrap();
-        let name_str = agent_name.as_ref().map_or("seph", |s| s.as_str());
-        let agent_id = inner.get_or_create_agent_id(name_str);
+        let agent_id = agent_name.map(|name| {
+            inner.get_or_create_agent_id(name.as_str())
+        });
 
         Self {
             inner,
@@ -444,18 +460,6 @@ impl Doc {
         merge_versions(&self.inner.oplog, a, b)
     }
 
-    // #[wasm_bindgen]
-    // pub fn get_vector_clock(&self) -> Result<JsValue, JsValue> {
-    //     serde_wasm_bindgen::to_value(&self.inner.get_vector_clock())
-    //         .map_err(|err| err.into())
-    // }
-    //
-    // #[wasm_bindgen]
-    // pub fn get_frontier(&self) -> Result<JsValue, JsValue> {
-    //     serde_wasm_bindgen::to_value(&self.inner.get_frontier::<Vec<RemoteId>>())
-    //         .map_err(|err| err.into())
-    // }
-    //
     // #[wasm_bindgen]
     // pub fn get_next_order(&self) -> Result<JsValue, JsValue> {
     //     serde_wasm_bindgen::to_value(&self.inner.get_next_time())
