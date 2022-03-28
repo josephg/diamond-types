@@ -579,6 +579,16 @@ depd@~1.1.2:
   resolved "https://registry.yarnpkg.com/depd/-/depd-1.1.2.tgz#9bcd52e14c097763e749b274c4346ed2e560b5a9"
   integrity sha1-m81S4UwJd2PnSbJ0xDRu0uVgtak=
 
+diamond-types-node@^0.1.0:
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/diamond-types-node/-/diamond-types-node-0.1.0.tgz#548812ec9646c4df5b9f5e4c5fc9257f62d6dccf"
+  integrity sha512-STKNhFu6DCbmZVHsje4tVqKWPPcFz2clj7IHZFLB8SHsbKzO7YWpqZYBfXbxIBUqwKggFtqOaUQQuE78FNACow==
+
+diamond-types-web@^0.1.0:
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/diamond-types-web/-/diamond-types-web-0.1.0.tgz#27342eb33334fb38009451cbbbc6dcaa934c14e6"
+  integrity sha512-26hWNKfsnMqte73cjjFwdlZSgQuu7LN9j9Y22BughFxtYrTBPmglWqkailpR9OtIg5PIwzG1VqGj9Z8QIcrp/A==
+
 diamond-wasm@^0.1.1:
   version "0.1.1"
   resolved "https://registry.yarnpkg.com/diamond-wasm/-/diamond-wasm-0.1.1.tgz#80c4828f3503fe0bb43ade778659631b03057110"

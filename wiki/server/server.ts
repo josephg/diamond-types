@@ -1,4 +1,4 @@
-import {default as init, Branch, Doc, OpLog} from 'diamond-wasm'
+import {Branch, Doc, OpLog} from 'diamond-types-node'
 import {default as polka} from 'polka'
 import {default as sirv} from 'sirv'
 import {BraidStream, stream as braidStream} from '@braid-protocol/server'
@@ -16,16 +16,6 @@ import { vEq } from '../common/utils.js'
 // })
 
 const {raw} = bodyParser
-
-// This works if we add --experimental-import-meta-resolve
-// console.log(import.meta.resolve!('diamond-wasm/diamond_wasm_bg.wasm'))
-const bytes = fs.readFileSync('node_modules/diamond-wasm/diamond_wasm_bg.wasm')
-const wasmModule = new WebAssembly.Module(bytes)
-const wasmReady = init(wasmModule)
-wasmReady.then(() => {
-  console.log('wasm init ok')
-  // console.log(new OpLog().toBytes())
-})
 
 const assets = sirv('public', {
   // maxAge: 31536000, // 1Y
@@ -238,11 +228,8 @@ app.get('*', clientCode)
 // const bytes = x.toBytes()
 // console.log(bytes)
 
+app.listen(4321, (err: any) => {
+  if (err) throw err
 
-wasmReady.then(() => {
-  app.listen(4321, (err: any) => {
-    if (err) throw err
-
-    console.log('listening on port 4321')
-  })
+  console.log('listening on port 4321')
 })

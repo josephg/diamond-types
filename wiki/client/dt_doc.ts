@@ -1,7 +1,7 @@
 // This contains the mechanismy code for interacting with diamond types
 
 import { ClientOpts, subscribe } from "@braid-protocol/client"
-import { default as init, Doc } from "diamond-wasm"
+import { default as init, Doc } from "diamond-types-web"
 import { strPosToUni, uniToStrPos } from "unicount"
 import { assert, calcDiff, transformPosition, vEq, wait } from "../common/utils"
 
