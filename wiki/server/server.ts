@@ -153,6 +153,15 @@ const broadcastPatch = (name: string, oplog: OpLog, since_version: Uint32Array) 
 
 // All documents implicitly exist.
 const DATA_URL_BASE = '/api/data/'
+app.options(`${DATA_URL_BASE}*`, async (req, res, next) => {
+  res.writeHead(200, {
+      // Set wiki pages to be globally *readable*
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET',
+  })
+  res.end()
+})
+
 app.get(`${DATA_URL_BASE}*`, async (req, res, next) => {
   // console.log(req)
 
