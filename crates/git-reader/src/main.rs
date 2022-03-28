@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let mut branch = branch_at_oid[&first_parent.id()].clone();
 
             for p in iter {
-                let frontier = branch_at_oid[&p.id()].local_version();
+                let frontier = branch_at_oid[&p.id()].local_version_ref();
                 branch.merge(&oplog, frontier);
             }
 
@@ -196,7 +196,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // dbg!(&oplog);
     let branch = Branch::new_at_tip(&oplog);
     // println!("{}: '{}'", file, branch.content);
-    println!("Branch at {:?}", branch.local_version());
+    println!("Branch at {:?}", branch.local_version_ref());
 
     // dbg!(&oplog.history.entries.len());
     // println!("Number of entries in history: {}", &oplog.history.num_entries());

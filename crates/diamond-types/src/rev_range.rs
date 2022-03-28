@@ -24,7 +24,9 @@ pub struct RangeRev {
     pub span: DTRange,
 
     /// If target is `1..4` then we either reference `1,2,3` (rev=false) or `3,2,1` (rev=true).
-    /// TODO: Consider swapping this, and making it a fwd variable (default true).
+    ///
+    // TODO: Consider just inverting start / end in the inner span to indicate fwd / backwards.
+    // That might reduce performance, but lower memory usage.
     pub fwd: bool,
 }
 

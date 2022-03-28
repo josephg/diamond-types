@@ -1485,7 +1485,7 @@ mod tests {
         let mut oplog2 = oplog.clone();
         let version = oplog2.decode_and_add(&bytes).unwrap();
 
-        assert!(local_version_eq(&version, oplog2.local_version()));
+        assert!(local_version_eq(&version, oplog2.local_version_ref()));
     }
 
     #[test]
@@ -1502,7 +1502,7 @@ mod tests {
         let version = oplog2.decode_and_add(&bytes).unwrap();
 
         // dbg!(version);
-        assert!(local_version_eq(&version, oplog2.local_version()));
+        assert!(local_version_eq(&version, oplog2.local_version_ref()));
     }
 
     #[test]

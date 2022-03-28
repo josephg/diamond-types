@@ -69,7 +69,7 @@ pub fn local_to_remote_version(oplog: &DTOpLog, local_version: &[Time]) -> WasmR
 }
 
 pub fn oplog_version_to_remote_version(oplog: &DTOpLog) -> WasmResult {
-    let version = oplog.local_version();
+    let version = oplog.local_version_ref();
     // This is a bit naughty. I'm relying on local_to_remote_version not noticing I'm sending it
     // empty lists sometimes.
     let frontier = oplog.local_to_remote_version(version);
@@ -102,7 +102,7 @@ pub fn decode_and_add(oplog: &mut DTOpLog, bytes: &[u8]) -> WasmResult {
 }
 
 pub fn xf_since(oplog: &DTOpLog, version: &[Time]) -> WasmResult {
-    let xf = oplog.iter_xf_operations_from(version, &oplog.local_version())
+    let xf = oplog.iter_xf_operations_from(version, &oplog.local_version_ref())
         .filter_map(|(_v, op)| op)
         .collect::<Vec<_>>();
 
@@ -131,7 +131,7 @@ impl Branch {
     #[wasm_bindgen]
     pub fn all(oplog: &OpLog) -> Self {
         let mut result = Self::new();
-        result.0.merge(&oplog.inner, &oplog.inner.local_version());
+        result.0.merge(&oplog.inner, &oplog.inner.local_version_ref());
         result
     }
 
@@ -146,13 +146,13 @@ impl Branch {
         if let Some(branch) = branch {
             self.0.merge(&ops.inner, &branch);
         } else {
-            self.0.merge(&ops.inner, &ops.inner.local_version());
+            self.0.merge(&ops.inner, &ops.inner.local_version_ref());
         }
     }
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        self.0.local_version().into()
+        self.0.local_version_ref().into()
     }
 }
 
@@ -197,7 +197,7 @@ impl OpLog {
         let parents = parents_in.unwrap_or_else(|| {
             // Its gross here - I'm converting the frontier into a smallvec then immediately
             // converting it to a slice again :p
-            self.inner.local_version().into()
+            self.inner.local_version_ref().into()
         });
         // Safe because we're just adding [ROOT] if its set.
         self.inner.add_insert_at(unwrap_agentid(self.agent_id), &parents, pos, content)
@@ -207,7 +207,7 @@ impl OpLog {
     pub fn add_delete(&mut self, pos: usize, len: usize, parents_in: Option<Box<[usize]>>) -> usize {
         let parents = parents_in.unwrap_or_else(|| {
             // And here :p
-            self.inner.local_version().into()
+            self.inner.local_version_ref().into()
         });
         self.inner.add_delete_at(unwrap_agentid(self.agent_id), &parents, pos..pos + len)
     }
@@ -253,7 +253,7 @@ impl OpLog {
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        self.inner.local_version().into()
+        self.inner.local_version_ref().into()
     }
 
     // #[wasm_bindgen]
@@ -440,7 +440,7 @@ impl Doc {
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        self.inner.branch.local_version().into()
+        self.inner.branch.local_version_ref().into()
     }
 
     #[wasm_bindgen(js_name = localToRemoteVersion)]
@@ -450,7 +450,7 @@ impl Doc {
 
     #[wasm_bindgen(js_name = getRemoteVersion)]
     pub fn get_remote_version(&self) -> WasmResult {
-        local_to_remote_version(&self.inner.oplog, &self.inner.branch.local_version())
+        local_to_remote_version(&self.inner.oplog, &self.inner.branch.local_version_ref())
     }
 
     #[wasm_bindgen(js_name = xfSince)]

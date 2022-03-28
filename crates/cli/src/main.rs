@@ -121,7 +121,7 @@ fn checkout_version_or_tip(oplog: &OpLog, version: Option<Box<[RemoteId]>>) -> B
     let v = if let Some(version) = version {
         oplog.try_remote_to_local_version(version.iter()).unwrap()
     } else {
-        oplog.local_version().into() // Gross copy.
+        oplog.local_version()
     };
 
     oplog.checkout(&v)

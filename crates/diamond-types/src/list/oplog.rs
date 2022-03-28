@@ -3,7 +3,7 @@ use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{Branch, ClientData, OpLog, Time};
+use crate::list::{Branch, ClientData, LocalVersion, OpLog, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
@@ -428,8 +428,19 @@ impl OpLog {
         self.history.entries.iter_range_map_packed(range, |e| e.into())
     }
 
-    pub fn local_version(&self) -> &[Time] {
+    /// Returns a `&[usize]` reference to the tip of the oplog. This version contains all
+    /// known operations.
+    ///
+    /// This method is provided alongside [`local_version`](OpLog::local_version) because its
+    /// slightly faster.
+    pub fn local_version_ref(&self) -> &[Time] {
         &self.version
+    }
+
+    /// Return the current tip version of the oplog. This is the version which contains all
+    /// operations in the oplog.
+    pub fn local_version(&self) -> LocalVersion {
+        self.version.clone()
     }
 
     pub fn remote_version(&self) -> SmallVec<[RemoteId; 4]> {
