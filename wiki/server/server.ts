@@ -217,7 +217,7 @@ app.patch(`${DATA_URL_BASE}*`, raw({type: 'application/diamond-types'}), async (
     console.log(`got patch ${patch.length} from ${req.socket.remoteAddress}`)
 
     const vBefore = oplog.getLocalVersion()
-    oplog.mergeBytes(patch)
+    oplog.addFromBytes(patch)
     const vAfter = oplog.getLocalVersion()
 
     if (!vEq(vBefore, vAfter)) {
