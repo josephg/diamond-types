@@ -42,3 +42,9 @@ diamond-types = { path = "../diamond-types", features = ["serde", "wchar_convers
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.13"
+
+#[package.metadata.wasm-pack.profile.release]
+#wasm-opt = false
+
+[package.metadata.wasm-pack.profile.profiling]
+wasm-opt = false

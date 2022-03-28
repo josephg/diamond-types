@@ -6,3 +6,5 @@ vis/build
 *.dt
 wiki/dist
 wiki/dist-client
+pkg-web
+pkg-node
