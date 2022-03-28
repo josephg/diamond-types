@@ -7,6 +7,8 @@ use std::ops::Range;
 use crate::list::Time;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
+#[cfg(feature = "serde")]
+use crate::list::serde::DTRangeTuple;
 use crate::ROOT_TIME;
 
 /// This is an internal replacement for Range<usize>. The main use for this is that std::Range
@@ -14,7 +16,7 @@ use crate::ROOT_TIME;
 /// a start and end pair. DTRange can be converted to and from std::Range with .from() and .into().
 /// It also has some locally useful methods.
 #[derive(Copy, Clone, Eq, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate", from = "DTRangeTuple", into = "DTRangeTuple"))]
 pub struct DTRange {
     pub start: usize,
     pub end: usize

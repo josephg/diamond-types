@@ -1,6 +1,8 @@
 use crate::list::{LocalVersion, OpLog, Time};
 use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
+use super::serde::RemoteIdTuple;
+#[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::dtrange::DTRange;
@@ -15,12 +17,11 @@ use crate::remotespan::CRDTId;
 
 /// External equivalent of CRDTId
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate", from = "RemoteIdTuple", into = "RemoteIdTuple"))]
 pub struct RemoteId {
     pub agent: SmartString,
     pub seq: usize,
 }
-
 
 /// External equivalent of CRDTSpan.
 #[derive(Clone, Debug, Eq, PartialEq)]

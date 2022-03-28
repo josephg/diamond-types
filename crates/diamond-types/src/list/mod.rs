@@ -39,7 +39,7 @@ mod fuzzer_tools;
 mod oplog_merge_fuzzer;
 
 #[cfg(feature = "serde")]
-mod serde;
+pub(crate) mod serde;
 mod buffered_iter;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
