@@ -157,6 +157,7 @@ app.options(`${DATA_URL_BASE}*`, async (req, res, next) => {
   res.writeHead(200, {
       // Set wiki pages to be globally *readable*
       'access-control-allow-origin': '*',
+      'access-control-allow-headers': 'peer,subscribe',
       'access-control-allow-methods': 'GET',
   })
   res.end()
