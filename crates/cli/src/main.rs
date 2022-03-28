@@ -9,7 +9,6 @@ use similar::utils::TextDiffRemapper;
 use diamond_types::list::{Branch, OpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
 use diamond_types::list::remote_ids::RemoteId;
-use diamond_types::ROOT_TIME;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -167,13 +166,8 @@ fn main() -> Result<(), anyhow::Error> {
 
         Commands::Ops { oplog, transformed, json, history: history_mode } => {
             if history_mode {
-                for mut hist in oplog.iter_history() {
+                for hist in oplog.iter_history() {
                     if json {
-                        if hist.parents.len() == 1 && hist.parents[0] == ROOT_TIME {
-                            // This is gross. I want to leave ROOT_TIME as an empty array rather
-                            // than [usize::MAX], for a handful of reasons.
-                            hist.parents.clear();
-                        }
                         let s = serde_json::to_string(&hist).unwrap();
                         println!("{s}");
                     } else {

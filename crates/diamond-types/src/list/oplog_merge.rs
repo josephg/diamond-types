@@ -4,7 +4,7 @@ use rle::{AppendRle, HasLength};
 use crate::list::OpLog;
 use crate::dtrange::DTRange;
 use crate::rle::KVPair;
-use crate::{AgentId, ROOT_TIME};
+use crate::AgentId;
 use crate::list::frontier::debug_assert_frontier_sorted;
 use crate::list::history::MinimalHistoryEntry;
 
@@ -24,7 +24,7 @@ impl OpLog {
         let mut queue = BinaryHeap::new();
         // dbg!(&other.frontier, &other.history);
         for ord in &other.version {
-            if *ord != ROOT_TIME { queue.push(*ord); }
+            queue.push(*ord);
         }
 
         let mut result = SmallVec::new();
@@ -71,7 +71,7 @@ impl OpLog {
 
                     // And push parents.
                     for p in containing_txn.parents.iter() {
-                        if *p != ROOT_TIME { queue.push(*p); }
+                        queue.push(*p);
                     }
 
                     break;
@@ -134,12 +134,10 @@ impl OpLog {
                 // We need to convert other parents to self parents. This is a bit gross but eh.
                 // dbg!(&hist_entry.parents);
                 for t in &mut hist_entry.parents {
-                    if *t != ROOT_TIME {
-                        let mut id = other.time_to_crdt_id(*t);
-                        id.agent = agent_map[id.agent as usize];
-                        let self_time = self.crdt_id_to_time(id);
-                        *t = self_time;
-                    }
+                    let mut id = other.time_to_crdt_id(*t);
+                    id.agent = agent_map[id.agent as usize];
+                    let self_time = self.crdt_id_to_time(id);
+                    *t = self_time;
                 }
 
                 hist_entry.parents.sort_unstable();
@@ -197,7 +195,7 @@ mod test {
         // Ok now we'll append data to both oplogs
         a.add_insert(0, 0, "aaa");
         b.get_or_create_agent_id("mike");
-        b.add_delete_without_content(1, 0, 2);
+        b.add_delete_without_content(1, 0..2);
 
         merge_both_and_check(&mut a, &mut b);
     }

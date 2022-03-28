@@ -15,7 +15,7 @@ use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{InsDelTag, Operation};
 use crate::dtrange::{is_underwater, DTRange};
 use crate::rle::{KVPair, RleSpanHelpers};
-use crate::{AgentId, ROOT_TIME};
+use crate::AgentId;
 use crate::list::frontier::{advance_frontier_by, local_version_eq, frontier_is_sorted};
 use crate::list::history_tools::DiffFlag;
 use crate::list::internal_op::OperationInternal;
@@ -114,7 +114,7 @@ impl M2Tracker {
     }
 
     fn get_cursor_before(&self, time: Time) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
-        if time == ROOT_TIME {
+        if time == usize::MAX {
             // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
             // just panic() here.
             self.range_tree.cursor_at_end()
@@ -126,7 +126,7 @@ impl M2Tracker {
 
     // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
     fn get_cursor_after(&self, time: Time, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
-        if time == ROOT_TIME {
+        if time == usize::MAX {
             self.range_tree.cursor_at_start()
         } else {
             let marker = self.marker_at(time);
@@ -366,7 +366,7 @@ impl M2Tracker {
                 // UNDERWATER_START = 4611686018427387903
 
                 let (origin_left, mut cursor) = if op.start() == 0 {
-                    (ROOT_TIME, self.range_tree.mut_cursor_at_start())
+                    (usize::MAX, self.range_tree.mut_cursor_at_start())
                 } else {
                     let mut cursor = self.range_tree.mut_cursor_at_content_pos(op.start() - 1, false);
                     // dbg!(&cursor, cursor.get_raw_entry());
@@ -376,22 +376,22 @@ impl M2Tracker {
                 };
 
                 // Origin_right should be the next item which isn't in the NotInsertedYet state.
-                // If we reach the end of the document before that happens, use ROOT_TIME.
+                // If we reach the end of the document before that happens, use usize::MAX.
                 let origin_right = if !cursor.roll_to_next_entry() {
-                    ROOT_TIME
+                    usize::MAX
                 } else {
                     let mut c2 = cursor.clone();
                     loop {
                         let e = c2.try_get_raw_entry();
                         if let Some(e) = e {
                             if e.state == NOT_INSERTED_YET {
-                                if !c2.next_entry() { break ROOT_TIME; }
+                                if !c2.next_entry() { break usize::MAX; }
                                 // Otherwise keep looping.
                             } else {
                                 // We can use this.
                                 break e.at_offset(c2.offset);
                             }
-                        } else { break ROOT_TIME; }
+                        } else { break usize::MAX; }
                     }
                 };
 
@@ -810,12 +810,12 @@ impl OpLog {
 
     /// Get all transformed operations from the start of time.
     ///
-    /// This is a shorthand for `oplog.get_xf_operations(&[ROOT_TIME], oplog.local_version)`, but
+    /// This is a shorthand for `oplog.get_xf_operations(&[], oplog.local_version)`, but
     /// I hope that future optimizations make this method way faster.
     ///
     /// See [OpLog::iter_xf_operations_from](OpLog::iter_xf_operations_from) for more information.
     pub fn iter_xf_operations(&self) -> impl Iterator<Item=(DTRange, Option<Operation>)> + '_ {
-        self.iter_xf_operations_from(&[ROOT_TIME], &self.version)
+        self.iter_xf_operations_from(&[], &self.version)
     }
 }
 
@@ -1030,7 +1030,7 @@ mod test {
     fn test_ff() {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("a");
-        list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.add_insert_at(0, &[], 0, "aaa");
 
         list.branch.merge(&list.oplog, &[1]);
         list.branch.merge(&list.oplog, &[2]);
@@ -1045,8 +1045,8 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.oplog.add_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        list.oplog.add_insert_at(0, &[], 0, "aaa");
+        list.oplog.add_insert_at(1, &[], 0, "bbb");
         list.branch.merge(&list.oplog, &[2, 5]);
 
         assert_eq!(list.branch.version.as_slice(), &[2, 5]);
@@ -1065,8 +1065,8 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.oplog.add_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        list.oplog.add_insert_at(0, &[], 0, "aaa");
+        list.oplog.add_insert_at(1, &[], 0, "bbb");
 
         list.branch.merge(&list.oplog, &[2, 5]);
         // list.checkout.merge_changes_m2(&list.ops, &[2]);
@@ -1084,7 +1084,7 @@ mod test {
         list.get_or_create_agent_id("b");
 
         list.insert(0, 0, "aaa");
-        // list.ops.push_insert(0, &[ROOT_TIME], 0, "aaa");
+        // list.ops.push_insert(0, &[], 0, "aaa");
 
         list.oplog.add_delete_at(0, &[2], 1..2); // &[3]
         list.oplog.add_delete_at(1, &[2], 0..3); // &[6]
@@ -1101,7 +1101,7 @@ mod test {
         list.get_or_create_agent_id("a");
         list.get_or_create_agent_id("b");
 
-        let t = list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        let t = list.oplog.add_insert_at(0, &[], 0, "aaa");
         list.oplog.add_delete_at(0, &[t], 1..2); // 3
         list.oplog.add_delete_at(1, &[t], 0..3); // 6
         // dbg!(&list.ops);
@@ -1119,8 +1119,8 @@ mod test {
         list.get_or_create_agent_id("b");
         // list.local_insert(0, 0, "aaa");
 
-        list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        list.oplog.add_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        list.oplog.add_insert_at(0, &[], 0, "aaa");
+        list.oplog.add_insert_at(1, &[], 0, "bbb");
 
         let mut t = M2Tracker::new();
         t.apply_range(&list.oplog, (0..3).into(), None);
@@ -1174,8 +1174,8 @@ mod test {
     fn backspace() {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("seph");
-        let mut t = ROOT_TIME;
-        t = list.oplog.add_insert_at(0, &[t], 0, "abc"); // 2
+        let mut t;
+        t = list.oplog.add_insert_at(0, &[], 0, "abc"); // 2
         t = list.oplog.add_delete_at(0, &[t], 2..3); // 3 -> "ab_"
         t = list.oplog.add_delete_at(0, &[t], 1..2); // 4 -> "a__"
         t = list.oplog.add_delete_at(0, &[t], 0..1); // 5 -> "___"
@@ -1194,8 +1194,8 @@ mod test {
     fn ins_back() {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("seph");
-        let mut t = ROOT_TIME;
-        t = list.oplog.add_insert_at(0, &[t], 0, "c");
+        let mut t;
+        t = list.oplog.add_insert_at(0, &[], 0, "c");
         t = list.oplog.add_insert_at(0, &[t], 0, "b");
         t = list.oplog.add_insert_at(0, &[t], 0, "a");
 
@@ -1208,9 +1208,9 @@ mod test {
     fn test_ff_2() {
         let mut list = ListCRDT::new();
         list.get_or_create_agent_id("a");
-        list.oplog.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
+        list.oplog.add_insert_at(0, &[], 0, "aaa");
 
-        let iter = TransformedOpsIter::new(&list.oplog, &[ROOT_TIME], &list.oplog.version);
+        let iter = TransformedOpsIter::new(&list.oplog, &[], &list.oplog.version);
         dbg!(&iter);
         for x in iter {
             dbg!(x);

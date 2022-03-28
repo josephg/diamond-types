@@ -19,7 +19,6 @@ use rle::{HasLength, SplitableSpan};
 use crate::list::{LocalVersion, Time};
 use crate::list::history::History;
 use crate::dtrange::DTRange;
-use crate::ROOT_TIME;
 
 #[derive(Debug)]
 // struct VisitEntry<'a> {
@@ -98,7 +97,7 @@ impl<'a> SpanningTreeWalker<'a> {
         }
         spans.reverse();
 
-        Self::new(history, &spans, smallvec![ROOT_TIME])
+        Self::new(history, &spans, smallvec![])
     }
 
     pub(crate) fn new(history: &'a History, rev_spans: &[DTRange], start_at: LocalVersion) -> Self {
@@ -123,7 +122,6 @@ impl<'a> SpanningTreeWalker<'a> {
 
                 // We don't care about any parents outside of the input spans.
                 let parent_idxs: SmallVec<[usize; 4]> = txn.parents.iter()
-                    .filter(|t| **t != ROOT_TIME)
                     .filter_map(|t| find_entry_idx(&input, *t))
                     .collect();
 
@@ -301,12 +299,12 @@ mod test {
         let history = History::from_entries(&[
             HistoryEntry {
                 span: (0..10).into(), shadow: 0,
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![],
                 child_indexes: smallvec![]
             },
             HistoryEntry {
                 span: (10..30).into(), shadow: 0,
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![],
                 child_indexes: smallvec![]
             }
         ]);
@@ -317,13 +315,13 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![],
                 consume: (0..10).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![(0..10).into()],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![],
                 consume: (10..30).into(),
             },
         ]);
@@ -334,12 +332,12 @@ mod test {
         let history = History::from_entries(&[
             HistoryEntry {
                 span: (0..10).into(), shadow: 0,
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![],
                 child_indexes: smallvec![2]
             },
             HistoryEntry {
                 span: (10..30).into(), shadow: 10,
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![],
                 child_indexes: smallvec![2]
             },
             HistoryEntry {
@@ -355,13 +353,13 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![],
                 consume: (0..10).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![(0..10).into()],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![],
                 consume: (10..30).into(),
             },
             TxnWalkItem {
@@ -379,13 +377,13 @@ mod test {
     fn two_chains() {
         let history = History::from_entries(&[
             HistoryEntry { // a
-                span: (0..1).into(), shadow: ROOT_TIME,
-                parents: smallvec![ROOT_TIME],
+                span: (0..1).into(), shadow: usize::MAX,
+                parents: smallvec![],
                 child_indexes: smallvec![2]
             },
             HistoryEntry { // b
-                span: (1..2).into(), shadow: ROOT_TIME,
-                parents: smallvec![ROOT_TIME],
+                span: (1..2).into(), shadow: usize::MAX,
+                parents: smallvec![],
                 child_indexes: smallvec![3]
             },
             HistoryEntry { // a
@@ -399,7 +397,7 @@ mod test {
                 child_indexes: smallvec![4]
             },
             HistoryEntry { // a+b
-                span: (4..5).into(), shadow: ROOT_TIME,
+                span: (4..5).into(), shadow: usize::MAX,
                 parents: smallvec![2, 3],
                 child_indexes: smallvec![]
             },
@@ -417,7 +415,7 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![],
                 consume: (0..1).into(),
             },
             TxnWalkItem {
@@ -430,7 +428,7 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![(2..3).into(), (0..1).into()],
                 advance_rev: smallvec![],
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![],
                 consume: (1..2).into(),
             },
             TxnWalkItem {
@@ -455,8 +453,8 @@ mod test {
         let history = History::from_entries(&[
             HistoryEntry {
                 span: (0..10).into(),
-                shadow: ROOT_TIME,
-                parents: smallvec![ROOT_TIME],
+                shadow: usize::MAX,
+                parents: smallvec![],
                 child_indexes: smallvec![]
             },
         ]);

@@ -36,7 +36,7 @@
 //! let mut oplog = OpLog::new();
 //! let fred = oplog.get_or_create_agent_id("fred");
 //! oplog.add_insert(fred, 0, "abc");
-//! oplog.add_delete_without_content(fred, 1, 1); // Delete the 'b'
+//! oplog.add_delete_without_content(fred, 1..2); // Delete the 'b'
 //! ```
 //!
 //! There are also other methods like [`oplog.add_insert_at`](list::OpLog::add_insert_at) which
@@ -189,5 +189,5 @@ mod remotespan;
 mod rev_range;
 
 pub type AgentId = u32;
-pub const ROOT_AGENT: AgentId = AgentId::MAX;
-pub const ROOT_TIME: usize = usize::MAX;
+const ROOT_AGENT: AgentId = AgentId::MAX;
+const ROOT_TIME: usize = usize::MAX;

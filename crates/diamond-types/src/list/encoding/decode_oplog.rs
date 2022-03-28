@@ -6,7 +6,7 @@ use crate::list::frontier::{advance_frontier_by_known_run, clean_version, local_
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::rev_range::RangeRev;
-use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
+use crate::AgentId;
 use crate::unicount::{consume_chars, count_chars, split_at_char};
 use crate::list::encoding::ParseError::*;
 use rle::{AppendRle, SplitableSpanCtx, SplitableSpanHelpers, Trim, TrimCtx};
@@ -260,14 +260,11 @@ impl<'a> BufReader<'a> {
         loop {
             // let agent = self.next_str()?;
             let (mapped_agent, has_more) = strip_bit_usize(self.next_usize()?);
-            let seq = self.next_usize()?;
+            let seq = self.next_usize()?; // Bleh. Skip me when root!
+            if mapped_agent == 0 { break; } // Root.
 
-            let id = if mapped_agent == 0 {
-                CRDTId { agent: ROOT_AGENT, seq: 0 }
-            } else {
-                let agent = agent_map[mapped_agent - 1].0;
-                CRDTId { agent, seq }
-            };
+            let agent = agent_map[mapped_agent - 1].0;
+            let id = CRDTId { agent, seq };
 
             let time = oplog.try_crdt_id_to_time(id)
                 .ok_or(BaseVersionUnknown)?;
@@ -315,7 +312,8 @@ impl<'a> BufReader<'a> {
 
             let parent = if is_foreign {
                 if n == 0 {
-                    ROOT_TIME
+                    // The parents list is empty (ie, our parent is ROOT).
+                    break;
                 } else {
                     let agent = agent_map[n - 1].0;
                     let seq = self.next_usize()?;
@@ -456,7 +454,7 @@ fn history_entry_map_and_truncate(mut hist_entry: MinimalHistoryEntry, version_m
     // Map parents. Parents are underwater when they're local to the file, and need mapping.
     // const UNDERWATER_LAST: usize = ROOT_TIME - 1;
     for p in hist_entry.parents.iter_mut() {
-        if *p >= UNDERWATER_START && *p != ROOT_TIME {
+        if *p >= UNDERWATER_START {
             let (span, offset) = version_map.find_packed_with_offset(*p);
             *p = span.1.start + offset;
         }
@@ -849,6 +847,7 @@ impl OpLog {
                 DataMissing
             } else { e }
         })?;
+
         // The start frontier also optionally contains the document content at this version, but
         // we can't parse it yet. TODO!
 
@@ -1162,7 +1161,7 @@ mod tests {
         doc.get_or_create_agent_id("seph");
         doc.insert(0, 0, "hi there");
         // TODO: Make another test where we store this stuff...
-        doc.delete_without_content(0, 3, 4); // 'hi e'
+        doc.delete_without_content(0, 3..7); // 'hi e'
         doc.insert(0, 3, "m");
         doc
     }
@@ -1205,7 +1204,7 @@ mod tests {
         let data_1 = doc.oplog.encode(EncodeOptions::default());
         let f1 = doc.oplog.version.clone();
 
-        doc.delete_without_content(1, 3, 4); // 'hi e'
+        doc.delete_without_content(1, 3..7); // 'hi e'
         doc.insert(0, 3, "m");
         let f2 = doc.oplog.version.clone();
 
@@ -1260,7 +1259,7 @@ mod tests {
         let t1 = oplog_a.add_insert(0, 0, "aa");
         let data_a = oplog_a.encode(EncodeOptions::default());
 
-        oplog_a.add_insert_at(1, &[ROOT_TIME], 0, "bbb");
+        oplog_a.add_insert_at(1, &[], 0, "bbb");
         let data_b = oplog_a.encode_from(EncodeOptions::default(), &[t1]);
 
         // Now we should be able to merge a then b, or b then a and get the same result.
@@ -1292,8 +1291,8 @@ mod tests {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
         oplog.get_or_create_agent_id("mike");
-        let a = oplog.add_insert_at(0, &[ROOT_TIME], 0, "a");
-        oplog.add_insert_at(1, &[ROOT_TIME], 0, "b");
+        let a = oplog.add_insert_at(0, &[], 0, "a");
+        oplog.add_insert_at(1, &[], 0, "b");
         oplog.add_insert_at(0, &[a], 1, "c");
 
         // dbg!(&oplog);
@@ -1305,8 +1304,8 @@ mod tests {
         // Same as above, but only one agent ID.
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
-        let a = oplog.add_insert_at(0, &[ROOT_TIME], 0, "a");
-        oplog.add_insert_at(0, &[ROOT_TIME], 0, "b");
+        let a = oplog.add_insert_at(0, &[], 0, "a");
+        oplog.add_insert_at(0, &[], 0, "b");
         oplog.add_insert_at(0, &[a], 1, "c");
 
         // dbg!(&oplog);
@@ -1475,7 +1474,7 @@ mod tests {
 
         let mut result = OpLog::new();
         let version = result.decode_and_add(&bytes).unwrap();
-        assert!(local_version_eq(&version, &[ROOT_TIME]));
+        assert!(local_version_eq(&version, &[]));
     }
 
     #[test]

@@ -244,11 +244,13 @@ pub(crate) fn mix_bit_u64(value: u64, extra: bool) -> u64 {
     value * 2 + extra as u64
 }
 
+#[inline]
 pub(crate) fn mix_bit_u32(value: u32, extra: bool) -> u32 {
     debug_assert!(value < u32::MAX >> 1);
     value * 2 + extra as u32
 }
 
+#[inline]
 pub(crate) fn mix_bit_usize(value: usize, extra: bool) -> usize {
     debug_assert!(value < usize::MAX >> 1);
     if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {

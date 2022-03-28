@@ -5,7 +5,7 @@ use crate::list::history::MinimalHistoryEntry;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::list::{Branch, OpLog, switch, Time};
 use crate::rle::{KVPair, RleVec};
-use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
+use crate::{AgentId, ROOT_AGENT};
 use crate::list::frontier::local_version_is_root;
 use crate::list::internal_op::OperationInternal;
 use crate::list::operation::InsDelTag;
@@ -251,16 +251,23 @@ impl AgentMapping {
 fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapping, oplog: &OpLog) {
     // I'm sad that I need the buf here + copying. It'd be faster if it was zero-copy.
     let mut buf = Vec::new();
-    let mut iter = version.iter().peekable();
-    while let Some(t) = iter.next() {
-        let has_more = iter.peek().is_some();
-        let id = oplog.time_to_crdt_id(*t);
+    if version.is_empty() {
+        // Push the root version.
+        // TODO: Second 0 here is redundant.
+        push_usize(&mut buf, 0);
+        push_usize(&mut buf, 0);
+    } else {
+        let mut iter = version.iter().peekable();
+        while let Some(t) = iter.next() {
+            let has_more = iter.peek().is_some();
+            let id = oplog.time_to_crdt_id(*t);
 
-        // (Mapped agent ID, seq) pairs. Agent id has mixed in bit for has_more.
-        let mapped = map.map(oplog, id.agent);
-        let n = mix_bit_usize(mapped as _, has_more);
-        push_usize(&mut buf, n);
-        push_usize(&mut buf, id.seq);
+            // (Mapped agent ID, seq) pairs. Agent id has mixed in bit for has_more.
+            let mapped = map.map(oplog, id.agent);
+            let n = mix_bit_usize(mapped as _, has_more);
+            push_usize(&mut buf, n);
+            push_usize(&mut buf, id.seq);
+        }
     }
     push_chunk(dest, ChunkType::Version, &buf);
     buf.clear();
@@ -454,52 +461,57 @@ impl OpLog {
             push_usize(&mut txns_chunk, len);
 
             // Then the parents.
-            let mut iter = txn.parents.iter().peekable();
-            while let Some(&p) = iter.next() {
-                // let p = p; // intellij bug
-                let has_more = iter.peek().is_some();
+            if txn.parents.is_empty() {
+                // Parenting off the root is special-cased, because its rare in practice (well,
+                // usually exactly 1 item will have the parents as root). We'll write a single dummy
+                // value with foreign 0 here, because we (unfortunately) need to mark the list is
+                // empty.
 
-                let mut write_parent_diff = |mut n: usize, is_foreign: bool| {
-                    n = mix_bit_usize(n, has_more);
-                    n = mix_bit_usize(n, is_foreign);
-                    push_usize(&mut txns_chunk, n);
-                };
+                // let n = 0, has_more = false, is_foreign = true. -> val = 1.
+                push_usize(&mut txns_chunk, 1);
+            } else {
+                let mut iter = txn.parents.iter().peekable();
+                while let Some(&p) = iter.next() {
+                    // let p = p; // intellij bug
+                    let has_more = iter.peek().is_some();
 
-                // Parents are either local or foreign. Local changes are changes we've written
-                // (already) to the file. And foreign changes are changes that point outside the
-                // local part of the DAG we're sending.
-                //
-                // Most parents will be local.
-                if p == ROOT_TIME {
-                    // ROOT is special cased, since its foreign but we don't put the root item in
-                    // the agent list. (Though we could!)
-                    // This is written as "agent 0", and with no seq value (since thats not needed).
-                    write_parent_diff(0, true);
-                } else if let Some((map, offset)) = txn_map.find_with_offset(p) {
-                    // Local change!
-                    // TODO: There's a sort of bug here. Local parents should (probably?) be sorted
-                    // in the file, but this mapping doesn't guarantee that. Currently I'm
-                    // re-sorting after reading - which is necessary for external parents anyway.
-                    // But allowing unsorted local parents is vaguely upsetting.
-                    let mapped_parent = map.1.start + offset;
+                    let mut write_parent_diff = |mut n: usize, is_foreign: bool| {
+                        n = mix_bit_usize(n, has_more);
+                        n = mix_bit_usize(n, is_foreign);
+                        push_usize(&mut txns_chunk, n);
+                    };
 
-                    write_parent_diff(output_range.start - mapped_parent, false);
-                } else {
-                    // Foreign change
-                    // println!("Region does not contain parent for {}", p);
-
-                    let item = self.time_to_crdt_id(p);
-                    let mapped_agent = agent_mapping.map(self, item.agent);
-                    debug_assert!(mapped_agent >= 1);
-
-                    // There are probably more compact ways to do this, but the txn data set is
-                    // usually quite small anyway, even in large histories. And most parents objects
-                    // will be in the set anyway. So I'm not too concerned about a few extra bytes
-                    // here.
+                    // Parents are either local or foreign. Local changes are changes we've written
+                    // (already) to the file. And foreign changes are changes that point outside the
+                    // local part of the DAG we're sending.
                     //
-                    // I'm adding 1 to the mapped agent to make room for ROOT. This is quite dirty!
-                    write_parent_diff(mapped_agent as usize, true);
-                    push_usize(&mut txns_chunk, item.seq);
+                    // Most parents will be local.
+                    if let Some((map, offset)) = txn_map.find_with_offset(p) {
+                        // Local change!
+                        // TODO: There's a sort of bug here. Local parents should (probably?) be sorted
+                        // in the file, but this mapping doesn't guarantee that. Currently I'm
+                        // re-sorting after reading - which is necessary for external parents anyway.
+                        // But allowing unsorted local parents is vaguely upsetting.
+                        let mapped_parent = map.1.start + offset;
+
+                        write_parent_diff(output_range.start - mapped_parent, false);
+                    } else {
+                        // Foreign change
+                        // println!("Region does not contain parent for {}", p);
+
+                        let item = self.time_to_crdt_id(p);
+                        let mapped_agent = agent_mapping.map(self, item.agent);
+                        debug_assert!(mapped_agent >= 1);
+
+                        // There are probably more compact ways to do this, but the txn data set is
+                        // usually quite small anyway, even in large histories. And most parents objects
+                        // will be in the set anyway. So I'm not too concerned about a few extra bytes
+                        // here.
+                        //
+                        // I'm adding 1 to the mapped agent to make room for ROOT. This is quite dirty!
+                        write_parent_diff(mapped_agent as usize, true);
+                        push_usize(&mut txns_chunk, item.seq);
+                    }
                 }
             }
         });
@@ -658,7 +670,7 @@ impl OpLog {
     }
 
     pub fn encode(&self, opts: EncodeOptions) -> Vec<u8> {
-        self.encode_from(opts, &[ROOT_TIME])
+        self.encode_from(opts, &[])
     }
 
     /// Encode the data stored in the OpLog into a (custom) compact binary form suitable for saving
@@ -825,7 +837,7 @@ impl OpLog {
 #[cfg(test)]
 mod tests {
     use crate::list::encoding::EncodeOptions;
-    use crate::list::ListCRDT;
+    use crate::list::{ListCRDT, OpLog};
 
     #[test]
     #[ignore]
@@ -859,5 +871,15 @@ mod tests {
         // dbg!(data);
         // let data = doc.ops.encode_old(EncodeOptions::default());
         // dbg!(data.len(), data);
+    }
+
+    #[test]
+    fn encode_simple() {
+        let mut oplog = OpLog::new();
+        oplog.get_or_create_agent_id("x"); // 0
+        oplog.add_insert(0, 0, "abc\n");
+        let data = oplog.encode(EncodeOptions::default());
+        let hex_str = data.iter().map(|x| format!("{:02X} ({})", x, std::char::from_u32(*x as u32).unwrap())).collect::<Vec<_>>();
+        dbg!(hex_str);
     }
 }

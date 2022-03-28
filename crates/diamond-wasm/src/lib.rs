@@ -3,7 +3,7 @@ mod utils;
 use wasm_bindgen::prelude::*;
 // use serde_wasm_bindgen::Serializer;
 // use serde::{Serialize};
-use diamond_types::{AgentId, ROOT_TIME};
+use diamond_types::AgentId;
 use diamond_types::list::{ListCRDT, Time, Branch as DTBranch, OpLog as DTOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, ENCODE_PATCH};
 use diamond_types::list::operation::Operation;
@@ -19,22 +19,6 @@ type WasmResult<T = JsValue> = Result<T, serde_wasm_bindgen::Error>;
 // The versions we consume from javascript cannot really represent ROOT_TIME. (Actually ROOT_TIME
 // is sort of unnecessary internally in DT anyway). We'll map internal [ROOT_TIME] to [] in
 // javascript.
-
-fn js_to_internal_version(v: &[Time]) -> &[Time] {
-    if v.len() == 0 { &[ROOT_TIME] } else { v.into() }
-}
-
-fn internal_to_js_version(v: &[Time]) -> &[Time] {
-    if v == &[ROOT_TIME] {
-        &[]
-    } else {
-        v.into()
-    }
-}
-
-fn internal_to_js_version_boxed(v: &[Time]) -> Box<[Time]> {
-    internal_to_js_version(v).into()
-}
 
 #[wasm_bindgen]
 pub struct Branch(DTBranch);
@@ -58,8 +42,7 @@ pub fn get_ops(oplog: &DTOpLog) -> WasmResult {
 }
 
 pub fn get_ops_since(oplog: &DTOpLog, version: &[Time]) -> WasmResult {
-    let version = js_to_internal_version(version);
-    let ops = oplog.iter_range_since(js_to_internal_version(version))
+    let ops = oplog.iter_range_since(version)
         .collect::<Box<[Operation]>>();
     serde_wasm_bindgen::to_value(&ops)
 }
@@ -67,15 +50,7 @@ pub fn get_ops_since(oplog: &DTOpLog, version: &[Time]) -> WasmResult {
 // pub fn to_ar
 
 pub fn get_history(oplog: &DTOpLog) -> WasmResult {
-    let mut txns = oplog.iter_history().collect::<Vec<_>>();
-
-    // Internally the rust code uses [ROOT_TIME] for root parents, but from JS land we're using an
-    // empty array ([]). Convert before serde does its thing.
-    for t in &mut txns {
-        if t.parents.len() == 1 && t.parents[0] == ROOT_TIME {
-            t.parents.clear();
-        }
-    }
+    let txns = oplog.iter_history().collect::<Vec<_>>();
     serde_wasm_bindgen::to_value(&txns)
 }
 
@@ -88,17 +63,16 @@ pub fn get_history(oplog: &DTOpLog) -> WasmResult {
 //     let remote_time = oplog.time_to_remote_id(time);
 //     serde_wasm_bindgen::to_value(&remote_time)
 // }
-pub fn local_to_remote_version(oplog: &DTOpLog, version: &[Time]) -> WasmResult {
-    let local_version = js_to_internal_version(version);
+pub fn local_to_remote_version(oplog: &DTOpLog, local_version: &[Time]) -> WasmResult {
     let remote_version = oplog.local_to_remote_version(local_version);
     serde_wasm_bindgen::to_value(&remote_version)
 }
 
 pub fn oplog_version_to_remote_version(oplog: &DTOpLog) -> WasmResult {
-    let js_version = internal_to_js_version(oplog.local_version());
+    let version = oplog.local_version();
     // This is a bit naughty. I'm relying on local_to_remote_version not noticing I'm sending it
     // empty lists sometimes.
-    let frontier = oplog.local_to_remote_version(js_version);
+    let frontier = oplog.local_to_remote_version(version);
     serde_wasm_bindgen::to_value(&frontier)
 }
 
@@ -110,15 +84,14 @@ pub fn to_bytes(oplog: &DTOpLog) -> Vec<u8> {
 
 pub fn get_patch_since(oplog: &DTOpLog, from_version: &[Time]) -> Vec<u8> {
     // let from_version = map_parents(&version);
-    let bytes = oplog.encode_from(ENCODE_PATCH, js_to_internal_version(from_version));
+    let bytes = oplog.encode_from(ENCODE_PATCH, from_version);
     bytes
 }
 
 pub fn decode_and_add(oplog: &mut DTOpLog, bytes: &[u8]) -> WasmResult {
     match oplog.decode_and_add(bytes) {
         Ok(version) => {
-            let js_version = internal_to_js_version(&version);
-            serde_wasm_bindgen::to_value(js_version)
+            serde_wasm_bindgen::to_value(&version)
         },
         Err(e) => {
             let s = format!("Error merging {:?}", e);
@@ -128,8 +101,7 @@ pub fn decode_and_add(oplog: &mut DTOpLog, bytes: &[u8]) -> WasmResult {
     }
 }
 
-pub fn xf_since(oplog: &DTOpLog, from_version: &[Time]) -> WasmResult {
-    let version = js_to_internal_version(from_version);
+pub fn xf_since(oplog: &DTOpLog, version: &[Time]) -> WasmResult {
     let xf = oplog.iter_xf_operations_from(version, &oplog.local_version())
         .filter_map(|(_v, op)| op)
         .collect::<Vec<_>>();
@@ -138,10 +110,8 @@ pub fn xf_since(oplog: &DTOpLog, from_version: &[Time]) -> WasmResult {
 }
 
 pub fn merge_versions(oplog: &DTOpLog, a: &[Time], b: &[Time]) -> Box<[Time]> {
-    let a = js_to_internal_version(a);
-    let b = js_to_internal_version(b);
     let result = oplog.version_union(a, b);
-    internal_to_js_version_boxed(&result)
+    result.as_slice().into()
 }
 
 fn unwrap_agentid(agent_id: Option<AgentId>) -> AgentId {
@@ -174,7 +144,7 @@ impl Branch {
     #[wasm_bindgen]
     pub fn merge(&mut self, ops: &OpLog, branch: Option<Box<[Time]>>) {
         if let Some(branch) = branch {
-            self.0.merge(&ops.inner, js_to_internal_version(&branch));
+            self.0.merge(&ops.inner, &branch);
         } else {
             self.0.merge(&ops.inner, &ops.inner.local_version());
         }
@@ -182,7 +152,7 @@ impl Branch {
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        internal_to_js_version_boxed(self.0.local_version())
+        self.0.local_version().into()
     }
 }
 
@@ -230,9 +200,7 @@ impl OpLog {
             self.inner.local_version().into()
         });
         // Safe because we're just adding [ROOT] if its set.
-        let parents = js_to_internal_version(&parents);
-
-        self.inner.add_insert_at(unwrap_agentid(self.agent_id), parents, pos, content)
+        self.inner.add_insert_at(unwrap_agentid(self.agent_id), &parents, pos, content)
     }
 
     #[wasm_bindgen(js_name = del)]
@@ -241,7 +209,6 @@ impl OpLog {
             // And here :p
             self.inner.local_version().into()
         });
-        let parents = js_to_internal_version(&parents);
         self.inner.add_delete_at(unwrap_agentid(self.agent_id), &parents, pos..pos + len)
     }
 
@@ -286,7 +253,7 @@ impl OpLog {
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        internal_to_js_version_boxed(self.inner.local_version())
+        self.inner.local_version().into()
     }
 
     // #[wasm_bindgen]
@@ -337,7 +304,7 @@ impl OpLog {
     // pub fn xf_since(&self, from_version: &[usize]) -> WasmResult {
     #[wasm_bindgen(js_name = getXF)]
     pub fn get_xf(&self) -> WasmResult {
-        xf_since(&self.inner, &[ROOT_TIME])
+        xf_since(&self.inner, &[])
     }
 
     #[wasm_bindgen(js_name = getXFSince)]
@@ -410,7 +377,7 @@ impl Doc {
 
     #[wasm_bindgen]
     pub fn merge(&mut self, branch: &[Time]) {
-        self.inner.branch.merge(&self.inner.oplog, js_to_internal_version(branch));
+        self.inner.branch.merge(&self.inner.oplog, &branch);
     }
 
     #[wasm_bindgen(js_name = toBytes)]
@@ -473,7 +440,7 @@ impl Doc {
 
     #[wasm_bindgen(js_name = getLocalVersion)]
     pub fn get_local_frontier(&self) -> Box<[Time]> {
-        internal_to_js_version_boxed(&self.inner.branch.local_version())
+        self.inner.branch.local_version().into()
     }
 
     #[wasm_bindgen(js_name = localToRemoteVersion)]

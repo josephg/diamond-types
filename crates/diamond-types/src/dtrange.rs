@@ -5,9 +5,9 @@ use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
 use crate::rle::RleKeyed;
 use std::ops::Range;
 use crate::list::Time;
-use crate::ROOT_TIME;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
+use crate::ROOT_TIME;
 
 /// This is an internal replacement for Range<usize>. The main use for this is that std::Range
 /// doesn't implement Copy (urgh), and we need that for lots of types. But ultimately, this is just
@@ -185,7 +185,7 @@ impl Debug for RootTime {
 pub(crate) fn debug_time_raw<F: FnOnce(&dyn Debug) -> R, R>(val: Time, f: F) -> R {
     const LAST_TIME: usize = ROOT_TIME - 1;
     match val {
-        ROOT_TIME => {
+        usize::MAX => {
             f(&RootTime)
         },
         start @ (UNDERWATER_START..=LAST_TIME) => {

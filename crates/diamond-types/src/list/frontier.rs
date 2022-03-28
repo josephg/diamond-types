@@ -2,7 +2,6 @@ use smallvec::{Array, SmallVec};
 use crate::list::{LocalVersion, Time};
 use crate::list::history::History;
 use crate::dtrange::DTRange;
-use crate::ROOT_TIME;
 
 /// Advance a frontier by the set of time spans in range
 pub(crate) fn advance_frontier_by(frontier: &mut LocalVersion, history: &History, mut range: DTRange) {
@@ -90,7 +89,6 @@ pub(crate) fn frontier_is_sorted(branch: &[Time]) -> bool {
 }
 
 pub(crate) fn clean_version<T: Array<Item=usize>>(v: &mut SmallVec<T>) {
-    debug_assert!(!v.is_empty());
     if !frontier_is_sorted(v.as_slice()) {
         v.sort_unstable();
     }
@@ -141,9 +139,13 @@ pub(crate) fn advance_frontier_by_known_run(frontier: &mut LocalVersion, parents
         frontier[0] = span.last();
         return;
     } else if frontier.as_slice() == parents {
-        // TODO: This is another short circuit. Can probably remove this?
-        frontier.truncate(1);
-        frontier[0] = span.last();
+        if frontier.is_empty() {
+            frontier.push(span.last())
+        } else {
+            // TODO: This is another short circuit. Can probably remove this?
+            frontier.truncate(1);
+            frontier[0] = span.last();
+        }
         return;
     }
 
@@ -170,7 +172,8 @@ pub fn local_version_eq(a: &[Time], b: &[Time]) -> bool {
 
 #[allow(unused)]
 pub fn local_version_is_root(branch: &[Time]) -> bool {
-    branch.len() == 1 && branch[0] == ROOT_TIME
+    branch.is_empty()
+    // branch.len() == 1 && branch[0] == ROOT_TIME
 }
 
 #[cfg(test)]
@@ -179,20 +182,19 @@ mod test {
 
     use crate::list::LocalVersion;
     use crate::list::history::HistoryEntry;
-    use crate::ROOT_TIME;
 
     use super::*;
 
     #[test]
     fn frontier_movement_smoke_tests() {
-        let mut branch: LocalVersion = smallvec![ROOT_TIME];
-        advance_frontier_by_known_run(&mut branch, &[ROOT_TIME], (0..10).into());
+        let mut branch: LocalVersion = smallvec![];
+        advance_frontier_by_known_run(&mut branch, &[], (0..10).into());
         assert_eq!(branch.as_slice(), &[9]);
 
         let history = History::from_entries(&[
             HistoryEntry {
-                span: (0..10).into(), shadow: ROOT_TIME,
-                parents: smallvec![ROOT_TIME],
+                span: (0..10).into(), shadow: usize::MAX,
+                parents: smallvec![],
                 child_indexes: smallvec![]
             }
         ]);
@@ -201,19 +203,19 @@ mod test {
         assert_eq!(branch.as_slice(), &[4]);
 
         retreat_frontier_by(&mut branch, &history, (0..5).into());
-        assert_eq!(branch.as_slice(), &[ROOT_TIME]);
+        assert_eq!(branch.as_slice(), &[]);
     }
 
     #[test]
     fn frontier_stays_sorted() {
         let history = History::from_entries(&[
             HistoryEntry {
-                span: (0..2).into(), shadow: ROOT_TIME,
-                parents: smallvec![ROOT_TIME],
+                span: (0..2).into(), shadow: usize::MAX,
+                parents: smallvec![],
                 child_indexes: smallvec![]
             },
             HistoryEntry {
-                span: (2..6).into(), shadow: ROOT_TIME,
+                span: (2..6).into(), shadow: usize::MAX,
                 parents: smallvec![0],
                 child_indexes: smallvec![]
             },

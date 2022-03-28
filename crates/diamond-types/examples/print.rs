@@ -2,7 +2,6 @@
 
 use std::env;
 use diamond_types::list::{OpLog, encoding::EncodeOptions};
-use diamond_types::ROOT_TIME;
 use rle::zip::rle_zip;
 
 fn print_stats_for_file(name: &str) {

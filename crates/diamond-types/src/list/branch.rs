@@ -7,14 +7,14 @@ use crate::list::list::apply_local_operation;
 use crate::list::operation::InsDelTag::*;
 use crate::list::operation::{InsDelTag, Operation};
 use crate::dtrange::DTRange;
-use crate::{AgentId, ROOT_TIME};
+use crate::{AgentId};
 use crate::list::remote_ids::RemoteId;
 
 impl Branch {
     /// Create a new (empty) branch at the start of history. The branch will be an empty list.
     pub fn new() -> Self {
         Self {
-            version: smallvec![ROOT_TIME],
+            version: smallvec![],
             content: JumpRope::new(),
         }
     }
@@ -102,8 +102,8 @@ impl Branch {
         apply_local_operation(oplog, self, agent, &[Operation::new_insert(pos, ins_content)])
     }
 
-    pub fn delete_without_content(&mut self, oplog: &mut OpLog, agent: AgentId, pos: usize, del_span: usize) -> Time {
-        apply_local_operation(oplog, self, agent, &[Operation::new_delete(pos, del_span)])
+    pub fn delete_without_content(&mut self, oplog: &mut OpLog, agent: AgentId, loc: Range<usize>) -> Time {
+        apply_local_operation(oplog, self, agent, &[Operation::new_delete(loc)])
     }
 
     pub fn delete(&mut self, oplog: &mut OpLog, agent: AgentId, del_span: Range<usize>) -> Time {
@@ -156,7 +156,7 @@ mod test {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
         let after_ins = oplog.add_insert(0, 0, "hi there");
-        let after_del = oplog.add_delete_without_content(0, 2, " there".len());
+        let after_del = oplog.add_delete_without_content(0, 2 .. 2 + " there".len());
 
         let b1 = Branch::new_at_local_version(&oplog, &[after_ins]);
         assert_eq!(b1.content, "hi there");
@@ -171,10 +171,10 @@ mod test {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
 
-        let mut branch1 = oplog.checkout(&[ROOT_TIME]);
+        let mut branch1 = oplog.checkout(&[]);
         branch1.insert(&mut oplog, 0, 0, "aaa");
 
-        let mut branch2 = oplog.checkout(&[ROOT_TIME]);
+        let mut branch2 = oplog.checkout(&[]);
         branch2.insert(&mut oplog, 0, 0, "bbb");
 
         oplog.dbg_check(true);

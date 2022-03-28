@@ -64,7 +64,7 @@ impl OpLog {
             operations: Default::default(),
             // inserted_content: "".to_string(),
             history: Default::default(),
-            version: smallvec![ROOT_TIME]
+            version: smallvec![]
         }
     }
 
@@ -245,7 +245,8 @@ impl OpLog {
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
             shadow = self.history.entries.find(shadow - 1).unwrap().shadow;
         }
-        if shadow == 0 { shadow = ROOT_TIME; }
+        // TODO: Consider not doing this, and just having 0 mean "start of recorded time" here.
+        if shadow == 0 { shadow = usize::MAX; }
 
         let will_merge = if let Some(last) = self.history.entries.last() {
             // TODO: Is this shadow check necessary?
@@ -259,10 +260,10 @@ impl OpLog {
             // The item wasn't merged. So we need to go through the parents and wire up children.
             let new_idx = self.history.entries.0.len();
 
-            for &p in txn_parents {
-                if p == ROOT_TIME {
-                    self.history.root_child_indexes.push(new_idx);
-                } else {
+            if txn_parents.is_empty() {
+                self.history.root_child_indexes.push(new_idx);
+            } else {
+                for &p in txn_parents {
                     let parent_idx = self.history.entries.find_index(p).unwrap();
                     // Interestingly the parent_idx array will always end up the same length as parents
                     // because it would be invalid for multiple parents to point to the same entry in
@@ -274,7 +275,6 @@ impl OpLog {
                     debug_assert!(!parent_children.contains(&new_idx));
                     parent_children.push(new_idx);
                 }
-
             }
         }
 
@@ -415,8 +415,8 @@ impl OpLog {
     /// Add a local delete operation to the oplog.
     /// Returns the single item frontier after the inserted change.
     /// This is a shorthand for `oplog.push(agent, *delete(pos, del_span)*)`
-    pub fn add_delete_without_content(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
-        self.add_operations(agent, &[Operation::new_delete(pos, del_span)])
+    pub fn add_delete_without_content(&mut self, agent: AgentId, loc: Range<usize>) -> Time {
+        self.add_operations(agent, &[Operation::new_delete(loc)])
     }
 
     /// Iterate through history entries

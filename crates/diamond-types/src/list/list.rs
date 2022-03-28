@@ -120,7 +120,7 @@ impl ListCRDT {
         self.branch.is_empty()
     }
 
-    pub fn apply_local_operation(&mut self, agent: AgentId, local_ops: &[Operation]) -> Time {
+    pub fn apply_local_operations(&mut self, agent: AgentId, local_ops: &[Operation]) -> Time {
         apply_local_operation(&mut self.oplog, &mut self.branch, agent, local_ops)
     }
 
@@ -132,8 +132,8 @@ impl ListCRDT {
     //     local_delete(&mut self.oplog, &mut self.branch, agent, pos, del_span)
     // }
 
-    pub fn delete_without_content(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
-        self.branch.delete_without_content(&mut self.oplog, agent, pos, del_span)
+    pub fn delete_without_content(&mut self, agent: AgentId, loc: Range<usize>) -> Time {
+        self.branch.delete_without_content(&mut self.oplog, agent, loc)
     }
 
     pub fn delete(&mut self, agent: AgentId, range: Range<usize>) -> Time {

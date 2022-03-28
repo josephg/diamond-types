@@ -112,8 +112,12 @@ impl Operation {
         Operation { loc: (pos..pos+len).into(), tag: Ins, content: Some(content.into()) }
     }
 
-    pub fn new_delete(pos: usize, len: usize) -> Self {
-        Operation { loc: (pos..pos+len).into(), tag: Del, content: None }
+    pub fn new_delete(loc: Range<usize>) -> Self {
+        Self::new_delete_dt(loc.into())
+    }
+
+    fn new_delete_dt(loc: RangeRev) -> Self {
+        Operation { loc, tag: Del, content: None }
     }
 
     pub fn new_delete_with_content_range(loc: Range<usize>, content: SmartString) -> Self {

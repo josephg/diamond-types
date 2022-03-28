@@ -43,6 +43,29 @@ fn local_benchmarks(c: &mut Criterion) {
             })
         });
 
+        group.bench_function(BenchmarkId::new("apply_grouped", name), |b| {
+            b.iter(|| {
+                let mut doc = ListCRDT::new();
+                apply_grouped(&mut doc, &test_data.txns);
+                // assert_eq!(doc.len(), test_data.end_content.len());
+                black_box(doc.len());
+            })
+        });
+
+        // This is obnoxiously fast. Grouping operations using our RLE encoding before applying
+        // drops the number of operations from ~260k -> 10k for automerge-paper, and has a
+        // corresponding drop in the time taken to apply (12ms -> 0.8ms).
+        let grouped_ops_rle = as_grouped_ops_rle(&test_data.txns);
+        // dbg!(grouped_ops_rle.len());
+        group.bench_function(BenchmarkId::new("apply_grouped_rle", name), |b| {
+            b.iter(|| {
+                let mut doc = ListCRDT::new();
+                apply_ops(&mut doc, &grouped_ops_rle);
+                // assert_eq!(doc.len(), test_data.end_content.len());
+                black_box(doc.len());
+            })
+        });
+
         group.finish();
     }
 }

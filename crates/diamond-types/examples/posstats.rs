@@ -36,7 +36,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
                 positional.push(Operation::new_insert(*pos, ins_content));
             }
 
-            doc.apply_local_operation(id, positional.as_slice());
+            doc.apply_local_operations(id, positional.as_slice());
         }
     }
 }

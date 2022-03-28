@@ -9,7 +9,6 @@ use crate::list::merge::yjsspan::YjsSpan;
 use crate::list::operation::InsDelTag;
 use crate::list::operation::InsDelTag::{Del, Ins};
 use crate::dtrange::DTRange;
-use crate::ROOT_TIME;
 
 #[derive(Debug)]
 pub(super) struct QueryResult {
@@ -27,7 +26,7 @@ impl M2Tracker {
     ///
     /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
     fn index_query(&self, time: usize) -> QueryResult {
-        assert_ne!(time, ROOT_TIME); // Not sure what to do in this case.
+        assert_ne!(time, usize::MAX);
 
         let index_len = self.index.offset_len();
         if time >= index_len {

@@ -82,10 +82,10 @@ impl OpLog {
                 if !processed_parents {
                     processed_parents = true;
 
-                    for p in txn.parents.iter() {
-                        if *p == ROOT_TIME {
-                            write!(&mut out, "\t{} -> ROOT\n", range.last()).unwrap();
-                        } else {
+                    if txn.parents.is_empty() {
+                        write!(&mut out, "\t{} -> ROOT\n", range.last()).unwrap();
+                    } else {
+                        for p in txn.parents.iter() {
                             // let parent_entry = self.history.entries.find_packed(*p);
                             // write!(&mut out, "\t{} -> {} [headlabel={}]\n", txn.span.last(), parent_entry.span.start, *p);
 
@@ -158,8 +158,8 @@ impl OpLog {
                 txn.with_parents(time, |parents| {
                     // let color = if parents.len() == 1 { DotColor::Black } else { DotColor::Blue };
 
-                    if parents.len() == 1 {
-                        out.write_fmt(format_args!("\t{} -> {} [arrowtail=none]\n", name, name_of(parents[0]))).unwrap();
+                    if parents.is_empty() {
+                        out.write_fmt(format_args!("\t{} -> {} [arrowtail=none]\n", name, name_of(ROOT_TIME))).unwrap();
                     } else {
                         for p in parents {
                             out.write_fmt(format_args!("\t{} -> {} [color=\"#6b2828\" arrowtail=diamond]\n", name, name_of(*p))).unwrap();
@@ -197,7 +197,6 @@ impl OpLog {
 mod test {
     use crate::list::merge::dot::DotColor::*;
     use crate::list::OpLog;
-    use crate::ROOT_TIME;
 
     #[test]
     #[ignore]
@@ -205,9 +204,9 @@ mod test {
         let mut ops = OpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
-        ops.add_insert_at(0, &[ROOT_TIME], 0, "a");
-        ops.add_insert_at(1, &[ROOT_TIME], 0, "b");
-        ops.add_delete_at(0, &[0, 1], 0, 2);
+        ops.add_insert_at(0, &[], 0, "a");
+        ops.add_insert_at(1, &[], 0, "b");
+        ops.add_delete_at(0, &[0, 1], 0..2);
 
         ops.make_merge_graph("test.svg", "asdf", [((0..ops.len()).into(), Red)].iter().copied());
     }
@@ -218,9 +217,9 @@ mod test {
         let mut ops = OpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
-        let _a = ops.add_insert_at(0, &[ROOT_TIME], 0, "aaa");
-        let b = ops.add_insert_at(1, &[ROOT_TIME], 0, "b");
-        ops.add_delete_at(0, &[1, b], 0, 2);
+        let _a = ops.add_insert_at(0, &[], 0, "aaa");
+        let b = ops.add_insert_at(1, &[], 0, "b");
+        ops.add_delete_at(0, &[1, b], 0..2);
         // dbg!(&ops);
 
         ops.make_time_dag_graph("dag.svg");

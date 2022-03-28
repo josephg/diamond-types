@@ -89,10 +89,6 @@ impl OpLog {
             .map(|remote_id| self.try_remote_to_local_time(remote_id))
             .collect::<Result<LocalVersion, ConversionError>>()?;
 
-        // This is weird, but it lets us use [] to refer to [ROOT_TIME] in wasm and in the CLI.
-        if version.is_empty() {
-            version.push(ROOT_TIME);
-        }
         clean_version(&mut version);
         Ok(version)
     }
@@ -102,9 +98,6 @@ impl OpLog {
             .map(|remote_id| self.remote_to_local_time(remote_id))
             .collect();
 
-        if version.is_empty() {
-            version.push(ROOT_TIME);
-        }
         clean_version(&mut version);
         version
     }
@@ -198,8 +191,8 @@ mod test {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("seph");
         oplog.get_or_create_agent_id("mike");
-        oplog.add_insert_at(0, &[ROOT_TIME], 0, "hi".into());
-        oplog.add_insert_at(1, &[ROOT_TIME], 0, "yooo".into());
+        oplog.add_insert_at(0, &[], 0, "hi".into());
+        oplog.add_insert_at(1, &[], 0, "yooo".into());
 
         assert_eq!(ROOT_TIME, oplog.remote_to_local_time(&RemoteId {
             agent: "ROOT".into(),
@@ -260,6 +253,6 @@ mod test {
     #[test]
     fn remote_versions_can_be_empty() {
         let oplog = OpLog::new();
-        assert_eq!(&[ROOT_TIME], oplog.remote_to_local_version(std::iter::empty()).as_slice());
+        assert!(oplog.remote_to_local_version(std::iter::empty()).is_empty());
     }
 }

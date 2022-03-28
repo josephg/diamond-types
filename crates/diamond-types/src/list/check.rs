@@ -3,7 +3,6 @@ use crate::list::{Branch, LocalVersion, ListCRDT, OpLog};
 use smallvec::smallvec;
 use crate::list::frontier::{advance_frontier_by_known_run, debug_assert_frontier_sorted};
 use crate::list::history::History;
-use crate::ROOT_TIME;
 
 /// This file contains debugging assertions to validate the document's internal state.
 ///
@@ -23,7 +22,7 @@ impl OpLog {
     fn get_frontier_inefficiently(&self) -> LocalVersion {
         // Could improve this by just looking at the last txn, and following shadows down.
 
-        let mut b = smallvec![ROOT_TIME];
+        let mut b = smallvec![];
         for txn in self.history.entries.iter() {
             advance_frontier_by_known_run(&mut b, txn.parents.as_slice(), txn.span);
         }
@@ -77,7 +76,7 @@ impl History {
         .iter()
         .enumerate()
         .filter_map(|(i, entry)| {
-            if entry.parents.len() == 1 && entry.parents[0] == ROOT_TIME {
+            if entry.parents.is_empty() {
                 Some(i)
             } else { None }
         });
@@ -108,11 +107,8 @@ impl History {
                 assert!(child.parents.iter().any(|p| hist.contains(*p)));
             }
 
-            if parents[0] == ROOT_TIME {
-                // The root order will be sorted out of order, but it doesn't matter because
-                // if it shows up at all it should be the only item in parents.
-                debug_assert_eq!(parents.len(), 1);
-                if hist.span.start == 0 { expect_shadow = ROOT_TIME; }
+            if parents.is_empty() {
+                if hist.span.start == 0 { expect_shadow = usize::MAX; }
                 // assert!(hist.parent_indexes.is_empty());
             } else {
                 // We'll resort parents into descending order.

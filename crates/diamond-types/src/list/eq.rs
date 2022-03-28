@@ -9,7 +9,7 @@
 
 use rle::{HasLength, SplitableSpan};
 use rle::zip::{rle_zip3};
-use crate::{ROOT_AGENT, ROOT_TIME};
+use crate::ROOT_AGENT;
 use crate::list::{OpLog, Time};
 use crate::list::frontier::clean_version;
 use crate::list::history::MinimalHistoryEntry;
@@ -62,7 +62,6 @@ impl PartialEq<Self> for OpLog {
         }
 
         let map_time_to_other = |t: Time| -> Option<Time> {
-            if t == ROOT_TIME { return Some(ROOT_TIME); }
             let mut crdt_id = self.time_to_crdt_id(t);
             crdt_id.agent = agent_a_to_b[crdt_id.agent as usize];
             other.try_crdt_id_to_time(crdt_id)
@@ -195,7 +194,6 @@ impl Eq for OpLog {}
 #[cfg(test)]
 mod test {
     use crate::list::OpLog;
-    use crate::ROOT_TIME;
 
     fn is_eq(a: &OpLog, b: &OpLog) -> bool {
         let a_eq_b = a.eq(b);
@@ -211,16 +209,16 @@ mod test {
         assert!(is_eq(&a, &a));
         a.get_or_create_agent_id("seph");
         a.get_or_create_agent_id("mike");
-        a.add_insert_at(0, &[ROOT_TIME], 0, "Aa");
-        a.add_insert_at(1, &[ROOT_TIME], 0, "b");
+        a.add_insert_at(0, &[], 0, "Aa");
+        a.add_insert_at(1, &[], 0, "b");
         a.add_delete_at(0, &[1, 2], 0..2);
 
         // Same history, different order.
         let mut b = OpLog::new();
         b.get_or_create_agent_id("mike");
         b.get_or_create_agent_id("seph");
-        b.add_insert_at(0, &[ROOT_TIME], 0, "b");
-        b.add_insert_at(1, &[ROOT_TIME], 0, "Aa");
+        b.add_insert_at(0, &[], 0, "b");
+        b.add_insert_at(1, &[], 0, "Aa");
         b.add_delete_at(1, &[0, 2], 0..2);
 
         assert!(is_eq(&a, &b));
@@ -229,8 +227,8 @@ mod test {
         let mut c = OpLog::new();
         c.get_or_create_agent_id("seph");
         c.get_or_create_agent_id("mike");
-        c.add_insert_at(0, &[ROOT_TIME], 0, "A");
-        c.add_insert_at(1, &[ROOT_TIME], 0, "b");
+        c.add_insert_at(0, &[], 0, "A");
+        c.add_insert_at(1, &[], 0, "b");
         c.add_insert_at(0, &[0], 1, "a");
         c.add_delete_at(0, &[1, 2], 0..2);
 

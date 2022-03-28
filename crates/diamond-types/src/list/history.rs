@@ -5,9 +5,9 @@ use crate::list::Time;
 
 use crate::rle::{RleKeyed, RleVec};
 use crate::dtrange::DTRange;
-use crate::ROOT_TIME;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
+use crate::list::frontier::local_version_is_root;
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -35,9 +35,7 @@ impl History {
         History {
             entries: RleVec(entries.to_vec()),
             root_child_indexes: entries.iter().enumerate().filter_map(|(i, entry)| {
-                if entry.parents.len() == 1 && entry.parents[0] == ROOT_TIME {
-                    Some(i)
-                } else { None }
+                if local_version_is_root(&entry.parents) { Some(i) } else { None }
             }).collect()
         }
     }
@@ -62,9 +60,12 @@ pub(crate) struct HistoryEntry {
     /// This is derived from other fields and used as an optimization for some calculations.
     pub shadow: usize,
 
-    /// The parents vector of the first txn in this span. Must contain at least 1 entry (and will
-    /// almost always contain exactly 1 entry - the only exception being in the case of concurrent
-    /// changes).
+    /// The parents vector of the first txn in this span. This vector will contain:
+    /// - Nothing when the range has "root" as a parent. Usually this is just the case for the first
+    ///   entry in history
+    /// - One item when its a simple change
+    /// - Two or more items when concurrent changes have happened, and the first item in this range
+    ///   is a merge operation.
     pub parents: SmallVec<[usize; 2]>,
 
     pub child_indexes: SmallVec<[usize; 2]>,
@@ -103,7 +104,8 @@ impl HistoryEntry {
 
     pub fn shadow_contains(&self, time: usize) -> bool {
         debug_assert!(time <= self.last_time());
-        self.shadow == ROOT_TIME || time >= self.shadow
+        // TODO: Is there a difference between a shadow of 0 and a shadow of usize::MAX?
+        self.shadow == usize::MAX || time >= self.shadow
     }
 
     // pub fn parents_at_offset(&self, at: usize) -> SmallVec<[Order; 2]> {

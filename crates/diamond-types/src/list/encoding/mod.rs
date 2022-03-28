@@ -6,6 +6,9 @@
 ///
 /// This is modelled after the run-length encoding in Automerge and Yjs.
 
+// Notes for next time I break compatibility:
+// - Version in encode::write_local_version - skip second 0 if its ROOT.
+
 mod varint;
 mod encode_oplog;
 mod decode_oplog;

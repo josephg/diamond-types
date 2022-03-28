@@ -3,7 +3,6 @@ use content_tree::{ContentLength, Toggleable};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::list::Time;
 use crate::dtrange::{debug_time, DTRange, UNDERWATER_START};
-use crate::ROOT_TIME;
 
 /// 0 = not inserted yet,
 /// 1 = inserted but not deleted
@@ -109,8 +108,8 @@ impl YjsSpan {
     pub fn new_underwater() -> Self {
         YjsSpan {
             id: DTRange::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
-            origin_left: ROOT_TIME,
-            origin_right: ROOT_TIME,
+            origin_left: usize::MAX,
+            origin_right: usize::MAX,
             state: INSERTED, // Underwater items are never in the NotInsertedYet state.
             ever_deleted: false,
         }
