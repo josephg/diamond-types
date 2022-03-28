@@ -168,6 +168,11 @@ app.get(`${DATA_URL_BASE}*`, async (req, res, next) => {
     initialValue: data,
     contentType: 'application/diamond-types',
     patchType: 'application/diamond-types',
+    httpHeaders: {
+      // Set wiki pages to be globally *readable*
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET',
+    },
     onclose() {
       console.log('close 1')
       if (stream) {
