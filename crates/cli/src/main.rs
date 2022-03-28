@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::fs;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use clap::{Parser, Subcommand};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
@@ -35,6 +35,10 @@ enum Commands {
         /// This is only relevant when content is provided. Empty files need no agent ID.
         #[clap(short, long)]
         agent: Option<String>,
+
+        /// Create a new file, even if a file already exists with the given name
+        #[clap(short, long)]
+        force: bool,
     },
 
     /// Dump (cat) the contents of a diamond-types file to stdout or to a file
@@ -56,7 +60,7 @@ enum Commands {
     },
 
     /// Print the operations contained within a diamond types file
-    Ops {
+    Log {
         /// Diamond types file to read
         #[clap(name = "filename", parse(try_from_str = parse_dt_oplog))]
         oplog: OpLog,
@@ -130,7 +134,7 @@ fn checkout_version_or_tip(oplog: &OpLog, version: Option<Box<[RemoteId]>>) -> B
 fn main() -> Result<(), anyhow::Error> {
     let cli: Cli = Cli::parse();
     match cli.command {
-        Commands::Create { filename, content_file, agent } => {
+        Commands::Create { filename, content_file, agent, force } => {
             let mut oplog = OpLog::new();
 
             if let Some(content_file) = content_file {
@@ -142,7 +146,20 @@ fn main() -> Result<(), anyhow::Error> {
 
             let data = oplog.encode(ENCODE_FULL);
 
-            fs::write(filename, data)?;
+            let file_result = fs::OpenOptions::new()
+                .create_new(!force)
+                .create(true)
+                .write(true)
+                .open(&filename);
+
+            if let Err(x) = file_result.as_ref() {
+                if x.kind() == ErrorKind::AlreadyExists {
+                    let f = filename.to_str().unwrap_or("(invalid)");
+                    eprintln!("Output file '{f}' already exists. Overwrite by passing -f");
+                }
+            }
+
+            file_result?.write_all(&data)?;
         }
 
         Commands::Cat { oplog, output, version } => {
@@ -164,7 +181,7 @@ fn main() -> Result<(), anyhow::Error> {
             }
         }
 
-        Commands::Ops { oplog, transformed, json, history: history_mode } => {
+        Commands::Log { oplog, transformed, json, history: history_mode } => {
             if history_mode {
                 for hist in oplog.iter_history() {
                     if json {
