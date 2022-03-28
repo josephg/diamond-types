@@ -107,6 +107,9 @@ ${JSON.stringify(doc.localToRemoteVersion(server_version))}`)
     let new_value = doc.get()
 
     let {selectionStart, selectionEnd} = elem
+
+    // For optimization reasons this should be using doc.charsToWchars, but we
+    // need to call that before the new content is merged in to doc. TODO!
     selectionStart = strPosToUni(last_value, selectionStart)
     selectionEnd = strPosToUni(last_value, selectionEnd)
 
@@ -120,8 +123,8 @@ ${JSON.stringify(doc.localToRemoteVersion(server_version))}`)
     last_version = new_version
 
     elem.setSelectionRange(
-      uniToStrPos(new_value, selectionStart),
-      uniToStrPos(new_value, selectionEnd)
+      doc.charsToWchars(selectionStart),
+      doc.charsToWchars(selectionEnd)
     )
 
     assert(vEq(doc.getLocalVersion(), last_version))

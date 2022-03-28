@@ -154,6 +154,16 @@ impl Branch {
     pub fn get_local_frontier(&self) -> Box<[Time]> {
         self.0.local_version_ref().into()
     }
+
+    #[wasm_bindgen(js_name = wCharsToChars)]
+    pub fn wchars_to_chars(&self, pos_wchars: usize) -> usize {
+        self.0.content().wchars_to_chars(pos_wchars)
+    }
+
+    #[wasm_bindgen(js_name = charsToWchars)]
+    pub fn chars_to_wchars(&self, pos_chars: usize) -> usize {
+        self.0.content().chars_to_wchars(pos_chars)
+    }
 }
 
 #[wasm_bindgen]
@@ -466,6 +476,16 @@ impl Doc {
     #[wasm_bindgen(js_name = mergeVersions)]
     pub fn merge_versions(&self, a: &[usize], b: &[usize]) -> Box<[usize]> {
         merge_versions(&self.inner.oplog, a, b)
+    }
+
+    #[wasm_bindgen(js_name = wCharsToChars)]
+    pub fn wchars_to_chars(&self, pos_wchars: usize) -> usize {
+        self.inner.branch.content().wchars_to_chars(pos_wchars)
+    }
+
+    #[wasm_bindgen(js_name = charsToWchars)]
+    pub fn chars_to_wchars(&self, pos_chars: usize) -> usize {
+        self.inner.branch.content().chars_to_wchars(pos_chars)
     }
 
     // #[wasm_bindgen]
