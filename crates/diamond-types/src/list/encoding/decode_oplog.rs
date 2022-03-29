@@ -1,4 +1,4 @@
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
 use crate::list::{LocalVersion, OpLog, switch, Time};
@@ -254,11 +254,11 @@ impl<'a> BufReader<'a> {
         }))
     }
 
-    fn read_frontier(&mut self, oplog: &OpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
+    fn read_frontier(mut self, oplog: &OpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
         let mut result = LocalVersion::new();
         // All frontiers contain at least one item.
         loop {
-            // let agent = self.next_str()?;
+            // let agent = reader.next_str()?;
             let (mapped_agent, has_more) = strip_bit_usize(self.next_usize()?);
             let seq = self.next_usize()?; // Bleh. Skip me when root!
             if mapped_agent == 0 { break; } // Root.
@@ -274,6 +274,8 @@ impl<'a> BufReader<'a> {
         }
 
         clean_version(&mut result);
+
+        self.expect_empty()?;
 
         Ok(result)
     }
@@ -837,16 +839,21 @@ impl OpLog {
 
         // *** StartBranch ***
         let mut start_branch = reader.expect_chunk(ChunkType::StartBranch)?;
-        let mut start_frontier_chunk = start_branch.expect_chunk(ChunkType::Version)?;
-        let start_frontier: LocalVersion = start_frontier_chunk.read_frontier(self, &agent_map).map_err(|e| {
-            // We can't read a frontier if it names agents or sequence numbers we haven't seen
-            // before. If this happens, its because we're trying to load a data set from the future.
+        let start_frontier_chunk = start_branch.read_chunk(ChunkType::Version)?;
+        let start_frontier: LocalVersion = if let Some(start_frontier_chunk) = start_frontier_chunk {
+            start_frontier_chunk.read_frontier(self, &agent_map).map_err(|e| {
+                // We can't read a frontier if it names agents or sequence numbers we haven't seen
+                // before. If this happens, its because we're trying to load a data set from the future.
 
-            // TODO: Remove this!
-            if let InvalidRemoteID(_) = e {
-                DataMissing
-            } else { e }
-        })?;
+                // TODO: Remove this!
+                if let InvalidRemoteID(_) = e {
+                    DataMissing
+                } else { e }
+            })?
+        } else {
+            // If the start_frontier chunk is missing, it means we're reading from ROOT.
+            smallvec![]
+        };
 
         // The start frontier also optionally contains the document content at this version, but
         // we can't parse it yet. TODO!

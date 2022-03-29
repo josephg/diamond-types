@@ -249,25 +249,23 @@ impl AgentMapping {
 
 
 fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapping, oplog: &OpLog) {
+    // Skip writing a version chunk if the version is ROOT.
+    if local_version_is_root(&version) {
+        return;
+    }
+
     // I'm sad that I need the buf here + copying. It'd be faster if it was zero-copy.
     let mut buf = Vec::new();
-    if version.is_empty() {
-        // Push the root version.
-        // TODO: Second 0 here is redundant.
-        push_usize(&mut buf, 0);
-        push_usize(&mut buf, 0);
-    } else {
-        let mut iter = version.iter().peekable();
-        while let Some(t) = iter.next() {
-            let has_more = iter.peek().is_some();
-            let id = oplog.time_to_crdt_id(*t);
+    let mut iter = version.iter().peekable();
+    while let Some(t) = iter.next() {
+        let has_more = iter.peek().is_some();
+        let id = oplog.time_to_crdt_id(*t);
 
-            // (Mapped agent ID, seq) pairs. Agent id has mixed in bit for has_more.
-            let mapped = map.map(oplog, id.agent);
-            let n = mix_bit_usize(mapped as _, has_more);
-            push_usize(&mut buf, n);
-            push_usize(&mut buf, id.seq);
-        }
+        // (Mapped agent ID, seq) pairs. Agent id has mixed in bit for has_more.
+        let mapped = map.map(oplog, id.agent);
+        let n = mix_bit_usize(mapped as _, has_more);
+        push_usize(&mut buf, n);
+        push_usize(&mut buf, id.seq);
     }
     push_chunk(dest, ChunkType::Version, &buf);
     buf.clear();
@@ -581,7 +579,10 @@ impl OpLog {
         // This nominally needs to happen before we write out agent_mapping.
         // TODO: Support partial data sets. (from_frontier)
         let mut start_branch = Vec::new();
+
+        // This will skip writing the version if from_version is ROOT.
         write_local_version(&mut start_branch, from_version, &mut agent_mapping, self);
+
         if opts.store_start_branch_content {
             if local_version_is_root(from_version) {
                 // Optimization. TODO: Check if this is worth it.
