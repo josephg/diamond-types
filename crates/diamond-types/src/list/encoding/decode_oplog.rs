@@ -115,6 +115,13 @@ impl<'a> BufReader<'a> {
         Ok(data)
     }
 
+    // fn split(self, num_bytes: usize) -> Result<(Self, Self), ParseError> {
+    //     if num_bytes > self.0.len() { return Err(UnexpectedEOF); }
+    //
+    //     let (a, b) = self.0.split_at(num_bytes);
+    //     Ok((BufReader(a), BufReader(b)))
+    // }
+
     // fn peek_u32(&self) -> Result<u32, ParseError> {
     //     self.check_not_empty()?;
     //     Ok(decode_u32(self.0).0)
@@ -137,7 +144,7 @@ impl<'a> BufReader<'a> {
         }
     }
 
-    fn next_chunk(&mut self) -> Result<(ChunkType, BufReader<'a>), ParseError> {
+    fn next_chunk_raw(&mut self) -> Result<(ChunkType, BufReader<'a>), ParseError> {
         let chunk_type = ChunkType::try_from(self.next_u32()?)
             .map_err(|_| UnknownChunk);
 
@@ -154,9 +161,20 @@ impl<'a> BufReader<'a> {
         Ok((chunk_type?, reader))
     }
 
+    /// Read the next chunk, skipping unknown chunks for forwards compatibility.
+    fn next_chunk(&mut self) -> Result<(ChunkType, BufReader<'a>), ParseError> {
+        loop {
+            let c = self.next_chunk_raw();
+            match c {
+                Err(UnknownChunk) => {}, // Keep scanning.
+                _ => { return c; }
+            }
+        }
+    }
+
     /// Read a chunk with the named type. Returns None if the next chunk isn't the specified type,
     /// or we hit EOF.
-    fn read_chunk(&mut self, expect_chunk_type: ChunkType) -> Result<Option<BufReader<'a>>, ParseError> {
+    fn read_chunk_if_eq(&mut self, expect_chunk_type: ChunkType) -> Result<Option<BufReader<'a>>, ParseError> {
         if let Some(actual_chunk_type) = self.peek_u32()? {
             if actual_chunk_type != (expect_chunk_type as u32) {
                 // Chunk doesn't match requested type.
@@ -169,22 +187,23 @@ impl<'a> BufReader<'a> {
         }
     }
 
-    fn expect_chunk(&mut self, expect_chunk_type: ChunkType) -> Result<BufReader<'a>, ParseError> {
-        // Scan chunks until we find expect_chunk_type. Error if the chunk is missing from the file.
-        while !self.is_empty() {
-            let chunk = self.next_chunk();
+    #[inline]
+    fn expect_chunk_pred<P>(&mut self, pred: P, err_type: ChunkType) -> Result<(ChunkType, BufReader<'a>), ParseError>
+        where P: FnOnce(ChunkType) -> bool
+    {
+        let (actual_chunk_type, r) = self.next_chunk()?;
 
-            // Ignore unknown chunks for forwards compatibility.
-            if let Err(UnknownChunk) = chunk { continue; }
-
-            // Otherwise we'll just try unwrap as usual.
-            let (actual_chunk_type, r) = chunk?;
-            if expect_chunk_type == actual_chunk_type {
-                // dbg!(expect_chunk_type, actual_chunk_type);
-                return Ok(r);
-            }
+        if pred(actual_chunk_type) {
+            // dbg!(expect_chunk_type, actual_chunk_type);
+            Ok((actual_chunk_type, r))
+        } else {
+            Err(MissingChunk(err_type as _))
         }
-        Err(MissingChunk(expect_chunk_type as _))
+    }
+
+    fn expect_chunk(&mut self, expect_chunk_type: ChunkType) -> Result<BufReader<'a>, ParseError> {
+        self.expect_chunk_pred(|c| c == expect_chunk_type, expect_chunk_type)
+            .map(|(_c, r)| r)
     }
 
     // Note the result is attached to the lifetime 'a, not the lifetime of self.
@@ -199,8 +218,31 @@ impl<'a> BufReader<'a> {
         std::str::from_utf8(bytes).map_err(|_| InvalidUTF8)
     }
 
+    // fn expect_content_str(&mut self, compressed: Option<BufReader<'a>>) -> Result<(&'a str, Option<BufReader<'a>>), ParseError> {
+    fn expect_content_str(&mut self, compressed: Option<&mut BufReader<'a>>) -> Result<&'a str, ParseError> {
+        let (c, mut r) = self.expect_chunk_pred(|c| c == Content || c == ContentCompressed, Content)?;
+
+        if c == Content {
+            // Just read the string straight out.
+            // Ok((r.into_content_str(), compressed))
+            r.into_content_str()
+        } else {
+            let data_type = r.next_u32()?;
+            if data_type != (DataType::PlainText as u32) {
+                return Err(UnknownChunk);
+            }
+            // The uncompressed length
+            let len = r.next_usize()?;
+
+            let bytes = compressed.ok_or(CompressedDataMissing)?
+                .next_n_bytes(len)?;
+
+            std::str::from_utf8(bytes).map_err(|_| InvalidUTF8)
+        }
+    }
+
     /// Read the next string thats encoded in this content chunk
-    fn read_content_str(&mut self) -> Result<&'a str, ParseError> {
+    fn into_content_str(mut self) -> Result<&'a str, ParseError> {
         // dbg!(&self.0);
         let data_type = self.next_u32()?;
         if data_type != (DataType::PlainText as u32) {
@@ -373,12 +415,12 @@ impl<'a> BufReader<'a> {
     fn read_fileinfo(&mut self, oplog: &mut OpLog) -> Result<FileInfoData, ParseError> {
         let mut fileinfo = self.expect_chunk(ChunkType::FileInfo)?;
 
-        let doc_id = fileinfo.read_chunk(ChunkType::DocId)?;
+        let doc_id = fileinfo.read_chunk_if_eq(ChunkType::DocId)?;
         let mut agent_names_chunk = fileinfo.expect_chunk(ChunkType::AgentNames)?;
-        let userdata = fileinfo.read_chunk(ChunkType::UserData)?;
+        let userdata = fileinfo.read_chunk_if_eq(ChunkType::UserData)?;
 
-        let doc_id = if let Some(mut doc_id) = doc_id {
-            Some(doc_id.read_content_str()?)
+        let doc_id = if let Some(doc_id) = doc_id {
+            Some(doc_id.into_content_str()?)
         } else { None };
 
         // Map from agent IDs in the file (idx) to agent IDs in self, and the seq cursors.
@@ -599,17 +641,16 @@ impl<'a> HasLength for ContentItem<'a> {
 }
 
 impl<'a> ReadPatchContentIter<'a> {
-    fn new(mut chunk: BufReader<'a>) -> Result<(InsDelTag, Self), ParseError> {
+    fn new(mut chunk: BufReader<'a>, compressed: Option<&mut BufReader<'a>>) -> Result<(InsDelTag, Self), ParseError> {
         let tag = match chunk.next_u32()? {
             0 => Ins,
             1 => Del,
             _ => { return Err(InvalidContent); }
         };
 
-        let mut content_chunk = chunk.expect_chunk(Content)?;
-        let content = content_chunk.read_content_str()?;
+        let content = chunk.expect_content_str(compressed)?;
 
-        let run_chunk = chunk.expect_chunk(ContentKnown)?;
+        let run_chunk = chunk.expect_chunk(ContentIsKnown)?;
 
         Ok((tag, Self { run_chunk, content }))
     }
@@ -820,6 +861,21 @@ impl OpLog {
             return Err(UnsupportedProtocolVersion);
         }
 
+        // *** Compressed data ***
+        // If there is a compressed chunk, it can contain data for other fields, all mushed
+        // together.
+        let compressed_chunk_raw = if let Some(mut c) = reader.read_chunk_if_eq(ChunkType::CompressedFieldsLZ4)? {
+            let uncompressed_len = c.next_usize()?;
+
+            // The rest of the bytes contain lz4 compressed data.
+            let data = lz4_flex::decompress(c.0, uncompressed_len)
+                .map_err(|_e| ParseError::LZ4DecompressionError)?;
+            Some(data)
+        } else { None };
+
+        // To consume from compressed_chunk_raw, we'll make a slice that we can iterate through.
+        let mut compressed_chunk = compressed_chunk_raw.as_ref().map(|b| BufReader(b));
+
         // *** FileInfo ***
         // fileinfo has DocID, UserData and AgentNames.
         // The agent_map is a map from agent_id in the file to agent_id in self.
@@ -839,9 +895,11 @@ impl OpLog {
 
         // *** StartBranch ***
         let mut start_branch = reader.expect_chunk(ChunkType::StartBranch)?;
-        let start_frontier_chunk = start_branch.read_chunk(ChunkType::Version)?;
-        let start_frontier: LocalVersion = if let Some(start_frontier_chunk) = start_frontier_chunk {
-            start_frontier_chunk.read_frontier(self, &agent_map).map_err(|e| {
+
+        // Start version
+        let start_version_chunk = start_branch.read_chunk_if_eq(ChunkType::Version)?;
+        let start_version: LocalVersion = if let Some(start_version_chunk) = start_version_chunk {
+            start_version_chunk.read_frontier(self, &agent_map).map_err(|e| {
                 // We can't read a frontier if it names agents or sequence numbers we haven't seen
                 // before. If this happens, its because we're trying to load a data set from the future.
 
@@ -855,14 +913,19 @@ impl OpLog {
             smallvec![]
         };
 
-        // The start frontier also optionally contains the document content at this version, but
-        // we can't parse it yet. TODO!
+        // The start branch also optionally contains the document content at this version. We
+        // can't use it yet but we need to parse it because it might be compressed.
+        if !start_branch.is_empty() {
+            let _start_content = start_branch.expect_content_str(compressed_chunk.as_mut())?;
+            // dbg!(start_content);
+            // TODO! Attach start_content if we're empty and start_version != ROOT.
+        }
 
         // Usually the version data will be strictly separated. Either we're loading data into an
         // empty document, or we've been sent catchup data from a remote peer. If the data set
         // overlaps, we need to actively filter out operations & txns from that data set.
         // dbg!(&start_frontier, &self.frontier);
-        let patches_overlap = !local_version_eq(&start_frontier, &self.version);
+        let patches_overlap = !local_version_eq(&start_version, &self.version);
         // dbg!(patches_overlap);
 
         // *** Patches ***
@@ -873,8 +936,8 @@ impl OpLog {
             let mut ins_content = None;
             let mut del_content = None;
 
-            while let Some(chunk) = patch_chunk.read_chunk(ChunkType::PatchContent)? {
-                let (tag, content_chunk) = ReadPatchContentIter::new(chunk)?;
+            while let Some(chunk) = patch_chunk.read_chunk_if_eq(ChunkType::PatchContent)? {
+                let (tag, content_chunk) = ReadPatchContentIter::new(chunk, compressed_chunk.as_mut())?;
                 // let iter = content_chunk.take_max();
                 let iter = content_chunk.buffered();
                 match tag {
@@ -1051,7 +1114,7 @@ impl OpLog {
             // dbg!(&version_map);
             let mut next_history_time = first_new_time;
 
-            let mut file_frontier = start_frontier;
+            let mut file_frontier = start_version;
 
             while !history_chunk.is_empty() {
                 let mut entry = history_chunk.next_history_entry(self, next_file_time, &agent_map)?;
@@ -1131,7 +1194,7 @@ impl OpLog {
 
         // TODO: Move checksum check to the start, so if it fails we don't modify the document.
         let reader_len = reader.0.len();
-        if let Some(mut crc_reader) = reader.read_chunk(ChunkType::Crc)? {
+        if let Some(mut crc_reader) = reader.read_chunk_if_eq(ChunkType::Crc)? {
             // So this is a bit dirty. The bytes which have been checksummed is everything up to
             // (but NOT INCLUDING) the CRC chunk. I could adapt BufReader to store the offset /
             // length. But we can just subtract off the remaining length from the original data??
@@ -1179,6 +1242,7 @@ mod tests {
             store_start_branch_content: true,
             store_inserted_content: true,
             store_deleted_content: true,
+            compress_content: true,
             verbose: false,
         });
 
@@ -1197,6 +1261,8 @@ mod tests {
         let result = OpLog::load_from(&data).unwrap();
         // dbg!(&result);
 
+        dbg!(&doc.oplog);
+        dbg!(&result);
         assert_eq!(&result, &doc.oplog);
         // dbg!(&result);
     }
@@ -1361,6 +1427,7 @@ mod tests {
             store_start_branch_content: true,
             store_inserted_content: true,
             store_deleted_content: true,
+            compress_content: true,
             verbose: false
         });
 
@@ -1412,6 +1479,7 @@ mod tests {
             // store_deleted_content: true,
             store_inserted_content: false,
             store_deleted_content: false,
+            compress_content: true,
             verbose: false
         });
         dbg_print_chunks_in(&bytes);
@@ -1423,6 +1491,7 @@ mod tests {
             store_start_branch_content: true,
             store_inserted_content: false, // Need to say false here to avoid an assert for this.
             store_deleted_content: true,
+            compress_content: true,
             verbose: false
         });
         let oplog3 = OpLog::load_from(&bytes2).unwrap();
@@ -1522,16 +1591,67 @@ mod tests {
     }
 
     #[test]
-    fn foo() {
+    fn regression_1() {
+        // I have no idea what bug this caught.
         let doc_data: Vec<u8> = vec![68,77,78,68,84,89,80,83,0,1,28,3,26,12,119,74,74,112,83,108,69,108,72,100,101,53,12,111,74,97,104,71,111,70,103,84,66,114,88,10,7,12,2,0,0,13,1,4,20,34,24,15,0,13,9,4,102,100,115,97,97,115,100,102,25,1,17,21,4,2,4,4,4,22,3,33,35,9,23,4,4,1,4,1,100,4,4,98,110,26];
         let patch_data: Vec<u8> = vec![68,77,78,68,84,89,80,83,0,1,28,3,26,12,119,74,74,112,83,108,69,108,72,100,101,53,12,111,74,97,104,71,111,70,103,84,66,114,88,10,6,12,4,3,0,4,3,20,26,24,10,0,13,4,4,100,115,97,25,1,7,21,3,3,3,2,22,2,27,2,23,3,3,5,0,100,4,65,22,13,47];
         // let doc_data: Vec<u8> = vec![68,77,78,68,84,89,80,83,0,1,187,2,3,184,2,12,52,111,114,55,75,56,78,112,52,109,122,113,12,90,77,80,70,45,69,49,95,116,114,114,74,12,68,80,84,95,104,99,107,75,121,55,102,77,12,82,56,108,87,77,99,112,54,76,68,99,83,12,53,98,78,79,116,82,85,56,120,88,113,83,12,100,85,101,81,83,77,66,54,122,45,72,115,12,50,105,105,80,104,101,116,101,85,107,57,49,12,108,65,71,75,68,90,68,53,108,111,99,75,12,78,113,55,109,65,70,55,104,67,56,52,122,12,116,51,113,52,84,101,121,73,76,85,54,53,12,120,95,120,51,68,95,105,109,81,100,78,115,12,102,120,103,87,90,100,82,111,105,108,73,99,12,115,87,67,73,67,97,78,100,68,65,77,86,12,110,100,56,118,55,74,79,45,114,81,122,45,12,110,85,69,75,69,73,53,81,49,49,45,83,12,120,97,55,121,102,81,88,98,45,120,54,87,12,85,116,82,100,98,71,117,106,57,49,98,49,12,100,120,97,65,122,104,98,50,54,88,114,105,12,86,78,83,81,118,120,89,106,118,88,55,76,12,68,81,110,48,84,67,120,81,85,90,79,78,12,85,109,57,115,105,121,71,84,88,74,81,79,12,108,69,103,121,89,116,52,87,105,53,52,119,12,76,98,121,115,84,66,118,51,122,72,115,117,12,121,87,116,89,108,120,114,48,120,98,106,101,10,7,12,2,0,0,13,1,4,20,239,2,24,203,1,0,13,195,1,4,120,100,102,120,120,102,100,115,49,120,120,121,122,113,119,101,114,115,100,102,115,100,115,100,97,115,100,115,100,115,100,115,100,97,115,100,97,115,100,113,119,101,119,113,101,119,113,119,107,106,107,106,107,106,107,107,106,107,106,107,108,106,108,107,106,108,107,106,108,107,106,101,101,114,108,106,107,114,101,108,107,116,101,114,116,101,111,114,106,116,111,105,101,106,114,116,111,105,119,106,100,97,98,99,49,49,49,57,49,98,115,110,102,103,104,102,100,103,104,100,102,103,104,100,103,104,100,102,103,104,100,102,103,104,100,107,106,102,108,107,115,100,106,102,108,115,59,107,106,107,108,106,59,107,106,107,106,107,106,59,107,106,108,59,107,106,59,107,108,106,107,106,108,97,102,100,115,97,115,100,102,102,97,115,100,102,100,115,97,97,115,100,102,102,25,2,133,3,21,66,2,3,4,1,6,4,8,1,10,1,12,10,14,1,16,1,18,1,20,4,22,4,24,18,26,99,28,58,30,4,28,1,30,1,32,3,34,2,32,1,34,23,32,39,36,66,38,1,40,4,38,3,42,8,44,1,42,4,44,3,46,8,48,4,46,1,22,52,81,175,1,21,177,2,239,4,77,169,3,223,6,107,33,79,9,0,26,47,3,0,19,3,18,187,1,5,187,2,43,175,8,87,0,35,3,27,7,143,1,9,0,35,3,27,7,143,1,9,33,74,23,37,211,1,1,1,8,3,10,4,1,8,2,10,4,23,8,39,96,67,162,1,4,4,8,3,20,9,18,4,4,8,3,20,12,18,4,1,20,100,4,16,215,118,144];
         // let patch_data: Vec<u8> = vec![68,77,78,68,84,89,80,83,0,1,28,3,26,12,121,87,116,89,108,120,114,48,120,98,106,101,12,76,98,121,115,84,66,118,51,122,72,115,117,10,6,12,4,3,0,4,8,20,26,24,10,0,13,4,4,115,100,102,25,1,7,21,3,3,3,2,22,2,27,2,23,3,3,5,0,100,4,233,122,109,54];
 
         let mut oplog = OpLog::load_from(&doc_data).unwrap();
-        dbg!(&oplog);
+        // dbg!(&oplog);
         println!("\n\n");
         oplog.decode_and_add(&patch_data).unwrap();
         oplog.dbg_check(true);
+    }
+
+    #[test]
+    fn compat_empty_doc() {
+        // This is an empty document from before I made a couple small tweaks. Break compatibility,
+        // but do it intentionally.
+
+        // In the older format, I stored StartBranch even when it was ROOT.
+        // (From commit 5d1d21cd519a2c631aa1fedc59744f30c0787488)
+        let bytes1 = &[0x44,0x4d,0x4e,0x44,0x54,0x59,0x50,0x53,0x00,0x01,0x02,0x03,0x00,0x0a,0x07,0x0c,0x02,0x00,0x00,0x0d,0x01,0x04,0x14,0x06,0x15,0x00,0x16,0x00,0x17,0x00,0x64,0x04,0x6c,0xce,0x6b,0x00];
+        // In the newer format, StartBranch is an empty chunk when the document starts at ROOT.
+        let bytes2 = &[0x44,0x4d,0x4e,0x44,0x54,0x59,0x50,0x53,0x00,0x01,0x02,0x03,0x00,0x0a,0x00,0x14,0x06,0x15,0x00,0x16,0x00,0x17,0x00,0x64,0x04,0x86,0x77,0x4d,0x6a];
+
+        let expect = OpLog::new();
+        let a = OpLog::load_from(bytes1).unwrap();
+        assert_eq!(expect, a);
+        let b = OpLog::load_from(bytes2).unwrap();
+        assert_eq!(expect, b);
+    }
+
+    #[test]
+    fn compat_simple_doc() {
+        // This is copy + pasted here (from simple_doc() above) because this test should stay the
+        // same even if I goof with the encoding above.
+        let mut doc = ListCRDT::new();
+        doc.get_or_create_agent_id("seph");
+        doc.insert(0, 0, "hi there");
+        doc.delete_without_content(0, 3..7); // 'hi e'
+        doc.insert(0, 3, "m");
+
+        dbg!(&doc.oplog.encode(EncodeOptions {
+            user_data: None,
+            store_start_branch_content: false,
+            store_inserted_content: true,
+            store_deleted_content: false,
+            compress_content: true,
+            verbose: false
+        }));
+
+        // From commit 5d1d21cd519a2c631aa1fedc59744f30c0787488
+        let bytes1 = &[68,77,78,68,84,89,80,83,0,1,7,3,5,4,115,101,112,104,10,7,12,2,0,0,13,1,4,20,32,24,16,0,13,10,4,104,105,32,116,104,101,114,101,109,25,1,19,21,2,2,13,22,4,65,79,11,0,23,2,13,1,100,4,162,205,138,38];
+        assert_eq!(OpLog::load_from(bytes1).unwrap(), doc.oplog);
+
+        // From commit xxx
+        // With compression disabled, or artificially cranked to compress everything:
+        let bytes2_uncompressed = &[68,77,78,68,84,89,80,83,0,1,7,3,5,4,115,101,112,104,10,0,20,32,24,16,0,13,10,4,104,105,32,116,104,101,114,101,109,25,1,19,21,2,2,13,22,4,65,79,11,0,23,2,13,1,100,4,151,117,95,151];
+        let bytes2_compressed_full = &[68,77,78,68,84,89,80,83,0,5,11,9,144,104,105,32,116,104,101,114,101,109,1,7,3,5,4,115,101,112,104,10,0,20,24,24,8,0,14,2,4,9,25,1,19,21,2,2,13,22,4,65,79,11,0,23,2,13,1,100,4,128,32,8,191];
+
+        assert_eq!(OpLog::load_from(bytes2_uncompressed).unwrap(), doc.oplog);
+        assert_eq!(OpLog::load_from(bytes2_compressed_full).unwrap(), doc.oplog);
     }
 }

@@ -12,6 +12,7 @@ use crate::list::operation::InsDelTag;
 use crate::dtrange::DTRange;
 
 const ALLOW_VERBOSE: bool = false;
+// const ALLOW_VERBOSE: bool = true;
 
 /// Write an operation to the passed writer.
 fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
@@ -86,7 +87,6 @@ fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
     dest.extend_from_slice(&buf[..pos]);
 }
 
-
 #[derive(Debug, Clone)]
 pub struct EncodeOptions<'a> {
     pub user_data: Option<&'a [u8]>,
@@ -99,6 +99,8 @@ pub struct EncodeOptions<'a> {
     pub store_inserted_content: bool,
     pub store_deleted_content: bool,
 
+    pub compress_content: bool,
+
     pub verbose: bool,
 }
 
@@ -107,6 +109,7 @@ pub const ENCODE_PATCH: EncodeOptions = EncodeOptions {
     store_start_branch_content: false,
     store_inserted_content: true,
     store_deleted_content: false,
+    compress_content: true,
     verbose: false
 };
 
@@ -115,6 +118,7 @@ pub const ENCODE_FULL: EncodeOptions = EncodeOptions {
     store_start_branch_content: true,
     store_inserted_content: true,
     store_deleted_content: false, // ?? Not sure about this one!
+    compress_content: true,
     verbose: false
 };
 
@@ -225,29 +229,6 @@ impl AgentMapping {
     }
 }
 
-// // We need to name the full branch in the output in a few different settings.
-// //
-// // TODO: Should this store strings or IDs?
-// fn write_full_frontier(oplog: &OpLog, dest: &mut Vec<u8>, frontier: &[Time]) {
-//     if frontier_is_root(frontier) {
-//         // The root is written as a single item.
-//         push_str(dest, "ROOT");
-//         push_usize(dest, 0);
-//     } else {
-//         let mut iter = frontier.iter().peekable();
-//         while let Some(t) = iter.next() {
-//             let has_more = iter.peek().is_some();
-//             let id = oplog.time_to_crdt_id(*t);
-//
-//             push_str(dest, oplog.client_data[id.agent as usize].name.as_str());
-//
-//             let n = mix_bit_usize(id.seq, has_more);
-//             push_usize(dest, n);
-//         }
-//     }
-// }
-
-
 fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapping, oplog: &OpLog) {
     // Skip writing a version chunk if the version is ROOT.
     if local_version_is_root(&version) {
@@ -268,40 +249,62 @@ fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapp
         push_usize(&mut buf, id.seq);
     }
     push_chunk(dest, ChunkType::Version, &buf);
-    buf.clear();
+    // buf.clear();
 }
 
-fn write_content_rope(dest: &mut Vec<u8>, rope: &JumpRope) {
-    // This content type uses up the entire chunk, so there's no need to store a length along with
-    // the string.
+fn write_content<'a, I: Iterator<Item = &'a [u8]>>(dest: &mut Vec<u8>, kind: DataType, len: usize, iter: I, compressed: Option<&mut Vec<u8>>) {
+    // There's two ways of storing content: compressed or not compressed.
+    //
+    // - For uncompressed content chunks, we store type then the content. (No need to store a length
+    //   because we have the chunk length).
+    // - For compressed content chunks, we store the type and the number of compressed bytes in
+    //   situ, and then put the compressed data itself into compressed for later compression.
+
     let mut buf = Vec::new(); // :(
-    push_u32(&mut buf, DataType::PlainText as _);
-    // push_usize(&mut buf, rope.len_bytes());
-    for (str, _) in rope.chunks() {
-        buf.extend_from_slice(str.as_bytes());
+    push_u32(&mut buf, kind as _);
+
+    // Right now I'm compressing content whenever len > 20. I'm not sure what the right parameter
+    // here is, but thats probably about right. LZ4 has a minimum block size of 12 anyway.
+    //
+    // We could consider this on the document as a whole, but eh.
+    const MIN_COMPRESSED_LEN: usize = 20;
+
+    let (b, chunk_type) = match (compressed, len >= MIN_COMPRESSED_LEN) {
+        (Some(b), true) => {
+            // Store the compressed length in the origin chunk.
+            push_usize(&mut buf, len);
+            (b, ChunkType::ContentCompressed)
+        },
+        _ => (&mut buf, ChunkType::Content),
+    };
+
+    // The passed length should always be right, but lets just make sure.
+    let mut actual_len = 0;
+    for bytes in iter {
+        actual_len += bytes.len();
+        b.extend_from_slice(bytes);
     }
-    push_chunk(dest, ChunkType::Content, &buf);
-}
+    debug_assert_eq!(actual_len, len);
 
-fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ChunkType) {
-    let mut buf = Vec::new(); // :(
-    push_u32(&mut buf, DataType::PlainText as _);
-    // push_str(&mut buf, s);
-    buf.extend_from_slice(s.as_bytes());
     push_chunk(dest, chunk_type, &buf);
 }
 
-// TODO:
-// #[allow(unused)]
-// fn write(&self, dest: &mut Vec<u8>, map: &mut AgentMapping, oplog: &OpLog, write_content: bool) {
-//     // Frontier
-//     Self::write_frontier(dest, &self.frontier, map, oplog);
-//
-//     // Content
-//     if write_content {
-//         Self::write_content_rope(dest, &self.content);
-//     }
-// }
+fn write_content_str(dest: &mut Vec<u8>, s: &str, compressed: Option<&mut Vec<u8>>) {
+    write_content(dest, DataType::PlainText, s.len(), std::iter::once(s.as_bytes()), compressed);
+}
+
+fn write_content_rope(dest: &mut Vec<u8>, rope: &JumpRope, compressed: Option<&mut Vec<u8>>) {
+    write_content(dest, DataType::PlainText, rope.len_bytes(),rope.chunks().strings().map(|s| s.as_bytes()), compressed);
+}
+
+fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ChunkType) {
+    debug_assert_ne!(chunk_type, ChunkType::Content); // Use write_content_str instead.
+
+    let mut buf = Vec::new(); // :(
+    push_u32(&mut buf, DataType::PlainText as _);
+    buf.extend_from_slice(s.as_bytes());
+    push_chunk(dest, chunk_type, &buf);
+}
 
 fn write_bit_run(run: RleRun<bool>, into: &mut Vec<u8>) {
     // dbg!(run);
@@ -345,7 +348,7 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
         self.bit_writer.push2(RleRun::new(known, len), &mut self.known_out);
     }
 
-    fn flush(mut self) -> Option<Vec<u8>> {
+    fn flush(mut self, compressed_out: Option<&mut Vec<u8>>) -> Option<Vec<u8>> {
         self.bit_writer.flush2(&mut self.known_out);
 
         if self.content.is_empty() {
@@ -356,9 +359,9 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
             push_u32(&mut buf, match self.tag { Ins => 0, Del => 1 });
 
             // This writes a length-prefixed string, which it really doesn't need to do.
-            write_chunk_str(&mut buf, &self.content, ChunkType::Content);
-            // push_chunk(&mut buf, ChunkType::Content, self.content.as_bytes());
-            push_chunk(&mut buf, ChunkType::ContentKnown, &self.known_out);
+            write_content_str(&mut buf, &self.content, compressed_out);
+
+            push_chunk(&mut buf, ChunkType::ContentIsKnown, &self.known_out);
             Some(buf)
         }
     }
@@ -373,21 +376,8 @@ impl OpLog {
         // }
         let verbose = ALLOW_VERBOSE && opts.verbose;
 
-        let mut result = Vec::new();
-        // The file starts with MAGIC_BYTES
-        result.extend_from_slice(&MAGIC_BYTES);
-        push_usize(&mut result, PROTOCOL_VERSION);
-
-        // And contains a series of chunks. Each chunk has a chunk header (chunk type, length).
-        // The first chunk is always the FileInfo chunk - which names the file format.
-        let mut write_chunk = |c: ChunkType, data: &mut Vec<u8>| {
-            if verbose {
-                println!("{:?} length {}", c, data.len());
-            }
-            // dbg!(&data);
-            push_chunk(&mut result, c, data.as_slice());
-            data.clear();
-        };
+        // Before anything else, we'll scan the oplog and assemble all the data in memory that we
+        // need to write.
 
         // *** Inserted (text) content and operations ***
 
@@ -414,6 +404,11 @@ impl OpLog {
         // - Interleaved would be easier to consume, because we wouldn't need to match up inserts
         //   with the text
         // - Interleaved it would compress much less well with snappy / lz4.
+
+        // Only used when compression is enabled.
+        let mut compress_bytes = if opts.compress_content {
+            Some(Vec::new())
+        } else { None };
 
         let mut inserted_content = if opts.store_inserted_content {
             Some(ContentChunk::new(write_bit_run, Ins))
@@ -580,20 +575,18 @@ impl OpLog {
         // TODO: Support partial data sets. (from_frontier)
         let mut start_branch = Vec::new();
 
-        // This will skip writing the version if from_version is ROOT.
-        write_local_version(&mut start_branch, from_version, &mut agent_mapping, self);
+        // If the local version is root, start_branch is just an empty chunk.
+        if !local_version_is_root(from_version) {
+            // This will skip writing the version if from_version is ROOT.
+            write_local_version(&mut start_branch, from_version, &mut agent_mapping, self);
 
-        if opts.store_start_branch_content {
-            if local_version_is_root(from_version) {
-                // Optimization. TODO: Check if this is worth it.
-                write_chunk_str(&mut start_branch, "", ChunkType::Content);
-            } else {
+            if opts.store_start_branch_content {
                 let branch_here = Branch::new_at_local_version(self, from_version);
                 // dbg!(&branch_here);
-                write_content_rope(&mut start_branch, &branch_here.content);
+                write_content_rope(&mut start_branch, &branch_here.content, compress_bytes.as_mut());
             }
         }
-        // Branch::write_content_str(&mut start_branch, ""); // TODO - support non-root!
+        dbg!(&start_branch);
 
         // TODO: The fileinfo chunk should specify encoding version and information
         // about the data types we're encoding.
@@ -614,6 +607,69 @@ impl OpLog {
             push_chunk(&mut fileinfo_buf, ChunkType::UserData, data);
         }
 
+        // Bake inserted & deleted content. I need to do this here because the CompressedFields
+        // chunk goes first in the file, so if we compress anything, it needs to be filled up.
+        let inserted_content = inserted_content.and_then(|inserted_content| {
+            if verbose {
+                println!("Inserted text length {}", inserted_content.content.len());
+            }
+
+            inserted_content.flush(compress_bytes.as_mut())
+        });
+        let deleted_content = deleted_content.and_then(|deleted_content| {
+            if verbose {
+                println!("Deleted text length {}", deleted_content.content.len());
+            }
+
+            deleted_content.flush(compress_bytes.as_mut())
+        });
+
+        // *** Actually start writing to Result!! YAAAAYYY ***
+        let mut result = Vec::new();
+        // The file starts with MAGIC_BYTES
+        result.extend_from_slice(&MAGIC_BYTES);
+        push_usize(&mut result, PROTOCOL_VERSION);
+
+        // We'll write a series of chunks. Each chunk has a chunk header (chunk type, length).
+        // The first chunk is CompressedFields, in case we need compressed content later.
+
+        if let Some(compress_bytes) = compress_bytes {
+            if !compress_bytes.is_empty() {
+                // dbg!(&compress_bytes);
+                let max_compressed_size = lz4_flex::block::get_maximum_output_size(compress_bytes.len());
+
+                // Capacity 10+ because we contain a size.
+                let mut compressed = Vec::with_capacity(5 + max_compressed_size);
+                compressed.resize(compressed.capacity(), 0);
+
+                let mut pos = 0;
+
+                // Encoding the uncompressed length is technically redundant, since you could just
+                // scan the whole file. But its convenient and fine in practice.
+                pos += encode_usize(compress_bytes.len(), &mut compressed[pos..]);
+
+                // I could wrap and return the compression error, but the only lz4 error is
+                // TooSmall, and that should probably be a panic anyway.
+                pos += lz4_flex::compress_into(&compress_bytes, &mut compressed[pos..]).unwrap();
+                compressed.truncate(pos);
+                // write_chunk(ChunkType::CompressedFields, &mut compressed);
+                push_chunk(&mut result, ChunkType::CompressedFieldsLZ4, &compressed[..pos]);
+
+                if verbose {
+                    println!("Compressed {} bytes in the file to {}", compress_bytes.len(), pos);
+                }
+            }
+        }
+
+        let mut write_chunk = |c: ChunkType, data: &mut Vec<u8>| {
+            if verbose {
+                println!("{:?} length {}", c, data.len());
+            }
+            // dbg!(&data);
+            push_chunk(&mut result, c, data.as_slice());
+            data.clear();
+        };
+
         write_chunk(ChunkType::FileInfo, &mut fileinfo_buf);
 
         // *** Start Branch - which was filled in above. ***
@@ -623,29 +679,11 @@ impl OpLog {
         // I'll just assemble it in buf. There's a lot of sloppy use of vec<u8>'s in here.
         let mut patches_buf = fileinfo_buf;
 
-        if let Some(inserted_content) = inserted_content {
-            // let max_compressed_size = lz4_flex::block::get_maximum_output_size(inserted_text.len());
-            // let mut compressed = Vec::with_capacity(5 + max_compressed_size);
-            // compressed.resize(compressed.capacity(), 0);
-            // let mut pos = encode_usize(inserted_text.len(), &mut compressed);
-            // pos += lz4_flex::compress_into(inserted_text.as_bytes(), &mut compressed[pos..]).unwrap();
-            // write_chunk(Chunk::InsertedContent, &compressed[..pos]);
-            if verbose {
-                println!("Inserted text length {}", inserted_content.content.len());
-            }
-            // dbg!(ins_content_bytes);
-
-            if let Some(bytes) = inserted_content.flush() {
-                push_chunk(&mut patches_buf, ChunkType::PatchContent, &bytes);
-            }
+        if let Some(bytes) = inserted_content {
+            push_chunk(&mut patches_buf, ChunkType::PatchContent, &bytes);
         }
-        if let Some(deleted_content) = deleted_content {
-            if verbose {
-                println!("Deleted text length {}", deleted_content.content.len());
-            }
-            if let Some(bytes) = deleted_content.flush() {
-                push_chunk(&mut patches_buf, ChunkType::PatchContent, &bytes);
-            }
+        if let Some(bytes) = deleted_content {
+            push_chunk(&mut patches_buf, ChunkType::PatchContent, &bytes);
         }
 
         push_chunk(&mut patches_buf, ChunkType::OpVersions, &agent_assignment_chunk);

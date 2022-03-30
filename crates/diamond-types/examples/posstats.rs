@@ -70,10 +70,10 @@ fn print_stats_for_testdata(name: &str) {
     doc.print_stats(false);
 
     // let _as_bytes = doc.ops.encode(true);
-    let _as_bytes = doc.oplog.encode(EncodeOptions {
-        verbose: true,
-        ..Default::default()
-    });
+    // let _as_bytes = doc.oplog.encode(EncodeOptions {
+    //     verbose: true,
+    //     ..Default::default()
+    // });
     println!("Branch size {}", doc.len());
     // println!("---\nEncoded size {} (?? What do we include here?)", as_bytes.len());
 
@@ -83,6 +83,7 @@ fn print_stats_for_testdata(name: &str) {
         store_start_branch_content: false,
         store_inserted_content: true,
         store_deleted_content: false,
+        compress_content: true,
         verbose: true
     });
     std::fs::write(out_file.clone(), data.as_slice()).unwrap();

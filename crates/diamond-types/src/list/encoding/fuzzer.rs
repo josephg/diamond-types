@@ -25,6 +25,7 @@ fn fuzz_encode_decode_once(seed: u64) {
             store_start_branch_content: true,
             store_inserted_content: true,
             store_deleted_content: true,
+            compress_content: true,
             verbose: false
         });
 
@@ -90,6 +91,7 @@ fn fuzz_encode_decode_multi(seed: u64, verbose: bool) {
             store_start_branch_content: false,
             store_inserted_content: true,
             store_deleted_content: true,
+            compress_content: true,
             verbose: false
         };
         let a_data = a.oplog.encode(encode_opts.clone());

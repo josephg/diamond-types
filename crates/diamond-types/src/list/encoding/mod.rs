@@ -39,6 +39,10 @@ pub enum ParseError {
     DocIdMismatch,
     BaseVersionUnknown,
     UnknownChunk,
+    UnknownCompressionFormat(u32),
+    LZ4DecompressionError, // I'd wrap it but lz4_flex errors don't implement any traits
+    // LZ4DecompressionError(lz4_flex::block::DecompressError),
+    CompressedDataMissing,
     InvalidChunkHeader,
     MissingChunk(u32),
     // UnexpectedChunk {
@@ -119,6 +123,9 @@ fn checksum(data: &[u8]) -> u32 {
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]
 enum ChunkType {
+    /// Packed bytes storing any data compressed in later parts of the file.
+    CompressedFieldsLZ4 = 5,
+
     /// FileInfo contains optional UserData and AgentNames.
     FileInfo = 1,
     DocId = 2,
@@ -131,6 +138,7 @@ enum ChunkType {
     Version = 12,
     /// StartBranch content is optional.
     Content = 13,
+    ContentCompressed = 14, // Might make more sense to have a generic compression tag for chunks.
 
     Patches = 20,
     OpVersions = 21,
@@ -138,27 +146,34 @@ enum ChunkType {
     OpParents = 23,
 
     PatchContent = 24,
-    ContentKnown = 25,
+    /// ContentKnown is a RLE expressing which ranges of patches have known content
+    ContentIsKnown = 25,
 
-    TransformedPositions = 26, // Currently unused
+    TransformedPositions = 27, // Currently unused
 
     Crc = 100,
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]
-pub enum DataType {
+enum DataType {
     Bool = 1,
     VarUInt = 2,
     VarInt = 3,
     PlainText = 4,
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
+#[repr(u32)]
+enum CompressionFormat {
+    // Just for future proofing, ya know?
+    LZ4 = 1,
+}
+
 fn push_chunk_header(into: &mut Vec<u8>, chunk_type: ChunkType, len: usize) {
     push_u32(into, chunk_type as u32);
     push_usize(into, len);
 }
-
 
 fn push_chunk(into: &mut Vec<u8>, chunk_type: ChunkType, data: &[u8]) {
     push_chunk_header(into, chunk_type, data.len());

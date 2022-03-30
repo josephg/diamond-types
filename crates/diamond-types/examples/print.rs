@@ -65,6 +65,7 @@ fn print_stats_for_file(name: &str) {
         store_start_branch_content: false,
         store_inserted_content: true,
         store_deleted_content: true,
+        compress_content: true,
         verbose: true,
     });
 }
