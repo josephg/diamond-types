@@ -864,13 +864,19 @@ impl OpLog {
         // *** Compressed data ***
         // If there is a compressed chunk, it can contain data for other fields, all mushed
         // together.
-        let compressed_chunk_raw = if let Some(mut c) = reader.read_chunk_if_eq(ChunkType::CompressedFieldsLZ4)? {
-            let uncompressed_len = c.next_usize()?;
+        let compressed_chunk_raw: Option<Vec<u8>> = if let Some(mut c) = reader.read_chunk_if_eq(ChunkType::CompressedFieldsLZ4)? {
+            #[cfg(not(feature = "lz4"))] {
+                return Err(LZ4DecoderNeeded);
+            }
 
-            // The rest of the bytes contain lz4 compressed data.
-            let data = lz4_flex::decompress(c.0, uncompressed_len)
-                .map_err(|_e| ParseError::LZ4DecompressionError)?;
-            Some(data)
+            #[cfg(feature = "lz4")] {
+                let uncompressed_len = c.next_usize()?;
+
+                // The rest of the bytes contain lz4 compressed data.
+                let data = lz4_flex::decompress(c.0, uncompressed_len)
+                    .map_err(|_e| ParseError::LZ4DecompressionError)?;
+                Some(data)
+            }
         } else { None };
 
         // To consume from compressed_chunk_raw, we'll make a slice that we can iterate through.
@@ -1649,9 +1655,11 @@ mod tests {
         // From commit xxx
         // With compression disabled, or artificially cranked to compress everything:
         let bytes2_uncompressed = &[68,77,78,68,84,89,80,83,0,1,7,3,5,4,115,101,112,104,10,0,20,32,24,16,0,13,10,4,104,105,32,116,104,101,114,101,109,25,1,19,21,2,2,13,22,4,65,79,11,0,23,2,13,1,100,4,151,117,95,151];
-        let bytes2_compressed_full = &[68,77,78,68,84,89,80,83,0,5,11,9,144,104,105,32,116,104,101,114,101,109,1,7,3,5,4,115,101,112,104,10,0,20,24,24,8,0,14,2,4,9,25,1,19,21,2,2,13,22,4,65,79,11,0,23,2,13,1,100,4,128,32,8,191];
-
         assert_eq!(OpLog::load_from(bytes2_uncompressed).unwrap(), doc.oplog);
-        assert_eq!(OpLog::load_from(bytes2_compressed_full).unwrap(), doc.oplog);
+
+        if cfg!(feature = "lz4") {
+            let bytes2_compressed_full = &[68, 77, 78, 68, 84, 89, 80, 83, 0, 5, 11, 9, 144, 104, 105, 32, 116, 104, 101, 114, 101, 109, 1, 7, 3, 5, 4, 115, 101, 112, 104, 10, 0, 20, 24, 24, 8, 0, 14, 2, 4, 9, 25, 1, 19, 21, 2, 2, 13, 22, 4, 65, 79, 11, 0, 23, 2, 13, 1, 100, 4, 128, 32, 8, 191];
+            assert_eq!(OpLog::load_from(bytes2_compressed_full).unwrap(), doc.oplog);
+        }
     }
 }

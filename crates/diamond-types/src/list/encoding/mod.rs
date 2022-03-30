@@ -39,7 +39,7 @@ pub enum ParseError {
     DocIdMismatch,
     BaseVersionUnknown,
     UnknownChunk,
-    UnknownCompressionFormat(u32),
+    LZ4DecoderNeeded,
     LZ4DecompressionError, // I'd wrap it but lz4_flex errors don't implement any traits
     // LZ4DecompressionError(lz4_flex::block::DecompressError),
     CompressedDataMissing,
