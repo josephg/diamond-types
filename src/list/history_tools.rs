@@ -57,7 +57,7 @@ impl History {
 
     pub(crate) fn version_contains_time(&self, frontier: &[Time], target: Time) -> bool {
         if target == ROOT_TIME || frontier.contains(&target) { return true; }
-        if frontier == [] { return false; }
+        if frontier.is_empty() { return false; }
 
         // Fast path. This causes extra calls to find_packed(), but you usually have a branch with
         // a shadow less than target. Usually the root document. And in that case this codepath
@@ -105,6 +105,7 @@ impl History {
 
             // dbg!(order);
             for &p in &entry.parents {
+                #[allow(clippy::comparison_chain)]
                 if p == target { return true; }
                 else if p > target { queue.push(p); }
                 // If p < target, it can't be a child of target. So we can discard it.

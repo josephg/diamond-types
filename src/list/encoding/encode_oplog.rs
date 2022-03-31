@@ -230,7 +230,7 @@ impl AgentMapping {
 
 fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapping, oplog: &OpLog) {
     // Skip writing a version chunk if the version is ROOT.
-    if local_version_is_root(&version) {
+    if local_version_is_root(version) {
         return;
     }
 
@@ -323,7 +323,7 @@ fn write_compressed_chunk(dest: &mut Vec<u8>, data: &[u8]) -> usize {
 
     // I could wrap and return the compression error, but the only lz4 error is
     // TooSmall, and that should probably be a panic anyway.
-    pos += lz4_flex::compress_into(&data, &mut compressed[pos..]).unwrap();
+    pos += lz4_flex::compress_into(data, &mut compressed[pos..]).unwrap();
     compressed.truncate(pos);
     // write_chunk(ChunkType::CompressedFields, &mut compressed);
     push_chunk(dest, ChunkType::CompressedFieldsLZ4, &compressed[..pos]);

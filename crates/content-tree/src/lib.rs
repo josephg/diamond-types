@@ -1,6 +1,8 @@
 // The btree here is used to map character -> document positions. It could also
 // be extended to inline a rope, but I haven't done that here.
 
+#![allow(clippy::missing_safety_doc)]
+
 // use std::cell::Cell;
 use std::fmt::Debug;
 use std::marker;
