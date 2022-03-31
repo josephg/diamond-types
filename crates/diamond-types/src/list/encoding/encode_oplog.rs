@@ -306,6 +306,31 @@ fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ChunkType) {
     push_chunk(dest, chunk_type, &buf);
 }
 
+/// Returns compressed chunk size
+fn write_compressed_chunk(dest: &mut Vec<u8>, data: &[u8]) -> usize {
+    // dbg!(&compress_bytes);
+    let max_compressed_size = lz4_flex::block::get_maximum_output_size(data.len());
+
+    // Capacity 10+ because we contain a size.
+    let mut compressed = Vec::with_capacity(5 + max_compressed_size);
+    compressed.resize(compressed.capacity(), 0);
+
+    let mut pos = 0;
+
+    // Encoding the uncompressed length is technically redundant, since you could just
+    // scan the whole file. But its convenient and fine in practice.
+    pos += encode_usize(data.len(), &mut compressed[pos..]);
+
+    // I could wrap and return the compression error, but the only lz4 error is
+    // TooSmall, and that should probably be a panic anyway.
+    pos += lz4_flex::compress_into(&data, &mut compressed[pos..]).unwrap();
+    compressed.truncate(pos);
+    // write_chunk(ChunkType::CompressedFields, &mut compressed);
+    push_chunk(dest, ChunkType::CompressedFieldsLZ4, &compressed[..pos]);
+
+    pos
+}
+
 fn write_bit_run(run: RleRun<bool>, into: &mut Vec<u8>) {
     // dbg!(run);
     let mut n = run.len;
@@ -641,28 +666,9 @@ impl OpLog {
         #[cfg(feature = "lz4")] {
             if let Some(compress_bytes) = compress_bytes {
                 if !compress_bytes.is_empty() {
-                    // dbg!(&compress_bytes);
-                    let max_compressed_size = lz4_flex::block::get_maximum_output_size(compress_bytes.len());
-
-                    // Capacity 10+ because we contain a size.
-                    let mut compressed = Vec::with_capacity(5 + max_compressed_size);
-                    compressed.resize(compressed.capacity(), 0);
-
-                    let mut pos = 0;
-
-                    // Encoding the uncompressed length is technically redundant, since you could just
-                    // scan the whole file. But its convenient and fine in practice.
-                    pos += encode_usize(compress_bytes.len(), &mut compressed[pos..]);
-
-                    // I could wrap and return the compression error, but the only lz4 error is
-                    // TooSmall, and that should probably be a panic anyway.
-                    pos += lz4_flex::compress_into(&compress_bytes, &mut compressed[pos..]).unwrap();
-                    compressed.truncate(pos);
-                    // write_chunk(ChunkType::CompressedFields, &mut compressed);
-                    push_chunk(&mut result, ChunkType::CompressedFieldsLZ4, &compressed[..pos]);
-
+                    let compressed_len = write_compressed_chunk(&mut result, &compress_bytes);
                     if verbose {
-                        println!("Compressed {} bytes in the file to {}", compress_bytes.len(), pos);
+                        println!("Compressed {} bytes in the file to {}", compress_bytes.len(), compressed_len);
                     }
                 }
             }
