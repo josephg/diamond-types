@@ -7,8 +7,8 @@ edition = "2021"
 
 [dependencies]
 git2 = "0.13.25"
-diamond-types = { path = "../diamond-types" }
-#diamond-types = { path = "../diamond-types", features = ["dot_export"] }
+diamond-types = { path = "../.." }
+#diamond-types = { path = "../..", features = ["dot_export"] }
 similar = "2.1.0"
 smallvec = "1.8.0"
 

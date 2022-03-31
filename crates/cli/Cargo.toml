@@ -11,7 +11,7 @@ name = "dt"
 path = "src/main.rs"
 
 [dependencies]
-diamond-types = { path = "../diamond-types", features = ["serde"] }
+diamond-types = { path = "../..", features = ["serde"] }
 clap = { version = "3.1.6", features = ["derive"] }
 similar = "2.1.0"
 rand = "0.8.5"
