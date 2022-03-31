@@ -864,23 +864,29 @@ impl OpLog {
         // *** Compressed data ***
         // If there is a compressed chunk, it can contain data for other fields, all mushed
         // together.
-        let compressed_chunk_raw: Option<Vec<u8>> = if let Some(mut c) = reader.read_chunk_if_eq(ChunkType::CompressedFieldsLZ4)? {
-            #[cfg(not(feature = "lz4"))] {
+        let compressed_chunk_raw: Option<Vec<u8>>;
+        let mut compressed_chunk;
+
+        #[cfg(not(feature = "lz4"))] {
+            compressed_chunk = None;
+            if reader.read_chunk_if_eq(ChunkType::CompressedFieldsLZ4)?.is_some() {
                 return Err(LZ4DecoderNeeded);
             }
+        }
 
-            #[cfg(feature = "lz4")] {
+        #[cfg(feature = "lz4")] {
+            compressed_chunk_raw = if let Some(mut c) = reader.read_chunk_if_eq(ChunkType::CompressedFieldsLZ4)? {
                 let uncompressed_len = c.next_usize()?;
 
                 // The rest of the bytes contain lz4 compressed data.
                 let data = lz4_flex::decompress(c.0, uncompressed_len)
                     .map_err(|_e| ParseError::LZ4DecompressionError)?;
                 Some(data)
-            }
-        } else { None };
+            } else { None };
 
-        // To consume from compressed_chunk_raw, we'll make a slice that we can iterate through.
-        let mut compressed_chunk = compressed_chunk_raw.as_ref().map(|b| BufReader(b));
+            // To consume from compressed_chunk_raw, we'll make a slice that we can iterate through.
+            compressed_chunk = compressed_chunk_raw.as_ref().map(|b| BufReader(b));
+        }
 
         // *** FileInfo ***
         // fileinfo has DocID, UserData and AgentNames.

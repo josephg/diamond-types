@@ -12,7 +12,6 @@ use crate::list::operation::InsDelTag;
 use crate::dtrange::DTRange;
 
 const ALLOW_VERBOSE: bool = false;
-// const ALLOW_VERBOSE: bool = true;
 
 /// Write an operation to the passed writer.
 fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
@@ -270,6 +269,7 @@ fn write_content<'a, I: Iterator<Item = &'a [u8]>>(dest: &mut Vec<u8>, kind: Dat
     const MIN_COMPRESSED_LEN: usize = 20;
 
     let (b, chunk_type) = match (compressed, len >= MIN_COMPRESSED_LEN) {
+        #[cfg(feature = "lz4")]
         (Some(b), true) => {
             // Store the compressed length in the origin chunk.
             push_usize(&mut buf, len);
