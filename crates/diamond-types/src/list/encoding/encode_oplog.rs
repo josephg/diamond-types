@@ -586,7 +586,7 @@ impl OpLog {
                 write_content_rope(&mut start_branch, &branch_here.content, compress_bytes.as_mut());
             }
         }
-        dbg!(&start_branch);
+        // dbg!(&start_branch);
 
         // TODO: The fileinfo chunk should specify encoding version and information
         // about the data types we're encoding.
@@ -624,6 +624,7 @@ impl OpLog {
             deleted_content.flush(compress_bytes.as_mut())
         });
 
+
         // *** Actually start writing to Result!! YAAAAYYY ***
         let mut result = Vec::new();
         // The file starts with MAGIC_BYTES
@@ -633,13 +634,13 @@ impl OpLog {
         // We'll write a series of chunks. Each chunk has a chunk header (chunk type, length).
         // The first chunk is CompressedFields, in case we need compressed content later.
 
-        if let Some(compress_bytes) = compress_bytes {
-            if !compress_bytes.is_empty() {
-                if !cfg!(feature = "lz4") {
-                    unreachable!();
-                }
+        #[cfg(not(feature = "lz4"))] {
+            debug_assert!(compress_bytes.is_none());
+        }
 
-                #[cfg(feature = "lz4")] {
+        #[cfg(feature = "lz4")] {
+            if let Some(compress_bytes) = compress_bytes {
+                if !compress_bytes.is_empty() {
                     // dbg!(&compress_bytes);
                     let max_compressed_size = lz4_flex::block::get_maximum_output_size(compress_bytes.len());
 

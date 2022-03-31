@@ -11,6 +11,7 @@ echo "=== After ==="
 #wasm-pack build --target web --dev
 
 rm -rf pkg-*
+#wasm-pack build --target web --out-dir ../../pkg-web --out-name dt crates/diamond-wasm --profiling
 wasm-pack build --target web --out-dir ../../pkg-web --out-name dt crates/diamond-wasm
 wasm-pack build --target nodejs --out-dir ../../pkg-node --out-name dt crates/diamond-wasm
 

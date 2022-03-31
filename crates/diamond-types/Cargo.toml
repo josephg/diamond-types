@@ -13,7 +13,13 @@ lazy_static = "1.4.0"
 serde_crate = { package = "serde", version = "1.0.136", features = ["derive"], optional = true }
 rle = { version = "0.1.1", path = "../rle" }
 content-tree = { version = "0.1.0", path = "../content-tree" }
-jumprope = "0.5.2"
+
+#jumprope = { path = "../../../jumprope-rs" }
+
+# Its tempting to disable default-features in jumprope because it means we don't need to hook in crypto random, which
+# saves some size in the wasm output size. But I think its better to default to having this feature enabled.
+#jumprope = { version = "0.5.3", default-features = false }
+jumprope = "0.5.3"
 humansize = "1.1.1"
 num_enum = "0.5.6"
 
