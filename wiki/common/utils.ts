@@ -47,13 +47,13 @@ export const calcDiff = (oldval: string, newval: string): DiffResult => {
   }
 }
 
-export type DTOp = {tag: 'Ins' | 'Del', start: number, end: number, fwd?: boolean, content?: string}
+export type DTOp = {kind: 'Ins' | 'Del', start: number, end: number, fwd?: boolean, content?: string}
 
-export const transformPosition = (cursor: number, {tag, start, end}: DTOp, is_left: boolean = true): number => {
+export const transformPosition = (cursor: number, {kind, start, end}: DTOp, is_left: boolean = true): number => {
   let len = end - start
 
   return (cursor < start || (cursor === start && is_left)) ? cursor
-    : (tag === 'Ins') ? cursor + len
+    : (kind === 'Ins') ? cursor + len
     : cursor < end ? start
     : cursor - len
 }
@@ -69,16 +69,16 @@ const test = (cursor: number, op: DTOp, expectLeft: number, expectRight: number 
   test0(cursor, op, true, expectLeft)
   test0(cursor, op, false, expectRight)
 }
-test(10, {tag: 'Ins', start: 5, end: 9}, 14)
-test(10, {tag: 'Ins', start: 8, end: 12}, 14)
-test(10, {tag: 'Ins', start: 10, end: 14}, 10, 14) // Different outcome!
-test(10, {tag: 'Ins', start: 11, end: 15}, 10)
+test(10, {kind: 'Ins', start: 5, end: 9}, 14)
+test(10, {kind: 'Ins', start: 8, end: 12}, 14)
+test(10, {kind: 'Ins', start: 10, end: 14}, 10, 14) // Different outcome!
+test(10, {kind: 'Ins', start: 11, end: 15}, 10)
 
-test(10, {tag: 'Del', start: 5, end: 9}, 6)
-test(10, {tag: 'Del', start: 6, end: 10}, 6)
-test(10, {tag: 'Del', start: 6, end: 100}, 6)
-test(10, {tag: 'Del', start: 60, end: 100}, 10)
-test(10, {tag: 'Del', start: 10, end: 100}, 10)
+test(10, {kind: 'Del', start: 5, end: 9}, 6)
+test(10, {kind: 'Del', start: 6, end: 10}, 6)
+test(10, {kind: 'Del', start: 6, end: 100}, 6)
+test(10, {kind: 'Del', start: 60, end: 100}, 10)
+test(10, {kind: 'Del', start: 10, end: 100}, 10)
 
 
 // // This operates in unicode offsets to make it consistent with the equivalent
