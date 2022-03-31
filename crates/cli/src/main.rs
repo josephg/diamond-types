@@ -28,7 +28,7 @@ enum Commands {
         ///
         /// Equivalent to calling create followed by set.
         #[clap(short)]
-        content_file: Option<String>,
+        input: Option<String>,
 
         /// Agent name for edits. If not specified, a random name is chosen.
         ///
@@ -48,8 +48,8 @@ enum Commands {
         oplog: OpLog,
 
         /// Output contents to the named file instead of stdout
-        #[clap(short, long)]
-        output: Option<String>,
+        #[clap(short, long, parse(from_os_str))]
+        output: Option<OsString>,
 
         /// Checkout at the specified (requested) version
         ///
@@ -111,6 +111,56 @@ enum Commands {
         /// reused to describe two *different* edits, weird & bad things happen.
         #[clap(short, long)]
         agent: Option<String>,
+    },
+
+    /// Re-save a diamond types file with different options. This method can:
+    ///
+    /// - Compress / uncompress the file's contents
+    /// - Trim or prune the operations the file contains, to create a patch
+    /// - Remove inserted / deleted content
+    Trim {
+        /// File to edit
+        #[clap(parse(from_os_str))]
+        dt_filename: OsString,
+
+        /// Save the resulting content to this file. If not specified, the original file will be
+        /// overwritten.
+        #[clap(short, long, parse(from_os_str))]
+        output: Option<OsString>,
+
+        /// Force overwrite the file which exists with the same name.
+        #[clap(short, long)]
+        force: bool,
+
+        /// Disable internal LZ4 compression on the file when saving.
+        #[clap(long)]
+        uncompressed: bool,
+
+        /// Trim the file to only contain changes from the specified point in time onwards.
+        #[clap(short, long, parse(try_from_str = serde_json::from_str))]
+        version: Option<Box<[RemoteId]>>,
+
+        /// Save a patch. Patch files do not contain the base snapshot state. They must be merged
+        /// with an existing DT file.
+        #[clap(short, long)]
+        patch: bool,
+
+        /// Do not store inserted content. This prevents the editing trace being replayed, but an
+        /// oplog with no inserted content can still have changes merged into it.
+        ///
+        /// Note: Support for this in Diamond types is still a work in progress.
+        #[clap(long)]
+        no_inserted_content: bool,
+
+        /// Do not store deleted content. Deleted content can (usually) be reconstructed from the
+        /// inserted content anyway, but its helpful if you want to skim back and forth through the
+        /// file's history.
+        #[clap(long)]
+        no_deleted_content: bool,
+
+        /// Suppress all output to stdout
+        #[clap(short, long)]
+        quiet: bool,
     }
 }
 
@@ -134,33 +184,19 @@ fn checkout_version_or_tip(oplog: &OpLog, version: Option<Box<[RemoteId]>>) -> B
 fn main() -> Result<(), anyhow::Error> {
     let cli: Cli = Cli::parse();
     match cli.command {
-        Commands::Create { filename, content_file, agent, force } => {
+        Commands::Create { filename, input: content_file, agent, force } => {
             let mut oplog = OpLog::new();
 
             if let Some(content_file) = content_file {
                 let content = fs::read_to_string(content_file)?;
-                let agent_name = agent.unwrap_or_else(|| random_agent_name());
+                let agent_name = agent.unwrap_or_else(random_agent_name);
                 let agent = oplog.get_or_create_agent_id(&agent_name);
                 oplog.add_insert(agent, 0, &content);
             }
 
             let data = oplog.encode(ENCODE_FULL);
 
-            let file_result = fs::OpenOptions::new()
-                .create_new(!force)
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&filename);
-
-            if let Err(x) = file_result.as_ref() {
-                if x.kind() == ErrorKind::AlreadyExists {
-                    let f = filename.to_str().unwrap_or("(invalid)");
-                    eprintln!("Output file '{f}' already exists. Overwrite by passing -f");
-                }
-            }
-
-            file_result?.write_all(&data)?;
+            maybe_overwrite(&filename, &data, force)?;
         }
 
         Commands::Cat { oplog, output, version } => {
@@ -243,7 +279,7 @@ fn main() -> Result<(), anyhow::Error> {
             let diff = TextDiff::from_chars(&old, &new);
             let remapper = TextDiffRemapper::from_text_diff(&diff, &old, &new);
 
-            let agent_name = agent.unwrap_or_else(|| random_agent_name());
+            let agent_name = agent.unwrap_or_else(random_agent_name);
             let agent_id = oplog.get_or_create_agent_id(&agent_name);
 
             let mut pos = 0;
@@ -276,8 +312,68 @@ fn main() -> Result<(), anyhow::Error> {
             let out_data = oplog.encode(EncodeOptions::default());
             fs::write(&dt_filename, out_data)?;
         }
+
+        Commands::Trim { dt_filename, output, force, uncompressed, version, patch, no_inserted_content, no_deleted_content, quiet } => {
+            let data = fs::read(&dt_filename)?;
+            let oplog = OpLog::load_from(&data)?;
+
+            let from_version = match &version {
+                Some(v) => v.as_ref(),
+                None => &[],
+            };
+            let from_version = oplog.remote_to_local_version(from_version.iter());
+
+            let new_data = oplog.encode_from(EncodeOptions {
+                user_data: None,
+                store_start_branch_content: !patch,
+                store_inserted_content: !no_inserted_content,
+                store_deleted_content: !no_deleted_content,
+                compress_content: !uncompressed,
+                verbose: false
+            }, &from_version);
+
+            let lossy = no_inserted_content || no_deleted_content || !from_version.is_empty();
+            if output.is_none() && !force && lossy {
+                eprintln!("Will not commit operation which may lose data. Try again with -f to force");
+                std::process::exit(1); // Would be better to return a custom error.
+            }
+
+            if let Some(output) = output.as_ref() {
+                maybe_overwrite(output, &new_data, force)?;
+            } else {
+                // Just overwrite the input file. We've already checked that --force is set or the
+                // change is not lossy.
+                fs::write(&dt_filename, &new_data)?;
+            }
+
+            if !quiet {
+                println!("Initial size: {}", data.len());
+                println!("Written {} bytes to {}", new_data.len(), output.unwrap_or(dt_filename)
+                    .to_str()
+                    .unwrap_or("(invalid)"));
+            }
+        }
     }
     // dbg!(&cli);
+    Ok(())
+}
+
+fn maybe_overwrite(output: &OsString, new_data: &Vec<u8>, force: bool) -> Result<(), anyhow::Error> {
+    let file_result = fs::OpenOptions::new()
+        .create_new(!force)
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(output);
+
+    if let Err(x) = file_result.as_ref() {
+        if x.kind() == ErrorKind::AlreadyExists {
+            let f = output.to_str().unwrap_or("(invalid)");
+            eprintln!("Output file '{f}' already exists. Overwrite by passing -f");
+        }
+    }
+
+    file_result?.write_all(&new_data)?;
     Ok(())
 }
 
