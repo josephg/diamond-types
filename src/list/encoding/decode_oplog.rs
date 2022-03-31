@@ -131,79 +131,9 @@ impl<'a> BufReader<'a> {
     //     Ok(Chunk::try_from(self.peek_u32()?).map_err(|_| InvalidChunkHeader)?)
     // }
 
-    // TODO: Remove this?
-    #[allow(unused)]
-    fn peek_chunk(&self) -> Result<Option<ChunkType>, ParseError> {
-        // TODO: There's probably a way to write this more cleanly?? Clippy halp
-        if let Some(num) = self.peek_u32()? {
-            let chunk_type = ChunkType::try_from(num)
-                .map_err(|_| UnknownChunk)?;
-            Ok(Some(chunk_type))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn next_chunk_raw(&mut self) -> Result<(ChunkType, BufReader<'a>), ParseError> {
-        let chunk_type = ChunkType::try_from(self.next_u32()?)
-            .map_err(|_| UnknownChunk);
-
-        // This in no way guarantees we're good.
-        let len = self.next_usize()?;
-        if len > self.0.len() {
-            return Err(InvalidLength);
-        }
-
-        let reader = BufReader(self.next_n_bytes(len)?);
-
-        // Note we're try-ing chunk_type here so we still read all the bytes if we can, even if
-        // the chunk type is unknown.
-        Ok((chunk_type?, reader))
-    }
-
-    /// Read the next chunk, skipping unknown chunks for forwards compatibility.
-    fn next_chunk(&mut self) -> Result<(ChunkType, BufReader<'a>), ParseError> {
-        loop {
-            let c = self.next_chunk_raw();
-            match c {
-                Err(UnknownChunk) => {}, // Keep scanning.
-                _ => { return c; }
-            }
-        }
-    }
-
-    /// Read a chunk with the named type. Returns None if the next chunk isn't the specified type,
-    /// or we hit EOF.
-    fn read_chunk_if_eq(&mut self, expect_chunk_type: ChunkType) -> Result<Option<BufReader<'a>>, ParseError> {
-        if let Some(actual_chunk_type) = self.peek_u32()? {
-            if actual_chunk_type != (expect_chunk_type as u32) {
-                // Chunk doesn't match requested type.
-                return Ok(None);
-            }
-            self.next_chunk().map(|(_type, c)| Some(c))
-        } else {
-            // EOF.
-            Ok(None)
-        }
-    }
-
     #[inline]
-    fn expect_chunk_pred<P>(&mut self, pred: P, err_type: ChunkType) -> Result<(ChunkType, BufReader<'a>), ParseError>
-        where P: FnOnce(ChunkType) -> bool
-    {
-        let (actual_chunk_type, r) = self.next_chunk()?;
-
-        if pred(actual_chunk_type) {
-            // dbg!(expect_chunk_type, actual_chunk_type);
-            Ok((actual_chunk_type, r))
-        } else {
-            Err(MissingChunk(err_type as _))
-        }
-    }
-
-    fn expect_chunk(&mut self, expect_chunk_type: ChunkType) -> Result<BufReader<'a>, ParseError> {
-        self.expect_chunk_pred(|c| c == expect_chunk_type, expect_chunk_type)
-            .map(|(_c, r)| r)
+    fn chunks(self) -> ChunkReader<'a> {
+        ChunkReader(self)
     }
 
     // Note the result is attached to the lifetime 'a, not the lifetime of self.
@@ -216,29 +146,6 @@ impl<'a> BufReader<'a> {
         let bytes = self.next_n_bytes(len)?;
         // std::str::from_utf8(bytes).map_err(InvalidUTF8)
         std::str::from_utf8(bytes).map_err(|_| InvalidUTF8)
-    }
-
-    // fn expect_content_str(&mut self, compressed: Option<BufReader<'a>>) -> Result<(&'a str, Option<BufReader<'a>>), ParseError> {
-    fn expect_content_str(&mut self, compressed: Option<&mut BufReader<'a>>) -> Result<&'a str, ParseError> {
-        let (c, mut r) = self.expect_chunk_pred(|c| c == Content || c == ContentCompressed, Content)?;
-
-        if c == Content {
-            // Just read the string straight out.
-            // Ok((r.into_content_str(), compressed))
-            r.into_content_str()
-        } else {
-            let data_type = r.next_u32()?;
-            if data_type != (DataType::PlainText as u32) {
-                return Err(UnknownChunk);
-            }
-            // The uncompressed length
-            let len = r.next_usize()?;
-
-            let bytes = compressed.ok_or(CompressedDataMissing)?
-                .next_n_bytes(len)?;
-
-            std::str::from_utf8(bytes).map_err(|_| InvalidUTF8)
-        }
     }
 
     /// Read the next string thats encoded in this content chunk
@@ -321,31 +228,6 @@ impl<'a> BufReader<'a> {
 
         Ok(result)
     }
-    // fn read_full_frontier(&mut self, oplog: &OpLog) -> Result<Frontier, ParseError> {
-    //     let mut result = Frontier::new();
-    //     // All frontiers contain at least one item.
-    //     loop {
-    //         let agent = self.next_str()?;
-    //         let n = self.next_usize()?;
-    //         let (seq, has_more) = strip_bit_usize(n);
-    //
-    //         let time = oplog.try_remote_id_to_time(&RemoteId {
-    //             agent: agent.into(),
-    //             seq
-    //         }).map_err(InvalidRemoteID)?;
-    //
-    //         result.push(time);
-    //
-    //         if !has_more { break; }
-    //     }
-    //
-    //     if !frontier_is_sorted(result.as_slice()) {
-    //         // TODO: Check how this effects wasm bundle size.
-    //         result.sort_unstable();
-    //     }
-    //
-    //     Ok(result)
-    // }
 
     fn read_parents(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<SmallVec<[usize; 2]>, ParseError> {
         let mut parents = SmallVec::<[usize; 2]>::new();
@@ -403,17 +285,131 @@ impl<'a> BufReader<'a> {
     }
 }
 
-// Returning a tuple was getting too unwieldy.
-#[derive(Debug)]
-struct FileInfoData<'a> {
-    userdata: Option<BufReader<'a>>,
-    doc_id: Option<&'a str>,
-    agent_map: Vec<(AgentId, usize)>,
+
+/// A ChunkReader is a wrapper around some bytes which just contain a series of chunks.
+#[derive(Debug, Clone)]
+struct ChunkReader<'a>(BufReader<'a>);
+
+impl<'a> Iterator for ChunkReader<'a> {
+    type Item = Result<(ChunkType, BufReader<'a>), ParseError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0.is_empty() {
+            None
+        } else {
+            Some(self.next_chunk())
+        }
+    }
 }
 
-impl<'a> BufReader<'a> {
+impl<'a> ChunkReader<'a> {
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn expect_empty(&self) -> Result<(), ParseError> {
+        self.0.expect_empty()
+    }
+
+    // #[allow(unused)]
+    // fn peek_chunk(&self) -> Result<Option<ChunkType>, ParseError> {
+    //     // TODO: There's probably a way to write this more cleanly?? Clippy halp
+    //     if let Some(num) = self.0.peek_u32()? {
+    //         let chunk_type = ChunkType::try_from(num)
+    //             .map_err(|_| UnknownChunk)?;
+    //         Ok(Some(chunk_type))
+    //     } else {
+    //         Ok(None)
+    //     }
+    // }
+
+    fn next_chunk_raw(&mut self) -> Result<(ChunkType, BufReader<'a>), ParseError> {
+        let chunk_type = ChunkType::try_from(self.0.next_u32()?)
+            .map_err(|_| UnknownChunk);
+
+        // This in no way guarantees we're good.
+        let len = self.0.next_usize()?;
+        if len > self.0.len() {
+            return Err(InvalidLength);
+        }
+
+        let reader = BufReader(self.0.next_n_bytes(len)?);
+
+        // Note we're try-ing chunk_type here so we still read all the bytes if we can, even if
+        // the chunk type is unknown.
+        Ok((chunk_type?, reader))
+    }
+
+    /// Read the next chunk, skipping unknown chunks for forwards compatibility.
+    fn next_chunk(&mut self) -> Result<(ChunkType, BufReader<'a>), ParseError> {
+        loop {
+            let c = self.next_chunk_raw();
+            match c {
+                Err(UnknownChunk) => {}, // Keep scanning.
+                _ => { return c; }
+            }
+        }
+    }
+
+    /// Read a chunk with the named type. Returns None if the next chunk isn't the specified type,
+    /// or we hit EOF.
+    fn read_chunk_if_eq(&mut self, expect_chunk_type: ChunkType) -> Result<Option<BufReader<'a>>, ParseError> {
+        if let Some(actual_chunk_type) = self.0.peek_u32()? {
+            if actual_chunk_type != (expect_chunk_type as u32) {
+                // Chunk doesn't match requested type.
+                return Ok(None);
+            }
+            self.next_chunk().map(|(_type, c)| Some(c))
+        } else {
+            // EOF.
+            Ok(None)
+        }
+    }
+
+    #[inline]
+    fn expect_chunk_pred<P>(&mut self, pred: P, err_type: ChunkType) -> Result<(ChunkType, BufReader<'a>), ParseError>
+        where P: FnOnce(ChunkType) -> bool
+    {
+        let (actual_chunk_type, r) = self.next_chunk()?;
+
+        if pred(actual_chunk_type) {
+            // dbg!(expect_chunk_type, actual_chunk_type);
+            Ok((actual_chunk_type, r))
+        } else {
+            Err(MissingChunk(err_type as _))
+        }
+    }
+
+    fn expect_chunk(&mut self, expect_chunk_type: ChunkType) -> Result<BufReader<'a>, ParseError> {
+        self.expect_chunk_pred(|c| c == expect_chunk_type, expect_chunk_type)
+            .map(|(_c, r)| r)
+    }
+
+    // fn expect_content_str(&mut self, compressed: Option<BufReader<'a>>) -> Result<(&'a str, Option<BufReader<'a>>), ParseError> {
+    fn expect_content_str(&mut self, compressed: Option<&mut BufReader<'a>>) -> Result<&'a str, ParseError> {
+        let (c, mut r) = self.expect_chunk_pred(|c| c == Content || c == ContentCompressed, Content)?;
+
+        if c == Content {
+            // Just read the string straight out.
+            // Ok((r.into_content_str(), compressed))
+            r.into_content_str()
+        } else {
+            let data_type = r.next_u32()?;
+            if data_type != (DataType::PlainText as u32) {
+                return Err(UnknownChunk);
+            }
+            // The uncompressed length
+            let len = r.next_usize()?;
+
+            let bytes = compressed.ok_or(CompressedDataMissing)?
+                .next_n_bytes(len)?;
+
+            std::str::from_utf8(bytes).map_err(|_| InvalidUTF8)
+        }
+    }
+
     fn read_fileinfo(&mut self, oplog: &mut OpLog) -> Result<FileInfoData, ParseError> {
-        let mut fileinfo = self.expect_chunk(ChunkType::FileInfo)?;
+        let mut fileinfo = self.expect_chunk(ChunkType::FileInfo)?.chunks();
 
         let doc_id = fileinfo.read_chunk_if_eq(ChunkType::DocId)?;
         let mut agent_names_chunk = fileinfo.expect_chunk(ChunkType::AgentNames)?;
@@ -442,7 +438,18 @@ impl<'a> BufReader<'a> {
             agent_map,
         })
     }
+}
 
+
+// Returning a tuple was getting too unwieldy.
+#[derive(Debug)]
+struct FileInfoData<'a> {
+    userdata: Option<BufReader<'a>>,
+    doc_id: Option<&'a str>,
+    agent_map: Vec<(AgentId, usize)>,
+}
+
+impl<'a> BufReader<'a> {
     fn dbg_print_chunk_tree_internal(mut self) -> Result<(), ParseError> {
         println!("Total file size {}", self.len());
         let total_len = self.len();
@@ -451,16 +458,18 @@ impl<'a> BufReader<'a> {
         let protocol_version = self.next_usize()?;
         println!("Protocol version {protocol_version}");
 
+        let mut chunks = self.chunks();
         loop { // gross
-            let position = total_len - self.len();
-            if let Ok((chunk, mut inner_reader)) = self.next_chunk() {
+            let position = total_len - chunks.0.len();
+            if let Ok((chunk, inner_reader)) = chunks.next_chunk() {
                 println!("Chunk {:?} at {} ({} bytes)", chunk, position, inner_reader.len());
 
                 let inner_len = inner_reader.len();
                 if chunk == FileInfo || chunk == StartBranch || chunk == Patches {
+                    let mut inner_chunks = inner_reader.chunks();
                     loop {
-                        let inner_position = position + inner_len - inner_reader.len();
-                        if let Ok((chunk, inner_inner_reader)) = inner_reader.next_chunk() {
+                        let inner_position = position + inner_len - inner_chunks.0.len();
+                        if let Ok((chunk, inner_inner_reader)) = inner_chunks.next_chunk() {
                             println!("  Chunk {:?} at {} ({} bytes)", chunk, inner_position, inner_inner_reader.len());
                         } else { break; }
                     }
@@ -648,6 +657,7 @@ impl<'a> ReadPatchContentIter<'a> {
             _ => { return Err(InvalidContent); }
         };
 
+        let mut chunk = chunk.chunks();
         let content = chunk.expect_content_str(compressed)?;
 
         let run_chunk = chunk.expect_chunk(ContentIsKnown)?;
@@ -861,6 +871,9 @@ impl OpLog {
             return Err(UnsupportedProtocolVersion);
         }
 
+        // The rest of the file is made of chunks!
+        let mut reader = reader.chunks();
+
         // *** Compressed data ***
         // If there is a compressed chunk, it can contain data for other fields, all mushed
         // together.
@@ -906,7 +919,7 @@ impl OpLog {
         }
 
         // *** StartBranch ***
-        let mut start_branch = reader.expect_chunk(ChunkType::StartBranch)?;
+        let mut start_branch = reader.expect_chunk(ChunkType::StartBranch)?.chunks();
 
         // Start version
         let start_version_chunk = start_branch.read_chunk_if_eq(ChunkType::Version)?;
@@ -943,7 +956,8 @@ impl OpLog {
         // *** Patches ***
         let file_frontier = {
             // This chunk contains the actual set of edits to the document.
-            let mut patch_chunk = reader.expect_chunk(ChunkType::Patches)?;
+            let mut patch_chunk = reader.expect_chunk(ChunkType::Patches)?
+                .chunks();
 
             let mut ins_content = None;
             let mut del_content = None;
@@ -1231,29 +1245,4 @@ impl OpLog {
 #[allow(unused)]
 pub(super) fn dbg_print_chunks_in(bytes: &[u8]) {
     BufReader(bytes).dbg_print_chunk_tree();
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[ignore]
-    fn crazy() {
-        let bytes = std::fs::read("../../node_nodecc.dt").unwrap();
-        let mut reader = BufReader(&bytes);
-        reader.read_magic().unwrap();
-
-        loop {
-            let (chunk, mut r) = reader.next_chunk().unwrap();
-            if chunk == ChunkType::OpParents {
-                println!("Found it");
-                while !r.is_empty() {
-                    let n = r.next_usize().unwrap();
-                    println!("n {}", n);
-                }
-                break;
-            }
-        }
-    }
 }
