@@ -148,10 +148,10 @@ impl OpLog {
                 // let label = if op.content_known {
                 let label = if let Some(s) = &op.content {
                     // <b>72</b><br align="left"/>  Del 7 <s>'n'</s>
-                    format!("<b>{}</b><br align=\"left\"/>{:?} {} '{}'", time, op.tag, op.start(), s)
+                    format!("<b>{}</b><br align=\"left\"/>{:?} {} '{}'", time, op.kind, op.start(), s)
                     // format!("{}: {:?} {} '{}'", time, op.tag, op.pos, &op.content)
                 } else {
-                    format!("{}: {:?} {}", time, op.tag, op.start())
+                    format!("{}: {:?} {}", time, op.kind, op.start())
                 };
                 out.write_fmt(format_args!("\t{} [fillcolor={} label=<{}>]\n", name, color.to_string(), label)).unwrap();
 

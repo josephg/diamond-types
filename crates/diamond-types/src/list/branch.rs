@@ -4,8 +4,8 @@ use crate::list::{Branch, LocalVersion, OpLog, Time};
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use crate::list::list::apply_local_operation;
-use crate::list::operation::InsDelTag::*;
-use crate::list::operation::{InsDelTag, Operation};
+use crate::list::operation::OpKind::*;
+use crate::list::operation::{OpKind, Operation};
 use crate::dtrange::DTRange;
 use crate::{AgentId};
 use crate::list::remote_ids::RemoteId;
@@ -64,8 +64,8 @@ impl Branch {
     }
 
     /// Apply a single operation. This method does not update the version.
-    fn apply_internal(&mut self, tag: InsDelTag, pos: DTRange, content: Option<&str>) {
-        match tag {
+    fn apply_internal(&mut self, kind: OpKind, pos: DTRange, content: Option<&str>) {
+        match kind {
             Ins => {
                 self.content.insert(pos.start, content.unwrap());
             }
@@ -80,7 +80,7 @@ impl Branch {
     #[allow(unused)]
     pub(crate) fn apply(&mut self, ops: &[Operation]) {
         for op in ops {
-            self.apply_internal(op.tag, op.loc.span, op.content
+            self.apply_internal(op.kind, op.loc.span, op.content
                 .as_ref()
                 .map(|s| s.as_str())
             );
@@ -89,7 +89,7 @@ impl Branch {
 
     pub(crate) fn apply_range_from(&mut self, ops: &OpLog, range: DTRange) {
         for (op, content) in ops.iter_range_simple(range) {
-            self.apply_internal(op.1.tag, op.1.loc.span, content);
+            self.apply_internal(op.1.kind, op.1.loc.span, content);
         }
     }
 

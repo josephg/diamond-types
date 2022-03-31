@@ -2,13 +2,13 @@ use jumprope::JumpRope;
 use rle::{HasLength, RleRun};
 use crate::list::encoding::*;
 use crate::list::history::MinimalHistoryEntry;
-use crate::list::operation::InsDelTag::{Del, Ins};
+use crate::list::operation::OpKind::{Del, Ins};
 use crate::list::{Branch, OpLog, switch, Time};
 use crate::rle::{KVPair, RleVec};
 use crate::{AgentId, ROOT_AGENT};
 use crate::list::frontier::local_version_is_root;
 use crate::list::internal_op::OperationInternal;
-use crate::list::operation::InsDelTag;
+use crate::list::operation::OpKind;
 use crate::dtrange::DTRange;
 
 const ALLOW_VERBOSE: bool = false;
@@ -29,13 +29,13 @@ fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
     // if op.len == 1 { assert!(!op.reversed); }
 
     // For some reason the compiler slightly prefers this code to the match below. O_o
-    let op_start = if op.tag == Del && !fwd {
+    let op_start = if op.kind == Del && !fwd {
         op.end()
     } else {
         op.start()
     };
 
-    let op_end = if op.tag == Ins && fwd {
+    let op_end = if op.kind == Ins && fwd {
         op.end()
     } else {
         op.start()
@@ -65,7 +65,7 @@ fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
     let mut n = if len != 1 {
         let mut n = len;
         // When len == 1, the item is never considered reversed.
-        if op.tag == Del { n = mix_bit_usize(n, fwd) };
+        if op.kind == Del { n = mix_bit_usize(n, fwd) };
         n
     } else if cursor_diff != 0 {
         num_encode_zigzag_isize(cursor_diff)
@@ -73,7 +73,7 @@ fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
         0
     };
 
-    n = mix_bit_usize(n, op.tag == Del);
+    n = mix_bit_usize(n, op.kind == Del);
     n = mix_bit_usize(n, cursor_diff != 0);
     n = mix_bit_usize(n, len != 1);
     pos += encode_usize(n, &mut buf[pos..]);
@@ -345,7 +345,7 @@ fn write_bit_run(run: RleRun<bool>, into: &mut Vec<u8>) {
 /// Its gross that I need to pass a generic parameter here, since it'll always be write_bit_run.
 /// I wish there were a cleaner way to write this.
 struct ContentChunk<F: FnMut(RleRun<bool>, &mut Vec<u8>)> {
-    tag: InsDelTag,
+    kind: OpKind,
     known_out: Vec<u8>,
     bit_writer: Merger<RleRun<bool>, F, Vec<u8>>,
     content: String
@@ -353,9 +353,9 @@ struct ContentChunk<F: FnMut(RleRun<bool>, &mut Vec<u8>)> {
 
 // impl<F: FnMut(S, &mut Vec<u8>)> ContentChunk<F> {
 impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
-    fn new(f: F, tag: InsDelTag) -> Self {
+    fn new(f: F, kind: OpKind) -> Self {
         Self {
-            tag,
+            kind,
             known_out: Vec::new(),
             bit_writer: Merger::new(f),
             content: String::new(),
@@ -381,7 +381,7 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
         } else {
             let mut buf = Vec::new();
             // Operation type
-            push_u32(&mut buf, match self.tag { Ins => 0, Del => 1 });
+            push_u32(&mut buf, match self.kind { Ins => 0, Del => 1 });
 
             // This writes a length-prefixed string, which it really doesn't need to do.
             write_content_str(&mut buf, &self.content, compressed_out);
@@ -568,15 +568,15 @@ impl OpLog {
                 // ops_writer somehow. The reason is that the content_pos field on the merged
                 // OperationInternal objects will be invalid! Total foot gun there :p
 
-                if op.tag == Ins && opts.store_inserted_content {
+                if op.kind == Ins && opts.store_inserted_content {
                     // For now at least, we can't skip inserted content for inserts.
                     // TODO: Reconsider this at some point.
                     assert!(content.is_some());
                 }
 
-                let content_chunk = switch(op.tag,
-                    &mut inserted_content,
-                    &mut deleted_content
+                let content_chunk = switch(op.kind,
+                                           &mut inserted_content,
+                                           &mut deleted_content
                 );
                 if let Some(content_chunk) = content_chunk {
                     content_chunk.push(content, op.len());

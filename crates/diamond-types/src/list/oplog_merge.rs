@@ -111,7 +111,7 @@ impl OpLog {
             for (KVPair(_, op), content) in other.iter_range_simple(s) {
                 // Operations don't need to be mapped at all.
                 // dbg!(&op, content);
-                self.push_op_internal(t, op.loc, op.tag, content);
+                self.push_op_internal(t, op.loc, op.kind, content);
                 t += op.len();
             }
 

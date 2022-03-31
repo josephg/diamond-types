@@ -12,7 +12,7 @@ use rle::{AppendRle, HasLength, Searchable, Trim, TrimCtx};
 use crate::list::{LocalVersion, Branch, OpLog, Time};
 use crate::list::merge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
-use crate::list::operation::{InsDelTag, Operation};
+use crate::list::operation::{OpKind, Operation};
 use crate::dtrange::{is_underwater, DTRange};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::AgentId;
@@ -33,7 +33,7 @@ use crate::list::merge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappe
 use crate::list::merge::metrics::upstream_cursor_pos;
 use crate::list::merge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
-use crate::list::operation::InsDelTag::Ins;
+use crate::list::operation::OpKind::Ins;
 use crate::unicount::consume_chars;
 
 const ALLOW_FF: bool = true;
@@ -294,8 +294,8 @@ impl M2Tracker {
             if let BaseMoved(pos) = transformed_pos {
                 if let Some(to) = to.as_mut() {
                     // Apply the operation here.
-                    match op_pair.1.tag {
-                        InsDelTag::Ins => {
+                    match op_pair.1.kind {
+                        OpKind::Ins => {
                             // dbg!(&self.range_tree);
                             // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                             debug_assert!(op_pair.1.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
@@ -303,7 +303,7 @@ impl M2Tracker {
                             assert!(pos <= to.len_chars());
                             to.insert(pos, content);
                         }
-                        InsDelTag::Del => {
+                        OpKind::Del => {
                             // Actually delete the item locally.
                             let del_end = pos + len_here;
                             debug_assert!(to.len_chars() >= del_end);
@@ -319,7 +319,7 @@ impl M2Tracker {
                 // Curiously, we don't need to update content because we only use content for
                 // inserts, and inserts are always processed in one go. (Ie, there's never a
                 // remainder to worry about).
-                debug_assert_ne!(op_pair.1.tag, InsDelTag::Ins);
+                debug_assert_ne!(op_pair.1.kind, OpKind::Ins);
             } else { break; }
         }
     }
@@ -352,8 +352,8 @@ impl M2Tracker {
         let op = &op_pair.1;
 
         // dbg!(op);
-        match op.tag {
-            InsDelTag::Ins => {
+        match op.kind {
+            OpKind::Ins => {
                 if !op.loc.fwd { unimplemented!("Implement me!") }
 
                 // To implement this we need to:
@@ -418,7 +418,7 @@ impl M2Tracker {
                 (len, BaseMoved(ins_pos))
             }
 
-            InsDelTag::Del => {
+            OpKind::Del => {
                 // Delete as much as we can. We might not be able to delete everything because of
                 // double deletes and inserts inside the deleted range. This is extra annoying
                 // because we need to move backwards through the deleted items if we're rev.
@@ -834,8 +834,8 @@ impl Branch {
         let mut iter = oplog.get_xf_operations_full(&self.version, merge_frontier);
 
         for (_time, origin_op, xf) in &mut iter {
-            match (origin_op.tag, xf) {
-                (InsDelTag::Ins, BaseMoved(pos)) => {
+            match (origin_op.kind, xf) {
+                (OpKind::Ins, BaseMoved(pos)) => {
                     // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                     debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
                     let content = origin_op.get_content(oplog).unwrap();
@@ -851,7 +851,7 @@ impl Branch {
 
                 (_, DeleteAlreadyHappened) => {}, // Discard.
 
-                (InsDelTag::Del, BaseMoved(pos)) => {
+                (OpKind::Del, BaseMoved(pos)) => {
                     let del_end = pos + origin_op.len();
                     debug_assert!(self.content.len_chars() >= del_end);
                     // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());

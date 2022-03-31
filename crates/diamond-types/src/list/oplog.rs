@@ -7,7 +7,7 @@ use crate::list::{Branch, ClientData, LocalVersion, OpLog, Time};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::list::operation::{InsDelTag, Operation};
+use crate::list::operation::{OpKind, Operation};
 use crate::list::remote_ids::RemoteId;
 use crate::dtrange::DTRange;
 use crate::remotespan::*;
@@ -299,7 +299,7 @@ impl OpLog {
     ///
     /// NOTE: This method is destructive on its own. It must be paired with assign_internal() or
     /// something like that.
-    pub(crate) fn push_op_internal(&mut self, next_time: Time, loc: RangeRev, tag: InsDelTag, content: Option<&str>) {
+    pub(crate) fn push_op_internal(&mut self, next_time: Time, loc: RangeRev, tag: OpKind, content: Option<&str>) {
         // next_time should almost always be self.len - except when loading, or modifying the data
         // in some complex way.
         let content_pos = if let Some(c) = content {
@@ -309,7 +309,7 @@ impl OpLog {
         // self.operations.push(KVPair(next_time, c.clone()));
         self.operations.push(KVPair(next_time, OperationInternal {
             loc,
-            tag,
+            kind: tag,
             content_pos
         }));
     }
@@ -333,7 +333,7 @@ impl OpLog {
 
             // let content = if op.content_known { Some(op.content.as_str()) } else { None };
             // let content = op.content.map(|c| c.as_str());
-            self.push_op_internal(next_time, op.loc, op.tag, op.content_as_str());
+            self.push_op_internal(next_time, op.loc, op.kind, op.content_as_str());
             next_time += len;
         }
 
@@ -350,7 +350,7 @@ impl OpLog {
         let start = self.len();
         let end = start + len;
 
-        self.push_op_internal(start, (pos..pos+len).into(), InsDelTag::Ins, Some(ins_content));
+        self.push_op_internal(start, (pos..pos+len).into(), OpKind::Ins, Some(ins_content));
         self.assign_internal(agent, parents, DTRange { start, end });
         end - 1
     }
@@ -365,7 +365,7 @@ impl OpLog {
         let start_time = self.len();
         let end_time = start_time + loc.len();
 
-        self.push_op_internal(start_time, loc.into(), InsDelTag::Del, None);
+        self.push_op_internal(start_time, loc.into(), OpKind::Del, None);
         self.assign_internal(agent, parents, DTRange { start: start_time, end: end_time });
         end_time - 1
     }
@@ -470,14 +470,14 @@ impl OpLog {
         let mut d_n = 0;
         let mut d_r = 0;
         for op in self.operations.iter_merged() {
-            match (op.1.len(), op.1.tag, op.1.loc.fwd) {
-                (1, InsDelTag::Ins, _) => { i_1 += 1; }
-                (_, InsDelTag::Ins, true) => { i_n += 1; }
-                (_, InsDelTag::Ins, false) => { i_r += 1; }
+            match (op.1.len(), op.1.kind, op.1.loc.fwd) {
+                (1, OpKind::Ins, _) => { i_1 += 1; }
+                (_, OpKind::Ins, true) => { i_n += 1; }
+                (_, OpKind::Ins, false) => { i_r += 1; }
 
-                (1, InsDelTag::Del, _) => { d_1 += 1; }
-                (_, InsDelTag::Del, true) => { d_n += 1; }
-                (_, InsDelTag::Del, false) => { d_r += 1; }
+                (1, OpKind::Del, _) => { d_1 += 1; }
+                (_, OpKind::Del, true) => { d_n += 1; }
+                (_, OpKind::Del, false) => { d_r += 1; }
             }
         }
         // These stats might make more sense as percentages.

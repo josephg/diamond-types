@@ -76,7 +76,7 @@ impl<'a> OpMetricsIter<'a> {
 
     pub(crate) fn get_content(&self, metrics: &KVPair<OperationInternal>) -> Option<&'a str> {
         metrics.1.content_pos.map(|pos| {
-            self.ctx.get_str(metrics.1.tag, pos)
+            self.ctx.get_str(metrics.1.kind, pos)
         })
     }
 }
@@ -160,9 +160,9 @@ impl OpLog {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::list::operation::InsDelTag;
+    use crate::list::operation::OpKind;
     use crate::rle::{KVPair, RleVec};
-    use InsDelTag::*;
+    use OpKind::*;
 
     #[test]
     fn iter_smoke() {
@@ -170,12 +170,12 @@ mod test {
 
         ops.push(KVPair(0, OperationInternal {
             loc: (100..110).into(),
-            tag: Ins,
+            kind: Ins,
             content_pos: Some((0..10).into()),
         }));
         ops.push(KVPair(10, OperationInternal {
             loc: (200..220).into(),
-            tag: Del,
+            kind: Del,
             content_pos: None,
         }));
 
@@ -188,19 +188,19 @@ mod test {
         
         assert_eq!(OpMetricsIter::new(&ops, &ctx, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, OperationInternal {
             loc: (101..105).into(),
-            tag: Ins,
+            kind: Ins,
             content_pos: Some((1..5).into()),
         })]);
 
         assert_eq!(OpMetricsIter::new(&ops, &ctx, (6..16).into()).collect::<Vec<_>>(), &[
             KVPair(6, OperationInternal {
                 loc: (106..110).into(),
-                tag: Ins,
+                kind: Ins,
                 content_pos: Some((6..10).into()),
             }),
             KVPair(10, OperationInternal {
                 loc: (200..206).into(),
-                tag: Del,
+                kind: Del,
                 content_pos: None,
             }),
         ]);

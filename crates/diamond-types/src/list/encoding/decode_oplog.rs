@@ -4,7 +4,7 @@ use crate::list::encoding::varint::*;
 use crate::list::{LocalVersion, OpLog, switch, Time};
 use crate::list::frontier::{advance_frontier_by_known_run, clean_version, local_version_eq, frontier_is_sorted};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::list::operation::InsDelTag::{Del, Ins};
+use crate::list::operation::OpKind::{Del, Ins};
 use crate::rev_range::RangeRev;
 use crate::AgentId;
 use crate::unicount::{consume_chars, count_chars, split_at_char};
@@ -13,7 +13,7 @@ use rle::{AppendRle, SplitableSpanCtx, SplitableSpanHelpers, Trim, TrimCtx};
 use crate::list::buffered_iter::Buffered;
 use crate::list::encoding::ChunkType::*;
 use crate::list::history::MinimalHistoryEntry;
-use crate::list::operation::InsDelTag;
+use crate::list::operation::OpKind;
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::remotespan::{CRDTId, CRDTSpan};
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
@@ -591,7 +591,7 @@ impl<'a> ReadPatchesIter<'a> {
                 span: (start..end).into(),
                 fwd,
             },
-            tag,
+            kind: tag,
             content_pos: None,
         })
     }
@@ -641,7 +641,7 @@ impl<'a> HasLength for ContentItem<'a> {
 }
 
 impl<'a> ReadPatchContentIter<'a> {
-    fn new(mut chunk: BufReader<'a>, compressed: Option<&mut BufReader<'a>>) -> Result<(InsDelTag, Self), ParseError> {
+    fn new(mut chunk: BufReader<'a>, compressed: Option<&mut BufReader<'a>>) -> Result<(OpKind, Self), ParseError> {
         let tag = match chunk.next_u32()? {
             0 => Ins,
             1 => Del,
@@ -1007,7 +1007,7 @@ impl OpLog {
                         max_len = max_len.min(op.len());
 
                         // Trim down the operation to size.
-                        let content_here = if let Some(iter) = switch(op.tag, &mut ins_content, &mut del_content) {
+                        let content_here = if let Some(iter) = switch(op.kind, &mut ins_content, &mut del_content) {
                             // There's probably a way to compact with Option helpers magic but ??
                             if let Some(content) = iter.next() {
                                 let mut content = content?;
@@ -1031,7 +1031,7 @@ impl OpLog {
 
                         // self.operations.push(KVPair(next_time, op));
                         if keep {
-                            oplog.push_op_internal(next_patch_time, op.loc, op.tag, content_here);
+                            oplog.push_op_internal(next_patch_time, op.loc, op.kind, content_here);
                             next_patch_time += max_len;
                         }
 

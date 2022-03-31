@@ -8,7 +8,7 @@ use std::ops::Range;
 
 use smartstring::alias::{String as SmartString};
 use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
-use InsDelTag::*;
+use OpKind::*;
 use crate::unicount::{chars_to_bytes, count_chars};
 use crate::list::internal_op::OperationInternal;
 use crate::dtrange::DTRange;
@@ -24,13 +24,13 @@ use crate::list::serde::FlattenSerializable;
 /// So I might use this more broadly, for all edits. If so, move this out of OT.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
-pub enum InsDelTag { Ins, Del }
+pub enum OpKind { Ins, Del }
 
-impl Default for InsDelTag {
-    fn default() -> Self { InsDelTag::Ins } // Arbitrary.
+impl Default for OpKind {
+    fn default() -> Self { OpKind::Ins } // Arbitrary.
 }
 
-impl Display for InsDelTag {
+impl Display for OpKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Ins => f.write_str("Ins"),
@@ -61,7 +61,7 @@ pub struct Operation {
     pub loc: RangeRev,
 
     /// Is this operation an insert or a delete?
-    pub tag: InsDelTag,
+    pub kind: OpKind,
 
     /// What content is being inserted or deleted. This is optional for deletes. (And eventually
     /// inserts too, though that code path isn't exercised and may for now cause panics in some
@@ -93,7 +93,7 @@ impl FlattenSerializable for Operation {
     }
 
     fn serialize_fields<S>(&self, s: &mut S::SerializeStruct) -> Result<(), S::Error> where S: Serializer {
-        s.serialize_field("tag", match self.tag {
+        s.serialize_field("kind", match self.kind {
             Ins => "Ins",
             Del => "Del",
         })?;
@@ -109,7 +109,7 @@ impl FlattenSerializable for Operation {
 impl Operation {
     pub fn new_insert(pos: usize, content: &str) -> Self {
         let len = count_chars(content);
-        Operation { loc: (pos..pos+len).into(), tag: Ins, content: Some(content.into()) }
+        Operation { loc: (pos..pos+len).into(), kind: Ins, content: Some(content.into()) }
     }
 
     pub fn new_delete(loc: Range<usize>) -> Self {
@@ -117,12 +117,12 @@ impl Operation {
     }
 
     fn new_delete_dt(loc: RangeRev) -> Self {
-        Operation { loc, tag: Del, content: None }
+        Operation { loc, kind: Del, content: None }
     }
 
     pub fn new_delete_with_content_range(loc: Range<usize>, content: SmartString) -> Self {
         debug_assert_eq!(count_chars(&content), loc.len());
-        Operation { loc: loc.into(), tag: Del, content: Some(content) }
+        Operation { loc: loc.into(), kind: Del, content: Some(content) }
     }
 
     pub fn new_delete_with_content(pos: usize, content: SmartString) -> Self {
@@ -154,7 +154,7 @@ impl Operation {
 impl SplitableSpanHelpers for Operation {
     fn truncate_h(&mut self, at: usize) -> Self {
         // let (self_span, other_span) = TimeSpanRev::split_op_span(self.span, self.tag, at);
-        let span = self.loc.truncate_tagged_span(self.tag, at);
+        let span = self.loc.truncate_tagged_span(self.kind, at);
 
         let rem_content = self.content.as_mut().map(|c| {
             let byte_split = chars_to_bytes(c, at);
@@ -165,7 +165,7 @@ impl SplitableSpanHelpers for Operation {
         // This doesn't do anything - but it feels polite.
         Self {
             loc: span,
-            tag: self.tag,
+            kind: self.kind,
             content: rem_content,
         }
     }
@@ -173,13 +173,13 @@ impl SplitableSpanHelpers for Operation {
 
 impl MergableSpan for Operation {
     fn can_append(&self, other: &Self) -> bool {
-        if other.tag != self.tag || self.content.is_some() != other.content.is_some() { return false; }
+        if other.kind != self.kind || self.content.is_some() != other.content.is_some() { return false; }
 
-        RangeRev::can_append_ops(self.tag, &self.loc, &other.loc)
+        RangeRev::can_append_ops(self.kind, &self.loc, &other.loc)
     }
 
     fn append(&mut self, other: Self) {
-        self.loc.append_ops(self.tag, other.loc);
+        self.loc.append_ops(self.kind, other.loc);
 
         if let Some(c) = &mut self.content {
             c.push_str(&other.content.unwrap());
@@ -206,7 +206,7 @@ impl From<(OperationInternal, Option<&str>)> for Operation {
     fn from((op, content): (OperationInternal, Option<&str>)) -> Self {
         Operation {
             loc: op.loc,
-            tag: op.tag,
+            kind: op.kind,
             content: content.map(|str| str.into())
         }
     }
@@ -216,7 +216,7 @@ impl From<(&OperationInternal, Option<&str>)> for Operation {
     fn from((op, content): (&OperationInternal, Option<&str>)) -> Self {
         Operation {
             loc: op.loc,
-            tag: op.tag,
+            kind: op.kind,
             content: content.map(|str| str.into())
         }
     }
@@ -233,12 +233,12 @@ mod test {
         // Make sure deletes collapse.
         let a = Operation {
             loc: (100..101).into(),
-            tag: Del,
+            kind: Del,
             content: Some("a".into()),
         };
         let b = Operation {
             loc: (99..100).into(),
-            tag: Del,
+            kind: Del,
             content: Some("b".into()),
         };
         assert!(a.can_append(&b));
@@ -251,7 +251,7 @@ mod test {
                 span: (99..101).into(),
                 fwd: false
             },
-            tag: Del,
+            kind: Del,
             content: Some("ab".into()),
         };
         assert_eq!(merged, expect);
@@ -273,7 +273,7 @@ mod test {
                             span: (10..15).into(),
                             fwd
                         },
-                        tag: Ins,
+                        kind: Ins,
                         content: content.clone(),
                     });
                 }
@@ -283,7 +283,7 @@ mod test {
                         span: (10..15).into(),
                         fwd
                     },
-                    tag: Del,
+                    kind: Del,
                     content
                 });
             }

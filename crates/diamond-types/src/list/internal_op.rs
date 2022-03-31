@@ -1,6 +1,6 @@
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
-use crate::list::operation::{InsDelTag, Operation};
-use crate::list::operation::InsDelTag::*;
+use crate::list::operation::{OpKind, Operation};
+use crate::list::operation::OpKind::*;
 use crate::list::{OpLog, switch};
 use crate::dtrange::DTRange;
 use crate::rev_range::RangeRev;
@@ -28,7 +28,7 @@ pub(crate) struct OperationInternal {
     pub loc: RangeRev,
 
     /// Is this an insert or delete?
-    pub tag: InsDelTag,
+    pub kind: OpKind,
 
     /// Byte range in self.ins_content or del_content where our content is being held. This is
     /// essentially a poor man's pointer.
@@ -50,7 +50,7 @@ impl OperationInternal {
 
     pub(crate) fn get_content<'a>(&self, oplog: &'a OpLog) -> Option<&'a str> {
         self.content_pos.map(|span| {
-            oplog.operation_ctx.get_str(self.tag, span)
+            oplog.operation_ctx.get_str(self.kind, span)
         })
     }
 
@@ -80,25 +80,25 @@ impl OperationCtx {
         }
     }
 
-    pub(crate) fn get_str(&self, tag: InsDelTag, range: DTRange) -> &str {
-        unsafe { std::str::from_utf8_unchecked(&self.switch(tag)[range.start..range.end]) }
+    pub(crate) fn get_str(&self, kind: OpKind, range: DTRange) -> &str {
+        unsafe { std::str::from_utf8_unchecked(&self.switch(kind)[range.start..range.end]) }
     }
 
-    // pub(crate) fn switch_str(&self, tag: InsDelTag) -> &str {
-    //     unsafe { std::str::from_utf8_unchecked(self.switch_bytes(tag)) }
+    // pub(crate) fn switch_str(&self, kind: InsDelTag) -> &str {
+    //     unsafe { std::str::from_utf8_unchecked(self.switch_bytes(kind)) }
     //     // switch(tag, self.ins_content.as_str(), self.del_content.as_str())
     // }
 
-    pub(crate) fn switch(&self, tag: InsDelTag) -> &[u8] {
-        switch(tag, &self.ins_content, &self.del_content)
+    pub(crate) fn switch(&self, kind: OpKind) -> &[u8] {
+        switch(kind, &self.ins_content, &self.del_content)
     }
 
-    pub(crate) fn switch_mut(&mut self, tag: InsDelTag) -> &mut Vec<u8> {
-        switch(tag, &mut self.ins_content, &mut self.del_content)
+    pub(crate) fn switch_mut(&mut self, kind: OpKind) -> &mut Vec<u8> {
+        switch(kind, &mut self.ins_content, &mut self.del_content)
     }
 
-    pub(crate) fn push_str(&mut self, tag: InsDelTag, s: &str) -> DTRange {
-        let storage = self.switch_mut(tag);
+    pub(crate) fn push_str(&mut self, kind: OpKind, s: &str) -> DTRange {
+        let storage = self.switch_mut(kind);
         let start = storage.len();
         storage.extend_from_slice(s.as_bytes());
         let end = storage.len();
@@ -119,17 +119,17 @@ impl SplitableSpanCtx for OperationInternal {
         // actually how the span splits depends on the tag (and some other stuff).
         // let (a, b) = TimeSpanRev::split_op_span(self.span, self.tag, at);
         // self.span.span = a;
-        let loc = self.loc.truncate_tagged_span(self.tag, at);
+        let loc = self.loc.truncate_tagged_span(self.kind, at);
 
         let content_pos = if let Some(p) = &mut self.content_pos {
-            let content = ctx.get_str(self.tag, *p);
+            let content = ctx.get_str(self.kind, *p);
             let byte_offset = chars_to_bytes(content, at);
             Some(p.truncate(byte_offset))
         } else { None };
 
         OperationInternal {
             loc,
-            tag: self.tag,
+            kind: self.kind,
             content_pos,
         }
     }
@@ -157,7 +157,7 @@ impl RangeRev {
     //
     // In godbolt these variants all look pretty similar.
     #[inline]
-    pub(crate) fn truncate_tagged_span(&mut self, tag: InsDelTag, at: usize) -> RangeRev {
+    pub(crate) fn truncate_tagged_span(&mut self, tag: OpKind, at: usize) -> RangeRev {
         let len = self.len();
 
         let start2 = if self.fwd && tag == Ins {
@@ -192,7 +192,7 @@ impl RangeRev {
     // This logic is interchangable with truncate_tagged_span above.
     #[inline]
     #[allow(unused)] // FOR NOW...
-    pub(crate) fn split_op_span(range: RangeRev, tag: InsDelTag, at: usize) -> (DTRange, DTRange) {
+    pub(crate) fn split_op_span(range: RangeRev, tag: OpKind, at: usize) -> (DTRange, DTRange) {
         let (start1, start2) = match (range.fwd, tag) {
             (true, Ins) => (range.span.start, range.span.start + at),
             (false, Del) => (range.span.end - at, range.span.start),
@@ -208,7 +208,7 @@ impl RangeRev {
     // TODO: Move this method. I'd like to put it in TimeSpanRev's file, but we only define
     // InsDelTag locally so that doesn't make sense. Eh.
     #[inline]
-    pub(crate) fn can_append_ops(tag: InsDelTag, a: &RangeRev, b: &RangeRev) -> bool {
+    pub(crate) fn can_append_ops(tag: OpKind, a: &RangeRev, b: &RangeRev) -> bool {
         // This logic can be simplified to a single expression, but godbolt says the compiler still
         // produces branchy code anyway so eh.
 
@@ -231,7 +231,7 @@ impl RangeRev {
         false
     }
 
-    pub(crate) fn append_ops(&mut self, tag: InsDelTag, other: RangeRev) {
+    pub(crate) fn append_ops(&mut self, tag: OpKind, other: RangeRev) {
         debug_assert!(Self::can_append_ops(tag, self, &other));
 
         self.fwd = other.span.start >= self.span.start && (other.span.start != self.span.start || tag == Del);
@@ -255,13 +255,13 @@ impl MergableSpan for OperationInternal {
             _ => false
         };
 
-        self.tag == other.tag
+        self.kind == other.kind
             && can_append_content
-            && RangeRev::can_append_ops(self.tag, &self.loc, &other.loc)
+            && RangeRev::can_append_ops(self.kind, &self.loc, &other.loc)
     }
 
     fn append(&mut self, other: Self) {
-        self.loc.append_ops(self.tag, other.loc);
+        self.loc.append_ops(self.kind, other.loc);
         if let (Some(a), Some(b)) = (&mut self.content_pos, other.content_pos) {
             a.append(b);
         }
@@ -272,7 +272,7 @@ impl MergableSpan for OperationInternal {
 mod test {
     use rle::{SplitableSpanCtx, test_splitable_methods_valid_ctx};
     use crate::list::internal_op::{OperationCtx, OperationInternal};
-    use crate::list::operation::InsDelTag;
+    use crate::list::operation::OpKind;
     use crate::dtrange::DTRange;
     use crate::rev_range::RangeRev;
 
@@ -280,7 +280,7 @@ mod test {
     fn internal_op_splitable() {
         test_splitable_methods_valid_ctx(OperationInternal {
             loc: (10..20).into(),
-            tag: InsDelTag::Ins,
+            kind: OpKind::Ins,
             content_pos: Some((0..10).into()),
         }, &OperationCtx {
             ins_content: "0123456789".as_bytes().to_owned(),
@@ -290,7 +290,7 @@ mod test {
         let s2 = "↯1↯3↯5↯7↯9";
         test_splitable_methods_valid_ctx(OperationInternal {
             loc: (10..20).into(),
-            tag: InsDelTag::Ins,
+            kind: OpKind::Ins,
             content_pos: Some((0..s2.len()).into()),
         }, &OperationCtx {
             ins_content: s2.as_bytes().to_owned(), // too easy? Maybe..
@@ -306,7 +306,7 @@ mod test {
         // Regression.
         let mut op = OperationInternal {
             loc: (10..15).into(),
-            tag: InsDelTag::Del,
+            kind: OpKind::Del,
             content_pos: Some((0..5).into()),
         };
 
@@ -318,13 +318,13 @@ mod test {
 
         assert_eq!(op, OperationInternal {
             loc: (10..12).into(),
-            tag: InsDelTag::Del,
+            kind: OpKind::Del,
             content_pos: Some((0..2).into())
         });
 
         assert_eq!(rem, OperationInternal {
             loc: (10..13).into(),
-            tag: InsDelTag::Del,
+            kind: OpKind::Del,
             content_pos: Some((2..5).into())
         });
 
@@ -341,19 +341,19 @@ mod test {
 
         let op = OperationInternal {
             loc: (10..15).into(),
-            tag: InsDelTag::Ins,
+            kind: OpKind::Ins,
             content_pos: Some((0..ctx.ins_content.len()).into())
         };
 
         let (a, b) = op.split_ctx(1, &ctx);
         assert_eq!(a, OperationInternal {
             loc: (10..11).into(),
-            tag: InsDelTag::Ins,
+            kind: OpKind::Ins,
             content_pos: Some((0..2).into())
         });
         assert_eq!(b, OperationInternal {
             loc: (11..15).into(),
-            tag: InsDelTag::Ins,
+            kind: OpKind::Ins,
             content_pos: Some((2..ctx.ins_content.len()).into())
         });
     }
@@ -364,19 +364,19 @@ mod test {
     fn print_sizes() {
         struct V1 {
             span: RangeRev,
-            tag: InsDelTag,
+            tag: OpKind,
             content_pos: Option<DTRange>,
         }
         struct V2 {
             span: DTRange,
             rev: bool,
-            tag: InsDelTag,
+            tag: OpKind,
             content_pos: Option<DTRange>,
         }
         struct V3 {
             span: DTRange,
             rev: bool,
-            tag: InsDelTag,
+            tag: OpKind,
             content_pos: DTRange,
         }
 

@@ -9,7 +9,7 @@ use jumprope::JumpRope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
-use crate::list::operation::InsDelTag;
+use crate::list::operation::OpKind;
 use crate::list::history::History;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::dtrange::DTRange;
@@ -206,9 +206,9 @@ pub struct ListCRDT {
     pub oplog: OpLog,
 }
 
-fn switch<T>(tag: InsDelTag, ins: T, del: T) -> T {
+fn switch<T>(tag: OpKind, ins: T, del: T) -> T {
     match tag {
-        InsDelTag::Ins => ins,
-        InsDelTag::Del => del,
+        OpKind::Ins => ins,
+        OpKind::Del => del,
     }
 }

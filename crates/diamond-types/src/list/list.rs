@@ -6,7 +6,7 @@ use smallvec::smallvec;
 use crate::AgentId;
 use rle::HasLength;
 use crate::list::encoding::ParseError;
-use crate::list::operation::InsDelTag::{Del, Ins};
+use crate::list::operation::OpKind::{Del, Ins};
 use crate::list::operation::Operation;
 use crate::dtrange::DTRange;
 
@@ -52,7 +52,7 @@ pub(crate) fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agen
         let pos = c.loc.span.start;
         let len = c.len();
 
-        match c.tag {
+        match c.kind {
             Ins => {
                 // assert!(c.);
                 // let new_content = consume_chars(&mut content, len);
@@ -65,7 +65,7 @@ pub(crate) fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agen
         }
 
         // oplog.operations.push(KVPair(next_time, c.clone()));
-        oplog.push_op_internal(next_time, c.loc, c.tag, c.content_as_str());
+        oplog.push_op_internal(next_time, c.loc, c.kind, c.content_as_str());
         next_time += len;
     }
 
