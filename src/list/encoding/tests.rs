@@ -1,6 +1,7 @@
 
 use crate::list::{ListCRDT, OpLog};
 use crate::list::encoding::decode_oplog::{dbg_print_chunks_in, DecodeOptions};
+use crate::list::encoding::encode_tools::ParseError;
 use crate::list::frontier::local_version_eq;
 use super::*;
 

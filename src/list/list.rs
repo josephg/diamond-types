@@ -5,7 +5,7 @@ use crate::list::{Branch, LocalVersion, ListCRDT, OpLog, Time};
 use smallvec::smallvec;
 use crate::AgentId;
 use rle::HasLength;
-use crate::list::encoding::ParseError;
+use crate::list::encoding::encode_tools::ParseError;
 use crate::list::operation::OpKind::{Del, Ins};
 use crate::list::operation::Operation;
 use crate::dtrange::DTRange;

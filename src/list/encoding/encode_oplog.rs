@@ -10,6 +10,7 @@ use crate::list::frontier::local_version_is_root;
 use crate::list::internal_op::OperationInternal;
 use crate::list::operation::OpKind;
 use crate::dtrange::DTRange;
+use crate::list::encoding::encode_tools::*;
 
 const ALLOW_VERBOSE: bool = false;
 
@@ -931,7 +932,7 @@ mod tests {
         oplog.get_or_create_agent_id("x"); // 0
         oplog.add_insert(0, 0, "abc\n");
         let data = oplog.encode(EncodeOptions::default());
-        let hex_str = data.iter().map(|x| format!("{:02X} ({})", x, std::char::from_u32(*x as u32).unwrap())).collect::<Vec<_>>();
-        dbg!(hex_str);
+        // let hex_str = data.iter().map(|x| format!("{:02X} ({})", x, std::char::from_u32(*x as u32).unwrap())).collect::<Vec<_>>();
+        // dbg!(hex_str);
     }
 }
