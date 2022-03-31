@@ -36,7 +36,9 @@ unsafe impl GlobalAlloc for TracingAlloc {
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         // ALLOCATED.fetch_sub(layout.size(), Ordering::AcqRel);
         ALLOCATED.with(|s| {
-            s.borrow_mut().1 -= layout.size() as isize;
+            let mut r = s.borrow_mut();
+            r.0 -= 1;
+            r.1 -= layout.size() as isize;
         });
         System.dealloc(ptr, layout);
     }
