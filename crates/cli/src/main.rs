@@ -150,6 +150,7 @@ fn main() -> Result<(), anyhow::Error> {
                 .create_new(!force)
                 .create(true)
                 .write(true)
+                .truncate(true)
                 .open(&filename);
 
             if let Err(x) = file_result.as_ref() {
