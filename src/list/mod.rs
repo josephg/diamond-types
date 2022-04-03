@@ -214,7 +214,8 @@ fn switch<T>(tag: OpKind, ins: T, del: T) -> T {
     }
 }
 
-pub fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<[T; LEN]>) -> SmallVec<[T; LEN]> where T: Clone + Copy {
+#[inline]
+fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<[T; LEN]>) -> SmallVec<[T; LEN]> where T: Clone + Copy {
     if v.spilled() {
         v.clone()
     } else {
