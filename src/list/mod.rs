@@ -5,6 +5,7 @@
 //! Currently this code only supports lists of unicode characters (text documents). Support for
 //! more data types will be added over time.
 
+use std::mem::MaybeUninit;
 use jumprope::JumpRope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
@@ -210,5 +211,20 @@ fn switch<T>(tag: OpKind, ins: T, del: T) -> T {
     match tag {
         OpKind::Ins => ins,
         OpKind::Del => del,
+    }
+}
+
+pub fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<[T; LEN]>) -> SmallVec<[T; LEN]> where T: Clone + Copy {
+    if v.spilled() {
+        v.clone()
+    } else {
+        unsafe {
+            let mut arr: MaybeUninit<[T; LEN]> = MaybeUninit::uninit();
+
+            let s = std::slice::from_raw_parts(v.as_ptr(), LEN);
+            (*arr.as_mut_ptr())[..].copy_from_slice(s);
+
+            SmallVec::from_buf_and_len_unchecked(arr, v.len())
+        }
     }
 }

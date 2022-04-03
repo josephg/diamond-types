@@ -1,7 +1,7 @@
 use smallvec::{SmallVec, smallvec};
 
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
-use crate::list::Time;
+use crate::list::{clone_smallvec, Time};
 
 use crate::rle::{RleKeyed, RleVec};
 use crate::dtrange::DTRange;
@@ -204,7 +204,7 @@ impl From<&HistoryEntry> for MinimalHistoryEntry {
     fn from(entry: &HistoryEntry) -> Self {
         Self {
             span: entry.span,
-            parents: entry.parents.clone()
+            parents: clone_smallvec(&entry.parents)
         }
     }
 }

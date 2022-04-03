@@ -3,7 +3,7 @@ use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{Branch, ClientData, LocalVersion, OpLog, Time};
+use crate::list::{Branch, ClientData, LocalVersion, OpLog, Time, clone_smallvec};
 use crate::list::frontier::advance_frontier_by_known_run;
 use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
@@ -384,7 +384,7 @@ impl OpLog {
     /// branch).
     pub fn add_operations(&mut self, agent: AgentId, ops: &[Operation]) -> Time {
         // TODO: Rewrite this to avoid the .clone().
-        let frontier = self.version.clone();
+        let frontier = clone_smallvec(&self.version);
         self.add_operations_at(agent, &frontier, ops)
     }
 
@@ -440,7 +440,7 @@ impl OpLog {
     /// Return the current tip version of the oplog. This is the version which contains all
     /// operations in the oplog.
     pub fn local_version(&self) -> LocalVersion {
-        self.version.clone()
+        clone_smallvec(&self.version)
     }
 
     pub fn remote_version(&self) -> SmallVec<[RemoteId; 4]> {

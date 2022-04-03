@@ -1,5 +1,5 @@
 use jumprope::JumpRope;
-use crate::list::{Branch, LocalVersion, ListCRDT, OpLog};
+use crate::list::{Branch, LocalVersion, ListCRDT, OpLog, clone_smallvec};
 use smallvec::smallvec;
 use crate::list::frontier::{advance_frontier_by_known_run, debug_assert_frontier_sorted};
 use crate::list::history::History;
@@ -95,7 +95,7 @@ impl History {
 
             // We contain prev_txn_order *and more*! See if we can extend the shadow by
             // looking at the other entries of parents.
-            let mut parents = hist.parents.clone();
+            let mut parents = clone_smallvec(&hist.parents);
             let mut expect_shadow = hist.span.start;
 
             // The first txn *must* have ROOT as a parent, so 0 should never show up in shadow.

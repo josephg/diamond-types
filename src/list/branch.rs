@@ -1,6 +1,6 @@
 use std::ops::Range;
 use jumprope::JumpRope;
-use crate::list::{Branch, LocalVersion, OpLog, Time};
+use crate::list::{Branch, LocalVersion, OpLog, Time, clone_smallvec};
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use crate::list::list::apply_local_operation;
@@ -39,7 +39,7 @@ impl Branch {
     pub fn local_version_ref(&self) -> &[Time] { &self.version }
 
     /// Return the current version of the branch
-    pub fn local_version(&self) -> LocalVersion { self.version.clone() }
+    pub fn local_version(&self) -> LocalVersion { clone_smallvec(&self.version) }
 
     /// Return the current version of the branch in remote form
     pub fn remote_version(&self, oplog: &OpLog) -> SmallVec<[RemoteId; 4]> {

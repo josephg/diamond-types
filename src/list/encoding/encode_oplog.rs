@@ -931,7 +931,7 @@ mod tests {
         let mut oplog = OpLog::new();
         oplog.get_or_create_agent_id("x"); // 0
         oplog.add_insert(0, 0, "abc\n");
-        let data = oplog.encode(EncodeOptions::default());
+        // let data = oplog.encode(EncodeOptions::default());
         // let hex_str = data.iter().map(|x| format!("{:02X} ({})", x, std::char::from_u32(*x as u32).unwrap())).collect::<Vec<_>>();
         // dbg!(hex_str);
     }

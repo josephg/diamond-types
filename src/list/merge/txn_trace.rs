@@ -16,7 +16,7 @@
 use smallvec::{SmallVec, smallvec};
 use crate::list::frontier::*;
 use rle::{HasLength, SplitableSpan};
-use crate::list::{LocalVersion, Time};
+use crate::list::{LocalVersion, clone_smallvec, Time};
 use crate::list::history::History;
 use crate::dtrange::DTRange;
 
@@ -206,7 +206,7 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
         let parents = if let Some(p) = next_txn.parent_at_time(input_entry.span.start) {
             smallvec![p]
         } else {
-            next_txn.parents.clone()
+            clone_smallvec(&next_txn.parents)
         };
 
         let (only_branch, only_txn) = self.history.diff(&self.frontier, &parents);

@@ -1,7 +1,7 @@
 use smallvec::{smallvec, SmallVec};
 use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
-use crate::list::{LocalVersion, OpLog, switch, Time};
+use crate::list::{LocalVersion, OpLog, clone_smallvec, switch, Time};
 use crate::list::frontier::*;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::OpKind::{Del, Ins};
@@ -486,7 +486,7 @@ impl OpLog {
 
         // We could regenerate the frontier, but this is much lazier.
         let doc_id = self.doc_id.clone();
-        let old_frontier = self.version.clone();
+        let old_frontier = clone_smallvec(&self.version);
         let num_known_agents = self.client_data.len();
         let ins_content_length = self.operation_ctx.ins_content.len();
         let del_content_length = self.operation_ctx.del_content.len();
@@ -546,7 +546,7 @@ impl OpLog {
                 while idx < hist_entries.num_entries() {
                     // Cloning here is an ugly and kinda slow hack to work around the borrow
                     // checker. But this whole case is rare anyway, so idk.
-                    let parents = hist_entries.0[idx].parents.clone();
+                    let parents = clone_smallvec(&hist_entries.0[idx].parents);
 
                     for p in parents {
                         if p < len {
