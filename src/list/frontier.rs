@@ -187,8 +187,15 @@ pub fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<[T; LEN]>) -> SmallVec<[
         unsafe {
             let mut arr: MaybeUninit<[T; LEN]> = MaybeUninit::uninit();
 
-            let s = std::slice::from_raw_parts(v.as_ptr(), LEN);
-            (*arr.as_mut_ptr())[..].copy_from_slice(s);
+            // This is equivalent to:
+            // let s = std::slice::from_raw_parts(v.as_ptr(), LEN);
+            // (*arr.as_mut_ptr())[..].copy_from_slice(s);
+            // ... But creating a slice of length LEN is undefined behaviour, because the memory
+            // may not be initialized.
+            //
+            // We only need to copy v.len() items, because LEN is small (2, usually) its actually
+            // faster & less code to just copy the bytes in all cases rather than branch.
+            std::ptr::copy_nonoverlapping(v.as_ptr(), arr.as_mut_ptr().cast(), LEN);
 
             SmallVec::from_buf_and_len_unchecked(arr, v.len())
         }
