@@ -1,13 +1,13 @@
 use smallvec::{SmallVec, smallvec};
 
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
-use crate::list::{clone_smallvec, Time};
+use crate::list::Time;
 
 use crate::rle::{RleKeyed, RleVec};
 use crate::dtrange::DTRange;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
-use crate::list::frontier::local_version_is_root;
+use crate::list::frontier::{clone_smallvec, local_version_is_root};
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

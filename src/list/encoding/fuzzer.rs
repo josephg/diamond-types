@@ -116,7 +116,7 @@ fn fuzz_encode_decode_multi(seed: u64, verbose: bool) {
 
 #[test]
 fn encode_decode_multi_fuzz_once() {
-    fuzz_encode_decode_multi(10, true);
+    fuzz_encode_decode_multi(10, false);
 }
 
 #[test]

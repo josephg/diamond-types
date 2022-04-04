@@ -1,7 +1,7 @@
 use smallvec::{smallvec, SmallVec};
 use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
-use crate::list::{LocalVersion, OpLog, clone_smallvec, switch, Time};
+use crate::list::{LocalVersion, OpLog, switch, Time};
 use crate::list::frontier::*;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::OpKind::{Del, Ins};
@@ -17,6 +17,7 @@ use crate::list::operation::OpKind;
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::list::encoding::decode_tools::{BufReader, ChunkReader};
 use crate::list::encoding::encode_tools::ParseError;
+use crate::list::frontier::clone_smallvec;
 use crate::remotespan::{CRDTId, CRDTSpan};
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 

@@ -1,4 +1,5 @@
 use smallvec::{Array, SmallVec};
+use std::mem::MaybeUninit;
 use crate::list::{LocalVersion, Time};
 use crate::list::history::History;
 use crate::dtrange::DTRange;
@@ -174,6 +175,24 @@ pub fn local_version_eq(a: &[Time], b: &[Time]) -> bool {
 pub fn local_version_is_root(branch: &[Time]) -> bool {
     branch.is_empty()
     // branch.len() == 1 && branch[0] == ROOT_TIME
+}
+
+/// This method clones a version or parents vector. Its slightly faster and smaller than just
+/// calling v.clone() directly.
+#[inline]
+pub fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<[T; LEN]>) -> SmallVec<[T; LEN]> where T: Clone + Copy {
+    if v.spilled() { // Unlikely. If only there was a stable rust intrinsic for this..
+        v.clone()
+    } else {
+        unsafe {
+            let mut arr: MaybeUninit<[T; LEN]> = MaybeUninit::uninit();
+
+            let s = std::slice::from_raw_parts(v.as_ptr(), LEN);
+            (*arr.as_mut_ptr())[..].copy_from_slice(s);
+
+            SmallVec::from_buf_and_len_unchecked(arr, v.len())
+        }
+    }
 }
 
 #[cfg(test)]

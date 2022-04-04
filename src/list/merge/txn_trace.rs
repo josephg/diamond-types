@@ -16,9 +16,10 @@
 use smallvec::{SmallVec, smallvec};
 use crate::list::frontier::*;
 use rle::{HasLength, SplitableSpan};
-use crate::list::{LocalVersion, clone_smallvec, Time};
+use crate::list::{LocalVersion, Time};
 use crate::list::history::History;
 use crate::dtrange::DTRange;
+use crate::list::frontier::clone_smallvec;
 
 #[derive(Debug)]
 // struct VisitEntry<'a> {

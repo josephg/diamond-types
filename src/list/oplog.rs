@@ -3,11 +3,11 @@ use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
 use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{Branch, ClientData, LocalVersion, OpLog, Time, clone_smallvec};
-use crate::list::frontier::advance_frontier_by_known_run;
+use crate::list::{Branch, ClientData, LocalVersion, OpLog, Time};
+use crate::list::frontier::{advance_frontier_by_known_run, clone_smallvec};
 use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::list::operation::{OpKind, Operation};
+use crate::list::operation::{Operation, OpKind};
 use crate::list::remote_ids::RemoteId;
 use crate::dtrange::DTRange;
 use crate::remotespan::*;
@@ -299,17 +299,17 @@ impl OpLog {
     ///
     /// NOTE: This method is destructive on its own. It must be paired with assign_internal() or
     /// something like that.
-    pub(crate) fn push_op_internal(&mut self, next_time: Time, loc: RangeRev, tag: OpKind, content: Option<&str>) {
+    pub(crate) fn push_op_internal(&mut self, next_time: Time, loc: RangeRev, kind: OpKind, content: Option<&str>) {
         // next_time should almost always be self.len - except when loading, or modifying the data
         // in some complex way.
         let content_pos = if let Some(c) = content {
-            Some(self.operation_ctx.push_str(tag, c))
+            Some(self.operation_ctx.push_str(kind, c))
         } else { None };
 
         // self.operations.push(KVPair(next_time, c.clone()));
         self.operations.push(KVPair(next_time, OperationInternal {
             loc,
-            kind: tag,
+            kind,
             content_pos
         }));
     }
