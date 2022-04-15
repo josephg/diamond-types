@@ -7,9 +7,11 @@ use std::fmt::{Write as _};
 use std::fs::File;
 use std::io::{Write as _};
 use std::process::Command;
+use smallvec::{smallvec, SmallVec};
 use rle::{HasLength, SplitableSpan};
 use crate::list::{OpLog, Time};
 use crate::dtrange::DTRange;
+use crate::list::history::{History, MinimalHistoryEntry};
 use crate::rle::KVPair;
 use crate::ROOT_TIME;
 
@@ -35,71 +37,87 @@ impl ToString for DotColor {
     }
 }
 
+impl History {
+    /// This is a helper method to iterate through the time DAG, but such that there's nothing in
+    /// the time DAG which splits the returned range via its parents.
+    ///
+    /// This method could be made more public - but right now its only used in this one place.
+    fn iter_atomic_chunks(&self) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
+        self.entries.iter().flat_map(|e| {
+            let mut split_points: SmallVec<[usize; 4]> = smallvec![e.span.last()];
+
+            // let mut children = e.child_indexes.clone();
+            for &child_idx in &e.child_indexes {
+                let child = &self.entries[child_idx];
+                for &p in &child.parents {
+                    if e.span.contains(p) {
+                        split_points.push(p);
+                    }
+                }
+            }
+
+            split_points.sort_unstable();
+
+            // let mut last = None;
+            let mut start = e.span.start;
+            split_points.iter().flat_map(|&s| {
+                // Filter duplicates.
+                if s < start { return None; }
+
+                let next = s + 1;
+                let span = DTRange::from(start..next);
+
+                assert!(!span.is_empty());
+                assert!(next <= e.span.end);
+
+                let parents = if start == e.span.start {
+                    e.parents.clone()
+                } else {
+                    smallvec![start - 1]
+                };
+
+                start = next;
+
+                Some(MinimalHistoryEntry {
+                    span,
+                    parents
+                })
+            }).collect::<SmallVec<[MinimalHistoryEntry; 4]>>()
+        })
+    }
+}
+
 impl OpLog {
     pub fn make_time_dag_graph(&self, filename: &str) {
+        // for e in self.history.iter_atomic_chunks() {
+        //     dbg!(e);
+        // }
+
         let mut out = String::new();
         out.push_str("strict digraph {\n");
         out.push_str("\trankdir=\"BT\"\n");
         // out.write_fmt(format_args!("\tlabel=<Starting string:<b>'{}'</b>>\n", starting_content));
         out.push_str("\tlabelloc=\"t\"\n");
         out.push_str("\tnode [shape=box style=filled]\n");
-        out.push_str("\tedge [color=\"#333333\" dir=back]\n");
+        out.push_str("\tedge [color=\"#333333\" dir=none]\n");
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.history.entries.iter() {
+        for txn in self.history.iter_atomic_chunks() {
             // dbg!(txn);
-            // Each txn needs to be split so we can actually connect children to parents.
-            // let mut children = txn.child_indexes.clone();
-            // children.sort_unstable();
-            // let mut iter = children.iter();
-            let mut range = txn.span;
-            let mut prev = None;
-            // dbg!(range);
+            let range = txn.span;
 
-            let mut processed_parents = false;
+            write!(&mut out, "\t{} [label=<{} (Len {})>]\n", range.last(), range.start, range.len()).unwrap();
 
-            loop {
-                // Look through our children to find the next split point.
-                let mut earlist_parent = range.last();
+            if txn.parents.is_empty() {
+                write!(&mut out, "\t{} -> ROOT\n", range.last()).unwrap();
+            } else {
+                for &p in txn.parents.iter() {
+                    // let parent_entry = self.history.entries.find_packed(*p);
+                    // write!(&mut out, "\t{} -> {} [headlabel={}]\n", txn.span.last(), parent_entry.span.start, *p);
 
-                for idx in &txn.child_indexes {
-                    let child_txn = &self.history.entries[*idx];
-                    for p in &child_txn.parents {
-                        if range.contains(*p) && *p < earlist_parent {
-                            earlist_parent = *p;
-                        }
-                    }
+                    write!(&mut out, "\t{} -> {} [taillabel={}]\n", range.last(), p, p).unwrap();
                 }
-
-                // dbg!(earlist_parent, range, (earlist_parent - range.start + 1));
-                let next = range.truncate(earlist_parent - range.start + 1);
-
-                write!(&mut out, "\t{} [label=<{} (Len {})>]\n", range.last(), range.start, range.len()).unwrap();
-                if let Some(prev) = prev {
-                    write!(&mut out, "\t{} -> {}\n", range.last(), prev).unwrap();
-                }
-
-                if !processed_parents {
-                    processed_parents = true;
-
-                    if txn.parents.is_empty() {
-                        write!(&mut out, "\t{} -> ROOT\n", range.last()).unwrap();
-                    } else {
-                        for p in txn.parents.iter() {
-                            // let parent_entry = self.history.entries.find_packed(*p);
-                            // write!(&mut out, "\t{} -> {} [headlabel={}]\n", txn.span.last(), parent_entry.span.start, *p);
-
-                            write!(&mut out, "\t{} -> {} [headlabel={}]\n", range.last(), *p, *p).unwrap();
-                        }
-                    }
-                }
-
-                if !next.is_empty() {
-                    prev = Some(range.last());
-                    range = next;
-                } else { break; }
             }
-
         }
 
         out.push_str("}\n");
@@ -195,6 +213,7 @@ impl OpLog {
 
 #[cfg(test)]
 mod test {
+    use std::fs;
     use crate::list::merge::dot::DotColor::*;
     use crate::list::OpLog;
 
@@ -223,5 +242,16 @@ mod test {
         // dbg!(&ops);
 
         ops.make_time_dag_graph("dag.svg");
+    }
+
+    #[test]
+    #[ignore]
+    fn dot_of_node_cc() {
+        let name = "node_nodecc.dt";
+        let contents = fs::read(name).unwrap();
+        let oplog = OpLog::load_from(&contents).unwrap();
+
+        oplog.make_time_dag_graph("node_graph.svg");
+        println!("Graph written to node_graph.svg");
     }
 }

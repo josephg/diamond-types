@@ -1,5 +1,4 @@
 use smallvec::{Array, SmallVec};
-use std::mem::MaybeUninit;
 use crate::list::{LocalVersion, Time};
 use crate::list::history::History;
 use crate::dtrange::DTRange;

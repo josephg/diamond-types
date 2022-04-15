@@ -155,7 +155,7 @@ impl<'a> ChunkReader<'a> {
     fn read_version(&mut self, oplog: &OpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
         let chunk = self.read_chunk_if_eq(ChunkType::Version)?;
         if let Some(chunk) = chunk {
-            chunk.read_version(oplog, &agent_map).map_err(|e| {
+            chunk.read_version(oplog, agent_map).map_err(|e| {
                 // We can't read a frontier if it names agents or sequence numbers we haven't seen
                 // before. If this happens, its because we're trying to load a data set from the
                 // future.
