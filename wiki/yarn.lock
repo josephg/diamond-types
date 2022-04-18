@@ -589,11 +589,6 @@ diamond-types-web@^0.1.0:
   resolved "https://registry.yarnpkg.com/diamond-types-web/-/diamond-types-web-0.1.0.tgz#27342eb33334fb38009451cbbbc6dcaa934c14e6"
   integrity sha512-26hWNKfsnMqte73cjjFwdlZSgQuu7LN9j9Y22BughFxtYrTBPmglWqkailpR9OtIg5PIwzG1VqGj9Z8QIcrp/A==
 
-diamond-wasm@^0.1.1:
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/diamond-wasm/-/diamond-wasm-0.1.1.tgz#80c4828f3503fe0bb43ade778659631b03057110"
-  integrity sha512-+ZT+hvOnrlMZ/Y1Zv1R6gsLi9ev2pXbKyD271ei6ISWxYvP/+z5H1ch4E70gtBlh0zrcULenPaCGxgjib2NGEw==
-
 diff@^4.0.1:
   version "4.0.2"
   resolved "https://registry.yarnpkg.com/diff/-/diff-4.0.2.tgz#60f3aecb89d5fae520c11aa19efc2bb982aade7d"
@@ -874,9 +869,9 @@ mime-types@~2.1.24:
     mime-db "1.51.0"
 
 minimist@^1.2.5:
-  version "1.2.5"
-  resolved "https://registry.yarnpkg.com/minimist/-/minimist-1.2.5.tgz#67d66014b66a6a8aaa0c083c5fd58df4e4e97602"
-  integrity sha512-FM9nNUYrRBAELZQT3xeZQ7fmMOBg6nWNmJKTcgsJeaLstP/UODVpGsr5OhXhhXg6f+qtJ8uiZ+PUxkDWcgIXLw==
+  version "1.2.6"
+  resolved "https://registry.yarnpkg.com/minimist/-/minimist-1.2.6.tgz#8637a5b759ea0d6e98702cfb3a9283323c93af44"
+  integrity sha512-Jsjnk4bw3YJqYzbdyBiNsPWHPfO++UGG749Cxs6peCu5Xg4nrena6OVxOYxrQTqww0Jmwt+Ref8rggumkTLz9Q==
 
 ministreamiterator@^1.0.0:
   version "1.0.0"
