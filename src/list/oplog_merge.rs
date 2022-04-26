@@ -5,8 +5,8 @@ use crate::list::OpLog;
 use crate::dtrange::DTRange;
 use crate::rle::KVPair;
 use crate::AgentId;
-use crate::list::frontier::debug_assert_frontier_sorted;
-use crate::list::history::MinimalHistoryEntry;
+use crate::frontier::debug_assert_frontier_sorted;
+use crate::history::MinimalHistoryEntry;
 
 impl OpLog {
     /// Find all the items to merge from other into self.

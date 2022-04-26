@@ -1,14 +1,16 @@
+//! This file contains tools to manage the document as a time dag. Specifically, tools to tell us
+//! about branches, find diffs and move between branches.
+
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
-use crate::list::{LocalVersion, OpLog, Time};
-use crate::list::frontier::{advance_frontier_by, frontier_is_sorted};
-use crate::list::history::History;
-use crate::list::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
+use crate::frontier::{advance_frontier_by, frontier_is_sorted};
+use crate::history::History;
+use crate::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
 use crate::dtrange::DTRange;
-use crate::ROOT_TIME;
+use crate::{LocalVersion, ROOT_TIME, Time};
 
 // use smartstring::alias::{String as SmartString};
 
@@ -489,50 +491,18 @@ impl History {
     }
 }
 
-/// This file contains tools to manage the document as a time dag. Specifically, tools to tell us
-/// about branches, find diffs and move between branches.
-impl OpLog {
-    /// Check if the specified version contains the specified point in time.
-    // Exported for the fuzzer. Not sure if I actually want this exposed.
-    pub fn version_contains_time(&self, local_version: &[Time], target: Time) -> bool {
-        if local_version.is_empty() { true }
-        else { self.history.version_contains_time(local_version, target) }
-    }
-
-    // /// Returns all the changes since some (static) point in time.
-    // pub fn linear_changes_since(&self, start: Time) -> TimeSpan {
-    //     TimeSpan::new(start, self.len())
-    // }
-
-    /// Take the union of two versions.
-    ///
-    /// One way to think of a version is the name of some subset of operations in the operation log.
-    /// But a local time array only explicitly names versions at the "tip" of the time DAG. For
-    /// example, if we have 3 operations: A, B, C with ROOT <- A <- B <- C, then the local version
-    /// will only name `{C}`, since A and B are implicit.
-    ///
-    /// version_union takes two versions and figures out the set union for all the contained
-    /// changes, and returns the version name for that union. `version_union(a, b)` will often
-    /// simply return `a` or `b`. This happens when one of the versions is a strict subset of the
-    /// other.
-    pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
-        self.history.version_union(a, b)
-    }
-}
-
 #[cfg(test)]
 pub mod test {
     use std::ops::Range;
     use smallvec::smallvec;
     use rle::{AppendRle, MergableSpan};
 
-    use crate::list::{LocalVersion, Time};
-    use crate::list::history::{History, HistoryEntry};
-    use crate::list::history_tools::{DiffResult, DiffFlag};
-    use crate::list::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
+    use crate::history::{History, HistoryEntry};
+    use crate::history_tools::{DiffFlag, DiffResult};
+    use crate::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
     use crate::dtrange::DTRange;
     use crate::rle::RleVec;
-    use crate::ROOT_TIME;
+    use crate::{LocalVersion, ROOT_TIME, Time};
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).

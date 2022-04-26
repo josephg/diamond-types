@@ -1,9 +1,9 @@
 use std::mem::replace;
 use std::ops::Range;
 use humansize::{file_size_opts, FileSize};
-use crate::list::{Branch, LocalVersion, ListCRDT, OpLog, Time};
+use crate::list::{Branch, ListCRDT, OpLog};
 use smallvec::smallvec;
-use crate::AgentId;
+use crate::{AgentId, LocalVersion, Time};
 use rle::HasLength;
 use crate::list::encoding::encode_tools::ParseError;
 use crate::list::operation::OpKind::{Del, Ins};

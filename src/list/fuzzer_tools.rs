@@ -4,8 +4,8 @@ use rand::Rng;
 use smallvec::smallvec;
 use rle::MergeableIterator;
 use rle::zip::{rle_zip, rle_zip3};
-use crate::AgentId;
-use crate::list::{Branch, ListCRDT, OpLog, Time};
+use crate::{AgentId, Time};
+use crate::list::{Branch, ListCRDT, OpLog};
 
 const USE_UNICODE: bool = true;
 

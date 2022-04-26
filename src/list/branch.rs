@@ -1,14 +1,14 @@
 use std::ops::Range;
 use jumprope::JumpRope;
-use crate::list::{Branch, LocalVersion, OpLog, Time};
+use crate::list::{Branch, OpLog};
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use crate::list::list::apply_local_operation;
 use crate::list::operation::OpKind::*;
 use crate::list::operation::{Operation, OpKind};
 use crate::dtrange::DTRange;
-use crate::AgentId;
-use crate::list::frontier::clone_smallvec;
+use crate::{AgentId, LocalVersion, Time};
+use crate::frontier::clone_smallvec;
 use crate::list::remote_ids::RemoteId;
 
 impl Branch {

@@ -14,12 +14,12 @@
 /// Then traversal (and hence, merge) time complexity will be linear instead of quadratic.
 
 use smallvec::{SmallVec, smallvec};
-use crate::list::frontier::*;
+use crate::frontier::*;
 use rle::{HasLength, SplitableSpan};
-use crate::list::{LocalVersion, Time};
-use crate::list::history::History;
+use crate::history::History;
 use crate::dtrange::DTRange;
-use crate::list::frontier::clone_smallvec;
+use crate::frontier::clone_smallvec;
+use crate::{LocalVersion, Time};
 
 #[derive(Debug)]
 // struct VisitEntry<'a> {
@@ -284,8 +284,8 @@ impl History {
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use crate::list::history::HistoryEntry;
-    use crate::list::history_tools::ConflictZone;
+    use crate::history::HistoryEntry;
+    use crate::history_tools::ConflictZone;
     use super::*;
 
     #[test]

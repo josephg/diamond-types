@@ -3,17 +3,17 @@
 ///
 /// It was mostly made as an aide to debugging. Compilation is behind a feature flag (dot_export)
 
-use std::fmt::{Write as _};
+use std::fmt::Write as _;
 use std::fs::File;
-use std::io::{Write as _};
+use std::io::Write as _;
 use std::process::Command;
 use smallvec::{smallvec, SmallVec};
 use rle::{HasLength, SplitableSpan};
-use crate::list::{OpLog, Time};
+use crate::list::OpLog;
 use crate::dtrange::DTRange;
-use crate::list::history::{History, MinimalHistoryEntry};
+use crate::history::{History, MinimalHistoryEntry};
 use crate::rle::KVPair;
-use crate::ROOT_TIME;
+use crate::{ROOT_TIME, Time};
 
 pub fn name_of(time: Time) -> String {
     if time == ROOT_TIME { "ROOT".into() }

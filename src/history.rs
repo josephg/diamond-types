@@ -1,13 +1,13 @@
 use smallvec::{SmallVec, smallvec};
 
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
-use crate::list::Time;
+use crate::Time;
 
 use crate::rle::{RleKeyed, RleVec};
 use crate::dtrange::DTRange;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
-use crate::list::frontier::{clone_smallvec, local_version_is_root};
+use crate::frontier::{clone_smallvec, local_version_is_root};
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -213,7 +213,7 @@ impl From<&HistoryEntry> for MinimalHistoryEntry {
 mod tests {
     use smallvec::smallvec;
     use rle::{MergableSpan, test_splitable_methods_valid};
-    use crate::list::history::MinimalHistoryEntry;
+    use crate::history::MinimalHistoryEntry;
     use super::HistoryEntry;
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::list::{LocalVersion, OpLog, Time};
+use crate::list::OpLog;
 use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
 use super::serde::RemoteIdTuple;
@@ -6,9 +6,8 @@ use super::serde::RemoteIdTuple;
 use serde_crate::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::dtrange::DTRange;
-use crate::{ROOT_AGENT, ROOT_TIME};
-use crate::list::frontier::clean_version;
-use crate::list::remote_ids::ConversionError::SeqInFuture;
+use crate::{LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
+use crate::frontier::clean_version;
 use crate::remotespan::CRDTId;
 
 /// This file contains utilities to convert remote IDs to local time and back.
@@ -59,7 +58,7 @@ impl OpLog {
         else {
             self.client_data[agent as usize]
                 .try_seq_to_time(id.seq)
-                .ok_or(SeqInFuture)
+                .ok_or(ConversionError::SeqInFuture)
         }
     }
 

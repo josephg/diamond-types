@@ -2,10 +2,10 @@ use std::ops::Range;
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, MergableSpan, Searchable};
-use crate::{AgentId, ROOT_AGENT, ROOT_TIME};
-use crate::list::{Branch, ClientData, LocalVersion, OpLog, Time};
-use crate::list::frontier::{advance_frontier_by_known_run, clone_smallvec};
-use crate::list::history::{HistoryEntry, MinimalHistoryEntry};
+use crate::{AgentId, ClientData, LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
+use crate::list::{Branch, OpLog};
+use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};
+use crate::history::{HistoryEntry, MinimalHistoryEntry};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::{Operation, OpKind};
 use crate::list::remote_ids::RemoteId;
@@ -489,5 +489,32 @@ impl OpLog {
 
         self.client_with_localtime.print_stats("Client localtime map", detailed);
         self.history.entries.print_stats("History", detailed);
+    }
+
+    /// Check if the specified version contains the specified point in time.
+    // Exported for the fuzzer. Not sure if I actually want this exposed.
+    pub fn version_contains_time(&self, local_version: &[Time], target: Time) -> bool {
+        if local_version.is_empty() { true }
+        else { self.history.version_contains_time(local_version, target) }
+    }
+
+    // /// Returns all the changes since some (static) point in time.
+    // pub fn linear_changes_since(&self, start: Time) -> TimeSpan {
+    //     TimeSpan::new(start, self.len())
+    // }
+
+    /// Take the union of two versions.
+    ///
+    /// One way to think of a version is the name of some subset of operations in the operation log.
+    /// But a local time array only explicitly names versions at the "tip" of the time DAG. For
+    /// example, if we have 3 operations: A, B, C with ROOT <- A <- B <- C, then the local version
+    /// will only name `{C}`, since A and B are implicit.
+    ///
+    /// version_union takes two versions and figures out the set union for all the contained
+    /// changes, and returns the version name for that union. `version_union(a, b)` will often
+    /// simply return `a` or `b`. This happens when one of the versions is a strict subset of the
+    /// other.
+    pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
+        self.history.version_union(a, b)
     }
 }

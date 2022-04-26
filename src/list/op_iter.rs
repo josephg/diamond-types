@@ -1,10 +1,11 @@
 use smallvec::SmallVec;
 use rle::{HasLength, SplitableSpanCtx};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::list::{OpLog, Time};
+use crate::list::OpLog;
 use crate::list::operation::Operation;
 use crate::dtrange::DTRange;
 use crate::rle::{KVPair, RleVec};
+use crate::Time;
 
 #[derive(Debug)]
 pub(crate) struct OpMetricsIter<'a> {

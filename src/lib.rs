@@ -181,13 +181,54 @@
 
 extern crate core;
 
+use smallvec::SmallVec;
+use smartstring::alias::String as SmartString;
+use crate::dtrange::DTRange;
+use crate::rle::{KVPair, RleVec};
+
 pub mod list;
 mod rle;
 mod dtrange;
 mod unicount;
 mod remotespan;
 mod rev_range;
+mod history;
+mod frontier;
+mod history_tools;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;
 const ROOT_TIME: usize = usize::MAX;
+
+// TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
+// systems.
+pub type Time = usize;
+
+/// A LocalVersion is a set of local Time values which point at the set of changes with no children
+/// at this point in time. When there's a single writer this will
+/// always just be the last order we've seen.
+///
+/// This is never empty.
+///
+/// At the start of time (when there are no changes), LocalVersion is usize::max (which is the root
+/// order).
+pub type LocalVersion = SmallVec<[Time; 2]>;
+
+#[derive(Clone, Debug)]
+struct ClientData {
+    /// Used to map from client's name / hash to its numerical ID.
+    name: SmartString,
+
+    /// This is a packed RLE in-order list of all operations from this client.
+    ///
+    /// Each entry in this list is grounded at the client's sequence number and maps to the span of
+    /// local time entries.
+    ///
+    /// A single agent ID might be used to modify multiple concurrent branches. Because of this, and
+    /// the propensity of diamond types to reorder operations for performance, the
+    /// time spans here will *almost* always (but not always) be monotonically increasing. Eg, they
+    /// might be ordered as (0, 2, 1). This will only happen when changes are concurrent. The order
+    /// of time spans must always obey the partial order of changes. But it will not necessarily
+    /// agree with the order amongst time spans.
+    item_times: RleVec<KVPair<DTRange>>,
+}

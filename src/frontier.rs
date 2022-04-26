@@ -1,7 +1,7 @@
 use smallvec::{Array, SmallVec};
-use crate::list::{LocalVersion, Time};
-use crate::list::history::History;
+use crate::history::History;
 use crate::dtrange::DTRange;
+use crate::{LocalVersion, Time};
 
 /// Advance a frontier by the set of time spans in range
 pub(crate) fn advance_frontier_by(frontier: &mut LocalVersion, history: &History, mut range: DTRange) {
@@ -204,8 +204,8 @@ pub fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<[T; LEN]>) -> SmallVec<[
 mod test {
     use smallvec::smallvec;
 
-    use crate::list::LocalVersion;
-    use crate::list::history::HistoryEntry;
+    use crate::LocalVersion;
+    use crate::history::HistoryEntry;
 
     use super::*;
 

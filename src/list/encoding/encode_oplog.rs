@@ -1,12 +1,12 @@
 use jumprope::JumpRope;
 use rle::{HasLength, RleRun};
 use crate::list::encoding::*;
-use crate::list::history::MinimalHistoryEntry;
+use crate::history::MinimalHistoryEntry;
 use crate::list::operation::OpKind::{Del, Ins};
-use crate::list::{Branch, OpLog, switch, Time};
+use crate::list::{Branch, OpLog, switch};
 use crate::rle::{KVPair, RleVec};
-use crate::{AgentId, ROOT_AGENT};
-use crate::list::frontier::local_version_is_root;
+use crate::{AgentId, ROOT_AGENT, Time};
+use crate::frontier::local_version_is_root;
 use crate::list::internal_op::OperationInternal;
 use crate::list::operation::OpKind;
 use crate::dtrange::DTRange;

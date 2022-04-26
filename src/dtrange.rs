@@ -4,7 +4,7 @@ use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
 
 use crate::rle::RleKeyed;
 use std::ops::Range;
-use crate::list::Time;
+use crate::Time;
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 #[cfg(feature = "serde")]

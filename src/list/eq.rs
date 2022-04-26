@@ -8,11 +8,11 @@
 // performance.
 
 use rle::{HasLength, SplitableSpan};
-use rle::zip::{rle_zip3};
-use crate::ROOT_AGENT;
-use crate::list::{OpLog, Time};
-use crate::list::frontier::clean_version;
-use crate::list::history::MinimalHistoryEntry;
+use rle::zip::rle_zip3;
+use crate::{ROOT_AGENT, Time};
+use crate::list::OpLog;
+use crate::frontier::clean_version;
+use crate::history::MinimalHistoryEntry;
 use crate::rle::KVPair;
 
 // const VERBOSE: bool = true;

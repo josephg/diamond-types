@@ -1,23 +1,23 @@
 use smallvec::{smallvec, SmallVec};
 use crate::list::encoding::*;
 use crate::list::encoding::varint::*;
-use crate::list::{LocalVersion, OpLog, switch, Time};
-use crate::list::frontier::*;
+use crate::list::{OpLog, switch};
+use crate::frontier::*;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::OpKind::{Del, Ins};
 use crate::rev_range::RangeRev;
-use crate::AgentId;
+use crate::{AgentId, LocalVersion, Time};
 use crate::unicount::*;
 use crate::list::encoding::encode_tools::ParseError::*;
 use rle::*;
 use crate::list::buffered_iter::Buffered;
 use crate::list::encoding::ChunkType::*;
-use crate::list::history::MinimalHistoryEntry;
+use crate::history::MinimalHistoryEntry;
 use crate::list::operation::OpKind;
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::list::encoding::decode_tools::{BufReader, ChunkReader};
 use crate::list::encoding::encode_tools::ParseError;
-use crate::list::frontier::clone_smallvec;
+use crate::frontier::clone_smallvec;
 use crate::remotespan::{CRDTId, CRDTSpan};
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 

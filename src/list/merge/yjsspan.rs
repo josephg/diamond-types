@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 use content_tree::{ContentLength, Toggleable};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
-use crate::list::Time;
+use crate::Time;
 use crate::dtrange::{debug_time, DTRange, UNDERWATER_START};
 
 /// 0 = not inserted yet,
