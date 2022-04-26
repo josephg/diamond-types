@@ -22,7 +22,7 @@ content-tree = { version = "0.1.0", path = "crates/content-tree" }
 # Its tempting to disable default-features in jumprope because it means we don't need to hook in crypto random, which
 # saves some size in the wasm output size. But I think its better to default to having this feature enabled.
 #jumprope = { version = "0.5.3", default-features = false }
-jumprope = "0.5.3"
+jumprope = "1.0.0"
 humansize = "1.1.1"
 num_enum = "0.5.6"
 

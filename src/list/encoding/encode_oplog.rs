@@ -295,7 +295,7 @@ fn write_content_str(dest: &mut Vec<u8>, s: &str, compressed: Option<&mut Vec<u8
 }
 
 fn write_content_rope(dest: &mut Vec<u8>, rope: &JumpRope, compressed: Option<&mut Vec<u8>>) {
-    write_content(dest, DataType::PlainText, rope.len_bytes(),rope.chunks().strings().map(|s| s.as_bytes()), compressed);
+    write_content(dest, DataType::PlainText, rope.len_bytes(),rope.substrings().map(|s| s.as_bytes()), compressed);
 }
 
 fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ChunkType) {
