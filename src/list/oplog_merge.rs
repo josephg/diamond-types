@@ -145,7 +145,7 @@ impl OpLog {
                 debug_assert_frontier_sorted(&hist_entry.parents);
                 // dbg!(&hist_entry.parents);
 
-                self.insert_history(&hist_entry.parents, span);
+                self.history.insert(&hist_entry.parents, span);
                 self.advance_frontier(&hist_entry.parents, span);
                 t += len;
             }

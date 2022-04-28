@@ -899,7 +899,7 @@ impl OpLog {
                             mapped.truncate_keeping_right(next_history_time - mapped.span.start);
                         }
 
-                        self.insert_history(&mapped.parents, mapped.span);
+                        self.history.insert(&mapped.parents, mapped.span);
                         self.advance_frontier(&mapped.parents, mapped.span);
 
                         next_history_time += mapped.len();

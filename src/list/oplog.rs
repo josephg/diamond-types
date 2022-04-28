@@ -1,11 +1,11 @@
 use std::ops::Range;
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
-use rle::{HasLength, MergableSpan, Searchable};
+use rle::{HasLength, Searchable};
 use crate::{AgentId, ClientData, LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
 use crate::list::{Branch, OpLog};
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};
-use crate::history::{HistoryEntry, MinimalHistoryEntry};
+use crate::history::MinimalHistoryEntry;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::{Operation, OpKind};
 use crate::list::remote_ids::RemoteId;
@@ -81,9 +81,6 @@ impl OpLog {
     }
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
-        // Probably a nicer way to write this.
-        if name == "ROOT" { return ROOT_AGENT; }
-
         if let Some(id) = self.get_agent_id(name) {
             id
         } else {
@@ -224,72 +221,6 @@ impl OpLog {
     //     self.insert_history_internal(txn_parents, range);
     // }
 
-    /// Insert a new history entry for the specified range of patches, and the named parents.
-    ///
-    /// This method will try to extend the last entry if it can.
-    pub(crate) fn insert_history(&mut self, txn_parents: &[Time], range: DTRange) {
-        // dbg!(txn_parents, range, &self.history.entries);
-        // Fast path. The code below is weirdly slow, but most txns just append.
-        if let Some(last) = self.history.entries.0.last_mut() {
-            if txn_parents.len() == 1
-                && txn_parents[0] == last.last_time()
-                && last.span.can_append(&range)
-            {
-                last.span.append(range);
-                return;
-            }
-        }
-
-        // let parents = replace(&mut self.frontier, txn_parents);
-        let mut shadow = range.start;
-        while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
-            shadow = self.history.entries.find(shadow - 1).unwrap().shadow;
-        }
-        // TODO: Consider not doing this, and just having 0 mean "start of recorded time" here.
-        if shadow == 0 { shadow = usize::MAX; }
-
-        let will_merge = if let Some(last) = self.history.entries.last() {
-            // TODO: Is this shadow check necessary?
-            // This code is from TxnSpan splitablespan impl. Copying it here is a bit ugly but
-            // its the least ugly way I could think to implement this.
-            txn_parents.len() == 1 && txn_parents[0] == last.last_time() && shadow == last.shadow
-        } else { false };
-
-        // let mut parent_indexes = smallvec![];
-        if !will_merge {
-            // The item wasn't merged. So we need to go through the parents and wire up children.
-            let new_idx = self.history.entries.0.len();
-
-            if txn_parents.is_empty() {
-                self.history.root_child_indexes.push(new_idx);
-            } else {
-                for &p in txn_parents {
-                    let parent_idx = self.history.entries.find_index(p).unwrap();
-                    // Interestingly the parent_idx array will always end up the same length as parents
-                    // because it would be invalid for multiple parents to point to the same entry in
-                    // txns. (That would imply one parent is a descendant of another.)
-                    // debug_assert!(!parent_indexes.contains(&parent_idx));
-                    // parent_indexes.push(parent_idx);
-
-                    let parent_children = &mut self.history.entries.0[parent_idx].child_indexes;
-                    debug_assert!(!parent_children.contains(&new_idx));
-                    parent_children.push(new_idx);
-                }
-            }
-        }
-
-        let txn = HistoryEntry {
-            span: range,
-            shadow,
-            parents: txn_parents.iter().copied().collect(),
-            // parent_indexes,
-            child_indexes: smallvec![]
-        };
-
-        let did_merge = self.history.entries.push(txn);
-        assert_eq!(will_merge, did_merge);
-    }
-
     /// Advance self.frontier by the named span of time.
     pub(crate) fn advance_frontier(&mut self, parents: &[Time], span: DTRange) {
         advance_frontier_by_known_run(&mut self.version, parents, span);
@@ -316,7 +247,7 @@ impl OpLog {
 
     fn assign_internal(&mut self, agent: AgentId, parents: &[Time], span: DTRange) {
         self.assign_next_time_to_client_known(agent, span);
-        self.insert_history(parents, span);
+        self.history.insert(parents, span);
         self.advance_frontier(parents, span);
     }
 

@@ -136,9 +136,6 @@ pub struct OpLog {
     /// remote changes.
     ///
     /// Along with deletes, this essentially contains the time DAG.
-    ///
-    /// TODO: Consider renaming this field
-    /// TODO: Remove pub marker.
     history: History,
 
     /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into

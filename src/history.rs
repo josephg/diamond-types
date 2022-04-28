@@ -46,6 +46,72 @@ impl History {
             last.span.end
         } else { 0 }
     }
+
+    /// Insert a new history entry for the specified range of vesrsions, and the named parents.
+    ///
+    /// This method will try to extend the last entry if it can.
+    pub(crate) fn insert(&mut self, txn_parents: &[Time], range: DTRange) {
+        // dbg!(txn_parents, range, &self.history.entries);
+        // Fast path. The code below is weirdly slow, but most txns just append.
+        if let Some(last) = self.entries.0.last_mut() {
+            if txn_parents.len() == 1
+                && txn_parents[0] == last.last_time()
+                && last.span.can_append(&range)
+            {
+                last.span.append(range);
+                return;
+            }
+        }
+
+        // let parents = replace(&mut self.frontier, txn_parents);
+        let mut shadow = range.start;
+        while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
+            shadow = self.entries.find(shadow - 1).unwrap().shadow;
+        }
+        // TODO: Consider not doing this, and just having 0 mean "start of recorded time" here.
+        if shadow == 0 { shadow = usize::MAX; }
+
+        let will_merge = if let Some(last) = self.entries.last() {
+            // TODO: Is this shadow check necessary?
+            // This code is from TxnSpan splitablespan impl. Copying it here is a bit ugly but
+            // its the least ugly way I could think to implement this.
+            txn_parents.len() == 1 && txn_parents[0] == last.last_time() && shadow == last.shadow
+        } else { false };
+
+        // let mut parent_indexes = smallvec![];
+        if !will_merge {
+            // The item wasn't merged. So we need to go through the parents and wire up children.
+            let new_idx = self.entries.0.len();
+
+            if txn_parents.is_empty() {
+                self.root_child_indexes.push(new_idx);
+            } else {
+                for &p in txn_parents {
+                    let parent_idx = self.entries.find_index(p).unwrap();
+                    // Interestingly the parent_idx array will always end up the same length as parents
+                    // because it would be invalid for multiple parents to point to the same entry in
+                    // txns. (That would imply one parent is a descendant of another.)
+                    // debug_assert!(!parent_indexes.contains(&parent_idx));
+                    // parent_indexes.push(parent_idx);
+
+                    let parent_children = &mut self.entries.0[parent_idx].child_indexes;
+                    debug_assert!(!parent_children.contains(&new_idx));
+                    parent_children.push(new_idx);
+                }
+            }
+        }
+
+        let txn = HistoryEntry {
+            span: range,
+            shadow,
+            parents: txn_parents.iter().copied().collect(),
+            // parent_indexes,
+            child_indexes: smallvec![]
+        };
+
+        let did_merge = self.entries.push(txn);
+        assert_eq!(will_merge, did_merge);
+    }
 }
 
 /// This type stores metadata for a run of transactions created by the users.
