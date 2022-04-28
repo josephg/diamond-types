@@ -72,6 +72,12 @@ impl DTRange {
     }
 }
 
+impl From<usize> for DTRange {
+    fn from(start: usize) -> Self {
+        DTRange { start, end: start + 1 }
+    }
+}
+
 impl From<Range<usize>> for DTRange {
     fn from(range: Range<usize>) -> Self {
         DTRange {

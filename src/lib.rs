@@ -195,6 +195,7 @@ mod rev_range;
 mod history;
 mod frontier;
 mod history_tools;
+mod new_oplog;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;

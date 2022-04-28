@@ -12,8 +12,6 @@ use crate::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
 use crate::dtrange::DTRange;
 use crate::{LocalVersion, ROOT_TIME, Time};
 
-// use smartstring::alias::{String as SmartString};
-
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -160,9 +158,9 @@ impl History {
         // marks range [ord_start..ord_end] *inclusive* with flag in our output.
         let mark_run = |ord_start, ord_end, flag: DiffFlag| {
             let target = match flag {
-                DiffFlag::OnlyA => { &mut only_a }
-                DiffFlag::OnlyB => { &mut only_b }
-                DiffFlag::Shared => { return; }
+                OnlyA => { &mut only_a }
+                OnlyB => { &mut only_b }
+                Shared => { return; }
             };
             // dbg!((ord_start, ord_end));
 
@@ -178,24 +176,24 @@ impl History {
         // Sorted highest to lowest.
         let mut queue: BinaryHeap<(Time, DiffFlag)> = BinaryHeap::new();
         for a_ord in a {
-            queue.push((*a_ord, DiffFlag::OnlyA));
+            queue.push((*a_ord, OnlyA));
         }
         for b_ord in b {
-            queue.push((*b_ord, DiffFlag::OnlyB));
+            queue.push((*b_ord, OnlyB));
         }
 
         let mut num_shared_entries = 0;
 
         while let Some((mut ord, mut flag)) = queue.pop() {
-            if flag == DiffFlag::Shared { num_shared_entries -= 1; }
+            if flag == Shared { num_shared_entries -= 1; }
 
             // dbg!((ord, flag));
             while let Some((peek_ord, peek_flag)) = queue.peek() {
                 if *peek_ord != ord { break; } // Normal case.
                 else {
                     // 3 cases if peek_flag != flag. We set flag = Shared in all cases.
-                    if *peek_flag != flag { flag = DiffFlag::Shared; }
-                    if *peek_flag == DiffFlag::Shared { num_shared_entries -= 1; }
+                    if *peek_flag != flag { flag = Shared; }
+                    if *peek_flag == Shared { num_shared_entries -= 1; }
                     queue.pop();
                 }
             }
@@ -221,9 +219,9 @@ impl History {
                         mark_run(*peek_ord + 1, ord, flag);
                         ord = *peek_ord;
                         // offset -= ord - peek_ord;
-                        flag = DiffFlag::Shared;
+                        flag = Shared;
                     }
-                    if *peek_flag == DiffFlag::Shared { num_shared_entries -= 1; }
+                    if *peek_flag == Shared { num_shared_entries -= 1; }
                     queue.pop();
                 }
             }
@@ -234,7 +232,7 @@ impl History {
 
             for p in containing_txn.parents.iter() {
                 queue.push((*p, flag));
-                if flag == DiffFlag::Shared { num_shared_entries += 1; }
+                if flag == Shared { num_shared_entries += 1; }
             }
 
             // If there's only shared entries left, abort.
@@ -513,9 +511,9 @@ pub mod test {
         history.find_conflicting(a, b, |span, flag| {
             // dbg!((span, flag));
             let target = match flag {
-                DiffFlag::OnlyA => { &mut only_a }
-                DiffFlag::OnlyB => { &mut only_b }
-                DiffFlag::Shared => { return; }
+                OnlyA => { &mut only_a }
+                OnlyB => { &mut only_b }
+                Shared => { return; }
             };
             // dbg!((ord_start, ord_end));
 
