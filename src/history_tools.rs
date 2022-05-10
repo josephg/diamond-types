@@ -6,11 +6,12 @@ use std::collections::BinaryHeap;
 use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
-use crate::frontier::{advance_frontier_by, frontier_is_sorted};
+use crate::frontier::{advance_frontier_by, debug_assert_frontier_sorted, frontier_is_sorted};
 use crate::history::History;
 use crate::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
 use crate::dtrange::DTRange;
 use crate::{LocalVersion, ROOT_TIME, Time};
+use crate::new_oplog::{DocRoot, NewOpLog};
 
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
@@ -47,7 +48,7 @@ impl History {
     /// `txn_shadow_contains(3, 2)` is true, but `is_direct_descendant(3, 2)` is false.
     ///
     /// See `diff_shadow_bubble` test below for an example.
-    fn is_direct_descendant_coarse(&self, a: Time, b: Time) -> bool {
+    pub(crate) fn is_direct_descendant_coarse(&self, a: Time, b: Time) -> bool {
         // This is a bit more strict than we technically need, but its fast for short circuit
         // evaluation.
         a == b
@@ -486,6 +487,39 @@ impl History {
         });
 
         ConflictZone { common_ancestor, spans }
+    }
+
+    pub(crate) fn version_in_root(&self, v: &[Time], oplog: &NewOpLog, root: DocRoot) -> LocalVersion {
+        // TODO: What should happen when v == creation time?
+        debug_assert_frontier_sorted(v);
+        let highest_time = *v.last().unwrap();
+        let root_info = &oplog.root_info[root];
+        if highest_time < root_info.created_at {
+            // If the version exists entirely before this root was created, the only common ancestor
+            // is ROOT.
+            return smallvec![];
+        }
+
+        if v.len() == 1 {
+            if let Some(last_root_time_range) = root_info.owned_times.last() {
+                let last_root_time = last_root_time_range.last();
+
+                // Fast path. If the last operation in the root is a parent of v, we're done.
+                if self.is_direct_descendant_coarse(highest_time, last_root_time) {
+                    return smallvec![last_root_time];
+                }
+            }
+        }
+
+        // TODO: Also check if v is inside the root in question anyway.
+
+        // Slow path. We'll trace back through time until we land entirely in the root.
+        let mut result = smallvec![];
+
+        todo!();
+
+        result.reverse();
+        result
     }
 }
 

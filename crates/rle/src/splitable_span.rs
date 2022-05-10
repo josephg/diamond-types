@@ -317,6 +317,10 @@ impl<T: Clone + Eq> RleRun<T> {
     pub fn new(val: T, len: usize) -> Self {
         Self { val, len }
     }
+
+    pub fn single(val: T) -> Self {
+        Self { val, len: 1 }
+    }
 }
 
 impl<T: Clone + Eq> HasLength for RleRun<T> {

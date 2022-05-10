@@ -3,9 +3,9 @@
 use std::cmp::Ordering;
 use smallvec::smallvec;
 use smartstring::alias::String as SmartString;
-use rle::{HasLength, RleRun, Searchable};
-use crate::{AgentId, ClientData, DTRange, KVPair, LocalVersion, RleVec, ROOT_AGENT, Time};
-use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};
+use rle::{AppendRle, HasLength, RleRun, Searchable};
+use crate::{AgentId, ClientData, DTRange, KVPair, LocalVersion, RleVec, ROOT_AGENT, ROOT_TIME, Time};
+use crate::frontier::{advance_frontier_by_known_run, clone_smallvec, debug_assert_frontier_sorted, frontier_is_sorted};
 use crate::history::History;
 use crate::remotespan::CRDTSpan;
 use crate::rle::{RleKeyed, RleSpanHelpers};
@@ -57,21 +57,36 @@ pub struct NewOpLog {
     /// order). This object is indexed by the operation set.
     operation_ctx: NewOperationCtx,
 
+    root_operations: Vec<KVPair<RootOperation>>,
+
     // This should just be a Vec<SetOperation> with another struct to disambiguate or something.
     set_operations: Vec<KVPair<SetOperation>>,
 
 
-    // root_info: Vec<RootInfo>,
-    // /// Map from local version -> which root contains that time.
-    // root_assignment: RleVec<KVPair<RleRun<usize>>>,
+    pub(crate) root_info: Vec<RootInfo>,
+    /// Map from local version -> which root contains that time.
+    root_assignment: RleVec<KVPair<RleRun<usize>>>,
 }
 
-// #[derive(Debug, Clone)]
-// struct RootInfo {
-//     created_at: Time,
-//     owned_times: RleVec<DTRange>,
-// }
+#[derive(Debug, Clone)]
+pub(crate) struct RootInfo {
+    pub(crate) created_at: Time,
+    pub(crate) owned_times: RleVec<DTRange>,
+    kind: RootKind,
+}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RootKind {
+    Register,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RootOperation {
+    Create(RootKind),
+    Delete {
+        target: Time
+    },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SetOperation(Value);
@@ -99,6 +114,8 @@ pub enum Value {
     I64(i64),
 }
 
+pub type DocRoot = usize;
+
 // impl ValueKind {
 //     fn create_root(&self) -> Value {
 //         match self {
@@ -122,17 +139,27 @@ pub struct NewBranch {
 
 impl NewOpLog {
     pub fn new() -> Self {
-        Self {
+        let mut oplog = Self {
             doc_id: None,
             client_with_localtime: RleVec::new(),
             client_data: Vec::new(),
             history: History::new(),
             version: smallvec![],
             operation_ctx: NewOperationCtx { set_content: Vec::new() },
+            root_operations: Vec::new(),
             set_operations: Vec::new(),
-            // root_info: Vec::new(),
-            // root_assignment: RleVec::new()
-        }
+            root_info: Vec::new(),
+            root_assignment: RleVec::new()
+        };
+
+        // Documents always start with a default root.
+        oplog.root_info.push(RootInfo {
+            created_at: ROOT_TIME,
+            owned_times: RleVec::new(),
+            kind: RootKind::Register
+        });
+
+        oplog
     }
 
     pub(crate) fn get_agent_id(&self, name: &str) -> Option<AgentId> {
@@ -214,17 +241,17 @@ impl NewOpLog {
     }
 
     /// span is the local timespan we're assigning to the named agent.
-    pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, v: Time) {
-        debug_assert_eq!(v, self.len());
+    pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
+        debug_assert_eq!(span.start, self.len());
 
         let client_data = &mut self.client_data[agent as usize];
 
         let next_seq = client_data.get_next_seq();
-        client_data.item_times.push(KVPair(next_seq, (v..v+1).into()));
+        client_data.item_times.push(KVPair(next_seq, span));
 
-        self.client_with_localtime.push(KVPair(v, CRDTSpan {
+        self.client_with_localtime.push(KVPair(span.start, CRDTSpan {
             agent,
-            seq_range: next_seq.into(),
+            seq_range: DTRange { start: next_seq, end: next_seq + span.len() },
         }));
     }
 
@@ -232,39 +259,86 @@ impl NewOpLog {
         advance_frontier_by_known_run(&mut self.version, parents, span);
     }
 
-    fn append_set(&mut self, agent_id: AgentId, parents: &[Time], value: Value) -> Time {
+    fn inner_assign_op(&mut self, span: DTRange, agent_id: AgentId, parents: &[Time], root_id: DocRoot) {
+        self.assign_next_time_to_client_known(agent_id, span);
+
+        self.history.insert(parents, span);
+
+        if root_id != usize::MAX {
+            self.root_info[root_id].owned_times.push(span);
+        }
+        self.root_assignment.push(KVPair(span.start, RleRun::new(root_id, span.len())));
+
+        self.advance_frontier(parents, span);
+    }
+
+    fn append_set(&mut self, agent_id: AgentId, parents: &[Time], root_id: usize, value: Value) -> Time {
         let v = self.len();
 
         self.set_operations.push(KVPair(v, SetOperation(value)));
-
-        self.assign_next_time_to_client_known(agent_id, v);
-        self.history.insert(parents, v.into());
-        self.advance_frontier(parents, v.into());
+        self.inner_assign_op(v.into(), agent_id, parents, root_id);
 
         v
+    }
+
+
+    fn create_root(&mut self, agent_id: AgentId, parents: &[Time], kind: RootKind) -> DocRoot {
+        let v = self.len();
+        let root_id = self.root_info.len();
+
+        self.root_operations.push(KVPair(v, RootOperation::Create(kind)));
+
+        // let mut owned_times = RleVec::new();
+        // owned_times.push(v.into());
+
+        self.root_info.push(RootInfo {
+            created_at: v,
+            owned_times: RleVec::new(),
+            // owned_times,
+            kind
+        });
+
+        // Root creation operations aren't assigned to the root being created itself.
+        self.inner_assign_op(v.into(), agent_id, parents, usize::MAX);
+
+        root_id
     }
 }
 
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use crate::new_oplog::{NewOpLog, Value};
+    use crate::new_oplog::{NewOpLog, RootKind, Value};
 
     #[test]
     fn foo() {
         let mut oplog = NewOpLog::new();
-        dbg!(oplog.checkout_tip());
+        // dbg!(&oplog);
 
         let seph = oplog.get_or_create_agent_id("seph");
-        let v1 = oplog.append_set(seph, &[], Value::I64(123));
-        dbg!(oplog.checkout_tip());
-
-        let v2 = oplog.append_set(seph, &[v1], Value::I64(456));
-        dbg!(oplog.checkout_tip());
-
-        let mike = oplog.get_or_create_agent_id("mike");
-        let v3 = oplog.append_set(mike, &[v1], Value::I64(999));
-        // dbg!(&oplog);
-        dbg!(oplog.checkout_tip());
+        let mut v = 0;
+        let root = oplog.create_root(seph, &[], RootKind::Register);
+        // v = oplog.create_root(seph, &[v], RootKind::Register);
+        v = oplog.version[0];
+        v = oplog.append_set(seph, &[v], root, Value::I64(123));
+        dbg!(&oplog);
     }
+
+    // #[test]
+    // fn foo() {
+    //     let mut oplog = NewOpLog::new();
+    //     dbg!(oplog.checkout_tip());
+    //
+    //     let seph = oplog.get_or_create_agent_id("seph");
+    //     let v1 = oplog.append_set(seph, &[], Value::I64(123));
+    //     dbg!(oplog.checkout_tip());
+    //
+    //     let v2 = oplog.append_set(seph, &[v1], Value::I64(456));
+    //     dbg!(oplog.checkout_tip());
+    //
+    //     let mike = oplog.get_or_create_agent_id("mike");
+    //     let v3 = oplog.append_set(mike, &[v1], Value::I64(999));
+    //     // dbg!(&oplog);
+    //     dbg!(oplog.checkout_tip());
+    // }
 }
