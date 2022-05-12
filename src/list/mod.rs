@@ -25,7 +25,7 @@ mod oplog;
 mod branch;
 pub mod encoding;
 pub mod remote_ids;
-mod internal_op;
+pub mod internal_op;
 mod eq;
 mod oplog_merge;
 

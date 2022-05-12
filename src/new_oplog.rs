@@ -1,18 +1,22 @@
 #![allow(unused)]
 
 use std::cmp::Ordering;
-use smallvec::smallvec;
+use smallvec::{smallvec, SmallVec};
 use smartstring::alias::String as SmartString;
 use rle::{AppendRle, HasLength, RleRun, Searchable};
 use crate::{AgentId, ClientData, DTRange, KVPair, LocalVersion, RleVec, ROOT_AGENT, ROOT_TIME, Time};
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec, debug_assert_frontier_sorted, frontier_is_sorted};
 use crate::history::History;
+use crate::list::internal_op::OperationInternal as TextOpInternal;
 use crate::remotespan::CRDTSpan;
 use crate::rle::{RleKeyed, RleSpanHelpers};
 
 #[derive(Debug, Clone)]
 pub(crate) struct NewOperationCtx {
     pub(crate) set_content: Vec<u8>,
+
+    pub(crate) ins_content: Vec<u8>,
+    pub(crate) del_content: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -53,50 +57,57 @@ pub struct NewOpLog {
 
     // value_kind: ValueKind,
 
+    /// Works like client_data. Each ItemRef is a reference into this structure.
+    pub(crate) items: Vec<InnerCRDTInfo>,
+
+    register_set_operations: Vec<(Time, Value)>,
+    map_set_operations: Vec<(Time, SmartString, Value)>,
+    text_operations: RleVec<KVPair<TextOpInternal>>,
+
     /// This contains all content ever inserted into the document, in time order (not document
     /// order). This object is indexed by the operation set.
     operation_ctx: NewOperationCtx,
 
-    root_operations: Vec<KVPair<RootOperation>>,
+    /// map from local version -> which CRDT this operation references.
+    crdt_assignment: RleVec<KVPair<RleRun<usize>>>,
 
-    // This should just be a Vec<SetOperation> with another struct to disambiguate or something.
-    set_operations: Vec<KVPair<SetOperation>>,
-
-
-    pub(crate) root_info: Vec<RootInfo>,
-    /// Map from local version -> which root contains that time.
-    root_assignment: RleVec<KVPair<RleRun<usize>>>,
+    // pub(crate) root_info: Vec<RootInfo>,
+    // /// Map from local version -> which root contains that time.
+    // root_assignment: RleVec<KVPair<RleRun<usize>>>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PathItem {
+    GoIn,
+    AtKey(SmartString)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CRDTKind {
+    LWWRegister,
+    Map,
+    Text
+}
+
 
 #[derive(Debug, Clone)]
-pub(crate) struct RootInfo {
+pub(crate) struct InnerCRDTInfo {
+    // path: SmallVec<[PathItem; 1]>,
     pub(crate) created_at: Time,
+    pub(crate) kind: CRDTKind,
+    pub(crate) deleted_at: LocalVersion, // Empty when the item hasn't yet been deleted.
     pub(crate) owned_times: RleVec<DTRange>,
-    kind: RootKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RootKind {
-    Register,
-}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RootOperation {
-    Create(RootKind),
-    Delete {
-        target: Time
-    },
-}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SetOperation(Value);
+
+
+
 
 // #[derive(Debug, Clone, PartialEq, Eq)]
-// pub enum PathComponent {
-//     InsideRegister,
-//     // Key(SmartString),
-// }
-//
+// pub struct SetOperation(Value);
+
 // #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 // pub enum ValueKind {
 //     Primitivei64,
@@ -109,12 +120,13 @@ pub struct SetOperation(Value);
 //     // Text,
 // }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Value {
     I64(i64),
+    InnerCRDT(usize),
 }
 
-pub type DocRoot = usize;
+// pub type DocRoot = usize;
 
 // impl ValueKind {
 //     fn create_root(&self) -> Value {
@@ -145,21 +157,90 @@ impl NewOpLog {
             client_data: Vec::new(),
             history: History::new(),
             version: smallvec![],
-            operation_ctx: NewOperationCtx { set_content: Vec::new() },
-            root_operations: Vec::new(),
-            set_operations: Vec::new(),
-            root_info: Vec::new(),
-            root_assignment: RleVec::new()
+            // The root is always the first item in items, which is a register.
+            items: vec![InnerCRDTInfo {
+                created_at: 0,
+                kind: CRDTKind::LWWRegister,
+                deleted_at: smallvec![],
+                owned_times: RleVec::new(),
+            }],
+            register_set_operations: vec![],
+            map_set_operations: vec![],
+            text_operations: RleVec::new(),
+            operation_ctx: NewOperationCtx {
+                set_content: Vec::new(),
+                ins_content: vec![],
+                del_content: vec![]
+            },
+            crdt_assignment: RleVec::new(),
         };
 
-        // Documents always start with a default root.
-        oplog.root_info.push(RootInfo {
-            created_at: ROOT_TIME,
-            owned_times: RleVec::new(),
-            kind: RootKind::Register
-        });
+        // // Documents always start with a default root.
+        // oplog.root_info.push(RootInfo {
+        //     created_at: ROOT_TIME,
+        //     owned_times: RleVec::new(),
+        //     kind: RootKind::Register
+        // });
 
         oplog
+    }
+
+    fn get_value_of(&self, crdt: usize, version: &[Time]) -> Option<Value> {
+        let info = &self.items[crdt];
+
+        // For now. Other kinds are NYI.
+        assert_eq!(info.kind, CRDTKind::LWWRegister);
+
+        // If the item has not been created yet, return None.
+        if !self.history.version_contains_time(version, info.created_at) {
+            // Not created yet.
+            return None;
+        }
+
+        // If the item has been deleted, return None.
+        for v in &info.deleted_at {
+            if self.history.version_contains_time(version, *v) {
+                // Deleted.
+                return None;
+            }
+        }
+
+        let v = self.history.version_in_crdt_item(version, info)?;
+        // dbg!(&v);
+
+        let content = match v.len() {
+            0 => {
+                // We're at ROOT. The current value is ??? what exactly?
+                return None;
+            },
+            1 => {
+                self.find_register_set_op(v[0]).clone()
+            },
+            _ => {
+                // Disambiguate based on agent id.
+                let v = self.version.iter().map(|v| {
+                    let (id, offset) = self.client_with_localtime.find_packed_with_offset(*v);
+                    (*v, id.1.at_offset(offset))
+                }).reduce(|(v1, id1), (v2, id2)| {
+                    let name1 = &self.client_data[id1.agent as usize].name;
+                    let name2 = &self.client_data[id2.agent as usize].name;
+                    match name2.cmp(name1) {
+                        Ordering::Less => (v1, id1),
+                        Ordering::Greater => (v2, id2),
+                        Ordering::Equal => {
+                            match id2.seq.cmp(&id1.seq) {
+                                Ordering::Less => (v1, id1),
+                                Ordering::Greater => (v2, id2),
+                                Ordering::Equal => panic!("Version CRDT IDs match!")
+                            }
+                        }
+                    }
+                }).unwrap().0;
+                self.find_register_set_op(v).clone()
+            }
+        };
+
+        Some(content)
     }
 
     pub(crate) fn get_agent_id(&self, name: &str) -> Option<AgentId> {
@@ -184,53 +265,54 @@ impl NewOpLog {
         }
     }
 
-    fn find_set_op(&self, version: usize) -> &SetOperation {
-        let idx = self.set_operations.binary_search_by(|entry| {
-            entry.rle_key().cmp(&version)
+    fn find_register_set_op(&self, version: usize) -> &Value {
+        let idx = self.register_set_operations.binary_search_by(|entry| {
+            entry.0.cmp(&version)
         }).unwrap();
 
-        &self.set_operations[idx].1
+        &self.register_set_operations[idx].1
+        // &self.set_operations[idx].1
     }
 
-    pub fn checkout_tip(&self) -> NewBranch {
-        // So if the version only contains one entry, we can just lift that last set operation.
-        // But if there's multiple parents, we need to pick a winner (since this is an AWW
-        // register).
-
-        let content = match self.version.len() {
-            0 => Value::I64(0), // We're at ROOT. The value is the default (0).
-            1 => {
-                self.find_set_op(self.version[0]).0.clone()
-            },
-            _ => {
-                // Disambiguate based on agent id.
-                let v = self.version.iter().map(|v| {
-                    let (id, offset) = self.client_with_localtime.find_packed_with_offset(*v);
-                    (*v, id.1.at_offset(offset))
-                }).reduce(|(v1, id1), (v2, id2)| {
-                    let name1 = &self.client_data[id1.agent as usize].name;
-                    let name2 = &self.client_data[id2.agent as usize].name;
-                    match name2.cmp(name1) {
-                        Ordering::Less => (v1, id1),
-                        Ordering::Greater => (v2, id2),
-                        Ordering::Equal => {
-                            match id2.seq.cmp(&id1.seq) {
-                                Ordering::Less => (v1, id1),
-                                Ordering::Greater => (v2, id2),
-                                Ordering::Equal => panic!("Version CRDT IDs match!")
-                            }
-                        }
-                    }
-                }).unwrap().0;
-                self.find_set_op(v).0.clone()
-            }
-        };
-
-        NewBranch {
-            version: clone_smallvec(&self.version),
-            content
-        }
-    }
+    // pub fn checkout_tip(&self) -> NewBranch {
+    //     // So if the version only contains one entry, we can just lift that last set operation.
+    //     // But if there's multiple parents, we need to pick a winner (since this is an AWW
+    //     // register).
+    //
+    //     let content = match self.version.len() {
+    //         0 => Value::I64(0), // We're at ROOT. The value is the default (0).
+    //         1 => {
+    //             self.find_set_op(self.version[0]).0.clone()
+    //         },
+    //         _ => {
+    //             // Disambiguate based on agent id.
+    //             let v = self.version.iter().map(|v| {
+    //                 let (id, offset) = self.client_with_localtime.find_packed_with_offset(*v);
+    //                 (*v, id.1.at_offset(offset))
+    //             }).reduce(|(v1, id1), (v2, id2)| {
+    //                 let name1 = &self.client_data[id1.agent as usize].name;
+    //                 let name2 = &self.client_data[id2.agent as usize].name;
+    //                 match name2.cmp(name1) {
+    //                     Ordering::Less => (v1, id1),
+    //                     Ordering::Greater => (v2, id2),
+    //                     Ordering::Equal => {
+    //                         match id2.seq.cmp(&id1.seq) {
+    //                             Ordering::Less => (v1, id1),
+    //                             Ordering::Greater => (v2, id2),
+    //                             Ordering::Equal => panic!("Version CRDT IDs match!")
+    //                         }
+    //                     }
+    //                 }
+    //             }).unwrap().0;
+    //             self.find_set_op(v).0.clone()
+    //         }
+    //     };
+    //
+    //     NewBranch {
+    //         version: clone_smallvec(&self.version),
+    //         content
+    //     }
+    // }
 
 
     /// Get the number of operations
@@ -259,56 +341,53 @@ impl NewOpLog {
         advance_frontier_by_known_run(&mut self.version, parents, span);
     }
 
-    fn inner_assign_op(&mut self, span: DTRange, agent_id: AgentId, parents: &[Time], root_id: DocRoot) {
+    fn inner_assign_op(&mut self, span: DTRange, agent_id: AgentId, parents: &[Time], crdt_id: usize) {
         self.assign_next_time_to_client_known(agent_id, span);
 
         self.history.insert(parents, span);
 
-        if root_id != usize::MAX {
-            self.root_info[root_id].owned_times.push(span);
-        }
-        self.root_assignment.push(KVPair(span.start, RleRun::new(root_id, span.len())));
+        self.items[crdt_id].owned_times.push(span);
+        self.crdt_assignment.push(KVPair(span.start, RleRun::new(crdt_id, span.len())));
 
         self.advance_frontier(parents, span);
     }
 
-    fn append_set(&mut self, agent_id: AgentId, parents: &[Time], root_id: usize, value: Value) -> Time {
+    fn append_set(&mut self, agent_id: AgentId, parents: &[Time], crdt_id: usize, value: Value) -> Time {
         let v = self.len();
 
-        self.set_operations.push(KVPair(v, SetOperation(value)));
-        self.inner_assign_op(v.into(), agent_id, parents, root_id);
+        self.register_set_operations.push((v, value));
+        self.inner_assign_op(v.into(), agent_id, parents, crdt_id);
 
         v
     }
 
-
-    fn create_root(&mut self, agent_id: AgentId, parents: &[Time], kind: RootKind) -> DocRoot {
-        let v = self.len();
-        let root_id = self.root_info.len();
-
-        self.root_operations.push(KVPair(v, RootOperation::Create(kind)));
-
-        // let mut owned_times = RleVec::new();
-        // owned_times.push(v.into());
-
-        self.root_info.push(RootInfo {
-            created_at: v,
-            owned_times: RleVec::new(),
-            // owned_times,
-            kind
-        });
-
-        // Root creation operations aren't assigned to the root being created itself.
-        self.inner_assign_op(v.into(), agent_id, parents, usize::MAX);
-
-        root_id
-    }
+    // fn create_root(&mut self, agent_id: AgentId, parents: &[Time], kind: RootKind) -> DocRoot {
+    //     let v = self.len();
+    //     let root_id = self.root_info.len();
+    //
+    //     self.root_operations.push(KVPair(v, RootOperation::Create(kind)));
+    //
+    //     // let mut owned_times = RleVec::new();
+    //     // owned_times.push(v.into());
+    //
+    //     self.root_info.push(RootInfo {
+    //         created_at: v,
+    //         owned_times: RleVec::new(),
+    //         // owned_times,
+    //         kind
+    //     });
+    //
+    //     // Root creation operations aren't assigned to the root being created itself.
+    //     self.inner_assign_op(v.into(), agent_id, parents, usize::MAX);
+    //
+    //     root_id
+    // }
 }
 
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use crate::new_oplog::{NewOpLog, RootKind, Value};
+    use crate::new_oplog::{NewOpLog, Value};
 
     #[test]
     fn foo() {
@@ -317,12 +396,27 @@ mod test {
 
         let seph = oplog.get_or_create_agent_id("seph");
         let mut v = 0;
-        let root = oplog.create_root(seph, &[], RootKind::Register);
-        // v = oplog.create_root(seph, &[v], RootKind::Register);
-        v = oplog.version[0];
-        v = oplog.append_set(seph, &[v], root, Value::I64(123));
+        oplog.append_set(seph, &[], 0, Value::I64(123));
+
+        dbg!(oplog.get_value_of(0, &[]));
+        dbg!(oplog.get_value_of(0, &oplog.version));
+
         dbg!(&oplog);
     }
+
+    // #[test]
+    // fn foo() {
+    //     let mut oplog = NewOpLog::new();
+    //     // dbg!(&oplog);
+    //
+    //     let seph = oplog.get_or_create_agent_id("seph");
+    //     let mut v = 0;
+    //     let root = oplog.create_root(seph, &[], RootKind::Register);
+    //     // v = oplog.create_root(seph, &[v], RootKind::Register);
+    //     v = oplog.version[0];
+    //     v = oplog.append_set(seph, &[v], root, Value::I64(123));
+    //     dbg!(&oplog);
+    // }
 
     // #[test]
     // fn foo() {

@@ -11,7 +11,7 @@ use crate::history::History;
 use crate::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
 use crate::dtrange::DTRange;
 use crate::{LocalVersion, ROOT_TIME, Time};
-use crate::new_oplog::{DocRoot, NewOpLog};
+use crate::new_oplog::InnerCRDTInfo;
 
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
@@ -489,37 +489,125 @@ impl History {
         ConflictZone { common_ancestor, spans }
     }
 
-    pub(crate) fn version_in_root(&self, v: &[Time], oplog: &NewOpLog, root: DocRoot) -> LocalVersion {
-        // TODO: What should happen when v == creation time?
-        debug_assert_frontier_sorted(v);
-        let highest_time = *v.last().unwrap();
-        let root_info = &oplog.root_info[root];
-        if highest_time < root_info.created_at {
-            // If the version exists entirely before this root was created, the only common ancestor
-            // is ROOT.
-            return smallvec![];
+    pub(crate) fn version_in_crdt_item(&self, version: &[Time], info: &InnerCRDTInfo) -> Option<LocalVersion> {
+        // If v == creation time, its a bit hacky but I still consider that a valid version, because
+        // the CRDT has a value then (the default value for the CRDT).
+        debug_assert_frontier_sorted(version);
+
+        let highest_time = if let Some(&t) = version.last() {
+            t
+        } else {
+            // The root item has a creation time at the root time. But nothing else exists then.
+            return if info.created_at == 0 {
+                Some(smallvec![])
+            } else {
+                None
+            }
+        };
+
+        // let info = &oplog.items[item];
+        if highest_time < info.created_at {
+            // If the version exists entirely before this root was created, there is no common
+            // ancestor.
+            return None;
         }
 
-        if v.len() == 1 {
-            if let Some(last_root_time_range) = root_info.owned_times.last() {
-                let last_root_time = last_root_time_range.last();
+        if version.len() == 1 {
+            if let Some(last) = info.owned_times.last() {
+                let last_time = last.last();
 
                 // Fast path. If the last operation in the root is a parent of v, we're done.
-                if self.is_direct_descendant_coarse(highest_time, last_root_time) {
-                    return smallvec![last_root_time];
+                if self.is_direct_descendant_coarse(highest_time, last_time) {
+                    return Some(smallvec![last_time]);
                 }
             }
-        }
 
-        // TODO: Also check if v is inside the root in question anyway.
+            if info.owned_times.find_index(highest_time).is_ok() {
+                // Another fast path. The requested version is already in the operation.
+                return Some(smallvec![highest_time]);
+            }
+
+            // TODO: Should we have more fast paths here?
+        }
 
         // Slow path. We'll trace back through time until we land entirely in the root.
         let mut result = smallvec![];
 
-        todo!();
+        // I'm using DiffFlag here, but only the OnlyA and Shared values out of it.
+        let mut queue: BinaryHeap<(Time, DiffFlag)> = BinaryHeap::new();
+
+        for &t in version {
+            if t >= info.created_at { queue.push((t, OnlyA)); }
+        }
+
+        let mut num_shared_entries = 0;
+
+        while let Some((time, mut flag)) = queue.pop() {
+            if flag == Shared { num_shared_entries -= 1; }
+            debug_assert_ne!(flag, OnlyB);
+
+            // dbg!((ord, flag));
+            while let Some((peek_time, peek_flag)) = queue.peek() {
+                debug_assert_ne!(*peek_flag, OnlyB);
+
+                if *peek_time != time { break; } // Normal case.
+                else {
+                    // 3 cases if peek_flag != flag. We set flag = Shared in all cases.
+                    // if *peek_flag != flag { flag = Shared; }
+                    if flag == OnlyA && *peek_flag == Shared { flag = Shared; }
+                    if *peek_flag == Shared { num_shared_entries -= 1; }
+                    queue.pop();
+                }
+            }
+
+            if flag == OnlyA && info.owned_times.find_index(time).is_ok() {
+                // The time we've picked is in the CRDT we're looking for. Woohoo!
+                result.push(time);
+                flag = Shared;
+            }
+
+            if flag == Shared && queue.len() == num_shared_entries { break; } // No expand necessary.
+
+            // Ok, we need to expand the item based on its parents. The tricky thing here is what
+            // we can skip safely.
+            let containing_txn = self.entries.find_packed(time);
+
+            let min_safe_base = if flag == Shared {
+                0
+            } else {
+                // TODO: Reuse binary search from above.
+                let r = info.owned_times.find_sparse(time).0;
+                r.unwrap_err().start
+            };
+            let base = min_safe_base.max(containing_txn.span.start);
+
+            // Eat everything >= base in queue.
+            while let Some((peek_time, peek_flag)) = queue.peek() {
+                // dbg!((peek_ord, peek_flag));
+                if *peek_time < base { break; } else {
+                    // if *peek_flag != flag {
+                    if flag == OnlyA && *peek_flag == Shared {
+                        flag = Shared;
+                    }
+                    if *peek_flag == Shared { num_shared_entries -= 1; }
+                    queue.pop();
+                }
+            }
+
+            containing_txn.with_parents(base, |parents| {
+                for &p in parents {
+                    queue.push((p, flag));
+                    if flag == Shared { num_shared_entries += 1; }
+                }
+            });
+
+            // If there's only shared entries left, stop.
+            if queue.len() == num_shared_entries { break; }
+        }
 
         result.reverse();
-        result
+        debug_assert_frontier_sorted(&result);
+        Some(result)
     }
 }
 
