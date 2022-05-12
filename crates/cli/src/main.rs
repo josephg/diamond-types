@@ -118,7 +118,7 @@ enum Commands {
     /// - Compress / uncompress the file's contents
     /// - Trim or prune the operations the file contains, to create a patch
     /// - Remove inserted / deleted content
-    Trim {
+    Repack {
         /// File to edit
         #[clap(parse(from_os_str))]
         dt_filename: OsString,
@@ -313,7 +313,7 @@ fn main() -> Result<(), anyhow::Error> {
             fs::write(&dt_filename, out_data)?;
         }
 
-        Commands::Trim { dt_filename, output, force, uncompressed, version, patch, no_inserted_content, no_deleted_content, quiet } => {
+        Commands::Repack { dt_filename, output, force, uncompressed, version, patch, no_inserted_content, no_deleted_content, quiet } => {
             let data = fs::read(&dt_filename)?;
             let oplog = OpLog::load_from(&data)?;
 
