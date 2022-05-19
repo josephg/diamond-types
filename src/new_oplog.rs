@@ -144,9 +144,10 @@ pub(crate) struct InnerCRDTInfo {
 //     // Text,
 // }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Value {
     I64(i64),
+    String(SmartString),
     InnerCRDT(CRDTId),
 }
 
@@ -185,7 +186,7 @@ impl NewOpLog {
             version: smallvec![],
             // The root is always the first item in items, which is a register.
             items: vec![InnerCRDTInfo {
-                created_at: usize::MAX,
+                created_at: ROOT_TIME,
                 kind: CRDTKind::LWWRegister,
                 deleted_at: smallvec![],
                 owned_times: RleVec::new(),
@@ -214,7 +215,7 @@ impl NewOpLog {
 
     fn crdt_exists(&self, version: &[Time], info: &InnerCRDTInfo) -> bool {
         // If the item has not been created yet, return None.
-        if !self.history.version_contains_time(version, info.created_at) {
+        if info.created_at != ROOT_TIME && !self.history.version_contains_time(version, info.created_at) {
             // Not created yet.
             return false;
         }
@@ -447,9 +448,10 @@ mod test {
         let map_id = oplog.append_create_inner_crdt(seph, &[], ROOT_CRDT_ID, CRDTKind::Map).1;
 
         let title_id = oplog.get_or_create_map_child(map_id, "title".into());
-        oplog.append_set(seph, &oplog.version.clone(), title_id, Value::I64(123));
+        oplog.append_set(seph, &oplog.version.clone(), title_id, Value::String("Cool title bruh".into()));
 
         dbg!(oplog.get_value_of_map(1, &oplog.version.clone()));
+        // dbg!(oplog.get_value_of_register(ROOT_CRDT_ID, &oplog.version.clone()));
         // dbg!(&oplog);
     }
 

@@ -498,7 +498,7 @@ impl History {
             t
         } else {
             // The root item has a creation time at the root time. But nothing else exists then.
-            return if info.created_at == 0 {
+            return if info.created_at == ROOT_TIME {
                 Some(smallvec![])
             } else {
                 None
@@ -506,7 +506,7 @@ impl History {
         };
 
         // let info = &oplog.items[item];
-        if highest_time < info.created_at {
+        if info.created_at != ROOT_TIME && highest_time < info.created_at {
             // If the version exists entirely before this root was created, there is no common
             // ancestor.
             return None;
@@ -537,7 +537,10 @@ impl History {
         let mut queue: BinaryHeap<(Time, DiffFlag)> = BinaryHeap::new();
 
         for &t in version {
-            if t >= info.created_at { queue.push((t, OnlyA)); }
+            // Append children so long as they aren't earlier than the item's ctime.
+            if info.created_at == ROOT_TIME || t >= info.created_at {
+                queue.push((t, OnlyA));
+            }
         }
 
         let mut num_shared_entries = 0;
