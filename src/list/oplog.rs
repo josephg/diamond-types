@@ -107,7 +107,7 @@ impl OpLog {
         else { self.client_data[agent as usize].name.as_str() }
     }
 
-    pub(crate) fn time_to_crdt_id(&self, time: usize) -> CRDTId {
+    pub(crate) fn time_to_crdt_id(&self, time: usize) -> CRDTGuid {
         if time == ROOT_TIME { CRDT_DOC_ROOT }
         else {
             let (loc, offset) = self.client_with_localtime.find_packed_with_offset(time);
@@ -116,7 +116,7 @@ impl OpLog {
     }
 
     #[allow(unused)]
-    pub(crate) fn crdt_id_to_time(&self, id: CRDTId) -> Time {
+    pub(crate) fn crdt_id_to_time(&self, id: CRDTGuid) -> Time {
         // if id.agent == ROOT_AGENT {
         //     ROOT_TIME
         // } else {
@@ -127,7 +127,7 @@ impl OpLog {
     }
 
     #[allow(unused)]
-    pub(crate) fn try_crdt_id_to_time(&self, id: CRDTId) -> Option<Time> {
+    pub(crate) fn try_crdt_id_to_time(&self, id: CRDTGuid) -> Option<Time> {
         if id.agent == ROOT_AGENT {
             Some(ROOT_TIME)
         } else {

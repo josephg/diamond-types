@@ -1,4 +1,3 @@
-#![allow(unused)]
 
 use std::cmp::Ordering;
 use std::collections::btree_map::Entry;
@@ -6,20 +5,12 @@ use std::collections::BTreeMap;
 use smallvec::{smallvec, SmallVec};
 use smartstring::alias::String as SmartString;
 use rle::{AppendRle, HasLength, RleRun, Searchable};
-use crate::{AgentId, ClientData, DTRange, KVPair, LocalVersion, RleVec, ROOT_AGENT, ROOT_TIME, Time};
+use crate::{AgentId, ClientData, CRDTId, DTRange, InnerCRDTInfo, KVPair, LocalVersion, NewOperationCtx, NewOpLog, RleVec, ROOT_AGENT, ROOT_TIME, ScopedHistory, Time};
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec, debug_assert_frontier_sorted, frontier_is_sorted};
 use crate::history::History;
-use crate::list::internal_op::OperationInternal as TextOpInternal;
+
 use crate::remotespan::CRDTSpan;
 use crate::rle::{RleKeyed, RleSpanHelpers};
-
-#[derive(Debug, Clone)]
-pub(crate) struct NewOperationCtx {
-    pub(crate) set_content: Vec<u8>,
-
-    pub(crate) ins_content: Vec<u8>,
-    pub(crate) del_content: Vec<u8>,
-}
 
 /*
 
@@ -32,64 +23,6 @@ Invariants:
 
 
  */
-
-pub type CRDTId = usize;
-
-#[derive(Debug, Clone)]
-pub struct NewOpLog {
-    /// The ID of the document (if any). This is useful if you want to give a document a GUID or
-    /// something to make sure you're merging into the right place.
-    ///
-    /// Optional - only used if you set it.
-    doc_id: Option<SmartString>,
-
-    /// This is a bunch of ranges of (item order -> CRDT location span).
-    /// The entries always have positive len.
-    ///
-    /// This is used to map Local time -> External CRDT locations.
-    ///
-    /// List is packed.
-    client_with_localtime: RleVec<KVPair<CRDTSpan>>,
-
-    /// For each client, we store some data (above). This is indexed by AgentId.
-    ///
-    /// This is used to map external CRDT locations -> Order numbers.
-    client_data: Vec<ClientData>,
-
-    /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
-    /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
-    /// remote changes.
-    ///
-    /// Along with deletes, this essentially contains the time DAG.
-    history: History,
-
-    /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into
-    /// a branch, this is the version of that branch.
-    ///
-    /// This is only stored as a convenience - we could recalculate it as needed from history when
-    /// needed, but thats a hassle. And it takes up very little space, and its very convenient to
-    /// have on hand! So here it is.
-    version: LocalVersion,
-
-    // value_kind: ValueKind,
-
-    /// Works like client_data. Each ItemRef is a reference into this structure.
-    pub(crate) items: Vec<InnerCRDTInfo>,
-
-    register_set_operations: Vec<(Time, Value)>,
-    text_operations: RleVec<KVPair<TextOpInternal>>,
-
-    /// This contains all content ever inserted into the document, in time order (not document
-    /// order). This object is indexed by the operation set.
-    operation_ctx: NewOperationCtx,
-
-    /// map from local version -> which CRDT this operation references.
-    crdt_assignment: RleVec<KVPair<RleRun<CRDTId>>>,
-
-    // pub(crate) root_info: Vec<RootInfo>,
-    // /// Map from local version -> which root contains that time.
-    // root_assignment: RleVec<KVPair<RleRun<usize>>>,
-}
 
 // #[derive(Debug, Clone, PartialEq, Eq)]
 // pub(crate) enum PathItem {
@@ -105,23 +38,6 @@ pub enum CRDTKind {
     Text,
 }
 
-
-#[derive(Debug, Clone)]
-pub(crate) struct InnerCRDTInfo {
-    // path: SmallVec<[PathItem; 1]>,
-    pub(crate) created_at: Time,
-    pub(crate) kind: CRDTKind,
-
-    // This isn't a real Version. Its a list of times at which this CRDT was deleted.
-    pub(crate) deleted_at: LocalVersion,
-
-    pub(crate) owned_times: RleVec<DTRange>,
-
-    // Must be present for maps. Children are created lazily on first use.
-    // All child CRDTs must be LWWRegisters.
-    // TODO: Check how much code BTreeMap adds and consider replacing with something smaller
-    map_children: Option<BTreeMap<SmartString, CRDTId>>,
-}
 
 
 
@@ -145,9 +61,14 @@ pub(crate) struct InnerCRDTInfo {
 // }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum Value {
+pub enum Primitive {
     I64(i64),
-    String(SmartString),
+    String(SmartString), // TODO: Put this in op_content
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Value {
+    Primitive(Primitive),
     InnerCRDT(CRDTId),
 }
 
@@ -161,46 +82,36 @@ pub enum Value {
 //     }
 // }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct NewBranch {
-    /// The version the branch is currently at. This is used to track which changes the branch has
-    /// or has not locally merged.
-    ///
-    /// This field is public for convenience, but you should never modify it directly. Instead use
-    /// the associated functions on Branch.
-    version: LocalVersion,
-
-    /// The document's content
-    content: Value,
-}
 
 pub const ROOT_CRDT_ID: CRDTId = 0;
 
 impl NewOpLog {
     pub fn new() -> Self {
         let mut oplog = Self {
-            doc_id: None,
+            // doc_id: None,
             client_with_localtime: RleVec::new(),
             client_data: Vec::new(),
             history: History::new(),
             version: smallvec![],
             // The root is always the first item in items, which is a register.
             items: vec![InnerCRDTInfo {
-                created_at: ROOT_TIME,
                 kind: CRDTKind::LWWRegister,
-                deleted_at: smallvec![],
-                owned_times: RleVec::new(),
                 map_children: None,
+                history: ScopedHistory {
+                    created_at: ROOT_TIME,
+                    deleted_at: smallvec![],
+                    owned_times: RleVec::new(),
+                }
             }],
             register_set_operations: vec![],
             // map_set_operations: vec![],
-            text_operations: RleVec::new(),
-            operation_ctx: NewOperationCtx {
-                set_content: Vec::new(),
-                ins_content: vec![],
-                del_content: vec![]
-            },
-            crdt_assignment: RleVec::new(),
+            // text_operations: RleVec::new(),
+            // operation_ctx: NewOperationCtx {
+            //     set_content: Vec::new(),
+            //     ins_content: vec![],
+            //     del_content: vec![]
+            // },
+            // crdt_assignment: RleVec::new(),
         };
 
         // // Documents always start with a default root.
@@ -213,31 +124,13 @@ impl NewOpLog {
         oplog
     }
 
-    fn crdt_exists(&self, version: &[Time], info: &InnerCRDTInfo) -> bool {
-        // If the item has not been created yet, return None.
-        if info.created_at != ROOT_TIME && !self.history.version_contains_time(version, info.created_at) {
-            // Not created yet.
-            return false;
-        }
-
-        // If the item has been deleted, return false.
-        for v in &info.deleted_at {
-            if self.history.version_contains_time(version, *v) {
-                // Deleted.
-                return false;
-            }
-        }
-
-        true
-    }
-
     fn get_value_of_map(&self, crdt: CRDTId, version: &[Time]) -> Option<BTreeMap<SmartString, Value>> {
         let mut result = BTreeMap::new();
 
         let info = &self.items[crdt];
         assert_eq!(info.kind, CRDTKind::Map);
 
-        if !self.crdt_exists(version, &info) { return None; }
+        if !info.history.exists_at(&self.history, version) { return None; }
 
         for (key, id) in info.map_children.as_ref().unwrap() {
             if let Some(value) = self.get_value_of_register(*id, version) {
@@ -254,9 +147,9 @@ impl NewOpLog {
         // For now. Other kinds are NYI.
         assert_eq!(info.kind, CRDTKind::LWWRegister);
 
-        if !self.crdt_exists(version, &info) { return None; }
+        if !info.history.exists_at(&self.history, version) { return None; }
 
-        let v = self.history.version_in_crdt_item(version, info)?;
+        let v = self.history.version_in_scope(version, &info.history)?;
         // dbg!(&v);
 
         let content = match v.len() {
@@ -357,8 +250,8 @@ impl NewOpLog {
 
         self.history.insert(parents, span);
 
-        self.items[crdt_id].owned_times.push(span);
-        self.crdt_assignment.push(KVPair(span.start, RleRun::new(crdt_id, span.len())));
+        self.items[crdt_id].history.owned_times.push(span);
+        // self.crdt_assignment.push(KVPair(span.start, RleRun::new(crdt_id, span.len())));
 
         self.advance_frontier(parents, span);
     }
@@ -376,10 +269,12 @@ impl NewOpLog {
         let crdt_id = self.items.len();
 
         self.items.push(InnerCRDTInfo {
-            created_at: ctime,
             kind,
-            deleted_at: smallvec![],
-            owned_times: RleVec::new(),
+            history: ScopedHistory {
+                created_at: ctime,
+                deleted_at: smallvec![],
+                owned_times: RleVec::new(),
+            },
             map_children: if kind == CRDTKind::Map {
                 Some(BTreeMap::new())
             } else { None },
@@ -402,7 +297,7 @@ impl NewOpLog {
     pub fn get_or_create_map_child(&mut self, map_id: CRDTId, field_name: SmartString) -> CRDTId {
         let next_crdt_id = self.items.len();
         let info = &mut self.items[map_id];
-        let ctime = info.created_at;
+        let ctime = info.history.created_at;
         // assert_eq!(info.kind, CRDTKind::Map);
 
         let inner_map = info.map_children.as_mut().unwrap();
@@ -423,7 +318,9 @@ impl NewOpLog {
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use crate::new_oplog::{CRDTKind, NewOpLog, ROOT_CRDT_ID, Value};
+    use crate::new_oplog::{CRDTKind, ROOT_CRDT_ID, Value};
+    use crate::new_oplog::Primitive::*;
+    use crate::NewOpLog;
 
     #[test]
     fn foo() {
@@ -432,12 +329,13 @@ mod test {
 
         let seph = oplog.get_or_create_agent_id("seph");
         let mut v = 0;
-        oplog.append_set(seph, &[], ROOT_CRDT_ID, Value::I64(123));
+        oplog.append_set(seph, &[], ROOT_CRDT_ID, Value::Primitive(I64(123)));
 
         dbg!(oplog.get_value_of_register(0, &[]));
         dbg!(oplog.get_value_of_register(0, &oplog.version));
 
         dbg!(&oplog);
+        oplog.dbg_check(true);
     }
 
     #[test]
@@ -448,11 +346,12 @@ mod test {
         let map_id = oplog.append_create_inner_crdt(seph, &[], ROOT_CRDT_ID, CRDTKind::Map).1;
 
         let title_id = oplog.get_or_create_map_child(map_id, "title".into());
-        oplog.append_set(seph, &oplog.version.clone(), title_id, Value::String("Cool title bruh".into()));
+        oplog.append_set(seph, &oplog.version.clone(), title_id, Value::Primitive(String("Cool title bruh".into())));
 
         dbg!(oplog.get_value_of_map(1, &oplog.version.clone()));
         // dbg!(oplog.get_value_of_register(ROOT_CRDT_ID, &oplog.version.clone()));
         // dbg!(&oplog);
+        oplog.dbg_check(true);
     }
 
     // #[test]

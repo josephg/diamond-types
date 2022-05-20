@@ -18,7 +18,7 @@ use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::list::encoding::decode_tools::{BufReader, ChunkReader};
 use crate::list::encoding::encode_tools::ParseError;
 use crate::frontier::clone_smallvec;
-use crate::remotespan::{CRDTId, CRDTSpan};
+use crate::remotespan::{CRDTGuid, CRDTSpan};
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 
 // If this is set to false, the compiler can optimize out the verbose printing code. This makes the
@@ -78,7 +78,7 @@ impl<'a> BufReader<'a> {
             if mapped_agent == 0 { break; } // Root.
 
             let agent = agent_map[mapped_agent - 1].0;
-            let id = CRDTId { agent, seq };
+            let id = CRDTGuid { agent, seq };
 
             let time = oplog.try_crdt_id_to_time(id)
                 .ok_or(BaseVersionUnknown)?;

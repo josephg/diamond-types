@@ -8,10 +8,10 @@ use rle::{AppendRle, SplitableSpan};
 
 use crate::frontier::{advance_frontier_by, debug_assert_frontier_sorted, frontier_is_sorted};
 use crate::history::History;
-use crate::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
+use crate::history::tools::DiffFlag::{OnlyA, OnlyB, Shared};
 use crate::dtrange::DTRange;
-use crate::{LocalVersion, ROOT_TIME, Time};
-use crate::new_oplog::InnerCRDTInfo;
+use crate::{LocalVersion, ROOT_TIME, ScopedHistory, Time};
+use crate::InnerCRDTInfo;
 
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
@@ -489,7 +489,7 @@ impl History {
         ConflictZone { common_ancestor, spans }
     }
 
-    pub(crate) fn version_in_crdt_item(&self, version: &[Time], info: &InnerCRDTInfo) -> Option<LocalVersion> {
+    pub(crate) fn version_in_scope(&self, version: &[Time], info: &ScopedHistory) -> Option<LocalVersion> {
         // If v == creation time, its a bit hacky but I still consider that a valid version, because
         // the CRDT has a value then (the default value for the CRDT).
         debug_assert_frontier_sorted(version);
@@ -621,11 +621,11 @@ pub mod test {
     use rle::{AppendRle, MergableSpan};
 
     use crate::history::{History, HistoryEntry};
-    use crate::history_tools::{DiffFlag, DiffResult};
-    use crate::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
+    use crate::history::tools::DiffFlag::{OnlyA, OnlyB, Shared};
     use crate::dtrange::DTRange;
     use crate::rle::RleVec;
     use crate::{LocalVersion, ROOT_TIME, Time};
+    use crate::history::tools::{DiffFlag, DiffResult};
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).

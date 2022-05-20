@@ -70,6 +70,12 @@ impl<V: HasLength> HasLength for KVPair<V> {
     fn len(&self) -> usize { self.1.len() }
 }
 
+impl<V: HasLength> KVPair<V> {
+    pub fn range(&self) -> DTRange {
+        DTRange::new(self.0, self.0 + self.len())
+    }
+}
+
 impl<V: SplitableSpanCtx> SplitableSpanCtx for KVPair<V> {
     type Ctx = V::Ctx;
 

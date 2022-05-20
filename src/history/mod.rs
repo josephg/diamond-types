@@ -1,7 +1,10 @@
+pub(crate) mod tools;
+mod scope;
+
 use smallvec::{SmallVec, smallvec};
 
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
-use crate::Time;
+use crate::{LocalVersion, Time};
 
 use crate::rle::{RleKeyed, RleVec};
 use crate::dtrange::DTRange;
@@ -9,6 +12,15 @@ use crate::dtrange::DTRange;
 use serde_crate::{Deserialize, Serialize};
 use crate::frontier::{clone_smallvec, local_version_is_root};
 
+#[derive(Debug, Clone)]
+pub(crate) struct ScopedHistory {
+    pub(crate) created_at: Time,
+
+    /// This isn't a real Version. Its a list of times at which this CRDT was deleted.
+    pub(crate) deleted_at: LocalVersion,
+
+    pub(crate) owned_times: RleVec<DTRange>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct History {

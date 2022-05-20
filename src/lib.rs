@@ -178,13 +178,19 @@
 //! multiple parents.
 
 #![allow(clippy::module_inception)]
+#![allow(unused)] // During dev. TODO: Take me out!
 
 extern crate core;
 
+use std::collections::BTreeMap;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 use crate::dtrange::DTRange;
+use crate::history::{History, ScopedHistory};
+use crate::new_oplog::CRDTKind;
+use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
+// use crate::list::internal_op::OperationInternal as TextOpInternal;
 
 pub mod list;
 mod rle;
@@ -194,8 +200,9 @@ mod remotespan;
 mod rev_range;
 mod history;
 mod frontier;
-mod history_tools;
 mod new_oplog;
+mod check;
+mod branch;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;
@@ -216,7 +223,7 @@ pub type Time = usize;
 pub type LocalVersion = SmallVec<[Time; 2]>;
 
 #[derive(Clone, Debug)]
-struct ClientData {
+pub(crate) struct ClientData {
     /// Used to map from client's name / hash to its numerical ID.
     name: SmartString,
 
@@ -231,5 +238,89 @@ struct ClientData {
     /// might be ordered as (0, 2, 1). This will only happen when changes are concurrent. The order
     /// of time spans must always obey the partial order of changes. But it will not necessarily
     /// agree with the order amongst time spans.
-    item_times: RleVec<KVPair<DTRange>>,
+    pub(crate) item_times: RleVec<KVPair<DTRange>>,
 }
+
+
+pub type CRDTId = usize;
+
+
+#[derive(Debug, Clone)]
+pub(crate) struct NewOperationCtx {
+    // set_content: Vec<u8>,
+
+    // ins_content: Vec<u8>,
+    // del_content: Vec<u8>,
+}
+
+
+#[derive(Debug, Clone)]
+pub(crate) struct InnerCRDTInfo {
+    // path: SmallVec<[PathItem; 1]>,
+    pub(crate) kind: CRDTKind,
+
+    history: ScopedHistory,
+
+    // Must be present for maps. Children are created lazily on first use.
+    // All child CRDTs must be LWWRegisters.
+    // TODO: Check how much code BTreeMap adds and consider replacing with something smaller
+    map_children: Option<BTreeMap<SmartString, CRDTId>>,
+}
+
+
+#[derive(Debug, Clone)]
+pub struct NewOpLog {
+    /// The ID of the document (if any). This is useful if you want to give a document a GUID or
+    /// something to make sure you're merging into the right place.
+    ///
+    /// Optional - only used if you set it.
+    // doc_id: Option<SmartString>,
+
+    /// This is a bunch of ranges of (item order -> CRDT location span).
+    /// The entries always have positive len.
+    ///
+    /// This is used to map Local time -> External CRDT locations.
+    ///
+    /// List is packed.
+    client_with_localtime: RleVec<KVPair<CRDTSpan>>,
+
+    /// For each client, we store some data (above). This is indexed by AgentId.
+    ///
+    /// This is used to map external CRDT locations -> Order numbers.
+    client_data: Vec<ClientData>,
+
+    /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
+    /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
+    /// remote changes.
+    ///
+    /// Along with deletes, this essentially contains the time DAG.
+    history: History,
+
+    /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into
+    /// a branch, this is the version of that branch.
+    ///
+    /// This is only stored as a convenience - we could recalculate it as needed from history when
+    /// needed, but thats a hassle. And it takes up very little space, and its very convenient to
+    /// have on hand! So here it is.
+    version: LocalVersion,
+
+    // value_kind: ValueKind,
+
+    /// Works like client_data. Each ItemRef is a reference into this structure.
+    items: Vec<InnerCRDTInfo>,
+
+    register_set_operations: Vec<(Time, crate::new_oplog::Value)>,
+    // text_operations: RleVec<KVPair<TextOpInternal>>,
+
+    // /// This contains all content ever inserted into the document, in time order (not document
+    // /// order). This object is indexed by the operation set.
+    // operation_ctx: NewOperationCtx,
+
+    // /// map from local version -> which CRDT this operation references.
+    // crdt_assignment: RleVec<KVPair<RleRun<CRDTId>>>,
+
+    // pub(crate) root_info: Vec<RootInfo>,
+    // /// Map from local version -> which root contains that time.
+    // root_assignment: RleVec<KVPair<RleRun<usize>>>,
+}
+

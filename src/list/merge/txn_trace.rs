@@ -285,7 +285,7 @@ impl History {
 mod test {
     use smallvec::smallvec;
     use crate::history::HistoryEntry;
-    use crate::history_tools::ConflictZone;
+    use crate::history::tools::ConflictZone;
     use super::*;
 
     #[test]

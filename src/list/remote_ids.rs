@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 use crate::dtrange::DTRange;
 use crate::{LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
 use crate::frontier::clean_version;
-use crate::remotespan::CRDTId;
+use crate::remotespan::CRDTGuid;
 
 /// This file contains utilities to convert remote IDs to local time and back.
 ///
@@ -72,7 +72,7 @@ impl OpLog {
         }
     }
 
-    fn crdt_id_to_remote(&self, loc: CRDTId) -> RemoteId {
+    fn crdt_id_to_remote(&self, loc: CRDTGuid) -> RemoteId {
         RemoteId {
             agent: self.get_agent_name(loc.agent).into(),
             seq: loc.seq
@@ -134,7 +134,7 @@ impl OpLog {
     ///
     /// Its not perfect, but it'll do donkey. It'll do.
     #[allow(unused)]
-    fn get_stochastic_version(&self, target_count: usize) -> Vec<CRDTId> {
+    fn get_stochastic_version(&self, target_count: usize) -> Vec<CRDTGuid> {
         // TODO: WIP.
         let target_count = target_count.max(self.version.len());
         let mut result = Vec::with_capacity(target_count + 10);
