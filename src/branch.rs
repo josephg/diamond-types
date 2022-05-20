@@ -64,6 +64,7 @@ mod test {
     use crate::new_oplog::{ROOT_SCOPE, Value};
     use smartstring::alias::String as SmartString;
     use crate::new_oplog::Primitive::Str;
+    use crate::path::PathComponent;
 
     #[test]
     fn checkout_inner_map() {
@@ -92,6 +93,26 @@ mod test {
 
         // dbg!(oplog.get_value_of_register(ROOT_CRDT_ID, &oplog.version.clone()));
         // dbg!(&oplog);
+        oplog.dbg_check(true);
+    }
+
+    #[test]
+    fn checkout_inner_map_path() {
+        use PathComponent::*;
+        use CRDTKind::*;
+
+        let mut oplog = NewOpLog::new();
+        let seph = oplog.get_or_create_agent_id("seph");
+
+        oplog.create_at_path(seph, &[], Map);
+
+        oplog.set_at_path(seph, &[Inside, Key("title")], Str("Cool title bruh".into()));
+
+        oplog.create_at_path(seph, &[Inside, Key("author")], Map);
+        oplog.set_at_path(seph, &[Inside, Key("author"), Inside, Key("name")], Str("Seph".into()));
+
+        dbg!(oplog.checkout(&oplog.version));
+
         oplog.dbg_check(true);
     }
 }

@@ -203,6 +203,7 @@ mod frontier;
 mod new_oplog;
 mod check;
 mod branch;
+mod path;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;

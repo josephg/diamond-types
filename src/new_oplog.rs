@@ -72,6 +72,17 @@ pub enum Value {
     InnerCRDT(ScopeId),
 }
 
+impl Value {
+    pub fn unwrap_scope(&self) -> ScopeId {
+        match self {
+            Value::InnerCRDT(scope) => *scope,
+            Value::Primitive(_) => {
+                panic!("Cannot unwrap a primitive");
+            }
+        }
+    }
+}
+
 // pub type DocRoot = usize;
 
 // impl ValueKind {
@@ -292,6 +303,12 @@ impl NewOpLog {
         self.inner_assign_op(v.into(), agent_id, parents, parent_crdt_id);
 
         (v, new_crdt_id)
+    }
+
+    pub fn get_map_child(&self, map_id: ScopeId, field_name: &str) -> Option<ScopeId> {
+        let info = &self.scopes[map_id];
+        let inner_map = info.map_children.as_ref().unwrap();
+        inner_map.get(field_name).copied()
     }
 
     pub fn get_or_create_map_child(&mut self, map_id: ScopeId, field_name: SmartString) -> ScopeId {
