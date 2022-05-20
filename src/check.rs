@@ -1,7 +1,7 @@
 use smallvec::smallvec;
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec, debug_assert_frontier_sorted};
 use crate::history::History;
-use crate::LocalVersion;
+use crate::{CRDTKind, LocalVersion};
 use crate::NewOpLog;
 
 impl NewOpLog {
@@ -50,6 +50,17 @@ impl NewOpLog {
                 }
             }
         }
+
+        for scope in self.scopes.iter() {
+            if scope.kind == CRDTKind::Map {
+                assert!(scope.history.owned_times.is_empty());
+                assert!(scope.map_children.is_some());
+            } else {
+                assert!(scope.map_children.is_none());
+            }
+        }
+
+        // TODO: Also check the scopes are non-overlapping.
     }
 }
 

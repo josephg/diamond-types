@@ -242,7 +242,7 @@ pub(crate) struct ClientData {
 }
 
 
-pub type CRDTId = usize;
+pub type ScopeId = usize;
 
 
 #[derive(Debug, Clone)]
@@ -264,7 +264,7 @@ pub(crate) struct InnerCRDTInfo {
     // Must be present for maps. Children are created lazily on first use.
     // All child CRDTs must be LWWRegisters.
     // TODO: Check how much code BTreeMap adds and consider replacing with something smaller
-    map_children: Option<BTreeMap<SmartString, CRDTId>>,
+    map_children: Option<BTreeMap<SmartString, ScopeId>>,
 }
 
 
@@ -307,7 +307,7 @@ pub struct NewOpLog {
     // value_kind: ValueKind,
 
     /// Works like client_data. Each ItemRef is a reference into this structure.
-    items: Vec<InnerCRDTInfo>,
+    scopes: Vec<InnerCRDTInfo>,
 
     register_set_operations: Vec<(Time, crate::new_oplog::Value)>,
     // text_operations: RleVec<KVPair<TextOpInternal>>,

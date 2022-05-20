@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use smallvec::{smallvec, SmallVec};
 use smartstring::alias::String as SmartString;
 use rle::{AppendRle, HasLength, RleRun, Searchable};
-use crate::{AgentId, ClientData, CRDTId, DTRange, InnerCRDTInfo, KVPair, LocalVersion, NewOperationCtx, NewOpLog, RleVec, ROOT_AGENT, ROOT_TIME, ScopedHistory, Time};
+use crate::{AgentId, ClientData, ScopeId, DTRange, InnerCRDTInfo, KVPair, LocalVersion, NewOperationCtx, NewOpLog, RleVec, ROOT_AGENT, ROOT_TIME, ScopedHistory, Time};
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec, debug_assert_frontier_sorted, frontier_is_sorted};
 use crate::history::History;
 
@@ -63,13 +63,13 @@ pub enum CRDTKind {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Primitive {
     I64(i64),
-    String(SmartString), // TODO: Put this in op_content
+    Str(SmartString), // TODO: Put this in op_content
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Value {
     Primitive(Primitive),
-    InnerCRDT(CRDTId),
+    InnerCRDT(ScopeId),
 }
 
 // pub type DocRoot = usize;
@@ -83,7 +83,7 @@ pub enum Value {
 // }
 
 
-pub const ROOT_CRDT_ID: CRDTId = 0;
+pub const ROOT_SCOPE: ScopeId = 0;
 
 impl NewOpLog {
     pub fn new() -> Self {
@@ -94,7 +94,7 @@ impl NewOpLog {
             history: History::new(),
             version: smallvec![],
             // The root is always the first item in items, which is a register.
-            items: vec![InnerCRDTInfo {
+            scopes: vec![InnerCRDTInfo {
                 kind: CRDTKind::LWWRegister,
                 map_children: None,
                 history: ScopedHistory {
@@ -124,10 +124,10 @@ impl NewOpLog {
         oplog
     }
 
-    fn get_value_of_map(&self, crdt: CRDTId, version: &[Time]) -> Option<BTreeMap<SmartString, Value>> {
+    fn get_value_of_map(&self, crdt: ScopeId, version: &[Time]) -> Option<BTreeMap<SmartString, Value>> {
         let mut result = BTreeMap::new();
 
-        let info = &self.items[crdt];
+        let info = &self.scopes[crdt];
         assert_eq!(info.kind, CRDTKind::Map);
 
         if !info.history.exists_at(&self.history, version) { return None; }
@@ -141,8 +141,8 @@ impl NewOpLog {
         Some(result)
     }
 
-    fn get_value_of_register(&self, crdt: CRDTId, version: &[Time]) -> Option<Value> {
-        let info = &self.items[crdt];
+    pub(crate) fn get_value_of_register(&self, scope_id: ScopeId, version: &[Time]) -> Option<Value> {
+        let info = &self.scopes[scope_id];
 
         // For now. Other kinds are NYI.
         assert_eq!(info.kind, CRDTKind::LWWRegister);
@@ -245,35 +245,35 @@ impl NewOpLog {
         advance_frontier_by_known_run(&mut self.version, parents, span);
     }
 
-    fn inner_assign_op(&mut self, span: DTRange, agent_id: AgentId, parents: &[Time], crdt_id: CRDTId) {
+    fn inner_assign_op(&mut self, span: DTRange, agent_id: AgentId, parents: &[Time], crdt_id: ScopeId) {
         self.assign_next_time_to_client_known(agent_id, span);
 
         self.history.insert(parents, span);
 
-        self.items[crdt_id].history.owned_times.push(span);
+        self.scopes[crdt_id].history.owned_times.push(span);
         // self.crdt_assignment.push(KVPair(span.start, RleRun::new(crdt_id, span.len())));
 
         self.advance_frontier(parents, span);
     }
 
-    pub(crate) fn append_set(&mut self, agent_id: AgentId, parents: &[Time], crdt_id: CRDTId, value: Value) -> Time {
+    pub(crate) fn append_set(&mut self, agent_id: AgentId, parents: &[Time], crdt_id: ScopeId, primitive: Primitive) -> Time {
         let v = self.len();
 
-        self.register_set_operations.push((v, value));
+        self.register_set_operations.push((v, Value::Primitive(primitive)));
         self.inner_assign_op(v.into(), agent_id, parents, crdt_id);
 
         v
     }
 
-    fn inner_create_owned_crdt(&mut self, kind: CRDTKind, ctime: usize) -> CRDTId {
-        let crdt_id = self.items.len();
+    fn inner_create_scope(&mut self, kind: CRDTKind, ctime: usize) -> ScopeId {
+        let crdt_id = self.scopes.len();
 
-        self.items.push(InnerCRDTInfo {
+        self.scopes.push(InnerCRDTInfo {
             kind,
             history: ScopedHistory {
                 created_at: ctime,
                 deleted_at: smallvec![],
-                owned_times: RleVec::new(),
+                owned_times: RleVec::new(), // Maps will never have any owned times.
             },
             map_children: if kind == CRDTKind::Map {
                 Some(BTreeMap::new())
@@ -283,20 +283,20 @@ impl NewOpLog {
         crdt_id
     }
 
-    pub(crate) fn append_create_inner_crdt(&mut self, agent_id: AgentId, parents: &[Time], parent_crdt_id: CRDTId, kind: CRDTKind) -> (Time, CRDTId) {
+    pub(crate) fn append_create_inner_crdt(&mut self, agent_id: AgentId, parents: &[Time], parent_crdt_id: ScopeId, kind: CRDTKind) -> (Time, ScopeId) {
         // this operation sets a register to contain a new (inner) CRDT with the named type.
         let v = self.len();
 
-        let new_crdt_id = self.inner_create_owned_crdt(kind, v);
+        let new_crdt_id = self.inner_create_scope(kind, v);
         self.register_set_operations.push((v, Value::InnerCRDT(new_crdt_id)));
         self.inner_assign_op(v.into(), agent_id, parents, parent_crdt_id);
 
         (v, new_crdt_id)
     }
 
-    pub fn get_or_create_map_child(&mut self, map_id: CRDTId, field_name: SmartString) -> CRDTId {
-        let next_crdt_id = self.items.len();
-        let info = &mut self.items[map_id];
+    pub fn get_or_create_map_child(&mut self, map_id: ScopeId, field_name: SmartString) -> ScopeId {
+        let next_crdt_id = self.scopes.len();
+        let info = &mut self.scopes[map_id];
         let ctime = info.history.created_at;
         // assert_eq!(info.kind, CRDTKind::Map);
 
@@ -306,9 +306,9 @@ impl NewOpLog {
 
         if inner_id == next_crdt_id { // Hacky.
             // A new item was created.
-            self.inner_create_owned_crdt(CRDTKind::LWWRegister, ctime);
+            self.inner_create_scope(CRDTKind::LWWRegister, ctime);
         } else {
-            assert_eq!(self.items[inner_id].kind, CRDTKind::LWWRegister);
+            assert_eq!(self.scopes[inner_id].kind, CRDTKind::LWWRegister);
         }
 
         inner_id
@@ -318,7 +318,7 @@ impl NewOpLog {
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use crate::new_oplog::{CRDTKind, ROOT_CRDT_ID, Value};
+    use crate::new_oplog::{CRDTKind, ROOT_SCOPE, Value};
     use crate::new_oplog::Primitive::*;
     use crate::NewOpLog;
 
@@ -329,7 +329,7 @@ mod test {
 
         let seph = oplog.get_or_create_agent_id("seph");
         let mut v = 0;
-        oplog.append_set(seph, &[], ROOT_CRDT_ID, Value::Primitive(I64(123)));
+        oplog.append_set(seph, &[], ROOT_SCOPE, I64(123));
 
         dbg!(oplog.get_value_of_register(0, &[]));
         dbg!(oplog.get_value_of_register(0, &oplog.version));
@@ -343,14 +343,14 @@ mod test {
         let mut oplog = NewOpLog::new();
 
         let seph = oplog.get_or_create_agent_id("seph");
-        let map_id = oplog.append_create_inner_crdt(seph, &[], ROOT_CRDT_ID, CRDTKind::Map).1;
+        let map_id = oplog.append_create_inner_crdt(seph, &[], ROOT_SCOPE, CRDTKind::Map).1;
 
         let title_id = oplog.get_or_create_map_child(map_id, "title".into());
-        oplog.append_set(seph, &oplog.version.clone(), title_id, Value::Primitive(String("Cool title bruh".into())));
+        oplog.append_set(seph, &oplog.version.clone(), title_id, Str("Cool title bruh".into()));
 
         dbg!(oplog.get_value_of_map(1, &oplog.version.clone()));
         // dbg!(oplog.get_value_of_register(ROOT_CRDT_ID, &oplog.version.clone()));
-        // dbg!(&oplog);
+        dbg!(&oplog);
         oplog.dbg_check(true);
     }
 
