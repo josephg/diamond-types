@@ -106,28 +106,33 @@ mod test {
 
         oplog.create_at_path(seph, &[], Map);
 
-        oplog.set_at_path(seph, &[Inside, Key("title")], Str("Cool title bruh".into()));
+        oplog.set_at_path(seph, &[Key("title")], Str("Cool title bruh".into()));
 
-        oplog.create_at_path(seph, &[Inside, Key("author")], Map);
-        oplog.set_at_path(seph, &[Inside, Key("author"), Inside, Key("name")], Str("Seph".into()));
+        oplog.create_at_path(seph, &[Key("author")], Map);
+        oplog.set_at_path(seph, &[Key("author"), Key("name")], Str("Seph".into()));
 
         dbg!(oplog.checkout(&oplog.version));
 
         oplog.dbg_check(true);
     }
+
+    #[test]
+    fn crdt_gets_overwritten() {
+        use PathComponent::*;
+        use CRDTKind::*;
+
+        let mut oplog = NewOpLog::new();
+        let seph = oplog.get_or_create_agent_id("seph");
+
+        oplog.create_at_path(seph, &[], Map);
+        oplog.create_at_path(seph, &[], Map);
+
+        dbg!(oplog.checkout(&oplog.version));
+
+        oplog.dbg_check(true);
+        dbg!(&oplog);
+    }
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

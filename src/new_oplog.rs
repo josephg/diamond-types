@@ -81,6 +81,12 @@ impl Value {
             }
         }
     }
+    pub fn scope(&self) -> Option<ScopeId> {
+        match self {
+            Value::InnerCRDT(scope) => Some(*scope),
+            Value::Primitive(_) => None
+        }
+    }
 }
 
 // pub type DocRoot = usize;
@@ -294,13 +300,20 @@ impl NewOpLog {
         crdt_id
     }
 
-    pub(crate) fn append_create_inner_crdt(&mut self, agent_id: AgentId, parents: &[Time], parent_crdt_id: ScopeId, kind: CRDTKind) -> (Time, ScopeId) {
+    pub(crate) fn append_create_inner_crdt(&mut self, agent_id: AgentId, parents: &[Time], parent_scope: ScopeId, kind: CRDTKind) -> (Time, ScopeId) {
         // this operation sets a register to contain a new (inner) CRDT with the named type.
+        let info = &self.scopes[parent_scope];
+        assert_eq!(info.kind, CRDTKind::LWWRegister);
+
+        if let Some(Value::InnerCRDT(old_scope)) = self.get_value_of_register(parent_scope, parents) {
+            // TODO: Mark deleted?
+        }
+
         let v = self.len();
 
         let new_crdt_id = self.inner_create_scope(kind, v);
         self.register_set_operations.push((v, Value::InnerCRDT(new_crdt_id)));
-        self.inner_assign_op(v.into(), agent_id, parents, parent_crdt_id);
+        self.inner_assign_op(v.into(), agent_id, parents, parent_scope);
 
         (v, new_crdt_id)
     }
