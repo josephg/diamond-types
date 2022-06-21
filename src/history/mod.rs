@@ -17,6 +17,8 @@ pub(crate) struct ScopedHistory {
     pub(crate) created_at: Time,
 
     /// This isn't a real Version. Its a list of times at which this CRDT was deleted.
+    ///
+    /// (What do we need this for??)
     pub(crate) deleted_at: LocalVersion,
 
     pub(crate) owned_times: RleVec<DTRange>,

@@ -244,7 +244,8 @@ pub(crate) struct ClientData {
 }
 
 
-pub type ScopeId = usize;
+pub type CRDTItemId = usize;
+pub type MapId = usize;
 
 
 #[derive(Debug, Clone)]
@@ -262,13 +263,17 @@ pub(crate) struct InnerCRDTInfo {
     pub(crate) kind: CRDTKind,
 
     history: ScopedHistory,
-
-    // Must be present for maps. Children are created lazily on first use.
-    // All child CRDTs must be LWWRegisters.
-    // TODO: Check how much code BTreeMap adds and consider replacing with something smaller
-    map_children: Option<BTreeMap<SmartString, ScopeId>>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct MapInfo {
+    // All child CRDT items must be LWWRegisters.
+    // TODO: Check how much code BTreeMap adds and consider replacing with something smaller
+    children: BTreeMap<SmartString, CRDTItemId>,
+
+    created_at: Time,
+    // Created at / deleted at? I have a feeling I'll need those eventually.
+}
 
 #[derive(Debug, Clone)]
 pub struct NewOpLog {
@@ -308,8 +313,14 @@ pub struct NewOpLog {
 
     // value_kind: ValueKind,
 
-    /// Works like client_data. Each ItemRef is a reference into this structure.
-    scopes: Vec<InnerCRDTInfo>,
+    /// The set of known maps. For each map we record the set of key-value pairs mapping each key
+    /// to all the known children of that map.
+    ///
+    /// Map 0 is the root of the document.
+    maps: Vec<MapInfo>,
+
+    /// Works like client_data. Each CRDTItemId is a reference into this structure.
+    known_crdts: Vec<InnerCRDTInfo>,
 
     register_set_operations: Vec<(Time, crate::new_oplog::Value)>,
     // text_operations: RleVec<KVPair<TextOpInternal>>,

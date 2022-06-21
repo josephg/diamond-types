@@ -1,7 +1,7 @@
 use smallvec::smallvec;
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec, debug_assert_frontier_sorted};
 use crate::history::History;
-use crate::{CRDTKind, LocalVersion};
+use crate::{CRDTKind, InnerCRDTInfo, LocalVersion};
 use crate::NewOpLog;
 
 impl NewOpLog {
@@ -51,12 +51,12 @@ impl NewOpLog {
             }
         }
 
-        for scope in self.scopes.iter() {
-            if scope.kind == CRDTKind::Map {
-                assert!(scope.history.owned_times.is_empty());
-                assert!(scope.map_children.is_some());
-            } else {
-                assert!(scope.map_children.is_none());
+        for map in self.maps.iter() {
+            for (key, item) in map.children.iter() {
+                // Each child of a map must be a LWWRegister.
+                let child_item = &self.known_crdts[*item];
+                assert_eq!(child_item.kind, CRDTKind::LWWRegister);
+                assert_eq!(child_item.history.created_at, map.created_at);
             }
         }
 
