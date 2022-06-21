@@ -239,7 +239,7 @@ impl NewOpLog {
         v
     }
 
-    pub(crate) fn append_set_new_map(&mut self, agent_id: AgentId, parents: &[Time], crdt_id: CRDTItemId) -> MapId {
+    pub(crate) fn append_set_new_map(&mut self, agent_id: AgentId, parents: &[Time], crdt_id: CRDTItemId) -> (Time, MapId) {
         let v = self.len();
 
         // TODO: Delete old item
@@ -251,7 +251,7 @@ impl NewOpLog {
         self.register_set_operations.push((v, Value::Map(map_id)));
         self.inner_assign_op(v.into(), agent_id, parents, crdt_id);
 
-        map_id
+        (v, map_id)
     }
 
     fn inner_create_crdt(&mut self, kind: CRDTKind, ctime: usize) -> CRDTItemId {
@@ -351,7 +351,7 @@ mod test {
         let item = oplog.get_or_create_map_child(ROOT_MAP, "child".into());
         // let map_id = oplog.append_create_inner_crdt(seph, &[], item, CRDTKind::Map).1;
 
-        let map_id = oplog.append_set_new_map(seph, &[], item);
+        let map_id = oplog.append_set_new_map(seph, &[], item).1;
         let title_id = oplog.get_or_create_map_child(map_id, "title".into());
         oplog.append_set(seph, &oplog.version.clone(), title_id, Str("Cool title bruh".into()));
 

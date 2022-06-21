@@ -79,56 +79,54 @@ mod test {
     use crate::new_oplog::Primitive::Str;
     use crate::path::PathComponent;
 
-    // #[test]
-    // fn checkout_inner_map() {
-    //     let mut oplog = NewOpLog::new();
-    //     // dbg!(oplog.checkout(&oplog.version));
-    //
-    //     let seph = oplog.get_or_create_agent_id("seph");
-    //     let map_id = oplog.append_create_inner_crdt(seph, &[], ROOT_SCOPE, CRDTKind::Map).1;
-    //     // dbg!(oplog.checkout(&oplog.version));
-    //
-    //     let title_id = oplog.get_or_create_map_child(map_id, "title".into());
-    //     oplog.append_set(seph, &oplog.version.clone(), title_id, Str("Cool title bruh".into()));
-    //
-    //     let author_id = oplog.get_or_create_map_child(map_id, "author".into());
-    //     let author_map = oplog.append_create_inner_crdt(seph, &oplog.version.clone(), author_id, CRDTKind::Map).1;
-    //
-    //     let email_id = oplog.get_or_create_map_child(author_map, "email".into());
-    //     oplog.append_set(seph, &oplog.version.clone(), email_id, Str("me@josephg.com".into()));
-    //
-    //     // oplog.append_set(seph, &oplog.version.clone(), author_id, Value::);
-    //
-    //
-    //
-    //     dbg!(oplog.checkout(&oplog.version));
-    //
-    //
-    //     // dbg!(oplog.get_value_of_register(ROOT_CRDT_ID, &oplog.version.clone()));
-    //     // dbg!(&oplog);
-    //     oplog.dbg_check(true);
-    // }
+    #[test]
+    fn checkout_inner_map() {
+        let mut oplog = NewOpLog::new();
+        // dbg!(oplog.checkout(&oplog.version));
 
-    // #[test]
-    // fn checkout_inner_map_path() {
-    //     use PathComponent::*;
-    //     use CRDTKind::*;
-    //
-    //     let mut oplog = NewOpLog::new();
-    //     let seph = oplog.get_or_create_agent_id("seph");
-    //
-    //     oplog.create_at_path(seph, &[], Map);
-    //
-    //     oplog.set_at_path(seph, &[Key("title")], Str("Cool title bruh".into()));
-    //
-    //     oplog.create_at_path(seph, &[Key("author")], Map);
-    //     oplog.set_at_path(seph, &[Key("author"), Key("name")], Str("Seph".into()));
-    //
-    //     dbg!(oplog.checkout(&oplog.version));
-    //
-    //     oplog.dbg_check(true);
-    // }
-    //
+        let seph = oplog.get_or_create_agent_id("seph");
+        let map_id = ROOT_MAP;
+        // dbg!(oplog.checkout(&oplog.version));
+
+        let title_id = oplog.get_or_create_map_child(map_id, "title".into());
+        oplog.append_set(seph, &oplog.version.clone(), title_id, Str("Cool title bruh".into()));
+
+        let author_id = oplog.get_or_create_map_child(map_id, "author".into());
+        let author_map = oplog.append_set_new_map(seph, &oplog.version.clone(), author_id).1;
+
+        let email_id = oplog.get_or_create_map_child(author_map, "email".into());
+        oplog.append_set(seph, &oplog.version.clone(), email_id, Str("me@josephg.com".into()));
+
+        // oplog.append_set(seph, &oplog.version.clone(), author_id, Value::);
+
+
+
+        dbg!(oplog.checkout(&oplog.version));
+
+
+        // dbg!(oplog.get_value_of_register(ROOT_CRDT_ID, &oplog.version.clone()));
+        // dbg!(&oplog);
+        oplog.dbg_check(true);
+    }
+
+    #[test]
+    fn checkout_inner_map_path() {
+        use PathComponent::*;
+        use CRDTKind::*;
+
+        let mut oplog = NewOpLog::new();
+        let seph = oplog.get_or_create_agent_id("seph");
+
+        oplog.set_at_path(seph, &[Key("title")], Str("Cool title bruh".into()));
+
+        oplog.create_map_at_path(seph, &[Key("author")]);
+        oplog.set_at_path(seph, &[Key("author"), Key("name")], Str("Seph".into()));
+
+        dbg!(oplog.checkout(&oplog.version));
+
+        oplog.dbg_check(true);
+    }
+
     // #[test]
     // fn crdt_gets_overwritten() {
     //     use PathComponent::*;
