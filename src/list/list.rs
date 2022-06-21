@@ -5,10 +5,10 @@ use crate::list::{Branch, ListCRDT, OpLog};
 use smallvec::smallvec;
 use crate::{AgentId, LocalVersion, Time};
 use rle::HasLength;
-use crate::list::encoding::encode_tools::ParseError;
 use crate::list::operation::OpKind::{Del, Ins};
 use crate::list::operation::Operation;
 use crate::dtrange::DTRange;
+use crate::encoding::parseerror::ParseError;
 
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
 fn insert_history_local(oplog: &mut OpLog, frontier: &mut LocalVersion, range: DTRange) {

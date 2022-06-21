@@ -1,15 +1,3 @@
-#[allow(unused)]
-#[allow(unused_imports)]
-
-/// The encoding module converts the internal data structures to and from a lossless compact binary
-/// data format.
-///
-/// This is modelled after the run-length encoding in Automerge and Yjs.
-
-// Notes for next time I break compatibility:
-// - Version in encode::write_local_version - skip second 0 if its ROOT.
-
-mod varint;
 mod encode_oplog;
 mod decode_oplog;
 
@@ -21,7 +9,7 @@ pub mod encode_tools;
 mod decode_tools;
 
 use rle::MergableSpan;
-use crate::list::encoding::varint::*;
+use crate::encoding::varint::*;
 use num_enum::TryFromPrimitive;
 pub use encode_oplog::{ENCODE_FULL, ENCODE_PATCH, EncodeOptions};
 

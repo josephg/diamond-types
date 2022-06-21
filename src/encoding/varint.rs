@@ -1,6 +1,5 @@
 use std::mem::size_of;
-use crate::list::encoding::encode_tools::ParseError;
-use crate::list::encoding::encode_tools::ParseError::{InvalidVarInt, UnexpectedEOF};
+use crate::encoding::ParseError;
 
 /// We're using protobuf's encoding system for variable sized integers. Most numbers we store here
 /// follow a Parato distribution, so this ends up being a space savings overall.
@@ -115,11 +114,11 @@ pub fn decode_u64_slow(buf: &[u8]) -> Result<(u64, usize), ParseError> {
     let mut i = 0;
     while i < buf.len() {
         if i == 10 {
-            return Err(InvalidVarInt)
+            return Err(ParseError::InvalidVarInt)
         }
         let b = buf[i];
         if i == 9 && (b & 0x7f) > 1 {
-            return Err(InvalidVarInt)
+            return Err(ParseError::InvalidVarInt)
         }
         r |= ((b & 0x7f) as u64) << (i * 7);
         i += 1;
@@ -127,14 +126,14 @@ pub fn decode_u64_slow(buf: &[u8]) -> Result<(u64, usize), ParseError> {
             return Ok((r, i))
         }
     }
-    Err(UnexpectedEOF)
+    Err(ParseError::UnexpectedEOF)
 }
 
 // TODO: This is from rust-protobuf. Check this is actually faster than decode_u64_slow.
 /// Returns (varint, number of bytes read).
 pub fn decode_u64(buf: &[u8]) -> Result<(u64, usize), ParseError> {
     if buf.is_empty() {
-        Err(UnexpectedEOF)
+        Err(ParseError::UnexpectedEOF)
     } else if buf[0] < 0x80 {
         // The most common case
         Ok((buf[0] as u64, 1))
@@ -154,7 +153,7 @@ pub fn decode_u64(buf: &[u8]) -> Result<(u64, usize), ParseError> {
             let b = buf[i];
 
             if i == 9 && (b & 0x7f) > 1 {
-                return Err(InvalidVarInt);
+                return Err(ParseError::InvalidVarInt);
             }
             r |= ((b & 0x7f) as u64) << (i as u64 * 7);
             i += 1;
@@ -162,7 +161,7 @@ pub fn decode_u64(buf: &[u8]) -> Result<(u64, usize), ParseError> {
                 return Ok((r, i));
             }
         }
-        Err(InvalidVarInt)
+        Err(ParseError::InvalidVarInt)
     } else {
         decode_u64_slow(buf)
     }
@@ -172,7 +171,7 @@ pub fn decode_u32(buf: &[u8]) -> Result<(u32, usize), ParseError> {
     let (val, bytes_consumed) = decode_u64(buf)?;
     if val >= u32::MAX as u64 {
         // varint is not a u32!
-        return Err(InvalidVarInt);
+        return Err(ParseError::InvalidVarInt);
     }
     debug_assert!(bytes_consumed <= 5);
     Ok((val as u32, bytes_consumed))
@@ -332,7 +331,7 @@ pub fn num_decode_i64_with_extra_bit(value: u64) -> (i64, bool) {
 mod test {
     use super::*;
     use rand::prelude::*;
-    use crate::list::encoding::varint::encode_u64;
+    use crate::encoding::varint::encode_u64;
 
     fn check_enc_dec_unsigned(val: u64) {
         let mut buf = [0u8; 10];

@@ -1,7 +1,7 @@
 use std::mem::size_of;
-use crate::list::encoding::encode_tools::ParseError;
+use crate::encoding::parseerror::ParseError;
 use crate::list::encoding::{ChunkType, DataType, MAGIC_BYTES};
-use crate::list::encoding::varint::*;
+use crate::encoding::varint::*;
 
 #[derive(Debug, Clone)]
 pub struct BufReader<'a>(pub(super) &'a [u8]);

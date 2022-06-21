@@ -24,12 +24,6 @@ Invariants:
 
  */
 
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// pub(crate) enum PathItem {
-//     GoIn,
-//     AtKey(SmartString)
-// }
-
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum CRDTKind {
     LWWRegister,
@@ -37,28 +31,6 @@ pub enum CRDTKind {
     Map,
     Text,
 }
-
-
-
-
-
-
-
-
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// pub struct SetOperation(Value);
-
-// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// pub enum ValueKind {
-//     Primitivei64,
-//     // DynamicAny,
-// }
-//
-// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// pub enum CRDTContainer {
-//     AWWRegister(ValueKind),
-//     // Text,
-// }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Primitive {
@@ -241,6 +213,10 @@ impl NewOpLog {
         if let Some(last) = self.client_with_localtime.last() {
             last.end()
         } else { 0 }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.client_with_localtime.is_empty()
     }
 
     /// span is the local timespan we're assigning to the named agent.

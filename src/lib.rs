@@ -204,6 +204,7 @@ mod new_oplog;
 mod check;
 mod branch;
 mod path;
+mod encoding;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;

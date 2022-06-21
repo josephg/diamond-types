@@ -1,6 +1,6 @@
 use smallvec::{smallvec, SmallVec};
 use crate::list::encoding::*;
-use crate::list::encoding::varint::*;
+use crate::encoding::varint::*;
 use crate::list::{OpLog, switch};
 use crate::frontier::*;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
@@ -8,7 +8,6 @@ use crate::list::operation::OpKind::{Del, Ins};
 use crate::rev_range::RangeRev;
 use crate::{AgentId, LocalVersion, Time};
 use crate::unicount::*;
-use crate::list::encoding::encode_tools::ParseError::*;
 use rle::*;
 use crate::list::buffered_iter::Buffered;
 use crate::list::encoding::ChunkType::*;
@@ -16,10 +15,10 @@ use crate::history::MinimalHistoryEntry;
 use crate::list::operation::OpKind;
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::list::encoding::decode_tools::{BufReader, ChunkReader};
-use crate::list::encoding::encode_tools::ParseError;
 use crate::frontier::clone_smallvec;
 use crate::remotespan::{CRDTGuid, CRDTSpan};
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
+use crate::encoding::parseerror::ParseError;
 
 // If this is set to false, the compiler can optimize out the verbose printing code. This makes the
 // compiled output slightly smaller.
@@ -81,7 +80,7 @@ impl<'a> BufReader<'a> {
             let id = CRDTGuid { agent, seq };
 
             let time = oplog.try_crdt_id_to_time(id)
-                .ok_or(BaseVersionUnknown)?;
+                .ok_or(ParseError::BaseVersionUnknown)?;
             result.push(time);
 
             if !has_more { break; }
@@ -112,9 +111,9 @@ impl<'a> BufReader<'a> {
                     if let Some(c) = oplog.client_data.get(agent as usize) {
                         // Adding UNDERWATER_START for foreign parents in a horrible hack.
                         // I'm so sorry. This gets pulled back out in history_entry_map_and_truncate
-                        c.try_seq_to_time(seq).ok_or(InvalidLength)?
+                        c.try_seq_to_time(seq).ok_or(ParseError::InvalidLength)?
                     } else {
-                        return Err(InvalidLength);
+                        return Err(ParseError::InvalidLength);
                     }
                 }
             } else {
@@ -165,8 +164,8 @@ impl<'a> ChunkReader<'a> {
                 // properties on the oplog. But thats NYI!
 
                 // TODO: Remove this!
-                if let InvalidRemoteID(_) = e {
-                    DataMissing
+                if let ParseError::InvalidRemoteID(_) = e {
+                    ParseError::DataMissing
                 } else { e }
             })
         } else {
@@ -184,15 +183,15 @@ impl<'a> ChunkReader<'a> {
         } else {
             let data_type = r.next_u32()?;
             if data_type != (DataType::PlainText as u32) {
-                return Err(UnknownChunk);
+                return Err(ParseError::UnknownChunk);
             }
             // The uncompressed length
             let len = r.next_usize()?;
 
-            let bytes = compressed.ok_or(CompressedDataMissing)?
+            let bytes = compressed.ok_or(ParseError::CompressedDataMissing)?
                 .next_n_bytes(len)?;
 
-            std::str::from_utf8(bytes).map_err(|_| InvalidUTF8)
+            std::str::from_utf8(bytes).map_err(|_| ParseError::InvalidUTF8)
         }
     }
 
@@ -387,7 +386,7 @@ impl<'a> ReadPatchContentIter<'a> {
         let tag = match chunk.next_u32()? {
             0 => Ins,
             1 => Del,
-            _ => { return Err(InvalidContent); }
+            _ => { return Err(ParseError::InvalidContent); }
         };
 
         let mut chunk = chunk.chunks();
@@ -405,7 +404,7 @@ impl<'a> ReadPatchContentIter<'a> {
             let content = consume_chars(&mut self.content, len);
             if count_chars(content) != len { // Having a duplicate strlen here is gross.
                 // We couldn't pull as many chars as requested from self.content.
-                return Err(UnexpectedEOF);
+                return Err(ParseError::UnexpectedEOF);
             }
             Some(content)
         } else { None };
@@ -601,7 +600,7 @@ impl OpLog {
         reader.read_magic()?;
         let protocol_version = reader.next_usize()?;
         if protocol_version != PROTOCOL_VERSION {
-            return Err(UnsupportedProtocolVersion);
+            return Err(ParseError::UnsupportedProtocolVersion);
         }
 
         // The rest of the file is made of chunks!
@@ -645,7 +644,7 @@ impl OpLog {
         if let Some(file_doc_id) = doc_id {
             if let Some(local_doc_id) = self.doc_id.as_ref() {
                 if file_doc_id != local_doc_id && !self.is_empty() {
-                    return Err(DocIdMismatch);
+                    return Err(ParseError::DocIdMismatch);
                 }
             }
             self.doc_id = Some(file_doc_id.into());
@@ -751,7 +750,7 @@ impl OpLog {
                                 }
                                 content.content
                             } else {
-                                return Err(InvalidLength);
+                                return Err(ParseError::InvalidLength);
                             }
                         } else { None };
 
@@ -772,7 +771,7 @@ impl OpLog {
                             patches_iter.push_back(Ok(r));
                         }
                     } else {
-                        return Err(InvalidLength);
+                        return Err(ParseError::InvalidLength);
                     }
                 }
 
@@ -914,8 +913,8 @@ impl OpLog {
             }
 
             // We'll count the lengths in each section to make sure they all match up with each other.
-            if next_patch_time != next_assignment_time { return Err(InvalidLength); }
-            if next_patch_time != next_history_time { return Err(InvalidLength); }
+            if next_patch_time != next_assignment_time { return Err(ParseError::InvalidLength); }
+            if next_patch_time != next_history_time { return Err(ParseError::InvalidLength); }
 
             // dbg!(&patch_chunk);
             patch_chunk.expect_empty()?;
@@ -923,13 +922,13 @@ impl OpLog {
 
             if let Some(mut iter) = ins_content {
                 if iter.next().is_some() {
-                    return Err(InvalidContent);
+                    return Err(ParseError::InvalidContent);
                 }
             }
 
             if let Some(mut iter) = del_content {
                 if iter.next().is_some() {
-                    return Err(InvalidContent);
+                    return Err(ParseError::InvalidContent);
                 }
             }
 
@@ -950,7 +949,7 @@ impl OpLog {
 
                 // TODO: Add flag to ignore invalid checksum.
                 if checksum(checksummed_data) != expected_crc {
-                    return Err(ChecksumFailed);
+                    return Err(ParseError::ChecksumFailed);
                 }
             }
         }
