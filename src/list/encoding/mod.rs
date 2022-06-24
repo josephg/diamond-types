@@ -68,7 +68,7 @@ enum CompressionFormat {
     LZ4 = 1,
 }
 
-fn checksum(data: &[u8]) -> u32 {
+pub fn calc_checksum(data: &[u8]) -> u32 {
     // This is crc32c. Using the crc library because the resulting binary size is much smaller.
     // let checksum = crc32c::crc32c(&result);
     crc::Crc::<u32>::new(&crc::CRC_32_ISCSI).checksum(data)

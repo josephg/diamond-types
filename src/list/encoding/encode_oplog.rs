@@ -709,7 +709,7 @@ impl OpLog {
         // TODO (later): Final branch content.
 
         // println!("checksum {checksum}");
-        let checksum = checksum(&result);
+        let checksum = calc_checksum(&result);
         push_u32_le(&mut patches_buf, checksum);
         push_chunk(&mut result, ChunkType::Crc, &patches_buf);
         // write_chunk(Chunk::CRC, &mut buf);

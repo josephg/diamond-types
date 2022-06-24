@@ -948,7 +948,7 @@ impl OpLog {
                 let checksummed_data = &data[..data.len() - reader_len];
 
                 // TODO: Add flag to ignore invalid checksum.
-                if checksum(checksummed_data) != expected_crc {
+                if calc_checksum(checksummed_data) != expected_crc {
                     return Err(ParseError::ChecksumFailed);
                 }
             }

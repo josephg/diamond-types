@@ -11,6 +11,9 @@
 pub mod varint;
 mod bufreader;
 pub(crate) mod parseerror;
+pub(crate) mod agent_assignment;
+pub(crate) mod tools;
+pub(crate) mod parents;
 // mod agent_assignment;
 
 use std::mem::replace;
@@ -18,11 +21,16 @@ use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::encoding::bufreader::BufReader;
 use crate::encoding::parseerror::ParseError;
 
-trait RlePackCursor {
+pub(crate) trait RlePackWriteCursor {
     type Item: SplitableSpan + MergableSpan + HasLength;
+    // type Ctx;
 
-    // Write path
     fn write_and_advance(&mut self, item: &Self::Item, dest: &mut Vec<u8>);
+    // fn write_and_advance(&mut self, item: &Self::Item, dest: &mut Vec<u8>, ctx: &mut Self::Ctx);
+}
+
+pub(crate) trait RlePackReadCursor {
+    type Item: SplitableSpan + MergableSpan + HasLength;
 
     // Read path.
     // /// Returns None when chunk is empty.
@@ -54,18 +62,18 @@ trait ToBytes {
 // }
 
 #[derive(Debug)]
-struct PackWriter<S: RlePackCursor> {
+pub(crate) struct PackWriter<S: RlePackWriteCursor> {
     last: Option<S::Item>,
     cursor: S,
 }
 
-impl<S: RlePackCursor + Default> Default for PackWriter<S> {
+impl<S: RlePackWriteCursor + Default> Default for PackWriter<S> {
     fn default() -> Self {
         Self::new(S::default())
     }
 }
 
-impl<S: RlePackCursor> PackWriter<S> {
+impl<S: RlePackWriteCursor> PackWriter<S> {
     pub fn new(cursor: S) -> Self {
         Self {
             last: None,
@@ -98,8 +106,8 @@ impl<S: RlePackCursor> PackWriter<S> {
 
 #[cfg(test)]
 mod test {
-    use crate::CRDTSpan;
-    use crate::encoding::{PackWriter, RlePackCursor};
+    // use crate::CRDTSpan;
+    // use crate::encoding::{PackWriter, RlePackCursor};
     // use crate::encoding::agent_assignment::AgentAssignmentCursor;
 
     // #[test]

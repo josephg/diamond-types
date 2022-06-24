@@ -205,6 +205,7 @@ mod check;
 mod branch;
 mod path;
 mod encoding;
+mod storage;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;
