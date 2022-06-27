@@ -9,7 +9,7 @@ use crate::{AgentId, ClientData, CRDTItemId, DTRange, InnerCRDTInfo, KVPair, Loc
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec, debug_assert_frontier_sorted, frontier_is_sorted};
 use crate::history::History;
 
-use crate::remotespan::CRDTSpan;
+use crate::remotespan::{CRDT_DOC_ROOT, CRDTGuid, CRDTSpan};
 use crate::rle::{RleKeyed, RleSpanHelpers};
 
 /*
@@ -197,6 +197,14 @@ impl NewOpLog {
 
     pub fn is_empty(&self) -> bool {
         self.client_with_localtime.is_empty()
+    }
+
+    pub fn version_to_crdt_id(&self, time: usize) -> CRDTGuid {
+        if time == ROOT_TIME { CRDT_DOC_ROOT }
+        else {
+            let (loc, offset) = self.client_with_localtime.find_packed_with_offset(time);
+            loc.1.at_offset(offset as usize)
+        }
     }
 
     /// span is the local timespan we're assigning to the named agent.

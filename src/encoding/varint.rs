@@ -1,5 +1,6 @@
 use std::mem::size_of;
-use crate::encoding::ParseError;
+use crate::encoding::parseerror::ParseError;
+
 
 /// We're using protobuf's encoding system for variable sized integers. Most numbers we store here
 /// follow a Parato distribution, so this ends up being a space savings overall.

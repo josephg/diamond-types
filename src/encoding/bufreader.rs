@@ -1,5 +1,5 @@
 use std::mem::size_of;
-use crate::encoding::ParseError;
+use crate::encoding::parseerror::ParseError;
 use crate::encoding::varint::*;
 
 #[derive(Debug, Clone)]

@@ -545,9 +545,9 @@ impl OpLog {
             // We need to update *lots* of stuff in here!!
 
             // 1. Agent names and agent assignment
-            for span in self.client_with_localtime.iter_range_packed_ctx(walk.consume, &()) {
+            for KVPair(_, span) in self.client_with_localtime.iter_range_packed_ctx(walk.consume, &()) {
                 // Mark the agent as in-use (if we haven't already)
-                let mapped_agent = agent_mapping.map(self, span.1.agent);
+                let mapped_agent = agent_mapping.map(self, span.agent);
 
                 // dbg!(&span);
 
@@ -555,7 +555,7 @@ impl OpLog {
                 // dbg!(span);
                 agent_assignment_writer.push(AgentAssignmentRun {
                     agent: mapped_agent,
-                    delta: agent_mapping.seq_delta(span.1.agent, span.1.seq_range),
+                    delta: agent_mapping.seq_delta(span.agent, span.seq_range),
                     len: span.len()
                 });
             }

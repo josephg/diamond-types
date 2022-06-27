@@ -91,6 +91,8 @@ impl WriteAheadLog {
         file.seek(SeekFrom::Start(0))?;
 
         Self::check_header(&mut file, total_len)?;
+        // check_header will make the file at a minimum HEADER_LEN.
+        let total_len = total_len.max(WAL_HEADER_LENGTH_U64);
 
         debug_assert_eq!(file.stream_position()?, WAL_HEADER_LENGTH_U64);
         let mut pos = WAL_HEADER_LENGTH_U64;
