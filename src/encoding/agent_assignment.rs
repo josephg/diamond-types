@@ -1,26 +1,29 @@
 use std::mem::replace;
+use bumpalo::Bump;
 use rle::{HasLength, MergableSpan};
 use crate::{AgentId, ClientData, CRDTSpan, DTRange, NewOpLog, ROOT_AGENT};
 use crate::encoding::Merger;
 use crate::encoding::bufreader::BufReader;
 use crate::encoding::tools::push_str;
 use crate::encoding::varint::*;
+use bumpalo::collections::vec::Vec as BumpVec;
+use bumpalo::{vec as bumpvec};
 
 #[derive(Debug, Clone)]
-pub struct AgentMapping {
+pub struct AgentMapping<'a> {
     /// Map from oplog's agent ID to the agent id in the file. Paired with the last assigned agent
     /// ID, to support agent IDs bouncing around.
     map: Vec<Option<AgentId>>,
     next_mapped_agent: AgentId,
-    output: Vec<u8>,
+    output: BumpVec<'a, u8>,
 }
 
-impl AgentMapping {
-    pub(crate) fn new(client_data: &[ClientData]) -> Self {
+impl<'a> AgentMapping<'a> {
+    pub(crate) fn new(bump: &'a Bump, client_data: &[ClientData]) -> Self {
         Self {
             map: vec![None; client_data.len()],
             next_mapped_agent: 0,
-            output: Vec::new()
+            output: BumpVec::new_in(bump)
         }
     }
 
@@ -39,13 +42,14 @@ impl AgentMapping {
         })
     }
 
-    pub fn into_output(self) -> Vec<u8> {
+    pub fn into_output(self) -> BumpVec<'a, u8> {
         self.output
     }
 }
 
-pub fn encode_agent_assignment<I: Iterator<Item=CRDTSpan>>(iter: I, dest: &mut Vec<u8>, oplog: &NewOpLog, map: &mut AgentMapping) {
-    let mut last_seq_for_agent = vec![0; oplog.client_data.len()];
+pub fn encode_agent_assignment<'a, I: Iterator<Item=CRDTSpan>>(bump: &'a Bump, iter: I, oplog: &NewOpLog, map: &mut AgentMapping) -> BumpVec<'a, u8> {
+    let mut last_seq_for_agent = bumpvec![in bump; 0; oplog.client_data.len()];
+    let mut result = BumpVec::new_in(bump);
 
     Merger::new(|span: CRDTSpan, map: &mut AgentMapping| {
         // Its rare, but possible for the agent assignment sequence to jump around a little.
@@ -85,8 +89,10 @@ pub fn encode_agent_assignment<I: Iterator<Item=CRDTSpan>>(iter: I, dest: &mut V
             pos += encode_i64(delta as i64, &mut buf[pos..]);
         }
 
-        dest.extend_from_slice(&buf[..pos]);
+        result.extend_from_slice(&buf[..pos]);
     }).flush_iter2(iter, map);
+
+    result
 }
 
 pub fn isize_diff(x: usize, y: usize) -> isize {

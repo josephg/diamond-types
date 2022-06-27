@@ -4,6 +4,7 @@
 use std::marker::PhantomData;
 use std::mem::replace;
 use rle::MergableSpan;
+use num_enum::TryFromPrimitive;
 
 /// The encoding module converts the internal data structures to and from a lossless compact binary
 /// data format.
@@ -21,6 +22,39 @@ pub(crate) mod parents;
 // mod agent_assignment;
 
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
+#[repr(u32)]
+pub(crate) enum ChunkType {
+    /// Packed bytes storing any data compressed in later parts of the file.
+    // CompressedFieldsLZ4 = 5,
+
+    /// FileInfo contains optional UserData and AgentNames.
+    FileInfo = 1,
+    DocId = 2,
+    AgentNames = 3,
+    UserData = 4,
+
+    /// The StartBranch chunk describes the state of the document before included patches have been
+    /// applied.
+    StartBranch = 10,
+    Version = 12,
+    /// StartBranch content is optional.
+    Content = 13,
+    ContentCompressed = 14, // Might make more sense to have a generic compression tag for chunks.
+
+    Patches = 20,
+    OpVersions = 21,
+    OpTypeAndPosition = 22,
+    OpParents = 23,
+
+    PatchContent = 24,
+    /// ContentKnown is a RLE expressing which ranges of patches have known content
+    ContentIsKnown = 25,
+
+    TransformedPositions = 27, // Currently unused
+
+    // Crc = 100,
+}
 
 #[derive(Clone)]
 pub(super) struct Merger<S: MergableSpan, F: FnMut(S, &mut Ctx), Ctx = ()> {
@@ -85,113 +119,7 @@ impl<S: MergableSpan, F: FnMut(S, &mut Ctx), Ctx> Drop for Merger<S, F, Ctx> {
 
 
 
-
-// pub(crate) trait RlePackWriteCursor {
-//     type Item: SplitableSpan + MergableSpan + HasLength;
-//     // type Ctx;
-//
-//     fn write_and_advance(&mut self, item: &Self::Item, dest: &mut Vec<u8>);
-//     // fn write_and_advance(&mut self, item: &Self::Item, dest: &mut Vec<u8>, ctx: &mut Self::Ctx);
-// }
-//
-// pub(crate) trait RlePackReadCursor {
-//     type Item: SplitableSpan + MergableSpan + HasLength;
-//
-//     // Read path.
-//     // /// Returns None when chunk is empty.
-//     // fn peek(&self, bytes: &[u8]) -> Result<Option<Self::Item>, ParseError>;
-//
-//     /// Read the next item and update the cursor
-//     fn read(&mut self, reader: &mut BufReader) -> Result<Option<Self::Item>, ParseError>;
-// }
-//
-// trait ToBytes {
-//     fn write(&self, dest: &mut Vec<u8>);
-// }
-
-// trait RlePack {
-//     type Item: SplitableSpan + MergableSpan + HasLength + ToBytes + Default;
-//     type Cursor: RlePackCursor<Self::Item>;
-// }
-
-
-// #[derive(Default, Debug, Eq, PartialEq)]
-// struct NullCursor;
-//
-// impl<I: SplitableSpan + MergableSpan + HasLength + ToBytes> RlePackCursor for NullCursor {
-//     type Item = I;
-//
-//     fn write_and_advance(&mut self, item: &I, dest: &mut Vec<u8>) {
-//         item.write(dest)
-//     }
-// }
-
-// #[derive(Debug)]
-// pub(crate) struct PackWriter<S: RlePackWriteCursor> {
-//     last: Option<S::Item>,
-//     cursor: S,
-// }
-//
-// impl<S: RlePackWriteCursor + Default> Default for PackWriter<S> {
-//     fn default() -> Self {
-//         Self::new(S::default())
-//     }
-// }
-//
-// impl<S: RlePackWriteCursor> PackWriter<S> {
-//     pub fn new(cursor: S) -> Self {
-//         Self {
-//             last: None,
-//             cursor
-//         }
-//     }
-//
-//     pub fn push(&mut self, span: S::Item, out: &mut Vec<u8>) {
-//         if let Some(last) = self.last.as_mut() {
-//             if last.can_append(&span) {
-//                 last.append(span);
-//             } else {
-//                 let old = replace(last, span);
-//                 self.cursor.write_and_advance(&old, out);
-//                 // old.write(out);
-//             }
-//         } else {
-//             self.last = Some(span);
-//         }
-//     }
-//
-//     pub fn flush(mut self, out: &mut Vec<u8>) -> S {
-//         if let Some(span) = self.last.take() {
-//             // span.write(out);
-//             self.cursor.write_and_advance(&span, out);
-//         }
-//         self.cursor
-//     }
-// }
-
 #[cfg(test)]
 mod test {
-    // use crate::CRDTSpan;
-    // use crate::encoding::{PackWriter, RlePackCursor};
-    // use crate::encoding::agent_assignment::AgentAssignmentCursor;
 
-    // #[test]
-    // fn foo() {
-    //     let mut w: PackWriter<AgentAssignmentCursor> = PackWriter::new(AgentAssignmentCursor::new(10));
-    //
-    //     let mut result = Vec::new();
-    //     w.push(CRDTSpan {
-    //         agent: 2,
-    //         seq_range: (1..10).into()
-    //     }, &mut result);
-    //
-    //     // w.push(CRDTSpan {
-    //     //     agent: 5,
-    //     //     seq_range: (1..10).into()
-    //     // }, &mut result);
-    //
-    //     let c = w.flush(&mut result);
-    //     dbg!(c);
-    //     dbg!(result);
-    // }
 }

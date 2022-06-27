@@ -5,8 +5,10 @@ use std::fs::File;
 use std::{fs, io};
 use std::io::{BufReader, ErrorKind, Read, Result as IOResult, Seek, SeekFrom, Write};
 use std::path::Path;
+use bumpalo::Bump;
 use crate::encoding::varint;
 use crate::list::encoding::calc_checksum;
+use bumpalo::collections::vec::Vec as BumpVec;
 
 // The file starts with "DMNDTWAL" followed by a 4 byte LE file version.
 const WAL_MAGIC_BYTES: [u8; 8] = *b"DMNDTWAL";
@@ -179,7 +181,7 @@ impl WriteAheadLog {
     }
 
     pub fn write_chunk<F>(&mut self, chunk_writer: F) -> IOResult<()>
-        where F: FnOnce(&mut Vec<u8>) -> IOResult<()>
+        where F: FnOnce(&Bump, &mut BumpVec<u8>) -> IOResult<()>
     {
         // The chunk header contains a checksum + length. In order to minimize the number of bytes
         // in the WAL, I could use a varint to store the length. But that makes encoding and
@@ -193,13 +195,14 @@ impl WriteAheadLog {
         // Also note a u32 per chunk means chunks can't be bigger than 4gb. I'm ok with that
         // constraint for now.
 
-        let mut chunk_bytes = Vec::with_capacity(1024);
+        let bump = Bump::new();
+        let mut chunk_bytes = BumpVec::with_capacity_in(1024, &bump);
 
         let header_len = 4 + 4;
 
         chunk_bytes.resize(header_len, 0);
 
-        chunk_writer(&mut chunk_bytes)?;
+        chunk_writer(&bump, &mut chunk_bytes)?;
 
         let len = chunk_bytes.len() - header_len;
         assert!(len < u32::MAX as usize, "Chunk cannot be >4gb bytes in size");

@@ -1,3 +1,4 @@
+use bumpalo::Bump;
 use rle::HasLength;
 use crate::encoding::tools::push_usize;
 use crate::encoding::varint::*;
@@ -6,12 +7,14 @@ use crate::remotespan::CRDTGuid;
 use crate::{DTRange, KVPair, NewOpLog, RleVec};
 use crate::encoding::agent_assignment::AgentMapping;
 use crate::encoding::Merger;
+use bumpalo::collections::vec::Vec as BumpVec;
 
 type TxnMap = RleVec::<KVPair<DTRange>>;
 
-pub fn encode_parents<I: Iterator<Item=MinimalHistoryEntry>>(iter: I, dest: &mut Vec<u8>, map: &mut AgentMapping, oplog: &NewOpLog) {
+pub fn encode_parents<'a, I: Iterator<Item=MinimalHistoryEntry>>(bump: &'a Bump, iter: I, map: &mut AgentMapping, oplog: &NewOpLog) -> BumpVec<'a, u8> {
     let mut txn_map = TxnMap::new();
     let mut next_output_time = 0;
+    let mut result = BumpVec::new_in(bump);
 
     Merger::new(|txn: MinimalHistoryEntry, map: &mut AgentMapping| {
         let len = txn.span.len();
@@ -20,7 +23,7 @@ pub fn encode_parents<I: Iterator<Item=MinimalHistoryEntry>>(iter: I, dest: &mut
         txn_map.insert(KVPair(txn.span.start, output_range));
         next_output_time = output_range.end;
 
-        push_usize(dest, len);
+        push_usize(&mut result, len);
 
         // And the parents.
         if txn.parents.is_empty() {
@@ -30,7 +33,7 @@ pub fn encode_parents<I: Iterator<Item=MinimalHistoryEntry>>(iter: I, dest: &mut
             // empty.
 
             // let n = 0, has_more = false, is_foreign = true. -> val = 1.
-            push_usize(dest, 1);
+            push_usize(&mut result, 1);
         } else {
             let mut iter = txn.parents.iter().peekable();
             while let Some(&p) = iter.next() {
@@ -39,7 +42,7 @@ pub fn encode_parents<I: Iterator<Item=MinimalHistoryEntry>>(iter: I, dest: &mut
                 let mut write_parent_diff = |mut n: usize, is_foreign: bool| {
                     n = mix_bit_usize(n, has_more);
                     n = mix_bit_usize(n, is_foreign);
-                    push_usize(dest, n);
+                    push_usize(&mut result, n);
                 };
 
                 // Parents are either local or foreign. Local changes are changes we've written
@@ -71,9 +74,11 @@ pub fn encode_parents<I: Iterator<Item=MinimalHistoryEntry>>(iter: I, dest: &mut
                     //
                     // I'm adding 1 to the mapped agent to make room for ROOT. This is quite dirty!
                     write_parent_diff(mapped_agent as usize, true);
-                    push_usize(dest, item.seq);
+                    push_usize(&mut result, item.seq);
                 }
             }
         }
-    }).flush_iter2(iter, map)
+    }).flush_iter2(iter, map);
+
+    result
 }
