@@ -1,6 +1,7 @@
 use std::path::Path;
 use crate::{CRDTSpan, KVPair, LocalVersion, NewOpLog, Time};
 use crate::encoding::agent_assignment::{AgentMapping, encode_agent_assignment};
+use crate::encoding::parents::encode_parents;
 use crate::storage::wal::{WALError, WriteAheadLog};
 
 struct WALChunks {
@@ -40,29 +41,23 @@ impl WALChunks {
         // - Agent assignment
         // - Parents
 
+        let range = (self.next_version..next).into();
         self.wal.write_chunk(|buf| {
+            let start = buf.len();
+
             let iter = oplog.client_with_localtime
-                .iter_range_packed((self.next_version..next).into())
+                .iter_range_packed(range)
                 .map(|KVPair(_, span)| span);
             let mut map = AgentMapping::new(&oplog.client_data);
             encode_agent_assignment(iter, buf, oplog, &mut map);
 
-            // let mut aa_writer =
-            //     PackWriter::new(AAWriteCursor::new(oplog.client_data.len()));
-            //
-            // for KVPair(_, span) in oplog.client_with_localtime.iter_range_packed((self.next_version..next).into()) {
-            //     dbg!(span);
-            //
-            //     let mapped_agent = map.map(&oplog.client_data, span.agent);
-            //     aa_writer.push(CRDTSpan {
-            //         agent: mapped_agent,
-            //         seq_range: span.seq_range
-            //     }, buf);
-            // }
+            let hist_iter = oplog.history.entries.iter_range_map_packed(range, |h| h.into());
+
+            encode_parents(hist_iter, buf, &mut map, oplog);
 
             buf.extend_from_slice(&map.into_output());
-            // aa_writer.flush(buf);
 
+            dbg!(&buf[start..]);
             Ok(())
         })?;
         Ok(())

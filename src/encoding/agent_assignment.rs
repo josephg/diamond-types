@@ -44,34 +44,10 @@ impl AgentMapping {
     }
 }
 
-// #[derive(Debug, Copy, Clone)]
-// struct AgentAssignmentRun {
-//     agent: AgentId,
-//     delta: isize,
-//     len: usize,
-// }
-//
-// impl MergableSpan for AgentAssignmentRun {
-//     fn can_append(&self, other: &Self) -> bool {
-//         self.agent == other.agent && other.delta == 0
-//     }
-//
-//     fn append(&mut self, other: Self) {
-//         self.len += other.len;
-//     }
-// }
-//
-// impl HasLength for AgentAssignmentRun {
-//     fn len(&self) -> usize {
-//         self.len
-//     }
-// }
-
-
 pub fn encode_agent_assignment<I: Iterator<Item=CRDTSpan>>(iter: I, dest: &mut Vec<u8>, oplog: &NewOpLog, map: &mut AgentMapping) {
     let mut last_seq_for_agent = vec![0; oplog.client_data.len()];
 
-    let mut writer = Merger::new(|span: CRDTSpan, map: &mut AgentMapping| {
+    Merger::new(|span: CRDTSpan, map: &mut AgentMapping| {
         // Its rare, but possible for the agent assignment sequence to jump around a little.
         // This can happen when:
         // - The sequence numbers are shared with other documents, and hence the seqs are sparse
@@ -110,44 +86,8 @@ pub fn encode_agent_assignment<I: Iterator<Item=CRDTSpan>>(iter: I, dest: &mut V
         }
 
         dest.extend_from_slice(&buf[..pos]);
-    });
-
-    for span in iter {
-        // Mark the agent as in-use (if we haven't already)
-        // let mapped_agent = map.map(&oplog.client_data, span.agent);
-        //
-        // writer.push(AgentAssignmentRun {
-        //     agent: mapped_agent,
-        //     delta: map.seq_delta(span.agent, span.seq_range),
-        //     len: span.len()
-        // });
-        writer.push2(span, map);
-    }
-
-    writer.flush2(map);
-
+    }).flush_iter2(iter, map);
 }
-
-//
-// #[derive(Debug, Clone)]
-// pub struct AAWriteCursor {
-//     // Its rare, but possible for the agent assignment sequence to jump around a little.
-//     // This can happen when:
-//     // - The sequence numbers are shared with other documents, and hence the seqs are sparse
-//     // - Or the same agent made concurrent changes to multiple branches. The operations may
-//     //   be reordered to any order which obeys the time dag's partial order.
-//     //
-//     // We track each agent separately, so the file size is smaller.
-//     last_seq_for_agent: Vec<usize>,
-// }
-//
-// impl AAWriteCursor {
-//     pub fn new(num_agents: usize) -> Self {
-//         Self {
-//             last_seq_for_agent: vec![0; num_agents]
-//         }
-//     }
-// }
 
 pub fn isize_diff(x: usize, y: usize) -> isize {
     // This looks awkward, but the optimizer reduces this to a simple `sub`:
@@ -159,48 +99,6 @@ pub fn isize_diff(x: usize, y: usize) -> isize {
 
     result as isize
 }
-
-// impl RlePackWriteCursor for AAWriteCursor {
-//     type Item = CRDTSpan;
-//     // type Ctx = AgentMapping;
-//
-//     fn write_and_advance(&mut self, mapped_item: &CRDTSpan, dest: &mut Vec<u8>) {
-//
-//         // if agent >= self.last_seq_for_agent.len() {
-//         //     self.last_seq_for_agent.resize_with(agent + 1, || 0);
-//         // }
-//
-//         let last_seq = if mapped_item.agent == ROOT_AGENT {
-//             0
-//         } else {
-//             debug_assert!((mapped_item.agent as usize) < self.last_seq_for_agent.len());
-//             replace(
-//                 &mut self.last_seq_for_agent[mapped_item.agent as usize],
-//                 mapped_item.seq_range.end
-//             )
-//         };
-//
-//         let mut buf = [0u8; 25];
-//         let mut pos = 0;
-//
-//         // I tried adding an extra bit field to mark len != 1 - so we can skip encoding the
-//         // length. But in all the data sets I've looked at, len is so rarely 1 that it increased
-//         // filesize.
-//         let delta = isize_diff(last_seq, mapped_item.seq_range.start);
-//         // let has_jump = self.last_seq != item.seq_range.start;
-//
-//         // Add 1 here so ROOT_AGENT becomes 0 on disk.
-//         let n = mix_bit_u32(mapped_item.agent.wrapping_add(1), delta != 0);
-//         pos += encode_u32(n, &mut buf);
-//         pos += encode_usize(mapped_item.len(), &mut buf[pos..]);
-//
-//         if delta != 0 {
-//             pos += encode_i64(delta as i64, &mut buf[pos..]);
-//         }
-//
-//         dest.extend_from_slice(&buf[..pos]);
-//     }
-// }
 
 // impl RlePackReadCursor for AgentAssignmentCursor {
 //     type Item = CRDTSpan;

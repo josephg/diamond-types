@@ -52,6 +52,13 @@ impl<S: MergableSpan, F: FnMut(S, &mut Ctx), Ctx> Merger<S, F, Ctx> {
             (self.f)(span, ctx);
         }
     }
+
+    pub fn flush_iter2<I: Iterator<Item = S>>(mut self, iter: I, ctx: &mut Ctx) {
+        for span in iter {
+            self.push2(span, ctx);
+        }
+        self.flush2(ctx);
+    }
 }
 
 impl<S: MergableSpan, F: FnMut(S, &mut ())> Merger<S, F, ()> {
@@ -60,6 +67,9 @@ impl<S: MergableSpan, F: FnMut(S, &mut ())> Merger<S, F, ()> {
     }
     pub fn flush(self) {
         self.flush2(&mut ());
+    }
+    pub fn flush_iter<I: Iterator<Item = S>>(mut self, iter: I) {
+        self.flush_iter2(iter, &mut ());
     }
 }
 
