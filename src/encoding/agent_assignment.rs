@@ -27,8 +27,8 @@ impl<'a> AgentMapping<'a> {
         }
     }
 
-    pub(crate) fn map(&mut self, client_data: &[ClientData], agent: AgentId) -> AgentId {
-        if agent == ROOT_AGENT { return ROOT_AGENT; }
+    pub(crate) fn map_no_root(&mut self, client_data: &[ClientData], agent: AgentId) -> AgentId {
+        debug_assert_ne!(agent, ROOT_AGENT);
 
         let agent = agent as usize;
 
@@ -40,6 +40,11 @@ impl<'a> AgentMapping<'a> {
             self.next_mapped_agent += 1;
             mapped
         })
+    }
+
+    pub(crate) fn map_root(&mut self, client_data: &[ClientData], agent: AgentId) -> AgentId {
+        if agent == ROOT_AGENT { 0 }
+        else { self.map_no_root(client_data, agent) + 1 }
     }
 
     pub fn into_output(self) -> BumpVec<'a, u8> {
@@ -67,7 +72,7 @@ pub fn encode_agent_assignment<'a, I: Iterator<Item=CRDTSpan>>(bump: &'a Bump, i
                 span.seq_range.end
             );
             // Adding 1 here to make room for ROOT.
-            let agent = map.map(&oplog.client_data, span.agent) + 1;
+            let agent = map.map_no_root(&oplog.client_data, span.agent) + 1;
 
             (last_seq, agent)
         };

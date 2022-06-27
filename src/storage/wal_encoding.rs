@@ -85,6 +85,8 @@ impl WALChunks {
 
             Ok(())
         })?;
+
+        self.next_version = next;
         Ok(())
     }
 }
@@ -102,6 +104,9 @@ mod test {
     #[test]
     fn simple_encode_test() {
         let mut oplog = NewOpLog::new();
+        let mut wal = WALChunks::open("test.wal").unwrap();
+        // wal.flush(&oplog).unwrap(); // Should do nothing!
+
         // dbg!(&oplog);
 
         let seph = oplog.get_or_create_agent_id("seph");
@@ -110,6 +115,7 @@ mod test {
 
         oplog.set_at_path(seph, &[Key("name")], I64(1));
         oplog.set_at_path(seph, &[Key("name")], I64(2));
+        // wal.flush(&oplog).unwrap();
         oplog.set_at_path(seph, &[Key("name")], I64(3));
         oplog.set_at_path(mike, &[Key("name")], I64(4));
         // dbg!(oplog.checkout(&oplog.version));
@@ -117,7 +123,6 @@ mod test {
         // dbg!(&oplog);
         oplog.dbg_check(true);
 
-        let mut wal = WALChunks::open("test.wal").unwrap();
         wal.flush(&oplog).unwrap();
     }
 }

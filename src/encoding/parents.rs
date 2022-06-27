@@ -64,7 +64,7 @@ pub fn encode_parents<'a, I: Iterator<Item=MinimalHistoryEntry>>(bump: &'a Bump,
                     // println!("Region does not contain parent for {}", p);
 
                     let item = oplog.version_to_crdt_id(p);
-                    let mapped_agent = map.map(&oplog.client_data, item.agent);
+                    let mapped_agent = map.map_root(&oplog.client_data, item.agent);
                     debug_assert!(mapped_agent >= 1);
 
                     // There are probably more compact ways to do this, but the txn data set is
