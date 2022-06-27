@@ -3,6 +3,7 @@ use bumpalo::Bump;
 use crate::{CRDTSpan, KVPair, LocalVersion, NewOpLog, Time};
 use crate::encoding::agent_assignment::{AgentMapping, encode_agent_assignment};
 use crate::encoding::ChunkType;
+use crate::encoding::op_contents::encode_op_contents;
 use crate::encoding::parents::encode_parents;
 use crate::encoding::tools::push_chunk;
 use crate::storage::wal::{WALError, WriteAheadLog};
@@ -19,7 +20,7 @@ impl WALChunks {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, WALError> {
         Ok(Self {
             wal: WriteAheadLog::open(path, |chunk| {
-                dbg!(chunk);
+                // dbg!(chunk);
                 Ok(())
             })?,
             next_version: 0
@@ -61,10 +62,26 @@ impl WALChunks {
 
             // buf.extend_from_slice(&map.into_output());
 
+            let first_set_idx = oplog.register_set_operations
+                .binary_search_by_key(&self.next_version, |e| e.0)
+                .unwrap_or_else(|idx| idx);
+
+            let op_contents = if first_set_idx < oplog.register_set_operations.len() {
+                let iter = oplog.register_set_operations[first_set_idx..]
+                    .iter()
+                    .map(|(_, value)| value);
+                Some(encode_op_contents(bump, iter, oplog))
+            } else { None };
+
+
             push_chunk(buf, ChunkType::AgentNames, &map.into_output());
             push_chunk(buf, ChunkType::OpVersions, &aa);
             push_chunk(buf, ChunkType::OpParents, &parents);
+            if let Some(op_contents) = op_contents {
+                push_chunk(buf, ChunkType::SetContent, &op_contents);
+            }
             dbg!(&buf[start..]);
+            dbg!(buf.len() - start);
 
             Ok(())
         })?;
@@ -94,7 +111,7 @@ mod test {
         oplog.set_at_path(seph, &[Key("name")], I64(1));
         oplog.set_at_path(seph, &[Key("name")], I64(2));
         oplog.set_at_path(seph, &[Key("name")], I64(3));
-        oplog.set_at_path(mike, &[Key("name")], I64(3));
+        oplog.set_at_path(mike, &[Key("name")], I64(4));
         // dbg!(oplog.checkout(&oplog.version));
 
         // dbg!(&oplog);

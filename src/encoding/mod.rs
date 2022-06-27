@@ -19,6 +19,7 @@ pub(crate) mod parseerror;
 pub(crate) mod agent_assignment;
 pub(crate) mod tools;
 pub(crate) mod parents;
+pub(crate) mod op_contents;
 // mod agent_assignment;
 
 
@@ -39,8 +40,11 @@ pub(crate) enum ChunkType {
     StartBranch = 10,
     Version = 12,
     /// StartBranch content is optional.
-    Content = 13,
-    ContentCompressed = 14, // Might make more sense to have a generic compression tag for chunks.
+    TextContent = 13,
+    TextContentCompressed = 14, // Might make more sense to have a generic compression tag for chunks.
+
+    SetContent = 15,
+    SetContentCompressed = 16,
 
     Patches = 20,
     OpVersions = 21,
