@@ -101,21 +101,21 @@ impl NewOpLog {
 
     // pub(crate) fn append_create_inner_crdt(&mut self, agent_id: AgentId, parents: &[Time], parent_crdt_id: ScopeId, kind: CRDTKind) -> (Time, ScopeId) {
     // fn create_at_path(&mut self, agent_id: AgentId, parents: &[Time], path: Path, kind: CRDTKind)
-    pub fn create_crdt_at_path(&mut self, agent_id: AgentId, path: Path, kind: CRDTKind) {
+    pub fn create_crdt_at_path(&mut self, agent_id: AgentId, path: Path, kind: CRDTKind) -> Time {
         let v = self.now(); // I hate this.
         let scope = self.item_at_path_mut(path, &v).unwrap_crdt();
-        self.append_create_inner_crdt(agent_id, &v, scope, kind);
+        self.append_create_inner_crdt(agent_id, &v, scope, kind).0
     }
 
-    pub fn create_map_at_path(&mut self, agent_id: AgentId, path: Path) {
+    pub fn create_map_at_path(&mut self, agent_id: AgentId, path: Path) -> Time {
         let v = self.now(); // :/
         let scope = self.item_at_path_mut(path, &v).unwrap_crdt();
-        self.append_set_new_map(agent_id, &v, scope);
+        self.append_set_new_map(agent_id, &v, scope).0
     }
 
-    pub fn set_at_path(&mut self, agent_id: AgentId, path: Path, value: Primitive) {
+    pub fn set_at_path(&mut self, agent_id: AgentId, path: Path, value: Primitive) -> Time {
         let v = self.now(); // :(
         let scope = self.item_at_path_mut(path, &v).unwrap_crdt();
-        self.append_set(agent_id, &v, scope, value);
+        self.append_set(agent_id, &v, scope, value)
     }
 }

@@ -1,10 +1,10 @@
 use bumpalo::Bump;
 use rle::HasLength;
-use crate::encoding::tools::push_usize;
+use crate::encoding::tools::{push_str, push_usize};
 use crate::encoding::varint::*;
 use crate::history::MinimalHistoryEntry;
 use crate::remotespan::CRDTGuid;
-use crate::{DTRange, KVPair, NewOpLog, RleVec};
+use crate::{AgentId, DTRange, KVPair, NewOpLog, RleVec};
 use crate::encoding::agent_assignment::AgentMapping;
 use crate::encoding::Merger;
 use bumpalo::collections::vec::Vec as BumpVec;
@@ -34,8 +34,11 @@ fn write_txn_parents(result: &mut BumpVec<u8>, txn: &MinimalHistoryEntry,
         while let Some(&p) = iter.next() {
             let has_more = iter.peek().is_some();
 
-            let mut write_parent_diff = |mut n: usize, is_foreign: bool| {
+            let mut write_parent_diff = |mut n: usize, is_foreign: bool, is_known: bool| {
                 n = mix_bit_usize(n, has_more);
+                if is_foreign {
+                    n = mix_bit_usize(n, is_known);
+                }
                 n = mix_bit_usize(n, is_foreign);
                 push_usize(result, n);
             };
@@ -53,14 +56,13 @@ fn write_txn_parents(result: &mut BumpVec<u8>, txn: &MinimalHistoryEntry,
                 // But allowing unsorted local parents is vaguely upsetting.
                 let mapped_parent = map.1.start + offset;
 
-                write_parent_diff(output_range.start - mapped_parent, false);
+                write_parent_diff(output_range.start - mapped_parent, false, true);
             } else {
                 // Foreign change
                 // println!("Region does not contain parent for {}", p);
 
                 let item = oplog.version_to_crdt_id(p);
                 let mapped_agent = agent_map.map_maybe_root(&oplog.client_data, item.agent);
-                debug_assert!(mapped_agent >= 1);
 
                 // There are probably more compact ways to do this, but the txn data set is
                 // usually quite small anyway, even in large histories. And most parents objects
@@ -68,7 +70,16 @@ fn write_txn_parents(result: &mut BumpVec<u8>, txn: &MinimalHistoryEntry,
                 // here.
                 //
                 // I'm adding 1 to the mapped agent to make room for ROOT. This is quite dirty!
-                write_parent_diff(mapped_agent as usize, true);
+                match mapped_agent {
+                    Ok(mapped_agent) => {
+                        debug_assert!(mapped_agent >= 1); // 0 == ROOT, which should be handled above.
+                        write_parent_diff(mapped_agent as usize, true, true);
+                    }
+                    Err(name) => {
+                        write_parent_diff(0, true, false);
+                        push_str(result, name);
+                    }
+                }
                 push_usize(result, item.seq);
             }
         }

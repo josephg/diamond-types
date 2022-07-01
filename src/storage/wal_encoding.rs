@@ -49,16 +49,18 @@ impl WALChunks {
         self.wal.write_chunk(|bump, buf| {
             let start = buf.len();
 
-            let mut map = AgentMapping::new(bump, &oplog.client_data);
+            let mut map = AgentMapping::new(&oplog.client_data);
 
             let iter = oplog.client_with_localtime
                 .iter_range_packed(range)
                 .map(|KVPair(_, span)| span);
             let aa = encode_agent_assignment(bump, iter, oplog, &mut map);
+            // dbg!(&map);
 
             let hist_iter = oplog.history.entries
                 .iter_range_map_packed(range, |h| h.into());
             let parents = encode_parents(bump, hist_iter, &mut map, oplog);
+            // dbg!(&map);
 
             // buf.extend_from_slice(&map.into_output());
 
@@ -72,9 +74,9 @@ impl WALChunks {
                     .map(|(_, value)| value);
                 Some(encode_op_contents(bump, iter, oplog))
             } else { None };
-
-
-            push_chunk(buf, ChunkType::AgentNames, &map.into_output());
+            
+            // dbg!(map.into_output());
+            // push_chunk(buf, ChunkType::AgentNames, &map.into_output());
             push_chunk(buf, ChunkType::OpVersions, &aa);
             push_chunk(buf, ChunkType::OpParents, &parents);
             if let Some(op_contents) = op_contents {
@@ -94,7 +96,7 @@ impl WALChunks {
 #[cfg(test)]
 mod test {
     use crate::new_oplog::Primitive::I64;
-    use crate::new_oplog::ROOT_MAP;
+    use crate::new_oplog::{Primitive, ROOT_MAP};
     use crate::NewOpLog;
     use crate::path::PathComponent;
     use crate::path::PathComponent::Key;
@@ -114,10 +116,14 @@ mod test {
         let mut v = 0;
 
         oplog.set_at_path(seph, &[Key("name")], I64(1));
-        oplog.set_at_path(seph, &[Key("name")], I64(2));
+        let t = oplog.set_at_path(seph, &[Key("name")], I64(2));
         // wal.flush(&oplog).unwrap();
         oplog.set_at_path(seph, &[Key("name")], I64(3));
         oplog.set_at_path(mike, &[Key("name")], I64(4));
+        wal.flush(&oplog).unwrap();
+
+        let item = oplog.get_or_create_map_child(ROOT_MAP, "child".into());
+        oplog.append_set(mike, &[t], item, Primitive::I64(321));
         // dbg!(oplog.checkout(&oplog.version));
 
         // dbg!(&oplog);

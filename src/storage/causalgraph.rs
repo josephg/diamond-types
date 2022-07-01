@@ -1,8 +1,8 @@
-//! This is an experiment in storing the time dag (causal graph) in a file.
+//! This is an experiment in storing the causal graph (time DAG) in a file.
 //!
 //! The file starts with magic bytes ("DMNDT_CG") and a version.
 //!
-//! Then we have the blitting buffers. The buffers store outstanding entries for both agent
+//! Then we have the 2 blitting buffers. The buffers store outstanding entries for both agent
 //! assignment and parent information.
 //!
 //! Then all the chunks. Each chunk has a type.
@@ -422,7 +422,7 @@ impl CausalGraphStorage {
 mod test {
     use rand::{Rng, RngCore};
     use rle::RleRun;
-    use crate::storage::timedag::CausalGraphStorage;
+    use crate::storage::causalgraph::CausalGraphStorage;
 
     #[test]
     fn foo() {
