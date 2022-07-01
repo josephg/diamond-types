@@ -14,7 +14,7 @@ use num_enum::TryFromPrimitive;
 // Notes for next time I break compatibility:
 // - Version in encode::write_local_version - skip second 0 if its ROOT.
 pub mod varint;
-mod bufreader;
+pub(crate) mod bufparser;
 pub(crate) mod parseerror;
 pub(crate) mod agent_assignment;
 pub(crate) mod tools;

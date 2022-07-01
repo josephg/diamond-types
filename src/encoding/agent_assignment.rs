@@ -3,7 +3,7 @@ use bumpalo::Bump;
 use rle::{HasLength, MergableSpan};
 use crate::{AgentId, ClientData, CRDTSpan, DTRange, NewOpLog, ROOT_AGENT};
 use crate::encoding::Merger;
-use crate::encoding::bufreader::BufReader;
+use crate::encoding::bufparser::BufParser;
 use crate::encoding::tools::push_str;
 use crate::encoding::varint::*;
 use bumpalo::collections::vec::Vec as BumpVec;
@@ -42,7 +42,7 @@ impl<'a> AgentMapping<'a> {
         })
     }
 
-    pub(crate) fn map_root(&mut self, client_data: &[ClientData], agent: AgentId) -> AgentId {
+    pub(crate) fn map_maybe_root(&mut self, client_data: &[ClientData], agent: AgentId) -> AgentId {
         if agent == ROOT_AGENT { 0 }
         else { self.map_no_root(client_data, agent) + 1 }
     }

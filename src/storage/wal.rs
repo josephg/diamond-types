@@ -19,6 +19,7 @@ const WAL_HEADER_LENGTH_U64: u64 = WAL_HEADER_LENGTH as u64;
 pub struct WriteAheadLog(File);
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum WALError {
     InvalidHeader,
     UnexpectedEOF,

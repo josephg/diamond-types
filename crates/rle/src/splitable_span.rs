@@ -335,11 +335,12 @@ impl<T: Clone + Eq> SplitableSpanHelpers for RleRun<T> {
 }
 impl<T: Clone + Eq> MergableSpan for RleRun<T> {
     fn can_append(&self, other: &Self) -> bool {
-        self.val == other.val
+        self.val == other.val || self.len == 0
     }
 
     fn append(&mut self, other: Self) {
         self.len += other.len;
+        self.val = other.val; // Needed when we use default() - which gives it a length of 0.
     }
 }
 

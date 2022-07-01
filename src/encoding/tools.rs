@@ -19,19 +19,19 @@ impl<'a> ExtendFromSlice for BumpVec<'a, u8> {
     }
 }
 
-pub(super) fn push_u32<V: ExtendFromSlice>(into: &mut V, val: u32) {
+pub(crate) fn push_u32<V: ExtendFromSlice>(into: &mut V, val: u32) {
     let mut buf = [0u8; 5];
     let pos = encode_u32(val, &mut buf);
     into.extend_from_slice(&buf[..pos]);
 }
 
-pub(super) fn push_u64<V: ExtendFromSlice>(into: &mut V, val: u64) {
+pub(crate) fn push_u64<V: ExtendFromSlice>(into: &mut V, val: u64) {
     let mut buf = [0u8; 10];
     let pos = encode_u64(val, &mut buf);
     into.extend_from_slice(&buf[..pos]);
 }
 
-pub(super) fn push_usize<V: ExtendFromSlice>(into: &mut V, val: usize) {
+pub(crate) fn push_usize<V: ExtendFromSlice>(into: &mut V, val: usize) {
     if size_of::<usize>() <= size_of::<u32>() {
         push_u32(into, val as u32);
     } else if size_of::<usize>() == size_of::<u64>() {

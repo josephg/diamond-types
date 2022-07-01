@@ -13,7 +13,6 @@ use crate::list::remote_ids::ConversionError;
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 #[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(Serialize), serde(crate="serde_crate"))]
 pub enum ParseError {
     InvalidMagic,
     UnsupportedProtocolVersion,
