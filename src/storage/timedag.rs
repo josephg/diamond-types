@@ -2,9 +2,10 @@
 //!
 //! The file starts with magic bytes ("DMNDT_CG") and a version.
 //!
-//! Then we have the blitting buffers - 2 for agent assignment and 2 for parents.
+//! Then we have the blitting buffers. The buffers store outstanding entries for both agent
+//! assignment and parent information.
 //!
-//! Then all the chunks.
+//! Then all the chunks. Each chunk has a type.
 //!
 //!
 //! Blitting buffers contain:
@@ -35,10 +36,10 @@ use crate::NewOpLog;
 const CG_MAGIC_BYTES: [u8; 8] = *b"DMNDT_CG";
 const CG_VERSION: [u8; 4] = 1u32.to_le_bytes();
 
-const CG_AA_DEFAULT_BLIT_SIZE: u64 = 64;
-const CG_PARENTS_DEFAULT_BLIT_SIZE: u64 = 64;
+const CG_DEFAULT_BLIT_SIZE: u64 = 64;
 
-const CG_HEADER_LENGTH: usize = CG_MAGIC_BYTES.len() + CG_VERSION.len() + 4 + 4;
+// Magic bytes, version then blit size.
+const CG_HEADER_LENGTH: usize = CG_MAGIC_BYTES.len() + CG_VERSION.len() + 4;
 const CG_HEADER_LENGTH_U64: u64 = CG_HEADER_LENGTH as u64;
 
 const MAX_BLIT_SIZE: usize = 1024;
@@ -103,19 +104,20 @@ impl<'a> Ord for Blit<'a> {
 struct CausalGraphStorage {
     file: File,
 
-    aa_blit_size: u64,
-    parents_blit_size: u64,
+    blit_size: u64,
 
-    // last_parents: MinimalHistoryEntry,
-
-    parents_next_idx: usize,
-    next_parents_counter: usize,
-
+    /// The write location is the position in the file where the next written chunk will go.
+    /// This is an offset from the start of the data chunk (after header & blits).
     next_write_location: u64,
+
+    /// The counter increments by 1 every time we update a blit without flushing a new chunk. Resets
+    /// to 0 every time we write a chunk (and thus the write location increases).
+    next_counter: usize,
 
     /// Set when we've appended data to the file but haven't marked the new file length via a blit
     /// operations. Call .flush() kiddos!
     dirty: bool,
+    /// False when we're ready to write blit 0, true when we're about to write blit 1.
     next_blit: bool,
 
     last_entry: RleRun<bool>,
@@ -132,24 +134,23 @@ impl CausalGraphStorage {
 
         let mut total_len = file.seek(SeekFrom::End(0))?;
         file.seek(SeekFrom::Start(0))?;
-        let (aa_blit_size, parents_blit_size) = Self::read_header(&mut file, total_len)?;
+        let blit_size = Self::read_header(&mut file, total_len)?;
         debug_assert_eq!(file.stream_position()?, CG_HEADER_LENGTH_U64);
         total_len = total_len.max(CG_HEADER_LENGTH_U64);
 
         let mut cgs = Self {
             file,
 
-            aa_blit_size,
-            parents_blit_size,
+            blit_size,
 
-            parents_next_idx: 0,
-            next_parents_counter: 0,
+            next_counter: 0,
             next_write_location: 0,
             dirty: false,
             next_blit: false,
             last_entry: Default::default(),
         };
 
+        // If the file doesn't have room for the blit data, its probably new. Just set_len().
         let ds = cgs.data_start();
         if total_len < ds {
             cgs.file.set_len(ds)?;
@@ -157,12 +158,48 @@ impl CausalGraphStorage {
             cgs.file.sync_all(); // Force update metadata to include the new size.
         }
 
-        // Next we need to read the blit data to find out the file size.
+        // Next we need to read the blit data to find out the flushed file size. Any bytes after
+        // the file size specified in the last blit come from stale writes, and they're discarded.
 
-        let mut raw_buf = [0u8; MAX_BLIT_SIZE];
-        let bs_u = parents_blit_size as usize;
+        // The blits will be read into the provided (stack) buffer.
+        let mut raw_buf = [0u8; MAX_BLIT_SIZE * 2];
+        let active_blit = cgs.read_initial_blits(&mut raw_buf, blit_size);
+
+        let committed_filesize = active_blit.filesize;
+
+        // dbg!(&active_blit);
+
+        assert!(committed_filesize <= total_len - cgs.data_start());
+
+        debug_assert_eq!(cgs.file.stream_position()?, cgs.data_start());
+
+
+        // Now scan all the entries in the data chunk.
+
+        // TODO: This is suuuper duper dirty!
+        let mut buf = vec![0u8; active_blit.filesize as usize];
+        cgs.file.read_exact(&mut buf);
+        // dbg!(&buf);
+
+        let mut r = BufParser(&buf);
+        while !r.is_empty() {
+            let value = Self::read_run(&mut r);
+            dbg!(value);
+        }
+        if !active_blit.data.is_empty() {
+            cgs.last_entry = Self::read_run(&mut BufParser(active_blit.data));
+            dbg!(&cgs.last_entry);
+        }
+
+        debug_assert_eq!(cgs.file.stream_position()?, cgs.data_start() + committed_filesize);
+
+        Ok(cgs)
+    }
+
+    fn read_initial_blits<'a>(&mut self, raw_buf: &'a mut [u8; MAX_BLIT_SIZE * 2], blit_size: u64) -> Blit<'a> {
+        let bs_u = blit_size as usize;
         let mut buf = &mut raw_buf[..bs_u * 2];
-        cgs.file.read_exact(buf);
+        self.file.read_exact(buf);
 
         let b1 = Self::read_blit(&buf[0..bs_u]);
         let b2 = Self::read_blit(&buf[bs_u..bs_u * 2]);
@@ -184,53 +221,12 @@ impl CausalGraphStorage {
                 }, false)
             }
         };
-        cgs.next_blit = next_blit;
-        cgs.next_parents_counter = active_blit.counter + 1;
-        dbg!(next_blit);
-        cgs.file.seek(SeekFrom::Current(aa_blit_size as i64 * 2))?;
 
-        let committed_filesize = active_blit.filesize;
+        self.next_blit = next_blit;
+        self.next_counter = active_blit.counter + 1;
+        self.next_write_location = active_blit.filesize;
 
-        // dbg!(&active_blit);
-
-        assert!(committed_filesize <= total_len - cgs.data_start());
-
-
-        debug_assert_eq!(cgs.file.stream_position()?, cgs.data_start());
-
-        let mut buf = vec![0u8; active_blit.filesize as usize];
-        cgs.file.read_exact(&mut buf);
-        // dbg!(&buf);
-
-        let mut r = BufParser(&buf);
-        while !r.is_empty() {
-            let value = Self::read_run(&mut r);
-            dbg!(value);
-        }
-        if !active_blit.data.is_empty() {
-            cgs.last_entry = Self::read_run(&mut BufParser(active_blit.data));
-            dbg!(&cgs.last_entry);
-        }
-
-
-        cgs.next_write_location = committed_filesize;
-
-        // cgs.write_data(&[1,2,3]);
-        // cgs.flush();
-
-        // let data = cgs.file.read_exact()
-
-
-        // cgs.file.seek(SeekFrom::Start(CG_HEADER_LENGTH_U64));
-        // Self::write_blit(BufWriter::new(&mut cgs.file), Blit {
-        //     filesize: 123,
-        //     counter: 321,
-        //     data: BufParser(&[1,2,3])
-        // }).unwrap();
-
-        // cgs.read_blits(total_len)?;
-
-        Ok(cgs)
+        active_blit
     }
 
     fn read_blit(buf: &[u8]) -> Result<Blit, CGError> {
@@ -270,16 +266,16 @@ impl CausalGraphStorage {
     }
 
     fn next_blit_location(&self) -> u64 {
-        CG_HEADER_LENGTH_U64 + (self.parents_blit_size * self.next_blit as u64)
+        CG_HEADER_LENGTH_U64 + (self.blit_size * self.next_blit as u64)
     }
 
     fn push_data_blit(&mut self, data: &[u8]) -> Result<(), io::Error> {
         self.write_blit(Blit {
             filesize: self.next_write_location,
-            counter: self.next_parents_counter,
+            counter: self.next_counter,
             data
         })?;
-        self.next_parents_counter += 1;
+        self.next_counter += 1;
         self.dirty = false;
         Ok(())
     }
@@ -288,7 +284,7 @@ impl CausalGraphStorage {
         debug_assert_eq!(self.file.seek(SeekFrom::Current(0)).unwrap(), self.next_write_location + self.data_start());
         self.file.seek(SeekFrom::Start(self.next_blit_location()));
 
-        Self::write_blit_to(BufWriter::new(&mut self.file), self.parents_blit_size, blit)?;
+        Self::write_blit_to(BufWriter::new(&mut self.file), self.blit_size, blit)?;
         self.file.flush()?;
         self.file.sync_data()?;
 
@@ -332,7 +328,7 @@ impl CausalGraphStorage {
 
         self.file.write_all(data)?;
         self.next_write_location += data.len() as u64;
-        self.next_parents_counter = 0;
+        self.next_counter = 0;
 
         self.dirty = true;
 
@@ -340,77 +336,54 @@ impl CausalGraphStorage {
     }
 
     fn data_start(&self) -> u64 {
-        CG_HEADER_LENGTH_U64 + (self.aa_blit_size + self.parents_blit_size) * 2
+        CG_HEADER_LENGTH_U64 + self.blit_size * 2
     }
 
-    fn read_header(mut file: &mut File, total_len: u64) -> Result<(u64, u64), CGError> {
+    /// Returns blit size.
+    fn read_header(mut file: &mut File, total_len: u64) -> Result<u64, CGError> {
         let blitsize = if total_len < CG_HEADER_LENGTH_U64 {
             // Presumably we're creating a new file.
             let mut bw = BufWriter::new(file);
             bw.write_all(&CG_MAGIC_BYTES)?;
             bw.write_all(&CG_VERSION)?;
-            bw.write_all(&(CG_AA_DEFAULT_BLIT_SIZE as u32).to_le_bytes());
-            bw.write_all(&(CG_PARENTS_DEFAULT_BLIT_SIZE as u32).to_le_bytes());
+            bw.write_all(&(CG_DEFAULT_BLIT_SIZE as u32).to_le_bytes());
 
             file = bw.into_inner().map_err(|e| e.into_error())?;
             file.sync_all();
 
-            (CG_AA_DEFAULT_BLIT_SIZE, CG_PARENTS_DEFAULT_BLIT_SIZE)
+            CG_DEFAULT_BLIT_SIZE
         } else {
             // Check the WAL header.
             let mut header = [0u8; CG_HEADER_LENGTH];
             file.read_exact(&mut header)?;
             let mut pos = 0;
             if header[0..CG_MAGIC_BYTES.len()] != CG_MAGIC_BYTES {
-                eprintln!("WAL has invalid magic bytes");
+                eprintln!("Causality graph has invalid magic bytes");
                 return Err(CGError::InvalidHeader);
             }
             pos += CG_MAGIC_BYTES.len();
 
             if header[pos..pos + CG_VERSION.len()] != CG_VERSION {
-                eprintln!("WAL has unknown version");
+                eprintln!("Causality graph has unknown version");
                 return Err(CGError::InvalidHeader);
             }
             pos += CG_VERSION.len();
 
-            // Read the blit sizes
+            // Read the blit size.
             // This try_into stuff will get optimized out: https://godbolt.org/z/f886W5hvW
-            let b1 = u32::from_le_bytes(header[pos..pos+4].try_into().unwrap()) as u64;
+            let blit_size = u32::from_le_bytes(header[pos..pos+4].try_into().unwrap()) as u64;
+            if blit_size > MAX_BLIT_SIZE as u64 {
+                eprintln!("Causality graph has invalid blit size ({blit_size} > {MAX_BLIT_SIZE})");
+                return Err(CGError::InvalidHeader);
+            }
             pos += 4;
 
-            let b2 = u32::from_le_bytes(header[pos..pos+4].try_into().unwrap()) as u64;
-            pos += 4;
-
-            (b1, b2)
+            blit_size
         };
 
         debug_assert_eq!(file.stream_position()?, CG_HEADER_LENGTH_U64);
         Ok(blitsize)
     }
-
-    // fn consume_chunk(r: &mut BufReader<&mut File>, max_bytes: u64) -> Result<(), CGError> {
-    //     // r.rea
-    //     Ok(())
-    // }
-    //
-    // fn read_blits(&mut self, total_length: u64) -> Result<(), CGError> {
-    //     // debug_assert_eq!(self.file.stream_position()?, self.data_start());
-    //     //
-    //     // let mut pos = self.data_start();
-    //     //
-    //     // let mut r = BufReader::new(&mut self.file);
-    //     //
-    //     // while pos < total_length {
-    //     //     debug_assert_eq!(r.stream_position()?, pos);
-    //     //     Self::consume_chunk(&mut r, total_length - pos);
-    //     // }
-    //     //
-    //     Ok(())
-    // }
-
-    // pub fn append(&mut self, h: &MinimalHistoryEntry, oplog: &NewOpLog) {
-    //
-    // }
 
     fn encode_run(data: &RleRun<bool>) -> Vec<u8> {
         let mut result = vec![];
