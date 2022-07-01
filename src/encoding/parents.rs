@@ -9,16 +9,22 @@ use crate::encoding::agent_assignment::AgentMapping;
 use crate::encoding::Merger;
 use bumpalo::collections::vec::Vec as BumpVec;
 
-type TxnMap = RleVec::<KVPair<DTRange>>;
+/// Map from local oplog versions -> file versions. Each entry is KVPair(local start, file range).
+pub(crate) type TxnMap = RleVec::<KVPair<DTRange>>;
 
-fn write_txn_parents(result: &mut BumpVec<u8>, txn: &MinimalHistoryEntry,
-                     next_output_time: usize, txn_map: &mut TxnMap, agent_map: &mut AgentMapping,
-                     oplog: &NewOpLog,
+pub(crate) fn write_txn_parents(result: &mut BumpVec<u8>, mut tag: bool, txn: &MinimalHistoryEntry,
+                     txn_map: &mut TxnMap, agent_map: &mut AgentMapping, persist: bool, oplog: &NewOpLog,
 ) {
     let len = txn.len();
+
+    let next_output_time = txn_map.last().map_or(0, |last| last.1.end);
     let output_range = (next_output_time .. next_output_time + len).into();
+
+    // NOTE: we're using .insert instead of .push here so the txn_map stays in the expected order!
+    if persist {
+        txn_map.insert(KVPair(txn.span.start, output_range));
+    }
     // txn_map.push(KVPair(txn.span.start, output_range));
-    txn_map.insert(KVPair(txn.span.start, output_range));
 
     // And the parents.
     if txn.parents.is_empty() {
@@ -27,10 +33,12 @@ fn write_txn_parents(result: &mut BumpVec<u8>, txn: &MinimalHistoryEntry,
         // value with foreign 0 here, because we (unfortunately) need to mark the list is
         // empty.
 
-        // let n = 0, has_more = false, is_foreign = true. -> val = 1.
-        push_usize(result, 1);
+        // let mapped_agent = 0, has_more = false, is_foreign = true, first = true -> val = 2.
+        // push_usize(result, 2);
+        push_usize(result, if tag { 2 } else { 1 });
     } else {
         let mut iter = txn.parents.iter().peekable();
+        // let mut first = true;
         while let Some(&p) = iter.next() {
             let has_more = iter.peek().is_some();
 
@@ -40,6 +48,9 @@ fn write_txn_parents(result: &mut BumpVec<u8>, txn: &MinimalHistoryEntry,
                     n = mix_bit_usize(n, is_known);
                 }
                 n = mix_bit_usize(n, is_foreign);
+                if std::mem::take(&mut tag) {
+                    n = mix_bit_usize(n, false);
+                }
                 push_usize(result, n);
             };
 
@@ -48,6 +59,7 @@ fn write_txn_parents(result: &mut BumpVec<u8>, txn: &MinimalHistoryEntry,
             // local part of the DAG we're sending.
             //
             // Most parents will be local.
+
             if let Some((map, offset)) = txn_map.find_with_offset(p) {
                 // Local change!
                 // TODO: There's a sort of bug here. Local parents should (probably?) be sorted
@@ -62,7 +74,7 @@ fn write_txn_parents(result: &mut BumpVec<u8>, txn: &MinimalHistoryEntry,
                 // println!("Region does not contain parent for {}", p);
 
                 let item = oplog.version_to_crdt_id(p);
-                let mapped_agent = agent_map.map_maybe_root(&oplog.client_data, item.agent);
+                let mapped_agent = agent_map.map_maybe_root(&oplog.client_data, item.agent, persist);
 
                 // There are probably more compact ways to do this, but the txn data set is
                 // usually quite small anyway, even in large histories. And most parents objects
@@ -72,7 +84,8 @@ fn write_txn_parents(result: &mut BumpVec<u8>, txn: &MinimalHistoryEntry,
                 // I'm adding 1 to the mapped agent to make room for ROOT. This is quite dirty!
                 match mapped_agent {
                     Ok(mapped_agent) => {
-                        debug_assert!(mapped_agent >= 1); // 0 == ROOT, which should be handled above.
+                        // If the parent is ROOT, the parents is empty - which is handled above.
+                        debug_assert!(mapped_agent >= 1);
                         write_parent_diff(mapped_agent as usize, true, true);
                     }
                     Err(name) => {
@@ -92,7 +105,8 @@ pub fn encode_parents<'a, I: Iterator<Item=MinimalHistoryEntry>>(bump: &'a Bump,
     let mut result = BumpVec::new_in(bump);
 
     Merger::new(|txn: MinimalHistoryEntry, map: &mut AgentMapping| {
-        write_txn_parents(&mut result, &txn, next_output_time, &mut txn_map, map, oplog);
+        // next_output_time,
+        write_txn_parents(&mut result, false, &txn, &mut txn_map, map, true, oplog);
         next_output_time += txn.len();
     }).flush_iter2(iter, map);
 

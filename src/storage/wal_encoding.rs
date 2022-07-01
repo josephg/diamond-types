@@ -54,7 +54,7 @@ impl WALChunks {
             let iter = oplog.client_with_localtime
                 .iter_range_packed(range)
                 .map(|KVPair(_, span)| span);
-            let aa = encode_agent_assignment(bump, iter, oplog, &mut map);
+            let aa = encode_agent_assignment(bump, iter, &oplog.client_data, &mut map);
             // dbg!(&map);
 
             let hist_iter = oplog.history.entries
@@ -74,7 +74,7 @@ impl WALChunks {
                     .map(|(_, value)| value);
                 Some(encode_op_contents(bump, iter, oplog))
             } else { None };
-            
+
             // dbg!(map.into_output());
             // push_chunk(buf, ChunkType::AgentNames, &map.into_output());
             push_chunk(buf, ChunkType::OpVersions, &aa);
