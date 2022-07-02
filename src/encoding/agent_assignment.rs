@@ -8,6 +8,7 @@ use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
 use crate::encoding::varint::*;
 use bumpalo::collections::vec::Vec as BumpVec;
 use bumpalo::{vec as bumpvec};
+use crate::encoding::parseerror::ParseError;
 
 #[derive(Debug, Clone)]
 pub struct AgentMapping {
@@ -61,7 +62,7 @@ impl AgentMapping {
 // pub(crate) type LastSeqForAgent<'a> = BumpVec<'a, usize>;
 pub(crate) type LastSeqForAgent = Vec<usize>;
 
-pub(crate) fn write_agent_assignment_span(result: &mut BumpVec<u8>, tag: bool, span: CRDTSpan,
+pub(crate) fn write_agent_assignment_span(result: &mut BumpVec<u8>, mut tag: Option<bool>, span: CRDTSpan,
                                           agent_map: &mut AgentMapping, last_seq_for_agent: &mut LastSeqForAgent,
                                           persist: bool, client_data: &[ClientData]) {
     // Its rare, but possible for the agent assignment sequence to jump around a little.
@@ -94,8 +95,8 @@ pub(crate) fn write_agent_assignment_span(result: &mut BumpVec<u8>, tag: bool, s
     let mut write_n = |mapped_agent: u32, is_known: bool| {
         let mut n = mix_bit_u32(mapped_agent, delta != 0);
         n = mix_bit_u32(n, is_known);
-        if tag {
-            n = mix_bit_u32(n, true);
+        if let Some(tag) = tag.take() {
+            n = mix_bit_u32(n, tag);
         }
         push_u32(result, n);
         // pos += encode_u32(n, &mut buf);
@@ -126,7 +127,7 @@ pub(crate) fn encode_agent_assignment<'a, I: Iterator<Item=CRDTSpan>>(bump: &'a 
     let mut result = BumpVec::new_in(bump);
 
     Merger::new(|span: CRDTSpan, map: &mut AgentMapping| {
-        write_agent_assignment_span(&mut result, false, span, map, &mut last_seq_for_agent, true, client_data);
+        write_agent_assignment_span(&mut result, None, span, map, &mut last_seq_for_agent, true, client_data);
     }).flush_iter2(iter, map);
 
     result
@@ -143,49 +144,52 @@ pub fn isize_diff(x: usize, y: usize) -> isize {
     result as isize
 }
 
-// impl RlePackReadCursor for AgentAssignmentCursor {
-//     type Item = CRDTSpan;
+
+// fn read_agent_assignment(reader: &mut BufParser, tagged: bool) -> Result<CRDTSpan, ParseError> {
+//     // fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {
+//     // Agent assignments are almost always (but not always) linear. They can have gaps, and
+//     // they can be reordered if the same agent ID is used to contribute to multiple branches.
+//     //
+//     // I'm still not sure if this is a good idea.
 //
-//     fn read(&mut self, reader: &mut BufReader) -> Result<Option<Self::Item>, ParseError> {
-//         // fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {
-//         // Agent assignments are almost always (but not always) linear. They can have gaps, and
-//         // they can be reordered if the same agent ID is used to contribute to multiple branches.
-//         //
-//         // I'm still not sure if this is a good idea.
+//     // if reader.is_empty() { return Ok(None); }
+//     // if reader.is_empty() { return Err(ParseError::UnexpectedEOF); }
 //
-//         if reader.is_empty() { return Ok(None); }
-//
-//         let mut n = reader.next_usize()?;
-//         let has_jump = strip_bit_usize2(&mut n);
-//         let len = reader.next_usize()?;
-//
-//         let jump = if has_jump {
-//             reader.next_zigzag_isize()?
-//         } else { 0 };
-//
-//         // The agent mapping uses 0 to refer to ROOT, but no actual operations can be assigned to
-//         // the root agent.
-//         // if n == 0 {
-//         //     return Err(ParseError::InvalidLength);
-//         // }
-//
-//         // let inner_agent = n - 1;
-//         let inner_agent = n;
-//         if inner_agent >= map.len() {
-//             return Err(ParseError::InvalidLength);
-//         }
-//
-//         let entry = &mut map[inner_agent];
-//         let agent = entry.0;
-//
-//         // TODO: Error if this overflows.
-//         let start = (entry.1 as isize + jump) as usize;
-//         let end = start + len;
-//         entry.1 = end;
-//
-//         Ok(Some(CRDTSpan {
-//             agent,
-//             seq_range: (start..end).into(),
-//         }))
+//     let mut n = reader.next_usize()?;
+//     if tagged {
+//         // Ditch the tag.
+//         strip_bit_usize2(&mut n);
 //     }
+//
+//     let is_known = strip_bit_usize2(&mut n);
+//     let has_jump = strip_bit_usize2(&mut n);
+//
+//     if !is_known {
+//         todo!();
+//     }
+//
+//     let len = reader.next_usize()?;
+//
+//     let jump = if has_jump {
+//         reader.next_zigzag_isize()?
+//     } else { 0 };
+//
+//     // let inner_agent = n - 1;
+//     let inner_agent = n;
+//     if inner_agent >= map.len() {
+//         return Err(ParseError::InvalidLength);
+//     }
+//
+//     let entry = &mut map[inner_agent];
+//     let agent = entry.0;
+//
+//     // TODO: Error if this overflows.
+//     let start = (entry.1 as isize + jump) as usize;
+//     let end = start + len;
+//     entry.1 = end;
+//
+//     Ok(Some(CRDTSpan {
+//         agent,
+//         seq_range: (start..end).into(),
+//     }))
 // }

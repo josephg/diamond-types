@@ -1,6 +1,6 @@
 use bumpalo::Bump;
 use rle::HasLength;
-use crate::encoding::tools::{push_str, push_usize};
+use crate::encoding::tools::{push_str, push_u32, push_usize};
 use crate::encoding::varint::*;
 use crate::history::MinimalHistoryEntry;
 use crate::remotespan::CRDTGuid;
@@ -12,7 +12,7 @@ use bumpalo::collections::vec::Vec as BumpVec;
 /// Map from local oplog versions -> file versions. Each entry is KVPair(local start, file range).
 pub(crate) type TxnMap = RleVec::<KVPair<DTRange>>;
 
-pub(crate) fn write_txn_parents(result: &mut BumpVec<u8>, mut tag: bool, txn: &MinimalHistoryEntry,
+pub(crate) fn write_txn_parents(result: &mut BumpVec<u8>, mut tag: Option<bool>, txn: &MinimalHistoryEntry,
                      txn_map: &mut TxnMap, agent_map: &mut AgentMapping, persist: bool, oplog: &NewOpLog,
 ) {
     let len = txn.len();
@@ -33,9 +33,13 @@ pub(crate) fn write_txn_parents(result: &mut BumpVec<u8>, mut tag: bool, txn: &M
         // value with foreign 0 here, because we (unfortunately) need to mark the list is
         // empty.
 
-        // let mapped_agent = 0, has_more = false, is_foreign = true, first = true -> val = 2.
         // push_usize(result, 2);
-        push_usize(result, if tag { 2 } else { 1 });
+        // let mapped_agent = 0, has_more = false, is_foreign = true, first = true -> val = 1.
+        let mut n = 1;
+        if let Some(tag) = tag {
+            n = mix_bit_u32(n, tag);
+        }
+        push_u32(result, n);
     } else {
         let mut iter = txn.parents.iter().peekable();
         // let mut first = true;
@@ -48,8 +52,8 @@ pub(crate) fn write_txn_parents(result: &mut BumpVec<u8>, mut tag: bool, txn: &M
                     n = mix_bit_usize(n, is_known);
                 }
                 n = mix_bit_usize(n, is_foreign);
-                if std::mem::take(&mut tag) {
-                    n = mix_bit_usize(n, false);
+                if let Some(tag) = tag.take() {
+                    n = mix_bit_usize(n, tag);
                 }
                 push_usize(result, n);
             };
@@ -106,7 +110,7 @@ pub fn encode_parents<'a, I: Iterator<Item=MinimalHistoryEntry>>(bump: &'a Bump,
 
     Merger::new(|txn: MinimalHistoryEntry, map: &mut AgentMapping| {
         // next_output_time,
-        write_txn_parents(&mut result, false, &txn, &mut txn_map, map, true, oplog);
+        write_txn_parents(&mut result, None, &txn, &mut txn_map, map, true, oplog);
         next_output_time += txn.len();
     }).flush_iter2(iter, map);
 

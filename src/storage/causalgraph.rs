@@ -30,7 +30,7 @@ use crate::encoding::bufparser::BufParser;
 use crate::encoding::parents::{TxnMap, write_txn_parents};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::{push_u32, push_u64, push_usize};
-use crate::encoding::varint::{decode_usize, encode_usize};
+use crate::encoding::varint::{decode_usize, encode_usize, strip_bit_u32};
 use crate::history::MinimalHistoryEntry;
 use crate::list::encoding::calc_checksum;
 use crate::{CRDTSpan, NewOpLog};
@@ -56,6 +56,7 @@ pub enum CGError {
     ChecksumMismatch,
 
     InvalidBlit,
+    InvalidData,
 
     IO(io::Error),
 }
@@ -214,8 +215,9 @@ impl CausalGraphStorage {
             dbg!(value);
         }
         if !active_blit.data.is_empty() {
-            cgs.last_parents = Self::read_run(&mut BufParser(active_blit.data));
-            dbg!(&cgs.last_parents);
+            todo!();
+            // cgs.last_parents = Self::read_run(&mut BufParser(active_blit.data));
+            // dbg!(&cgs.last_parents);
         }
 
         debug_assert_eq!(cgs.file.stream_position()?, cgs.data_start() + committed_filesize);
@@ -443,21 +445,33 @@ impl CausalGraphStorage {
     //     }
     // }
 
-    fn read_run(data: &mut BufParser) -> MinimalHistoryEntry {
+    fn read_run(data: &mut BufParser) -> Result<(), CGError> {
         // dbg!(data);
-        todo!()
+        let first_number = data.peek_u32().map_err(|_| CGError::InvalidData)?.unwrap();
+        let is_aa = strip_bit_u32(first_number).1;
+
+        if is_aa {
+            // Parse the chunk as agent assignment data
+
+        } else {
+            // Parse the chunk as parents.
+
+        }
+
+        Ok(())
     }
 
     fn encode_last_parents<'a>(&mut self, buf: &mut BumpVec<u8>, persist: bool, oplog: &NewOpLog) {
-        write_txn_parents(buf, true, &self.last_parents, &mut self.txn_map, &mut self.agent_map, persist, oplog);
+        write_txn_parents(buf, Some(false), &self.last_parents, &mut self.txn_map, &mut self.agent_map, persist, oplog);
     }
 
     fn encode_last_agent_assignment<'a>(&mut self, buf: &mut BumpVec<u8>, persist: bool, oplog: &NewOpLog) {
-        write_agent_assignment_span(buf, true, self.assigned_to, &mut self.agent_map, &mut self.last_seq_for_agent, persist, &oplog.client_data);
+        write_agent_assignment_span(buf, Some(true), self.assigned_to, &mut self.agent_map, &mut self.last_seq_for_agent, persist, &oplog.client_data);
     }
 
-    pub fn append(&mut self, bump: &Bump, parents: MinimalHistoryEntry, span: CRDTSpan, oplog: &NewOpLog) {
+    pub fn append(&mut self, bump: &Bump, parents: MinimalHistoryEntry, span: CRDTSpan, oplog: &NewOpLog) -> Result<(), CGError> {
         assert_eq!(parents.len(), span.len());
+        let mut data_written = false;
 
         if self.last_parents.can_append(&parents) {
             self.last_parents.append(parents);
@@ -465,7 +479,8 @@ impl CausalGraphStorage {
             // First flush out the current value to the end of the file.
             let mut buf = BumpVec::new_in(bump);
             self.encode_last_parents(&mut buf, false, oplog);
-            self.write_data(&buf);
+            self.write_data(&buf)?;
+            data_written = true;
 
             // Then save the new value in a fresh blit.
             self.last_parents = parents;
@@ -478,10 +493,15 @@ impl CausalGraphStorage {
             // Flush the last span out too.
             let mut buf = BumpVec::new_in(bump);
             self.encode_last_agent_assignment(&mut buf, false, oplog);
-            self.write_data(&buf);
+            self.write_data(&buf)?;
+            data_written = true;
 
             // Then save the new value in a fresh blit.
             self.assigned_to = span;
+        }
+
+        if data_written {
+            self.file.sync_all()?;
         }
 
         // Regardless of what happened above, write a new blit entry.
@@ -489,6 +509,8 @@ impl CausalGraphStorage {
         self.encode_last_parents(&mut buf, true, oplog);
         self.encode_last_agent_assignment(&mut buf, true, oplog);
         self.push_data_blit(&buf);
+        self.file.sync_data()?;
+        Ok(())
     }
 
 }
