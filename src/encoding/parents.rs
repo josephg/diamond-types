@@ -19,7 +19,7 @@ pub(crate) type TxnMap = RleVec::<KVPair<DTRange>>;
 pub(crate) fn write_txn_entry(result: &mut BumpVec<u8>, tag: Option<bool>, txn: &MinimalHistoryEntry,
                               txn_map: &mut TxnMap, agent_map: &mut AgentMappingEnc, persist: bool, oplog: &NewOpLog,
 ) {
-    dbg!(txn);
+    // dbg!(txn);
     let len = txn.len();
 
     let next_output_time = txn_map.last().map_or(0, |last| last.1.end);

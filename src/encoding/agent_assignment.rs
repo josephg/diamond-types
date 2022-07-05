@@ -75,7 +75,7 @@ impl AgentMappingEnc {
             *item = span.end;
         }
 
-        isize_diff(old_seq, span.start)
+        isize_diff(span.start, old_seq)
     }
 
     pub(crate) fn map_maybe_root<'c>(&mut self, client_data: &'c [ClientData], agent: AgentId, persist: bool) -> Result<AgentId, &'c str> {
@@ -158,30 +158,12 @@ pub fn isize_diff(x: usize, y: usize) -> isize {
     result as isize
 }
 
-pub fn isize_add(x: usize, y: isize) -> usize {
+pub fn isize_try_add(x: usize, y: isize) -> Option<usize> {
     let result = (x as i128) + (y as i128);
 
-    debug_assert!(result <= usize::MAX as i128);
-    debug_assert!(result >= usize::MIN as i128);
-
-    result as usize
+    if result < 0 || result > usize::MAX as i128 { None }
+    else { Some(result as usize) }
 }
-
-// #[derive(Debug, Clone)]
-// /// Map from the file's order to local agent IDs.
-// pub struct AgentMappingDec(Vec<AgentId>);
-//
-// impl AgentMappingDec {
-//     fn map(&self, mapped_idx: u32) -> AgentId {
-//         let mapped_idx = mapped_idx as usize;
-//         debug_assert!(mapped_idx < self.0.len());
-//         self.0[mapped_idx]
-//     }
-//
-//     fn assign_next(&mut self, agent: AgentId) {
-//         self.0.push(agent);
-//     }
-// }
 
 /// Map from file's mapped ID -> internal ID, and the last seq we've seen.
 pub type AgentMappingDec = Vec<(AgentId, usize)>;
@@ -251,8 +233,8 @@ pub(crate) fn read_agent_assignment<M: AgentMap>(reader: &mut BufParser, tagged:
         reader.next_zigzag_isize()?
     } else { 0 };
 
-    // TODO: Error if this overflows.
-    let start = isize_add(last_seq, jump);
+    let start = isize_try_add(last_seq, jump)
+        .ok_or(ParseError::GenericInvalidData)?;
     let end = start + len;
 
     if persist {

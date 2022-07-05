@@ -232,6 +232,7 @@ impl CausalGraphStorage {
 
             let span = read_agent_assignment(&mut reader, false, false, into_oplog, &mut dec)?;
             cgs.assigned_to = span;
+            // dbg!(&cgs.last_parents, &cgs.assigned_to);
 
             assert!(reader.is_empty());
         }
@@ -441,12 +442,12 @@ impl CausalGraphStorage {
             // Parse the chunk as agent assignment data
             let span = read_agent_assignment(reader, true, true, into_oplog, dec)?;
 
-            dbg!(span);
+            // dbg!(span);
         } else {
             // Parse the chunk as parents.
             let next_time = into_oplog.len();
             let txn = read_txn_entry(reader, true, true, into_oplog, next_time, dec)?;
-            dbg!(txn);
+            // dbg!(txn);
         }
 
         Ok(())
@@ -474,6 +475,7 @@ impl CausalGraphStorage {
             self.last_parents.append(parents);
         } else {
             // First flush out the current value to the end of the file.
+            // eprintln!("Writing parents to data {:?}", self.last_parents);
             self.encode_last_parents(&mut buf, true, true, oplog);
             self.write_data(&buf)?;
             buf.clear();
@@ -490,7 +492,7 @@ impl CausalGraphStorage {
             self.assigned_to.append(span);
         } else {
             // Flush the last span out too.
-            let mut buf = BumpVec::new_in(bump);
+            // eprintln!("Writing span to data {:?}", self.assigned_to);
             self.encode_last_agent_assignment(&mut buf, true, true, oplog);
             self.write_data(&buf)?;
             buf.clear();
@@ -505,6 +507,7 @@ impl CausalGraphStorage {
         }
 
         // Regardless of what happened above, write a new blit entry.
+        // eprintln!("Writing blip {:?} / {:?}", self.last_parents, self.assigned_to);
         self.encode_last_parents(&mut buf, false, false, oplog);
         self.encode_last_agent_assignment(&mut buf, false, false, oplog);
 
