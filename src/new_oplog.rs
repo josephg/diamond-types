@@ -207,6 +207,12 @@ impl NewOpLog {
         }
     }
 
+    pub fn try_crdt_id_to_version(&self, id: CRDTGuid) -> Option<Time> {
+        self.client_data.get(id.agent as usize).and_then(|c| {
+            c.try_seq_to_time(id.seq)
+        })
+    }
+
     /// span is the local timespan we're assigning to the named agent.
     pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
         debug_assert_eq!(span.start, self.len());

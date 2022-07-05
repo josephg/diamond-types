@@ -5,7 +5,7 @@ use crate::encoding::varint::*;
 use crate::history::MinimalHistoryEntry;
 use crate::remotespan::CRDTGuid;
 use crate::{AgentId, DTRange, KVPair, LocalVersion, NewOpLog, RleVec, Time};
-use crate::encoding::agent_assignment::{AgentMap, AgentMappingDec, AgentMappingEnc};
+use crate::encoding::agent_assignment::{AgentStrToId, AgentMappingDec, AgentMappingEnc};
 use crate::encoding::Merger;
 use bumpalo::collections::vec::Vec as BumpVec;
 use smallvec::SmallVec;
@@ -171,13 +171,8 @@ fn read_parents(reader: &mut BufParser, persist: bool, oplog: &mut NewOpLog, nex
 
             let seq = reader.next_usize()?;
             // dbg!((agent, seq));
-            if let Some(c) = oplog.client_data.get(agent as usize) {
-                // Adding UNDERWATER_START for foreign parents in a horrible hack.
-                // I'm so sorry. This gets pulled back out in history_entry_map_and_truncate
-                c.try_seq_to_time(seq).ok_or(ParseError::InvalidLength)?
-            } else {
-                return Err(ParseError::InvalidLength);
-            }
+            oplog.try_crdt_id_to_version(CRDTGuid { agent, seq })
+                .ok_or(ParseError::InvalidLength)?
         };
 
         parents.push(parent);

@@ -168,11 +168,11 @@ pub fn isize_try_add(x: usize, y: isize) -> Option<usize> {
 /// Map from file's mapped ID -> internal ID, and the last seq we've seen.
 pub type AgentMappingDec = Vec<(AgentId, usize)>;
 
-pub(crate) trait AgentMap {
+pub(crate) trait AgentStrToId {
     fn get_or_create_agent_id(&mut self, name: &str) -> AgentId;
 }
 
-impl AgentMap for NewOpLog {
+impl AgentStrToId for NewOpLog {
     fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
         self.get_or_create_agent_id(name)
     }
@@ -186,7 +186,7 @@ fn push_and_ref<V>(vec: &mut Vec<V>, new_val: V) -> &mut V {
     }
 }
 
-pub(crate) fn read_agent_assignment<M: AgentMap>(reader: &mut BufParser, tagged: bool, persist: bool, oplog: &mut M, map: &mut AgentMappingDec) -> Result<CRDTSpan, ParseError> {
+pub(crate) fn read_agent_assignment<M: AgentStrToId>(reader: &mut BufParser, tagged: bool, persist: bool, oplog: &mut M, map: &mut AgentMappingDec) -> Result<CRDTSpan, ParseError> {
     // fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {
     // Agent assignments are almost always (but not always) linear. They can have gaps, and
     // they can be reordered if the same agent ID is used to contribute to multiple branches.
