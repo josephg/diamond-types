@@ -41,6 +41,8 @@ pub enum ParseError {
     InvalidVarInt,
     InvalidContent,
 
+    GenericInvalidData,
+
     ChecksumFailed,
 
     /// This error is interesting. We're loading a chunk but missing some of the data. In the future

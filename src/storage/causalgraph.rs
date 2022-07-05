@@ -25,9 +25,9 @@ use std::io::{BufReader, BufWriter, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use bumpalo::Bump;
 use rle::{HasLength, MergableSpan, RleRun};
-use crate::encoding::agent_assignment::{AgentMapping, LastSeqForAgent, write_agent_assignment_span};
+use crate::encoding::agent_assignment::{AgentMappingDec, AgentMappingEnc, read_agent_assignment, write_agent_assignment_span};
 use crate::encoding::bufparser::BufParser;
-use crate::encoding::parents::{TxnMap, write_txn_parents};
+use crate::encoding::parents::{read_txn_entry, TxnMap, write_txn_entry};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::{push_u32, push_u64, push_usize};
 use crate::encoding::varint::{decode_usize, encode_usize, strip_bit_u32};
@@ -58,6 +58,9 @@ pub enum CGError {
     InvalidBlit,
     InvalidData,
 
+    BlitTooLarge,
+
+    ParseError(ParseError),
     IO(io::Error),
 }
 
@@ -73,6 +76,11 @@ impl From<io::Error> for CGError {
     fn from(io_err: io::Error) -> Self {
         if io_err.kind() == ErrorKind::UnexpectedEof { CGError::UnexpectedEOF }
         else { CGError::IO(io_err) }
+    }
+}
+impl From<ParseError> for CGError {
+    fn from(pe: ParseError) -> Self {
+        CGError::ParseError(pe)
     }
 }
 
@@ -137,12 +145,13 @@ struct CausalGraphStorage {
     assigned_to: CRDTSpan,
 
     txn_map: TxnMap,
-    agent_map: AgentMapping,
-    last_seq_for_agent: LastSeqForAgent,
+    agent_map: AgentMappingEnc,
 }
 
 impl CausalGraphStorage {
     pub fn open<P: AsRef<Path>>(path: P, into_oplog: &mut NewOpLog) -> Result<Self, CGError> {
+        assert!(into_oplog.is_empty(), "Merging oplogs not yet implemented");
+
         let mut file = File::options()
             .read(true)
             .create(true)
@@ -174,8 +183,7 @@ impl CausalGraphStorage {
                 seq_range: Default::default()
             },
             txn_map: Default::default(),
-            agent_map: AgentMapping::new(&into_oplog.client_data),
-            last_seq_for_agent: vec![0; into_oplog.client_data.len()],
+            agent_map: AgentMappingEnc::new(&into_oplog.client_data),
         };
 
         // If the file doesn't have room for the blit data, its probably new. Just set_len().
@@ -210,14 +218,22 @@ impl CausalGraphStorage {
         // dbg!(&buf);
 
         let mut r = BufParser(&buf);
+        let mut dec = AgentMappingDec::new();
         while !r.is_empty() {
-            let value = Self::read_run(&mut r);
-            dbg!(value);
+            Self::read_run(&mut r, into_oplog, &mut dec)?;
         }
+        cgs.agent_map.populate_from_dec(&dec);
+
         if !active_blit.data.is_empty() {
-            todo!();
-            // cgs.last_parents = Self::read_run(&mut BufParser(active_blit.data));
-            // dbg!(&cgs.last_parents);
+            let mut reader = BufParser(active_blit.data);
+            let next_time = into_oplog.len();
+            let txn = read_txn_entry(&mut reader, false, false, into_oplog, next_time, &mut dec)?;
+            cgs.last_parents = txn;
+
+            let span = read_agent_assignment(&mut reader, false, false, into_oplog, &mut dec)?;
+            cgs.assigned_to = span;
+
+            assert!(reader.is_empty());
         }
 
         debug_assert_eq!(cgs.file.stream_position()?, cgs.data_start() + committed_filesize);
@@ -298,7 +314,7 @@ impl CausalGraphStorage {
         CG_HEADER_LENGTH_U64 + (self.blit_size * self.next_blit as u64)
     }
 
-    fn push_data_blit(&mut self, data: &[u8]) -> Result<(), io::Error> {
+    fn push_data_blit(&mut self, data: &[u8]) -> Result<(), CGError> {
         self.write_blit(Blit {
             filesize: self.next_write_location,
             counter: self.next_counter,
@@ -309,7 +325,7 @@ impl CausalGraphStorage {
         Ok(())
     }
 
-    fn write_blit(&mut self, blit: Blit) -> Result<(), io::Error> {
+    fn write_blit(&mut self, blit: Blit) -> Result<(), CGError> {
         debug_assert_eq!(self.file.seek(SeekFrom::Current(0)).unwrap(), self.next_write_location + self.data_start());
         self.file.seek(SeekFrom::Start(self.next_blit_location()));
 
@@ -323,7 +339,7 @@ impl CausalGraphStorage {
         Ok(())
     }
 
-    fn write_blit_to<W: Write>(mut w: BufWriter<W>, max_size: u64, blit: Blit) -> Result<(), io::Error> {
+    fn write_blit_to<W: Write>(mut w: BufWriter<W>, max_size: u64, blit: Blit) -> Result<(), CGError> {
         let mut body = Vec::new(); // Bleh. TODO: Better to allocate on the stack here.
         push_u64(&mut body, blit.filesize);
         push_usize(&mut body, blit.counter);
@@ -337,14 +353,16 @@ impl CausalGraphStorage {
         w.write(&buf[..len_len])?;
 
         // TODO: DO THIS BETTER!!
-        assert!(4 + len_len + body.len() <= max_size as usize);
+        if 4 + len_len + body.len() > max_size as usize {
+            return Err(CGError::BlitTooLarge)
+        }
 
         w.write(&body)?;
 
         Ok(())
     }
 
-    fn flush(&mut self) -> Result<(), io::Error> {
+    fn flush(&mut self) -> Result<(), CGError> {
         if self.dirty {
             self.push_data_blit(&[])?;
         }
@@ -414,72 +432,51 @@ impl CausalGraphStorage {
         Ok(blitsize)
     }
 
-    // fn encode_run(data: &RleRun<bool>) -> Vec<u8> {
-    //     let mut result = vec![];
-    //     push_usize(&mut result, data.len);
-    //     push_u32(&mut result, data.val as u32);
-    //     result
-    // }
-    //
-    // fn read_run(data: &mut BufParser) -> RleRun<bool> {
-    //     let len = data.next_usize().unwrap();
-    //     let val = data.next_u32().unwrap() != 0;
-    //     RleRun { val, len }
-    // }
-
-    // pub fn append_test(&mut self, data: RleRun<bool>) {
-    //     if self.last_entry.can_append(&data) {
-    //         self.last_entry.append(data);
-    //
-    //         let enc = Self::encode_run(&self.last_entry);
-    //         self.push_data_blit(&enc);
-    //     } else {
-    //         // First flush out the current value to the end of the file.
-    //         let enc = Self::encode_run(&self.last_entry);
-    //         self.write_data(&enc);
-    //
-    //         // Then save the new value in a fresh blit.
-    //         self.last_entry = data;
-    //         let enc = Self::encode_run(&self.last_entry);
-    //         self.push_data_blit(&enc);
-    //     }
-    // }
-
-    fn read_run(data: &mut BufParser) -> Result<(), CGError> {
+    fn read_run(reader: &mut BufParser, into_oplog: &mut NewOpLog, dec: &mut AgentMappingDec) -> Result<(), CGError> {
         // dbg!(data);
-        let first_number = data.peek_u32().map_err(|_| CGError::InvalidData)?.unwrap();
+        let first_number = reader.peek_u32().map_err(|_| CGError::InvalidData)?.unwrap();
         let is_aa = strip_bit_u32(first_number).1;
 
         if is_aa {
             // Parse the chunk as agent assignment data
+            let span = read_agent_assignment(reader, true, true, into_oplog, dec)?;
 
+            dbg!(span);
         } else {
             // Parse the chunk as parents.
-
+            let next_time = into_oplog.len();
+            let txn = read_txn_entry(reader, true, true, into_oplog, next_time, dec)?;
+            dbg!(txn);
         }
 
         Ok(())
     }
 
-    fn encode_last_parents<'a>(&mut self, buf: &mut BumpVec<u8>, persist: bool, oplog: &NewOpLog) {
-        write_txn_parents(buf, Some(false), &self.last_parents, &mut self.txn_map, &mut self.agent_map, persist, oplog);
+    // TODO: Consider merging tag and persist parameters here - they're always the same value.
+    fn encode_last_parents<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, oplog: &NewOpLog) {
+        let tag = if tag { Some(false) } else { None };
+        write_txn_entry(buf, tag, &self.last_parents, &mut self.txn_map, &mut self.agent_map, persist, oplog);
     }
 
-    fn encode_last_agent_assignment<'a>(&mut self, buf: &mut BumpVec<u8>, persist: bool, oplog: &NewOpLog) {
-        write_agent_assignment_span(buf, Some(true), self.assigned_to, &mut self.agent_map, &mut self.last_seq_for_agent, persist, &oplog.client_data);
+    fn encode_last_agent_assignment<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, oplog: &NewOpLog) {
+        let tag = if tag { Some(true) } else { None };
+        write_agent_assignment_span(buf, tag, self.assigned_to, &mut self.agent_map, persist, &oplog.client_data);
     }
 
     pub fn append(&mut self, bump: &Bump, parents: MinimalHistoryEntry, span: CRDTSpan, oplog: &NewOpLog) -> Result<(), CGError> {
         assert_eq!(parents.len(), span.len());
         let mut data_written = false;
+        let mut buf = BumpVec::new_in(bump);
 
-        if self.last_parents.can_append(&parents) {
+        if self.last_parents.is_empty() {
+            self.last_parents = parents;
+        } else if self.last_parents.can_append(&parents) {
             self.last_parents.append(parents);
         } else {
             // First flush out the current value to the end of the file.
-            let mut buf = BumpVec::new_in(bump);
-            self.encode_last_parents(&mut buf, false, oplog);
+            self.encode_last_parents(&mut buf, true, true, oplog);
             self.write_data(&buf)?;
+            buf.clear();
             data_written = true;
 
             // Then save the new value in a fresh blit.
@@ -487,13 +484,16 @@ impl CausalGraphStorage {
         }
 
         // And for spans.
-        if self.assigned_to.can_append(&span) {
+        if self.assigned_to.is_empty() {
+            self.assigned_to = span;
+        } else if self.assigned_to.can_append(&span) {
             self.assigned_to.append(span);
         } else {
             // Flush the last span out too.
             let mut buf = BumpVec::new_in(bump);
-            self.encode_last_agent_assignment(&mut buf, false, oplog);
+            self.encode_last_agent_assignment(&mut buf, true, true, oplog);
             self.write_data(&buf)?;
+            buf.clear();
             data_written = true;
 
             // Then save the new value in a fresh blit.
@@ -505,10 +505,35 @@ impl CausalGraphStorage {
         }
 
         // Regardless of what happened above, write a new blit entry.
-        let mut buf = BumpVec::new_in(bump);
-        self.encode_last_parents(&mut buf, true, oplog);
-        self.encode_last_agent_assignment(&mut buf, true, oplog);
-        self.push_data_blit(&buf);
+        self.encode_last_parents(&mut buf, false, false, oplog);
+        self.encode_last_agent_assignment(&mut buf, false, false, oplog);
+
+        match self.push_data_blit(&buf) {
+            Err(CGError::BlitTooLarge) => {
+                // The buffered data doesn't fit in the blit region. This should basically never happen
+                // in regular use - but if the user merges lots of changes for some reason, or if they
+                // have super long UIDs this will happen.
+                //
+                // Luckily there's a reasonable fallback here - we can flush out the blit to the end of
+                // the data segment anyway. We lose some compaction, but this is rare enough it doesn't
+                // matter.
+
+                // We could only write out the larger of these two, but eh.
+                buf.clear();
+                self.encode_last_parents(&mut buf, true, true, oplog);
+                self.encode_last_agent_assignment(&mut buf, true, true, oplog);
+                self.write_data(&buf)?;
+                self.file.sync_all()?;
+
+                self.last_parents.span.clear();
+                self.assigned_to.seq_range.clear();
+
+                self.push_data_blit(&[])?;
+            },
+            Err(e) => { return Err(e); }
+            _ => {}
+        }
+
         self.file.sync_data()?;
         Ok(())
     }
@@ -530,6 +555,7 @@ mod test {
         let mut oplog = NewOpLog::new();
         let seph = oplog.get_or_create_agent_id("seph");
         let mut cg = CausalGraphStorage::open("cg.log", &mut oplog).unwrap();
+        dbg!(&cg);
 
         let bump = Bump::new();
         cg.append(&bump, MinimalHistoryEntry {
@@ -540,13 +566,13 @@ mod test {
             seq_range: (0..10).into()
         }, &oplog);
 
-        cg.append(&bump, MinimalHistoryEntry {
-            span: (10..20).into(),
-            parents: smallvec![5],
-        }, CRDTSpan {
-            agent: seph,
-            seq_range: (10..20).into()
-        }, &oplog);
+        // cg.append(&bump, MinimalHistoryEntry {
+        //     span: (10..20).into(),
+        //     parents: smallvec![5],
+        // }, CRDTSpan {
+        //     agent: seph,
+        //     seq_range: (10..20).into()
+        // }, &oplog);
 
         dbg!(&cg);
 

@@ -878,7 +878,8 @@ impl OpLog {
                 // going to sweat it.
 
                 loop {
-                    let (mut mapped, remainder) = history_entry_map_and_truncate(entry, &version_map);
+                    let (mut mapped, remainder)
+                        = history_entry_map_and_truncate(entry, &version_map);
                     // dbg!(&mapped);
                     debug_assert!(frontier_is_sorted(&mapped.parents));
                     assert!(mapped.span.start <= next_history_time);

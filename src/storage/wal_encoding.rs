@@ -1,7 +1,7 @@
 use std::path::Path;
 use bumpalo::Bump;
 use crate::{CRDTSpan, KVPair, LocalVersion, NewOpLog, Time};
-use crate::encoding::agent_assignment::{AgentMapping, encode_agent_assignment};
+use crate::encoding::agent_assignment::{AgentMappingEnc, encode_agent_assignment};
 use crate::encoding::ChunkType;
 use crate::encoding::op_contents::encode_op_contents;
 use crate::encoding::parents::encode_parents;
@@ -49,7 +49,7 @@ impl WALChunks {
         self.wal.write_chunk(|bump, buf| {
             let start = buf.len();
 
-            let mut map = AgentMapping::new(&oplog.client_data);
+            let mut map = AgentMappingEnc::new(&oplog.client_data);
 
             let iter = oplog.client_with_localtime
                 .iter_range_packed(range)
