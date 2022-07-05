@@ -2,10 +2,11 @@
 use std::cmp::Ordering;
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
+use std::ops::Deref;
 use smallvec::{smallvec, SmallVec};
 use smartstring::alias::String as SmartString;
 use rle::{AppendRle, HasLength, RleRun, Searchable};
-use crate::{AgentId, ClientData, CRDTItemId, DTRange, InnerCRDTInfo, KVPair, LocalVersion, MapId, MapInfo, NewOperationCtx, NewOpLog, RleVec, ROOT_AGENT, ROOT_TIME, ScopedHistory, Time};
+use crate::{AgentId, CausalGraph, CRDTItemId, DTRange, InnerCRDTInfo, KVPair, LocalVersion, MapId, MapInfo, NewOperationCtx, NewOpLog, RleVec, ROOT_AGENT, ROOT_TIME, ScopedHistory, Time};
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec, debug_assert_frontier_sorted, frontier_is_sorted};
 use crate::history::History;
 
@@ -73,6 +74,13 @@ impl Value {
 //     }
 // }
 
+// impl Deref for NewOpLog {
+//     type Target = CausalGraph;
+//
+//     fn deref(&self) -> &Self::Target {
+//         &self.cg
+//     }
+// }
 
 pub const ROOT_MAP: CRDTItemId = 0;
 
@@ -80,9 +88,7 @@ impl NewOpLog {
     pub fn new() -> Self {
         Self {
             // doc_id: None,
-            client_with_localtime: RleVec::new(),
-            client_data: Vec::new(),
-            history: History::new(),
+            cg: Default::default(),
             version: smallvec![],
             // The root is always the first item in items, which is a register.
             maps: vec![MapInfo { // Map 0 is the root document.
@@ -92,6 +98,13 @@ impl NewOpLog {
             known_crdts: vec![],
             register_set_operations: vec![],
         }
+    }
+
+    pub fn len(&self) -> usize { self.cg.len() }
+    pub fn is_empty(&self) -> bool { self.cg.is_empty() }
+
+    pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
+        self.cg.get_or_create_agent_id(name)
     }
 
     fn get_value_of_map(&self, map: MapId, version: &[Time]) -> Option<BTreeMap<SmartString, Value>> {
@@ -117,9 +130,9 @@ impl NewOpLog {
         // For now. Other kinds are NYI.
         assert_eq!(info.kind, CRDTKind::LWWRegister);
 
-        if !info.history.exists_at(&self.history, version) { return None; }
+        if !info.history.exists_at(&self.cg.history, version) { return None; }
 
-        let v = self.history.version_in_scope(version, &info.history)?;
+        let v = self.cg.history.version_in_scope(version, &info.history)?;
         // dbg!(&v);
 
         let content = match v.len() {
@@ -133,11 +146,11 @@ impl NewOpLog {
             _ => {
                 // Disambiguate based on agent id.
                 let v = self.version.iter().map(|v| {
-                    let (id, offset) = self.client_with_localtime.find_packed_with_offset(*v);
+                    let (id, offset) = self.cg.client_with_localtime.find_packed_with_offset(*v);
                     (*v, id.1.at_offset(offset))
                 }).reduce(|(v1, id1), (v2, id2)| {
-                    let name1 = &self.client_data[id1.agent as usize].name;
-                    let name2 = &self.client_data[id2.agent as usize].name;
+                    let name1 = &self.cg.client_data[id1.agent as usize].name;
+                    let name2 = &self.cg.client_data[id2.agent as usize].name;
                     match name2.cmp(name1) {
                         Ordering::Less => (v1, id1),
                         Ordering::Greater => (v2, id2),
@@ -166,76 +179,14 @@ impl NewOpLog {
         // &self.set_operations[idx].1
     }
 
-    pub(crate) fn get_agent_id(&self, name: &str) -> Option<AgentId> {
-        if name == "ROOT" { Some(ROOT_AGENT) }
-        else {
-            self.client_data.iter()
-                .position(|client_data| client_data.name == name)
-                .map(|id| id as AgentId)
-        }
-    }
-
-    pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
-        if let Some(id) = self.get_agent_id(name) {
-            id
-        } else {
-            // Create a new id.
-            self.client_data.push(ClientData {
-                name: SmartString::from(name),
-                item_times: RleVec::new()
-            });
-            (self.client_data.len() - 1) as AgentId
-        }
-    }
-
-    /// Get the number of operations
-    pub fn len(&self) -> usize {
-        if let Some(last) = self.client_with_localtime.last() {
-            last.end()
-        } else { 0 }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.client_with_localtime.is_empty()
-    }
-
-    pub fn version_to_crdt_id(&self, time: usize) -> CRDTGuid {
-        if time == ROOT_TIME { CRDT_DOC_ROOT }
-        else {
-            let (loc, offset) = self.client_with_localtime.find_packed_with_offset(time);
-            loc.1.at_offset(offset as usize)
-        }
-    }
-
-    pub fn try_crdt_id_to_version(&self, id: CRDTGuid) -> Option<Time> {
-        self.client_data.get(id.agent as usize).and_then(|c| {
-            c.try_seq_to_time(id.seq)
-        })
-    }
-
-    /// span is the local timespan we're assigning to the named agent.
-    pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
-        debug_assert_eq!(span.start, self.len());
-
-        let client_data = &mut self.client_data[agent as usize];
-
-        let next_seq = client_data.get_next_seq();
-        client_data.item_times.push(KVPair(next_seq, span));
-
-        self.client_with_localtime.push(KVPair(span.start, CRDTSpan {
-            agent,
-            seq_range: DTRange { start: next_seq, end: next_seq + span.len() },
-        }));
-    }
-
     pub(crate) fn advance_frontier(&mut self, parents: &[Time], span: DTRange) {
         advance_frontier_by_known_run(&mut self.version, parents, span);
     }
 
     fn inner_assign_op(&mut self, span: DTRange, agent_id: AgentId, parents: &[Time], crdt_id: CRDTItemId) {
-        self.assign_next_time_to_client_known(agent_id, span);
-
-        self.history.insert(parents, span);
+        // TODO: Consider rewriting using self.cg.assign_op().
+        self.cg.assign_next_time_to_client_known(agent_id, span);
+        self.cg.history.insert(parents, span);
 
         self.known_crdts[crdt_id].history.owned_times.push(span);
         // self.crdt_assignment.push(KVPair(span.start, RleRun::new(crdt_id, span.len())));

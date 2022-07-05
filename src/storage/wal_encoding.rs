@@ -49,17 +49,17 @@ impl WALChunks {
         self.wal.write_chunk(|bump, buf| {
             let start = buf.len();
 
-            let mut map = AgentMappingEnc::new(&oplog.client_data);
+            let mut map = AgentMappingEnc::new(&oplog.cg.client_data);
 
-            let iter = oplog.client_with_localtime
+            let iter = oplog.cg.client_with_localtime
                 .iter_range_packed(range)
                 .map(|KVPair(_, span)| span);
-            let aa = encode_agent_assignment(bump, iter, &oplog.client_data, &mut map);
+            let aa = encode_agent_assignment(bump, iter, &oplog.cg.client_data, &mut map);
             // dbg!(&map);
 
-            let hist_iter = oplog.history.entries
+            let hist_iter = oplog.cg.history.entries
                 .iter_range_map_packed(range, |h| h.into());
-            let parents = encode_parents(bump, hist_iter, &mut map, oplog);
+            let parents = encode_parents(bump, hist_iter, &mut map, &oplog.cg);
             // dbg!(&map);
 
             // buf.extend_from_slice(&map.into_output());

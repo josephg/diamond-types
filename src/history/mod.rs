@@ -289,6 +289,51 @@ impl From<&HistoryEntry> for MinimalHistoryEntry {
     }
 }
 
+pub(crate) struct HistoryIter<'a> {
+    history: &'a History,
+    idx: usize,
+    offset: usize,
+    end: usize,
+}
+
+impl<'a> Iterator for HistoryIter<'a> {
+    type Item = MinimalHistoryEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let e = if let Some(e) = self.history.entries.0.get(self.idx) { e }
+        else { return None; };
+
+        self.idx += 1;
+
+        let mut m = MinimalHistoryEntry::from(e);
+
+        if self.offset > 0 {
+            m.truncate_keeping_right(self.offset);
+            self.offset = 0;
+        }
+
+        if m.span.end > self.end {
+            m.truncate(self.end - m.span.start);
+        }
+
+        Some(m)
+    }
+}
+
+impl History {
+    pub(crate) fn iter_range(&self, range: DTRange) -> HistoryIter<'_> {
+        let idx = self.entries.find_index(range.start).unwrap();
+        let offset = range.start - self.entries.0[idx].rle_key();
+
+        HistoryIter {
+            history: self,
+            idx,
+            offset,
+            end: range.end
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use smallvec::smallvec;

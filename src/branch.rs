@@ -27,7 +27,7 @@ impl NewOpLog {
     fn checkout_map(&self, map_id: MapId, version: &[Time]) -> Option<BTreeMap<SmartString, Box<DTValue>>> {
         let map = &self.maps[map_id];
         // if map.created_at
-        if !self.history.version_contains_time(version, map.created_at) {
+        if !self.cg.history.version_contains_time(version, map.created_at) {
             return None;
         }
 

@@ -9,7 +9,7 @@ impl NewOpLog {
         // Could improve this by just looking at the last txn, and following shadows down.
 
         let mut b = smallvec![];
-        for txn in self.history.entries.iter() {
+        for txn in self.cg.history.entries.iter() {
             advance_frontier_by_known_run(&mut b, txn.parents.as_slice(), txn.span);
         }
         b
@@ -26,16 +26,16 @@ impl NewOpLog {
         assert_eq!(self.version, actual_frontier);
 
         if deep {
-            self.history.check();
+            self.cg.history.check();
         }
 
         // The client_with_localtime should match with the corresponding items in client_data
-        self.client_with_localtime.check_packed();
-        for pair in self.client_with_localtime.iter() {
+        self.cg.client_with_localtime.check_packed();
+        for pair in self.cg.client_with_localtime.iter() {
             let expected_range = pair.range();
 
             let span = pair.1;
-            let client = &self.client_data[span.agent as usize];
+            let client = &self.cg.client_data[span.agent as usize];
             let actual_range = client.item_times.find_packed_and_split(span.seq_range);
 
             assert_eq!(actual_range.1, expected_range);
@@ -43,9 +43,9 @@ impl NewOpLog {
 
         if deep {
             // Also check the other way around.
-            for (agent, client) in self.client_data.iter().enumerate() {
+            for (agent, client) in self.cg.client_data.iter().enumerate() {
                 for range in client.item_times.iter() {
-                    let actual = self.client_with_localtime.find_packed_and_split(range.1);
+                    let actual = self.cg.client_with_localtime.find_packed_and_split(range.1);
                     assert_eq!(actual.1.agent as usize, agent);
                 }
             }

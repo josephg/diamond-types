@@ -4,7 +4,7 @@ use crate::encoding::tools::{push_str, push_u32, push_usize};
 use crate::encoding::varint::*;
 use crate::history::MinimalHistoryEntry;
 use crate::remotespan::CRDTGuid;
-use crate::{AgentId, DTRange, KVPair, LocalVersion, NewOpLog, RleVec, Time};
+use crate::{AgentId, CausalGraph, DTRange, KVPair, LocalVersion, NewOpLog, RleVec, Time};
 use crate::encoding::agent_assignment::{AgentStrToId, AgentMappingDec, AgentMappingEnc};
 use crate::encoding::Merger;
 use bumpalo::collections::vec::Vec as BumpVec;
@@ -17,7 +17,7 @@ use crate::frontier::clean_version;
 pub(crate) type TxnMap = RleVec::<KVPair<DTRange>>;
 
 pub(crate) fn write_txn_entry(result: &mut BumpVec<u8>, tag: Option<bool>, txn: &MinimalHistoryEntry,
-                              txn_map: &mut TxnMap, agent_map: &mut AgentMappingEnc, persist: bool, oplog: &NewOpLog,
+                              txn_map: &mut TxnMap, agent_map: &mut AgentMappingEnc, persist: bool, cg: &CausalGraph,
 ) {
     // dbg!(txn);
     let len = txn.len();
@@ -80,8 +80,8 @@ pub(crate) fn write_txn_entry(result: &mut BumpVec<u8>, tag: Option<bool>, txn: 
                 // Foreign change
                 // println!("Region does not contain parent for {}", p);
 
-                let item = oplog.version_to_crdt_id(p);
-                let mapped_agent = agent_map.map_maybe_root(&oplog.client_data, item.agent, persist);
+                let item = cg.version_to_crdt_id(p);
+                let mapped_agent = agent_map.map_maybe_root(&cg.client_data, item.agent, persist);
 
                 // There are probably more compact ways to do this, but the txn data set is
                 // usually quite small anyway, even in large histories. And most parents objects
@@ -106,14 +106,14 @@ pub(crate) fn write_txn_entry(result: &mut BumpVec<u8>, tag: Option<bool>, txn: 
     }
 }
 
-pub fn encode_parents<'a, I: Iterator<Item=MinimalHistoryEntry>>(bump: &'a Bump, iter: I, map: &mut AgentMappingEnc, oplog: &NewOpLog) -> BumpVec<'a, u8> {
+pub fn encode_parents<'a, I: Iterator<Item=MinimalHistoryEntry>>(bump: &'a Bump, iter: I, map: &mut AgentMappingEnc, cg: &CausalGraph) -> BumpVec<'a, u8> {
     let mut txn_map = TxnMap::new();
     let mut next_output_time = 0;
     let mut result = BumpVec::new_in(bump);
 
     Merger::new(|txn: MinimalHistoryEntry, map: &mut AgentMappingEnc| {
         // next_output_time,
-        write_txn_entry(&mut result, None, &txn, &mut txn_map, map, true, oplog);
+        write_txn_entry(&mut result, None, &txn, &mut txn_map, map, true, cg);
         next_output_time += txn.len();
     }).flush_iter2(iter, map);
 
@@ -121,7 +121,7 @@ pub fn encode_parents<'a, I: Iterator<Item=MinimalHistoryEntry>>(bump: &'a Bump,
 }
 
 // <M: AgentMap>
-fn read_parents(reader: &mut BufParser, persist: bool, oplog: &mut NewOpLog, next_time: Time, agent_map: &mut AgentMappingDec) -> Result<LocalVersion, ParseError> {
+fn read_parents(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: Time, agent_map: &mut AgentMappingDec) -> Result<LocalVersion, ParseError> {
     let mut parents = SmallVec::<[usize; 2]>::new();
 
     loop {
@@ -151,7 +151,7 @@ fn read_parents(reader: &mut BufParser, persist: bool, oplog: &mut NewOpLog, nex
             let agent = if !is_known {
                 if n != 0 { return Err(ParseError::GenericInvalidData); }
                 let agent_name = reader.next_str()?;
-                let agent = oplog.get_or_create_agent_id(agent_name);
+                let agent = cg.get_or_create_agent_id(agent_name);
                 if persist {
                     agent_map.push((agent, 0));
                 }
@@ -171,7 +171,7 @@ fn read_parents(reader: &mut BufParser, persist: bool, oplog: &mut NewOpLog, nex
 
             let seq = reader.next_usize()?;
             // dbg!((agent, seq));
-            oplog.try_crdt_id_to_version(CRDTGuid { agent, seq })
+            cg.try_crdt_id_to_version(CRDTGuid { agent, seq })
                 .ok_or(ParseError::InvalidLength)?
         };
 
@@ -190,13 +190,13 @@ fn read_parents(reader: &mut BufParser, persist: bool, oplog: &mut NewOpLog, nex
     Ok(parents)
 }
 
-pub(crate) fn read_txn_entry(reader: &mut BufParser, tagged: bool, persist: bool, oplog: &mut NewOpLog, next_time: Time, agent_map: &mut AgentMappingDec) -> Result<MinimalHistoryEntry, ParseError> {
+pub(crate) fn read_txn_entry(reader: &mut BufParser, tagged: bool, persist: bool, cg: &mut CausalGraph, next_time: Time, agent_map: &mut AgentMappingDec) -> Result<MinimalHistoryEntry, ParseError> {
     let mut len = reader.next_usize()?;
     if tagged {
         // Discard tag.
         strip_bit_usize2(&mut len);
     }
-    let parents = read_parents(reader, persist, oplog, next_time, agent_map)?;
+    let parents = read_parents(reader, persist, cg, next_time, agent_map)?;
 
     Ok(MinimalHistoryEntry {
         span: (next_time..next_time + len).into(),

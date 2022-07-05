@@ -7,11 +7,12 @@
 
 use jumprope::JumpRope;
 use smartstring::alias::String as SmartString;
+use crate::causalgraph::ClientData;
 
 use crate::list::operation::OpKind;
 use crate::history::History;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::{ClientData, LocalVersion};
+use crate::LocalVersion;
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 

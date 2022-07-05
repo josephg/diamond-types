@@ -54,6 +54,8 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
 
     pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
 
+    pub fn iter_from_idx(&self, idx: usize) -> std::slice::Iter<V> { self.0[idx..].iter() }
+
     pub fn iter_merged(&self) -> MergeIter<Cloned<std::slice::Iter<V>>> { self.0.iter().cloned().merge_spans() }
 
     pub fn print_stats(&self, name: &str, _detailed: bool) {

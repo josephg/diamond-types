@@ -1,13 +1,14 @@
 use std::mem::replace;
 use bumpalo::Bump;
 use rle::{HasLength, MergableSpan};
-use crate::{AgentId, ClientData, CRDTSpan, DTRange, NewOpLog, ROOT_AGENT};
+use crate::{AgentId, CausalGraph, CRDTSpan, DTRange, ROOT_AGENT};
 use crate::encoding::Merger;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
 use crate::encoding::varint::*;
 use bumpalo::collections::vec::Vec as BumpVec;
 use bumpalo::{vec as bumpvec};
+use crate::causalgraph::ClientData;
 use crate::encoding::parseerror::ParseError;
 
 #[derive(Debug, Clone)]
@@ -30,7 +31,7 @@ impl AgentMappingEnc {
 
     fn ensure_capacity(&mut self, cap: usize) {
         // There's probably nicer ways to implement this.
-        if cap < self.map.len() {
+        if cap > self.map.len() {
             self.map.resize(cap, (None, 0));
         }
     }
@@ -104,6 +105,10 @@ pub(crate) fn write_agent_assignment_span(result: &mut BumpVec<u8>, mut tag: Opt
     // length. But in all the data sets I've looked at, len is so rarely 1 that it increased
     // filesize.
     let has_jump = delta != 0;
+    dbg!(span, delta);
+    if delta < 0 {
+        println!("asdf");
+    }
 
     let mut write_n = |mapped_agent: u32, is_known: bool| {
         let mut n = mix_bit_u32(mapped_agent, has_jump);
@@ -172,7 +177,7 @@ pub(crate) trait AgentStrToId {
     fn get_or_create_agent_id(&mut self, name: &str) -> AgentId;
 }
 
-impl AgentStrToId for NewOpLog {
+impl AgentStrToId for CausalGraph {
     fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
         self.get_or_create_agent_id(name)
     }
@@ -186,7 +191,7 @@ fn push_and_ref<V>(vec: &mut Vec<V>, new_val: V) -> &mut V {
     }
 }
 
-pub(crate) fn read_agent_assignment<M: AgentStrToId>(reader: &mut BufParser, tagged: bool, persist: bool, oplog: &mut M, map: &mut AgentMappingDec) -> Result<CRDTSpan, ParseError> {
+pub(crate) fn read_agent_assignment<M: AgentStrToId>(reader: &mut BufParser, tagged: bool, persist: bool, cg: &mut M, map: &mut AgentMappingDec) -> Result<CRDTSpan, ParseError> {
     // fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {
     // Agent assignments are almost always (but not always) linear. They can have gaps, and
     // they can be reordered if the same agent ID is used to contribute to multiple branches.
@@ -216,7 +221,7 @@ pub(crate) fn read_agent_assignment<M: AgentStrToId>(reader: &mut BufParser, tag
     let (agent, last_seq, idx) = if !is_known {
         if mapped_agent != 0 { return Err(ParseError::GenericInvalidData); }
         let agent_name = reader.next_str()?;
-        let agent = oplog.get_or_create_agent_id(agent_name);
+        let agent = cg.get_or_create_agent_id(agent_name);
         let idx = map.len();
         if persist {
             map.push((agent, 0));
@@ -232,6 +237,7 @@ pub(crate) fn read_agent_assignment<M: AgentStrToId>(reader: &mut BufParser, tag
     let jump = if has_jump {
         reader.next_zigzag_isize()?
     } else { 0 };
+    dbg!(jump);
 
     let start = isize_try_add(last_seq, jump)
         .ok_or(ParseError::GenericInvalidData)?;

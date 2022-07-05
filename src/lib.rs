@@ -185,6 +185,7 @@ extern crate core;
 use std::collections::BTreeMap;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
+use crate::causalgraph::CausalGraph;
 use crate::dtrange::DTRange;
 use crate::history::{History, ScopedHistory};
 use crate::new_oplog::CRDTKind;
@@ -206,6 +207,7 @@ mod branch;
 mod path;
 mod encoding;
 mod storage;
+mod causalgraph;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;
@@ -224,26 +226,6 @@ pub type Time = usize;
 /// At the start of time (when there are no changes), LocalVersion is usize::max (which is the root
 /// order).
 pub type LocalVersion = SmallVec<[Time; 2]>;
-
-#[derive(Clone, Debug)]
-pub(crate) struct ClientData {
-    /// Used to map from client's name / hash to its numerical ID.
-    name: SmartString,
-
-    /// This is a packed RLE in-order list of all operations from this client.
-    ///
-    /// Each entry in this list is grounded at the client's sequence number and maps to the span of
-    /// local time entries.
-    ///
-    /// A single agent ID might be used to modify multiple concurrent branches. Because of this, and
-    /// the propensity of diamond types to reorder operations for performance, the
-    /// time spans here will *almost* always (but not always) be monotonically increasing. Eg, they
-    /// might be ordered as (0, 2, 1). This will only happen when changes are concurrent. The order
-    /// of time spans must always obey the partial order of changes. But it will not necessarily
-    /// agree with the order amongst time spans.
-    pub(crate) item_times: RleVec<KVPair<DTRange>>,
-}
-
 
 pub type CRDTItemId = usize;
 pub type MapId = usize;
@@ -284,25 +266,7 @@ pub struct NewOpLog {
     /// Optional - only used if you set it.
     // doc_id: Option<SmartString>,
 
-    /// This is a bunch of ranges of (item order -> CRDT location span).
-    /// The entries always have positive len.
-    ///
-    /// This is used to map Local time -> External CRDT locations.
-    ///
-    /// List is packed.
-    client_with_localtime: RleVec<KVPair<CRDTSpan>>,
-
-    /// For each client, we store some data (above). This is indexed by AgentId.
-    ///
-    /// This is used to map external CRDT locations -> Order numbers.
-    client_data: Vec<ClientData>,
-
-    /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
-    /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
-    /// remote changes.
-    ///
-    /// Along with deletes, this essentially contains the time DAG.
-    history: History,
+    cg: CausalGraph,
 
     /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into
     /// a branch, this is the version of that branch.

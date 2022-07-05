@@ -2,7 +2,8 @@ use std::ops::Range;
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, Searchable};
-use crate::{AgentId, ClientData, LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
+use crate::{AgentId, LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
+use crate::causalgraph::ClientData;
 use crate::list::{Branch, OpLog};
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};
 use crate::history::MinimalHistoryEntry;
@@ -14,37 +15,6 @@ use crate::remotespan::*;
 use crate::rev_range::RangeRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::unicount::count_chars;
-
-impl ClientData {
-    pub fn get_next_seq(&self) -> usize {
-        if let Some(last) = self.item_times.last() {
-            last.end()
-        } else { 0 }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.item_times.is_empty()
-    }
-
-    #[inline]
-    pub(crate) fn try_seq_to_time(&self, seq: usize) -> Option<Time> {
-        let (entry, offset) = self.item_times.find_with_offset(seq)?;
-        Some(entry.1.start + offset)
-    }
-
-    pub(crate) fn seq_to_time(&self, seq: usize) -> Time {
-        self.try_seq_to_time(seq).unwrap()
-    }
-
-    // /// Note the returned timespan might be shorter than seq_range.
-    // pub fn try_seq_to_time_span(&self, seq_range: TimeSpan) -> Option<TimeSpan> {
-    //     let (KVPair(_, entry), offset) = self.item_orders.find_with_offset(seq_range.start)?;
-    //
-    //     let start = entry.start + offset;
-    //     let end = usize::min(entry.end, start + seq_range.len());
-    //     Some(TimeSpan { start, end })
-    // }
-}
 
 impl Default for OpLog {
     fn default() -> Self {

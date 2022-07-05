@@ -33,7 +33,7 @@ use crate::encoding::tools::{push_u32, push_u64, push_usize};
 use crate::encoding::varint::{decode_usize, encode_usize, strip_bit_u32};
 use crate::history::MinimalHistoryEntry;
 use crate::list::encoding::calc_checksum;
-use crate::{CRDTSpan, NewOpLog};
+use crate::{CausalGraph, CRDTSpan, Time};
 use bumpalo::collections::vec::Vec as BumpVec;
 
 
@@ -133,9 +133,9 @@ struct CausalGraphStorage {
     /// to 0 every time we write a chunk (and thus the write location increases).
     next_counter: usize,
 
-    /// Set when we've appended data to the file but haven't marked the new file length via a blit
-    /// operations. Call .flush() kiddos!
-    dirty: bool,
+    /// Set when we've appended data to the file but haven't synced it, or marked it as written with
+    /// a new blit.
+    dirty_blit: bool,
     /// False when we're ready to write blit 0, true when we're about to write blit 1.
     next_blit: bool,
 
@@ -146,11 +146,13 @@ struct CausalGraphStorage {
 
     txn_map: TxnMap,
     agent_map: AgentMappingEnc,
+
+    next_flush_time: Time,
 }
 
 impl CausalGraphStorage {
-    pub fn open<P: AsRef<Path>>(path: P, into_oplog: &mut NewOpLog) -> Result<Self, CGError> {
-        assert!(into_oplog.is_empty(), "Merging oplogs not yet implemented");
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<(CausalGraph, CausalGraphStorage), CGError> {
+        let mut cg = CausalGraph::new();
 
         let mut file = File::options()
             .read(true)
@@ -167,12 +169,10 @@ impl CausalGraphStorage {
 
         let mut cgs = Self {
             file,
-
             blit_size,
-
             next_counter: 0,
             next_write_location: 0,
-            dirty: false,
+            dirty_blit: false,
             next_blit: false,
             // last_entry: Default::default(),
             last_parents: MinimalHistoryEntry {
@@ -183,7 +183,8 @@ impl CausalGraphStorage {
                 seq_range: Default::default()
             },
             txn_map: Default::default(),
-            agent_map: AgentMappingEnc::new(&into_oplog.client_data),
+            agent_map: AgentMappingEnc::new(&cg.client_data),
+            next_flush_time: 0,
         };
 
         // If the file doesn't have room for the blit data, its probably new. Just set_len().
@@ -220,26 +221,34 @@ impl CausalGraphStorage {
         let mut r = BufParser(&buf);
         let mut dec = AgentMappingDec::new();
         while !r.is_empty() {
-            Self::read_run(&mut r, into_oplog, &mut dec)?;
+            Self::read_run(&mut r, &mut cg, &mut dec)?;
         }
         cgs.agent_map.populate_from_dec(&dec);
 
         if !active_blit.data.is_empty() {
             let mut reader = BufParser(active_blit.data);
-            let next_time = into_oplog.len();
-            let txn = read_txn_entry(&mut reader, false, false, into_oplog, next_time, &mut dec)?;
+            let next_time = cg.history.entries.end();
+            let txn = read_txn_entry(&mut reader, false, false, &mut cg, next_time, &mut dec)?;
+            if !txn.is_empty() {
+                cg.history.insert(&txn.parents, txn.span);
+            }
             cgs.last_parents = txn;
 
-            let span = read_agent_assignment(&mut reader, false, false, into_oplog, &mut dec)?;
+            let span = read_agent_assignment(&mut reader, false, false, &mut cg, &mut dec)?;
+            if !span.is_empty() {
+                cg.assign_times_to_agent(span);
+            }
             cgs.assigned_to = span;
+
             // dbg!(&cgs.last_parents, &cgs.assigned_to);
 
             assert!(reader.is_empty());
         }
+        cgs.next_flush_time = cg.len();
 
         debug_assert_eq!(cgs.file.stream_position()?, cgs.data_start() + committed_filesize);
 
-        Ok(cgs)
+        Ok((cg, cgs))
     }
 
     fn read_initial_blits<'a>(&mut self, raw_buf: &'a mut [u8; MAX_BLIT_SIZE * 2], blit_size: u64) -> Blit<'a> {
@@ -315,14 +324,14 @@ impl CausalGraphStorage {
         CG_HEADER_LENGTH_U64 + (self.blit_size * self.next_blit as u64)
     }
 
-    fn push_data_blit(&mut self, data: &[u8]) -> Result<(), CGError> {
+    fn write_blit_with_data(&mut self, data: &[u8]) -> Result<(), CGError> {
         self.write_blit(Blit {
             filesize: self.next_write_location,
             counter: self.next_counter,
             data
         })?;
         self.next_counter += 1;
-        self.dirty = false;
+        self.dirty_blit = false;
         Ok(())
     }
 
@@ -363,13 +372,6 @@ impl CausalGraphStorage {
         Ok(())
     }
 
-    fn flush(&mut self) -> Result<(), CGError> {
-        if self.dirty {
-            self.push_data_blit(&[])?;
-        }
-        Ok(())
-    }
-
     fn write_data(&mut self, data: &[u8]) -> Result<(), io::Error> {
         // First we write the data to the end of the file.
         debug_assert_eq!(self.file.seek(SeekFrom::Current(0)).unwrap(), self.next_write_location + self.data_start());
@@ -378,7 +380,7 @@ impl CausalGraphStorage {
         self.next_write_location += data.len() as u64;
         self.next_counter = 0;
 
-        self.dirty = true;
+        self.dirty_blit = true;
 
         Ok(())
     }
@@ -433,20 +435,21 @@ impl CausalGraphStorage {
         Ok(blitsize)
     }
 
-    fn read_run(reader: &mut BufParser, into_oplog: &mut NewOpLog, dec: &mut AgentMappingDec) -> Result<(), CGError> {
+    fn read_run(reader: &mut BufParser, into_cg: &mut CausalGraph, dec: &mut AgentMappingDec) -> Result<(), CGError> {
         // dbg!(data);
         let first_number = reader.peek_u32().map_err(|_| CGError::InvalidData)?.unwrap();
         let is_aa = strip_bit_u32(first_number).1;
 
         if is_aa {
             // Parse the chunk as agent assignment data
-            let span = read_agent_assignment(reader, true, true, into_oplog, dec)?;
-
+            let span = read_agent_assignment(reader, true, true, into_cg, dec)?;
             // dbg!(span);
+            into_cg.assign_times_to_agent(span);
         } else {
             // Parse the chunk as parents.
-            let next_time = into_oplog.len();
-            let txn = read_txn_entry(reader, true, true, into_oplog, next_time, dec)?;
+            let next_time = into_cg.history.entries.end(); // TODO: Cache this while reading.
+            let txn = read_txn_entry(reader, true, true, into_cg, next_time, dec)?;
+            into_cg.history.insert(&txn.parents, txn.span);
             // dbg!(txn);
         }
 
@@ -454,64 +457,84 @@ impl CausalGraphStorage {
     }
 
     // TODO: Consider merging tag and persist parameters here - they're always the same value.
-    fn encode_last_parents<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, oplog: &NewOpLog) {
+    fn encode_last_parents<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, cg: &CausalGraph) {
         let tag = if tag { Some(false) } else { None };
-        write_txn_entry(buf, tag, &self.last_parents, &mut self.txn_map, &mut self.agent_map, persist, oplog);
+        write_txn_entry(buf, tag, &self.last_parents, &mut self.txn_map, &mut self.agent_map, persist, cg);
     }
 
-    fn encode_last_agent_assignment<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, oplog: &NewOpLog) {
+    fn encode_last_agent_assignment<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, cg: &CausalGraph) {
         let tag = if tag { Some(true) } else { None };
-        write_agent_assignment_span(buf, tag, self.assigned_to, &mut self.agent_map, persist, &oplog.client_data);
+        write_agent_assignment_span(buf, tag, self.assigned_to, &mut self.agent_map, persist, &cg.client_data);
     }
 
-    pub fn append(&mut self, bump: &Bump, parents: MinimalHistoryEntry, span: CRDTSpan, oplog: &NewOpLog) -> Result<(), CGError> {
-        assert_eq!(parents.len(), span.len());
-        let mut data_written = false;
+    pub(crate) fn push_parents_no_sync(&mut self, bump: &Bump, parents: MinimalHistoryEntry, cg: &CausalGraph) -> Result<bool, CGError> {
+        if parents.is_empty() { return Ok(false); }
+
         let mut buf = BumpVec::new_in(bump);
 
-        if self.last_parents.is_empty() {
+        self.dirty_blit = true;
+        Ok(if self.last_parents.is_empty() {
             self.last_parents = parents;
+            false
         } else if self.last_parents.can_append(&parents) {
             self.last_parents.append(parents);
+            false
         } else {
             // First flush out the current value to the end of the file.
             // eprintln!("Writing parents to data {:?}", self.last_parents);
-            self.encode_last_parents(&mut buf, true, true, oplog);
+            self.encode_last_parents(&mut buf, true, true, cg);
             self.write_data(&buf)?;
-            buf.clear();
-            data_written = true;
 
             // Then save the new value in a fresh blit.
             self.last_parents = parents;
-        }
+            true
+        })
+    }
 
-        // And for spans.
-        if self.assigned_to.is_empty() {
+    pub(crate) fn push_aa_no_sync(&mut self, bump: &Bump, span: CRDTSpan, cg: &CausalGraph) -> Result<bool, CGError> {
+        if span.is_empty() { return Ok(false); }
+
+        let mut buf = BumpVec::new_in(bump);
+
+        self.dirty_blit = true;
+        Ok(if self.assigned_to.is_empty() {
             self.assigned_to = span;
+            false
         } else if self.assigned_to.can_append(&span) {
             self.assigned_to.append(span);
+            false
         } else {
             // Flush the last span out too.
             // eprintln!("Writing span to data {:?}", self.assigned_to);
-            self.encode_last_agent_assignment(&mut buf, true, true, oplog);
+            self.encode_last_agent_assignment(&mut buf, true, true, cg);
             self.write_data(&buf)?;
-            buf.clear();
-            data_written = true;
 
             // Then save the new value in a fresh blit.
             self.assigned_to = span;
-        }
+            true
+        })
+    }
 
-        if data_written {
-            self.file.sync_all()?;
-        }
+    // fn flush(&mut self) -> Result<(), CGError> {
+    //     if self.dirty {
+    //         self.push_data_blit(&[])?;
+    //     }
+    //     Ok(())
+    // }
+    fn flush(&mut self, bump: &Bump, cg: &CausalGraph) -> Result<(), CGError> {
+        if !self.dirty_blit { return Ok(()); }
+
+        // Not needed in a lot of situations.
+        // self.file.sync_all();
 
         // Regardless of what happened above, write a new blit entry.
         // eprintln!("Writing blip {:?} / {:?}", self.last_parents, self.assigned_to);
-        self.encode_last_parents(&mut buf, false, false, oplog);
-        self.encode_last_agent_assignment(&mut buf, false, false, oplog);
+        let mut buf = BumpVec::new_in(bump);
+        self.encode_last_parents(&mut buf, false, false, cg);
+        self.encode_last_agent_assignment(&mut buf, false, false, cg);
+        let result = self.write_blit_with_data(&buf);
 
-        match self.push_data_blit(&buf) {
+        match result {
             Err(CGError::BlitTooLarge) => {
                 // The buffered data doesn't fit in the blit region. This should basically never happen
                 // in regular use - but if the user merges lots of changes for some reason, or if they
@@ -523,24 +546,45 @@ impl CausalGraphStorage {
 
                 // We could only write out the larger of these two, but eh.
                 buf.clear();
-                self.encode_last_parents(&mut buf, true, true, oplog);
-                self.encode_last_agent_assignment(&mut buf, true, true, oplog);
+                self.encode_last_parents(&mut buf, true, true, cg);
+                self.encode_last_agent_assignment(&mut buf, true, true, cg);
                 self.write_data(&buf)?;
                 self.file.sync_all()?;
 
                 self.last_parents.span.clear();
                 self.assigned_to.seq_range.clear();
 
-                self.push_data_blit(&[])?;
+                self.write_blit_with_data(&[])?;
             },
             Err(e) => { return Err(e); }
             _ => {}
         }
 
-        self.file.sync_data()?;
         Ok(())
     }
 
+    pub(crate) fn save_missing(&mut self, cg: &CausalGraph) -> Result<(), CGError>{
+        let bump = Bump::new();
+
+        let mut needs_sync = false;
+
+        let range = (self.next_flush_time..cg.len()).into();
+        for txn in cg.history.iter_range(range) {
+            needs_sync |= self.push_parents_no_sync(&bump, txn, cg)?;
+        }
+
+        for span in cg.client_with_localtime.iter_range_packed(range) {
+            needs_sync |= self.push_aa_no_sync(&bump, span.1, cg)?;
+        }
+
+        if needs_sync {
+            self.file.sync_all();
+        }
+
+        self.flush(&bump, cg);
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -550,47 +594,21 @@ mod test {
     use smallvec::smallvec;
     use rle::RleRun;
     use crate::history::MinimalHistoryEntry;
-    use crate::{CRDTSpan, NewOpLog};
-    use crate::storage::causalgraph::CausalGraphStorage;
+    use crate::{CausalGraph, CRDTSpan};
+    use crate::causalgraph::storage::CausalGraphStorage;
 
     #[test]
     fn foo() {
-        let mut oplog = NewOpLog::new();
-        let seph = oplog.get_or_create_agent_id("seph");
-        let mut cg = CausalGraphStorage::open("cg.log", &mut oplog).unwrap();
+        let (mut cg, mut cgs) = CausalGraphStorage::open("cg.log").unwrap();
+        dbg!(&cgs, &cg);
+
+
+        let seph = cg.get_or_create_agent_id("seph");
+        cg.assign_op(&[], seph, 10);
         dbg!(&cg);
 
-        let bump = Bump::new();
-        cg.append(&bump, MinimalHistoryEntry {
-            span: (0..10).into(),
-            parents: smallvec![],
-        }, CRDTSpan {
-            agent: seph,
-            seq_range: (0..10).into()
-        }, &oplog);
+        cgs.save_missing(&cg).unwrap();
 
-        // cg.append(&bump, MinimalHistoryEntry {
-        //     span: (10..20).into(),
-        //     parents: smallvec![5],
-        // }, CRDTSpan {
-        //     agent: seph,
-        //     seq_range: (10..20).into()
-        // }, &oplog);
-
-        dbg!(&cg);
-
-        //
-        // cg.append_test(dbg!(RleRun {
-        //     val: rand::thread_rng().gen_bool(0.5),
-        //     len: (rand::thread_rng().next_u32() % 10) as usize,
-        // }));
-        // dbg!(&cg);
-        // drop(cg);
-        //
-        //
-        // let mut cg = CausalGraphStorage::open("cg.log").unwrap();
-        // dbg!(&cg);
-
-
+        dbg!(&cgs);
     }
 }
