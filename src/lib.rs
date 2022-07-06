@@ -191,6 +191,8 @@ use crate::history::{History, ScopedHistory};
 use crate::new_oplog::CRDTKind;
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
+use crate::storage::wal::WriteAheadLogRaw;
+use crate::storage::wal_encoding::WriteAheadLog;
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
 
 pub mod list;
@@ -227,38 +229,60 @@ pub type Time = usize;
 /// order).
 pub type LocalVersion = SmallVec<[Time; 2]>;
 
-pub type CRDTItemId = usize;
-pub type MapId = usize;
-
-
-#[derive(Debug, Clone)]
-pub(crate) struct NewOperationCtx {
-    // set_content: Vec<u8>,
-
-    // ins_content: Vec<u8>,
-    // del_content: Vec<u8>,
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Primitive {
+    I64(i64),
+    Str(SmartString),
 }
 
-
-#[derive(Debug, Clone)]
-pub(crate) struct InnerCRDTInfo {
-    // path: SmallVec<[PathItem; 1]>,
-    pub(crate) kind: CRDTKind,
-
-    history: ScopedHistory,
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Value {
+    Primitive(Primitive),
+    InnerCRDT(Time),
+    // Ref(Time),
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct MapInfo {
-    // All child CRDT items must be LWWRegisters.
-    // TODO: Check how much code BTreeMap adds and consider replacing with something smaller
-    children: BTreeMap<SmartString, CRDTItemId>,
-
-    created_at: Time,
-    // Created at / deleted at? I have a feeling I'll need those eventually.
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct LWWValue {
+    value: Option<Value>, // We need to store NULL for sad reasons.
+    last_modified: Time,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum OverlayValue {
+    LWW(LWWValue),
+    Map(BTreeMap<SmartString, LWWValue>),
+}
+
+// pub type CRDTItemId = usize;
+// pub type MapId = usize;
+//
+//
+// #[derive(Debug, Clone)]
+// pub(crate) struct InnerCRDTInfo {
+//     // path: SmallVec<[PathItem; 1]>,
+//     pub(crate) kind: CRDTKind,
+//
+//     history: ScopedHistory,
+// }
+//
+// #[derive(Debug, Clone)]
+// pub(crate) struct MapInfo {
+//     // All child CRDT items must be LWWRegisters.
+//     // TODO: Check how much code BTreeMap adds and consider replacing with something smaller
+//     children: BTreeMap<SmartString, CRDTItemId>,
+//
+//     created_at: Time,
+//     // Created at / deleted at? I have a feeling I'll need those eventually.
+// }
+
+pub trait SnapshotDB {
+    fn get_version(&self) -> &[Time];
+
+    // fn getValue(&self,
+}
+
+#[derive(Debug)]
 pub struct NewOpLog {
     /// The ID of the document (if any). This is useful if you want to give a document a GUID or
     /// something to make sure you're merging into the right place.
@@ -268,37 +292,12 @@ pub struct NewOpLog {
 
     cg: CausalGraph,
 
-    /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into
-    /// a branch, this is the version of that branch.
-    ///
-    /// This is only stored as a convenience - we could recalculate it as needed from history when
-    /// needed, but thats a hassle. And it takes up very little space, and its very convenient to
-    /// have on hand! So here it is.
-    version: LocalVersion,
+    snapshot: (), // TODO.
+    snapshot_version: LocalVersion, // Move this into snapshot.
 
-    // value_kind: ValueKind,
+    overlay: BTreeMap<Time, OverlayValue>,
+    overlay_version: LocalVersion,
 
-    /// The set of known maps. For each map we record the set of key-value pairs mapping each key
-    /// to all the known children of that map.
-    ///
-    /// Map 0 is the root of the document.
-    maps: Vec<MapInfo>,
-
-    /// Works like client_data. Each CRDTItemId is a reference into this structure.
-    known_crdts: Vec<InnerCRDTInfo>,
-
-    register_set_operations: Vec<(Time, crate::new_oplog::Value)>,
-    // text_operations: RleVec<KVPair<TextOpInternal>>,
-
-    // /// This contains all content ever inserted into the document, in time order (not document
-    // /// order). This object is indexed by the operation set.
-    // operation_ctx: NewOperationCtx,
-
-    // /// map from local version -> which CRDT this operation references.
-    // crdt_assignment: RleVec<KVPair<RleRun<CRDTId>>>,
-
-    // pub(crate) root_info: Vec<RootInfo>,
-    // /// Map from local version -> which root contains that time.
-    // root_assignment: RleVec<KVPair<RleRun<usize>>>,
+    wal: WriteAheadLog,
 }
 

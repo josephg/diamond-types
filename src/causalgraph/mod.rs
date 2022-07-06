@@ -4,6 +4,7 @@ use crate::{CRDTSpan, DTRange, History, KVPair, RleVec};
 
 mod storage;
 mod causalgraph;
+mod check;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClientData {

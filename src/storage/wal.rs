@@ -16,7 +16,8 @@ const WAL_VERSION: [u8; 4] = 1u32.to_le_bytes();
 const WAL_HEADER_LENGTH: usize = WAL_MAGIC_BYTES.len() + WAL_VERSION.len();
 const WAL_HEADER_LENGTH_U64: u64 = WAL_HEADER_LENGTH as u64;
 
-pub struct WriteAheadLog(File);
+#[derive(Debug)]
+pub struct WriteAheadLogRaw(File);
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -42,7 +43,7 @@ impl From<io::Error> for WALError {
     }
 }
 
-impl WriteAheadLog {
+impl WriteAheadLogRaw {
     pub fn open<P: AsRef<Path>, F>(path: P, parse_chunk: F) -> Result<Self, WALError>
         where F: FnMut(&[u8]) -> Result<(), WALError>
     {

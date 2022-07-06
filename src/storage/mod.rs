@@ -1,2 +1,2 @@
 pub(crate) mod wal;
-mod wal_encoding;
+pub(crate) mod wal_encoding;

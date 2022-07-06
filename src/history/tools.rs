@@ -11,7 +11,6 @@ use crate::history::History;
 use crate::history::tools::DiffFlag::{OnlyA, OnlyB, Shared};
 use crate::dtrange::DTRange;
 use crate::{LocalVersion, ROOT_TIME, ScopedHistory, Time};
-use crate::InnerCRDTInfo;
 
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.

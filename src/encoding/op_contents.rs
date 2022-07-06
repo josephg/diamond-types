@@ -1,7 +1,6 @@
 use bumpalo::Bump;
 use bumpalo::collections::vec::Vec as BumpVec;
-use crate::new_oplog::{Primitive, Value};
-use crate::{CRDTKind, NewOpLog};
+use crate::{CRDTKind, NewOpLog, Primitive, Value};
 use num_enum::TryFromPrimitive;
 use crate::encoding::tools::{push_str, push_u32, push_u64};
 use crate::encoding::varint::num_encode_zigzag_i64;
@@ -42,14 +41,14 @@ pub fn encode_op_contents<'a, 'b: 'a, I: Iterator<Item=&'b Value>>(bump: &'a Bum
                 push_u32(&mut result, ValueType::PrimStr as u32);
                 push_str(&mut result, s);
             }
-            Value::Map(_) => {
-                push_u32(&mut result, ValueType::Map as u32);
-            }
+            // Value::Map(_) => {
+            //     push_u32(&mut result, ValueType::Map as u32);
+            // }
             Value::InnerCRDT(crdt_id) => {
-                let kind = oplog.known_crdts[*crdt_id].kind;
+                let kind = oplog.get_kind(*crdt_id);
                 let kind_value = match kind {
-                    CRDTKind::LWWRegister => ValueType::LWWRegister,
-                    CRDTKind::Text => ValueType::Text,
+                    CRDTKind::LWW => ValueType::LWWRegister,
+                    CRDTKind::Map => ValueType::Map,
                 };
                 push_u32(&mut result, kind_value as u32);
             }
