@@ -105,10 +105,6 @@ pub(crate) fn write_agent_assignment_span(result: &mut BumpVec<u8>, mut tag: Opt
     // length. But in all the data sets I've looked at, len is so rarely 1 that it increased
     // filesize.
     let has_jump = delta != 0;
-    dbg!(span, delta);
-    if delta < 0 {
-        println!("asdf");
-    }
 
     let mut write_n = |mapped_agent: u32, is_known: bool| {
         let mut n = mix_bit_u32(mapped_agent, has_jump);

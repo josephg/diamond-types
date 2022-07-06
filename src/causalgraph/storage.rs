@@ -589,8 +589,8 @@ impl CausalGraphStorage {
 
 #[cfg(test)]
 mod test {
-    use bumpalo::Bump;
-    use rand::{Rng, RngCore};
+    use std::fs::{File, remove_file};
+    use std::io::Read;
     use smallvec::smallvec;
     use rle::RleRun;
     use crate::history::MinimalHistoryEntry;
@@ -602,7 +602,6 @@ mod test {
         let (mut cg, mut cgs) = CausalGraphStorage::open("cg.log").unwrap();
         dbg!(&cgs, &cg);
 
-
         let seph = cg.get_or_create_agent_id("seph");
         cg.assign_op(&[], seph, 10);
         dbg!(&cg);
@@ -610,5 +609,24 @@ mod test {
         cgs.save_missing(&cg).unwrap();
 
         dbg!(&cgs);
+    }
+
+    #[test]
+    fn write_node_nodecc() {
+        use crate::list::OpLog;
+
+        let mut bytes = vec![];
+        File::open("node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        let o = OpLog::load_from(&bytes).unwrap();
+
+        let cg = CausalGraph {
+            client_with_localtime: o.client_with_localtime,
+            client_data: o.client_data,
+            history: o.history
+        };
+
+        remove_file("test.log").unwrap();
+        let (_, mut cgs) = CausalGraphStorage::open("test.log").unwrap();
+        cgs.save_missing(&cg).unwrap();
     }
 }

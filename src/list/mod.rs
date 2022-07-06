@@ -119,12 +119,12 @@ pub struct OpLog {
     /// This is used to map Local time -> External CRDT locations.
     ///
     /// List is packed.
-    client_with_localtime: RleVec<KVPair<CRDTSpan>>,
+    pub(crate) client_with_localtime: RleVec<KVPair<CRDTSpan>>,
 
     /// For each client, we store some data (above). This is indexed by AgentId.
     ///
     /// This is used to map external CRDT locations -> Order numbers.
-    client_data: Vec<ClientData>,
+    pub(crate) client_data: Vec<ClientData>,
 
     /// This contains all content ever inserted into the document, in time order (not document
     /// order). This object is indexed by the operation set.
@@ -137,7 +137,7 @@ pub struct OpLog {
     /// remote changes.
     ///
     /// Along with deletes, this essentially contains the time DAG.
-    history: History,
+    pub(crate) history: History,
 
     /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into
     /// a branch, this is the version of that branch.
