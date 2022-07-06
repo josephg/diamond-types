@@ -7,7 +7,7 @@ use std::io::{BufReader, ErrorKind, Read, Result as IOResult, Seek, SeekFrom, Wr
 use std::path::Path;
 use bumpalo::Bump;
 use crate::encoding::varint;
-use crate::list::encoding::calc_checksum;
+use crate::encoding::tools::calc_checksum;
 use bumpalo::collections::vec::Vec as BumpVec;
 
 // The file starts with "DMNDTWAL" followed by a 4 byte LE file version.

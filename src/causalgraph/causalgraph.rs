@@ -63,11 +63,23 @@ impl CausalGraph {
         }
     }
 
-    /// Get the number of operations
+    pub(crate) fn len_assignment(&self) -> usize {
+        self.client_with_localtime.end()
+        // if let Some(last) = self.client_with_localtime.last() {
+        //     last.end()
+        // } else { 0 }
+    }
+
+    pub(crate) fn len_history(&self) -> usize {
+        self.history.entries.end()
+    }
+
+    /// Get the number of operations. This method is only valid when the history and assignment
+    /// lengths are the same.
     pub fn len(&self) -> usize {
-        if let Some(last) = self.client_with_localtime.last() {
-            last.end()
-        } else { 0 }
+        let len = self.len_assignment();
+        debug_assert_eq!(len, self.len_history());
+        len
     }
 
     pub fn is_empty(&self) -> bool {
@@ -89,7 +101,7 @@ impl CausalGraph {
     }
 
     pub(crate) fn check_flat(&self) {
-        assert_eq!(self.len(), self.history.entries.end());
+        assert_eq!(self.len_assignment(), self.len_history());
     }
 
     pub(crate) fn assign_times_to_agent(&mut self, span: CRDTSpan) -> DTRange {

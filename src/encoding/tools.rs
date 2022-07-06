@@ -57,3 +57,9 @@ pub(crate) fn push_chunk<V: ExtendFromSlice>(into: &mut V, chunk_type: ChunkType
     push_chunk_header(into, chunk_type, data.len());
     into.extend_from_slice(data);
 }
+
+pub fn calc_checksum(data: &[u8]) -> u32 {
+    // This is crc32c. Using the crc library because the resulting binary size is much smaller.
+    // let checksum = crc32c::crc32c(&result);
+    crc::Crc::<u32>::new(&crc::CRC_32_ISCSI).checksum(data)
+}

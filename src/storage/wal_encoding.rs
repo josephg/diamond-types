@@ -55,12 +55,9 @@ impl WALChunks {
                 .iter_range_packed(range)
                 .map(|KVPair(_, span)| span);
             let aa = encode_agent_assignment(bump, iter, &oplog.cg.client_data, &mut map);
-            // dbg!(&map);
 
-            let hist_iter = oplog.cg.history.entries
-                .iter_range_map_packed(range, |h| h.into());
+            let hist_iter = oplog.cg.history.iter_range(range);
             let parents = encode_parents(bump, hist_iter, &mut map, &oplog.cg);
-            // dbg!(&map);
 
             // buf.extend_from_slice(&map.into_output());
 

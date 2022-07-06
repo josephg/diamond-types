@@ -29,10 +29,9 @@ use crate::encoding::agent_assignment::{AgentMappingDec, AgentMappingEnc, read_a
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::parents::{read_txn_entry, TxnMap, write_txn_entry};
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::{push_u32, push_u64, push_usize};
+use crate::encoding::tools::{calc_checksum, push_u32, push_u64, push_usize};
 use crate::encoding::varint::{decode_usize, encode_usize, strip_bit_u32};
 use crate::history::MinimalHistoryEntry;
-use crate::list::encoding::calc_checksum;
 use crate::{CausalGraph, CRDTSpan, Time};
 use bumpalo::collections::vec::Vec as BumpVec;
 
@@ -227,7 +226,7 @@ impl CausalGraphStorage {
 
         if !active_blit.data.is_empty() {
             let mut reader = BufParser(active_blit.data);
-            let next_time = cg.history.entries.end();
+            let next_time = cg.len_history();
             let txn = read_txn_entry(&mut reader, false, false, &mut cg, next_time, &mut dec)?;
             if !txn.is_empty() {
                 cg.history.insert(&txn.parents, txn.span);
@@ -447,7 +446,7 @@ impl CausalGraphStorage {
             into_cg.assign_times_to_agent(span);
         } else {
             // Parse the chunk as parents.
-            let next_time = into_cg.history.entries.end(); // TODO: Cache this while reading.
+            let next_time = into_cg.len_history(); // TODO: Cache this while reading.
             let txn = read_txn_entry(reader, true, true, into_cg, next_time, dec)?;
             into_cg.history.insert(&txn.parents, txn.span);
             // dbg!(txn);
@@ -625,8 +624,8 @@ mod test {
             history: o.history
         };
 
-        remove_file("test.log").unwrap();
-        let (_, mut cgs) = CausalGraphStorage::open("test.log").unwrap();
+        drop(remove_file("node_nodecc.cg"));
+        let (_, mut cgs) = CausalGraphStorage::open("node_nodecc.cg").unwrap();
         cgs.save_missing(&cg).unwrap();
     }
 }

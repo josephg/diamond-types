@@ -10,6 +10,7 @@ use crate::frontier::local_version_is_root;
 use crate::list::internal_op::OperationInternal;
 use crate::list::operation::OpKind;
 use crate::dtrange::DTRange;
+use crate::encoding::tools::calc_checksum;
 use crate::list::encoding::encode_tools::*;
 
 const ALLOW_VERBOSE: bool = false;
