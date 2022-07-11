@@ -105,7 +105,7 @@ impl CausalGraph {
     }
 
     pub(crate) fn assign_times_to_agent(&mut self, span: CRDTSpan) -> DTRange {
-        let time_start = self.len();
+        let time_start = self.len_assignment();
         let client_data = &mut self.client_data[span.agent as usize];
 
         // Make sure the time isn't already assigned. I probably only need this in debug mode?
