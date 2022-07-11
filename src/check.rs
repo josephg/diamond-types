@@ -22,7 +22,7 @@ impl NewOpLog {
     #[allow(unused)]
     pub fn dbg_check(&self, deep: bool) {
         let actual_frontier = self.get_frontier_inefficiently();
-        assert_eq!(self.overlay_version, actual_frontier);
+        assert_eq!(self.version, actual_frontier);
 
         self.cg.dbg_check(deep);
 

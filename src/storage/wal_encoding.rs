@@ -9,20 +9,6 @@ use crate::encoding::tools::push_chunk;
 use crate::storage::wal::{WALError, WriteAheadLogRaw};
 use smartstring::alias::String as SmartString;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum WALValue {
-    Primitive(Primitive),
-    NewCRDT(CRDTKind),
-    Deleted,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct SetOp {
-    pub time: Time,
-    pub crdt_id: Time,
-    pub key: Option<SmartString>,
-    pub new_value: WALValue,
-}
 
 
 #[derive(Debug)]
@@ -32,8 +18,6 @@ pub(crate) struct WriteAheadLog {
     // The WAL just stores changes in order. We don't need to worry about complex time DAG
     // traversal.
     next_version: Time,
-
-    pub(crate) unwritten_values: Vec<SetOp>,
 }
 
 impl WriteAheadLog {
@@ -44,7 +28,6 @@ impl WriteAheadLog {
                 Ok(())
             })?,
             next_version: 0,
-            unwritten_values: vec![]
         })
     }
 
@@ -80,7 +63,6 @@ impl WriteAheadLog {
             let hist_iter = oplog.cg.history.iter_range(range);
             let parents = encode_parents(bump, hist_iter, &mut map, &oplog.cg);
 
-            // buf.extend_from_slice(&map.into_output());
 
             // let first_set_idx = oplog.register_set_operations
             //     .binary_search_by_key(&self.next_version, |e| e.0)
@@ -93,7 +75,6 @@ impl WriteAheadLog {
             //     Some(encode_op_contents(bump, iter, oplog))
             // } else { None };
 
-            // dbg!(map.into_output());
             // push_chunk(buf, ChunkType::AgentNames, &map.into_output());
             push_chunk(buf, ChunkType::OpVersions, &aa);
             push_chunk(buf, ChunkType::OpParents, &parents);

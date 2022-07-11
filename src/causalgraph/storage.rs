@@ -16,6 +16,11 @@
 //! - Actual data
 
 
+// TODO: Open question: Currently this tracks 2 kinds of data (agent assignment and parents). I
+// suspect the code would be simpler & cleaner if both kinds of data were associated together, with
+// a flag if the parents need to be stored. Might be a slight efficiency reduction but the
+// difference is probably trivial. Do a POC of this and test it.
+
 use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt::{Display, Formatter};

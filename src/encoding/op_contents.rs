@@ -45,12 +45,13 @@ pub fn encode_op_contents<'a, 'b: 'a, I: Iterator<Item=&'b Value>>(bump: &'a Bum
             //     push_u32(&mut result, ValueType::Map as u32);
             // }
             Value::InnerCRDT(crdt_id) => {
-                let kind = oplog.get_kind(*crdt_id);
-                let kind_value = match kind {
-                    CRDTKind::LWW => ValueType::LWWRegister,
-                    CRDTKind::Map => ValueType::Map,
-                };
-                push_u32(&mut result, kind_value as u32);
+                todo!();
+                // let kind = oplog.get_kind(*crdt_id);
+                // let kind_value = match kind {
+                //     CRDTKind::LWW => ValueType::LWWRegister,
+                //     CRDTKind::Map => ValueType::Map,
+                // };
+                // push_u32(&mut result, kind_value as u32);
             }
         }
     }

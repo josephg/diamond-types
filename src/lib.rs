@@ -188,7 +188,6 @@ use smartstring::alias::String as SmartString;
 use crate::causalgraph::CausalGraph;
 use crate::dtrange::DTRange;
 use crate::history::{History, ScopedHistory};
-use crate::new_oplog::CRDTKind;
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 use crate::storage::wal::WriteAheadLogRaw;
@@ -210,6 +209,7 @@ mod path;
 mod encoding;
 mod storage;
 mod causalgraph;
+mod simpledb;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;
@@ -242,62 +242,79 @@ pub enum Value {
     // Ref(Time),
 }
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub(crate) enum CRDTKind {
+    Map, LWW,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum WALValue {
+    Primitive(Primitive),
+    NewCRDT(CRDTKind),
+    Deleted,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct SetOp {
+    pub time: Time,
+    pub crdt_id: Time,
+    pub key: Option<SmartString>,
+    pub new_value: WALValue,
+}
+
+
+#[derive(Debug)]
+pub struct NewOpLog {
+    // /// The ID of the document (if any). This is useful if you want to give a document a GUID or
+    // /// something to make sure you're merging into the right place.
+    // ///
+    // /// Optional - only used if you set it.
+    // doc_id: Option<SmartString>,
+
+    /// The causal graph stores the mapping from (local) time values <-> (agent, seq) pairs.
+    /// This is loaded from disk on startup in its entirety and appended to with each change when
+    /// the WAL is flushed.
+    pub(crate) cg: CausalGraph,
+
+    wal: WriteAheadLog,
+
+    /// The version that contains everything from CG.
+    /// This might make more sense in CG?
+    version: LocalVersion,
+
+    /// Values which have not yet been flushed to the WAL.
+    unflushed_ops: Vec<SetOp>,
+}
+
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct LWWValue {
     value: Option<Value>, // We need to store NULL for sad reasons.
     last_modified: Time,
 }
 
+// TODO: Probably should also store a dirty flag for when we flush to disk.
 #[derive(Debug, Clone, Eq, PartialEq)]
 enum OverlayValue {
     LWW(LWWValue),
     Map(BTreeMap<SmartString, LWWValue>),
 }
 
-// pub type CRDTItemId = usize;
-// pub type MapId = usize;
-//
-//
-// #[derive(Debug, Clone)]
-// pub(crate) struct InnerCRDTInfo {
-//     // path: SmallVec<[PathItem; 1]>,
-//     pub(crate) kind: CRDTKind,
-//
-//     history: ScopedHistory,
-// }
-//
-// #[derive(Debug, Clone)]
-// pub(crate) struct MapInfo {
-//     // All child CRDT items must be LWWRegisters.
-//     // TODO: Check how much code BTreeMap adds and consider replacing with something smaller
-//     children: BTreeMap<SmartString, CRDTItemId>,
-//
-//     created_at: Time,
-//     // Created at / deleted at? I have a feeling I'll need those eventually.
-// }
-
-pub trait SnapshotDB {
-    fn get_version(&self) -> &[Time];
-
-    // fn getValue(&self,
-}
-
-#[derive(Debug)]
-pub struct NewOpLog {
-    /// The ID of the document (if any). This is useful if you want to give a document a GUID or
-    /// something to make sure you're merging into the right place.
-    ///
-    /// Optional - only used if you set it.
-    // doc_id: Option<SmartString>,
-
-    cg: CausalGraph,
-
-    snapshot: (), // TODO.
-    snapshot_version: LocalVersion, // Move this into snapshot.
-
+/// The branch object stores the *data* at some particular version of the database. This is
+/// implemented via an overlay of data fields on top of a snapshot database. The overlay data is
+/// periodically flushed to disk.
+#[derive(Debug, Clone)]
+pub struct NewBranch {
+    /// The overlay contents. This stores values which have either diverged from the persisted data
+    /// or are cached.
     overlay: BTreeMap<Time, OverlayValue>,
+
+    /// The version the branch is currently at. This is used to track which changes the branch has
+    /// or has not locally merged.
+    ///
+    /// This field is public for convenience, but you should never modify it directly.
     overlay_version: LocalVersion,
 
-    wal: WriteAheadLog,
+    // persisted_data: BTreeMap<Time, OverlayValue>, // TODO. Not actually an in-memory object.
+    // persisted_version: LocalVersion,
 }
-

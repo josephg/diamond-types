@@ -1,6 +1,6 @@
 
 use smartstring::alias::String as SmartString;
-use crate::{CRDTSpan, DTRange, History, KVPair, RleVec};
+use crate::{CRDTSpan, DTRange, History, KVPair, LocalVersion, RleVec};
 
 mod storage;
 mod causalgraph;
@@ -46,4 +46,7 @@ pub struct CausalGraph {
     ///
     /// At its core, this data set compactly stores the list of parents for every operation.
     pub(crate) history: History,
+
+    // /// This is the version you get if you load the entire causal graph
+    // pub(crate) version: LocalVersion,
 }
