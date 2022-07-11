@@ -1,14 +1,14 @@
 use std::collections::BinaryHeap;
 use smallvec::SmallVec;
 use rle::{AppendRle, HasLength};
-use crate::list::OpLog;
+use crate::list::ListOpLog;
 use crate::dtrange::DTRange;
 use crate::rle::KVPair;
 use crate::AgentId;
 use crate::frontier::debug_assert_frontier_sorted;
 use crate::history::MinimalHistoryEntry;
 
-impl OpLog {
+impl ListOpLog {
     /// Find all the items to merge from other into self.
     fn to_merge(&self, other: &Self, agent_map: &[AgentId]) -> SmallVec<[DTRange; 4]> {
         // This method is in many ways a baby version of diff_slow, with some changes:
@@ -38,7 +38,7 @@ impl OpLog {
             // - ord not within self. Find the longest run we can - constrained by other txn and
             //  (agent,seq) pairs. If we find something we know, add to result and end. If not,
             //  add parents to queue.
-            let containing_txn = other.history.entries.find_packed(ord);
+            let containing_txn = other.cg.history.entries.find_packed(ord);
 
             // Discard any other entries from queue which name the same txn
 
@@ -52,12 +52,12 @@ impl OpLog {
             }
 
             loop { // Add as much as we can from this txn.
-                let (other_span, offset) = other.client_with_localtime.find_packed_with_offset(ord);
+                let (other_span, offset) = other.cg.client_with_localtime.find_packed_with_offset(ord);
                 let self_agent = agent_map[other_span.1.agent as usize];
                 let seq = other_span.1.seq_range.start + offset;
 
                 // Find out how many items we can eat
-                let (r, offset) = self.client_data[self_agent as usize]
+                let (r, offset) = self.cg.client_data[self_agent as usize]
                     .item_times.find_sparse(seq);
                 if r.is_ok() {
                     // Overlap here. Discard from the queue.
@@ -90,10 +90,10 @@ impl OpLog {
     /// by testing code, since you rarely have two local oplogs to merge together.
     pub fn add_missing_operations_from(&mut self, other: &Self) {
         // [other.agent] => self.agent
-        let mut agent_map = Vec::with_capacity(other.client_data.len());
+        let mut agent_map = Vec::with_capacity(other.cg.client_data.len());
 
         // TODO: Construct this lazily.
-        for c in other.client_data.iter() {
+        for c in other.cg.client_data.iter() {
             let self_agent = self.get_or_create_agent_id(c.name.as_str());
             agent_map.push(self_agent);
         }
@@ -126,7 +126,7 @@ impl OpLog {
 
             // History entries (parents)
             t = time;
-            for mut hist_entry in other.history.entries
+            for mut hist_entry in other.cg.history.entries
                 .iter_range_map_packed(s, |e| MinimalHistoryEntry::from(e)) {
 
                 let len = hist_entry.len();
@@ -145,7 +145,7 @@ impl OpLog {
                 debug_assert_frontier_sorted(&hist_entry.parents);
                 // dbg!(&hist_entry.parents);
 
-                self.history.insert(&hist_entry.parents, span);
+                self.cg.history.insert(&hist_entry.parents, span);
                 self.advance_frontier(&hist_entry.parents, span);
                 t += len;
             }
@@ -157,9 +157,9 @@ impl OpLog {
 
 #[cfg(test)]
 mod test {
-    use crate::list::OpLog;
+    use crate::list::ListOpLog;
 
-    fn merge_into_and_check(dest: &mut OpLog, src: &OpLog) {
+    fn merge_into_and_check(dest: &mut ListOpLog, src: &ListOpLog) {
         // dbg!(&dest);
         dest.add_missing_operations_from(&src);
         dest.dbg_check(true);
@@ -167,7 +167,7 @@ mod test {
         assert_eq!(dest, src);
     }
 
-    fn merge_both_and_check(a: &mut OpLog, b: &mut OpLog) {
+    fn merge_both_and_check(a: &mut ListOpLog, b: &mut ListOpLog) {
         // dbg!(&dest);
         a.add_missing_operations_from(&b);
         // dbg!(&a);
@@ -183,8 +183,8 @@ mod test {
 
     #[test]
     fn smoke() {
-        let mut a = OpLog::new();
-        let mut b = OpLog::new();
+        let mut a = ListOpLog::new();
+        let mut b = ListOpLog::new();
         assert_eq!(a, b);
         // merge_and_check(&mut a, &b);
 

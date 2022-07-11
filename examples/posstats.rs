@@ -100,7 +100,7 @@ fn print_stats_for_file(name: &str) {
     #[cfg(feature = "memusage")]
     let start_count = get_thread_num_allocations();
 
-    let oplog = OpLog::load_from(&contents).unwrap();
+    let oplog = ListOpLog::load_from(&contents).unwrap();
     #[cfg(feature = "memusage")]
     println!("allocated {} bytes in {} blocks",
              (get_thread_memory_usage() - start_bytes).file_size(file_size_opts::CONVENTIONAL).unwrap(),

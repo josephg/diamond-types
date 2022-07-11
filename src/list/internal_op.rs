@@ -1,7 +1,7 @@
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
 use crate::list::operation::{OpKind, Operation};
 use crate::list::operation::OpKind::*;
-use crate::list::{OpLog, switch};
+use crate::list::{ListOpLog, switch};
 use crate::dtrange::DTRange;
 use crate::rev_range::RangeRev;
 use crate::unicount::chars_to_bytes;
@@ -48,13 +48,13 @@ impl OperationInternal {
         self.loc.span.end
     }
 
-    pub(crate) fn get_content<'a>(&self, oplog: &'a OpLog) -> Option<&'a str> {
+    pub(crate) fn get_content<'a>(&self, oplog: &'a ListOpLog) -> Option<&'a str> {
         self.content_pos.map(|span| {
             oplog.operation_ctx.get_str(self.kind, span)
         })
     }
 
-    pub(crate) fn to_operation(&self, oplog: &OpLog) -> Operation {
+    pub(crate) fn to_operation(&self, oplog: &ListOpLog) -> Operation {
         let content = self.get_content(oplog);
         (self, content).into()
     }

@@ -3,7 +3,7 @@ use rle::{HasLength, RleRun};
 use crate::list::encoding::*;
 use crate::history::MinimalHistoryEntry;
 use crate::list::operation::OpKind::{Del, Ins};
-use crate::list::{Branch, OpLog, switch};
+use crate::list::{ListBranch, ListOpLog, switch};
 use crate::rle::{KVPair, RleVec};
 use crate::{AgentId, ROOT_AGENT, Time};
 use crate::frontier::local_version_is_root;
@@ -192,8 +192,8 @@ struct AgentMapping {
 }
 
 impl AgentMapping {
-    fn new(oplog: &OpLog) -> Self {
-        let client_len = oplog.client_data.len();
+    fn new(oplog: &ListOpLog) -> Self {
+        let client_len = oplog.cg.client_data.len();
         let mut result = Self {
             map: Vec::with_capacity(client_len),
             next_mapped_agent: 1, // 0 is implicitly assigned to ROOT.
@@ -203,7 +203,7 @@ impl AgentMapping {
         result
     }
 
-    fn map(&mut self, oplog: &OpLog, agent: AgentId) -> AgentId {
+    fn map(&mut self, oplog: &ListOpLog, agent: AgentId) -> AgentId {
         // 0 is implicitly ROOT.
         if agent == ROOT_AGENT { return 0; }
         let agent = agent as usize;
@@ -211,8 +211,8 @@ impl AgentMapping {
         self.map[agent].map_or_else(|| {
             let mapped = self.next_mapped_agent;
             self.map[agent] = Some((mapped, 0));
-            push_str(&mut self.output, oplog.client_data[agent].name.as_str());
-            // println!("Mapped agent {} -> {}", oplog.client_data[agent].name, mapped);
+            push_str(&mut self.output, oplog.cg.client_data[agent].name.as_str());
+            // println!("Mapped agent {} -> {}", oplog.cg.client_data[agent].name, mapped);
             self.next_mapped_agent += 1;
             mapped
         }, |v| v.0)
@@ -230,7 +230,7 @@ impl AgentMapping {
     }
 }
 
-fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapping, oplog: &OpLog) {
+fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapping, oplog: &ListOpLog) {
     // Skip writing a version chunk if the version is ROOT.
     if local_version_is_root(version) {
         return;
@@ -394,7 +394,7 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
     }
 }
 
-impl OpLog {
+impl ListOpLog {
     /// Encode the data stored in the OpLog into a (custom) compact binary form suitable for saving
     /// to disk, or sending over the network.
     pub fn encode_from(&self, opts: EncodeOptions, from_version: &[Time]) -> Vec<u8> {
@@ -538,15 +538,15 @@ impl OpLog {
 
 
         // If we just iterate in the current order, this code would be way simpler :p
-        // let iter = self.history.optimized_txns_between(from_frontier, &self.frontier);
+        // let iter = self.cg.history.optimized_txns_between(from_frontier, &self.frontier);
         // for walk in iter {
-        for walk in self.history.optimized_txns_between(from_version, &self.version) {
+        for walk in self.cg.history.optimized_txns_between(from_version, &self.version) {
             // We only care about walk.consume and parents.
 
             // We need to update *lots* of stuff in here!!
 
             // 1. Agent names and agent assignment
-            for KVPair(_, span) in self.client_with_localtime.iter_range_packed_ctx(walk.consume, &()) {
+            for KVPair(_, span) in self.cg.client_with_localtime.iter_range_packed_ctx(walk.consume, &()) {
                 // Mark the agent as in-use (if we haven't already)
                 let mapped_agent = agent_mapping.map(self, span.agent);
 
@@ -608,7 +608,7 @@ impl OpLog {
             write_local_version(&mut start_branch, from_version, &mut agent_mapping, self);
 
             if opts.store_start_branch_content {
-                let branch_here = Branch::new_at_local_version(self, from_version);
+                let branch_here = ListBranch::new_at_local_version(self, from_version);
                 // dbg!(&branch_here);
                 write_content_rope(&mut start_branch, &branch_here.content, compress_bytes.as_mut());
             }
@@ -771,7 +771,7 @@ impl OpLog {
     //     buf.clear();
     //
     //     // List of (agent, len) pairs for all changes.
-    //     for KVPair(_, span) in self.client_with_localtime.iter() {
+    //     for KVPair(_, span) in self.cg.client_with_localtime.iter() {
     //         push_run_u32(&mut buf, Run { val: span.agent, len: span.len() });
     //     }
     //     write_chunk(Chunk::AgentAssignment, &buf);
@@ -844,7 +844,7 @@ impl OpLog {
     //
     //     buf.clear();
     //
-    //     for txn in self.history.entries.iter() {
+    //     for txn in self.cg.history.entries.iter() {
     //         // First add this entry to the txn map.
     //         push_usize(&mut buf, txn.len());
     //
@@ -891,7 +891,7 @@ impl OpLog {
 #[cfg(test)]
 mod tests {
     use crate::list::encoding::EncodeOptions;
-    use crate::list::{ListCRDT, OpLog};
+    use crate::list::{ListCRDT, ListOpLog};
 
     #[test]
     #[ignore]
@@ -929,7 +929,7 @@ mod tests {
 
     #[test]
     fn encode_simple() {
-        let mut oplog = OpLog::new();
+        let mut oplog = ListOpLog::new();
         oplog.get_or_create_agent_id("x"); // 0
         oplog.add_insert(0, 0, "abc\n");
         // let data = oplog.encode(EncodeOptions::default());

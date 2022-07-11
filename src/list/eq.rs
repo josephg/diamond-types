@@ -10,7 +10,7 @@
 use rle::{HasLength, SplitableSpan};
 use rle::zip::rle_zip3;
 use crate::{ROOT_AGENT, Time};
-use crate::list::OpLog;
+use crate::list::ListOpLog;
 use crate::frontier::clean_version;
 use crate::history::MinimalHistoryEntry;
 use crate::rle::KVPair;
@@ -18,7 +18,7 @@ use crate::rle::KVPair;
 // const VERBOSE: bool = true;
 const VERBOSE: bool = false;
 
-impl PartialEq<Self> for OpLog {
+impl PartialEq<Self> for ListOpLog {
     fn eq(&self, other: &Self) -> bool {
         if self.doc_id != other.doc_id { return false; }
 
@@ -36,11 +36,11 @@ impl PartialEq<Self> for OpLog {
 
         // [self.agent] => other.agent.
         let mut agent_a_to_b = Vec::new();
-        for c in self.client_data.iter() {
+        for c in self.cg.client_data.iter() {
             // If there's no corresponding client in other (and the agent is actually in use), the
             // oplogs don't match.
             let other_agent = if let Some(other_agent) = other.get_agent_id(&c.name) {
-                if other.client_data[other_agent as usize].get_next_seq() != c.get_next_seq() {
+                if other.cg.client_data[other_agent as usize].get_next_seq() != c.get_next_seq() {
                     // Make sure we have exactly the same number of edits for each agent.
                     return false;
                 }
@@ -95,7 +95,7 @@ impl PartialEq<Self> for OpLog {
         for (mut op, mut txn, mut crdt_id) in rle_zip3(
             self.iter(),
             self.iter_history(),
-            self.client_with_localtime.iter().map(|pair| pair.1)
+            self.cg.client_with_localtime.iter().map(|pair| pair.1)
         ) {
 
             // println!("op {:?} txn {:?} crdt {:?}", op, txn, crdt_id);
@@ -119,7 +119,7 @@ impl PartialEq<Self> for OpLog {
                 // Although op is contiguous, and all in a run from the same agent, the same isn't
                 // necessarily true of other_op! The max length we can consume here is limited by
                 // other_op's size in agent assignments.
-                let (run, offset) = other.client_with_localtime.find_packed_with_offset(other_time);
+                let (run, offset) = other.cg.client_with_localtime.find_packed_with_offset(other_time);
                 let mut other_id = run.1;
                 if offset > 0 { other_id.truncate_keeping_right(offset); }
 
@@ -147,7 +147,7 @@ impl PartialEq<Self> for OpLog {
                 }
 
                 // Ok, and we also need to check the txns match.
-                let (other_txn_entry, offset) = other.history.entries.find_packed_with_offset(other_time);
+                let (other_txn_entry, offset) = other.cg.history.entries.find_packed_with_offset(other_time);
                 let mut other_txn: MinimalHistoryEntry = other_txn_entry.clone().into();
                 if offset > 0 { other_txn.truncate_keeping_right(offset); }
                 if other_txn.len() > len_here {
@@ -188,14 +188,14 @@ impl PartialEq<Self> for OpLog {
     }
 }
 
-impl Eq for OpLog {}
+impl Eq for ListOpLog {}
 
 
 #[cfg(test)]
 mod test {
-    use crate::list::OpLog;
+    use crate::list::ListOpLog;
 
-    fn is_eq(a: &OpLog, b: &OpLog) -> bool {
+    fn is_eq(a: &ListOpLog, b: &ListOpLog) -> bool {
         let a_eq_b = a.eq(b);
         let b_eq_a = b.eq(a);
         if a_eq_b != b_eq_a { dbg!(a_eq_b, b_eq_a); }
@@ -205,7 +205,7 @@ mod test {
 
     #[test]
     fn eq_smoke_test() {
-        let mut a = OpLog::new();
+        let mut a = ListOpLog::new();
         assert!(is_eq(&a, &a));
         a.get_or_create_agent_id("seph");
         a.get_or_create_agent_id("mike");
@@ -214,7 +214,7 @@ mod test {
         a.add_delete_at(0, &[1, 2], 0..2);
 
         // Same history, different order.
-        let mut b = OpLog::new();
+        let mut b = ListOpLog::new();
         b.get_or_create_agent_id("mike");
         b.get_or_create_agent_id("seph");
         b.add_insert_at(0, &[], 0, "b");
@@ -224,7 +224,7 @@ mod test {
         assert!(is_eq(&a, &b));
 
         // And now with the edits interleaved
-        let mut c = OpLog::new();
+        let mut c = ListOpLog::new();
         c.get_or_create_agent_id("seph");
         c.get_or_create_agent_id("mike");
         c.add_insert_at(0, &[], 0, "A");

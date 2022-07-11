@@ -1,7 +1,7 @@
 use smallvec::{smallvec, SmallVec};
 use crate::list::encoding::*;
 use crate::encoding::varint::*;
-use crate::list::{OpLog, switch};
+use crate::list::{ListOpLog, switch};
 use crate::frontier::*;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::OpKind::{Del, Ins};
@@ -68,7 +68,7 @@ impl<'a> BufReader<'a> {
         }))
     }
 
-    fn read_version(mut self, oplog: &OpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
+    fn read_version(mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
         let mut result = LocalVersion::new();
         // All frontiers contain at least one item.
         loop {
@@ -94,7 +94,7 @@ impl<'a> BufReader<'a> {
         Ok(result)
     }
 
-    fn read_parents(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<SmallVec<[usize; 2]>, ParseError> {
+    fn read_parents(&mut self, oplog: &ListOpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<SmallVec<[usize; 2]>, ParseError> {
         let mut parents = SmallVec::<[usize; 2]>::new();
         loop {
             let mut n = self.next_usize()?;
@@ -109,7 +109,7 @@ impl<'a> BufReader<'a> {
                     let agent = agent_map[n - 1].0;
                     let seq = self.next_usize()?;
                     // dbg!((agent, seq));
-                    if let Some(c) = oplog.client_data.get(agent as usize) {
+                    if let Some(c) = oplog.cg.client_data.get(agent as usize) {
                         // Adding UNDERWATER_START for foreign parents in a horrible hack.
                         // I'm so sorry. This gets pulled back out in history_entry_map_and_truncate
                         c.try_seq_to_time(seq).ok_or(ParseError::InvalidLength)?
@@ -138,7 +138,7 @@ impl<'a> BufReader<'a> {
         Ok(parents)
     }
 
-    fn next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<MinimalHistoryEntry, ParseError> {
+    fn next_history_entry(&mut self, oplog: &ListOpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<MinimalHistoryEntry, ParseError> {
         let len = self.next_usize()?;
         let parents = self.read_parents(oplog, next_time, agent_map)?;
 
@@ -152,7 +152,7 @@ impl<'a> BufReader<'a> {
 }
 
 impl<'a> ChunkReader<'a> {
-    fn read_version(&mut self, oplog: &OpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
+    fn read_version(&mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
         let chunk = self.read_chunk_if_eq(ChunkType::Version)?;
         if let Some(chunk) = chunk {
             chunk.read_version(oplog, agent_map).map_err(|e| {
@@ -196,7 +196,7 @@ impl<'a> ChunkReader<'a> {
         }
     }
 
-    fn read_fileinfo(&mut self, oplog: &mut OpLog) -> Result<FileInfoData, ParseError> {
+    fn read_fileinfo(&mut self, oplog: &mut ListOpLog) -> Result<FileInfoData, ParseError> {
         let mut fileinfo = self.expect_chunk(ChunkType::FileInfo)?.chunks();
 
         let doc_id = fileinfo.read_chunk_if_eq(ChunkType::DocId)?;
@@ -445,7 +445,7 @@ impl Default for DecodeOptions {
     }
 }
 
-impl OpLog {
+impl ListOpLog {
     pub fn load_from(data: &[u8]) -> Result<Self, ParseError> {
         let mut oplog = Self::new();
         oplog.decode_internal(data, DecodeOptions::default())?;
@@ -488,7 +488,7 @@ impl OpLog {
         // We could regenerate the frontier, but this is much lazier.
         let doc_id = self.doc_id.clone();
         let old_frontier = clone_smallvec(&self.version);
-        let num_known_agents = self.client_data.len();
+        let num_known_agents = self.cg.client_data.len();
         let ins_content_length = self.operation_ctx.ins_content.len();
         let del_content_length = self.operation_ctx.del_content.len();
 
@@ -500,19 +500,19 @@ impl OpLog {
             // support iterating backwards.
             self.doc_id = doc_id;
 
-            while let Some(last) = self.client_with_localtime.0.last_mut() {
+            while let Some(last) = self.cg.client_with_localtime.0.last_mut() {
                 debug_assert!(len <= last.end());
                 if len == last.end() { break; }
                 else {
                     // Truncate!
                     let KVPair(_, removed) = if len <= last.0 {
                         // Drop entire entry
-                        self.client_with_localtime.0.pop().unwrap()
+                        self.cg.client_with_localtime.0.pop().unwrap()
                     } else {
                         last.truncate_ctx(len - last.0, &())
                     };
 
-                    let client_data = &mut self.client_data[removed.agent as usize];
+                    let client_data = &mut self.cg.client_data[removed.agent as usize];
                     client_data.item_times.remove_ctx(removed.seq_range, &());
                 }
             }
@@ -523,7 +523,7 @@ impl OpLog {
             }
 
             // Trim history
-            let hist_entries = &mut self.history.entries;
+            let hist_entries = &mut self.cg.history.entries;
             let history_length = hist_entries.end();
             if history_length > len {
                 // We can't use entries.remove because HistoryEntry doesn't support SplitableSpan.
@@ -563,17 +563,17 @@ impl OpLog {
                     idx += 1;
                 }
 
-                self.history.entries.0.truncate(idx);
+                self.cg.history.entries.0.truncate(idx);
 
-                while let Some(&last_idx) = self.history.root_child_indexes.last() {
-                    if last_idx >= self.history.entries.num_entries() {
-                        self.history.root_child_indexes.pop();
+                while let Some(&last_idx) = self.cg.history.root_child_indexes.last() {
+                    if last_idx >= self.cg.history.entries.num_entries() {
+                        self.cg.history.root_child_indexes.pop();
                     } else { break; }
                 }
             }
 
             // Remove excess agents
-            self.client_data.truncate(num_known_agents);
+            self.cg.client_data.truncate(num_known_agents);
 
             self.operation_ctx.ins_content.truncate(ins_content_length);
             self.operation_ctx.del_content.truncate(del_content_length);
@@ -730,7 +730,7 @@ impl OpLog {
             let mut version_map = RleVec::new();
 
             // Take and merge the next exactly n patches
-            let mut parse_next_patches = |oplog: &mut OpLog, mut n: usize, keep: bool| -> Result<(), ParseError> {
+            let mut parse_next_patches = |oplog: &mut ListOpLog, mut n: usize, keep: bool| -> Result<(), ParseError> {
                 while n > 0 {
                     let mut max_len = n;
 
@@ -782,7 +782,7 @@ impl OpLog {
             while let Some(mut crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut agent_map)? {
                 // let mut crdt_span = crdt_span; // TODO: Remove me. Blerp clion.
                 // dbg!(crdt_span);
-                if crdt_span.agent as usize >= self.client_data.len() {
+                if crdt_span.agent as usize >= self.cg.client_data.len() {
                     return Err(ParseError::InvalidLength);
                 }
 
@@ -791,7 +791,7 @@ impl OpLog {
                     // to filter out all the operations we already have from the stream.
                     while !crdt_span.seq_range.is_empty() {
                         // dbg!(&crdt_span);
-                        let client = &self.client_data[crdt_span.agent as usize];
+                        let client = &self.cg.client_data[crdt_span.agent as usize];
                         let (span, offset) = client.item_times.find_sparse(crdt_span.seq_range.start);
                         // dbg!((crdt_span.seq_range, span, offset));
                         let (span_end, overlap_start) = match span {
@@ -900,7 +900,7 @@ impl OpLog {
                             mapped.truncate_keeping_right(next_history_time - mapped.span.start);
                         }
 
-                        self.history.insert(&mapped.parents, mapped.span);
+                        self.cg.history.insert(&mapped.parents, mapped.span);
                         self.advance_frontier(&mapped.parents, mapped.span);
 
                         next_history_time += mapped.len();

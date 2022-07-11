@@ -617,17 +617,13 @@ mod test {
 
     #[test]
     fn write_node_nodecc() {
-        use crate::list::OpLog;
+        use crate::list::ListOpLog;
 
         let mut bytes = vec![];
         File::open("node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        let o = OpLog::load_from(&bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
 
-        let cg = CausalGraph {
-            client_with_localtime: o.client_with_localtime,
-            client_data: o.client_data,
-            history: o.history
-        };
+        let cg = o.cg;
 
         drop(remove_file("node_nodecc.cg"));
         let (_, mut cgs) = CausalGraphStorage::open("node_nodecc.cg").unwrap();

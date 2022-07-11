@@ -1,7 +1,7 @@
 use smallvec::SmallVec;
 use rle::{HasLength, SplitableSpanCtx};
 use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::list::OpLog;
+use crate::list::ListOpLog;
 use crate::list::operation::Operation;
 use crate::dtrange::DTRange;
 use crate::rle::{KVPair, RleVec};
@@ -83,7 +83,7 @@ impl<'a> OpMetricsIter<'a> {
 }
 
 impl<'a> OpIterFast<'a> {
-    fn new(oplog: &'a OpLog, range: DTRange) -> Self {
+    fn new(oplog: &'a ListOpLog, range: DTRange) -> Self {
         Self(OpMetricsIter::new(&oplog.operations, &oplog.operation_ctx, range))
     }
 }
@@ -97,7 +97,7 @@ struct OpIterRanges<'a> {
 }
 
 impl<'a> OpIterRanges<'a> {
-    fn new(oplog: &'a OpLog, mut r: SmallVec<[DTRange; 4]>) -> Self {
+    fn new(oplog: &'a ListOpLog, mut r: SmallVec<[DTRange; 4]>) -> Self {
         let last = r.pop().unwrap_or_else(|| (0..0).into());
         Self {
             ranges: r,
@@ -125,7 +125,7 @@ impl<'a> Iterator for OpIterRanges<'a> {
     }
 }
 
-impl OpLog {
+impl ListOpLog {
     // TODO: Consider removing these functions if they're never used.
     #[allow(unused)]
     pub(crate) fn iter_metrics_range(&self, range: DTRange) -> OpMetricsIter {
@@ -142,7 +142,7 @@ impl OpLog {
     }
 
     pub fn iter_range_since(&self, local_version: &[Time]) -> impl Iterator<Item=Operation> + '_ {
-        let (only_a, only_b) = self.history.diff(local_version, &self.version);
+        let (only_a, only_b) = self.cg.history.diff(local_version, &self.version);
         assert!(only_a.is_empty());
 
         OpIterRanges::new(self, only_b)

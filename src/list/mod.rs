@@ -12,7 +12,7 @@ use crate::causalgraph::ClientData;
 use crate::list::operation::OpKind;
 use crate::history::History;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::LocalVersion;
+use crate::{CausalGraph, LocalVersion};
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 
@@ -68,7 +68,7 @@ mod buffered_iter;
 /// [`delete`](Branch::delete) methods. These methods append new operations to the oplog, and modify
 /// the branch to contain the named changes.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Branch {
+pub struct ListBranch {
     /// The version the branch is currently at. This is used to track which changes the branch has
     /// or has not locally merged.
     ///
@@ -106,38 +106,20 @@ pub struct Branch {
 /// Well, it should. The public API is still a work in progress. I'm going to be tweaking method
 /// names and things a fair bit before we hit 1.0.
 #[derive(Debug, Clone)]
-pub struct OpLog {
+pub struct ListOpLog {
     /// The ID of the document (if any). This is useful if you want to give a document a GUID or
     /// something to make sure you're merging into the right place.
     ///
     /// Optional - only used if you set it.
     doc_id: Option<SmartString>,
 
-    /// This is a bunch of ranges of (item order -> CRDT location span).
-    /// The entries always have positive len.
-    ///
-    /// This is used to map Local time -> External CRDT locations.
-    ///
-    /// List is packed.
-    pub(crate) client_with_localtime: RleVec<KVPair<CRDTSpan>>,
-
-    /// For each client, we store some data (above). This is indexed by AgentId.
-    ///
-    /// This is used to map external CRDT locations -> Order numbers.
-    pub(crate) client_data: Vec<ClientData>,
+    pub(crate) cg: CausalGraph,
 
     /// This contains all content ever inserted into the document, in time order (not document
     /// order). This object is indexed by the operation set.
     operation_ctx: OperationCtx,
     // TODO: Replace me with a compact form of this data.
     operations: RleVec<KVPair<OperationInternal>>,
-
-    /// Transaction metadata (succeeds, parents) for all operations on this document. This is used
-    /// for `diff` and `branchContainsVersion` calls on the document, which is necessary to merge
-    /// remote changes.
-    ///
-    /// Along with deletes, this essentially contains the time DAG.
-    pub(crate) history: History,
 
     /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into
     /// a branch, this is the version of that branch.
@@ -163,8 +145,8 @@ pub struct OpLog {
 ///   instantiate the oplog (and any visible branches) separately.
 #[derive(Debug, Clone)]
 pub struct ListCRDT {
-    pub branch: Branch,
-    pub oplog: OpLog,
+    pub branch: ListBranch,
+    pub oplog: ListOpLog,
 }
 
 fn switch<T>(tag: OpKind, ins: T, del: T) -> T {

@@ -33,7 +33,7 @@
 //! ```
 //! use diamond_types::list::*;
 //!
-//! let mut oplog = OpLog::new();
+//! let mut oplog = ListOpLog::new();
 //! let fred = oplog.get_or_create_agent_id("fred");
 //! oplog.add_insert(fred, 0, "abc");
 //! oplog.add_delete_without_content(fred, 1..2); // Delete the 'b'
@@ -47,9 +47,9 @@
 //!
 //! ```
 //! use diamond_types::list::*;
-//! let mut oplog = OpLog::new();
+//! let mut oplog = ListOpLog::new();
 //! // ...
-//! let mut branch = Branch::new_at_tip(&oplog);
+//! let mut branch = ListBranch::new_at_tip(&oplog);
 //! // Equivalent to let mut branch = Branch::new_at_local_version(&oplog, oplog.get_local_version());
 //! println!("branch content {}", branch.content().to_string());
 //! ```
@@ -58,9 +58,9 @@
 //!
 //! ```
 //! use diamond_types::list::*;
-//! let mut oplog = OpLog::new();
+//! let mut oplog = ListOpLog::new();
 //! // ...
-//! let mut branch = Branch::new_at_tip(&oplog);
+//! let mut branch = ListBranch::new_at_tip(&oplog);
 //! let george = oplog.get_or_create_agent_id("george");
 //! oplog.add_insert(george, 0, "asdf");
 //! branch.merge(&oplog, oplog.local_version_ref());
@@ -89,7 +89,7 @@
 //!
 //! ```
 //! use diamond_types::list::*;
-//! let mut oplog = OpLog::new();
+//! let mut oplog = ListOpLog::new();
 //! let fred = oplog.get_or_create_agent_id("fred");
 //! oplog.add_insert(fred, 0, "a");
 //! oplog.add_insert(fred, 1, "b");
@@ -100,7 +100,7 @@
 //!
 //! ```
 //! use diamond_types::list::*;
-//! let mut oplog = OpLog::new();
+//! let mut oplog = ListOpLog::new();
 //! let fred = oplog.get_or_create_agent_id("fred");
 //! oplog.add_insert(fred, 0, "abc");
 //! ```

@@ -9,7 +9,7 @@ use std::io::Write as _;
 use std::process::Command;
 use smallvec::{smallvec, SmallVec};
 use rle::{HasLength, SplitableSpan};
-use crate::list::OpLog;
+use crate::list::ListOpLog;
 use crate::dtrange::DTRange;
 use crate::history::{History, MinimalHistoryEntry};
 use crate::rle::KVPair;
@@ -87,7 +87,7 @@ impl History {
     }
 }
 
-impl OpLog {
+impl ListOpLog {
     pub fn make_time_dag_graph(&self, filename: &str) {
         // for e in self.history.iter_atomic_chunks() {
         //     dbg!(e);
@@ -102,7 +102,7 @@ impl OpLog {
         out.push_str("\tedge [color=\"#333333\" dir=none]\n");
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.history.iter_atomic_chunks() {
+        for txn in self.cg.history.iter_atomic_chunks() {
             // dbg!(txn);
             let range = txn.span;
 
@@ -160,7 +160,7 @@ impl OpLog {
                 op.truncate_keeping_right(offset);
                 op.truncate(1);
 
-                let txn = self.history.entries.find_packed(time);
+                let txn = self.cg.history.entries.find_packed(time);
 
                 // let label = if op.tag == Ins {
                 // let label = if op.content_known {
@@ -215,12 +215,12 @@ impl OpLog {
 mod test {
     use std::fs;
     use crate::list::merge::dot::DotColor::*;
-    use crate::list::OpLog;
+    use crate::list::ListOpLog;
 
     #[test]
     #[ignore]
     fn test1() {
-        let mut ops = OpLog::new();
+        let mut ops = ListOpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
         ops.add_insert_at(0, &[], 0, "a");
@@ -233,7 +233,7 @@ mod test {
     #[test]
     #[ignore]
     fn test2() {
-        let mut ops = OpLog::new();
+        let mut ops = ListOpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
         let _a = ops.add_insert_at(0, &[], 0, "aaa");
@@ -249,7 +249,7 @@ mod test {
     fn dot_of_node_cc() {
         let name = "node_nodecc.dt";
         let contents = fs::read(name).unwrap();
-        let oplog = OpLog::load_from(&contents).unwrap();
+        let oplog = ListOpLog::load_from(&contents).unwrap();
 
         oplog.make_time_dag_graph("node_graph.svg");
         println!("Graph written to node_graph.svg");

@@ -1,14 +1,14 @@
 #![allow(unused)]
 
 use std::env;
-use diamond_types::list::{OpLog, encoding::EncodeOptions};
+use diamond_types::list::{ListOpLog, encoding::EncodeOptions};
 use rle::zip::rle_zip;
 
 fn print_stats_for_file(name: &str) {
     let contents = std::fs::read(name).unwrap();
     println!("\n\nLoaded testing data from {} ({} bytes)", name, contents.len());
 
-    let oplog = OpLog::load_from(&contents).unwrap();
+    let oplog = ListOpLog::load_from(&contents).unwrap();
 
     println!("\nOperations:");
     for op in oplog.iter() {

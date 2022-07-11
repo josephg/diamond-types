@@ -79,9 +79,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     drop(scan_frontier);
 
-    let mut oplog = OpLog::new();
+    let mut oplog = ListOpLog::new();
     // let empty_branch = Branch::new();
-    let mut branch_at_oid = HashMap::<Oid, Branch>::new();
+    let mut branch_at_oid = HashMap::<Oid, ListBranch>::new();
 
     // This time through I'm taking each item *out* of the commits hashset when we process it.
     let mut commits_not_processed = commits_seen;
@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let mut branch = if commit.parent_count() == 0 {
             // The branch is fresh at ROOT.
-            Branch::new()
+            ListBranch::new()
         } else {
             for p in commit.parents() {
                 // We want to have handled all the parents
@@ -194,7 +194,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // dbg!(&oplog);
-    let branch = Branch::new_at_tip(&oplog);
+    let branch = ListBranch::new_at_tip(&oplog);
     // println!("{}: '{}'", file, branch.content);
     println!("Branch at {:?}", branch.local_version_ref());
 

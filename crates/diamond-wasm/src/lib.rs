@@ -4,7 +4,7 @@ use wasm_bindgen::prelude::*;
 // use serde_wasm_bindgen::Serializer;
 // use serde::{Serialize};
 use diamond_types::{AgentId, Time};
-use diamond_types::list::{Branch as DTBranch, ListCRDT, OpLog as DTOpLog};
+use diamond_types::list::{ListBranch as DTBranch, ListCRDT, ListOpLog as DTOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, ENCODE_PATCH};
 use diamond_types::list::operation::Operation;
 

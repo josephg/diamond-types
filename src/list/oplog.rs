@@ -4,7 +4,7 @@ use smartstring::SmartString;
 use rle::{HasLength, Searchable};
 use crate::{AgentId, LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
 use crate::causalgraph::ClientData;
-use crate::list::{Branch, OpLog};
+use crate::list::{ListBranch, ListOpLog};
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};
 use crate::history::MinimalHistoryEntry;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
@@ -16,7 +16,7 @@ use crate::rev_range::RangeRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::unicount::count_chars;
 
-impl Default for OpLog {
+impl Default for ListOpLog {
     fn default() -> Self {
         Self::new()
     }
@@ -24,28 +24,26 @@ impl Default for OpLog {
 
 const ROOT_AGENT_NAME: &str = "ROOT";
 
-impl OpLog {
+impl ListOpLog {
     pub fn new() -> Self {
         Self {
             doc_id: None,
-            client_with_localtime: RleVec::new(),
-            client_data: vec![],
+            cg: Default::default(),
             operation_ctx: OperationCtx::new(),
             operations: Default::default(),
             // inserted_content: "".to_string(),
-            history: Default::default(),
             version: smallvec![]
         }
     }
 
-    pub fn checkout(&self, local_version: &[Time]) -> Branch {
-        let mut branch = Branch::new();
+    pub fn checkout(&self, local_version: &[Time]) -> ListBranch {
+        let mut branch = ListBranch::new();
         branch.merge(self, local_version);
         branch
     }
 
-    pub fn checkout_tip(&self) -> Branch {
-        let mut branch = Branch::new();
+    pub fn checkout_tip(&self) -> ListBranch {
+        let mut branch = ListBranch::new();
         branch.merge(self, &self.version);
         branch
     }
@@ -55,18 +53,18 @@ impl OpLog {
             id
         } else {
             // Create a new id.
-            self.client_data.push(ClientData {
+            self.cg.client_data.push(ClientData {
                 name: SmartString::from(name),
                 item_times: RleVec::new()
             });
-            (self.client_data.len() - 1) as AgentId
+            (self.cg.client_data.len() - 1) as AgentId
         }
     }
 
     pub(crate) fn get_agent_id(&self, name: &str) -> Option<AgentId> {
         if name == "ROOT" { Some(ROOT_AGENT) }
         else {
-            self.client_data.iter()
+            self.cg.client_data.iter()
                 .position(|client_data| client_data.name == name)
                 .map(|id| id as AgentId)
         }
@@ -74,13 +72,13 @@ impl OpLog {
 
     pub fn get_agent_name(&self, agent: AgentId) -> &str {
         if agent == ROOT_AGENT { ROOT_AGENT_NAME }
-        else { self.client_data[agent as usize].name.as_str() }
+        else { self.cg.client_data[agent as usize].name.as_str() }
     }
 
     pub(crate) fn time_to_crdt_id(&self, time: usize) -> CRDTGuid {
         if time == ROOT_TIME { CRDT_DOC_ROOT }
         else {
-            let (loc, offset) = self.client_with_localtime.find_packed_with_offset(time);
+            let (loc, offset) = self.cg.client_with_localtime.find_packed_with_offset(time);
             loc.1.at_offset(offset as usize)
         }
     }
@@ -90,7 +88,7 @@ impl OpLog {
         // if id.agent == ROOT_AGENT {
         //     ROOT_TIME
         // } else {
-        //     let client = &self.client_data[id.agent as usize];
+        //     let client = &self.cg.client_data[id.agent as usize];
         //     client.seq_to_time(id.seq)
         // }
         self.try_crdt_id_to_time(id).unwrap()
@@ -101,7 +99,7 @@ impl OpLog {
         if id.agent == ROOT_AGENT {
             Some(ROOT_TIME)
         } else {
-            let client = &self.client_data[id.agent as usize];
+            let client = &self.cg.client_data[id.agent as usize];
             client.try_seq_to_time(id.seq)
         }
     }
@@ -109,7 +107,7 @@ impl OpLog {
     pub(crate) fn get_crdt_span(&self, time: DTRange) -> CRDTSpan {
         if time.start == ROOT_TIME { CRDTSpan { agent: ROOT_AGENT, seq_range: Default::default() } }
         else {
-            let (loc, offset) = self.client_with_localtime.find_packed_with_offset(time.start);
+            let (loc, offset) = self.cg.client_with_localtime.find_packed_with_offset(time.start);
             let start = loc.1.seq_range.start + offset;
             let end = usize::min(loc.1.seq_range.end, start + time.len());
             CRDTSpan {
@@ -121,23 +119,23 @@ impl OpLog {
 
     // pub(crate) fn get_time(&self, loc: CRDTId) -> usize {
     //     if loc.agent == ROOT_AGENT { ROOT_TIME }
-    //     else { self.client_data[loc.agent as usize].seq_to_time(loc.seq) }
+    //     else { self.cg.client_data[loc.agent as usize].seq_to_time(loc.seq) }
     // }
 
     // pub(crate) fn get_time_span(&self, loc: CRDTId, max_len: u32) -> OrderSpan {
     //     assert_ne!(loc.agent, ROOT_AGENT);
-    //     self.client_data[loc.agent as usize].seq_to_order_span(loc.seq, max_len)
+    //     self.cg.client_data[loc.agent as usize].seq_to_order_span(loc.seq, max_len)
     // }
 
     /// Get the number of operations
     pub fn len(&self) -> usize {
-        if let Some(last) = self.client_with_localtime.last() {
+        if let Some(last) = self.cg.client_with_localtime.last() {
             last.end()
         } else { 0 }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.client_with_localtime.is_empty()
+        self.cg.client_with_localtime.is_empty()
     }
 
     // Unused for now, but it should work.
@@ -153,7 +151,7 @@ impl OpLog {
         debug_assert_eq!(start, self.len());
 
         let CRDTSpan { agent, seq_range } = span;
-        let client_data = &mut self.client_data[agent as usize];
+        let client_data = &mut self.cg.client_data[agent as usize];
 
         let next_seq = client_data.get_next_seq();
         let timespan = (start..start + span.len()).into();
@@ -168,19 +166,19 @@ impl OpLog {
             client_data.item_times.insert(KVPair(seq_range.start, timespan));
         }
 
-        self.client_with_localtime.push(KVPair(start, span));
+        self.cg.client_with_localtime.push(KVPair(start, span));
     }
 
     /// span is the local timespan we're assigning to the named agent.
     pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
         debug_assert_eq!(span.start, self.len());
 
-        let client_data = &mut self.client_data[agent as usize];
+        let client_data = &mut self.cg.client_data[agent as usize];
 
         let next_seq = client_data.get_next_seq();
         client_data.item_times.push(KVPair(next_seq, span));
 
-        self.client_with_localtime.push(KVPair(span.start, CRDTSpan {
+        self.cg.client_with_localtime.push(KVPair(span.start, CRDTSpan {
             agent,
             seq_range: DTRange { start: next_seq, end: next_seq + span.len() },
         }));
@@ -217,7 +215,7 @@ impl OpLog {
 
     fn assign_internal(&mut self, agent: AgentId, parents: &[Time], span: DTRange) {
         self.assign_next_time_to_client_known(agent, span);
-        self.history.insert(parents, span);
+        self.cg.history.insert(parents, span);
         self.advance_frontier(parents, span);
     }
 
@@ -322,11 +320,11 @@ impl OpLog {
 
     /// Iterate through history entries
     pub fn iter_history(&self) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
-        self.history.entries.iter().map(|e| e.into())
+        self.cg.history.entries.iter().map(|e| e.into())
     }
 
     pub fn iter_history_range(&self, range: DTRange) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
-        self.history.entries.iter_range_map_packed(range, |e| e.into())
+        self.cg.history.entries.iter_range_map_packed(range, |e| e.into())
     }
 
     /// Returns a `&[usize]` reference to the tip of the oplog. This version contains all
@@ -353,11 +351,11 @@ impl OpLog {
     // }
 
     pub fn iter_mappings(&self) -> impl Iterator<Item = CRDTSpan> + '_ {
-        self.client_with_localtime.iter().map(|item| item.1)
+        self.cg.client_with_localtime.iter().map(|item| item.1)
     }
 
     pub fn iter_mappings_range(&self, range: DTRange) -> impl Iterator<Item = CRDTSpan> + '_ {
-        self.client_with_localtime.iter_range_packed_ctx(range, &()).map(|item| item.1)
+        self.cg.client_with_localtime.iter_range_packed_ctx(range, &()).map(|item| item.1)
     }
 
     pub fn print_stats(&self, detailed: bool) {
@@ -388,15 +386,15 @@ impl OpLog {
         println!("Insert content length {}", self.operation_ctx.ins_content.len());
         println!("Delete content length {}", self.operation_ctx.del_content.len());
 
-        self.client_with_localtime.print_stats("Client localtime map", detailed);
-        self.history.entries.print_stats("History", detailed);
+        self.cg.client_with_localtime.print_stats("Client localtime map", detailed);
+        self.cg.history.entries.print_stats("History", detailed);
     }
 
     /// Check if the specified version contains the specified point in time.
     // Exported for the fuzzer. Not sure if I actually want this exposed.
     pub fn version_contains_time(&self, local_version: &[Time], target: Time) -> bool {
         if local_version.is_empty() { true }
-        else { self.history.version_contains_time(local_version, target) }
+        else { self.cg.history.version_contains_time(local_version, target) }
     }
 
     // /// Returns all the changes since some (static) point in time.
@@ -416,6 +414,6 @@ impl OpLog {
     /// simply return `a` or `b`. This happens when one of the versions is a strict subset of the
     /// other.
     pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
-        self.history.version_union(a, b)
+        self.cg.history.version_union(a, b)
     }
 }

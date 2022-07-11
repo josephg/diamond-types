@@ -6,7 +6,7 @@ use rand::distributions::Alphanumeric;
 use rand::Rng;
 use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
-use diamond_types::list::{Branch, OpLog};
+use diamond_types::list::{ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
 use diamond_types::list::remote_ids::RemoteId;
 
@@ -45,7 +45,7 @@ enum Commands {
     Cat {
         /// Diamond types file to read
         #[clap(name = "filename", parse(try_from_str = parse_dt_oplog))]
-        oplog: OpLog,
+        oplog: ListOpLog,
 
         /// Output contents to the named file instead of stdout
         #[clap(short, long, parse(from_os_str))]
@@ -63,7 +63,7 @@ enum Commands {
     Log {
         /// Diamond types file to read
         #[clap(name = "filename", parse(try_from_str = parse_dt_oplog))]
-        oplog: OpLog,
+        oplog: ListOpLog,
 
         /// Output the changes in a form where they can be applied directly (in order)
         #[clap(short, long)]
@@ -82,7 +82,7 @@ enum Commands {
     Version {
         /// Diamond types file to read
         #[clap(name = "filename", parse(try_from_str = parse_dt_oplog))]
-        oplog: OpLog,
+        oplog: ListOpLog,
     },
 
     /// Set the contents of a DT file by applying a diff
@@ -164,14 +164,14 @@ enum Commands {
     }
 }
 
-fn parse_dt_oplog(filename: &str) -> Result<OpLog, anyhow::Error> {
+fn parse_dt_oplog(filename: &str) -> Result<ListOpLog, anyhow::Error> {
     let data = fs::read(filename)?;
-    let oplog = OpLog::load_from(&data)?;
+    let oplog = ListOpLog::load_from(&data)?;
     Ok(oplog)
 }
 
 // fn checkout_version_or_tip(oplog: OpLog, version: Option<&[RemoteId]>) -> Branch {
-fn checkout_version_or_tip(oplog: &OpLog, version: Option<Box<[RemoteId]>>) -> Branch {
+fn checkout_version_or_tip(oplog: &ListOpLog, version: Option<Box<[RemoteId]>>) -> ListBranch {
     let v = if let Some(version) = version {
         oplog.try_remote_to_local_version(version.iter()).unwrap()
     } else {
@@ -185,7 +185,7 @@ fn main() -> Result<(), anyhow::Error> {
     let cli: Cli = Cli::parse();
     match cli.command {
         Commands::Create { filename, input: content_file, agent, force } => {
-            let mut oplog = OpLog::new();
+            let mut oplog = ListOpLog::new();
 
             if let Some(content_file) = content_file {
                 let content = fs::read_to_string(content_file)?;
@@ -260,7 +260,7 @@ fn main() -> Result<(), anyhow::Error> {
             let data = fs::read(&dt_filename)?;
             let new = fs::read_to_string(target_content_file)?;
 
-            let mut oplog = OpLog::load_from(&data)?;
+            let mut oplog = ListOpLog::load_from(&data)?;
 
             if !quiet {
                 let v_json = if let Some(v) = version.as_ref() {
@@ -315,7 +315,7 @@ fn main() -> Result<(), anyhow::Error> {
 
         Commands::Repack { dt_filename, output, force, uncompressed, version, patch, no_inserted_content, no_deleted_content, quiet } => {
             let data = fs::read(&dt_filename)?;
-            let oplog = OpLog::load_from(&data)?;
+            let oplog = ListOpLog::load_from(&data)?;
 
             let from_version = match &version {
                 Some(v) => v.as_ref(),
