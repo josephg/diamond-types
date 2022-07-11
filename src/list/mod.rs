@@ -10,7 +10,7 @@ use smartstring::alias::String as SmartString;
 use crate::causalgraph::ClientData;
 
 use crate::list::operation::OpKind;
-use crate::history::History;
+use crate::causalgraph::parents::Parents;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::{CausalGraph, LocalVersion};
 use crate::remotespan::CRDTSpan;

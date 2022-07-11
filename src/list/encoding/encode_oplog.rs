@@ -1,7 +1,7 @@
 use jumprope::JumpRope;
 use rle::{HasLength, RleRun};
 use crate::list::encoding::*;
-use crate::history::MinimalHistoryEntry;
+use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::list::operation::OpKind::{Del, Ins};
 use crate::list::{ListBranch, ListOpLog, switch};
 use crate::rle::{KVPair, RleVec};
@@ -469,7 +469,7 @@ impl ListOpLog {
         let mut txn_map = RleVec::<KVPair<DTRange>>::new();
         let mut next_output_time = 0;
         let mut txns_chunk = Vec::new();
-        let mut txns_writer = Merger::new(|txn: MinimalHistoryEntry, agent_mapping: &mut AgentMapping| {
+        let mut txns_writer = Merger::new(|txn: ParentsEntrySimple, agent_mapping: &mut AgentMapping| {
             // println!("Upstream {}-{}", txn.span.start, txn.span.end);
             // First add this entry to the txn map.
             let len = txn.span.len();
@@ -588,7 +588,7 @@ impl ListOpLog {
             }
 
             // 3. Parents!
-            txns_writer.push2(MinimalHistoryEntry {
+            txns_writer.push2(ParentsEntrySimple {
                 span: walk.consume,
                 parents: walk.parents
             }, &mut agent_mapping);

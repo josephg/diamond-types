@@ -6,7 +6,7 @@ use crate::{AgentId, LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
 use crate::causalgraph::ClientData;
 use crate::list::{ListBranch, ListOpLog};
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};
-use crate::history::MinimalHistoryEntry;
+use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::list::internal_op::{OperationCtx, OperationInternal};
 use crate::list::operation::{Operation, OpKind};
 use crate::list::remote_ids::RemoteId;
@@ -319,11 +319,11 @@ impl ListOpLog {
     }
 
     /// Iterate through history entries
-    pub fn iter_history(&self) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
+    pub fn iter_history(&self) -> impl Iterator<Item =ParentsEntrySimple> + '_ {
         self.cg.history.entries.iter().map(|e| e.into())
     }
 
-    pub fn iter_history_range(&self, range: DTRange) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
+    pub fn iter_history_range(&self, range: DTRange) -> impl Iterator<Item =ParentsEntrySimple> + '_ {
         self.cg.history.entries.iter_range_map_packed(range, |e| e.into())
     }
 

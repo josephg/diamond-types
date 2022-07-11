@@ -64,6 +64,9 @@ mod test {
         let seph = db.get_or_create_agent_id("seph");
         db.set_map_primitive(seph, ROOT_MAP, "name", Primitive::Str("seph".into()));
 
+        let inner = db.create_inner_map(seph, ROOT_MAP, Some("facts"));
+        db.set_map_primitive(seph, inner, "cool", Primitive::I64(1));
+
         dbg!(db.get_recursive());
 
         dbg!(&db.branch.overlay_version);

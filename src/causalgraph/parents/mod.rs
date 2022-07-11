@@ -1,5 +1,3 @@
-/// TODO: History is the wrong name here.
-///
 /// This stores the parents information, and contains a bunch of tools for interacting with the
 /// parents information.
 
@@ -17,27 +15,15 @@ use crate::dtrange::DTRange;
 use serde_crate::{Deserialize, Serialize};
 use crate::frontier::{clone_smallvec, local_version_is_root};
 
-#[derive(Debug, Clone)]
-pub(crate) struct ScopedHistory {
-    pub(crate) created_at: Time,
-
-    /// This isn't a real Version. Its a list of times at which this CRDT was deleted.
-    ///
-    /// (What do we need this for??)
-    pub(crate) deleted_at: LocalVersion,
-
-    pub(crate) owned_times: RleVec<DTRange>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct History {
-    pub(crate) entries: RleVec<HistoryEntry>,
+pub struct Parents {
+    pub(crate) entries: RleVec<ParentsEntryInternal>,
 
     // The index of all items with ROOT as a direct parent.
     pub(crate) root_child_indexes: SmallVec<[usize; 2]>,
 }
 
-impl History {
+impl Parents {
     #[allow(unused)]
     pub fn new() -> Self {
         Self::default()
@@ -50,8 +36,8 @@ impl History {
 
     // This is mostly for testing.
     #[allow(unused)]
-    pub(crate) fn from_entries(entries: &[HistoryEntry]) -> Self {
-        History {
+    pub(crate) fn from_entries(entries: &[ParentsEntryInternal]) -> Self {
+        Parents {
             entries: RleVec(entries.to_vec()),
             root_child_indexes: entries.iter().enumerate().filter_map(|(i, entry)| {
                 if local_version_is_root(&entry.parents) { Some(i) } else { None }
@@ -120,7 +106,7 @@ impl History {
             }
         }
 
-        let txn = HistoryEntry {
+        let txn = ParentsEntryInternal {
             span: range,
             shadow,
             parents: txn_parents.iter().copied().collect(),
@@ -136,9 +122,8 @@ impl History {
 /// This type stores metadata for a run of transactions created by the users.
 ///
 /// Both individual inserts and deletes will use up txn numbers.
-/// TODO: Consider renaming this to HistoryEntryInternal or something.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct HistoryEntry {
+pub(crate) struct ParentsEntryInternal {
     pub span: DTRange, // TODO: Make the span u64s instead of usize.
 
     /// All txns in this span are direct descendants of all operations from order down to shadow.
@@ -156,7 +141,7 @@ pub(crate) struct HistoryEntry {
     pub child_indexes: SmallVec<[usize; 2]>,
 }
 
-impl HistoryEntry {
+impl ParentsEntryInternal {
     // pub fn parent_at_offset(&self, at: usize) -> Option<usize> {
     //     if at > 0 {
     //         Some(self.span.start + at - 1)
@@ -203,13 +188,13 @@ impl HistoryEntry {
     // }
 }
 
-impl HasLength for HistoryEntry {
+impl HasLength for ParentsEntryInternal {
     fn len(&self) -> usize {
         self.span.len()
     }
 }
 
-impl MergableSpan for HistoryEntry {
+impl MergableSpan for ParentsEntryInternal {
     fn can_append(&self, other: &Self) -> bool {
         self.span.can_append(&other.span)
             && other.parents.len() == 1
@@ -230,7 +215,7 @@ impl MergableSpan for HistoryEntry {
     }
 }
 
-impl RleKeyed for HistoryEntry {
+impl RleKeyed for ParentsEntryInternal {
     fn rle_key(&self) -> usize {
         self.span.start
     }
@@ -239,12 +224,12 @@ impl RleKeyed for HistoryEntry {
 /// This is a simplified history entry for exporting and viewing externally.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct MinimalHistoryEntry {
+pub struct ParentsEntrySimple {
     pub span: DTRange,
     pub parents: SmallVec<[usize; 2]>,
 }
 
-impl MergableSpan for MinimalHistoryEntry {
+impl MergableSpan for ParentsEntrySimple {
     fn can_append(&self, other: &Self) -> bool {
         self.span.can_append(&other.span)
             && other.parents.len() == 1
@@ -261,23 +246,23 @@ impl MergableSpan for MinimalHistoryEntry {
     }
 }
 
-impl HasLength for MinimalHistoryEntry {
+impl HasLength for ParentsEntrySimple {
     fn len(&self) -> usize { self.span.len() }
 }
 
-impl SplitableSpanHelpers for MinimalHistoryEntry {
+impl SplitableSpanHelpers for ParentsEntrySimple {
     fn truncate_h(&mut self, at: usize) -> Self {
         debug_assert!(at >= 1);
 
-        MinimalHistoryEntry {
+        ParentsEntrySimple {
             span: self.span.truncate(at),
             parents: smallvec![self.span.start + at - 1]
         }
     }
 }
 
-impl From<HistoryEntry> for MinimalHistoryEntry {
-    fn from(entry: HistoryEntry) -> Self {
+impl From<ParentsEntryInternal> for ParentsEntrySimple {
+    fn from(entry: ParentsEntryInternal) -> Self {
         Self {
             span: entry.span,
             parents: entry.parents
@@ -285,8 +270,8 @@ impl From<HistoryEntry> for MinimalHistoryEntry {
     }
 }
 
-impl From<&HistoryEntry> for MinimalHistoryEntry {
-    fn from(entry: &HistoryEntry) -> Self {
+impl From<&ParentsEntryInternal> for ParentsEntrySimple {
+    fn from(entry: &ParentsEntryInternal) -> Self {
         Self {
             span: entry.span,
             parents: clone_smallvec(&entry.parents)
@@ -294,15 +279,15 @@ impl From<&HistoryEntry> for MinimalHistoryEntry {
     }
 }
 
-pub(crate) struct HistoryIter<'a> {
-    history: &'a History,
+pub(crate) struct ParentsIter<'a> {
+    history: &'a Parents,
     idx: usize,
     offset: usize,
     end: usize,
 }
 
-impl<'a> Iterator for HistoryIter<'a> {
-    type Item = MinimalHistoryEntry;
+impl<'a> Iterator for ParentsIter<'a> {
+    type Item = ParentsEntrySimple;
 
     fn next(&mut self) -> Option<Self::Item> {
         let e = if let Some(e) = self.history.entries.0.get(self.idx) { e }
@@ -310,7 +295,7 @@ impl<'a> Iterator for HistoryIter<'a> {
 
         self.idx += 1;
 
-        let mut m = MinimalHistoryEntry::from(e);
+        let mut m = ParentsEntrySimple::from(e);
 
         if self.offset > 0 {
             m.truncate_keeping_right(self.offset);
@@ -325,12 +310,12 @@ impl<'a> Iterator for HistoryIter<'a> {
     }
 }
 
-impl History {
-    pub(crate) fn iter_range(&self, range: DTRange) -> HistoryIter<'_> {
+impl Parents {
+    pub(crate) fn iter_range(&self, range: DTRange) -> ParentsIter<'_> {
         let idx = self.entries.find_index(range.start).unwrap();
         let offset = range.start - self.entries.0[idx].rle_key();
 
-        HistoryIter {
+        ParentsIter {
             history: self,
             idx,
             offset,
@@ -343,17 +328,17 @@ impl History {
 mod tests {
     use smallvec::smallvec;
     use rle::{MergableSpan, test_splitable_methods_valid};
-    use crate::history::MinimalHistoryEntry;
-    use super::HistoryEntry;
+    use crate::causalgraph::parents::ParentsEntrySimple;
+    use super::ParentsEntryInternal;
 
     #[test]
     fn test_txn_appends() {
-        let mut txn_a = HistoryEntry {
+        let mut txn_a = ParentsEntryInternal {
             span: (1000..1010).into(), shadow: 500,
             parents: smallvec![999],
             child_indexes: smallvec![],
         };
-        let txn_b = HistoryEntry {
+        let txn_b = ParentsEntryInternal {
             span: (1010..1015).into(), shadow: 500,
             parents: smallvec![1009],
             child_indexes: smallvec![],
@@ -362,7 +347,7 @@ mod tests {
         assert!(txn_a.can_append(&txn_b));
 
         txn_a.append(txn_b);
-        assert_eq!(txn_a, HistoryEntry {
+        assert_eq!(txn_a, ParentsEntryInternal {
             span: (1000..1015).into(), shadow: 500,
             parents: smallvec![999],
             child_indexes: smallvec![],
@@ -371,7 +356,7 @@ mod tests {
 
     #[test]
     fn txn_entry_valid() {
-        test_splitable_methods_valid(MinimalHistoryEntry {
+        test_splitable_methods_valid(ParentsEntrySimple {
             span: (10..20).into(),
             parents: smallvec![0]
         });

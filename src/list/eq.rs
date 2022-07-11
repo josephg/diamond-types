@@ -12,7 +12,7 @@ use rle::zip::rle_zip3;
 use crate::{ROOT_AGENT, Time};
 use crate::list::ListOpLog;
 use crate::frontier::clean_version;
-use crate::history::MinimalHistoryEntry;
+use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::rle::KVPair;
 
 // const VERBOSE: bool = true;
@@ -148,7 +148,7 @@ impl PartialEq<Self> for ListOpLog {
 
                 // Ok, and we also need to check the txns match.
                 let (other_txn_entry, offset) = other.cg.history.entries.find_packed_with_offset(other_time);
-                let mut other_txn: MinimalHistoryEntry = other_txn_entry.clone().into();
+                let mut other_txn: ParentsEntrySimple = other_txn_entry.clone().into();
                 if offset > 0 { other_txn.truncate_keeping_right(offset); }
                 if other_txn.len() > len_here {
                     other_txn.truncate(len_here);
@@ -162,7 +162,7 @@ impl PartialEq<Self> for ListOpLog {
                     // return false;
                 };
 
-                let mut mapped_txn = MinimalHistoryEntry {
+                let mut mapped_txn = ParentsEntrySimple {
                     span: (mapped_start..mapped_start + len_here).into(),
                     // .unwrap() should be safe here because we've already walked past this item's
                     // parents.

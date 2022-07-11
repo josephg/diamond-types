@@ -17,7 +17,7 @@ use crate::dtrange::{DTRange, is_underwater};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, LocalVersion, Time};
 use crate::frontier::{advance_frontier_by, frontier_is_sorted, local_version_eq};
-use crate::history::tools::DiffFlag;
+use crate::causalgraph::parents::tools::DiffFlag;
 use crate::list::internal_op::OperationInternal;
 use crate::list::buffered_iter::BufferedIter;
 use crate::rev_range::RangeRev;

@@ -9,7 +9,7 @@ use smartstring::alias::String as SmartString;
 use ::rle::*;
 use crate::*;
 use crate::frontier::*;
-use crate::history::History;
+use crate::causalgraph::parents::Parents;
 
 use crate::remotespan::{CRDT_DOC_ROOT, CRDTGuid, CRDTSpan};
 use crate::rle::{RleKeyed, RleSpanHelpers};

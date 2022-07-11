@@ -36,7 +36,7 @@ use crate::encoding::parents::{read_txn_entry, TxnMap, write_txn_entry};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::{calc_checksum, push_u32, push_u64, push_usize};
 use crate::encoding::varint::{decode_usize, encode_usize, strip_bit_u32};
-use crate::history::MinimalHistoryEntry;
+use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::{CausalGraph, CRDTSpan, Time};
 use bumpalo::collections::vec::Vec as BumpVec;
 
@@ -145,7 +145,7 @@ struct CausalGraphStorage {
 
     // last_entry: RleRun<bool>,
 
-    last_parents: MinimalHistoryEntry,
+    last_parents: ParentsEntrySimple,
     assigned_to: CRDTSpan,
 
     txn_map: TxnMap,
@@ -179,7 +179,7 @@ impl CausalGraphStorage {
             dirty_blit: false,
             next_blit: false,
             // last_entry: Default::default(),
-            last_parents: MinimalHistoryEntry {
+            last_parents: ParentsEntrySimple {
                 span: Default::default(), parents: Default::default()
             },
             assigned_to: CRDTSpan {
@@ -471,7 +471,7 @@ impl CausalGraphStorage {
         write_agent_assignment_span(buf, tag, self.assigned_to, &mut self.agent_map, persist, &cg.client_data);
     }
 
-    pub(crate) fn push_parents_no_sync(&mut self, bump: &Bump, parents: MinimalHistoryEntry, cg: &CausalGraph) -> Result<bool, CGError> {
+    pub(crate) fn push_parents_no_sync(&mut self, bump: &Bump, parents: ParentsEntrySimple, cg: &CausalGraph) -> Result<bool, CGError> {
         if parents.is_empty() { return Ok(false); }
 
         let mut buf = BumpVec::new_in(bump);
@@ -597,7 +597,7 @@ mod test {
     use std::io::Read;
     use smallvec::smallvec;
     use rle::RleRun;
-    use crate::history::MinimalHistoryEntry;
+    use crate::causalgraph::parents::ParentsEntrySimple;
     use crate::{CausalGraph, CRDTSpan};
     use crate::causalgraph::storage::CausalGraphStorage;
 

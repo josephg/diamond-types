@@ -11,7 +11,7 @@ use crate::unicount::*;
 use rle::*;
 use crate::list::buffered_iter::Buffered;
 use crate::list::encoding::ChunkType::*;
-use crate::history::MinimalHistoryEntry;
+use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::list::operation::OpKind;
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::list::encoding::decode_tools::{BufReader, ChunkReader};
@@ -138,12 +138,12 @@ impl<'a> BufReader<'a> {
         Ok(parents)
     }
 
-    fn next_history_entry(&mut self, oplog: &ListOpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<MinimalHistoryEntry, ParseError> {
+    fn next_history_entry(&mut self, oplog: &ListOpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<ParentsEntrySimple, ParseError> {
         let len = self.next_usize()?;
         let parents = self.read_parents(oplog, next_time, agent_map)?;
 
         // Bleh its gross passing a &[Time] into here when we have a Frontier already.
-        Ok(MinimalHistoryEntry {
+        Ok(ParentsEntrySimple {
             span: (next_time..next_time + len).into(),
             parents,
         })
@@ -240,7 +240,7 @@ struct FileInfoData<'a> {
 
 /// Returns (mapped span, remainder).
 /// The returned remainder is *NOT MAPPED*. This allows this method to be called in a loop.
-fn history_entry_map_and_truncate(mut hist_entry: MinimalHistoryEntry, version_map: &RleVec<KVPair<DTRange>>) -> (MinimalHistoryEntry, Option<MinimalHistoryEntry>) {
+fn history_entry_map_and_truncate(mut hist_entry: ParentsEntrySimple, version_map: &RleVec<KVPair<DTRange>>) -> (ParentsEntrySimple, Option<ParentsEntrySimple>) {
     let (map_entry, offset) = version_map.find_packed_with_offset(hist_entry.span.start);
 
     let mut map_entry = map_entry.1;

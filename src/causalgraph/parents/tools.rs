@@ -7,17 +7,17 @@ use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
 use crate::frontier::{advance_frontier_by, debug_assert_frontier_sorted, frontier_is_sorted};
-use crate::history::History;
-use crate::history::tools::DiffFlag::{OnlyA, OnlyB, Shared};
+use crate::causalgraph::parents::Parents;
+use crate::causalgraph::parents::tools::DiffFlag::*;
 use crate::dtrange::DTRange;
-use crate::{LocalVersion, ROOT_TIME, ScopedHistory, Time};
+use crate::{LocalVersion, ROOT_TIME, ScopedParents, Time};
 
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum DiffFlag { OnlyA, OnlyB, Shared }
 
-impl History {
+impl Parents {
     fn shadow_of(&self, time: Time) -> Time {
         if time == ROOT_TIME {
             ROOT_TIME
@@ -118,7 +118,7 @@ impl History {
 
 pub(crate) type DiffResult = (SmallVec<[DTRange; 4]>, SmallVec<[DTRange; 4]>);
 
-impl History {
+impl Parents {
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
     ///
     /// Also find which operation is the greatest common ancestor.
@@ -476,7 +476,7 @@ pub(crate) struct ConflictZone {
     pub(crate) spans: SmallVec<[DTRange; 4]>,
 }
 
-impl History {
+impl Parents {
     // Turns out I'm not finding this variant useful. Might be worth discarding it?
     #[allow(unused)]
     pub(crate) fn find_conflicting_simple(&self, a: &[Time], b: &[Time]) -> ConflictZone {
@@ -488,7 +488,7 @@ impl History {
         ConflictZone { common_ancestor, spans }
     }
 
-    pub(crate) fn version_in_scope(&self, version: &[Time], info: &ScopedHistory) -> Option<LocalVersion> {
+    pub(crate) fn version_in_scope(&self, version: &[Time], info: &ScopedParents) -> Option<LocalVersion> {
         // If v == creation time, its a bit hacky but I still consider that a valid version, because
         // the CRDT has a value then (the default value for the CRDT).
         debug_assert_frontier_sorted(version);
@@ -619,16 +619,16 @@ pub mod test {
     use smallvec::smallvec;
     use rle::{AppendRle, MergableSpan};
 
-    use crate::history::{History, HistoryEntry};
-    use crate::history::tools::DiffFlag::{OnlyA, OnlyB, Shared};
+    use crate::causalgraph::parents::*;
+    use crate::causalgraph::parents::tools::DiffFlag::*;
     use crate::dtrange::DTRange;
     use crate::rle::RleVec;
     use crate::{LocalVersion, ROOT_TIME, Time};
-    use crate::history::tools::{DiffFlag, DiffResult};
+    use crate::causalgraph::parents::tools::{DiffFlag, DiffResult};
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).
-    fn diff_via_conflicting(history: &History, a: &[Time], b: &[Time]) -> DiffResult {
+    fn diff_via_conflicting(history: &Parents, a: &[Time], b: &[Time]) -> DiffResult {
         let mut only_a = smallvec![];
         let mut only_b = smallvec![];
 
@@ -662,7 +662,7 @@ pub mod test {
         }
         list.push((span, flag));
     }
-    fn find_conflicting(history: &History, a: &[Time], b: &[Time]) -> ConflictFull {
+    fn find_conflicting(history: &Parents, a: &[Time], b: &[Time]) -> ConflictFull {
         let mut spans_fast = Vec::new();
         let mut spans_slow = Vec::new();
 
@@ -685,7 +685,7 @@ pub mod test {
         }
     }
 
-    fn assert_conflicting(history: &History, a: &[Time], b: &[Time], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[Time]) {
+    fn assert_conflicting(history: &Parents, a: &[Time], b: &[Time], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[Time]) {
         let expect: Vec<(DTRange, DiffFlag)> = expect_spans.iter().rev().map(|(r, flag)| (r.clone().into(), *flag)).collect();
         let actual = find_conflicting(history, a, b);
         assert_eq!(actual.common_branch.as_slice(), expect_common);
@@ -698,7 +698,7 @@ pub mod test {
         // assert_eq!(fast.common_branch.as_slice(), expect_common);
     }
 
-    fn assert_diff_eq(history: &History, a: &[Time], b: &[Time], expect_a: &[DTRange], expect_b: &[DTRange]) {
+    fn assert_diff_eq(history: &Parents, a: &[Time], b: &[Time], expect_a: &[DTRange], expect_b: &[DTRange]) {
         let slow_result = history.diff_slow(a, b);
         let fast_result = history.diff(a, b);
         let c_result = diff_via_conflicting(history, a, b);
@@ -725,25 +725,25 @@ pub mod test {
         }
     }
 
-    fn fancy_history() -> History {
-        History {
+    fn fancy_parents() -> Parents {
+        Parents {
             entries: RleVec(vec![
-                HistoryEntry { // 0-2
+                ParentsEntryInternal { // 0-2
                     span: (0..3).into(), shadow: 0,
                     parents: smallvec![],
                     child_indexes: smallvec![2, 3],
                 },
-                HistoryEntry { // 3-5
+                ParentsEntryInternal { // 3-5
                     span: (3..6).into(), shadow: 3,
                     parents: smallvec![],
                     child_indexes: smallvec![2],
                 },
-                HistoryEntry { // 6-8
+                ParentsEntryInternal { // 6-8
                     span: (6..9).into(), shadow: 6,
                     parents: smallvec![1, 4],
                     child_indexes: smallvec![3],
                 },
-                HistoryEntry { // 9
+                ParentsEntryInternal { // 9
                     span: (9..11).into(), shadow: usize::MAX,
                     parents: smallvec![2, 8],
                     child_indexes: smallvec![],
@@ -755,36 +755,36 @@ pub mod test {
 
     #[test]
     fn common_item_smoke_test() {
-        let history = fancy_history();
+        let parents = fancy_parents();
 
         for t in 0..=9 {
             // dbg!(t);
             // The same item should never conflict with itself.
-            assert_conflicting(&history, &[t], &[t], &[], &[t]);
+            assert_conflicting(&parents, &[t], &[t], &[], &[t]);
         }
-        assert_conflicting(&history, &[5, 6], &[5, 6], &[], &[5, 6]);
+        assert_conflicting(&parents, &[5, 6], &[5, 6], &[], &[5, 6]);
 
-        assert_conflicting(&history, &[1], &[2], &[(2..3, OnlyB)], &[1]);
-        assert_conflicting(&history, &[0], &[2], &[(1..3, OnlyB)], &[0]);
-        assert_conflicting(&history, &[], &[], &[], &[]);
-        assert_conflicting(&history, &[], &[2], &[(0..3, OnlyB)], &[]);
+        assert_conflicting(&parents, &[1], &[2], &[(2..3, OnlyB)], &[1]);
+        assert_conflicting(&parents, &[0], &[2], &[(1..3, OnlyB)], &[0]);
+        assert_conflicting(&parents, &[], &[], &[], &[]);
+        assert_conflicting(&parents, &[], &[2], &[(0..3, OnlyB)], &[]);
 
-        assert_conflicting(&history, &[2], &[3], &[(0..3, OnlyA), (3..4, OnlyB)], &[]); // 0,1,2 and 3.
-        assert_conflicting(&history, &[1, 4], &[4], &[(0..2, OnlyA), (3..5, Shared)], &[]); // 0,1,2 and 3.
-        assert_conflicting(&history, &[6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..5, OnlyA), (6..7, OnlyA)], &[]);
-        assert_conflicting(&history, &[6], &[5], &[(0..2, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]); // 6 includes 1, 0.
-        assert_conflicting(&history, &[5, 6], &[5], &[(0..2, OnlyA), (3..6, Shared), (6..7, OnlyA)], &[]);
-        assert_conflicting(&history, &[5, 6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..7, OnlyA)], &[]);
-        assert_conflicting(&history, &[2, 6], &[5], &[(0..3, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]);
-        assert_conflicting(&history, &[9], &[10], &[(10..11, OnlyB)], &[9]);
-        assert_conflicting(&history, &[6], &[7], &[(7..8, OnlyB)], &[6]);
+        assert_conflicting(&parents, &[2], &[3], &[(0..3, OnlyA), (3..4, OnlyB)], &[]); // 0,1,2 and 3.
+        assert_conflicting(&parents, &[1, 4], &[4], &[(0..2, OnlyA), (3..5, Shared)], &[]); // 0,1,2 and 3.
+        assert_conflicting(&parents, &[6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..5, OnlyA), (6..7, OnlyA)], &[]);
+        assert_conflicting(&parents, &[6], &[5], &[(0..2, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]); // 6 includes 1, 0.
+        assert_conflicting(&parents, &[5, 6], &[5], &[(0..2, OnlyA), (3..6, Shared), (6..7, OnlyA)], &[]);
+        assert_conflicting(&parents, &[5, 6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..7, OnlyA)], &[]);
+        assert_conflicting(&parents, &[2, 6], &[5], &[(0..3, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]);
+        assert_conflicting(&parents, &[9], &[10], &[(10..11, OnlyB)], &[9]);
+        assert_conflicting(&parents, &[6], &[7], &[(7..8, OnlyB)], &[6]);
 
         // This looks weird, but its right because 9 shares the same parents.
-        assert_conflicting(&history, &[9], &[2, 8], &[(9..10, OnlyA)], &[2, 8]);
+        assert_conflicting(&parents, &[9], &[2, 8], &[(9..10, OnlyA)], &[2, 8]);
 
         // Everything! Just because we need to rebase operation 8 on top of 7, and can't produce
         // that without basically all of time. Hopefully this doesn't come up a lot in practice.
-        assert_conflicting(&history, &[9], &[2, 7], &[(0..5, Shared), (6..8, Shared), (8..10, OnlyA)], &[]);
+        assert_conflicting(&parents, &[9], &[2, 7], &[(0..5, Shared), (6..8, Shared), (8..10, OnlyA)], &[]);
     }
 
     #[test]
@@ -798,7 +798,7 @@ pub mod test {
         // assert!(doc.txns.branch_contains_order(&doc.frontier, 0));
         // assert!(!doc.txns.branch_contains_order(&[ROOT_TIME_X], 0));
 
-        let history = fancy_history();
+        let history = fancy_parents();
 
         assert!(history.version_contains_time(&[], ROOT_TIME));
         assert!(history.version_contains_time(&[0], 0));
@@ -833,19 +833,19 @@ pub mod test {
         // 0 |
         // | 1
         // 2
-        let history = History {
+        let history = Parents {
             entries: RleVec(vec![
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (0..1).into(), shadow: usize::MAX,
                     parents: smallvec![],
                     child_indexes: smallvec![2]
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (1..2).into(), shadow: usize::MAX,
                     parents: smallvec![],
                     child_indexes: smallvec![3]
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (2..3).into(), shadow: 2,
                     parents: smallvec![0],
                     child_indexes: smallvec![4]
@@ -865,21 +865,21 @@ pub mod test {
         // 0 | |
         //   1 |
         //     2
-        let history = History {
+        let history = Parents {
             entries: RleVec(vec![
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (0..1).into(),
                     shadow: usize::MAX,
                     parents: smallvec![],
                     child_indexes: smallvec![],
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (1..2).into(),
                     shadow: 1,
                     parents: smallvec![],
                     child_indexes: smallvec![],
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (2..3).into(),
                     shadow: 2,
                     parents: smallvec![],
@@ -908,21 +908,21 @@ pub mod test {
         //      \ 3,4
         //       \ /
         //        5,6
-        let history = History {
+        let history = Parents {
             entries: RleVec(vec![
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (0..3).into(),
                     shadow: usize::MAX,
                     parents: smallvec![],
                     child_indexes: smallvec![2],
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (3..5).into(),
                     shadow: 3,
                     parents: smallvec![],
                     child_indexes: smallvec![2],
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (5..6).into(),
                     shadow: usize::MAX,
                     parents: smallvec![2,4],
@@ -942,26 +942,26 @@ pub mod test {
         // 0 1
         // |x|
         // 2 3
-        let history = History::from_entries(&[
-            HistoryEntry {
+        let history = Parents::from_entries(&[
+            ParentsEntryInternal {
                 span: (0..1).into(),
                 shadow: usize::MAX,
                 parents: smallvec![],
                 child_indexes: smallvec![1, 2],
             },
-            HistoryEntry {
+            ParentsEntryInternal {
                 span: (1..2).into(),
                 shadow: 1,
                 parents: smallvec![],
                 child_indexes: smallvec![1, 2],
             },
-            HistoryEntry {
+            ParentsEntryInternal {
                 span: (2..3).into(),
                 shadow: usize::MAX,
                 parents: smallvec![0, 1],
                 child_indexes: smallvec![],
             },
-            HistoryEntry {
+            ParentsEntryInternal {
                 span: (3..4).into(),
                 shadow: 3,
                 parents: smallvec![0, 1],

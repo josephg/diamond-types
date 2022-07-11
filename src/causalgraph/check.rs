@@ -1,5 +1,5 @@
 use smallvec::smallvec;
-use crate::{CausalGraph, History, LocalVersion};
+use crate::{CausalGraph, Parents, LocalVersion};
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec, debug_assert_frontier_sorted};
 
 impl CausalGraph {
@@ -44,7 +44,7 @@ impl CausalGraph {
     }
 }
 
-impl History {
+impl Parents {
     pub(crate) fn check(&self) {
         self.entries.check_packed();
 

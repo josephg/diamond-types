@@ -6,7 +6,7 @@ use crate::dtrange::DTRange;
 use crate::rle::KVPair;
 use crate::AgentId;
 use crate::frontier::debug_assert_frontier_sorted;
-use crate::history::MinimalHistoryEntry;
+use crate::causalgraph::parents::ParentsEntrySimple;
 
 impl ListOpLog {
     /// Find all the items to merge from other into self.
@@ -127,7 +127,7 @@ impl ListOpLog {
             // History entries (parents)
             t = time;
             for mut hist_entry in other.cg.history.entries
-                .iter_range_map_packed(s, |e| MinimalHistoryEntry::from(e)) {
+                .iter_range_map_packed(s, |e| ParentsEntrySimple::from(e)) {
 
                 let len = hist_entry.len();
                 let span = (t..t + len).into();
