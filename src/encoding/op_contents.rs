@@ -1,6 +1,6 @@
 use bumpalo::Bump;
 use bumpalo::collections::vec::Vec as BumpVec;
-use crate::{CRDTKind, NewOpLog, Primitive, Value};
+use crate::{CRDTKind, OpLog, Primitive, Value};
 use num_enum::TryFromPrimitive;
 use crate::encoding::tools::{push_str, push_u32, push_u64};
 use crate::encoding::varint::num_encode_zigzag_i64;
@@ -28,7 +28,7 @@ enum ValueType {
     // TODO: Arbitrary shifty list
 }
 
-pub fn encode_op_contents<'a, 'b: 'a, I: Iterator<Item=&'b Value>>(bump: &'a Bump, iter: I, oplog: &NewOpLog) -> BumpVec<'a, u8> {
+pub fn encode_op_contents<'a, 'b: 'a, I: Iterator<Item=&'b Value>>(bump: &'a Bump, iter: I, oplog: &OpLog) -> BumpVec<'a, u8> {
     let mut result = BumpVec::new_in(bump);
 
     for val in iter {

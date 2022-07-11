@@ -23,7 +23,7 @@ enum PathElement {
     MapValue(Time, SmartString),
 }
 
-impl NewOpLog {
+impl OpLog {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, WALError> {
         Ok(Self {
             // doc_id: None,
@@ -96,8 +96,8 @@ impl NewOpLog {
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use crate::new_oplog::ROOT_MAP;
-    use crate::{NewOpLog, Primitive, Value};
+    use crate::oplog::ROOT_MAP;
+    use crate::{OpLog, Primitive, Value};
 
     // #[test]
     // fn smoke_test() {

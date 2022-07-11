@@ -4,7 +4,7 @@ use crate::encoding::tools::{push_str, push_u32, push_usize};
 use crate::encoding::varint::*;
 use crate::history::MinimalHistoryEntry;
 use crate::remotespan::CRDTGuid;
-use crate::{AgentId, CausalGraph, DTRange, KVPair, LocalVersion, NewOpLog, RleVec, Time};
+use crate::{AgentId, CausalGraph, DTRange, KVPair, LocalVersion, OpLog, RleVec, Time};
 use crate::encoding::agent_assignment::{AgentStrToId, AgentMappingDec, AgentMappingEnc};
 use crate::encoding::Merger;
 use bumpalo::collections::vec::Vec as BumpVec;

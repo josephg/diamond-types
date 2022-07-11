@@ -1,9 +1,9 @@
 use smallvec::smallvec;
 use crate::frontier::advance_frontier_by_known_run;
 use crate::LocalVersion;
-use crate::NewOpLog;
+use crate::OpLog;
 
-impl NewOpLog {
+impl OpLog {
     fn get_frontier_inefficiently(&self) -> LocalVersion {
         // Could improve this by just looking at the last txn, and following shadows down.
 

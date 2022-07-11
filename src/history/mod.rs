@@ -1,3 +1,8 @@
+/// TODO: History is the wrong name here.
+///
+/// This stores the parents information, and contains a bunch of tools for interacting with the
+/// parents information.
+
 pub(crate) mod tools;
 mod scope;
 

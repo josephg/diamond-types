@@ -202,7 +202,7 @@ mod remotespan;
 mod rev_range;
 mod history;
 mod frontier;
-mod new_oplog;
+mod oplog;
 mod check;
 mod branch;
 mod path;
@@ -264,7 +264,7 @@ pub(crate) struct SetOp {
 
 
 #[derive(Debug)]
-pub struct NewOpLog {
+pub struct OpLog {
     // /// The ID of the document (if any). This is useful if you want to give a document a GUID or
     // /// something to make sure you're merging into the right place.
     // ///
@@ -304,7 +304,7 @@ enum OverlayValue {
 /// implemented via an overlay of data fields on top of a snapshot database. The overlay data is
 /// periodically flushed to disk.
 #[derive(Debug, Clone)]
-pub struct NewBranch {
+pub struct Branch {
     /// The overlay contents. This stores values which have either diverged from the persisted data
     /// or are cached.
     overlay: BTreeMap<Time, OverlayValue>,

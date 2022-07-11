@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use smallvec::smallvec;
 use crate::*;
 use smartstring::alias::String as SmartString;
-use crate::new_oplog::ROOT_MAP;
+use crate::oplog::ROOT_MAP;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum DTValue {
@@ -11,7 +11,7 @@ pub enum DTValue {
     Map(BTreeMap<SmartString, Box<DTValue>>),
 }
 
-impl NewBranch {
+impl Branch {
     pub fn new() -> Self {
         let mut overlay = BTreeMap::new();
         overlay.insert(ROOT_MAP, OverlayValue::Map(BTreeMap::new()));
@@ -190,7 +190,7 @@ impl NewBranch {
 
 #[cfg(test)]
 mod test {
-    use crate::{CRDTKind, NewOpLog};
+    use crate::{CRDTKind, OpLog};
     use smartstring::alias::String as SmartString;
 
     // #[test]

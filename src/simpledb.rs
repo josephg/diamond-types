@@ -1,19 +1,19 @@
 use crate::*;
 use crate::branch::DTValue;
-use crate::new_oplog::ROOT_MAP;
+use crate::oplog::ROOT_MAP;
 use crate::storage::wal::WALError;
 
 #[derive(Debug)]
 pub struct SimpleDatabase {
-    oplog: NewOpLog,
-    branch: NewBranch,
+    oplog: OpLog,
+    branch: Branch,
 }
 
 impl SimpleDatabase {
     pub fn open<P: AsRef<std::path::Path>>(path: P) -> Result<Self, WALError> {
         Ok(Self {
-            oplog: NewOpLog::open(path)?,
-            branch: NewBranch::new()
+            oplog: OpLog::open(path)?,
+            branch: Branch::new()
         })
     }
 
