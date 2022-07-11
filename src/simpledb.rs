@@ -2,6 +2,7 @@ use crate::*;
 use crate::branch::DTValue;
 use crate::frontier::local_version_eq;
 use crate::oplog::ROOT_MAP;
+use crate::remotespan::CRDTGuid;
 use crate::storage::wal::WALError;
 
 #[derive(Debug)]
@@ -38,27 +39,36 @@ impl SimpleDatabase {
 
     // *** Modifying LWW Registers & Map values
     pub fn map_lww_set_primitive(&mut self, agent_id: AgentId, map_id: Time, key: &str, value: Primitive) -> Time {
-        let time = self.oplog.set_map(agent_id, map_id, key, value.clone());
+        let time = self.oplog.local_set_map(agent_id, map_id, key, value.clone());
 
-        self.branch.inner_set_map(time, agent_id, map_id, key, Value::Primitive(value));
+        // self.branch.inner_set_map(time, map_id, key, Value::Primitive(value));
+        self.branch.inner_set(time, map_id, Some(key), Some(Value::Primitive(value)));
         self.branch.set_time(time); // gross.
 
         time
     }
 
     pub fn lww_set_primitive(&mut self, agent_id: AgentId, lww_id: Time, value: Primitive) -> Time {
-        let time = self.oplog.set_lww(agent_id, lww_id, value.clone());
+        let time = self.oplog.local_set_lww(agent_id, lww_id, value.clone());
 
-        self.branch.inner_set_lww(time, agent_id, lww_id, Value::Primitive(value));
+        // self.branch.inner_set_lww(time, lww_id, Value::Primitive(value));
+        self.branch.inner_set(time, lww_id, None, Some(Value::Primitive(value)));
         self.branch.set_time(time);
 
         time
     }
 
     pub fn create_inner(&mut self, agent_id: AgentId, crdt_id: Time, key: Option<&str>, kind: CRDTKind) -> Time {
-        let time = self.oplog.create_inner(agent_id, crdt_id, key, kind);
+        let time = self.oplog.local_create_inner(agent_id, crdt_id, key, kind);
         self.branch.create_inner(time, agent_id, crdt_id, key, kind);
         self.branch.set_time(time);
+        time
+    }
+
+    pub(crate) fn remote_lww_set(&mut self, parents: &[Time], id: CRDTGuid, crdt_id: CRDTGuid, key: Option<&str>, value: Primitive) -> Time {
+        let (time, crdt_id) = self.oplog.remote_set_lww(parents, id, crdt_id, key, value.clone());
+        self.branch.remote_set(&self.oplog.cg, parents, time, crdt_id, key, Some(Value::Primitive(value)));
+
         time
     }
 
@@ -81,10 +91,11 @@ impl SimpleDatabase {
 
 #[cfg(test)]
 mod test {
+    use crate::remotespan::CRDT_DOC_ROOT;
     use super::*;
 
     #[test]
-    fn foo() {
+    fn smoke() {
         let mut db = SimpleDatabase::open("test").unwrap();
         let seph = db.get_or_create_agent_id("seph");
         db.map_lww_set_primitive(seph, ROOT_MAP, "name", Primitive::Str("seph".into()));
@@ -103,5 +114,39 @@ mod test {
 
         dbg!(&db);
         db.dbg_check(true);
+    }
+
+    #[test]
+    fn concurrent_writes() {
+        let mut db = SimpleDatabase::open("test").unwrap();
+        let seph = db.get_or_create_agent_id("seph");
+        let mike = db.get_or_create_agent_id("mike");
+
+        let key = "yooo";
+
+        db.remote_lww_set(&[], CRDTGuid {
+            agent: mike,
+            seq: 0
+        }, CRDT_DOC_ROOT, Some(key), Primitive::I64(321));
+
+        db.remote_lww_set(&[], CRDTGuid {
+            agent: seph,
+            seq: 0
+        }, CRDT_DOC_ROOT, Some(key), Primitive::I64(123));
+
+        db.remote_lww_set(&[], CRDTGuid {
+            agent: mike,
+            seq: 1
+        }, CRDT_DOC_ROOT, Some(key), Primitive::I64(321));
+
+        let map = db.get_recursive_at(ROOT_MAP)
+            .unwrap().unwrap_map();
+        let v = map.get(key).unwrap();
+
+        assert_eq!(v.as_ref(), &DTValue::Primitive(Primitive::I64(123)));
+        // dbg!(db.get_recursive());
+        // dbg!(&db);
+        db.dbg_check(true);
+
     }
 }

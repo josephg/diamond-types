@@ -56,6 +56,7 @@ impl Parents {
             || (a != ROOT_TIME && a > b && self.entries.find(a).unwrap().contains(b))
     }
 
+    /// Calculates whether the specified version contains (dominates) the specified time.
     pub(crate) fn version_contains_time(&self, frontier: &[Time], target: Time) -> bool {
         if target == ROOT_TIME || frontier.contains(&target) { return true; }
         if frontier.is_empty() { return false; }

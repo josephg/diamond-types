@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use rle::{HasLength, Searchable};
 use crate::{AgentId, CausalGraph, ROOT_AGENT, ROOT_TIME, Time};
 use crate::causalgraph::*;
@@ -95,9 +96,14 @@ impl CausalGraph {
     }
 
     pub fn try_crdt_id_to_version(&self, id: CRDTGuid) -> Option<Time> {
-        self.client_data.get(id.agent as usize).and_then(|c| {
-            c.try_seq_to_time(id.seq)
-        })
+        if id.agent == ROOT_AGENT {
+            debug_assert_eq!(id.seq, 0);
+            Some(ROOT_TIME)
+        } else {
+            self.client_data.get(id.agent as usize).and_then(|c| {
+                c.try_seq_to_time(id.seq)
+            })
+        }
     }
 
     pub(crate) fn check_flat(&self) {
@@ -151,5 +157,27 @@ impl CausalGraph {
         self.history.insert(parents, span);
 
         span
+    }
+
+    /// This is used to break ties.
+    pub(crate) fn tie_break_crdt_versions(&self, v1: CRDTGuid, v2: CRDTGuid) -> Ordering {
+        if v1 == v2 { return Ordering::Equal; }
+        else {
+            let c1 = &self.client_data[v1.agent as usize];
+            let c2 = &self.client_data[v2.agent as usize];
+
+            c1.name.cmp(&c2.name)
+                .then(v1.seq.cmp(&v2.seq))
+        }
+    }
+
+    pub(crate) fn tie_break_versions(&self, v1: Time, v2: Time) -> Ordering {
+        if v1 == v2 { Ordering::Equal }
+        else {
+            self.tie_break_crdt_versions(
+                self.version_to_crdt_id(v1),
+                self.version_to_crdt_id(v2)
+            )
+        }
     }
 }

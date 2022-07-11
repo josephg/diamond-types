@@ -112,3 +112,12 @@ impl MergableSpan for CRDTSpan {
         self.seq_range.start = other.seq_range.start;
     }
 }
+
+impl From<CRDTGuid> for CRDTSpan {
+    fn from(guid: CRDTGuid) -> Self {
+        Self {
+            agent: guid.agent,
+            seq_range: guid.seq.into()
+        }
+    }
+}

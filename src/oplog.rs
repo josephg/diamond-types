@@ -41,56 +41,67 @@ impl OpLog {
         self.cg.get_or_create_agent_id(name)
     }
 
-    fn inner_assign_op_span(&mut self, span: DTRange, agent_id: AgentId) {
+    fn inner_assign_local_op_span(&mut self, span: DTRange, agent_id: AgentId) {
         self.cg.assign_next_time_to_client_known(agent_id, span);
         self.cg.history.insert(&self.version, span);
         self.version = smallvec![span.last()];
     }
 
     fn inner_assign_op(&mut self, time: Time, agent_id: AgentId) {
-        self.inner_assign_op_span((time..time+1).into(), agent_id);
+        self.inner_assign_local_op_span(time.into(), agent_id);
     }
 
-    // fn push_lww_op(&mut self, time: Time, agent_id: AgentId, lww_id: Time, value: Value, wal_val: WALValue) {
-    //     self.unflushed_ops.push(SetOp {
-    //         time, crdt_id: lww_id, key: None, new_value: wal_val
-    //     });
-    // }
-    //
-    // fn push_map_op(&mut self, time: Time, agent_id: AgentId, map_id: Time, key: &str, value: Value, wal_val: WALValue) {
-    //     self.unflushed_ops.push(SetOp {
-    //         time, crdt_id: map_id, key: Some(key.into()), new_value: wal_val
-    //     });
-    // }
 
-    fn push_register_op(&mut self, time: Time, agent_id: AgentId, crdt_id: Time, key: Option<&str>, value: Value, wal_val: WALValue) {
+    fn inner_assign_remote_op_span(&mut self, parents: &[Time], crdt_span: CRDTSpan) -> DTRange {
+        let time_span = self.cg.assign_times_to_agent(crdt_span);
+        self.cg.history.insert(parents, time_span);
+        advance_frontier_by_known_run(&mut self.version, parents, time_span);
+        time_span
+    }
+
+    fn inner_assign_remote_op(&mut self, parents: &[Time], id: CRDTGuid) -> Time {
+        self.inner_assign_remote_op_span(parents, id.into()).start
+    }
+
+    // *** LWW / Map operations
+    fn push_register_op(&mut self, time: Time, crdt_id: Time, key: Option<&str>, wal_val: WALValue) {
         self.uncommitted_ops.register_ops.push(KVPair(time, RegisterOp {
             crdt_id, key: key.map(|k| k.into()), new_value: wal_val
         }));
     }
 
-    pub fn set_lww(&mut self, agent_id: AgentId, lww_id: Time, value: Primitive) -> Time {
+    pub fn local_set_lww(&mut self, agent_id: AgentId, lww_id: Time, value: Primitive) -> Time {
         let time_now = self.cg.len();
         self.inner_assign_op(time_now, agent_id);
-        self.push_register_op(time_now, agent_id, lww_id, None, Value::Primitive(value.clone()), WALValue::Primitive(value));
+        self.push_register_op(time_now, lww_id, None, WALValue::Primitive(value));
         time_now
     }
 
-    pub fn set_map(&mut self, agent_id: AgentId, map_id: Time, key: &str, value: Primitive) -> Time {
+    pub fn local_set_map(&mut self, agent_id: AgentId, map_id: Time, key: &str, value: Primitive) -> Time {
         let time_now = self.cg.len();
         self.inner_assign_op(time_now, agent_id);
-        self.push_register_op(time_now, agent_id, map_id, Some(key), Value::Primitive(value.clone()), WALValue::Primitive(value));
+        self.push_register_op(time_now, map_id, Some(key), WALValue::Primitive(value));
         time_now
     }
 
-    pub fn create_inner(&mut self, agent_id: AgentId, crdt_id: Time, key: Option<&str>, kind: CRDTKind) -> Time {
+    pub fn local_create_inner(&mut self, agent_id: AgentId, crdt_id: Time, key: Option<&str>, kind: CRDTKind) -> Time {
         let time_now = self.cg.len();
         self.inner_assign_op(time_now, agent_id);
-        self.push_register_op(time_now, agent_id, crdt_id, key, Value::InnerCRDT(time_now), WALValue::NewCRDT(kind));
+        self.push_register_op(time_now, crdt_id, key, WALValue::NewCRDT(kind));
         // self.inner_create_crdt(time_now, kind);
         time_now
     }
 
+    pub(crate) fn remote_set_lww(&mut self, parents: &[Time], op_id: CRDTGuid, crdt_id: CRDTGuid, key: Option<&str>, value: Primitive) -> (Time, Time) {
+        let time = self.inner_assign_remote_op(parents, op_id);
+        let c = self.cg.try_crdt_id_to_version(crdt_id).unwrap();
+        self.push_register_op(time, c, key, WALValue::Primitive(value));
+
+        (time, c)
+    }
+
+
+    // *** Sets ***
     pub(crate) fn modify_set(&mut self, agent_id: AgentId, op: SetOp) -> Time {
         let time_now = self.cg.len();
         self.inner_assign_op(time_now, agent_id);

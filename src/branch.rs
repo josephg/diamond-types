@@ -1,7 +1,9 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use smallvec::smallvec;
 use crate::*;
 use smartstring::alias::String as SmartString;
+use crate::frontier::{advance_frontier_by, advance_frontier_by_known_run};
 use crate::oplog::ROOT_MAP;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -10,6 +12,29 @@ pub enum DTValue {
     // Register(Box<DTValue>),
     Map(BTreeMap<SmartString, Box<DTValue>>),
     Set(BTreeMap<Time, Box<DTValue>>),
+}
+
+impl DTValue {
+    pub fn unwrap_primitive(self) -> Primitive {
+        match self {
+            DTValue::Primitive(p) => p,
+            _ => { panic!("Expected primitive") }
+        }
+    }
+
+    pub fn unwrap_map(self) -> BTreeMap<SmartString, Box<DTValue>> {
+        match self {
+            DTValue::Map(map) => map,
+            _ => { panic!("Expected map") }
+        }
+    }
+
+    pub fn unwrap_set(self) -> BTreeMap<Time, Box<DTValue>> {
+        match self {
+            DTValue::Set(set) => set,
+            _ => { panic!("Expected set") }
+        }
+    }
 }
 
 impl Branch {
@@ -78,6 +103,38 @@ impl Branch {
         })
     }
 
+    // fn get_value_mut(&mut self, crdt_id: Time, key: Option<&str>) -> Option<&mut LWWValue> {
+    //     if let Some(key) = key {
+    //         match self.overlay.get_mut(&crdt_id)? {
+    //             OverlayValue::Map(inner_map) => {
+    //                 Some(inner_map.get_mut(key)?)
+    //             },
+    //             _ => None,
+    //         }
+    //     } else {
+    //         match self.overlay.get_mut(&crdt_id)? {
+    //             OverlayValue::LWW(val) => Some(val),
+    //             _ => None,
+    //         }
+    //     }
+    // }
+
+    fn get_register(&self, crdt_id: Time, key: Option<&str>) -> Option<&LWWValue> {
+        if let Some(key) = key {
+            match self.overlay.get(&crdt_id)? {
+                OverlayValue::Map(inner_map) => {
+                    Some(inner_map.get(key)?)
+                },
+                _ => None,
+            }
+        } else {
+            match self.overlay.get(&crdt_id)? {
+                OverlayValue::LWW(val) => Some(val),
+                _ => None,
+            }
+        }
+    }
+
     // fn get(&self, path: &PathElement) -> Option<&Value> {
     //     match path {
     //         PathElement::CRDT(crdt_id) => self.get_value_of_lww(*crdt_id),
@@ -94,33 +151,78 @@ impl Branch {
         }
     }
 
-    pub(crate) fn inner_set_lww(&mut self, time: Time, agent_id: AgentId, lww_id: Time, value: Value) {
+    fn remove_crdt(&mut self, crdt_id: Time) {
+        // This needs to recursively delete things.
+        let old_value = self.overlay.remove(&crdt_id);
+
+        // RECURSE!
+        todo!()
+    }
+
+    pub(crate) fn inner_set_lww(&mut self, time: Time, lww_id: Time, value: Option<Value>) {
         let inner = match self.overlay.get_mut(&lww_id).unwrap() {
             OverlayValue::LWW(lww) => lww,
             _ => { panic!("Cannot set register value in map"); }
         };
         inner.last_modified = time;
-        inner.value = Some(value.clone());
+
+        let old_value = std::mem::replace(&mut inner.value, value);
+
+        if let Some(Value::InnerCRDT(inner_crdt_id)) = old_value {
+            self.remove_crdt(inner_crdt_id);
+        }
     }
 
-    pub(crate) fn inner_set_map(&mut self, time: Time, agent_id: AgentId, map_id: Time, key: &str, value: Value) {
+    pub(crate) fn inner_set_map(&mut self, time: Time, map_id: Time, key: &str, value: Option<Value>) {
         let inner = match self.overlay.get_mut(&map_id).unwrap() {
             OverlayValue::Map(map) => map,
             _ => { panic!("Cannot set map value in LWW"); }
         };
 
-        inner.insert(key.into(), LWWValue {
-            value: Some(value.clone()),
+        let prev = inner.insert(key.into(), LWWValue {
+            value,
             last_modified: time
         });
+
+        if let Some(val) = prev {
+            if let Some(Value::InnerCRDT(inner_crdt_id)) = val.value {
+                self.remove_crdt(inner_crdt_id);
+            }
+        }
     }
 
-    pub(crate) fn inner_set(&mut self, time: Time, agent_id: AgentId, crdt_id: Time, key: Option<&str>, value: Value) {
+    pub(crate) fn inner_set(&mut self, time: Time, crdt_id: Time, key: Option<&str>, value: Option<Value>) {
+        // *self.get_value_mut(crdt_id, key).unwrap() = LWWValue {
+        //     value,
+        //     last_modified: time
+        // }
         if let Some(key) = key {
-            self.inner_set_map(time, agent_id, crdt_id, key, value);
+            self.inner_set_map(time, crdt_id, key, value);
         } else {
-            self.inner_set_lww(time, agent_id, crdt_id, value);
+            self.inner_set_lww(time, crdt_id, value);
         }
+    }
+
+    pub(crate) fn remote_set(&mut self, cg: &CausalGraph, parents: &[Time], time: Time, crdt_id: Time, key: Option<&str>, value: Option<Value>) {
+        // We set locally if the new version (at time) dominates the current version of the value.
+        let should_write = if let Some(reg) = self.get_register(crdt_id, key) {
+            // reg.last_modified
+            debug_assert!(time > reg.last_modified, "We should have already incorporated this change");
+
+            // We write if the new version dominates the old version.
+            cg.history.version_contains_time(&[time], reg.last_modified)
+                || cg.tie_break_versions(time, reg.last_modified) == Ordering::Greater
+        } else {
+            // Just set it.
+            true
+        };
+
+        if should_write {
+            self.inner_set(time, crdt_id, key, value);
+        }
+
+        // advance_frontier_by(&mut self.overlay_version, &cg.history, time.into());
+        advance_frontier_by_known_run(&mut self.overlay_version, parents, time.into());
     }
 
     fn inner_create_crdt(&mut self, time: Time, kind: CRDTKind) {
@@ -144,7 +246,7 @@ impl Branch {
     }
 
     pub(crate) fn create_inner(&mut self, time_now: Time, agent_id: AgentId, crdt_id: Time, key: Option<&str>, kind: CRDTKind) {
-        self.inner_set(time_now, agent_id, crdt_id, key, Value::InnerCRDT(time_now));
+        self.inner_set(time_now, crdt_id, key, Some(Value::InnerCRDT(time_now)));
         self.inner_create_crdt(time_now, kind);
     }
 
