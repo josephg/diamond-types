@@ -10,7 +10,8 @@ use crate::frontier::{advance_frontier_by, debug_assert_frontier_sorted, frontie
 use crate::causalgraph::parents::Parents;
 use crate::causalgraph::parents::tools::DiffFlag::*;
 use crate::dtrange::DTRange;
-use crate::{LocalVersion, ROOT_TIME, ScopedParents, Time};
+use crate::{LocalVersion, ROOT_TIME, Time};
+use crate::causalgraph::parents::scope::ScopedParents;
 
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.

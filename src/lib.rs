@@ -187,7 +187,7 @@ use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 use crate::causalgraph::CausalGraph;
 use crate::dtrange::DTRange;
-use causalgraph::parents::{Parents, ScopedParents};
+use causalgraph::parents::Parents;
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 use crate::storage::wal::WriteAheadLogRaw;
