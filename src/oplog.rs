@@ -30,7 +30,7 @@ impl OpLog {
             cg: Default::default(),
             wal: WriteAheadLog::open(path)?,
             version: smallvec![], // ROOT version.
-            unflushed_ops: vec![]
+            uncommitted_ops: Default::default()
         })
     }
 
@@ -63,33 +63,47 @@ impl OpLog {
     //     });
     // }
 
-    fn push_op(&mut self, time: Time, agent_id: AgentId, crdt_id: Time, key: Option<&str>, value: Value, wal_val: WALValue) {
-        self.unflushed_ops.push(SetOp {
-            time, crdt_id, key: key.map(|k| k.into()), new_value: wal_val
-        });
+    fn push_register_op(&mut self, time: Time, agent_id: AgentId, crdt_id: Time, key: Option<&str>, value: Value, wal_val: WALValue) {
+        self.uncommitted_ops.register_ops.push(KVPair(time, RegisterOp {
+            crdt_id, key: key.map(|k| k.into()), new_value: wal_val
+        }));
     }
 
-    pub(crate) fn set_lww(&mut self, agent_id: AgentId, lww_id: Time, value: Primitive) -> Time {
+    pub fn set_lww(&mut self, agent_id: AgentId, lww_id: Time, value: Primitive) -> Time {
         let time_now = self.cg.len();
         self.inner_assign_op(time_now, agent_id);
-        self.push_op(time_now, agent_id, lww_id, None, Value::Primitive(value.clone()), WALValue::Primitive(value));
+        self.push_register_op(time_now, agent_id, lww_id, None, Value::Primitive(value.clone()), WALValue::Primitive(value));
         time_now
     }
 
-    pub(crate) fn set_map(&mut self, agent_id: AgentId, map_id: Time, key: &str, value: Primitive) -> Time {
+    pub fn set_map(&mut self, agent_id: AgentId, map_id: Time, key: &str, value: Primitive) -> Time {
         let time_now = self.cg.len();
         self.inner_assign_op(time_now, agent_id);
-        self.push_op(time_now, agent_id, map_id, Some(key), Value::Primitive(value.clone()), WALValue::Primitive(value));
+        self.push_register_op(time_now, agent_id, map_id, Some(key), Value::Primitive(value.clone()), WALValue::Primitive(value));
         time_now
     }
 
-    pub(crate) fn create_inner_map(&mut self, agent_id: AgentId, crdt_id: Time, key: Option<&str>) -> Time {
+    pub fn create_inner(&mut self, agent_id: AgentId, crdt_id: Time, key: Option<&str>, kind: CRDTKind) -> Time {
         let time_now = self.cg.len();
         self.inner_assign_op(time_now, agent_id);
-        let kind = CRDTKind::Map;
-        self.push_op(time_now, agent_id, crdt_id, key, Value::InnerCRDT(time_now), WALValue::NewCRDT(kind));
+        self.push_register_op(time_now, agent_id, crdt_id, key, Value::InnerCRDT(time_now), WALValue::NewCRDT(kind));
         // self.inner_create_crdt(time_now, kind);
         time_now
+    }
+
+    pub(crate) fn modify_set(&mut self, agent_id: AgentId, op: SetOp) -> Time {
+        let time_now = self.cg.len();
+        self.inner_assign_op(time_now, agent_id);
+        self.uncommitted_ops.set_ops.push(KVPair(time_now, op));
+        time_now
+    }
+
+    pub fn insert_into_set(&mut self, agent_id: AgentId, kind: CRDTKind) -> Time {
+        self.modify_set(agent_id, SetOp::Insert(kind))
+    }
+
+    pub fn delete_from_set(&mut self, agent_id: AgentId, item: Time) -> Time {
+        self.modify_set(agent_id, SetOp::Remove(item))
     }
 }
 

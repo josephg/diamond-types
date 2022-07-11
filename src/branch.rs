@@ -9,6 +9,7 @@ pub enum DTValue {
     Primitive(Primitive),
     // Register(Box<DTValue>),
     Map(BTreeMap<SmartString, Box<DTValue>>),
+    Set(BTreeMap<Time, Box<DTValue>>),
 }
 
 impl Branch {
@@ -39,6 +40,11 @@ impl Branch {
             OverlayValue::Map(map) => {
                 Some(DTValue::Map(map.iter().filter_map(|(key, lww)| {
                     Some((key.clone(), Box::new(self.get_lww(lww)?)))
+                }).collect()))
+            }
+            OverlayValue::Set(id_set) => {
+                Some(DTValue::Set(id_set.iter().filter_map(|time| {
+                    Some((*time, Box::new(self.get_recursive_at(*time)?)))
                 }).collect()))
             }
         }
@@ -84,6 +90,7 @@ impl Branch {
         match self.overlay.get(&id).unwrap() {
             OverlayValue::LWW(_) => CRDTKind::LWW,
             OverlayValue::Map(_) => CRDTKind::Map,
+            OverlayValue::Set(_) => CRDTKind::Set,
         }
     }
 
@@ -119,8 +126,12 @@ impl Branch {
     fn inner_create_crdt(&mut self, time: Time, kind: CRDTKind) {
         let new_value = match kind {
             CRDTKind::Map => OverlayValue::Map(BTreeMap::new()),
+            CRDTKind::Set => OverlayValue::Set(BTreeSet::new()),
             CRDTKind::LWW => {
-                unimplemented!("This is weird");
+                OverlayValue::LWW(LWWValue {
+                    value: None,
+                    last_modified: time
+                })
             }
         };
 
@@ -132,57 +143,32 @@ impl Branch {
         self.overlay_version = smallvec![time];
     }
 
-    pub(crate) fn create_inner_map(&mut self, time_now: Time, agent_id: AgentId, crdt_id: Time, key: Option<&str>) {
-        let kind = CRDTKind::Map;
+    pub(crate) fn create_inner(&mut self, time_now: Time, agent_id: AgentId, crdt_id: Time, key: Option<&str>, kind: CRDTKind) {
         self.inner_set(time_now, agent_id, crdt_id, key, Value::InnerCRDT(time_now));
         self.inner_create_crdt(time_now, kind);
+    }
+
+    pub(crate) fn modify_set(&mut self, time: Time, set_id: Time, op: SetOp) {
+        let inner = match self.overlay.get_mut(&set_id).unwrap() {
+            OverlayValue::Set(set) => set,
+            _ => { panic!("Not a set"); }
+        };
+
+        match op {
+            SetOp::Insert(kind) => {
+                inner.insert(time); // Add it to the set
+                self.inner_create_crdt(time, kind); // And create the inner CRDT in the branch.
+            }
+            SetOp::Remove(target) => {
+                inner.remove(&target); // Remove it from the set
+                self.overlay.remove(&target); // And from the branch.
+            }
+        }
     }
 }
 
 
 // impl NewOpLog {
-//     fn checkout_map(&self, map_id: MapId, version: &[Time]) -> Option<BTreeMap<SmartString, Box<DTValue>>> {
-//         let map = &self.maps[map_id];
-//         // if map.created_at
-//         if !self.cg.history.version_contains_time(version, map.created_at) {
-//             return None;
-//         }
-//
-//         let mut result =
-//             map.children.iter().filter_map(|(key, item_id)| {
-//                 let inner = self.checkout_crdt(*item_id, version)?;
-//                 Some((key.clone(), Box::new(inner)))
-//             }).collect();
-//
-//         Some(result)
-//     }
-//
-//     fn checkout_crdt(&self, item_id: CRDTItemId, version: &[Time]) -> Option<DTValue> {
-//         // Recursive is probably the best option here?
-//         let info = &self.known_crdts[item_id];
-//         match info.kind {
-//             CRDTKind::LWWRegister => {
-//                 let val = self.get_value_of_register(item_id, version)?;
-//                 match val {
-//                     Value::Primitive(p) => Some(DTValue::Primitive(p)),
-//                     Value::Map(map_id) => {
-//                         self.checkout_map(map_id, version)
-//                             .map(DTValue::Map)
-//                     }
-//                     Value::InnerCRDT(id) => {
-//                         // let inner = self.checkout_scope(id, version).unwrap();
-//                         // // DTValue::Register(Box::new(inner))
-//                         // Some(inner)
-//                         self.checkout_crdt(id, version)
-//                     }
-//                 }
-//             }
-//             CRDTKind::Text => {
-//                 unimplemented!()
-//             }
-//         }
-//     }
-//
 //     pub fn checkout(&self, version: &[Time]) -> Option<BTreeMap<SmartString, Box<DTValue>>> {
 //         self.checkout_map(ROOT_MAP, version)
 //     }

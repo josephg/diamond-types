@@ -182,7 +182,7 @@
 
 extern crate core;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 use crate::causalgraph::CausalGraph;
@@ -242,8 +242,10 @@ pub enum Value {
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
-pub(crate) enum CRDTKind {
-    Map, LWW,
+pub enum CRDTKind {
+    // Map, LWW,
+    Map, Set, LWW,
+    // Text,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -254,13 +256,24 @@ pub(crate) enum WALValue {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct SetOp {
-    pub time: Time,
+pub(crate) struct RegisterOp {
     pub crdt_id: Time,
     pub key: Option<SmartString>,
     pub new_value: WALValue,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum SetOp {
+    Insert(CRDTKind),
+    Remove(Time),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+struct Ops {
+    pub(crate) register_ops: Vec<KVPair<RegisterOp>>,
+    pub(crate) set_ops: Vec<KVPair<SetOp>>,
+    // pub(crate) set_ops: Vec<RegisterOp>,
+}
 
 #[derive(Debug)]
 pub struct OpLog {
@@ -282,7 +295,7 @@ pub struct OpLog {
     version: LocalVersion,
 
     /// Values which have not yet been flushed to the WAL.
-    unflushed_ops: Vec<SetOp>,
+    uncommitted_ops: Ops,
 }
 
 
@@ -297,6 +310,7 @@ struct LWWValue {
 enum OverlayValue {
     LWW(LWWValue),
     Map(BTreeMap<SmartString, LWWValue>),
+    Set(BTreeSet<Time>)
 }
 
 /// The branch object stores the *data* at some particular version of the database. This is
