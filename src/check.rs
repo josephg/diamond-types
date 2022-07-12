@@ -1,6 +1,6 @@
 use smallvec::smallvec;
 use crate::frontier::advance_frontier_by_known_run;
-use crate::LocalVersion;
+use crate::{Branch, LocalVersion, OverlayValue};
 use crate::OpLog;
 
 impl OpLog {
@@ -36,5 +36,27 @@ impl OpLog {
         // }
 
         // TODO: Check all owned CRDT objects exists in overlay.
+    }
+}
+
+impl Branch {
+    #[allow(unused)]
+    pub fn dbg_check(&self, deep: bool) {
+        if deep {
+            let mut num_invalid_entries = 0;
+
+            todo!();
+            // for (time, value) in &self.overlay {
+            //     match value {
+            //         OverlayValue::LWW(lwwval) => {
+            //
+            //         }
+            //         OverlayValue::Map(_) => {}
+            //         OverlayValue::Set(_) => {}
+            //     }
+            // }
+
+            assert_eq!(num_invalid_entries, self.num_invalid);
+        }
     }
 }

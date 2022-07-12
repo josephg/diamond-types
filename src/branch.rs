@@ -1,3 +1,4 @@
+use std::borrow::BorrowMut;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use smallvec::smallvec;
@@ -44,7 +45,8 @@ impl Branch {
 
         Self {
             overlay,
-            overlay_version: Default::default()
+            overlay_version: Default::default(),
+            num_invalid: 0
         }
     }
 
@@ -79,7 +81,7 @@ impl Branch {
         self.get_recursive_at(ROOT_MAP)
     }
 
-    fn get_value_of_lww(&self, lww_id: Time) -> Option<&Value> {
+    pub(super) fn get_value_of_lww(&self, lww_id: Time) -> Option<&Value> {
         self.overlay.get(&lww_id).and_then(|val| {
             match val {
                 OverlayValue::LWW(val) => val.value.as_ref(),
@@ -97,27 +99,11 @@ impl Branch {
         })
     }
 
-    fn get_map_value(&self, map: Time, key: &str) -> Option<&Value> {
+    pub(super) fn get_map_value(&self, map: Time, key: &str) -> Option<&Value> {
         self.get_map(map).and_then(|inner_map| {
             inner_map.get(key).and_then(|val| val.value.as_ref())
         })
     }
-
-    // fn get_value_mut(&mut self, crdt_id: Time, key: Option<&str>) -> Option<&mut LWWValue> {
-    //     if let Some(key) = key {
-    //         match self.overlay.get_mut(&crdt_id)? {
-    //             OverlayValue::Map(inner_map) => {
-    //                 Some(inner_map.get_mut(key)?)
-    //             },
-    //             _ => None,
-    //         }
-    //     } else {
-    //         match self.overlay.get_mut(&crdt_id)? {
-    //             OverlayValue::LWW(val) => Some(val),
-    //             _ => None,
-    //         }
-    //     }
-    // }
 
     fn get_register(&self, crdt_id: Time, key: Option<&str>) -> Option<&LWWValue> {
         if let Some(key) = key {
@@ -135,10 +121,31 @@ impl Branch {
         }
     }
 
-    // fn get(&self, path: &PathElement) -> Option<&Value> {
-    //     match path {
-    //         PathElement::CRDT(crdt_id) => self.get_value_of_lww(*crdt_id),
-    //         PathElement::MapValue(crdt_id, key) => self.get_value_of_map(*crdt_id, key)
+    // fn get_register_mut(&mut self, crdt_id: Time, key: Option<&str>) -> Option<&mut LWWValue> {
+    //     if let Some(key) = key {
+    //         match self.overlay.get_mut(&crdt_id)? {
+    //             OverlayValue::Map(inner_map) => {
+    //                 Some(inner_map.entry(key.into()).or_insert_with(|| {
+    //                     self.num_invalid += 1;
+    //                     LWWValue {
+    //                         value: Some(Value::Primitive(Primitive::InvalidUninitialized)),
+    //                         last_modified: 0
+    //                     }
+    //                 }))
+    //             },
+    //             _ => None,
+    //         }
+    //     } else {
+    //         match self.overlay.entry(crdt_id).or_insert_with(|| {
+    //             self.num_invalid += 1;
+    //             OverlayValue::LWW(LWWValue {
+    //                 value: Some(Value::Primitive(Primitive::InvalidUninitialized)),
+    //                 last_modified: 0
+    //             })
+    //         }) {
+    //             OverlayValue::LWW(val) => Some(val),
+    //             _ => None
+    //         }
     //     }
     // }
 
@@ -151,12 +158,20 @@ impl Branch {
         }
     }
 
-    fn remove_crdt(&mut self, crdt_id: Time) {
-        // This needs to recursively delete things.
-        let old_value = self.overlay.remove(&crdt_id);
+    fn remove_old_value(&mut self, old_value: Option<Value>) {
+        match old_value {
+            Some(Value::InnerCRDT(crdt_id)) => {
+                // This needs to recursively delete things.
+                let old_value = self.overlay.remove(&crdt_id);
 
-        // RECURSE!
-        todo!()
+                // RECURSE!
+                todo!()
+            }
+            Some(Value::Primitive(Primitive::InvalidUninitialized)) => {
+                self.num_invalid -= 1;
+            }
+            _ => {}
+        }
     }
 
     pub(crate) fn inner_set_lww(&mut self, time: Time, lww_id: Time, value: Option<Value>) {
@@ -168,9 +183,7 @@ impl Branch {
 
         let old_value = std::mem::replace(&mut inner.value, value);
 
-        if let Some(Value::InnerCRDT(inner_crdt_id)) = old_value {
-            self.remove_crdt(inner_crdt_id);
-        }
+        self.remove_old_value(old_value);
     }
 
     pub(crate) fn inner_set_map(&mut self, time: Time, map_id: Time, key: &str, value: Option<Value>) {
@@ -185,16 +198,19 @@ impl Branch {
         });
 
         if let Some(val) = prev {
-            if let Some(Value::InnerCRDT(inner_crdt_id)) = val.value {
-                self.remove_crdt(inner_crdt_id);
-            }
+            self.remove_old_value(val.value);
         }
     }
 
     pub(crate) fn inner_set(&mut self, time: Time, crdt_id: Time, key: Option<&str>, value: Option<Value>) {
-        // *self.get_value_mut(crdt_id, key).unwrap() = LWWValue {
+        // let entry = self.get_register_mut(crdt_id, key).unwrap();
+        // let old_val = std::mem::replace(entry, LWWValue {
         //     value,
         //     last_modified: time
+        // });
+        //
+        // if let Some(old_value) = old_val.value {
+        //     self.remove_old_value(old_value);
         // }
         if let Some(key) = key {
             self.inner_set_map(time, crdt_id, key, value);

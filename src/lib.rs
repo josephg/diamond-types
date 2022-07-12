@@ -232,6 +232,8 @@ pub type LocalVersion = SmallVec<[Time; 2]>;
 pub enum Primitive {
     I64(i64),
     Str(SmartString),
+
+    InvalidUninitialized,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -330,4 +332,6 @@ pub struct Branch {
 
     // persisted_data: BTreeMap<Time, OverlayValue>, // TODO. Not actually an in-memory object.
     // persisted_version: LocalVersion,
+
+    num_invalid: usize,
 }

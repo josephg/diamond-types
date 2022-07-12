@@ -41,6 +41,9 @@ pub fn encode_op_contents<'a, 'b: 'a, I: Iterator<Item=&'b Value>>(bump: &'a Bum
                 push_u32(&mut result, ValueType::PrimStr as u32);
                 push_str(&mut result, s);
             }
+            Value::Primitive(_) => {
+                todo!()
+            }
             // Value::Map(_) => {
             //     push_u32(&mut result, ValueType::Map as u32);
             // }
