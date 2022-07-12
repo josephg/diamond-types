@@ -1,12 +1,12 @@
 use diamond_types::list::*;
 use crdt_testdata::{TestTxn, TestPatch};
-use diamond_types::list::operation::Operation;
+use diamond_types::list::operation::TextOperation;
 use rle::AppendRle;
 
 pub fn apply_edits_local(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
 
-    let mut positional: Vec<Operation> = Vec::with_capacity(3);
+    let mut positional: Vec<TextOperation> = Vec::with_capacity(3);
     // let mut content = String::new();
 
     for (_i, txn) in txns.iter().enumerate() {
@@ -15,11 +15,11 @@ pub fn apply_edits_local(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
             // content.clear();
 
             if *del_span > 0 {
-                positional.push(Operation::new_delete(*pos .. *pos + *del_span));
+                positional.push(TextOperation::new_delete(*pos .. *pos + *del_span));
             }
 
             if !ins_content.is_empty() {
-                positional.push(Operation::new_insert(*pos, ins_content));
+                positional.push(TextOperation::new_insert(*pos, ins_content));
                 // content.push_str(ins_content.as_str());
             }
 
@@ -53,16 +53,16 @@ pub fn apply_edits_push_merge(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
 pub fn apply_grouped(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
 
-    let mut ops: Vec<Operation> = Vec::new();
+    let mut ops: Vec<TextOperation> = Vec::new();
 
     for (_i, txn) in txns.iter().enumerate() {
         for TestPatch(pos, del_span, ins_content) in &txn.patches {
             if *del_span > 0 {
-                ops.push(Operation::new_delete(*pos .. *pos + *del_span));
+                ops.push(TextOperation::new_delete(*pos .. *pos + *del_span));
             }
 
             if !ins_content.is_empty() {
-                ops.push(Operation::new_insert(*pos, ins_content));
+                ops.push(TextOperation::new_insert(*pos, ins_content));
             }
         }
     }
@@ -71,18 +71,18 @@ pub fn apply_grouped(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     // doc.branch.merge(&doc.oplog, &doc.oplog.local_version());
 }
 
-pub fn as_grouped_ops_rle(txns: &Vec<TestTxn>) -> Vec<Operation> {
-    let mut ops: Vec<Operation> = Vec::new();
+pub fn as_grouped_ops_rle(txns: &Vec<TestTxn>) -> Vec<TextOperation> {
+    let mut ops: Vec<TextOperation> = Vec::new();
 
     for (_i, txn) in txns.iter().enumerate() {
         for TestPatch(pos, del_span, ins_content) in &txn.patches {
 
             if *del_span > 0 {
-                ops.push_rle(Operation::new_delete(*pos .. *pos + *del_span));
+                ops.push_rle(TextOperation::new_delete(*pos .. *pos + *del_span));
             }
 
             if !ins_content.is_empty() {
-                ops.push_rle(Operation::new_insert(*pos, ins_content));
+                ops.push_rle(TextOperation::new_insert(*pos, ins_content));
             }
         }
     }
@@ -90,7 +90,7 @@ pub fn as_grouped_ops_rle(txns: &Vec<TestTxn>) -> Vec<Operation> {
     ops
 }
 
-pub fn apply_ops(doc: &mut ListCRDT, ops: &[Operation]) {
+pub fn apply_ops(doc: &mut ListCRDT, ops: &[TextOperation]) {
     let id = doc.get_or_create_agent_id("jeremy");
     doc.apply_local_operations(id, &ops);
 }

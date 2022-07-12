@@ -12,13 +12,13 @@ use rle::{AppendRle, HasLength, Searchable, Trim, TrimCtx};
 use crate::list::{ListBranch, ListOpLog};
 use crate::list::merge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
-use crate::list::operation::{Operation, OpKind};
+use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::{DTRange, is_underwater};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, LocalVersion, Time};
 use crate::frontier::{advance_frontier_by, frontier_is_sorted, local_version_eq};
 use crate::causalgraph::parents::tools::DiffFlag;
-use crate::list::internal_op::OperationInternal;
+use crate::list::op_metrics::ListOpMetrics;
 use crate::list::buffered_iter::BufferedIter;
 use crate::rev_range::RangeRev;
 
@@ -33,7 +33,7 @@ use crate::list::merge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappe
 use crate::list::merge::metrics::upstream_cursor_pos;
 use crate::list::merge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
-use crate::list::operation::OpKind::Ins;
+use crate::list::operation::ListOpKind::Ins;
 use crate::unicount::consume_chars;
 
 const ALLOW_FF: bool = true;
@@ -282,7 +282,7 @@ impl M2Tracker {
         }
     }
 
-    fn apply_to(&mut self, oplog: &ListOpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, content: Option<&str>, mut to: Option<&mut JumpRope>) {
+    fn apply_to(&mut self, oplog: &ListOpLog, agent: AgentId, op_pair: &KVPair<ListOpMetrics>, content: Option<&str>, mut to: Option<&mut JumpRope>) {
         let mut op_pair = op_pair.clone();
 
         loop {
@@ -295,7 +295,7 @@ impl M2Tracker {
                 if let Some(to) = to.as_mut() {
                     // Apply the operation here.
                     match op_pair.1.kind {
-                        OpKind::Ins => {
+                        ListOpKind::Ins => {
                             // dbg!(&self.range_tree);
                             // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                             debug_assert!(op_pair.1.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
@@ -303,7 +303,7 @@ impl M2Tracker {
                             assert!(pos <= to.len_chars());
                             to.insert(pos, content);
                         }
-                        OpKind::Del => {
+                        ListOpKind::Del => {
                             // Actually delete the item locally.
                             let del_end = pos + len_here;
                             debug_assert!(to.len_chars() >= del_end);
@@ -319,7 +319,7 @@ impl M2Tracker {
                 // Curiously, we don't need to update content because we only use content for
                 // inserts, and inserts are always processed in one go. (Ie, there's never a
                 // remainder to worry about).
-                debug_assert_ne!(op_pair.1.kind, OpKind::Ins);
+                debug_assert_ne!(op_pair.1.kind, ListOpKind::Ins);
             } else { break; }
         }
     }
@@ -345,7 +345,7 @@ impl M2Tracker {
     /// | NotInsYet | Before     | After       |
     /// | Inserted  | After      | Before      |
     /// | Deleted   | Before     | Before      |
-    fn apply(&mut self, oplog: &ListOpLog, agent: AgentId, op_pair: &KVPair<OperationInternal>, max_len: usize) -> (usize, TransformedResult) {
+    fn apply(&mut self, oplog: &ListOpLog, agent: AgentId, op_pair: &KVPair<ListOpMetrics>, max_len: usize) -> (usize, TransformedResult) {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
         let len = max_len.min(op_pair.len());
@@ -353,7 +353,7 @@ impl M2Tracker {
 
         // dbg!(op);
         match op.kind {
-            OpKind::Ins => {
+            ListOpKind::Ins => {
                 if !op.loc.fwd { unimplemented!("Implement me!") }
 
                 // To implement this we need to:
@@ -418,7 +418,7 @@ impl M2Tracker {
                 (len, BaseMoved(ins_pos))
             }
 
-            OpKind::Del => {
+            ListOpKind::Del => {
                 // Delete as much as we can. We might not be able to delete everything because of
                 // double deletes and inserts inside the deleted range. This is extra annoying
                 // because we need to move backwards through the deleted items if we're rev.
@@ -618,10 +618,10 @@ pub(crate) enum TransformedResult {
     DeleteAlreadyHappened,
 }
 
-type TransformedTriple = (Time, OperationInternal, TransformedResult);
+type TransformedTriple = (Time, ListOpMetrics, TransformedResult);
 
 impl TransformedResult {
-    fn not_moved(op_pair: KVPair<OperationInternal>) -> TransformedTriple {
+    fn not_moved(op_pair: KVPair<ListOpMetrics>) -> TransformedTriple {
         let start = op_pair.1.start();
         (op_pair.0, op_pair.1, TransformedResult::BaseMoved(start))
     }
@@ -629,7 +629,7 @@ impl TransformedResult {
 
 impl<'a> Iterator for TransformedOpsIter<'a> {
     /// Iterator over transformed operations. The KVPair.0 holds the original time of the operation.
-    type Item = (Time, OperationInternal, TransformedResult);
+    type Item = (Time, ListOpMetrics, TransformedResult);
 
     fn next(&mut self) -> Option<Self::Item> {
         // We're done when we've merged everything in self.new_ops.
@@ -792,11 +792,11 @@ impl ListOpLog {
     ///
     /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
     /// changes that could be applied linearly to a document to bring it up to date.
-    pub fn iter_xf_operations_from(&self, from: &[Time], merging: &[Time]) -> impl Iterator<Item=(DTRange, Option<Operation>)> + '_ {
+    pub fn iter_xf_operations_from(&self, from: &[Time], merging: &[Time]) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
         TransformedOpsIter::new(self, from, merging)
             .map(|(time, mut origin_op, xf)| {
                 let len = origin_op.len();
-                let op: Option<Operation> = match xf {
+                let op: Option<TextOperation> = match xf {
                     BaseMoved(base) => {
                         origin_op.loc.span = (base..base+len).into();
                         let content = origin_op.get_content(self);
@@ -814,7 +814,7 @@ impl ListOpLog {
     /// I hope that future optimizations make this method way faster.
     ///
     /// See [OpLog::iter_xf_operations_from](OpLog::iter_xf_operations_from) for more information.
-    pub fn iter_xf_operations(&self) -> impl Iterator<Item=(DTRange, Option<Operation>)> + '_ {
+    pub fn iter_xf_operations(&self) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
         self.iter_xf_operations_from(&[], &self.version)
     }
 }
@@ -826,16 +826,14 @@ fn reverse_str(s: &str) -> SmartString {
 }
 
 impl ListBranch {
-    /// Add everything in merge_frontier into the set.
-    ///
-    /// Reexposed as merge_changes.
+    /// Add everything in merge_frontier into the set..
     pub fn merge(&mut self, oplog: &ListOpLog, merge_frontier: &[Time]) {
         // let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
         let mut iter = oplog.get_xf_operations_full(&self.version, merge_frontier);
 
         for (_time, origin_op, xf) in &mut iter {
             match (origin_op.kind, xf) {
-                (OpKind::Ins, BaseMoved(pos)) => {
+                (ListOpKind::Ins, BaseMoved(pos)) => {
                     // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                     debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
                     let content = origin_op.get_content(oplog).unwrap();
@@ -851,7 +849,7 @@ impl ListBranch {
 
                 (_, DeleteAlreadyHappened) => {}, // Discard.
 
-                (OpKind::Del, BaseMoved(pos)) => {
+                (ListOpKind::Del, BaseMoved(pos)) => {
                     let del_end = pos + origin_op.len();
                     debug_assert!(self.content.len_chars() >= del_end);
                     // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());

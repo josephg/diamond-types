@@ -3,8 +3,8 @@ use crate::list::encoding::*;
 use crate::encoding::varint::*;
 use crate::list::{ListOpLog, switch};
 use crate::frontier::*;
-use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::list::operation::OpKind::{Del, Ins};
+use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
+use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::rev_range::RangeRev;
 use crate::{AgentId, LocalVersion, Time};
 use crate::unicount::*;
@@ -12,7 +12,7 @@ use rle::*;
 use crate::list::buffered_iter::Buffered;
 use crate::list::encoding::ChunkType::*;
 use crate::causalgraph::parents::ParentsEntrySimple;
-use crate::list::operation::OpKind;
+use crate::list::operation::ListOpKind;
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::list::encoding::decode_tools::{BufReader, ChunkReader};
 use crate::frontier::clone_smallvec;
@@ -288,7 +288,7 @@ impl<'a> ReadPatchesIter<'a> {
 
     // The actual next function. The only reason I did it like this is so I can take advantage of
     // the ergonomics of try?.
-    fn next_internal(&mut self) -> Result<OperationInternal, ParseError> {
+    fn next_internal(&mut self) -> Result<ListOpMetrics, ParseError> {
         let mut n = self.buf.next_usize()?;
         // This is in the opposite order from write_op.
         let has_length = strip_bit_usize2(&mut n);
@@ -328,7 +328,7 @@ impl<'a> ReadPatchesIter<'a> {
         self.last_cursor_pos = raw_end;
         // dbg!(self.last_cursor_pos);
 
-        Ok(OperationInternal {
+        Ok(ListOpMetrics {
             loc: RangeRev { // TODO: Probably a nicer way to construct this.
                 span: (start..end).into(),
                 fwd,
@@ -340,7 +340,7 @@ impl<'a> ReadPatchesIter<'a> {
 }
 
 impl<'a> Iterator for ReadPatchesIter<'a> {
-    type Item = Result<OperationInternal, ParseError>;
+    type Item = Result<ListOpMetrics, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.buf.is_empty() { None } else { Some(self.next_internal()) }
@@ -383,7 +383,7 @@ impl<'a> HasLength for ContentItem<'a> {
 }
 
 impl<'a> ReadPatchContentIter<'a> {
-    fn new(mut chunk: BufReader<'a>, compressed: Option<&mut BufReader<'a>>) -> Result<(OpKind, Self), ParseError> {
+    fn new(mut chunk: BufReader<'a>, compressed: Option<&mut BufReader<'a>>) -> Result<(ListOpKind, Self), ParseError> {
         let tag = match chunk.next_u32()? {
             0 => Ins,
             1 => Del,
@@ -699,7 +699,7 @@ impl ListOpLog {
             let mut history_chunk = patch_chunk.expect_chunk(ChunkType::OpParents)?;
 
             // We need an insert ctx in some situations, though it'll never be accessed.
-            let dummy_ctx = OperationCtx::new();
+            let dummy_ctx = ListOperationCtx::new();
 
             let mut patches_iter = ReadPatchesIter::new(pos_patches_chunk)
                 .buffered();

@@ -183,11 +183,13 @@
 extern crate core;
 
 use std::collections::{BTreeMap, BTreeSet};
+use jumprope::JumpRope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 use crate::causalgraph::CausalGraph;
 use crate::dtrange::DTRange;
 use causalgraph::parents::Parents;
+use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 use crate::storage::wal::WriteAheadLogRaw;
@@ -209,6 +211,7 @@ mod encoding;
 mod storage;
 mod causalgraph;
 mod simpledb;
+mod operation;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;
@@ -245,9 +248,8 @@ pub enum Value {
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum CRDTKind {
-    // Map, LWW,
     Map, Set, LWW,
-    // Text,
+    Text,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -259,22 +261,34 @@ pub(crate) enum WALValue {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct RegisterOp {
-    pub crdt_id: Time,
     pub key: Option<SmartString>,
     pub new_value: WALValue,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum SetOp {
+    // TODO: Consider just inlining this in OpContents.
     Insert(CRDTKind),
     Remove(Time),
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum OpContents {
+    Register(RegisterOp),
+    Set(SetOp),
+    Text(ListOpMetrics),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct Op {
+    pub crdt_id: Time,
+    pub contents: OpContents,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 struct Ops {
-    pub(crate) register_ops: Vec<KVPair<RegisterOp>>,
-    pub(crate) set_ops: Vec<KVPair<SetOp>>,
-    // pub(crate) set_ops: Vec<RegisterOp>,
+    ops: RleVec<KVPair<Op>>,
+    list_ctx: ListOperationCtx,
 }
 
 #[derive(Debug)]
@@ -312,7 +326,8 @@ struct LWWValue {
 enum OverlayValue {
     LWW(LWWValue),
     Map(BTreeMap<SmartString, LWWValue>),
-    Set(BTreeSet<Time>)
+    Set(BTreeSet<Time>),
+    Text(JumpRope),
 }
 
 /// The branch object stores the *data* at some particular version of the database. This is

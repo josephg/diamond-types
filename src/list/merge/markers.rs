@@ -9,7 +9,7 @@ use crate::rev_range::RangeRev;
 use crate::list::merge::DocRangeIndex;
 use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
 use crate::list::merge::yjsspan::YjsSpan;
-use crate::list::operation::OpKind;
+use crate::list::operation::ListOpKind;
 
 // TODO: Consider refactoring this to be a single enum. Put len in InsPtr and use .len(). But this
 // might make the code way slower.
@@ -47,10 +47,10 @@ pub struct MarkerEntry {
 }
 
 impl Marker {
-    pub(super) fn tag(&self) -> OpKind {
+    pub(super) fn tag(&self) -> ListOpKind {
         match self {
-            Marker::InsPtr(_) => OpKind::Ins,
-            Marker::DelTarget(_) => OpKind::Del
+            Marker::InsPtr(_) => ListOpKind::Ins,
+            Marker::DelTarget(_) => ListOpKind::Del
         }
     }
 }

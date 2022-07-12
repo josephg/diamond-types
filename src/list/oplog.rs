@@ -7,8 +7,8 @@ use crate::causalgraph::ClientData;
 use crate::list::{ListBranch, ListOpLog};
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};
 use crate::causalgraph::parents::ParentsEntrySimple;
-use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::list::operation::{Operation, OpKind};
+use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
+use crate::list::operation::{TextOperation, ListOpKind};
 use crate::list::remote_ids::RemoteId;
 use crate::dtrange::DTRange;
 use crate::remotespan::*;
@@ -29,7 +29,7 @@ impl ListOpLog {
         Self {
             doc_id: None,
             cg: Default::default(),
-            operation_ctx: OperationCtx::new(),
+            operation_ctx: ListOperationCtx::new(),
             operations: Default::default(),
             // inserted_content: "".to_string(),
             version: smallvec![]
@@ -198,7 +198,7 @@ impl ListOpLog {
     ///
     /// NOTE: This method is destructive on its own. It must be paired with assign_internal() or
     /// something like that.
-    pub(crate) fn push_op_internal(&mut self, next_time: Time, loc: RangeRev, kind: OpKind, content: Option<&str>) {
+    pub(crate) fn push_op_internal(&mut self, next_time: Time, loc: RangeRev, kind: ListOpKind, content: Option<&str>) {
         // next_time should almost always be self.len - except when loading, or modifying the data
         // in some complex way.
         let content_pos = if let Some(c) = content {
@@ -206,7 +206,7 @@ impl ListOpLog {
         } else { None };
 
         // self.operations.push(KVPair(next_time, c.clone()));
-        self.operations.push(KVPair(next_time, OperationInternal {
+        self.operations.push(KVPair(next_time, ListOpMetrics {
             loc,
             kind,
             content_pos
@@ -223,7 +223,7 @@ impl ListOpLog {
     ///
     /// Returns the single item version after merging. (The resulting LocalVersion after calling
     /// this method will be `[time]`).
-    pub fn add_operations_at(&mut self, agent: AgentId, parents: &[Time], ops: &[Operation]) -> Time {
+    pub fn add_operations_at(&mut self, agent: AgentId, parents: &[Time], ops: &[TextOperation]) -> Time {
         let first_time = self.len();
         let mut next_time = first_time;
 
@@ -249,7 +249,7 @@ impl ListOpLog {
         let start = self.len();
         let end = start + len;
 
-        self.push_op_internal(start, (pos..pos+len).into(), OpKind::Ins, Some(ins_content));
+        self.push_op_internal(start, (pos..pos+len).into(), ListOpKind::Ins, Some(ins_content));
         self.assign_internal(agent, parents, DTRange { start, end });
         end - 1
     }
@@ -264,7 +264,7 @@ impl ListOpLog {
         let start_time = self.len();
         let end_time = start_time + loc.len();
 
-        self.push_op_internal(start_time, loc.into(), OpKind::Del, None);
+        self.push_op_internal(start_time, loc.into(), ListOpKind::Del, None);
         self.assign_internal(agent, parents, DTRange { start: start_time, end: end_time });
         end_time - 1
     }
@@ -281,7 +281,7 @@ impl ListOpLog {
     /// - Store the operation's parents as the most recent known version. (Use
     /// [`branch.apply_local_operations`](Branch::apply_local_operations) instead when pushing to a
     /// branch).
-    pub fn add_operations(&mut self, agent: AgentId, ops: &[Operation]) -> Time {
+    pub fn add_operations(&mut self, agent: AgentId, ops: &[TextOperation]) -> Time {
         // TODO: Rewrite this to avoid the .clone().
         let frontier = clone_smallvec(&self.version);
         self.add_operations_at(agent, &frontier, ops)
@@ -293,7 +293,7 @@ impl ListOpLog {
     /// This is a shorthand for `oplog.push(agent, *insert(pos, content)*)`
     /// TODO: Optimize these functions like push_insert_at / push_delete_at.
     pub fn add_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
-        self.add_operations(agent, &[Operation::new_insert(pos, ins_content)])
+        self.add_operations(agent, &[TextOperation::new_insert(pos, ins_content)])
     }
 
     /// Add a local delete operation to the oplog. This variant of the method allows a user to pass
@@ -308,14 +308,14 @@ impl ListOpLog {
     /// The deleted content must match the content in the document at that range, at the
     /// current time.
     pub unsafe fn add_delete_with_unchecked_content(&mut self, agent: AgentId, pos: usize, del_content: &str) -> Time {
-        self.add_operations(agent, &[Operation::new_delete_with_content(pos, del_content.into())])
+        self.add_operations(agent, &[TextOperation::new_delete_with_content(pos, del_content.into())])
     }
 
     /// Add a local delete operation to the oplog.
     /// Returns the single item frontier after the inserted change.
     /// This is a shorthand for `oplog.push(agent, *delete(pos, del_span)*)`
     pub fn add_delete_without_content(&mut self, agent: AgentId, loc: Range<usize>) -> Time {
-        self.add_operations(agent, &[Operation::new_delete(loc)])
+        self.add_operations(agent, &[TextOperation::new_delete(loc)])
     }
 
     /// Iterate through history entries
@@ -370,13 +370,13 @@ impl ListOpLog {
         let mut d_r = 0;
         for op in self.operations.iter_merged() {
             match (op.1.len(), op.1.kind, op.1.loc.fwd) {
-                (1, OpKind::Ins, _) => { i_1 += 1; }
-                (_, OpKind::Ins, true) => { i_n += 1; }
-                (_, OpKind::Ins, false) => { i_r += 1; }
+                (1, ListOpKind::Ins, _) => { i_1 += 1; }
+                (_, ListOpKind::Ins, true) => { i_n += 1; }
+                (_, ListOpKind::Ins, false) => { i_r += 1; }
 
-                (1, OpKind::Del, _) => { d_1 += 1; }
-                (_, OpKind::Del, true) => { d_n += 1; }
-                (_, OpKind::Del, false) => { d_r += 1; }
+                (1, ListOpKind::Del, _) => { d_1 += 1; }
+                (_, ListOpKind::Del, true) => { d_n += 1; }
+                (_, ListOpKind::Del, false) => { d_r += 1; }
             }
         }
         // These stats might make more sense as percentages.

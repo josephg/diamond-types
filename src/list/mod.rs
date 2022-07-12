@@ -9,9 +9,9 @@ use jumprope::JumpRope;
 use smartstring::alias::String as SmartString;
 use crate::causalgraph::ClientData;
 
-use crate::list::operation::OpKind;
+use crate::list::operation::ListOpKind;
 use crate::causalgraph::parents::Parents;
-use crate::list::internal_op::{OperationCtx, OperationInternal};
+use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::{CausalGraph, LocalVersion};
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
@@ -26,7 +26,7 @@ mod oplog;
 mod branch;
 pub mod encoding;
 pub mod remote_ids;
-pub mod internal_op;
+pub mod op_metrics;
 mod eq;
 mod oplog_merge;
 
@@ -117,9 +117,9 @@ pub struct ListOpLog {
 
     /// This contains all content ever inserted into the document, in time order (not document
     /// order). This object is indexed by the operation set.
-    operation_ctx: OperationCtx,
+    operation_ctx: ListOperationCtx,
     // TODO: Replace me with a compact form of this data.
-    operations: RleVec<KVPair<OperationInternal>>,
+    operations: RleVec<KVPair<ListOpMetrics>>,
 
     /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into
     /// a branch, this is the version of that branch.
@@ -149,9 +149,9 @@ pub struct ListCRDT {
     pub oplog: ListOpLog,
 }
 
-fn switch<T>(tag: OpKind, ins: T, del: T) -> T {
+fn switch<T>(tag: ListOpKind, ins: T, del: T) -> T {
     match tag {
-        OpKind::Ins => ins,
-        OpKind::Del => del,
+        ListOpKind::Ins => ins,
+        ListOpKind::Del => del,
     }
 }

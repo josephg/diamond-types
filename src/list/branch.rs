@@ -4,8 +4,8 @@ use crate::list::{ListBranch, ListOpLog};
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use crate::list::list::apply_local_operation;
-use crate::list::operation::OpKind::*;
-use crate::list::operation::{Operation, OpKind};
+use crate::list::operation::ListOpKind::*;
+use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::DTRange;
 use crate::{AgentId, LocalVersion, Time};
 use crate::frontier::clone_smallvec;
@@ -65,7 +65,7 @@ impl ListBranch {
     }
 
     /// Apply a single operation. This method does not update the version.
-    fn apply_internal(&mut self, kind: OpKind, pos: DTRange, content: Option<&str>) {
+    fn apply_internal(&mut self, kind: ListOpKind, pos: DTRange, content: Option<&str>) {
         match kind {
             Ins => {
                 self.content.insert(pos.start, content.unwrap());
@@ -79,7 +79,7 @@ impl ListBranch {
 
     /// Apply a set of operations. Does not update version.
     #[allow(unused)]
-    pub(crate) fn apply(&mut self, ops: &[Operation]) {
+    pub(crate) fn apply(&mut self, ops: &[TextOperation]) {
         for op in ops {
             self.apply_internal(op.kind, op.loc.span, op.content
                 .as_ref()
@@ -94,23 +94,23 @@ impl ListBranch {
         }
     }
 
-    pub fn make_delete_op(&self, loc: Range<usize>) -> Operation {
+    pub fn make_delete_op(&self, loc: Range<usize>) -> TextOperation {
         assert!(loc.end <= self.content.len_chars());
         let mut s = SmartString::new();
         s.extend(self.content.slice_chars(loc.clone()));
-        Operation::new_delete_with_content_range(loc, s)
+        TextOperation::new_delete_with_content_range(loc, s)
     }
 
-    pub fn apply_local_operations(&mut self, oplog: &mut ListOpLog, agent: AgentId, ops: &[Operation]) -> Time {
+    pub fn apply_local_operations(&mut self, oplog: &mut ListOpLog, agent: AgentId, ops: &[TextOperation]) -> Time {
         apply_local_operation(oplog, self, agent, ops)
     }
 
     pub fn insert(&mut self, oplog: &mut ListOpLog, agent: AgentId, pos: usize, ins_content: &str) -> Time {
-        apply_local_operation(oplog, self, agent, &[Operation::new_insert(pos, ins_content)])
+        apply_local_operation(oplog, self, agent, &[TextOperation::new_insert(pos, ins_content)])
     }
 
     pub fn delete_without_content(&mut self, oplog: &mut ListOpLog, agent: AgentId, loc: Range<usize>) -> Time {
-        apply_local_operation(oplog, self, agent, &[Operation::new_delete(loc)])
+        apply_local_operation(oplog, self, agent, &[TextOperation::new_delete(loc)])
     }
 
     pub fn delete(&mut self, oplog: &mut ListOpLog, agent: AgentId, del_span: Range<usize>) -> Time {

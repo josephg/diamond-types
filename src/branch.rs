@@ -4,15 +4,19 @@ use std::collections::BTreeMap;
 use smallvec::smallvec;
 use crate::*;
 use smartstring::alias::String as SmartString;
+use ::rle::HasLength;
 use crate::frontier::{advance_frontier_by, advance_frontier_by_known_run};
+use crate::list::operation::ListOpKind;
 use crate::oplog::ROOT_MAP;
 
+/// This is used for checkouts.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum DTValue {
     Primitive(Primitive),
     // Register(Box<DTValue>),
     Map(BTreeMap<SmartString, Box<DTValue>>),
     Set(BTreeMap<Time, Box<DTValue>>),
+    Text(String),
 }
 
 impl DTValue {
@@ -73,6 +77,9 @@ impl Branch {
                 Some(DTValue::Set(id_set.iter().filter_map(|time| {
                     Some((*time, Box::new(self.get_recursive_at(*time)?)))
                 }).collect()))
+            }
+            OverlayValue::Text(rope) => {
+                Some(DTValue::Text(rope.to_string()))
             }
         }
     }
@@ -155,6 +162,7 @@ impl Branch {
             OverlayValue::LWW(_) => CRDTKind::LWW,
             OverlayValue::Map(_) => CRDTKind::Map,
             OverlayValue::Set(_) => CRDTKind::Set,
+            OverlayValue::Text(_) => CRDTKind::Text,
         }
     }
 
@@ -174,7 +182,7 @@ impl Branch {
         }
     }
 
-    pub(crate) fn inner_set_lww(&mut self, time: Time, lww_id: Time, value: Option<Value>) {
+    fn inner_set_lww(&mut self, time: Time, lww_id: Time, value: Option<Value>) {
         let inner = match self.overlay.get_mut(&lww_id).unwrap() {
             OverlayValue::LWW(lww) => lww,
             _ => { panic!("Cannot set register value in map"); }
@@ -186,7 +194,7 @@ impl Branch {
         self.remove_old_value(old_value);
     }
 
-    pub(crate) fn inner_set_map(&mut self, time: Time, map_id: Time, key: &str, value: Option<Value>) {
+    fn inner_set_map(&mut self, time: Time, map_id: Time, key: &str, value: Option<Value>) {
         let inner = match self.overlay.get_mut(&map_id).unwrap() {
             OverlayValue::Map(map) => map,
             _ => { panic!("Cannot set map value in LWW"); }
@@ -202,7 +210,7 @@ impl Branch {
         }
     }
 
-    pub(crate) fn inner_set(&mut self, time: Time, crdt_id: Time, key: Option<&str>, value: Option<Value>) {
+    pub(crate) fn inner_register_set(&mut self, time: Time, crdt_id: Time, key: Option<&str>, value: Option<Value>) {
         // let entry = self.get_register_mut(crdt_id, key).unwrap();
         // let old_val = std::mem::replace(entry, LWWValue {
         //     value,
@@ -219,28 +227,6 @@ impl Branch {
         }
     }
 
-    pub(crate) fn remote_set(&mut self, cg: &CausalGraph, parents: &[Time], time: Time, crdt_id: Time, key: Option<&str>, value: Option<Value>) {
-        // We set locally if the new version (at time) dominates the current version of the value.
-        let should_write = if let Some(reg) = self.get_register(crdt_id, key) {
-            // reg.last_modified
-            debug_assert!(time > reg.last_modified, "We should have already incorporated this change");
-
-            // We write if the new version dominates the old version.
-            cg.history.version_contains_time(&[time], reg.last_modified)
-                || cg.tie_break_versions(time, reg.last_modified) == Ordering::Greater
-        } else {
-            // Just set it.
-            true
-        };
-
-        if should_write {
-            self.inner_set(time, crdt_id, key, value);
-        }
-
-        // advance_frontier_by(&mut self.overlay_version, &cg.history, time.into());
-        advance_frontier_by_known_run(&mut self.overlay_version, parents, time.into());
-    }
-
     fn inner_create_crdt(&mut self, time: Time, kind: CRDTKind) {
         let new_value = match kind {
             CRDTKind::Map => OverlayValue::Map(BTreeMap::new()),
@@ -250,6 +236,9 @@ impl Branch {
                     value: None,
                     last_modified: time
                 })
+            }
+            CRDTKind::Text => {
+                OverlayValue::Text(JumpRope::new())
             }
         };
 
@@ -262,11 +251,11 @@ impl Branch {
     }
 
     pub(crate) fn create_inner(&mut self, time_now: Time, agent_id: AgentId, crdt_id: Time, key: Option<&str>, kind: CRDTKind) {
-        self.inner_set(time_now, crdt_id, key, Some(Value::InnerCRDT(time_now)));
+        self.inner_register_set(time_now, crdt_id, key, Some(Value::InnerCRDT(time_now)));
         self.inner_create_crdt(time_now, kind);
     }
 
-    pub(crate) fn modify_set(&mut self, time: Time, set_id: Time, op: SetOp) {
+    pub(crate) fn modify_set(&mut self, time: Time, set_id: Time, op: &SetOp) {
         let inner = match self.overlay.get_mut(&set_id).unwrap() {
             OverlayValue::Set(set) => set,
             _ => { panic!("Not a set"); }
@@ -274,12 +263,102 @@ impl Branch {
 
         match op {
             SetOp::Insert(kind) => {
-                inner.insert(time); // Add it to the set
-                self.inner_create_crdt(time, kind); // And create the inner CRDT in the branch.
+                let inserted = inner.insert(time); // Add it to the set
+                assert!(inserted, "Item was already in set");
+                self.inner_create_crdt(time, *kind); // And create the inner CRDT in the branch.
             }
             SetOp::Remove(target) => {
                 inner.remove(&target); // Remove it from the set
+                // We actually don't care if the item was already deleted - this can happen due to
+                // concurrency.
                 self.overlay.remove(&target); // And from the branch.
+            }
+        }
+    }
+
+    pub(crate) fn modify_text(&mut self, crdt_id: Time, text_metrics: &ListOpMetrics, ctx: &ListOperationCtx) {
+        let rope = if let OverlayValue::Text(rope) = self.overlay.get_mut(&crdt_id).unwrap() {
+            rope
+        } else { panic!("Not a rope"); };
+
+        match text_metrics.kind {
+            ListOpKind::Ins => {
+                let content = ctx.get_str(ListOpKind::Ins, text_metrics.content_pos.unwrap());
+                rope.insert(text_metrics.loc.span.start, content);
+            }
+            ListOpKind::Del => {
+                rope.remove(text_metrics.loc.into());
+            }
+        }
+    }
+
+    fn wal_value_to_value(&mut self, time: Time, value: &WALValue) -> Option<Value> {
+        match value {
+            WALValue::Primitive(p) => Some(Value::Primitive(p.clone())),
+            WALValue::NewCRDT(kind) => {
+                self.inner_create_crdt(time, *kind);
+                Some(Value::InnerCRDT(time))
+            }
+            WALValue::Deleted => None,
+        }
+    }
+
+    pub(crate) fn apply_local_op(&mut self, time: Time, op: &Op, ctx: &ListOperationCtx) {
+        debug_assert!(self.overlay_version.iter().all(|v| time > *v));
+
+        match &op.contents {
+            OpContents::Register(register_op) => {
+                let value = self.wal_value_to_value(time, &register_op.new_value);
+                self.inner_register_set(time, op.crdt_id, register_op.key.as_ref().map(|k| k.as_str()), value);
+            }
+            OpContents::Set(set_op) => {
+                self.modify_set(time, op.crdt_id, set_op);
+            }
+            OpContents::Text(text_metrics) => {
+                self.modify_text(op.crdt_id, text_metrics, ctx);
+            }
+        }
+
+        self.set_time(time + op.len() - 1);
+    }
+
+
+    pub(crate) fn remote_register_set(&mut self, cg: &CausalGraph, parents: &[Time], time: Time, crdt_id: Time, key: Option<&str>, value: Option<Value>) {
+        // We set locally if the new version (at time) dominates the current version of the value.
+        let should_write = if let Some(reg) = self.get_register(crdt_id, key) {
+            // reg.last_modified
+            debug_assert!(time > reg.last_modified, "We should have already incorporated this change");
+
+            // We write if the new version dominates the old version.
+            cg.history.version_contains_time(&[time], reg.last_modified)
+                || cg.tie_break_versions(time, reg.last_modified) == Ordering::Greater
+        } else {
+            // There's no previous value anyway. Just set it.
+            true
+        };
+
+        if should_write {
+            self.inner_register_set(time, crdt_id, key, value);
+        }
+
+        // advance_frontier_by(&mut self.overlay_version, &cg.history, time.into());
+        advance_frontier_by_known_run(&mut self.overlay_version, parents, time.into());
+    }
+
+    pub(crate) fn apply_remote_op(&mut self, cg: &CausalGraph, parents: &[Time], time: Time, op: &Op, ctx: &ListOperationCtx) {
+        match &op.contents {
+            OpContents::Register(register_op) => {
+                let value = self.wal_value_to_value(time, &register_op.new_value);
+                let key = register_op.key.as_ref().map(|k| k.as_str()); // gross
+                self.remote_register_set(cg, parents, time, op.crdt_id, key, value);
+            }
+            OpContents::Set(set_op) => {
+                // Set ops have no concurrency problems anyway. An insert can only happen once, and
+                // deleting an item twice is a no-op.
+                self.modify_set(time, op.crdt_id, set_op);
+            }
+            OpContents::Text(_) => {
+                todo!()
             }
         }
     }

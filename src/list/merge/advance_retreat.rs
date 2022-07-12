@@ -6,13 +6,13 @@ use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
 use crate::list::merge::merge::notify_for;
 use crate::rev_range::RangeRev;
 use crate::list::merge::yjsspan::YjsSpan;
-use crate::list::operation::OpKind;
-use crate::list::operation::OpKind::{Del, Ins};
+use crate::list::operation::ListOpKind;
+use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::dtrange::DTRange;
 
 #[derive(Debug)]
 pub(super) struct QueryResult {
-    tag: OpKind,
+    tag: ListOpKind,
     target: RangeRev,
     offset: usize,
     ptr: Option<NonNull<NodeLeaf<YjsSpan, DocRangeIndex>>>
@@ -77,7 +77,7 @@ impl M2Tracker {
                     target_range.len(),
                     notify_for(&mut self.index),
                     |e| {
-                        if tag == OpKind::Ins {
+                        if tag == ListOpKind::Ins {
                             e.state.mark_inserted();
                         } else {
                             e.delete();
@@ -128,7 +128,7 @@ impl M2Tracker {
                     target_range.len(),
                     notify_for(&mut self.index),
                     |e| {
-                        if tag == OpKind::Ins {
+                        if tag == ListOpKind::Ins {
                             e.state.mark_not_inserted_yet();
                         } else {
                             e.state.undelete();

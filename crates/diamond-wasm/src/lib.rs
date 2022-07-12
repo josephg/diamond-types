@@ -6,7 +6,7 @@ use wasm_bindgen::prelude::*;
 use diamond_types::{AgentId, Time};
 use diamond_types::list::{ListBranch as DTBranch, ListCRDT, ListOpLog as DTOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, ENCODE_PATCH};
-use diamond_types::list::operation::Operation;
+use diamond_types::list::operation::TextOperation;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -43,7 +43,7 @@ pub fn get_ops(oplog: &DTOpLog) -> WasmResult {
 
 pub fn get_ops_since(oplog: &DTOpLog, version: &[Time]) -> WasmResult {
     let ops = oplog.iter_range_since(version)
-        .collect::<Box<[Operation]>>();
+        .collect::<Box<[TextOperation]>>();
     serde_wasm_bindgen::to_value(&ops)
 }
 

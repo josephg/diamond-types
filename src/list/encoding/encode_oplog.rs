@@ -2,13 +2,13 @@ use jumprope::JumpRope;
 use rle::{HasLength, RleRun};
 use crate::list::encoding::*;
 use crate::causalgraph::parents::ParentsEntrySimple;
-use crate::list::operation::OpKind::{Del, Ins};
+use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::list::{ListBranch, ListOpLog, switch};
 use crate::rle::{KVPair, RleVec};
 use crate::{AgentId, ROOT_AGENT, Time};
 use crate::frontier::local_version_is_root;
-use crate::list::internal_op::OperationInternal;
-use crate::list::operation::OpKind;
+use crate::list::op_metrics::ListOpMetrics;
+use crate::list::operation::ListOpKind;
 use crate::dtrange::DTRange;
 use crate::encoding::tools::calc_checksum;
 use crate::list::encoding::encode_tools::*;
@@ -16,7 +16,7 @@ use crate::list::encoding::encode_tools::*;
 const ALLOW_VERBOSE: bool = false;
 
 /// Write an operation to the passed writer.
-fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
+fn write_op(dest: &mut Vec<u8>, op: &ListOpMetrics, cursor: &mut usize) {
     // Note I'm relying on the operation log itself to be iter_merged, which simplifies things here
     // greatly.
 
@@ -347,7 +347,7 @@ fn write_bit_run(run: RleRun<bool>, into: &mut Vec<u8>) {
 /// Its gross that I need to pass a generic parameter here, since it'll always be write_bit_run.
 /// I wish there were a cleaner way to write this.
 struct ContentChunk<F: FnMut(RleRun<bool>, &mut Vec<u8>)> {
-    kind: OpKind,
+    kind: ListOpKind,
     known_out: Vec<u8>,
     bit_writer: Merger<RleRun<bool>, F, Vec<u8>>,
     content: String
@@ -355,7 +355,7 @@ struct ContentChunk<F: FnMut(RleRun<bool>, &mut Vec<u8>)> {
 
 // impl<F: FnMut(S, &mut Vec<u8>)> ContentChunk<F> {
 impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
-    fn new(f: F, kind: OpKind) -> Self {
+    fn new(f: F, kind: ListOpKind) -> Self {
         Self {
             kind,
             known_out: Vec::new(),

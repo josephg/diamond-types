@@ -1,6 +1,6 @@
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
-use crate::list::operation::{OpKind, Operation};
-use crate::list::operation::OpKind::*;
+use crate::list::operation::{ListOpKind, TextOperation};
+use crate::list::operation::ListOpKind::*;
 use crate::list::{ListOpLog, switch};
 use crate::dtrange::DTRange;
 use crate::rev_range::RangeRev;
@@ -17,7 +17,7 @@ use crate::unicount::chars_to_bytes;
 ///
 /// Note that OperationInternal can't directly implement
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct OperationInternal {
+pub(crate) struct ListOpMetrics {
     /// The span of content which is inserted or deleted.
     ///
     /// For inserts, this describes the resulting location (span) of the new characters.
@@ -28,7 +28,7 @@ pub(crate) struct OperationInternal {
     pub loc: RangeRev,
 
     /// Is this an insert or delete?
-    pub kind: OpKind,
+    pub kind: ListOpKind,
 
     /// Byte range in self.ins_content or del_content where our content is being held. This is
     /// essentially a poor man's pointer.
@@ -37,7 +37,7 @@ pub(crate) struct OperationInternal {
     pub content_pos: Option<DTRange>,
 }
 
-impl OperationInternal {
+impl ListOpMetrics {
     #[inline]
     pub fn start(&self) -> usize {
         self.loc.span.start
@@ -54,25 +54,25 @@ impl OperationInternal {
         })
     }
 
-    pub(crate) fn to_operation(&self, oplog: &ListOpLog) -> Operation {
+    pub(crate) fn to_operation(&self, oplog: &ListOpLog) -> TextOperation {
         let content = self.get_content(oplog);
         (self, content).into()
     }
 }
 
-impl HasLength for OperationInternal {
+impl HasLength for ListOpMetrics {
     fn len(&self) -> usize {
         self.loc.len()
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct OperationCtx {
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub(crate) struct ListOperationCtx {
     pub(crate) ins_content: Vec<u8>,
     pub(crate) del_content: Vec<u8>,
 }
 
-impl OperationCtx {
+impl ListOperationCtx {
     pub fn new() -> Self {
         Self {
             ins_content: Vec::new(),
@@ -80,7 +80,7 @@ impl OperationCtx {
         }
     }
 
-    pub(crate) fn get_str(&self, kind: OpKind, range: DTRange) -> &str {
+    pub(crate) fn get_str(&self, kind: ListOpKind, range: DTRange) -> &str {
         unsafe { std::str::from_utf8_unchecked(&self.switch(kind)[range.start..range.end]) }
     }
 
@@ -89,15 +89,15 @@ impl OperationCtx {
     //     // switch(tag, self.ins_content.as_str(), self.del_content.as_str())
     // }
 
-    pub(crate) fn switch(&self, kind: OpKind) -> &[u8] {
+    pub(crate) fn switch(&self, kind: ListOpKind) -> &[u8] {
         switch(kind, &self.ins_content, &self.del_content)
     }
 
-    pub(crate) fn switch_mut(&mut self, kind: OpKind) -> &mut Vec<u8> {
+    pub(crate) fn switch_mut(&mut self, kind: ListOpKind) -> &mut Vec<u8> {
         switch(kind, &mut self.ins_content, &mut self.del_content)
     }
 
-    pub(crate) fn push_str(&mut self, kind: OpKind, s: &str) -> DTRange {
+    pub(crate) fn push_str(&mut self, kind: ListOpKind, s: &str) -> DTRange {
         let storage = self.switch_mut(kind);
         let start = storage.len();
         storage.extend_from_slice(s.as_bytes());
@@ -107,8 +107,8 @@ impl OperationCtx {
     }
 }
 
-impl SplitableSpanCtx for OperationInternal {
-    type Ctx = OperationCtx;
+impl SplitableSpanCtx for ListOpMetrics {
+    type Ctx = ListOperationCtx;
 
     // Note we can't implement SplitableSpan because we can't adjust content_pos correctly without
     // reference to the contained data.
@@ -127,7 +127,7 @@ impl SplitableSpanCtx for OperationInternal {
             Some(p.truncate(byte_offset))
         } else { None };
 
-        OperationInternal {
+        ListOpMetrics {
             loc,
             kind: self.kind,
             content_pos,
@@ -157,7 +157,7 @@ impl RangeRev {
     //
     // In godbolt these variants all look pretty similar.
     #[inline]
-    pub(crate) fn truncate_tagged_span(&mut self, tag: OpKind, at: usize) -> RangeRev {
+    pub(crate) fn truncate_tagged_span(&mut self, tag: ListOpKind, at: usize) -> RangeRev {
         let len = self.len();
 
         let start2 = if self.fwd && tag == Ins {
@@ -192,7 +192,7 @@ impl RangeRev {
     // This logic is interchangable with truncate_tagged_span above.
     #[inline]
     #[allow(unused)] // FOR NOW...
-    pub(crate) fn split_op_span(range: RangeRev, tag: OpKind, at: usize) -> (DTRange, DTRange) {
+    pub(crate) fn split_op_span(range: RangeRev, tag: ListOpKind, at: usize) -> (DTRange, DTRange) {
         let (start1, start2) = match (range.fwd, tag) {
             (true, Ins) => (range.span.start, range.span.start + at),
             (false, Del) => (range.span.end - at, range.span.start),
@@ -208,7 +208,7 @@ impl RangeRev {
     // TODO: Move this method. I'd like to put it in TimeSpanRev's file, but we only define
     // InsDelTag locally so that doesn't make sense. Eh.
     #[inline]
-    pub(crate) fn can_append_ops(tag: OpKind, a: &RangeRev, b: &RangeRev) -> bool {
+    pub(crate) fn can_append_ops(tag: ListOpKind, a: &RangeRev, b: &RangeRev) -> bool {
         // This logic can be simplified to a single expression, but godbolt says the compiler still
         // produces branchy code anyway so eh.
 
@@ -231,7 +231,7 @@ impl RangeRev {
         false
     }
 
-    pub(crate) fn append_ops(&mut self, tag: OpKind, other: RangeRev) {
+    pub(crate) fn append_ops(&mut self, tag: ListOpKind, other: RangeRev) {
         debug_assert!(Self::can_append_ops(tag, self, &other));
 
         self.fwd = other.span.start >= self.span.start && (other.span.start != self.span.start || tag == Del);
@@ -247,7 +247,7 @@ impl RangeRev {
     }
 }
 
-impl MergableSpan for OperationInternal {
+impl MergableSpan for ListOpMetrics {
     fn can_append(&self, other: &Self) -> bool {
         let can_append_content = match (&self.content_pos, &other.content_pos) {
             (Some(a), Some(b)) => a.can_append(b),
@@ -271,28 +271,28 @@ impl MergableSpan for OperationInternal {
 #[cfg(test)]
 mod test {
     use rle::{SplitableSpanCtx, test_splitable_methods_valid_ctx};
-    use crate::list::internal_op::{OperationCtx, OperationInternal};
-    use crate::list::operation::OpKind;
+    use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
+    use crate::list::operation::ListOpKind;
     use crate::dtrange::DTRange;
     use crate::rev_range::RangeRev;
 
     #[test]
     fn internal_op_splitable() {
-        test_splitable_methods_valid_ctx(OperationInternal {
+        test_splitable_methods_valid_ctx(ListOpMetrics {
             loc: (10..20).into(),
-            kind: OpKind::Ins,
+            kind: ListOpKind::Ins,
             content_pos: Some((0..10).into()),
-        }, &OperationCtx {
+        }, &ListOperationCtx {
             ins_content: "0123456789".as_bytes().to_owned(),
             del_content: "".as_bytes().to_owned()
         });
 
         let s2 = "↯1↯3↯5↯7↯9";
-        test_splitable_methods_valid_ctx(OperationInternal {
+        test_splitable_methods_valid_ctx(ListOpMetrics {
             loc: (10..20).into(),
-            kind: OpKind::Ins,
+            kind: ListOpKind::Ins,
             content_pos: Some((0..s2.len()).into()),
-        }, &OperationCtx {
+        }, &ListOperationCtx {
             ins_content: s2.as_bytes().to_owned(), // too easy? Maybe..
             del_content: "".as_bytes().to_owned()
         });
@@ -304,27 +304,27 @@ mod test {
     #[test]
     fn truncate_fwd_delete() {
         // Regression.
-        let mut op = OperationInternal {
+        let mut op = ListOpMetrics {
             loc: (10..15).into(),
-            kind: OpKind::Del,
+            kind: ListOpKind::Del,
             content_pos: Some((0..5).into()),
         };
 
         // let rem = op.truncate(2, "abcde");
-        let rem = op.truncate_ctx(2, &OperationCtx {
+        let rem = op.truncate_ctx(2, &ListOperationCtx {
             ins_content: "".as_bytes().to_owned(),
             del_content: "abcde".as_bytes().to_owned()
         });
 
-        assert_eq!(op, OperationInternal {
+        assert_eq!(op, ListOpMetrics {
             loc: (10..12).into(),
-            kind: OpKind::Del,
+            kind: ListOpKind::Del,
             content_pos: Some((0..2).into())
         });
 
-        assert_eq!(rem, OperationInternal {
+        assert_eq!(rem, ListOpMetrics {
             loc: (10..13).into(),
-            kind: OpKind::Del,
+            kind: ListOpKind::Del,
             content_pos: Some((2..5).into())
         });
 
@@ -334,26 +334,26 @@ mod test {
     #[test]
     fn split_around_unicode() {
         // The ¥ symbol is a 2-byte encoding. And ↯ is 3 bytes.
-        let ctx = OperationCtx {
+        let ctx = ListOperationCtx {
             ins_content: "¥123↯".as_bytes().to_owned(),
             del_content: "¥123↯".as_bytes().to_owned()
         };
 
-        let op = OperationInternal {
+        let op = ListOpMetrics {
             loc: (10..15).into(),
-            kind: OpKind::Ins,
+            kind: ListOpKind::Ins,
             content_pos: Some((0..ctx.ins_content.len()).into())
         };
 
         let (a, b) = op.split_ctx(1, &ctx);
-        assert_eq!(a, OperationInternal {
+        assert_eq!(a, ListOpMetrics {
             loc: (10..11).into(),
-            kind: OpKind::Ins,
+            kind: ListOpKind::Ins,
             content_pos: Some((0..2).into())
         });
-        assert_eq!(b, OperationInternal {
+        assert_eq!(b, ListOpMetrics {
             loc: (11..15).into(),
-            kind: OpKind::Ins,
+            kind: ListOpKind::Ins,
             content_pos: Some((2..ctx.ins_content.len()).into())
         });
     }
@@ -364,19 +364,19 @@ mod test {
     fn print_sizes() {
         struct V1 {
             span: RangeRev,
-            tag: OpKind,
+            tag: ListOpKind,
             content_pos: Option<DTRange>,
         }
         struct V2 {
             span: DTRange,
             rev: bool,
-            tag: OpKind,
+            tag: ListOpKind,
             content_pos: Option<DTRange>,
         }
         struct V3 {
             span: DTRange,
             rev: bool,
-            tag: OpKind,
+            tag: ListOpKind,
             content_pos: DTRange,
         }
 

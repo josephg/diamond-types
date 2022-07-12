@@ -5,8 +5,8 @@ use crate::list::{ListBranch, ListCRDT, ListOpLog};
 use smallvec::smallvec;
 use crate::{AgentId, LocalVersion, Time};
 use rle::HasLength;
-use crate::list::operation::OpKind::{Del, Ins};
-use crate::list::operation::Operation;
+use crate::list::operation::ListOpKind::{Del, Ins};
+use crate::list::operation::TextOperation;
 use crate::dtrange::DTRange;
 use crate::encoding::parseerror::ParseError;
 
@@ -43,7 +43,7 @@ fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalVersion, rang
 /// This method does that.
 ///
 /// (I low key hate the duplicated code though.)
-pub(crate) fn apply_local_operation(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, local_ops: &[Operation]) -> Time {
+pub(crate) fn apply_local_operation(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, local_ops: &[TextOperation]) -> Time {
     let first_time = oplog.len();
     let mut next_time = first_time;
 
@@ -120,7 +120,7 @@ impl ListCRDT {
         self.branch.is_empty()
     }
 
-    pub fn apply_local_operations(&mut self, agent: AgentId, local_ops: &[Operation]) -> Time {
+    pub fn apply_local_operations(&mut self, agent: AgentId, local_ops: &[TextOperation]) -> Time {
         apply_local_operation(&mut self.oplog, &mut self.branch, agent, local_ops)
     }
 
