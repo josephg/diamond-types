@@ -14,7 +14,7 @@ use crate::encoding::parseerror::ParseError;
 use crate::frontier::clean_version;
 
 /// Map from local oplog versions -> file versions. Each entry is KVPair(local start, file range).
-pub(crate) type TxnMap = RleVec::<KVPair<DTRange>>;
+pub(crate) type TxnMap = RleVec<KVPair<DTRange>>;
 
 pub(crate) fn write_txn_entry(result: &mut BumpVec<u8>, tag: Option<bool>, txn: &ParentsEntrySimple,
                               txn_map: &mut TxnMap, agent_map: &mut AgentMappingEnc, persist: bool, cg: &CausalGraph,
@@ -36,8 +36,12 @@ pub(crate) fn write_txn_entry(result: &mut BumpVec<u8>, tag: Option<bool>, txn: 
     }
     // txn_map.push(KVPair(txn.span.start, output_range));
 
+    write_parents_raw(result, &txn.parents, next_output_time, persist, agent_map, txn_map, cg)
+}
+
+pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[Time], next_output_time: Time, persist: bool, agent_map: &mut AgentMappingEnc, txn_map: &mut TxnMap, cg: &CausalGraph) {
     // And the parents.
-    if txn.parents.is_empty() {
+    if parents.is_empty() {
         // Parenting off the root is special-cased, because its rare in practice (well,
         // usually exactly 1 item will have the parents as root). We'll write a single dummy
         // value with foreign 0 here, because we (unfortunately) need to mark the list is
@@ -47,7 +51,7 @@ pub(crate) fn write_txn_entry(result: &mut BumpVec<u8>, tag: Option<bool>, txn: 
         // let mapped_agent = 0, has_more = false, is_foreign = true, is_known = true, first = true -> val = 3.
         push_u32(result, 3);
     } else {
-        let mut iter = txn.parents.iter().peekable();
+        let mut iter = parents.iter().peekable();
         // let mut first = true;
         while let Some(&p) = iter.next() {
             let has_more = iter.peek().is_some();
@@ -75,7 +79,7 @@ pub(crate) fn write_txn_entry(result: &mut BumpVec<u8>, tag: Option<bool>, txn: 
                 // But allowing unsorted local parents is vaguely upsetting.
                 let mapped_parent = map.1.start + offset;
 
-                write_parent_diff(output_range.start - mapped_parent, false, true);
+                write_parent_diff(next_output_time - mapped_parent, false, true);
             } else {
                 // Foreign change
                 // println!("Region does not contain parent for {}", p);
@@ -120,8 +124,9 @@ pub fn encode_parents<'a, I: Iterator<Item=ParentsEntrySimple>>(bump: &'a Bump, 
     result
 }
 
-// <M: AgentMap>
-fn read_parents(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: Time, agent_map: &mut AgentMappingDec) -> Result<LocalVersion, ParseError> {
+// *** Read path ***
+
+pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: Time, agent_map: &mut AgentMappingDec) -> Result<LocalVersion, ParseError> {
     let mut parents = SmallVec::<[usize; 2]>::new();
 
     loop {
@@ -196,7 +201,7 @@ pub(crate) fn read_txn_entry(reader: &mut BufParser, tagged: bool, persist: bool
         // Discard tag.
         strip_bit_usize2(&mut len);
     }
-    let parents = read_parents(reader, persist, cg, next_time, agent_map)?;
+    let parents = read_parents_raw(reader, persist, cg, next_time, agent_map)?;
 
     Ok(ParentsEntrySimple {
         span: (next_time..next_time + len).into(),

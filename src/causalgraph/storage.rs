@@ -37,8 +37,10 @@ use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::{calc_checksum, push_u32, push_u64, push_usize};
 use crate::encoding::varint::{decode_usize, encode_usize, strip_bit_u32};
 use crate::causalgraph::parents::ParentsEntrySimple;
-use crate::{CausalGraph, CRDTSpan, Time};
+use crate::{CausalGraph, CRDTSpan, DTRange, KVPair, Time};
 use bumpalo::collections::vec::Vec as BumpVec;
+use rle::zip::rle_zip;
+use crate::encoding::id_parents::{IDParents, read_id_p, write_id_parents};
 
 
 const CG_MAGIC_BYTES: [u8; 8] = *b"DMNDT_CG";
@@ -143,10 +145,9 @@ pub(crate) struct CGStorage {
     /// False when we're ready to write blit 0, true when we're about to write blit 1.
     next_blit: bool,
 
-    // last_entry: RleRun<bool>,
-
-    last_parents: ParentsEntrySimple,
-    assigned_to: CRDTSpan,
+    // last_parents: ParentsEntrySimple,
+    // assigned_to: CRDTSpan,
+    entry: IDParents,
 
     txn_map: TxnMap,
     agent_map: AgentMappingEnc,
@@ -178,14 +179,7 @@ impl CGStorage {
             next_write_location: 0,
             dirty_blit: false,
             next_blit: false,
-            // last_entry: Default::default(),
-            last_parents: ParentsEntrySimple {
-                span: Default::default(), parents: Default::default()
-            },
-            assigned_to: CRDTSpan {
-                agent: 0,
-                seq_range: Default::default()
-            },
+            entry: Default::default(),
             txn_map: Default::default(),
             agent_map: AgentMappingEnc::new(&cg.client_data),
             next_flush_time: 0,
@@ -232,17 +226,24 @@ impl CGStorage {
         if !active_blit.data.is_empty() {
             let mut reader = BufParser(active_blit.data);
             let next_time = cg.len_history();
-            let txn = read_txn_entry(&mut reader, false, false, &mut cg, next_time, &mut dec)?;
-            if !txn.is_empty() {
-                cg.history.insert(&txn.parents, txn.span);
+            let id_p = read_id_p(&mut reader, false, &mut cg, next_time, &mut dec)?;
+            if !id_p.is_empty() {
+                cg.history.insert(&id_p.parents, id_p.time_span());
+                cg.assign_times_to_agent(id_p.span);
             }
-            cgs.last_parents = txn;
+            cgs.entry = id_p;
 
-            let span = read_agent_assignment(&mut reader, false, false, &mut cg, &mut dec)?;
-            if !span.is_empty() {
-                cg.assign_times_to_agent(span);
-            }
-            cgs.assigned_to = span;
+            // let txn = read_txn_entry(&mut reader, false, false, &mut cg, next_time, &mut dec)?;
+            // if !txn.is_empty() {
+            //     cg.history.insert(&txn.parents, txn.span);
+            // }
+            // cgs.last_parents = txn;
+            //
+            // let span = read_agent_assignment(&mut reader, false, false, &mut cg, &mut dec)?;
+            // if !span.is_empty() {
+            //     cg.assign_times_to_agent(span);
+            // }
+            // cgs.assigned_to = span;
 
             // dbg!(&cgs.last_parents, &cgs.assigned_to);
 
@@ -440,91 +441,116 @@ impl CGStorage {
     }
 
     fn read_run(reader: &mut BufParser, into_cg: &mut CausalGraph, dec: &mut AgentMappingDec) -> Result<(), CGError> {
-        // dbg!(data);
-        let first_number = reader.peek_u32().map_err(|_| CGError::InvalidData)?.unwrap();
-        let is_aa = strip_bit_u32(first_number).1;
+        let next_time = into_cg.len_history(); // TODO: Cache this while reading.
+        let entry = read_id_p(reader, true, into_cg, next_time, dec)?;
+        into_cg.history.insert(&entry.parents, entry.time_span());
+        into_cg.assign_times_to_agent(entry.span);
 
-        if is_aa {
-            // Parse the chunk as agent assignment data
-            let span = read_agent_assignment(reader, true, true, into_cg, dec)?;
-            // dbg!(span);
-            into_cg.assign_times_to_agent(span);
-        } else {
-            // Parse the chunk as parents.
-            let next_time = into_cg.len_history(); // TODO: Cache this while reading.
-            let txn = read_txn_entry(reader, true, true, into_cg, next_time, dec)?;
-            into_cg.history.insert(&txn.parents, txn.span);
-            // dbg!(txn);
-        }
+        // let first_number = reader.peek_u32().map_err(|_| CGError::InvalidData)?.unwrap();
+        // let is_aa = strip_bit_u32(first_number).1;
+        //
+        // if is_aa {
+        //     // Parse the chunk as agent assignment data
+        //     let span = read_agent_assignment(reader, true, true, into_cg, dec)?;
+        //     // dbg!(span);
+        //     into_cg.assign_times_to_agent(span);
+        // } else {
+        //     // Parse the chunk as parents.
+        //     let next_time = into_cg.len_history(); // TODO: Cache this while reading.
+        //     let txn = read_txn_entry(reader, true, true, into_cg, next_time, dec)?;
+        //     into_cg.history.insert(&txn.parents, txn.span);
+        //     // dbg!(txn);
+        // }
 
         Ok(())
     }
 
     // TODO: Consider merging tag and persist parameters here - they're always the same value.
-    fn encode_last_parents<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, cg: &CausalGraph) {
-        let tag = if tag { Some(false) } else { None };
-        write_txn_entry(buf, tag, &self.last_parents, &mut self.txn_map, &mut self.agent_map, persist, cg);
-    }
-
-    fn encode_last_agent_assignment<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, cg: &CausalGraph) {
-        let tag = if tag { Some(true) } else { None };
-        write_agent_assignment_span(buf, tag, self.assigned_to, &mut self.agent_map, persist, &cg.client_data);
-    }
-
-    pub(crate) fn push_parents_no_sync(&mut self, bump: &Bump, parents: ParentsEntrySimple, cg: &CausalGraph) -> Result<bool, CGError> {
-        if parents.is_empty() { return Ok(false); }
-
-        let mut buf = BumpVec::new_in(bump);
-
-        self.dirty_blit = true;
-        Ok(if self.last_parents.is_empty() {
-            self.last_parents = parents;
-            false
-        } else if self.last_parents.can_append(&parents) {
-            self.last_parents.append(parents);
-            false
-        } else {
-            // First flush out the current value to the end of the file.
-            // eprintln!("Writing parents to data {:?}", self.last_parents);
-            self.encode_last_parents(&mut buf, true, true, cg);
-            self.write_data(&buf)?;
-
-            // Then save the new value in a fresh blit.
-            self.last_parents = parents;
-            true
-        })
-    }
-
-    pub(crate) fn push_aa_no_sync(&mut self, bump: &Bump, span: CRDTSpan, cg: &CausalGraph) -> Result<bool, CGError> {
-        if span.is_empty() { return Ok(false); }
-
-        let mut buf = BumpVec::new_in(bump);
-
-        self.dirty_blit = true;
-        Ok(if self.assigned_to.is_empty() {
-            self.assigned_to = span;
-            false
-        } else if self.assigned_to.can_append(&span) {
-            self.assigned_to.append(span);
-            false
-        } else {
-            // Flush the last span out too.
-            // eprintln!("Writing span to data {:?}", self.assigned_to);
-            self.encode_last_agent_assignment(&mut buf, true, true, cg);
-            self.write_data(&buf)?;
-
-            // Then save the new value in a fresh blit.
-            self.assigned_to = span;
-            true
-        })
-    }
-
-    // fn flush(&mut self) -> Result<(), CGError> {
-    //     if self.dirty {
-    //         self.push_data_blit(&[])?;
-    //     }
-    //     Ok(())
+    // fn encode_last_parents<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, cg: &CausalGraph) {
+    //     let tag = if tag { Some(false) } else { None };
+    //     write_txn_entry(buf, tag, &self.last_parents, &mut self.txn_map, &mut self.agent_map, persist, cg);
     // }
+    //
+    // fn encode_last_agent_assignment<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, cg: &CausalGraph) {
+    //     let tag = if tag { Some(true) } else { None };
+    //     write_agent_assignment_span(buf, tag, self.assigned_to, &mut self.agent_map, persist, &cg.client_data);
+    // }
+
+    fn encode_last_entry(&mut self, buf: &mut BumpVec<u8>, persist: bool, cg: &CausalGraph) {
+        write_id_parents(buf, &self.entry, &mut self.txn_map, &mut self.agent_map, persist, &cg);
+    }
+
+    // pub(crate) fn push_parents_no_sync(&mut self, bump: &Bump, parents: ParentsEntrySimple, cg: &CausalGraph) -> Result<bool, CGError> {
+    //     if parents.is_empty() { return Ok(false); }
+    //
+    //     let mut buf = BumpVec::new_in(bump);
+    //
+    //     self.dirty_blit = true;
+    //     Ok(if self.last_parents.is_empty() {
+    //         self.last_parents = parents;
+    //         false
+    //     } else if self.last_parents.can_append(&parents) {
+    //         self.last_parents.append(parents);
+    //         false
+    //     } else {
+    //         // First flush out the current value to the end of the file.
+    //         // eprintln!("Writing parents to data {:?}", self.last_parents);
+    //         self.encode_last_parents(&mut buf, true, true, cg);
+    //         self.write_data(&buf)?;
+    //
+    //         // Then save the new value in a fresh blit.
+    //         self.last_parents = parents;
+    //         true
+    //     })
+    // }
+    //
+    // pub(crate) fn push_aa_no_sync(&mut self, bump: &Bump, span: CRDTSpan, cg: &CausalGraph) -> Result<bool, CGError> {
+    //     if span.is_empty() { return Ok(false); }
+    //
+    //     let mut buf = BumpVec::new_in(bump);
+    //
+    //     self.dirty_blit = true;
+    //     Ok(if self.assigned_to.is_empty() {
+    //         self.assigned_to = span;
+    //         false
+    //     } else if self.assigned_to.can_append(&span) {
+    //         self.assigned_to.append(span);
+    //         false
+    //     } else {
+    //         // Flush the last span out too.
+    //         // eprintln!("Writing span to data {:?}", self.assigned_to);
+    //         self.encode_last_agent_assignment(&mut buf, true, true, cg);
+    //         self.write_data(&buf)?;
+    //
+    //         // Then save the new value in a fresh blit.
+    //         self.assigned_to = span;
+    //         true
+    //     })
+    // }
+    pub(crate) fn push_entry_no_sync(&mut self, bump: &Bump, entry: IDParents, cg: &CausalGraph) -> Result<bool, CGError> {
+        if entry.is_empty() { return Ok(false); }
+
+        let mut buf = BumpVec::new_in(bump);
+
+        self.dirty_blit = true;
+        Ok(if self.entry.is_empty() {
+            self.entry = entry;
+            false
+        } else if self.entry.can_append(&entry) {
+            self.entry.append(entry);
+            false
+        } else {
+            // Flush the last entry out.
+            // eprintln!("Writing entry to data {:?}", self.entry);
+            self.encode_last_entry(&mut buf, true, cg);
+            self.write_data(&buf)?;
+
+            // Then save the new value in a fresh blit.
+            self.entry = entry;
+            true
+        })
+    }
+
     fn flush(&mut self, bump: &Bump, cg: &CausalGraph) -> Result<(), CGError> {
         if !self.dirty_blit { return Ok(()); }
 
@@ -534,8 +560,9 @@ impl CGStorage {
         // Regardless of what happened above, write a new blit entry.
         // eprintln!("Writing blip {:?} / {:?}", self.last_parents, self.assigned_to);
         let mut buf = BumpVec::new_in(bump);
-        self.encode_last_parents(&mut buf, false, false, cg);
-        self.encode_last_agent_assignment(&mut buf, false, false, cg);
+        // self.encode_last_parents(&mut buf, false, false, cg);
+        // self.encode_last_agent_assignment(&mut buf, false, false, cg);
+        self.encode_last_entry(&mut buf, false, cg);
         let result = self.write_blit_with_data(&buf);
 
         match result {
@@ -550,13 +577,11 @@ impl CGStorage {
 
                 // We could only write out the larger of these two, but eh.
                 buf.clear();
-                self.encode_last_parents(&mut buf, true, true, cg);
-                self.encode_last_agent_assignment(&mut buf, true, true, cg);
+                self.encode_last_entry(&mut buf, true, cg);
                 self.write_data(&buf)?;
                 self.file.sync_all()?;
 
-                self.last_parents.span.clear();
-                self.assigned_to.seq_range.clear();
+                self.entry.clear();
 
                 self.write_blit_with_data(&[])?;
             },
@@ -571,15 +596,36 @@ impl CGStorage {
         let bump = Bump::new();
 
         let mut needs_sync = false;
+        let range: DTRange = (self.next_flush_time..cg.len()).into();
 
-        let range = (self.next_flush_time..cg.len()).into();
-        for txn in cg.history.iter_range(range) {
-            needs_sync |= self.push_parents_no_sync(&bump, txn, cg)?;
+
+        let len = cg.len();
+        let parents = cg.history.iter_range(range);
+        let aa = cg.client_with_localtime.iter_range_packed(range)
+            .map(|KVPair(_, data)| data);
+        for (parents_entry, span) in rle_zip(parents, aa) {
+            // dbg!((xx, yy));
+            debug_assert_eq!(parents_entry.len(), span.len());
+
+            let x = IDParents {
+                start: parents_entry.span.start,
+                parents: parents_entry.parents,
+                span
+            };
+
+            needs_sync |= self.push_entry_no_sync(&bump, x, cg)?;
+            // dbg!(x);
         }
 
-        for span in cg.client_with_localtime.iter_range_packed(range) {
-            needs_sync |= self.push_aa_no_sync(&bump, span.1, cg)?;
-        }
+
+
+        // for txn in cg.history.iter_range(range) {
+        //     needs_sync |= self.push_parents_no_sync(&bump, txn, cg)?;
+        // }
+        //
+        // for span in cg.client_with_localtime.iter_range_packed(range) {
+        //     needs_sync |= self.push_aa_no_sync(&bump, span.1, cg)?;
+        // }
 
         if needs_sync {
             self.file.sync_all();
@@ -603,16 +649,24 @@ mod test {
 
     #[test]
     fn foo() {
-        let (mut cg, mut cgs) = CGStorage::open("cg.log").unwrap();
-        dbg!(&cgs, &cg);
+        std::fs::remove_file("test.cg");
+
+        let (mut cg, mut cgs) = CGStorage::open("test.cg").unwrap();
+        // dbg!(&cgs, &cg);
 
         let seph = cg.get_or_create_agent_id("seph");
         cg.assign_op(&[], seph, 10);
-        dbg!(&cg);
+        cg.assign_op(&[5], seph, 15);
+        cg.assign_op(&[15], seph, 20);
+        // dbg!(&cg);
 
         cgs.save_missing(&cg).unwrap();
 
         dbg!(&cgs);
+
+        drop(cgs);
+        let (cg2, _) = CGStorage::open("test.cg").unwrap();
+        dbg!((cg, cg2));
     }
 
     #[test]
@@ -628,5 +682,10 @@ mod test {
         drop(remove_file("node_nodecc.cg"));
         let (_, mut cgs) = CGStorage::open("node_nodecc.cg").unwrap();
         cgs.save_missing(&cg).unwrap();
+        drop(cgs);
+
+        // Open it back up again and check the contents match.
+        let (cg2, _) = CGStorage::open("node_nodecc.cg").unwrap();
+        // dbg!(cg2);
     }
 }

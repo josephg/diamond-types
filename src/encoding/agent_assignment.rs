@@ -65,7 +65,7 @@ impl AgentMappingEnc {
         })
     }
 
-    fn seq_delta(&mut self, agent: AgentId, span: DTRange, persist: bool) -> isize {
+    pub(super) fn seq_delta(&mut self, agent: AgentId, span: DTRange, persist: bool) -> isize {
         let agent = agent as usize;
         self.ensure_capacity(agent + 1);
 
@@ -94,10 +94,9 @@ pub(crate) fn write_agent_assignment_span(result: &mut BumpVec<u8>, mut tag: Opt
     // - The sequence numbers are shared with other documents, and hence the seqs are sparse
     // - Or the same agent made concurrent changes to multiple branches. The operations may
     //   be reordered to any order which obeys the time dag's partial order.
+
     assert_ne!(span.agent, ROOT_AGENT, "Cannot assign operations to ROOT");
 
-    // debug_assert!((span.agent as usize) < last_seq_for_agent.len());
-    // Adding 1 here to make room for ROOT.
     let mapped_agent = agent_map.map_no_root(client_data, span.agent, persist);
     let delta = agent_map.seq_delta(span.agent, span.seq_range, persist);
 
@@ -188,14 +187,10 @@ fn push_and_ref<V>(vec: &mut Vec<V>, new_val: V) -> &mut V {
 }
 
 pub(crate) fn read_agent_assignment<M: AgentStrToId>(reader: &mut BufParser, tagged: bool, persist: bool, cg: &mut M, map: &mut AgentMappingDec) -> Result<CRDTSpan, ParseError> {
-    // fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {
     // Agent assignments are almost always (but not always) linear. They can have gaps, and
     // they can be reordered if the same agent ID is used to contribute to multiple branches.
     //
     // I'm still not sure if this is a good idea.
-
-    // if reader.is_empty() { return Ok(None); }
-    // if reader.is_empty() { return Err(ParseError::UnexpectedEOF); }
 
     // Bits are:
     // optional tag
@@ -233,7 +228,6 @@ pub(crate) fn read_agent_assignment<M: AgentStrToId>(reader: &mut BufParser, tag
     let jump = if has_jump {
         reader.next_zigzag_isize()?
     } else { 0 };
-    dbg!(jump);
 
     let start = isize_try_add(last_seq, jump)
         .ok_or(ParseError::GenericInvalidData)?;
