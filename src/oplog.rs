@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::ops::Deref;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use smallvec::{smallvec, SmallVec};
 use smartstring::alias::String as SmartString;
 use ::rle::*;
@@ -15,8 +15,8 @@ use crate::list::operation::{ListOpKind, TextOperation};
 use crate::remotespan::{CRDT_DOC_ROOT, CRDTGuid, CRDTSpan};
 use crate::rev_range::RangeRev;
 use crate::rle::{RleKeyed, RleSpanHelpers};
-use crate::storage::wal::WALError;
 use crate::unicount::count_chars;
+use crate::wal::WALError;
 
 pub const ROOT_MAP: Time = Time::MAX;
 
@@ -27,13 +27,32 @@ enum PathElement {
 }
 
 impl OpLog {
+    /// Creates a new OpLog in memory only. This is useful in testing and in the browser.
+    pub fn new_mem() -> Self {
+        Self {
+            cg: Default::default(),
+            cg_storage: None,
+            wal_storage: None,
+            version: Default::default(),
+            uncommitted_ops: Default::default()
+        }
+    }
+
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, WALError> {
+        std::fs::create_dir_all(path.as_ref())?;
+        let wal_path: PathBuf = [path.as_ref(), Path::new("wal")].iter().collect();
+        let cg_path: PathBuf = [path.as_ref(), Path::new("cg")].iter().collect();
+
+        let (mut cg, cgs) = CGStorage::open(cg_path).unwrap();
+        let (wal, ops) = WriteAheadLog::open(path, &mut cg)?;
+
         Ok(Self {
             // doc_id: None,
-            cg: Default::default(),
-            wal: WriteAheadLog::open(path)?,
+            cg,
+            cg_storage: Some(cgs),
+            wal_storage: Some(wal),
             version: smallvec![], // ROOT version.
-            uncommitted_ops: Default::default()
+            uncommitted_ops: ops
         })
     }
 
@@ -45,10 +64,7 @@ impl OpLog {
     }
 
     fn inner_assign_local_op_span(&mut self, agent_id: AgentId, len: usize) -> DTRange {
-        let first_time = self.cg.len();
-        let span = (first_time .. first_time+len).into();
-        self.cg.assign_next_time_to_client_known(agent_id, span);
-        self.cg.history.insert(&self.version, span);
+        let span = self.cg.assign_op(&self.version, agent_id, len);
         self.version = smallvec![span.last()];
         span
     }
@@ -157,7 +173,7 @@ mod test {
 
     #[test]
     fn foo() {
-        let mut oplog = OpLog::open("test").unwrap();
+        let mut oplog = OpLog::new_mem();
         let seph = oplog.get_or_create_agent_id("seph");
         let set = oplog.local_set_map(seph, ROOT_MAP, "yoo", OpValue::NewCRDT(CRDTKind::Set));
         let text = oplog.insert_into_set(seph, set, CRDTKind::Text);

@@ -2,7 +2,7 @@
 use smartstring::alias::String as SmartString;
 use crate::{CRDTSpan, DTRange, Parents, KVPair, LocalVersion, RleVec};
 
-mod storage;
+pub(crate) mod storage;
 mod causalgraph;
 mod check;
 pub mod parents;

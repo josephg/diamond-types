@@ -189,11 +189,11 @@ use smartstring::alias::String as SmartString;
 use crate::causalgraph::CausalGraph;
 use crate::dtrange::DTRange;
 use causalgraph::parents::Parents;
+use crate::causalgraph::storage::CGStorage;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
-use crate::storage::wal::WriteAheadLogRaw;
-use crate::storage::wal_encoding::WriteAheadLog;
+use crate::wal::WriteAheadLog;
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
 
 pub mod list;
@@ -208,10 +208,10 @@ mod check;
 mod branch;
 mod path;
 mod encoding;
-mod storage;
 mod causalgraph;
 mod simpledb;
 mod operation;
+mod wal;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;
@@ -243,7 +243,6 @@ pub enum Primitive {
 pub enum SnapshotValue {
     Primitive(Primitive),
     InnerCRDT(Time),
-    // Deleted,
     // Ref(Time),
 }
 
@@ -292,7 +291,7 @@ pub(crate) struct Op {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
-struct Ops {
+pub(crate) struct Ops {
     ops: RleVec<KVPair<Op>>,
     list_ctx: ListOperationCtx,
 }
@@ -310,7 +309,8 @@ pub struct OpLog {
     /// the WAL is flushed.
     pub(crate) cg: CausalGraph,
 
-    wal: WriteAheadLog,
+    cg_storage: Option<CGStorage>,
+    wal_storage: Option<WriteAheadLog>,
 
     /// The version that contains everything from CG.
     /// This might make more sense in CG?

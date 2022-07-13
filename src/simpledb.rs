@@ -4,7 +4,7 @@ use crate::frontier::local_version_eq;
 use crate::list::operation::TextOperation;
 use crate::oplog::ROOT_MAP;
 use crate::remotespan::CRDTGuid;
-use crate::storage::wal::WALError;
+use crate::wal::WALError;
 
 #[derive(Debug)]
 pub struct SimpleDatabase {
@@ -13,6 +13,13 @@ pub struct SimpleDatabase {
 }
 
 impl SimpleDatabase {
+    pub fn new_mem() -> Self {
+        Self {
+            oplog: OpLog::new_mem(),
+            branch: Branch::new()
+        }
+    }
+
     pub fn open<P: AsRef<std::path::Path>>(path: P) -> Result<Self, WALError> {
         Ok(Self {
             oplog: OpLog::open(path)?,
@@ -104,7 +111,7 @@ mod test {
 
     #[test]
     fn smoke() {
-        let mut db = SimpleDatabase::open("test").unwrap();
+        let mut db = SimpleDatabase::new_mem();
         let seph = db.get_or_create_agent_id("seph");
         db.modify_map(seph, ROOT_MAP, "name", Primitive(Str("seph".into())));
 
@@ -126,7 +133,7 @@ mod test {
 
     #[test]
     fn concurrent_writes() {
-        let mut db = SimpleDatabase::open("test").unwrap();
+        let mut db = SimpleDatabase::new_mem();
         let seph = db.get_or_create_agent_id("seph");
         let mike = db.get_or_create_agent_id("mike");
 
@@ -162,7 +169,7 @@ mod test {
 
     #[test]
     fn text() {
-        let mut db = SimpleDatabase::open("test").unwrap();
+        let mut db = SimpleDatabase::new_mem();
         let seph = db.get_or_create_agent_id("seph");
 
         let text = db.modify_map(seph, ROOT_MAP, "text", NewCRDT(CRDTKind::Text));

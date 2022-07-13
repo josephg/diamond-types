@@ -124,7 +124,7 @@ impl<'a> Ord for Blit<'a> {
 // }
 
 #[derive(Debug)]
-struct CausalGraphStorage {
+pub(crate) struct CGStorage {
     file: File,
 
     blit_size: u64,
@@ -154,8 +154,8 @@ struct CausalGraphStorage {
     next_flush_time: Time,
 }
 
-impl CausalGraphStorage {
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<(CausalGraph, CausalGraphStorage), CGError> {
+impl CGStorage {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<(CausalGraph, CGStorage), CGError> {
         let mut cg = CausalGraph::new();
 
         let mut file = File::options()
@@ -599,11 +599,11 @@ mod test {
     use rle::RleRun;
     use crate::causalgraph::parents::ParentsEntrySimple;
     use crate::{CausalGraph, CRDTSpan};
-    use crate::causalgraph::storage::CausalGraphStorage;
+    use crate::causalgraph::storage::CGStorage;
 
     #[test]
     fn foo() {
-        let (mut cg, mut cgs) = CausalGraphStorage::open("cg.log").unwrap();
+        let (mut cg, mut cgs) = CGStorage::open("cg.log").unwrap();
         dbg!(&cgs, &cg);
 
         let seph = cg.get_or_create_agent_id("seph");
@@ -626,7 +626,7 @@ mod test {
         let cg = o.cg;
 
         drop(remove_file("node_nodecc.cg"));
-        let (_, mut cgs) = CausalGraphStorage::open("node_nodecc.cg").unwrap();
+        let (_, mut cgs) = CGStorage::open("node_nodecc.cg").unwrap();
         cgs.save_missing(&cg).unwrap();
     }
 }

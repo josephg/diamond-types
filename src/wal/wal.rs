@@ -6,9 +6,13 @@ use std::{fs, io};
 use std::io::{BufReader, ErrorKind, Read, Result as IOResult, Seek, SeekFrom, Write};
 use std::path::Path;
 use bumpalo::Bump;
-use crate::encoding::varint;
-use crate::encoding::tools::calc_checksum;
+use crate::encoding::{ChunkType, varint};
+use crate::encoding::tools::{calc_checksum, push_chunk};
 use bumpalo::collections::vec::Vec as BumpVec;
+use crate::{CausalGraph, KVPair, Ops};
+use crate::encoding::agent_assignment::{AgentMappingEnc, encode_agent_assignment};
+use crate::encoding::parents::encode_parents;
+use crate::wal::*;
 
 // The file starts with "DMNDTWAL" followed by a 4 byte LE file version.
 const WAL_MAGIC_BYTES: [u8; 8] = *b"DMNDTWAL";
@@ -16,37 +20,9 @@ const WAL_VERSION: [u8; 4] = 1u32.to_le_bytes();
 const WAL_HEADER_LENGTH: usize = WAL_MAGIC_BYTES.len() + WAL_VERSION.len();
 const WAL_HEADER_LENGTH_U64: u64 = WAL_HEADER_LENGTH as u64;
 
-#[derive(Debug)]
-pub struct WriteAheadLogRaw(File);
 
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum WALError {
-    InvalidHeader,
-    UnexpectedEOF,
-    ChecksumMismatch,
-    IO(io::Error),
-}
-
-impl Display for WALError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ParseError {:?}", self)
-    }
-}
-
-impl Error for WALError {}
-
-impl From<io::Error> for WALError {
-    fn from(io_err: io::Error) -> Self {
-        if io_err.kind() == ErrorKind::UnexpectedEof { WALError::UnexpectedEOF }
-        else { WALError::IO(io_err) }
-    }
-}
-
-impl WriteAheadLogRaw {
-    pub fn open<P: AsRef<Path>, F>(path: P, parse_chunk: F) -> Result<Self, WALError>
-        where F: FnMut(&[u8]) -> Result<(), WALError>
-    {
+impl WriteAheadLog {
+    pub fn open<P: AsRef<Path>>(path: P, cg: &mut CausalGraph) -> Result<(Self, Ops), WALError> {
         let mut file = File::options()
             .read(true)
             .create(true)
@@ -57,9 +33,12 @@ impl WriteAheadLogRaw {
         // Before anything else, we scan the file to find out the current value.
         debug_assert_eq!(file.stream_position()?, 0); // Should be 0 since we're not in append mode.
 
-        let file = Self::prep_file(file, path.as_ref(), parse_chunk)?;
+        let (file, ops) = Self::prep_file(file, path.as_ref(), cg)?;
 
-        Ok(Self(file))
+        Ok((Self {
+            file,
+            next_version: 0
+        }, ops))
     }
 
     fn check_header(file: &mut File, total_len: u64) -> Result<(), WALError> {
@@ -87,9 +66,7 @@ impl WriteAheadLogRaw {
         Ok(())
     }
 
-    fn prep_file<P: AsRef<Path>, F>(mut file: File, path: P, mut parse_chunk: F) -> Result<File, WALError>
-        where F: FnMut(&[u8]) -> Result<(), WALError>
-    {
+    fn prep_file<P: AsRef<Path>>(mut file: File, path: P, cg: &mut CausalGraph) -> Result<(File, Ops), WALError> {
         // First we need to know how large the file is.
         let total_len = file.seek(SeekFrom::End(0))?;
         file.seek(SeekFrom::Start(0))?;
@@ -103,6 +80,8 @@ impl WriteAheadLogRaw {
 
         let mut r = BufReader::new(file);
 
+        let mut ops = Ops::default();
+
         while pos < total_len {
             debug_assert_eq!(r.stream_position()?, pos);
 
@@ -111,7 +90,8 @@ impl WriteAheadLogRaw {
                     // dbg!(chunk_bytes);
                     // let (value, _) = varint::decode_u32(&chunk_bytes).unwrap();
                     // dbg!(value);
-                    parse_chunk(&chunk_bytes)?;
+                    // parse_chunk(&chunk_bytes)?;
+                    Self::read_chunk(&chunk_bytes, cg, &mut ops)?;
 
                     pos += chunk_total_len;
                 }
@@ -136,7 +116,7 @@ impl WriteAheadLogRaw {
                     // Truncating the file is not strictly necessary for correctness, but it means
                     // the database will not error when we reload.
                     f.set_len(pos)?;
-                    return Ok(f);
+                    return Ok((f, ops));
                 }
                 Err(err) => {
                     // Other errors are non-recoverable.
@@ -146,7 +126,7 @@ impl WriteAheadLogRaw {
         }
 
         debug_assert_eq!(pos, total_len);
-        Ok(r.into_inner())
+        Ok((r.into_inner(), ops))
     }
 
     fn consume_chunk(r: &mut BufReader<File>, remaining_len: u64) -> Result<(u64, Vec<u8>), WALError> {
@@ -213,9 +193,121 @@ impl WriteAheadLogRaw {
         chunk_bytes[0..4].copy_from_slice(&checksum.to_le_bytes());
         chunk_bytes[4..8].copy_from_slice(&(len as u32).to_le_bytes());
 
-        self.0.write_all(&chunk_bytes)?;
-        self.0.sync_all()?;
+        self.file.write_all(&chunk_bytes)?;
+        self.file.sync_all()?;
 
         Ok(())
+    }
+
+
+    fn read_chunk(bytes: &[u8], cg: &mut CausalGraph, into: &mut Ops) -> Result<(), WALError> {
+        dbg!(bytes.len());
+
+        Ok(())
+    }
+
+    pub fn flush(&mut self, cg: &CausalGraph, ops: &Ops) -> Result<(), WALError> {
+        let next = cg.len();
+
+        if next == self.next_version {
+            // Nothing to do!
+            return Ok(());
+        }
+
+        // Data to store:
+        //
+        // - Agent assignment
+        // - Parents
+        // - Ops within the specified range
+
+        let range = (self.next_version..next).into();
+        self.write_chunk(|bump, buf| {
+            let start = buf.len();
+
+            let mut map = AgentMappingEnc::new(&cg.client_data);
+
+            let iter = cg.client_with_localtime
+                .iter_range_packed(range)
+                .map(|KVPair(_, span)| span);
+            let aa = encode_agent_assignment(bump, iter, &cg.client_data, &mut map);
+
+            let hist_iter = cg.history.iter_range(range);
+            let parents = encode_parents(bump, hist_iter, &mut map, &cg);
+
+
+            // let first_set_idx = oplog.register_set_operations
+            //     .binary_search_by_key(&self.next_version, |e| e.0)
+            //     .unwrap_or_else(|idx| idx);
+            //
+            // let op_contents = if first_set_idx < oplog.register_set_operations.len() {
+            //     let iter = oplog.register_set_operations[first_set_idx..]
+            //         .iter()
+            //         .map(|(_, value)| value);
+            //     Some(encode_op_contents(bump, iter, oplog))
+            // } else { None };
+
+            // push_chunk(buf, ChunkType::AgentNames, &map.into_output());
+            push_chunk(buf, ChunkType::OpVersions, &aa);
+            push_chunk(buf, ChunkType::OpParents, &parents);
+            // if let Some(op_contents) = op_contents {
+            //     push_chunk(buf, ChunkType::SetContent, &op_contents);
+            // }
+            dbg!(&buf[start..]);
+            dbg!(buf.len() - start);
+
+            Ok(())
+        })?;
+
+        self.next_version = next;
+        Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use crate::{CausalGraph, KVPair, Op, OpContents, OpLog, Ops, OpValue, Primitive, WriteAheadLog};
+    use crate::oplog::ROOT_MAP;
+
+    #[test]
+    fn simple_encode_test() {
+        let mut cg = CausalGraph::new();
+        // let mut oplog = OpLog::new();
+
+        let path = "test.wal";
+        std::fs::remove_file(path); // Ignoring errors.
+        let (mut wal, mut ops) = WriteAheadLog::open("test.wal", &mut cg).unwrap();
+
+        wal.flush(&cg, &ops).unwrap(); // Should do nothing!
+
+        let seph = cg.get_or_create_agent_id("seph");
+        let mike = cg.get_or_create_agent_id("mike");
+
+        let span = cg.assign_op(&[], seph, 1);
+        ops.ops.push(KVPair(span.start, Op {
+            crdt_id: ROOT_MAP,
+            contents: OpContents::MapSet("hi".into(), OpValue::Primitive(Primitive::I64(123)))
+        }));
+
+        wal.flush(&cg, &ops).unwrap();
+        dbg!(&wal);
+
+        // let mut v = 0;
+        //
+        // oplog.set_at_path(seph, &[Key("name")], I64(1));
+        // let t = oplog.set_at_path(seph, &[Key("name")], I64(2));
+        // // wal.flush(&oplog).unwrap();
+        // oplog.set_at_path(seph, &[Key("name")], I64(3));
+        // oplog.set_at_path(mike, &[Key("name")], I64(4));
+        // wal.flush(&oplog).unwrap();
+        //
+        // let item = oplog.get_or_create_map_child(ROOT_MAP, "child".into());
+        // oplog.append_set(mike, &[t], item, Primitive::I64(321));
+        // // dbg!(oplog.checkout(&oplog.version));
+        //
+        // // dbg!(&oplog);
+        // oplog.dbg_check(true);
+        //
+        // wal.flush(&oplog).unwrap();
     }
 }
