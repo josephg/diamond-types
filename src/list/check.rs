@@ -38,7 +38,7 @@ impl ListOpLog {
     pub(crate) fn check_all_changes_rle_merged(&self) {
         assert_eq!(self.cg.client_data[0].item_times.num_entries(), 1);
         // .. And operation log.
-        assert_eq!(self.cg.history.entries.num_entries(), 1);
+        assert_eq!(self.cg.parents.entries.num_entries(), 1);
     }
 }
 

@@ -259,7 +259,7 @@ impl M2Tracker {
         if range.is_empty() { return; }
 
         if let Some(to) = to.as_deref_mut() {
-            advance_frontier_by(&mut to.version, &oplog.cg.history, range);
+            advance_frontier_by(&mut to.version, &oplog.cg.parents, range);
         }
 
         let mut iter = oplog.iter_metrics_range(range);
@@ -485,7 +485,7 @@ impl M2Tracker {
                 let time_start = op_pair.0;
                 if !is_underwater(target.start) {
                     // Deletes must always dominate the item they're deleting in the time dag.
-                    debug_assert!(oplog.cg.history.version_contains_time(&[time_start], target.start));
+                    debug_assert!(oplog.cg.parents.version_contains_time(&[time_start], target.start));
                 }
 
                 self.index.replace_range_at_offset(time_start, MarkerEntry {
@@ -514,7 +514,7 @@ impl M2Tracker {
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
     fn walk(&mut self, oplog: &ListOpLog, start_at: LocalVersion, rev_spans: &[DTRange], mut apply_to: Option<&mut ListBranch>) -> LocalVersion {
-        let mut walker = SpanningTreeWalker::new(&oplog.cg.history, rev_spans, start_at);
+        let mut walker = SpanningTreeWalker::new(&oplog.cg.parents, rev_spans, start_at);
 
         for walk in &mut walker {
             // dbg!(&walk);
@@ -576,7 +576,7 @@ impl<'a> TransformedOpsIter<'a> {
         let mut new_ops: SmallVec<[DTRange; 4]> = smallvec![];
         let mut conflict_ops: SmallVec<[DTRange; 4]> = smallvec![];
 
-        let common_ancestor = oplog.cg.history.find_conflicting(from_frontier, merge_frontier, |span, flag| {
+        let common_ancestor = oplog.cg.parents.find_conflicting(from_frontier, merge_frontier, |span, flag| {
             // Note we'll be visiting these operations in reverse order.
 
             // dbg!(&span, flag);
@@ -655,7 +655,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             debug_assert!(!self.new_ops.is_empty());
 
             let span = self.new_ops.last().unwrap();
-            let txn = self.oplog.cg.history.entries.find_packed(span.start);
+            let txn = self.oplog.cg.parents.entries.find_packed(span.start);
             let can_ff = txn.with_parents(span.start, |parents| {
                 local_version_eq(&self.next_frontier, parents)
             });
@@ -695,7 +695,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                     // merge set. This is a pretty bad way to do this - if we're gonna add them to
                     // conflict_ops then FF is pointless.
                     self.conflict_ops.clear();
-                    self.common_ancestor = self.oplog.cg.history.find_conflicting(&self.next_frontier, &self.merge_frontier, |span, flag| {
+                    self.common_ancestor = self.oplog.cg.parents.find_conflicting(&self.next_frontier, &self.merge_frontier, |span, flag| {
                         if flag != DiffFlag::OnlyB {
                             self.conflict_ops.push_reversed_rle(span);
                         }
@@ -721,7 +721,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                     &self.conflict_ops,
                     None);
 
-                let walker = SpanningTreeWalker::new(&self.oplog.cg.history, &self.new_ops, frontier);
+                let walker = SpanningTreeWalker::new(&self.oplog.cg.parents, &self.new_ops, frontier);
                 self.phase2 = Some((tracker, walker));
                 // This is a kinda gross way to do this. TODO: Rewrite without .unwrap() somehow?
                 self.phase2.as_mut().unwrap()
@@ -756,7 +756,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             //
             // The walker can be unwrapped into its inner frontier, but that won't include
             // everything. (TODO: Look into fixing that?)
-            advance_frontier_by(&mut self.next_frontier, &self.oplog.cg.history, walk.consume);
+            advance_frontier_by(&mut self.next_frontier, &self.oplog.cg.parents, walk.consume);
             self.op_iter = Some(self.oplog.iter_metrics_range(walk.consume).into());
         };
 
@@ -892,7 +892,7 @@ impl ListBranch {
         let mut shared_size = 0;
         let mut shared_ranges = 0;
 
-        let mut common_ancestor = oplog.cg.history.find_conflicting(&self.version, merge_frontier, |span, flag| {
+        let mut common_ancestor = oplog.cg.parents.find_conflicting(&self.version, merge_frontier, |span, flag| {
             // Note we'll be visiting these operations in reverse order.
 
             if flag == DiffFlag::Shared {
@@ -942,7 +942,7 @@ impl ListBranch {
         if ALLOW_FF {
             loop {
                 if let Some(span) = new_ops.last() {
-                    let txn = oplog.cg.history.entries.find_packed(span.start);
+                    let txn = oplog.cg.parents.entries.find_packed(span.start);
                     let can_ff = txn.with_parents(span.start, |parents| {
                         // Previously this said:
                         //   self.frontier == txn.parents
@@ -982,7 +982,7 @@ impl ListBranch {
             // conflict_ops then FF is pointless.
             conflict_ops.clear();
             shared_size = 0;
-            common_ancestor = oplog.cg.history.find_conflicting(&self.version, merge_frontier, |span, flag| {
+            common_ancestor = oplog.cg.parents.find_conflicting(&self.version, merge_frontier, |span, flag| {
                 if flag == DiffFlag::Shared {
                     shared_size += span.len();
                     shared_ranges += 1;

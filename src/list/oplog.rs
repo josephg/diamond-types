@@ -215,7 +215,7 @@ impl ListOpLog {
 
     fn assign_internal(&mut self, agent: AgentId, parents: &[Time], span: DTRange) {
         self.assign_next_time_to_client_known(agent, span);
-        self.cg.history.insert(parents, span);
+        self.cg.parents.insert(parents, span);
         self.advance_frontier(parents, span);
     }
 
@@ -320,11 +320,11 @@ impl ListOpLog {
 
     /// Iterate through history entries
     pub fn iter_history(&self) -> impl Iterator<Item =ParentsEntrySimple> + '_ {
-        self.cg.history.entries.iter().map(|e| e.into())
+        self.cg.parents.entries.iter().map(|e| e.into())
     }
 
     pub fn iter_history_range(&self, range: DTRange) -> impl Iterator<Item =ParentsEntrySimple> + '_ {
-        self.cg.history.entries.iter_range_map_packed(range, |e| e.into())
+        self.cg.parents.entries.iter_range_map_packed(range, |e| e.into())
     }
 
     /// Returns a `&[usize]` reference to the tip of the oplog. This version contains all
@@ -387,14 +387,14 @@ impl ListOpLog {
         println!("Delete content length {}", self.operation_ctx.del_content.len());
 
         self.cg.client_with_localtime.print_stats("Client localtime map", detailed);
-        self.cg.history.entries.print_stats("History", detailed);
+        self.cg.parents.entries.print_stats("History", detailed);
     }
 
     /// Check if the specified version contains the specified point in time.
     // Exported for the fuzzer. Not sure if I actually want this exposed.
     pub fn version_contains_time(&self, local_version: &[Time], target: Time) -> bool {
         if local_version.is_empty() { true }
-        else { self.cg.history.version_contains_time(local_version, target) }
+        else { self.cg.parents.version_contains_time(local_version, target) }
     }
 
     // /// Returns all the changes since some (static) point in time.
@@ -414,6 +414,6 @@ impl ListOpLog {
     /// simply return `a` or `b`. This happens when one of the versions is a strict subset of the
     /// other.
     pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
-        self.cg.history.version_union(a, b)
+        self.cg.parents.version_union(a, b)
     }
 }

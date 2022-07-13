@@ -334,7 +334,7 @@ impl Branch {
             debug_assert!(time > reg.last_modified, "We should have already incorporated this change");
 
             // We write if the new version dominates the old version.
-            cg.history.version_contains_time(&[time], reg.last_modified)
+            cg.parents.version_contains_time(&[time], reg.last_modified)
                 || cg.tie_break_versions(time, reg.last_modified) == Ordering::Greater
         } else {
             // There's no previous value anyway. Just set it.

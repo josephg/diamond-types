@@ -231,7 +231,7 @@ impl WriteAheadLog {
                 .map(|KVPair(_, span)| span);
             let aa = encode_agent_assignment(bump, iter, &cg.client_data, &mut map);
 
-            let hist_iter = cg.history.iter_range(range);
+            let hist_iter = cg.parents.iter_range(range);
             let parents = encode_parents(bump, hist_iter, &mut map, &cg);
 
 

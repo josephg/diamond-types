@@ -47,7 +47,7 @@ pub struct CausalGraph {
     /// remote changes.
     ///
     /// At its core, this data set compactly stores the list of parents for every operation.
-    pub(crate) history: Parents,
+    pub(crate) parents: Parents,
 
     // /// This is the version you get if you load the entire causal graph
     // pub(crate) version: LocalVersion,

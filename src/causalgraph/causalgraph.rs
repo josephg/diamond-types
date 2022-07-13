@@ -74,7 +74,7 @@ impl CausalGraph {
     }
 
     pub(crate) fn len_history(&self) -> usize {
-        self.history.entries.end()
+        self.parents.entries.end()
     }
 
     /// Get the number of operations. This method is only valid when the history and assignment
@@ -164,7 +164,7 @@ impl CausalGraph {
         let span = (start .. start + num).into();
 
         self.assign_next_time_to_client_known(agent, span);
-        self.history.insert(parents, span);
+        self.parents.insert(parents, span);
 
         span
     }
@@ -193,6 +193,6 @@ impl CausalGraph {
 
     /// Iterate through history entries
     pub fn iter_history(&self) -> impl Iterator<Item=ParentsEntrySimple> + '_ {
-        self.history.entries.iter().map(|e| e.into())
+        self.parents.entries.iter().map(|e| e.into())
     }
 }

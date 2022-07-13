@@ -7,7 +7,7 @@ impl CausalGraph {
         // Could improve this by just looking at the last txn, and following shadows down.
 
         let mut b = smallvec![];
-        for txn in self.history.entries.iter() {
+        for txn in self.parents.entries.iter() {
             advance_frontier_by_known_run(&mut b, txn.parents.as_slice(), txn.span);
         }
         b
@@ -16,7 +16,7 @@ impl CausalGraph {
     #[allow(unused)]
     pub fn dbg_check(&self, deep: bool) {
         if deep {
-            self.history.check();
+            self.parents.check();
         }
 
         // The client_with_localtime should match with the corresponding items in client_data

@@ -76,7 +76,7 @@ impl OpLog {
 
     fn inner_assign_remote_op_span(&mut self, parents: &[Time], crdt_span: CRDTSpan) -> DTRange {
         let time_span = self.cg.assign_times_to_agent(crdt_span);
-        self.cg.history.insert(parents, time_span);
+        self.cg.parents.insert(parents, time_span);
         advance_frontier_by_known_run(&mut self.version, parents, time_span);
         time_span
     }

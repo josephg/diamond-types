@@ -142,7 +142,7 @@ impl ListOpLog {
     }
 
     pub fn iter_range_since(&self, local_version: &[Time]) -> impl Iterator<Item=TextOperation> + '_ {
-        let (only_a, only_b) = self.cg.history.diff(local_version, &self.version);
+        let (only_a, only_b) = self.cg.parents.diff(local_version, &self.version);
         assert!(only_a.is_empty());
 
         OpIterRanges::new(self, only_b)

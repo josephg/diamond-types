@@ -523,7 +523,7 @@ impl ListOpLog {
             }
 
             // Trim history
-            let hist_entries = &mut self.cg.history.entries;
+            let hist_entries = &mut self.cg.parents.entries;
             let history_length = hist_entries.end();
             if history_length > len {
                 // We can't use entries.remove because HistoryEntry doesn't support SplitableSpan.
@@ -563,11 +563,11 @@ impl ListOpLog {
                     idx += 1;
                 }
 
-                self.cg.history.entries.0.truncate(idx);
+                self.cg.parents.entries.0.truncate(idx);
 
-                while let Some(&last_idx) = self.cg.history.root_child_indexes.last() {
-                    if last_idx >= self.cg.history.entries.num_entries() {
-                        self.cg.history.root_child_indexes.pop();
+                while let Some(&last_idx) = self.cg.parents.root_child_indexes.last() {
+                    if last_idx >= self.cg.parents.entries.num_entries() {
+                        self.cg.parents.root_child_indexes.pop();
                     } else { break; }
                 }
             }
@@ -900,7 +900,7 @@ impl ListOpLog {
                             mapped.truncate_keeping_right(next_history_time - mapped.span.start);
                         }
 
-                        self.cg.history.insert(&mapped.parents, mapped.span);
+                        self.cg.parents.insert(&mapped.parents, mapped.span);
                         self.advance_frontier(&mapped.parents, mapped.span);
 
                         next_history_time += mapped.len();

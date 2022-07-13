@@ -228,7 +228,7 @@ impl CGStorage {
             let next_time = cg.len_history();
             let id_p = read_id_p(&mut reader, false, &mut cg, next_time, &mut dec)?;
             if !id_p.is_empty() {
-                cg.history.insert(&id_p.parents, id_p.time_span());
+                cg.parents.insert(&id_p.parents, id_p.time_span());
                 cg.assign_times_to_agent(id_p.span);
             }
             cgs.entry = id_p;
@@ -443,7 +443,7 @@ impl CGStorage {
     fn read_run(reader: &mut BufParser, into_cg: &mut CausalGraph, dec: &mut AgentMappingDec) -> Result<(), CGError> {
         let next_time = into_cg.len_history(); // TODO: Cache this while reading.
         let entry = read_id_p(reader, true, into_cg, next_time, dec)?;
-        into_cg.history.insert(&entry.parents, entry.time_span());
+        into_cg.parents.insert(&entry.parents, entry.time_span());
         into_cg.assign_times_to_agent(entry.span);
 
         // let first_number = reader.peek_u32().map_err(|_| CGError::InvalidData)?.unwrap();
@@ -600,7 +600,7 @@ impl CGStorage {
 
 
         let len = cg.len();
-        let parents = cg.history.iter_range(range);
+        let parents = cg.parents.iter_range(range);
         let aa = cg.client_with_localtime.iter_range_packed(range)
             .map(|KVPair(_, data)| data);
         for (parents_entry, span) in rle_zip(parents, aa) {

@@ -15,7 +15,7 @@ fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalVersion, rang
     // Fast path for local edits. For some reason the code below is remarkably non-performant.
     // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
     if frontier.len() == 1 && frontier[0] == range.start.wrapping_sub(1) {
-        if let Some(last) = oplog.cg.history.entries.0.last_mut() {
+        if let Some(last) = oplog.cg.parents.entries.0.last_mut() {
             last.span.end = range.end;
             frontier[0] = range.last();
             return;
@@ -24,7 +24,7 @@ fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalVersion, rang
 
     // Otherwise use the slow version.
     let txn_parents = replace(frontier, smallvec![range.last()]);
-    oplog.cg.history.insert(&txn_parents, range);
+    oplog.cg.parents.insert(&txn_parents, range);
 }
 
 // Slow / small version.
