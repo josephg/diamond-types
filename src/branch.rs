@@ -55,11 +55,11 @@ impl Branch {
     }
 
     fn get_lww(&self, lww: &LWWValue) -> Option<DTValue> {
-        match lww.value.as_ref()? {
-            Value::Primitive(prim) => {
+        match &lww.value {
+            SnapshotValue::Primitive(prim) => {
                 Some(DTValue::Primitive(prim.clone()))
             }
-            Value::InnerCRDT(inner_crdt) => {
+            SnapshotValue::InnerCRDT(inner_crdt) => {
                 self.get_recursive_at(*inner_crdt)
             }
         }
@@ -88,10 +88,10 @@ impl Branch {
         self.get_recursive_at(ROOT_MAP)
     }
 
-    pub(super) fn get_value_of_lww(&self, lww_id: Time) -> Option<&Value> {
+    pub(super) fn get_value_of_lww(&self, lww_id: Time) -> Option<&SnapshotValue> {
         self.overlay.get(&lww_id).and_then(|val| {
             match val {
-                OverlayValue::LWW(val) => val.value.as_ref(),
+                OverlayValue::LWW(val) => Some(&val.value),
                 _ => None,
             }
         })
@@ -106,9 +106,9 @@ impl Branch {
         })
     }
 
-    pub(super) fn get_map_value(&self, map: Time, key: &str) -> Option<&Value> {
+    pub(super) fn get_map_value(&self, map: Time, key: &str) -> Option<&SnapshotValue> {
         self.get_map(map).and_then(|inner_map| {
-            inner_map.get(key).and_then(|val| val.value.as_ref())
+            inner_map.get(key).map(|val| &val.value)
         })
     }
 
@@ -166,23 +166,64 @@ impl Branch {
         }
     }
 
-    fn remove_old_value(&mut self, old_value: Option<Value>) {
+    // *** Mutation operations ***
+
+    fn remove_old_value(&mut self, old_value: SnapshotValue) {
         match old_value {
-            Some(Value::InnerCRDT(crdt_id)) => {
+            SnapshotValue::Primitive(Primitive::InvalidUninitialized) => {
+                self.num_invalid -= 1;
+            }
+            SnapshotValue::InnerCRDT(crdt_id) => {
                 // This needs to recursively delete things.
                 let old_value = self.overlay.remove(&crdt_id);
 
                 // RECURSE!
                 todo!()
             }
-            Some(Value::Primitive(Primitive::InvalidUninitialized)) => {
-                self.num_invalid -= 1;
-            }
             _ => {}
         }
     }
 
-    fn inner_set_lww(&mut self, time: Time, lww_id: Time, value: Option<Value>) {
+
+    fn inner_create_crdt(&mut self, time: Time, kind: CRDTKind) {
+        let new_value = match kind {
+            CRDTKind::Map => OverlayValue::Map(BTreeMap::new()),
+            CRDTKind::Set => OverlayValue::Set(BTreeSet::new()),
+            CRDTKind::LWW => {
+                self.num_invalid += 1;
+                OverlayValue::LWW(LWWValue {
+                    value: SnapshotValue::Primitive(Primitive::InvalidUninitialized),
+                    last_modified: time
+                })
+            }
+            CRDTKind::Text => {
+                OverlayValue::Text(JumpRope::new())
+            }
+        };
+
+        let old_val = self.overlay.insert(time, new_value);
+        assert!(old_val.is_none());
+    }
+
+    fn op_to_snapshot_value(&mut self, time: Time, value: &OpValue) -> SnapshotValue {
+        match value {
+            OpValue::Primitive(p) => SnapshotValue::Primitive(p.clone()),
+            OpValue::NewCRDT(kind) => {
+                self.inner_create_crdt(time, *kind);
+                SnapshotValue::InnerCRDT(time)
+            }
+            // OpValue::Deleted => None,
+        }
+    }
+
+    pub(crate) fn set_time(&mut self, time: Time) {
+        self.overlay_version = smallvec![time];
+    }
+
+
+    fn modify_lww_internal(&mut self, time: Time, lww_id: Time, op_value: &OpValue) {
+        let value = self.op_to_snapshot_value(time, op_value);
+
         let inner = match self.overlay.get_mut(&lww_id).unwrap() {
             OverlayValue::LWW(lww) => lww,
             _ => { panic!("Cannot set register value in map"); }
@@ -194,7 +235,14 @@ impl Branch {
         self.remove_old_value(old_value);
     }
 
-    fn inner_set_map(&mut self, time: Time, map_id: Time, key: &str, value: Option<Value>) {
+    pub fn modify_lww_local(&mut self, time: Time, lww_id: Time, op_value: &OpValue) {
+        self.modify_lww_internal(time, lww_id, op_value);
+        self.set_time(time);
+    }
+
+    fn modify_map_internal(&mut self, time: Time, map_id: Time, key: &str, op_value: &OpValue) {
+        let value = self.op_to_snapshot_value(time, op_value);
+
         let inner = match self.overlay.get_mut(&map_id).unwrap() {
             OverlayValue::Map(map) => map,
             _ => { panic!("Cannot set map value in LWW"); }
@@ -210,52 +258,17 @@ impl Branch {
         }
     }
 
-    pub(crate) fn inner_register_set(&mut self, time: Time, crdt_id: Time, key: Option<&str>, value: Option<Value>) {
-        // let entry = self.get_register_mut(crdt_id, key).unwrap();
-        // let old_val = std::mem::replace(entry, LWWValue {
-        //     value,
-        //     last_modified: time
-        // });
-        //
-        // if let Some(old_value) = old_val.value {
-        //     self.remove_old_value(old_value);
-        // }
-        if let Some(key) = key {
-            self.inner_set_map(time, crdt_id, key, value);
-        } else {
-            self.inner_set_lww(time, crdt_id, value);
-        }
+    pub fn modify_map_local(&mut self, time: Time, lww_id: Time, key: &str, op_value: &OpValue) {
+        self.modify_map_internal(time, lww_id, key, op_value);
+        self.set_time(time);
     }
 
-    fn inner_create_crdt(&mut self, time: Time, kind: CRDTKind) {
-        let new_value = match kind {
-            CRDTKind::Map => OverlayValue::Map(BTreeMap::new()),
-            CRDTKind::Set => OverlayValue::Set(BTreeSet::new()),
-            CRDTKind::LWW => {
-                OverlayValue::LWW(LWWValue {
-                    value: None,
-                    last_modified: time
-                })
-            }
-            CRDTKind::Text => {
-                OverlayValue::Text(JumpRope::new())
-            }
-        };
+    // pub(crate) fn create_inner(&mut self, time_now: Time, agent_id: AgentId, crdt_id: Time, key: Option<&str>, kind: CRDTKind) {
+    //     self.inner_register_set(time_now, crdt_id, key, SnapshotValue::InnerCRDT(time_now));
+    //     self.inner_create_crdt(time_now, kind);
+    // }
 
-        let old_val = self.overlay.insert(time, new_value);
-        assert!(old_val.is_none());
-    }
-
-    pub(crate) fn set_time(&mut self, time: Time) {
-        self.overlay_version = smallvec![time];
-    }
-
-    pub(crate) fn create_inner(&mut self, time_now: Time, agent_id: AgentId, crdt_id: Time, key: Option<&str>, kind: CRDTKind) {
-        self.inner_register_set(time_now, crdt_id, key, Some(Value::InnerCRDT(time_now)));
-        self.inner_create_crdt(time_now, kind);
-    }
-
-    pub(crate) fn modify_set(&mut self, time: Time, set_id: Time, op: &SetOp) {
+    pub(crate) fn modify_set_internal(&mut self, time: Time, set_id: Time, op: &SetOp) {
         let inner = match self.overlay.get_mut(&set_id).unwrap() {
             OverlayValue::Set(set) => set,
             _ => { panic!("Not a set"); }
@@ -276,7 +289,7 @@ impl Branch {
         }
     }
 
-    pub(crate) fn modify_text(&mut self, crdt_id: Time, text_metrics: &ListOpMetrics, ctx: &ListOperationCtx) {
+    pub(crate) fn modify_text_local(&mut self, crdt_id: Time, text_metrics: &ListOpMetrics, ctx: &ListOperationCtx) {
         let rope = if let OverlayValue::Text(rope) = self.overlay.get_mut(&crdt_id).unwrap() {
             rope
         } else { panic!("Not a rope"); };
@@ -292,30 +305,21 @@ impl Branch {
         }
     }
 
-    fn wal_value_to_value(&mut self, time: Time, value: &WALValue) -> Option<Value> {
-        match value {
-            WALValue::Primitive(p) => Some(Value::Primitive(p.clone())),
-            WALValue::NewCRDT(kind) => {
-                self.inner_create_crdt(time, *kind);
-                Some(Value::InnerCRDT(time))
-            }
-            WALValue::Deleted => None,
-        }
-    }
-
     pub(crate) fn apply_local_op(&mut self, time: Time, op: &Op, ctx: &ListOperationCtx) {
         debug_assert!(self.overlay_version.iter().all(|v| time > *v));
 
         match &op.contents {
-            OpContents::Register(register_op) => {
-                let value = self.wal_value_to_value(time, &register_op.new_value);
-                self.inner_register_set(time, op.crdt_id, register_op.key.as_ref().map(|k| k.as_str()), value);
+            OpContents::RegisterSet(op_value) => {
+                self.modify_lww_internal(time, op.crdt_id, op_value);
+            }
+            OpContents::MapSet(key, op_value) => {
+                self.modify_map_internal(time, op.crdt_id, key, op_value);
             }
             OpContents::Set(set_op) => {
-                self.modify_set(time, op.crdt_id, set_op);
+                self.modify_set_internal(time, op.crdt_id, set_op);
             }
             OpContents::Text(text_metrics) => {
-                self.modify_text(op.crdt_id, text_metrics, ctx);
+                self.modify_text_local(op.crdt_id, text_metrics, ctx);
             }
         }
 
@@ -323,7 +327,7 @@ impl Branch {
     }
 
 
-    pub(crate) fn remote_register_set(&mut self, cg: &CausalGraph, parents: &[Time], time: Time, crdt_id: Time, key: Option<&str>, value: Option<Value>) {
+    pub(crate) fn modify_map_lww_remote_internal(&mut self, cg: &CausalGraph, parents: &[Time], time: Time, crdt_id: Time, key: Option<&str>, op_value: &OpValue) {
         // We set locally if the new version (at time) dominates the current version of the value.
         let should_write = if let Some(reg) = self.get_register(crdt_id, key) {
             // reg.last_modified
@@ -338,29 +342,33 @@ impl Branch {
         };
 
         if should_write {
-            self.inner_register_set(time, crdt_id, key, value);
+            if let Some(key) = key {
+                self.modify_map_internal(time, crdt_id, key, op_value);
+            } else {
+                self.modify_lww_internal(time, crdt_id, op_value);
+            }
         }
-
-        // advance_frontier_by(&mut self.overlay_version, &cg.history, time.into());
-        advance_frontier_by_known_run(&mut self.overlay_version, parents, time.into());
     }
 
     pub(crate) fn apply_remote_op(&mut self, cg: &CausalGraph, parents: &[Time], time: Time, op: &Op, ctx: &ListOperationCtx) {
         match &op.contents {
-            OpContents::Register(register_op) => {
-                let value = self.wal_value_to_value(time, &register_op.new_value);
-                let key = register_op.key.as_ref().map(|k| k.as_str()); // gross
-                self.remote_register_set(cg, parents, time, op.crdt_id, key, value);
+            OpContents::RegisterSet(op_value) => {
+                self.modify_map_lww_remote_internal(cg, parents, time, op.crdt_id, None, op_value);
+            }
+            OpContents::MapSet(key, op_value) => {
+                self.modify_map_lww_remote_internal(cg, parents, time, op.crdt_id, Some(key.as_str()), op_value);
             }
             OpContents::Set(set_op) => {
                 // Set ops have no concurrency problems anyway. An insert can only happen once, and
                 // deleting an item twice is a no-op.
-                self.modify_set(time, op.crdt_id, set_op);
+                self.modify_set_internal(time, op.crdt_id, set_op);
             }
             OpContents::Text(_) => {
                 todo!()
             }
         }
+
+        advance_frontier_by_known_run(&mut self.overlay_version, parents, time.into());
     }
 }
 

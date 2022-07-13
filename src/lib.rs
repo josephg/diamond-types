@@ -240,9 +240,10 @@ pub enum Primitive {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum Value {
+pub enum SnapshotValue {
     Primitive(Primitive),
     InnerCRDT(Time),
+    // Deleted,
     // Ref(Time),
 }
 
@@ -253,20 +254,14 @@ pub enum CRDTKind {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum WALValue {
+pub enum OpValue {
     Primitive(Primitive),
     NewCRDT(CRDTKind),
-    Deleted,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct RegisterOp {
-    pub key: Option<SmartString>,
-    pub new_value: WALValue,
+    // Deleted, // Marks that the key / contents should be deleted.
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) enum SetOp {
+pub enum SetOp {
     // TODO: Consider just inlining this in OpContents.
     Insert(CRDTKind),
     Remove(Time),
@@ -274,9 +269,20 @@ pub(crate) enum SetOp {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum OpContents {
-    Register(RegisterOp),
+    RegisterSet(OpValue),
+    MapSet(SmartString, OpValue),
     Set(SetOp),
     Text(ListOpMetrics),
+
+
+    // The other way to write this would be:
+
+
+    // SetInsert(CRDTKind),
+    // SetRemove(Time),
+
+    // TextInsert(..),
+    // TextRemove(..)
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -317,7 +323,7 @@ pub struct OpLog {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct LWWValue {
-    value: Option<Value>, // We need to store NULL for sad reasons.
+    value: SnapshotValue,
     last_modified: Time,
 }
 

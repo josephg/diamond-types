@@ -1,7 +1,7 @@
 use smallvec::SmallVec;
 /// The path API provides a simple way to traverse in and modify values
 use smartstring::alias::String as SmartString;
-use crate::{Branch, CRDTKind, LocalVersion, OpLog, Time, Value};
+use crate::{Branch, CRDTKind, LocalVersion, OpLog, Time, SnapshotValue};
 use crate::oplog::ROOT_MAP;
 
 #[derive(Debug, Clone, Eq, PartialEq)]

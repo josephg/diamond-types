@@ -1,6 +1,6 @@
 use bumpalo::Bump;
 use bumpalo::collections::vec::Vec as BumpVec;
-use crate::{CRDTKind, OpLog, Primitive, Value};
+use crate::{CRDTKind, OpLog, Primitive, SnapshotValue};
 use num_enum::TryFromPrimitive;
 use crate::encoding::tools::{push_str, push_u32, push_u64};
 use crate::encoding::varint::num_encode_zigzag_i64;
@@ -28,26 +28,26 @@ enum ValueType {
     // TODO: Arbitrary shifty list
 }
 
-pub fn encode_op_contents<'a, 'b: 'a, I: Iterator<Item=&'b Value>>(bump: &'a Bump, iter: I, oplog: &OpLog) -> BumpVec<'a, u8> {
+pub fn encode_op_contents<'a, 'b: 'a, I: Iterator<Item=&'b SnapshotValue>>(bump: &'a Bump, iter: I, oplog: &OpLog) -> BumpVec<'a, u8> {
     let mut result = BumpVec::new_in(bump);
 
     for val in iter {
         match val {
-            Value::Primitive(Primitive::I64(n)) => {
+            SnapshotValue::Primitive(Primitive::I64(n)) => {
                 push_u32(&mut result, ValueType::PrimSInt as u32);
                 push_u64(&mut result, num_encode_zigzag_i64(*n));
             }
-            Value::Primitive(Primitive::Str(s)) => {
+            SnapshotValue::Primitive(Primitive::Str(s)) => {
                 push_u32(&mut result, ValueType::PrimStr as u32);
                 push_str(&mut result, s);
             }
-            Value::Primitive(_) => {
+            SnapshotValue::Primitive(_) => {
                 todo!()
             }
             // Value::Map(_) => {
             //     push_u32(&mut result, ValueType::Map as u32);
             // }
-            Value::InnerCRDT(crdt_id) => {
+            SnapshotValue::InnerCRDT(crdt_id) => {
                 todo!();
                 // let kind = oplog.get_kind(*crdt_id);
                 // let kind_value = match kind {

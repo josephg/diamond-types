@@ -69,75 +69,64 @@ impl OpLog {
         self.inner_assign_remote_op_span(parents, id.into()).start
     }
 
+    pub(crate) fn push_local_op(&mut self, agent_id: AgentId, crdt_id: Time, contents: OpContents) -> DTRange {
+        let len = contents.len();
+        let time_span = self.inner_assign_local_op_span(agent_id, len);
+        self.uncommitted_ops.ops.push(KVPair(time_span.start, Op { crdt_id, contents}));
+        time_span
+    }
+
+    pub(crate) fn push_remote_op(&mut self, parents: &[Time], op_id: CRDTSpan, crdt_id: CRDTGuid, contents: OpContents) -> (DTRange, Time) {
+        assert_eq!(op_id.len(), contents.len());
+
+        // TODO: Filter op by anything we already know.
+        let time_span = self.inner_assign_remote_op_span(parents, op_id);
+        let crdt_id = self.cg.try_crdt_id_to_version(crdt_id).unwrap();
+
+        self.uncommitted_ops.ops.push(KVPair(time_span.start, Op { crdt_id, contents}));
+
+        (time_span, crdt_id)
+    }
+
     // *** LWW / Map operations
-    fn push_register_op(&mut self, time: Time, crdt_id: Time, key: Option<&str>, wal_val: WALValue) {
-        self.uncommitted_ops.ops.push(KVPair(time, Op {
-            crdt_id,
-            contents: OpContents::Register(RegisterOp {
-                key: key.map(|k| k.into()), new_value: wal_val
-            })
-        }));
+    pub fn local_set_lww(&mut self, agent_id: AgentId, lww_id: Time, value: OpValue) -> Time {
+        self.push_local_op(agent_id, lww_id, OpContents::RegisterSet(value))
+            .start
     }
 
-    pub fn local_set_lww(&mut self, agent_id: AgentId, lww_id: Time, value: Primitive) -> Time {
-        let time_now = self.inner_assign_local_op(agent_id);
-        self.push_register_op(time_now, lww_id, None, WALValue::Primitive(value));
-        time_now
+    pub fn local_set_map(&mut self, agent_id: AgentId, map_id: Time, key: &str, value: OpValue) -> Time {
+        self.push_local_op(agent_id, map_id,
+                           OpContents::MapSet(key.into(), value))
+            .start
     }
-
-    pub fn local_set_map(&mut self, agent_id: AgentId, map_id: Time, key: &str, value: Primitive) -> Time {
-        let time_now = self.inner_assign_local_op(agent_id);
-        self.push_register_op(time_now, map_id, Some(key), WALValue::Primitive(value));
-        time_now
-    }
-
-    pub fn local_create_inner(&mut self, agent_id: AgentId, crdt_id: Time, key: Option<&str>, kind: CRDTKind) -> Time {
-        let time_now = self.inner_assign_local_op(agent_id);
-        self.push_register_op(time_now, crdt_id, key, WALValue::NewCRDT(kind));
-        // self.inner_create_crdt(time_now, kind);
-        time_now
-    }
-
-    pub(crate) fn remote_set_lww(&mut self, parents: &[Time], op_id: CRDTGuid, crdt_id: CRDTGuid, key: Option<&str>, value: Primitive) -> (Time, Time) {
-        let time = self.inner_assign_remote_op(parents, op_id);
-        let c = self.cg.try_crdt_id_to_version(crdt_id).unwrap();
-        self.push_register_op(time, c, key, WALValue::Primitive(value));
-
-        (time, c)
-    }
-
 
     // *** Sets ***
-    pub(crate) fn modify_set(&mut self, agent_id: AgentId, crdt_id: Time, op: SetOp) -> Time {
-        let time = self.inner_assign_local_op(agent_id);
-        self.uncommitted_ops.ops.push(KVPair(time, Op {
-            crdt_id,
-            contents: OpContents::Set(op)
-        }));
-        time
-    }
-
     pub fn insert_into_set(&mut self, agent_id: AgentId, set_id: Time, kind: CRDTKind) -> Time {
-        self.modify_set(agent_id, set_id, SetOp::Insert(kind))
+        self.push_local_op(agent_id, set_id, OpContents::Set(SetOp::Insert(kind))).start
     }
 
     pub fn remove_from_set(&mut self, agent_id: AgentId, set_id: Time, item: Time) -> Time {
-        self.modify_set(agent_id, set_id, SetOp::Remove(item))
+        self.push_local_op(agent_id, set_id, OpContents::Set(SetOp::Remove(item))).start
     }
 
     // *** Text ***
     pub(crate) fn modify_text(&mut self, agent_id: AgentId, crdt_id: Time, kind: ListOpKind, loc: RangeRev, content: Option<&str>) -> (DTRange, Op) {
         let len = loc.len();
-        let time_span = self.inner_assign_local_op_span(agent_id, len);
 
         let content_pos = if let Some(c) = content {
             Some(self.uncommitted_ops.list_ctx.push_str(kind, c))
         } else { None };
 
+        // let time_span = self.push_local_op(agent_id, crdt_id, OpContents::Text(
+        //     ListOpMetrics { loc, kind, content_pos })
+        // );
+
         let op = Op {
             crdt_id,
             contents: OpContents::Text(ListOpMetrics { loc, kind, content_pos })
         };
+
+        let time_span = self.inner_assign_local_op_span(agent_id, len);
         self.uncommitted_ops.ops.push(KVPair(time_span.start, op.clone()));
 
         (time_span, op)
@@ -158,36 +147,19 @@ impl OpLog {
 
         self.modify_text(agent_id, crdt_id, ListOpKind::Del, range, content)
     }
-
-
-    //     let len = count_chars(ins_content);
-    //     let time = self.inner_assign_local_op_span(agent_id, len);
-    //
-    //     let content_pos = self.uncommitted_ops.list_ctx.push_str(ListOpKind::Ins, ins_content);
-    //     self.uncommitted_ops.ops.push(KVPair(time.start, Op {
-    //         crdt_id,
-    //         contents: OpContents::Text(ListOpMetrics {
-    //             loc: (pos..pos+len).into(),
-    //             kind: ListOpKind::Ins,
-    //             content_pos: Some(content_pos)
-    //         })
-    //     }));
-    //
-    //     time
-    // }
 }
 
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
     use crate::oplog::ROOT_MAP;
-    use crate::{CRDTKind, OpLog, Primitive, Value};
+    use crate::{CRDTKind, OpContents, OpLog, OpValue, Primitive, SnapshotValue};
 
     #[test]
     fn foo() {
         let mut oplog = OpLog::open("test").unwrap();
         let seph = oplog.get_or_create_agent_id("seph");
-        let set = oplog.local_create_inner(seph, ROOT_MAP, Some("yoo"), CRDTKind::Set);
+        let set = oplog.local_set_map(seph, ROOT_MAP, "yoo", OpValue::NewCRDT(CRDTKind::Set));
         let text = oplog.insert_into_set(seph, set, CRDTKind::Text);
         oplog.insert_into_text(seph, text, 0, "hi there");
         oplog.dbg_check(true);

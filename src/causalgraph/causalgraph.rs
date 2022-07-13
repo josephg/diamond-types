@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use rle::{HasLength, Searchable};
 use crate::{AgentId, CausalGraph, ROOT_AGENT, ROOT_TIME, Time};
 use crate::causalgraph::*;
+use crate::frontier::clean_version;
 use crate::remotespan::{CRDT_DOC_ROOT, CRDTGuid};
 use crate::rle::RleSpanHelpers;
 
@@ -104,6 +105,14 @@ impl CausalGraph {
                 c.try_seq_to_time(id.seq)
             })
         }
+    }
+
+    pub(crate) fn map_parents(&self, crdt_parents: &[CRDTGuid]) -> LocalVersion {
+        // TODO: Make a try_ version of this.
+        let mut parents = crdt_parents.iter()
+            .map(|p| self.try_crdt_id_to_version(*p).unwrap()).collect();
+        clean_version(&mut parents);
+        parents
     }
 
     pub(crate) fn check_flat(&self) {

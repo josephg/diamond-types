@@ -1,6 +1,6 @@
 use std::path::Path;
 use bumpalo::Bump;
-use crate::{CRDTKind, CRDTSpan, KVPair, LocalVersion, OpLog, Primitive, Time, Value};
+use crate::{CRDTKind, CRDTSpan, KVPair, LocalVersion, OpLog, Primitive, Time, SnapshotValue};
 use crate::encoding::agent_assignment::{AgentMappingEnc, encode_agent_assignment};
 use crate::encoding::ChunkType;
 use crate::encoding::op_contents::encode_op_contents;
