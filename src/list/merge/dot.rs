@@ -11,9 +11,9 @@ use smallvec::{smallvec, SmallVec};
 use rle::{HasLength, SplitableSpan};
 use crate::list::ListOpLog;
 use crate::dtrange::DTRange;
-use crate::history::{History, MinimalHistoryEntry};
 use crate::rle::KVPair;
-use crate::{ROOT_TIME, Time};
+use crate::{Parents, ROOT_TIME, Time};
+use crate::causalgraph::parents::ParentsEntrySimple;
 
 pub fn name_of(time: Time) -> String {
     if time == ROOT_TIME { "ROOT".into() }
@@ -37,12 +37,12 @@ impl ToString for DotColor {
     }
 }
 
-impl History {
+impl Parents {
     /// This is a helper method to iterate through the time DAG, but such that there's nothing in
     /// the time DAG which splits the returned range via its parents.
     ///
     /// This method could be made more public - but right now its only used in this one place.
-    fn iter_atomic_chunks(&self) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
+    fn iter_atomic_chunks(&self) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
         self.entries.iter().flat_map(|e| {
             let mut split_points: SmallVec<[usize; 4]> = smallvec![e.span.last()];
 
@@ -78,11 +78,11 @@ impl History {
 
                 start = next;
 
-                Some(MinimalHistoryEntry {
+                Some(ParentsEntrySimple {
                     span,
                     parents
                 })
-            }).collect::<SmallVec<[MinimalHistoryEntry; 4]>>()
+            }).collect::<SmallVec<[ParentsEntrySimple; 4]>>()
         })
     }
 }

@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use rle::{HasLength, Searchable};
 use crate::{AgentId, CausalGraph, ROOT_AGENT, ROOT_TIME, Time};
 use crate::causalgraph::*;
+use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::frontier::clean_version;
 use crate::remotespan::{CRDT_DOC_ROOT, CRDTGuid};
 use crate::rle::RleSpanHelpers;
@@ -188,5 +189,10 @@ impl CausalGraph {
                 self.version_to_crdt_id(v2)
             )
         }
+    }
+
+    /// Iterate through history entries
+    pub fn iter_history(&self) -> impl Iterator<Item=ParentsEntrySimple> + '_ {
+        self.history.entries.iter().map(|e| e.into())
     }
 }

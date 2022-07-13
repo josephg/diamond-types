@@ -666,7 +666,8 @@ mod test {
 
         drop(cgs);
         let (cg2, _) = CGStorage::open("test.cg").unwrap();
-        dbg!((cg, cg2));
+        // dbg!((cg, cg2));
+        assert_eq!(cg, cg2);
     }
 
     #[test]
@@ -687,5 +688,7 @@ mod test {
         // Open it back up again and check the contents match.
         let (cg2, _) = CGStorage::open("node_nodecc.cg").unwrap();
         // dbg!(cg2);
+
+        assert_eq!(cg, cg2);
     }
 }

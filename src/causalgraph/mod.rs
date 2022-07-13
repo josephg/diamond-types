@@ -6,6 +6,7 @@ pub(crate) mod storage;
 mod causalgraph;
 mod check;
 pub mod parents;
+mod eq;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClientData {
