@@ -20,7 +20,7 @@ const PROTOCOL_VERSION: usize = 0;
 // #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]
-enum ChunkType {
+enum ListChunkType {
     /// Packed bytes storing any data compressed in later parts of the file.
     CompressedFieldsLZ4 = 5,
 

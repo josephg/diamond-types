@@ -1,6 +1,6 @@
 use std::mem::size_of;
 use crate::encoding::parseerror::ParseError;
-use crate::list::encoding::{ChunkType, DataType, MAGIC_BYTES};
+use crate::list::encoding::{ListChunkType, DataType, MAGIC_BYTES};
 use crate::encoding::varint::*;
 
 #[derive(Debug, Clone)]
@@ -157,7 +157,7 @@ impl<'a> BufReader<'a> {
                 println!("Chunk {:?} at {} ({} bytes)", chunk, position, inner_reader.len());
 
                 let inner_len = inner_reader.len();
-                if chunk == ChunkType::FileInfo || chunk == ChunkType::StartBranch || chunk == ChunkType::Patches {
+                if chunk == ListChunkType::FileInfo || chunk == ListChunkType::StartBranch || chunk == ListChunkType::Patches {
                     let mut inner_chunks = inner_reader.chunks();
                     loop {
                         let inner_position = position + inner_len - inner_chunks.0.len();
@@ -184,7 +184,7 @@ impl<'a> BufReader<'a> {
 pub(super) struct ChunkReader<'a>(pub BufReader<'a>);
 
 impl<'a> Iterator for ChunkReader<'a> {
-    type Item = Result<(ChunkType, BufReader<'a>), ParseError>;
+    type Item = Result<(ListChunkType, BufReader<'a>), ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.is_empty() {
@@ -204,8 +204,8 @@ impl<'a> ChunkReader<'a> {
         self.0.expect_empty()
     }
 
-    fn next_chunk_raw(&mut self) -> Result<(ChunkType, BufReader<'a>), ParseError> {
-        let chunk_type = ChunkType::try_from(self.0.next_u32()?)
+    fn next_chunk_raw(&mut self) -> Result<(ListChunkType, BufReader<'a>), ParseError> {
+        let chunk_type = ListChunkType::try_from(self.0.next_u32()?)
             .map_err(|_| ParseError::UnknownChunk);
 
         // This in no way guarantees we're good.
@@ -222,7 +222,7 @@ impl<'a> ChunkReader<'a> {
     }
 
     /// Read the next chunk, skipping unknown chunks for forwards compatibility.
-    pub(super) fn next_chunk(&mut self) -> Result<(ChunkType, BufReader<'a>), ParseError> {
+    pub(super) fn next_chunk(&mut self) -> Result<(ListChunkType, BufReader<'a>), ParseError> {
         loop {
             let c = self.next_chunk_raw();
             match c {
@@ -234,7 +234,7 @@ impl<'a> ChunkReader<'a> {
 
     /// Read a chunk with the named type. Returns None if the next chunk isn't the specified type,
     /// or we hit EOF.
-    pub(super) fn read_chunk_if_eq(&mut self, expect_chunk_type: ChunkType) -> Result<Option<BufReader<'a>>, ParseError> {
+    pub(super) fn read_chunk_if_eq(&mut self, expect_chunk_type: ListChunkType) -> Result<Option<BufReader<'a>>, ParseError> {
         if let Some(actual_chunk_type) = self.0.peek_u32()? {
             if actual_chunk_type != (expect_chunk_type as u32) {
                 // Chunk doesn't match requested type.
@@ -248,8 +248,8 @@ impl<'a> ChunkReader<'a> {
     }
 
     #[inline]
-    pub(super) fn expect_chunk_pred<P>(&mut self, pred: P, err_type: ChunkType) -> Result<(ChunkType, BufReader<'a>), ParseError>
-        where P: FnOnce(ChunkType) -> bool
+    pub(super) fn expect_chunk_pred<P>(&mut self, pred: P, err_type: ListChunkType) -> Result<(ListChunkType, BufReader<'a>), ParseError>
+        where P: FnOnce(ListChunkType) -> bool
     {
         let (actual_chunk_type, r) = self.next_chunk()?;
 
@@ -261,7 +261,7 @@ impl<'a> ChunkReader<'a> {
         }
     }
 
-    pub(super) fn expect_chunk(&mut self, expect_chunk_type: ChunkType) -> Result<BufReader<'a>, ParseError> {
+    pub(super) fn expect_chunk(&mut self, expect_chunk_type: ListChunkType) -> Result<BufReader<'a>, ParseError> {
         self.expect_chunk_pred(|c| c == expect_chunk_type, expect_chunk_type)
             .map(|(_c, r)| r)
     }

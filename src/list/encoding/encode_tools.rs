@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use rle::MergableSpan;
 use std::marker::PhantomData;
-use crate::list::encoding::ChunkType;
+use crate::list::encoding::ListChunkType;
 use crate::encoding::varint::{encode_u32, encode_u64};
 use crate::list::remote_ids::ConversionError;
 
@@ -44,12 +44,12 @@ pub(super) fn push_u32_le(into: &mut Vec<u8>, val: u32) {
     into.extend_from_slice(&bytes);
 }
 
-fn push_chunk_header(into: &mut Vec<u8>, chunk_type: ChunkType, len: usize) {
+fn push_chunk_header(into: &mut Vec<u8>, chunk_type: ListChunkType, len: usize) {
     push_u32(into, chunk_type as u32);
     push_usize(into, len);
 }
 
-pub(super) fn push_chunk(into: &mut Vec<u8>, chunk_type: ChunkType, data: &[u8]) {
+pub(super) fn push_chunk(into: &mut Vec<u8>, chunk_type: ListChunkType, data: &[u8]) {
     push_chunk_header(into, chunk_type, data.len());
     into.extend_from_slice(data);
 }

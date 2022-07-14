@@ -249,7 +249,7 @@ fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapp
         push_usize(&mut buf, n);
         push_usize(&mut buf, id.seq);
     }
-    push_chunk(dest, ChunkType::Version, &buf);
+    push_chunk(dest, ListChunkType::Version, &buf);
     // buf.clear();
 }
 
@@ -275,9 +275,9 @@ fn write_content<'a, I: Iterator<Item = &'a [u8]>>(dest: &mut Vec<u8>, kind: Dat
         (Some(b), true) => {
             // Store the compressed length in the origin chunk.
             push_usize(&mut buf, len);
-            (b, ChunkType::ContentCompressed)
+            (b, ListChunkType::ContentCompressed)
         },
-        _ => (&mut buf, ChunkType::Content),
+        _ => (&mut buf, ListChunkType::Content),
     };
 
     // The passed length should always be right, but lets just make sure.
@@ -299,8 +299,8 @@ fn write_content_rope(dest: &mut Vec<u8>, rope: &JumpRope, compressed: Option<&m
     write_content(dest, DataType::PlainText, rope.len_bytes(),rope.substrings().map(|s| s.as_bytes()), compressed);
 }
 
-fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ChunkType) {
-    debug_assert_ne!(chunk_type, ChunkType::Content); // Use write_content_str instead.
+fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ListChunkType) {
+    debug_assert_ne!(chunk_type, ListChunkType::Content); // Use write_content_str instead.
 
     let mut buf = Vec::new(); // :(
     push_u32(&mut buf, DataType::PlainText as _);
@@ -328,7 +328,7 @@ fn write_compressed_chunk(dest: &mut Vec<u8>, data: &[u8]) -> usize {
     pos += lz4_flex::compress_into(data, &mut compressed[pos..]).unwrap();
     compressed.truncate(pos);
     // write_chunk(ChunkType::CompressedFields, &mut compressed);
-    push_chunk(dest, ChunkType::CompressedFieldsLZ4, &compressed[..pos]);
+    push_chunk(dest, ListChunkType::CompressedFieldsLZ4, &compressed[..pos]);
 
     pos
 }
@@ -388,7 +388,7 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
             // This writes a length-prefixed string, which it really doesn't need to do.
             write_content_str(&mut buf, &self.content, compressed_out);
 
-            push_chunk(&mut buf, ChunkType::ContentIsKnown, &self.known_out);
+            push_chunk(&mut buf, ListChunkType::ContentIsKnown, &self.known_out);
             Some(buf)
         }
     }
@@ -623,15 +623,15 @@ impl ListOpLog {
 
         // DocId
         if let Some(name) = self.doc_id.as_ref() {
-            write_chunk_str(&mut fileinfo_buf, name.as_str(), ChunkType::DocId);
+            write_chunk_str(&mut fileinfo_buf, name.as_str(), ListChunkType::DocId);
         }
 
         // agent names
-        push_chunk(&mut fileinfo_buf, ChunkType::AgentNames, &agent_mapping.consume());
+        push_chunk(&mut fileinfo_buf, ListChunkType::AgentNames, &agent_mapping.consume());
 
         // User data
         if let Some(data) = opts.user_data {
-            push_chunk(&mut fileinfo_buf, ChunkType::UserData, data);
+            push_chunk(&mut fileinfo_buf, ListChunkType::UserData, data);
         }
 
         // Bake inserted & deleted content. I need to do this here because the CompressedFields
@@ -676,7 +676,7 @@ impl ListOpLog {
             }
         }
 
-        let mut write_chunk = |c: ChunkType, data: &mut Vec<u8>| {
+        let mut write_chunk = |c: ListChunkType, data: &mut Vec<u8>| {
             if verbose {
                 println!("{:?} length {}", c, data.len());
             }
@@ -685,34 +685,34 @@ impl ListOpLog {
             data.clear();
         };
 
-        write_chunk(ChunkType::FileInfo, &mut fileinfo_buf);
+        write_chunk(ListChunkType::FileInfo, &mut fileinfo_buf);
 
         // *** Start Branch - which was filled in above. ***
-        write_chunk(ChunkType::StartBranch, &mut start_branch);
+        write_chunk(ListChunkType::StartBranch, &mut start_branch);
 
         // *** Patches ***
         // I'll just assemble it in buf. There's a lot of sloppy use of vec<u8>'s in here.
         let mut patches_buf = fileinfo_buf;
 
         if let Some(bytes) = inserted_content {
-            push_chunk(&mut patches_buf, ChunkType::PatchContent, &bytes);
+            push_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes);
         }
         if let Some(bytes) = deleted_content {
-            push_chunk(&mut patches_buf, ChunkType::PatchContent, &bytes);
+            push_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes);
         }
 
-        push_chunk(&mut patches_buf, ChunkType::OpVersions, &agent_assignment_chunk);
-        push_chunk(&mut patches_buf, ChunkType::OpTypeAndPosition, &ops_chunk);
-        push_chunk(&mut patches_buf, ChunkType::OpParents, &txns_chunk);
+        push_chunk(&mut patches_buf, ListChunkType::OpVersions, &agent_assignment_chunk);
+        push_chunk(&mut patches_buf, ListChunkType::OpTypeAndPosition, &ops_chunk);
+        push_chunk(&mut patches_buf, ListChunkType::OpParents, &txns_chunk);
 
-        write_chunk(ChunkType::Patches, &mut patches_buf);
+        write_chunk(ListChunkType::Patches, &mut patches_buf);
 
         // TODO (later): Final branch content.
 
         // println!("checksum {checksum}");
         let checksum = calc_checksum(&result);
         push_u32_le(&mut patches_buf, checksum);
-        push_chunk(&mut result, ChunkType::Crc, &patches_buf);
+        push_chunk(&mut result, ListChunkType::Crc, &patches_buf);
         // write_chunk(Chunk::CRC, &mut buf);
         // push_u32(&mut result, checksum);
 
