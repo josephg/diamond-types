@@ -7,73 +7,13 @@ use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
 use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64, strip_bit_usize2};
 use bumpalo::collections::vec::Vec as BumpVec;
 use smallvec::smallvec;
+use crate::causalgraph::entry::CGEntry;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::parseerror::ParseError;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct IDParents {
-    pub start: Time,
-    pub parents: LocalVersion,
-    pub span: CRDTSpan,
-}
-
-impl Default for IDParents {
-    fn default() -> Self {
-        IDParents {
-            start: 0,
-            parents: Default::default(),
-            span: CRDTSpan {
-                agent: 0,
-                seq_range: (0..0).into()
-            }
-        }
-    }
-}
-
-impl HasLength for IDParents {
-    fn len(&self) -> usize {
-        self.span.len()
-    }
-}
-
-impl MergableSpan for IDParents {
-    fn can_append(&self, other: &Self) -> bool {
-        let end = self.start + self.len();
-        (end == other.start)
-            && other.parents_are_trivial()
-            && self.span.can_append(&other.span)
-    }
-
-    fn append(&mut self, other: Self) {
-        self.span.append(other.span)
-        // Other parents don't matter.
-    }
-}
-
-impl IDParents {
-    fn parents_are_trivial(&self) -> bool {
-        self.parents.len() == 1
-            && self.parents[0] == self.start - 1
-    }
-
-    pub fn time_span(&self) -> DTRange {
-        (self.start..self.start + self.len()).into()
-    }
-
-    pub fn clear(&mut self) {
-        self.span.seq_range.clear()
-    }
-}
-
-
-pub(crate) fn write_id_parents(result: &mut BumpVec<u8>, data: &IDParents,
-                               txn_map: &mut TxnMap, agent_map: &mut AgentMappingEnc,
-                               persist: bool, cg: &CausalGraph) {
-    assert_ne!(data.span.agent, ROOT_AGENT, "Cannot assign operations to ROOT");
-    let len = data.len();
-
+pub(crate) fn write_cg_aa(result: &mut BumpVec<u8>, write_parents: bool, span: CRDTSpan,
+                             agent_map: &mut AgentMappingEnc, persist: bool, cg: &CausalGraph) {
     // We only write the parents info if parents is non-trivial.
-    let write_parents = !data.parents_are_trivial();
 
     // Its rare, but possible for the agent assignment sequence to jump around a little.
     // This can happen when:
@@ -81,8 +21,8 @@ pub(crate) fn write_id_parents(result: &mut BumpVec<u8>, data: &IDParents,
     // - Or the same agent made concurrent changes to multiple branches. The operations may
     //   be reordered to any order which obeys the time dag's partial order.
 
-    let mapped_agent = agent_map.map_no_root(&cg.client_data, data.span.agent, persist);
-    let delta = agent_map.seq_delta(data.span.agent, data.span.seq_range, persist);
+    let mapped_agent = agent_map.map_no_root(&cg.client_data, span.agent, persist);
+    let delta = agent_map.seq_delta(span.agent, span.seq_range, persist);
 
     // I tried adding an extra bit field to mark len != 1 - so we can skip encoding the
     // length. But in all the data sets I've looked at, len is so rarely 1 that it increased
@@ -107,34 +47,43 @@ pub(crate) fn write_id_parents(result: &mut BumpVec<u8>, data: &IDParents,
         }
     }
 
-    push_usize(result, len);
+    push_usize(result, span.len());
 
     if has_jump {
         push_u64(result, num_encode_zigzag_i64(delta as i64));
     }
+}
 
 
-    // And parents stuff.
+pub(crate) fn write_cg_entry(result: &mut BumpVec<u8>, data: &CGEntry,
+                             txn_map: &mut TxnMap, agent_map: &mut AgentMappingEnc,
+                             persist: bool, cg: &CausalGraph) {
+    assert_ne!(data.span.agent, ROOT_AGENT, "Cannot assign operations to ROOT");
+    let write_parents = !data.parents_are_trivial();
 
+    // Keep the txn map up to date. This is only needed for parents, and it maps from local time
+    // values -> output time values (the order in the file). This lets the file be ordered
+    // differently from the local time.
     let next_output_time = txn_map.last().map_or(0, |last| last.1.end);
-    let output_range = (next_output_time .. next_output_time + len).into();
+    let output_range = (next_output_time .. next_output_time + data.len()).into();
 
-
-    // NOTE: we're using .insert instead of .push here so the txn_map stays in the expected order!
     if persist {
+        // NOTE: we're using .insert instead of .push here so the txn_map stays in the expected order!
         txn_map.insert(KVPair(data.start, output_range));
     }
 
+    // We always write the agent assignment info.
+    write_cg_aa(result, write_parents, data.span, agent_map, persist, cg);
+
+    // And optionally write parents info.
     // Write the parents, if it makes sense to do so.
     if write_parents {
         write_parents_raw(result, &data.parents, next_output_time, persist, agent_map, txn_map, cg);
     }
 }
 
-pub(crate) fn read_id_p(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: Time, agent_map: &mut AgentMappingDec) -> Result<IDParents, ParseError> {
-    // First we have agent assignment, then optional parents.
-    debug_assert_eq!(next_time, cg.len());
-
+fn read_cg_aa(reader: &mut BufParser, persist: bool,
+              cg: &mut CausalGraph, agent_map: &mut AgentMappingDec) -> Result<(bool, CRDTSpan), ParseError> {
     // Bits are:
     // has_parents
     // is_known
@@ -177,18 +126,27 @@ pub(crate) fn read_id_p(reader: &mut BufParser, persist: bool, cg: &mut CausalGr
         agent_map[idx].1 = end;
     }
 
+    Ok((has_parents, CRDTSpan {
+        agent,
+        seq_range: (start..end).into(),
+    }))
+}
+
+pub(crate) fn read_cg_entry(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: Time, agent_map: &mut AgentMappingDec) -> Result<CGEntry, ParseError> {
+    // First we have agent assignment, then optional parents.
+    debug_assert_eq!(next_time, cg.len());
+
+    let (has_parents, span) = read_cg_aa(reader, persist, cg, agent_map)?;
+
     let parents = if has_parents {
         read_parents_raw(reader, persist, cg, next_time, agent_map)?
     } else {
         smallvec![next_time - 1]
     };
 
-    Ok(IDParents {
+    Ok(CGEntry {
         start: next_time,
         parents,
-        span: CRDTSpan {
-            agent,
-            seq_range: (start..end).into(),
-        }
+        span
     })
 }

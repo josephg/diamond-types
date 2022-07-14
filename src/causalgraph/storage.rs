@@ -40,7 +40,8 @@ use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::{CausalGraph, CRDTSpan, DTRange, KVPair, Time};
 use bumpalo::collections::vec::Vec as BumpVec;
 use rle::zip::rle_zip;
-use crate::encoding::id_parents::{IDParents, read_id_p, write_id_parents};
+use crate::causalgraph::entry::CGEntry;
+use crate::encoding::cg_entry::{read_cg_entry, write_cg_entry};
 
 
 const CG_MAGIC_BYTES: [u8; 8] = *b"DMNDT_CG";
@@ -147,7 +148,7 @@ pub(crate) struct CGStorage {
 
     // last_parents: ParentsEntrySimple,
     // assigned_to: CRDTSpan,
-    entry: IDParents,
+    entry: CGEntry,
 
     txn_map: TxnMap,
     agent_map: AgentMappingEnc,
@@ -226,7 +227,7 @@ impl CGStorage {
         if !active_blit.data.is_empty() {
             let mut reader = BufParser(active_blit.data);
             let next_time = cg.len_history();
-            let id_p = read_id_p(&mut reader, false, &mut cg, next_time, &mut dec)?;
+            let id_p = read_cg_entry(&mut reader, false, &mut cg, next_time, &mut dec)?;
             if !id_p.is_empty() {
                 cg.parents.insert(&id_p.parents, id_p.time_span());
                 cg.assign_times_to_agent(id_p.span);
@@ -442,7 +443,7 @@ impl CGStorage {
 
     fn read_run(reader: &mut BufParser, into_cg: &mut CausalGraph, dec: &mut AgentMappingDec) -> Result<(), CGError> {
         let next_time = into_cg.len_history(); // TODO: Cache this while reading.
-        let entry = read_id_p(reader, true, into_cg, next_time, dec)?;
+        let entry = read_cg_entry(reader, true, into_cg, next_time, dec)?;
         into_cg.parents.insert(&entry.parents, entry.time_span());
         into_cg.assign_times_to_agent(entry.span);
 
@@ -477,7 +478,7 @@ impl CGStorage {
     // }
 
     fn encode_last_entry(&mut self, buf: &mut BumpVec<u8>, persist: bool, cg: &CausalGraph) {
-        write_id_parents(buf, &self.entry, &mut self.txn_map, &mut self.agent_map, persist, &cg);
+        write_cg_entry(buf, &self.entry, &mut self.txn_map, &mut self.agent_map, persist, &cg);
     }
 
     // pub(crate) fn push_parents_no_sync(&mut self, bump: &Bump, parents: ParentsEntrySimple, cg: &CausalGraph) -> Result<bool, CGError> {
@@ -527,7 +528,7 @@ impl CGStorage {
     //         true
     //     })
     // }
-    pub(crate) fn push_entry_no_sync(&mut self, bump: &Bump, entry: IDParents, cg: &CausalGraph) -> Result<bool, CGError> {
+    pub(crate) fn push_entry_no_sync(&mut self, bump: &Bump, entry: CGEntry, cg: &CausalGraph) -> Result<bool, CGError> {
         if entry.is_empty() { return Ok(false); }
 
         let mut buf = BumpVec::new_in(bump);
@@ -607,7 +608,7 @@ impl CGStorage {
             // dbg!((xx, yy));
             debug_assert_eq!(parents_entry.len(), span.len());
 
-            let x = IDParents {
+            let x = CGEntry {
                 start: parents_entry.span.start,
                 parents: parents_entry.parents,
                 span
@@ -641,6 +642,7 @@ impl CGStorage {
 mod test {
     use std::fs::{File, remove_file};
     use std::io::Read;
+    use std::path::Path;
     use smallvec::smallvec;
     use rle::RleRun;
     use crate::causalgraph::parents::ParentsEntrySimple;
@@ -662,7 +664,7 @@ mod test {
 
         cgs.save_missing(&cg).unwrap();
 
-        dbg!(&cgs);
+        // dbg!(&cgs);
 
         drop(cgs);
         let (cg2, _) = CGStorage::open("test.cg").unwrap();
@@ -672,6 +674,11 @@ mod test {
 
     #[test]
     fn write_node_nodecc() {
+        if !std::path::Path::exists(Path::new("node_nodecc.dt")) {
+            eprintln!("Test ignored - node_nodecc.dt does not exist.");
+            return;
+        }
+
         use crate::list::ListOpLog;
 
         let mut bytes = vec![];

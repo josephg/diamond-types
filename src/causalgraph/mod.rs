@@ -7,6 +7,7 @@ mod causalgraph;
 mod check;
 pub mod parents;
 mod eq;
+pub mod entry;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClientData {
