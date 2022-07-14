@@ -48,6 +48,7 @@ const CG_MAGIC_BYTES: [u8; 8] = *b"DMNDT_CG";
 const CG_VERSION: [u8; 4] = 1u32.to_le_bytes();
 
 const CG_DEFAULT_BLIT_SIZE: u64 = 64;
+// const CG_DEFAULT_BLIT_SIZE: u64 = 10;
 
 // Magic bytes, version then blit size.
 const CG_HEADER_LENGTH: usize = CG_MAGIC_BYTES.len() + CG_VERSION.len() + 4;
@@ -120,12 +121,6 @@ impl<'a> Ord for Blit<'a> {
     }
 }
 
-// #[derive(Debug, Eq, PartialEq, Copy, Clone)]
-// enum ChunkType {
-//     Parents,
-//     AgentAssignment
-// }
-
 #[derive(Debug)]
 pub(crate) struct CGStorage {
     file: File,
@@ -146,8 +141,6 @@ pub(crate) struct CGStorage {
     /// False when we're ready to write blit 0, true when we're about to write blit 1.
     next_blit: bool,
 
-    // last_parents: ParentsEntrySimple,
-    // assigned_to: CRDTSpan,
     entry: CGEntry,
 
     txn_map: TxnMap,
@@ -233,18 +226,6 @@ impl CGStorage {
                 cg.assign_times_to_agent(id_p.span);
             }
             cgs.entry = id_p;
-
-            // let txn = read_txn_entry(&mut reader, false, false, &mut cg, next_time, &mut dec)?;
-            // if !txn.is_empty() {
-            //     cg.history.insert(&txn.parents, txn.span);
-            // }
-            // cgs.last_parents = txn;
-            //
-            // let span = read_agent_assignment(&mut reader, false, false, &mut cg, &mut dec)?;
-            // if !span.is_empty() {
-            //     cg.assign_times_to_agent(span);
-            // }
-            // cgs.assigned_to = span;
 
             // dbg!(&cgs.last_parents, &cgs.assigned_to);
 
@@ -447,87 +428,13 @@ impl CGStorage {
         into_cg.parents.insert(&entry.parents, entry.time_span());
         into_cg.assign_times_to_agent(entry.span);
 
-        // let first_number = reader.peek_u32().map_err(|_| CGError::InvalidData)?.unwrap();
-        // let is_aa = strip_bit_u32(first_number).1;
-        //
-        // if is_aa {
-        //     // Parse the chunk as agent assignment data
-        //     let span = read_agent_assignment(reader, true, true, into_cg, dec)?;
-        //     // dbg!(span);
-        //     into_cg.assign_times_to_agent(span);
-        // } else {
-        //     // Parse the chunk as parents.
-        //     let next_time = into_cg.len_history(); // TODO: Cache this while reading.
-        //     let txn = read_txn_entry(reader, true, true, into_cg, next_time, dec)?;
-        //     into_cg.history.insert(&txn.parents, txn.span);
-        //     // dbg!(txn);
-        // }
-
         Ok(())
     }
-
-    // TODO: Consider merging tag and persist parameters here - they're always the same value.
-    // fn encode_last_parents<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, cg: &CausalGraph) {
-    //     let tag = if tag { Some(false) } else { None };
-    //     write_txn_entry(buf, tag, &self.last_parents, &mut self.txn_map, &mut self.agent_map, persist, cg);
-    // }
-    //
-    // fn encode_last_agent_assignment<'a>(&mut self, buf: &mut BumpVec<u8>, tag: bool, persist: bool, cg: &CausalGraph) {
-    //     let tag = if tag { Some(true) } else { None };
-    //     write_agent_assignment_span(buf, tag, self.assigned_to, &mut self.agent_map, persist, &cg.client_data);
-    // }
 
     fn encode_last_entry(&mut self, buf: &mut BumpVec<u8>, persist: bool, cg: &CausalGraph) {
         write_cg_entry(buf, &self.entry, &mut self.txn_map, &mut self.agent_map, persist, &cg);
     }
 
-    // pub(crate) fn push_parents_no_sync(&mut self, bump: &Bump, parents: ParentsEntrySimple, cg: &CausalGraph) -> Result<bool, CGError> {
-    //     if parents.is_empty() { return Ok(false); }
-    //
-    //     let mut buf = BumpVec::new_in(bump);
-    //
-    //     self.dirty_blit = true;
-    //     Ok(if self.last_parents.is_empty() {
-    //         self.last_parents = parents;
-    //         false
-    //     } else if self.last_parents.can_append(&parents) {
-    //         self.last_parents.append(parents);
-    //         false
-    //     } else {
-    //         // First flush out the current value to the end of the file.
-    //         // eprintln!("Writing parents to data {:?}", self.last_parents);
-    //         self.encode_last_parents(&mut buf, true, true, cg);
-    //         self.write_data(&buf)?;
-    //
-    //         // Then save the new value in a fresh blit.
-    //         self.last_parents = parents;
-    //         true
-    //     })
-    // }
-    //
-    // pub(crate) fn push_aa_no_sync(&mut self, bump: &Bump, span: CRDTSpan, cg: &CausalGraph) -> Result<bool, CGError> {
-    //     if span.is_empty() { return Ok(false); }
-    //
-    //     let mut buf = BumpVec::new_in(bump);
-    //
-    //     self.dirty_blit = true;
-    //     Ok(if self.assigned_to.is_empty() {
-    //         self.assigned_to = span;
-    //         false
-    //     } else if self.assigned_to.can_append(&span) {
-    //         self.assigned_to.append(span);
-    //         false
-    //     } else {
-    //         // Flush the last span out too.
-    //         // eprintln!("Writing span to data {:?}", self.assigned_to);
-    //         self.encode_last_agent_assignment(&mut buf, true, true, cg);
-    //         self.write_data(&buf)?;
-    //
-    //         // Then save the new value in a fresh blit.
-    //         self.assigned_to = span;
-    //         true
-    //     })
-    // }
     pub(crate) fn push_entry_no_sync(&mut self, bump: &Bump, entry: CGEntry, cg: &CausalGraph) -> Result<bool, CGError> {
         if entry.is_empty() { return Ok(false); }
 
@@ -561,13 +468,13 @@ impl CGStorage {
         // Regardless of what happened above, write a new blit entry.
         // eprintln!("Writing blip {:?} / {:?}", self.last_parents, self.assigned_to);
         let mut buf = BumpVec::new_in(bump);
-        // self.encode_last_parents(&mut buf, false, false, cg);
-        // self.encode_last_agent_assignment(&mut buf, false, false, cg);
         self.encode_last_entry(&mut buf, false, cg);
         let result = self.write_blit_with_data(&buf);
 
         match result {
             Err(CGError::BlitTooLarge) => {
+                eprintln!("Warning: Blit too small for data");
+
                 // The buffered data doesn't fit in the blit region. This should basically never happen
                 // in regular use - but if the user merges lots of changes for some reason, or if they
                 // have super long UIDs this will happen.
@@ -579,6 +486,8 @@ impl CGStorage {
                 // We could only write out the larger of these two, but eh.
                 buf.clear();
                 self.encode_last_entry(&mut buf, true, cg);
+
+                self.file.seek(SeekFrom::Start(self.next_write_location + self.data_start()))?;
                 self.write_data(&buf)?;
                 self.file.sync_all()?;
 
@@ -597,36 +506,11 @@ impl CGStorage {
         let bump = Bump::new();
 
         let mut needs_sync = false;
+
         let range: DTRange = (self.next_flush_time..cg.len()).into();
-
-
-        let len = cg.len();
-        let parents = cg.parents.iter_range(range);
-        let aa = cg.client_with_localtime.iter_range_packed(range)
-            .map(|KVPair(_, data)| data);
-        for (parents_entry, span) in rle_zip(parents, aa) {
-            // dbg!((xx, yy));
-            debug_assert_eq!(parents_entry.len(), span.len());
-
-            let x = CGEntry {
-                start: parents_entry.span.start,
-                parents: parents_entry.parents,
-                span
-            };
-
-            needs_sync |= self.push_entry_no_sync(&bump, x, cg)?;
-            // dbg!(x);
+        for entry in cg.iter_range(range) {
+            needs_sync |= self.push_entry_no_sync(&bump, entry, cg)?;
         }
-
-
-
-        // for txn in cg.history.iter_range(range) {
-        //     needs_sync |= self.push_parents_no_sync(&bump, txn, cg)?;
-        // }
-        //
-        // for span in cg.client_with_localtime.iter_range_packed(range) {
-        //     needs_sync |= self.push_aa_no_sync(&bump, span.1, cg)?;
-        // }
 
         if needs_sync {
             self.file.sync_all();

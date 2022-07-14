@@ -2,7 +2,7 @@ use rle::{HasLength, MergableSpan};
 use crate::{CRDTSpan, DTRange, LocalVersion, Time};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct CGEntry {
+pub struct CGEntry {
     pub start: Time,
     pub parents: LocalVersion,
     pub span: CRDTSpan,

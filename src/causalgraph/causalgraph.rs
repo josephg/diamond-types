@@ -1,7 +1,9 @@
 use std::cmp::Ordering;
 use rle::{HasLength, Searchable};
+use rle::zip::rle_zip;
 use crate::{AgentId, CausalGraph, ROOT_AGENT, ROOT_TIME, Time};
 use crate::causalgraph::*;
+use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::frontier::clean_version;
 use crate::remotespan::{CRDT_DOC_ROOT, CRDTGuid};
@@ -192,7 +194,27 @@ impl CausalGraph {
     }
 
     /// Iterate through history entries
-    pub fn iter_history(&self) -> impl Iterator<Item=ParentsEntrySimple> + '_ {
+    pub fn iter_parents(&self) -> impl Iterator<Item=ParentsEntrySimple> + '_ {
         self.parents.entries.iter().map(|e| e.into())
+    }
+
+    pub fn iter_range(&self, range: DTRange) -> impl Iterator<Item=CGEntry> + '_ {
+        let parents = self.parents.iter_range(range);
+        let aa = self.client_with_localtime.iter_range_packed(range)
+            .map(|KVPair(_, data)| data);
+
+        rle_zip(parents, aa).map(|(parents, span)| {
+            debug_assert_eq!(parents.len(), span.len());
+
+            CGEntry {
+                start: parents.span.start,
+                parents: parents.parents,
+                span
+            }
+        })
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item=CGEntry> + '_ {
+        self.iter_range((0..self.len()).into())
     }
 }

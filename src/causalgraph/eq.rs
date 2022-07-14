@@ -92,7 +92,7 @@ impl PartialEq<Self> for CausalGraph {
         // Note this should be optimized if its going to be used for more than fuzz testing.
         // But this is pretty neat!
         for (mut txn, mut crdt_id) in rle_zip(
-            self.iter_history(),
+            self.iter_parents(),
             self.client_with_localtime.iter().map(|pair| pair.1)
         ) {
             // println!("txn {:?} crdt {:?}", txn, crdt_id);
