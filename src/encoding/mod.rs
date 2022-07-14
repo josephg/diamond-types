@@ -33,16 +33,16 @@ pub(crate) enum ChunkType {
     /// FileInfo contains optional UserData and AgentNames.
     FileInfo = 1,
     DocId = 2,
-    AgentNames = 3,
+    // AgentNames = 3,
     UserData = 4,
 
     /// The StartBranch chunk describes the state of the document before included patches have been
     /// applied.
     StartBranch = 10,
     Version = 12,
-    /// StartBranch content is optional.
-    TextContent = 13,
-    TextContentCompressed = 14, // Might make more sense to have a generic compression tag for chunks.
+    // /// StartBranch content is optional.
+    // TextContent = 13,
+    // TextContentCompressed = 14, // Might make more sense to have a generic compression tag for chunks.
 
     SetContent = 15,
     SetContentCompressed = 16,

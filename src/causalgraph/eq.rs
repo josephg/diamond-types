@@ -12,7 +12,6 @@ use rle::zip::rle_zip;
 use crate::{CausalGraph, ROOT_AGENT, Time};
 use crate::frontier::clean_version;
 use crate::causalgraph::parents::ParentsEntrySimple;
-use crate::rle::KVPair;
 
 // const VERBOSE: bool = true;
 const VERBOSE: bool = false;

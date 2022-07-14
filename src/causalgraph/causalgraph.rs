@@ -110,6 +110,7 @@ impl CausalGraph {
         }
     }
 
+    #[allow(unused)]
     pub(crate) fn map_parents(&self, crdt_parents: &[CRDTGuid]) -> LocalVersion {
         // TODO: Make a try_ version of this.
         let mut parents = crdt_parents.iter()
@@ -127,7 +128,7 @@ impl CausalGraph {
         let client_data = &mut self.client_data[span.agent as usize];
 
         // Make sure the time isn't already assigned. I probably only need this in debug mode?
-        let (x, offset) = client_data.item_times.find_sparse(span.seq_range.start);
+        let (x, _offset) = client_data.item_times.find_sparse(span.seq_range.start);
         if let Err(range) = x {
             assert!(range.end >= span.seq_range.end, "Time range already assigned");
         } else {
@@ -214,6 +215,7 @@ impl CausalGraph {
         })
     }
 
+    #[allow(unused)]
     pub fn iter(&self) -> impl Iterator<Item=CGEntry> + '_ {
         self.iter_range((0..self.len()).into())
     }

@@ -1,3 +1,4 @@
+// #![warn(unused)]
 
 use smartstring::alias::String as SmartString;
 use crate::{CRDTSpan, DTRange, Parents, KVPair, LocalVersion, RleVec};

@@ -26,20 +26,18 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io;
-use std::io::{BufReader, BufWriter, ErrorKind, Read, Seek, SeekFrom, Write};
+use std::io::{BufWriter, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use bumpalo::Bump;
-use rle::{HasLength, MergableSpan, RleRun};
-use crate::encoding::agent_assignment::{AgentMappingDec, AgentMappingEnc, read_agent_assignment, write_agent_assignment_span};
+use rle::{HasLength, MergableSpan};
+use crate::encoding::agent_assignment::{AgentMappingDec, AgentMappingEnc};
 use crate::encoding::bufparser::BufParser;
-use crate::encoding::parents::{read_txn_entry, TxnMap, write_txn_entry};
+use crate::encoding::parents::TxnMap;
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::{calc_checksum, push_u32, push_u64, push_usize};
-use crate::encoding::varint::{decode_usize, encode_usize, strip_bit_u32};
-use crate::causalgraph::parents::ParentsEntrySimple;
-use crate::{CausalGraph, CRDTSpan, DTRange, KVPair, Time};
+use crate::encoding::tools::{calc_checksum, push_u64, push_usize};
+use crate::encoding::varint::{decode_usize, encode_usize};
+use crate::{CausalGraph, DTRange, Time};
 use bumpalo::collections::vec::Vec as BumpVec;
-use rle::zip::rle_zip;
 use crate::causalgraph::entry::CGEntry;
 use crate::encoding::cg_entry::{read_cg_entry, write_cg_entry};
 
@@ -64,7 +62,7 @@ pub enum CGError {
     ChecksumMismatch,
 
     InvalidBlit,
-    InvalidData,
+    // InvalidData,
 
     BlitTooLarge,
 
@@ -184,7 +182,7 @@ impl CGStorage {
         if total_len < ds {
             cgs.file.set_len(ds)?;
             total_len = ds;
-            cgs.file.sync_all(); // Force update metadata to include the new size.
+            cgs.file.sync_all()?; // Force update metadata to include the new size.
         }
 
         // Next we need to read the blit data to find out the flushed file size. Any bytes after
@@ -192,7 +190,7 @@ impl CGStorage {
 
         // The blits will be read into the provided (stack) buffer.
         let mut raw_buf = [0u8; MAX_BLIT_SIZE * 2];
-        let active_blit = cgs.read_initial_blits(&mut raw_buf, blit_size);
+        let active_blit = cgs.read_initial_blits(&mut raw_buf, blit_size)?;
 
         let committed_filesize = active_blit.filesize;
 
@@ -207,7 +205,7 @@ impl CGStorage {
 
         // TODO: This is suuuper duper dirty!
         let mut buf = vec![0u8; active_blit.filesize as usize];
-        cgs.file.read_exact(&mut buf);
+        cgs.file.read_exact(&mut buf)?;
         // dbg!(&buf);
 
         let mut r = BufParser(&buf);
@@ -238,10 +236,10 @@ impl CGStorage {
         Ok((cg, cgs))
     }
 
-    fn read_initial_blits<'a>(&mut self, raw_buf: &'a mut [u8; MAX_BLIT_SIZE * 2], blit_size: u64) -> Blit<'a> {
+    fn read_initial_blits<'a>(&mut self, raw_buf: &'a mut [u8; MAX_BLIT_SIZE * 2], blit_size: u64) -> Result<Blit<'a>, io::Error> {
         let bs_u = blit_size as usize;
-        let mut buf = &mut raw_buf[..bs_u * 2];
-        self.file.read_exact(buf);
+        let buf = &mut raw_buf[..bs_u * 2];
+        self.file.read_exact(buf)?;
 
         let b1 = Self::read_blit(&buf[0..bs_u]);
         let b2 = Self::read_blit(&buf[bs_u..bs_u * 2]);
@@ -268,7 +266,7 @@ impl CGStorage {
         self.next_counter = active_blit.counter + 1;
         self.next_write_location = active_blit.filesize;
 
-        active_blit
+        Ok(active_blit)
     }
 
     fn read_blit(buf: &[u8]) -> Result<Blit, CGError> {
@@ -324,7 +322,7 @@ impl CGStorage {
 
     fn write_blit(&mut self, blit: Blit) -> Result<(), CGError> {
         debug_assert_eq!(self.file.seek(SeekFrom::Current(0)).unwrap(), self.next_write_location + self.data_start());
-        self.file.seek(SeekFrom::Start(self.next_blit_location()));
+        self.file.seek(SeekFrom::Start(self.next_blit_location()))?;
 
         Self::write_blit_to(BufWriter::new(&mut self.file), self.blit_size, blit)?;
         self.file.flush()?;
@@ -383,10 +381,10 @@ impl CGStorage {
             let mut bw = BufWriter::new(file);
             bw.write_all(&CG_MAGIC_BYTES)?;
             bw.write_all(&CG_VERSION)?;
-            bw.write_all(&(CG_DEFAULT_BLIT_SIZE as u32).to_le_bytes());
+            bw.write_all(&(CG_DEFAULT_BLIT_SIZE as u32).to_le_bytes())?;
 
             file = bw.into_inner().map_err(|e| e.into_error())?;
-            file.sync_all();
+            file.sync_all()?;
 
             CG_DEFAULT_BLIT_SIZE
         } else {
@@ -413,7 +411,7 @@ impl CGStorage {
                 eprintln!("Causality graph has invalid blit size ({blit_size} > {MAX_BLIT_SIZE})");
                 return Err(CGError::InvalidHeader);
             }
-            pos += 4;
+            // pos += 4;
 
             blit_size
         };
@@ -513,10 +511,10 @@ impl CGStorage {
         }
 
         if needs_sync {
-            self.file.sync_all();
+            self.file.sync_all()?;
         }
 
-        self.flush(&bump, cg);
+        self.flush(&bump, cg)?;
 
         Ok(())
     }
@@ -527,15 +525,11 @@ mod test {
     use std::fs::{File, remove_file};
     use std::io::Read;
     use std::path::Path;
-    use smallvec::smallvec;
-    use rle::RleRun;
-    use crate::causalgraph::parents::ParentsEntrySimple;
-    use crate::{CausalGraph, CRDTSpan};
     use crate::causalgraph::storage::CGStorage;
 
     #[test]
     fn foo() {
-        std::fs::remove_file("test.cg");
+        drop(std::fs::remove_file("test.cg"));
 
         let (mut cg, mut cgs) = CGStorage::open("test.cg").unwrap();
         // dbg!(&cgs, &cg);

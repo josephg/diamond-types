@@ -7,7 +7,7 @@ mod scope;
 use smallvec::{SmallVec, smallvec};
 
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
-use crate::{LocalVersion, Time};
+use crate::Time;
 
 use crate::rle::{RleKeyed, RleVec};
 use crate::dtrange::DTRange;
