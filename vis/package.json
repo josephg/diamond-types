@@ -4,7 +4,7 @@
     "build": "snowpack build"
   },
   "dependencies": {
-    "svelte": "^3.37.0"
+    "svelte": "^3.49.0"
   },
   "devDependencies": {
     "@emily-curry/snowpack-plugin-wasm-pack": "^1.1.4",
