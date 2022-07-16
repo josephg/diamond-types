@@ -13,7 +13,6 @@ use num_enum::TryFromPrimitive;
 pub mod varint;
 pub(crate) mod bufparser;
 pub(crate) mod parseerror;
-pub(crate) mod agent_assignment;
 pub(crate) mod tools;
 pub(crate) mod parents;
 pub(crate) mod op_contents;

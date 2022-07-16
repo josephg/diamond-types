@@ -14,28 +14,6 @@ use crate::encoding::map::{WriteMap, ReadMap};
 use crate::frontier::clean_version;
 
 
-// pub(crate) fn write_txn_entry(result: &mut BumpVec<u8>, tag: Option<bool>, txn: &ParentsEntrySimple,
-//                               txn_map: &mut TxnMap, agent_map: &mut AgentMappingEnc, persist: bool, cg: &CausalGraph,
-// ) {
-//     // dbg!(txn);
-//     let len = txn.len();
-//
-//     let next_output_time = txn_map.last().map_or(0, |last| last.1.end);
-//     let output_range = (next_output_time .. next_output_time + len).into();
-//
-//     let len_written = if let Some(tag) = tag {
-//         mix_bit_usize(len, tag)
-//     } else { len };
-//     push_usize(result, len_written);
-//
-//     // NOTE: we're using .insert instead of .push here so the txn_map stays in the expected order!
-//     if persist {
-//         txn_map.insert(KVPair(txn.span.start, output_range));
-//     }
-//     // txn_map.push(KVPair(txn.span.start, output_range));
-//
-//     write_parents_raw(result, &txn.parents, next_output_time, persist, agent_map, txn_map, cg)
-// }
 
 pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[Time], next_output_time: Time, persist: bool, write_map: &mut WriteMap, cg: &CausalGraph) {
     // And the parents.
@@ -107,20 +85,6 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[Time], next
         }
     }
 }
-
-// pub fn encode_parents<'a, I: Iterator<Item=ParentsEntrySimple>>(bump: &'a Bump, iter: I, map: &mut AgentMappingEnc, cg: &CausalGraph) -> BumpVec<'a, u8> {
-//     let mut txn_map = TxnMap::new();
-//     let mut next_output_time = 0;
-//     let mut result = BumpVec::new_in(bump);
-//
-//     Merger::new(|txn: ParentsEntrySimple, map: &mut AgentMappingEnc| {
-//         // next_output_time,
-//         write_txn_entry(&mut result, None, &txn, &mut txn_map, map, true, cg);
-//         next_output_time += txn.len();
-//     }).flush_iter2(iter, map);
-//
-//     result
-// }
 
 // *** Read path ***
 
@@ -194,17 +158,3 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
 
     Ok(parents)
 }
-
-// pub(crate) fn read_txn_entry(reader: &mut BufParser, tagged: bool, persist: bool, cg: &mut CausalGraph, next_time: Time, read_map: &mut ReadMap) -> Result<ParentsEntrySimple, ParseError> {
-//     let mut len = reader.next_usize()?;
-//     if tagged {
-//         // Discard tag.
-//         strip_bit_usize2(&mut len);
-//     }
-//     let parents = read_parents_raw(reader, persist, cg, next_time, read_map)?;
-//
-//     Ok(ParentsEntrySimple {
-//         span: (next_time..next_time + len).into(),
-//         parents,
-//     })
-// }

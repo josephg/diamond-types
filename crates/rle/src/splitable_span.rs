@@ -4,6 +4,7 @@ pub trait HasLength {
     /// The number of child items in the entry. This is indexed with the size used in truncate.
     fn len(&self) -> usize;
 
+    #[inline]
     fn is_empty(&self) -> bool {
         self.len() == 0
     }

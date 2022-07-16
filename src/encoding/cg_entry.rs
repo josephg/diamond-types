@@ -2,7 +2,6 @@ use bumpalo::Bump;
 use rle::{HasLength, MergableSpan};
 use crate::{CausalGraph, CRDTSpan, DTRange, KVPair, LocalVersion, ROOT_AGENT, Time};
 use crate::causalgraph::ClientData;
-use crate::encoding::agent_assignment::isize_try_add;
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
 use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64, strip_bit_usize2};
@@ -134,6 +133,13 @@ fn read_cg_aa(reader: &mut BufParser, persist: bool,
         agent,
         seq_range: (start..end).into(),
     }))
+}
+
+fn isize_try_add(x: usize, y: isize) -> Option<usize> {
+    let result = (x as i128) + (y as i128);
+
+    if result < 0 || result > usize::MAX as i128 { None }
+    else { Some(result as usize) }
 }
 
 /// NOTE: This does not put the returned data into the causal graph, or update read_map's txn_map.
