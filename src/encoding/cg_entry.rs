@@ -71,7 +71,9 @@ pub(crate) fn write_cg_entry(result: &mut BumpVec<u8>, data: &CGEntry, write_map
     let output_range = (next_output_time .. next_output_time + data.len()).into();
 
     if persist {
-        // NOTE: we're using .insert instead of .push here so the txn_map stays in the expected order!
+        // NOTE: We have to use .insert instead of .push here so the txn_map stays in the expected
+        // order! This will only be relevant if write() is called in a different order from the
+        // CG, which happens when we optimize the order.
         write_map.txn_map.insert(KVPair(data.start, output_range));
     }
 
@@ -85,8 +87,9 @@ pub(crate) fn write_cg_entry(result: &mut BumpVec<u8>, data: &CGEntry, write_map
     }
 }
 
-fn read_cg_aa(reader: &mut BufParser, persist: bool,
-              cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<(bool, CRDTSpan), ParseError> {
+fn read_cg_aa(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap)
+    -> Result<(bool, CRDTSpan), ParseError>
+{
     // Bits are:
     // has_parents
     // is_known

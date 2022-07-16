@@ -209,7 +209,8 @@ impl CGStorage {
         let mut read_map = ReadMap::new();
         // let mut next_pos
         while !r.is_empty() {
-            read_cg_entry_into_cg(&mut r, true, &mut cg, &mut read_map)?;
+            // We can use non_overlapping because the cg is guaranteed to be empty.
+            read_cg_entry_into_cg_nonoverlapping(&mut r, true, &mut cg, &mut read_map)?;
         }
         cgs.write_map.populate_from_dec(&read_map);
 

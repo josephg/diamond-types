@@ -1,5 +1,5 @@
 use bumpalo::Bump;
-use rle::HasLength;
+use rle::{HasLength, Searchable};
 use crate::encoding::tools::{push_str, push_u32, push_usize};
 use crate::encoding::varint::*;
 use crate::causalgraph::parents::ParentsEntrySimple;
@@ -108,14 +108,11 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
 
         let parent = if !is_foreign {
             let diff = n;
-            // Local parents (parents inside this chunk of data) are stored using their local time
-            // offset.
-
-            // TODO: Do we need to do any txn mapping or anything like that here?? Doing this naked
-            // is weird.
+            // Local parents (parents inside this chunk of data) are stored using their local (file)
+            // time offset.
             let file_time = next_time - diff;
             let (entry, offset) = read_map.txn_map.find_with_offset(file_time).unwrap();
-            entry.1.start + offset
+            entry.1.at_offset(offset)
         } else {
             let agent = if !is_known {
                 if n != 0 { return Err(ParseError::GenericInvalidData); }
