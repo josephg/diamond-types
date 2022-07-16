@@ -24,7 +24,7 @@ fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalVersion, rang
 
     // Otherwise use the slow version.
     let txn_parents = replace(frontier, smallvec![range.last()]);
-    oplog.cg.parents.insert(&txn_parents, range);
+    oplog.cg.parents.push(&txn_parents, range);
 }
 
 // Slow / small version.

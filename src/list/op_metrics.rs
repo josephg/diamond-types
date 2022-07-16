@@ -119,13 +119,20 @@ impl SplitableSpanCtx for ListOpMetrics {
         // actually how the span splits depends on the tag (and some other stuff).
         // let (a, b) = TimeSpanRev::split_op_span(self.span, self.tag, at);
         // self.span.span = a;
-        let loc = self.loc.truncate_tagged_span(self.kind, at);
 
         let content_pos = if let Some(p) = &mut self.content_pos {
-            let content = ctx.get_str(self.kind, *p);
-            let byte_offset = chars_to_bytes(content, at);
+            let byte_offset = if p.len() == self.loc.len() {
+                // If the string is all ASCII (guaranteed by equal lengths) then we don't need to
+                // calculate the byte offset.
+                at
+            } else {
+                let content = ctx.get_str(self.kind, *p);
+                chars_to_bytes(content, at)
+            };
             Some(p.truncate(byte_offset))
         } else { None };
+
+        let loc = self.loc.truncate_tagged_span(self.kind, at);
 
         ListOpMetrics {
             loc,

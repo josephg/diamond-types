@@ -1,7 +1,26 @@
+/// The write-ahead log encodes new operations directly to disk in chunks. Each chunk has a
+/// checksum, so inopportune crashes don't corrupt any data.
+///
+/// Design question:
+///
+/// This is a bit controversial, but there's two options here for how I encode WAL entries:
+///
+/// 1. Each entry has a fresh agent & txn map. This will make the WAL entries bigger, because
+/// they'll all explicitly name all the IDs used and referenced.
+///
+/// But the benefit is that we can blindly append to the WAL, without reading any of the data first.
+/// Mind you, if the WAL has a corrupt tail (the last entries are broken), then this will have no
+/// effect. So to blindly append you'd still need to scan the chunks in the WAL anyway.
+///
+/// Or 2. Entries reuse an agent/txn map. This would result in smaller file sizes, but we can't
+/// blindly sendfile() at the WAL.
+
 use std::error::Error;
-use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
+use crate::encoding::parseerror::ParseError;
+use crate::{DTRange, RleVec, Time};
+use std::ffi::OsString;
 use std::{fs, io};
 use std::io::{BufReader, ErrorKind, Read, Result as IOResult, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -9,10 +28,57 @@ use bumpalo::Bump;
 use crate::encoding::{ChunkType, varint};
 use crate::encoding::tools::{calc_checksum, push_chunk};
 use bumpalo::collections::vec::Vec as BumpVec;
+use rle::HasLength;
 use crate::{CausalGraph, KVPair, Ops};
-use crate::encoding::agent_assignment::{AgentMappingEnc, encode_agent_assignment};
-use crate::encoding::parents::encode_parents;
-use crate::wal::*;
+use crate::encoding::bufparser::BufParser;
+use crate::encoding::cg_entry::{read_cg_entry_into_cg, write_cg_entry_iter};
+use crate::encoding::chunk_reader::ChunkReader;
+use crate::encoding::op::write_ops;
+use crate::encoding::map::{WriteMap, ReadMap};
+
+// pub(crate) mod wal_encoding;
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum WALError {
+    InvalidHeader,
+    UnexpectedEOF,
+    ChecksumMismatch,
+    ParseError(ParseError),
+    IO(io::Error),
+}
+
+#[derive(Debug)]
+pub(crate) struct WriteAheadLog {
+    file: File,
+
+    write_map: WriteMap,
+    
+    // The WAL just stores changes in order. We don't need to worry about complex time DAG
+    // traversal.
+    next_version: Time,
+}
+
+impl Display for WALError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ParseError {:?}", self)
+    }
+}
+
+impl Error for WALError {}
+
+impl From<io::Error> for WALError {
+    fn from(io_err: io::Error) -> Self {
+        if io_err.kind() == ErrorKind::UnexpectedEof { WALError::UnexpectedEOF }
+        else { WALError::IO(io_err) }
+    }
+}
+
+impl From<ParseError> for WALError {
+    fn from(pe: ParseError) -> Self {
+        WALError::ParseError(pe)
+    }
+}
 
 // The file starts with "DMNDTWAL" followed by a 4 byte LE file version.
 const WAL_MAGIC_BYTES: [u8; 8] = *b"DMNDTWAL";
@@ -33,12 +99,14 @@ impl WriteAheadLog {
         // Before anything else, we scan the file to find out the current value.
         debug_assert_eq!(file.stream_position()?, 0); // Should be 0 since we're not in append mode.
 
-        let (file, ops) = Self::prep_file(file, path.as_ref(), cg)?;
+        Ok(Self::prep_file(file, path.as_ref(), cg)?)
 
-        Ok((Self {
-            file,
-            next_version: 0
-        }, ops))
+        // Ok((Self {
+        //     file,
+        //     txn_map: Default::default(),
+        //     agent_map: AgentMappingEnc::with_capacity_from(&cg.client_data),
+        //     next_version: 0
+        // }, ops))
     }
 
     fn check_header(file: &mut File, total_len: u64) -> Result<(), WALError> {
@@ -66,7 +134,7 @@ impl WriteAheadLog {
         Ok(())
     }
 
-    fn prep_file<P: AsRef<Path>>(mut file: File, path: P, cg: &mut CausalGraph) -> Result<(File, Ops), WALError> {
+    fn prep_file<P: AsRef<Path>>(mut file: File, path: P, cg: &mut CausalGraph) -> Result<(Self, Ops), WALError> {
         // First we need to know how large the file is.
         let total_len = file.seek(SeekFrom::End(0))?;
         file.seek(SeekFrom::Start(0))?;
@@ -80,9 +148,14 @@ impl WriteAheadLog {
 
         let mut r = BufReader::new(file);
 
+        let mut read_map = ReadMap::new();
+
         let mut ops = Ops::default();
 
-        while pos < total_len {
+        let file = loop {
+            if pos >= total_len {
+                break r.into_inner();
+            }
             debug_assert_eq!(r.stream_position()?, pos);
 
             match Self::consume_chunk(&mut r, total_len - pos) {
@@ -91,7 +164,7 @@ impl WriteAheadLog {
                     // let (value, _) = varint::decode_u32(&chunk_bytes).unwrap();
                     // dbg!(value);
                     // parse_chunk(&chunk_bytes)?;
-                    Self::read_chunk(&chunk_bytes, cg, &mut ops)?;
+                    Self::read_chunk(&chunk_bytes, &mut ops, &mut read_map, cg)?;
 
                     pos += chunk_total_len;
                 }
@@ -113,20 +186,24 @@ impl WriteAheadLog {
                     // invalid data.
                     f.seek(SeekFrom::Start(pos))?;
 
-                    // Truncating the file is not strictly necessary for correctness, but it means
-                    // the database will not error when we reload.
+                    // Truncating the file is not strictly necessary for correctness, but its
+                    // cleaner, and it means the database will not error when we reload.
                     f.set_len(pos)?;
-                    return Ok((f, ops));
+                    break f;
                 }
                 Err(err) => {
                     // Other errors are non-recoverable.
                     return Err(err)
                 }
             }
-        }
+        };
 
         debug_assert_eq!(pos, total_len);
-        Ok((r.into_inner(), ops))
+        Ok((Self {
+            file,
+            write_map: WriteMap::from_dec(&cg.client_data, read_map),
+            next_version: 0 // TODO!
+        }, ops))
     }
 
     fn consume_chunk(r: &mut BufReader<File>, remaining_len: u64) -> Result<(u64, Vec<u8>), WALError> {
@@ -199,13 +276,6 @@ impl WriteAheadLog {
         Ok(())
     }
 
-
-    fn read_chunk(bytes: &[u8], cg: &mut CausalGraph, into: &mut Ops) -> Result<(), WALError> {
-        dbg!(bytes.len());
-
-        Ok(())
-    }
-
     pub fn flush(&mut self, cg: &CausalGraph, ops: &Ops) -> Result<(), WALError> {
         let next = cg.len();
 
@@ -224,36 +294,20 @@ impl WriteAheadLog {
         self.write_chunk(|bump, buf| {
             let start = buf.len();
 
-            let mut map = AgentMappingEnc::new(&cg.client_data);
+            let mut write_map = WriteMap::with_capacity_from(&cg.client_data);
 
-            let iter = cg.client_with_localtime
-                .iter_range_packed(range)
-                .map(|KVPair(_, span)| span);
-            let aa = encode_agent_assignment(bump, iter, &cg.client_data, &mut map);
+            let iter = cg.iter_range(range);
+            let cg_data = write_cg_entry_iter(bump, iter, &mut write_map, cg);
 
-            let hist_iter = cg.parents.iter_range(range);
-            let parents = encode_parents(bump, hist_iter, &mut map, &cg);
+            let ops_iter = ops.ops.iter_range_packed_ctx(range, &ops.list_ctx);
+            let ops = write_ops(bump, ops_iter, range.start, &write_map, &ops.list_ctx, cg);
+            dbg!(&ops);
 
+            push_chunk(buf, ChunkType::CausalGraph, &cg_data);
+            push_chunk(buf, ChunkType::Operations, &ops);
 
-            // let first_set_idx = oplog.register_set_operations
-            //     .binary_search_by_key(&self.next_version, |e| e.0)
-            //     .unwrap_or_else(|idx| idx);
-            //
-            // let op_contents = if first_set_idx < oplog.register_set_operations.len() {
-            //     let iter = oplog.register_set_operations[first_set_idx..]
-            //         .iter()
-            //         .map(|(_, value)| value);
-            //     Some(encode_op_contents(bump, iter, oplog))
-            // } else { None };
-
-            // push_chunk(buf, ChunkType::AgentNames, &map.into_output());
-            push_chunk(buf, ChunkType::OpVersions, &aa);
-            push_chunk(buf, ChunkType::OpParents, &parents);
-            // if let Some(op_contents) = op_contents {
-            //     push_chunk(buf, ChunkType::SetContent, &op_contents);
-            // }
-            dbg!(&buf[start..]);
-            dbg!(buf.len() - start);
+            // dbg!(&buf[start..]);
+            // dbg!(buf.len() - start);
 
             Ok(())
         })?;
@@ -261,12 +315,28 @@ impl WriteAheadLog {
         self.next_version = next;
         Ok(())
     }
+
+    fn read_chunk(bytes: &[u8], ops: &mut Ops, read_map: &mut ReadMap, cg: &mut CausalGraph) -> Result<(), WALError> {
+        dbg!(bytes.len());
+
+        let mut reader = ChunkReader(BufParser(bytes));
+        let mut cg_chunk = reader.expect_chunk(ChunkType::CausalGraph)?;
+
+        while !cg_chunk.is_empty() {
+            read_cg_entry_into_cg(&mut cg_chunk, true, cg, read_map)?;
+
+        }
+
+        let ops_chunk = reader.expect_chunk(ChunkType::Operations)?;
+
+        Ok(())
+    }
 }
 
 
 #[cfg(test)]
 mod test {
-    use crate::{CausalGraph, KVPair, Op, OpContents, OpLog, Ops, OpValue, Primitive, WriteAheadLog};
+    use crate::{CausalGraph, CRDTKind, KVPair, Op, OpContents, OpLog, Ops, OpValue, Primitive, SetOp, WriteAheadLog};
     use crate::oplog::ROOT_MAP;
 
     #[test]
@@ -283,14 +353,32 @@ mod test {
         let seph = cg.get_or_create_agent_id("seph");
         let mike = cg.get_or_create_agent_id("mike");
 
-        let span = cg.assign_op(&[], seph, 1);
+        let mut span = cg.assign_op(&[], seph, 1);
         ops.ops.push(KVPair(span.start, Op {
             crdt_id: ROOT_MAP,
             contents: OpContents::MapSet("hi".into(), OpValue::Primitive(Primitive::I64(123)))
         }));
+        span = cg.assign_op(&[span.last()], seph, 1);
+        ops.ops.push(KVPair(span.start, Op {
+            crdt_id: ROOT_MAP,
+            contents: OpContents::MapSet("cool set".into(), OpValue::NewCRDT(CRDTKind::Set))
+        }));
+
+        let set = span.start;
+        span = cg.assign_op(&[span.last()], seph, 1);
+        ops.ops.push(KVPair(span.start, Op {
+            crdt_id: ROOT_MAP,
+            contents: OpContents::Set(SetOp::Insert(CRDTKind::LWW))
+        }));
 
         wal.flush(&cg, &ops).unwrap();
         dbg!(&wal);
+
+
+        drop(wal);
+        let mut cg = CausalGraph::new();
+        let (mut wal, mut ops) = WriteAheadLog::open("test.wal", &mut cg).unwrap();
+
 
         // let mut v = 0;
         //

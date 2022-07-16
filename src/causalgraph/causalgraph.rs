@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use rle::{HasLength, Searchable};
+use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 use rle::zip::rle_zip;
 use crate::{AgentId, CausalGraph, ROOT_AGENT, ROOT_TIME, Time};
 use crate::causalgraph::*;
@@ -31,14 +31,18 @@ impl ClientData {
         self.try_seq_to_time(seq).unwrap()
     }
 
-    // /// Note the returned timespan might be shorter than seq_range.
-    // pub fn try_seq_to_time_span(&self, seq_range: TimeSpan) -> Option<TimeSpan> {
-    //     let (KVPair(_, entry), offset) = self.item_orders.find_with_offset(seq_range.start)?;
-    //
-    //     let start = entry.start + offset;
-    //     let end = usize::min(entry.end, start + seq_range.len());
-    //     Some(TimeSpan { start, end })
-    // }
+    /// Note the returned timespan might be shorter than seq_range.
+    pub fn try_seq_to_time_span(&self, seq_range: DTRange) -> Option<DTRange> {
+        let (KVPair(_, entry), offset) = self.item_times.find_with_offset(seq_range.start)?;
+
+        let start = entry.start + offset;
+        let end = usize::min(entry.end, start + seq_range.len());
+        Some(DTRange { start, end })
+    }
+
+    pub fn seq_to_time_span(&self, seq_range: DTRange) -> DTRange {
+        self.try_seq_to_time_span(seq_range).unwrap()
+    }
 }
 
 impl CausalGraph {
@@ -123,30 +127,8 @@ impl CausalGraph {
         assert_eq!(self.len_assignment(), self.len_history());
     }
 
-    pub(crate) fn assign_times_to_agent(&mut self, span: CRDTSpan) -> DTRange {
-        let time_start = self.len_assignment();
-        let client_data = &mut self.client_data[span.agent as usize];
-
-        // Make sure the time isn't already assigned. I probably only need this in debug mode?
-        let (x, _offset) = client_data.item_times.find_sparse(span.seq_range.start);
-        if let Err(range) = x {
-            assert!(range.end >= span.seq_range.end, "Time range already assigned");
-        } else {
-            panic!("Time range already assigned");
-        }
-
-        let time_span = (time_start .. time_start + span.len()).into();
-
-        // Almost always appending to the end but its possible for the same agent ID to be used on
-        // two concurrent branches, then transmitted in a different order.
-        client_data.item_times.insert(KVPair(span.seq_range.start, time_span));
-        self.client_with_localtime.push(KVPair(time_start, span));
-
-        time_span
-    }
-
     /// span is the local timespan we're assigning to the named agent.
-    pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
+    fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
         debug_assert_eq!(span.start, self.len());
 
         let client_data = &mut self.client_data[agent as usize];
@@ -167,9 +149,110 @@ impl CausalGraph {
         let span = (start .. start + num).into();
 
         self.assign_next_time_to_client_known(agent, span);
-        self.parents.insert(parents, span);
+        self.parents.push(parents, span);
 
         span
+    }
+
+    /// An alternate variant of merge_and_assign which is slightly faster, but will panic if the
+    /// specified span is already included in the causal graph.
+    pub(crate) fn merge_and_assign_nonoverlapping(&mut self, parents: &[Time], span: CRDTSpan) -> DTRange {
+        let time_start = self.len();
+
+        // Agent ID must have already been assigned.
+        let client_data = &mut self.client_data[span.agent as usize];
+
+        // Make sure the time isn't already assigned. Can I elide this check in release mode?
+        // Note I only need to check the start of the seq_range.
+        let (x, _offset) = client_data.item_times.find_sparse(span.seq_range.start);
+        if let Err(range) = x {
+            assert!(range.end >= span.seq_range.end, "Time range already assigned");
+        } else {
+            panic!("Time range already assigned");
+        }
+
+        let time_span = (time_start .. time_start + span.len()).into();
+
+        // Almost always appending to the end but its possible for the same agent ID to be used on
+        // two concurrent branches, then transmitted in a different order.
+        client_data.item_times.insert(KVPair(span.seq_range.start, time_span));
+        self.client_with_localtime.push(KVPair(time_start, span));
+        self.parents.push(parents, time_span);
+        time_span
+    }
+
+    /// This method merges the specified entry into the causal graph. The incoming data might
+    /// already be known by the causal graph.
+    ///
+    /// This takes a CGEntry rather than a CRDTSpan because that makes the overlap calculations much
+    /// easier (its constant time rather than needing to loop, because subsequent ops in the region)
+    /// all depend on the first).
+    ///
+    /// Method returns the
+    pub(crate) fn merge_and_assign(&mut self, mut parents: &[Time], mut span: CRDTSpan) -> DTRange {
+        let time_start = self.len();
+
+        // The agent ID must already be assigned.
+        let client_data = &mut self.client_data[span.agent as usize];
+
+        // We're looking to see how much we can assign, which is the (backwards) size of the empty
+        // span from the last item.
+
+        // This is quite subtle. There's 3 cases here:
+        // 1. The new span is entirely known in the causal graph. Discard it.
+        // 2. The new span is entirely unknown in the causal graph. This is the most likely case.
+        //    Append all of it.
+        // 3. There's some overlap. The overlap must be at the start of the entry, because all of
+        //    each item's parents must be known.
+
+        match client_data.item_times.find_index(span.seq_range.last()) {
+            Ok(idx) => {
+                // If we know the last ID, the entire entry is known. Case 1 - discard and return.
+                (time_start..time_start).into()
+            }
+            Err(idx) => {
+                // idx is the index where the item could be inserted to maintain order.
+                if idx >= 1 { // if idx == 0, there's no overlap anyway.
+                    let prev_entry = &mut client_data.item_times.0[idx - 1];
+                    let previous_end = prev_entry.end();
+
+                    if previous_end >= span.seq_range.start {
+                        // In this case we need to trim the incoming edit and insert it. But we
+                        // already have the previous edit. We need to extend it.
+                        let actual_len = span.seq_range.end - previous_end;
+                        let time_span: DTRange = (time_start..time_start + actual_len).into();
+                        let new_entry = KVPair(previous_end, time_span);
+
+                        self.client_with_localtime.push(KVPair(time_start, CRDTSpan {
+                            agent: span.agent,
+                            seq_range: (prev_entry.end()..span.seq_range.end).into()
+                        }));
+
+                        if previous_end > span.seq_range.start {
+                            // Case 3 - there's some overlap.
+                            self.parents.push(&[prev_entry.1.last()], time_span);
+                        } else {
+                            self.parents.push(parents, time_span);
+                        }
+
+                        if prev_entry.can_append(&new_entry) {
+                            prev_entry.append(new_entry);
+                        } else {
+                            client_data.item_times.0.insert(idx, new_entry);
+                        }
+
+                        return time_span;
+                    }
+                }
+
+                // We know it can't combine with the previous element.
+                let time_span = (time_start..time_start + span.len()).into();
+                client_data.item_times.0.insert(idx, KVPair(span.seq_range.start, time_span));
+                self.client_with_localtime.push(KVPair(time_start, span));
+                self.parents.push(parents, time_span);
+                time_span
+            }
+        }
     }
 
     /// This is used to break ties.

@@ -30,16 +30,15 @@ use std::io::{BufWriter, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use bumpalo::Bump;
 use rle::{HasLength, MergableSpan};
-use crate::encoding::agent_assignment::{AgentMappingDec, AgentMappingEnc};
 use crate::encoding::bufparser::BufParser;
-use crate::encoding::parents::TxnMap;
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::{calc_checksum, push_u64, push_usize};
 use crate::encoding::varint::{decode_usize, encode_usize};
 use crate::{CausalGraph, DTRange, Time};
 use bumpalo::collections::vec::Vec as BumpVec;
 use crate::causalgraph::entry::CGEntry;
-use crate::encoding::cg_entry::{read_cg_entry, write_cg_entry};
+use crate::encoding::cg_entry::{read_cg_entry_into_cg, read_cg_entry_into_cg_nonoverlapping, write_cg_entry};
+use crate::encoding::map::{WriteMap, ReadMap};
 
 
 const CG_MAGIC_BYTES: [u8; 8] = *b"DMNDT_CG";
@@ -141,8 +140,7 @@ pub(crate) struct CGStorage {
 
     entry: CGEntry,
 
-    txn_map: TxnMap,
-    agent_map: AgentMappingEnc,
+    write_map: WriteMap,
 
     next_flush_time: Time,
 }
@@ -172,8 +170,7 @@ impl CGStorage {
             dirty_blit: false,
             next_blit: false,
             entry: Default::default(),
-            txn_map: Default::default(),
-            agent_map: AgentMappingEnc::new(&cg.client_data),
+            write_map: WriteMap::with_capacity_from(&cg.client_data),
             next_flush_time: 0,
         };
 
@@ -209,20 +206,16 @@ impl CGStorage {
         // dbg!(&buf);
 
         let mut r = BufParser(&buf);
-        let mut dec = AgentMappingDec::new();
+        let mut read_map = ReadMap::new();
+        // let mut next_pos
         while !r.is_empty() {
-            Self::read_run(&mut r, &mut cg, &mut dec)?;
+            read_cg_entry_into_cg(&mut r, true, &mut cg, &mut read_map)?;
         }
-        cgs.agent_map.populate_from_dec(&dec);
+        cgs.write_map.populate_from_dec(&read_map);
 
         if !active_blit.data.is_empty() {
             let mut reader = BufParser(active_blit.data);
-            let next_time = cg.len_history();
-            let id_p = read_cg_entry(&mut reader, false, &mut cg, next_time, &mut dec)?;
-            if !id_p.is_empty() {
-                cg.parents.insert(&id_p.parents, id_p.time_span());
-                cg.assign_times_to_agent(id_p.span);
-            }
+            let id_p = read_cg_entry_into_cg_nonoverlapping(&mut reader, false, &mut cg, &mut read_map)?;
             cgs.entry = id_p;
 
             // dbg!(&cgs.last_parents, &cgs.assigned_to);
@@ -420,17 +413,8 @@ impl CGStorage {
         Ok(blitsize)
     }
 
-    fn read_run(reader: &mut BufParser, into_cg: &mut CausalGraph, dec: &mut AgentMappingDec) -> Result<(), CGError> {
-        let next_time = into_cg.len_history(); // TODO: Cache this while reading.
-        let entry = read_cg_entry(reader, true, into_cg, next_time, dec)?;
-        into_cg.parents.insert(&entry.parents, entry.time_span());
-        into_cg.assign_times_to_agent(entry.span);
-
-        Ok(())
-    }
-
     fn encode_last_entry(&mut self, buf: &mut BumpVec<u8>, persist: bool, cg: &CausalGraph) {
-        write_cg_entry(buf, &self.entry, &mut self.txn_map, &mut self.agent_map, persist, &cg);
+        write_cg_entry(buf, &self.entry, &mut self.write_map, persist, &cg);
     }
 
     pub(crate) fn push_entry_no_sync(&mut self, bump: &Bump, entry: CGEntry, cg: &CausalGraph) -> Result<bool, CGError> {
@@ -548,6 +532,7 @@ mod test {
         let (cg2, _) = CGStorage::open("test.cg").unwrap();
         // dbg!((cg, cg2));
         assert_eq!(cg, cg2);
+        cg2.dbg_check(true);
     }
 
     #[test]
@@ -575,5 +560,6 @@ mod test {
         // dbg!(cg2);
 
         assert_eq!(cg, cg2);
+        cg2.dbg_check(true);
     }
 }

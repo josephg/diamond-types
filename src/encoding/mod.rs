@@ -1,6 +1,3 @@
-#![allow(unused)]
-#![allow(unused_imports)]
-
 use std::marker::PhantomData;
 use std::mem::replace;
 use rle::MergableSpan;
@@ -21,6 +18,9 @@ pub(crate) mod tools;
 pub(crate) mod parents;
 pub(crate) mod op_contents;
 pub(crate) mod cg_entry;
+pub(crate) mod op;
+pub(crate) mod chunk_reader;
+pub(crate) mod map;
 // mod agent_assignment;
 
 
@@ -32,7 +32,7 @@ pub(crate) enum ChunkType {
 
     /// FileInfo contains optional UserData and AgentNames.
     FileInfo = 1,
-    DocId = 2,
+    DbId = 2,
     // AgentNames = 3,
     UserData = 4,
 
@@ -47,16 +47,15 @@ pub(crate) enum ChunkType {
     SetContent = 15,
     SetContentCompressed = 16,
 
-    Patches = 20,
-    OpVersions = 21,
-    OpTypeAndPosition = 22,
-    OpParents = 23,
+    CausalGraph = 21,
+    Operations = 20,
+    // OpTypeAndPosition = 22,
 
-    PatchContent = 24,
-    /// ContentKnown is a RLE expressing which ranges of patches have known content
-    ContentIsKnown = 25,
+    // PatchContent = 24,
+    // /// ContentKnown is a RLE expressing which ranges of patches have known content
+    // ContentIsKnown = 25,
 
-    TransformedPositions = 27, // Currently unused
+    // TransformedPositions = 27, // Currently unused
 
     // Crc = 100,
 }
@@ -120,6 +119,11 @@ impl<S: MergableSpan, F: FnMut(S, &mut Ctx), Ctx> Drop for Merger<S, F, Ctx> {
     }
 }
 
+// #[derive(Debug, Clone)]
+// struct EncodingContext {
+//     agent_map: AgentMappingEnc,
+//     txn_map: TxnMap,
+// }
 
 
 

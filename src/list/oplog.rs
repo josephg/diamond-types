@@ -153,18 +153,19 @@ impl ListOpLog {
         let CRDTSpan { agent, seq_range } = span;
         let client_data = &mut self.cg.client_data[agent as usize];
 
-        let next_seq = client_data.get_next_seq();
+        // let next_seq = client_data.get_next_seq();
         let timespan = (start..start + span.len()).into();
 
-        // Could just optimize .insert() to efficiently handle both of these cases.
-        if next_seq <= seq_range.start {
-            // 99.9% of the time we'll hit this case. Its really rare for seq numbers to go
-            // backwards, but its possible for malicious clients to do it and introduce N^2
-            // behaviour.
-            client_data.item_times.push(KVPair(seq_range.start, timespan));
-        } else {
-            client_data.item_times.insert(KVPair(seq_range.start, timespan));
-        }
+        // // Could just optimize .insert() to efficiently handle both of these cases.
+        // if next_seq <= seq_range.start {
+        //     // 99.9% of the time we'll hit this case. Its really rare for seq numbers to go
+        //     // backwards, but its possible for malicious clients to do it and introduce N^2
+        //     // behaviour.
+        //     client_data.item_times.push(KVPair(seq_range.start, timespan));
+        // } else {
+        //     client_data.item_times.insert(KVPair(seq_range.start, timespan));
+        // }
+        client_data.item_times.insert(KVPair(seq_range.start, timespan));
 
         self.cg.client_with_localtime.push(KVPair(start, span));
     }
@@ -215,7 +216,7 @@ impl ListOpLog {
 
     fn assign_internal(&mut self, agent: AgentId, parents: &[Time], span: DTRange) {
         self.assign_next_time_to_client_known(agent, span);
-        self.cg.parents.insert(parents, span);
+        self.cg.parents.push(parents, span);
         self.advance_frontier(parents, span);
     }
 

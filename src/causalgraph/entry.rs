@@ -1,4 +1,5 @@
-use rle::{HasLength, MergableSpan};
+use smallvec::smallvec;
+use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
 use crate::{CRDTSpan, DTRange, LocalVersion, Time};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -53,5 +54,20 @@ impl CGEntry {
 
     pub fn clear(&mut self) {
         self.span.seq_range.clear()
+    }
+}
+
+impl SplitableSpanCtx for CGEntry {
+    type Ctx = ();
+
+    #[inline]
+    fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+        let other_span = self.span.truncate(at);
+
+        Self {
+            start: self.start + at,
+            parents: smallvec![self.start + at - 1],
+            span: other_span
+        }
     }
 }

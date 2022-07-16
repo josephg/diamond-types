@@ -52,10 +52,10 @@ impl Parents {
         } else { 0 }
     }
 
-    /// Insert a new history entry for the specified range of vesrsions, and the named parents.
+    /// Insert a new history entry for the specified range of versions, and the named parents.
     ///
     /// This method will try to extend the last entry if it can.
-    pub(crate) fn insert(&mut self, txn_parents: &[Time], range: DTRange) {
+    pub(crate) fn push(&mut self, txn_parents: &[Time], range: DTRange) {
         // dbg!(txn_parents, range, &self.history.entries);
         // Fast path. The code below is weirdly slow, but most txns just append.
         if let Some(last) = self.entries.0.last_mut() {

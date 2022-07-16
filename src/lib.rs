@@ -194,6 +194,8 @@ use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 use crate::wal::WriteAheadLog;
+use num_enum::TryFromPrimitive;
+
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
 
 pub mod list;
@@ -246,10 +248,11 @@ pub enum SnapshotValue {
     // Ref(Time),
 }
 
+// #[derive(Debug, Eq, PartialEq, Copy, Clone, TryFromPrimitive)]
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
+// #[repr(u16)]
 pub enum CRDTKind {
-    Map, Set, LWW,
-    Text,
+    Map, LWW, Set, Text,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

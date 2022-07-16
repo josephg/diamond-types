@@ -1,5 +1,5 @@
-use rle::{HasLength, MergableSpan};
-use crate::{Op, OpContents};
+use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
+use crate::{CRDTKind, ListOperationCtx, Op, OpContents};
 
 impl HasLength for OpContents {
     fn len(&self) -> usize {
@@ -26,6 +26,33 @@ impl MergableSpan for OpContents {
     }
 }
 
+impl SplitableSpanCtx for OpContents {
+    type Ctx = ListOperationCtx;
+
+    fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+        match self {
+            OpContents::Text(metrics) => {
+                let remainder = metrics.truncate_ctx(at, ctx);
+                OpContents::Text(remainder)
+            }
+            _ => {
+                panic!("Cannot truncate op");
+            }
+        }
+    }
+}
+
+impl OpContents {
+    pub fn kind(&self) -> CRDTKind {
+        match self {
+            OpContents::RegisterSet(_) => CRDTKind::LWW,
+            OpContents::MapSet(_, _) => CRDTKind::Map,
+            OpContents::Set(_) => CRDTKind::Set,
+            OpContents::Text(_) => CRDTKind::Text,
+        }
+    }
+}
+
 impl HasLength for Op {
     fn len(&self) -> usize { self.contents.len() }
 }
@@ -37,5 +64,17 @@ impl MergableSpan for Op {
 
     fn append(&mut self, other: Self) {
         self.contents.append(other.contents)
+    }
+}
+
+impl SplitableSpanCtx for Op {
+    type Ctx = ListOperationCtx;
+
+    fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+        let remainder = self.contents.truncate_ctx(at, ctx);
+        Self {
+            crdt_id: self.crdt_id,
+            contents: remainder
+        }
     }
 }

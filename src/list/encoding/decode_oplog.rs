@@ -900,7 +900,7 @@ impl ListOpLog {
                             mapped.truncate_keeping_right(next_history_time - mapped.span.start);
                         }
 
-                        self.cg.parents.insert(&mapped.parents, mapped.span);
+                        self.cg.parents.push(&mapped.parents, mapped.span);
                         self.advance_frontier(&mapped.parents, mapped.span);
 
                         next_history_time += mapped.len();

@@ -5,41 +5,39 @@ use crate::encoding::varint::*;
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::remotespan::CRDTGuid;
 use crate::{AgentId, CausalGraph, DTRange, KVPair, LocalVersion, OpLog, RleVec, Time};
-use crate::encoding::agent_assignment::{AgentStrToId, AgentMappingDec, AgentMappingEnc};
 use crate::encoding::Merger;
 use bumpalo::collections::vec::Vec as BumpVec;
 use smallvec::SmallVec;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::parseerror::ParseError;
+use crate::encoding::map::{WriteMap, ReadMap};
 use crate::frontier::clean_version;
 
-/// Map from local oplog versions -> file versions. Each entry is KVPair(local start, file range).
-pub(crate) type TxnMap = RleVec<KVPair<DTRange>>;
 
-pub(crate) fn write_txn_entry(result: &mut BumpVec<u8>, tag: Option<bool>, txn: &ParentsEntrySimple,
-                              txn_map: &mut TxnMap, agent_map: &mut AgentMappingEnc, persist: bool, cg: &CausalGraph,
-) {
-    // dbg!(txn);
-    let len = txn.len();
+// pub(crate) fn write_txn_entry(result: &mut BumpVec<u8>, tag: Option<bool>, txn: &ParentsEntrySimple,
+//                               txn_map: &mut TxnMap, agent_map: &mut AgentMappingEnc, persist: bool, cg: &CausalGraph,
+// ) {
+//     // dbg!(txn);
+//     let len = txn.len();
+//
+//     let next_output_time = txn_map.last().map_or(0, |last| last.1.end);
+//     let output_range = (next_output_time .. next_output_time + len).into();
+//
+//     let len_written = if let Some(tag) = tag {
+//         mix_bit_usize(len, tag)
+//     } else { len };
+//     push_usize(result, len_written);
+//
+//     // NOTE: we're using .insert instead of .push here so the txn_map stays in the expected order!
+//     if persist {
+//         txn_map.insert(KVPair(txn.span.start, output_range));
+//     }
+//     // txn_map.push(KVPair(txn.span.start, output_range));
+//
+//     write_parents_raw(result, &txn.parents, next_output_time, persist, agent_map, txn_map, cg)
+// }
 
-    let next_output_time = txn_map.last().map_or(0, |last| last.1.end);
-    let output_range = (next_output_time .. next_output_time + len).into();
-
-    let len_written = if let Some(tag) = tag {
-        mix_bit_usize(len, tag)
-    } else { len };
-    push_usize(result, len_written);
-
-    // NOTE: we're using .insert instead of .push here so the txn_map stays in the expected order!
-    if persist {
-        txn_map.insert(KVPair(txn.span.start, output_range));
-    }
-    // txn_map.push(KVPair(txn.span.start, output_range));
-
-    write_parents_raw(result, &txn.parents, next_output_time, persist, agent_map, txn_map, cg)
-}
-
-pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[Time], next_output_time: Time, persist: bool, agent_map: &mut AgentMappingEnc, txn_map: &mut TxnMap, cg: &CausalGraph) {
+pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[Time], next_output_time: Time, persist: bool, write_map: &mut WriteMap, cg: &CausalGraph) {
     // And the parents.
     if parents.is_empty() {
         // Parenting off the root is special-cased, because its rare in practice (well,
@@ -56,6 +54,8 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[Time], next
         while let Some(&p) = iter.next() {
             let has_more = iter.peek().is_some();
 
+            // TODO: Rewrite to share write_time from op encoding.
+
             let mut write_parent_diff = |mut n: usize, is_foreign: bool, is_known: bool| {
                 n = mix_bit_usize(n, has_more);
                 if is_foreign {
@@ -71,7 +71,7 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[Time], next
             //
             // Most parents will be local.
 
-            if let Some((map, offset)) = txn_map.find_with_offset(p) {
+            if let Some((map, offset)) = write_map.txn_map.find_with_offset(p) {
                 // Local change!
                 // TODO: There's a sort of bug here. Local parents should (probably?) be sorted
                 // in the file, but this mapping doesn't guarantee that. Currently I'm
@@ -85,14 +85,12 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[Time], next
                 // println!("Region does not contain parent for {}", p);
 
                 let item = cg.version_to_crdt_id(p);
-                let mapped_agent = agent_map.map_maybe_root(&cg.client_data, item.agent, persist);
+                let mapped_agent = write_map.map_maybe_root_mut(&cg.client_data, item.agent, persist);
 
                 // There are probably more compact ways to do this, but the txn data set is
                 // usually quite small anyway, even in large histories. And most parents objects
                 // will be in the set anyway. So I'm not too concerned about a few extra bytes
                 // here.
-                //
-                // I'm adding 1 to the mapped agent to make room for ROOT. This is quite dirty!
                 match mapped_agent {
                     Ok(mapped_agent) => {
                         // If the parent is ROOT, the parents is empty - which is handled above.
@@ -110,23 +108,23 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[Time], next
     }
 }
 
-pub fn encode_parents<'a, I: Iterator<Item=ParentsEntrySimple>>(bump: &'a Bump, iter: I, map: &mut AgentMappingEnc, cg: &CausalGraph) -> BumpVec<'a, u8> {
-    let mut txn_map = TxnMap::new();
-    let mut next_output_time = 0;
-    let mut result = BumpVec::new_in(bump);
-
-    Merger::new(|txn: ParentsEntrySimple, map: &mut AgentMappingEnc| {
-        // next_output_time,
-        write_txn_entry(&mut result, None, &txn, &mut txn_map, map, true, cg);
-        next_output_time += txn.len();
-    }).flush_iter2(iter, map);
-
-    result
-}
+// pub fn encode_parents<'a, I: Iterator<Item=ParentsEntrySimple>>(bump: &'a Bump, iter: I, map: &mut AgentMappingEnc, cg: &CausalGraph) -> BumpVec<'a, u8> {
+//     let mut txn_map = TxnMap::new();
+//     let mut next_output_time = 0;
+//     let mut result = BumpVec::new_in(bump);
+//
+//     Merger::new(|txn: ParentsEntrySimple, map: &mut AgentMappingEnc| {
+//         // next_output_time,
+//         write_txn_entry(&mut result, None, &txn, &mut txn_map, map, true, cg);
+//         next_output_time += txn.len();
+//     }).flush_iter2(iter, map);
+//
+//     result
+// }
 
 // *** Read path ***
 
-pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: Time, agent_map: &mut AgentMappingDec) -> Result<LocalVersion, ParseError> {
+pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: Time, read_map: &mut ReadMap) -> Result<LocalVersion, ParseError> {
     let mut parents = SmallVec::<[usize; 2]>::new();
 
     loop {
@@ -151,14 +149,16 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
 
             // TODO: Do we need to do any txn mapping or anything like that here?? Doing this naked
             // is weird.
-            next_time - diff
+            let file_time = next_time - diff;
+            let (entry, offset) = read_map.txn_map.find_with_offset(file_time).unwrap();
+            entry.1.start + offset
         } else {
             let agent = if !is_known {
                 if n != 0 { return Err(ParseError::GenericInvalidData); }
                 let agent_name = reader.next_str()?;
                 let agent = cg.get_or_create_agent_id(agent_name);
                 if persist {
-                    agent_map.push((agent, 0));
+                    read_map.agent_map.push((agent, 0));
                 }
                 agent
             } else {
@@ -170,7 +170,7 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
                     if has_more { return Err(ParseError::GenericInvalidData); }
                     break;
                 } else {
-                    agent_map[mapped_agent - 1].0
+                    read_map.agent_map[mapped_agent - 1].0
                 }
             };
 
@@ -195,16 +195,16 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
     Ok(parents)
 }
 
-pub(crate) fn read_txn_entry(reader: &mut BufParser, tagged: bool, persist: bool, cg: &mut CausalGraph, next_time: Time, agent_map: &mut AgentMappingDec) -> Result<ParentsEntrySimple, ParseError> {
-    let mut len = reader.next_usize()?;
-    if tagged {
-        // Discard tag.
-        strip_bit_usize2(&mut len);
-    }
-    let parents = read_parents_raw(reader, persist, cg, next_time, agent_map)?;
-
-    Ok(ParentsEntrySimple {
-        span: (next_time..next_time + len).into(),
-        parents,
-    })
-}
+// pub(crate) fn read_txn_entry(reader: &mut BufParser, tagged: bool, persist: bool, cg: &mut CausalGraph, next_time: Time, read_map: &mut ReadMap) -> Result<ParentsEntrySimple, ParseError> {
+//     let mut len = reader.next_usize()?;
+//     if tagged {
+//         // Discard tag.
+//         strip_bit_usize2(&mut len);
+//     }
+//     let parents = read_parents_raw(reader, persist, cg, next_time, read_map)?;
+//
+//     Ok(ParentsEntrySimple {
+//         span: (next_time..next_time + len).into(),
+//         parents,
+//     })
+// }

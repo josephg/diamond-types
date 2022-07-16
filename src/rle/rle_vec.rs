@@ -202,10 +202,24 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         })
     }
 
+    pub fn contains_needle(&self, needle: usize) -> bool {
+        !self.is_empty() && self.find_index(needle).is_ok()
+    }
+
     /// Insert an item at this location in the RLE list. This method is O(n) as it needs to shift
     /// subsequent elements forward.
     #[allow(unused)]
     pub fn insert(&mut self, val: V) {
+        // The way insert is usually used, data *usually* gets appended to the end. We'll check that
+        // case first since its a useful optimization.
+        if self.last()
+            .map(|last| last.end() <= val.rle_key())
+            .unwrap_or(true)
+        {
+            self.push(val);
+            return;
+        }
+
         let idx = self.find_index(val.rle_key()).expect_err("Item already exists");
 
         // Extend the next / previous item if possible
