@@ -22,7 +22,7 @@ Internal: ${JSON.stringify(dt.toJSON(db!), null, 2)}
 }
 
 const connect = () => {
-  ws = new WebSocket('ws://localhost:3003/ws')
+  ws = new WebSocket('ws://' + window.location.host + window.location.pathname + 'ws')
   ws.onopen = (e) => {
     console.log('open', e)
   }
