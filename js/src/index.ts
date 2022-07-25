@@ -8,7 +8,7 @@ export type Version = [agent: string, seq: number]
 type Primitive = null | boolean | string | number | Primitive[] | {[k: string]: Primitive}
 
 type CreateValue = {type: 'primitive', val: Primitive}
-  | {type: 'crdt', crdtKind: 'map' | 'set'}
+  | {type: 'crdt', crdtKind: 'map' | 'set' | 'register'}
 
 type RegisterValue = {type: 'primitive', val: Primitive}
   | {type: 'crdt', id: Version}
@@ -23,6 +23,10 @@ type CRDTInfo = {
   type: 'set',
   values: Map2<string, number, RegisterValue>,
   activeValue: Map2<string, number, any>,
+} | {
+  type: 'register',
+  value: MVRegister,
+  activeValue: any,
 }
 
 interface DBState {
@@ -33,6 +37,7 @@ interface DBState {
 
 type Action =
 { type: 'map', key: string, localParents: Version[], val: CreateValue }
+| { type: 'registerSet', localParents: Version[], val: CreateValue }
 | { type: 'setInsert', val: CreateValue }
 | { type: 'setDelete', target: Version }
 
@@ -87,6 +92,11 @@ function removeRecursive(state: DBState, value: RegisterValue) {
         }
       }
       break
+    case 'register':
+      for (const [version, value] of crdt.value) {
+        removeRecursive(state, value)
+      }
+      break
     case 'set':
       for (const [agent, seq, value] of crdt.values) {
         removeRecursive(state, value)
@@ -96,6 +106,22 @@ function removeRecursive(state: DBState, value: RegisterValue) {
   }
 
   state.crdts.delete(value.id[0], value.id[1])
+}
+
+export function localRegisterSet(state: DBState, id: Version, regId: Version, val: CreateValue): Operation {
+  const crdt = state.crdts.get(regId[0], regId[1])
+  if (crdt == null || crdt.type !== 'register') throw Error('invalid CRDT')
+
+  const localParents = crdt.value.map(([version]) => version)
+  const op: Operation = {
+    id,
+    crdtId: regId,
+    globalParents: state.version,
+    action: { type: 'registerSet', localParents, val }
+  }
+  // TODO: Inline this?
+  applyRemoteOp(state, op)
+  return op
 }
 
 export function localMapInsert(state: DBState, id: Version, mapId: Version, key: string, val: CreateValue): Operation {
@@ -148,7 +174,9 @@ export function localSetDelete(state: DBState, id: Version, setId: Version, targ
 }
 
 
-function createCRDT(state: DBState, id: Version, type: 'map' | 'set'): any {
+const errExpr = (str: string): never => { throw Error(str) }
+
+function createCRDT(state: DBState, id: Version, type: 'map' | 'set' | 'register'): any {
   if (state.crdts.has(id[0], id[1])) {
     throw Error('CRDT already exists !?')
   }
@@ -157,14 +185,51 @@ function createCRDT(state: DBState, id: Version, type: 'map' | 'set'): any {
     type: "map",
     registers: {},
     activeValue: {}
-  } : {
+  } : type === 'register' ? {
+    type: 'register',
+    value: [],
+    activeValue: undefined,
+  } : type === 'set' ? {
     type: 'set',
     values: new Map2,
     activeValue: new Map2,
-  }
+  } : errExpr('Invalid CRDT type')
 
   state.crdts.set(id[0], id[1], crdtInfo)
   return crdtInfo.activeValue
+}
+
+function mergeRegister(state: DBState, oldPairs: MVRegister, localParents: Version[], newVersion: Version, newVal: CreateValue): [MVRegister, any] {
+  const newPairs: MVRegister = []
+  for (const [version, value] of oldPairs) {
+    // Each item is either retained or removed.
+    if (localParents.some(v2 => versionEq(version, v2))) {
+      // The item was named in parents. Remove it.
+      console.log('removing', value)
+      removeRecursive(state, value)
+    } else {
+      newPairs.push([version, value])
+    }
+  }
+
+  let newValue: RegisterValue
+  if (newVal.type === 'primitive') {
+    newValue = newVal
+  } else {
+    // Create it.
+    createCRDT(state, newVersion, newVal.crdtKind)
+    newValue = {type: "crdt", id: newVersion}
+  }
+
+  newPairs.push([newVersion, newValue])
+  newPairs.sort(([v1], [v2]) => versionCmp(v1, v2))
+
+  // When there's a tie, the active value is based on the order in pairs.
+  const activePair = newPairs[0][1]
+  const activeVal = (activePair.type === 'primitive') ? activePair.val
+    : state.crdts.get(activePair.id[0], activePair.id[1])!.activeValue
+
+  return [newPairs, activeVal]
 }
 
 export function applyRemoteOp(state: DBState, op: Operation) {
@@ -178,46 +243,25 @@ export function applyRemoteOp(state: DBState, op: Operation) {
 
   // Every map operation creates a new value, and removes 0-n other values.
   switch (op.action.type) {
-    case 'map':
+    case 'registerSet': {
+      if (crdt.type !== 'register') throw Error('Invalid operation type for target')
+      const [newPairs, activeVal] = mergeRegister(state, crdt.value, op.action.localParents, op.id, op.action.val)
+
+      crdt.value = newPairs
+      crdt.activeValue = activeVal
+      break
+    }
+    case 'map': {
       if (crdt.type !== 'map') throw Error('Invalid operation type for target')
 
       const oldPairs = crdt.registers[op.action.key] ?? []
-      const newPairs: MVRegister = []
-      for (const [version, value] of oldPairs) {
-        // Each item is either retained or removed.
-        if (op.action.localParents.some(v2 => versionEq(version, v2))) {
-          // The item was named in parents. Remove it.
-          console.log('removing', value)
-          removeRecursive(state, value)
-        } else {
-          newPairs.push([version, value])
-        }
-      }
-    
-      let newValue: RegisterValue
-      if (op.action.val.type === 'primitive') {
-        newValue = op.action.val
-      } else {
-        // Create it.
-        createCRDT(state, op.id, op.action.val.crdtKind)
-        newValue = {type: "crdt", id: op.id}
-      }
-    
-      newPairs.push([op.id, newValue])
-      newPairs.sort(([v1], [v2]) => versionCmp(v1, v2))
-    
-      // When there's a tie, the active value is based on the order in pairs.
-      const activeValue = newPairs[0][1]
-      if (activeValue.type === 'primitive') {
-        crdt.activeValue[op.action.key] = activeValue.val
-      } else {
-        crdt.activeValue[op.action.key] = state.crdts.get(activeValue.id[0], activeValue.id[1])!.activeValue
-      }
-    
+      const [newPairs, activeVal] = mergeRegister(state, oldPairs, op.action.localParents, op.id, op.action.val)
+
+      crdt.activeValue[op.action.key] = activeVal
       crdt.registers[op.action.key] = newPairs
       break
-
-    case 'setInsert': case 'setDelete': // Sets!
+    }
+    case 'setInsert': case 'setDelete': { // Sets!
       if (crdt.type !== 'set') throw Error('Invalid operation type for target')
 
       // Set operations are comparatively much simpler, because insert
@@ -243,8 +287,8 @@ export function applyRemoteOp(state: DBState, op: Operation) {
       }
 
       break
+    }
 
     default: throw Error('Invalid action type')
   }
-
 }
