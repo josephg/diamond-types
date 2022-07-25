@@ -3,10 +3,22 @@
   "version": "1.0.0",
   "main": "index.js",
   "license": "MIT",
+  "scripts": {
+    "build": "tsc && browserify dist/client.js -o public/bundle.js",
+    "start": "node dist/server.js"
+  },
   "dependencies": {
     "@types/node": "^18.6.0",
+    "@types/polka": "^0.5.4",
+    "@types/ws": "^8.5.3",
+    "body-parser": "^1.20.0",
+    "browserify": "^17.0.0",
     "map2": "^1.1.2",
+    "polka": "^0.5.2",
     "priorityqueuejs": "^2.0.0",
-    "typescript": "^4.7.4"
+    "sirv": "^2.0.2",
+    "typescript": "^4.7.4",
+    "watchify": "^4.0.0",
+    "ws": "^8.8.1"
   }
 }

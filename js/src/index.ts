@@ -31,7 +31,7 @@ type CRDTInfo = {
   value: MVRegister,
 }
 
-interface DBState {
+export interface DBState {
   version: Version[],
   crdts: Map2<string, number, CRDTInfo>
 }
@@ -200,7 +200,7 @@ function mergeRegister(state: DBState, oldPairs: MVRegister, localParents: Versi
     // Each item is either retained or removed.
     if (localParents.some(v2 => versionEq(version, v2))) {
       // The item was named in parents. Remove it.
-      console.log('removing', value)
+      // console.log('removing', value)
       removeRecursive(state, value)
     } else {
       newPairs.push([version, value])
@@ -322,4 +322,39 @@ export function get(state: DBState, crdtId: Version = ROOT): DBValue {
     }
     default: throw Error('Invalid CRDT type in DB')
   }
+}
+
+export function toJSON(state: DBState): Primitive {
+  return {
+    version: state.version,
+    crdts: Array.from(state.crdts.entries()).map(([agent, seq, crdtInfo]) => {
+      const info2: Primitive = crdtInfo.type === 'set' ? {
+        type: crdtInfo.type,
+        values: Array.from(crdtInfo.values)
+      } : {...crdtInfo}
+      return [agent, seq, info2]
+    })
+  }
+}
+
+export function fromJSON(jsonState: any): DBState {
+  return {
+    version: jsonState.version,
+    crdts: new Map2(jsonState.crdts.map(([agent, seq, info]: any) => {
+      const info2 = info.type === 'set'
+        ? {
+          type: info.type,
+          values: new Map2(info.values)
+        }
+        : info
+
+      return [agent, seq, info2]
+    }))
+  } as DBState
+}
+
+export const createAgent = () => {
+  const id = Math.random().toString(16).slice(2)
+  let seq = 0
+  return (): Version => ([id, seq++])
 }

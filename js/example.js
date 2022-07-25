@@ -36,3 +36,7 @@ dt.localSetInsert(db, ['seph', 4], innerSet.id, {type: 'crdt', crdtKind: 'map'})
 
 console.log('db', dt.get(db))
 console.log('db', db)
+
+
+assert.deepEqual(db, dt.fromJSON(dt.toJSON(db)))
+// console.log(JSON.stringify(dt.toJSON(db)))
