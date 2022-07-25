@@ -5,9 +5,14 @@ export const ROOT: Version = ['ROOT', 0]
 
 export type Version = [agent: string, seq: number]
 
-type Primitive = null | boolean | string | number | Primitive[] | {[k: string]: Primitive}
+export type Primitive = null
+  | boolean
+  | string
+  | number
+  | Primitive[]
+  | {[k: string]: Primitive}
 
-type CreateValue = {type: 'primitive', val: Primitive}
+export type CreateValue = {type: 'primitive', val: Primitive}
   | {type: 'crdt', crdtKind: 'map' | 'set' | 'register'}
 
 type RegisterValue = {type: 'primitive', val: Primitive}
@@ -18,30 +23,26 @@ type MVRegister = [Version, RegisterValue][]
 type CRDTInfo = {
   type: 'map',
   registers: {[k: string]: MVRegister},
-  activeValue: {[k: string]: any},
 } | {
   type: 'set',
   values: Map2<string, number, RegisterValue>,
-  activeValue: Map2<string, number, any>,
 } | {
   type: 'register',
   value: MVRegister,
-  activeValue: any,
 }
 
 interface DBState {
   version: Version[],
-  value: {[k: string]: any}, // Fixed at time of DB creation.
   crdts: Map2<string, number, CRDTInfo>
 }
 
-type Action =
+export type Action =
 { type: 'map', key: string, localParents: Version[], val: CreateValue }
 | { type: 'registerSet', localParents: Version[], val: CreateValue }
 | { type: 'setInsert', val: CreateValue }
 | { type: 'setDelete', target: Version }
 
-interface Operation {
+export interface Operation {
   id: Version,
   globalParents: Version[],
   crdtId: Version,
@@ -64,14 +65,12 @@ export const advanceFrontier = (frontier: Version[], version: Version, parents: 
 export function createDb(): DBState {
   const db: DBState = {
     version: [],
-    value: {},
     crdts: new Map2(),
   }
 
   db.crdts.set(ROOT[0], ROOT[1], {
     type: "map",
-    registers: {},
-    activeValue: db.value
+    registers: {}
   })
 
   return db
@@ -176,7 +175,7 @@ export function localSetDelete(state: DBState, id: Version, setId: Version, targ
 
 const errExpr = (str: string): never => { throw Error(str) }
 
-function createCRDT(state: DBState, id: Version, type: 'map' | 'set' | 'register'): any {
+function createCRDT(state: DBState, id: Version, type: 'map' | 'set' | 'register') {
   if (state.crdts.has(id[0], id[1])) {
     throw Error('CRDT already exists !?')
   }
@@ -184,22 +183,18 @@ function createCRDT(state: DBState, id: Version, type: 'map' | 'set' | 'register
   const crdtInfo: CRDTInfo = type === 'map' ? {
     type: "map",
     registers: {},
-    activeValue: {}
   } : type === 'register' ? {
     type: 'register',
     value: [],
-    activeValue: undefined,
   } : type === 'set' ? {
     type: 'set',
     values: new Map2,
-    activeValue: new Map2,
   } : errExpr('Invalid CRDT type')
 
   state.crdts.set(id[0], id[1], crdtInfo)
-  return crdtInfo.activeValue
 }
 
-function mergeRegister(state: DBState, oldPairs: MVRegister, localParents: Version[], newVersion: Version, newVal: CreateValue): [MVRegister, any] {
+function mergeRegister(state: DBState, oldPairs: MVRegister, localParents: Version[], newVersion: Version, newVal: CreateValue): MVRegister {
   const newPairs: MVRegister = []
   for (const [version, value] of oldPairs) {
     // Each item is either retained or removed.
@@ -224,12 +219,7 @@ function mergeRegister(state: DBState, oldPairs: MVRegister, localParents: Versi
   newPairs.push([newVersion, newValue])
   newPairs.sort(([v1], [v2]) => versionCmp(v1, v2))
 
-  // When there's a tie, the active value is based on the order in pairs.
-  const activePair = newPairs[0][1]
-  const activeVal = (activePair.type === 'primitive') ? activePair.val
-    : state.crdts.get(activePair.id[0], activePair.id[1])!.activeValue
-
-  return [newPairs, activeVal]
+  return newPairs
 }
 
 export function applyRemoteOp(state: DBState, op: Operation) {
@@ -245,19 +235,17 @@ export function applyRemoteOp(state: DBState, op: Operation) {
   switch (op.action.type) {
     case 'registerSet': {
       if (crdt.type !== 'register') throw Error('Invalid operation type for target')
-      const [newPairs, activeVal] = mergeRegister(state, crdt.value, op.action.localParents, op.id, op.action.val)
+      const newPairs = mergeRegister(state, crdt.value, op.action.localParents, op.id, op.action.val)
 
       crdt.value = newPairs
-      crdt.activeValue = activeVal
       break
     }
     case 'map': {
       if (crdt.type !== 'map') throw Error('Invalid operation type for target')
 
       const oldPairs = crdt.registers[op.action.key] ?? []
-      const [newPairs, activeVal] = mergeRegister(state, oldPairs, op.action.localParents, op.id, op.action.val)
+      const newPairs = mergeRegister(state, oldPairs, op.action.localParents, op.id, op.action.val)
 
-      crdt.activeValue[op.action.key] = activeVal
       crdt.registers[op.action.key] = newPairs
       break
     }
@@ -271,11 +259,9 @@ export function applyRemoteOp(state: DBState, op: Operation) {
       if (op.action.type == 'setInsert') {
         if (op.action.val.type === 'primitive') {
           crdt.values.set(op.id[0], op.id[1], op.action.val)
-          crdt.activeValue.set(op.id[0], op.id[1], op.action.val.val)
         } else {
           const activeValue = createCRDT(state, op.id, op.action.val.crdtKind)
           crdt.values.set(op.id[0], op.id[1], {type: "crdt", id: op.id})
-          crdt.activeValue.set(op.id[0], op.id[1], activeValue)
         }
       } else {
         // Delete!
@@ -290,5 +276,50 @@ export function applyRemoteOp(state: DBState, op: Operation) {
     }
 
     default: throw Error('Invalid action type')
+  }
+}
+
+export type DBValue = null
+  | boolean
+  | string
+  | number
+  | DBValue[]
+  | {[k: string]: DBValue} // Map
+  | Map2<string, number, DBValue> // Set.
+
+const registerToVal = (state: DBState, r: RegisterValue): DBValue => (
+  (r.type === 'primitive')
+    ? r.val
+    : get(state, r.id) // Recurse!
+)
+
+export function get(state: DBState, crdtId: Version = ROOT): DBValue {
+  const crdt = state.crdts.get(crdtId[0], crdtId[1])
+  if (crdt == null) { return null }
+
+  switch (crdt.type) {
+    case 'register': {
+      // When there's a tie, the active value is based on the order in pairs.
+      const activePair = crdt.value[0][1]
+      return registerToVal(state, activePair)
+    }
+    case 'map': {
+      const result: {[k: string]: DBValue} = {}
+      for (const k in crdt.registers) {
+        const activePair = crdt.registers[k][0][1]
+        result[k] = registerToVal(state, activePair)
+      }
+      return result
+    }
+    case 'set': {
+      const result = new Map2<string, number, DBValue>()
+
+      for (const [agent, seq, value] of crdt.values) {
+        result.set(agent, seq, registerToVal(state, value))
+      }
+
+      return result
+    }
+    default: throw Error('Invalid CRDT type in DB')
   }
 }
