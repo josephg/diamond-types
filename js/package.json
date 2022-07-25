@@ -1,0 +1,12 @@
+{
+  "name": "dt-js",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@types/node": "^18.6.0",
+    "map2": "^1.1.2",
+    "priorityqueuejs": "^2.0.0",
+    "typescript": "^4.7.4"
+  }
+}
