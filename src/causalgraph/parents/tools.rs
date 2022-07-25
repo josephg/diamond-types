@@ -56,6 +56,26 @@ impl Parents {
             || (a != ROOT_TIME && a > b && self.entries.find(a).unwrap().contains(b))
     }
 
+    pub(crate) fn version_cmp(&self, v1: Time, v2: Time) -> Option<Ordering> {
+        match v1.cmp(&v2) {
+            Ordering::Equal => Some(Ordering::Equal),
+            Ordering::Less => {
+                if self.version_contains_time(&[v2], v1) {
+                    Some(Ordering::Less)
+                } else {
+                    None
+                }
+            },
+            Ordering::Greater => {
+                if self.version_contains_time(&[v1], v2) {
+                    Some(Ordering::Greater)
+                } else {
+                    None
+                }
+            },
+        }
+    }
+
     /// Calculates whether the specified version contains (dominates) the specified time.
     pub(crate) fn version_contains_time(&self, frontier: &[Time], target: Time) -> bool {
         if target == ROOT_TIME || frontier.contains(&target) { return true; }
@@ -935,7 +955,7 @@ pub mod test {
         };
 
         assert_diff_eq(&history, &[4], &[5], &[], &[(5..6).into(), (0..3).into()]);
-        assert_diff_eq(&history, &[4], &[], &[(3..5).into()], &[]);
+            assert_diff_eq(&history, &[4], &[], &[(3..5).into()], &[]);
     }
 
     #[test]

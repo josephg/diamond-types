@@ -35,6 +35,7 @@ impl ReadMap {
             .last()
             .map(|e| e.end())
             .unwrap_or(0)
+            // .unwrap_or(4000) // For testing.
     }
 }
 
