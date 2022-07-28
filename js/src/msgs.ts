@@ -1,4 +1,4 @@
-import { Operation, Primitive } from "./index.js"
+import { Operation, Primitive } from "./types.js"
 
 export type WSServerClientMsg = {
   type: 'snapshot',

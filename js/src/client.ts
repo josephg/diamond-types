@@ -1,8 +1,9 @@
-import * as dt from './index.js'
+import * as dt from './simpledb.js'
 import { WSClientServerMsg, WSServerClientMsg } from './msgs.js'
+import { ROOT } from './types.js'
 
 const agent = dt.createAgent()
-let db: null | dt.DBState = null
+let db: null | dt.SimpleDB = null
 
 let ws: WebSocket | null = null
 
@@ -71,7 +72,7 @@ const decrButton = document.getElementById('decrement')!
 const incrButton = document.getElementById('increment')!
 
 const editTime = (newVal: number) => {
-  const op = dt.localMapInsert(db!, agent(), dt.ROOT, 'time', {type: 'primitive', val: newVal})
+  const op = dt.localMapInsert(db!, agent(), ROOT, 'time', {type: 'primitive', val: newVal})
   const msg: WSClientServerMsg = {
     type: 'op',
     op

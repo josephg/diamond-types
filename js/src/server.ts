@@ -1,10 +1,11 @@
-import * as dt from './index.js'
+import * as dt from './simpledb.js'
 import polka from 'polka'
 import * as bodyParser from 'body-parser'
 import sirv from 'sirv'
 import {WebSocket, WebSocketServer} from 'ws'
 import * as http from 'http'
 import { WSClientServerMsg, WSServerClientMsg } from './msgs.js'
+import { Operation, ROOT } from './types.js'
 
 const app = polka()
 .use(sirv('public', {
@@ -16,7 +17,7 @@ const db = dt.createDb()
 
 const clients = new Set<WebSocket>()
 
-const broadcastOp = (op: dt.Operation, exclude?: any) => {
+const broadcastOp = (op: Operation, exclude?: any) => {
   const msg: WSServerClientMsg = {
     type: 'op',
     op
@@ -31,7 +32,7 @@ const broadcastOp = (op: dt.Operation, exclude?: any) => {
 }
 
 const serverAgent = dt.createAgent()
-dt.localMapInsert(db, serverAgent(), dt.ROOT, 'time', {type: 'primitive', val: 0})
+dt.localMapInsert(db, serverAgent(), ROOT, 'time', {type: 'primitive', val: 0})
 
 // setInterval(() => {
 //   const val = (Math.random() * 100)|0

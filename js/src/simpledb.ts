@@ -1,24 +1,12 @@
 // This is a simplified database for the browser. No history is stored.
 import Map2 from "map2"
+import { Primitive, RawVersion, CreateValue, Operation, ROOT, DBValue } from "./types.js"
 
-export const ROOT: Version = ['ROOT', 0]
-
-export type Version = [agent: string, seq: number]
-
-export type Primitive = null
-  | boolean
-  | string
-  | number
-  | Primitive[]
-  | {[k: string]: Primitive}
-
-export type CreateValue = {type: 'primitive', val: Primitive}
-  | {type: 'crdt', crdtKind: 'map' | 'set' | 'register'}
 
 type RegisterValue = {type: 'primitive', val: Primitive}
-  | {type: 'crdt', id: Version}
+  | {type: 'crdt', id: RawVersion}
 
-type MVRegister = [Version, RegisterValue][]
+type MVRegister = [RawVersion, RegisterValue][]
 
 type CRDTInfo = {
   type: 'map',
@@ -31,39 +19,36 @@ type CRDTInfo = {
   value: MVRegister,
 }
 
-export interface DBState {
-  version: Version[],
+/**
+ * A SimpleDB is a lightweight in-memory database implementation designed for
+ * use in the browser. It is optimized to be tiny, and it doesn't need to load
+ * the causalgraph to work.
+ *
+ * We locally store the current version, but we need to trust the remote peer
+ * to figure out what operations we need to merge in. This is a bit complex on
+ * reconnect.
+ */
+export interface SimpleDB {
+  version: RawVersion[],
   crdts: Map2<string, number, CRDTInfo>
 }
 
-export type Action =
-{ type: 'map', key: string, localParents: Version[], val: CreateValue }
-| { type: 'registerSet', localParents: Version[], val: CreateValue }
-| { type: 'setInsert', val: CreateValue }
-| { type: 'setDelete', target: Version }
 
-export interface Operation {
-  id: Version,
-  globalParents: Version[],
-  crdtId: Version,
-  action: Action,
-}
-
-const versionEq = ([a1, s1]: Version, [a2, s2]: Version) => (a1 === a2 && s1 === s2)
-const versionCmp = ([a1, s1]: Version, [a2, s2]: Version) => (
+const versionEq = ([a1, s1]: RawVersion, [a2, s2]: RawVersion) => (a1 === a2 && s1 === s2)
+const versionCmp = ([a1, s1]: RawVersion, [a2, s2]: RawVersion) => (
   a1 < a2 ? 1
     : a1 > a2 ? -1
     : s1 - s2
 )
 
-export const advanceFrontier = (frontier: Version[], version: Version, parents: Version[]): Version[] => {
+export const advanceFrontier = (frontier: RawVersion[], version: RawVersion, parents: RawVersion[]): RawVersion[] => {
   const f = frontier.filter(v => !parents.some(v2 => versionEq(v, v2)))
   f.push(version)
   return f.sort(versionCmp)
 }
 
-export function createDb(): DBState {
-  const db: DBState = {
+export function createDb(): SimpleDB {
+  const db: SimpleDB = {
     version: [],
     crdts: new Map2(),
   }
@@ -76,7 +61,7 @@ export function createDb(): DBState {
   return db
 }
 
-function removeRecursive(state: DBState, value: RegisterValue) {
+function removeRecursive(state: SimpleDB, value: RegisterValue) {
   if (value.type !== 'crdt') return
 
   const crdt = state.crdts.get(value.id[0], value.id[1])
@@ -107,7 +92,7 @@ function removeRecursive(state: DBState, value: RegisterValue) {
   state.crdts.delete(value.id[0], value.id[1])
 }
 
-export function localRegisterSet(state: DBState, id: Version, regId: Version, val: CreateValue): Operation {
+export function localRegisterSet(state: SimpleDB, id: RawVersion, regId: RawVersion, val: CreateValue): Operation {
   const crdt = state.crdts.get(regId[0], regId[1])
   if (crdt == null || crdt.type !== 'register') throw Error('invalid CRDT')
 
@@ -123,7 +108,7 @@ export function localRegisterSet(state: DBState, id: Version, regId: Version, va
   return op
 }
 
-export function localMapInsert(state: DBState, id: Version, mapId: Version, key: string, val: CreateValue): Operation {
+export function localMapInsert(state: SimpleDB, id: RawVersion, mapId: RawVersion, key: string, val: CreateValue): Operation {
   const crdt = state.crdts.get(mapId[0], mapId[1])
   if (crdt == null || crdt.type !== 'map') throw Error('invalid CRDT')
 
@@ -139,7 +124,7 @@ export function localMapInsert(state: DBState, id: Version, mapId: Version, key:
   return op
 }
 
-export function localSetInsert(state: DBState, id: Version, setId: Version, val: CreateValue): Operation {
+export function localSetInsert(state: SimpleDB, id: RawVersion, setId: RawVersion, val: CreateValue): Operation {
   const crdt = state.crdts.get(setId[0], setId[1])
   if (crdt == null || crdt.type !== 'set') throw Error('invalid CRDT')
 
@@ -154,7 +139,7 @@ export function localSetInsert(state: DBState, id: Version, setId: Version, val:
   return op
 }
 
-export function localSetDelete(state: DBState, id: Version, setId: Version, target: Version): Operation | null {
+export function localSetDelete(state: SimpleDB, id: RawVersion, setId: RawVersion, target: RawVersion): Operation | null {
   const crdt = state.crdts.get(setId[0], setId[1])
   if (crdt == null || crdt.type !== 'set') throw Error('invalid CRDT')
 
@@ -175,7 +160,7 @@ export function localSetDelete(state: DBState, id: Version, setId: Version, targ
 
 const errExpr = (str: string): never => { throw Error(str) }
 
-function createCRDT(state: DBState, id: Version, type: 'map' | 'set' | 'register') {
+function createCRDT(state: SimpleDB, id: RawVersion, type: 'map' | 'set' | 'register') {
   if (state.crdts.has(id[0], id[1])) {
     throw Error('CRDT already exists !?')
   }
@@ -194,7 +179,7 @@ function createCRDT(state: DBState, id: Version, type: 'map' | 'set' | 'register
   state.crdts.set(id[0], id[1], crdtInfo)
 }
 
-function mergeRegister(state: DBState, oldPairs: MVRegister, localParents: Version[], newVersion: Version, newVal: CreateValue): MVRegister {
+function mergeRegister(state: SimpleDB, oldPairs: MVRegister, localParents: RawVersion[], newVersion: RawVersion, newVal: CreateValue): MVRegister {
   const newPairs: MVRegister = []
   for (const [version, value] of oldPairs) {
     // Each item is either retained or removed.
@@ -222,7 +207,7 @@ function mergeRegister(state: DBState, oldPairs: MVRegister, localParents: Versi
   return newPairs
 }
 
-export function applyRemoteOp(state: DBState, op: Operation) {
+export function applyRemoteOp(state: SimpleDB, op: Operation) {
   state.version = advanceFrontier(state.version, op.id, op.globalParents)
 
   const crdt = state.crdts.get(op.crdtId[0], op.crdtId[1])
@@ -260,7 +245,7 @@ export function applyRemoteOp(state: DBState, op: Operation) {
         if (op.action.val.type === 'primitive') {
           crdt.values.set(op.id[0], op.id[1], op.action.val)
         } else {
-          const activeValue = createCRDT(state, op.id, op.action.val.crdtKind)
+          createCRDT(state, op.id, op.action.val.crdtKind)
           crdt.values.set(op.id[0], op.id[1], {type: "crdt", id: op.id})
         }
       } else {
@@ -279,21 +264,13 @@ export function applyRemoteOp(state: DBState, op: Operation) {
   }
 }
 
-export type DBValue = null
-  | boolean
-  | string
-  | number
-  | DBValue[]
-  | {[k: string]: DBValue} // Map
-  | Map2<string, number, DBValue> // Set.
-
-const registerToVal = (state: DBState, r: RegisterValue): DBValue => (
+const registerToVal = (state: SimpleDB, r: RegisterValue): DBValue => (
   (r.type === 'primitive')
     ? r.val
     : get(state, r.id) // Recurse!
 )
 
-export function get(state: DBState, crdtId: Version = ROOT): DBValue {
+export function get(state: SimpleDB, crdtId: RawVersion = ROOT): DBValue {
   const crdt = state.crdts.get(crdtId[0], crdtId[1])
   if (crdt == null) { return null }
 
@@ -324,7 +301,7 @@ export function get(state: DBState, crdtId: Version = ROOT): DBValue {
   }
 }
 
-export function toJSON(state: DBState): Primitive {
+export function toJSON(state: SimpleDB): Primitive {
   return {
     version: state.version,
     crdts: Array.from(state.crdts.entries()).map(([agent, seq, crdtInfo]) => {
@@ -337,7 +314,7 @@ export function toJSON(state: DBState): Primitive {
   }
 }
 
-export function fromJSON(jsonState: any): DBState {
+export function fromJSON(jsonState: any): SimpleDB {
   return {
     version: jsonState.version,
     crdts: new Map2(jsonState.crdts.map(([agent, seq, info]: any) => {
@@ -350,11 +327,11 @@ export function fromJSON(jsonState: any): DBState {
 
       return [agent, seq, info2]
     }))
-  } as DBState
+  } as SimpleDB
 }
 
 export const createAgent = () => {
   const id = Math.random().toString(16).slice(2)
   let seq = 0
-  return (): Version => ([id, seq++])
+  return (): RawVersion => ([id, seq++])
 }
