@@ -6,6 +6,7 @@ import {WebSocket, WebSocketServer} from 'ws'
 import * as http from 'http'
 import { WSClientServerMsg, WSServerClientMsg } from './msgs.js'
 import { Operation, ROOT } from './types.js'
+import { createAgent } from './agent.js'
 
 const app = polka()
 .use(sirv('public', {
@@ -31,7 +32,7 @@ const broadcastOp = (op: Operation, exclude?: any) => {
   }
 }
 
-const serverAgent = dt.createAgent()
+const serverAgent = createAgent()
 dt.localMapInsert(db, serverAgent(), ROOT, 'time', {type: 'primitive', val: 0})
 
 // setInterval(() => {

@@ -3,7 +3,7 @@
 
 import PriorityQueue from 'priorityqueuejs'
 import bs from 'binary-search'
-import {LV, RawVersion, ROOT_LV} from '../types.js'
+import {AtLeast1, LV, RawVersion, ROOT, ROOT_LV} from '../types.js'
 
 type CGEntry = {
   version: LV,
@@ -110,7 +110,7 @@ const findClientEntry = (cg: CausalGraph, agent: string, seq: number): ClientEnt
 }
 
 export const addRaw = (cg: CausalGraph, id: RawVersion, len: number, rawParents: RawVersion[]): LV => {
-  const parents = mapParents(cg, rawParents)
+  const parents = rawToLVList(cg, rawParents)
 
   return add(cg, id[0], id[1], id[1]+len, parents)
 }
@@ -150,6 +150,28 @@ export const add = (cg: CausalGraph, agent: string, seqStart: number, seqEnd: nu
   return version
 }
 
+const versionCmp = ([a1, s1]: RawVersion, [a2, s2]: RawVersion) => (
+  a1 < a2 ? 1
+    : a1 > a2 ? -1
+    : s1 - s2
+)
+
+export const tieBreakRegisters = <T>(cg: CausalGraph, data: AtLeast1<[LV, T]>): T => {
+  let winner = data.reduce((a, b) => {
+    // Its a bit gross doing this lookup multiple times for the winning item,
+    // but eh. The data set will almost always contain exactly 1 item anyway.
+    const rawA = lvToRaw(cg, a[0])
+    const rawB = lvToRaw(cg, b[0])
+
+    return versionCmp(rawA, rawB) < 0 ? a : b
+  })
+
+  return winner[1]
+}
+
+/**
+ * Returns [seq, local version] for the new item (or the first item if num > 1).
+ */
 export const assignLocal = (cg: CausalGraph, agent: string, num: number = 1): [number, LV] => {
   let version = nextVersion(cg)
   const av = clientEntriesForAgent(cg, agent)
@@ -174,12 +196,22 @@ export const findEntryContaining = (cg: CausalGraph, v: LV): [CGEntry, number] =
   return [e, offset]
 }
 
-export const localVersionToRaw = (cg: CausalGraph, v: LV): [string, number, LV[]] => {
+export const lvToRawWithParents = (cg: CausalGraph, v: LV): [string, number, LV[]] => {
   const [e, offset] = findEntryContaining(cg, v)
   const parents = offset === 0 ? e.parents : [v-1]
   return [e.agent, e.seq + offset, parents]
+}
+
+export const lvToRaw = (cg: CausalGraph, v: LV): RawVersion => {
+  if (v === ROOT_LV) return ROOT
+  const [e, offset] = findEntryContaining(cg, v)
+  return [e.agent, e.seq + offset]
   // causalGraph.entries[localIndex]
 }
+export const lvToRawList = (cg: CausalGraph, parents: LV[]): RawVersion[] => (
+  parents.map(v => lvToRaw(cg, v))
+)
+
 
 // export const getParents = (cg: CausalGraph, v: LV): LV[] => (
 //   localVersionToRaw(cg, v)[2]
@@ -198,7 +230,7 @@ export const rawToLV = (cg: CausalGraph, agent: string, seq: number): LV => {
   if (clientEntry == null) throw Error(`Unknown ID: (${agent}, ${seq})`)
   return clientEntry.version
 }
-export const mapParents = (cg: CausalGraph, parents: RawVersion[]): LV[] => (
+export const rawToLVList = (cg: CausalGraph, parents: RawVersion[]): LV[] => (
   parents.map(([agent, seq]) => rawToLV(cg, agent, seq))
 )
 
@@ -284,14 +316,13 @@ export const diff = (cg: CausalGraph, a: LV[], b: LV[]): DiffResult => {
 
   const aOnly: [LV, LV][] = [], bOnly: [LV, LV][] = []
 
-
-  const markRun = (start: LV, end: LV, flag: DiffFlag) => {
-    if (end < start) throw Error('end < start')
+  const markRun = (start: LV, endInclusive: LV, flag: DiffFlag) => {
+    if (endInclusive < start) throw Error('end < start')
 
     // console.log('markrun', start, end, flag)
     if (flag == DiffFlag.Shared) return
     const target = flag === DiffFlag.A ? aOnly : bOnly
-    pushReversedRLE(target, start, end + 1)
+    pushReversedRLE(target, start, endInclusive + 1)
   }
 
   // Loop until everything is shared.
@@ -315,8 +346,9 @@ export const diff = (cg: CausalGraph, a: LV[], b: LV[]): DiffResult => {
       // console.log('pop', v2, flag2)
       if (flag2 === DiffFlag.Shared) numShared--;
 
-      if (flag2 !== flag) {
-        // Mark from v2..v and continue.
+      if (flag2 !== flag) { // Mark from v2..=v and continue.
+        // v2 + 1 is correct here - but you'll probably need a whiteboard to
+        // understand why.
         markRun(v2 + 1, v, flag)
         v = v2
         flag = DiffFlag.Shared

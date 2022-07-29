@@ -39,3 +39,7 @@ export type DBValue = null
   | DBValue[]
   | {[k: string]: DBValue} // Map
   | Map2<string, number, DBValue> // Set.
+
+
+/** Helper type for a list with at least 1 entry in it. */
+export type AtLeast1<T> = [T, ...T[]]

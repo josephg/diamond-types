@@ -329,9 +329,3 @@ export function fromJSON(jsonState: any): SimpleDB {
     }))
   } as SimpleDB
 }
-
-export const createAgent = () => {
-  const id = Math.random().toString(16).slice(2)
-  let seq = 0
-  return (): RawVersion => ([id, seq++])
-}
