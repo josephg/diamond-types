@@ -23,6 +23,7 @@ type CRDTInfo = {
 export interface FancyDB {
   crdts: Map<LV, CRDTInfo>,
   cg: CausalGraph,
+  onop?: (db: FancyDB, op: Operation) => void
 }
 
 export function createDb(): FancyDB {
@@ -206,6 +207,7 @@ export function applyRemoteOp(db: FancyDB, op: Operation): LV {
     default: throw Error('Invalid action type')
   }
 
+  db.onop?.(db, op)
   return newVersion
 }
 
@@ -236,6 +238,8 @@ const registerToVal = (db: FancyDB, r: RegisterValue): DBValue => (
     : get(db, r.id) // Recurse!
 )
 
+export function get(db: FancyDB): {[k: string]: DBValue};
+export function get(db: FancyDB, crdtId: LV): DBValue;
 export function get(db: FancyDB, crdtId: LV = ROOT_LV): DBValue {
   const crdt = db.crdts.get(crdtId)
   if (crdt == null) { return null }
@@ -268,6 +272,7 @@ export function get(db: FancyDB, crdtId: LV = ROOT_LV): DBValue {
   }
 }
 
+// *** Snapshot methods ***
 const registerValToJSON = (db: FancyDB, val: RegisterValue): SnapRegisterValue => (
   val.type === 'crdt' ? {
     type: 'crdt',
@@ -283,7 +288,7 @@ const mvRegisterToJSON = (db: FancyDB, val: MVRegister): [RawVersion, SnapRegist
   })
 )
 
-export function toJSON(db: FancyDB): DBSnapshot {
+export function toSnapshot(db: FancyDB): DBSnapshot {
   return {
     version: causalGraph.lvToRawList(db.cg, db.cg.version),
     crdts: Array.from(db.crdts.entries()).map(([lv, rawInfo]) => {
@@ -304,6 +309,91 @@ export function toJSON(db: FancyDB): DBSnapshot {
       } : errExpr('Unknown CRDT type') // Never.
       return [agent, seq, mappedInfo]
     })
+  }
+}
+
+// *** Serialization ***
+
+type SerializedRegisterValue = [type: 'primitive', val: Primitive]
+  | [type: 'crdt', id: LV]
+
+type SerializedMVRegister = [LV, SerializedRegisterValue][]
+
+type SerializedCRDTInfo = [
+  type: 'map',
+  registers: [k: string, reg: SerializedMVRegister][],
+] | [
+  type: 'set',
+  values: [LV, SerializedRegisterValue][],
+] | [
+  type: 'register',
+  value: SerializedMVRegister,
+]
+
+export interface SerializedFancyDBv1 {
+  crdts: [LV, SerializedCRDTInfo][]
+  cg: causalGraph.SerializedCausalGraphV1,
+}
+
+
+const serializeRegisterValue = (r: RegisterValue): SerializedRegisterValue => (
+  r.type === 'crdt' ? [r.type, r.id]
+    : [r.type, r.val]
+)
+const serializeMV = (r: MVRegister): SerializedMVRegister => (
+  r.map(([v, r]) => [v, serializeRegisterValue(r)])
+)
+
+const serializeCRDTInfo = (info: CRDTInfo): SerializedCRDTInfo => (
+  info.type === 'map' ? [
+    'map', Object.entries(info.registers).map(([k, v]) => ([k, serializeMV(v)]))
+  ] : info.type === 'set' ? [
+    'set', Array.from(info.values).map(([id, v]) => [id, serializeRegisterValue(v)])
+  ] : info.type === 'register' ? [
+    'register', serializeMV(info.value)
+  ] : errExpr('Unknown CRDT type')
+)
+
+export function serialize(db: FancyDB): SerializedFancyDBv1 {
+  return {
+    cg: causalGraph.serialize(db.cg),
+    crdts: Array.from(db.crdts).map(([lv, info]) => ([
+      lv, serializeCRDTInfo(info)
+    ]))
+  }
+}
+
+
+
+const deserializeRegisterValue = (data: SerializedRegisterValue): RegisterValue => (
+  data[0] === 'crdt' ? {type: 'crdt', id: data[1]}
+    : {type: 'primitive', val: data[1]}
+)
+const deserializeMV = (r: SerializedMVRegister): MVRegister => {
+  const result: [LV, RegisterValue][] = r.map(([v, r]) => [v, deserializeRegisterValue(r)])
+  if (result.length === 0) throw Error('Invalid MV register')
+  return result as MVRegister
+}
+
+const deserializeCRDTInfo = (data: SerializedCRDTInfo): CRDTInfo => {
+  const type = data[0]
+  return type === 'map' ? {
+    type: 'map',
+    registers: Object.fromEntries(data[1].map(([k, r]) => ([k, deserializeMV(r)])))
+  } : type === 'register' ? {
+    type: 'register',
+    value: deserializeMV(data[1])
+  } : type === 'set' ? {
+    type: 'set',
+    values: new Map(data[1].map(([k, v]) => ([k, deserializeRegisterValue(v)])))
+  } : errExpr('Invalid or unknown type: ' + type)
+}
+
+export function fromSerialized(data: SerializedFancyDBv1): FancyDB {
+  return {
+    cg: causalGraph.fromSerialized(data.cg),
+    crdts: new Map(data.crdts
+      .map(([id, crdtData]) => [id, deserializeCRDTInfo(crdtData)]))
   }
 }
 
@@ -349,8 +439,17 @@ export function toJSON(db: FancyDB): DBSnapshot {
   const [_, inner] = localMapInsert(db, ['seph', 1], ROOT_LV, 'stuff', {type: 'crdt', crdtKind: 'map'})
   localMapInsert(db, ['seph', 2], inner, 'cool', {type: 'primitive', val: 'definitely'})
   assert.deepEqual(get(db), {stuff: {cool: 'definitely'}})
-  
-  
+
+
+
+  const serialized = JSON.stringify(serialize(db))
+  const deser = fromSerialized(JSON.parse(serialized))
+  assert.deepEqual(db, deser)
+
+  // console.dir(, {depth: null})
+
+
+
   // // Insert a set
   // const innerSet = localMapInsert(db, ['seph', 2], ROOT, 'a set', {type: 'crdt', crdtKind: 'set'})
   // localSetInsert(db, ['seph', 3], innerSet.id, {type: 'primitive', val: 'whoa'})

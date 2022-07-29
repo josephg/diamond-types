@@ -301,7 +301,7 @@ export function get(state: SimpleDB, crdtId: RawVersion = ROOT): DBValue {
   }
 }
 
-export function toJSON(state: SimpleDB): DBSnapshot {
+export function toSnapshot(state: SimpleDB): DBSnapshot {
   return {
     version: state.version,
     crdts: Array.from(state.crdts.entries()).map(([agent, seq, crdtInfo]) => {
@@ -314,7 +314,7 @@ export function toJSON(state: SimpleDB): DBSnapshot {
   }
 }
 
-export function fromJSON(jsonState: any): SimpleDB {
+export function fromSnapshot(jsonState: any): SimpleDB {
   return {
     version: jsonState.version,
     crdts: new Map2(jsonState.crdts.map(([agent, seq, info]: any) => {

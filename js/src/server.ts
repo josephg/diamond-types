@@ -6,15 +6,40 @@ import {WebSocket, WebSocketServer} from 'ws'
 import * as http from 'http'
 import { WSClientServerMsg, WSServerClientMsg } from './msgs.js'
 import { Operation, ROOT_LV } from './types.js'
-import { createAgent } from './utils.js'
+import { createAgent, rateLimit } from './utils.js'
+import fs from 'fs'
 
 const app = polka()
 .use(sirv('public', {
   dev: true
 }))
 
+const DB_FILE = process.env['DB_FILE'] || 'db.dtjson'
 
-const db = dt.createDb()
+const db = (() => {
+  try {
+    const bytes = fs.readFileSync(DB_FILE, 'utf8')
+    const json = JSON.parse(bytes)
+    return dt.fromSerialized(json)
+  } catch (e: any) {
+    if (e.code !== 'ENOENT') throw e
+
+    console.log('Using new database file')
+    return dt.createDb()
+  }
+})()
+
+console.dir(dt.get(db), {depth: null})
+
+const saveDb = rateLimit(100, () => {
+  // console.log('saving')
+  const json = dt.serialize(db)
+  const bytes = JSON.stringify(json, null, 2)
+  // return fs.promises.writeFile(DB_FILE, bytes)
+  return fs.writeFileSync(DB_FILE, bytes)
+})
+
+db.onop = op => saveDb()
 
 const clients = new Set<WebSocket>()
 
@@ -32,8 +57,11 @@ const broadcastOp = (op: Operation, exclude?: any) => {
   }
 }
 
-const serverAgent = createAgent()
-dt.localMapInsert(db, serverAgent(), ROOT_LV, 'time', {type: 'primitive', val: 0})
+if (dt.get(db).time == null) {
+  console.log('Setting time = 0')
+  const serverAgent = createAgent()
+  dt.localMapInsert(db, serverAgent(), ROOT_LV, 'time', {type: 'primitive', val: 0})
+}
 
 // setInterval(() => {
 //   const val = (Math.random() * 100)|0
@@ -51,7 +79,7 @@ const wss = new WebSocketServer({server})
 
 wss.on('connection', ws => {
   // console.dir(dt.toJSON(db), {depth: null})
-  ws.send(JSON.stringify({type: 'snapshot', data: dt.toJSON(db)}))
+  ws.send(JSON.stringify({type: 'snapshot', data: dt.toSnapshot(db)}))
   clients.add(ws)
 
   ws.on('message', (msgBytes) => {

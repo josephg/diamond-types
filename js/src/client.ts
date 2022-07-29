@@ -19,7 +19,7 @@ RAW: ${JSON.stringify(dbVal, null, 2)}
 
 
 
-Internal: ${JSON.stringify(dt.toJSON(db!), null, 2)}
+Internal: ${JSON.stringify(dt.toSnapshot(db!), null, 2)}
 `
 }
 
@@ -44,7 +44,7 @@ const connect = () => {
   
     switch (data.type) {
       case 'snapshot': {
-        db = dt.fromJSON(data.data)
+        db = dt.fromSnapshot(data.data)
         console.log('got db')
         updateBrowser()
         break

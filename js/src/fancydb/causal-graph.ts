@@ -3,7 +3,8 @@
 
 import PriorityQueue from 'priorityqueuejs'
 import bs from 'binary-search'
-import {AtLeast1, LV, RawVersion, ROOT, ROOT_LV} from '../types.js'
+import {AtLeast1, LV, Primitive, RawVersion, ROOT, ROOT_LV} from '../types.js'
+import assert from 'assert/strict'
 
 type CGEntry = {
   version: LV,
@@ -22,11 +23,14 @@ type ClientEntry = {
 }
 
 export interface CausalGraph {
+  /** Current global version */
+  version: LV[],
+
   /** Map from localversion -> rawversion */
   entries: CGEntry[],
+
   /** Map from agent -> list of */
   agentToVersion: {[k: string]: ClientEntry[]},
-  version: LV[]
 }
 
 export const create = (): CausalGraph => ({
@@ -417,19 +421,71 @@ export const compareVersions = (cg: CausalGraph, a: LV, b: LV): number => {
 }
 
 
-// ;(() => {
-//   const cg = create();
 
-//   add(cg, 'seph', 10, 20, []);
-//   add(cg, 'mike', 10, 20, []);
-//   assignLocal(cg, 'seph', 5);
-//   // console.log(assignLocal(cg, 'mike', 5));
-//   // console.log(assignLocal(cg, 'james', 5));
-//   // console.log(assignLocal(cg, 'seph', 5))
-//   console.dir(cg, {depth: null})
+type SerializedCGEntryV1 = [
+  version: LV,
+  vEnd: LV,
+
+  agent: string,
+  seq: number, // Seq for version.
+
+  parents: LV[] // Parents for version
+]
+
+export interface SerializedCausalGraphV1 {
+  version: LV[],
+  entries: SerializedCGEntryV1[],
+}
 
 
-//   console.log(diff(cg, [5, 15], [20]))
+export function serialize(cg: CausalGraph): SerializedCausalGraphV1 {
+  return {
+    version: cg.version,
+    entries: cg.entries.map(e => ([
+      e.version, e.vEnd, e.agent, e.seq, e.parents
+    ]))
+  }
+}
 
-//   console.log(summarizeVersion(cg))
-// })()
+export function fromSerialized(data: SerializedCausalGraphV1): CausalGraph {
+  const cg: CausalGraph = {
+    version: data.version,
+    entries: data.entries.map(e => ({
+      version: e[0], vEnd: e[1], agent: e[2], seq: e[3], parents: e[4]
+    })),
+    agentToVersion: {}
+  }
+
+  for (const e of cg.entries) {
+    const len = e.vEnd - e.version
+    tryAppend(clientEntriesForAgent(cg, e.agent), {
+      seq: e.seq, seqEnd: e.seq + len, version: e.version
+    }, tryAppendClient)
+  }
+
+  return cg
+}
+
+
+;(() => {
+  const cg = create();
+
+  add(cg, 'seph', 10, 20, []);
+  add(cg, 'mike', 10, 20, []);
+  assignLocal(cg, 'seph', 5);
+  // console.log(assignLocal(cg, 'mike', 5));
+  // console.log(assignLocal(cg, 'james', 5));
+  // console.log(assignLocal(cg, 'seph', 5))
+  // console.dir(cg, {depth: null})
+
+
+  // console.log(diff(cg, [5, 15], [20]))
+
+  // console.log(summarizeVersion(cg))
+
+  // console.dir(serialize(cg), {depth: null})
+
+  const serialized = serialize(cg)
+  const deserialized = fromSerialized(serialized)
+  assert.deepEqual(cg, deserialized)
+})()
