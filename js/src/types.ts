@@ -4,6 +4,11 @@ export type RawVersion = [agent: string, seq: number]
 
 export const ROOT: RawVersion = ['ROOT', 0]
 
+/** Local version */
+export type LV = number
+
+export const ROOT_LV: LV = -1
+
 export type Primitive = null
   | boolean
   | string

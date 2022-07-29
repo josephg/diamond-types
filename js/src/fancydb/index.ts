@@ -1,6 +1,6 @@
-import { CreateValue, Operation, Primitive, ROOT } from '../types'
+import { CreateValue, LV, Operation, Primitive, ROOT, ROOT_LV } from '../types'
 import * as causalGraph from './causal-graph.js'
-import { LV, CausalGraph } from './causal-graph.js'
+import { CausalGraph } from './causal-graph.js'
 
 type RegisterValue = {type: 'primitive', val: Primitive}
   | {type: 'crdt', id: LV}
@@ -22,8 +22,6 @@ export interface FancyDB {
   crdts: Map<LV, CRDTInfo>,
   cg: CausalGraph,
 }
-
-export const ROOT_LV: LV = -1
 
 export function createDb(): FancyDB {
   const db: FancyDB = {

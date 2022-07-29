@@ -3,13 +3,7 @@
 
 import PriorityQueue from 'priorityqueuejs'
 import bs from 'binary-search'
-import {RawVersion} from '../types'
-import { ROOT_LV } from '.'
-
-export const ROOT_VERSION: RawVersion = ['ROOT', 0]
-
-/** Local version */
-export type LV = number
+import {LV, RawVersion, ROOT_LV} from '../types.js'
 
 type CGEntry = {
   version: LV,
