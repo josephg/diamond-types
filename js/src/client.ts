@@ -1,8 +1,9 @@
 import * as dt from './simpledb.js'
 import { WSClientServerMsg, WSServerClientMsg } from './msgs.js'
 import { ROOT } from './types.js'
+import { createAgent } from './utils.js'
 
-const agent = dt.createAgent()
+const agent = createAgent()
 let db: null | dt.SimpleDB = null
 
 let ws: WebSocket | null = null
@@ -63,6 +64,10 @@ const connect = () => {
     setTimeout(() => {
       connect()
     }, 3000)
+  }
+
+  ws.onerror = (e) => {
+    console.error('WS error', e)
   }
 }
 

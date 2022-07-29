@@ -1,6 +1,6 @@
 import assert from 'assert/strict'
 import Map2 from 'map2'
-import { AtLeast1, CreateValue, DBValue, LV, Operation, Primitive, RawVersion, ROOT, ROOT_LV } from '../types'
+import { AtLeast1, CreateValue, DBSnapshot, DBValue, LV, Operation, Primitive, RawVersion, ROOT, ROOT_LV, SnapCRDTInfo, SnapRegisterValue } from '../types'
 import * as causalGraph from './causal-graph.js'
 import { CausalGraph } from './causal-graph.js'
 
@@ -265,6 +265,45 @@ export function get(db: FancyDB, crdtId: LV = ROOT_LV): DBValue {
       return result
     }
     default: throw Error('Invalid CRDT type in DB')
+  }
+}
+
+const registerValToJSON = (db: FancyDB, val: RegisterValue): SnapRegisterValue => (
+  val.type === 'crdt' ? {
+    type: 'crdt',
+    id: causalGraph.lvToRaw(db.cg, val.id)
+  } : val
+)
+
+const mvRegisterToJSON = (db: FancyDB, val: MVRegister): [RawVersion, SnapRegisterValue][] => (
+  val.map(([lv, val]) => {
+    const v = causalGraph.lvToRaw(db.cg, lv)
+    const mappedVal: SnapRegisterValue = registerValToJSON(db, val)
+    return [v, mappedVal]
+  })
+)
+
+export function toJSON(db: FancyDB): DBSnapshot {
+  return {
+    version: causalGraph.lvToRawList(db.cg, db.cg.version),
+    crdts: Array.from(db.crdts.entries()).map(([lv, rawInfo]) => {
+      const [agent, seq] = causalGraph.lvToRaw(db.cg, lv)
+      const mappedInfo: SnapCRDTInfo = rawInfo.type === 'set' ? {
+        type: rawInfo.type,
+        values: Array.from(rawInfo.values).map(([lv, val]) => {
+          const [agent, seq] = causalGraph.lvToRaw(db.cg, lv)
+          return [agent, seq, registerValToJSON(db, val)]
+        })
+      } : rawInfo.type === 'map' ? {
+        type: rawInfo.type,
+        registers: Object.fromEntries(Object.entries(rawInfo.registers)
+          .map(([k, val]) => ([k, mvRegisterToJSON(db, val)])))
+      } : rawInfo.type === 'register' ? {
+        type: rawInfo.type,
+        value: mvRegisterToJSON(db, rawInfo.value)
+      } : errExpr('Unknown CRDT type') // Never.
+      return [agent, seq, mappedInfo]
+    })
   }
 }
 

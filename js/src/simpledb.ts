@@ -1,6 +1,6 @@
 // This is a simplified database for the browser. No history is stored.
 import Map2 from "map2"
-import { Primitive, RawVersion, CreateValue, Operation, ROOT, DBValue } from "./types.js"
+import { Primitive, RawVersion, CreateValue, Operation, ROOT, DBValue, DBSnapshot, SnapCRDTInfo } from "./types.js"
 
 
 type RegisterValue = {type: 'primitive', val: Primitive}
@@ -301,11 +301,11 @@ export function get(state: SimpleDB, crdtId: RawVersion = ROOT): DBValue {
   }
 }
 
-export function toJSON(state: SimpleDB): Primitive {
+export function toJSON(state: SimpleDB): DBSnapshot {
   return {
     version: state.version,
     crdts: Array.from(state.crdts.entries()).map(([agent, seq, crdtInfo]) => {
-      const info2: Primitive = crdtInfo.type === 'set' ? {
+      const info2: SnapCRDTInfo = crdtInfo.type === 'set' ? {
         type: crdtInfo.type,
         values: Array.from(crdtInfo.values)
       } : {...crdtInfo}

@@ -43,3 +43,23 @@ export type DBValue = null
 
 /** Helper type for a list with at least 1 entry in it. */
 export type AtLeast1<T> = [T, ...T[]]
+
+
+export type SnapRegisterValue = {type: 'primitive', val: Primitive}
+  | {type: 'crdt', id: RawVersion}
+export type SnapMVRegister = [RawVersion, SnapRegisterValue][]
+export type SnapCRDTInfo = {
+  type: 'map',
+  registers: {[k: string]: SnapMVRegister},
+} | {
+  type: 'set',
+  values: [string, number, SnapRegisterValue][],
+} | {
+  type: 'register',
+  value: SnapMVRegister,
+}
+
+export interface DBSnapshot {
+  version: RawVersion[],
+  crdts: [string, number, SnapCRDTInfo][]
+}
