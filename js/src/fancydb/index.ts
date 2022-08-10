@@ -132,12 +132,6 @@ function mergeRegister(db: FancyDB, globalParents: LV[], oldPairs: MVRegister, l
 }
 
 export function applyRemoteOp(db: FancyDB, op: Operation): LV {
-  // if (causalGraph.tryRawToLV(db.cg, op.id[0], op.id[1]) != null) {
-  //   // The operation is already known.
-  //   console.warn('Operation already applied', op.id)
-  //   return
-  // }
-
   const newVersion = causalGraph.addRaw(db.cg, op.id, 1, op.globalParents)
   if (newVersion < 0) {
     // The operation is already known.
@@ -182,8 +176,6 @@ export function applyRemoteOp(db: FancyDB, op: Operation): LV {
       // Set operations are comparatively much simpler, because insert
       // operations cannot be concurrent and multiple overlapping delete
       // operations are ignored.
-
-      // throw Error('nyi')
       if (op.action.type == 'setInsert') {
         if (op.action.val.type === 'primitive') {
           crdt.values.set(newVersion, op.action.val)

@@ -8,6 +8,7 @@ import { WSClientServerMsg, WSServerClientMsg } from './msgs.js'
 import { Operation, ROOT_LV } from './types.js'
 import { createAgent, rateLimit } from './utils.js'
 import fs from 'fs'
+import { summarizeVersion } from './fancydb/causal-graph'
 
 const app = polka()
 .use(sirv('public', {
@@ -40,6 +41,16 @@ const saveDb = rateLimit(100, () => {
 })
 
 db.onop = op => saveDb()
+
+process.on('exit', () => {
+  saveDb.force()
+})
+
+process.on('SIGINT', () => {
+  // Catching this to make sure we save!
+  // console.log('SIGINT!')
+  process.exit(1)
+})
 
 const clients = new Set<WebSocket>()
 
@@ -79,7 +90,12 @@ const wss = new WebSocketServer({server})
 
 wss.on('connection', ws => {
   // console.dir(dt.toJSON(db), {depth: null})
-  ws.send(JSON.stringify({type: 'snapshot', data: dt.toSnapshot(db)}))
+  const msg: WSServerClientMsg = {
+    type: 'snapshot',
+    version: summarizeVersion(db.cg),
+    data: dt.toSnapshot(db)
+  }
+  ws.send(JSON.stringify(msg))
   clients.add(ws)
 
   ws.on('message', (msgBytes) => {

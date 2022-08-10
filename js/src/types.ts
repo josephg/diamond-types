@@ -63,3 +63,5 @@ export interface DBSnapshot {
   version: RawVersion[],
   crdts: [string, number, SnapCRDTInfo][]
 }
+
+export interface VersionSummary {[agent: string]: [number, number][]}

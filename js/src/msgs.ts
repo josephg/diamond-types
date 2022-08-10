@@ -1,8 +1,9 @@
-import { Operation, Primitive } from "./types.js"
+import { DBSnapshot, Operation, VersionSummary } from "./types.js"
 
 export type WSServerClientMsg = {
   type: 'snapshot',
-  data: Primitive
+  version: VersionSummary,
+  data: DBSnapshot
 } | {
   type: 'op',
   op: Operation

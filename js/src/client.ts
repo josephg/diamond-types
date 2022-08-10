@@ -45,6 +45,7 @@ const connect = () => {
     switch (data.type) {
       case 'snapshot': {
         db = dt.fromSnapshot(data.data)
+        console.log('version summary', data.version)
         console.log('got db')
         updateBrowser()
         break
