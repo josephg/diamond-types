@@ -5,6 +5,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc && browserify dist/client.js -o public/bundle.js",
+    "watch": "watchify dist/client.js -o public/bundle.js -v",
     "start": "node dist/server.js"
   },
   "dependencies": {

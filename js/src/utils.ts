@@ -1,4 +1,4 @@
-import { RawVersion } from "./types"
+import { RawVersion, VersionSummary } from "./types"
 
 export function createAgent(): () => RawVersion {
   const agent = Math.random().toString(36).slice(2)
@@ -33,4 +33,11 @@ export function rateLimit(min_delay: number, fn: () => void) {
       } // Otherwise its already queued.
     }
   }
+}
+
+export const versionInSummary = (vs: VersionSummary, [agent, seq]: RawVersion): boolean => {
+  const ranges = vs[agent]
+  if (ranges == null) return false
+  // This could be implemented using a binary search, but thats probably fine here.
+  return ranges.find(([from, to]) => seq >= from && seq < to) !== undefined
 }

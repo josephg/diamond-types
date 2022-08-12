@@ -3,7 +3,7 @@
 
 import PriorityQueue from 'priorityqueuejs'
 import bs from 'binary-search'
-import {AtLeast1, LV, Primitive, RawVersion, ROOT, ROOT_LV} from '../types.js'
+import {AtLeast1, LV, Primitive, RawVersion, ROOT, ROOT_LV, VersionSummary} from '../types.js'
 import assert from 'assert/strict'
 
 type CGEntry = {
@@ -239,8 +239,6 @@ export const rawToLVList = (cg: CausalGraph, parents: RawVersion[]): LV[] => (
 )
 
 
-export interface VersionSummary {[agent: string]: [number, number][]}
-
 const tryRangeAppend = (r1: [number, number], r2: [number, number]): boolean => {
   if (r1[1] === r2[0]) {
     r1[1] = r2[1]
@@ -267,7 +265,8 @@ export const summarizeVersion = (cg: CausalGraph): VersionSummary => {
 // *** TOOLS ***
 
 type DiffResult = {
-  // These are (reversed) ranges.
+  // These are ranges. Unlike the rust code, they're in normal
+  // (ascending) order.
   aOnly: [LV, LV][], bOnly: [LV, LV][]
 }
 
@@ -465,7 +464,6 @@ export function fromSerialized(data: SerializedCausalGraphV1): CausalGraph {
 
   return cg
 }
-
 
 ;(() => {
   const cg = create();

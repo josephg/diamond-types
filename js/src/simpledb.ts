@@ -34,7 +34,22 @@ export interface SimpleDB {
 }
 
 
-const versionEq = ([a1, s1]: RawVersion, [a2, s2]: RawVersion) => (a1 === a2 && s1 === s2)
+export const versionEq = ([a1, s1]: RawVersion, [a2, s2]: RawVersion) => (a1 === a2 && s1 === s2)
+
+export const frontierEq = (f1: RawVersion[], f2: RawVersion[]): boolean => {
+  // Both frontiers should be sorted at this point anyway. It would be better
+  // to assert they're sorted than re-sort.
+  // They should also be free from duplicates.
+  
+  f1.sort(versionCmp); f2.sort(versionCmp)
+
+  if (f1.length !== f2.length) return false
+  for (let i = 0; i < f1.length; i++) {
+    if (!versionEq(f1[i], f2[i])) return false
+  }
+  return true
+}
+
 const versionCmp = ([a1, s1]: RawVersion, [a2, s2]: RawVersion) => (
   a1 < a2 ? 1
     : a1 > a2 ? -1

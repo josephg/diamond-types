@@ -8,6 +8,7 @@ import { WSClientServerMsg, WSServerClientMsg } from './msgs.js'
 import { Operation, ROOT_LV } from './types.js'
 import { createAgent, rateLimit } from './utils.js'
 import fs from 'fs'
+import { summarizeVersion } from './fancydb/causal-graph'
 
 const app = polka()
 .use(sirv('public', {
@@ -43,17 +44,18 @@ db.onop = op => saveDb()
 
 const clients = new Set<WebSocket>()
 
-const broadcastOp = (op: Operation, exclude?: any) => {
+const broadcastOp = (ops: Operation[], exclude?: any) => {
+  console.log('broadcast', ops)
   const msg: WSServerClientMsg = {
     type: 'op',
-    op
+    ops
   }
 
   const msgStr = JSON.stringify(msg)
   for (const c of clients) {
-    if (c !== exclude) {
-      c.send(msgStr)
-    }
+    // if (c !== exclude) {
+    c.send(msgStr)
+    // }
   }
 }
 
@@ -79,7 +81,12 @@ const wss = new WebSocketServer({server})
 
 wss.on('connection', ws => {
   // console.dir(dt.toJSON(db), {depth: null})
-  ws.send(JSON.stringify({type: 'snapshot', data: dt.toSnapshot(db)}))
+  const msg: WSServerClientMsg = {
+    type: 'snapshot',
+    data: dt.toSnapshot(db),
+    v: summarizeVersion(db.cg),
+  }
+  ws.send(JSON.stringify(msg))
   clients.add(ws)
 
   ws.on('message', (msgBytes) => {
@@ -88,8 +95,9 @@ wss.on('connection', ws => {
     // console.log('msg', msg)
     switch (msg.type) {
       case 'op': {
-        dt.applyRemoteOp(db, msg.op)
-        broadcastOp(msg.op, ws)
+        console.log(msg)
+        msg.ops.forEach(op => dt.applyRemoteOp(db, op))
+        broadcastOp(msg.ops, ws)
         break
       }
     }
