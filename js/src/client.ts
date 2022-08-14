@@ -129,7 +129,7 @@ const flush = () => {
 }
 
 const editTime = (newVal: number) => {
-  const op = dt.localMapInsert(db!, agent(), ROOT, 'time', {type: 'primitive', val: newVal})
+  const op = dt.setAtPath(db!, agent(), ['time'], {type: 'primitive', val: newVal})
   pendingOps.push(op)
   flush()
   // ws?.send(JSON.stringify(msg))
@@ -138,10 +138,10 @@ const editTime = (newVal: number) => {
 }
 
 incrButton.onclick = () => {
-  const dbVal = dt.get(db!) as any
-  editTime((dbVal.time ?? 0) + 1)
+  const oldVal = dt.getAtPath(db!, ['time']) as number ?? 0
+  editTime(oldVal + 1)
 }
 decrButton.onclick = () => {
-  const dbVal = dt.get(db!) as any
-  editTime((dbVal.time ?? 0) - 1)
+  const oldVal = dt.getAtPath(db!, ['time']) as number ?? 0
+  editTime(oldVal - 1)
 }

@@ -172,6 +172,72 @@ export function localSetDelete(state: SimpleDB, id: RawVersion, setId: RawVersio
   } else { return null } // Already deleted.
 }
 
+const unwrapCRDT = (db: SimpleDB, id: RawVersion, key: null | string | RawVersion): RawVersion | null => {
+  let crdt = db.crdts.get(id[0], id[1])!
+
+  while (crdt.type === 'register') {
+    // Unwrap registers
+    let inner = crdt.value[0][1]
+    if (inner.type === 'crdt') {
+      id = inner.id
+      crdt = db.crdts.get(id[0], id[1])!
+    } else {
+      throw Error('Cannot descend into register')
+    }
+  }
+
+  if (key == null) return id
+
+  let value: RegisterValue
+  if (crdt.type === 'map' && typeof key === 'string') {
+    const register: MVRegister = crdt.registers[key]
+    if (register == null) throw Error(`Missing item at path ${key}`)
+    if (register.length < 1) throw Error('Invalid register')
+    
+    value = register[0][1]
+  } else if (crdt.type === 'set' && Array.isArray(key)) {
+    const val = crdt.values.get(key[0], key[1])
+    if (val == null) return null // The set item was deleted (probably remotely).
+    // if (val == null) throw Error('Missing item at path')
+    value = val
+  } else {
+    throw Error('Cannot descend into path')
+  }
+
+  if (value.type !== 'crdt') throw Error('Cannot unwrap primitive')
+  return value.id
+}
+
+function containerAtPath(db: SimpleDB, path: (string | RawVersion)[]): [RawVersion, string | RawVersion | null] {
+  // let crdt = db.crdts.get(ROOT[0], ROOT[1])!
+  // let value: RegisterValue = {type: 'crdt', id: ROOT}
+  let id = ROOT
+  let key: null | string | RawVersion = null
+
+  for (const p of path) {
+    id = unwrapCRDT(db, id, key) ?? errExpr('Container deleted')
+    key = p
+  }
+
+  return [id, key]
+}
+
+export function setAtPath(db: SimpleDB, id: RawVersion, path: (string | RawVersion)[], val: CreateValue): Operation {
+  if (path.length === 0) throw Error('Invalid path')
+  let [crdtId, key] = containerAtPath(db, path)
+
+  if (Array.isArray(key)) {
+    // If the container is a set, the set must store a register. Unwrap!
+    crdtId = unwrapCRDT(db, crdtId, key) ?? errExpr('Container deleted')
+    key = null
+  }
+  
+  if (key == null) {
+    return localRegisterSet(db, id, crdtId, val)
+  } else {
+    return localMapInsert(db, id, crdtId, key, val)
+  }
+}
 
 const errExpr = (str: string): never => { throw Error(str) }
 
@@ -313,6 +379,23 @@ export function get(state: SimpleDB, crdtId: RawVersion = ROOT): DBValue {
       return result
     }
     default: throw Error('Invalid CRDT type in DB')
+  }
+}
+
+export function getAtPath(db: SimpleDB, path: (string | RawVersion)[]): DBValue {
+  let [crdtId, key] = containerAtPath(db, path)
+
+  if (key == null) return get(db, crdtId)
+  
+  let crdt = db.crdts.get(crdtId[0], crdtId[1])!
+  if (Array.isArray(key)) {
+    if (crdt.type !== 'set') throw Error('Unexpected type')
+    const val = crdt.values.get(key[0], key[1])
+    if (val == null) throw Error('Missing key')
+    return registerToVal(db, val)
+  } else {
+    if (crdt.type !== 'map') throw Error('Unexpected type')
+    return registerToVal(db, crdt.registers[key][0][1])
   }
 }
 
