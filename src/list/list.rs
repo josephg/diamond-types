@@ -128,6 +128,11 @@ impl ListCRDT {
         self.branch.insert(&mut self.oplog, agent, pos, ins_content)
     }
 
+    #[cfg(feature = "wchar_conversion")]
+    pub fn insert_at_wchar(&mut self, agent: AgentId, wchar_pos: usize, ins_content: &str) -> Time {
+        self.branch.insert_at_wchar(&mut self.oplog, agent, wchar_pos, ins_content)
+    }
+
     // pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
     //     local_delete(&mut self.oplog, &mut self.branch, agent, pos, del_span)
     // }
@@ -138,6 +143,11 @@ impl ListCRDT {
 
     pub fn delete(&mut self, agent: AgentId, range: Range<usize>) -> Time {
         self.branch.delete(&mut self.oplog, agent, range)
+    }
+
+    #[cfg(feature = "wchar_conversion")]
+    pub fn delete_at_wchar(&mut self, agent: AgentId, wchar_range: Range<usize>) -> Time {
+        self.branch.delete_at_wchar(&mut self.oplog, agent, wchar_range)
     }
 
     pub fn print_stats(&self, detailed: bool) {
