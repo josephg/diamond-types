@@ -1,5 +1,5 @@
 import * as dt from './simpledb.js'
-import { WSClientServerMsg, WSServerClientMsg } from './msgs.js'
+import { WSServerClientMsg } from './msgs.js'
 import { Operation, ROOT } from './types.js'
 import { createAgent, versionInSummary } from './utils.js'
 
@@ -34,6 +34,8 @@ const connect = () => {
   ws = new WebSocket(url)
   ws.onopen = (e) => {
     console.log('open', e)
+    pendingOps = inflightOps.concat(pendingOps)
+    inflightOps.length = 0
   }
 
   ws.onmessage = (e) => {
@@ -41,52 +43,37 @@ const connect = () => {
   
     const data = JSON.parse(e.data) as WSServerClientMsg
   
-    console.log('data', data)
+    // console.log('data', data)
   
     switch (data.type) {
       case 'snapshot': {
-        const oldV = db?.version
-        db = dt.fromSnapshot(data.data)
-        console.log('got db')
-        console.log(data.v)
-
-        const ops = inflightOps
-          .filter(op => !versionInSummary(data.v, op.id))
-          // Pending changes were never sent to the server, so they can't be in the summary.
-          .concat(pendingOps)
-
-        for (const op of ops) {
-            // Reapply our local operation onto the database
-            dt.applyRemoteOp(db, op)
+        let changed = true
+        if (db == null) {
+          db = dt.fromSnapshot(data.data)
+        } else {
+          changed = dt.mergeSnapshot(db, data.data, data.v, inflightOps.concat(pendingOps))
         }
-        
-        pendingOps = ops
-        flush()
 
-        if (oldV == null || !dt.frontierEq(oldV, db.version)) {
-          console.log('version changed. Rerendering.', oldV, db.version)
+        if (changed) {
+          console.log('version changed. Rerendering.')
           rerender()
         }
+
+        flush()
         break
       }
       case 'op': {
         let anyChange = false
         for (const op of data.ops) {
-          const idx = inflightOps.findIndex(op2 => dt.versionEq(op.id, op2.id))
-          if (idx >= 0) {
-            // This is an acknowledgement of a local operation. Discard it.
-            inflightOps.splice(idx, 1)
-          } else {
+          if (inflightOps.find(op2 => dt.versionEq(op.id, op2.id) == null)) {
             dt.applyRemoteOp(db!, op)
             anyChange = true
           }
         }
-        console.log('if', inflightOps, 'pending', pendingOps)
 
+        // console.log('if', inflightOps, 'pending', pendingOps)
         if (anyChange) rerender()
 
-        flush()
-  
         break
       }
     }
@@ -110,21 +97,43 @@ connect()
 const decrButton = document.getElementById('decrement')!
 const incrButton = document.getElementById('increment')!
 
+let flushing = false
 const flush = () => {
-  if (ws != null && inflightOps.length === 0 && pendingOps.length > 0) {
+  if (!flushing && ws != null && inflightOps.length === 0 && pendingOps.length > 0) {
     // console.log('flush!')
+    flushing = true
     inflightOps.push(...pendingOps)
     pendingOps.length = 0
 
-    const msg: WSClientServerMsg = {
-      type: 'op',
-      ops: inflightOps
-    }
+    ;(async () => {
+      try {
+        // console.log('Sending ops')
+        const response = await fetch('/op', {
+          method: 'post',
+          cache: 'no-store',
+          headers: {
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(inflightOps)
+        })
+        // console.log('Got response', response.status, response.statusText)
+        flushing = false
 
-    ws.send(JSON.stringify(msg))
-    // setTimeout(() => {
-    //   ws?.send(JSON.stringify(msg))
-    // }, 2000)
+        const status = response.status
+        if (status < 400) {
+          // console.log('ok')
+          inflightOps.length = 0
+          flush()
+        } else {
+          console.error('Could not submit op:', status, response.statusText)
+          setTimeout(flush, 3000)
+        }
+      } catch (e) {
+        console.log('Could not submit op:', e)
+        flushing = false
+        setTimeout(flush, 3000)
+      }
+    })()
   }
 }
 

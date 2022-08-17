@@ -8,8 +8,3 @@ export type WSServerClientMsg = {
   type: 'op',
   ops: Operation[]
 }
-
-export type WSClientServerMsg = {
-  type: 'op',
-  ops: Operation[]
-}

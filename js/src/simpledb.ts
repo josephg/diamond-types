@@ -1,6 +1,7 @@
 // This is a simplified database for the browser. No history is stored.
 import Map2 from "map2"
-import { Primitive, RawVersion, CreateValue, Operation, ROOT, DBValue, DBSnapshot, SnapCRDTInfo } from "./types.js"
+import { Primitive, RawVersion, CreateValue, Operation, ROOT, DBValue, DBSnapshot, SnapCRDTInfo, VersionSummary } from "./types.js"
+import { versionInSummary } from "./utils.js"
 
 
 type RegisterValue = {type: 'primitive', val: Primitive}
@@ -412,7 +413,7 @@ export function toSnapshot(state: SimpleDB): DBSnapshot {
   }
 }
 
-export function fromSnapshot(jsonState: any): SimpleDB {
+export function fromSnapshot(jsonState: DBSnapshot): SimpleDB {
   return {
     version: jsonState.version,
     crdts: new Map2(jsonState.crdts.map(([agent, seq, info]: any) => {
@@ -426,4 +427,28 @@ export function fromSnapshot(jsonState: any): SimpleDB {
       return [agent, seq, info2]
     }))
   } as SimpleDB
+}
+
+/**
+ * Returns true if the DB changed as a result of the snapshot being merged in.
+ * knownOps is a list of operations that might not be included in the snapshot
+ * so we don't regress. They must have already been applied to the local db.
+ */
+export function mergeSnapshot(db: SimpleDB, snapshot: DBSnapshot, vs: VersionSummary, knownOps: Operation[] = []): boolean {
+  const replacement = fromSnapshot(snapshot)
+  if (frontierEq(replacement.version, db.version)) return false
+
+  for (const op of knownOps) {
+    if (!versionInSummary(vs, op.id)) {
+      applyRemoteOp(replacement, op)
+    }
+  }
+
+  if (frontierEq(replacement.version, db.version)) return false
+
+  // TODO: Fire events
+
+  db.version = replacement.version
+  db.crdts = replacement.crdts
+  return true
 }

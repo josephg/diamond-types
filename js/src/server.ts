@@ -4,11 +4,11 @@ import * as bodyParser from 'body-parser'
 import sirv from 'sirv'
 import {WebSocket, WebSocketServer} from 'ws'
 import * as http from 'http'
-import { WSClientServerMsg, WSServerClientMsg } from './msgs.js'
+import { WSServerClientMsg } from './msgs.js'
 import { Operation, ROOT_LV } from './types.js'
 import { createAgent, rateLimit } from './utils.js'
 import fs from 'fs'
-import { summarizeVersion } from './fancydb/causal-graph'
+import { hasVersion, summarizeVersion } from './fancydb/causal-graph'
 
 const app = polka()
 .use(sirv('public', {
@@ -71,9 +71,20 @@ if (dt.get(db).time == null) {
 //   broadcastOp(op)
 // }, 1000)
 
-app.post('/db', bodyParser.json(), (req, res, next) => {
-  console.log('body', req.body)
-  res.end('<h1>hi</h1>')
+// app.post('/db', bodyParser.json(), (req, res, next) => {
+//   console.log('body', req.body)
+//   res.end('<h1>hi</h1>')
+// })
+
+app.post('/op', bodyParser.json(), (req, res, next) => {
+  let ops = req.body as Operation[]
+  console.log(`Got ${ops.length} from client`)
+
+  ops = ops.filter(op => !hasVersion(db.cg, op.id[0], op.id[1]))
+  ops.forEach(op => dt.applyRemoteOp(db, op))
+  broadcastOp(ops)
+
+  res.end()
 })
 
 const server = http.createServer(app.handler as any)
@@ -90,17 +101,17 @@ wss.on('connection', ws => {
   clients.add(ws)
 
   ws.on('message', (msgBytes) => {
-    const rawJSON = msgBytes.toString('utf-8')
-    const msg = JSON.parse(rawJSON) as WSClientServerMsg
-    // console.log('msg', msg)
-    switch (msg.type) {
-      case 'op': {
-        console.log(msg)
-        msg.ops.forEach(op => dt.applyRemoteOp(db, op))
-        broadcastOp(msg.ops, ws)
-        break
-      }
-    }
+    // const rawJSON = msgBytes.toString('utf-8')
+    // const msg = JSON.parse(rawJSON) as WSClientServerMsg
+    // // console.log('msg', msg)
+    // switch (msg.type) {
+    //   case 'op': {
+    //     console.log(msg)
+    //     msg.ops.forEach(op => dt.applyRemoteOp(db, op))
+    //     broadcastOp(msg.ops, ws)
+    //     break
+    //   }
+    // }
   })
 
   ws.on('close', () => {

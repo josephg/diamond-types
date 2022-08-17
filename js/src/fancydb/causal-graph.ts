@@ -113,6 +113,10 @@ const findClientEntry = (cg: CausalGraph, agent: string, seq: number): ClientEnt
   }
 }
 
+export const hasVersion = (cg: CausalGraph, agent: string, seq: number): boolean => (
+  findClientEntry(cg, agent, seq) != null
+)
+
 export const addRaw = (cg: CausalGraph, id: RawVersion, len: number, rawParents: RawVersion[]): LV => {
   const parents = rawToLVList(cg, rawParents)
 
