@@ -65,17 +65,6 @@ if (dt.get(db).time == null) {
   dt.localMapInsert(db, serverAgent(), ROOT_LV, 'time', {type: 'primitive', val: 0})
 }
 
-// setInterval(() => {
-//   const val = (Math.random() * 100)|0
-//   const op = dt.localMapInsert(db, serverAgent(), dt.ROOT, 'time', {type: 'primitive', val})
-//   broadcastOp(op)
-// }, 1000)
-
-// app.post('/db', bodyParser.json(), (req, res, next) => {
-//   console.log('body', req.body)
-//   res.end('<h1>hi</h1>')
-// })
-
 app.post('/op', bodyParser.json(), (req, res, next) => {
   let ops = req.body as Operation[]
   console.log(`Got ${ops.length} from client`)

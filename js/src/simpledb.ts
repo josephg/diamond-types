@@ -22,8 +22,8 @@ type CRDTInfo = {
 
 /**
  * A SimpleDB is a lightweight in-memory database implementation designed for
- * use in the browser. It is optimized to be tiny, and it doesn't need to load
- * the causalgraph to work.
+ * use in the browser. It is optimized to need less code, and it doesn't need
+ * to load the causalgraph into the browser to work.
  *
  * We locally store the current version, but we need to trust the remote peer
  * to figure out what operations we need to merge in. This is a bit complex on
