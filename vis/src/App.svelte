@@ -1,7 +1,7 @@
 <script lang="ts">
   import {onMount} from 'svelte'
   import Editor from './Editor.svelte'
-  import type {Doc} from 'diamond-wasm'
+  import type {Doc} from 'dt-wasm'
 
   let e1: Editor, e2: Editor
 

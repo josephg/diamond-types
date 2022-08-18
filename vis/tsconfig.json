@@ -11,7 +11,7 @@
       // Add this line to get types for streaming imports (packageOptions.source="remote"):
       // "*": [".snowpack/types/*"],
       // More info: https://www.snowpack.dev/guides/streaming-imports
-      "diamond-wasm": ["../crates/diamond-wasm/pkg"]
+      "diamond-wasm": ["../crates/dt-wasm/pkg"]
     },
     /* noEmit - Snowpack builds (emits) files, not tsc. */
     "noEmit": true,
