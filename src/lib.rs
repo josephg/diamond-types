@@ -1,3 +1,5 @@
+//! > NOTE: This documentation is out of date with the current DT code
+//!
 //! This is a super fast CRDT implemented in rust. It currently only supports plain text documents
 //! but the plan is to support all kinds of data.
 //!
@@ -235,7 +237,10 @@ pub type LocalVersion = SmallVec<[Time; 2]>;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Primitive {
+    // Nil,
+    // Bool(bool),
     I64(i64),
+    // F64(f64),
     Str(SmartString),
 
     InvalidUninitialized,
@@ -252,28 +257,30 @@ pub enum SnapshotValue {
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 // #[repr(u16)]
 pub enum CRDTKind {
-    Map, LWW, Set, Text,
+    Map, // String => Register (like a JS object)
+    Register,
+    Set, // SQL table / mongo collection
+    Text,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum OpValue {
+pub enum CreateValue {
     Primitive(Primitive),
     NewCRDT(CRDTKind),
     // Deleted, // Marks that the key / contents should be deleted.
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum SetOp {
-    // TODO: Consider just inlining this in OpContents.
-    Insert(CRDTKind),
+    Insert(CreateValue),
     Remove(Time),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum OpContents {
-    RegisterSet(OpValue),
-    MapSet(SmartString, OpValue),
-    Set(SetOp),
+    RegisterSet(CreateValue),
+    MapSet(SmartString, CreateValue),
+    Set(SetOp), // TODO: Consider just inlining this.
     Text(ListOpMetrics),
 
 
@@ -289,7 +296,7 @@ pub(crate) enum OpContents {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct Op {
-    pub crdt_id: Time,
+    pub target_id: Time,
     pub contents: OpContents,
 }
 
@@ -325,18 +332,21 @@ pub struct OpLog {
 
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-struct LWWValue {
+struct RegisterState {
     value: SnapshotValue,
-    last_modified: Time,
+    version: Time,
 }
+
+/// Guaranteed to always have at least 1 value inside.
+type MVRegister = SmallVec<[RegisterState; 1]>;
 
 // TODO: Probably should also store a dirty flag for when we flush to disk.
 #[derive(Debug, Clone, Eq, PartialEq)]
 enum OverlayValue {
-    LWW(LWWValue),
-    Map(BTreeMap<SmartString, LWWValue>),
-    Set(BTreeSet<Time>),
-    Text(JumpRope),
+    Register(MVRegister),
+    Map(BTreeMap<SmartString, MVRegister>),
+    Set(BTreeMap<Time, SnapshotValue>),
+    Text(Box<JumpRope>),
 }
 
 /// The branch object stores the *data* at some particular version of the database. This is

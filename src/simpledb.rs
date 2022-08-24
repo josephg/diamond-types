@@ -37,7 +37,7 @@ impl SimpleDatabase {
     }
 
     pub fn get_recursive_at(&self, crdt_id: Time) -> Option<DTValue> {
-        self.branch.get_recursive_at(crdt_id)
+        self.branch.get_recursive_at(crdt_id, &self.oplog.cg)
     }
 
     pub fn get_recursive(&self) -> Option<DTValue> {
@@ -47,7 +47,7 @@ impl SimpleDatabase {
     pub(crate) fn apply_remote_op(&mut self, parents: &[Time], op_id: CRDTSpan, crdt_id: CRDTGuid, contents: OpContents) -> DTRange {
         let (time, crdt_id) = self.oplog.push_remote_op(parents, op_id, crdt_id, contents.clone());
         self.branch.apply_remote_op(&self.oplog.cg, parents, time.start, &Op {
-            crdt_id,
+            target_id: crdt_id,
             contents
         }, &self.oplog.uncommitted_ops.list_ctx);
 
@@ -55,29 +55,30 @@ impl SimpleDatabase {
     }
 
     // *** Modifying LWW Registers & Map values
-    pub fn modify_map(&mut self, agent_id: AgentId, map_id: Time, key: &str, value: OpValue) -> Time {
+    pub fn modify_map(&mut self, agent_id: AgentId, map_id: Time, key: &str, value: CreateValue) -> Time {
         let time = self.oplog.local_set_map(agent_id, map_id, key, value.clone());
-        self.branch.modify_map_local(time, map_id, key, &value);
+        self.branch.modify_map_local(time, map_id, key, &value, &self.oplog.cg);
 
         time
     }
 
-    pub fn modify_lww(&mut self, agent_id: AgentId, lww_id: Time, value: OpValue) -> Time {
+    pub fn modify_lww(&mut self, agent_id: AgentId, lww_id: Time, value: CreateValue) -> Time {
         let time = self.oplog.local_set_lww(agent_id, lww_id, value.clone());
-        self.branch.modify_lww_local(time, lww_id, &value);
+        self.branch.modify_reg_local(time, lww_id, &value, &self.oplog.cg);
         time
     }
 
     // *** Sets ***
     pub(crate) fn modify_set(&mut self, agent_id: AgentId, set_id: Time, set_op: SetOp) -> Time {
-        let time = self.oplog.push_local_op(agent_id, set_id, OpContents::Set(set_op)).start;
+        // TODO: Find a way to remove this clone.
+        let time = self.oplog.push_local_op(agent_id, set_id, OpContents::Set(set_op.clone())).start;
         self.branch.modify_set_internal(time, set_id, &set_op);
         self.branch.set_time(time);
         time
     }
 
-    pub fn set_insert(&mut self, agent_id: AgentId, set_id: Time, kind: CRDTKind) -> Time {
-        self.modify_set(agent_id, set_id, SetOp::Insert(kind))
+    pub fn set_insert(&mut self, agent_id: AgentId, set_id: Time, val: CreateValue) -> Time {
+        self.modify_set(agent_id, set_id, SetOp::Insert(val))
     }
 
     pub fn set_remove(&mut self, agent_id: AgentId, set_id: Time, target: Time) -> Time {
@@ -91,21 +92,21 @@ impl SimpleDatabase {
 
     pub fn text_insert(&mut self, agent_id: AgentId, text_id: Time, pos: usize, ins_content: &str) {
         let (span, op) = self.oplog.insert_into_text(agent_id, text_id, pos, ins_content);
-        self.branch.apply_local_op(span.start, &op, &self.oplog.uncommitted_ops.list_ctx);
+        self.branch.apply_local_op(span.start, &op, &self.oplog.uncommitted_ops.list_ctx, &self.oplog.cg);
     }
     pub fn text_remove(&mut self, agent_id: AgentId, text_id: Time, pos: DTRange) {
         let (span, op) = self.oplog.remove_from_text(agent_id, text_id, pos.into(), None);
-        self.branch.apply_local_op(span.start, &op, &self.oplog.uncommitted_ops.list_ctx);
+        self.branch.apply_local_op(span.start, &op, &self.oplog.uncommitted_ops.list_ctx, &self.oplog.cg);
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::branch::DTValue;
-    use crate::{CRDTKind, OpContents};
+    use crate::{CRDTKind, CreateValue, OpContents};
     use crate::oplog::ROOT_MAP;
     use crate::Primitive::*;
-    use crate::OpValue::*;
+    use crate::CreateValue::*;
     use crate::remotespan::{CRDT_DOC_ROOT, CRDTGuid};
     use crate::simpledb::SimpleDatabase;
 
@@ -119,7 +120,7 @@ mod test {
         db.modify_map(seph, inner, "cool", Primitive(I64(1)));
 
         let inner_set = db.modify_map(seph, ROOT_MAP, "set stuff", NewCRDT(CRDTKind::Set));
-        let inner_map = db.set_insert(seph, inner_set, CRDTKind::Map);
+        let inner_map = db.set_insert(seph, inner_set, CreateValue::NewCRDT(CRDTKind::Map));
         db.modify_map(seph, inner_map, "whoa", Primitive(I64(3214)));
 
         dbg!(db.get_recursive());
