@@ -9,57 +9,6 @@ The *temporal component* of a CRDT is its history of changes. What happened, whe
 Diamond types (like automerge) stores information about both the temporal and spatial dimensions of a document.
 
 
-# The 3 types of edits
-
-List CRDTs like diamond types use 3 different formats for interacting with edits:
-
-1. The *original change*. Original changes specify type, the position in the document and the *time* when the change happened. Eg: *Insert 'k' at position 12 after the merge of changes X and Y*. The original changes make up a DAG (directed acyclic graph).
-2. Merge algorithm specifics. This code uses a modified version of Yjs's merge logic. The algorithm creates a list of items in document order. Each item names some yjs-specific fields.
-3. The *resulting change* or *transformed change*. These changes superficially look like the original changes, but rather than being arranged in a DAG, these items are a simple list of changes. The changes can be applied in order to a document to recreate the document state.
-
-For example, given these two concurrent original changes:
-
-- **ID 1:** Insert 'a' position 0, parents []
-- **ID 2:** Insert 'b' position 10, parents []
-
-We can create a merge structure like this:
-
-1. Insert 'a' between *ROOT* and the original item at position 0.
-2. Original items from 0..10
-3. Insert 'b' between original item 10 and original item 11.
-
-While generating this structure, we can flatten the changes into a transformed list that looks like this:
-
-- **ID 1:** Insert 'a' position 0
-- **ID 2:** Insert 'b' position **11**
-
-Or equivilently like this:
-
-- **ID 2:** Insert 'b' position **10**
-- **ID 1:** Insert 'a' position 0
-
-(When concurrent changes happen, there is no canonical ordering - but every valid ordering will produce the same document state).
-
-The transformed list can be applied to the document state to replay all the changes.
-
-
-## Causal graph (aka Time DAG)
-
-Each change has a *parents* field specifying the version of the document when the operation was created. We can use these versions to construct a [causal graph](https://en.wikipedia.org/wiki/Causal_graph) of changes.
-
-The causal graph itself is stored and persisted by diamond types. We need this data to merge changes.
-
-Luckily, this data can be stored incredibly compactly thanks to the fact that concurrent operations are rare. The structure is stored in a run-length encoded list which only needs new entries for items which are not in an ordinary list.
-
-
-
-
----
-
-# Old internals document
-
-> This was written for an earlier version of diamond types when I persisted the merge structure like yjs and automerge do. This has much worse performance when there are no concurrent changes, and a bigger file size. TODO: Bring this entirely up to date with the current DT version!
-
 ## Space
 
 Diamond types stores a list of entries internally, one for each item in the document. This is stored in document-sorted order.

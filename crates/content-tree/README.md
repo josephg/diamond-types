@@ -6,6 +6,10 @@ This is a fancy data structure for managing packed run-length encoded data. Its 
 - A list / array, except with inline run-length encoding and supporting efficient inserts and removals at any location
 - A b-tree, except instead of each item having a fixed key, each item is indexed according to its current position in the list. The position of each item will move when other items are inserted or deleted before the current item.
 
+This library is currently implemented as a b-tree, but I have plans to rewrite it using skip lists a la [jumprope](https://crates.io/crates/jumprope). I believe this will make the code smaller and improve performance.
+
+TODO: This library does not get the tick of approval from MIRI. I will add that during the skip list oriented rewrite.
+
 ## Features
 
 - High performance based on a reasonably well optimized b-tree (capable of handling millions of edits per second)
