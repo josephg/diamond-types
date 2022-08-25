@@ -5,7 +5,7 @@ edition = "2021"
 exclude = [
     ".idea", ".vscode",
     "vis", "wiki", "js",
-    "benches", "benchmark_data", "test_data",
+    "benchmark_data", "test_data",
     ".github"
 ]
 
