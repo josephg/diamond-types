@@ -8,6 +8,8 @@ exclude = [
     "benchmark_data", "test_data",
     ".github"
 ]
+license = "ISC"
+description = "The world's fastest text CRDT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
