@@ -1,6 +1,6 @@
 [package]
 name = "diamond-types"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -14,8 +14,8 @@ str_indices = "0.3.1"
 smallvec = { version = "1.8.0", features = ["union", "const_generics"] }
 lazy_static = "1.4.0"
 serde_crate = { package = "serde", version = "1.0.136", features = ["derive"], optional = true }
-rle = { version = "0.1.1", path = "crates/rle" }
-content-tree = { version = "0.1.0", path = "crates/content-tree" }
+rle = { version = "0.2.0", path = "crates/rle" }
+content-tree = { version = "0.2.0", path = "crates/content-tree" }
 
 #jumprope = { path = "../../../jumprope-rs" }
 

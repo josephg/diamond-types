@@ -1,6 +1,6 @@
 [package]
 name = "rle"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Seph Gentle <me@josephg.com>"]
 edition = "2021"
 license = "ISC OR Apache-2.0"
