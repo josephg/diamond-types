@@ -48,7 +48,7 @@ trace-alloc = { path = "crates/trace-alloc" }
 
 [features]
 default = ["lz4"]
-memusage = ["trace-alloc/memusage"]
+#memusage = ["trace-alloc/memusage"]
 inlinerope = []
 lz4 = ["lz4_flex"]
 serde = ["serde_crate", "smallvec/serde", "smartstring/serde"]
