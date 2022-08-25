@@ -55,6 +55,13 @@ fn write_create_value(result: &mut BumpVec<u8>, value: &CreateValue) {
     use crate::Primitive::*;
 
     match value {
+        CreateValue::Primitive(Nil) => {
+            push_u32(result, 0);
+        }
+        CreateValue::Primitive(Bool(b)) => {
+            push_u32(result, 1);
+            push_u32(result, if *b { 1 } else { 0 });
+        }
         CreateValue::Primitive(I64(num)) => {
             push_u32(result, 2);
             push_u64(result, num_encode_zigzag_i64(*num));

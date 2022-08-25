@@ -237,8 +237,8 @@ pub type LocalVersion = SmallVec<[Time; 2]>;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Primitive {
-    // Nil,
-    // Bool(bool),
+    Nil,
+    Bool(bool),
     I64(i64),
     // F64(f64),
     Str(SmartString),

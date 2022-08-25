@@ -140,11 +140,11 @@ mod test {
 
         let key = "yooo";
 
-        db.apply_remote_op(&[], CRDTGuid {
+        let t = db.apply_remote_op(&[], CRDTGuid {
             agent: mike, seq: 0
         }.into(), CRDT_DOC_ROOT, OpContents::MapSet(
             key.into(), Primitive(I64(1))
-        ));
+        )).end - 1;
 
         db.apply_remote_op(&[], CRDTGuid {
             agent: seph, seq: 0
@@ -152,7 +152,7 @@ mod test {
             key.into(), Primitive(I64(2))
         ));
 
-        db.apply_remote_op(&[], CRDTGuid {
+        db.apply_remote_op(&[t], CRDTGuid {
             agent: mike, seq: 1
         }.into(), CRDT_DOC_ROOT, OpContents::MapSet(
             key.into(), Primitive(I64(3))

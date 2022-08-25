@@ -328,6 +328,7 @@ impl WriteAheadLog {
         }
 
         let ops_chunk = reader.expect_chunk(ChunkType::Operations)?;
+        // TODO: Read ops chunk!
 
         Ok(())
     }
