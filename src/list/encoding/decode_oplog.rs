@@ -615,7 +615,7 @@ impl ListOpLog {
         #[cfg(not(feature = "lz4"))] {
             compressed_chunk = None;
             if reader.read_chunk_if_eq(ListChunkType::CompressedFieldsLZ4)?.is_some() {
-                return Err(LZ4DecoderNeeded);
+                return Err(ParseError::LZ4DecoderNeeded);
             }
         }
 

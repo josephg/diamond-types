@@ -309,6 +309,7 @@ fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ListChunkType) {
 }
 
 /// Returns compressed chunk size
+#[cfg(feature = "lz4")]
 fn write_compressed_chunk(dest: &mut Vec<u8>, data: &[u8]) -> usize {
     // dbg!(&compress_bytes);
     let max_compressed_size = lz4_flex::block::get_maximum_output_size(data.len());
