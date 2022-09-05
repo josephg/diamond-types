@@ -45,7 +45,7 @@ impl SplitableSpanCtx for OpContents {
 impl OpContents {
     pub fn kind(&self) -> CRDTKind {
         match self {
-            OpContents::RegisterSet(_) => CRDTKind::LWW,
+            OpContents::RegisterSet(_) => CRDTKind::Register,
             OpContents::MapSet(_, _) => CRDTKind::Map,
             OpContents::Set(_) => CRDTKind::Set,
             OpContents::Text(_) => CRDTKind::Text,
@@ -59,7 +59,7 @@ impl HasLength for Op {
 
 impl MergableSpan for Op {
     fn can_append(&self, other: &Self) -> bool {
-        self.crdt_id == other.crdt_id && self.contents.can_append(&other.contents)
+        self.target_id == other.target_id && self.contents.can_append(&other.contents)
     }
 
     fn append(&mut self, other: Self) {
@@ -73,7 +73,7 @@ impl SplitableSpanCtx for Op {
     fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
         let remainder = self.contents.truncate_ctx(at, ctx);
         Self {
-            crdt_id: self.crdt_id,
+            target_id: self.target_id,
             contents: remainder
         }
     }

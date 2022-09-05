@@ -113,6 +113,10 @@ const findClientEntry = (cg: CausalGraph, agent: string, seq: number): ClientEnt
   }
 }
 
+export const hasVersion = (cg: CausalGraph, agent: string, seq: number): boolean => (
+  findClientEntry(cg, agent, seq) != null
+)
+
 export const addRaw = (cg: CausalGraph, id: RawVersion, len: number, rawParents: RawVersion[]): LV => {
   const parents = rawToLVList(cg, rawParents)
 
@@ -265,7 +269,8 @@ export const summarizeVersion = (cg: CausalGraph): VersionSummary => {
 // *** TOOLS ***
 
 type DiffResult = {
-  // These are (reversed) ranges.
+  // These are ranges. Unlike the rust code, they're in normal
+  // (ascending) order.
   aOnly: [LV, LV][], bOnly: [LV, LV][]
 }
 
@@ -463,7 +468,6 @@ export function fromSerialized(data: SerializedCausalGraphV1): CausalGraph {
 
   return cg
 }
-
 
 ;(() => {
   const cg = create();

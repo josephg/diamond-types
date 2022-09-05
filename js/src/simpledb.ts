@@ -1,6 +1,7 @@
 // This is a simplified database for the browser. No history is stored.
 import Map2 from "map2"
-import { Primitive, RawVersion, CreateValue, Operation, ROOT, DBValue, DBSnapshot, SnapCRDTInfo } from "./types.js"
+import { Primitive, RawVersion, CreateValue, Operation, ROOT, DBValue, DBSnapshot, SnapCRDTInfo, VersionSummary } from "./types.js"
+import { versionInSummary } from "./utils.js"
 
 
 type RegisterValue = {type: 'primitive', val: Primitive}
@@ -21,8 +22,8 @@ type CRDTInfo = {
 
 /**
  * A SimpleDB is a lightweight in-memory database implementation designed for
- * use in the browser. It is optimized to be tiny, and it doesn't need to load
- * the causalgraph to work.
+ * use in the browser. It is optimized to need less code, and it doesn't need
+ * to load the causalgraph into the browser to work.
  *
  * We locally store the current version, but we need to trust the remote peer
  * to figure out what operations we need to merge in. This is a bit complex on
@@ -34,7 +35,22 @@ export interface SimpleDB {
 }
 
 
-const versionEq = ([a1, s1]: RawVersion, [a2, s2]: RawVersion) => (a1 === a2 && s1 === s2)
+export const versionEq = ([a1, s1]: RawVersion, [a2, s2]: RawVersion) => (a1 === a2 && s1 === s2)
+
+export const frontierEq = (f1: RawVersion[], f2: RawVersion[]): boolean => {
+  // Both frontiers should be sorted at this point anyway. It would be better
+  // to assert they're sorted than re-sort.
+  // They should also be free from duplicates.
+  
+  f1.sort(versionCmp); f2.sort(versionCmp)
+
+  if (f1.length !== f2.length) return false
+  for (let i = 0; i < f1.length; i++) {
+    if (!versionEq(f1[i], f2[i])) return false
+  }
+  return true
+}
+
 const versionCmp = ([a1, s1]: RawVersion, [a2, s2]: RawVersion) => (
   a1 < a2 ? 1
     : a1 > a2 ? -1
@@ -157,6 +173,72 @@ export function localSetDelete(state: SimpleDB, id: RawVersion, setId: RawVersio
   } else { return null } // Already deleted.
 }
 
+const unwrapCRDT = (db: SimpleDB, id: RawVersion, key: null | string | RawVersion): RawVersion | null => {
+  let crdt = db.crdts.get(id[0], id[1])!
+
+  while (crdt.type === 'register') {
+    // Unwrap registers
+    let inner = crdt.value[0][1]
+    if (inner.type === 'crdt') {
+      id = inner.id
+      crdt = db.crdts.get(id[0], id[1])!
+    } else {
+      throw Error('Cannot descend into register')
+    }
+  }
+
+  if (key == null) return id
+
+  let value: RegisterValue
+  if (crdt.type === 'map' && typeof key === 'string') {
+    const register: MVRegister = crdt.registers[key]
+    if (register == null) throw Error(`Missing item at path ${key}`)
+    if (register.length < 1) throw Error('Invalid register')
+    
+    value = register[0][1]
+  } else if (crdt.type === 'set' && Array.isArray(key)) {
+    const val = crdt.values.get(key[0], key[1])
+    if (val == null) return null // The set item was deleted (probably remotely).
+    // if (val == null) throw Error('Missing item at path')
+    value = val
+  } else {
+    throw Error('Cannot descend into path')
+  }
+
+  if (value.type !== 'crdt') throw Error('Cannot unwrap primitive')
+  return value.id
+}
+
+function containerAtPath(db: SimpleDB, path: (string | RawVersion)[]): [RawVersion, string | RawVersion | null] {
+  // let crdt = db.crdts.get(ROOT[0], ROOT[1])!
+  // let value: RegisterValue = {type: 'crdt', id: ROOT}
+  let id = ROOT
+  let key: null | string | RawVersion = null
+
+  for (const p of path) {
+    id = unwrapCRDT(db, id, key) ?? errExpr('Container deleted')
+    key = p
+  }
+
+  return [id, key]
+}
+
+export function setAtPath(db: SimpleDB, id: RawVersion, path: (string | RawVersion)[], val: CreateValue): Operation {
+  if (path.length === 0) throw Error('Invalid path')
+  let [crdtId, key] = containerAtPath(db, path)
+
+  if (Array.isArray(key)) {
+    // If the container is a set, the set must store a register. Unwrap!
+    crdtId = unwrapCRDT(db, crdtId, key) ?? errExpr('Container deleted')
+    key = null
+  }
+  
+  if (key == null) {
+    return localRegisterSet(db, id, crdtId, val)
+  } else {
+    return localMapInsert(db, id, crdtId, key, val)
+  }
+}
 
 const errExpr = (str: string): never => { throw Error(str) }
 
@@ -301,6 +383,23 @@ export function get(state: SimpleDB, crdtId: RawVersion = ROOT): DBValue {
   }
 }
 
+export function getAtPath(db: SimpleDB, path: (string | RawVersion)[]): DBValue {
+  let [crdtId, key] = containerAtPath(db, path)
+
+  if (key == null) return get(db, crdtId)
+  
+  let crdt = db.crdts.get(crdtId[0], crdtId[1])!
+  if (Array.isArray(key)) {
+    if (crdt.type !== 'set') throw Error('Unexpected type')
+    const val = crdt.values.get(key[0], key[1])
+    if (val == null) throw Error('Missing key')
+    return registerToVal(db, val)
+  } else {
+    if (crdt.type !== 'map') throw Error('Unexpected type')
+    return registerToVal(db, crdt.registers[key][0][1])
+  }
+}
+
 export function toSnapshot(state: SimpleDB): DBSnapshot {
   return {
     version: state.version,
@@ -314,7 +413,7 @@ export function toSnapshot(state: SimpleDB): DBSnapshot {
   }
 }
 
-export function fromSnapshot(jsonState: any): SimpleDB {
+export function fromSnapshot(jsonState: DBSnapshot): SimpleDB {
   return {
     version: jsonState.version,
     crdts: new Map2(jsonState.crdts.map(([agent, seq, info]: any) => {
@@ -328,4 +427,28 @@ export function fromSnapshot(jsonState: any): SimpleDB {
       return [agent, seq, info2]
     }))
   } as SimpleDB
+}
+
+/**
+ * Returns true if the DB changed as a result of the snapshot being merged in.
+ * knownOps is a list of operations that might not be included in the snapshot
+ * so we don't regress. They must have already been applied to the local db.
+ */
+export function mergeSnapshot(db: SimpleDB, snapshot: DBSnapshot, vs: VersionSummary, knownOps: Operation[] = []): boolean {
+  const replacement = fromSnapshot(snapshot)
+  if (frontierEq(replacement.version, db.version)) return false
+
+  for (const op of knownOps) {
+    if (!versionInSummary(vs, op.id)) {
+      applyRemoteOp(replacement, op)
+    }
+  }
+
+  if (frontierEq(replacement.version, db.version)) return false
+
+  // TODO: Fire events
+
+  db.version = replacement.version
+  db.crdts = replacement.crdts
+  return true
 }

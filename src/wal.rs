@@ -328,6 +328,7 @@ impl WriteAheadLog {
         }
 
         let ops_chunk = reader.expect_chunk(ChunkType::Operations)?;
+        // TODO: Read ops chunk!
 
         Ok(())
     }
@@ -336,7 +337,7 @@ impl WriteAheadLog {
 
 #[cfg(test)]
 mod test {
-    use crate::{CausalGraph, CRDTKind, KVPair, Op, OpContents, OpLog, Ops, OpValue, Primitive, SetOp, WriteAheadLog};
+    use crate::{CausalGraph, CRDTKind, KVPair, Op, OpContents, OpLog, Ops, CreateValue, Primitive, SetOp, WriteAheadLog};
     use crate::oplog::ROOT_MAP;
 
     #[test]
@@ -355,20 +356,20 @@ mod test {
 
         let mut span = cg.assign_op(&[], seph, 1);
         ops.ops.push(KVPair(span.start, Op {
-            crdt_id: ROOT_MAP,
-            contents: OpContents::MapSet("hi".into(), OpValue::Primitive(Primitive::I64(123)))
+            target_id: ROOT_MAP,
+            contents: OpContents::MapSet("hi".into(), CreateValue::Primitive(Primitive::I64(123)))
         }));
         span = cg.assign_op(&[span.last()], seph, 1);
         ops.ops.push(KVPair(span.start, Op {
-            crdt_id: ROOT_MAP,
-            contents: OpContents::MapSet("cool set".into(), OpValue::NewCRDT(CRDTKind::Set))
+            target_id: ROOT_MAP,
+            contents: OpContents::MapSet("cool set".into(), CreateValue::NewCRDT(CRDTKind::Set))
         }));
 
         let set = span.start;
         span = cg.assign_op(&[span.last()], seph, 1);
         ops.ops.push(KVPair(span.start, Op {
-            crdt_id: ROOT_MAP,
-            contents: OpContents::Set(SetOp::Insert(CRDTKind::LWW))
+            target_id: ROOT_MAP,
+            contents: OpContents::Set(SetOp::Insert(CreateValue::NewCRDT(CRDTKind::Register)))
         }));
 
         wal.flush(&cg, &ops).unwrap();

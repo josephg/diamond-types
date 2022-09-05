@@ -11,9 +11,9 @@ echo "=== After ==="
 #wasm-pack build --target web --dev
 
 rm -rf pkg-*
-#wasm-pack build --target web --out-dir ../../pkg-web --out-name dt crates/diamond-wasm --profiling
-wasm-pack build --target web --out-dir ../../pkg-web --out-name dt crates/diamond-wasm
-wasm-pack build --target nodejs --out-dir ../../pkg-node --out-name dt crates/diamond-wasm
+#wasm-pack build --target web --out-dir ../../pkg-web --out-name dt crates/dt-wasm --profiling
+wasm-pack build --target web --out-dir ../../pkg-web --out-name dt crates/dt-wasm
+wasm-pack build --target nodejs --out-dir ../../pkg-node --out-name dt crates/dt-wasm
 
 # sed -i '3i\ \ "type": "module",' pkg/package.json
 
@@ -22,8 +22,8 @@ wasm-pack build --target nodejs --out-dir ../../pkg-node --out-name dt crates/di
 
 # Web code needs to have "main" defined since its an es6 module package
 sed -i.old 's/"module":/"main":/' pkg-web/package.json
-sed -i.old 's/"name": "diamond-wasm"/"name": "diamond-types-web"/' pkg-web/package.json
-sed -i.old 's/"name": "diamond-wasm"/"name": "diamond-types-node"/' pkg-node/package.json
+sed -i.old 's/"name": "dt-wasm"/"name": "diamond-types-web"/' pkg-web/package.json
+sed -i.old 's/"name": "dt-wasm"/"name": "diamond-types-node"/' pkg-node/package.json
 sed -i.old 's/"files": \[/"files": \[\n    "dt_bg.wasm.br",/' pkg-web/package.json
 perl -wlpi -e 'print "  \"type\": \"module\"," if $. == 2' pkg-web/package.json
 

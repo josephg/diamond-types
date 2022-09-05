@@ -17,7 +17,7 @@ export default {
     [
       '@emily-curry/snowpack-plugin-wasm-pack',
       {
-        projectPath: '../crates/diamond-wasm'
+        projectPath: '../crates/dt-wasm'
       }
     ]
   ],

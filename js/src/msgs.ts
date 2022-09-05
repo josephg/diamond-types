@@ -2,14 +2,9 @@ import { DBSnapshot, Operation, VersionSummary } from "./types.js"
 
 export type WSServerClientMsg = {
   type: 'snapshot',
-  version: VersionSummary,
-  data: DBSnapshot
+  data: DBSnapshot,
+  v: VersionSummary
 } | {
-  type: 'op',
-  op: Operation
-}
-
-export type WSClientServerMsg = {
-  type: 'op',
-  op: Operation
+  type: 'ops',
+  ops: Operation[]
 }

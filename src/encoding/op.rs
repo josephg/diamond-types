@@ -1,7 +1,7 @@
 use bumpalo::Bump;
 use bumpalo::collections::vec::Vec as BumpVec;
 use crate::encoding::Merger;
-use crate::{CausalGraph, KVPair, ListOperationCtx, ListOpMetrics, Op, OpContents, OpValue, SetOp, Time};
+use crate::{CausalGraph, KVPair, ListOperationCtx, ListOpMetrics, Op, OpContents, CreateValue, SetOp, Time};
 use crate::encoding::map::WriteMap;
 use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
 use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64};
@@ -51,20 +51,27 @@ fn write_time(result: &mut BumpVec<u8>, time: Time, ref_time: Time, write_map: &
     }
 }
 
-fn write_op_value(result: &mut BumpVec<u8>, value: &OpValue) {
+fn write_create_value(result: &mut BumpVec<u8>, value: &CreateValue) {
     use crate::Primitive::*;
 
     match value {
-        OpValue::Primitive(I64(num)) => {
+        CreateValue::Primitive(Nil) => {
+            push_u32(result, 0);
+        }
+        CreateValue::Primitive(Bool(b)) => {
+            push_u32(result, 1);
+            push_u32(result, if *b { 1 } else { 0 });
+        }
+        CreateValue::Primitive(I64(num)) => {
             push_u32(result, 2);
             push_u64(result, num_encode_zigzag_i64(*num));
         }
-        OpValue::Primitive(Str(str)) => {
+        CreateValue::Primitive(Str(str)) => {
             push_u32(result, 4);
             push_str(result, str);
         }
-        OpValue::Primitive(InvalidUninitialized) => { panic!("Invalid set") }
-        OpValue::NewCRDT(kind) => {
+        CreateValue::Primitive(InvalidUninitialized) => { panic!("Invalid set") }
+        CreateValue::NewCRDT(kind) => {
             let mut n = *kind as u32;
             n = mix_bit_u32(n, true); // NewCRDT vs Primitive.
             push_u32(result, n);
@@ -90,7 +97,7 @@ fn write_op(result: &mut BumpVec<u8>, content_out: &mut BumpVec<u8>,
     let KVPair(time, op) = pair;
     debug_assert!(*time >= expect_time);
 
-    let encode_crdt_id = last_crdt_id != op.crdt_id;
+    let encode_crdt_id = last_crdt_id != op.target_id;
     let encode_time_skip = *time != expect_time;
 
     let mut n = op_type(&op.contents);
@@ -104,20 +111,21 @@ fn write_op(result: &mut BumpVec<u8>, content_out: &mut BumpVec<u8>,
     }
 
     if encode_crdt_id {
-        write_time(result, op.crdt_id, *time, write_map, cg);
+        write_time(result, op.target_id, *time, write_map, cg);
     }
 
     match &op.contents {
         OpContents::RegisterSet(value) => {
-            write_op_value(result, value);
+            write_create_value(result, value);
         }
         OpContents::MapSet(key, value) => {
             // TODO: Add some sort of encoding for repeated keys.
             push_str(result, key);
-            write_op_value(result, value);
+            write_create_value(result, value);
         }
-        OpContents::Set(SetOp::Insert(kind)) => {
-            push_u32(result, *kind as u32);
+        OpContents::Set(SetOp::Insert(value)) => {
+            // push_u32(result, *kind as u32);
+            write_create_value(result, value);
         }
         OpContents::Set(SetOp::Remove(target)) => {
             write_time(result, *target, *time, write_map, cg);
@@ -142,7 +150,7 @@ pub(crate) fn write_ops<'a, I: Iterator<Item = KVPair<Op>>>(bump: &'a Bump, iter
     for op in iter {
         write_op(&mut result, &mut content_out, expected_time, last_crdt_id, &op,
                  ctx, write_map, cg);
-        last_crdt_id = op.1.crdt_id;
+        last_crdt_id = op.1.target_id;
         expected_time = op.end();
     }
 

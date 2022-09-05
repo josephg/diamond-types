@@ -65,7 +65,7 @@ lto = true
 codegen-units = 1
 #panic = "abort"
 
-[profile.release.package.diamond-wasm]
+[profile.release.package.dt-wasm]
 opt-level = 2
 #opt-level = "s"
 #debugging = true

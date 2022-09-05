@@ -4,11 +4,11 @@ import * as bodyParser from 'body-parser'
 import sirv from 'sirv'
 import {WebSocket, WebSocketServer} from 'ws'
 import * as http from 'http'
-import { WSClientServerMsg, WSServerClientMsg } from './msgs.js'
+import { WSServerClientMsg } from './msgs.js'
 import { Operation, ROOT_LV } from './types.js'
 import { createAgent, rateLimit } from './utils.js'
 import fs from 'fs'
-import { summarizeVersion } from './fancydb/causal-graph'
+import { hasVersion, summarizeVersion } from './fancydb/causal-graph'
 
 const app = polka()
 .use(sirv('public', {
@@ -54,17 +54,18 @@ process.on('SIGINT', () => {
 
 const clients = new Set<WebSocket>()
 
-const broadcastOp = (op: Operation, exclude?: any) => {
+const broadcastOp = (ops: Operation[], exclude?: any) => {
+  console.log('broadcast', ops)
   const msg: WSServerClientMsg = {
-    type: 'op',
-    op
+    type: 'ops',
+    ops
   }
 
   const msgStr = JSON.stringify(msg)
   for (const c of clients) {
-    if (c !== exclude) {
-      c.send(msgStr)
-    }
+    // if (c !== exclude) {
+    c.send(msgStr)
+    // }
   }
 }
 
@@ -74,15 +75,15 @@ if (dt.get(db).time == null) {
   dt.localMapInsert(db, serverAgent(), ROOT_LV, 'time', {type: 'primitive', val: 0})
 }
 
-// setInterval(() => {
-//   const val = (Math.random() * 100)|0
-//   const op = dt.localMapInsert(db, serverAgent(), dt.ROOT, 'time', {type: 'primitive', val})
-//   broadcastOp(op)
-// }, 1000)
+app.post('/op', bodyParser.json(), (req, res, next) => {
+  let ops = req.body as Operation[]
+  console.log(`Got ${ops.length} from client`)
 
-app.post('/db', bodyParser.json(), (req, res, next) => {
-  console.log('body', req.body)
-  res.end('<h1>hi</h1>')
+  ops = ops.filter(op => !hasVersion(db.cg, op.id[0], op.id[1]))
+  ops.forEach(op => dt.applyRemoteOp(db, op))
+  broadcastOp(ops)
+
+  res.end()
 })
 
 const server = http.createServer(app.handler as any)
@@ -92,23 +93,24 @@ wss.on('connection', ws => {
   // console.dir(dt.toJSON(db), {depth: null})
   const msg: WSServerClientMsg = {
     type: 'snapshot',
-    version: summarizeVersion(db.cg),
-    data: dt.toSnapshot(db)
+    data: dt.toSnapshot(db),
+    v: summarizeVersion(db.cg),
   }
   ws.send(JSON.stringify(msg))
   clients.add(ws)
 
   ws.on('message', (msgBytes) => {
-    const rawJSON = msgBytes.toString('utf-8')
-    const msg = JSON.parse(rawJSON) as WSClientServerMsg
-    // console.log('msg', msg)
-    switch (msg.type) {
-      case 'op': {
-        dt.applyRemoteOp(db, msg.op)
-        broadcastOp(msg.op, ws)
-        break
-      }
-    }
+    // const rawJSON = msgBytes.toString('utf-8')
+    // const msg = JSON.parse(rawJSON) as WSClientServerMsg
+    // // console.log('msg', msg)
+    // switch (msg.type) {
+    //   case 'op': {
+    //     console.log(msg)
+    //     msg.ops.forEach(op => dt.applyRemoteOp(db, op))
+    //     broadcastOp(msg.ops, ws)
+    //     break
+    //   }
+    // }
   })
 
   ws.on('close', () => {

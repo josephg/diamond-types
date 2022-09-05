@@ -1,0 +1,19 @@
+[package]
+name = "dt-swift"
+version = "0.1.0"
+edition = "2021"
+
+#build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["staticlib"]
+
+[build-dependencies]
+swift-bridge-build = "0.1.35"
+
+[dependencies]
+swift-bridge = "0.1.35"
+diamond-types = { path = "../..", features = ["serde", "wchar_conversion"] }
+rand = { version = "0.8.5" }
