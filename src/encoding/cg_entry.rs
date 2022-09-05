@@ -4,7 +4,7 @@ use crate::{CausalGraph, CRDTSpan, DTRange, KVPair, LocalVersion, ROOT_AGENT, Ti
 use crate::causalgraph::ClientData;
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
-use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64, strip_bit_usize2};
+use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64, strip_bit_usize_2};
 use bumpalo::collections::vec::Vec as BumpVec;
 use smallvec::smallvec;
 use crate::causalgraph::entry::CGEntry;
@@ -99,9 +99,9 @@ fn read_cg_aa(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_
     // dbg!(reader.0);
     let mut n = reader.next_usize()?;
 
-    let has_parents = strip_bit_usize2(&mut n);
-    let is_known = strip_bit_usize2(&mut n);
-    let has_jump = strip_bit_usize2(&mut n);
+    let has_parents = strip_bit_usize_2(&mut n);
+    let is_known = strip_bit_usize_2(&mut n);
+    let has_jump = strip_bit_usize_2(&mut n);
     let mapped_agent = n;
 
     let (agent, last_seq, idx) = if !is_known {

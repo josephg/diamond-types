@@ -100,11 +100,11 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
         // has_more
         // diff (only if is_known)
 
-        let is_foreign = strip_bit_usize2(&mut n);
+        let is_foreign = strip_bit_usize_2(&mut n);
         let is_known = if is_foreign {
-            strip_bit_usize2(&mut n)
+            strip_bit_usize_2(&mut n)
         } else { true };
-        let has_more = strip_bit_usize2(&mut n);
+        let has_more = strip_bit_usize_2(&mut n);
 
         let parent = if !is_foreign {
             let diff = n;

@@ -271,12 +271,18 @@ pub(crate) fn strip_bit_u32(value: u32) -> (u32, bool) {
     let bit = (value & 1) != 0;
     (value >> 1, bit)
 }
+pub(crate) fn strip_bit_u32_2(value: &mut u32) -> bool {
+    let bit = (*value & 1) != 0;
+    *value >>= 1;
+    bit
+}
+
 
 pub(crate) fn strip_bit_usize(value: usize) -> (usize, bool) {
     let bit = (value & 1) != 0;
     (value >> 1, bit)
 }
-pub(crate) fn strip_bit_usize2(value: &mut usize) -> bool {
+pub(crate) fn strip_bit_usize_2(value: &mut usize) -> bool {
     let bit = (*value & 1) != 0;
     *value >>= 1;
     bit

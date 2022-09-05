@@ -36,7 +36,7 @@ impl<'a> BufReader<'a> {
         if self.0.is_empty() { return Ok(None); }
 
         let mut n = self.next_usize()?;
-        let has_jump = strip_bit_usize2(&mut n);
+        let has_jump = strip_bit_usize_2(&mut n);
         let len = self.next_usize()?;
 
         let jump = if has_jump {
@@ -98,8 +98,8 @@ impl<'a> BufReader<'a> {
         let mut parents = SmallVec::<[usize; 2]>::new();
         loop {
             let mut n = self.next_usize()?;
-            let is_foreign = strip_bit_usize2(&mut n);
-            let has_more = strip_bit_usize2(&mut n);
+            let is_foreign = strip_bit_usize_2(&mut n);
+            let has_more = strip_bit_usize_2(&mut n);
 
             let parent = if is_foreign {
                 if n == 0 {
@@ -291,14 +291,14 @@ impl<'a> ReadPatchesIter<'a> {
     fn next_internal(&mut self) -> Result<ListOpMetrics, ParseError> {
         let mut n = self.buf.next_usize()?;
         // This is in the opposite order from write_op.
-        let has_length = strip_bit_usize2(&mut n);
-        let diff_not_zero = strip_bit_usize2(&mut n);
-        let tag = if strip_bit_usize2(&mut n) { Del } else { Ins };
+        let has_length = strip_bit_usize_2(&mut n);
+        let diff_not_zero = strip_bit_usize_2(&mut n);
+        let tag = if strip_bit_usize_2(&mut n) { Del } else { Ins };
 
         let (len, diff, fwd) = if has_length {
             // n encodes len.
             let fwd = if tag == Del {
-                strip_bit_usize2(&mut n)
+                strip_bit_usize_2(&mut n)
             } else { true };
 
             let diff = if diff_not_zero {
