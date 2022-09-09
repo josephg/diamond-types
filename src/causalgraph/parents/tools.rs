@@ -13,9 +13,13 @@ use crate::dtrange::DTRange;
 use crate::{LocalVersion, ROOT_TIME, Time};
 use crate::causalgraph::parents::scope::ScopedParents;
 
+#[cfg(feature = "serde")]
+use serde_crate::Serialize;
+
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
 pub(crate) enum DiffFlag { OnlyA, OnlyB, Shared }
 
 impl Parents {
@@ -708,19 +712,99 @@ pub mod test {
     }
 
     fn assert_conflicting(history: &Parents, a: &[Time], b: &[Time], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[Time]) {
-        let expect: Vec<(DTRange, DiffFlag)> = expect_spans.iter().rev().map(|(r, flag)| (r.clone().into(), *flag)).collect();
+        let expect: Vec<(DTRange, DiffFlag)> = expect_spans
+            .iter()
+            .rev()
+            .map(|(r, flag)| (r.clone().into(), *flag))
+            .collect();
         let actual = find_conflicting(history, a, b);
         assert_eq!(actual.common_branch.as_slice(), expect_common);
         assert_eq!(actual.spans, expect);
-        // let slow = history.find_conflicting_slow(a, b);
-        // assert_eq!(slow.spans.as_slice(), expect);
-        // assert_eq!(slow.common_branch.as_slice(), expect_common);
-        // let fast = history.find_conflicting_simple(a, b);
-        // assert_eq!(fast.spans.as_slice(), expect);
-        // assert_eq!(fast.common_branch.as_slice(), expect_common);
+
+        #[cfg(feature="gen_test_data")] {
+            #[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
+            #[derive(Clone)]
+            struct Test<'a> {
+                hist: Vec<ParentsEntrySimple>,
+                a: &'a [Time],
+                b: &'a [Time],
+                expect_spans: &'a [(Range<usize>, DiffFlag)],
+                expect_common: &'a [Time],
+            }
+
+            let t = Test {
+                hist: history.iter().collect(), a, b, expect_spans, expect_common
+            };
+
+            let p: Vec<_> = history.iter().collect();
+            use std::io::Write;
+            let mut f = std::fs::File::options()
+                .write(true)
+                .append(true)
+                .create(true)
+                .open("test_data/causal_graph/conflicting.json").unwrap();
+            writeln!(f, "{}", serde_json::to_string(&t).unwrap());
+        }
+    }
+
+    fn assert_version_contains_time(history: &Parents, frontier: &[Time], target: Time, expected: bool) {
+        #[cfg(feature="gen_test_data")] {
+            #[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
+            #[derive(Clone)]
+            struct Test<'a> {
+                hist: Vec<ParentsEntrySimple>,
+                frontier: &'a [Time],
+                target: Time,
+                expected: bool,
+            }
+
+            let t = Test {
+                hist: history.iter().collect(), frontier, target, expected
+            };
+
+            let p: Vec<_> = history.iter().collect();
+            use std::io::Write;
+            let mut f = std::fs::File::options()
+                .write(true)
+                .append(true)
+                .create(true)
+                .open("test_data/causal_graph/version_contains.json").unwrap();
+            writeln!(f, "{}", serde_json::to_string(&t).unwrap());
+        }
+
+        assert_eq!(history.version_contains_time(frontier, target), expected);
     }
 
     fn assert_diff_eq(history: &Parents, a: &[Time], b: &[Time], expect_a: &[DTRange], expect_b: &[DTRange]) {
+        #[cfg(feature="gen_test_data")] {
+            #[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
+            #[derive(Clone)]
+            struct Test<'a> {
+                hist: Vec<ParentsEntrySimple>,
+                a: &'a [Time],
+                b: &'a [Time],
+                expect_a: &'a [DTRange],
+                expect_b: &'a [DTRange],
+            }
+
+            let t = Test {
+                hist: history.iter().collect(),
+                a,
+                b,
+                expect_a,
+                expect_b
+            };
+
+            let p: Vec<_> = history.iter().collect();
+            use std::io::Write;
+            let mut f = std::fs::File::options()
+                .write(true)
+                .append(true)
+                .create(true)
+                .open("test_data/causal_graph/diff.json").unwrap();
+            writeln!(f, "{}", serde_json::to_string(&t).unwrap());
+        }
+
         let slow_result = history.diff_slow(a, b);
         let fast_result = history.diff(a, b);
         let c_result = diff_via_conflicting(history, a, b);
@@ -735,16 +819,20 @@ pub mod test {
 
         for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
             for o in spans {
-                assert!(history.version_contains_time(branch, o.start));
-                assert!(history.version_contains_time(branch, o.last()));
+                assert_version_contains_time(history, branch, o.start, true);
+                if o.len() > 1 {
+                    assert_version_contains_time(history, branch, o.last(), true);
+                }
             }
 
             if branch.len() == 1 {
                 // dbg!(&other, branch[0], &spans);
                 let expect = spans.is_empty();
-                assert_eq!(expect, history.version_contains_time(other, branch[0]));
+                assert_version_contains_time(history, other, branch[0], expect);
             }
         }
+
+        // TODO: Could add extra checks for each specific version in here too. Eh!
     }
 
     fn fancy_parents() -> Parents {
@@ -822,30 +910,30 @@ pub mod test {
 
         let history = fancy_parents();
 
-        assert!(history.version_contains_time(&[], ROOT_TIME));
-        assert!(history.version_contains_time(&[0], 0));
-        assert!(history.version_contains_time(&[0], ROOT_TIME));
+        assert_version_contains_time(&history, &[], ROOT_TIME, true);
+        assert_version_contains_time(&history, &[0], 0, true);
+        assert_version_contains_time(&history, &[0], ROOT_TIME, true);
 
-        assert!(history.version_contains_time(&[2], 0));
-        assert!(history.version_contains_time(&[2], 1));
-        assert!(history.version_contains_time(&[2], 2));
+        assert_version_contains_time(&history, &[2], 0, true);
+        assert_version_contains_time(&history, &[2], 1, true);
+        assert_version_contains_time(&history, &[2], 2, true);
 
-        assert!(!history.version_contains_time(&[0], 1));
-        assert!(!history.version_contains_time(&[1], 2));
+        assert_version_contains_time(&history, &[0], 1, false);
+        assert_version_contains_time(&history, &[1], 2, false);
 
-        assert!(history.version_contains_time(&[8], 0));
-        assert!(history.version_contains_time(&[8], 1));
-        assert!(!history.version_contains_time(&[8], 2));
-        assert!(!history.version_contains_time(&[8], 5));
+        assert_version_contains_time(&history, &[8], 0, true);
+        assert_version_contains_time(&history, &[8], 1, true);
+        assert_version_contains_time(&history, &[8], 2, false);
+        assert_version_contains_time(&history, &[8], 5, false);
 
-        assert!(history.version_contains_time(&[1,4], 0));
-        assert!(history.version_contains_time(&[1,4], 1));
-        assert!(!history.version_contains_time(&[1,4], 2));
-        assert!(!history.version_contains_time(&[1,4], 5));
+        assert_version_contains_time(&history, &[1,4], 0, true);
+        assert_version_contains_time(&history, &[1,4], 1, true);
+        assert_version_contains_time(&history, &[1,4], 2, false);
+        assert_version_contains_time(&history, &[1,4], 5, false);
 
-        assert!(history.version_contains_time(&[9], 2));
-        assert!(history.version_contains_time(&[9], 1));
-        assert!(history.version_contains_time(&[9], 0));
+        assert_version_contains_time(&history, &[9], 2, true);
+        assert_version_contains_time(&history, &[9], 1, true);
+        assert_version_contains_time(&history, &[9], 0, true);
     }
 
     #[test]
@@ -955,7 +1043,7 @@ pub mod test {
         };
 
         assert_diff_eq(&history, &[4], &[5], &[], &[(5..6).into(), (0..3).into()]);
-            assert_diff_eq(&history, &[4], &[], &[(3..5).into()], &[]);
+        assert_diff_eq(&history, &[4], &[], &[(3..5).into()], &[]);
     }
 
     #[test]
@@ -991,8 +1079,8 @@ pub mod test {
             },
         ]);
 
-        assert_eq!(false, history.version_contains_time(&[2], 3));
-        assert_eq!(false, history.version_contains_time(&[3], 2));
+        assert_version_contains_time(&history, &[2], 3, false);
+        assert_version_contains_time(&history, &[3], 2, false);
         assert_diff_eq(&history, &[2], &[3], &[(2..3).into()], &[(3..4).into()]);
     }
 

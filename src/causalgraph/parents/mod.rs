@@ -322,6 +322,15 @@ impl Parents {
             end: range.end
         }
     }
+
+    pub(crate) fn iter(&self) -> ParentsIter<'_> {
+        ParentsIter {
+            history: self,
+            idx: 0,
+            offset: 0,
+            end: self.get_next_time()
+        }
+    }
 }
 
 #[cfg(test)]

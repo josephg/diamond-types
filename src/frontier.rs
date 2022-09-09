@@ -227,7 +227,7 @@ mod test {
         assert_eq!(branch.as_slice(), &[4]);
 
         retreat_frontier_by(&mut branch, &history, (0..5).into());
-        assert_eq!(branch.as_slice(), &[]);
+        assert!(branch.is_empty());
     }
 
     #[test]

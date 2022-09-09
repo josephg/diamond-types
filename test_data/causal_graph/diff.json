@@ -1,0 +1,14 @@
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[0,1]},{"span":[3,4],"parents":[0,1]}],"a":[2],"b":[3],"expect_a":[[2,3]],"expect_b":[[3,4]]}
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[0]}],"a":[2],"b":[],"expect_a":[[2,3],[0,1]],"expect_b":[]}
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[0]}],"a":[2],"b":[1],"expect_a":[[2,3],[0,1]],"expect_b":[[1,2]]}
+{"hist":[{"span":[0,3],"parents":[]},{"span":[3,5],"parents":[]},{"span":[5,6],"parents":[2,4]}],"a":[4],"b":[5],"expect_a":[],"expect_b":[[5,6],[0,3]]}
+{"hist":[{"span":[0,3],"parents":[]},{"span":[3,5],"parents":[]},{"span":[5,6],"parents":[2,4]}],"a":[4],"b":[],"expect_a":[[3,5]],"expect_b":[]}
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[]}],"a":[0],"b":[0,1],"expect_a":[],"expect_b":[[1,2]]}
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[]}],"a":[0],"b":[],"expect_a":[[0,1]],"expect_b":[]}
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[]}],"a":[],"b":[0],"expect_a":[],"expect_b":[[0,1]]}
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[]}],"a":[1],"b":[],"expect_a":[[1,2]],"expect_b":[]}
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[]}],"a":[],"b":[1],"expect_a":[],"expect_b":[[1,2]]}
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[]}],"a":[2],"b":[],"expect_a":[[2,3]],"expect_b":[]}
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[]}],"a":[],"b":[2],"expect_a":[],"expect_b":[[2,3]]}
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[]}],"a":[],"b":[0,1],"expect_a":[],"expect_b":[[0,2]]}
+{"hist":[{"span":[0,1],"parents":[]},{"span":[1,2],"parents":[]},{"span":[2,3],"parents":[]}],"a":[0],"b":[1],"expect_a":[[0,1]],"expect_b":[[1,2]]}
