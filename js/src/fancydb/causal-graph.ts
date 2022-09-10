@@ -375,14 +375,14 @@ export const diff = (cg: CausalGraph, a: LV[], b: LV[]): DiffResult => {
 
 
 export const versionContainsTime = (cg: CausalGraph, frontier: LV[], target: LV): boolean => {
-  if (frontier.includes(target)) return true
+  if (target === ROOT_LV || frontier.includes(target)) return true
 
   const queue = new PriorityQueue<number>()
   for (const v of frontier) if (v > target) queue.enq(v)
 
   while (queue.size() > 0) {
     const v = queue.deq()
-    console.log('deq v')
+    // console.log('deq v')
 
     if (v === target) {
       return true

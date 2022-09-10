@@ -23,5 +23,10 @@
     "typescript": "^4.7.4",
     "watchify": "^4.0.0",
     "ws": "^8.8.1"
+  },
+  "devDependencies": {
+    "mocha": "^10.0.0",
+    "@types/mocha": "^9.1.1",
+    "ts-node": "^10.9.1"
   }
 }

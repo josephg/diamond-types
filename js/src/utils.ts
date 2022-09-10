@@ -7,7 +7,7 @@ export function createAgent(): () => RawVersion {
 }
 
 type RateLimit = {
-  force(): void,
+  flushSync(): void,
   (): void,
 }
 
@@ -39,7 +39,7 @@ export function rateLimit(min_delay: number, fn: () => void): RateLimit {
     }
   }
 
-  rl.force = () => {
+  rl.flushSync = () => {
     if (timer != null) {
       clearTimeout(timer)
       timer = null

@@ -43,7 +43,7 @@ const saveDb = rateLimit(100, () => {
 db.onop = op => saveDb()
 
 process.on('exit', () => {
-  saveDb.force()
+  saveDb.flushSync()
 })
 
 process.on('SIGINT', () => {
