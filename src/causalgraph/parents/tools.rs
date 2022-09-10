@@ -750,16 +750,16 @@ pub mod test {
     fn assert_version_contains_time(history: &Parents, frontier: &[Time], target: Time, expected: bool) {
         #[cfg(feature="gen_test_data")] {
             #[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
-            #[derive(Clone)]
+            #[derive(Clone, Debug)]
             struct Test<'a> {
                 hist: Vec<ParentsEntrySimple>,
                 frontier: &'a [Time],
-                target: Time,
+                target: isize,
                 expected: bool,
             }
 
             let t = Test {
-                hist: history.iter().collect(), frontier, target, expected
+                hist: history.iter().collect(), frontier, target: target as _, expected
             };
 
             let p: Vec<_> = history.iter().collect();
