@@ -3,8 +3,8 @@
 
 import PriorityQueue from 'priorityqueuejs'
 import bs from 'binary-search'
-import {AtLeast1, LV, Primitive, RawVersion, ROOT, ROOT_LV, VersionSummary} from '../types.js'
-import assert from 'assert/strict'
+import {AtLeast1, LV, LVRange, Primitive, RawVersion, ROOT, ROOT_LV, VersionSummary} from '../types.js'
+import { pushRLEList, tryRangeAppend, tryRevRangeAppend } from './rle.js'
 
 type CGEntry = {
   version: LV,
@@ -39,6 +39,9 @@ export const create = (): CausalGraph => ({
   version: []
 })
 
+/** Sort in ascending order. */
+const sortVersions = (v: LV[]): LV[] => v.sort((a, b) => a - b)
+
 export const advanceFrontier = (frontier: LV[], vLast: LV, parents: LV[]): LV[] => {
   // assert(!branchContainsVersion(db, order, branch), 'db already contains version')
   // for (const parent of op.parents) {
@@ -47,7 +50,7 @@ export const advanceFrontier = (frontier: LV[], vLast: LV, parents: LV[]): LV[] 
 
   const f = frontier.filter(v => !parents.includes(v))
   f.push(vLast)
-  return f.sort((a, b) => a - b)
+  return sortVersions(f)
 }
 
 export const clientEntriesForAgent = (causalGraph: CausalGraph, agent: string): ClientEntry[] => (
@@ -75,7 +78,7 @@ const tryAppendEntries = (a: CGEntry, b: CGEntry): boolean => {
   return canAppend
 }
 
-const tryAppendClient = (a: ClientEntry, b: ClientEntry): boolean => {
+const tryAppendClientEntry = (a: ClientEntry, b: ClientEntry): boolean => {
   const canAppend = b.seq === a.seqEnd
     && b.version === (a.version + (a.seqEnd - a.seq))
 
@@ -83,13 +86,6 @@ const tryAppendClient = (a: ClientEntry, b: ClientEntry): boolean => {
     a.seqEnd = b.seqEnd
   }
   return canAppend
-}
-
-const tryAppend = <T>(list: T[], newItem: T, tryAppend: (a: T, b: T) => boolean) => {
-  if (list.length > 0) {
-    if (tryAppend(list[list.length - 1], newItem)) return
-  }
-  list.push(newItem)
 }
 
 const findClientEntry = (cg: CausalGraph, agent: string, seq: number): ClientEntry | null => {
@@ -151,8 +147,8 @@ export const add = (cg: CausalGraph, agent: string, seqStart: number, seqEnd: nu
     parents,
   }
 
-  tryAppend(cg.entries, entry, tryAppendEntries)
-  tryAppend(clientEntriesForAgent(cg, agent), { seq: seqStart, seqEnd, version}, tryAppendClient)
+  pushRLEList(cg.entries, entry, tryAppendEntries)
+  pushRLEList(clientEntriesForAgent(cg, agent), { seq: seqStart, seqEnd, version}, tryAppendClientEntry)
 
   cg.version = advanceFrontier(cg.version, vEnd - 1, parents)
   return version
@@ -242,14 +238,6 @@ export const rawToLVList = (cg: CausalGraph, parents: RawVersion[]): LV[] => (
   parents.map(([agent, seq]) => rawToLV(cg, agent, seq))
 )
 
-
-const tryRangeAppend = (r1: [number, number], r2: [number, number]): boolean => {
-  if (r1[1] === r2[0]) {
-    r1[1] = r2[1]
-    return true
-  } else return false
-}
-
 export const summarizeVersion = (cg: CausalGraph): VersionSummary => {
   const result: VersionSummary = {}
   for (const k in cg.agentToVersion) {
@@ -258,7 +246,7 @@ export const summarizeVersion = (cg: CausalGraph): VersionSummary => {
 
     const versions: [number, number][] = []
     for (const ce of av) {
-      tryAppend(versions, [ce.seq, ce.seqEnd], tryRangeAppend)
+      pushRLEList(versions, [ce.seq, ce.seqEnd], tryRangeAppend)
     }
 
     result[k] = versions
@@ -271,25 +259,22 @@ export const summarizeVersion = (cg: CausalGraph): VersionSummary => {
 type DiffResult = {
   // These are ranges. Unlike the rust code, they're in normal
   // (ascending) order.
-  aOnly: [LV, LV][], bOnly: [LV, LV][]
+  aOnly: LVRange[], bOnly: LVRange[]
 }
 
-const pushReversedRLE = (list: [LV, LV][], start: LV, end: LV) => {
-  tryAppend(list, [start, end] as [number, number], (a, b) => {
-    if (a[0] === b[1]) {
-      a[0] = b[0]
-      return true
-    } else return false
-  })
+const pushReversedRLE = (list: LVRange[], start: LV, end: LV) => {
+  pushRLEList(list, [start, end] as [number, number], tryRevRangeAppend)
 }
+
+
+// Numerical values used by utility methods below.
+export const enum DiffFlag { A=0, B=1, Shared=2 }
 
 /**
  * This method takes in two versions (expressed as frontiers) and returns the
  * set of operations only appearing in the history of one version or the other.
  */
 export const diff = (cg: CausalGraph, a: LV[], b: LV[]): DiffResult => {
-  const enum DiffFlag { Shared, A, B }
-
   const flags = new Map<number, DiffFlag>()
 
   // Every order is in here at most once. Every entry in the queue is also in
@@ -321,7 +306,7 @@ export const diff = (cg: CausalGraph, a: LV[], b: LV[]): DiffResult => {
 
   // console.log('QF', queue, flags)
 
-  const aOnly: [LV, LV][] = [], bOnly: [LV, LV][] = []
+  const aOnly: LVRange[] = [], bOnly: LVRange[] = []
 
   const markRun = (start: LV, endInclusive: LV, flag: DiffFlag) => {
     if (endInclusive < start) throw Error('end < start')
@@ -404,6 +389,129 @@ export const versionContainsTime = (cg: CausalGraph, frontier: LV[], target: LV)
   return false
 }
 
+const lvEq = (a: LV[], b: LV[]) => (
+  a.length === b.length && a.every((val, idx) => b[idx] === val)
+)
+
+export function findConflicting(cg: CausalGraph, a: LV[], b: LV[], visit: (range: LVRange, flag: DiffFlag) => void): LV[] {
+  // dbg!(a, b);
+
+  // Sorted highest to lowest (so we get the highest item first).
+  type TimePoint = {
+    v: LV[], // Sorted in inverse order (highest to lowest)
+    flag: DiffFlag
+  }
+
+  const pointFromVersions = (v: LV[], flag: DiffFlag) => ({
+    v: v.length <= 1 ? v : v.slice().sort((a, b) => b - a),
+    flag
+  })
+
+  // The heap is sorted such that we pull the highest items first.
+  // const queue: BinaryHeap<(TimePoint, DiffFlag)> = BinaryHeap::new();
+  const queue = new PriorityQueue<TimePoint>((a, b) => {
+    for (let i = 0; i < a.v.length; i++) {
+      if (b.v.length <= i) return 1
+      const c = a.v[i] - b.v[i]
+      if (c !== 0) return c
+    }
+    if (a.v.length < b.v.length) return -1
+
+    return a.flag - b.flag
+  })
+
+  queue.enq(pointFromVersions(a, DiffFlag.A));
+  queue.enq(pointFromVersions(b, DiffFlag.B));
+
+  // Loop until we've collapsed the graph down to a single element.
+  while (true) {
+    let {v, flag} = queue.deq()
+    // console.log('deq', v, flag)
+    if (v.length === 0) return []
+
+    if (v[0] === ROOT_LV) throw Error('Should not happen')
+
+    // Discard duplicate entries.
+
+    // I could write this with an inner loop and a match statement, but this is shorter and
+    // more readable. The optimizer has to earn its keep somehow.
+    // while queue.peek() == Some(&time) { queue.pop(); }
+    while (!queue.isEmpty()) {
+      const {v: peekV, flag: peekFlag} = queue.peek()
+      // console.log('peek', peekV, v, lvEq(v, peekV))
+      if (lvEq(v, peekV)) {
+        if (peekFlag !== flag) flag = DiffFlag.Shared
+        queue.deq()
+      } else break
+    }
+
+    if (queue.isEmpty()) return v.reverse()
+
+    // If this node is a merger, shatter it.
+    if (v.length > 1) {
+      // We'll deal with v[0] directly below.
+      for (let i = 1; i < v.length; i++) {
+        // console.log('shatter', v[i], 'flag', flag)
+        queue.enq({v: [v[i]], flag})
+      }
+    }
+
+    const t = v[0]
+    const containingTxn = findEntryContainingRaw(cg, t)
+
+    // I want an inclusive iterator :p
+    const txnStart = containingTxn.version
+    let end = t + 1
+
+    // Consume all other changes within this txn.
+    while (true) {
+      if (queue.isEmpty()) {
+        return [end - 1]
+      } else {
+        const {v: peekV, flag: peekFlag} = queue.peek()
+        // console.log('inner peek', peekV, (queue as any)._elements)
+
+        if (peekV.length >= 1 && peekV[0] >= txnStart) {
+          // The next item is within this txn. Consume it.
+          queue.deq()
+          // console.log('inner deq', peekV, peekFlag)
+
+          const peekLast = peekV[0]
+
+          // Only emit inner items when they aren't duplicates.
+          if (peekLast + 1 < end) {
+            // +1 because we don't want to include the actual merge point in the returned set.
+            visit([peekLast + 1, end], flag)
+            end = peekLast + 1
+          }
+
+          if (peekFlag !== flag) flag = DiffFlag.Shared
+
+          if (peekV.length > 1) {
+            // We've run into a merged item which uses part of this entry.
+            // We've already pushed the necessary span to the result. Do the
+            // normal merge & shatter logic with this item next.
+            for (let i = 1; i < peekV.length; i++) {
+              // console.log('shatter inner', peekV[i], 'flag', peekFlag)
+
+              queue.enq({v: [peekV[i]], flag: peekFlag})
+            }
+          }
+        } else {
+          // Emit the remainder of this txn.
+          // console.log('processed txn', txnStart, end, 'flag', flag, 'parents', containingTxn.parents)
+          visit([txnStart, end], flag)
+
+          queue.enq(pointFromVersions(containingTxn.parents, flag))
+          break
+        }
+      }
+    }
+  }
+}
+
+
+
 /**
  * Two versions have one of 4 different relationship configurations:
  * - They're equal (a == b)
@@ -461,33 +569,10 @@ export function fromSerialized(data: SerializedCausalGraphV1): CausalGraph {
 
   for (const e of cg.entries) {
     const len = e.vEnd - e.version
-    tryAppend(clientEntriesForAgent(cg, e.agent), {
+    pushRLEList(clientEntriesForAgent(cg, e.agent), {
       seq: e.seq, seqEnd: e.seq + len, version: e.version
-    }, tryAppendClient)
+    }, tryAppendClientEntry)
   }
 
   return cg
 }
-
-;(() => {
-  const cg = create();
-
-  add(cg, 'seph', 10, 20, []);
-  add(cg, 'mike', 10, 20, []);
-  assignLocal(cg, 'seph', 5);
-  // console.log(assignLocal(cg, 'mike', 5));
-  // console.log(assignLocal(cg, 'james', 5));
-  // console.log(assignLocal(cg, 'seph', 5))
-  // console.dir(cg, {depth: null})
-
-
-  // console.log(diff(cg, [5, 15], [20]))
-
-  // console.log(summarizeVersion(cg))
-
-  // console.dir(serialize(cg), {depth: null})
-
-  const serialized = serialize(cg)
-  const deserialized = fromSerialized(serialized)
-  assert.deepEqual(cg, deserialized)
-})()

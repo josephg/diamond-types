@@ -11,3 +11,6 @@ pkg-node
 js/dist
 bundle*
 generated
+
+db.dtjson
+.vscode

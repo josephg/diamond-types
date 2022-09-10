@@ -7,6 +7,9 @@ export const ROOT: RawVersion = ['ROOT', 0]
 /** Local version */
 export type LV = number
 
+/** Local version range. Range is [start, end). */
+export type LVRange = [start: number, end: number]
+
 export const ROOT_LV: LV = -1
 
 export type Primitive = null

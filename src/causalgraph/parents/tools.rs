@@ -267,6 +267,8 @@ impl Parents {
     }
 
     /// Given 2 versions, return a version which contains all the operations in both.
+    ///
+    /// TODO: This needs unit tests.
     pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
         // This method could be written to use diff_internal's closure. That would be faster, but it
         // would probably add a fair bit of code size from monomorphizing for something thats just a
@@ -305,12 +307,8 @@ impl Parents {
             fn cmp(&self, other: &Self) -> Ordering {
                 // wrapping_add(1) converts ROOT into 0 for proper comparisons.
                 // TODO: Consider pulling this out
-                let ord = self.last.wrapping_add(1).cmp(&other.last.wrapping_add(1));
-
-                // All merges should come before all single items, and sort all merges.
-                if ord == Ordering::Equal {
-                    other.merged_with.is_empty().cmp(&self.merged_with.is_empty())
-                } else { ord }
+                self.last.wrapping_add(1).cmp(&other.last.wrapping_add(1))
+                    .then_with(|| other.merged_with.is_empty().cmp(&self.merged_with.is_empty()))
             }
         }
 
@@ -383,7 +381,7 @@ impl Parents {
 
             // If this node is a merger, shatter it.
             if !time.merged_with.is_empty() {
-                queue.push((t.into(), flag));
+                // We'll deal with time.last directly this loop iteration.
                 for t in time.merged_with {
                     queue.push((t.into(), flag));
                 }
@@ -464,16 +462,6 @@ impl Parents {
         }
 
         if a.len() <= 1 && b.len() <= 1 {
-            // if a.is_empty() {
-            //     // TODO Could check if b is empty for the optimizer - though its really handled
-            //     // above.
-            //     visit((0..b[0] + 1).into(), OnlyA);
-            //     return smallvec![b];
-            // } else if b.is_empty() {
-            //     visit((0..a[0] + 1).into(), OnlyA);
-            //     return smallvec![a];
-            // }
-
             // Check if either operation naively dominates the other. We could do this for more
             // cases, but we may as well use the code below instead.
             let a = *a.get(0).unwrap_or(&ROOT_TIME); // This is a bit gross.
@@ -679,7 +667,7 @@ pub mod test {
         pub(crate) spans: Vec<(DTRange, DiffFlag)>,
     }
 
-    fn push_rle(list: &mut Vec<(DTRange, DiffFlag)>, span: DTRange, flag: DiffFlag) {
+    fn push_rev_rle(list: &mut Vec<(DTRange, DiffFlag)>, span: DTRange, flag: DiffFlag) {
         if let Some((last_span, last_flag)) = list.last_mut() {
             if span.can_append(last_span) && flag == *last_flag {
                 last_span.prepend(span);
@@ -695,12 +683,12 @@ pub mod test {
         let common_branch_fast = history.find_conflicting(a, b, |span, flag| {
             debug_assert!(!span.is_empty());
             // spans_fast.push((span, flag));
-            push_rle(&mut spans_fast, span, flag);
+            push_rev_rle(&mut spans_fast, span, flag);
         });
         let common_branch_slow = history.find_conflicting_slow(a, b, |span, flag| {
             debug_assert!(!span.is_empty());
             // spans_slow.push((span, flag));
-            push_rle(&mut spans_slow, span, flag);
+            push_rev_rle(&mut spans_slow, span, flag);
         });
         assert_eq!(spans_fast, spans_slow);
         assert_eq!(common_branch_fast, common_branch_slow);
