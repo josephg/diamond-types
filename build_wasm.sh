@@ -11,8 +11,8 @@ ls -l pkg-web pkg-node || true
 
 rm -rf pkg-*
 #wasm-pack build --target web --out-dir ../../pkg-web --out-name dt crates/diamond-wasm --profiling
-wasm-pack build --target web --out-dir ../../pkg-web --out-name dt crates/diamond-wasm
-wasm-pack build --target nodejs --out-dir ../../pkg-node --out-name dt crates/diamond-wasm
+wasm-pack build --target web --release --out-dir ../../pkg-web --out-name dt crates/diamond-wasm
+wasm-pack build --target nodejs --release --out-dir ../../pkg-node --out-name dt crates/diamond-wasm
 
 # sed -i '3i\ \ "type": "module",' pkg/package.json
 
@@ -25,6 +25,9 @@ sed -i.old 's/"name": "diamond-wasm"/"name": "diamond-types-web"/' pkg-web/packa
 sed -i.old 's/"name": "diamond-wasm"/"name": "diamond-types-node"/' pkg-node/package.json
 sed -i.old 's/"files": \[/"files": \[\n    "dt_bg.wasm.br",/' pkg-web/package.json
 perl -wlpi -e 'print "  \"type\": \"module\"," if $. == 2' pkg-web/package.json
+
+sed -i.old 's/"0.1.0"/"1.0.0"/' pkg-web/package.json
+sed -i.old 's/"0.1.0"/"1.0.0"/' pkg-node/package.json
 
 rm pkg-*/package.json.old
 
