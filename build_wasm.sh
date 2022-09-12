@@ -5,7 +5,6 @@ RUSTFLAGS=""
 
 echo "=== Before ==="
 ls -l pkg-web pkg-node || true
-echo "=== After ==="
 #wasm-pack build --target nodejs
 #wasm-pack build --target bundler
 #wasm-pack build --target web --dev
@@ -30,6 +29,8 @@ perl -wlpi -e 'print "  \"type\": \"module\"," if $. == 2' pkg-web/package.json
 rm pkg-*/package.json.old
 
 brotli -f pkg-web/*.wasm
+
+echo "=== After ==="
 ls -l pkg-web pkg-node
 
 cat pkg-web/package.json
