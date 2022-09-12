@@ -1,12 +1,12 @@
 # Diamond Types
 
-[**Cargo package**](https://crates.io/crates/diamond-types)
+[**📦 Cargo package**](https://crates.io/crates/diamond-types)
 
-[**Documentation on docs.rs**](https://docs.rs/diamond-types/latest/diamond_types/)
+[**📖 Documentation on docs.rs**](https://docs.rs/diamond-types/latest/diamond_types/)
 
-[**NodeJS package on npm (via WASM)**](https://www.npmjs.com/package/diamond-types-node)
+[**🇳 NodeJS package on npm (via WASM)**](https://www.npmjs.com/package/diamond-types-node)
 
-[**Web browser package on npm (via WASM)**](https://www.npmjs.com/package/diamond-types-web)
+[**🌐 Web browser package on npm (via WASM)**](https://www.npmjs.com/package/diamond-types-web)
 
 This repository contains a high performance rust CRDT for text editing. This is a special data type which supports concurrent editing of lists or strings
 (text documents) by multiple users in a P2P network without needing a
