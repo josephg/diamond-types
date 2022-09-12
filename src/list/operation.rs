@@ -8,9 +8,9 @@ use std::ops::Range;
 
 use smartstring::alias::{String as SmartString};
 use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
-use OpKind::*;
+use ListOpKind::*;
 use crate::unicount::{chars_to_bytes, count_chars};
-use crate::list::internal_op::OperationInternal;
+use crate::list::op_metrics::ListOpMetrics;
 use crate::dtrange::DTRange;
 use crate::rev_range::RangeRev;
 
@@ -24,13 +24,13 @@ use crate::list::serde::FlattenSerializable;
 /// So I might use this more broadly, for all edits. If so, move this out of OT.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
-pub enum OpKind { Ins, Del }
+pub enum ListOpKind { Ins, Del }
 
-impl Default for OpKind {
-    fn default() -> Self { OpKind::Ins } // Arbitrary.
+impl Default for ListOpKind {
+    fn default() -> Self { ListOpKind::Ins } // Arbitrary.
 }
 
-impl Display for OpKind {
+impl Display for ListOpKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Ins => f.write_str("Ins"),
@@ -54,14 +54,14 @@ impl Display for OpKind {
 /// is designed to match the on-disk file format.
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize), serde(crate="serde_crate"))]
-pub struct Operation {
+pub struct TextOperation {
     /// The range of items in the document being modified by this operation.
     // For now only backspaces are ever reversed.
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub loc: RangeRev,
 
     /// Is this operation an insert or a delete?
-    pub kind: OpKind,
+    pub kind: ListOpKind,
 
     /// What content is being inserted or deleted. This is optional for deletes. (And eventually
     /// inserts too, though that code path isn't exercised and may for now cause panics in some
@@ -69,21 +69,21 @@ pub struct Operation {
     pub content: Option<SmartString>,
 }
 
-impl HasLength for Operation {
+impl HasLength for TextOperation {
     fn len(&self) -> usize {
         self.loc.len()
     }
 }
 
 #[cfg(feature = "serde")]
-impl Serialize for Operation {
+impl Serialize for TextOperation {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         self.serialize_struct(serializer)
     }
 }
 
 #[cfg(feature = "serde")]
-impl FlattenSerializable for Operation {
+impl FlattenSerializable for TextOperation {
     fn struct_name() -> &'static str {
         "Operation"
     }
@@ -106,10 +106,10 @@ impl FlattenSerializable for Operation {
     }
 }
 
-impl Operation {
+impl TextOperation {
     pub fn new_insert(pos: usize, content: &str) -> Self {
         let len = count_chars(content);
-        Operation { loc: (pos..pos+len).into(), kind: Ins, content: Some(content.into()) }
+        TextOperation { loc: (pos..pos+len).into(), kind: Ins, content: Some(content.into()) }
     }
 
     pub fn new_delete(loc: Range<usize>) -> Self {
@@ -117,12 +117,12 @@ impl Operation {
     }
 
     fn new_delete_dt(loc: RangeRev) -> Self {
-        Operation { loc, kind: Del, content: None }
+        TextOperation { loc, kind: Del, content: None }
     }
 
     pub fn new_delete_with_content_range(loc: Range<usize>, content: SmartString) -> Self {
         debug_assert_eq!(count_chars(&content), loc.len());
-        Operation { loc: loc.into(), kind: Del, content: Some(content) }
+        TextOperation { loc: loc.into(), kind: Del, content: Some(content) }
     }
 
     pub fn new_delete_with_content(pos: usize, content: SmartString) -> Self {
@@ -151,7 +151,7 @@ impl Operation {
     }
 }
 
-impl SplitableSpanHelpers for Operation {
+impl SplitableSpanHelpers for TextOperation {
     fn truncate_h(&mut self, at: usize) -> Self {
         // let (self_span, other_span) = TimeSpanRev::split_op_span(self.span, self.tag, at);
         let span = self.loc.truncate_tagged_span(self.kind, at);
@@ -171,7 +171,7 @@ impl SplitableSpanHelpers for Operation {
     }
 }
 
-impl MergableSpan for Operation {
+impl MergableSpan for TextOperation {
     fn can_append(&self, other: &Self) -> bool {
         if other.kind != self.kind || self.content.is_some() != other.content.is_some() { return false; }
 
@@ -202,9 +202,9 @@ impl MergableSpan for Operation {
     // }
 }
 
-impl From<(OperationInternal, Option<&str>)> for Operation {
-    fn from((op, content): (OperationInternal, Option<&str>)) -> Self {
-        Operation {
+impl From<(ListOpMetrics, Option<&str>)> for TextOperation {
+    fn from((op, content): (ListOpMetrics, Option<&str>)) -> Self {
+        TextOperation {
             loc: op.loc,
             kind: op.kind,
             content: content.map(|str| str.into())
@@ -212,9 +212,9 @@ impl From<(OperationInternal, Option<&str>)> for Operation {
     }
 }
 
-impl From<(&OperationInternal, Option<&str>)> for Operation {
-    fn from((op, content): (&OperationInternal, Option<&str>)) -> Self {
-        Operation {
+impl From<(&ListOpMetrics, Option<&str>)> for TextOperation {
+    fn from((op, content): (&ListOpMetrics, Option<&str>)) -> Self {
+        TextOperation {
             loc: op.loc,
             kind: op.kind,
             content: content.map(|str| str.into())
@@ -231,12 +231,12 @@ mod test {
     #[test]
     fn test_backspace_merges() {
         // Make sure deletes collapse.
-        let a = Operation {
+        let a = TextOperation {
             loc: (100..101).into(),
             kind: Del,
             content: Some("a".into()),
         };
-        let b = Operation {
+        let b = TextOperation {
             loc: (99..100).into(),
             kind: Del,
             content: Some("b".into()),
@@ -246,7 +246,7 @@ mod test {
         let mut merged = a.clone();
         merged.append(b.clone());
         // dbg!(&a);
-        let expect = Operation {
+        let expect = TextOperation {
             loc: RangeRev {
                 span: (99..101).into(),
                 fwd: false
@@ -268,7 +268,7 @@ mod test {
         for fwd in [true, false] {
             for content in [Some("abcde".into()), None] {
                 if fwd {
-                    test_splitable_methods_valid(Operation {
+                    test_splitable_methods_valid(TextOperation {
                         loc: RangeRev {
                             span: (10..15).into(),
                             fwd
@@ -278,7 +278,7 @@ mod test {
                     });
                 }
 
-                test_splitable_methods_valid(Operation {
+                test_splitable_methods_valid(TextOperation {
                     loc: RangeRev {
                         span: (10..15).into(),
                         fwd

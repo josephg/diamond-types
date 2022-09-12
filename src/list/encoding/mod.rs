@@ -1,15 +1,3 @@
-#[allow(unused)]
-#[allow(unused_imports)]
-
-/// The encoding module converts the internal data structures to and from a lossless compact binary
-/// data format.
-///
-/// This is modelled after the run-length encoding in Automerge and Yjs.
-
-// Notes for next time I break compatibility:
-// - Version in encode::write_local_version - skip second 0 if its ROOT.
-
-mod varint;
 mod encode_oplog;
 mod decode_oplog;
 
@@ -21,7 +9,7 @@ pub mod encode_tools;
 mod decode_tools;
 
 use rle::MergableSpan;
-use crate::list::encoding::varint::*;
+use crate::encoding::varint::*;
 use num_enum::TryFromPrimitive;
 pub use encode_oplog::{ENCODE_FULL, ENCODE_PATCH, EncodeOptions};
 
@@ -32,7 +20,7 @@ const PROTOCOL_VERSION: usize = 0;
 // #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[derive(Debug, PartialEq, Eq, Copy, Clone, TryFromPrimitive)]
 #[repr(u32)]
-enum ChunkType {
+enum ListChunkType {
     /// Packed bytes storing any data compressed in later parts of the file.
     CompressedFieldsLZ4 = 5,
 
@@ -78,10 +66,4 @@ enum DataType {
 enum CompressionFormat {
     // Just for future proofing, ya know?
     LZ4 = 1,
-}
-
-fn checksum(data: &[u8]) -> u32 {
-    // This is crc32c. Using the crc library because the resulting binary size is much smaller.
-    // let checksum = crc32c::crc32c(&result);
-    crc::Crc::<u32>::new(&crc::CRC_32_ISCSI).checksum(data)
 }

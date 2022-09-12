@@ -1,21 +1,21 @@
 use std::mem::replace;
 use std::ops::Range;
 use humansize::{file_size_opts, FileSize};
-use crate::list::{Branch, ListCRDT, OpLog};
+use crate::list::{ListBranch, ListCRDT, ListOpLog};
 use smallvec::smallvec;
 use crate::{AgentId, LocalVersion, Time};
 use rle::HasLength;
-use crate::list::encoding::encode_tools::ParseError;
-use crate::list::operation::OpKind::{Del, Ins};
-use crate::list::operation::Operation;
+use crate::list::operation::ListOpKind::{Del, Ins};
+use crate::list::operation::TextOperation;
 use crate::dtrange::DTRange;
+use crate::encoding::parseerror::ParseError;
 
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
-fn insert_history_local(oplog: &mut OpLog, frontier: &mut LocalVersion, range: DTRange) {
+fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalVersion, range: DTRange) {
     // Fast path for local edits. For some reason the code below is remarkably non-performant.
     // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
     if frontier.len() == 1 && frontier[0] == range.start.wrapping_sub(1) {
-        if let Some(last) = oplog.history.entries.0.last_mut() {
+        if let Some(last) = oplog.cg.parents.entries.0.last_mut() {
             last.span.end = range.end;
             frontier[0] = range.last();
             return;
@@ -24,7 +24,7 @@ fn insert_history_local(oplog: &mut OpLog, frontier: &mut LocalVersion, range: D
 
     // Otherwise use the slow version.
     let txn_parents = replace(frontier, smallvec![range.last()]);
-    oplog.history.insert(&txn_parents, range);
+    oplog.cg.parents.push(&txn_parents, range);
 }
 
 // Slow / small version.
@@ -43,7 +43,7 @@ fn insert_history_local(oplog: &mut OpLog, frontier: &mut LocalVersion, range: D
 /// This method does that.
 ///
 /// (I low key hate the duplicated code though.)
-pub(crate) fn apply_local_operation(oplog: &mut OpLog, branch: &mut Branch, agent: AgentId, local_ops: &[Operation]) -> Time {
+pub(crate) fn apply_local_operation(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, local_ops: &[TextOperation]) -> Time {
     let first_time = oplog.len();
     let mut next_time = first_time;
 
@@ -93,13 +93,13 @@ impl Default for ListCRDT {
 impl ListCRDT {
     pub fn new() -> Self {
         Self {
-            branch: Branch::new(),
-            oplog: OpLog::new()
+            branch: ListBranch::new(),
+            oplog: ListOpLog::new()
         }
     }
 
     pub fn load_from(bytes: &[u8]) -> Result<Self, ParseError> {
-        let oplog = OpLog::load_from(bytes)?;
+        let oplog = ListOpLog::load_from(bytes)?;
         let branch = oplog.checkout_tip();
         Ok(Self {
             branch, oplog
@@ -120,12 +120,17 @@ impl ListCRDT {
         self.branch.is_empty()
     }
 
-    pub fn apply_local_operations(&mut self, agent: AgentId, local_ops: &[Operation]) -> Time {
+    pub fn apply_local_operations(&mut self, agent: AgentId, local_ops: &[TextOperation]) -> Time {
         apply_local_operation(&mut self.oplog, &mut self.branch, agent, local_ops)
     }
 
     pub fn insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
         self.branch.insert(&mut self.oplog, agent, pos, ins_content)
+    }
+
+    #[cfg(feature = "wchar_conversion")]
+    pub fn insert_at_wchar(&mut self, agent: AgentId, wchar_pos: usize, ins_content: &str) -> Time {
+        self.branch.insert_at_wchar(&mut self.oplog, agent, wchar_pos, ins_content)
     }
 
     // pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) -> Time {
@@ -138,6 +143,11 @@ impl ListCRDT {
 
     pub fn delete(&mut self, agent: AgentId, range: Range<usize>) -> Time {
         self.branch.delete(&mut self.oplog, agent, range)
+    }
+
+    #[cfg(feature = "wchar_conversion")]
+    pub fn delete_at_wchar(&mut self, agent: AgentId, wchar_range: Range<usize>) -> Time {
+        self.branch.delete_at_wchar(&mut self.oplog, agent, wchar_range)
     }
 
     pub fn print_stats(&self, detailed: bool) {

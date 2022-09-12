@@ -1,4 +1,4 @@
-use crate::list::OpLog;
+use crate::list::ListOpLog;
 use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
 use super::serde::RemoteIdTuple;
@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 use crate::dtrange::DTRange;
 use crate::{LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
 use crate::frontier::clean_version;
-use crate::remotespan::CRDTId;
+use crate::remotespan::CRDTGuid;
 
 /// This file contains utilities to convert remote IDs to local time and back.
 ///
@@ -49,14 +49,14 @@ pub enum ConversionError {
     SeqInFuture,
 }
 
-impl OpLog {
+impl ListOpLog {
     pub fn try_remote_to_local_time(&self, id: &RemoteId) -> Result<Time, ConversionError> {
         let agent = self.get_agent_id(id.agent.as_str())
             .ok_or(ConversionError::UnknownAgent)?;
 
         if agent == ROOT_AGENT { Ok(ROOT_TIME) }
         else {
-            self.client_data[agent as usize]
+            self.cg.client_data[agent as usize]
                 .try_seq_to_time(id.seq)
                 .ok_or(ConversionError::SeqInFuture)
         }
@@ -68,11 +68,11 @@ impl OpLog {
 
         if agent == ROOT_AGENT { ROOT_TIME }
         else {
-            self.client_data[agent as usize].seq_to_time(id.seq)
+            self.cg.client_data[agent as usize].seq_to_time(id.seq)
         }
     }
 
-    fn crdt_id_to_remote(&self, loc: CRDTId) -> RemoteId {
+    fn crdt_id_to_remote(&self, loc: CRDTGuid) -> RemoteId {
         RemoteId {
             agent: self.get_agent_name(loc.agent).into(),
             seq: loc.seq
@@ -134,7 +134,7 @@ impl OpLog {
     ///
     /// Its not perfect, but it'll do donkey. It'll do.
     #[allow(unused)]
-    fn get_stochastic_version(&self, target_count: usize) -> Vec<CRDTId> {
+    fn get_stochastic_version(&self, target_count: usize) -> Vec<CRDTGuid> {
         // TODO: WIP.
         let target_count = target_count.max(self.version.len());
         let mut result = Vec::with_capacity(target_count + 10);
@@ -182,13 +182,13 @@ impl OpLog {
 
 #[cfg(test)]
 mod test {
-    use crate::list::OpLog;
+    use crate::list::ListOpLog;
     use crate::list::remote_ids::RemoteId;
     use crate::ROOT_TIME;
 
     #[test]
     fn id_smoke_test() {
-        let mut oplog = OpLog::new();
+        let mut oplog = ListOpLog::new();
         oplog.get_or_create_agent_id("seph");
         oplog.get_or_create_agent_id("mike");
         oplog.add_insert_at(0, &[], 0, "hi".into());
@@ -238,7 +238,7 @@ mod test {
 
     #[test]
     fn test_versions_since() {
-        let mut oplog = OpLog::new();
+        let mut oplog = ListOpLog::new();
         // Should be an empty set
         assert_eq!(oplog.get_stochastic_version(10), &[]);
 
@@ -252,7 +252,7 @@ mod test {
 
     #[test]
     fn remote_versions_can_be_empty() {
-        let oplog = OpLog::new();
+        let oplog = ListOpLog::new();
         assert!(oplog.remote_to_local_version(std::iter::empty()).is_empty());
     }
 }

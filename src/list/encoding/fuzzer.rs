@@ -1,5 +1,5 @@
 use rand::prelude::*;
-use crate::list::{ListCRDT, OpLog};
+use crate::list::{ListCRDT, ListOpLog};
 use crate::list::encoding::EncodeOptions;
 use crate::list::fuzzer_tools::{choose_2, make_random_change};
 
@@ -29,7 +29,7 @@ fn fuzz_encode_decode_once(seed: u64) {
             verbose: false
         });
 
-        let decoded = OpLog::load_from(&bytes).unwrap();
+        let decoded = ListOpLog::load_from(&bytes).unwrap();
         if doc.oplog != decoded {
             // eprintln!("Original doc {:#?}", &doc.ops);
             // eprintln!("Loaded doc {:#?}", &decoded);

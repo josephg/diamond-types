@@ -1,25 +1,25 @@
 use smallvec::{smallvec, SmallVec};
 use crate::list::encoding::*;
-use crate::list::encoding::varint::*;
-use crate::list::{OpLog, switch};
+use crate::encoding::varint::*;
+use crate::list::{ListOpLog, switch};
 use crate::frontier::*;
-use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::list::operation::OpKind::{Del, Ins};
+use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
+use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::rev_range::RangeRev;
 use crate::{AgentId, LocalVersion, Time};
 use crate::unicount::*;
-use crate::list::encoding::encode_tools::ParseError::*;
 use rle::*;
 use crate::list::buffered_iter::Buffered;
-use crate::list::encoding::ChunkType::*;
-use crate::history::MinimalHistoryEntry;
-use crate::list::operation::OpKind;
+use crate::list::encoding::ListChunkType::*;
+use crate::causalgraph::parents::ParentsEntrySimple;
+use crate::list::operation::ListOpKind;
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::list::encoding::decode_tools::{BufReader, ChunkReader};
-use crate::list::encoding::encode_tools::ParseError;
 use crate::frontier::clone_smallvec;
-use crate::remotespan::{CRDTId, CRDTSpan};
+use crate::remotespan::{CRDTGuid, CRDTSpan};
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
+use crate::encoding::parseerror::ParseError;
+use crate::encoding::tools::calc_checksum;
 
 // If this is set to false, the compiler can optimize out the verbose printing code. This makes the
 // compiled output slightly smaller.
@@ -36,7 +36,7 @@ impl<'a> BufReader<'a> {
         if self.0.is_empty() { return Ok(None); }
 
         let mut n = self.next_usize()?;
-        let has_jump = strip_bit_usize2(&mut n);
+        let has_jump = strip_bit_usize_2(&mut n);
         let len = self.next_usize()?;
 
         let jump = if has_jump {
@@ -68,7 +68,7 @@ impl<'a> BufReader<'a> {
         }))
     }
 
-    fn read_version(mut self, oplog: &OpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
+    fn read_version(mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
         let mut result = LocalVersion::new();
         // All frontiers contain at least one item.
         loop {
@@ -78,10 +78,10 @@ impl<'a> BufReader<'a> {
             if mapped_agent == 0 { break; } // Root.
 
             let agent = agent_map[mapped_agent - 1].0;
-            let id = CRDTId { agent, seq };
+            let id = CRDTGuid { agent, seq };
 
             let time = oplog.try_crdt_id_to_time(id)
-                .ok_or(BaseVersionUnknown)?;
+                .ok_or(ParseError::BaseVersionUnknown)?;
             result.push(time);
 
             if !has_more { break; }
@@ -94,12 +94,12 @@ impl<'a> BufReader<'a> {
         Ok(result)
     }
 
-    fn read_parents(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<SmallVec<[usize; 2]>, ParseError> {
+    fn read_parents(&mut self, oplog: &ListOpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<SmallVec<[usize; 2]>, ParseError> {
         let mut parents = SmallVec::<[usize; 2]>::new();
         loop {
             let mut n = self.next_usize()?;
-            let is_foreign = strip_bit_usize2(&mut n);
-            let has_more = strip_bit_usize2(&mut n);
+            let is_foreign = strip_bit_usize_2(&mut n);
+            let has_more = strip_bit_usize_2(&mut n);
 
             let parent = if is_foreign {
                 if n == 0 {
@@ -109,12 +109,12 @@ impl<'a> BufReader<'a> {
                     let agent = agent_map[n - 1].0;
                     let seq = self.next_usize()?;
                     // dbg!((agent, seq));
-                    if let Some(c) = oplog.client_data.get(agent as usize) {
+                    if let Some(c) = oplog.cg.client_data.get(agent as usize) {
                         // Adding UNDERWATER_START for foreign parents in a horrible hack.
                         // I'm so sorry. This gets pulled back out in history_entry_map_and_truncate
-                        c.try_seq_to_time(seq).ok_or(InvalidLength)?
+                        c.try_seq_to_time(seq).ok_or(ParseError::InvalidLength)?
                     } else {
-                        return Err(InvalidLength);
+                        return Err(ParseError::InvalidLength);
                     }
                 }
             } else {
@@ -138,12 +138,12 @@ impl<'a> BufReader<'a> {
         Ok(parents)
     }
 
-    fn next_history_entry(&mut self, oplog: &OpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<MinimalHistoryEntry, ParseError> {
+    fn next_history_entry(&mut self, oplog: &ListOpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<ParentsEntrySimple, ParseError> {
         let len = self.next_usize()?;
         let parents = self.read_parents(oplog, next_time, agent_map)?;
 
         // Bleh its gross passing a &[Time] into here when we have a Frontier already.
-        Ok(MinimalHistoryEntry {
+        Ok(ParentsEntrySimple {
             span: (next_time..next_time + len).into(),
             parents,
         })
@@ -152,8 +152,8 @@ impl<'a> BufReader<'a> {
 }
 
 impl<'a> ChunkReader<'a> {
-    fn read_version(&mut self, oplog: &OpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
-        let chunk = self.read_chunk_if_eq(ChunkType::Version)?;
+    fn read_version(&mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
+        let chunk = self.read_chunk_if_eq(ListChunkType::Version)?;
         if let Some(chunk) = chunk {
             chunk.read_version(oplog, agent_map).map_err(|e| {
                 // We can't read a frontier if it names agents or sequence numbers we haven't seen
@@ -165,8 +165,8 @@ impl<'a> ChunkReader<'a> {
                 // properties on the oplog. But thats NYI!
 
                 // TODO: Remove this!
-                if let InvalidRemoteID(_) = e {
-                    DataMissing
+                if let ParseError::InvalidRemoteID(_) = e {
+                    ParseError::DataMissing
                 } else { e }
             })
         } else {
@@ -184,24 +184,24 @@ impl<'a> ChunkReader<'a> {
         } else {
             let data_type = r.next_u32()?;
             if data_type != (DataType::PlainText as u32) {
-                return Err(UnknownChunk);
+                return Err(ParseError::UnknownChunk);
             }
             // The uncompressed length
             let len = r.next_usize()?;
 
-            let bytes = compressed.ok_or(CompressedDataMissing)?
+            let bytes = compressed.ok_or(ParseError::CompressedDataMissing)?
                 .next_n_bytes(len)?;
 
-            std::str::from_utf8(bytes).map_err(|_| InvalidUTF8)
+            std::str::from_utf8(bytes).map_err(|_| ParseError::InvalidUTF8)
         }
     }
 
-    fn read_fileinfo(&mut self, oplog: &mut OpLog) -> Result<FileInfoData, ParseError> {
-        let mut fileinfo = self.expect_chunk(ChunkType::FileInfo)?.chunks();
+    fn read_fileinfo(&mut self, oplog: &mut ListOpLog) -> Result<FileInfoData, ParseError> {
+        let mut fileinfo = self.expect_chunk(ListChunkType::FileInfo)?.chunks();
 
-        let doc_id = fileinfo.read_chunk_if_eq(ChunkType::DocId)?;
-        let mut agent_names_chunk = fileinfo.expect_chunk(ChunkType::AgentNames)?;
-        let userdata = fileinfo.read_chunk_if_eq(ChunkType::UserData)?;
+        let doc_id = fileinfo.read_chunk_if_eq(ListChunkType::DocId)?;
+        let mut agent_names_chunk = fileinfo.expect_chunk(ListChunkType::AgentNames)?;
+        let userdata = fileinfo.read_chunk_if_eq(ListChunkType::UserData)?;
 
         let doc_id = if let Some(doc_id) = doc_id {
             Some(doc_id.into_content_str()?)
@@ -240,7 +240,7 @@ struct FileInfoData<'a> {
 
 /// Returns (mapped span, remainder).
 /// The returned remainder is *NOT MAPPED*. This allows this method to be called in a loop.
-fn history_entry_map_and_truncate(mut hist_entry: MinimalHistoryEntry, version_map: &RleVec<KVPair<DTRange>>) -> (MinimalHistoryEntry, Option<MinimalHistoryEntry>) {
+fn history_entry_map_and_truncate(mut hist_entry: ParentsEntrySimple, version_map: &RleVec<KVPair<DTRange>>) -> (ParentsEntrySimple, Option<ParentsEntrySimple>) {
     let (map_entry, offset) = version_map.find_packed_with_offset(hist_entry.span.start);
 
     let mut map_entry = map_entry.1;
@@ -288,17 +288,17 @@ impl<'a> ReadPatchesIter<'a> {
 
     // The actual next function. The only reason I did it like this is so I can take advantage of
     // the ergonomics of try?.
-    fn next_internal(&mut self) -> Result<OperationInternal, ParseError> {
+    fn next_internal(&mut self) -> Result<ListOpMetrics, ParseError> {
         let mut n = self.buf.next_usize()?;
         // This is in the opposite order from write_op.
-        let has_length = strip_bit_usize2(&mut n);
-        let diff_not_zero = strip_bit_usize2(&mut n);
-        let tag = if strip_bit_usize2(&mut n) { Del } else { Ins };
+        let has_length = strip_bit_usize_2(&mut n);
+        let diff_not_zero = strip_bit_usize_2(&mut n);
+        let tag = if strip_bit_usize_2(&mut n) { Del } else { Ins };
 
         let (len, diff, fwd) = if has_length {
             // n encodes len.
             let fwd = if tag == Del {
-                strip_bit_usize2(&mut n)
+                strip_bit_usize_2(&mut n)
             } else { true };
 
             let diff = if diff_not_zero {
@@ -328,7 +328,7 @@ impl<'a> ReadPatchesIter<'a> {
         self.last_cursor_pos = raw_end;
         // dbg!(self.last_cursor_pos);
 
-        Ok(OperationInternal {
+        Ok(ListOpMetrics {
             loc: RangeRev { // TODO: Probably a nicer way to construct this.
                 span: (start..end).into(),
                 fwd,
@@ -340,7 +340,7 @@ impl<'a> ReadPatchesIter<'a> {
 }
 
 impl<'a> Iterator for ReadPatchesIter<'a> {
-    type Item = Result<OperationInternal, ParseError>;
+    type Item = Result<ListOpMetrics, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.buf.is_empty() { None } else { Some(self.next_internal()) }
@@ -383,11 +383,11 @@ impl<'a> HasLength for ContentItem<'a> {
 }
 
 impl<'a> ReadPatchContentIter<'a> {
-    fn new(mut chunk: BufReader<'a>, compressed: Option<&mut BufReader<'a>>) -> Result<(OpKind, Self), ParseError> {
+    fn new(mut chunk: BufReader<'a>, compressed: Option<&mut BufReader<'a>>) -> Result<(ListOpKind, Self), ParseError> {
         let tag = match chunk.next_u32()? {
             0 => Ins,
             1 => Del,
-            _ => { return Err(InvalidContent); }
+            _ => { return Err(ParseError::InvalidContent); }
         };
 
         let mut chunk = chunk.chunks();
@@ -405,7 +405,7 @@ impl<'a> ReadPatchContentIter<'a> {
             let content = consume_chars(&mut self.content, len);
             if count_chars(content) != len { // Having a duplicate strlen here is gross.
                 // We couldn't pull as many chars as requested from self.content.
-                return Err(UnexpectedEOF);
+                return Err(ParseError::UnexpectedEOF);
             }
             Some(content)
         } else { None };
@@ -445,7 +445,7 @@ impl Default for DecodeOptions {
     }
 }
 
-impl OpLog {
+impl ListOpLog {
     pub fn load_from(data: &[u8]) -> Result<Self, ParseError> {
         let mut oplog = Self::new();
         oplog.decode_internal(data, DecodeOptions::default())?;
@@ -488,7 +488,7 @@ impl OpLog {
         // We could regenerate the frontier, but this is much lazier.
         let doc_id = self.doc_id.clone();
         let old_frontier = clone_smallvec(&self.version);
-        let num_known_agents = self.client_data.len();
+        let num_known_agents = self.cg.client_data.len();
         let ins_content_length = self.operation_ctx.ins_content.len();
         let del_content_length = self.operation_ctx.del_content.len();
 
@@ -500,19 +500,19 @@ impl OpLog {
             // support iterating backwards.
             self.doc_id = doc_id;
 
-            while let Some(last) = self.client_with_localtime.0.last_mut() {
+            while let Some(last) = self.cg.client_with_localtime.0.last_mut() {
                 debug_assert!(len <= last.end());
                 if len == last.end() { break; }
                 else {
                     // Truncate!
                     let KVPair(_, removed) = if len <= last.0 {
                         // Drop entire entry
-                        self.client_with_localtime.0.pop().unwrap()
+                        self.cg.client_with_localtime.0.pop().unwrap()
                     } else {
                         last.truncate_ctx(len - last.0, &())
                     };
 
-                    let client_data = &mut self.client_data[removed.agent as usize];
+                    let client_data = &mut self.cg.client_data[removed.agent as usize];
                     client_data.item_times.remove_ctx(removed.seq_range, &());
                 }
             }
@@ -523,7 +523,7 @@ impl OpLog {
             }
 
             // Trim history
-            let hist_entries = &mut self.history.entries;
+            let hist_entries = &mut self.cg.parents.entries;
             let history_length = hist_entries.end();
             if history_length > len {
                 // We can't use entries.remove because HistoryEntry doesn't support SplitableSpan.
@@ -563,17 +563,17 @@ impl OpLog {
                     idx += 1;
                 }
 
-                self.history.entries.0.truncate(idx);
+                self.cg.parents.entries.0.truncate(idx);
 
-                while let Some(&last_idx) = self.history.root_child_indexes.last() {
-                    if last_idx >= self.history.entries.num_entries() {
-                        self.history.root_child_indexes.pop();
+                while let Some(&last_idx) = self.cg.parents.root_child_indexes.last() {
+                    if last_idx >= self.cg.parents.entries.num_entries() {
+                        self.cg.parents.root_child_indexes.pop();
                     } else { break; }
                 }
             }
 
             // Remove excess agents
-            self.client_data.truncate(num_known_agents);
+            self.cg.client_data.truncate(num_known_agents);
 
             self.operation_ctx.ins_content.truncate(ins_content_length);
             self.operation_ctx.del_content.truncate(del_content_length);
@@ -601,7 +601,7 @@ impl OpLog {
         reader.read_magic()?;
         let protocol_version = reader.next_usize()?;
         if protocol_version != PROTOCOL_VERSION {
-            return Err(UnsupportedProtocolVersion);
+            return Err(ParseError::UnsupportedProtocolVersion);
         }
 
         // The rest of the file is made of chunks!
@@ -614,14 +614,14 @@ impl OpLog {
 
         #[cfg(not(feature = "lz4"))] {
             compressed_chunk = None;
-            if reader.read_chunk_if_eq(ChunkType::CompressedFieldsLZ4)?.is_some() {
-                return Err(LZ4DecoderNeeded);
+            if reader.read_chunk_if_eq(ListChunkType::CompressedFieldsLZ4)?.is_some() {
+                return Err(ParseError::LZ4DecoderNeeded);
             }
         }
 
         let _compressed_chunk_raw: Option<Vec<u8>>; // Pulled out so its lifetime escapes the block.
         #[cfg(feature = "lz4")] {
-            _compressed_chunk_raw = if let Some(mut c) = reader.read_chunk_if_eq(ChunkType::CompressedFieldsLZ4)? {
+            _compressed_chunk_raw = if let Some(mut c) = reader.read_chunk_if_eq(ListChunkType::CompressedFieldsLZ4)? {
                 let uncompressed_len = c.next_usize()?;
 
                 // The rest of the bytes contain lz4 compressed data.
@@ -645,14 +645,14 @@ impl OpLog {
         if let Some(file_doc_id) = doc_id {
             if let Some(local_doc_id) = self.doc_id.as_ref() {
                 if file_doc_id != local_doc_id && !self.is_empty() {
-                    return Err(DocIdMismatch);
+                    return Err(ParseError::DocIdMismatch);
                 }
             }
             self.doc_id = Some(file_doc_id.into());
         }
 
         // *** StartBranch ***
-        let mut start_branch = reader.expect_chunk(ChunkType::StartBranch)?.chunks();
+        let mut start_branch = reader.expect_chunk(ListChunkType::StartBranch)?.chunks();
 
         // Start version - which if missing defaults to ROOT ([]).
         let start_version = start_branch.read_version(self, &agent_map)?;
@@ -675,13 +675,13 @@ impl OpLog {
         // *** Patches ***
         let file_frontier = {
             // This chunk contains the actual set of edits to the document.
-            let mut patch_chunk = reader.expect_chunk(ChunkType::Patches)?
+            let mut patch_chunk = reader.expect_chunk(ListChunkType::Patches)?
                 .chunks();
 
             let mut ins_content = None;
             let mut del_content = None;
 
-            while let Some(chunk) = patch_chunk.read_chunk_if_eq(ChunkType::PatchContent)? {
+            while let Some(chunk) = patch_chunk.read_chunk_if_eq(ListChunkType::PatchContent)? {
                 let (tag, content_chunk) = ReadPatchContentIter::new(chunk, compressed_chunk.as_mut())?;
                 // let iter = content_chunk.take_max();
                 let iter = content_chunk.buffered();
@@ -694,12 +694,12 @@ impl OpLog {
             // So note that the file we're loading from may contain changes we already have locally.
             // We (may) need to filter out operations from the patch stream, which we read from
             // below. To do that without extra need to read both the agent assignments and patches together.
-            let mut agent_assignment_chunk = patch_chunk.expect_chunk(ChunkType::OpVersions)?;
-            let pos_patches_chunk = patch_chunk.expect_chunk(ChunkType::OpTypeAndPosition)?;
-            let mut history_chunk = patch_chunk.expect_chunk(ChunkType::OpParents)?;
+            let mut agent_assignment_chunk = patch_chunk.expect_chunk(ListChunkType::OpVersions)?;
+            let pos_patches_chunk = patch_chunk.expect_chunk(ListChunkType::OpTypeAndPosition)?;
+            let mut history_chunk = patch_chunk.expect_chunk(ListChunkType::OpParents)?;
 
             // We need an insert ctx in some situations, though it'll never be accessed.
-            let dummy_ctx = OperationCtx::new();
+            let dummy_ctx = ListOperationCtx::new();
 
             let mut patches_iter = ReadPatchesIter::new(pos_patches_chunk)
                 .buffered();
@@ -730,7 +730,7 @@ impl OpLog {
             let mut version_map = RleVec::new();
 
             // Take and merge the next exactly n patches
-            let mut parse_next_patches = |oplog: &mut OpLog, mut n: usize, keep: bool| -> Result<(), ParseError> {
+            let mut parse_next_patches = |oplog: &mut ListOpLog, mut n: usize, keep: bool| -> Result<(), ParseError> {
                 while n > 0 {
                     let mut max_len = n;
 
@@ -751,7 +751,7 @@ impl OpLog {
                                 }
                                 content.content
                             } else {
-                                return Err(InvalidLength);
+                                return Err(ParseError::InvalidLength);
                             }
                         } else { None };
 
@@ -772,7 +772,7 @@ impl OpLog {
                             patches_iter.push_back(Ok(r));
                         }
                     } else {
-                        return Err(InvalidLength);
+                        return Err(ParseError::InvalidLength);
                     }
                 }
 
@@ -782,7 +782,7 @@ impl OpLog {
             while let Some(mut crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut agent_map)? {
                 // let mut crdt_span = crdt_span; // TODO: Remove me. Blerp clion.
                 // dbg!(crdt_span);
-                if crdt_span.agent as usize >= self.client_data.len() {
+                if crdt_span.agent as usize >= self.cg.client_data.len() {
                     return Err(ParseError::InvalidLength);
                 }
 
@@ -791,7 +791,7 @@ impl OpLog {
                     // to filter out all the operations we already have from the stream.
                     while !crdt_span.seq_range.is_empty() {
                         // dbg!(&crdt_span);
-                        let client = &self.client_data[crdt_span.agent as usize];
+                        let client = &self.cg.client_data[crdt_span.agent as usize];
                         let (span, offset) = client.item_times.find_sparse(crdt_span.seq_range.start);
                         // dbg!((crdt_span.seq_range, span, offset));
                         let (span_end, overlap_start) = match span {
@@ -879,7 +879,8 @@ impl OpLog {
                 // going to sweat it.
 
                 loop {
-                    let (mut mapped, remainder) = history_entry_map_and_truncate(entry, &version_map);
+                    let (mut mapped, remainder)
+                        = history_entry_map_and_truncate(entry, &version_map);
                     // dbg!(&mapped);
                     debug_assert!(frontier_is_sorted(&mapped.parents));
                     assert!(mapped.span.start <= next_history_time);
@@ -899,7 +900,7 @@ impl OpLog {
                             mapped.truncate_keeping_right(next_history_time - mapped.span.start);
                         }
 
-                        self.history.insert(&mapped.parents, mapped.span);
+                        self.cg.parents.push(&mapped.parents, mapped.span);
                         self.advance_frontier(&mapped.parents, mapped.span);
 
                         next_history_time += mapped.len();
@@ -914,8 +915,8 @@ impl OpLog {
             }
 
             // We'll count the lengths in each section to make sure they all match up with each other.
-            if next_patch_time != next_assignment_time { return Err(InvalidLength); }
-            if next_patch_time != next_history_time { return Err(InvalidLength); }
+            if next_patch_time != next_assignment_time { return Err(ParseError::InvalidLength); }
+            if next_patch_time != next_history_time { return Err(ParseError::InvalidLength); }
 
             // dbg!(&patch_chunk);
             patch_chunk.expect_empty()?;
@@ -923,13 +924,13 @@ impl OpLog {
 
             if let Some(mut iter) = ins_content {
                 if iter.next().is_some() {
-                    return Err(InvalidContent);
+                    return Err(ParseError::InvalidContent);
                 }
             }
 
             if let Some(mut iter) = del_content {
                 if iter.next().is_some() {
-                    return Err(InvalidContent);
+                    return Err(ParseError::InvalidContent);
                 }
             }
 
@@ -939,7 +940,7 @@ impl OpLog {
 
         // TODO: Move checksum check to the start, so if it fails we don't modify the document.
         let reader_len = reader.0.len();
-        if let Some(mut crc_reader) = reader.read_chunk_if_eq(ChunkType::Crc)? {
+        if let Some(mut crc_reader) = reader.read_chunk_if_eq(ListChunkType::Crc)? {
             // So this is a bit dirty. The bytes which have been checksummed is everything up to
             // (but NOT INCLUDING) the CRC chunk. I could adapt BufReader to store the offset /
             // length. But we can just subtract off the remaining length from the original data??
@@ -949,8 +950,8 @@ impl OpLog {
                 let checksummed_data = &data[..data.len() - reader_len];
 
                 // TODO: Add flag to ignore invalid checksum.
-                if checksum(checksummed_data) != expected_crc {
-                    return Err(ChecksumFailed);
+                if calc_checksum(checksummed_data) != expected_crc {
+                    return Err(ParseError::ChecksumFailed);
                 }
             }
         }

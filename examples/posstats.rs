@@ -20,7 +20,7 @@ use diamond_types::list::encoding::EncodeOptions;
 pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("test_user");
 
-    let mut positional: Vec<Operation> = Vec::with_capacity(3);
+    let mut positional: Vec<TextOperation> = Vec::with_capacity(3);
     // let mut content = String::new();
 
     for (_i, txn) in txns.iter().enumerate() {
@@ -33,7 +33,7 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
             }
 
             if !ins_content.is_empty() {
-                positional.push(Operation::new_insert(*pos, ins_content));
+                positional.push(TextOperation::new_insert(*pos, ins_content));
             }
 
             doc.apply_local_operations(id, positional.as_slice());
@@ -100,7 +100,7 @@ fn print_stats_for_file(name: &str) {
     #[cfg(feature = "memusage")]
     let start_count = get_thread_num_allocations();
 
-    let oplog = OpLog::load_from(&contents).unwrap();
+    let oplog = ListOpLog::load_from(&contents).unwrap();
     #[cfg(feature = "memusage")]
     println!("allocated {} bytes in {} blocks",
              (get_thread_memory_usage() - start_bytes).file_size(file_size_opts::CONVENTIONAL).unwrap(),

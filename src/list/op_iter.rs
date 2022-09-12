@@ -1,16 +1,16 @@
 use smallvec::SmallVec;
 use rle::{HasLength, SplitableSpanCtx};
-use crate::list::internal_op::{OperationCtx, OperationInternal};
-use crate::list::OpLog;
-use crate::list::operation::Operation;
+use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
+use crate::list::ListOpLog;
+use crate::list::operation::TextOperation;
 use crate::dtrange::DTRange;
 use crate::rle::{KVPair, RleVec};
 use crate::Time;
 
 #[derive(Debug)]
 pub(crate) struct OpMetricsIter<'a> {
-    list: &'a RleVec<KVPair<OperationInternal>>,
-    pub(crate) ctx: &'a OperationCtx,
+    list: &'a RleVec<KVPair<ListOpMetrics>>,
+    pub(crate) ctx: &'a ListOperationCtx,
 
     idx: usize,
     range: DTRange,
@@ -20,7 +20,7 @@ pub(crate) struct OpMetricsIter<'a> {
 pub(crate) struct OpIterFast<'a>(OpMetricsIter<'a>);
 
 impl<'a> Iterator for OpMetricsIter<'a> {
-    type Item = KVPair<OperationInternal>;
+    type Item = KVPair<ListOpMetrics>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // I bet there's a more efficient way to write this function.
@@ -44,7 +44,7 @@ impl<'a> Iterator for OpMetricsIter<'a> {
 }
 
 impl<'a> Iterator for OpIterFast<'a> {
-    type Item = (KVPair<OperationInternal>, Option<&'a str>);
+    type Item = (KVPair<ListOpMetrics>, Option<&'a str>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let metrics = self.0.next()?;
@@ -54,7 +54,7 @@ impl<'a> Iterator for OpIterFast<'a> {
 }
 
 impl<'a> OpMetricsIter<'a> {
-    fn new(list: &'a RleVec<KVPair<OperationInternal>>, ctx: &'a OperationCtx, range: DTRange) -> Self {
+    fn new(list: &'a RleVec<KVPair<ListOpMetrics>>, ctx: &'a ListOperationCtx, range: DTRange) -> Self {
         let mut iter = OpMetricsIter {
             list,
             ctx,
@@ -75,7 +75,7 @@ impl<'a> OpMetricsIter<'a> {
         self.idx >= self.list.0.len() || self.range.is_empty()
     }
 
-    pub(crate) fn get_content(&self, metrics: &KVPair<OperationInternal>) -> Option<&'a str> {
+    pub(crate) fn get_content(&self, metrics: &KVPair<ListOpMetrics>) -> Option<&'a str> {
         metrics.1.content_pos.map(|pos| {
             self.ctx.get_str(metrics.1.kind, pos)
         })
@@ -83,7 +83,7 @@ impl<'a> OpMetricsIter<'a> {
 }
 
 impl<'a> OpIterFast<'a> {
-    fn new(oplog: &'a OpLog, range: DTRange) -> Self {
+    fn new(oplog: &'a ListOpLog, range: DTRange) -> Self {
         Self(OpMetricsIter::new(&oplog.operations, &oplog.operation_ctx, range))
     }
 }
@@ -97,7 +97,7 @@ struct OpIterRanges<'a> {
 }
 
 impl<'a> OpIterRanges<'a> {
-    fn new(oplog: &'a OpLog, mut r: SmallVec<[DTRange; 4]>) -> Self {
+    fn new(oplog: &'a ListOpLog, mut r: SmallVec<[DTRange; 4]>) -> Self {
         let last = r.pop().unwrap_or_else(|| (0..0).into());
         Self {
             ranges: r,
@@ -108,7 +108,7 @@ impl<'a> OpIterRanges<'a> {
 
 impl<'a> Iterator for OpIterRanges<'a> {
     // type Item = KVPair<OperationInternal>;
-    type Item = (KVPair<OperationInternal>, Option<&'a str>);
+    type Item = (KVPair<ListOpMetrics>, Option<&'a str>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let inner_next = self.current.next();
@@ -125,7 +125,7 @@ impl<'a> Iterator for OpIterRanges<'a> {
     }
 }
 
-impl OpLog {
+impl ListOpLog {
     // TODO: Consider removing these functions if they're never used.
     #[allow(unused)]
     pub(crate) fn iter_metrics_range(&self, range: DTRange) -> OpMetricsIter {
@@ -141,8 +141,8 @@ impl OpLog {
         OpIterFast::new(self, range)
     }
 
-    pub fn iter_range_since(&self, local_version: &[Time]) -> impl Iterator<Item=Operation> + '_ {
-        let (only_a, only_b) = self.history.diff(local_version, &self.version);
+    pub fn iter_range_since(&self, local_version: &[Time]) -> impl Iterator<Item=TextOperation> + '_ {
+        let (only_a, only_b) = self.cg.parents.diff(local_version, &self.version);
         assert!(only_a.is_empty());
 
         OpIterRanges::new(self, only_b)
@@ -153,7 +153,7 @@ impl OpLog {
         OpIterFast::new(self, (0..self.len()).into())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Operation> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item =TextOperation> + '_ {
         self.iter_fast().map(|pair| (pair.0.1, pair.1).into())
     }
 }
@@ -161,45 +161,45 @@ impl OpLog {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::list::operation::OpKind;
+    use crate::list::operation::ListOpKind;
     use crate::rle::{KVPair, RleVec};
-    use OpKind::*;
+    use ListOpKind::*;
 
     #[test]
     fn iter_smoke() {
-        let mut ops: RleVec<KVPair<OperationInternal>> = RleVec::new();
+        let mut ops: RleVec<KVPair<ListOpMetrics>> = RleVec::new();
 
-        ops.push(KVPair(0, OperationInternal {
+        ops.push(KVPair(0, ListOpMetrics {
             loc: (100..110).into(),
             kind: Ins,
             content_pos: Some((0..10).into()),
         }));
-        ops.push(KVPair(10, OperationInternal {
+        ops.push(KVPair(10, ListOpMetrics {
             loc: (200..220).into(),
             kind: Del,
             content_pos: None,
         }));
 
-        let ctx = OperationCtx {
+        let ctx = ListOperationCtx {
             ins_content: "0123456789".to_string().into_bytes(),
             del_content: "".to_string().into_bytes()
         };
 
         assert_eq!(OpMetricsIter::new(&ops, &ctx, (0..30).into()).collect::<Vec<_>>(), ops.0.as_slice());
         
-        assert_eq!(OpMetricsIter::new(&ops, &ctx, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, OperationInternal {
+        assert_eq!(OpMetricsIter::new(&ops, &ctx, (1..5).into()).collect::<Vec<_>>(), &[KVPair(1, ListOpMetrics {
             loc: (101..105).into(),
             kind: Ins,
             content_pos: Some((1..5).into()),
         })]);
 
         assert_eq!(OpMetricsIter::new(&ops, &ctx, (6..16).into()).collect::<Vec<_>>(), &[
-            KVPair(6, OperationInternal {
+            KVPair(6, ListOpMetrics {
                 loc: (106..110).into(),
                 kind: Ins,
                 content_pos: Some((6..10).into()),
             }),
-            KVPair(10, OperationInternal {
+            KVPair(10, ListOpMetrics {
                 loc: (200..206).into(),
                 kind: Del,
                 content_pos: None,

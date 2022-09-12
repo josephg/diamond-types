@@ -1,0 +1,8 @@
+{
+  "spec": [
+    "dist/tests/**/*.js"
+  ],
+  "watch-files": [
+    "dist/src"
+  ]
+}

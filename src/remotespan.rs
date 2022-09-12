@@ -5,7 +5,7 @@ use crate::{AgentId, ROOT_AGENT};
 use crate::dtrange::DTRange;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct CRDTId {
+pub struct CRDTGuid {
     pub agent: AgentId,
     pub seq: usize,
 }
@@ -24,12 +24,12 @@ pub struct CRDTSpan {
 //     }
 // }
 
-pub const CRDT_DOC_ROOT: CRDTId = CRDTId {
+pub const CRDT_DOC_ROOT: CRDTGuid = CRDTGuid {
     agent: ROOT_AGENT,
     seq: 0
 };
 
-impl PartialOrd for CRDTId {
+impl PartialOrd for CRDTGuid {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.agent != other.agent {
             None
@@ -47,9 +47,9 @@ impl PartialOrd for CRDTId {
 
 
 impl Searchable for CRDTSpan {
-    type Item = CRDTId;
+    type Item = CRDTGuid;
 
-    fn get_offset(&self, loc: CRDTId) -> Option<usize> {
+    fn get_offset(&self, loc: CRDTGuid) -> Option<usize> {
         // let r = self.loc.seq .. self.loc.seq + (self.len.abs() as usize);
         // self.loc.agent == loc.agent && entry.get_seq_range().contains(&loc.seq)
         if self.agent == loc.agent {
@@ -57,9 +57,9 @@ impl Searchable for CRDTSpan {
         } else { None }
     }
 
-    fn at_offset(&self, offset: usize) -> CRDTId {
+    fn at_offset(&self, offset: usize) -> CRDTGuid {
         assert!(offset < self.len());
-        CRDTId {
+        CRDTGuid {
             agent: self.agent,
             seq: self.seq_range.start + offset
         }
@@ -110,5 +110,14 @@ impl MergableSpan for CRDTSpan {
 
     fn prepend(&mut self, other: Self) {
         self.seq_range.start = other.seq_range.start;
+    }
+}
+
+impl From<CRDTGuid> for CRDTSpan {
+    fn from(guid: CRDTGuid) -> Self {
+        Self {
+            agent: guid.agent,
+            seq_range: guid.seq.into()
+        }
     }
 }

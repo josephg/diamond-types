@@ -6,7 +6,7 @@ mod utils;
 
 use criterion::{criterion_group, criterion_main, black_box, Criterion, BenchmarkId, Throughput};
 use crdt_testdata::{load_testing_data, TestData};
-use diamond_types::list::{ListCRDT, OpLog};
+use diamond_types::list::{ListCRDT, ListOpLog};
 use diamond_types::list::encoding::*;
 use crate::utils::*;
 
@@ -73,13 +73,13 @@ fn local_benchmarks(c: &mut Criterion) {
 fn encoding_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("encoding");
     let bytes = std::fs::read("node_nodecc.dt").unwrap();
-    let oplog = OpLog::load_from(&bytes).unwrap();
+    let oplog = ListOpLog::load_from(&bytes).unwrap();
     // group.throughput(Throughput::Bytes(bytes.len() as _));
     group.throughput(Throughput::Elements(oplog.len() as _));
 
     group.bench_function("decode_nodecc", |b| {
         b.iter(|| {
-            let oplog = OpLog::load_from(&bytes).unwrap();
+            let oplog = ListOpLog::load_from(&bytes).unwrap();
             black_box(oplog);
         });
     });

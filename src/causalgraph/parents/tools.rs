@@ -6,20 +6,23 @@ use std::collections::BinaryHeap;
 use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
-use crate::frontier::{advance_frontier_by, frontier_is_sorted};
-use crate::history::History;
-use crate::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
+use crate::frontier::{advance_frontier_by, debug_assert_frontier_sorted, frontier_is_sorted};
+use crate::causalgraph::parents::Parents;
+use crate::causalgraph::parents::tools::DiffFlag::*;
 use crate::dtrange::DTRange;
 use crate::{LocalVersion, ROOT_TIME, Time};
+use crate::causalgraph::parents::scope::ScopedParents;
 
-// use smartstring::alias::{String as SmartString};
+#[cfg(feature = "serde")]
+use serde_crate::Serialize;
 
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
 pub(crate) enum DiffFlag { OnlyA, OnlyB, Shared }
 
-impl History {
+impl Parents {
     fn shadow_of(&self, time: Time) -> Time {
         if time == ROOT_TIME {
             ROOT_TIME
@@ -49,7 +52,7 @@ impl History {
     /// `txn_shadow_contains(3, 2)` is true, but `is_direct_descendant(3, 2)` is false.
     ///
     /// See `diff_shadow_bubble` test below for an example.
-    fn is_direct_descendant_coarse(&self, a: Time, b: Time) -> bool {
+    pub(crate) fn is_direct_descendant_coarse(&self, a: Time, b: Time) -> bool {
         // This is a bit more strict than we technically need, but its fast for short circuit
         // evaluation.
         a == b
@@ -57,6 +60,27 @@ impl History {
             || (a != ROOT_TIME && a > b && self.entries.find(a).unwrap().contains(b))
     }
 
+    pub(crate) fn version_cmp(&self, v1: Time, v2: Time) -> Option<Ordering> {
+        match v1.cmp(&v2) {
+            Ordering::Equal => Some(Ordering::Equal),
+            Ordering::Less => {
+                if self.version_contains_time(&[v2], v1) {
+                    Some(Ordering::Less)
+                } else {
+                    None
+                }
+            },
+            Ordering::Greater => {
+                if self.version_contains_time(&[v1], v2) {
+                    Some(Ordering::Greater)
+                } else {
+                    None
+                }
+            },
+        }
+    }
+
+    /// Calculates whether the specified version contains (dominates) the specified time.
     pub(crate) fn version_contains_time(&self, frontier: &[Time], target: Time) -> bool {
         if target == ROOT_TIME || frontier.contains(&target) { return true; }
         if frontier.is_empty() { return false; }
@@ -120,7 +144,7 @@ impl History {
 
 pub(crate) type DiffResult = (SmallVec<[DTRange; 4]>, SmallVec<[DTRange; 4]>);
 
-impl History {
+impl Parents {
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
     ///
     /// Also find which operation is the greatest common ancestor.
@@ -160,9 +184,9 @@ impl History {
         // marks range [ord_start..ord_end] *inclusive* with flag in our output.
         let mark_run = |ord_start, ord_end, flag: DiffFlag| {
             let target = match flag {
-                DiffFlag::OnlyA => { &mut only_a }
-                DiffFlag::OnlyB => { &mut only_b }
-                DiffFlag::Shared => { return; }
+                OnlyA => { &mut only_a }
+                OnlyB => { &mut only_b }
+                Shared => { return; }
             };
             // dbg!((ord_start, ord_end));
 
@@ -178,24 +202,24 @@ impl History {
         // Sorted highest to lowest.
         let mut queue: BinaryHeap<(Time, DiffFlag)> = BinaryHeap::new();
         for a_ord in a {
-            queue.push((*a_ord, DiffFlag::OnlyA));
+            queue.push((*a_ord, OnlyA));
         }
         for b_ord in b {
-            queue.push((*b_ord, DiffFlag::OnlyB));
+            queue.push((*b_ord, OnlyB));
         }
 
         let mut num_shared_entries = 0;
 
         while let Some((mut ord, mut flag)) = queue.pop() {
-            if flag == DiffFlag::Shared { num_shared_entries -= 1; }
+            if flag == Shared { num_shared_entries -= 1; }
 
             // dbg!((ord, flag));
             while let Some((peek_ord, peek_flag)) = queue.peek() {
                 if *peek_ord != ord { break; } // Normal case.
                 else {
                     // 3 cases if peek_flag != flag. We set flag = Shared in all cases.
-                    if *peek_flag != flag { flag = DiffFlag::Shared; }
-                    if *peek_flag == DiffFlag::Shared { num_shared_entries -= 1; }
+                    if *peek_flag != flag { flag = Shared; }
+                    if *peek_flag == Shared { num_shared_entries -= 1; }
                     queue.pop();
                 }
             }
@@ -221,9 +245,9 @@ impl History {
                         mark_run(*peek_ord + 1, ord, flag);
                         ord = *peek_ord;
                         // offset -= ord - peek_ord;
-                        flag = DiffFlag::Shared;
+                        flag = Shared;
                     }
-                    if *peek_flag == DiffFlag::Shared { num_shared_entries -= 1; }
+                    if *peek_flag == Shared { num_shared_entries -= 1; }
                     queue.pop();
                 }
             }
@@ -234,7 +258,7 @@ impl History {
 
             for p in containing_txn.parents.iter() {
                 queue.push((*p, flag));
-                if flag == DiffFlag::Shared { num_shared_entries += 1; }
+                if flag == Shared { num_shared_entries += 1; }
             }
 
             // If there's only shared entries left, abort.
@@ -243,6 +267,8 @@ impl History {
     }
 
     /// Given 2 versions, return a version which contains all the operations in both.
+    ///
+    /// TODO: This needs unit tests.
     pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
         // This method could be written to use diff_internal's closure. That would be faster, but it
         // would probably add a fair bit of code size from monomorphizing for something thats just a
@@ -281,12 +307,8 @@ impl History {
             fn cmp(&self, other: &Self) -> Ordering {
                 // wrapping_add(1) converts ROOT into 0 for proper comparisons.
                 // TODO: Consider pulling this out
-                let ord = self.last.wrapping_add(1).cmp(&other.last.wrapping_add(1));
-
-                // All merges should come before all single items, and sort all merges.
-                if ord == Ordering::Equal {
-                    other.merged_with.is_empty().cmp(&self.merged_with.is_empty())
-                } else { ord }
+                self.last.wrapping_add(1).cmp(&other.last.wrapping_add(1))
+                    .then_with(|| other.merged_with.is_empty().cmp(&self.merged_with.is_empty()))
             }
         }
 
@@ -359,7 +381,7 @@ impl History {
 
             // If this node is a merger, shatter it.
             if !time.merged_with.is_empty() {
-                queue.push((t.into(), flag));
+                // We'll deal with time.last directly this loop iteration.
                 for t in time.merged_with {
                     queue.push((t.into(), flag));
                 }
@@ -440,16 +462,6 @@ impl History {
         }
 
         if a.len() <= 1 && b.len() <= 1 {
-            // if a.is_empty() {
-            //     // TODO Could check if b is empty for the optimizer - though its really handled
-            //     // above.
-            //     visit((0..b[0] + 1).into(), OnlyA);
-            //     return smallvec![b];
-            // } else if b.is_empty() {
-            //     visit((0..a[0] + 1).into(), OnlyA);
-            //     return smallvec![a];
-            // }
-
             // Check if either operation naively dominates the other. We could do this for more
             // cases, but we may as well use the code below instead.
             let a = *a.get(0).unwrap_or(&ROOT_TIME); // This is a bit gross.
@@ -478,7 +490,7 @@ pub(crate) struct ConflictZone {
     pub(crate) spans: SmallVec<[DTRange; 4]>,
 }
 
-impl History {
+impl Parents {
     // Turns out I'm not finding this variant useful. Might be worth discarding it?
     #[allow(unused)]
     pub(crate) fn find_conflicting_simple(&self, a: &[Time], b: &[Time]) -> ConflictZone {
@@ -489,6 +501,130 @@ impl History {
 
         ConflictZone { common_ancestor, spans }
     }
+
+    pub(crate) fn version_in_scope(&self, version: &[Time], info: &ScopedParents) -> Option<LocalVersion> {
+        // If v == creation time, its a bit hacky but I still consider that a valid version, because
+        // the CRDT has a value then (the default value for the CRDT).
+        debug_assert_frontier_sorted(version);
+
+        let highest_time = if let Some(&t) = version.last() {
+            t
+        } else {
+            // The root item has a creation time at the root time. But nothing else exists then.
+            return if info.created_at == ROOT_TIME {
+                Some(smallvec![])
+            } else {
+                None
+            }
+        };
+
+        // let info = &oplog.items[item];
+        if info.created_at != ROOT_TIME && highest_time < info.created_at {
+            // If the version exists entirely before this root was created, there is no common
+            // ancestor.
+            return None;
+        }
+
+        if version.len() == 1 {
+            if let Some(last) = info.owned_times.last() {
+                let last_time = last.last();
+
+                // Fast path. If the last operation in the root is a parent of v, we're done.
+                if self.is_direct_descendant_coarse(highest_time, last_time) {
+                    return Some(smallvec![last_time]);
+                }
+            }
+
+            if info.owned_times.find_index(highest_time).is_ok() {
+                // Another fast path. The requested version is already in the operation.
+                return Some(smallvec![highest_time]);
+            }
+
+            // TODO: Should we have more fast paths here?
+        }
+
+        // Slow path. We'll trace back through time until we land entirely in the root.
+        let mut result = smallvec![];
+
+        // I'm using DiffFlag here, but only the OnlyA and Shared values out of it.
+        let mut queue: BinaryHeap<(Time, DiffFlag)> = BinaryHeap::new();
+
+        for &t in version {
+            // Append children so long as they aren't earlier than the item's ctime.
+            if info.created_at == ROOT_TIME || t >= info.created_at {
+                queue.push((t, OnlyA));
+            }
+        }
+
+        let mut num_shared_entries = 0;
+
+        while let Some((time, mut flag)) = queue.pop() {
+            if flag == Shared { num_shared_entries -= 1; }
+            debug_assert_ne!(flag, OnlyB);
+
+            // dbg!((ord, flag));
+            while let Some((peek_time, peek_flag)) = queue.peek() {
+                debug_assert_ne!(*peek_flag, OnlyB);
+
+                if *peek_time != time { break; } // Normal case.
+                else {
+                    // 3 cases if peek_flag != flag. We set flag = Shared in all cases.
+                    // if *peek_flag != flag { flag = Shared; }
+                    if flag == OnlyA && *peek_flag == Shared { flag = Shared; }
+                    if *peek_flag == Shared { num_shared_entries -= 1; }
+                    queue.pop();
+                }
+            }
+
+            if flag == OnlyA && info.owned_times.find_index(time).is_ok() {
+                // The time we've picked is in the CRDT we're looking for. Woohoo!
+                result.push(time);
+                flag = Shared;
+            }
+
+            if flag == Shared && queue.len() == num_shared_entries { break; } // No expand necessary.
+
+            // Ok, we need to expand the item based on its parents. The tricky thing here is what
+            // we can skip safely.
+            let containing_txn = self.entries.find_packed(time);
+
+            let min_safe_base = if flag == Shared {
+                0
+            } else {
+                // TODO: Reuse binary search from above.
+                let r = info.owned_times.find_sparse(time).0;
+                r.unwrap_err().start
+            };
+            let base = min_safe_base.max(containing_txn.span.start);
+
+            // Eat everything >= base in queue.
+            while let Some((peek_time, peek_flag)) = queue.peek() {
+                // dbg!((peek_ord, peek_flag));
+                if *peek_time < base { break; } else {
+                    // if *peek_flag != flag {
+                    if flag == OnlyA && *peek_flag == Shared {
+                        flag = Shared;
+                    }
+                    if *peek_flag == Shared { num_shared_entries -= 1; }
+                    queue.pop();
+                }
+            }
+
+            containing_txn.with_parents(base, |parents| {
+                for &p in parents {
+                    queue.push((p, flag));
+                    if flag == Shared { num_shared_entries += 1; }
+                }
+            });
+
+            // If there's only shared entries left, stop.
+            if queue.len() == num_shared_entries { break; }
+        }
+
+        result.reverse();
+        debug_assert_frontier_sorted(&result);
+        Some(result)
+    }
 }
 
 #[cfg(test)]
@@ -497,25 +633,25 @@ pub mod test {
     use smallvec::smallvec;
     use rle::{AppendRle, MergableSpan};
 
-    use crate::history::{History, HistoryEntry};
-    use crate::history_tools::{DiffFlag, DiffResult};
-    use crate::history_tools::DiffFlag::{OnlyA, OnlyB, Shared};
+    use crate::causalgraph::parents::*;
+    use crate::causalgraph::parents::tools::DiffFlag::*;
     use crate::dtrange::DTRange;
     use crate::rle::RleVec;
     use crate::{LocalVersion, ROOT_TIME, Time};
+    use crate::causalgraph::parents::tools::{DiffFlag, DiffResult};
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).
-    fn diff_via_conflicting(history: &History, a: &[Time], b: &[Time]) -> DiffResult {
+    fn diff_via_conflicting(history: &Parents, a: &[Time], b: &[Time]) -> DiffResult {
         let mut only_a = smallvec![];
         let mut only_b = smallvec![];
 
         history.find_conflicting(a, b, |span, flag| {
             // dbg!((span, flag));
             let target = match flag {
-                DiffFlag::OnlyA => { &mut only_a }
-                DiffFlag::OnlyB => { &mut only_b }
-                DiffFlag::Shared => { return; }
+                OnlyA => { &mut only_a }
+                OnlyB => { &mut only_b }
+                Shared => { return; }
             };
             // dbg!((ord_start, ord_end));
 
@@ -531,7 +667,7 @@ pub mod test {
         pub(crate) spans: Vec<(DTRange, DiffFlag)>,
     }
 
-    fn push_rle(list: &mut Vec<(DTRange, DiffFlag)>, span: DTRange, flag: DiffFlag) {
+    fn push_rev_rle(list: &mut Vec<(DTRange, DiffFlag)>, span: DTRange, flag: DiffFlag) {
         if let Some((last_span, last_flag)) = list.last_mut() {
             if span.can_append(last_span) && flag == *last_flag {
                 last_span.prepend(span);
@@ -540,19 +676,19 @@ pub mod test {
         }
         list.push((span, flag));
     }
-    fn find_conflicting(history: &History, a: &[Time], b: &[Time]) -> ConflictFull {
+    fn find_conflicting(history: &Parents, a: &[Time], b: &[Time]) -> ConflictFull {
         let mut spans_fast = Vec::new();
         let mut spans_slow = Vec::new();
 
         let common_branch_fast = history.find_conflicting(a, b, |span, flag| {
             debug_assert!(!span.is_empty());
             // spans_fast.push((span, flag));
-            push_rle(&mut spans_fast, span, flag);
+            push_rev_rle(&mut spans_fast, span, flag);
         });
         let common_branch_slow = history.find_conflicting_slow(a, b, |span, flag| {
             debug_assert!(!span.is_empty());
             // spans_slow.push((span, flag));
-            push_rle(&mut spans_slow, span, flag);
+            push_rev_rle(&mut spans_slow, span, flag);
         });
         assert_eq!(spans_fast, spans_slow);
         assert_eq!(common_branch_fast, common_branch_slow);
@@ -563,20 +699,100 @@ pub mod test {
         }
     }
 
-    fn assert_conflicting(history: &History, a: &[Time], b: &[Time], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[Time]) {
-        let expect: Vec<(DTRange, DiffFlag)> = expect_spans.iter().rev().map(|(r, flag)| (r.clone().into(), *flag)).collect();
+    fn assert_conflicting(history: &Parents, a: &[Time], b: &[Time], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[Time]) {
+        let expect: Vec<(DTRange, DiffFlag)> = expect_spans
+            .iter()
+            .rev()
+            .map(|(r, flag)| (r.clone().into(), *flag))
+            .collect();
         let actual = find_conflicting(history, a, b);
         assert_eq!(actual.common_branch.as_slice(), expect_common);
         assert_eq!(actual.spans, expect);
-        // let slow = history.find_conflicting_slow(a, b);
-        // assert_eq!(slow.spans.as_slice(), expect);
-        // assert_eq!(slow.common_branch.as_slice(), expect_common);
-        // let fast = history.find_conflicting_simple(a, b);
-        // assert_eq!(fast.spans.as_slice(), expect);
-        // assert_eq!(fast.common_branch.as_slice(), expect_common);
+
+        #[cfg(feature="gen_test_data")] {
+            #[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
+            #[derive(Clone)]
+            struct Test<'a> {
+                hist: Vec<ParentsEntrySimple>,
+                a: &'a [Time],
+                b: &'a [Time],
+                expect_spans: &'a [(Range<usize>, DiffFlag)],
+                expect_common: &'a [Time],
+            }
+
+            let t = Test {
+                hist: history.iter().collect(), a, b, expect_spans, expect_common
+            };
+
+            let p: Vec<_> = history.iter().collect();
+            use std::io::Write;
+            let mut f = std::fs::File::options()
+                .write(true)
+                .append(true)
+                .create(true)
+                .open("test_data/causal_graph/conflicting.json").unwrap();
+            writeln!(f, "{}", serde_json::to_string(&t).unwrap());
+        }
     }
 
-    fn assert_diff_eq(history: &History, a: &[Time], b: &[Time], expect_a: &[DTRange], expect_b: &[DTRange]) {
+    fn assert_version_contains_time(history: &Parents, frontier: &[Time], target: Time, expected: bool) {
+        #[cfg(feature="gen_test_data")] {
+            #[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
+            #[derive(Clone, Debug)]
+            struct Test<'a> {
+                hist: Vec<ParentsEntrySimple>,
+                frontier: &'a [Time],
+                target: isize,
+                expected: bool,
+            }
+
+            let t = Test {
+                hist: history.iter().collect(), frontier, target: target as _, expected
+            };
+
+            let p: Vec<_> = history.iter().collect();
+            use std::io::Write;
+            let mut f = std::fs::File::options()
+                .write(true)
+                .append(true)
+                .create(true)
+                .open("test_data/causal_graph/version_contains.json").unwrap();
+            writeln!(f, "{}", serde_json::to_string(&t).unwrap());
+        }
+
+        assert_eq!(history.version_contains_time(frontier, target), expected);
+    }
+
+    fn assert_diff_eq(history: &Parents, a: &[Time], b: &[Time], expect_a: &[DTRange], expect_b: &[DTRange]) {
+        #[cfg(feature="gen_test_data")] {
+            #[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
+            #[derive(Clone)]
+            struct Test<'a> {
+                hist: Vec<ParentsEntrySimple>,
+                a: &'a [Time],
+                b: &'a [Time],
+                expect_a: &'a [DTRange],
+                expect_b: &'a [DTRange],
+            }
+
+            let t = Test {
+                hist: history.iter().collect(),
+                a,
+                b,
+                expect_a,
+                expect_b
+            };
+
+            let p: Vec<_> = history.iter().collect();
+            use std::io::Write;
+            let mut f = std::fs::File::options()
+                .write(true)
+                .append(true)
+                .create(true)
+                .open("test_data/causal_graph/diff.json").unwrap();
+            writeln!(f, "{}", serde_json::to_string(&t).unwrap());
+        }
+
         let slow_result = history.diff_slow(a, b);
         let fast_result = history.diff(a, b);
         let c_result = diff_via_conflicting(history, a, b);
@@ -591,37 +807,41 @@ pub mod test {
 
         for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
             for o in spans {
-                assert!(history.version_contains_time(branch, o.start));
-                assert!(history.version_contains_time(branch, o.last()));
+                assert_version_contains_time(history, branch, o.start, true);
+                if o.len() > 1 {
+                    assert_version_contains_time(history, branch, o.last(), true);
+                }
             }
 
             if branch.len() == 1 {
                 // dbg!(&other, branch[0], &spans);
                 let expect = spans.is_empty();
-                assert_eq!(expect, history.version_contains_time(other, branch[0]));
+                assert_version_contains_time(history, other, branch[0], expect);
             }
         }
+
+        // TODO: Could add extra checks for each specific version in here too. Eh!
     }
 
-    fn fancy_history() -> History {
-        History {
+    fn fancy_parents() -> Parents {
+        Parents {
             entries: RleVec(vec![
-                HistoryEntry { // 0-2
+                ParentsEntryInternal { // 0-2
                     span: (0..3).into(), shadow: 0,
                     parents: smallvec![],
                     child_indexes: smallvec![2, 3],
                 },
-                HistoryEntry { // 3-5
+                ParentsEntryInternal { // 3-5
                     span: (3..6).into(), shadow: 3,
                     parents: smallvec![],
                     child_indexes: smallvec![2],
                 },
-                HistoryEntry { // 6-8
+                ParentsEntryInternal { // 6-8
                     span: (6..9).into(), shadow: 6,
                     parents: smallvec![1, 4],
                     child_indexes: smallvec![3],
                 },
-                HistoryEntry { // 9
+                ParentsEntryInternal { // 9
                     span: (9..11).into(), shadow: usize::MAX,
                     parents: smallvec![2, 8],
                     child_indexes: smallvec![],
@@ -633,36 +853,36 @@ pub mod test {
 
     #[test]
     fn common_item_smoke_test() {
-        let history = fancy_history();
+        let parents = fancy_parents();
 
         for t in 0..=9 {
             // dbg!(t);
             // The same item should never conflict with itself.
-            assert_conflicting(&history, &[t], &[t], &[], &[t]);
+            assert_conflicting(&parents, &[t], &[t], &[], &[t]);
         }
-        assert_conflicting(&history, &[5, 6], &[5, 6], &[], &[5, 6]);
+        assert_conflicting(&parents, &[5, 6], &[5, 6], &[], &[5, 6]);
 
-        assert_conflicting(&history, &[1], &[2], &[(2..3, OnlyB)], &[1]);
-        assert_conflicting(&history, &[0], &[2], &[(1..3, OnlyB)], &[0]);
-        assert_conflicting(&history, &[], &[], &[], &[]);
-        assert_conflicting(&history, &[], &[2], &[(0..3, OnlyB)], &[]);
+        assert_conflicting(&parents, &[1], &[2], &[(2..3, OnlyB)], &[1]);
+        assert_conflicting(&parents, &[0], &[2], &[(1..3, OnlyB)], &[0]);
+        assert_conflicting(&parents, &[], &[], &[], &[]);
+        assert_conflicting(&parents, &[], &[2], &[(0..3, OnlyB)], &[]);
 
-        assert_conflicting(&history, &[2], &[3], &[(0..3, OnlyA), (3..4, OnlyB)], &[]); // 0,1,2 and 3.
-        assert_conflicting(&history, &[1, 4], &[4], &[(0..2, OnlyA), (3..5, Shared)], &[]); // 0,1,2 and 3.
-        assert_conflicting(&history, &[6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..5, OnlyA), (6..7, OnlyA)], &[]);
-        assert_conflicting(&history, &[6], &[5], &[(0..2, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]); // 6 includes 1, 0.
-        assert_conflicting(&history, &[5, 6], &[5], &[(0..2, OnlyA), (3..6, Shared), (6..7, OnlyA)], &[]);
-        assert_conflicting(&history, &[5, 6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..7, OnlyA)], &[]);
-        assert_conflicting(&history, &[2, 6], &[5], &[(0..3, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]);
-        assert_conflicting(&history, &[9], &[10], &[(10..11, OnlyB)], &[9]);
-        assert_conflicting(&history, &[6], &[7], &[(7..8, OnlyB)], &[6]);
+        assert_conflicting(&parents, &[2], &[3], &[(0..3, OnlyA), (3..4, OnlyB)], &[]); // 0,1,2 and 3.
+        assert_conflicting(&parents, &[1, 4], &[4], &[(0..2, OnlyA), (3..5, Shared)], &[]); // 0,1,2 and 3.
+        assert_conflicting(&parents, &[6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..5, OnlyA), (6..7, OnlyA)], &[]);
+        assert_conflicting(&parents, &[6], &[5], &[(0..2, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]); // 6 includes 1, 0.
+        assert_conflicting(&parents, &[5, 6], &[5], &[(0..2, OnlyA), (3..6, Shared), (6..7, OnlyA)], &[]);
+        assert_conflicting(&parents, &[5, 6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..7, OnlyA)], &[]);
+        assert_conflicting(&parents, &[2, 6], &[5], &[(0..3, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]);
+        assert_conflicting(&parents, &[9], &[10], &[(10..11, OnlyB)], &[9]);
+        assert_conflicting(&parents, &[6], &[7], &[(7..8, OnlyB)], &[6]);
 
         // This looks weird, but its right because 9 shares the same parents.
-        assert_conflicting(&history, &[9], &[2, 8], &[(9..10, OnlyA)], &[2, 8]);
+        assert_conflicting(&parents, &[9], &[2, 8], &[(9..10, OnlyA)], &[2, 8]);
 
         // Everything! Just because we need to rebase operation 8 on top of 7, and can't produce
         // that without basically all of time. Hopefully this doesn't come up a lot in practice.
-        assert_conflicting(&history, &[9], &[2, 7], &[(0..5, Shared), (6..8, Shared), (8..10, OnlyA)], &[]);
+        assert_conflicting(&parents, &[9], &[2, 7], &[(0..5, Shared), (6..8, Shared), (8..10, OnlyA)], &[]);
     }
 
     #[test]
@@ -676,32 +896,32 @@ pub mod test {
         // assert!(doc.txns.branch_contains_order(&doc.frontier, 0));
         // assert!(!doc.txns.branch_contains_order(&[ROOT_TIME_X], 0));
 
-        let history = fancy_history();
+        let history = fancy_parents();
 
-        assert!(history.version_contains_time(&[], ROOT_TIME));
-        assert!(history.version_contains_time(&[0], 0));
-        assert!(history.version_contains_time(&[0], ROOT_TIME));
+        assert_version_contains_time(&history, &[], ROOT_TIME, true);
+        assert_version_contains_time(&history, &[0], 0, true);
+        assert_version_contains_time(&history, &[0], ROOT_TIME, true);
 
-        assert!(history.version_contains_time(&[2], 0));
-        assert!(history.version_contains_time(&[2], 1));
-        assert!(history.version_contains_time(&[2], 2));
+        assert_version_contains_time(&history, &[2], 0, true);
+        assert_version_contains_time(&history, &[2], 1, true);
+        assert_version_contains_time(&history, &[2], 2, true);
 
-        assert!(!history.version_contains_time(&[0], 1));
-        assert!(!history.version_contains_time(&[1], 2));
+        assert_version_contains_time(&history, &[0], 1, false);
+        assert_version_contains_time(&history, &[1], 2, false);
 
-        assert!(history.version_contains_time(&[8], 0));
-        assert!(history.version_contains_time(&[8], 1));
-        assert!(!history.version_contains_time(&[8], 2));
-        assert!(!history.version_contains_time(&[8], 5));
+        assert_version_contains_time(&history, &[8], 0, true);
+        assert_version_contains_time(&history, &[8], 1, true);
+        assert_version_contains_time(&history, &[8], 2, false);
+        assert_version_contains_time(&history, &[8], 5, false);
 
-        assert!(history.version_contains_time(&[1,4], 0));
-        assert!(history.version_contains_time(&[1,4], 1));
-        assert!(!history.version_contains_time(&[1,4], 2));
-        assert!(!history.version_contains_time(&[1,4], 5));
+        assert_version_contains_time(&history, &[1,4], 0, true);
+        assert_version_contains_time(&history, &[1,4], 1, true);
+        assert_version_contains_time(&history, &[1,4], 2, false);
+        assert_version_contains_time(&history, &[1,4], 5, false);
 
-        assert!(history.version_contains_time(&[9], 2));
-        assert!(history.version_contains_time(&[9], 1));
-        assert!(history.version_contains_time(&[9], 0));
+        assert_version_contains_time(&history, &[9], 2, true);
+        assert_version_contains_time(&history, &[9], 1, true);
+        assert_version_contains_time(&history, &[9], 0, true);
     }
 
     #[test]
@@ -711,19 +931,19 @@ pub mod test {
         // 0 |
         // | 1
         // 2
-        let history = History {
+        let history = Parents {
             entries: RleVec(vec![
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (0..1).into(), shadow: usize::MAX,
                     parents: smallvec![],
                     child_indexes: smallvec![2]
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (1..2).into(), shadow: usize::MAX,
                     parents: smallvec![],
                     child_indexes: smallvec![3]
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (2..3).into(), shadow: 2,
                     parents: smallvec![0],
                     child_indexes: smallvec![4]
@@ -743,21 +963,21 @@ pub mod test {
         // 0 | |
         //   1 |
         //     2
-        let history = History {
+        let history = Parents {
             entries: RleVec(vec![
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (0..1).into(),
                     shadow: usize::MAX,
                     parents: smallvec![],
                     child_indexes: smallvec![],
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (1..2).into(),
                     shadow: 1,
                     parents: smallvec![],
                     child_indexes: smallvec![],
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (2..3).into(),
                     shadow: 2,
                     parents: smallvec![],
@@ -786,21 +1006,21 @@ pub mod test {
         //      \ 3,4
         //       \ /
         //        5,6
-        let history = History {
+        let history = Parents {
             entries: RleVec(vec![
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (0..3).into(),
                     shadow: usize::MAX,
                     parents: smallvec![],
                     child_indexes: smallvec![2],
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (3..5).into(),
                     shadow: 3,
                     parents: smallvec![],
                     child_indexes: smallvec![2],
                 },
-                HistoryEntry {
+                ParentsEntryInternal {
                     span: (5..6).into(),
                     shadow: usize::MAX,
                     parents: smallvec![2,4],
@@ -820,26 +1040,26 @@ pub mod test {
         // 0 1
         // |x|
         // 2 3
-        let history = History::from_entries(&[
-            HistoryEntry {
+        let history = Parents::from_entries(&[
+            ParentsEntryInternal {
                 span: (0..1).into(),
                 shadow: usize::MAX,
                 parents: smallvec![],
                 child_indexes: smallvec![1, 2],
             },
-            HistoryEntry {
+            ParentsEntryInternal {
                 span: (1..2).into(),
                 shadow: 1,
                 parents: smallvec![],
                 child_indexes: smallvec![1, 2],
             },
-            HistoryEntry {
+            ParentsEntryInternal {
                 span: (2..3).into(),
                 shadow: usize::MAX,
                 parents: smallvec![0, 1],
                 child_indexes: smallvec![],
             },
-            HistoryEntry {
+            ParentsEntryInternal {
                 span: (3..4).into(),
                 shadow: 3,
                 parents: smallvec![0, 1],
@@ -847,8 +1067,8 @@ pub mod test {
             },
         ]);
 
-        assert_eq!(false, history.version_contains_time(&[2], 3));
-        assert_eq!(false, history.version_contains_time(&[3], 2));
+        assert_version_contains_time(&history, &[2], 3, false);
+        assert_version_contains_time(&history, &[3], 2, false);
         assert_diff_eq(&history, &[2], &[3], &[(2..3).into()], &[(3..4).into()]);
     }
 

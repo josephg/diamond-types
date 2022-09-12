@@ -1,21 +1,22 @@
 use jumprope::JumpRope;
 use rle::{HasLength, RleRun};
 use crate::list::encoding::*;
-use crate::history::MinimalHistoryEntry;
-use crate::list::operation::OpKind::{Del, Ins};
-use crate::list::{Branch, OpLog, switch};
+use crate::causalgraph::parents::ParentsEntrySimple;
+use crate::list::operation::ListOpKind::{Del, Ins};
+use crate::list::{ListBranch, ListOpLog, switch};
 use crate::rle::{KVPair, RleVec};
 use crate::{AgentId, ROOT_AGENT, Time};
 use crate::frontier::local_version_is_root;
-use crate::list::internal_op::OperationInternal;
-use crate::list::operation::OpKind;
+use crate::list::op_metrics::ListOpMetrics;
+use crate::list::operation::ListOpKind;
 use crate::dtrange::DTRange;
+use crate::encoding::tools::calc_checksum;
 use crate::list::encoding::encode_tools::*;
 
 const ALLOW_VERBOSE: bool = false;
 
 /// Write an operation to the passed writer.
-fn write_op(dest: &mut Vec<u8>, op: &OperationInternal, cursor: &mut usize) {
+fn write_op(dest: &mut Vec<u8>, op: &ListOpMetrics, cursor: &mut usize) {
     // Note I'm relying on the operation log itself to be iter_merged, which simplifies things here
     // greatly.
 
@@ -191,8 +192,8 @@ struct AgentMapping {
 }
 
 impl AgentMapping {
-    fn new(oplog: &OpLog) -> Self {
-        let client_len = oplog.client_data.len();
+    fn new(oplog: &ListOpLog) -> Self {
+        let client_len = oplog.cg.client_data.len();
         let mut result = Self {
             map: Vec::with_capacity(client_len),
             next_mapped_agent: 1, // 0 is implicitly assigned to ROOT.
@@ -202,7 +203,7 @@ impl AgentMapping {
         result
     }
 
-    fn map(&mut self, oplog: &OpLog, agent: AgentId) -> AgentId {
+    fn map(&mut self, oplog: &ListOpLog, agent: AgentId) -> AgentId {
         // 0 is implicitly ROOT.
         if agent == ROOT_AGENT { return 0; }
         let agent = agent as usize;
@@ -210,8 +211,8 @@ impl AgentMapping {
         self.map[agent].map_or_else(|| {
             let mapped = self.next_mapped_agent;
             self.map[agent] = Some((mapped, 0));
-            push_str(&mut self.output, oplog.client_data[agent].name.as_str());
-            // println!("Mapped agent {} -> {}", oplog.client_data[agent].name, mapped);
+            push_str(&mut self.output, oplog.cg.client_data[agent].name.as_str());
+            // println!("Mapped agent {} -> {}", oplog.cg.client_data[agent].name, mapped);
             self.next_mapped_agent += 1;
             mapped
         }, |v| v.0)
@@ -229,7 +230,7 @@ impl AgentMapping {
     }
 }
 
-fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapping, oplog: &OpLog) {
+fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapping, oplog: &ListOpLog) {
     // Skip writing a version chunk if the version is ROOT.
     if local_version_is_root(version) {
         return;
@@ -248,7 +249,7 @@ fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapp
         push_usize(&mut buf, n);
         push_usize(&mut buf, id.seq);
     }
-    push_chunk(dest, ChunkType::Version, &buf);
+    push_chunk(dest, ListChunkType::Version, &buf);
     // buf.clear();
 }
 
@@ -274,9 +275,9 @@ fn write_content<'a, I: Iterator<Item = &'a [u8]>>(dest: &mut Vec<u8>, kind: Dat
         (Some(b), true) => {
             // Store the compressed length in the origin chunk.
             push_usize(&mut buf, len);
-            (b, ChunkType::ContentCompressed)
+            (b, ListChunkType::ContentCompressed)
         },
-        _ => (&mut buf, ChunkType::Content),
+        _ => (&mut buf, ListChunkType::Content),
     };
 
     // The passed length should always be right, but lets just make sure.
@@ -298,8 +299,8 @@ fn write_content_rope(dest: &mut Vec<u8>, rope: &JumpRope, compressed: Option<&m
     write_content(dest, DataType::PlainText, rope.len_bytes(),rope.substrings().map(|s| s.as_bytes()), compressed);
 }
 
-fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ChunkType) {
-    debug_assert_ne!(chunk_type, ChunkType::Content); // Use write_content_str instead.
+fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ListChunkType) {
+    debug_assert_ne!(chunk_type, ListChunkType::Content); // Use write_content_str instead.
 
     let mut buf = Vec::new(); // :(
     push_u32(&mut buf, DataType::PlainText as _);
@@ -308,6 +309,7 @@ fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ChunkType) {
 }
 
 /// Returns compressed chunk size
+#[cfg(feature = "lz4")]
 fn write_compressed_chunk(dest: &mut Vec<u8>, data: &[u8]) -> usize {
     // dbg!(&compress_bytes);
     let max_compressed_size = lz4_flex::block::get_maximum_output_size(data.len());
@@ -327,7 +329,7 @@ fn write_compressed_chunk(dest: &mut Vec<u8>, data: &[u8]) -> usize {
     pos += lz4_flex::compress_into(data, &mut compressed[pos..]).unwrap();
     compressed.truncate(pos);
     // write_chunk(ChunkType::CompressedFields, &mut compressed);
-    push_chunk(dest, ChunkType::CompressedFieldsLZ4, &compressed[..pos]);
+    push_chunk(dest, ListChunkType::CompressedFieldsLZ4, &compressed[..pos]);
 
     pos
 }
@@ -346,7 +348,7 @@ fn write_bit_run(run: RleRun<bool>, into: &mut Vec<u8>) {
 /// Its gross that I need to pass a generic parameter here, since it'll always be write_bit_run.
 /// I wish there were a cleaner way to write this.
 struct ContentChunk<F: FnMut(RleRun<bool>, &mut Vec<u8>)> {
-    kind: OpKind,
+    kind: ListOpKind,
     known_out: Vec<u8>,
     bit_writer: Merger<RleRun<bool>, F, Vec<u8>>,
     content: String
@@ -354,7 +356,7 @@ struct ContentChunk<F: FnMut(RleRun<bool>, &mut Vec<u8>)> {
 
 // impl<F: FnMut(S, &mut Vec<u8>)> ContentChunk<F> {
 impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
-    fn new(f: F, kind: OpKind) -> Self {
+    fn new(f: F, kind: ListOpKind) -> Self {
         Self {
             kind,
             known_out: Vec::new(),
@@ -387,13 +389,13 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
             // This writes a length-prefixed string, which it really doesn't need to do.
             write_content_str(&mut buf, &self.content, compressed_out);
 
-            push_chunk(&mut buf, ChunkType::ContentIsKnown, &self.known_out);
+            push_chunk(&mut buf, ListChunkType::ContentIsKnown, &self.known_out);
             Some(buf)
         }
     }
 }
 
-impl OpLog {
+impl ListOpLog {
     /// Encode the data stored in the OpLog into a (custom) compact binary form suitable for saving
     /// to disk, or sending over the network.
     pub fn encode_from(&self, opts: EncodeOptions, from_version: &[Time]) -> Vec<u8> {
@@ -468,7 +470,7 @@ impl OpLog {
         let mut txn_map = RleVec::<KVPair<DTRange>>::new();
         let mut next_output_time = 0;
         let mut txns_chunk = Vec::new();
-        let mut txns_writer = Merger::new(|txn: MinimalHistoryEntry, agent_mapping: &mut AgentMapping| {
+        let mut txns_writer = Merger::new(|txn: ParentsEntrySimple, agent_mapping: &mut AgentMapping| {
             // println!("Upstream {}-{}", txn.span.start, txn.span.end);
             // First add this entry to the txn map.
             let len = txn.span.len();
@@ -537,17 +539,17 @@ impl OpLog {
 
 
         // If we just iterate in the current order, this code would be way simpler :p
-        // let iter = self.history.optimized_txns_between(from_frontier, &self.frontier);
+        // let iter = self.cg.history.optimized_txns_between(from_frontier, &self.frontier);
         // for walk in iter {
-        for walk in self.history.optimized_txns_between(from_version, &self.version) {
+        for walk in self.cg.parents.optimized_txns_between(from_version, &self.version) {
             // We only care about walk.consume and parents.
 
             // We need to update *lots* of stuff in here!!
 
             // 1. Agent names and agent assignment
-            for span in self.client_with_localtime.iter_range_packed_ctx(walk.consume, &()) {
+            for KVPair(_, span) in self.cg.client_with_localtime.iter_range_packed_ctx(walk.consume, &()) {
                 // Mark the agent as in-use (if we haven't already)
-                let mapped_agent = agent_mapping.map(self, span.1.agent);
+                let mapped_agent = agent_mapping.map(self, span.agent);
 
                 // dbg!(&span);
 
@@ -555,7 +557,7 @@ impl OpLog {
                 // dbg!(span);
                 agent_assignment_writer.push(AgentAssignmentRun {
                     agent: mapped_agent,
-                    delta: agent_mapping.seq_delta(span.1.agent, span.1.seq_range),
+                    delta: agent_mapping.seq_delta(span.agent, span.seq_range),
                     len: span.len()
                 });
             }
@@ -587,7 +589,7 @@ impl OpLog {
             }
 
             // 3. Parents!
-            txns_writer.push2(MinimalHistoryEntry {
+            txns_writer.push2(ParentsEntrySimple {
                 span: walk.consume,
                 parents: walk.parents
             }, &mut agent_mapping);
@@ -607,7 +609,7 @@ impl OpLog {
             write_local_version(&mut start_branch, from_version, &mut agent_mapping, self);
 
             if opts.store_start_branch_content {
-                let branch_here = Branch::new_at_local_version(self, from_version);
+                let branch_here = ListBranch::new_at_local_version(self, from_version);
                 // dbg!(&branch_here);
                 write_content_rope(&mut start_branch, &branch_here.content, compress_bytes.as_mut());
             }
@@ -622,15 +624,15 @@ impl OpLog {
 
         // DocId
         if let Some(name) = self.doc_id.as_ref() {
-            write_chunk_str(&mut fileinfo_buf, name.as_str(), ChunkType::DocId);
+            write_chunk_str(&mut fileinfo_buf, name.as_str(), ListChunkType::DocId);
         }
 
         // agent names
-        push_chunk(&mut fileinfo_buf, ChunkType::AgentNames, &agent_mapping.consume());
+        push_chunk(&mut fileinfo_buf, ListChunkType::AgentNames, &agent_mapping.consume());
 
         // User data
         if let Some(data) = opts.user_data {
-            push_chunk(&mut fileinfo_buf, ChunkType::UserData, data);
+            push_chunk(&mut fileinfo_buf, ListChunkType::UserData, data);
         }
 
         // Bake inserted & deleted content. I need to do this here because the CompressedFields
@@ -675,7 +677,7 @@ impl OpLog {
             }
         }
 
-        let mut write_chunk = |c: ChunkType, data: &mut Vec<u8>| {
+        let mut write_chunk = |c: ListChunkType, data: &mut Vec<u8>| {
             if verbose {
                 println!("{:?} length {}", c, data.len());
             }
@@ -684,34 +686,34 @@ impl OpLog {
             data.clear();
         };
 
-        write_chunk(ChunkType::FileInfo, &mut fileinfo_buf);
+        write_chunk(ListChunkType::FileInfo, &mut fileinfo_buf);
 
         // *** Start Branch - which was filled in above. ***
-        write_chunk(ChunkType::StartBranch, &mut start_branch);
+        write_chunk(ListChunkType::StartBranch, &mut start_branch);
 
         // *** Patches ***
         // I'll just assemble it in buf. There's a lot of sloppy use of vec<u8>'s in here.
         let mut patches_buf = fileinfo_buf;
 
         if let Some(bytes) = inserted_content {
-            push_chunk(&mut patches_buf, ChunkType::PatchContent, &bytes);
+            push_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes);
         }
         if let Some(bytes) = deleted_content {
-            push_chunk(&mut patches_buf, ChunkType::PatchContent, &bytes);
+            push_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes);
         }
 
-        push_chunk(&mut patches_buf, ChunkType::OpVersions, &agent_assignment_chunk);
-        push_chunk(&mut patches_buf, ChunkType::OpTypeAndPosition, &ops_chunk);
-        push_chunk(&mut patches_buf, ChunkType::OpParents, &txns_chunk);
+        push_chunk(&mut patches_buf, ListChunkType::OpVersions, &agent_assignment_chunk);
+        push_chunk(&mut patches_buf, ListChunkType::OpTypeAndPosition, &ops_chunk);
+        push_chunk(&mut patches_buf, ListChunkType::OpParents, &txns_chunk);
 
-        write_chunk(ChunkType::Patches, &mut patches_buf);
+        write_chunk(ListChunkType::Patches, &mut patches_buf);
 
         // TODO (later): Final branch content.
 
         // println!("checksum {checksum}");
-        let checksum = checksum(&result);
+        let checksum = calc_checksum(&result);
         push_u32_le(&mut patches_buf, checksum);
-        push_chunk(&mut result, ChunkType::Crc, &patches_buf);
+        push_chunk(&mut result, ListChunkType::Crc, &patches_buf);
         // write_chunk(Chunk::CRC, &mut buf);
         // push_u32(&mut result, checksum);
 
@@ -770,7 +772,7 @@ impl OpLog {
     //     buf.clear();
     //
     //     // List of (agent, len) pairs for all changes.
-    //     for KVPair(_, span) in self.client_with_localtime.iter() {
+    //     for KVPair(_, span) in self.cg.client_with_localtime.iter() {
     //         push_run_u32(&mut buf, Run { val: span.agent, len: span.len() });
     //     }
     //     write_chunk(Chunk::AgentAssignment, &buf);
@@ -843,7 +845,7 @@ impl OpLog {
     //
     //     buf.clear();
     //
-    //     for txn in self.history.entries.iter() {
+    //     for txn in self.cg.history.entries.iter() {
     //         // First add this entry to the txn map.
     //         push_usize(&mut buf, txn.len());
     //
@@ -890,7 +892,7 @@ impl OpLog {
 #[cfg(test)]
 mod tests {
     use crate::list::encoding::EncodeOptions;
-    use crate::list::{ListCRDT, OpLog};
+    use crate::list::{ListCRDT, ListOpLog};
 
     #[test]
     #[ignore]
@@ -928,7 +930,7 @@ mod tests {
 
     #[test]
     fn encode_simple() {
-        let mut oplog = OpLog::new();
+        let mut oplog = ListOpLog::new();
         oplog.get_or_create_agent_id("x"); // 0
         oplog.add_insert(0, 0, "abc\n");
         // let data = oplog.encode(EncodeOptions::default());

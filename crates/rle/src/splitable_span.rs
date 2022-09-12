@@ -4,6 +4,7 @@ pub trait HasLength {
     /// The number of child items in the entry. This is indexed with the size used in truncate.
     fn len(&self) -> usize;
 
+    #[inline]
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -317,6 +318,10 @@ impl<T: Clone + Eq> RleRun<T> {
     pub fn new(val: T, len: usize) -> Self {
         Self { val, len }
     }
+
+    pub fn single(val: T) -> Self {
+        Self { val, len: 1 }
+    }
 }
 
 impl<T: Clone + Eq> HasLength for RleRun<T> {
@@ -331,11 +336,12 @@ impl<T: Clone + Eq> SplitableSpanHelpers for RleRun<T> {
 }
 impl<T: Clone + Eq> MergableSpan for RleRun<T> {
     fn can_append(&self, other: &Self) -> bool {
-        self.val == other.val
+        self.val == other.val || self.len == 0
     }
 
     fn append(&mut self, other: Self) {
         self.len += other.len;
+        self.val = other.val; // Needed when we use default() - which gives it a length of 0.
     }
 }
 

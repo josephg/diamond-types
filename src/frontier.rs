@@ -1,10 +1,10 @@
 use smallvec::{Array, SmallVec};
-use crate::history::History;
+use crate::causalgraph::parents::Parents;
 use crate::dtrange::DTRange;
 use crate::{LocalVersion, Time};
 
 /// Advance a frontier by the set of time spans in range
-pub(crate) fn advance_frontier_by(frontier: &mut LocalVersion, history: &History, mut range: DTRange) {
+pub(crate) fn advance_frontier_by(frontier: &mut LocalVersion, history: &Parents, mut range: DTRange) {
     let mut txn_idx = history.entries.find_index(range.start).unwrap();
     while !range.is_empty() {
         let txn = &history.entries[txn_idx];
@@ -22,7 +22,7 @@ pub(crate) fn advance_frontier_by(frontier: &mut LocalVersion, history: &History
     }
 }
 
-pub(crate) fn retreat_frontier_by(frontier: &mut LocalVersion, history: &History, mut range: DTRange) {
+pub(crate) fn retreat_frontier_by(frontier: &mut LocalVersion, history: &Parents, mut range: DTRange) {
     if range.is_empty() { return; }
 
     debug_assert_frontier_sorted(frontier.as_slice());
@@ -98,7 +98,7 @@ pub(crate) fn debug_assert_frontier_sorted(frontier: &[Time]) {
     debug_assert!(frontier_is_sorted(frontier));
 }
 
-pub(crate) fn check_frontier(frontier: &[Time], history: &History) {
+pub(crate) fn check_frontier(frontier: &[Time], history: &Parents) {
     assert!(frontier_is_sorted(frontier));
     if frontier.len() >= 2 {
         // let mut frontier = frontier.iter().copied().collect::<Vec<_>>();
@@ -205,7 +205,7 @@ mod test {
     use smallvec::smallvec;
 
     use crate::LocalVersion;
-    use crate::history::HistoryEntry;
+    use crate::causalgraph::parents::ParentsEntryInternal;
 
     use super::*;
 
@@ -215,8 +215,8 @@ mod test {
         advance_frontier_by_known_run(&mut branch, &[], (0..10).into());
         assert_eq!(branch.as_slice(), &[9]);
 
-        let history = History::from_entries(&[
-            HistoryEntry {
+        let history = Parents::from_entries(&[
+            ParentsEntryInternal {
                 span: (0..10).into(), shadow: usize::MAX,
                 parents: smallvec![],
                 child_indexes: smallvec![]
@@ -227,23 +227,23 @@ mod test {
         assert_eq!(branch.as_slice(), &[4]);
 
         retreat_frontier_by(&mut branch, &history, (0..5).into());
-        assert_eq!(branch.as_slice(), &[]);
+        assert!(branch.is_empty());
     }
 
     #[test]
     fn frontier_stays_sorted() {
-        let history = History::from_entries(&[
-            HistoryEntry {
+        let history = Parents::from_entries(&[
+            ParentsEntryInternal {
                 span: (0..2).into(), shadow: usize::MAX,
                 parents: smallvec![],
                 child_indexes: smallvec![]
             },
-            HistoryEntry {
+            ParentsEntryInternal {
                 span: (2..6).into(), shadow: usize::MAX,
                 parents: smallvec![0],
                 child_indexes: smallvec![]
             },
-            HistoryEntry {
+            ParentsEntryInternal {
                 span: (6..50).into(), shadow: 6,
                 parents: smallvec![0],
                 child_indexes: smallvec![]

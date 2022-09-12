@@ -16,7 +16,7 @@
 use smallvec::{SmallVec, smallvec};
 use crate::frontier::*;
 use rle::{HasLength, SplitableSpan};
-use crate::history::History;
+use crate::causalgraph::parents::Parents;
 use crate::dtrange::DTRange;
 use crate::frontier::clone_smallvec;
 use crate::{LocalVersion, Time};
@@ -65,7 +65,7 @@ fn check_rev_sorted(spans: &[DTRange]) {
 #[derive(Debug)]
 pub(crate) struct SpanningTreeWalker<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
-    history: &'a History,
+    history: &'a Parents,
 
     frontier: LocalVersion,
 
@@ -90,7 +90,7 @@ pub(crate) struct TxnWalkItem {
 
 impl<'a> SpanningTreeWalker<'a> {
     #[allow(unused)]
-    pub(crate) fn new_all(history: &'a History) -> Self {
+    pub(crate) fn new_all(history: &'a Parents) -> Self {
         let mut spans: SmallVec<[DTRange; 4]> = smallvec![];
         if history.get_next_time() > 0 {
             // Kinda gross. Only add the span if the document isn't empty.
@@ -101,7 +101,7 @@ impl<'a> SpanningTreeWalker<'a> {
         Self::new(history, &spans, smallvec![])
     }
 
-    pub(crate) fn new(history: &'a History, rev_spans: &[DTRange], start_at: LocalVersion) -> Self {
+    pub(crate) fn new(history: &'a Parents, rev_spans: &[DTRange], start_at: LocalVersion) -> Self {
         if cfg!(debug_assertions) {
             check_rev_sorted(rev_spans);
         }
@@ -252,7 +252,7 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
     }
 }
 
-impl History {
+impl Parents {
     /// This function is for efficiently finding the order we should traverse the time DAG in order to
     /// walk all the changes so we can efficiently save everything to disk. This is needed because if
     /// we simply traverse the txns in the order they're in right now, we can have pathological
@@ -284,26 +284,26 @@ impl History {
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use crate::history::HistoryEntry;
-    use crate::history_tools::ConflictZone;
+    use crate::causalgraph::parents::ParentsEntryInternal;
+    use crate::causalgraph::parents::tools::ConflictZone;
     use super::*;
 
     #[test]
     fn iter_span_for_empty_doc() {
-        let history = History::new();
+        let history = Parents::new();
         let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
         assert!(walk.is_empty());
     }
 
     #[test]
     fn iter_span_from_root() {
-        let history = History::from_entries(&[
-            HistoryEntry {
+        let history = Parents::from_entries(&[
+            ParentsEntryInternal {
                 span: (0..10).into(), shadow: 0,
                 parents: smallvec![],
                 child_indexes: smallvec![]
             },
-            HistoryEntry {
+            ParentsEntryInternal {
                 span: (10..30).into(), shadow: 0,
                 parents: smallvec![],
                 child_indexes: smallvec![]
@@ -330,18 +330,18 @@ mod test {
 
     #[test]
     fn fork_and_join() {
-        let history = History::from_entries(&[
-            HistoryEntry {
+        let history = Parents::from_entries(&[
+            ParentsEntryInternal {
                 span: (0..10).into(), shadow: 0,
                 parents: smallvec![],
                 child_indexes: smallvec![2]
             },
-            HistoryEntry {
+            ParentsEntryInternal {
                 span: (10..30).into(), shadow: 10,
                 parents: smallvec![],
                 child_indexes: smallvec![2]
             },
-            HistoryEntry {
+            ParentsEntryInternal {
                 span: (30..50).into(), shadow: 0,
                 parents: smallvec![9, 29],
                 child_indexes: smallvec![]
@@ -376,28 +376,28 @@ mod test {
 
     #[test]
     fn two_chains() {
-        let history = History::from_entries(&[
-            HistoryEntry { // a
+        let history = Parents::from_entries(&[
+            ParentsEntryInternal { // a
                 span: (0..1).into(), shadow: usize::MAX,
                 parents: smallvec![],
                 child_indexes: smallvec![2]
             },
-            HistoryEntry { // b
+            ParentsEntryInternal { // b
                 span: (1..2).into(), shadow: usize::MAX,
                 parents: smallvec![],
                 child_indexes: smallvec![3]
             },
-            HistoryEntry { // a
+            ParentsEntryInternal { // a
                 span: (2..3).into(), shadow: 2,
                 parents: smallvec![0],
                 child_indexes: smallvec![4]
             },
-            HistoryEntry { // b
+            ParentsEntryInternal { // b
                 span: (3..4).into(), shadow: 3,
                 parents: smallvec![1],
                 child_indexes: smallvec![4]
             },
-            HistoryEntry { // a+b
+            ParentsEntryInternal { // a+b
                 span: (4..5).into(), shadow: usize::MAX,
                 parents: smallvec![2, 3],
                 child_indexes: smallvec![]
@@ -451,8 +451,8 @@ mod test {
     #[test]
     fn iter_txn_middle() {
         // regression
-        let history = History::from_entries(&[
-            HistoryEntry {
+        let history = Parents::from_entries(&[
+            ParentsEntryInternal {
                 span: (0..10).into(),
                 shadow: usize::MAX,
                 parents: smallvec![],

@@ -1,3 +1,5 @@
+//! > NOTE: This documentation is out of date with the current DT code
+//!
 //! This is a super fast CRDT implemented in rust. It currently only supports plain text documents
 //! but the plan is to support all kinds of data.
 //!
@@ -33,7 +35,7 @@
 //! ```
 //! use diamond_types::list::*;
 //!
-//! let mut oplog = OpLog::new();
+//! let mut oplog = ListOpLog::new();
 //! let fred = oplog.get_or_create_agent_id("fred");
 //! oplog.add_insert(fred, 0, "abc");
 //! oplog.add_delete_without_content(fred, 1..2); // Delete the 'b'
@@ -47,9 +49,9 @@
 //!
 //! ```
 //! use diamond_types::list::*;
-//! let mut oplog = OpLog::new();
+//! let mut oplog = ListOpLog::new();
 //! // ...
-//! let mut branch = Branch::new_at_tip(&oplog);
+//! let mut branch = ListBranch::new_at_tip(&oplog);
 //! // Equivalent to let mut branch = Branch::new_at_local_version(&oplog, oplog.get_local_version());
 //! println!("branch content {}", branch.content().to_string());
 //! ```
@@ -58,9 +60,9 @@
 //!
 //! ```
 //! use diamond_types::list::*;
-//! let mut oplog = OpLog::new();
+//! let mut oplog = ListOpLog::new();
 //! // ...
-//! let mut branch = Branch::new_at_tip(&oplog);
+//! let mut branch = ListBranch::new_at_tip(&oplog);
 //! let george = oplog.get_or_create_agent_id("george");
 //! oplog.add_insert(george, 0, "asdf");
 //! branch.merge(&oplog, oplog.local_version_ref());
@@ -89,7 +91,7 @@
 //!
 //! ```
 //! use diamond_types::list::*;
-//! let mut oplog = OpLog::new();
+//! let mut oplog = ListOpLog::new();
 //! let fred = oplog.get_or_create_agent_id("fred");
 //! oplog.add_insert(fred, 0, "a");
 //! oplog.add_insert(fred, 1, "b");
@@ -100,7 +102,7 @@
 //!
 //! ```
 //! use diamond_types::list::*;
-//! let mut oplog = OpLog::new();
+//! let mut oplog = ListOpLog::new();
 //! let fred = oplog.get_or_create_agent_id("fred");
 //! oplog.add_insert(fred, 0, "abc");
 //! ```
@@ -178,13 +180,25 @@
 //! multiple parents.
 
 #![allow(clippy::module_inception)]
+#![allow(unused)] // During dev. TODO: Take me out!
 
 extern crate core;
 
+use std::collections::{BTreeMap, BTreeSet};
+use jumprope::JumpRope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
+use crate::causalgraph::CausalGraph;
 use crate::dtrange::DTRange;
+use causalgraph::parents::Parents;
+use crate::causalgraph::storage::CGStorage;
+use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
+use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
+use crate::wal::WriteAheadLog;
+use num_enum::TryFromPrimitive;
+
+// use crate::list::internal_op::OperationInternal as TextOpInternal;
 
 pub mod list;
 mod rle;
@@ -192,9 +206,16 @@ mod dtrange;
 mod unicount;
 mod remotespan;
 mod rev_range;
-mod history;
 mod frontier;
-mod history_tools;
+mod oplog;
+mod check;
+mod branch;
+mod path;
+mod encoding;
+mod causalgraph;
+mod simpledb;
+mod operation;
+mod wal;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;
@@ -214,21 +235,137 @@ pub type Time = usize;
 /// order).
 pub type LocalVersion = SmallVec<[Time; 2]>;
 
-#[derive(Clone, Debug)]
-struct ClientData {
-    /// Used to map from client's name / hash to its numerical ID.
-    name: SmartString,
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Primitive {
+    Nil,
+    Bool(bool),
+    I64(i64),
+    // F64(f64),
+    Str(SmartString),
 
-    /// This is a packed RLE in-order list of all operations from this client.
+    InvalidUninitialized,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum SnapshotValue {
+    Primitive(Primitive),
+    InnerCRDT(Time),
+    // Ref(Time),
+}
+
+// #[derive(Debug, Eq, PartialEq, Copy, Clone, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+// #[repr(u16)]
+pub enum CRDTKind {
+    Map, // String => Register (like a JS object)
+    Register,
+    Set, // SQL table / mongo collection
+    Text,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum CreateValue {
+    Primitive(Primitive),
+    NewCRDT(CRDTKind),
+    // Deleted, // Marks that the key / contents should be deleted.
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum SetOp {
+    Insert(CreateValue),
+    Remove(Time),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum OpContents {
+    RegisterSet(CreateValue),
+    MapSet(SmartString, CreateValue),
+    Set(SetOp), // TODO: Consider just inlining this.
+    Text(ListOpMetrics),
+
+
+    // The other way to write this would be:
+
+
+    // SetInsert(CRDTKind),
+    // SetRemove(Time),
+
+    // TextInsert(..),
+    // TextRemove(..)
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct Op {
+    pub target_id: Time,
+    pub contents: OpContents,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub(crate) struct Ops {
+    ops: RleVec<KVPair<Op>>,
+    list_ctx: ListOperationCtx,
+}
+
+#[derive(Debug)]
+pub struct OpLog {
+    // /// The ID of the document (if any). This is useful if you want to give a document a GUID or
+    // /// something to make sure you're merging into the right place.
+    // ///
+    // /// Optional - only used if you set it.
+    // doc_id: Option<SmartString>,
+
+    /// The causal graph stores the mapping from (local) time values <-> (agent, seq) pairs.
+    /// This is loaded from disk on startup in its entirety and appended to with each change when
+    /// the WAL is flushed.
+    pub(crate) cg: CausalGraph,
+
+    cg_storage: Option<CGStorage>,
+    wal_storage: Option<WriteAheadLog>,
+
+    /// The version that contains everything from CG.
+    /// This might make more sense in CG?
+    version: LocalVersion,
+
+    /// Values which have not yet been flushed to the WAL.
+    uncommitted_ops: Ops,
+}
+
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct RegisterState {
+    value: SnapshotValue,
+    version: Time,
+}
+
+/// Guaranteed to always have at least 1 value inside.
+type MVRegister = SmallVec<[RegisterState; 1]>;
+
+// TODO: Probably should also store a dirty flag for when we flush to disk.
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum OverlayValue {
+    Register(MVRegister),
+    Map(BTreeMap<SmartString, MVRegister>),
+    Set(BTreeMap<Time, SnapshotValue>),
+    Text(Box<JumpRope>),
+}
+
+/// The branch object stores the *data* at some particular version of the database. This is
+/// implemented via an overlay of data fields on top of a snapshot database. The overlay data is
+/// periodically flushed to disk.
+#[derive(Debug, Clone)]
+pub struct Branch {
+    /// The overlay contents. This stores values which have either diverged from the persisted data
+    /// or are cached.
+    overlay: BTreeMap<Time, OverlayValue>,
+
+    /// The version the branch is currently at. This is used to track which changes the branch has
+    /// or has not locally merged.
     ///
-    /// Each entry in this list is grounded at the client's sequence number and maps to the span of
-    /// local time entries.
-    ///
-    /// A single agent ID might be used to modify multiple concurrent branches. Because of this, and
-    /// the propensity of diamond types to reorder operations for performance, the
-    /// time spans here will *almost* always (but not always) be monotonically increasing. Eg, they
-    /// might be ordered as (0, 2, 1). This will only happen when changes are concurrent. The order
-    /// of time spans must always obey the partial order of changes. But it will not necessarily
-    /// agree with the order amongst time spans.
-    item_times: RleVec<KVPair<DTRange>>,
+    /// This field is public for convenience, but you should never modify it directly.
+    overlay_version: LocalVersion,
+
+    // persisted_data: BTreeMap<Time, OverlayValue>, // TODO. Not actually an in-memory object.
+    // persisted_version: LocalVersion,
+
+    num_invalid: usize,
 }

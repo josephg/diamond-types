@@ -1,7 +1,7 @@
 use jumprope::JumpRope;
 use rand::prelude::*;
 use crate::AgentId;
-use crate::list::{Branch, fuzzer_tools, ListCRDT, OpLog};
+use crate::list::{ListBranch, fuzzer_tools, ListCRDT, ListOpLog};
 use crate::list::fuzzer_tools::choose_2;
 
 #[test]
@@ -24,8 +24,8 @@ fn random_single_document() {
 
 fn merge_fuzz(seed: u64, verbose: bool) {
     let mut rng = SmallRng::seed_from_u64(seed);
-    let mut oplog = OpLog::new();
-    let mut branches = [Branch::new(), Branch::new(), Branch::new()];
+    let mut oplog = ListOpLog::new();
+    let mut branches = [ListBranch::new(), ListBranch::new(), ListBranch::new()];
 
     // Each document will have a different local agent ID. I'm cheating here - just making agent
     // 0 for all of them.

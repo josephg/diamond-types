@@ -54,6 +54,8 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
 
     pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
 
+    pub fn iter_from_idx(&self, idx: usize) -> std::slice::Iter<V> { self.0[idx..].iter() }
+
     pub fn iter_merged(&self) -> MergeIter<Cloned<std::slice::Iter<V>>> { self.0.iter().cloned().merge_spans() }
 
     pub fn print_stats(&self, name: &str, _detailed: bool) {
@@ -200,10 +202,24 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         })
     }
 
+    pub fn contains_needle(&self, needle: usize) -> bool {
+        !self.is_empty() && self.find_index(needle).is_ok()
+    }
+
     /// Insert an item at this location in the RLE list. This method is O(n) as it needs to shift
     /// subsequent elements forward.
     #[allow(unused)]
     pub fn insert(&mut self, val: V) {
+        // The way insert is usually used, data *usually* gets appended to the end. We'll check that
+        // case first since its a useful optimization.
+        if self.last()
+            .map(|last| last.end() <= val.rle_key())
+            .unwrap_or(true)
+        {
+            self.push(val);
+            return;
+        }
+
         let idx = self.find_index(val.rle_key()).expect_err("Item already exists");
 
         // Extend the next / previous item if possible

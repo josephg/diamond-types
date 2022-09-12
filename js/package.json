@@ -1,0 +1,32 @@
+{
+  "name": "dt-js",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc && browserify dist/client.js -o public/bundle.js",
+    "watch": "watchify dist/client.js -o public/bundle.js -v",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@types/node": "^18.6.0",
+    "@types/polka": "^0.5.4",
+    "@types/priorityqueuejs": "^1.0.1",
+    "@types/ws": "^8.5.3",
+    "binary-search": "^1.3.6",
+    "body-parser": "^1.20.0",
+    "browserify": "^17.0.0",
+    "map2": "^1.1.2",
+    "polka": "^0.5.2",
+    "priorityqueuejs": "^2.0.0",
+    "sirv": "^2.0.2",
+    "typescript": "^4.7.4",
+    "watchify": "^4.0.0",
+    "ws": "^8.8.1"
+  },
+  "devDependencies": {
+    "mocha": "^10.0.0",
+    "@types/mocha": "^9.1.1",
+    "ts-node": "^10.9.1"
+  }
+}

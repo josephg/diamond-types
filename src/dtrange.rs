@@ -70,6 +70,16 @@ impl DTRange {
     pub fn iter(&self) -> impl Iterator<Item=usize> {
         Range::<usize>::from(self)
     }
+
+    pub fn clear(&mut self) {
+        self.start = self.end;
+    }
+}
+
+impl From<usize> for DTRange {
+    fn from(start: usize) -> Self {
+        DTRange { start, end: start + 1 }
+    }
 }
 
 impl From<Range<usize>> for DTRange {

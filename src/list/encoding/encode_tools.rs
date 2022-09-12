@@ -3,59 +3,12 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use rle::MergableSpan;
 use std::marker::PhantomData;
-use crate::list::encoding::ChunkType;
-use crate::list::encoding::varint::{encode_u32, encode_u64};
+use crate::list::encoding::ListChunkType;
+use crate::encoding::varint::{encode_u32, encode_u64};
 use crate::list::remote_ids::ConversionError;
 
 #[cfg(feature = "serde")]
 use serde_crate::Serialize;
-
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(Serialize), serde(crate="serde_crate"))]
-pub enum ParseError {
-    InvalidMagic,
-    UnsupportedProtocolVersion,
-    DocIdMismatch,
-    BaseVersionUnknown,
-    UnknownChunk,
-    LZ4DecoderNeeded,
-    LZ4DecompressionError, // I'd wrap it but lz4_flex errors don't implement any traits
-    // LZ4DecompressionError(lz4_flex::block::DecompressError),
-    CompressedDataMissing,
-    InvalidChunkHeader,
-    MissingChunk(u32),
-    // UnexpectedChunk {
-    //     // I could use Chunk here, but I'd rather not expose them publicly.
-    //     // expected: Chunk,
-    //     // actual: Chunk,
-    //     expected: u32,
-    //     actual: u32,
-    // },
-    InvalidLength,
-    UnexpectedEOF,
-    // TODO: Consider elidiing the details here to keep the wasm binary small.
-    // InvalidUTF8(Utf8Error),
-    InvalidUTF8,
-    InvalidRemoteID(ConversionError),
-    InvalidVarInt,
-    InvalidContent,
-
-    ChecksumFailed,
-
-    /// This error is interesting. We're loading a chunk but missing some of the data. In the future
-    /// I'd like to explicitly support this case, and allow the oplog to contain a somewhat- sparse
-    /// set of data, and load more as needed.
-    DataMissing,
-}
-
-impl Display for ParseError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ParseError {:?}", self)
-    }
-}
-
-impl Error for ParseError {}
 
 pub(super) fn push_u32(into: &mut Vec<u8>, val: u32) {
     let mut buf = [0u8; 5];
@@ -91,12 +44,12 @@ pub(super) fn push_u32_le(into: &mut Vec<u8>, val: u32) {
     into.extend_from_slice(&bytes);
 }
 
-fn push_chunk_header(into: &mut Vec<u8>, chunk_type: ChunkType, len: usize) {
+fn push_chunk_header(into: &mut Vec<u8>, chunk_type: ListChunkType, len: usize) {
     push_u32(into, chunk_type as u32);
     push_usize(into, len);
 }
 
-pub(super) fn push_chunk(into: &mut Vec<u8>, chunk_type: ChunkType, data: &[u8]) {
+pub(super) fn push_chunk(into: &mut Vec<u8>, chunk_type: ListChunkType, data: &[u8]) {
     push_chunk_header(into, chunk_type, data.len());
     into.extend_from_slice(data);
 }

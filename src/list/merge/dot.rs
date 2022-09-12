@@ -9,11 +9,11 @@ use std::io::Write as _;
 use std::process::Command;
 use smallvec::{smallvec, SmallVec};
 use rle::{HasLength, SplitableSpan};
-use crate::list::OpLog;
+use crate::list::ListOpLog;
 use crate::dtrange::DTRange;
-use crate::history::{History, MinimalHistoryEntry};
 use crate::rle::KVPair;
-use crate::{ROOT_TIME, Time};
+use crate::{Parents, ROOT_TIME, Time};
+use crate::causalgraph::parents::ParentsEntrySimple;
 
 pub fn name_of(time: Time) -> String {
     if time == ROOT_TIME { "ROOT".into() }
@@ -37,12 +37,12 @@ impl ToString for DotColor {
     }
 }
 
-impl History {
+impl Parents {
     /// This is a helper method to iterate through the time DAG, but such that there's nothing in
     /// the time DAG which splits the returned range via its parents.
     ///
     /// This method could be made more public - but right now its only used in this one place.
-    fn iter_atomic_chunks(&self) -> impl Iterator<Item = MinimalHistoryEntry> + '_ {
+    fn iter_atomic_chunks(&self) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
         self.entries.iter().flat_map(|e| {
             let mut split_points: SmallVec<[usize; 4]> = smallvec![e.span.last()];
 
@@ -78,16 +78,16 @@ impl History {
 
                 start = next;
 
-                Some(MinimalHistoryEntry {
+                Some(ParentsEntrySimple {
                     span,
                     parents
                 })
-            }).collect::<SmallVec<[MinimalHistoryEntry; 4]>>()
+            }).collect::<SmallVec<[ParentsEntrySimple; 4]>>()
         })
     }
 }
 
-impl OpLog {
+impl ListOpLog {
     pub fn make_time_dag_graph(&self, filename: &str) {
         // for e in self.history.iter_atomic_chunks() {
         //     dbg!(e);
@@ -102,7 +102,7 @@ impl OpLog {
         out.push_str("\tedge [color=\"#333333\" dir=none]\n");
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.history.iter_atomic_chunks() {
+        for txn in self.cg.parents.iter_atomic_chunks() {
             // dbg!(txn);
             let range = txn.span;
 
@@ -160,7 +160,7 @@ impl OpLog {
                 op.truncate_keeping_right(offset);
                 op.truncate(1);
 
-                let txn = self.history.entries.find_packed(time);
+                let txn = self.cg.parents.entries.find_packed(time);
 
                 // let label = if op.tag == Ins {
                 // let label = if op.content_known {
@@ -215,12 +215,12 @@ impl OpLog {
 mod test {
     use std::fs;
     use crate::list::merge::dot::DotColor::*;
-    use crate::list::OpLog;
+    use crate::list::ListOpLog;
 
     #[test]
     #[ignore]
     fn test1() {
-        let mut ops = OpLog::new();
+        let mut ops = ListOpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
         ops.add_insert_at(0, &[], 0, "a");
@@ -233,7 +233,7 @@ mod test {
     #[test]
     #[ignore]
     fn test2() {
-        let mut ops = OpLog::new();
+        let mut ops = ListOpLog::new();
         ops.get_or_create_agent_id("seph");
         ops.get_or_create_agent_id("mike");
         let _a = ops.add_insert_at(0, &[], 0, "aaa");
@@ -249,7 +249,7 @@ mod test {
     fn dot_of_node_cc() {
         let name = "node_nodecc.dt";
         let contents = fs::read(name).unwrap();
-        let oplog = OpLog::load_from(&contents).unwrap();
+        let oplog = ListOpLog::load_from(&contents).unwrap();
 
         oplog.make_time_dag_graph("node_graph.svg");
         println!("Graph written to node_graph.svg");

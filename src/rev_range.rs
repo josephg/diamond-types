@@ -92,6 +92,11 @@ impl From<Range<usize>> for RangeRev {
         }
     }
 }
+impl From<RangeRev> for Range<usize> {
+    fn from(range: RangeRev) -> Self {
+        range.span.into()
+    }
+}
 
 impl PartialEq for RangeRev {
     fn eq(&self, other: &Self) -> bool {

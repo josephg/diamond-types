@@ -21,9 +21,16 @@ smartstring = "1.0.0"
 str_indices = "0.3.1"
 smallvec = { version = "1.8.0", features = ["union", "const_generics"] }
 lazy_static = "1.4.0"
+
+# Used by wasm module, CLI.
 serde_crate = { package = "serde", version = "1.0.136", features = ["derive"], optional = true }
 rle = { version = "0.2.0", path = "crates/rle" }
 content-tree = { version = "0.2.0", path = "crates/content-tree" }
+
+# Only used for generating testing data.
+serde_json = { version = "1.0.85", optional = true }
+
+bumpalo = { version = "3.10.0", features = ["collections"] }
 
 #jumprope = { path = "../../../jumprope-rs" }
 
@@ -57,6 +64,11 @@ serde = ["serde_crate", "smallvec/serde", "smartstring/serde"]
 dot_export = []
 wchar_conversion = ["jumprope/wchar_conversion"]
 
+
+# This is internal only for generating JSON testing data. To generate, run test suite with
+# rm *_tests.json; cargo test --features gen_test_data causalgraph::parents::tools -- --test-threads 1
+gen_test_data = ["serde", "serde_json"]
+
 [lib]
 bench = false
 
@@ -72,7 +84,7 @@ lto = true
 codegen-units = 1
 #panic = "abort"
 
-[profile.release.package.diamond-wasm]
+[profile.release.package.dt-wasm]
 opt-level = 2
 #opt-level = "s"
 #debugging = true

@@ -8,3 +8,9 @@ wiki/dist
 wiki/dist-client
 pkg-web
 pkg-node
+js/dist
+bundle*
+generated
+
+db.dtjson
+.vscode
