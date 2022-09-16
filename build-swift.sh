@@ -1,5 +1,3 @@
-# build-rust.sh
-
 #!/bin/bash
 
 set -e

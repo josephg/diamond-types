@@ -26,7 +26,7 @@ const DATASETS: &[&str] = &["automerge-paper", "rustcode", "sveltecomponent", "s
 
 fn local_benchmarks(c: &mut Criterion) {
     for name in DATASETS {
-        let mut group = c.benchmark_group("local");
+        let mut group = c.benchmark_group("old/local");
         let test_data = testing_data(name);
         group.throughput(Throughput::Elements(test_data.len() as u64));
 
@@ -57,7 +57,7 @@ fn local_benchmarks(c: &mut Criterion) {
 
 fn remote_benchmarks(c: &mut Criterion) {
     for name in DATASETS {
-        let mut group = c.benchmark_group("remote");
+        let mut group = c.benchmark_group("old/remote");
         let test_data = testing_data(name);
         let src_doc = list_with_data(&test_data);
 
@@ -88,7 +88,7 @@ fn remote_benchmarks(c: &mut Criterion) {
 
 fn ot_benchmarks(c: &mut Criterion) {
     for name in DATASETS {
-        let mut group = c.benchmark_group("ot");
+        let mut group = c.benchmark_group("old/ot");
         let test_data = testing_data(name);
         let doc = list_with_data(&test_data);
         group.throughput(Throughput::Elements(test_data.len() as u64));
@@ -104,7 +104,7 @@ fn ot_benchmarks(c: &mut Criterion) {
 
 fn encoding_benchmarks(c: &mut Criterion) {
     for name in DATASETS {
-        let mut group = c.benchmark_group("encoding");
+        let mut group = c.benchmark_group("old/encoding");
         let test_data = testing_data(name);
         let doc = list_with_data(&test_data);
         // let mut out = vec![];

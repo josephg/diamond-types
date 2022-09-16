@@ -62,7 +62,7 @@ fn write_editrun(into: &mut Vec<u8>, val: EditRun) {
     let mut dest = [0u8; 20];
     let mut pos = 0;
 
-    println!("diff {} del {} rev {} len {}", val.diff, val.is_delete, val.backspace_mode, val.len);
+    // println!("diff {} del {} rev {} len {}", val.diff, val.is_delete, val.backspace_mode, val.len);
 
     let mut n = num_encode_i64_with_extra_bit(val.diff as i64, val.len != 1);
     if val.is_delete {
