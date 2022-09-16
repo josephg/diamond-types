@@ -36,7 +36,7 @@ pub fn chars_to_bytes_smol(s: &str, char_pos: usize) -> usize {
 pub fn chars_to_bytes(s: &str, char_pos: usize) -> usize {
     // For all that my implementation above is correct and tight, ropey's char_to_byte_idx is
     // already being pulled in anyway by ropey, and its faster. Just use that.
-    ropey::str_utils::char_to_byte_idx(s, char_pos)
+    str_indices::chars::to_byte_idx(s, char_pos)
 }
 
 pub fn split_at_char(s: &str, char_pos: usize) -> (&str, &str) {
@@ -51,11 +51,13 @@ pub fn consume_chars<'a>(content: &mut &'a str, len: usize) -> &'a str {
 }
 
 pub fn bytes_to_chars(s: &str, byte_pos: usize) -> usize {
-    ropey::str_utils::byte_to_char_idx(s, byte_pos)
+    str_indices::chars::from_byte_idx(s, byte_pos)
+    // ropey::str_utils::byte_to_char_idx(s, byte_pos)
 }
 
 pub fn count_chars(s: &str) -> usize {
-    ropey::str_utils::byte_to_char_idx(s, s.len())
+    str_indices::chars::count(s)
+    // ropey::str_utils::byte_to_char_idx(s, s.len())
 }
 
 #[cfg(test)]
@@ -87,16 +89,16 @@ mod test {
         for i in 0..=char_len {
             let expected_bytes = std_chars_to_bytes(s, i);
             let actual_bytes = chars_to_bytes_smol(s, i);
-            let ropey_bytes = ropey::str_utils::char_to_byte_idx(s, i);
+            // let ropey_bytes = ropey::str_utils::char_to_byte_idx(s, i);
             // dbg!(expected, actual);
             assert_eq!(expected_bytes, actual_bytes);
-            assert_eq!(ropey_bytes, actual_bytes);
+            // assert_eq!(ropey_bytes, actual_bytes);
 
             let std_chars = std_bytes_to_chars(s, actual_bytes);
-            let ropey_chars = bytes_to_chars(s, actual_bytes);
+            // let ropey_chars = bytes_to_chars(s, actual_bytes);
 
             assert_eq!(std_chars, i);
-            assert_eq!(ropey_chars, i);
+            // assert_eq!(ropey_chars, i);
         }
     }
 

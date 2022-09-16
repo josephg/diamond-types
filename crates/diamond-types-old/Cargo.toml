@@ -12,7 +12,8 @@ repository = "https://github.com/josephg/diamond-types"
 [dependencies]
 diamond-core-old = { path = "../diamond-core-old" }
 smartstring = "1.0.1"
-ropey = "1"
+#ropey = "1"
+str_indices = "0.4.0"
 smallvec = { version = "1", features = ["union"] }
 lazy_static = "1.4"
 serde_crate = { package = "serde", version = "1", features = ["derive"], optional = true }
@@ -41,9 +42,9 @@ serde = ["serde_crate", "smallvec/serde", "smartstring/serde"]
 [lib]
 bench = false
 
-[[bench]]
-name = "ropey"
-harness = false
+#[[bench]]
+#name = "ropey"
+#harness = false
 
 [[bench]]
 name = "core"

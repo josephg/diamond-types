@@ -1,6 +1,6 @@
-use diamond_types::list::*;
+use diamond_types_old::list::*;
 use crdt_testdata::{TestTxn, TestPatch};
-use diamond_types::list::positional::PositionalOpRef;
+use diamond_types_old::list::positional::PositionalOpRef;
 
 pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");

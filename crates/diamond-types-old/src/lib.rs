@@ -34,8 +34,8 @@ mod tests {
 
 #[cfg(test)]
 pub mod test_helpers {
+    use jumprope::JumpRope;
     use rand::prelude::*;
-    use ropey::Rope;
 
     use diamond_core_old::AgentId;
 
@@ -51,7 +51,7 @@ pub mod test_helpers {
         str
     }
 
-    pub fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut Rope>, agent: AgentId, rng: &mut SmallRng) -> PositionalOp {
+    pub fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> PositionalOp {
         let doc_len = doc.len();
         let insert_weight = if doc_len < 100 { 0.6 } else { 0.4 };
         let op = if doc_len == 0 || rng.gen_bool(insert_weight) {
