@@ -1,5 +1,5 @@
 use std::pin::Pin;
-use jumprope::JumpRope;
+use jumprope::{JumpRope, JumpRopeBuf};
 
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
@@ -132,7 +132,7 @@ pub struct ListCRDT {
     txns: RleVec<TxnSpan>,
 
     // Temporary. This will be moved out into a reference to another data structure I think.
-    text_content: Option<JumpRope>,
+    text_content: Option<JumpRopeBuf>,
     /// This is a big ol' string containing everything that's been deleted (self.deletes) in order.
     deleted_content: Option<String>,
 }

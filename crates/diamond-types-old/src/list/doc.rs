@@ -80,7 +80,7 @@ impl ListCRDT {
 
             txns: RleVec::new(),
 
-            text_content: Some(JumpRope::new()),
+            text_content: Some(JumpRopeBuf::new()),
             // text_content: None,
             deleted_content: None,
         }
@@ -706,7 +706,8 @@ impl ListCRDT {
                     if let Some(ref mut text) = self.text_content {
                         if let Some(deleted_content) = self.deleted_content.as_mut() {
                             // TODO: This could be optimized by using chunks.
-                            let chars = text.slice_chars(pos..pos+len);
+                            let borrow = text.borrow();
+                            let chars = borrow.slice_chars(pos..pos+len);
                             deleted_content.extend(chars);
                         }
                         text.remove(pos..pos + len);
@@ -790,7 +791,7 @@ impl ListCRDT {
         println!("As alternating inserts and deletes: {} items", ins_del_count);
 
         if let Some(r) = &self.text_content {
-            println!("Content memory size: {}", r.mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
+            println!("Content memory size: {}", r.borrow().mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
         }
 
         self.range_tree.print_stats("content", detailed);

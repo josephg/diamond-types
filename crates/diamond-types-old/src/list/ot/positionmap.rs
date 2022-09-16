@@ -1,8 +1,9 @@
 // TODO: This file ended up being a kitchen sink for the logic here. Separate this logic out into a
 // few files!
 
+use std::borrow::Borrow;
 use std::pin::Pin;
-use jumprope::JumpRope;
+use jumprope::{JumpRope, JumpRopeBuf};
 
 use smallvec::SmallVec;
 
@@ -386,7 +387,7 @@ impl<'a> PatchIter<'a> {
         PositionalOp::from_components(changes, self.doc.text_content.as_ref())
     }
 
-    fn into_traversal(self, resulting_doc: &JumpRope) -> TraversalOp {
+    fn into_traversal(self, resulting_doc: &JumpRopeBuf) -> TraversalOp {
         let map = self.into_map();
         map_to_traversal(&map, resulting_doc)
     }
@@ -528,13 +529,13 @@ impl<'a, I: Iterator<Item=TimeSpan>> MultiPositionalChangesIter<'a, I> {
         PositionalOp::from_components(changes, self.state.doc.text_content.as_ref())
     }
 
-    fn into_traversal(self, resulting_doc: &JumpRope) -> TraversalOp {
+    fn into_traversal(self, resulting_doc: &JumpRopeBuf) -> TraversalOp {
         let map = self.into_map();
         map_to_traversal(&map, resulting_doc)
     }
 }
 
-fn map_to_traversal(map: &PositionMap, resulting_doc: &JumpRope) -> TraversalOp {
+fn map_to_traversal(map: &PositionMap, resulting_doc: &JumpRopeBuf) -> TraversalOp {
     use TraversalComponent::*;
 
     let mut op = TraversalOp::new();
@@ -544,7 +545,7 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &JumpRope) -> TraversalOp 
         match entry {
             Ins { len, content_known: true } => {
                 let range = post_len as usize..(post_len+len) as usize;
-                op.content.extend(resulting_doc.slice_chars(range));
+                op.content.extend(resulting_doc.borrow().slice_chars(range));
                 post_len += len;
             }
             Retain(len) => {

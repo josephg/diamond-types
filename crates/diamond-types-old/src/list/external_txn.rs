@@ -412,7 +412,8 @@ impl ListCRDT {
                     if let Some(ref text) = self.text_content {
                         let pos = unsafe { cursor.unsafe_count_content_pos() };
                         // TODO: Could optimize this.
-                        let content = text.slice_chars(pos..pos+len as usize);
+                        let borrow = text.borrow();
+                        let content = borrow.slice_chars(pos..pos+len as usize);
                         ins_content.extend(content);
                         true
                     } else { false }

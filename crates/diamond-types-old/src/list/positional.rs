@@ -1,4 +1,4 @@
-use jumprope::JumpRope;
+use jumprope::{JumpRope, JumpRopeBuf};
 /// Positional updates are a kind of operation (patch) which is larger than traversals but
 /// retains temporal information. So, we know when each change happened relative to all other
 /// changes.
@@ -103,12 +103,13 @@ impl PositionalOp {
         }
     }
 
-    pub fn from_components(components: SmallVec<[(u32, PositionalComponent); 10]>, content: Option<&JumpRope>) -> Self {
+    pub fn from_components(components: SmallVec<[(u32, PositionalComponent); 10]>, content: Option<&JumpRopeBuf>) -> Self {
         let mut result = Self::new();
         for (post_pos, mut c) in components {
             if c.content_known {
                 if let Some(content) = content {
-                    let chars = content.slice_chars(post_pos as usize .. (post_pos + c.len) as usize);
+                    let borrow = content.borrow();
+                    let chars = borrow.slice_chars(post_pos as usize .. (post_pos + c.len) as usize);
                     result.content.extend(chars);
                 } else {
                     c.content_known = false;

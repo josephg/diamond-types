@@ -488,7 +488,7 @@ impl ListCRDT {
         if let Some(d) = self.text_content.as_ref() {
             // push_usize(&mut result, d.len_bytes());
             push_chunk_header(&mut result, Chunk::Content, d.len_bytes());
-            for str in d.substrings() {
+            for str in d.borrow().substrings() {
                 // writer.write_all(chunk.as_bytes());
                 result.extend_from_slice(str.as_bytes());
             }
