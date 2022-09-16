@@ -4,7 +4,7 @@
 
 use std::cmp::Ordering;
 use std::ptr::NonNull;
-use jumprope::JumpRope;
+use jumprope::{JumpRope, JumpRopeBuf};
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
 use content_tree::*;
@@ -282,7 +282,7 @@ impl M2Tracker {
         }
     }
 
-    fn apply_to(&mut self, oplog: &ListOpLog, agent: AgentId, op_pair: &KVPair<ListOpMetrics>, content: Option<&str>, mut to: Option<&mut JumpRope>) {
+    fn apply_to(&mut self, oplog: &ListOpLog, agent: AgentId, op_pair: &KVPair<ListOpMetrics>, content: Option<&str>, mut to: Option<&mut JumpRopeBuf>) {
         let mut op_pair = op_pair.clone();
 
         loop {

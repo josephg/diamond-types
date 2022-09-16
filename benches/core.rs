@@ -25,10 +25,10 @@ fn local_benchmarks(c: &mut Criterion) {
 
         group.throughput(Throughput::Elements(test_data.len() as u64));
 
-        group.bench_function(BenchmarkId::new("apply_local", name), |b| {
+        group.bench_function(BenchmarkId::new("apply_direct", name), |b| {
             b.iter(|| {
                 let mut doc = ListCRDT::new();
-                apply_edits_local(&mut doc, &test_data.txns);
+                apply_edits_direct(&mut doc, &test_data.txns);
                 assert_eq!(doc.len(), test_data.end_content.len());
                 black_box(doc.len());
             })

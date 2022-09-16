@@ -1,9 +1,10 @@
-use std::ops::Range;
-use jumprope::JumpRope;
+use std::cell::Ref;
+use std::ops::{Deref, Range};
+use jumprope::{JumpRope, JumpRopeBuf};
 use crate::list::{ListBranch, ListOpLog};
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
-use crate::list::list::apply_local_operation;
+use crate::list::list::{apply_local_operations};
 use crate::list::operation::ListOpKind::*;
 use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::DTRange;
@@ -16,7 +17,7 @@ impl ListBranch {
     pub fn new() -> Self {
         Self {
             version: smallvec![],
-            content: JumpRope::new(),
+            content: JumpRopeBuf::new(),
         }
     }
 
@@ -50,7 +51,7 @@ impl ListBranch {
     /// Return the current document contents. Note there is no mutable variant of this method
     /// because mutating the document's content directly would violate the constraint that all
     /// changes must bump the document's version.
-    pub fn content(&self) -> &JumpRope { &self.content }
+    pub fn content(&self) -> Ref<JumpRope> { self.content.borrow() }
 
     /// Returns the document's content length.
     ///
@@ -97,24 +98,29 @@ impl ListBranch {
     pub fn make_delete_op(&self, loc: Range<usize>) -> TextOperation {
         assert!(loc.end <= self.content.len_chars());
         let mut s = SmartString::new();
-        s.extend(self.content.slice_chars(loc.clone()));
+        s.extend(self.content.borrow().slice_chars(loc.clone()));
         TextOperation::new_delete_with_content_range(loc, s)
     }
 
     pub fn apply_local_operations(&mut self, oplog: &mut ListOpLog, agent: AgentId, ops: &[TextOperation]) -> Time {
-        apply_local_operation(oplog, self, agent, ops)
+        apply_local_operations(oplog, self, agent, ops)
     }
 
     pub fn insert(&mut self, oplog: &mut ListOpLog, agent: AgentId, pos: usize, ins_content: &str) -> Time {
-        apply_local_operation(oplog, self, agent, &[TextOperation::new_insert(pos, ins_content)])
+        // The internal_do_insert / do_delete methods require that the branch is at the same version
+        // as the oplog.
+
+        // internal_do_insert(oplog, self, agent, pos, ins_content)
+        apply_local_operations(oplog, self, agent, &[TextOperation::new_insert(pos, ins_content)])
     }
 
     pub fn delete_without_content(&mut self, oplog: &mut ListOpLog, agent: AgentId, loc: Range<usize>) -> Time {
-        apply_local_operation(oplog, self, agent, &[TextOperation::new_delete(loc)])
+        // internal_do_delete(oplog, self, agent, loc)
+        apply_local_operations(oplog, self, agent, &[TextOperation::new_delete(loc)])
     }
 
     pub fn delete(&mut self, oplog: &mut ListOpLog, agent: AgentId, del_span: Range<usize>) -> Time {
-        apply_local_operation(oplog, self, agent, &[self.make_delete_op(del_span)])
+        apply_local_operations(oplog, self, agent, &[self.make_delete_op(del_span)])
     }
 
     #[cfg(feature = "wchar_conversion")]
@@ -127,12 +133,12 @@ impl ListBranch {
     pub fn delete_at_wchar(&mut self, oplog: &mut ListOpLog, agent: AgentId, del_span_wchar: Range<usize>) -> Time {
         let start_pos = self.content.wchars_to_chars(del_span_wchar.start);
         let end_pos = self.content.wchars_to_chars(del_span_wchar.end);
-        apply_local_operation(oplog, self, agent, &[self.make_delete_op(start_pos .. end_pos)])
+        apply_local_operation(oplog, self, agent, self.make_delete_op(start_pos .. end_pos))
     }
 
     /// Consume the Branch and return the contained rope content.
     pub fn into_inner(self) -> JumpRope {
-        self.content
+        self.content.into_inner()
     }
 }
 

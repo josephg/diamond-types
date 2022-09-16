@@ -94,7 +94,7 @@ describe('causal graph utilities', () => {
           : f === causalGraph.DiffFlag.B ? 'OnlyB'
           : 'Shared'
     )
-    
+
     const data = readJSONFile<ConflictTest>('../test_data/causal_graph/conflicting.json')
 
     const test = ({hist, a, b, expect_spans, expect_common}: ConflictTest) => {

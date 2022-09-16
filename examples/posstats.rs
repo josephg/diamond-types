@@ -9,7 +9,6 @@
 
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use diamond_types::list::*;
-use diamond_types::list::operation::*;
 
 #[cfg(feature = "memusage")]
 use trace_alloc::*;
@@ -17,29 +16,22 @@ use trace_alloc::*;
 use humansize::{FileSize, file_size_opts};
 use diamond_types::list::encoding::EncodeOptions;
 
-pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
-    let id = doc.get_or_create_agent_id("test_user");
-
-    let mut positional: Vec<TextOperation> = Vec::with_capacity(3);
-    // let mut content = String::new();
+pub fn apply_edits_direct(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
+    let id = doc.get_or_create_agent_id("jeremy");
 
     for (_i, txn) in txns.iter().enumerate() {
         for TestPatch(pos, del_span, ins_content) in &txn.patches {
-            positional.clear();
-            // content.clear();
-
             if *del_span > 0 {
-                positional.push(doc.branch.make_delete_op(*pos .. *pos + *del_span));
+                doc.delete_without_content(id, *pos .. *pos + *del_span);
             }
 
             if !ins_content.is_empty() {
-                positional.push(TextOperation::new_insert(*pos, ins_content));
+                doc.insert(id, *pos, ins_content);
             }
-
-            doc.apply_local_operations(id, positional.as_slice());
         }
     }
 }
+
 
 #[allow(unused)]
 fn print_stats_for_testdata(name: &str) {
@@ -59,7 +51,7 @@ fn print_stats_for_testdata(name: &str) {
     let start_count = get_thread_num_allocations();
 
     let mut doc = ListCRDT::new();
-    apply_edits(&mut doc, &test_data.txns);
+    apply_edits_direct(&mut doc, &test_data.txns);
     assert_eq!(doc.len(), test_data.end_content.chars().count());
 
     #[cfg(feature = "memusage")]

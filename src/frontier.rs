@@ -1,3 +1,4 @@
+use std::mem::replace;
 use smallvec::{Array, SmallVec};
 use crate::causalgraph::parents::Parents;
 use crate::dtrange::DTRange;
@@ -137,27 +138,24 @@ pub(crate) fn advance_frontier_by_known_run(frontier: &mut LocalVersion, parents
     if parents.len() == 1 && frontier.len() == 1 && parents[0] == frontier[0] {
         // Short circuit the common case where time is just advancing linearly.
         frontier[0] = span.last();
-        return;
     } else if frontier.as_slice() == parents {
-        if frontier.is_empty() {
-            frontier.push(span.last())
-        } else {
-            // TODO: This is another short circuit. Can probably remove this?
-            frontier.truncate(1);
-            frontier[0] = span.last();
-        }
-        return;
+        replace_frontier_with(frontier, span.last());
+    } else {
+        assert!(!frontier.contains(&span.start)); // Remove this when branch_contains_version works.
+        debug_assert_frontier_sorted(frontier.as_slice());
+
+        frontier.retain(|o| !parents.contains(o)); // Usually removes all elements.
+
+        // In order to maintain the order of items in the branch, we want to insert the new item in the
+        // appropriate place.
+        // TODO: Check if its faster to try and append it to the end first.
+        add_to_frontier(frontier, span.last());
     }
+}
 
-    assert!(!frontier.contains(&span.start)); // Remove this when branch_contains_version works.
-    debug_assert_frontier_sorted(frontier.as_slice());
-
-    frontier.retain(|o| !parents.contains(o)); // Usually removes all elements.
-
-    // In order to maintain the order of items in the branch, we want to insert the new item in the
-    // appropriate place.
-    // TODO: Check if its faster to try and append it to the end first.
-    add_to_frontier(frontier, span.last());
+pub(crate) fn replace_frontier_with(frontier: &mut LocalVersion, new_val: Time) {
+    // I could truncate / etc, but this is faster in benchmarks.
+    replace(frontier, smallvec::smallvec![new_val]);
 }
 
 pub fn local_version_eq(a: &[Time], b: &[Time]) -> bool {

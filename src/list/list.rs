@@ -6,9 +6,11 @@ use smallvec::smallvec;
 use crate::{AgentId, LocalVersion, Time};
 use rle::HasLength;
 use crate::list::operation::ListOpKind::{Del, Ins};
-use crate::list::operation::TextOperation;
+use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::DTRange;
 use crate::encoding::parseerror::ParseError;
+use crate::frontier::replace_frontier_with;
+use crate::unicount::count_chars;
 
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
 fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalVersion, range: DTRange) {
@@ -23,8 +25,8 @@ fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalVersion, rang
     }
 
     // Otherwise use the slow version.
-    let txn_parents = replace(frontier, smallvec![range.last()]);
-    oplog.cg.parents.push(&txn_parents, range);
+    oplog.cg.parents.push(frontier, range);
+    replace_frontier_with(frontier, range.last());
 }
 
 // Slow / small version.
@@ -43,7 +45,7 @@ fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalVersion, rang
 /// This method does that.
 ///
 /// (I low key hate the duplicated code though.)
-pub(crate) fn apply_local_operation(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, local_ops: &[TextOperation]) -> Time {
+pub(crate) fn apply_local_operations(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, local_ops: &[TextOperation]) -> Time {
     let first_time = oplog.len();
     let mut next_time = first_time;
 
@@ -77,11 +79,60 @@ pub(crate) fn apply_local_operation(oplog: &mut ListOpLog, branch: &mut ListBran
     oplog.assign_next_time_to_client_known(agent, span);
 
     oplog.advance_frontier(&branch.version, span);
+    // replace_frontier_with(&mut oplog.version, next_time - 1);
     insert_history_local(oplog, &mut branch.version, span);
 
-    // oplog.version = smallvec![next_time - 1];
-
     next_time - 1
+}
+
+// These methods exist to make benchmark numbers better. I'm the worst!
+
+fn internal_do_insert(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, pos: usize, content: &str) -> Time {
+    let start = oplog.len();
+
+    let len = count_chars(content);
+
+    branch.content.insert(pos, content);
+
+    oplog.push_op_internal(start, (pos..pos + len).into(), ListOpKind::Ins, Some(content));
+
+    let end = start + len;
+    let time_span = DTRange {
+        start,
+        end
+    };
+
+    oplog.assign_next_time_to_client_known(agent, time_span);
+
+    // If this isn't true, we should use oplog.advance_frontier(&branch.version, span), but thats
+    // slower.
+    // oplog.advance_frontier(&branch.version, time_span);
+    debug_assert_eq!(oplog.version, branch.version);
+    replace_frontier_with(&mut oplog.version, end - 1);
+    insert_history_local(oplog, &mut branch.version, time_span);
+    end - 1
+}
+
+fn internal_do_delete(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, pos: Range<usize>) -> Time {
+    let start = oplog.len();
+
+    branch.content.remove(pos.clone());
+
+    oplog.push_op_internal(start, pos.clone().into(), ListOpKind::Del, None);
+
+    let end = start + pos.len();
+    let time_span = DTRange {
+        start,
+        end
+    };
+
+    oplog.assign_next_time_to_client_known(agent, time_span);
+
+    debug_assert_eq!(oplog.version, branch.version);
+    replace_frontier_with(&mut oplog.version, end - 1);
+    // oplog.advance_frontier(&branch.version, time_span);
+    insert_history_local(oplog, &mut branch.version, time_span);
+    end - 1
 }
 
 impl Default for ListCRDT {
@@ -121,11 +172,12 @@ impl ListCRDT {
     }
 
     pub fn apply_local_operations(&mut self, agent: AgentId, local_ops: &[TextOperation]) -> Time {
-        apply_local_operation(&mut self.oplog, &mut self.branch, agent, local_ops)
+        apply_local_operations(&mut self.oplog, &mut self.branch, agent, local_ops)
     }
 
     pub fn insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
-        self.branch.insert(&mut self.oplog, agent, pos, ins_content)
+        // self.branch.insert(&mut self.oplog, agent, pos, ins_content)
+        internal_do_insert(&mut self.oplog, &mut self.branch, agent, pos, ins_content)
     }
 
     #[cfg(feature = "wchar_conversion")]
@@ -138,7 +190,8 @@ impl ListCRDT {
     // }
 
     pub fn delete_without_content(&mut self, agent: AgentId, loc: Range<usize>) -> Time {
-        self.branch.delete_without_content(&mut self.oplog, agent, loc)
+        // self.branch.delete_without_content(&mut self.oplog, agent, loc)
+        internal_do_delete(&mut self.oplog, &mut self.branch, agent, loc)
     }
 
     pub fn delete(&mut self, agent: AgentId, range: Range<usize>) -> Time {
@@ -153,7 +206,7 @@ impl ListCRDT {
     pub fn print_stats(&self, detailed: bool) {
         println!("Document of length {}", self.branch.len());
 
-        println!("Content memory size: {}", self.branch.content.mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("Content memory size: {}", self.branch.content.borrow().mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
         println!("(Efficient size: {})", self.branch.content.len_bytes().file_size(file_size_opts::CONVENTIONAL).unwrap());
 
         self.oplog.print_stats(detailed);

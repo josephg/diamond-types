@@ -77,7 +77,7 @@ pub struct ListBranch {
     version: LocalVersion,
 
     /// The document's content.
-    content: JumpRope,
+    content: jumprope::JumpRopeBuf,
 }
 
 /// An OpLog is a collection of Diamond Types operations, stored in a super fancy compact way. Each
