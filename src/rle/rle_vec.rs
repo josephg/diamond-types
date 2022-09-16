@@ -3,8 +3,7 @@ use std::fmt::Debug;
 use std::iter::{FromIterator, Cloned};
 use std::ops::{Index, Range};
 use std::slice::SliceIndex;
-
-use humansize::{file_size_opts, FileSize};
+use humansize::{DECIMAL, format_size};
 
 use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, MergeIter, SplitableSpan, SplitableSpanCtx};
 use rle::Searchable;
@@ -62,8 +61,14 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
         let size = std::mem::size_of::<V>();
         println!("-------- {} RLE --------", name);
         println!("number of {} byte entries: {}", size, self.0.len());
-        println!("size: {}", (self.0.capacity() * size).file_size(file_size_opts::CONVENTIONAL).unwrap());
-        println!("(efficient size: {})", (self.0.len() * size).file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("size: {}", format_size(
+            self.0.capacity() * size,
+            DECIMAL
+        ));
+        println!("(efficient size: {})", format_size(
+            self.0.len() * size,
+            DECIMAL
+        ));
 
         // for item in self.0[..100].iter() {
         //     println!("{:?}", item);

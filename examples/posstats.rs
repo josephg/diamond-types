@@ -13,7 +13,7 @@ use diamond_types::list::*;
 #[cfg(feature = "memusage")]
 use trace_alloc::*;
 #[cfg(feature = "memusage")]
-use humansize::{FileSize, file_size_opts};
+use humansize::{DECIMAL, format_size};
 use diamond_types::list::encoding::EncodeOptions;
 
 pub fn apply_edits_direct(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
@@ -56,8 +56,8 @@ fn print_stats_for_testdata(name: &str) {
 
     #[cfg(feature = "memusage")]
     println!("allocated {} bytes in {} blocks",
-        (get_thread_memory_usage() - start_bytes).file_size(file_size_opts::CONVENTIONAL).unwrap(),
-         get_thread_num_allocations() - start_count);
+        format_size((get_thread_memory_usage() - start_bytes) as usize, DECIMAL),
+        get_thread_num_allocations() - start_count);
 
     doc.print_stats(false);
 
@@ -95,11 +95,24 @@ fn print_stats_for_file(name: &str) {
     let oplog = ListOpLog::load_from(&contents).unwrap();
     #[cfg(feature = "memusage")]
     println!("allocated {} bytes in {} blocks",
-             (get_thread_memory_usage() - start_bytes).file_size(file_size_opts::CONVENTIONAL).unwrap(),
+             format_size((get_thread_memory_usage() - start_bytes) as usize, DECIMAL),
              get_thread_num_allocations() - start_count);
 
     oplog.print_stats(false);
     // oplog.make_time_dag_graph("node_cc.svg");
+}
+
+// This is a dirty addition for profiling.
+#[allow(unused)]
+fn profile_automerge() {
+    let filename = "benchmark_data/automerge-paper.json.gz";
+    let test_data = load_testing_data(&filename);
+
+    for _i in 0..300 {
+        let mut doc = ListCRDT::new();
+        apply_edits_direct(&mut doc, &test_data.txns);
+        assert_eq!(doc.len(), test_data.end_content.chars().count());
+    }
 }
 
 fn main() {

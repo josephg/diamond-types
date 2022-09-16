@@ -1,6 +1,6 @@
 use std::mem::replace;
 use std::ops::Range;
-use humansize::{file_size_opts, FileSize};
+use humansize::{BINARY, format_size};
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
 use smallvec::smallvec;
 use crate::{AgentId, LocalVersion, Time};
@@ -206,8 +206,14 @@ impl ListCRDT {
     pub fn print_stats(&self, detailed: bool) {
         println!("Document of length {}", self.branch.len());
 
-        println!("Content memory size: {}", self.branch.content.borrow().mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
-        println!("(Efficient size: {})", self.branch.content.len_bytes().file_size(file_size_opts::CONVENTIONAL).unwrap());
+        println!("Content memory size: {}", format_size(
+            self.branch.content.borrow().mem_size(),
+            BINARY
+        ));
+        println!("(Efficient size: {})", format_size(
+            self.branch.content.len_bytes(),
+            BINARY
+        ));
 
         self.oplog.print_stats(detailed);
     }
