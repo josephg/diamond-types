@@ -88,6 +88,7 @@ fn write_op(dest: &mut Vec<u8>, op: &ListOpMetrics, cursor: &mut usize) {
     dest.extend_from_slice(&buf[..pos]);
 }
 
+// TODO: Make these struct fields private before release!
 #[derive(Debug, Clone)]
 pub struct EncodeOptions<'a> {
     pub user_data: Option<&'a [u8]>,
@@ -336,13 +337,6 @@ fn write_compressed_chunk(dest: &mut Vec<u8>, data: &[u8]) -> usize {
     push_chunk(dest, ListChunkType::CompressedFieldsLZ4, &compressed[..pos]);
 
     pos
-}
-
-fn write_bit_run(run: RleRun<bool>, into: &mut Vec<u8>) {
-    // dbg!(run);
-    let mut n = run.len;
-    n = mix_bit_usize(n, run.val);
-    push_usize(into, n);
 }
 
 /// Simple helper struct for content (ins / del) chunks. These have two parts:
@@ -630,6 +624,7 @@ impl ListOpLog {
         } else { None };
         // dbg!(&start_branch);
 
+        // self.write_xf_since(from_version);
 
         // TODO: The fileinfo chunk should specify encoding version and information
         // about the data types we're encoding.

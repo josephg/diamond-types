@@ -1,10 +1,10 @@
 use std::mem::{replace, size_of};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use rle::MergableSpan;
+use rle::{MergableSpan, RleRun};
 use std::marker::PhantomData;
 use crate::list::encoding::ListChunkType;
-use crate::encoding::varint::{encode_u32, encode_u64};
+use crate::encoding::varint::{encode_u32, encode_u64, mix_bit_usize};
 use crate::list::remote_ids::ConversionError;
 
 #[cfg(feature = "serde")]
@@ -52,6 +52,13 @@ fn push_chunk_header(into: &mut Vec<u8>, chunk_type: ListChunkType, len: usize) 
 pub(super) fn push_chunk(into: &mut Vec<u8>, chunk_type: ListChunkType, data: &[u8]) {
     push_chunk_header(into, chunk_type, data.len());
     into.extend_from_slice(data);
+}
+
+pub(super) fn write_bit_run(run: RleRun<bool>, into: &mut Vec<u8>) {
+    // dbg!(run);
+    let mut n = run.len;
+    n = mix_bit_usize(n, run.val);
+    push_usize(into, n);
 }
 
 #[derive(Clone)]

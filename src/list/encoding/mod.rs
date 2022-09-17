@@ -7,6 +7,7 @@ mod tests;
 mod fuzzer;
 pub mod encode_tools;
 mod decode_tools;
+pub mod save_transformed;
 
 use rle::MergableSpan;
 use crate::encoding::varint::*;

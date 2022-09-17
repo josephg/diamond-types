@@ -101,6 +101,19 @@ fn print_stats_for_file(name: &str) {
 
     oplog.print_stats(false);
     // oplog.make_time_dag_graph("node_cc.svg");
+
+    let data_smol = oplog.encode(EncodeOptions {
+        user_data: None,
+        store_start_branch_content: false,
+        experimentally_store_end_branch_content: true,
+        store_inserted_content: false,
+        store_deleted_content: false,
+        compress_content: true,
+        verbose: true
+    });
+    println!("Smol size {}", data_smol.len());
+
+    oplog.bench_writing_xf_since(&[]);
 }
 
 // This is a dirty addition for profiling.
