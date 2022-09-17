@@ -33,6 +33,7 @@ enum ListChunkType {
     /// The StartBranch chunk describes the state of the document before included patches have been
     /// applied.
     StartBranch = 10,
+    ExperimentalEndBranch = 11,
     Version = 12,
     /// StartBranch content is optional.
     Content = 13,

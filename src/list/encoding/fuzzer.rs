@@ -23,6 +23,7 @@ fn fuzz_encode_decode_once(seed: u64) {
         let bytes = doc.oplog.encode(EncodeOptions {
             user_data: None,
             store_start_branch_content: true,
+            experimentally_store_end_branch_content: false,
             store_inserted_content: true,
             store_deleted_content: true,
             compress_content: true,
@@ -89,6 +90,7 @@ fn fuzz_encode_decode_multi(seed: u64, verbose: bool) {
         let encode_opts = EncodeOptions {
             user_data: None,
             store_start_branch_content: false,
+            experimentally_store_end_branch_content: false,
             store_inserted_content: true,
             store_deleted_content: true,
             compress_content: true,

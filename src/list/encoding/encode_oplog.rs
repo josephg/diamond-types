@@ -97,6 +97,8 @@ pub struct EncodeOptions<'a> {
 
     pub store_start_branch_content: bool,
 
+    pub experimentally_store_end_branch_content: bool,
+
     pub store_inserted_content: bool,
     pub store_deleted_content: bool,
 
@@ -108,6 +110,7 @@ pub struct EncodeOptions<'a> {
 pub const ENCODE_PATCH: EncodeOptions = EncodeOptions {
     user_data: None,
     store_start_branch_content: false,
+    experimentally_store_end_branch_content: false,
     store_inserted_content: true,
     store_deleted_content: false,
     compress_content: true,
@@ -117,6 +120,7 @@ pub const ENCODE_PATCH: EncodeOptions = EncodeOptions {
 pub const ENCODE_FULL: EncodeOptions = EncodeOptions {
     user_data: None,
     store_start_branch_content: true,
+    experimentally_store_end_branch_content: false,
     store_inserted_content: true,
     store_deleted_content: false, // ?? Not sure about this one!
     compress_content: true,
@@ -614,7 +618,18 @@ impl ListOpLog {
                 write_content_rope(&mut start_branch, &branch_here.content.borrow(), compress_bytes.as_mut());
             }
         }
+
+        let end_branch = if opts.experimentally_store_end_branch_content {
+            let mut end_branch = Vec::new();
+            write_local_version(&mut end_branch, &self.version, &mut agent_mapping, self);
+
+            let branch_here = ListBranch::new_at_tip(self);
+            write_content_rope(&mut end_branch, &branch_here.content.borrow(), compress_bytes.as_mut());
+
+            Some(end_branch)
+        } else { None };
         // dbg!(&start_branch);
+
 
         // TODO: The fileinfo chunk should specify encoding version and information
         // about the data types we're encoding.
@@ -690,6 +705,10 @@ impl ListOpLog {
 
         // *** Start Branch - which was filled in above. ***
         write_chunk(ListChunkType::StartBranch, &mut start_branch);
+
+        if let Some(mut bytes) = end_branch {
+            write_chunk(ListChunkType::ExperimentalEndBranch, &mut bytes);
+        }
 
         // *** Patches ***
         // I'll just assemble it in buf. There's a lot of sloppy use of vec<u8>'s in here.

@@ -18,6 +18,7 @@ fn check_encode_decode_matches(oplog: &ListOpLog) {
     let data = oplog.encode(EncodeOptions {
         user_data: None,
         store_start_branch_content: true,
+        experimentally_store_end_branch_content: false,
         store_inserted_content: true,
         store_deleted_content: true,
         compress_content: true,
@@ -183,6 +184,7 @@ fn check_unroll_works(dest: &ListOpLog, src: &ListOpLog) {
     let encoded_proper = src.encode(EncodeOptions {
         user_data: None,
         store_start_branch_content: true,
+        experimentally_store_end_branch_content: false,
         store_inserted_content: true,
         store_deleted_content: true,
         compress_content: true,
@@ -235,6 +237,7 @@ fn save_load_save_load() {
         store_start_branch_content: true,
         // store_inserted_content: true,
         // store_deleted_content: true,
+        experimentally_store_end_branch_content: false,
         store_inserted_content: false,
         store_deleted_content: false,
         compress_content: true,
@@ -247,6 +250,7 @@ fn save_load_save_load() {
     let bytes2 = oplog2.encode(EncodeOptions {
         user_data: None,
         store_start_branch_content: true,
+        experimentally_store_end_branch_content: false,
         store_inserted_content: false, // Need to say false here to avoid an assert for this.
         store_deleted_content: true,
         compress_content: true,
@@ -394,6 +398,7 @@ fn compat_simple_doc() {
     dbg!(&doc.oplog.encode(EncodeOptions {
         user_data: None,
         store_start_branch_content: false,
+        experimentally_store_end_branch_content: false,
         store_inserted_content: true,
         store_deleted_content: false,
         compress_content: true,
