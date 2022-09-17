@@ -3,6 +3,7 @@ use crdt_testdata::{TestTxn, TestPatch};
 use diamond_types::list::operation::TextOperation;
 use rle::AppendRle;
 
+#[inline(always)]
 pub fn apply_edits_direct(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
 
@@ -20,6 +21,7 @@ pub fn apply_edits_direct(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     }
 }
 
+#[inline(always)]
 pub fn apply_edits_push_merge(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
 
@@ -41,7 +43,7 @@ pub fn apply_edits_push_merge(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     doc.branch.merge(&doc.oplog, &doc.oplog.local_version_ref());
 }
 
-
+#[inline(always)]
 pub fn apply_grouped(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     let id = doc.get_or_create_agent_id("jeremy");
 
@@ -63,6 +65,7 @@ pub fn apply_grouped(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     // doc.branch.merge(&doc.oplog, &doc.oplog.local_version());
 }
 
+#[inline(always)]
 pub fn as_grouped_ops_rle(txns: &Vec<TestTxn>) -> Vec<TextOperation> {
     let mut ops: Vec<TextOperation> = Vec::new();
 
@@ -82,6 +85,7 @@ pub fn as_grouped_ops_rle(txns: &Vec<TestTxn>) -> Vec<TextOperation> {
     ops
 }
 
+#[inline(always)]
 pub fn apply_ops(doc: &mut ListCRDT, ops: &[TextOperation]) {
     let id = doc.get_or_create_agent_id("jeremy");
     doc.apply_local_operations(id, &ops);

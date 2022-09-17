@@ -369,6 +369,10 @@ impl ListOpLog {
         let mut i_r = 0;
         let mut d_n = 0;
         let mut d_r = 0;
+
+        let mut i_k = 0;
+        let mut d_k = 0;
+
         for op in self.operations.iter_merged() {
             match (op.1.len(), op.1.kind, op.1.loc.fwd) {
                 (1, ListOpKind::Ins, _) => { i_1 += 1; }
@@ -379,10 +383,19 @@ impl ListOpLog {
                 (_, ListOpKind::Del, true) => { d_n += 1; }
                 (_, ListOpKind::Del, false) => { d_r += 1; }
             }
+
+            match op.1.kind {
+                ListOpKind::Ins => i_k += op.len(),
+                ListOpKind::Del => d_k += op.len(),
+            }
         }
+
+        let i_count = i_1 + i_n + i_r;
+        let d_count = d_1 + d_n + d_r;
         // These stats might make more sense as percentages.
-        println!("ins: singles {}, fwd {}, rev {}", i_1, i_n, i_r);
-        println!("del: singles {}, fwd {}, rev {}", d_1, d_n, d_r);
+        println!("ins: singles {i_1}, fwd {i_n}, rev {i_r}, count {i_count}");
+        println!("del: singles {d_1}, fwd {d_n}, rev {d_r}, count {d_count}");
+        println!("Total keystrokes: {}", i_k + d_k);
 
         println!("Insert content length {}", self.operation_ctx.ins_content.len());
         println!("Delete content length {}", self.operation_ctx.del_content.len());

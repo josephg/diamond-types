@@ -36,6 +36,15 @@ impl TestData {
             .sum::<usize>()
     }
 
+    pub fn len_keystrokes(&self) -> usize {
+        self.txns.iter()
+            .flat_map(|txn| { txn.patches.iter() })
+            .map(|TestPatch(_pos, del, ins)| {
+                *del + ins.chars().count()
+            })
+            .sum()
+    }
+
     pub fn is_empty(&self) -> bool {
         !self.txns.iter().any(|txn| !txn.patches.is_empty())
     }

@@ -24,6 +24,7 @@ fn local_benchmarks(c: &mut Criterion) {
         assert_eq!(test_data.start_content.len(), 0);
 
         group.throughput(Throughput::Elements(test_data.len() as u64));
+        // group.throughput(Throughput::Elements(test_data.len_keystrokes() as u64));
 
         group.bench_function(BenchmarkId::new("apply_direct", name), |b| {
             b.iter(|| {
@@ -70,8 +71,46 @@ fn local_benchmarks(c: &mut Criterion) {
     }
 }
 
-fn encoding_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("encoding");
+// This benchmark is good but its existence drops performance of other benchmarks by 20%!!!
+// fn encoding_benchmarks(c: &mut Criterion) {
+//     for name in DATASETS {
+//         let mut group = c.benchmark_group("encoding");
+//         let test_data = testing_data(name);
+//
+//         let mut doc = ListCRDT::new();
+//         apply_edits_direct(&mut doc, &test_data.txns);
+//         assert_eq!(test_data.start_content.len(), 0);
+//
+//         // group.throughput(Throughput::Elements(test_data.len() as u64));
+//
+//         group.bench_function(BenchmarkId::new("encode", name), |b| {
+//             b.iter(|| {
+//                 let bytes = doc.oplog.encode(ENCODE_FULL);
+//                 black_box(bytes);
+//             })
+//         });
+//
+//         let bytes = doc.oplog.encode(ENCODE_FULL);
+//
+//         group.bench_function(BenchmarkId::new("decode_oplog", name), |b| {
+//             b.iter(|| {
+//                 let doc = ListOpLog::load_from(&bytes).unwrap();
+//                 black_box(doc.len());
+//             })
+//         });
+//         group.bench_function(BenchmarkId::new("decode", name), |b| {
+//             b.iter(|| {
+//                 let doc = ListCRDT::load_from(&bytes).unwrap();
+//                 black_box(doc.len());
+//             })
+//         });
+//
+//         group.finish();
+//     }
+// }
+
+fn encoding_nodecc_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("node_cc");
     let bytes = std::fs::read("node_nodecc.dt").unwrap();
     let oplog = ListOpLog::load_from(&bytes).unwrap();
     // group.throughput(Throughput::Bytes(bytes.len() as _));
@@ -116,6 +155,7 @@ criterion_group!(benches,
     local_benchmarks,
     // remote_benchmarks,
     // ot_benchmarks,
-    encoding_benchmarks,
+    encoding_nodecc_benchmarks,
+    // encoding_benchmarks,
 );
 criterion_main!(benches);
