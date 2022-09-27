@@ -131,17 +131,6 @@ fn encoding_nodecc_benchmarks(c: &mut Criterion) {
                 black_box(bytes);
             });
         });
-        // group.bench_function("encode_nodecc_old", |b| {
-        //     b.iter(|| {
-        //         let bytes = oplog.encode_simple(EncodeOptions {
-        //             user_data: None,
-        //             store_inserted_content: true,
-        //             store_deleted_content: false,
-        //             verbose: false
-        //         });
-        //         black_box(bytes);
-        //     });
-        // });
 
         group.bench_function(BenchmarkId::new("merge", name), |b| {
             b.iter(|| {
@@ -156,8 +145,6 @@ fn encoding_nodecc_benchmarks(c: &mut Criterion) {
 
 criterion_group!(benches,
     local_benchmarks,
-    // remote_benchmarks,
-    // ot_benchmarks,
     encoding_nodecc_benchmarks,
     // encoding_benchmarks,
 );

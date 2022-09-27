@@ -140,7 +140,8 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    // print_stats_for_file("node_nodecc.dt");
+    // print_stats_for_file("benchmark_data/node_nodecc.dt");
+    // print_stats_for_file("benchmark_data/git-makefile.dt");
     print_stats_for_testdata("automerge-paper");
     print_stats_for_testdata("rustcode");
     print_stats_for_testdata("sveltecomponent");
