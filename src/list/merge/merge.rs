@@ -11,11 +11,13 @@ use content_tree::*;
 use rle::{AppendRle, HasLength, Searchable, Trim, TrimCtx};
 use crate::list::{ListBranch, ListOpLog};
 use crate::list::merge::{DocRangeIndex, M2Tracker, SpaceIndex};
+#[cfg(feature = "ops_to_old")]
+use crate::list::merge::to_old::OldCRDTOp;
 use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{TextOperation, ListOpKind};
-use crate::dtrange::{DTRange, is_underwater};
+use crate::dtrange::{DTRange, is_underwater, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers};
-use crate::{AgentId, LocalVersion, Time};
+use crate::{AgentId, LocalVersion, ROOT_TIME, Time};
 use crate::frontier::{advance_frontier_by, frontier_is_sorted, local_version_eq};
 use crate::causalgraph::parents::tools::DiffFlag;
 use crate::list::op_metrics::ListOpMetrics;
@@ -34,6 +36,7 @@ use crate::list::merge::metrics::upstream_cursor_pos;
 use crate::list::merge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
 use crate::list::operation::ListOpKind::Ins;
+use crate::list::remote_ids::RemoteIdSpan;
 use crate::unicount::consume_chars;
 
 const ALLOW_FF: bool = true;
@@ -92,6 +95,8 @@ impl M2Tracker {
         Self {
             range_tree,
             index,
+            #[cfg(feature = "ops_to_old")]
+            dbg_ops: vec![]
         }
     }
 
@@ -407,6 +412,16 @@ impl M2Tracker {
                     state: INSERTED,
                     ever_deleted: false,
                 };
+
+                #[cfg(feature = "ops_to_old")] {
+                    self.dbg_ops.push_rle(OldCRDTOp::Ins {
+                        id: time_span,
+                        origin_left,
+                        origin_right: if origin_right == UNDERWATER_START { ROOT_TIME } else { origin_right },
+                        content: oplog.operation_ctx.get_str(ListOpKind::Ins, op.content_pos.unwrap()).into()
+                        // content_pos: op.content_pos.unwrap(),
+                    });
+                }
                 // dbg!(&item);
 
                 // This is dirty because the cursor's lifetime is not associated with self.
@@ -449,6 +464,7 @@ impl M2Tracker {
                 };
 
                 let e = cursor.get_raw_entry();
+
                 assert_eq!(e.state, INSERTED);
 
                 // If we've never been deleted locally, we'll need to do that.
@@ -483,6 +499,17 @@ impl M2Tracker {
                 debug_assert_eq!(del_start_xf, upstream_cursor_pos(&cursor));
 
                 let time_start = op_pair.0;
+
+                #[cfg(feature = "ops_to_old")] {
+                    self.dbg_ops.push_rle(OldCRDTOp::Del {
+                        start_time: time_start,
+                        target: RangeRev {
+                            span: target,
+                            fwd
+                        }
+                    });
+                }
+
                 if !is_underwater(target.start) {
                     // Deletes must always dominate the item they're deleting in the time dag.
                     debug_assert!(oplog.cg.parents.version_contains_time(&[time_start], target.start));
@@ -1016,6 +1043,16 @@ impl ListBranch {
         // for range in new_ops.into_iter().rev() {
         //     advance_frontier_by(&mut self.frontier, &opset.history, range);
         // }
+    }
+}
+
+impl ListOpLog {
+    #[cfg(feature = "ops_to_old")]
+    pub fn dbg_items(&self) -> Vec<OldCRDTOp> {
+        debug_assert!(frontier_is_sorted(&self.version));
+        let mut tracker = M2Tracker::new();
+        tracker.walk(self, smallvec![], &[(0..self.len()).into()], None);
+        tracker.dbg_ops
     }
 }
 

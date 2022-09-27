@@ -62,6 +62,7 @@ lz4 = ["lz4_flex"]
 serde = ["serde_crate", "smallvec/serde", "smartstring/serde"]
 dot_export = []
 wchar_conversion = ["jumprope/wchar_conversion"]
+ops_to_old = []
 
 
 # This is internal only for generating JSON testing data. To generate, run test suite with
@@ -92,3 +93,6 @@ opt-level = 2
 opt-level = "z"
 #lto = false
 #strip = true
+
+[profile.release.package.run_on_old]
+debug = true

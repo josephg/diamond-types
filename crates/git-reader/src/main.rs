@@ -53,6 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     scan_frontier.push(c.id());
     commit_children.insert(c.id(), c.parents().map(|p| p.id()).collect());
 
+    println!("Scanning frontier...");
     while let Some(c_id) = scan_frontier.pop() {
         if commits_seen.contains(&c_id) { continue; }
         commits_seen.insert(c_id);
@@ -79,6 +80,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     drop(scan_frontier);
 
+    println!("Scanning operations...");
     let mut oplog = ListOpLog::new();
     // let empty_branch = Branch::new();
     let mut branch_at_oid = HashMap::<Oid, ListBranch>::new();
@@ -208,7 +210,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // let data_old = oplog.encode_simple(EncodeOptions::default());
     // println!("(vs {} bytes)", data_old.len());
 
-    // oplog.make_time_dag_graph("makefile.svg");
+    // oplog.make_time_dag_graph("git-makefile.svg");
 
     Ok(())
 }

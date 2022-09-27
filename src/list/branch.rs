@@ -51,7 +51,7 @@ impl ListBranch {
     /// Return the current document contents. Note there is no mutable variant of this method
     /// because mutating the document's content directly would violate the constraint that all
     /// changes must bump the document's version.
-    pub fn content(&self) -> Ref<JumpRope> { self.content.borrow() }
+    pub fn content(&self) -> &JumpRopeBuf { &self.content }
 
     /// Returns the document's content length.
     ///
@@ -133,7 +133,7 @@ impl ListBranch {
     pub fn delete_at_wchar(&mut self, oplog: &mut ListOpLog, agent: AgentId, del_span_wchar: Range<usize>) -> Time {
         let start_pos = self.content.wchars_to_chars(del_span_wchar.start);
         let end_pos = self.content.wchars_to_chars(del_span_wchar.end);
-        apply_local_operation(oplog, self, agent, self.make_delete_op(start_pos .. end_pos))
+        apply_local_operations(oplog, self, agent, &[self.make_delete_op(start_pos .. end_pos)])
     }
 
     /// Consume the Branch and return the contained rope content.

@@ -538,7 +538,7 @@ impl ListOpLog {
 
         // If we just iterate in the current order, this code would be way simpler :p
         // let iter = self.cg.history.optimized_txns_between(from_frontier, &self.frontier);
-        // for walk in iter {
+        // for walk in self.cg.parents.iter() {
         for walk in self.cg.parents.optimized_txns_between(from_version, &self.version) {
             // We only care about walk.consume and parents.
 
@@ -561,7 +561,6 @@ impl ListOpLog {
             }
 
             // 2. Operations!
-            // for ops in self.operations.iter_range_packed(walk.consume) {
             for (op, content) in self.iter_range_simple(walk.consume) {
                 let op = op.1;
 

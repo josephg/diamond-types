@@ -114,6 +114,8 @@ fn print_stats_for_file(name: &str) {
     println!("Smol size {}", data_smol.len());
 
     oplog.bench_writing_xf_since(&[]);
+
+    // oplog.make_time_dag_graph_with_merge_bubbles(&format!("{name}.svg"));
 }
 
 // This is a dirty addition for profiling.

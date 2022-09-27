@@ -227,7 +227,7 @@ impl ListCRDT {
             len: len as _
         }));
 
-        self.client_data[loc.agent as usize].item_localtime.push(KVPair(loc.seq, TimeSpan {
+        self.client_data[loc.agent as usize].item_localtime.insert(KVPair(loc.seq, TimeSpan {
             start: time,
             len: len as _
         }));
@@ -296,9 +296,19 @@ impl ListCRDT {
                         let my_name = self.get_agent_name(agent);
                         let other_loc = self.client_with_time.get(other_order);
                         let other_name = self.get_agent_name(other_loc.agent);
-                        assert_ne!(my_name, other_name);
 
-                        if my_name < other_name {
+                        // Its possible for a user to conflict with themself if they commit to
+                        // multiple branches. In this case, sort by seq number.
+                        let ins_here = match my_name.cmp(other_name) {
+                            Ordering::Less => true,
+                            Ordering::Equal => {
+                                self.get_crdt_location(item.time).seq < self.get_crdt_location(other_entry.time).seq
+                                // oplog.time_to_crdt_id(item.id.start) < oplog.time_to_crdt_id(other_entry.id.start)
+                            }
+                            Ordering::Greater => false,
+                        };
+
+                        if ins_here {
                             // Insert here.
                             break;
                         } else {
@@ -505,8 +515,9 @@ impl ListCRDT {
         let agent = self.get_or_create_agent_id(txn.id.agent.as_str());
         let client = &self.client_data[agent as usize];
         let next_seq = client.get_next_seq();
-        // If the seq does not match we either need to skip or buffer the transaction.
-        assert_eq!(next_seq, txn.id.seq);
+
+        // Check that the txn hasn't already been applied.
+        assert!(client.item_localtime.find(txn.id.seq).is_none());
 
         let first_time = self.get_next_time();
         let mut next_time = first_time;
@@ -528,6 +539,7 @@ impl ListCRDT {
                 }
             }
         }
+        // println!("{} txn agent {}, seq {} - {}", first_time, &txn.id.agent, txn.id.seq, txn.id.seq + txn_len as u32);
 
         assert_eq!(count_chars(&txn.ins_content), expected_content_len as usize);
         let mut content = txn.ins_content.as_str();
@@ -599,6 +611,7 @@ impl ListCRDT {
                         // I could break this into two loops - and here enter an inner loop,
                         // deleting len items. It seems a touch excessive though.
 
+                        // dbg!(target_order);
                         let deleted_here = self.internal_mark_deleted(next_time, target_order, len, true);
 
                         // println!(" -> managed to delete {}", deleted_here);

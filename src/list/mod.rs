@@ -21,7 +21,7 @@ mod list;
 mod check;
 mod op_iter;
 
-mod merge;
+pub mod merge;
 mod oplog;
 mod branch;
 pub mod encoding;

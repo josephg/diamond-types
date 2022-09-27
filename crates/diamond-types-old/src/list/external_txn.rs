@@ -173,6 +173,8 @@ pub type VectorClock = Vec<RemoteId>;
 
 impl ListCRDT {
     pub fn remote_id_to_order(&self, id: &RemoteId) -> Time {
+        // dbg!(id.agent.as_str());
+        // dbg!(self.get_agent_id(id.agent.as_str()));
         let agent = self.get_agent_id(id.agent.as_str()).unwrap();
         if agent == AgentId::MAX { ROOT_TIME }
         else { self.client_data[agent as usize].seq_to_order(id.seq) }

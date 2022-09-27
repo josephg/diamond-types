@@ -1,0 +1,13 @@
+[package]
+name = "run_on_old"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+diamond-types = {path = "../..", features = ["ops_to_old"]}
+diamond-types-old = {path = "../diamond-types-old"}
+smallvec = "1.9.0"
+rle = {path = "../rle"}
+criterion = "0.4.0"

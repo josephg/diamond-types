@@ -6,7 +6,7 @@ use super::serde::RemoteIdTuple;
 use serde_crate::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::dtrange::DTRange;
-use crate::{LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
+use crate::{CRDTSpan, LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
 use crate::frontier::clean_version;
 use crate::remotespan::CRDTGuid;
 
@@ -79,9 +79,21 @@ impl ListOpLog {
         }
     }
 
+    fn crdt_span_to_remote(&self, loc: CRDTSpan) -> RemoteIdSpan {
+        RemoteIdSpan {
+            agent: self.get_agent_name(loc.agent).into(),
+            seq_range: loc.seq_range
+        }
+    }
+
     pub fn local_to_remote_time(&self, time: Time) -> RemoteId {
         let crdt_id = self.time_to_crdt_id(time);
         self.crdt_id_to_remote(crdt_id)
+    }
+
+    pub fn local_to_remote_time_span(&self, time: DTRange) -> RemoteIdSpan {
+        let crdt_span = self.get_crdt_span(time);
+        self.crdt_span_to_remote(crdt_span)
     }
 
     pub fn try_remote_to_local_version<'a, I: Iterator<Item=&'a RemoteId> + 'a>(&self, ids_iter: I) -> Result<LocalVersion, ConversionError> {

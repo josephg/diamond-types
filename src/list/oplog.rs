@@ -430,4 +430,8 @@ impl ListOpLog {
     pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
         self.cg.parents.version_union(a, b)
     }
+
+    pub fn parents_at_time(&self, time: Time) -> LocalVersion {
+        self.cg.parents.parents_at_time(time)
+    }
 }

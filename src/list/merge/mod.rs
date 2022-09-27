@@ -12,20 +12,28 @@
 
 use std::pin::Pin;
 use content_tree::{ContentTreeRaw, RawPositionMetricsUsize};
+use rle::{HasLength, MergableSpan};
 use crate::list::merge::markers::MarkerEntry;
 use crate::list::merge::metrics::MarkerMetrics;
 use crate::list::merge::yjsspan::YjsSpan;
+use crate::{CRDTSpan, DTRange, SmartString, Time};
+use crate::list::ListOpLog;
+use crate::list::remote_ids::RemoteIdSpan;
+use crate::rev_range::RangeRev;
 
 mod yjsspan;
 pub(crate) mod merge;
 mod markers;
 mod advance_retreat;
-mod txn_trace;
+pub(crate) mod txn_trace;
 mod metrics;
 #[cfg(test)]
 pub mod fuzzer;
 #[cfg(feature = "dot_export")]
 mod dot;
+
+#[cfg(feature = "ops_to_old")]
+pub mod to_old;
 
 type DocRangeIndex = MarkerMetrics;
 type CRDTList2 = Pin<Box<ContentTreeRaw<YjsSpan, DocRangeIndex>>>;
@@ -51,4 +59,7 @@ struct M2Tracker {
     // TODO: Trial using BTreeMap here.
     // deletes: Pin<Box<ContentTreeWithIndex<KVPair<Delete>, RawPositionMetricsUsize>>>,
     // deletes: BTreeMap<usize, Delete>,
+
+    #[cfg(feature = "ops_to_old")]
+    dbg_ops: Vec<to_old::OldCRDTOp>,
 }

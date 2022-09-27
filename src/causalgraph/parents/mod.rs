@@ -24,6 +24,11 @@ pub struct Parents {
 }
 
 impl Parents {
+    pub fn parents_at_time(&self, time: Time) -> SmallVec<[Time; 2]> {
+        let entry = self.entries.find_packed(time);
+        entry.with_parents(time, |p| p.into())
+    }
+
     #[allow(unused)]
     pub fn new() -> Self {
         Self::default()

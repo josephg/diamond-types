@@ -15,10 +15,11 @@ fn testing_data(name: &str) -> TestData {
     load_testing_data(&filename)
 }
 
-const DATASETS: &[&str] = &["automerge-paper", "rustcode", "sveltecomponent", "seph-blog1"];
+const LINEAR_DATASETS: &[&str] = &["automerge-paper", "rustcode", "sveltecomponent", "seph-blog1"];
+const COMPLEX_DATASETS: &[&str] = &["node_nodecc", "git-makefile"];
 
 fn local_benchmarks(c: &mut Criterion) {
-    for name in DATASETS {
+    for name in LINEAR_DATASETS {
         let mut group = c.benchmark_group("local");
         let test_data = testing_data(name);
         assert_eq!(test_data.start_content.len(), 0);
@@ -110,45 +111,47 @@ fn local_benchmarks(c: &mut Criterion) {
 // }
 
 fn encoding_nodecc_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("node_cc");
-    let bytes = std::fs::read("node_nodecc.dt").unwrap();
-    let oplog = ListOpLog::load_from(&bytes).unwrap();
-    // group.throughput(Throughput::Bytes(bytes.len() as _));
-    group.throughput(Throughput::Elements(oplog.len() as _));
+    for name in COMPLEX_DATASETS {
+        let mut group = c.benchmark_group("complex");
+        let bytes = std::fs::read(format!("{name}.dt")).unwrap();
+        let oplog = ListOpLog::load_from(&bytes).unwrap();
+        // group.throughput(Throughput::Bytes(bytes.len() as _));
+        group.throughput(Throughput::Elements(oplog.len() as _));
 
-    group.bench_function("decode_nodecc", |b| {
-        b.iter(|| {
-            let oplog = ListOpLog::load_from(&bytes).unwrap();
-            black_box(oplog);
+        group.bench_function(BenchmarkId::new("decode", name), |b| {
+            b.iter(|| {
+                let oplog = ListOpLog::load_from(&bytes).unwrap();
+                black_box(oplog);
+            });
         });
-    });
 
-    group.bench_function("encode_nodecc", |b| {
-        b.iter(|| {
-            let bytes = oplog.encode(ENCODE_FULL);
-            black_box(bytes);
+        group.bench_function(BenchmarkId::new("encode", name), |b| {
+            b.iter(|| {
+                let bytes = oplog.encode(ENCODE_FULL);
+                black_box(bytes);
+            });
         });
-    });
-    // group.bench_function("encode_nodecc_old", |b| {
-    //     b.iter(|| {
-    //         let bytes = oplog.encode_simple(EncodeOptions {
-    //             user_data: None,
-    //             store_inserted_content: true,
-    //             store_deleted_content: false,
-    //             verbose: false
-    //         });
-    //         black_box(bytes);
-    //     });
-    // });
+        // group.bench_function("encode_nodecc_old", |b| {
+        //     b.iter(|| {
+        //         let bytes = oplog.encode_simple(EncodeOptions {
+        //             user_data: None,
+        //             store_inserted_content: true,
+        //             store_deleted_content: false,
+        //             verbose: false
+        //         });
+        //         black_box(bytes);
+        //     });
+        // });
 
-    group.bench_function("merge", |b| {
-        b.iter(|| {
-            let branch = oplog.checkout_tip();
-            black_box(branch);
+        group.bench_function(BenchmarkId::new("merge", name), |b| {
+            b.iter(|| {
+                let branch = oplog.checkout_tip();
+                black_box(branch);
+            });
         });
-    });
 
-    group.finish();
+        group.finish();
+    }
 }
 
 criterion_group!(benches,
