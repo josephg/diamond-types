@@ -63,3 +63,16 @@ struct M2Tracker {
     #[cfg(feature = "ops_to_old")]
     dbg_ops: Vec<to_old::OldCRDTOp>,
 }
+
+// use std::cell::RefCell;
+//
+// thread_local! {
+//     static STATS: RefCell<(usize, usize, usize)> = RefCell::new(Default::default());
+// }
+//
+// pub fn print_merge_stats() {
+//     STATS.with(|s| {
+//         let s = s.borrow();
+//         println!("Merge stats: {} {} {} (adv+ret {})", s.0, s.1, s.2, s.1 + s.2)
+//     })
+// }

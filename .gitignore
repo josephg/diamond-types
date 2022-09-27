@@ -3,7 +3,7 @@ Cargo.lock
 node_modules
 vis/build
 .DS_Store
-*.dt
+/*.dt
 wiki/dist
 wiki/dist-client
 pkg-web

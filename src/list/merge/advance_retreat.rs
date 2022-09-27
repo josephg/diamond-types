@@ -69,6 +69,12 @@ impl M2Tracker {
 
             // let mut len_remaining = len;
             while !target_range.is_empty() {
+
+                // STATS.with(|s| {
+                //     let mut s = s.borrow_mut();
+                //     s.1 += 1;
+                // });
+
                 // We'll only get a pointer when we're inserting. Note we can't reuse the ptr
                 // across subsequent invocations because we mutate the range_tree.
                 let ptr = ptr.take().unwrap_or_else(|| self.marker_at(target_range.start));
@@ -115,6 +121,11 @@ impl M2Tracker {
             let mut target_range = target.range(e_offset, e_offset + len);
 
             while !target_range.is_empty() {
+                // STATS.with(|s| {
+                //     let mut s = s.borrow_mut();
+                //     s.2 += 1;
+                // });
+
                 // Because the tag is either entirely delete or entirely insert, its safe to move
                 // forwards in this child range. (Which I'm doing because that makes the code much
                 // easier to reason about).

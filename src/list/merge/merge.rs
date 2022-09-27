@@ -2,6 +2,7 @@
 // checker.
 #![allow(clippy::needless_option_as_deref)]
 
+use std::borrow::BorrowMut;
 use std::cmp::Ordering;
 use std::ptr::NonNull;
 use jumprope::{JumpRope, JumpRopeBuf};
@@ -291,6 +292,11 @@ impl M2Tracker {
         let mut op_pair = op_pair.clone();
 
         loop {
+            // STATS.with(|s| {
+            //     let mut s = s.borrow_mut();
+            //     s.0 += 1;
+            // });
+
             let (len_here, transformed_pos) = self.apply(oplog, agent, &op_pair, usize::MAX);
 
             let remainder = op_pair.trim_ctx(len_here, &oplog.operation_ctx);

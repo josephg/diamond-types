@@ -33,9 +33,9 @@ fn new_to_old_remote_id(new: diamond_types::list::remote_ids::RemoteId) -> Remot
 // }
 
 fn bench_process(c: &mut Criterion) {
-    let name = "node_nodecc.dt";
-    // let name = "git-makefile.dt";
-    // let name = "data.dt";
+    let name = "benchmark_data/node_nodecc.dt";
+    // let name = "benchmark_data/git-makefile.dt";
+    // let name = "benchmark_data/data.dt";
     let contents = std::fs::read(name).unwrap();
     println!("\n\nLoaded testing data from {} ({} bytes)", name, contents.len());
     let oplog = ListOpLog::load_from(&contents).unwrap();

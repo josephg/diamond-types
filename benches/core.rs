@@ -113,7 +113,7 @@ fn local_benchmarks(c: &mut Criterion) {
 fn encoding_nodecc_benchmarks(c: &mut Criterion) {
     for name in COMPLEX_DATASETS {
         let mut group = c.benchmark_group("complex");
-        let bytes = std::fs::read(format!("{name}.dt")).unwrap();
+        let bytes = std::fs::read(format!("benchmark_data/{name}.dt")).unwrap();
         let oplog = ListOpLog::load_from(&bytes).unwrap();
         // group.throughput(Throughput::Bytes(bytes.len() as _));
         group.throughput(Throughput::Elements(oplog.len() as _));

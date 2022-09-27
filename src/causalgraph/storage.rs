@@ -540,15 +540,10 @@ mod test {
 
     #[test]
     fn write_node_nodecc() {
-        if !std::path::Path::exists(Path::new("node_nodecc.dt")) {
-            eprintln!("Test ignored - node_nodecc.dt does not exist.");
-            return;
-        }
-
         use crate::list::ListOpLog;
 
         let mut bytes = vec![];
-        File::open("node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
 
         let cg = o.cg;

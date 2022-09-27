@@ -167,7 +167,7 @@ fn encode_with_agent_shared_between_branches() {
 #[test]
 #[ignore]
 fn decode_example() {
-    let bytes = std::fs::read("../../node_nodecc.dt").unwrap();
+    let bytes = std::fs::read("../../benchmark_data/node_nodecc.dt").unwrap();
     let oplog = ListOpLog::load_from(&bytes).unwrap();
 
     // for c in &oplog.client_data {
