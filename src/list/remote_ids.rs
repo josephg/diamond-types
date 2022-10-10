@@ -91,6 +91,8 @@ impl ListOpLog {
         self.crdt_id_to_remote(crdt_id)
     }
 
+    /// **NOTE:** This method will return a timespan with length min(time, agent_time). The
+    /// resulting length will NOT be guaranteed to be the same as the input.
     pub fn local_to_remote_time_span(&self, time: DTRange) -> RemoteIdSpan {
         let crdt_span = self.get_crdt_span(time);
         self.crdt_span_to_remote(crdt_span)

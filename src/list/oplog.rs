@@ -104,6 +104,8 @@ impl ListOpLog {
         }
     }
 
+    /// **NOTE:** This method will return a timespan with length min(time, agent_time). The
+    /// resulting length will NOT be guaranteed to be the same as the input.
     pub(crate) fn get_crdt_span(&self, time: DTRange) -> CRDTSpan {
         if time.start == ROOT_TIME { CRDTSpan { agent: ROOT_AGENT, seq_range: Default::default() } }
         else {

@@ -115,7 +115,7 @@ impl ContentLength for PositionRun {
     }
 }
 
-type PositionMapInternal = ContentTreeWithIndex<PositionRun, FullMetricsU32>;
+type PositionMapInternal = ContentTreeRaw<PositionRun, FullMetricsU32>;
 
 /// A PositionMap is a data structure used internally to track a set of positional changes to the
 /// document as a result of inserts and deletes.

@@ -189,7 +189,7 @@ use jumprope::JumpRope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 use crate::causalgraph::CausalGraph;
-use crate::dtrange::DTRange;
+pub use crate::dtrange::DTRange;
 use causalgraph::parents::Parents;
 use crate::causalgraph::storage::CGStorage;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};

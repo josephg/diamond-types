@@ -44,6 +44,10 @@ impl YjsSpan {
     pub fn order_len(&self) -> Time {
         self.len.abs() as _
     }
+
+    pub fn contains(&self, time: u32) -> bool {
+        self.time <= time && time < self.time + self.len.abs() as u32
+    }
 }
 
 impl HasLength for YjsSpan {
