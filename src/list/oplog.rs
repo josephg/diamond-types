@@ -404,6 +404,13 @@ impl ListOpLog {
 
         self.cg.client_with_localtime.print_stats("Client localtime map", detailed);
         self.cg.parents.entries.print_stats("History", detailed);
+
+        let num_merges: usize = self.cg.parents.entries
+            .iter()
+            .map(|e| (e.parents.len() >= 2) as usize)
+            .sum();
+
+        println!("Num merges: {num_merges}");
     }
 
     /// Check if the specified version contains the specified point in time.
