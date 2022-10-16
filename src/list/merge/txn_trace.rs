@@ -34,9 +34,7 @@ struct VisitEntry {
 
 fn find_entry_idx(input: &SmallVec<[VisitEntry; 4]>, time: Time) -> Option<usize> {
     input.as_slice().binary_search_by(|e| {
-        // Is this the right way around?
         e.span.partial_cmp_time(time).reverse()
-        // e.span.partial_cmp_time(time)
     }).ok()
 }
 
@@ -96,11 +94,12 @@ impl<'a> SpanningTreeWalker<'a> {
             // Kinda gross. Only add the span if the document isn't empty.
             spans.push((0..history.get_next_time()).into());
         }
-        spans.reverse();
+        // spans.reverse(); // Unneeded - there's 0 or 1 item in the spans list.
 
         Self::new(history, &spans, smallvec![])
     }
 
+    // TODO: It'd be cleaner to pass in spans as an Iterator<Item=DTRange>.
     pub(crate) fn new(history: &'a Parents, rev_spans: &[DTRange], start_at: LocalVersion) -> Self {
         if cfg!(debug_assertions) {
             check_rev_sorted(rev_spans);
@@ -375,7 +374,7 @@ mod test {
     }
 
     #[test]
-    fn two_chains() {
+    fn two_chains() { // Sounds like the name of a rap song.
         let history = Parents::from_entries(&[
             ParentsEntryInternal { // a
                 span: (0..1).into(), shadow: usize::MAX,
@@ -405,13 +404,14 @@ mod test {
         ]);
 
         // dbg!(history.optimized_txns_between(&[3], &[4]).collect::<Vec<_>>());
-
         // history.traverse_txn_spanning_tree();
-        let iter = SpanningTreeWalker::new_all(&history);
+
+        // let iter = SpanningTreeWalker::new_all(&history);
         // for item in iter {
         //     dbg!(item);
         // }
 
+        let iter = SpanningTreeWalker::new_all(&history);
         assert!(iter.eq(IntoIterator::into_iter([
             TxnWalkItem {
                 retreat: smallvec![],

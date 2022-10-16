@@ -296,8 +296,8 @@ impl Parents {
         // Sorted highest to lowest (so we get the highest item first).
         #[derive(Debug, PartialEq, Eq, Clone)]
         struct TimePoint {
-            last: Time,
             // For merges this is the highest time.
+            last: Time,
             // TODO: Compare performance here with actually using a vec.
             merged_with: SmallVec<[Time; 1]>, // Always sorted. Usually empty.
         }
@@ -331,15 +331,12 @@ impl Parents {
                 let mut result = Self {
                     // Bleh.
                     last: *version.last().unwrap_or(&ROOT_TIME),
-                    merged_with: smallvec![]
-                };
-
-                if version.len() > 1 {
-                    // TODO: Clean this up. I'm sure there's nicer constructions
-                    for t in &version[..version.len() - 1] {
-                        result.merged_with.push(*t);
+                    merged_with: if version.len() > 1 {
+                        SmallVec::from_slice(&version[..version.len() - 1])
+                    } else {
+                        smallvec![]
                     }
-                }
+                };
 
                 result
             }
