@@ -4,6 +4,7 @@
 pub(crate) mod tools;
 mod scope;
 
+use std::iter::once;
 use smallvec::{SmallVec, smallvec};
 
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
@@ -143,6 +144,8 @@ pub(crate) struct ParentsEntryInternal {
     ///   is a merge operation.
     pub parents: SmallVec<[usize; 2]>,
 
+    /// This is a cached list of all the other indexes of items in history which name this item as
+    /// a parent.
     pub child_indexes: SmallVec<[usize; 2]>,
 }
 
@@ -164,6 +167,33 @@ impl ParentsEntryInternal {
             f(&[time - 1])
         } else {
             f(self.parents.as_slice())
+        }
+    }
+
+    pub fn clone_parents_at_time<B: FromIterator<usize>>(&self, time: usize) -> B {
+        if time > self.span.start {
+            B::from_iter(once(time - 1))
+        } else {
+            B::from_iter(self.parents.iter().copied())
+        }
+    }
+
+    pub fn next_child_after(&self, time: usize, parents: &Parents) -> Option<usize> {
+        let span: DTRange = (time..self.span.end).into();
+
+        self.child_indexes.iter()
+            // First we want to join all of the childrens' parents
+            .flat_map(|idx| parents.entries[*idx].parents.iter().copied())
+            // But only include the ones which point within the specified range
+            .filter(|p| span.contains(*p))
+            // And we only care about the first one!
+            .min()
+    }
+
+    pub fn split_point(&self, time: usize, parents: &Parents) -> usize {
+        match self.next_child_after(time, parents) {
+            Some(t) => t + 1,
+            None => self.span.end,
         }
     }
 

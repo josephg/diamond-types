@@ -12,7 +12,18 @@
 /// ```
 ///
 /// Then traversal (and hence, merge) time complexity will be linear instead of quadratic.
+///
+/// **Implementor's notes**:
+/// This structure isn't very fit for purpose. Its designed to work in conjunction with the causal
+/// graph methods for finding the conflicting set, but it essentially does a second (forward)
+/// traversal of the data set with an honestly pretty crap traversal implementation.
+///
+/// A much better implementation would combine the method to find conflicting items with the logic
+/// here, and do a much more efficient traversal. But I want to replace the whole algorithm that
+/// does merging at the moment at some point anyway, so I'd rather do that all in one go and rewrite
+/// this code when I do.
 
+use std::mem::take;
 use smallvec::{SmallVec, smallvec};
 use crate::frontier::*;
 use rle::{HasLength, SplitableSpan};
@@ -28,7 +39,9 @@ struct VisitEntry {
     txn_idx: usize,
     // entry: &'a HistoryEntry,
     visited: bool,
+    parents: SmallVec<[usize; 2]>,
     parent_idxs: SmallVec<[usize; 4]>,
+    child_idxs: SmallVec<[usize; 4]>,
 }
 
 
@@ -101,6 +114,8 @@ impl<'a> SpanningTreeWalker<'a> {
 
     // TODO: It'd be cleaner to pass in spans as an Iterator<Item=DTRange>.
     pub(crate) fn new(history: &'a Parents, rev_spans: &[DTRange], start_at: LocalVersion) -> Self {
+        // println!("\n----- NEW TRAVERSAL -----");
+
         if cfg!(debug_assertions) {
             check_rev_sorted(rev_spans);
         }
@@ -115,15 +130,20 @@ impl<'a> SpanningTreeWalker<'a> {
             // let mut offset = history.entries[i].
             while !span_remaining.is_empty() {
                 let txn = &history.entries[i];
-                debug_assert!(span_remaining.start >= txn.span.start);
+                debug_assert!(span_remaining.start >= txn.span.start && span_remaining.start < txn.span.end);
 
                 let offset = Time::min(span_remaining.len(), txn.span.end - span_remaining.start);
                 let span = span_remaining.truncate_keeping_right(offset);
 
+                // dbg!(span_remaining.start);
+                let parents: SmallVec<[usize; 2]> = txn.clone_parents_at_time(span.start);
+
                 // We don't care about any parents outside of the input spans.
-                let parent_idxs: SmallVec<[usize; 4]> = txn.parents.iter()
+                let parent_idxs: SmallVec<[usize; 4]> = parents.iter()
                     .filter_map(|t| find_entry_idx(&input, *t))
                     .collect();
+
+                // println!("TXN {i} span {:?} (remaining {:?}) parents {:?} idxs {:?}", span, span_remaining, &parents, &parent_idxs);
 
                 if parent_idxs.is_empty() {
                     to_process.push(input.len());
@@ -132,14 +152,45 @@ impl<'a> SpanningTreeWalker<'a> {
                 input.push(VisitEntry {
                     span,
                     txn_idx: i,
+                    
                     // entry: e,
                     visited: false,
+                    parents,
                     parent_idxs,
+                    child_idxs: smallvec![] // We can't process these yet.
                 });
 
                 i += 1;
             }
         }
+
+        // Now populate the child_idxs.
+        for i in 0..input.len() {
+            let VisitEntry {
+                span, txn_idx, ..
+            } = input[i];
+
+            let txn = &history.entries[txn_idx];
+            // input[i].child_idxs = txn.child_indexes.iter()
+            //     .filter(|i| history.entries[**i]
+            //     .map(|i| history.entries[*i].span.start)
+            //     .filter_map(|t| find_entry_idx(&input, t))
+            //     .collect();
+
+            for history_child_idx in txn.child_indexes.iter() {
+                let child_txn = &history.entries[*history_child_idx];
+                if let Some(child_idx) = find_entry_idx(&input, child_txn.span.start) {
+
+                    // Only add it if the parents names something within span.
+                    if child_txn.parents.iter().any(|p| span.contains(*p)) {
+                        input[i].child_idxs.push(child_idx);
+                    }
+                }
+            }
+        }
+
+        // dbg!(&input);
+        // dbg!(&to_process);
 
         // I don't think this is needed, but it means we iterate in a sorted order.
         to_process.reverse();
@@ -155,19 +206,26 @@ impl<'a> SpanningTreeWalker<'a> {
         }
     }
 
-    fn push_children(&mut self, child_txn_idxs: &[usize]) {
-        // self.to_process.extend(... ?)
-        // TODO: Consider removing .rev() here. I think its faster without it.
-        for idx in child_txn_idxs.iter().rev() {
-            let txn = &self.history.entries[*idx];
-            if let Some(i) = find_entry_idx(&self.input, txn.span.start) {
-                self.to_process.push(i);
-            }
-        }
-    }
-
     pub fn into_frontier(self) -> LocalVersion {
         self.frontier
+    }
+
+    fn check(&self) {
+        for p in &self.to_process {
+            let e = &self.input[*p];
+            debug_assert!(!e.visited);
+            debug_assert!(e.parent_idxs.iter().all(|i| self.input[*i].visited));
+        }
+
+        // dbg!(&self.to_process);
+        for i in 0..self.to_process.len() {
+            // Everything should be in here exactly once!
+            for j in 0..self.to_process.len() {
+                if i != j {
+                    assert_ne!(self.to_process[i], self.to_process[j]);
+                }
+            }
+        }
     }
 }
 
@@ -175,40 +233,49 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
     type Item = TxnWalkItem;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Find the next item to consume. We'll start with all the children of the top of the
-        // stack, and greedily walk up looking for anything which has all its dependencies
-        // satisfied.
-        let next_idx = loop {
-            // A previous implementation handled both of these cases the same way, but it needed a
-            // dummy value at the start of self.stack, which caused an allocation when the doc only
-            // has one txn span. This approach is a bit more complex, but leaves the stack empty in
-            // this case.
-            if let Some(idx) = self.to_process.pop() {
-                let e = &self.input[idx];
-                // Visit this entry if it hasn't been visited but all of its parents have been
-                // visited. Note if our parents haven't been visited yet, we'll throw it out here.
-                // But thats ok, because we should always visit it via another path in that case.
-                if !e.visited && e.parent_idxs.iter().all(|i| self.input[*i].visited) {
-                    break idx;
+        self.check();
+
+        // Find the next item to consume. This is super sloppy. We'll preferentially process all
+        // non-merge commits first. Then prefer anything at the end of to_process. This should be
+        // rewritten to use a priority queue.
+        let next_idx = if let Some(&idx) = self.to_process.last() {
+            let e = &self.input[idx];
+            if e.parents.len() >= 2 {
+                // Try and find something with no parents to expand first.
+                if let Some((ii, &i)) = self.to_process.iter().enumerate().rfind(|(ii, i)| {
+                    self.input[**i].parents.len() < 2
+                }) {
+                    self.to_process.swap_remove(ii);
+                    i
+                } else {
+                    self.to_process.pop();
+                    idx
                 }
             } else {
-                // The stack was exhausted and we didn't find anything. We're done here.
-                // dbg!(&self);
-                debug_assert!(self.input.iter().all(|e| e.visited));
-                debug_assert_eq!(self.num_consumed, self.input.len());
-                return None;
+                self.to_process.pop();
+                idx
             }
-        };
-
-        let input_entry = &mut self.input[next_idx];
-        let next_txn = &self.history.entries[input_entry.txn_idx];
-
-        let parents = if let Some(p) = next_txn.parent_at_time(input_entry.span.start) {
-            smallvec![p]
         } else {
-            clone_smallvec(&next_txn.parents)
+            // We're done here.
+            debug_assert!(self.input.iter().all(|e| e.visited));
+            debug_assert_eq!(self.num_consumed, self.input.len());
+            return None;
         };
 
+
+        // println!("Expanding idx {next_idx}");
+
+        // let input_entry = &mut self.input[next_idx];
+        let input_entry = &mut self.input[next_idx];
+        input_entry.visited = true;
+        let child_idxs = take(&mut input_entry.child_idxs);
+        let parents = take(&mut input_entry.parents);
+        let span = input_entry.span;
+        drop(input_entry);
+
+        // dbg!(&child_idxs);
+
+        // let parents = &input_entry.parents;
         let (only_branch, only_txn) = self.history.diff(&self.frontier, &parents);
 
         // Note that even if we're moving to one of our direct children we might see items only
@@ -235,16 +302,27 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
         }
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());
-        let input_span = input_entry.span;
+        let input_span = span;
         advance_frontier_by_known_run(&mut self.frontier, &parents, input_span);
 
-        input_entry.visited = true;
         self.num_consumed += 1;
-        self.push_children(next_txn.child_indexes.as_slice());
+
+        'outer: for c in child_idxs {
+            if self.input[c].visited { continue; }
+            for p in &self.input[c].parent_idxs {
+                if !self.input[*p].visited {
+                    continue 'outer;
+                }
+            }
+            self.to_process.push(c);
+        }
+
+        self.check();
 
         Some(TxnWalkItem {
             retreat: only_branch,
             advance_rev: only_txn,
+            // parents: parents.iter().copied().collect(), // TODO: clean this
             parents,
             consume: input_span,
         })
