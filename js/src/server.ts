@@ -40,7 +40,7 @@ const saveDb = rateLimit(100, () => {
   return fs.writeFileSync(DB_FILE, bytes)
 })
 
-db.onop = op => saveDb()
+db.onop = (db, op) => saveDb()
 
 process.on('exit', () => {
   saveDb.flushSync()
