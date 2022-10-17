@@ -211,18 +211,20 @@ impl<'a> SpanningTreeWalker<'a> {
     }
 
     fn check(&self) {
-        for p in &self.to_process {
-            let e = &self.input[*p];
-            debug_assert!(!e.visited);
-            debug_assert!(e.parent_idxs.iter().all(|i| self.input[*i].visited));
-        }
+        if cfg!(debug_assertions) {
+            for p in &self.to_process {
+                let e = &self.input[*p];
+                debug_assert!(!e.visited);
+                debug_assert!(e.parent_idxs.iter().all(|i| self.input[*i].visited));
+            }
 
-        // dbg!(&self.to_process);
-        for i in 0..self.to_process.len() {
-            // Everything should be in here exactly once!
-            for j in 0..self.to_process.len() {
-                if i != j {
-                    assert_ne!(self.to_process[i], self.to_process[j]);
+            // dbg!(&self.to_process);
+            for i in 0..self.to_process.len() {
+                // Everything should be in here exactly once!
+                for j in 0..self.to_process.len() {
+                    if i != j {
+                        assert_ne!(self.to_process[i], self.to_process[j]);
+                    }
                 }
             }
         }
