@@ -51,6 +51,7 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
     #[allow(unused)]
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
 
+    #[inline]
     pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
 
     pub fn iter_from_idx(&self, idx: usize) -> std::slice::Iter<V> { self.0[idx..].iter() }

@@ -119,7 +119,7 @@ impl Parents {
             // dbg!((order, &queue));
 
             // TODO: Skip these calls to find() using parent_index.
-            let entry = self.entries.find(order).unwrap();
+            let entry = self.entries.find_packed(order);
             if entry.shadow_contains(target) { return true; }
 
             while let Some(&next_time) = queue.peek() {
@@ -384,7 +384,7 @@ impl Parents {
                 }
             }
 
-            let containing_txn = self.entries.find(t).unwrap();
+            let containing_txn = self.entries.find_packed(t);
 
             // I want an inclusive iterator :p
             let mut range = DTRange { start: containing_txn.span.start, end: t + 1 };
@@ -622,6 +622,82 @@ impl Parents {
         debug_assert_frontier_sorted(&result);
         Some(result)
     }
+
+    /// Given some disparate set of versions, figure out which versions are dominators - ie, the
+    /// set of versions which "contains" the entire set of versions in their transitive dependency
+    /// graph.
+    pub fn find_dominators_full<F>(&self, versions: &[Time], mut visit: F) where F: FnMut(Time, bool) {
+        match versions.len() {
+            0 => { return; },
+            1 => {
+                visit(versions[0], true);
+                return;
+            }
+            _ => {} // Continue below.
+        }
+
+        // Using the LSB in the data to encode whether this version was an input to the function.
+        // We hit all the "normal" versions before the inputs.
+        fn enc_input(v: Time) -> usize { v << 1 }
+        fn enc_normal(v: Time) -> usize { (v << 1) + 1 }
+        fn dec(v_enc: usize) -> (bool, Time) {
+            (v_enc % 2 == 0, v_enc >> 1)
+        }
+
+        let mut queue: BinaryHeap<usize> = versions.iter().copied().filter_map(|v| {
+            if v == ROOT_TIME { None } else {
+                if v >= usize::MAX / 2 { panic!("Cannot handle version beyond usize::MAX/2"); }
+                Some(enc_input(v))
+            }
+        }).collect();
+
+        let mut inputs_remaining = versions.len();
+        while let Some(v_enc) = queue.pop() {
+            // dbg!(&queue, v_enc);
+            let (is_input, v) = dec(v_enc);
+
+            if is_input {
+                visit(v, true);
+                inputs_remaining -= 1;
+            }
+
+            let e = self.entries.find_packed(v);
+
+            while let Some(&v2_enq) = queue.peek() {
+                let (is_input2, v2) = dec(v2_enq);
+                if v2 < e.span.start { break; } // We don't need is_input2 yet...
+                // if v2 < (e.span.start * 2) { break; }
+                queue.pop();
+
+                if is_input2 {
+                    visit(v2, false);
+                    inputs_remaining -= 1;
+                }
+            }
+            if inputs_remaining == 0 { break; }
+
+            for p in e.parents.iter() {
+                // dbg!(p);
+                queue.push(enc_normal(*p));
+            }
+        }
+    }
+
+    pub fn find_dominators_rev(&self, versions: &[Time]) -> SmallVec<[Time; 4]> {
+        let mut result = smallvec![];
+        self.find_dominators_full(versions, |v, is_input| {
+            if is_input {
+                result.push(v);
+            }
+        });
+
+        result
+    }
+    pub fn find_dominators(&self, versions: &[Time]) -> SmallVec<[Time; 4]> {
+        let mut result = self.find_dominators_rev(versions);
+        result.reverse();
+        result
+    }
 }
 
 #[cfg(test)]
@@ -838,7 +914,7 @@ pub mod test {
                     parents: smallvec![1, 4],
                     child_indexes: smallvec![3],
                 },
-                ParentsEntryInternal { // 9
+                ParentsEntryInternal { // 9-10
                     span: (9..11).into(), shadow: usize::MAX,
                     parents: smallvec![2, 8],
                     child_indexes: smallvec![],
@@ -919,6 +995,29 @@ pub mod test {
         assert_version_contains_time(&history, &[9], 2, true);
         assert_version_contains_time(&history, &[9], 1, true);
         assert_version_contains_time(&history, &[9], 0, true);
+    }
+
+    #[test]
+    fn dominator_smoke_test() {
+        let parents = fancy_parents();
+
+        assert_eq!(parents.find_dominators(&[0,1,2,3,4,5,6,7,8,9,10]).as_slice(), &[5, 10]);
+        assert_eq!(parents.find_dominators(&[10]).as_slice(), &[10]);
+
+        assert_eq!(parents.find_dominators(&[5, 6]).as_slice(), &[5, 6]);
+        assert_eq!(parents.find_dominators(&[5, 9]).as_slice(), &[5, 9]);
+        assert_eq!(parents.find_dominators(&[1, 2]).as_slice(), &[2]);
+        assert_eq!(parents.find_dominators(&[0, 2]).as_slice(), &[2]);
+        assert_eq!(parents.find_dominators(&[]).as_slice(), &[]);
+        assert_eq!(parents.find_dominators(&[2]).as_slice(), &[2]);
+        assert_eq!(parents.find_dominators(&[1, 4]).as_slice(), &[1, 4]);
+        assert_eq!(parents.find_dominators(&[9, 10]).as_slice(), &[10]);
+        assert_eq!(parents.find_dominators(&[9, 2, 8]).as_slice(), &[9]);
+        assert_eq!(parents.find_dominators(&[9, 2, 7]).as_slice(), &[9]);
+        assert_eq!(parents.find_dominators(&[6, 7]).as_slice(), &[7]);
+        assert_eq!(parents.find_dominators(&[ROOT_TIME]).as_slice(), &[ROOT_TIME]);
+        assert_eq!(parents.find_dominators(&[ROOT_TIME, 0]).as_slice(), &[0]);
+        assert_eq!(parents.find_dominators(&[ROOT_TIME, 0, 10]).as_slice(), &[10]);
     }
 
     #[test]

@@ -9,6 +9,7 @@ mod check;
 pub mod parents;
 mod eq;
 pub mod entry;
+pub mod summary;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClientData {

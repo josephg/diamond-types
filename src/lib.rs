@@ -188,7 +188,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use jumprope::JumpRope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
-use crate::causalgraph::CausalGraph;
+pub use crate::causalgraph::CausalGraph;
 pub use crate::dtrange::DTRange;
 use causalgraph::parents::Parents;
 use crate::causalgraph::storage::CGStorage;
