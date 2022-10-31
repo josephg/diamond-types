@@ -3,7 +3,7 @@ use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
 use super::serde::RemoteIdTuple;
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::dtrange::DTRange;
 use crate::{CRDTSpan, LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
@@ -16,7 +16,7 @@ use crate::remotespan::CRDTGuid;
 
 /// External equivalent of CRDTId
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate", from = "RemoteIdTuple", into = "RemoteIdTuple"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(from = "RemoteIdTuple", into = "RemoteIdTuple"))]
 pub struct RemoteId {
     pub agent: SmartString,
     pub seq: usize,
@@ -24,7 +24,7 @@ pub struct RemoteId {
 
 /// External equivalent of CRDTSpan.
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteIdSpan {
     pub agent: SmartString,
     pub seq_range: DTRange,
@@ -43,7 +43,7 @@ pub struct RemoteIdSpan {
 // remote id span -> timespan
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-#[cfg_attr(feature = "serde", derive(Serialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ConversionError {
     UnknownAgent,
     SeqInFuture,

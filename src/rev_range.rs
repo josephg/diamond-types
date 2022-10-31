@@ -3,7 +3,7 @@ use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::dtrange::DTRange;
 
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize};
+use serde::{Deserialize};
 
 /// This is a DTRange which can be either a forwards range (1,2,3) or backwards (3,2,1).
 ///
@@ -17,7 +17,7 @@ use serde_crate::{Deserialize};
 /// This is *not true* for example with delete operations, where:
 ///     (Del 0..10) + (Del 0..10) = (Del 0..20)
 #[derive(Copy, Clone, Debug, Eq, Default)] // Default needed for ContentTree.
-#[cfg_attr(feature = "serde", derive(Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct RangeRev {
     /// The inner span.
     #[cfg_attr(feature = "serde", serde(flatten))]

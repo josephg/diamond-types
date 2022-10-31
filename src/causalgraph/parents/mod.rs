@@ -13,7 +13,7 @@ use crate::Time;
 use crate::rle::{RleKeyed, RleVec};
 use crate::dtrange::DTRange;
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use crate::frontier::{clone_smallvec, local_version_is_root};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -257,7 +257,7 @@ impl RleKeyed for ParentsEntryInternal {
 }
 
 /// This is a simplified history entry for exporting and viewing externally.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ParentsEntrySimple {
     pub span: DTRange,

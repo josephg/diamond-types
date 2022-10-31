@@ -15,15 +15,15 @@ use crate::dtrange::DTRange;
 use crate::rev_range::RangeRev;
 
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 #[cfg(feature = "serde")]
-use serde_crate::ser::SerializeStruct;
+use serde::ser::SerializeStruct;
 #[cfg(feature = "serde")]
 use crate::list::serde::FlattenSerializable;
 
 /// So I might use this more broadly, for all edits. If so, move this out of OT.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ListOpKind { Ins, Del }
 
 impl Default for ListOpKind {
@@ -53,7 +53,7 @@ impl Display for ListOpKind {
 /// orders. But it gives us way better compression for some data sets on disk. And this structure
 /// is designed to match the on-disk file format.
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct TextOperation {
     /// The range of items in the document being modified by this operation.
     // For now only backspaces are ever reversed.

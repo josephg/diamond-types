@@ -1,8 +1,8 @@
-use serde_crate::{Deserialize, Serialize, Serializer};
-// use serde_crate::de::{EnumAccess, Error, MapAccess, SeqAccess};
-use serde_crate::ser::SerializeStruct;
+use serde::{Deserialize, Serialize, Serializer};
+// use serde::de::{EnumAccess, Error, MapAccess, SeqAccess};
+use serde::ser::SerializeStruct;
 use crate::list::remote_ids::RemoteId;
-// use serde_crate::de::Visitor;
+// use serde::de::Visitor;
 use crate::rev_range::RangeRev;
 use smartstring::alias::String as SmartString;
 use crate::dtrange::DTRange;
@@ -49,7 +49,7 @@ impl FlattenSerializable for RangeRev {
 
 /// This is used to flatten `[agent, seq]` into a tuple for serde serialization.
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub(crate) struct RemoteIdTuple(SmartString, usize);
 
 impl From<RemoteIdTuple> for RemoteId {
@@ -65,7 +65,7 @@ impl From<RemoteId> for RemoteIdTuple {
 
 /// This is used to flatten `[agent, seq]` into a tuple for serde serialization.
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub(crate) struct DTRangeTuple(usize, usize); // from, to.
 
 impl From<DTRangeTuple> for DTRange {

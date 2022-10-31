@@ -125,14 +125,16 @@ impl ListBranch {
 
     #[cfg(feature = "wchar_conversion")]
     pub fn insert_at_wchar(&mut self, oplog: &mut ListOpLog, agent: AgentId, wchar_pos: usize, ins_content: &str) -> Time {
-        let char_pos = self.content.wchars_to_chars(wchar_pos);
+        let char_pos = self.content.borrow().wchars_to_chars(wchar_pos);
         self.insert(oplog, agent, char_pos, ins_content)
     }
 
     #[cfg(feature = "wchar_conversion")]
     pub fn delete_at_wchar(&mut self, oplog: &mut ListOpLog, agent: AgentId, del_span_wchar: Range<usize>) -> Time {
-        let start_pos = self.content.wchars_to_chars(del_span_wchar.start);
-        let end_pos = self.content.wchars_to_chars(del_span_wchar.end);
+        let c = self.content.borrow();
+        let start_pos = c.wchars_to_chars(del_span_wchar.start);
+        let end_pos = c.wchars_to_chars(del_span_wchar.end);
+        drop(c);
         apply_local_operations(oplog, self, agent, &[self.make_delete_op(start_pos .. end_pos)])
     }
 

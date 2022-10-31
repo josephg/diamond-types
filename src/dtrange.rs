@@ -6,7 +6,7 @@ use crate::rle::RleKeyed;
 use std::ops::Range;
 use crate::Time;
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
 use crate::list::serde::DTRangeTuple;
 use crate::ROOT_TIME;
@@ -16,7 +16,7 @@ use crate::ROOT_TIME;
 /// a start and end pair. DTRange can be converted to and from std::Range with .from() and .into().
 /// It also has some locally useful methods.
 #[derive(Copy, Clone, Eq, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate", from = "DTRangeTuple", into = "DTRangeTuple"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(from = "DTRangeTuple", into = "DTRangeTuple"))]
 pub struct DTRange {
     pub start: usize,
     pub end: usize

@@ -8,7 +8,7 @@ use crate::encoding::varint::{encode_u32, encode_u64, mix_bit_usize};
 use crate::list::remote_ids::ConversionError;
 
 #[cfg(feature = "serde")]
-use serde_crate::Serialize;
+use serde::Serialize;
 
 pub(super) fn push_u32(into: &mut Vec<u8>, val: u32) {
     let mut buf = [0u8; 5];

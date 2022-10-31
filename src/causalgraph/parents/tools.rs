@@ -14,12 +14,12 @@ use crate::{LocalVersion, ROOT_TIME, Time};
 use crate::causalgraph::parents::scope::ScopedParents;
 
 #[cfg(feature = "serde")]
-use serde_crate::Serialize;
+use serde::Serialize;
 
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) enum DiffFlag { OnlyA, OnlyB, Shared }
 
 impl Parents {
@@ -783,7 +783,7 @@ pub mod test {
         assert_eq!(actual.spans, expect);
 
         #[cfg(feature="gen_test_data")] {
-            #[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
+            #[cfg_attr(feature = "serde", derive(Serialize))]
             #[derive(Clone)]
             struct Test<'a> {
                 hist: Vec<ParentsEntrySimple>,
@@ -810,7 +810,7 @@ pub mod test {
 
     fn assert_version_contains_time(history: &Parents, frontier: &[Time], target: Time, expected: bool) {
         #[cfg(feature="gen_test_data")] {
-            #[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
+            #[cfg_attr(feature = "serde", derive(Serialize))]
             #[derive(Clone, Debug)]
             struct Test<'a> {
                 hist: Vec<ParentsEntrySimple>,
@@ -838,7 +838,7 @@ pub mod test {
 
     fn assert_diff_eq(history: &Parents, a: &[Time], b: &[Time], expect_a: &[DTRange], expect_b: &[DTRange]) {
         #[cfg(feature="gen_test_data")] {
-            #[cfg_attr(feature = "serde", derive(Serialize), serde(crate = "serde_crate"))]
+            #[cfg_attr(feature = "serde", derive(Serialize))]
             #[derive(Clone)]
             struct Test<'a> {
                 hist: Vec<ParentsEntrySimple>,
@@ -1008,7 +1008,7 @@ pub mod test {
         assert_eq!(parents.find_dominators(&[5, 9]).as_slice(), &[5, 9]);
         assert_eq!(parents.find_dominators(&[1, 2]).as_slice(), &[2]);
         assert_eq!(parents.find_dominators(&[0, 2]).as_slice(), &[2]);
-        assert_eq!(parents.find_dominators(&[]).as_slice(), &[]);
+        assert_eq!(parents.find_dominators(&[]).len(), 0);
         assert_eq!(parents.find_dominators(&[2]).as_slice(), &[2]);
         assert_eq!(parents.find_dominators(&[1, 4]).as_slice(), &[1, 4]);
         assert_eq!(parents.find_dominators(&[9, 10]).as_slice(), &[10]);
