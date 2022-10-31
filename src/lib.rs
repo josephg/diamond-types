@@ -212,7 +212,7 @@ mod check;
 mod branch;
 mod path;
 mod encoding;
-mod causalgraph;
+pub mod causalgraph;
 mod simpledb;
 mod operation;
 mod wal;
