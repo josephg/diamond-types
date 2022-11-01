@@ -64,7 +64,7 @@ pub fn get_history(oplog: &DTOpLog) -> WasmResult {
 //     serde_wasm_bindgen::to_value(&remote_time)
 // }
 pub fn local_to_remote_version(oplog: &DTOpLog, local_version: &[Time]) -> WasmResult {
-    let remote_version = oplog.local_to_remote_version(local_version);
+    let remote_version = oplog.cg.local_to_remote_version(local_version);
     serde_wasm_bindgen::to_value(&remote_version)
 }
 
@@ -72,7 +72,7 @@ pub fn oplog_version_to_remote_version(oplog: &DTOpLog) -> WasmResult {
     let version = oplog.local_version_ref();
     // This is a bit naughty. I'm relying on local_to_remote_version not noticing I'm sending it
     // empty lists sometimes.
-    let frontier = oplog.local_to_remote_version(version);
+    let frontier = oplog.cg.local_to_remote_version(version);
     serde_wasm_bindgen::to_value(&frontier)
 }
 

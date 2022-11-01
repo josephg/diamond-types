@@ -193,7 +193,7 @@ pub use crate::dtrange::DTRange;
 use causalgraph::parents::Parents;
 use crate::causalgraph::storage::CGStorage;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
-use crate::remotespan::CRDTSpan;
+use causalgraph::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 use crate::wal::WriteAheadLog;
 use num_enum::TryFromPrimitive;
@@ -205,7 +205,6 @@ pub mod list;
 mod rle;
 mod dtrange;
 mod unicount;
-pub mod remotespan;
 mod rev_range;
 pub mod frontier;
 mod oplog;
@@ -217,6 +216,9 @@ pub mod causalgraph;
 mod simpledb;
 mod operation;
 mod wal;
+
+#[cfg(feature = "serde")]
+pub(crate) mod serde;
 
 pub type AgentId = u32;
 const ROOT_AGENT: AgentId = AgentId::MAX;

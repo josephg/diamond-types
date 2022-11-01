@@ -13,7 +13,7 @@ use crate::list::operation::ListOpKind;
 use crate::causalgraph::parents::Parents;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::{CausalGraph, LocalVersion};
-use crate::remotespan::CRDTSpan;
+use crate::causalgraph::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 
 pub mod operation;
@@ -25,7 +25,6 @@ pub mod merge;
 mod oplog;
 mod branch;
 pub mod encoding;
-pub mod remote_ids;
 pub mod op_metrics;
 mod eq;
 mod oplog_merge;
@@ -35,9 +34,8 @@ mod fuzzer_tools;
 #[cfg(test)]
 mod oplog_merge_fuzzer;
 
-#[cfg(feature = "serde")]
-pub(crate) mod serde;
 mod buffered_iter;
+mod stochastic_summary;
 
 // TODO!
 // trait InlineReplace<T> {
@@ -113,7 +111,7 @@ pub struct ListOpLog {
     /// Optional - only used if you set it.
     doc_id: Option<SmartString>,
 
-    pub(crate) cg: CausalGraph,
+    pub cg: CausalGraph,
 
     /// This contains all content ever inserted into the document, in time order (not document
     /// order). This object is indexed by the operation set.

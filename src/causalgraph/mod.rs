@@ -1,7 +1,7 @@
 // #![warn(unused)]
 
 use smartstring::alias::String as SmartString;
-use crate::{CRDTSpan, DTRange, Parents, KVPair, LocalVersion, RleVec};
+use crate::{CRDTSpan, DTRange, KVPair, LocalVersion, Parents, RleVec};
 
 pub(crate) mod storage;
 mod causalgraph;
@@ -10,6 +10,8 @@ pub mod parents;
 mod eq;
 pub mod entry;
 pub mod summary;
+pub mod remotespan;
+pub mod remote_ids;
 
 // TODO: Consider removing this now that ROOT is [].
 const ROOT_AGENT_NAME: &str = "ROOT";
@@ -53,7 +55,7 @@ pub struct CausalGraph {
     /// remote changes.
     ///
     /// At its core, this data set compactly stores the list of parents for every operation.
-    pub(crate) parents: Parents,
+    pub parents: Parents,
 
     // /// This is the version you get if you load the entire causal graph
     // pub(crate) version: LocalVersion,

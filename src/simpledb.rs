@@ -3,7 +3,7 @@ use crate::branch::DTValue;
 use crate::frontier::local_version_eq;
 use crate::list::operation::TextOperation;
 use crate::oplog::ROOT_MAP;
-use crate::remotespan::CRDTGuid;
+use crate::causalgraph::remotespan::CRDTGuid;
 use crate::wal::WALError;
 
 #[derive(Debug)]
@@ -107,7 +107,7 @@ mod test {
     use crate::oplog::ROOT_MAP;
     use crate::Primitive::*;
     use crate::CreateValue::*;
-    use crate::remotespan::{CRDT_DOC_ROOT, CRDTGuid};
+    use crate::causalgraph::remotespan::{CRDT_DOC_ROOT, CRDTGuid};
     use crate::simpledb::SimpleDatabase;
 
     #[test]

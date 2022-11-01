@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize, Serializer};
 #[cfg(feature = "serde")]
 use serde::ser::SerializeStruct;
 #[cfg(feature = "serde")]
-use crate::list::serde::FlattenSerializable;
+use crate::serde::FlattenSerializable;
 
 /// So I might use this more broadly, for all edits. If so, move this out of OT.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

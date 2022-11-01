@@ -91,7 +91,7 @@ mod tests {
     use smallvec::smallvec;
     use crate::CausalGraph;
     use crate::causalgraph::summary::{VersionSummary, VSEntry};
-    use crate::remotespan::CRDTSpan;
+    use crate::causalgraph::remotespan::CRDTSpan;
 
     #[test]
     fn summary_smoke() {

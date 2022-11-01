@@ -8,7 +8,7 @@ use crate::Time;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
-use crate::list::serde::DTRangeTuple;
+use crate::serde::DTRangeTuple;
 use crate::ROOT_TIME;
 
 /// This is an internal replacement for Range<usize>. The main use for this is that std::Range

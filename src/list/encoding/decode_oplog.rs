@@ -16,7 +16,7 @@ use crate::list::operation::ListOpKind;
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::list::encoding::decode_tools::{BufReader, ChunkReader};
 use crate::frontier::clone_smallvec;
-use crate::remotespan::{CRDTGuid, CRDTSpan};
+use crate::causalgraph::remotespan::{CRDTGuid, CRDTSpan};
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::calc_checksum;

@@ -37,7 +37,7 @@ use crate::list::merge::metrics::upstream_cursor_pos;
 use crate::list::merge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
 use crate::list::operation::ListOpKind::Ins;
-use crate::list::remote_ids::RemoteIdSpan;
+use crate::causalgraph::remote_ids::RemoteIdSpan;
 use crate::unicount::consume_chars;
 
 const ALLOW_FF: bool = true;

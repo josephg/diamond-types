@@ -3,7 +3,7 @@ use rle::{HasLength, Searchable};
 use crate::encoding::tools::{push_str, push_u32, push_usize};
 use crate::encoding::varint::*;
 use crate::causalgraph::parents::ParentsEntrySimple;
-use crate::remotespan::CRDTGuid;
+use crate::causalgraph::remotespan::CRDTGuid;
 use crate::{AgentId, CausalGraph, DTRange, KVPair, LocalVersion, OpLog, RleVec, Time};
 use crate::encoding::Merger;
 use bumpalo::collections::vec::Vec as BumpVec;

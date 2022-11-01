@@ -18,7 +18,7 @@ use crate::list::merge::metrics::MarkerMetrics;
 use crate::list::merge::yjsspan::YjsSpan;
 use crate::{CRDTSpan, DTRange, SmartString, Time};
 use crate::list::ListOpLog;
-use crate::list::remote_ids::RemoteIdSpan;
+use crate::causalgraph::remote_ids::RemoteIdSpan;
 use crate::rev_range::RangeRev;
 
 mod yjsspan;

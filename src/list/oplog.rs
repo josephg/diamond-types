@@ -9,9 +9,9 @@ use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{TextOperation, ListOpKind};
-use crate::list::remote_ids::RemoteId;
+use crate::causalgraph::remote_ids::RemoteId;
 use crate::dtrange::DTRange;
-use crate::remotespan::*;
+use crate::causalgraph::remotespan::*;
 use crate::rev_range::RangeRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::unicount::count_chars;
@@ -319,7 +319,7 @@ impl ListOpLog {
     }
 
     pub fn remote_version(&self) -> SmallVec<[RemoteId; 4]> {
-        self.local_to_remote_version(&self.version)
+        self.cg.local_to_remote_version(&self.version)
     }
 
     // pub(crate) fn content_str(&self, tag: InsDelTag) -> &str {

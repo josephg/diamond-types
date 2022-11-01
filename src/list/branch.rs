@@ -10,7 +10,7 @@ use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::DTRange;
 use crate::{AgentId, LocalVersion, Time};
 use crate::frontier::clone_smallvec;
-use crate::list::remote_ids::RemoteId;
+use crate::causalgraph::remote_ids::RemoteId;
 
 impl ListBranch {
     /// Create a new (empty) branch at the start of history. The branch will be an empty list.
@@ -45,7 +45,7 @@ impl ListBranch {
 
     /// Return the current version of the branch in remote form
     pub fn remote_version(&self, oplog: &ListOpLog) -> SmallVec<[RemoteId; 4]> {
-        oplog.local_to_remote_version(&self.version)
+        oplog.cg.local_to_remote_version(&self.version)
     }
 
     /// Return the current document contents. Note there is no mutable variant of this method

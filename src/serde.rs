@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize, Serializer};
 // use serde::de::{EnumAccess, Error, MapAccess, SeqAccess};
 use serde::ser::SerializeStruct;
-use crate::list::remote_ids::RemoteId;
+use crate::causalgraph::remote_ids::RemoteId;
 // use serde::de::Visitor;
 use crate::rev_range::RangeRev;
 use smartstring::alias::String as SmartString;
@@ -43,23 +43,6 @@ impl FlattenSerializable for RangeRev {
         s.serialize_field("end", &self.span.end)?;
         s.serialize_field("fwd", &self.fwd)?;
         Ok(())
-    }
-}
-
-
-/// This is used to flatten `[agent, seq]` into a tuple for serde serialization.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub(crate) struct RemoteIdTuple(SmartString, usize);
-
-impl From<RemoteIdTuple> for RemoteId {
-    fn from(f: RemoteIdTuple) -> Self {
-        Self { agent: f.0, seq: f.1 }
-    }
-}
-impl From<RemoteId> for RemoteIdTuple {
-    fn from(id: RemoteId) -> Self {
-        RemoteIdTuple(id.agent, id.seq)
     }
 }
 

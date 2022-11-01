@@ -5,7 +5,7 @@ use rle::{MergableSpan, RleRun};
 use std::marker::PhantomData;
 use crate::list::encoding::ListChunkType;
 use crate::encoding::varint::{encode_u32, encode_u64, mix_bit_usize};
-use crate::list::remote_ids::ConversionError;
+use crate::causalgraph::remote_ids::ConversionError;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;

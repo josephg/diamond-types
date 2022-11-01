@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use crate::list::remote_ids::ConversionError;
+use crate::causalgraph::remote_ids::ConversionError;
 
 
 // #[derive(Debug)]
