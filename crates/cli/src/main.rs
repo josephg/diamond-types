@@ -8,7 +8,7 @@ use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
 use diamond_types::list::{ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
-use diamond_types::list::remote_ids::RemoteId;
+use diamond_types::causalgraph::remote_ids::RemoteId;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -173,7 +173,7 @@ fn parse_dt_oplog(filename: &str) -> Result<ListOpLog, anyhow::Error> {
 // fn checkout_version_or_tip(oplog: OpLog, version: Option<&[RemoteId]>) -> Branch {
 fn checkout_version_or_tip(oplog: &ListOpLog, version: Option<Box<[RemoteId]>>) -> ListBranch {
     let v = if let Some(version) = version {
-        oplog.try_remote_to_local_version(version.iter()).unwrap()
+        oplog.cg.try_remote_to_local_version(version.iter()).unwrap()
     } else {
         oplog.local_version()
     };
@@ -321,11 +321,12 @@ fn main() -> Result<(), anyhow::Error> {
                 Some(v) => v.as_ref(),
                 None => &[],
             };
-            let from_version = oplog.remote_to_local_version(from_version.iter());
+            let from_version = oplog.cg.remote_to_local_version(from_version.iter());
 
             let new_data = oplog.encode_from(EncodeOptions {
                 user_data: None,
                 store_start_branch_content: !patch,
+                experimentally_store_end_branch_content: false,
                 store_inserted_content: !no_inserted_content,
                 store_deleted_content: !no_deleted_content,
                 compress_content: !uncompressed,
