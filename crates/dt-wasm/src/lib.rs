@@ -157,12 +157,12 @@ impl Branch {
 
     #[wasm_bindgen(js_name = wCharsToChars)]
     pub fn wchars_to_chars(&self, pos_wchars: usize) -> usize {
-        self.0.content().wchars_to_chars(pos_wchars)
+        self.0.content().borrow().wchars_to_chars(pos_wchars)
     }
 
     #[wasm_bindgen(js_name = charsToWchars)]
     pub fn chars_to_wchars(&self, pos_chars: usize) -> usize {
-        self.0.content().chars_to_wchars(pos_chars)
+        self.0.content().borrow().chars_to_wchars(pos_chars)
     }
 }
 
@@ -480,12 +480,12 @@ impl Doc {
 
     #[wasm_bindgen(js_name = wCharsToChars)]
     pub fn wchars_to_chars(&self, pos_wchars: usize) -> usize {
-        self.inner.branch.content().wchars_to_chars(pos_wchars)
+        self.inner.branch.content().borrow().wchars_to_chars(pos_wchars)
     }
 
     #[wasm_bindgen(js_name = charsToWchars)]
     pub fn chars_to_wchars(&self, pos_chars: usize) -> usize {
-        self.inner.branch.content().chars_to_wchars(pos_chars)
+        self.inner.branch.content().borrow().chars_to_wchars(pos_chars)
     }
 
     // #[wasm_bindgen]
