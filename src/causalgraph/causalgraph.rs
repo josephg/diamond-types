@@ -5,7 +5,7 @@ use crate::{AgentId, CausalGraph, ROOT_AGENT, ROOT_TIME, Time};
 use crate::causalgraph::*;
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::parents::ParentsEntrySimple;
-use crate::frontier::clean_version;
+use crate::frontier::{advance_version_by_known_run, clean_version};
 use crate::causalgraph::remotespan::{CRDT_DOC_ROOT, CRDTGuid};
 use crate::rle::RleSpanHelpers;
 

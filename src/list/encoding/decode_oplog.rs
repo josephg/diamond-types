@@ -887,7 +887,7 @@ impl ListOpLog {
 
                     // We'll update merge parents even if nothing is merged.
                     // dbg!((&file_frontier, &mapped));
-                    advance_frontier_by_known_run(&mut file_frontier, &mapped.parents, mapped.span);
+                    advance_version_by_known_run(&mut file_frontier, &mapped.parents, mapped.span);
                     // dbg!(&file_frontier);
 
                     if mapped.span.end > next_history_time {

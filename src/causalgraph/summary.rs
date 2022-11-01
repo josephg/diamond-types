@@ -1,6 +1,6 @@
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
-use crate::{CausalGraph, DTRange};
+use crate::{CausalGraph, DTRange, Time};
 use rle::MergeableIterator;
 
 #[cfg(feature = "serde")]
@@ -15,6 +15,8 @@ pub struct VSEntry {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct VersionSummary(Vec<VSEntry>);
+
+// pub struct FlatVersionSummary(Vec<(SmartString, Time)>);
 
 // Serialize as {name1: [[start, end], [start, end], ..], name2: ...}.
 #[cfg(feature = "serde")]
@@ -84,6 +86,28 @@ impl CausalGraph {
             }
         }).collect())
     }
+
+    // pub fn intersect_with_summary_full<V>(&self, summary: &VersionSummary, visitor: V)
+    // where V: FnMut(&str, usize, usize, Option<Time>)
+    // {
+    //     for VSEntry { name, versions: seqs } in &summary.0 {
+    //         let agent_id = self.get_agent_id(name);
+    //
+    //         for seq_range in seqs {
+    //             if let Some(agent_id) = agent_id {
+    //                 let cg = &self.client_data[agent_id as usize].item_times;
+    //
+    //                 let mut idx = cg.find_index(seq_range.start).unwrap_or_else(|e| e);
+    //
+    //                 loop {
+    //                     todo!()
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+
+    // pub fn intersect_with_summary(&self, summary: &VersionSummary,
 }
 
 #[cfg(test)]

@@ -1,9 +1,10 @@
 use std::cmp::Ordering;
+use std::collections::Bound;
 use std::fmt::{Debug, DebugStruct, Formatter};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
 
 use crate::rle::RleKeyed;
-use std::ops::Range;
+use std::ops::{Range, RangeBounds};
 use crate::Time;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -99,6 +100,18 @@ impl From<DTRange> for Range<usize> {
 impl From<&DTRange> for Range<usize> {
     fn from(span: &DTRange) -> Self {
         span.start..span.end
+    }
+}
+
+impl RangeBounds<usize> for DTRange {
+    fn start_bound(&self) -> Bound<&usize> {
+        Bound::Included(&self.start)
+    }
+    fn end_bound(&self) -> Bound<&usize> {
+        Bound::Excluded(&self.end)
+    }
+    fn contains<U>(&self, item: &U) -> bool where usize: PartialOrd<U>, U: ?Sized + PartialOrd<usize> {
+        item >= &self.start && item < &self.end
     }
 }
 

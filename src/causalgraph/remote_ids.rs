@@ -1,3 +1,4 @@
+use std::ops::Range;
 use crate::list::ListOpLog;
 use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
@@ -33,6 +34,15 @@ impl From<RemoteIdTuple> for RemoteId {
 impl From<RemoteId> for RemoteIdTuple {
     fn from(id: RemoteId) -> Self {
         RemoteIdTuple(id.agent, id.seq)
+    }
+}
+
+impl<S> From<(S, usize)> for RemoteId where S: Into<SmartString> {
+    fn from(r: (S, usize)) -> Self {
+        Self {
+            agent: r.0.into(),
+            seq: r.1
+        }
     }
 }
 

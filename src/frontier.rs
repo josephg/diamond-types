@@ -13,7 +13,7 @@ pub fn advance_version_by(frontier: &mut LocalVersion, history: &Parents, mut ra
 
         let end = txn.span.end.min(range.end);
         txn.with_parents(range.start, |parents| {
-            advance_frontier_by_known_run(frontier, parents, (range.start..end).into());
+            advance_version_by_known_run(frontier, parents, (range.start..end).into());
         });
 
         range.start = end;
@@ -125,7 +125,7 @@ pub(crate) fn add_to_frontier(frontier: &mut LocalVersion, new_item: Time) {
 /// Advance branch frontier by a transaction.
 ///
 /// This is ONLY VALID if the range is entirely within a txn.
-pub(crate) fn advance_frontier_by_known_run(frontier: &mut LocalVersion, parents: &[Time], span: DTRange) {
+pub fn advance_version_by_known_run(frontier: &mut LocalVersion, parents: &[Time], span: DTRange) {
     // TODO: Check the branch contains everything in txn_parents, but not txn_id:
     // Check the operation fits. The operation should not be in the branch, but
     // all the operation's parents should be.
@@ -210,7 +210,7 @@ mod test {
     #[test]
     fn frontier_movement_smoke_tests() {
         let mut branch: LocalVersion = smallvec![];
-        advance_frontier_by_known_run(&mut branch, &[], (0..10).into());
+        advance_version_by_known_run(&mut branch, &[], (0..10).into());
         assert_eq!(branch.as_slice(), &[9]);
 
         let history = Parents::from_entries(&[

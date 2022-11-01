@@ -1,19 +1,9 @@
 use smallvec::smallvec;
-use crate::frontier::advance_frontier_by_known_run;
+use crate::frontier::advance_version_by_known_run;
 use crate::{Branch, LocalVersion, OverlayValue};
 use crate::OpLog;
 
 impl OpLog {
-    fn get_frontier_inefficiently(&self) -> LocalVersion {
-        // Could improve this by just looking at the last txn, and following shadows down.
-
-        let mut b = smallvec![];
-        for txn in self.cg.parents.entries.iter() {
-            advance_frontier_by_known_run(&mut b, txn.parents.as_slice(), txn.span);
-        }
-        b
-    }
-
     /// Check the internal state of the oplog. This is only exported for integration testing. You
     /// shouldn't have any reason to call this method.
     ///
@@ -21,7 +11,7 @@ impl OpLog {
     /// any time.
     #[allow(unused)]
     pub fn dbg_check(&self, deep: bool) {
-        let actual_frontier = self.get_frontier_inefficiently();
+        let actual_frontier = self.cg.dbg_get_frontier_inefficiently();
         assert_eq!(self.version, actual_frontier);
 
         self.cg.dbg_check(deep);

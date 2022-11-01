@@ -5,7 +5,7 @@ use rle::{HasLength, Searchable};
 use crate::{AgentId, LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
 use crate::causalgraph::ClientData;
 use crate::list::{ListBranch, ListOpLog};
-use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};
+use crate::frontier::{advance_version_by_known_run, clone_smallvec};
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{TextOperation, ListOpKind};
@@ -167,7 +167,7 @@ impl ListOpLog {
 
     /// Advance self.frontier by the named span of time.
     pub(crate) fn advance_frontier(&mut self, parents: &[Time], span: DTRange) {
-        advance_frontier_by_known_run(&mut self.version, parents, span);
+        advance_version_by_known_run(&mut self.version, parents, span);
     }
 
     /// Append to operations list without adjusting metadata.

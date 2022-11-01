@@ -1,7 +1,7 @@
 use jumprope::JumpRope;
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
 use smallvec::smallvec;
-use crate::frontier::advance_frontier_by_known_run;
+use crate::frontier::advance_version_by_known_run;
 use crate::LocalVersion;
 
 /// This file contains debugging assertions to validate the document's internal state.
@@ -28,7 +28,7 @@ impl ListOpLog {
     /// any time.
     #[allow(unused)]
     pub fn dbg_check(&self, deep: bool) {
-        let actual_frontier = self.cg.get_frontier_inefficiently();
+        let actual_frontier = self.cg.dbg_get_frontier_inefficiently();
         assert_eq!(self.version, actual_frontier);
 
         self.cg.dbg_check(deep);

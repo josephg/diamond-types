@@ -305,7 +305,7 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());
         let input_span = span;
-        advance_frontier_by_known_run(&mut self.frontier, &parents, input_span);
+        advance_version_by_known_run(&mut self.frontier, &parents, input_span);
 
         self.num_consumed += 1;
 
