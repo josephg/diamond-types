@@ -11,7 +11,7 @@ use rle::{HasLength, SplitableSpan};
 use rle::zip::rle_zip3;
 use crate::{ROOT_AGENT, LV};
 use crate::list::ListOpLog;
-use crate::frontier::clean_version;
+use crate::frontier::sort_frontier;
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::rle::KVPair;
 
@@ -171,7 +171,7 @@ impl PartialEq<Self> for ListOpLog {
                     parents: txn.parents.iter().map(|t| map_time_to_other(*t).unwrap()).collect()
                 };
                 // mapped_txn.parents.sort_unstable();
-                clean_version(&mut mapped_txn.parents);
+                sort_frontier(&mut mapped_txn.parents);
 
                 if other_txn != mapped_txn {
                     if VERBOSE { println!("Txns do not match {:?} (was {:?}) != {:?}", mapped_txn, txn, other_txn); }

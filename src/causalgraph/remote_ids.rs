@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::dtrange::DTRange;
 use crate::{CausalGraph, CRDTSpan, LocalFrontier, ROOT_AGENT, ROOT_TIME, LV};
-use crate::frontier::clean_version;
+use crate::frontier::sort_frontier;
 use crate::causalgraph::remotespan::CRDTGuid;
 
 /// This file contains utilities to convert remote IDs to local time and back.
@@ -128,7 +128,7 @@ impl CausalGraph {
             .map(|remote_id| self.try_remote_to_local_time(remote_id))
             .collect::<Result<LocalFrontier, ConversionError>>()?;
 
-        clean_version(&mut version);
+        sort_frontier(&mut version);
         Ok(version)
     }
 
@@ -137,7 +137,7 @@ impl CausalGraph {
             .map(|remote_id| self.remote_to_local_time(remote_id))
             .collect();
 
-        clean_version(&mut version);
+        sort_frontier(&mut version);
         version
     }
 

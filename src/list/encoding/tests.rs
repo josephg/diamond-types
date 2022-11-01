@@ -1,7 +1,7 @@
 use crate::encoding::parseerror::ParseError;
 use crate::list::{ListCRDT, ListOpLog};
 use crate::list::encoding::decode_oplog::{dbg_print_chunks_in, DecodeOptions};
-use crate::frontier::local_version_eq;
+use crate::frontier::local_frontier_eq;
 use super::*;
 
 fn simple_doc() -> ListCRDT {
@@ -316,7 +316,7 @@ fn merge_returns_root_for_empty_file() {
 
     let mut result = ListOpLog::new();
     let version = result.decode_and_add(&bytes).unwrap();
-    assert!(local_version_eq(&version, &[]));
+    assert!(local_frontier_eq(&version, &[]));
 }
 
 #[test]
@@ -327,7 +327,7 @@ fn merge_returns_version_even_with_overlap() {
     let mut oplog2 = oplog.clone();
     let version = oplog2.decode_and_add(&bytes).unwrap();
 
-    assert!(local_version_eq(&version, oplog2.local_version_ref()));
+    assert!(local_frontier_eq(&version, oplog2.local_version_ref()));
 }
 
 #[test]
@@ -344,7 +344,7 @@ fn merge_patch_returns_correct_version() {
     let version = oplog2.decode_and_add(&bytes).unwrap();
 
     // dbg!(version);
-    assert!(local_version_eq(&version, oplog2.local_version_ref()));
+    assert!(local_frontier_eq(&version, oplog2.local_version_ref()));
 }
 
 #[test]

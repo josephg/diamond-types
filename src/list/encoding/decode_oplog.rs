@@ -87,7 +87,7 @@ impl<'a> BufReader<'a> {
             if !has_more { break; }
         }
 
-        clean_version(&mut result);
+        sort_frontier(&mut result);
 
         self.expect_empty()?;
 
@@ -133,7 +133,7 @@ impl<'a> BufReader<'a> {
         // 1. The file is invalid. All local (non-foreign) changes should be in order).
         // or 2. We have foreign items - and they're not sorted based on the local versions.
         // This is fine and we should just re-sort.
-        clean_version(&mut parents);
+        sort_frontier(&mut parents);
 
         Ok(parents)
     }
@@ -265,7 +265,7 @@ fn history_entry_map_and_truncate(mut hist_entry: ParentsEntrySimple, version_ma
     }
 
     // Parents can become unsorted here because they might not map cleanly. Thanks, fuzzer.
-    clean_version(&mut hist_entry.parents);
+    sort_frontier(&mut hist_entry.parents);
 
     (hist_entry, remainder)
 }
@@ -669,7 +669,7 @@ impl ListOpLog {
         // empty document, or we've been sent catchup data from a remote peer. If the data set
         // overlaps, we need to actively filter out operations & txns from that data set.
         // dbg!(&start_frontier, &self.frontier);
-        let patches_overlap = !local_version_eq(&start_version, &self.version);
+        let patches_overlap = !local_frontier_eq(&start_version, &self.version);
         // dbg!(patches_overlap);
 
         // *** Patches ***
@@ -887,7 +887,7 @@ impl ListOpLog {
 
                     // We'll update merge parents even if nothing is merged.
                     // dbg!((&file_frontier, &mapped));
-                    advance_version_by_known_run(&mut file_frontier, &mapped.parents, mapped.span);
+                    advance_frontier_by_known_run(&mut file_frontier, &mapped.parents, mapped.span);
                     // dbg!(&file_frontier);
 
                     if mapped.span.end > next_history_time {

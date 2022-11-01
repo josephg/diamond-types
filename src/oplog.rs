@@ -76,7 +76,7 @@ impl OpLog {
 
     fn inner_assign_remote_op_span(&mut self, parents: &[LV], crdt_span: CRDTSpan) -> DTRange {
         let time_span = self.cg.merge_and_assign_nonoverlapping(parents, crdt_span);
-        advance_version_by_known_run(&mut self.version, parents, time_span);
+        advance_frontier_by_known_run(&mut self.version, parents, time_span);
         time_span
     }
 

@@ -5,7 +5,7 @@ use crate::dtrange::DTRange;
 use crate::{LocalFrontier, LV};
 
 /// Advance a frontier by the set of time spans in range
-pub fn advance_version_by(frontier: &mut LocalFrontier, history: &Parents, mut range: DTRange) {
+pub fn advance_frontier_by(frontier: &mut LocalFrontier, history: &Parents, mut range: DTRange) {
     let mut txn_idx = history.entries.find_index(range.start).unwrap();
     while !range.is_empty() {
         let txn = &history.entries[txn_idx];
@@ -13,7 +13,7 @@ pub fn advance_version_by(frontier: &mut LocalFrontier, history: &Parents, mut r
 
         let end = txn.span.end.min(range.end);
         txn.with_parents(range.start, |parents| {
-            advance_version_by_known_run(frontier, parents, (range.start..end).into());
+            advance_frontier_by_known_run(frontier, parents, (range.start..end).into());
         });
 
         range.start = end;
@@ -23,7 +23,7 @@ pub fn advance_version_by(frontier: &mut LocalFrontier, history: &Parents, mut r
     }
 }
 
-pub fn retreat_version_by(frontier: &mut LocalFrontier, history: &Parents, mut range: DTRange) {
+pub fn retreat_frontier_by(frontier: &mut LocalFrontier, history: &Parents, mut range: DTRange) {
     if range.is_empty() { return; }
 
     debug_assert_frontier_sorted(frontier.as_slice());
@@ -76,11 +76,11 @@ pub fn retreat_version_by(frontier: &mut LocalFrontier, history: &Parents, mut r
 }
 
 /// Frontiers should always be sorted smallest to largest.
-pub(crate) fn frontier_is_sorted(branch: &[LV]) -> bool {
+pub(crate) fn frontier_is_sorted(frontier: &[LV]) -> bool {
     // For debugging.
-    if branch.len() >= 2 {
-        let mut last = branch[0];
-        for t in &branch[1..] {
+    if frontier.len() >= 2 {
+        let mut last = frontier[0];
+        for t in &frontier[1..] {
             debug_assert!(*t != last);
             if last > *t { return false; }
             last = *t;
@@ -89,7 +89,7 @@ pub(crate) fn frontier_is_sorted(branch: &[LV]) -> bool {
     true
 }
 
-pub(crate) fn clean_version<T: Array<Item=usize>>(v: &mut SmallVec<T>) {
+pub(crate) fn sort_frontier<T: Array<Item=usize>>(v: &mut SmallVec<T>) {
     if !frontier_is_sorted(v.as_slice()) {
         v.sort_unstable();
     }
@@ -125,7 +125,7 @@ pub(crate) fn add_to_frontier(frontier: &mut LocalFrontier, new_item: LV) {
 /// Advance branch frontier by a transaction.
 ///
 /// This is ONLY VALID if the range is entirely within a txn.
-pub fn advance_version_by_known_run(frontier: &mut LocalFrontier, parents: &[LV], span: DTRange) {
+pub fn advance_frontier_by_known_run(frontier: &mut LocalFrontier, parents: &[LV], span: DTRange) {
     // TODO: Check the branch contains everything in txn_parents, but not txn_id:
     // Check the operation fits. The operation should not be in the branch, but
     // all the operation's parents should be.
@@ -158,20 +158,16 @@ pub(crate) fn replace_frontier_with(frontier: &mut LocalFrontier, new_val: LV) {
     replace(frontier, smallvec::smallvec![new_val]);
 }
 
-pub fn local_version_eq(a: &[LV], b: &[LV]) -> bool {
+pub fn local_frontier_eq(a: &[LV], b: &[LV]) -> bool {
     // Almost all branches only have one element in them.
     debug_assert_frontier_sorted(a);
     debug_assert_frontier_sorted(b);
     a == b
-    // a.len() == b.len() && ((a.len() == 1 && a[0] == b[0]) || {
-    //     a.iter().all(|o| b.contains(o))
-    // })
 }
 
 #[allow(unused)]
-pub fn local_version_is_root(branch: &[LV]) -> bool {
+pub fn local_frontier_is_root(branch: &[LV]) -> bool {
     branch.is_empty()
-    // branch.len() == 1 && branch[0] == ROOT_TIME
 }
 
 /// This method clones a version or parents vector. Its slightly faster and smaller than just
@@ -210,7 +206,7 @@ mod test {
     #[test]
     fn frontier_movement_smoke_tests() {
         let mut branch: LocalFrontier = smallvec![];
-        advance_version_by_known_run(&mut branch, &[], (0..10).into());
+        advance_frontier_by_known_run(&mut branch, &[], (0..10).into());
         assert_eq!(branch.as_slice(), &[9]);
 
         let history = Parents::from_entries(&[
@@ -221,10 +217,10 @@ mod test {
             }
         ]);
 
-        retreat_version_by(&mut branch, &history, (5..10).into());
+        retreat_frontier_by(&mut branch, &history, (5..10).into());
         assert_eq!(branch.as_slice(), &[4]);
 
-        retreat_version_by(&mut branch, &history, (0..5).into());
+        retreat_frontier_by(&mut branch, &history, (0..5).into());
         assert!(branch.is_empty());
     }
 
@@ -249,16 +245,16 @@ mod test {
         ]);
 
         let mut branch: LocalFrontier = smallvec![1, 10];
-        advance_version_by(&mut branch, &history, (2..4).into());
+        advance_frontier_by(&mut branch, &history, (2..4).into());
         assert_eq!(branch.as_slice(), &[1, 3, 10]);
 
-        advance_version_by(&mut branch, &history, (11..12).into());
+        advance_frontier_by(&mut branch, &history, (11..12).into());
         assert_eq!(branch.as_slice(), &[1, 3, 11]);
 
-        retreat_version_by(&mut branch, &history, (2..4).into());
+        retreat_frontier_by(&mut branch, &history, (2..4).into());
         assert_eq!(branch.as_slice(), &[1, 11]);
 
-        retreat_version_by(&mut branch, &history, (11..12).into());
+        retreat_frontier_by(&mut branch, &history, (11..12).into());
         assert_eq!(branch.as_slice(), &[1, 10]);
     }
 }

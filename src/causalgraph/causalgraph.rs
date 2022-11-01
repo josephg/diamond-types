@@ -5,7 +5,7 @@ use crate::{AgentId, CausalGraph, ROOT_AGENT, ROOT_TIME, LV};
 use crate::causalgraph::*;
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::parents::ParentsEntrySimple;
-use crate::frontier::{advance_version_by_known_run, clean_version};
+use crate::frontier::{advance_frontier_by_known_run, sort_frontier};
 use crate::causalgraph::remotespan::{CRDT_DOC_ROOT, CRDTGuid};
 use crate::rle::RleSpanHelpers;
 
@@ -134,7 +134,7 @@ impl CausalGraph {
         // TODO: Make a try_ version of this.
         let mut parents = crdt_parents.iter()
             .map(|p| self.try_crdt_id_to_version(*p).unwrap()).collect();
-        clean_version(&mut parents);
+        sort_frontier(&mut parents);
         parents
     }
 

@@ -14,7 +14,7 @@ use crate::rle::{RleKeyed, RleVec};
 use crate::dtrange::DTRange;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use crate::frontier::{clone_smallvec, local_version_is_root};
+use crate::frontier::{clone_smallvec, local_frontier_is_root};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Parents {
@@ -46,7 +46,7 @@ impl Parents {
         Parents {
             entries: RleVec(entries.to_vec()),
             root_child_indexes: entries.iter().enumerate().filter_map(|(i, entry)| {
-                if local_version_is_root(&entry.parents) { Some(i) } else { None }
+                if local_frontier_is_root(&entry.parents) { Some(i) } else { None }
             }).collect()
         }
     }

@@ -6,7 +6,7 @@ use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::list::{ListBranch, ListOpLog, switch};
 use crate::rle::{KVPair, RleVec};
 use crate::{AgentId, ROOT_AGENT, LV};
-use crate::frontier::local_version_is_root;
+use crate::frontier::local_frontier_is_root;
 use crate::list::op_metrics::ListOpMetrics;
 use crate::list::operation::ListOpKind;
 use crate::dtrange::DTRange;
@@ -237,7 +237,7 @@ impl AgentMapping {
 
 fn write_local_version(dest: &mut Vec<u8>, version: &[LV], map: &mut AgentMapping, oplog: &ListOpLog) {
     // Skip writing a version chunk if the version is ROOT.
-    if local_version_is_root(version) {
+    if local_frontier_is_root(version) {
         return;
     }
 
@@ -601,7 +601,7 @@ impl ListOpLog {
         let mut start_branch = Vec::new();
 
         // If the local version is root, start_branch is just an empty chunk.
-        if !local_version_is_root(from_version) {
+        if !local_frontier_is_root(from_version) {
             // This will skip writing the version if from_version is ROOT.
             write_local_version(&mut start_branch, from_version, &mut agent_mapping, self);
 

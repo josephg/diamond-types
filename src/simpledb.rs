@@ -1,6 +1,6 @@
 use crate::*;
 use crate::branch::DTValue;
-use crate::frontier::local_version_eq;
+use crate::frontier::local_frontier_eq;
 use crate::list::operation::TextOperation;
 use crate::oplog::ROOT_MAP;
 use crate::causalgraph::remotespan::CRDTGuid;
@@ -28,7 +28,7 @@ impl SimpleDatabase {
     }
 
     pub fn dbg_check(&self, deep: bool) {
-        assert!(local_version_eq(&self.oplog.version, &self.branch.overlay_version));
+        assert!(local_frontier_eq(&self.oplog.version, &self.branch.overlay_version));
         self.oplog.dbg_check(deep);
     }
 

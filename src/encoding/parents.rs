@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::map::{WriteMap, ReadMap};
-use crate::frontier::clean_version;
+use crate::frontier::sort_frontier;
 
 
 
@@ -151,7 +151,7 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
     // in a different order from the original local order.
     //
     // This is fine - we can just re-sort.
-    clean_version(&mut parents);
+    sort_frontier(&mut parents);
 
     Ok(parents)
 }

@@ -1,6 +1,6 @@
 use smallvec::smallvec;
 use crate::{CausalGraph, Parents, LocalFrontier};
-use crate::frontier::{advance_version_by_known_run, clone_smallvec, debug_assert_frontier_sorted};
+use crate::frontier::{advance_frontier_by_known_run, clone_smallvec, debug_assert_frontier_sorted};
 
 impl CausalGraph {
     pub fn dbg_get_frontier_inefficiently(&self) -> LocalFrontier {
@@ -8,7 +8,7 @@ impl CausalGraph {
 
         let mut b = smallvec![];
         for txn in self.parents.entries.iter() {
-            advance_version_by_known_run(&mut b, txn.parents.as_slice(), txn.span);
+            advance_frontier_by_known_run(&mut b, txn.parents.as_slice(), txn.span);
         }
         b
     }

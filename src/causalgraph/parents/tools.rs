@@ -6,7 +6,7 @@ use std::collections::BinaryHeap;
 use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
-use crate::frontier::{advance_version_by, debug_assert_frontier_sorted, frontier_is_sorted};
+use crate::frontier::{advance_frontier_by, debug_assert_frontier_sorted, frontier_is_sorted};
 use crate::causalgraph::parents::Parents;
 use crate::causalgraph::parents::tools::DiffFlag::*;
 use crate::dtrange::DTRange;
