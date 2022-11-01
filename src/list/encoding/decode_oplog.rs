@@ -563,7 +563,7 @@ impl ListOpLog {
                     idx += 1;
                 }
 
-                self.cg.parents.entries.0.truncate(idx);
+                self.cg.parents.entries.0.truncate(first_truncated_idx);
 
                 while let Some(&last_idx) = self.cg.parents.root_child_indexes.last() {
                     if last_idx >= self.cg.parents.entries.num_entries() {

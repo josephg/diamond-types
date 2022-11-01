@@ -64,7 +64,7 @@ impl OpLog {
     }
 
     fn inner_assign_local_op_span(&mut self, agent_id: AgentId, len: usize) -> DTRange {
-        let span = self.cg.assign_op(&self.version, agent_id, len);
+        let span = self.cg.assign_local_op(&self.version, agent_id, len);
         self.version = smallvec![span.last()];
         span
     }

@@ -522,9 +522,9 @@ mod test {
         // dbg!(&cgs, &cg);
 
         let seph = cg.get_or_create_agent_id("seph");
-        cg.assign_op(&[], seph, 10);
-        cg.assign_op(&[5], seph, 15);
-        cg.assign_op(&[15], seph, 20);
+        cg.assign_local_op(&[], seph, 10);
+        cg.assign_local_op(&[5], seph, 15);
+        cg.assign_local_op(&[15], seph, 20);
         // dbg!(&cg);
 
         cgs.save_missing(&cg).unwrap();

@@ -22,8 +22,6 @@ impl Default for ListOpLog {
     }
 }
 
-const ROOT_AGENT_NAME: &str = "ROOT";
-
 impl ListOpLog {
     pub fn new() -> Self {
         Self {
@@ -49,38 +47,19 @@ impl ListOpLog {
     }
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
-        if let Some(id) = self.get_agent_id(name) {
-            id
-        } else {
-            // Create a new id.
-            self.cg.client_data.push(ClientData {
-                name: SmartString::from(name),
-                item_times: RleVec::new()
-            });
-            (self.cg.client_data.len() - 1) as AgentId
-        }
+        self.cg.get_or_create_agent_id(name)
     }
 
     pub(crate) fn get_agent_id(&self, name: &str) -> Option<AgentId> {
-        if name == "ROOT" { Some(ROOT_AGENT) }
-        else {
-            self.cg.client_data.iter()
-                .position(|client_data| client_data.name == name)
-                .map(|id| id as AgentId)
-        }
+        self.cg.get_agent_id(name)
     }
 
     pub fn get_agent_name(&self, agent: AgentId) -> &str {
-        if agent == ROOT_AGENT { ROOT_AGENT_NAME }
-        else { self.cg.client_data[agent as usize].name.as_str() }
+        self.cg.get_agent_name(agent)
     }
 
     pub(crate) fn time_to_crdt_id(&self, time: usize) -> CRDTGuid {
-        if time == ROOT_TIME { CRDT_DOC_ROOT }
-        else {
-            let (loc, offset) = self.cg.client_with_localtime.find_packed_with_offset(time);
-            loc.1.at_offset(offset as usize)
-        }
+        self.cg.version_to_crdt_id(time)
     }
 
     #[allow(unused)]
@@ -96,17 +75,13 @@ impl ListOpLog {
 
     #[allow(unused)]
     pub(crate) fn try_crdt_id_to_time(&self, id: CRDTGuid) -> Option<Time> {
-        if id.agent == ROOT_AGENT {
-            Some(ROOT_TIME)
-        } else {
-            let client = &self.cg.client_data[id.agent as usize];
-            client.try_seq_to_time(id.seq)
-        }
+        self.cg.try_crdt_id_to_version(id)
     }
 
     /// **NOTE:** This method will return a timespan with length min(time, agent_time). The
     /// resulting length will NOT be guaranteed to be the same as the input.
     pub(crate) fn get_crdt_span(&self, time: DTRange) -> CRDTSpan {
+        // TODO: Move to cg.
         if time.start == ROOT_TIME { CRDTSpan { agent: ROOT_AGENT, seq_range: Default::default() } }
         else {
             let (loc, offset) = self.cg.client_with_localtime.find_packed_with_offset(time.start);
@@ -131,9 +106,7 @@ impl ListOpLog {
 
     /// Get the number of operations
     pub fn len(&self) -> usize {
-        if let Some(last) = self.cg.client_with_localtime.last() {
-            last.end()
-        } else { 0 }
+        self.cg.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -150,7 +123,7 @@ impl ListOpLog {
     // This is a modified version of assign_next_time_to_client_known to support arbitrary CRDTSpans
     // loaded from remote peers / files.
     pub(crate) fn assign_time_to_crdt_span(&mut self, start: Time, span: CRDTSpan) {
-        debug_assert_eq!(start, self.len());
+        debug_assert_eq!(start, self.cg.len_assignment());
 
         let CRDTSpan { agent, seq_range } = span;
         let client_data = &mut self.cg.client_data[agent as usize];
@@ -174,7 +147,7 @@ impl ListOpLog {
 
     /// span is the local timespan we're assigning to the named agent.
     pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
-        debug_assert_eq!(span.start, self.len());
+        debug_assert_eq!(span.start, self.cg.len_assignment());
 
         let client_data = &mut self.cg.client_data[agent as usize];
 

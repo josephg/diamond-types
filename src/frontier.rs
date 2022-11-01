@@ -5,7 +5,7 @@ use crate::dtrange::DTRange;
 use crate::{LocalVersion, Time};
 
 /// Advance a frontier by the set of time spans in range
-pub(crate) fn advance_frontier_by(frontier: &mut LocalVersion, history: &Parents, mut range: DTRange) {
+pub fn advance_version_by(frontier: &mut LocalVersion, history: &Parents, mut range: DTRange) {
     let mut txn_idx = history.entries.find_index(range.start).unwrap();
     while !range.is_empty() {
         let txn = &history.entries[txn_idx];
@@ -23,7 +23,7 @@ pub(crate) fn advance_frontier_by(frontier: &mut LocalVersion, history: &Parents
     }
 }
 
-pub(crate) fn retreat_frontier_by(frontier: &mut LocalVersion, history: &Parents, mut range: DTRange) {
+pub fn retreat_version_by(frontier: &mut LocalVersion, history: &Parents, mut range: DTRange) {
     if range.is_empty() { return; }
 
     debug_assert_frontier_sorted(frontier.as_slice());
@@ -221,10 +221,10 @@ mod test {
             }
         ]);
 
-        retreat_frontier_by(&mut branch, &history, (5..10).into());
+        retreat_version_by(&mut branch, &history, (5..10).into());
         assert_eq!(branch.as_slice(), &[4]);
 
-        retreat_frontier_by(&mut branch, &history, (0..5).into());
+        retreat_version_by(&mut branch, &history, (0..5).into());
         assert!(branch.is_empty());
     }
 
@@ -249,16 +249,16 @@ mod test {
         ]);
 
         let mut branch: LocalVersion = smallvec![1, 10];
-        advance_frontier_by(&mut branch, &history, (2..4).into());
+        advance_version_by(&mut branch, &history, (2..4).into());
         assert_eq!(branch.as_slice(), &[1, 3, 10]);
 
-        advance_frontier_by(&mut branch, &history, (11..12).into());
+        advance_version_by(&mut branch, &history, (11..12).into());
         assert_eq!(branch.as_slice(), &[1, 3, 11]);
 
-        retreat_frontier_by(&mut branch, &history, (2..4).into());
+        retreat_version_by(&mut branch, &history, (2..4).into());
         assert_eq!(branch.as_slice(), &[1, 11]);
 
-        retreat_frontier_by(&mut branch, &history, (11..12).into());
+        retreat_version_by(&mut branch, &history, (11..12).into());
         assert_eq!(branch.as_slice(), &[1, 10]);
     }
 }

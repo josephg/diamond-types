@@ -11,6 +11,9 @@ mod eq;
 pub mod entry;
 pub mod summary;
 
+// TODO: Consider removing this now that ROOT is [].
+const ROOT_AGENT_NAME: &str = "ROOT";
+
 #[derive(Clone, Debug)]
 pub(crate) struct ClientData {
     /// Used to map from client's name / hash to its numerical ID.

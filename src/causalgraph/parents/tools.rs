@@ -6,7 +6,7 @@ use std::collections::BinaryHeap;
 use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
-use crate::frontier::{advance_frontier_by, debug_assert_frontier_sorted, frontier_is_sorted};
+use crate::frontier::{advance_version_by, debug_assert_frontier_sorted, frontier_is_sorted};
 use crate::causalgraph::parents::Parents;
 use crate::causalgraph::parents::tools::DiffFlag::*;
 use crate::dtrange::DTRange;
@@ -60,7 +60,7 @@ impl Parents {
             || (a != ROOT_TIME && a > b && self.entries.find(a).unwrap().contains(b))
     }
 
-    pub(crate) fn version_cmp(&self, v1: Time, v2: Time) -> Option<Ordering> {
+    pub fn version_cmp(&self, v1: Time, v2: Time) -> Option<Ordering> {
         match v1.cmp(&v2) {
             Ordering::Equal => Some(Ordering::Equal),
             Ordering::Less => {
@@ -148,7 +148,7 @@ impl Parents {
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
     ///
     /// Also find which operation is the greatest common ancestor.
-    pub(crate) fn diff(&self, a: &[Time], b: &[Time]) -> DiffResult {
+    pub fn diff(&self, a: &[Time], b: &[Time]) -> DiffResult {
         // First some simple short circuit checks to avoid needless work in common cases.
         // Note most of the time this method is called, one of these early short circuit cases will
         // fire.
@@ -263,27 +263,6 @@ impl Parents {
 
             // If there's only shared entries left, abort.
             if queue.len() == num_shared_entries { break; }
-        }
-    }
-
-    /// Given 2 versions, return a version which contains all the operations in both.
-    ///
-    /// TODO: This needs unit tests.
-    pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
-        // This method could be written to use diff_internal's closure. That would be faster, but it
-        // would probably add a fair bit of code size from monomorphizing for something thats just a
-        // utility method. So eh.
-        let (only_a, only_b) = self.diff(a, b);
-        if only_a.is_empty() {
-            b.into()
-        } else if only_b.is_empty() {
-            a.into()
-        } else {
-            let mut result = a.into();
-            for span in only_b {
-                advance_frontier_by(&mut result, self, span);
-            }
-            result
         }
     }
 
@@ -626,14 +605,19 @@ impl Parents {
     /// Given some disparate set of versions, figure out which versions are dominators - ie, the
     /// set of versions which "contains" the entire set of versions in their transitive dependency
     /// graph.
-    pub fn find_dominators_full<F>(&self, versions: &[Time], mut visit: F) where F: FnMut(Time, bool) {
-        match versions.len() {
-            0 => { return; },
-            1 => {
-                visit(versions[0], true);
+    ///
+    /// This function might be better written to output an iterator.
+    pub fn find_dominators_full<F, I>(&self, versions_iter: I, mut visit: F)
+        where F: FnMut(Time, bool), I: Iterator<Item=Time>
+    {
+        if let Some(max_size) = versions_iter.size_hint().1 {
+            if max_size <= 1 {
+                // All items are dominators.
+                for v in versions_iter {
+                    visit(v, true);
+                }
                 return;
             }
-            _ => {} // Continue below.
         }
 
         // Using the LSB in the data to encode whether this version was an input to the function.
@@ -644,33 +628,45 @@ impl Parents {
             (v_enc % 2 == 0, v_enc >> 1)
         }
 
-        let mut queue: BinaryHeap<usize> = versions.iter().copied().filter_map(|v| {
+        let mut inputs_remaining = 0;
+        let mut queue: BinaryHeap<usize> = versions_iter.filter_map(|v| {
+            // TODO: Consider just erroring on ROOT_TIME in versions.
             if v == ROOT_TIME { None } else {
                 if v >= usize::MAX / 2 { panic!("Cannot handle version beyond usize::MAX/2"); }
+                inputs_remaining += 1;
                 Some(enc_input(v))
             }
         }).collect();
 
-        let mut inputs_remaining = versions.len();
+        let mut last_emitted = usize::MAX;
         while let Some(v_enc) = queue.pop() {
             // dbg!(&queue, v_enc);
             let (is_input, v) = dec(v_enc);
 
             if is_input {
                 visit(v, true);
+                last_emitted = v;
                 inputs_remaining -= 1;
             }
 
             let e = self.entries.find_packed(v);
 
+            // println!("Pop {v} {is_input}");
+
             while let Some(&v2_enq) = queue.peek() {
                 let (is_input2, v2) = dec(v2_enq);
                 if v2 < e.span.start { break; } // We don't need is_input2 yet...
+                // println!("Peek {v2} {is_input2}");
                 // if v2 < (e.span.start * 2) { break; }
                 queue.pop();
 
                 if is_input2 {
-                    visit(v2, false);
+                    // TODO: Not sure what to do if the input data has duplicates. I think it makes
+                    // the most sense to transparently uniq() the output stream but ??.
+                    if last_emitted != v2 {
+                        visit(v2, false);
+                        last_emitted = v2;
+                    }
                     inputs_remaining -= 1;
                 }
             }
@@ -684,8 +680,12 @@ impl Parents {
     }
 
     pub fn find_dominators_rev(&self, versions: &[Time]) -> SmallVec<[Time; 4]> {
+        if versions.len() <= 1 {
+            return versions.into();
+        }
+
         let mut result = smallvec![];
-        self.find_dominators_full(versions, |v, is_input| {
+        self.find_dominators_full(versions.iter().copied(), |v, is_input| {
             if is_input {
                 result.push(v);
             }
@@ -696,6 +696,22 @@ impl Parents {
     pub fn find_dominators(&self, versions: &[Time]) -> SmallVec<[Time; 4]> {
         let mut result = self.find_dominators_rev(versions);
         result.reverse();
+        result
+    }
+
+    /// Given 2 versions, return a version which contains all the operations in both.
+    ///
+    /// TODO: This needs unit tests.
+    pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
+        let mut result = smallvec![];
+        self.find_dominators_full(
+            a.iter().copied().chain(b.iter().copied()),
+            |v, is_dom| {
+                if is_dom {
+                    result.push(v);
+                }
+            }
+        );
         result
     }
 }
@@ -1018,6 +1034,19 @@ pub mod test {
         assert_eq!(parents.find_dominators(&[ROOT_TIME]).as_slice(), &[ROOT_TIME]);
         assert_eq!(parents.find_dominators(&[ROOT_TIME, 0]).as_slice(), &[0]);
         assert_eq!(parents.find_dominators(&[ROOT_TIME, 0, 10]).as_slice(), &[10]);
+    }
+
+    #[test]
+    fn dominator_duplicates() {
+        let parents = fancy_parents();
+        assert_eq!(parents.find_dominators(&[1,1,1]).as_slice(), &[1]);
+        assert_eq!(parents.version_union(&[1], &[1]).as_slice(), &[1]);
+
+        let mut seen_1 = false;
+        parents.find_dominators_full((&[1,1,1]).iter().copied(), |v, d| {
+            if !seen_1 { seen_1 = true; }
+            else { panic!("Duplicate version!"); }
+        });
     }
 
     #[test]

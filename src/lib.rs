@@ -197,6 +197,7 @@ use crate::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 use crate::wal::WriteAheadLog;
 use num_enum::TryFromPrimitive;
+pub use ::rle::HasLength;
 
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
 
@@ -204,9 +205,9 @@ pub mod list;
 mod rle;
 mod dtrange;
 mod unicount;
-mod remotespan;
+pub mod remotespan;
 mod rev_range;
-mod frontier;
+pub mod frontier;
 mod oplog;
 mod check;
 mod branch;

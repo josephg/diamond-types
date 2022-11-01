@@ -9,7 +9,6 @@ use crate::frontier::clean_version;
 use crate::remotespan::{CRDT_DOC_ROOT, CRDTGuid};
 use crate::rle::RleSpanHelpers;
 
-
 impl ClientData {
     pub fn get_next_seq(&self) -> usize {
         if let Some(last) = self.item_times.last() {
@@ -50,7 +49,7 @@ impl CausalGraph {
         Self::default()
     }
 
-    pub(crate) fn get_agent_id(&self, name: &str) -> Option<AgentId> {
+    pub fn get_agent_id(&self, name: &str) -> Option<AgentId> {
         if name == "ROOT" { Some(ROOT_AGENT) }
         else {
             self.client_data.iter()
@@ -72,11 +71,13 @@ impl CausalGraph {
         }
     }
 
+    pub fn get_agent_name(&self, agent: AgentId) -> &str {
+        if agent == ROOT_AGENT { ROOT_AGENT_NAME }
+        else { self.client_data[agent as usize].name.as_str() }
+    }
+
     pub(crate) fn len_assignment(&self) -> usize {
         self.client_with_localtime.end()
-        // if let Some(last) = self.client_with_localtime.last() {
-        //     last.end()
-        // } else { 0 }
     }
 
     pub(crate) fn len_history(&self) -> usize {
@@ -142,7 +143,7 @@ impl CausalGraph {
         }));
     }
 
-    pub(crate) fn assign_op(&mut self, parents: &[Time], agent: AgentId, num: usize) -> DTRange {
+    pub fn assign_local_op(&mut self, parents: &[Time], agent: AgentId, num: usize) -> DTRange {
         if cfg!(debug_assertions) { self.check_flat(); }
 
         let start = self.len();
@@ -156,7 +157,7 @@ impl CausalGraph {
 
     /// An alternate variant of merge_and_assign which is slightly faster, but will panic if the
     /// specified span is already included in the causal graph.
-    pub(crate) fn merge_and_assign_nonoverlapping(&mut self, parents: &[Time], span: CRDTSpan) -> DTRange {
+    pub fn merge_and_assign_nonoverlapping(&mut self, parents: &[Time], span: CRDTSpan) -> DTRange {
         let time_start = self.len();
 
         // Agent ID must have already been assigned.
@@ -189,7 +190,7 @@ impl CausalGraph {
     /// all depend on the first).
     ///
     /// Method returns the
-    pub(crate) fn merge_and_assign(&mut self, mut parents: &[Time], mut span: CRDTSpan) -> DTRange {
+    pub fn merge_and_assign(&mut self, mut parents: &[Time], mut span: CRDTSpan) -> DTRange {
         let time_start = self.len();
 
         // The agent ID must already be assigned.

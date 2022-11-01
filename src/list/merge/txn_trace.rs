@@ -284,7 +284,7 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
         // in only_branch if the child has a parent in the middle of our txn.
         for range in &only_branch {
             // println!("Retreat branch {:?} by {:?}", &self.branch, range);
-            retreat_frontier_by(&mut self.frontier, self.history, *range);
+            retreat_version_by(&mut self.frontier, self.history, *range);
             // println!(" -> {:?}", &self.branch);
             // dbg!(&branch);
         }
@@ -295,7 +295,7 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
 
         for range in only_txn.iter().rev() {
             // println!("Advance branch by {:?}", range);
-            advance_frontier_by(&mut self.frontier, self.history, *range);
+            advance_version_by(&mut self.frontier, self.history, *range);
             // dbg!(&branch);
         }
 

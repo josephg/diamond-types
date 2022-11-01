@@ -193,7 +193,7 @@ fn check_unroll_works(dest: &ListOpLog, src: &ListOpLog) {
 
     // dbg!(encoded_proper.len());
     for i in 0..encoded_proper.len() {
-        // let i = 57;
+        // let i = 55;
         // println!("{i}");
         // We'll corrupt that byte and try to read the document back.
         let mut corrupted = encoded_proper.clone();
@@ -201,6 +201,7 @@ fn check_unroll_works(dest: &ListOpLog, src: &ListOpLog) {
         // dbg!(corrupted[i]);
 
         let mut actual_output = dest.clone();
+        // dbg!(&actual_output.cg);
 
         // In theory, we should always get an error here. But we don't, because the CRC check
         // is optional and the corrupted data can just remove the CRC check entirely!
@@ -211,10 +212,13 @@ fn check_unroll_works(dest: &ListOpLog, src: &ListOpLog) {
         });
 
         if let Err(_err) = result {
+            // dbg!(&actual_output.cg);
+            // dbg!(&dest.cg);
+
             assert_eq!(&actual_output, dest);
         } else {
-            dbg!(&actual_output);
-            dbg!(src);
+            // dbg!(&actual_output);
+            // dbg!(src);
             assert_eq!(&actual_output, src);
         }
         // Otherwise the data loaded correctly!

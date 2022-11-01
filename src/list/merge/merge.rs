@@ -19,7 +19,7 @@ use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::{DTRange, is_underwater, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, LocalVersion, ROOT_TIME, Time};
-use crate::frontier::{advance_frontier_by, frontier_is_sorted, local_version_eq};
+use crate::frontier::{advance_version_by, frontier_is_sorted, local_version_eq};
 use crate::causalgraph::parents::tools::DiffFlag;
 use crate::list::op_metrics::ListOpMetrics;
 use crate::list::buffered_iter::BufferedIter;
@@ -265,7 +265,7 @@ impl M2Tracker {
         if range.is_empty() { return; }
 
         if let Some(to) = to.as_deref_mut() {
-            advance_frontier_by(&mut to.version, &oplog.cg.parents, range);
+            advance_version_by(&mut to.version, &oplog.cg.parents, range);
         }
 
         let mut iter = oplog.iter_metrics_range(range);
@@ -789,7 +789,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             //
             // The walker can be unwrapped into its inner frontier, but that won't include
             // everything. (TODO: Look into fixing that?)
-            advance_frontier_by(&mut self.next_frontier, &self.oplog.cg.parents, walk.consume);
+            advance_version_by(&mut self.next_frontier, &self.oplog.cg.parents, walk.consume);
             self.op_iter = Some(self.oplog.iter_metrics_range(walk.consume).into());
         };
 
