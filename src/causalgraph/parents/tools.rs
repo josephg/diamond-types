@@ -24,19 +24,20 @@ pub(crate) enum DiffFlag { OnlyA, OnlyB, Shared }
 
 impl Parents {
     fn shadow_of(&self, time: LV) -> LV {
-        if time == ROOT_TIME {
-            ROOT_TIME
-        } else {
-            self.entries.find(time).unwrap().shadow
-        }
+        debug_assert_ne!(time, ROOT_TIME);
+        self.entries.find(time).unwrap().shadow
     }
 
     /// Does the frontier `[a]` contain `[b]` as a direct ancestor according to its shadow?
     fn txn_shadow_contains(&self, a: LV, b: LV) -> bool {
+        debug_assert_ne!(a, ROOT_TIME);
+        debug_assert_ne!(b, ROOT_TIME);
+
         // wrapping_add(1) so we compute ROOT correctly.
-        let a_1 = a.wrapping_add(1);
-        let b_1 = b.wrapping_add(1);
-        a_1 == b_1 || (a_1 > b_1 && self.shadow_of(a).wrapping_add(1) <= b_1)
+        a == b || (a > b && self.shadow_of(a) <= b)
+        // let a_1 = a.wrapping_add(1);
+        // let b_1 = b.wrapping_add(1);
+        // a_1 == b_1 || (a_1 > b_1 && self.shadow_of(a).wrapping_add(1) <= b_1)
     }
 
     /// This is similar to txn_shadow_contains, but it also checks that a doesn't have any other
@@ -49,15 +50,18 @@ impl Parents {
     ///  3
     /// ```
     ///
-    /// `txn_shadow_contains(3, 2)` is true, but `is_direct_descendant(3, 2)` is false.
+    /// `txn_shadow_contains(3, 2)` is true, but `is_direct_descendant_coarse(3, 2)` is false.
     ///
     /// See `diff_shadow_bubble` test below for an example.
     pub(crate) fn is_direct_descendant_coarse(&self, a: LV, b: LV) -> bool {
+        debug_assert_ne!(a, ROOT_TIME);
+        debug_assert_ne!(b, ROOT_TIME);
         // This is a bit more strict than we technically need, but its fast for short circuit
         // evaluation.
-        a == b
-            || (b == ROOT_TIME && self.txn_shadow_contains(a, ROOT_TIME))
-            || (a != ROOT_TIME && a > b && self.entries.find(a).unwrap().contains(b))
+        a == b || (a > b && self.entries.find(a).unwrap().contains(b))
+        // a == b
+        //     || (b == ROOT_TIME && self.txn_shadow_contains(a, ROOT_TIME))
+        //     || (a != ROOT_TIME && a > b && self.entries.find(a).unwrap().contains(b))
     }
 
     pub fn version_cmp(&self, v1: LV, v2: LV) -> Option<Ordering> {
@@ -82,7 +86,8 @@ impl Parents {
 
     /// Calculates whether the specified version contains (dominates) the specified time.
     pub(crate) fn version_contains_time(&self, frontier: &[LV], target: LV) -> bool {
-        if target == ROOT_TIME || frontier.contains(&target) { return true; }
+        debug_assert_ne!(target, ROOT_TIME);
+        if frontier.contains(&target) { return true; }
         if frontier.is_empty() { return false; }
 
         // Fast path. This causes extra calls to find_packed(), but you usually have a branch with
@@ -309,7 +314,7 @@ impl Parents {
 
                 let mut result = Self {
                     // Bleh.
-                    last: *version.last().unwrap_or(&ROOT_TIME),
+                    last: *version.last().unwrap_or(&usize::MAX),
                     merged_with: if version.len() > 1 {
                         SmallVec::from_slice(&version[..version.len() - 1])
                     } else {
@@ -332,7 +337,7 @@ impl Parents {
             let t = time.last;
             // dbg!((&time, flag));
 
-            if t == ROOT_TIME { break smallvec![]; }
+            if t == usize::MAX { break smallvec![]; }
 
             // Discard duplicate entries.
 
@@ -373,7 +378,7 @@ impl Parents {
                 if let Some((peek_time, _peek_flag)) = queue.peek() {
                     // println!("peek {:?}", &peek_time);
                     // Might be simpler to use containing_txn.contains(peek_time.last).
-                    if peek_time.last != ROOT_TIME && peek_time.last >= containing_txn.span.start {
+                    if peek_time.last != usize::MAX && peek_time.last >= containing_txn.span.start {
                         // The next item is within this txn. Consume it.
                         // dbg!((&peek_time, peek_flag));
                         let (time, next_flag) = queue.pop().unwrap();
@@ -437,11 +442,12 @@ impl Parents {
             return a.into();
         }
 
-        if a.len() <= 1 && b.len() <= 1 {
+        if a.len() == 1 && b.len() == 1 {
             // Check if either operation naively dominates the other. We could do this for more
             // cases, but we may as well use the code below instead.
-            let a = *a.get(0).unwrap_or(&ROOT_TIME); // This is a bit gross.
-            let b = *b.get(0).unwrap_or(&ROOT_TIME);
+
+            let a = a[0];
+            let b = b[0];
 
             if self.is_direct_descendant_coarse(a, b) {
                 // a >= b.
@@ -479,6 +485,8 @@ impl Parents {
     }
 
     pub(crate) fn version_in_scope(&self, version: &[LV], info: &ScopedParents) -> Option<LocalFrontier> {
+        debug_assert_ne!(info.created_at, ROOT_TIME);
+
         // If v == creation time, its a bit hacky but I still consider that a valid version, because
         // the CRDT has a value then (the default value for the CRDT).
         debug_assert_frontier_sorted(version);
@@ -629,13 +637,11 @@ impl Parents {
         }
 
         let mut inputs_remaining = 0;
-        let mut queue: BinaryHeap<usize> = versions_iter.filter_map(|v| {
-            // TODO: Consider just erroring on ROOT_TIME in versions.
-            if v == ROOT_TIME { None } else {
-                if v >= usize::MAX / 2 { panic!("Cannot handle version beyond usize::MAX/2"); }
-                inputs_remaining += 1;
-                Some(enc_input(v))
-            }
+        let mut queue: BinaryHeap<usize> = versions_iter.map(|v| {
+            debug_assert_ne!(v, ROOT_TIME);
+            if v >= usize::MAX / 2 { panic!("Cannot handle version beyond usize::MAX/2"); }
+            inputs_remaining += 1;
+            enc_input(v)
         }).collect();
 
         let mut last_emitted = usize::MAX;
@@ -726,7 +732,7 @@ pub mod test {
     use crate::causalgraph::parents::tools::DiffFlag::*;
     use crate::dtrange::DTRange;
     use crate::rle::RleVec;
-    use crate::{LocalFrontier, ROOT_TIME, LV};
+    use crate::{LocalFrontier, LV};
     use crate::causalgraph::parents::tools::{DiffFlag, DiffResult};
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
@@ -987,9 +993,8 @@ pub mod test {
 
         let history = fancy_parents();
 
-        assert_version_contains_time(&history, &[], ROOT_TIME, true);
+        assert_version_contains_time(&history, &[], 0, false);
         assert_version_contains_time(&history, &[0], 0, true);
-        assert_version_contains_time(&history, &[0], ROOT_TIME, true);
 
         assert_version_contains_time(&history, &[2], 0, true);
         assert_version_contains_time(&history, &[2], 1, true);
@@ -1024,6 +1029,7 @@ pub mod test {
         assert_eq!(parents.find_dominators(&[5, 9]).as_slice(), &[5, 9]);
         assert_eq!(parents.find_dominators(&[1, 2]).as_slice(), &[2]);
         assert_eq!(parents.find_dominators(&[0, 2]).as_slice(), &[2]);
+        assert_eq!(parents.find_dominators(&[0, 10]).as_slice(), &[10]);
         assert_eq!(parents.find_dominators(&[]).len(), 0);
         assert_eq!(parents.find_dominators(&[2]).as_slice(), &[2]);
         assert_eq!(parents.find_dominators(&[1, 4]).as_slice(), &[1, 4]);
@@ -1031,9 +1037,7 @@ pub mod test {
         assert_eq!(parents.find_dominators(&[9, 2, 8]).as_slice(), &[9]);
         assert_eq!(parents.find_dominators(&[9, 2, 7]).as_slice(), &[9]);
         assert_eq!(parents.find_dominators(&[6, 7]).as_slice(), &[7]);
-        assert_eq!(parents.find_dominators(&[ROOT_TIME]).as_slice(), &[ROOT_TIME]);
-        assert_eq!(parents.find_dominators(&[ROOT_TIME, 0]).as_slice(), &[0]);
-        assert_eq!(parents.find_dominators(&[ROOT_TIME, 0, 10]).as_slice(), &[10]);
+        assert_eq!(parents.find_dominators(&[0]).as_slice(), &[0]);
     }
 
     #[test]

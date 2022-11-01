@@ -80,18 +80,9 @@ impl ListOpLog {
 
     /// **NOTE:** This method will return a timespan with length min(time, agent_time). The
     /// resulting length will NOT be guaranteed to be the same as the input.
-    pub(crate) fn get_crdt_span(&self, time: DTRange) -> CRDTSpan {
+    pub(crate) fn get_crdt_span(&self, version: DTRange) -> CRDTSpan {
         // TODO: Move to cg.
-        if time.start == ROOT_TIME { CRDTSpan { agent: ROOT_AGENT, seq_range: Default::default() } }
-        else {
-            let (loc, offset) = self.cg.client_with_localtime.find_packed_with_offset(time.start);
-            let start = loc.1.seq_range.start + offset;
-            let end = usize::min(loc.1.seq_range.end, start + time.len());
-            CRDTSpan {
-                agent: loc.1.agent,
-                seq_range: DTRange { start, end }
-            }
-        }
+        self.cg.version_span_to_crdt_span(version)
     }
 
     // pub(crate) fn get_time(&self, loc: CRDTId) -> usize {

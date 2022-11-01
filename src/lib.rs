@@ -221,7 +221,9 @@ mod wal;
 pub(crate) mod serde;
 
 pub type AgentId = u32;
+// #[deprecated]
 const ROOT_AGENT: AgentId = AgentId::MAX;
+// #[deprecated]
 const ROOT_TIME: usize = usize::MAX;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit

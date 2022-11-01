@@ -74,19 +74,13 @@ impl Parents {
             let mut parents = clone_smallvec(&hist.parents);
             let mut expect_shadow = hist.span.start;
 
-            // The first txn *must* have ROOT as a parent, so 0 should never show up in shadow.
-            assert_ne!(hist.shadow, 0);
-
             // Check our child_indexes all contain this item in their parents list.
             for child_idx in &hist.child_indexes {
                 let child = &self.entries.0[*child_idx];
                 assert!(child.parents.iter().any(|p| hist.contains(*p)));
             }
 
-            if parents.is_empty() {
-                if hist.span.start == 0 { expect_shadow = usize::MAX; }
-                // assert!(hist.parent_indexes.is_empty());
-            } else {
+            if !parents.is_empty() {
                 // We'll resort parents into descending order.
                 parents.sort_unstable_by(|a, b| b.cmp(a)); // descending order
 

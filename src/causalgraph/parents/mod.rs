@@ -79,8 +79,6 @@ impl Parents {
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
             shadow = self.entries.find(shadow - 1).unwrap().shadow;
         }
-        // TODO: Consider not doing this, and just having 0 mean "start of recorded time" here.
-        if shadow == 0 { shadow = usize::MAX; }
 
         let will_merge = if let Some(last) = self.entries.last() {
             // TODO: Is this shadow check necessary?
