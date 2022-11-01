@@ -2,7 +2,7 @@
 
 use crate::causalgraph::remotespan::CRDTGuid;
 use crate::list::ListOpLog;
-use crate::Time;
+use crate::LV;
 
 impl ListOpLog {
 
@@ -40,7 +40,7 @@ impl ListOpLog {
         // If we have no changes, just return the empty set. Descending from ROOT is implied anyway.
         if time_len == 0 { return result; }
 
-        let mut push_time = |t: Time| {
+        let mut push_time = |t: LV| {
             result.push(self.cg.version_to_crdt_id(t));
         };
 

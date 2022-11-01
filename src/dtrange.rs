@@ -5,7 +5,7 @@ use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
 
 use crate::rle::RleKeyed;
 use std::ops::{Range, RangeBounds};
-use crate::Time;
+use crate::LV;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
@@ -62,7 +62,7 @@ impl DTRange {
         else { None }
     }
 
-    pub fn partial_cmp_time(&self, time: Time) -> Ordering {
+    pub fn partial_cmp_time(&self, time: LV) -> Ordering {
         if time < self.start { Ordering::Less }
         else if time >= self.end { Ordering::Greater }
         else { Ordering::Equal }
@@ -194,7 +194,7 @@ impl RleKeyed for DTRange {
 
 pub(crate) const UNDERWATER_START: usize = usize::MAX / 4;
 
-pub(crate) fn is_underwater(time: Time) -> bool {
+pub(crate) fn is_underwater(time: LV) -> bool {
     time >= UNDERWATER_START
 }
 
@@ -207,7 +207,7 @@ impl Debug for RootTime {
     }
 }
 
-pub(crate) fn debug_time_raw<F: FnOnce(&dyn Debug) -> R, R>(val: Time, f: F) -> R {
+pub(crate) fn debug_time_raw<F: FnOnce(&dyn Debug) -> R, R>(val: LV, f: F) -> R {
     const LAST_TIME: usize = ROOT_TIME - 1;
     match val {
         usize::MAX => {
@@ -222,7 +222,7 @@ pub(crate) fn debug_time_raw<F: FnOnce(&dyn Debug) -> R, R>(val: Time, f: F) -> 
     }
 }
 
-pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: Time) {
+pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: LV) {
     debug_time_raw(val, |v| { fmt.field(name, v); });
 }
 

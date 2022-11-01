@@ -4,7 +4,7 @@ use rand::Rng;
 use smallvec::smallvec;
 use rle::MergeableIterator;
 use rle::zip::{rle_zip, rle_zip3};
-use crate::{AgentId, Time};
+use crate::{AgentId, LV};
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
 
 const USE_UNICODE: bool = true;
@@ -30,7 +30,7 @@ pub(crate) fn random_str(len: usize, rng: &mut SmallRng) -> String {
     str
 }
 
-pub(crate) fn make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch, mut rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> Time {
+pub(crate) fn make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch, mut rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> LV {
     let doc_len = branch.len();
     let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
     let v = if doc_len == 0 || rng.gen_bool(insert_weight) {

@@ -2,7 +2,7 @@ use std::ops::Range;
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, Searchable};
-use crate::{AgentId, LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
+use crate::{AgentId, LocalFrontier, ROOT_AGENT, ROOT_TIME, LV};
 use crate::causalgraph::ClientData;
 use crate::list::{ListBranch, ListOpLog};
 use crate::frontier::{advance_version_by_known_run, clone_smallvec};
@@ -34,7 +34,7 @@ impl ListOpLog {
         }
     }
 
-    pub fn checkout(&self, local_version: &[Time]) -> ListBranch {
+    pub fn checkout(&self, local_version: &[LV]) -> ListBranch {
         let mut branch = ListBranch::new();
         branch.merge(self, local_version);
         branch
@@ -63,7 +63,7 @@ impl ListOpLog {
     }
 
     #[allow(unused)]
-    pub(crate) fn crdt_id_to_time(&self, id: CRDTGuid) -> Time {
+    pub(crate) fn crdt_id_to_time(&self, id: CRDTGuid) -> LV {
         // if id.agent == ROOT_AGENT {
         //     ROOT_TIME
         // } else {
@@ -74,7 +74,7 @@ impl ListOpLog {
     }
 
     #[allow(unused)]
-    pub(crate) fn try_crdt_id_to_time(&self, id: CRDTGuid) -> Option<Time> {
+    pub(crate) fn try_crdt_id_to_time(&self, id: CRDTGuid) -> Option<LV> {
         self.cg.try_crdt_id_to_version(id)
     }
 
@@ -122,7 +122,7 @@ impl ListOpLog {
 
     // This is a modified version of assign_next_time_to_client_known to support arbitrary CRDTSpans
     // loaded from remote peers / files.
-    pub(crate) fn assign_time_to_crdt_span(&mut self, start: Time, span: CRDTSpan) {
+    pub(crate) fn assign_time_to_crdt_span(&mut self, start: LV, span: CRDTSpan) {
         debug_assert_eq!(start, self.cg.len_assignment());
 
         let CRDTSpan { agent, seq_range } = span;
@@ -166,7 +166,7 @@ impl ListOpLog {
     // }
 
     /// Advance self.frontier by the named span of time.
-    pub(crate) fn advance_frontier(&mut self, parents: &[Time], span: DTRange) {
+    pub(crate) fn advance_frontier(&mut self, parents: &[LV], span: DTRange) {
         advance_version_by_known_run(&mut self.version, parents, span);
     }
 
@@ -174,7 +174,7 @@ impl ListOpLog {
     ///
     /// NOTE: This method is destructive on its own. It must be paired with assign_internal() or
     /// something like that.
-    pub(crate) fn push_op_internal(&mut self, next_time: Time, loc: RangeRev, kind: ListOpKind, content: Option<&str>) {
+    pub(crate) fn push_op_internal(&mut self, next_time: LV, loc: RangeRev, kind: ListOpKind, content: Option<&str>) {
         // next_time should almost always be self.len - except when loading, or modifying the data
         // in some complex way.
         let content_pos = if let Some(c) = content {
@@ -189,7 +189,7 @@ impl ListOpLog {
         }));
     }
 
-    fn assign_internal(&mut self, agent: AgentId, parents: &[Time], span: DTRange) {
+    fn assign_internal(&mut self, agent: AgentId, parents: &[LV], span: DTRange) {
         self.assign_next_time_to_client_known(agent, span);
         self.cg.parents.push(parents, span);
         self.advance_frontier(parents, span);
@@ -199,7 +199,7 @@ impl ListOpLog {
     ///
     /// Returns the single item version after merging. (The resulting LocalVersion after calling
     /// this method will be `[time]`).
-    pub fn add_operations_at(&mut self, agent: AgentId, parents: &[Time], ops: &[TextOperation]) -> Time {
+    pub fn add_operations_at(&mut self, agent: AgentId, parents: &[LV], ops: &[TextOperation]) -> LV {
         let first_time = self.len();
         let mut next_time = first_time;
 
@@ -217,7 +217,7 @@ impl ListOpLog {
     }
 
     /// Returns the single item localtime after the inserted change.
-    pub fn add_insert_at(&mut self, agent: AgentId, parents: &[Time], pos: usize, ins_content: &str) -> Time {
+    pub fn add_insert_at(&mut self, agent: AgentId, parents: &[LV], pos: usize, ins_content: &str) -> LV {
         // This could just call add_operations_at() but this is significantly faster according to benchmarks.
         // Equivalent to:
         // self.add_operations_at(agent, parents, &[Operation::new_insert(pos, ins_content)])
@@ -234,7 +234,7 @@ impl ListOpLog {
     /// in the passed range.
     ///
     /// Returns the single item localtime after the inserted change.
-    pub fn add_delete_at(&mut self, agent: AgentId, parents: &[Time], loc: Range<usize>) -> Time {
+    pub fn add_delete_at(&mut self, agent: AgentId, parents: &[LV], loc: Range<usize>) -> LV {
         // Equivalent to:
         // self.push_at(agent, parents, &[Operation::new_delete(pos, len)])
         let start_time = self.len();
@@ -257,7 +257,7 @@ impl ListOpLog {
     /// - Store the operation's parents as the most recent known version. (Use
     /// [`branch.apply_local_operations`](Branch::apply_local_operations) instead when pushing to a
     /// branch).
-    pub fn add_operations(&mut self, agent: AgentId, ops: &[TextOperation]) -> Time {
+    pub fn add_operations(&mut self, agent: AgentId, ops: &[TextOperation]) -> LV {
         // TODO: Rewrite this to avoid the .clone().
         let frontier = clone_smallvec(&self.version);
         self.add_operations_at(agent, &frontier, ops)
@@ -268,7 +268,7 @@ impl ListOpLog {
     /// Returns the single item localtime after the inserted change.
     /// This is a shorthand for `oplog.push(agent, *insert(pos, content)*)`
     /// TODO: Optimize these functions like push_insert_at / push_delete_at.
-    pub fn add_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
+    pub fn add_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> LV {
         self.add_operations(agent, &[TextOperation::new_insert(pos, ins_content)])
     }
 
@@ -283,14 +283,14 @@ impl ListOpLog {
     /// # Safety
     /// The deleted content must match the content in the document at that range, at the
     /// current time.
-    pub unsafe fn add_delete_with_unchecked_content(&mut self, agent: AgentId, pos: usize, del_content: &str) -> Time {
+    pub unsafe fn add_delete_with_unchecked_content(&mut self, agent: AgentId, pos: usize, del_content: &str) -> LV {
         self.add_operations(agent, &[TextOperation::new_delete_with_content(pos, del_content.into())])
     }
 
     /// Add a local delete operation to the oplog.
     /// Returns the single item frontier after the inserted change.
     /// This is a shorthand for `oplog.push(agent, *delete(pos, del_span)*)`
-    pub fn add_delete_without_content(&mut self, agent: AgentId, loc: Range<usize>) -> Time {
+    pub fn add_delete_without_content(&mut self, agent: AgentId, loc: Range<usize>) -> LV {
         self.add_operations(agent, &[TextOperation::new_delete(loc)])
     }
 
@@ -308,13 +308,13 @@ impl ListOpLog {
     ///
     /// This method is provided alongside [`local_version`](OpLog::local_version) because its
     /// slightly faster.
-    pub fn local_version_ref(&self) -> &[Time] {
+    pub fn local_version_ref(&self) -> &[LV] {
         &self.version
     }
 
     /// Return the current tip version of the oplog. This is the version which contains all
     /// operations in the oplog.
-    pub fn local_version(&self) -> LocalVersion {
+    pub fn local_version(&self) -> LocalFrontier {
         clone_smallvec(&self.version)
     }
 
@@ -388,7 +388,7 @@ impl ListOpLog {
 
     /// Check if the specified version contains the specified point in time.
     // Exported for the fuzzer. Not sure if I actually want this exposed.
-    pub fn version_contains_time(&self, local_version: &[Time], target: Time) -> bool {
+    pub fn version_contains_time(&self, local_version: &[LV], target: LV) -> bool {
         if local_version.is_empty() { true }
         else { self.cg.parents.version_contains_time(local_version, target) }
     }
@@ -409,11 +409,11 @@ impl ListOpLog {
     /// changes, and returns the version name for that union. `version_union(a, b)` will often
     /// simply return `a` or `b`. This happens when one of the versions is a strict subset of the
     /// other.
-    pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
+    pub fn version_union(&self, a: &[LV], b: &[LV]) -> LocalFrontier {
         self.cg.parents.version_union(a, b)
     }
 
-    pub fn parents_at_time(&self, time: Time) -> LocalVersion {
+    pub fn parents_at_time(&self, time: LV) -> LocalFrontier {
         self.cg.parents.parents_at_time(time)
     }
 }

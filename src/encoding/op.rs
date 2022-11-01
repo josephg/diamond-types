@@ -2,7 +2,7 @@ use bumpalo::Bump;
 use bumpalo::collections::vec::Vec as BumpVec;
 use rle::Searchable;
 use crate::encoding::Merger;
-use crate::{CausalGraph, KVPair, ListOperationCtx, ListOpMetrics, Op, OpContents, CreateValue, SetOp, Time};
+use crate::{CausalGraph, KVPair, ListOperationCtx, ListOpMetrics, Op, OpContents, CreateValue, SetOp, LV};
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::parseerror::ParseError;
@@ -12,7 +12,7 @@ use crate::list::operation::ListOpKind;
 use crate::oplog::ROOT_MAP;
 use crate::rle::RleSpanHelpers;
 
-fn write_time(result: &mut BumpVec<u8>, time: Time, ref_time: Time, write_map: &WriteMap, cg: &CausalGraph) {
+fn write_time(result: &mut BumpVec<u8>, time: LV, ref_time: LV, write_map: &WriteMap, cg: &CausalGraph) {
     debug_assert!(ref_time >= time);
 
     // This code is adapted from parents encoding.
@@ -143,7 +143,7 @@ fn op_type(c: &OpContents) -> u32 {
 }
 
 fn write_op(result: &mut BumpVec<u8>, content_out: &mut BumpVec<u8>,
-            expect_time: Time, last_crdt_id: Time, pair: &KVPair<Op>,
+            expect_time: LV, last_crdt_id: LV, pair: &KVPair<Op>,
             list_ctx: &ListOperationCtx, write_map: &WriteMap, cg: &CausalGraph)
 {
     let KVPair(time, op) = pair;
@@ -189,7 +189,7 @@ fn write_op(result: &mut BumpVec<u8>, content_out: &mut BumpVec<u8>,
     }
 }
 
-pub(crate) fn write_ops<'a, I: Iterator<Item = KVPair<Op>>>(bump: &'a Bump, iter: I, first_time: Time, write_map: &WriteMap, ctx: &ListOperationCtx, cg: &CausalGraph) -> BumpVec<'a, u8> {
+pub(crate) fn write_ops<'a, I: Iterator<Item = KVPair<Op>>>(bump: &'a Bump, iter: I, first_time: LV, write_map: &WriteMap, ctx: &ListOperationCtx, cg: &CausalGraph) -> BumpVec<'a, u8> {
     let mut result = BumpVec::new_in(bump);
     let mut content_out = BumpVec::new_in(bump);
     let mut last_crdt_id = ROOT_MAP;

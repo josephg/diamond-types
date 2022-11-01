@@ -6,7 +6,7 @@ use crate::frontier::*;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::rev_range::RangeRev;
-use crate::{AgentId, LocalVersion, Time};
+use crate::{AgentId, LocalFrontier, LV};
 use crate::unicount::*;
 use rle::*;
 use crate::list::buffered_iter::Buffered;
@@ -68,8 +68,8 @@ impl<'a> BufReader<'a> {
         }))
     }
 
-    fn read_version(mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
-        let mut result = LocalVersion::new();
+    fn read_version(mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalFrontier, ParseError> {
+        let mut result = LocalFrontier::new();
         // All frontiers contain at least one item.
         loop {
             // let agent = reader.next_str()?;
@@ -94,7 +94,7 @@ impl<'a> BufReader<'a> {
         Ok(result)
     }
 
-    fn read_parents(&mut self, oplog: &ListOpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<SmallVec<[usize; 2]>, ParseError> {
+    fn read_parents(&mut self, oplog: &ListOpLog, next_time: LV, agent_map: &[(AgentId, usize)]) -> Result<SmallVec<[usize; 2]>, ParseError> {
         let mut parents = SmallVec::<[usize; 2]>::new();
         loop {
             let mut n = self.next_usize()?;
@@ -138,7 +138,7 @@ impl<'a> BufReader<'a> {
         Ok(parents)
     }
 
-    fn next_history_entry(&mut self, oplog: &ListOpLog, next_time: Time, agent_map: &[(AgentId, usize)]) -> Result<ParentsEntrySimple, ParseError> {
+    fn next_history_entry(&mut self, oplog: &ListOpLog, next_time: LV, agent_map: &[(AgentId, usize)]) -> Result<ParentsEntrySimple, ParseError> {
         let len = self.next_usize()?;
         let parents = self.read_parents(oplog, next_time, agent_map)?;
 
@@ -152,7 +152,7 @@ impl<'a> BufReader<'a> {
 }
 
 impl<'a> ChunkReader<'a> {
-    fn read_version(&mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalVersion, ParseError> {
+    fn read_version(&mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalFrontier, ParseError> {
         let chunk = self.read_chunk_if_eq(ListChunkType::Version)?;
         if let Some(chunk) = chunk {
             chunk.read_version(oplog, agent_map).map_err(|e| {
@@ -464,7 +464,7 @@ impl ListOpLog {
     ///
     /// This method is a convenience method for calling
     /// [`oplog.decode_and_add_opts(data, DecodeOptions::default())`](OpLog::decode_and_add_opts).
-    pub fn decode_and_add(&mut self, data: &[u8]) -> Result<LocalVersion, ParseError> {
+    pub fn decode_and_add(&mut self, data: &[u8]) -> Result<LocalFrontier, ParseError> {
         self.decode_and_add_opts(data, DecodeOptions::default())
     }
 
@@ -475,7 +475,7 @@ impl ListOpLog {
     ///
     /// This method takes an options object, which for now doesn't do much. Most users should just
     /// call [`OpLog::decode_and_add`](OpLog::decode_and_add)
-    pub fn decode_and_add_opts(&mut self, data: &[u8], opts: DecodeOptions) -> Result<LocalVersion, ParseError> {
+    pub fn decode_and_add_opts(&mut self, data: &[u8], opts: DecodeOptions) -> Result<LocalFrontier, ParseError> {
         // In order to merge data safely, when an error happens we need to unwind all the merged
         // operations before returning. Otherwise self is in an invalid state.
         //
@@ -589,7 +589,7 @@ impl ListOpLog {
     /// NOTE: This code is quite new.
     /// TODO: Currently if this method returns an error, the local state is undefined & invalid.
     /// Until this is fixed, the signature of the method will stay kinda weird to prevent misuse.
-    fn decode_internal(&mut self, data: &[u8], opts: DecodeOptions) -> Result<LocalVersion, ParseError> {
+    fn decode_internal(&mut self, data: &[u8], opts: DecodeOptions) -> Result<LocalFrontier, ParseError> {
         // Written to be symmetric with encode functions.
         let mut reader = BufReader(data);
 

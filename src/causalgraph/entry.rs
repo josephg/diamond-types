@@ -1,11 +1,11 @@
 use smallvec::smallvec;
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
-use crate::{CRDTSpan, DTRange, LocalVersion, Time};
+use crate::{CRDTSpan, DTRange, LocalFrontier, LV};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CGEntry {
-    pub start: Time,
-    pub parents: LocalVersion,
+    pub start: LV,
+    pub parents: LocalFrontier,
     pub span: CRDTSpan,
 }
 

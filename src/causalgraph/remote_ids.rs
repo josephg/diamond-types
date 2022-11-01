@@ -5,7 +5,7 @@ use smartstring::alias::String as SmartString;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::dtrange::DTRange;
-use crate::{CausalGraph, CRDTSpan, LocalVersion, ROOT_AGENT, ROOT_TIME, Time};
+use crate::{CausalGraph, CRDTSpan, LocalFrontier, ROOT_AGENT, ROOT_TIME, LV};
 use crate::frontier::clean_version;
 use crate::causalgraph::remotespan::CRDTGuid;
 
@@ -75,7 +75,7 @@ pub enum ConversionError {
 }
 
 impl CausalGraph {
-    pub fn try_remote_to_local_time(&self, id: &RemoteId) -> Result<Time, ConversionError> {
+    pub fn try_remote_to_local_time(&self, id: &RemoteId) -> Result<LV, ConversionError> {
         let agent = self.get_agent_id(id.agent.as_str())
             .ok_or(ConversionError::UnknownAgent)?;
 
@@ -88,7 +88,7 @@ impl CausalGraph {
     }
 
     /// This panics if the ID isn't known to the document.
-    pub fn remote_to_local_time(&self, id: &RemoteId) -> Time {
+    pub fn remote_to_local_time(&self, id: &RemoteId) -> LV {
         let agent = self.get_agent_id(id.agent.as_str()).unwrap();
 
         if agent == ROOT_AGENT { ROOT_TIME }
@@ -111,7 +111,7 @@ impl CausalGraph {
         }
     }
 
-    pub fn local_to_remote_time(&self, time: Time) -> RemoteId {
+    pub fn local_to_remote_time(&self, time: LV) -> RemoteId {
         let crdt_id = self.version_to_crdt_id(time);
         self.crdt_id_to_remote(crdt_id)
     }
@@ -123,17 +123,17 @@ impl CausalGraph {
         self.crdt_span_to_remote(crdt_span)
     }
 
-    pub fn try_remote_to_local_version<'a, I: Iterator<Item=&'a RemoteId> + 'a>(&self, ids_iter: I) -> Result<LocalVersion, ConversionError> {
-        let mut version: LocalVersion = ids_iter
+    pub fn try_remote_to_local_version<'a, I: Iterator<Item=&'a RemoteId> + 'a>(&self, ids_iter: I) -> Result<LocalFrontier, ConversionError> {
+        let mut version: LocalFrontier = ids_iter
             .map(|remote_id| self.try_remote_to_local_time(remote_id))
-            .collect::<Result<LocalVersion, ConversionError>>()?;
+            .collect::<Result<LocalFrontier, ConversionError>>()?;
 
         clean_version(&mut version);
         Ok(version)
     }
 
-    pub fn remote_to_local_version<'a, I: Iterator<Item=&'a RemoteId> + 'a>(&self, ids_iter: I) -> LocalVersion {
-        let mut version: LocalVersion = ids_iter
+    pub fn remote_to_local_version<'a, I: Iterator<Item=&'a RemoteId> + 'a>(&self, ids_iter: I) -> LocalFrontier {
+        let mut version: LocalFrontier = ids_iter
             .map(|remote_id| self.remote_to_local_time(remote_id))
             .collect();
 
@@ -141,7 +141,7 @@ impl CausalGraph {
         version
     }
 
-    pub fn local_to_remote_version(&self, local_version: &[Time]) -> SmallVec<[RemoteId; 4]> {
+    pub fn local_to_remote_version(&self, local_version: &[LV]) -> SmallVec<[RemoteId; 4]> {
         // Could return an impl Iterator here instead.
         local_version
             .iter()

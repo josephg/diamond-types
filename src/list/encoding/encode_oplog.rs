@@ -5,7 +5,7 @@ use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::list::{ListBranch, ListOpLog, switch};
 use crate::rle::{KVPair, RleVec};
-use crate::{AgentId, ROOT_AGENT, Time};
+use crate::{AgentId, ROOT_AGENT, LV};
 use crate::frontier::local_version_is_root;
 use crate::list::op_metrics::ListOpMetrics;
 use crate::list::operation::ListOpKind;
@@ -235,7 +235,7 @@ impl AgentMapping {
     }
 }
 
-fn write_local_version(dest: &mut Vec<u8>, version: &[Time], map: &mut AgentMapping, oplog: &ListOpLog) {
+fn write_local_version(dest: &mut Vec<u8>, version: &[LV], map: &mut AgentMapping, oplog: &ListOpLog) {
     // Skip writing a version chunk if the version is ROOT.
     if local_version_is_root(version) {
         return;
@@ -396,7 +396,7 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
 impl ListOpLog {
     /// Encode the data stored in the OpLog into a (custom) compact binary form suitable for saving
     /// to disk, or sending over the network.
-    pub fn encode_from(&self, opts: EncodeOptions, from_version: &[Time]) -> Vec<u8> {
+    pub fn encode_from(&self, opts: EncodeOptions, from_version: &[LV]) -> Vec<u8> {
         // if !frontier_is_root(from_frontier) {
         //     unimplemented!("Encoding from a non-root frontier is not implemented");
         // }

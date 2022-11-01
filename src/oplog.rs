@@ -18,12 +18,12 @@ use crate::rle::{RleKeyed, RleSpanHelpers};
 use crate::unicount::count_chars;
 use crate::wal::WALError;
 
-pub const ROOT_MAP: Time = Time::MAX;
+pub const ROOT_MAP: LV = LV::MAX;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 enum PathElement {
-    CRDT(Time),
-    MapValue(Time, SmartString),
+    CRDT(LV),
+    MapValue(LV, SmartString),
 }
 
 impl OpLog {
@@ -69,29 +69,29 @@ impl OpLog {
         span
     }
 
-    fn inner_assign_local_op(&mut self, agent_id: AgentId) -> Time {
+    fn inner_assign_local_op(&mut self, agent_id: AgentId) -> LV {
         self.inner_assign_local_op_span(agent_id, 1).start
     }
 
 
-    fn inner_assign_remote_op_span(&mut self, parents: &[Time], crdt_span: CRDTSpan) -> DTRange {
+    fn inner_assign_remote_op_span(&mut self, parents: &[LV], crdt_span: CRDTSpan) -> DTRange {
         let time_span = self.cg.merge_and_assign_nonoverlapping(parents, crdt_span);
         advance_version_by_known_run(&mut self.version, parents, time_span);
         time_span
     }
 
-    fn inner_assign_remote_op(&mut self, parents: &[Time], id: CRDTGuid) -> Time {
+    fn inner_assign_remote_op(&mut self, parents: &[LV], id: CRDTGuid) -> LV {
         self.inner_assign_remote_op_span(parents, id.into()).start
     }
 
-    pub(crate) fn push_local_op(&mut self, agent_id: AgentId, crdt_id: Time, contents: OpContents) -> DTRange {
+    pub(crate) fn push_local_op(&mut self, agent_id: AgentId, crdt_id: LV, contents: OpContents) -> DTRange {
         let len = contents.len();
         let time_span = self.inner_assign_local_op_span(agent_id, len);
         self.uncommitted_ops.ops.push(KVPair(time_span.start, Op { target_id: crdt_id, contents}));
         time_span
     }
 
-    pub(crate) fn push_remote_op(&mut self, parents: &[Time], op_id: CRDTSpan, crdt_id: CRDTGuid, contents: OpContents) -> (DTRange, Time) {
+    pub(crate) fn push_remote_op(&mut self, parents: &[LV], op_id: CRDTSpan, crdt_id: CRDTGuid, contents: OpContents) -> (DTRange, LV) {
         assert_eq!(op_id.len(), contents.len());
 
         // TODO: Filter op by anything we already know.
@@ -104,28 +104,28 @@ impl OpLog {
     }
 
     // *** LWW / Map operations
-    pub fn local_set_lww(&mut self, agent_id: AgentId, lww_id: Time, value: CreateValue) -> Time {
+    pub fn local_set_lww(&mut self, agent_id: AgentId, lww_id: LV, value: CreateValue) -> LV {
         self.push_local_op(agent_id, lww_id, OpContents::RegisterSet(value))
             .start
     }
 
-    pub fn local_set_map(&mut self, agent_id: AgentId, map_id: Time, key: &str, value: CreateValue) -> Time {
+    pub fn local_set_map(&mut self, agent_id: AgentId, map_id: LV, key: &str, value: CreateValue) -> LV {
         self.push_local_op(agent_id, map_id,
                            OpContents::MapSet(key.into(), value))
             .start
     }
 
     // *** Sets ***
-    pub fn insert_into_set(&mut self, agent_id: AgentId, set_id: Time, val: CreateValue) -> Time {
+    pub fn insert_into_set(&mut self, agent_id: AgentId, set_id: LV, val: CreateValue) -> LV {
         self.push_local_op(agent_id, set_id, OpContents::Set(SetOp::Insert(val))).start
     }
 
-    pub fn remove_from_set(&mut self, agent_id: AgentId, set_id: Time, item: Time) -> Time {
+    pub fn remove_from_set(&mut self, agent_id: AgentId, set_id: LV, item: LV) -> LV {
         self.push_local_op(agent_id, set_id, OpContents::Set(SetOp::Remove(item))).start
     }
 
     // *** Text ***
-    pub(crate) fn modify_text(&mut self, agent_id: AgentId, crdt_id: Time, kind: ListOpKind, loc: RangeRev, content: Option<&str>) -> (DTRange, Op) {
+    pub(crate) fn modify_text(&mut self, agent_id: AgentId, crdt_id: LV, kind: ListOpKind, loc: RangeRev, content: Option<&str>) -> (DTRange, Op) {
         let len = loc.len();
 
         let content_pos = if let Some(c) = content {
@@ -147,13 +147,13 @@ impl OpLog {
         (time_span, op)
     }
 
-    pub(crate) fn insert_into_text(&mut self, agent_id: AgentId, crdt_id: Time, pos: usize, ins_content: &str) -> (DTRange, Op) {
+    pub(crate) fn insert_into_text(&mut self, agent_id: AgentId, crdt_id: LV, pos: usize, ins_content: &str) -> (DTRange, Op) {
         let len = count_chars(ins_content);
         let pos_range = (pos..pos+len).into();
         self.modify_text(agent_id, crdt_id, ListOpKind::Ins, pos_range, Some(ins_content))
     }
 
-    pub(crate) fn remove_from_text(&mut self, agent_id: AgentId, crdt_id: Time, range: RangeRev, content: Option<&str>) -> (DTRange, Op) {
+    pub(crate) fn remove_from_text(&mut self, agent_id: AgentId, crdt_id: LV, range: RangeRev, content: Option<&str>) -> (DTRange, Op) {
         if let Some(content) = content {
             // The content must have the correct number of characters.
             let len = count_chars(content);

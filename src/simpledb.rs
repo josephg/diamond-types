@@ -36,7 +36,7 @@ impl SimpleDatabase {
         self.oplog.cg.get_or_create_agent_id(name)
     }
 
-    pub fn get_recursive_at(&self, crdt_id: Time) -> Option<DTValue> {
+    pub fn get_recursive_at(&self, crdt_id: LV) -> Option<DTValue> {
         self.branch.get_recursive_at(crdt_id, &self.oplog.cg)
     }
 
@@ -44,7 +44,7 @@ impl SimpleDatabase {
         self.get_recursive_at(ROOT_MAP)
     }
 
-    pub(crate) fn apply_remote_op(&mut self, parents: &[Time], op_id: CRDTSpan, crdt_id: CRDTGuid, contents: OpContents) -> DTRange {
+    pub(crate) fn apply_remote_op(&mut self, parents: &[LV], op_id: CRDTSpan, crdt_id: CRDTGuid, contents: OpContents) -> DTRange {
         let (time, crdt_id) = self.oplog.push_remote_op(parents, op_id, crdt_id, contents.clone());
         self.branch.apply_remote_op(&self.oplog.cg, parents, time.start, &Op {
             target_id: crdt_id,
@@ -55,21 +55,21 @@ impl SimpleDatabase {
     }
 
     // *** Modifying LWW Registers & Map values
-    pub fn modify_map(&mut self, agent_id: AgentId, map_id: Time, key: &str, value: CreateValue) -> Time {
+    pub fn modify_map(&mut self, agent_id: AgentId, map_id: LV, key: &str, value: CreateValue) -> LV {
         let time = self.oplog.local_set_map(agent_id, map_id, key, value.clone());
         self.branch.modify_map_local(time, map_id, key, &value, &self.oplog.cg);
 
         time
     }
 
-    pub fn modify_lww(&mut self, agent_id: AgentId, lww_id: Time, value: CreateValue) -> Time {
+    pub fn modify_lww(&mut self, agent_id: AgentId, lww_id: LV, value: CreateValue) -> LV {
         let time = self.oplog.local_set_lww(agent_id, lww_id, value.clone());
         self.branch.modify_reg_local(time, lww_id, &value, &self.oplog.cg);
         time
     }
 
     // *** Sets ***
-    pub(crate) fn modify_set(&mut self, agent_id: AgentId, set_id: Time, set_op: SetOp) -> Time {
+    pub(crate) fn modify_set(&mut self, agent_id: AgentId, set_id: LV, set_op: SetOp) -> LV {
         // TODO: Find a way to remove this clone.
         let time = self.oplog.push_local_op(agent_id, set_id, OpContents::Set(set_op.clone())).start;
         self.branch.modify_set_internal(time, set_id, &set_op);
@@ -77,11 +77,11 @@ impl SimpleDatabase {
         time
     }
 
-    pub fn set_insert(&mut self, agent_id: AgentId, set_id: Time, val: CreateValue) -> Time {
+    pub fn set_insert(&mut self, agent_id: AgentId, set_id: LV, val: CreateValue) -> LV {
         self.modify_set(agent_id, set_id, SetOp::Insert(val))
     }
 
-    pub fn set_remove(&mut self, agent_id: AgentId, set_id: Time, target: Time) -> Time {
+    pub fn set_remove(&mut self, agent_id: AgentId, set_id: LV, target: LV) -> LV {
         self.modify_set(agent_id, set_id, SetOp::Remove(target))
     }
 
@@ -90,11 +90,11 @@ impl SimpleDatabase {
     //
     // }
 
-    pub fn text_insert(&mut self, agent_id: AgentId, text_id: Time, pos: usize, ins_content: &str) {
+    pub fn text_insert(&mut self, agent_id: AgentId, text_id: LV, pos: usize, ins_content: &str) {
         let (span, op) = self.oplog.insert_into_text(agent_id, text_id, pos, ins_content);
         self.branch.apply_local_op(span.start, &op, &self.oplog.uncommitted_ops.list_ctx, &self.oplog.cg);
     }
-    pub fn text_remove(&mut self, agent_id: AgentId, text_id: Time, pos: DTRange) {
+    pub fn text_remove(&mut self, agent_id: AgentId, text_id: LV, pos: DTRange) {
         let (span, op) = self.oplog.remove_from_text(agent_id, text_id, pos.into(), None);
         self.branch.apply_local_op(span.start, &op, &self.oplog.uncommitted_ops.list_ctx, &self.oplog.cg);
     }

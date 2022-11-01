@@ -226,7 +226,7 @@ const ROOT_TIME: usize = usize::MAX;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
 // systems.
-pub type Time = usize;
+pub type LV = usize;
 
 /// A LocalVersion is a set of local Time values which point at the set of changes with no children
 /// at this point in time. When there's a single writer this will
@@ -236,7 +236,7 @@ pub type Time = usize;
 ///
 /// At the start of time (when there are no changes), LocalVersion is usize::max (which is the root
 /// order).
-pub type LocalVersion = SmallVec<[Time; 2]>;
+pub type LocalFrontier = SmallVec<[LV; 2]>;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Primitive {
@@ -252,7 +252,7 @@ pub enum Primitive {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum SnapshotValue {
     Primitive(Primitive),
-    InnerCRDT(Time),
+    InnerCRDT(LV),
     // Ref(Time),
 }
 
@@ -276,7 +276,7 @@ pub enum CreateValue {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum SetOp {
     Insert(CreateValue),
-    Remove(Time),
+    Remove(LV),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -299,7 +299,7 @@ pub(crate) enum OpContents {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct Op {
-    pub target_id: Time,
+    pub target_id: LV,
     pub contents: OpContents,
 }
 
@@ -327,7 +327,7 @@ pub struct OpLog {
 
     /// The version that contains everything from CG.
     /// This might make more sense in CG?
-    version: LocalVersion,
+    version: LocalFrontier,
 
     /// Values which have not yet been flushed to the WAL.
     uncommitted_ops: Ops,
@@ -337,7 +337,7 @@ pub struct OpLog {
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct RegisterState {
     value: SnapshotValue,
-    version: Time,
+    version: LV,
 }
 
 /// Guaranteed to always have at least 1 value inside.
@@ -348,7 +348,7 @@ type MVRegister = SmallVec<[RegisterState; 1]>;
 enum OverlayValue {
     Register(MVRegister),
     Map(BTreeMap<SmartString, MVRegister>),
-    Set(BTreeMap<Time, SnapshotValue>),
+    Set(BTreeMap<LV, SnapshotValue>),
     Text(Box<JumpRope>),
 }
 
@@ -359,13 +359,13 @@ enum OverlayValue {
 pub struct Branch {
     /// The overlay contents. This stores values which have either diverged from the persisted data
     /// or are cached.
-    overlay: BTreeMap<Time, OverlayValue>,
+    overlay: BTreeMap<LV, OverlayValue>,
 
     /// The version the branch is currently at. This is used to track which changes the branch has
     /// or has not locally merged.
     ///
     /// This field is public for convenience, but you should never modify it directly.
-    overlay_version: LocalVersion,
+    overlay_version: LocalFrontier,
 
     // persisted_data: BTreeMap<Time, OverlayValue>, // TODO. Not actually an in-memory object.
     // persisted_version: LocalVersion,

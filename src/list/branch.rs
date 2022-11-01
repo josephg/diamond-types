@@ -8,7 +8,7 @@ use crate::list::list::{apply_local_operations};
 use crate::list::operation::ListOpKind::*;
 use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::DTRange;
-use crate::{AgentId, LocalVersion, Time};
+use crate::{AgentId, LocalFrontier, LV};
 use crate::frontier::clone_smallvec;
 use crate::causalgraph::remote_ids::RemoteId;
 
@@ -23,7 +23,7 @@ impl ListBranch {
 
     /// Create a new branch as a checkout from the specified oplog, at the specified local time.
     /// This method equivalent to calling [`oplog.checkout(version)`](OpLog::checkout).
-    pub fn new_at_local_version(oplog: &ListOpLog, version: &[Time]) -> Self {
+    pub fn new_at_local_version(oplog: &ListOpLog, version: &[LV]) -> Self {
         oplog.checkout(version)
     }
 
@@ -38,10 +38,10 @@ impl ListBranch {
     ///
     /// This is provided because its slightly faster than calling local_version (since it prevents a
     /// clone(), and they're weirdly expensive with smallvec!)
-    pub fn local_version_ref(&self) -> &[Time] { &self.version }
+    pub fn local_version_ref(&self) -> &[LV] { &self.version }
 
     /// Return the current version of the branch
-    pub fn local_version(&self) -> LocalVersion { clone_smallvec(&self.version) }
+    pub fn local_version(&self) -> LocalFrontier { clone_smallvec(&self.version) }
 
     /// Return the current version of the branch in remote form
     pub fn remote_version(&self, oplog: &ListOpLog) -> SmallVec<[RemoteId; 4]> {
@@ -102,11 +102,11 @@ impl ListBranch {
         TextOperation::new_delete_with_content_range(loc, s)
     }
 
-    pub fn apply_local_operations(&mut self, oplog: &mut ListOpLog, agent: AgentId, ops: &[TextOperation]) -> Time {
+    pub fn apply_local_operations(&mut self, oplog: &mut ListOpLog, agent: AgentId, ops: &[TextOperation]) -> LV {
         apply_local_operations(oplog, self, agent, ops)
     }
 
-    pub fn insert(&mut self, oplog: &mut ListOpLog, agent: AgentId, pos: usize, ins_content: &str) -> Time {
+    pub fn insert(&mut self, oplog: &mut ListOpLog, agent: AgentId, pos: usize, ins_content: &str) -> LV {
         // The internal_do_insert / do_delete methods require that the branch is at the same version
         // as the oplog.
 
@@ -114,23 +114,23 @@ impl ListBranch {
         apply_local_operations(oplog, self, agent, &[TextOperation::new_insert(pos, ins_content)])
     }
 
-    pub fn delete_without_content(&mut self, oplog: &mut ListOpLog, agent: AgentId, loc: Range<usize>) -> Time {
+    pub fn delete_without_content(&mut self, oplog: &mut ListOpLog, agent: AgentId, loc: Range<usize>) -> LV {
         // internal_do_delete(oplog, self, agent, loc)
         apply_local_operations(oplog, self, agent, &[TextOperation::new_delete(loc)])
     }
 
-    pub fn delete(&mut self, oplog: &mut ListOpLog, agent: AgentId, del_span: Range<usize>) -> Time {
+    pub fn delete(&mut self, oplog: &mut ListOpLog, agent: AgentId, del_span: Range<usize>) -> LV {
         apply_local_operations(oplog, self, agent, &[self.make_delete_op(del_span)])
     }
 
     #[cfg(feature = "wchar_conversion")]
-    pub fn insert_at_wchar(&mut self, oplog: &mut ListOpLog, agent: AgentId, wchar_pos: usize, ins_content: &str) -> Time {
+    pub fn insert_at_wchar(&mut self, oplog: &mut ListOpLog, agent: AgentId, wchar_pos: usize, ins_content: &str) -> LV {
         let char_pos = self.content.borrow().wchars_to_chars(wchar_pos);
         self.insert(oplog, agent, char_pos, ins_content)
     }
 
     #[cfg(feature = "wchar_conversion")]
-    pub fn delete_at_wchar(&mut self, oplog: &mut ListOpLog, agent: AgentId, del_span_wchar: Range<usize>) -> Time {
+    pub fn delete_at_wchar(&mut self, oplog: &mut ListOpLog, agent: AgentId, del_span_wchar: Range<usize>) -> LV {
         let c = self.content.borrow();
         let start_pos = c.wchars_to_chars(del_span_wchar.start);
         let end_pos = c.wchars_to_chars(del_span_wchar.end);

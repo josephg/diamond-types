@@ -1,6 +1,6 @@
 use bumpalo::Bump;
 use rle::{HasLength, MergableSpan};
-use crate::{CausalGraph, CRDTSpan, DTRange, KVPair, LocalVersion, ROOT_AGENT, Time};
+use crate::{CausalGraph, CRDTSpan, DTRange, KVPair, LocalFrontier, ROOT_AGENT, LV};
 use crate::causalgraph::ClientData;
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
@@ -146,7 +146,7 @@ fn isize_try_add(x: usize, y: isize) -> Option<usize> {
 }
 
 /// NOTE: This does not put the returned data into the causal graph, or update read_map's txn_map.
-fn read_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_file_time: Time, read_map: &mut ReadMap) -> Result<(LocalVersion, CRDTSpan), ParseError> {
+fn read_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_file_time: LV, read_map: &mut ReadMap) -> Result<(LocalFrontier, CRDTSpan), ParseError> {
     // First we have agent assignment, then optional parents.
     let (has_parents, span) = read_cg_aa(reader, persist, cg, read_map)?;
 

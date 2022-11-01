@@ -4,7 +4,7 @@ use crate::encoding::tools::{push_str, push_u32, push_usize};
 use crate::encoding::varint::*;
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::causalgraph::remotespan::CRDTGuid;
-use crate::{AgentId, CausalGraph, DTRange, KVPair, LocalVersion, OpLog, RleVec, Time};
+use crate::{AgentId, CausalGraph, DTRange, KVPair, LocalFrontier, OpLog, RleVec, LV};
 use crate::encoding::Merger;
 use bumpalo::collections::vec::Vec as BumpVec;
 use smallvec::SmallVec;
@@ -15,7 +15,7 @@ use crate::frontier::clean_version;
 
 
 
-pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[Time], next_output_time: Time, persist: bool, write_map: &mut WriteMap, cg: &CausalGraph) {
+pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[LV], next_output_time: LV, persist: bool, write_map: &mut WriteMap, cg: &CausalGraph) {
     // And the parents.
     if parents.is_empty() {
         // Parenting off the root is special-cased, because its rare in practice (well,
@@ -88,7 +88,7 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[Time], next
 
 // *** Read path ***
 
-pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: Time, read_map: &mut ReadMap) -> Result<LocalVersion, ParseError> {
+pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: LV, read_map: &mut ReadMap) -> Result<LocalFrontier, ParseError> {
     let mut parents = SmallVec::<[usize; 2]>::new();
 
     loop {

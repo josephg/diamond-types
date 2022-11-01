@@ -5,7 +5,7 @@ use crate::list::ListOpLog;
 use crate::list::operation::TextOperation;
 use crate::dtrange::DTRange;
 use crate::rle::{KVPair, RleVec};
-use crate::Time;
+use crate::LV;
 
 #[derive(Debug)]
 pub(crate) struct OpMetricsIter<'a> {
@@ -141,7 +141,7 @@ impl ListOpLog {
         OpIterFast::new(self, range)
     }
 
-    pub fn iter_range_since(&self, local_version: &[Time]) -> impl Iterator<Item=TextOperation> + '_ {
+    pub fn iter_range_since(&self, local_version: &[LV]) -> impl Iterator<Item=TextOperation> + '_ {
         let (only_a, only_b) = self.cg.parents.diff(local_version, &self.version);
         assert!(only_a.is_empty());
 

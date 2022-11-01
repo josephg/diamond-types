@@ -1,6 +1,6 @@
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
-use crate::{CausalGraph, DTRange, Time};
+use crate::{CausalGraph, DTRange, LV};
 use rle::MergeableIterator;
 
 #[cfg(feature = "serde")]

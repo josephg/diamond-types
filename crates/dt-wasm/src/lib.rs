@@ -3,7 +3,7 @@ mod utils;
 use wasm_bindgen::prelude::*;
 // use serde_wasm_bindgen::Serializer;
 // use serde::{Serialize};
-use diamond_types::{AgentId, Time};
+use diamond_types::{AgentId, LV};
 use diamond_types::list::{ListBranch as DTBranch, ListCRDT, ListOpLog as DTOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, ENCODE_PATCH};
 use diamond_types::list::operation::TextOperation;
@@ -41,7 +41,7 @@ pub fn get_ops(oplog: &DTOpLog) -> WasmResult {
     serde_wasm_bindgen::to_value(&ops)
 }
 
-pub fn get_ops_since(oplog: &DTOpLog, version: &[Time]) -> WasmResult {
+pub fn get_ops_since(oplog: &DTOpLog, version: &[LV]) -> WasmResult {
     let ops = oplog.iter_range_since(version)
         .collect::<Box<[TextOperation]>>();
     serde_wasm_bindgen::to_value(&ops)
@@ -63,7 +63,7 @@ pub fn get_history(oplog: &DTOpLog) -> WasmResult {
 //     let remote_time = oplog.time_to_remote_id(time);
 //     serde_wasm_bindgen::to_value(&remote_time)
 // }
-pub fn local_to_remote_version(oplog: &DTOpLog, local_version: &[Time]) -> WasmResult {
+pub fn local_to_remote_version(oplog: &DTOpLog, local_version: &[LV]) -> WasmResult {
     let remote_version = oplog.cg.local_to_remote_version(local_version);
     serde_wasm_bindgen::to_value(&remote_version)
 }
@@ -82,7 +82,7 @@ pub fn to_bytes(oplog: &DTOpLog) -> Vec<u8> {
     bytes
 }
 
-pub fn get_patch_since(oplog: &DTOpLog, from_version: &[Time]) -> Vec<u8> {
+pub fn get_patch_since(oplog: &DTOpLog, from_version: &[LV]) -> Vec<u8> {
     // let from_version = map_parents(&version);
     let bytes = oplog.encode_from(ENCODE_PATCH, from_version);
     bytes
@@ -101,7 +101,7 @@ pub fn decode_and_add(oplog: &mut DTOpLog, bytes: &[u8]) -> WasmResult {
     }
 }
 
-pub fn xf_since(oplog: &DTOpLog, version: &[Time]) -> WasmResult {
+pub fn xf_since(oplog: &DTOpLog, version: &[LV]) -> WasmResult {
     let xf = oplog.iter_xf_operations_from(version, &oplog.local_version_ref())
         .filter_map(|(_v, op)| op)
         .collect::<Vec<_>>();
@@ -109,7 +109,7 @@ pub fn xf_since(oplog: &DTOpLog, version: &[Time]) -> WasmResult {
     serde_wasm_bindgen::to_value(&xf)
 }
 
-pub fn merge_versions(oplog: &DTOpLog, a: &[Time], b: &[Time]) -> Box<[Time]> {
+pub fn merge_versions(oplog: &DTOpLog, a: &[LV], b: &[LV]) -> Box<[LV]> {
     let result = oplog.version_union(a, b);
     result.as_slice().into()
 }
@@ -142,7 +142,7 @@ impl Branch {
 
     /// Merge in from some named point in time
     #[wasm_bindgen]
-    pub fn merge(&mut self, ops: &OpLog, branch: Option<Box<[Time]>>) {
+    pub fn merge(&mut self, ops: &OpLog, branch: Option<Box<[LV]>>) {
         if let Some(branch) = branch {
             self.0.merge(&ops.inner, &branch);
         } else {
@@ -151,7 +151,7 @@ impl Branch {
     }
 
     #[wasm_bindgen(js_name = getLocalVersion)]
-    pub fn get_local_frontier(&self) -> Box<[Time]> {
+    pub fn get_local_frontier(&self) -> Box<[LV]> {
         self.0.local_version_ref().into()
     }
 
@@ -250,7 +250,7 @@ impl OpLog {
     }
 
     #[wasm_bindgen(js_name = getOpsSince)]
-    pub fn get_ops_since(&self, frontier: &[Time]) -> WasmResult {
+    pub fn get_ops_since(&self, frontier: &[LV]) -> WasmResult {
         get_ops_since(&self.inner,  frontier)
     }
 
@@ -262,7 +262,7 @@ impl OpLog {
     }
 
     #[wasm_bindgen(js_name = getLocalVersion)]
-    pub fn get_local_frontier(&self) -> Box<[Time]> {
+    pub fn get_local_frontier(&self) -> Box<[LV]> {
         self.inner.local_version_ref().into()
     }
 
@@ -272,7 +272,7 @@ impl OpLog {
     //     serde_wasm_bindgen::to_value(&remote_time)
     // }
     #[wasm_bindgen(js_name = localToRemoteVersion)]
-    pub fn local_to_remote_version(&self, version: &[Time]) -> WasmResult {
+    pub fn local_to_remote_version(&self, version: &[LV]) -> WasmResult {
         local_to_remote_version(&self.inner, version)
     }
 
@@ -318,12 +318,12 @@ impl OpLog {
     }
 
     #[wasm_bindgen(js_name = getXFSince)]
-    pub fn get_xf_since(&self, from_version: &[Time]) -> WasmResult {
+    pub fn get_xf_since(&self, from_version: &[LV]) -> WasmResult {
         xf_since(&self.inner, from_version)
     }
 
     #[wasm_bindgen(js_name = mergeVersions)]
-    pub fn merge_versions(&self, a: &[Time], b: &[Time]) -> Box<[Time]> {
+    pub fn merge_versions(&self, a: &[LV], b: &[LV]) -> Box<[LV]> {
         merge_versions(&self.inner, a, b)
     }
 
@@ -386,7 +386,7 @@ impl Doc {
     }
 
     #[wasm_bindgen]
-    pub fn merge(&mut self, branch: &[Time]) {
+    pub fn merge(&mut self, branch: &[LV]) {
         self.inner.branch.merge(&self.inner.oplog, &branch);
     }
 
@@ -396,7 +396,7 @@ impl Doc {
     }
 
     #[wasm_bindgen(js_name = getPatchSince)]
-    pub fn get_patch_since(&self, from_version: &[Time]) -> Vec<u8> {
+    pub fn get_patch_since(&self, from_version: &[LV]) -> Vec<u8> {
         get_patch_since(&self.inner.oplog, from_version)
     }
 
@@ -444,17 +444,17 @@ impl Doc {
 
     // TODO: This is identical to get_ops_since in OpLog (above). Remove duplicate code here.
     #[wasm_bindgen(js_name = getOpsSince)]
-    pub fn get_ops_since(&self, frontier: &[Time]) -> WasmResult {
+    pub fn get_ops_since(&self, frontier: &[LV]) -> WasmResult {
         get_ops_since(&self.inner.oplog, frontier)
     }
 
     #[wasm_bindgen(js_name = getLocalVersion)]
-    pub fn get_local_frontier(&self) -> Box<[Time]> {
+    pub fn get_local_frontier(&self) -> Box<[LV]> {
         self.inner.branch.local_version_ref().into()
     }
 
     #[wasm_bindgen(js_name = localToRemoteVersion)]
-    pub fn local_to_remote_version(&self, time: &[Time]) -> WasmResult {
+    pub fn local_to_remote_version(&self, time: &[LV]) -> WasmResult {
         local_to_remote_version(&self.inner.oplog, time)
     }
 

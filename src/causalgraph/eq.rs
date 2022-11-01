@@ -9,7 +9,7 @@
 
 use rle::{HasLength, SplitableSpan};
 use rle::zip::rle_zip;
-use crate::{CausalGraph, ROOT_AGENT, Time};
+use crate::{CausalGraph, ROOT_AGENT, LV};
 use crate::frontier::clean_version;
 use crate::causalgraph::parents::ParentsEntrySimple;
 
@@ -59,7 +59,7 @@ impl PartialEq<Self> for CausalGraph {
             agent_a_to_b.push(other_agent);
         }
 
-        let map_time_to_other = |t: Time| -> Option<Time> {
+        let map_time_to_other = |t: LV| -> Option<LV> {
             let mut crdt_id = self.version_to_crdt_id(t);
             crdt_id.agent = agent_a_to_b[crdt_id.agent as usize];
             other.try_crdt_id_to_version(crdt_id)

@@ -3,7 +3,7 @@ use std::ops::Range;
 use humansize::{BINARY, format_size};
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
 use smallvec::smallvec;
-use crate::{AgentId, LocalVersion, Time};
+use crate::{AgentId, LocalFrontier, LV};
 use rle::HasLength;
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::list::operation::{ListOpKind, TextOperation};
@@ -13,7 +13,7 @@ use crate::frontier::replace_frontier_with;
 use crate::unicount::count_chars;
 
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
-fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalVersion, range: DTRange) {
+fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalFrontier, range: DTRange) {
     // Fast path for local edits. For some reason the code below is remarkably non-performant.
     // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
     if frontier.len() == 1 && frontier[0] == range.start.wrapping_sub(1) {
@@ -45,7 +45,7 @@ fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalVersion, rang
 /// This method does that.
 ///
 /// (I low key hate the duplicated code though.)
-pub(crate) fn apply_local_operations(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, local_ops: &[TextOperation]) -> Time {
+pub(crate) fn apply_local_operations(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, local_ops: &[TextOperation]) -> LV {
     let first_time = oplog.len();
     let mut next_time = first_time;
 
@@ -87,7 +87,7 @@ pub(crate) fn apply_local_operations(oplog: &mut ListOpLog, branch: &mut ListBra
 
 // These methods exist to make benchmark numbers better. I'm the worst!
 
-fn internal_do_insert(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, pos: usize, content: &str) -> Time {
+fn internal_do_insert(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, pos: usize, content: &str) -> LV {
     let start = oplog.len();
 
     let len = count_chars(content);
@@ -113,7 +113,7 @@ fn internal_do_insert(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: Age
     end - 1
 }
 
-fn internal_do_delete(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, pos: Range<usize>) -> Time {
+fn internal_do_delete(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, pos: Range<usize>) -> LV {
     let start = oplog.len();
 
     branch.content.remove(pos.clone());
@@ -157,7 +157,7 @@ impl ListCRDT {
         })
     }
 
-    pub fn merge_data_and_ff(&mut self, bytes: &[u8]) -> Result<LocalVersion, ParseError> {
+    pub fn merge_data_and_ff(&mut self, bytes: &[u8]) -> Result<LocalFrontier, ParseError> {
         let v = self.oplog.decode_and_add(bytes)?;
         self.branch.merge(&self.oplog, &self.oplog.version);
         Ok(v)
@@ -171,17 +171,17 @@ impl ListCRDT {
         self.branch.is_empty()
     }
 
-    pub fn apply_local_operations(&mut self, agent: AgentId, local_ops: &[TextOperation]) -> Time {
+    pub fn apply_local_operations(&mut self, agent: AgentId, local_ops: &[TextOperation]) -> LV {
         apply_local_operations(&mut self.oplog, &mut self.branch, agent, local_ops)
     }
 
-    pub fn insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> Time {
+    pub fn insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) -> LV {
         // self.branch.insert(&mut self.oplog, agent, pos, ins_content)
         internal_do_insert(&mut self.oplog, &mut self.branch, agent, pos, ins_content)
     }
 
     #[cfg(feature = "wchar_conversion")]
-    pub fn insert_at_wchar(&mut self, agent: AgentId, wchar_pos: usize, ins_content: &str) -> Time {
+    pub fn insert_at_wchar(&mut self, agent: AgentId, wchar_pos: usize, ins_content: &str) -> LV {
         self.branch.insert_at_wchar(&mut self.oplog, agent, wchar_pos, ins_content)
     }
 
@@ -189,17 +189,17 @@ impl ListCRDT {
     //     local_delete(&mut self.oplog, &mut self.branch, agent, pos, del_span)
     // }
 
-    pub fn delete_without_content(&mut self, agent: AgentId, loc: Range<usize>) -> Time {
+    pub fn delete_without_content(&mut self, agent: AgentId, loc: Range<usize>) -> LV {
         // self.branch.delete_without_content(&mut self.oplog, agent, loc)
         internal_do_delete(&mut self.oplog, &mut self.branch, agent, loc)
     }
 
-    pub fn delete(&mut self, agent: AgentId, range: Range<usize>) -> Time {
+    pub fn delete(&mut self, agent: AgentId, range: Range<usize>) -> LV {
         self.branch.delete(&mut self.oplog, agent, range)
     }
 
     #[cfg(feature = "wchar_conversion")]
-    pub fn delete_at_wchar(&mut self, agent: AgentId, wchar_range: Range<usize>) -> Time {
+    pub fn delete_at_wchar(&mut self, agent: AgentId, wchar_range: Range<usize>) -> LV {
         self.branch.delete_at_wchar(&mut self.oplog, agent, wchar_range)
     }
 

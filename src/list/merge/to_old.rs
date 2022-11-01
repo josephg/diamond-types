@@ -1,5 +1,5 @@
 use rle::{HasLength, MergableSpan};
-use crate::{DTRange, SmartString, Time};
+use crate::{DTRange, SmartString, LV};
 use crate::list::ListOpLog;
 use crate::list::remote_ids::RemoteIdSpan;
 use crate::rev_range::RangeRev;
@@ -9,14 +9,14 @@ pub enum OldCRDTOp {
     Ins {
         id: DTRange,
         // id: DTRange,
-        origin_left: Time,
-        origin_right: Time,
+        origin_left: LV,
+        origin_right: LV,
         content: SmartString,
         // content_pos: DTRange,
     },
 
     Del {
-        start_time: Time,
+        start_time: LV,
         target: RangeRev
     },
 }

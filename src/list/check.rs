@@ -2,7 +2,7 @@ use jumprope::JumpRope;
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
 use smallvec::smallvec;
 use crate::frontier::advance_version_by_known_run;
-use crate::LocalVersion;
+use crate::LocalFrontier;
 
 /// This file contains debugging assertions to validate the document's internal state.
 ///

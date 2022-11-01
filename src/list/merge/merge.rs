@@ -18,7 +18,7 @@ use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::{DTRange, is_underwater, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers};
-use crate::{AgentId, LocalVersion, ROOT_TIME, Time};
+use crate::{AgentId, LocalFrontier, ROOT_TIME, LV};
 use crate::frontier::{advance_version_by, frontier_is_sorted, local_version_eq};
 use crate::causalgraph::parents::tools::DiffFlag;
 use crate::list::op_metrics::ListOpMetrics;
@@ -101,7 +101,7 @@ impl M2Tracker {
         }
     }
 
-    pub(super) fn marker_at(&self, time: Time) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
+    pub(super) fn marker_at(&self, time: LV) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
         let cursor = self.index.cursor_at_offset_pos(time, false);
         // Gross.
         cursor.get_item().unwrap().unwrap()
@@ -119,7 +119,7 @@ impl M2Tracker {
         }
     }
 
-    fn get_cursor_before(&self, time: Time) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+    fn get_cursor_before(&self, time: LV) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
         if time == usize::MAX {
             // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
             // just panic() here.
@@ -131,7 +131,7 @@ impl M2Tracker {
     }
 
     // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
-    fn get_cursor_after(&self, time: Time, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+    fn get_cursor_after(&self, time: LV, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
         if time == usize::MAX {
             self.range_tree.cursor_at_start()
         } else {
@@ -546,7 +546,7 @@ impl M2Tracker {
     ///
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
-    fn walk(&mut self, oplog: &ListOpLog, start_at: LocalVersion, rev_spans: &[DTRange], mut apply_to: Option<&mut ListBranch>) -> LocalVersion {
+    fn walk(&mut self, oplog: &ListOpLog, start_at: LocalFrontier, rev_spans: &[DTRange], mut apply_to: Option<&mut ListBranch>) -> LocalFrontier {
         let mut walker = SpanningTreeWalker::new(&oplog.cg.parents, rev_spans, start_at);
 
         for walk in &mut walker {
@@ -575,20 +575,20 @@ pub(crate) struct TransformedOpsIter<'a> {
     // ff_idx: usize,
     did_ff: bool, // TODO: Do I really need this?
 
-    merge_frontier: LocalVersion,
+    merge_frontier: LocalFrontier,
 
-    common_ancestor: LocalVersion,
+    common_ancestor: LocalFrontier,
     conflict_ops: SmallVec<[DTRange; 4]>,
     new_ops: SmallVec<[DTRange; 4]>,
 
-    next_frontier: LocalVersion,
+    next_frontier: LocalFrontier,
 
     // TODO: This tracker allocates - which we don't need to do if we're FF-ing.
     phase2: Option<(M2Tracker, SpanningTreeWalker<'a>)>,
 }
 
 impl<'a> TransformedOpsIter<'a> {
-    fn new(oplog: &'a ListOpLog, from_frontier: &[Time], merge_frontier: &[Time]) -> Self {
+    fn new(oplog: &'a ListOpLog, from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
@@ -640,7 +640,7 @@ impl<'a> TransformedOpsIter<'a> {
         }
     }
 
-    pub(crate) fn into_frontier(self) -> LocalVersion {
+    pub(crate) fn into_frontier(self) -> LocalFrontier {
         self.next_frontier
     }
 }
@@ -651,7 +651,7 @@ pub(crate) enum TransformedResult {
     DeleteAlreadyHappened,
 }
 
-type TransformedTriple = (Time, ListOpMetrics, TransformedResult);
+type TransformedTriple = (LV, ListOpMetrics, TransformedResult);
 
 impl TransformedResult {
     fn not_moved(op_pair: KVPair<ListOpMetrics>) -> TransformedTriple {
@@ -662,7 +662,7 @@ impl TransformedResult {
 
 impl<'a> Iterator for TransformedOpsIter<'a> {
     /// Iterator over transformed operations. The KVPair.0 holds the original time of the operation.
-    type Item = (Time, ListOpMetrics, TransformedResult);
+    type Item = (LV, ListOpMetrics, TransformedResult);
 
     fn next(&mut self) -> Option<Self::Item> {
         // We're done when we've merged everything in self.new_ops.
@@ -814,7 +814,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
 }
 
 impl ListOpLog {
-    pub(crate) fn get_xf_operations_full(&self, from: &[Time], merging: &[Time]) -> TransformedOpsIter {
+    pub(crate) fn get_xf_operations_full(&self, from: &[LV], merging: &[LV]) -> TransformedOpsIter {
         TransformedOpsIter::new(self, from, merging)
     }
 
@@ -825,7 +825,7 @@ impl ListOpLog {
     ///
     /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
     /// changes that could be applied linearly to a document to bring it up to date.
-    pub fn iter_xf_operations_from(&self, from: &[Time], merging: &[Time]) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
+    pub fn iter_xf_operations_from(&self, from: &[LV], merging: &[LV]) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
         TransformedOpsIter::new(self, from, merging)
             .map(|(time, mut origin_op, xf)| {
                 let len = origin_op.len();
@@ -860,7 +860,7 @@ fn reverse_str(s: &str) -> SmartString {
 
 impl ListBranch {
     /// Add everything in merge_frontier into the set..
-    pub fn merge(&mut self, oplog: &ListOpLog, merge_frontier: &[Time]) {
+    pub fn merge(&mut self, oplog: &ListOpLog, merge_frontier: &[LV]) {
         // let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
         let mut iter = oplog.get_xf_operations_full(&self.version, merge_frontier);
 
@@ -898,7 +898,7 @@ impl ListBranch {
     //
     // TODO: Remove me!
     #[allow(unused)]
-    fn merge_old(&mut self, oplog: &ListOpLog, merge_frontier: &[Time]) {
+    fn merge_old(&mut self, oplog: &ListOpLog, merge_frontier: &[LV]) {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge

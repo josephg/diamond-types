@@ -13,10 +13,10 @@ use rle::{HasLength, SplitableSpan};
 use crate::list::ListOpLog;
 use crate::dtrange::DTRange;
 use crate::rle::KVPair;
-use crate::{Parents, ROOT_TIME, Time};
+use crate::{Parents, ROOT_TIME, LV};
 use crate::causalgraph::parents::ParentsEntrySimple;
 
-pub fn name_of(time: Time) -> String {
+pub fn name_of(time: LV) -> String {
     if time == ROOT_TIME { "ROOT".into() }
     else { format!("{}", time) }
 }
@@ -146,7 +146,7 @@ impl ListOpLog {
         // Same as above, but each merge creates a new dot item.
         let mut merges_touched = HashSet::new();
 
-        fn key_for_parents(p: &[Time]) -> String {
+        fn key_for_parents(p: &[LV]) -> String {
             p.iter().map(|t| format!("{t}"))
                 .collect::<Vec<_>>().join("0")
         }

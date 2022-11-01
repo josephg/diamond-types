@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 use rle::zip::rle_zip;
-use crate::{AgentId, CausalGraph, ROOT_AGENT, ROOT_TIME, Time};
+use crate::{AgentId, CausalGraph, ROOT_AGENT, ROOT_TIME, LV};
 use crate::causalgraph::*;
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::parents::ParentsEntrySimple;
@@ -21,12 +21,12 @@ impl ClientData {
     }
 
     #[inline]
-    pub(crate) fn try_seq_to_time(&self, seq: usize) -> Option<Time> {
+    pub(crate) fn try_seq_to_time(&self, seq: usize) -> Option<LV> {
         let (entry, offset) = self.item_times.find_with_offset(seq)?;
         Some(entry.1.start + offset)
     }
 
-    pub(crate) fn seq_to_time(&self, seq: usize) -> Time {
+    pub(crate) fn seq_to_time(&self, seq: usize) -> LV {
         self.try_seq_to_time(seq).unwrap()
     }
 
@@ -118,7 +118,7 @@ impl CausalGraph {
         }
     }
 
-    pub fn try_crdt_id_to_version(&self, id: CRDTGuid) -> Option<Time> {
+    pub fn try_crdt_id_to_version(&self, id: CRDTGuid) -> Option<LV> {
         if id.agent == ROOT_AGENT {
             debug_assert_eq!(id.seq, 0);
             Some(ROOT_TIME)
@@ -130,7 +130,7 @@ impl CausalGraph {
     }
 
     #[allow(unused)]
-    pub(crate) fn map_parents(&self, crdt_parents: &[CRDTGuid]) -> LocalVersion {
+    pub(crate) fn map_parents(&self, crdt_parents: &[CRDTGuid]) -> LocalFrontier {
         // TODO: Make a try_ version of this.
         let mut parents = crdt_parents.iter()
             .map(|p| self.try_crdt_id_to_version(*p).unwrap()).collect();
@@ -157,7 +157,7 @@ impl CausalGraph {
         }));
     }
 
-    pub fn assign_local_op(&mut self, parents: &[Time], agent: AgentId, num: usize) -> DTRange {
+    pub fn assign_local_op(&mut self, parents: &[LV], agent: AgentId, num: usize) -> DTRange {
         if cfg!(debug_assertions) { self.check_flat(); }
 
         let start = self.len();
@@ -171,7 +171,7 @@ impl CausalGraph {
 
     /// An alternate variant of merge_and_assign which is slightly faster, but will panic if the
     /// specified span is already included in the causal graph.
-    pub fn merge_and_assign_nonoverlapping(&mut self, parents: &[Time], span: CRDTSpan) -> DTRange {
+    pub fn merge_and_assign_nonoverlapping(&mut self, parents: &[LV], span: CRDTSpan) -> DTRange {
         let time_start = self.len();
 
         // Agent ID must have already been assigned.
@@ -204,7 +204,7 @@ impl CausalGraph {
     /// all depend on the first).
     ///
     /// Method returns the
-    pub fn merge_and_assign(&mut self, mut parents: &[Time], mut span: CRDTSpan) -> DTRange {
+    pub fn merge_and_assign(&mut self, mut parents: &[LV], mut span: CRDTSpan) -> DTRange {
         let time_start = self.len();
 
         // The agent ID must already be assigned.
@@ -282,7 +282,7 @@ impl CausalGraph {
         }
     }
 
-    pub(crate) fn tie_break_versions(&self, v1: Time, v2: Time) -> Ordering {
+    pub(crate) fn tie_break_versions(&self, v1: LV, v2: LV) -> Ordering {
         if v1 == v2 { Ordering::Equal }
         else {
             self.tie_break_crdt_versions(

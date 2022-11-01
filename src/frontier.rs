@@ -2,10 +2,10 @@ use std::mem::replace;
 use smallvec::{Array, SmallVec};
 use crate::causalgraph::parents::Parents;
 use crate::dtrange::DTRange;
-use crate::{LocalVersion, Time};
+use crate::{LocalFrontier, LV};
 
 /// Advance a frontier by the set of time spans in range
-pub fn advance_version_by(frontier: &mut LocalVersion, history: &Parents, mut range: DTRange) {
+pub fn advance_version_by(frontier: &mut LocalFrontier, history: &Parents, mut range: DTRange) {
     let mut txn_idx = history.entries.find_index(range.start).unwrap();
     while !range.is_empty() {
         let txn = &history.entries[txn_idx];
@@ -23,7 +23,7 @@ pub fn advance_version_by(frontier: &mut LocalVersion, history: &Parents, mut ra
     }
 }
 
-pub fn retreat_version_by(frontier: &mut LocalVersion, history: &Parents, mut range: DTRange) {
+pub fn retreat_version_by(frontier: &mut LocalFrontier, history: &Parents, mut range: DTRange) {
     if range.is_empty() { return; }
 
     debug_assert_frontier_sorted(frontier.as_slice());
@@ -76,7 +76,7 @@ pub fn retreat_version_by(frontier: &mut LocalVersion, history: &Parents, mut ra
 }
 
 /// Frontiers should always be sorted smallest to largest.
-pub(crate) fn frontier_is_sorted(branch: &[Time]) -> bool {
+pub(crate) fn frontier_is_sorted(branch: &[LV]) -> bool {
     // For debugging.
     if branch.len() >= 2 {
         let mut last = branch[0];
@@ -95,11 +95,11 @@ pub(crate) fn clean_version<T: Array<Item=usize>>(v: &mut SmallVec<T>) {
     }
 }
 
-pub(crate) fn debug_assert_frontier_sorted(frontier: &[Time]) {
+pub(crate) fn debug_assert_frontier_sorted(frontier: &[LV]) {
     debug_assert!(frontier_is_sorted(frontier));
 }
 
-pub(crate) fn check_frontier(frontier: &[Time], history: &Parents) {
+pub(crate) fn check_frontier(frontier: &[LV], history: &Parents) {
     assert!(frontier_is_sorted(frontier));
     if frontier.len() >= 2 {
         // let mut frontier = frontier.iter().copied().collect::<Vec<_>>();
@@ -112,7 +112,7 @@ pub(crate) fn check_frontier(frontier: &[Time], history: &Parents) {
     }
 }
 
-pub(crate) fn add_to_frontier(frontier: &mut LocalVersion, new_item: Time) {
+pub(crate) fn add_to_frontier(frontier: &mut LocalFrontier, new_item: LV) {
     // In order to maintain the order of items in the branch, we want to insert the new item in the
     // appropriate place.
 
@@ -125,7 +125,7 @@ pub(crate) fn add_to_frontier(frontier: &mut LocalVersion, new_item: Time) {
 /// Advance branch frontier by a transaction.
 ///
 /// This is ONLY VALID if the range is entirely within a txn.
-pub fn advance_version_by_known_run(frontier: &mut LocalVersion, parents: &[Time], span: DTRange) {
+pub fn advance_version_by_known_run(frontier: &mut LocalFrontier, parents: &[LV], span: DTRange) {
     // TODO: Check the branch contains everything in txn_parents, but not txn_id:
     // Check the operation fits. The operation should not be in the branch, but
     // all the operation's parents should be.
@@ -153,12 +153,12 @@ pub fn advance_version_by_known_run(frontier: &mut LocalVersion, parents: &[Time
     }
 }
 
-pub(crate) fn replace_frontier_with(frontier: &mut LocalVersion, new_val: Time) {
+pub(crate) fn replace_frontier_with(frontier: &mut LocalFrontier, new_val: LV) {
     // I could truncate / etc, but this is faster in benchmarks.
     replace(frontier, smallvec::smallvec![new_val]);
 }
 
-pub fn local_version_eq(a: &[Time], b: &[Time]) -> bool {
+pub fn local_version_eq(a: &[LV], b: &[LV]) -> bool {
     // Almost all branches only have one element in them.
     debug_assert_frontier_sorted(a);
     debug_assert_frontier_sorted(b);
@@ -169,7 +169,7 @@ pub fn local_version_eq(a: &[Time], b: &[Time]) -> bool {
 }
 
 #[allow(unused)]
-pub fn local_version_is_root(branch: &[Time]) -> bool {
+pub fn local_version_is_root(branch: &[LV]) -> bool {
     branch.is_empty()
     // branch.len() == 1 && branch[0] == ROOT_TIME
 }
@@ -202,14 +202,14 @@ pub fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<[T; LEN]>) -> SmallVec<[
 mod test {
     use smallvec::smallvec;
 
-    use crate::LocalVersion;
+    use crate::LocalFrontier;
     use crate::causalgraph::parents::ParentsEntryInternal;
 
     use super::*;
 
     #[test]
     fn frontier_movement_smoke_tests() {
-        let mut branch: LocalVersion = smallvec![];
+        let mut branch: LocalFrontier = smallvec![];
         advance_version_by_known_run(&mut branch, &[], (0..10).into());
         assert_eq!(branch.as_slice(), &[9]);
 
@@ -248,7 +248,7 @@ mod test {
             },
         ]);
 
-        let mut branch: LocalVersion = smallvec![1, 10];
+        let mut branch: LocalFrontier = smallvec![1, 10];
         advance_version_by(&mut branch, &history, (2..4).into());
         assert_eq!(branch.as_slice(), &[1, 3, 10]);
 

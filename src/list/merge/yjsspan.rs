@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 use content_tree::{ContentLength, Toggleable};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
-use crate::Time;
+use crate::LV;
 use crate::dtrange::{debug_time, DTRange, UNDERWATER_START};
 
 /// 0 = not inserted yet,
@@ -27,12 +27,12 @@ pub struct YjsSpan {
      * NOTE: The origin_left is only for the first item in the span. Each subsequent item has an
      * origin_left of order+offset
      */
-    pub origin_left: Time,
+    pub origin_left: LV,
 
     /**
      * Each item in the span has the same origin_right.
      */
-    pub origin_right: Time,
+    pub origin_right: LV,
 
     /// Stores whether the item has been inserted, inserted and deleted, or not inserted yet at the
     /// current moment in time.
@@ -100,7 +100,7 @@ impl Debug for YjsSpan {
 }
 
 impl YjsSpan {
-    pub fn origin_left_at_offset(&self, offset: Time) -> Time {
+    pub fn origin_left_at_offset(&self, offset: LV) -> LV {
         if offset == 0 { self.origin_left }
         else { self.id.start + offset - 1 }
     }
@@ -183,7 +183,7 @@ impl MergableSpan for YjsSpan {
 }
 
 impl Searchable for YjsSpan {
-    type Item = Time;
+    type Item = LV;
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
         self.id.get_offset(loc)

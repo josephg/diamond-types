@@ -19,7 +19,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use crate::encoding::parseerror::ParseError;
-use crate::{DTRange, RleVec, Time};
+use crate::{DTRange, RleVec, LV};
 use std::ffi::OsString;
 use std::{fs, io};
 use std::io::{BufReader, ErrorKind, Read, Result as IOResult, Seek, SeekFrom, Write};
@@ -56,7 +56,7 @@ pub(crate) struct WriteAheadLog {
     
     // The WAL just stores changes in order. We don't need to worry about complex time DAG
     // traversal.
-    next_version: Time,
+    next_version: LV,
 }
 
 impl Display for WALError {

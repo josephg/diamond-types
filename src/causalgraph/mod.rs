@@ -1,7 +1,7 @@
 // #![warn(unused)]
 
 use smartstring::alias::String as SmartString;
-use crate::{CRDTSpan, DTRange, KVPair, LocalVersion, Parents, RleVec};
+use crate::{CRDTSpan, DTRange, KVPair, LocalFrontier, Parents, RleVec};
 
 pub(crate) mod storage;
 mod causalgraph;

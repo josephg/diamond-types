@@ -10,7 +10,7 @@ use crate::frontier::{advance_version_by, debug_assert_frontier_sorted, frontier
 use crate::causalgraph::parents::Parents;
 use crate::causalgraph::parents::tools::DiffFlag::*;
 use crate::dtrange::DTRange;
-use crate::{LocalVersion, ROOT_TIME, Time};
+use crate::{LocalFrontier, ROOT_TIME, LV};
 use crate::causalgraph::parents::scope::ScopedParents;
 
 #[cfg(feature = "serde")]
@@ -23,7 +23,7 @@ use serde::Serialize;
 pub(crate) enum DiffFlag { OnlyA, OnlyB, Shared }
 
 impl Parents {
-    fn shadow_of(&self, time: Time) -> Time {
+    fn shadow_of(&self, time: LV) -> LV {
         if time == ROOT_TIME {
             ROOT_TIME
         } else {
@@ -32,7 +32,7 @@ impl Parents {
     }
 
     /// Does the frontier `[a]` contain `[b]` as a direct ancestor according to its shadow?
-    fn txn_shadow_contains(&self, a: Time, b: Time) -> bool {
+    fn txn_shadow_contains(&self, a: LV, b: LV) -> bool {
         // wrapping_add(1) so we compute ROOT correctly.
         let a_1 = a.wrapping_add(1);
         let b_1 = b.wrapping_add(1);
@@ -52,7 +52,7 @@ impl Parents {
     /// `txn_shadow_contains(3, 2)` is true, but `is_direct_descendant(3, 2)` is false.
     ///
     /// See `diff_shadow_bubble` test below for an example.
-    pub(crate) fn is_direct_descendant_coarse(&self, a: Time, b: Time) -> bool {
+    pub(crate) fn is_direct_descendant_coarse(&self, a: LV, b: LV) -> bool {
         // This is a bit more strict than we technically need, but its fast for short circuit
         // evaluation.
         a == b
@@ -60,7 +60,7 @@ impl Parents {
             || (a != ROOT_TIME && a > b && self.entries.find(a).unwrap().contains(b))
     }
 
-    pub fn version_cmp(&self, v1: Time, v2: Time) -> Option<Ordering> {
+    pub fn version_cmp(&self, v1: LV, v2: LV) -> Option<Ordering> {
         match v1.cmp(&v2) {
             Ordering::Equal => Some(Ordering::Equal),
             Ordering::Less => {
@@ -81,7 +81,7 @@ impl Parents {
     }
 
     /// Calculates whether the specified version contains (dominates) the specified time.
-    pub(crate) fn version_contains_time(&self, frontier: &[Time], target: Time) -> bool {
+    pub(crate) fn version_contains_time(&self, frontier: &[LV], target: LV) -> bool {
         if target == ROOT_TIME || frontier.contains(&target) { return true; }
         if frontier.is_empty() { return false; }
 
@@ -148,7 +148,7 @@ impl Parents {
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
     ///
     /// Also find which operation is the greatest common ancestor.
-    pub fn diff(&self, a: &[Time], b: &[Time]) -> DiffResult {
+    pub fn diff(&self, a: &[LV], b: &[LV]) -> DiffResult {
         // First some simple short circuit checks to avoid needless work in common cases.
         // Note most of the time this method is called, one of these early short circuit cases will
         // fire.
@@ -177,7 +177,7 @@ impl Parents {
         self.diff_slow(a, b)
     }
 
-    fn diff_slow(&self, a: &[Time], b: &[Time]) -> DiffResult {
+    fn diff_slow(&self, a: &[LV], b: &[LV]) -> DiffResult {
         let mut only_a = smallvec![];
         let mut only_b = smallvec![];
 
@@ -197,10 +197,10 @@ impl Parents {
         (only_a, only_b)
     }
 
-    fn diff_slow_internal<F>(&self, a: &[Time], b: &[Time], mut mark_run: F)
-        where F: FnMut(Time, Time, DiffFlag) {
+    fn diff_slow_internal<F>(&self, a: &[LV], b: &[LV], mut mark_run: F)
+        where F: FnMut(LV, LV, DiffFlag) {
         // Sorted highest to lowest.
-        let mut queue: BinaryHeap<(Time, DiffFlag)> = BinaryHeap::new();
+        let mut queue: BinaryHeap<(LV, DiffFlag)> = BinaryHeap::new();
         for a_ord in a {
             queue.push((*a_ord, OnlyA));
         }
@@ -268,7 +268,7 @@ impl Parents {
 
     // *** Conflicts! ***
 
-    fn find_conflicting_slow<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> LocalVersion
+    fn find_conflicting_slow<V>(&self, a: &[LV], b: &[LV], mut visit: V) -> LocalFrontier
     where V: FnMut(DTRange, DiffFlag) {
         // dbg!(a, b);
 
@@ -276,9 +276,9 @@ impl Parents {
         #[derive(Debug, PartialEq, Eq, Clone)]
         struct TimePoint {
             // For merges this is the highest time.
-            last: Time,
+            last: LV,
             // TODO: Compare performance here with actually using a vec.
-            merged_with: SmallVec<[Time; 1]>, // Always sorted. Usually empty.
+            merged_with: SmallVec<[LV; 1]>, // Always sorted. Usually empty.
         }
 
         impl Ord for TimePoint {
@@ -297,14 +297,14 @@ impl Parents {
             }
         }
 
-        impl From<Time> for TimePoint {
-            fn from(time: Time) -> Self {
+        impl From<LV> for TimePoint {
+            fn from(time: LV) -> Self {
                 Self { last: time, merged_with: Default::default() }
             }
         }
 
-        impl From<&[Time]> for TimePoint {
-            fn from(version: &[Time]) -> Self {
+        impl From<&[LV]> for TimePoint {
+            fn from(version: &[LV]) -> Self {
                 debug_assert!(frontier_is_sorted(version));
 
                 let mut result = Self {
@@ -327,7 +327,7 @@ impl Parents {
         queue.push((b.into(), OnlyB));
 
         // Loop until we've collapsed the graph down to a single element.
-        let frontier: LocalVersion = 'outer: loop {
+        let frontier: LocalFrontier = 'outer: loop {
             let (time, mut flag) = queue.pop().unwrap();
             let t = time.last;
             // dbg!((&time, flag));
@@ -349,7 +349,7 @@ impl Parents {
 
             if queue.is_empty() {
                 // In this order because time.last > time.merged_with.
-                let mut frontier: LocalVersion = time.merged_with.as_slice().into();
+                let mut frontier: LocalFrontier = time.merged_with.as_slice().into();
                 // branch.extend(time.merged_with.into_iter());
                 frontier.push(t);
                 break frontier;
@@ -427,7 +427,7 @@ impl Parents {
     /// a single localtime, but it might be the result of a merge of multiple edits.
     ///
     /// I'm assuming b is a parent of a, but it should all work if thats not the case.
-    pub(crate) fn find_conflicting<V>(&self, a: &[Time], b: &[Time], mut visit: V) -> LocalVersion
+    pub(crate) fn find_conflicting<V>(&self, a: &[LV], b: &[LV], mut visit: V) -> LocalFrontier
         where V: FnMut(DTRange, DiffFlag) {
 
         // First some simple short circuit checks to avoid needless work in common cases.
@@ -462,14 +462,14 @@ impl Parents {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ConflictZone {
-    pub(crate) common_ancestor: LocalVersion,
+    pub(crate) common_ancestor: LocalFrontier,
     pub(crate) spans: SmallVec<[DTRange; 4]>,
 }
 
 impl Parents {
     // Turns out I'm not finding this variant useful. Might be worth discarding it?
     #[allow(unused)]
-    pub(crate) fn find_conflicting_simple(&self, a: &[Time], b: &[Time]) -> ConflictZone {
+    pub(crate) fn find_conflicting_simple(&self, a: &[LV], b: &[LV]) -> ConflictZone {
         let mut spans = smallvec![];
         let common_ancestor = self.find_conflicting(a, b, |span, _flag| {
             spans.push_reversed_rle(span);
@@ -478,7 +478,7 @@ impl Parents {
         ConflictZone { common_ancestor, spans }
     }
 
-    pub(crate) fn version_in_scope(&self, version: &[Time], info: &ScopedParents) -> Option<LocalVersion> {
+    pub(crate) fn version_in_scope(&self, version: &[LV], info: &ScopedParents) -> Option<LocalFrontier> {
         // If v == creation time, its a bit hacky but I still consider that a valid version, because
         // the CRDT has a value then (the default value for the CRDT).
         debug_assert_frontier_sorted(version);
@@ -523,7 +523,7 @@ impl Parents {
         let mut result = smallvec![];
 
         // I'm using DiffFlag here, but only the OnlyA and Shared values out of it.
-        let mut queue: BinaryHeap<(Time, DiffFlag)> = BinaryHeap::new();
+        let mut queue: BinaryHeap<(LV, DiffFlag)> = BinaryHeap::new();
 
         for &t in version {
             // Append children so long as they aren't earlier than the item's ctime.
@@ -608,7 +608,7 @@ impl Parents {
     ///
     /// This function might be better written to output an iterator.
     pub fn find_dominators_full<F, I>(&self, versions_iter: I, mut visit: F)
-        where F: FnMut(Time, bool), I: Iterator<Item=Time>
+        where F: FnMut(LV, bool), I: Iterator<Item=LV>
     {
         if let Some(max_size) = versions_iter.size_hint().1 {
             if max_size <= 1 {
@@ -622,9 +622,9 @@ impl Parents {
 
         // Using the LSB in the data to encode whether this version was an input to the function.
         // We hit all the "normal" versions before the inputs.
-        fn enc_input(v: Time) -> usize { v << 1 }
-        fn enc_normal(v: Time) -> usize { (v << 1) + 1 }
-        fn dec(v_enc: usize) -> (bool, Time) {
+        fn enc_input(v: LV) -> usize { v << 1 }
+        fn enc_normal(v: LV) -> usize { (v << 1) + 1 }
+        fn dec(v_enc: usize) -> (bool, LV) {
             (v_enc % 2 == 0, v_enc >> 1)
         }
 
@@ -679,7 +679,7 @@ impl Parents {
         }
     }
 
-    pub fn find_dominators_rev(&self, versions: &[Time]) -> SmallVec<[Time; 4]> {
+    pub fn find_dominators_rev(&self, versions: &[LV]) -> SmallVec<[LV; 4]> {
         if versions.len() <= 1 {
             return versions.into();
         }
@@ -693,7 +693,7 @@ impl Parents {
 
         result
     }
-    pub fn find_dominators(&self, versions: &[Time]) -> SmallVec<[Time; 4]> {
+    pub fn find_dominators(&self, versions: &[LV]) -> SmallVec<[LV; 4]> {
         let mut result = self.find_dominators_rev(versions);
         result.reverse();
         result
@@ -702,7 +702,7 @@ impl Parents {
     /// Given 2 versions, return a version which contains all the operations in both.
     ///
     /// TODO: This needs unit tests.
-    pub fn version_union(&self, a: &[Time], b: &[Time]) -> LocalVersion {
+    pub fn version_union(&self, a: &[LV], b: &[LV]) -> LocalFrontier {
         let mut result = smallvec![];
         self.find_dominators_full(
             a.iter().copied().chain(b.iter().copied()),
@@ -726,12 +726,12 @@ pub mod test {
     use crate::causalgraph::parents::tools::DiffFlag::*;
     use crate::dtrange::DTRange;
     use crate::rle::RleVec;
-    use crate::{LocalVersion, ROOT_TIME, Time};
+    use crate::{LocalFrontier, ROOT_TIME, LV};
     use crate::causalgraph::parents::tools::{DiffFlag, DiffResult};
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).
-    fn diff_via_conflicting(history: &Parents, a: &[Time], b: &[Time]) -> DiffResult {
+    fn diff_via_conflicting(history: &Parents, a: &[LV], b: &[LV]) -> DiffResult {
         let mut only_a = smallvec![];
         let mut only_b = smallvec![];
 
@@ -752,7 +752,7 @@ pub mod test {
 
     #[derive(Debug, Eq, PartialEq)]
     pub struct ConflictFull {
-        pub(crate) common_branch: LocalVersion,
+        pub(crate) common_branch: LocalFrontier,
         pub(crate) spans: Vec<(DTRange, DiffFlag)>,
     }
 
@@ -765,7 +765,7 @@ pub mod test {
         }
         list.push((span, flag));
     }
-    fn find_conflicting(history: &Parents, a: &[Time], b: &[Time]) -> ConflictFull {
+    fn find_conflicting(history: &Parents, a: &[LV], b: &[LV]) -> ConflictFull {
         let mut spans_fast = Vec::new();
         let mut spans_slow = Vec::new();
 
@@ -788,7 +788,7 @@ pub mod test {
         }
     }
 
-    fn assert_conflicting(history: &Parents, a: &[Time], b: &[Time], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[Time]) {
+    fn assert_conflicting(history: &Parents, a: &[LV], b: &[LV], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[LV]) {
         let expect: Vec<(DTRange, DiffFlag)> = expect_spans
             .iter()
             .rev()
@@ -803,10 +803,10 @@ pub mod test {
             #[derive(Clone)]
             struct Test<'a> {
                 hist: Vec<ParentsEntrySimple>,
-                a: &'a [Time],
-                b: &'a [Time],
+                a: &'a [LV],
+                b: &'a [LV],
                 expect_spans: &'a [(Range<usize>, DiffFlag)],
-                expect_common: &'a [Time],
+                expect_common: &'a [LV],
             }
 
             let t = Test {
@@ -824,13 +824,13 @@ pub mod test {
         }
     }
 
-    fn assert_version_contains_time(history: &Parents, frontier: &[Time], target: Time, expected: bool) {
+    fn assert_version_contains_time(history: &Parents, frontier: &[LV], target: LV, expected: bool) {
         #[cfg(feature="gen_test_data")] {
             #[cfg_attr(feature = "serde", derive(Serialize))]
             #[derive(Clone, Debug)]
             struct Test<'a> {
                 hist: Vec<ParentsEntrySimple>,
-                frontier: &'a [Time],
+                frontier: &'a [LV],
                 target: isize,
                 expected: bool,
             }
@@ -852,14 +852,14 @@ pub mod test {
         assert_eq!(history.version_contains_time(frontier, target), expected);
     }
 
-    fn assert_diff_eq(history: &Parents, a: &[Time], b: &[Time], expect_a: &[DTRange], expect_b: &[DTRange]) {
+    fn assert_diff_eq(history: &Parents, a: &[LV], b: &[LV], expect_a: &[DTRange], expect_b: &[DTRange]) {
         #[cfg(feature="gen_test_data")] {
             #[cfg_attr(feature = "serde", derive(Serialize))]
             #[derive(Clone)]
             struct Test<'a> {
                 hist: Vec<ParentsEntrySimple>,
-                a: &'a [Time],
-                b: &'a [Time],
+                a: &'a [LV],
+                b: &'a [LV],
                 expect_a: &'a [DTRange],
                 expect_b: &'a [DTRange],
             }

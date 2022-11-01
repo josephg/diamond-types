@@ -8,7 +8,7 @@ use std::iter::once;
 use smallvec::{SmallVec, smallvec};
 
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
-use crate::Time;
+use crate::LV;
 
 use crate::rle::{RleKeyed, RleVec};
 use crate::dtrange::DTRange;
@@ -25,7 +25,7 @@ pub struct Parents {
 }
 
 impl Parents {
-    pub fn parents_at_time(&self, time: Time) -> SmallVec<[Time; 2]> {
+    pub fn parents_at_time(&self, time: LV) -> SmallVec<[LV; 2]> {
         let entry = self.entries.find_packed(time);
         entry.with_parents(time, |p| p.into())
     }
@@ -61,7 +61,7 @@ impl Parents {
     /// Insert a new history entry for the specified range of versions, and the named parents.
     ///
     /// This method will try to extend the last entry if it can.
-    pub(crate) fn push(&mut self, txn_parents: &[Time], range: DTRange) {
+    pub(crate) fn push(&mut self, txn_parents: &[LV], range: DTRange) {
         // dbg!(txn_parents, range, &self.history.entries);
         // Fast path. The code below is weirdly slow, but most txns just append.
         if let Some(last) = self.entries.0.last_mut() {
@@ -162,7 +162,7 @@ impl ParentsEntryInternal {
         } else { None } // look at .parents field.
     }
 
-    pub fn with_parents<F: FnOnce(&[Time]) -> G, G>(&self, time: usize, f: F) -> G {
+    pub fn with_parents<F: FnOnce(&[LV]) -> G, G>(&self, time: usize, f: F) -> G {
         if time > self.span.start {
             f(&[time - 1])
         } else {

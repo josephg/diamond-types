@@ -12,7 +12,7 @@ use crate::causalgraph::ClientData;
 use crate::list::operation::ListOpKind;
 use crate::causalgraph::parents::Parents;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
-use crate::{CausalGraph, LocalVersion};
+use crate::{CausalGraph, LocalFrontier};
 use crate::causalgraph::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 
@@ -72,7 +72,7 @@ pub struct ListBranch {
     ///
     /// This field is public for convenience, but you should never modify it directly. Instead use
     /// the associated functions on Branch.
-    version: LocalVersion,
+    version: LocalFrontier,
 
     /// The document's content.
     content: jumprope::JumpRopeBuf,
@@ -125,7 +125,7 @@ pub struct ListOpLog {
     /// This is only stored as a convenience - we could recalculate it as needed from history when
     /// needed, but thats a hassle. And it takes up very little space, and its very convenient to
     /// have on hand! So here it is.
-    version: LocalVersion,
+    version: LocalFrontier,
 }
 
 /// This is a simple helper structure which wraps an [`OpLog`](OpLog) and [`Branch`](Branch)

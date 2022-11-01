@@ -9,7 +9,7 @@
 
 use rle::{HasLength, SplitableSpan};
 use rle::zip::rle_zip3;
-use crate::{ROOT_AGENT, Time};
+use crate::{ROOT_AGENT, LV};
 use crate::list::ListOpLog;
 use crate::frontier::clean_version;
 use crate::causalgraph::parents::ParentsEntrySimple;
@@ -61,7 +61,7 @@ impl PartialEq<Self> for ListOpLog {
             agent_a_to_b.push(other_agent);
         }
 
-        let map_time_to_other = |t: Time| -> Option<Time> {
+        let map_time_to_other = |t: LV| -> Option<LV> {
             let mut crdt_id = self.time_to_crdt_id(t);
             crdt_id.agent = agent_a_to_b[crdt_id.agent as usize];
             other.try_crdt_id_to_time(crdt_id)

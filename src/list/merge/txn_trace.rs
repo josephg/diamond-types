@@ -30,7 +30,7 @@ use rle::{HasLength, SplitableSpan};
 use crate::causalgraph::parents::Parents;
 use crate::dtrange::DTRange;
 use crate::frontier::clone_smallvec;
-use crate::{LocalVersion, Time};
+use crate::{LocalFrontier, LV};
 
 #[derive(Debug)]
 // struct VisitEntry<'a> {
@@ -45,7 +45,7 @@ struct VisitEntry {
 }
 
 
-fn find_entry_idx(input: &SmallVec<[VisitEntry; 4]>, time: Time) -> Option<usize> {
+fn find_entry_idx(input: &SmallVec<[VisitEntry; 4]>, time: LV) -> Option<usize> {
     input.as_slice().binary_search_by(|e| {
         e.span.partial_cmp_time(time).reverse()
     }).ok()
@@ -78,7 +78,7 @@ pub(crate) struct SpanningTreeWalker<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
     history: &'a Parents,
 
-    frontier: LocalVersion,
+    frontier: LocalFrontier,
 
     input: SmallVec<[VisitEntry; 4]>,
 
@@ -95,7 +95,7 @@ pub(crate) struct TxnWalkItem {
     pub(crate) retreat: SmallVec<[DTRange; 4]>,
     pub(crate) advance_rev: SmallVec<[DTRange; 4]>,
     // txn: &'a TxnSpan,
-    pub(crate) parents: SmallVec<[Time; 2]>,
+    pub(crate) parents: SmallVec<[LV; 2]>,
     pub(crate) consume: DTRange,
 }
 
@@ -113,7 +113,7 @@ impl<'a> SpanningTreeWalker<'a> {
     }
 
     // TODO: It'd be cleaner to pass in spans as an Iterator<Item=DTRange>.
-    pub(crate) fn new(history: &'a Parents, rev_spans: &[DTRange], start_at: LocalVersion) -> Self {
+    pub(crate) fn new(history: &'a Parents, rev_spans: &[DTRange], start_at: LocalFrontier) -> Self {
         // println!("\n----- NEW TRAVERSAL -----");
 
         if cfg!(debug_assertions) {
@@ -132,7 +132,7 @@ impl<'a> SpanningTreeWalker<'a> {
                 let txn = &history.entries[i];
                 debug_assert!(span_remaining.start >= txn.span.start && span_remaining.start < txn.span.end);
 
-                let offset = Time::min(span_remaining.len(), txn.span.end - span_remaining.start);
+                let offset = LV::min(span_remaining.len(), txn.span.end - span_remaining.start);
                 let span = span_remaining.truncate_keeping_right(offset);
 
                 // dbg!(span_remaining.start);
@@ -206,7 +206,7 @@ impl<'a> SpanningTreeWalker<'a> {
         }
     }
 
-    pub fn into_frontier(self) -> LocalVersion {
+    pub fn into_frontier(self) -> LocalFrontier {
         self.frontier
     }
 
@@ -352,7 +352,7 @@ impl Parents {
     //     self.known_conflicting_txns_iter(self.find_conflicting_simple(a, b))
     // }
 
-    pub(crate) fn optimized_txns_between(&self, from: &[Time], to: &[Time]) -> SpanningTreeWalker {
+    pub(crate) fn optimized_txns_between(&self, from: &[LV], to: &[LV]) -> SpanningTreeWalker {
         let (_a, txns) = self.diff(from, to);
         // _a might always be empty.
         SpanningTreeWalker::new(self, &txns, from.into())

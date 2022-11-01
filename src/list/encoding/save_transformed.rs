@@ -5,7 +5,7 @@ use crate::encoding::varint::num_encode_zigzag_isize;
 use crate::list::encoding::encode_tools::write_bit_run;
 use crate::list::ListOpLog;
 use crate::list::merge::merge::TransformedResult;
-use crate::Time;
+use crate::LV;
 
 /// *** This is EXPERIMENTAL work-in-progress code to save transformed positions ***
 
@@ -20,7 +20,7 @@ enum XFState {
 }
 
 impl ListOpLog {
-    pub fn bench_writing_xf_since(&self, from_version: &[Time]) {
+    pub fn bench_writing_xf_since(&self, from_version: &[LV]) {
         let mut tn_ops: Vec<RleRun<XFState>> = vec![];
 
         for (_, op, xf) in self.get_xf_operations_full(from_version, &self.version) {

@@ -1,5 +1,5 @@
 use rle::HasLength;
-use crate::{AgentId, DTRange, KVPair, RleVec, ROOT_AGENT, Time};
+use crate::{AgentId, DTRange, KVPair, RleVec, ROOT_AGENT, LV};
 use crate::causalgraph::ClientData;
 use crate::rle::RleSpanHelpers;
 
@@ -22,7 +22,7 @@ impl ReadMap {
         Self::default()
     }
 
-    pub fn last_time(&self) -> Option<Time> {
+    pub fn last_time(&self) -> Option<LV> {
         // Another way to implement this would be to default to ROOT_TIME or something and let
         // entries be "simple" if they're first, and they parent off ROOT. But that way lie bugs.
         self.txn_map.last().map(|e| {
@@ -30,7 +30,7 @@ impl ReadMap {
         })
     }
 
-    pub fn len(&self) -> Time {
+    pub fn len(&self) -> LV {
         self.txn_map
             .last()
             .map(|e| e.end())
@@ -157,7 +157,7 @@ impl WriteMap {
     }
 
     // Check if the specified time is known by the txn map.
-    pub(crate) fn txn_map_has(&self, time: Time) -> bool {
+    pub(crate) fn txn_map_has(&self, time: LV) -> bool {
         self.txn_map.contains_needle(time)
 
         // This is a little optimization. Does it make any difference?

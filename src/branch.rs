@@ -15,7 +15,7 @@ pub enum DTValue {
     Primitive(Primitive),
     // Register(Box<DTValue>),
     Map(BTreeMap<SmartString, Box<DTValue>>),
-    Set(BTreeMap<Time, Box<DTValue>>),
+    Set(BTreeMap<LV, Box<DTValue>>),
     Text(String),
 }
 
@@ -34,7 +34,7 @@ impl DTValue {
         }
     }
 
-    pub fn unwrap_set(self) -> BTreeMap<Time, Box<DTValue>> {
+    pub fn unwrap_set(self) -> BTreeMap<LV, Box<DTValue>> {
         match self {
             DTValue::Set(set) => set,
             _ => { panic!("Expected set") }
@@ -116,7 +116,7 @@ impl Branch {
         self.state_to_value(self.resolve_mv(reg, cg), cg)
     }
 
-    pub fn get_recursive_at(&self, crdt_id: Time, cg: &CausalGraph) -> Option<DTValue> {
+    pub fn get_recursive_at(&self, crdt_id: LV, cg: &CausalGraph) -> Option<DTValue> {
         match self.overlay.get(&crdt_id)? {
             OverlayValue::Register(reg) => self.mv_to_single_value(reg, cg),
             OverlayValue::Map(map) => {
@@ -139,7 +139,7 @@ impl Branch {
         self.get_recursive_at(ROOT_MAP, cg)
     }
 
-    pub(super) fn get_value_of_lww(&self, lww_id: Time) -> Option<&MVRegister> {
+    pub(super) fn get_value_of_lww(&self, lww_id: LV) -> Option<&MVRegister> {
         self.overlay.get(&lww_id).and_then(|val| {
             match val {
                 OverlayValue::Register(val) => Some(val),
@@ -148,7 +148,7 @@ impl Branch {
         })
     }
 
-    fn get_map(&self, map: Time) -> Option<&BTreeMap<SmartString, MVRegister>> {
+    fn get_map(&self, map: LV) -> Option<&BTreeMap<SmartString, MVRegister>> {
         self.overlay.get(&map).and_then(|val| {
             match val {
                 OverlayValue::Map(inner_map) => Some(inner_map),
@@ -157,13 +157,13 @@ impl Branch {
         })
     }
 
-    pub(super) fn get_map_value(&self, map: Time, key: &str) -> Option<&MVRegister> {
+    pub(super) fn get_map_value(&self, map: LV, key: &str) -> Option<&MVRegister> {
         self.get_map(map).and_then(|inner_map| {
             inner_map.get(key)
         })
     }
 
-    fn get_register(&self, crdt_id: Time, key: Option<&str>) -> Option<&MVRegister> {
+    fn get_register(&self, crdt_id: LV, key: Option<&str>) -> Option<&MVRegister> {
         if let Some(key) = key {
             match self.overlay.get(&crdt_id)? {
                 OverlayValue::Map(inner_map) => {
@@ -207,7 +207,7 @@ impl Branch {
     //     }
     // }
 
-    pub(crate) fn get_kind(&self, id: Time) -> CRDTKind {
+    pub(crate) fn get_kind(&self, id: LV) -> CRDTKind {
         // TODO: Remove this unwrap() when we have an actual database.
         match self.overlay.get(&id).unwrap() {
             OverlayValue::Register(_) => CRDTKind::Register,
@@ -219,7 +219,7 @@ impl Branch {
 
     // *** Mutation operations ***
 
-    fn internal_remove_crdt(&mut self, crdt_id: Time) {
+    fn internal_remove_crdt(&mut self, crdt_id: LV) {
         // This needs to recursively delete things.
         let old_value = self.overlay.remove(&crdt_id);
         todo!("Recurse!");
@@ -237,7 +237,7 @@ impl Branch {
     }
 
 
-    fn inner_create_crdt(&mut self, time: Time, kind: CRDTKind) {
+    fn inner_create_crdt(&mut self, time: LV, kind: CRDTKind) {
         let new_value = match kind {
             CRDTKind::Map => OverlayValue::Map(BTreeMap::new()),
             CRDTKind::Set => OverlayValue::Set(BTreeMap::new()),
@@ -257,7 +257,7 @@ impl Branch {
         assert!(old_val.is_none());
     }
 
-    fn op_to_snapshot_value(&mut self, time: Time, value: &CreateValue) -> SnapshotValue {
+    fn op_to_snapshot_value(&mut self, time: LV, value: &CreateValue) -> SnapshotValue {
         match value {
             CreateValue::Primitive(p) => SnapshotValue::Primitive(p.clone()),
             CreateValue::NewCRDT(kind) => {
@@ -268,12 +268,12 @@ impl Branch {
         }
     }
 
-    pub(crate) fn set_time(&mut self, time: Time) {
+    pub(crate) fn set_time(&mut self, time: LV) {
         self.overlay_version = smallvec![time];
     }
 
 
-    fn modify_reg_internal(&mut self, time: Time, reg_id: Time, op_value: &CreateValue, _cg: &CausalGraph) {
+    fn modify_reg_internal(&mut self, time: LV, reg_id: LV, op_value: &CreateValue, _cg: &CausalGraph) {
         let value = self.op_to_snapshot_value(time, op_value);
 
         let inner = match self.overlay.get_mut(&reg_id).unwrap() {
@@ -288,12 +288,12 @@ impl Branch {
         // self.remove_old_value(old_value);
     }
 
-    pub fn modify_reg_local(&mut self, time: Time, lww_id: Time, op_value: &CreateValue, cg: &CausalGraph) {
+    pub fn modify_reg_local(&mut self, time: LV, lww_id: LV, op_value: &CreateValue, cg: &CausalGraph) {
         self.modify_reg_internal(time, lww_id, op_value, cg);
         self.set_time(time);
     }
 
-    fn modify_map_internal(&mut self, time: Time, map_id: Time, key: &str, op_value: &CreateValue, cg: &CausalGraph) {
+    fn modify_map_internal(&mut self, time: LV, map_id: LV, key: &str, op_value: &CreateValue, cg: &CausalGraph) {
         let value = self.op_to_snapshot_value(time, op_value);
 
         let inner = match self.overlay.get_mut(&map_id).unwrap() {
@@ -337,7 +337,7 @@ impl Branch {
         // don't need to refer to the causal graph on read operations.
     }
 
-    pub fn modify_map_local(&mut self, time: Time, lww_id: Time, key: &str, op_value: &CreateValue, cg: &CausalGraph) {
+    pub fn modify_map_local(&mut self, time: LV, lww_id: LV, key: &str, op_value: &CreateValue, cg: &CausalGraph) {
         self.modify_map_internal(time, lww_id, key, op_value, cg);
         self.set_time(time);
     }
@@ -347,14 +347,14 @@ impl Branch {
     //     self.inner_create_crdt(time_now, kind);
     // }
 
-    fn internal_get_set(&mut self, set_id: Time) -> &mut BTreeMap<Time, SnapshotValue> {
+    fn internal_get_set(&mut self, set_id: LV) -> &mut BTreeMap<LV, SnapshotValue> {
         match self.overlay.get_mut(&set_id).unwrap() {
             OverlayValue::Set(set) => set,
             _ => { panic!("Not a set"); }
         }
     }
 
-    pub(crate) fn modify_set_internal(&mut self, time: Time, set_id: Time, op: &SetOp) {
+    pub(crate) fn modify_set_internal(&mut self, time: LV, set_id: LV, op: &SetOp) {
         match op {
             SetOp::Insert(create) => {
                 let val = self.op_to_snapshot_value(time, create);
@@ -372,7 +372,7 @@ impl Branch {
         }
     }
 
-    pub(crate) fn modify_text_local(&mut self, crdt_id: Time, text_metrics: &ListOpMetrics, ctx: &ListOperationCtx) {
+    pub(crate) fn modify_text_local(&mut self, crdt_id: LV, text_metrics: &ListOpMetrics, ctx: &ListOperationCtx) {
         let rope = if let OverlayValue::Text(rope) = self.overlay.get_mut(&crdt_id).unwrap() {
             rope
         } else { panic!("Not a rope"); };
@@ -388,7 +388,7 @@ impl Branch {
         }
     }
 
-    pub(crate) fn apply_local_op(&mut self, time: Time, op: &Op, ctx: &ListOperationCtx, cg: &CausalGraph) {
+    pub(crate) fn apply_local_op(&mut self, time: LV, op: &Op, ctx: &ListOperationCtx, cg: &CausalGraph) {
         debug_assert!(self.overlay_version.iter().all(|v| time > *v));
 
         match &op.contents {
@@ -410,7 +410,7 @@ impl Branch {
     }
 
 
-    pub(crate) fn modify_map_reg_remote_internal(&mut self, cg: &CausalGraph, parents: &[Time], time: Time, crdt_id: Time, key: Option<&str>, op_value: &CreateValue) {
+    pub(crate) fn modify_map_reg_remote_internal(&mut self, cg: &CausalGraph, parents: &[LV], time: LV, crdt_id: LV, key: Option<&str>, op_value: &CreateValue) {
         // // We set locally if the new version (at time) dominates the current version of the value.
         // let should_write = if let Some(reg) = self.get_register(crdt_id, key) {
         //     // reg.last_modified
@@ -439,7 +439,7 @@ impl Branch {
         // }
     }
 
-    pub(crate) fn apply_remote_op(&mut self, cg: &CausalGraph, parents: &[Time], time: Time, op: &Op, ctx: &ListOperationCtx) {
+    pub(crate) fn apply_remote_op(&mut self, cg: &CausalGraph, parents: &[LV], time: LV, op: &Op, ctx: &ListOperationCtx) {
         match &op.contents {
             OpContents::RegisterSet(op_value) => {
                 self.modify_map_reg_remote_internal(cg, parents, time, op.target_id, None, op_value);
