@@ -60,7 +60,7 @@ fn decode_in_parts() {
     doc.insert(0, 3, "m");
     let f2 = doc.oplog.version.clone();
 
-    let data_2 = doc.oplog.encode_from(EncodeOptions::default(), &f1);
+    let data_2 = doc.oplog.encode_from(EncodeOptions::default(), f1.as_ref());
 
     let mut d2 = ListOpLog::new();
     let m1 = d2.decode_and_add(&data_1).unwrap();
@@ -339,7 +339,7 @@ fn merge_patch_returns_correct_version() {
 
     oplog.add_insert(0, 0, "x");
 
-    let bytes = oplog.encode_from(ENCODE_FULL, &v);
+    let bytes = oplog.encode_from(ENCODE_FULL, v.as_ref());
 
     let version = oplog2.decode_and_add(&bytes).unwrap();
 

@@ -40,7 +40,7 @@ pub fn apply_edits_push_merge(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
         }
     }
 
-    doc.branch.merge(&doc.oplog, &doc.oplog.local_version_ref());
+    doc.branch.merge(&doc.oplog, &doc.oplog.local_frontier_ref());
 }
 
 #[inline(always)]

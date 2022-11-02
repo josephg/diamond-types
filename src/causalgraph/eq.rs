@@ -9,7 +9,7 @@
 
 use rle::{HasLength, SplitableSpan};
 use rle::zip::rle_zip;
-use crate::{AgentId, CausalGraph, LV};
+use crate::{AgentId, CausalGraph, Frontier, LV};
 use crate::frontier::sort_frontier;
 use crate::causalgraph::parents::ParentsEntrySimple;
 
@@ -144,10 +144,9 @@ impl PartialEq<Self> for CausalGraph {
                     span: (mapped_start..mapped_start + len_here).into(),
                     // .unwrap() should be safe here because we've already walked past this item's
                     // parents.
-                    parents: txn.parents.iter().map(|t| map_time_to_other(*t).unwrap()).collect()
+                    parents: Frontier::from_unsorted_iter(txn.parents.iter().map(|t| map_time_to_other(*t).unwrap()))
                 };
                 // mapped_txn.parents.sort_unstable();
-                sort_frontier(&mut mapped_txn.parents);
 
                 if other_txn != mapped_txn {
                     if VERBOSE { println!("Txns do not match {:?} (was {:?}) != {:?}", mapped_txn, txn, other_txn); }

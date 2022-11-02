@@ -6,11 +6,11 @@ use std::collections::BinaryHeap;
 use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
-use crate::frontier::{advance_frontier_by, debug_assert_frontier_sorted, frontier_is_sorted};
+use crate::frontier::{debug_assert_frontier_sorted, FrontierRef};
 use crate::causalgraph::parents::Parents;
 use crate::causalgraph::parents::tools::DiffFlag::*;
 use crate::dtrange::DTRange;
-use crate::{LocalFrontier, LV};
+use crate::{Frontier, LV};
 use crate::causalgraph::parents::scope::ScopedParents;
 
 #[cfg(feature = "serde")]
@@ -141,7 +141,7 @@ impl Parents {
             }
 
             // dbg!(order);
-            for &p in &entry.parents {
+            for &p in entry.parents.iter() {
                 #[allow(clippy::comparison_chain)]
                 if p == target { return true; }
                 else if p > target { queue.push(p); }
@@ -279,7 +279,7 @@ impl Parents {
 
     // *** Conflicts! ***
 
-    fn find_conflicting_slow<V>(&self, a: &[LV], b: &[LV], mut visit: V) -> LocalFrontier
+    fn find_conflicting_slow<V>(&self, a: FrontierRef, b: FrontierRef, mut visit: V) -> Frontier
     where V: FnMut(DTRange, DiffFlag) {
         // dbg!(a, b);
 
@@ -315,8 +315,8 @@ impl Parents {
         }
 
         impl From<&[LV]> for TimePoint {
-            fn from(version: &[LV]) -> Self {
-                debug_assert!(frontier_is_sorted(version));
+            fn from(version: FrontierRef) -> Self {
+                // debug_assert!(frontier_is_sorted(version));
 
                 let mut result = Self {
                     // Bleh.
@@ -338,12 +338,12 @@ impl Parents {
         queue.push((b.into(), OnlyB));
 
         // Loop until we've collapsed the graph down to a single element.
-        let frontier: LocalFrontier = 'outer: loop {
+        let frontier: Frontier = 'outer: loop {
             let (time, mut flag) = queue.pop().unwrap();
             let t = time.last;
             // dbg!((&time, flag));
 
-            if t == usize::MAX { break smallvec![]; }
+            if t == usize::MAX { break Frontier::root(); }
 
             // Discard duplicate entries.
 
@@ -360,9 +360,10 @@ impl Parents {
 
             if queue.is_empty() {
                 // In this order because time.last > time.merged_with.
-                let mut frontier: LocalFrontier = time.merged_with.as_slice().into();
+                let mut frontier: Frontier = Frontier::from_sorted(time.merged_with.as_slice());
                 // branch.extend(time.merged_with.into_iter());
-                frontier.push(t);
+                frontier.0.push(t);
+                frontier.debug_check_sorted();
                 break frontier;
             }
 
@@ -418,12 +419,12 @@ impl Parents {
 
                         // If this entry has multiple parents, we'll push a merge here then
                         // immediately pop it. This is so we stop at the merge point.
-                        queue.push((containing_txn.parents.as_slice().into(), flag));
+                        queue.push((containing_txn.parents.as_ref().into(), flag));
                         break;
                     }
                 } else {
                     // println!("XXXX {:?}", &range.last());
-                    break 'outer smallvec![range.last()];
+                    break 'outer Frontier::new_1(range.last());
                 }
             }
         };
@@ -438,7 +439,7 @@ impl Parents {
     /// a single localtime, but it might be the result of a merge of multiple edits.
     ///
     /// I'm assuming b is a parent of a, but it should all work if thats not the case.
-    pub(crate) fn find_conflicting<V>(&self, a: &[LV], b: &[LV], mut visit: V) -> LocalFrontier
+    pub(crate) fn find_conflicting<V>(&self, a: FrontierRef, b: FrontierRef, mut visit: V) -> Frontier
         where V: FnMut(DTRange, DiffFlag) {
 
         // First some simple short circuit checks to avoid needless work in common cases.
@@ -458,12 +459,12 @@ impl Parents {
             if self.is_direct_descendant_coarse(a, b) {
                 // a >= b.
                 visit((b.wrapping_add(1)..a.wrapping_add(1)).into(), OnlyA);
-                return smallvec![b];
+                return Frontier::new_1(b);
             }
             if self.is_direct_descendant_coarse(b, a) {
                 // b >= a.
                 visit((a.wrapping_add(1)..b.wrapping_add(1)).into(), OnlyB);
-                return smallvec![a];
+                return Frontier::new_1(a);
             }
         }
 
@@ -474,7 +475,7 @@ impl Parents {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ConflictZone {
-    pub(crate) common_ancestor: LocalFrontier,
+    pub(crate) common_ancestor: Frontier,
     pub(crate) spans: SmallVec<[DTRange; 4]>,
 }
 
@@ -490,7 +491,7 @@ impl Parents {
         ConflictZone { common_ancestor, spans }
     }
 
-    pub(crate) fn version_in_scope(&self, version: &[LV], info: &ScopedParents) -> Option<LocalFrontier> {
+    pub(crate) fn version_in_scope(&self, version: &[LV], info: &ScopedParents) -> Option<Frontier> {
         debug_assert_ne!(info.created_at, OLD_INVALID_ROOT_TIME);
 
         // If v == creation time, its a bit hacky but I still consider that a valid version, because
@@ -502,7 +503,7 @@ impl Parents {
         } else {
             // The root item has a creation time at the root time. But nothing else exists then.
             return if info.created_at == OLD_INVALID_ROOT_TIME {
-                Some(smallvec![])
+                Some(Frontier::root())
             } else {
                 None
             }
@@ -521,13 +522,13 @@ impl Parents {
 
                 // Fast path. If the last operation in the root is a parent of v, we're done.
                 if self.is_direct_descendant_coarse(highest_time, last_time) {
-                    return Some(smallvec![last_time]);
+                    return Some(Frontier::new_1(last_time));
                 }
             }
 
             if info.owned_times.find_index(highest_time).is_ok() {
                 // Another fast path. The requested version is already in the operation.
-                return Some(smallvec![highest_time]);
+                return Some(Frontier::new_1(highest_time));
             }
 
             // TODO: Should we have more fast paths here?
@@ -613,7 +614,7 @@ impl Parents {
 
         result.reverse();
         debug_assert_frontier_sorted(&result);
-        Some(result)
+        Some(Frontier(result))
     }
 
     /// Given some disparate set of versions, figure out which versions are dominators - ie, the
@@ -691,7 +692,7 @@ impl Parents {
         }
     }
 
-    pub fn find_dominators_rev(&self, versions: &[LV]) -> SmallVec<[LV; 4]> {
+    pub fn find_dominators_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
         if versions.len() <= 1 {
             return versions.into();
         }
@@ -705,16 +706,16 @@ impl Parents {
 
         result
     }
-    pub fn find_dominators(&self, versions: &[LV]) -> SmallVec<[LV; 4]> {
+    pub fn find_dominators(&self, versions: &[LV]) -> Frontier {
         let mut result = self.find_dominators_rev(versions);
         result.reverse();
-        result
+        Frontier(result)
     }
 
     /// Given 2 versions, return a version which contains all the operations in both.
     ///
     /// TODO: This needs unit tests.
-    pub fn version_union(&self, a: &[LV], b: &[LV]) -> LocalFrontier {
+    pub fn version_union(&self, a: &[LV], b: &[LV]) -> Frontier {
         let mut result = smallvec![];
         self.find_dominators_full(
             a.iter().copied().chain(b.iter().copied()),
@@ -724,7 +725,8 @@ impl Parents {
                 }
             }
         );
-        result
+        result.reverse();
+        result.into()
     }
 }
 
@@ -738,7 +740,7 @@ pub mod test {
     use crate::causalgraph::parents::tools::DiffFlag::*;
     use crate::dtrange::DTRange;
     use crate::rle::RleVec;
-    use crate::{LocalFrontier, LV};
+    use crate::{Frontier, LV};
     use crate::causalgraph::parents::tools::{DiffFlag, DiffResult};
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
@@ -764,7 +766,7 @@ pub mod test {
 
     #[derive(Debug, Eq, PartialEq)]
     pub struct ConflictFull {
-        pub(crate) common_branch: LocalFrontier,
+        pub(crate) common_branch: Frontier,
         pub(crate) spans: Vec<(DTRange, DiffFlag)>,
     }
 
@@ -807,7 +809,7 @@ pub mod test {
             .map(|(r, flag)| (r.clone().into(), *flag))
             .collect();
         let actual = find_conflicting(history, a, b);
-        assert_eq!(actual.common_branch.as_slice(), expect_common);
+        assert_eq!(actual.common_branch.as_ref(), expect_common);
         assert_eq!(actual.spans, expect);
 
         #[cfg(feature="gen_test_data")] {
@@ -929,22 +931,22 @@ pub mod test {
             entries: RleVec(vec![
                 ParentsEntryInternal { // 0-2
                     span: (0..3).into(), shadow: 0,
-                    parents: smallvec![],
+                    parents: Frontier::from_sorted(&[]),
                     child_indexes: smallvec![2, 3],
                 },
                 ParentsEntryInternal { // 3-5
                     span: (3..6).into(), shadow: 3,
-                    parents: smallvec![],
+                    parents: Frontier::from_sorted(&[]),
                     child_indexes: smallvec![2],
                 },
                 ParentsEntryInternal { // 6-8
                     span: (6..9).into(), shadow: 6,
-                    parents: smallvec![1, 4],
+                    parents: Frontier::from_sorted(&[1, 4]),
                     child_indexes: smallvec![3],
                 },
                 ParentsEntryInternal { // 9-10
                     span: (9..11).into(), shadow: usize::MAX,
-                    parents: smallvec![2, 8],
+                    parents: Frontier::from_sorted(&[2, 8]),
                     child_indexes: smallvec![],
                 },
             ]),
@@ -1028,29 +1030,29 @@ pub mod test {
     fn dominator_smoke_test() {
         let parents = fancy_parents();
 
-        assert_eq!(parents.find_dominators(&[0,1,2,3,4,5,6,7,8,9,10]).as_slice(), &[5, 10]);
-        assert_eq!(parents.find_dominators(&[10]).as_slice(), &[10]);
+        assert_eq!(parents.find_dominators(&[0,1,2,3,4,5,6,7,8,9,10]).as_ref(), &[5, 10]);
+        assert_eq!(parents.find_dominators(&[10]).as_ref(), &[10]);
 
-        assert_eq!(parents.find_dominators(&[5, 6]).as_slice(), &[5, 6]);
-        assert_eq!(parents.find_dominators(&[5, 9]).as_slice(), &[5, 9]);
-        assert_eq!(parents.find_dominators(&[1, 2]).as_slice(), &[2]);
-        assert_eq!(parents.find_dominators(&[0, 2]).as_slice(), &[2]);
-        assert_eq!(parents.find_dominators(&[0, 10]).as_slice(), &[10]);
+        assert_eq!(parents.find_dominators(&[5, 6]).as_ref(), &[5, 6]);
+        assert_eq!(parents.find_dominators(&[5, 9]).as_ref(), &[5, 9]);
+        assert_eq!(parents.find_dominators(&[1, 2]).as_ref(), &[2]);
+        assert_eq!(parents.find_dominators(&[0, 2]).as_ref(), &[2]);
+        assert_eq!(parents.find_dominators(&[0, 10]).as_ref(), &[10]);
         assert_eq!(parents.find_dominators(&[]).len(), 0);
-        assert_eq!(parents.find_dominators(&[2]).as_slice(), &[2]);
-        assert_eq!(parents.find_dominators(&[1, 4]).as_slice(), &[1, 4]);
-        assert_eq!(parents.find_dominators(&[9, 10]).as_slice(), &[10]);
-        assert_eq!(parents.find_dominators(&[9, 2, 8]).as_slice(), &[9]);
-        assert_eq!(parents.find_dominators(&[9, 2, 7]).as_slice(), &[9]);
-        assert_eq!(parents.find_dominators(&[6, 7]).as_slice(), &[7]);
-        assert_eq!(parents.find_dominators(&[0]).as_slice(), &[0]);
+        assert_eq!(parents.find_dominators(&[2]).as_ref(), &[2]);
+        assert_eq!(parents.find_dominators(&[1, 4]).as_ref(), &[1, 4]);
+        assert_eq!(parents.find_dominators(&[9, 10]).as_ref(), &[10]);
+        assert_eq!(parents.find_dominators(&[9, 2, 8]).as_ref(), &[9]);
+        assert_eq!(parents.find_dominators(&[9, 2, 7]).as_ref(), &[9]);
+        assert_eq!(parents.find_dominators(&[6, 7]).as_ref(), &[7]);
+        assert_eq!(parents.find_dominators(&[0]).as_ref(), &[0]);
     }
 
     #[test]
     fn dominator_duplicates() {
         let parents = fancy_parents();
-        assert_eq!(parents.find_dominators(&[1,1,1]).as_slice(), &[1]);
-        assert_eq!(parents.version_union(&[1], &[1]).as_slice(), &[1]);
+        assert_eq!(parents.find_dominators(&[1,1,1]).as_ref(), &[1]);
+        assert_eq!(parents.version_union(&[1], &[1]).as_ref(), &[1]);
 
         let mut seen_1 = false;
         parents.find_dominators_full((&[1,1,1]).iter().copied(), |v, d| {
@@ -1070,17 +1072,17 @@ pub mod test {
             entries: RleVec(vec![
                 ParentsEntryInternal {
                     span: (0..1).into(), shadow: usize::MAX,
-                    parents: smallvec![],
+                    parents: Frontier::from_sorted(&[]),
                     child_indexes: smallvec![2]
                 },
                 ParentsEntryInternal {
                     span: (1..2).into(), shadow: usize::MAX,
-                    parents: smallvec![],
+                    parents: Frontier::from_sorted(&[]),
                     child_indexes: smallvec![3]
                 },
                 ParentsEntryInternal {
                     span: (2..3).into(), shadow: 2,
-                    parents: smallvec![0],
+                    parents: Frontier::from_sorted(&[0]),
                     child_indexes: smallvec![4]
                 },
             ]),
@@ -1103,19 +1105,19 @@ pub mod test {
                 ParentsEntryInternal {
                     span: (0..1).into(),
                     shadow: usize::MAX,
-                    parents: smallvec![],
+                    parents: Frontier::root(),
                     child_indexes: smallvec![],
                 },
                 ParentsEntryInternal {
                     span: (1..2).into(),
                     shadow: 1,
-                    parents: smallvec![],
+                    parents: Frontier::root(),
                     child_indexes: smallvec![],
                 },
                 ParentsEntryInternal {
                     span: (2..3).into(),
                     shadow: 2,
-                    parents: smallvec![],
+                    parents: Frontier::root(),
                     child_indexes: smallvec![],
                 },
             ]),
@@ -1146,19 +1148,19 @@ pub mod test {
                 ParentsEntryInternal {
                     span: (0..3).into(),
                     shadow: usize::MAX,
-                    parents: smallvec![],
+                    parents: Frontier::from_sorted(&[]),
                     child_indexes: smallvec![2],
                 },
                 ParentsEntryInternal {
                     span: (3..5).into(),
                     shadow: 3,
-                    parents: smallvec![],
+                    parents: Frontier::from_sorted(&[]),
                     child_indexes: smallvec![2],
                 },
                 ParentsEntryInternal {
                     span: (5..6).into(),
                     shadow: usize::MAX,
-                    parents: smallvec![2,4],
+                    parents: Frontier::from_sorted(&[2,4]),
                     child_indexes: smallvec![],
                 },
             ]),
@@ -1179,25 +1181,25 @@ pub mod test {
             ParentsEntryInternal {
                 span: (0..1).into(),
                 shadow: usize::MAX,
-                parents: smallvec![],
+                parents: Frontier::from_sorted(&[]),
                 child_indexes: smallvec![1, 2],
             },
             ParentsEntryInternal {
                 span: (1..2).into(),
                 shadow: 1,
-                parents: smallvec![],
+                parents: Frontier::from_sorted(&[]),
                 child_indexes: smallvec![1, 2],
             },
             ParentsEntryInternal {
                 span: (2..3).into(),
                 shadow: usize::MAX,
-                parents: smallvec![0, 1],
+                parents: Frontier::from_sorted(&[0, 1]),
                 child_indexes: smallvec![],
             },
             ParentsEntryInternal {
                 span: (3..4).into(),
                 shadow: 3,
-                parents: smallvec![0, 1],
+                parents: Frontier::from_sorted(&[0, 1]),
                 child_indexes: smallvec![],
             },
         ]);

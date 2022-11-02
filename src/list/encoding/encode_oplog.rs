@@ -481,7 +481,7 @@ impl ListOpLog {
             push_usize(&mut txns_chunk, len);
 
             // Then the parents.
-            if txn.parents.is_empty() {
+            if txn.parents.is_root() {
                 // Parenting off the root is special-cased, because its rare in practice (well,
                 // usually exactly 1 item will have the parents as root). We'll write a single dummy
                 // value with foreign 0 here, because we (unfortunately) need to mark the list is
@@ -540,7 +540,7 @@ impl ListOpLog {
         // If we just iterate in the current order, this code would be way simpler :p
         // let iter = self.cg.history.optimized_txns_between(from_frontier, &self.frontier);
         // for walk in self.cg.parents.iter() {
-        for walk in self.cg.parents.optimized_txns_between(from_version, &self.version) {
+        for walk in self.cg.parents.optimized_txns_between(from_version, self.version.as_ref()) {
             // We only care about walk.consume and parents.
 
             // We need to update *lots* of stuff in here!!
@@ -615,7 +615,7 @@ impl ListOpLog {
 
         let end_branch = if opts.experimentally_store_end_branch_content {
             let mut end_branch = Vec::new();
-            write_local_version(&mut end_branch, &self.version, &mut agent_mapping, self);
+            write_local_version(&mut end_branch, self.version.as_ref(), &mut agent_mapping, self);
 
             let branch_here = ListBranch::new_at_tip(self);
             write_content_rope(&mut end_branch, &branch_here.content.borrow(), compress_bytes.as_mut());

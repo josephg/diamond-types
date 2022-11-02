@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
 use crate::dtrange::DTRange;
-use crate::{CausalGraph, LocalFrontier, LV};
+use crate::{CausalGraph, Frontier, LV};
 use crate::frontier::sort_frontier;
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 
@@ -144,21 +144,19 @@ impl CausalGraph {
         self.agent_span_to_remote(agent_span)
     }
 
-    pub fn try_remote_to_local_frontier<'a, I: Iterator<Item=RemoteVersion<'a>> + 'a>(&self, ids_iter: I) -> Result<LocalFrontier, VersionConversionError> {
-        let mut frontier: LocalFrontier = ids_iter
+    pub fn try_remote_to_local_frontier<'a, I: Iterator<Item=RemoteVersion<'a>> + 'a>(&self, ids_iter: I) -> Result<Frontier, VersionConversionError> {
+        let mut frontier: Frontier = ids_iter
             .map(|rv| self.try_remote_to_local_version(rv))
-            .collect::<Result<LocalFrontier, VersionConversionError>>()?;
+            .collect::<Result<Frontier, VersionConversionError>>()?;
 
-        sort_frontier(&mut frontier);
         Ok(frontier)
     }
 
-    pub fn remote_to_local_frontier<'a, I: Iterator<Item=RemoteVersion<'a>> + 'a>(&self, ids_iter: I) -> LocalFrontier {
-        let mut frontier: LocalFrontier = ids_iter
+    pub fn remote_to_local_frontier<'a, I: Iterator<Item=RemoteVersion<'a>> + 'a>(&self, ids_iter: I) -> Frontier {
+        let mut frontier: Frontier = ids_iter
             .map(|rv| self.remote_to_local_version(rv))
             .collect();
 
-        sort_frontier(&mut frontier);
         frontier
     }
 
@@ -209,6 +207,6 @@ mod test {
     #[test]
     fn remote_versions_can_be_empty() {
         let cg = CausalGraph::new();
-        assert!(cg.remote_to_local_frontier(std::iter::empty()).is_empty());
+        assert!(cg.remote_to_local_frontier(std::iter::empty()).is_root());
     }
 }

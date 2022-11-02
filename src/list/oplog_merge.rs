@@ -23,7 +23,7 @@ impl ListOpLog {
 
         let mut queue = BinaryHeap::new();
         // dbg!(&other.frontier, &other.history);
-        for ord in &other.version {
+        for ord in other.version.iter() {
             queue.push(*ord);
         }
 
@@ -133,20 +133,20 @@ impl ListOpLog {
                 let span = (t..t + len).into();
                 // We need to convert other parents to self parents. This is a bit gross but eh.
                 // dbg!(&hist_entry.parents);
-                for t in &mut hist_entry.parents {
+                for t in hist_entry.parents.0.iter_mut() {
                     let mut id = other.time_to_crdt_id(*t);
                     id.agent = agent_map[id.agent as usize];
                     let self_time = self.crdt_id_to_time(id);
                     *t = self_time;
                 }
 
-                hist_entry.parents.sort_unstable();
+                hist_entry.parents.0.sort_unstable();
                 // hist_entry.parents.sort_unstable_by(|a, b| a.cmp(b));
-                debug_assert_frontier_sorted(&hist_entry.parents);
+                hist_entry.parents.debug_check_sorted();
                 // dbg!(&hist_entry.parents);
 
-                self.cg.parents.push(&hist_entry.parents, span);
-                self.advance_frontier(&hist_entry.parents, span);
+                self.cg.parents.push(hist_entry.parents.as_ref(), span);
+                self.advance_frontier(hist_entry.parents.as_ref(), span);
                 t += len;
             }
 

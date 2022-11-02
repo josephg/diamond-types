@@ -69,13 +69,13 @@ fn merge_fuzz(seed: u64, verbose: bool) {
         // dbg!(&opset);
 
         if verbose { println!("Merge b to a: {:?} -> {:?}", &b.version, &a.version); }
-        a.merge(&oplog, &b.version);
+        a.merge(&oplog, b.version.as_ref());
         if verbose {
             println!("-> a content '{}'\n", a.content);
         }
 
         if verbose { println!("Merge a to b: {:?} -> {:?}", &a.version, &b.version); }
-        b.merge(&oplog, &a.version);
+        b.merge(&oplog, a.version.as_ref());
         if verbose {
             println!("-> b content '{}'", b.content);
         }
@@ -101,7 +101,7 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             // Every little while, merge everything. This has 2 purposes:
             // 1. It stops the fuzzer being n^2. (Its really unfortunate we need this)
             // And 2. It makes sure n-way merging also works correctly.
-            let all_frontier = oplog.version.as_slice();
+            let all_frontier = oplog.version.as_ref();
 
             for b in branches.iter_mut() {
                 b.merge(&oplog, all_frontier);

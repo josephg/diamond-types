@@ -30,7 +30,7 @@ use rle::{HasLength, SplitableSpan};
 use crate::causalgraph::parents::Parents;
 use crate::dtrange::DTRange;
 use crate::frontier::clone_smallvec;
-use crate::{LocalFrontier, LV};
+use crate::{Frontier, LV};
 
 #[derive(Debug)]
 // struct VisitEntry<'a> {
@@ -39,7 +39,7 @@ struct VisitEntry {
     txn_idx: usize,
     // entry: &'a HistoryEntry,
     visited: bool,
-    parents: SmallVec<[usize; 2]>,
+    parents: Frontier,
     parent_idxs: SmallVec<[usize; 4]>,
     child_idxs: SmallVec<[usize; 4]>,
 }
@@ -78,7 +78,7 @@ pub(crate) struct SpanningTreeWalker<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
     history: &'a Parents,
 
-    frontier: LocalFrontier,
+    frontier: Frontier,
 
     input: SmallVec<[VisitEntry; 4]>,
 
@@ -95,7 +95,7 @@ pub(crate) struct TxnWalkItem {
     pub(crate) retreat: SmallVec<[DTRange; 4]>,
     pub(crate) advance_rev: SmallVec<[DTRange; 4]>,
     // txn: &'a TxnSpan,
-    pub(crate) parents: SmallVec<[LV; 2]>,
+    pub(crate) parents: Frontier,
     pub(crate) consume: DTRange,
 }
 
@@ -109,11 +109,11 @@ impl<'a> SpanningTreeWalker<'a> {
         }
         // spans.reverse(); // Unneeded - there's 0 or 1 item in the spans list.
 
-        Self::new(history, &spans, smallvec![])
+        Self::new(history, &spans, Frontier::root())
     }
 
     // TODO: It'd be cleaner to pass in spans as an Iterator<Item=DTRange>.
-    pub(crate) fn new(history: &'a Parents, rev_spans: &[DTRange], start_at: LocalFrontier) -> Self {
+    pub(crate) fn new(history: &'a Parents, rev_spans: &[DTRange], start_at: Frontier) -> Self {
         // println!("\n----- NEW TRAVERSAL -----");
 
         if cfg!(debug_assertions) {
@@ -136,7 +136,7 @@ impl<'a> SpanningTreeWalker<'a> {
                 let span = span_remaining.truncate_keeping_right(offset);
 
                 // dbg!(span_remaining.start);
-                let parents: SmallVec<[usize; 2]> = txn.clone_parents_at_time(span.start);
+                let parents: Frontier = txn.clone_parents_at_time(span.start);
 
                 // We don't care about any parents outside of the input spans.
                 let parent_idxs: SmallVec<[usize; 4]> = parents.iter()
@@ -206,7 +206,7 @@ impl<'a> SpanningTreeWalker<'a> {
         }
     }
 
-    pub fn into_frontier(self) -> LocalFrontier {
+    pub fn into_frontier(self) -> Frontier {
         self.frontier
     }
 
@@ -278,34 +278,34 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
         // dbg!(&child_idxs);
 
         // let parents = &input_entry.parents;
-        let (only_branch, only_txn) = self.history.diff(&self.frontier, &parents);
+        let (only_branch, only_txn) = self.history.diff(self.frontier.as_ref(), parents.as_ref());
 
         // Note that even if we're moving to one of our direct children we might see items only
         // in only_branch if the child has a parent in the middle of our txn.
         for range in &only_branch {
             // println!("Retreat branch {:?} by {:?}", &self.branch, range);
-            retreat_frontier_by(&mut self.frontier, self.history, *range);
+            self.frontier.retreat(self.history, *range);
             // println!(" -> {:?}", &self.branch);
             // dbg!(&branch);
         }
 
         if cfg!(debug_assertions) {
-            check_frontier(&self.frontier, self.history);
+            self.frontier.check(self.history);
         }
 
         for range in only_txn.iter().rev() {
             // println!("Advance branch by {:?}", range);
-            advance_frontier_by(&mut self.frontier, self.history, *range);
+            self.frontier.advance(self.history, *range);
             // dbg!(&branch);
         }
 
         if cfg!(debug_assertions) {
-            check_frontier(&self.frontier, self.history);
+            self.frontier.check(self.history);
         }
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());
         let input_span = span;
-        advance_frontier_by_known_run(&mut self.frontier, &parents, input_span);
+        self.frontier.advance_by_known_run(parents.as_ref(), input_span);
 
         self.num_consumed += 1;
 
@@ -379,12 +379,12 @@ mod test {
         let history = Parents::from_entries(&[
             ParentsEntryInternal {
                 span: (0..10).into(), shadow: 0,
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 child_indexes: smallvec![]
             },
             ParentsEntryInternal {
                 span: (10..30).into(), shadow: 0,
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 child_indexes: smallvec![]
             }
         ]);
@@ -395,13 +395,13 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 consume: (0..10).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![(0..10).into()],
                 advance_rev: smallvec![],
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 consume: (10..30).into(),
             },
         ]);
@@ -412,17 +412,17 @@ mod test {
         let history = Parents::from_entries(&[
             ParentsEntryInternal {
                 span: (0..10).into(), shadow: 0,
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 child_indexes: smallvec![2]
             },
             ParentsEntryInternal {
                 span: (10..30).into(), shadow: 10,
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 child_indexes: smallvec![2]
             },
             ParentsEntryInternal {
                 span: (30..50).into(), shadow: 0,
-                parents: smallvec![9, 29],
+                parents: Frontier(smallvec![9, 29]),
                 child_indexes: smallvec![]
             },
         ]);
@@ -433,19 +433,19 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 consume: (0..10).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![(0..10).into()],
                 advance_rev: smallvec![],
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 consume: (10..30).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![(0..10).into()],
-                parents: smallvec![9, 29],
+                parents: Frontier(smallvec![9, 29]),
                 consume: (30..50).into(),
             },
         ]);
@@ -458,27 +458,27 @@ mod test {
         let history = Parents::from_entries(&[
             ParentsEntryInternal { // a
                 span: (0..1).into(), shadow: usize::MAX,
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 child_indexes: smallvec![2]
             },
             ParentsEntryInternal { // b
                 span: (1..2).into(), shadow: usize::MAX,
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 child_indexes: smallvec![3]
             },
             ParentsEntryInternal { // a
                 span: (2..3).into(), shadow: 2,
-                parents: smallvec![0],
+                parents: Frontier(smallvec![0]),
                 child_indexes: smallvec![4]
             },
             ParentsEntryInternal { // b
                 span: (3..4).into(), shadow: 3,
-                parents: smallvec![1],
+                parents: Frontier(smallvec![1]),
                 child_indexes: smallvec![4]
             },
             ParentsEntryInternal { // a+b
                 span: (4..5).into(), shadow: usize::MAX,
-                parents: smallvec![2, 3],
+                parents: Frontier(smallvec![2, 3]),
                 child_indexes: smallvec![]
             },
         ]);
@@ -496,33 +496,33 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 consume: (0..1).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![0],
+                parents: Frontier(smallvec![0]),
                 consume: (2..3).into(),
             },
 
             TxnWalkItem {
                 retreat: smallvec![(2..3).into(), (0..1).into()],
                 advance_rev: smallvec![],
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 consume: (1..2).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![1],
+                parents: Frontier(smallvec![1]),
                 consume: (3..4).into(),
             },
 
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![(2..3).into(), (0..1).into()],
-                parents: smallvec![2, 3],
+                parents: Frontier(smallvec![2, 3]),
                 consume: (4..5).into(),
             },
         ])));
@@ -535,14 +535,14 @@ mod test {
             ParentsEntryInternal {
                 span: (0..10).into(),
                 shadow: usize::MAX,
-                parents: smallvec![],
+                parents: Frontier(smallvec![]),
                 child_indexes: smallvec![]
             },
         ]);
 
         let conflict = history.find_conflicting_simple(&[5], &[6]);
         assert_eq!(conflict, ConflictZone {
-            common_ancestor: smallvec![5],
+            common_ancestor: Frontier(smallvec![5]),
             spans: smallvec![(6..7).into()],
         });
         let iter = SpanningTreeWalker::new(&history, &conflict.spans, conflict.common_ancestor);
@@ -552,7 +552,7 @@ mod test {
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: smallvec![5],
+                parents: Frontier(smallvec![5]),
                 consume: (6..7).into(),
             }
         ])));

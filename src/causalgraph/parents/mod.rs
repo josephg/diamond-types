@@ -8,7 +8,7 @@ use std::iter::once;
 use smallvec::{SmallVec, smallvec};
 
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
-use crate::LV;
+use crate::{Frontier, LV};
 
 use crate::rle::{RleKeyed, RleVec};
 use crate::dtrange::DTRange;
@@ -25,7 +25,7 @@ pub struct Parents {
 }
 
 impl Parents {
-    pub fn parents_at_time(&self, time: LV) -> SmallVec<[LV; 2]> {
+    pub fn parents_at_time(&self, time: LV) -> Frontier {
         let entry = self.entries.find_packed(time);
         entry.with_parents(time, |p| p.into())
     }
@@ -46,7 +46,7 @@ impl Parents {
         Parents {
             entries: RleVec(entries.to_vec()),
             root_child_indexes: entries.iter().enumerate().filter_map(|(i, entry)| {
-                if local_frontier_is_root(&entry.parents) { Some(i) } else { None }
+                if entry.parents.is_root() { Some(i) } else { None }
             }).collect()
         }
     }
@@ -113,7 +113,7 @@ impl Parents {
         let txn = ParentsEntryInternal {
             span: range,
             shadow,
-            parents: txn_parents.iter().copied().collect(),
+            parents: txn_parents.into(),
             // parent_indexes,
             child_indexes: smallvec![]
         };
@@ -140,7 +140,7 @@ pub(crate) struct ParentsEntryInternal {
     /// - One item when its a simple change
     /// - Two or more items when concurrent changes have happened, and the first item in this range
     ///   is a merge operation.
-    pub parents: SmallVec<[usize; 2]>,
+    pub parents: Frontier,
 
     /// This is a cached list of all the other indexes of items in history which name this item as
     /// a parent.
@@ -164,15 +164,15 @@ impl ParentsEntryInternal {
         if time > self.span.start {
             f(&[time - 1])
         } else {
-            f(self.parents.as_slice())
+            f(self.parents.as_ref())
         }
     }
 
-    pub fn clone_parents_at_time<B: FromIterator<usize>>(&self, time: usize) -> B {
+    pub fn clone_parents_at_time(&self, time: usize) -> Frontier {
         if time > self.span.start {
-            B::from_iter(once(time - 1))
+            Frontier::new_1(time - 1)
         } else {
-            B::from_iter(self.parents.iter().copied())
+            self.parents.clone()
         }
     }
 
@@ -259,7 +259,7 @@ impl RleKeyed for ParentsEntryInternal {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ParentsEntrySimple {
     pub span: DTRange,
-    pub parents: SmallVec<[usize; 2]>,
+    pub parents: Frontier,
 }
 
 impl MergableSpan for ParentsEntrySimple {
@@ -289,7 +289,7 @@ impl SplitableSpanHelpers for ParentsEntrySimple {
 
         ParentsEntrySimple {
             span: self.span.truncate(at),
-            parents: smallvec![self.span.start + at - 1]
+            parents: Frontier::new_1(self.span.start + at - 1)
         }
     }
 }
@@ -307,7 +307,7 @@ impl From<&ParentsEntryInternal> for ParentsEntrySimple {
     fn from(entry: &ParentsEntryInternal) -> Self {
         Self {
             span: entry.span,
-            parents: clone_smallvec(&entry.parents)
+            parents: entry.parents.clone()
         }
     }
 }
@@ -371,18 +371,19 @@ mod tests {
     use smallvec::smallvec;
     use rle::{MergableSpan, test_splitable_methods_valid};
     use crate::causalgraph::parents::ParentsEntrySimple;
+    use crate::Frontier;
     use super::ParentsEntryInternal;
 
     #[test]
     fn test_txn_appends() {
         let mut txn_a = ParentsEntryInternal {
             span: (1000..1010).into(), shadow: 500,
-            parents: smallvec![999],
+            parents: Frontier::new_1(999),
             child_indexes: smallvec![],
         };
         let txn_b = ParentsEntryInternal {
             span: (1010..1015).into(), shadow: 500,
-            parents: smallvec![1009],
+            parents: Frontier::new_1(1009),
             child_indexes: smallvec![],
         };
 
@@ -391,7 +392,7 @@ mod tests {
         txn_a.append(txn_b);
         assert_eq!(txn_a, ParentsEntryInternal {
             span: (1000..1015).into(), shadow: 500,
-            parents: smallvec![999],
+            parents: Frontier::new_1(999),
             child_indexes: smallvec![],
         })
     }
@@ -400,7 +401,7 @@ mod tests {
     fn txn_entry_valid() {
         test_splitable_methods_valid(ParentsEntrySimple {
             span: (10..20).into(),
-            parents: smallvec![0]
+            parents: Frontier::new_1(0),
         });
     }
 }

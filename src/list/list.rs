@@ -1,32 +1,34 @@
+use std::borrow::Borrow;
 use std::mem::replace;
 use std::ops::Range;
 use humansize::{BINARY, format_size};
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
 use smallvec::smallvec;
-use crate::{AgentId, LocalFrontier, LV};
+use crate::{AgentId, Frontier, LV};
 use rle::HasLength;
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::DTRange;
 use crate::encoding::parseerror::ParseError;
-use crate::frontier::replace_frontier_with;
 use crate::unicount::count_chars;
 
 // For local changes to a branch, we take the checkout's frontier as the new parents list.
-fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut LocalFrontier, range: DTRange) {
+fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut Frontier, range: DTRange) {
     // Fast path for local edits. For some reason the code below is remarkably non-performant.
     // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
-    if frontier.len() == 1 && frontier[0] == range.start.wrapping_sub(1) {
-        if let Some(last) = oplog.cg.parents.entries.0.last_mut() {
-            last.span.end = range.end;
-            frontier[0] = range.last();
-            return;
+    if let Some(f0) = frontier.try_get_single_entry_mut() {
+        if *f0 == range.start.wrapping_sub(1) {
+            if let Some(last) = oplog.cg.parents.entries.0.last_mut() {
+                last.span.end = range.end;
+                *f0 = range.last();
+                return;
+            }
         }
     }
 
     // Otherwise use the slow version.
-    oplog.cg.parents.push(frontier, range);
-    replace_frontier_with(frontier, range.last());
+    oplog.cg.parents.push(frontier.as_ref(), range);
+    frontier.replace_with_1(range.last());
 }
 
 // Slow / small version.
@@ -78,7 +80,7 @@ pub(crate) fn apply_local_operations(oplog: &mut ListOpLog, branch: &mut ListBra
 
     oplog.assign_next_time_to_client_known(agent, span);
 
-    oplog.advance_frontier(&branch.version, span);
+    oplog.advance_frontier(branch.version.as_ref(), span);
     // replace_frontier_with(&mut oplog.version, next_time - 1);
     insert_history_local(oplog, &mut branch.version, span);
 
@@ -108,7 +110,7 @@ fn internal_do_insert(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: Age
     // slower.
     // oplog.advance_frontier(&branch.version, time_span);
     debug_assert_eq!(oplog.version, branch.version);
-    replace_frontier_with(&mut oplog.version, end - 1);
+    oplog.version.replace_with_1(end - 1);
     insert_history_local(oplog, &mut branch.version, time_span);
     end - 1
 }
@@ -129,7 +131,7 @@ fn internal_do_delete(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: Age
     oplog.assign_next_time_to_client_known(agent, time_span);
 
     debug_assert_eq!(oplog.version, branch.version);
-    replace_frontier_with(&mut oplog.version, end - 1);
+    oplog.version.replace_with_1(end - 1);
     // oplog.advance_frontier(&branch.version, time_span);
     insert_history_local(oplog, &mut branch.version, time_span);
     end - 1
@@ -157,9 +159,9 @@ impl ListCRDT {
         })
     }
 
-    pub fn merge_data_and_ff(&mut self, bytes: &[u8]) -> Result<LocalFrontier, ParseError> {
+    pub fn merge_data_and_ff(&mut self, bytes: &[u8]) -> Result<Frontier, ParseError> {
         let v = self.oplog.decode_and_add(bytes)?;
-        self.branch.merge(&self.oplog, &self.oplog.version);
+        self.branch.merge(&self.oplog, self.oplog.version.as_ref());
         Ok(v)
     }
 

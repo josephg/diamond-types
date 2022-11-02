@@ -4,7 +4,7 @@ use crate::encoding::tools::{push_str, push_u32, push_usize};
 use crate::encoding::varint::*;
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::causalgraph::agent_span::AgentVersion;
-use crate::{AgentId, CausalGraph, DTRange, KVPair, LocalFrontier, OpLog, RleVec, LV};
+use crate::{AgentId, CausalGraph, DTRange, KVPair, Frontier, OpLog, RleVec, LV};
 use crate::encoding::Merger;
 use bumpalo::collections::vec::Vec as BumpVec;
 use smallvec::SmallVec;
@@ -90,8 +90,8 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[LV], next_o
 
 // *** Read path ***
 
-pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: LV, read_map: &mut ReadMap) -> Result<LocalFrontier, ParseError> {
-    let mut parents = SmallVec::<[usize; 2]>::new();
+pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: LV, read_map: &mut ReadMap) -> Result<Frontier, ParseError> {
+    let mut parents = SmallVec::<[LV; 2]>::new();
 
     loop {
         let mut n = reader.next_usize()?;
@@ -155,5 +155,5 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
     // This is fine - we can just re-sort.
     sort_frontier(&mut parents);
 
-    Ok(parents)
+    Ok(Frontier(parents))
 }

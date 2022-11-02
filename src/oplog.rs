@@ -51,7 +51,7 @@ impl OpLog {
             cg,
             cg_storage: Some(cgs),
             wal_storage: Some(wal),
-            version: smallvec![], // ROOT version.
+            version: Frontier::root(),
             uncommitted_ops: ops
         })
     }
@@ -64,8 +64,8 @@ impl OpLog {
     }
 
     fn inner_assign_local_op_span(&mut self, agent_id: AgentId, len: usize) -> DTRange {
-        let span = self.cg.assign_local_op(&self.version, agent_id, len);
-        self.version = smallvec![span.last()];
+        let span = self.cg.assign_local_op(self.version.as_ref(), agent_id, len);
+        self.version = Frontier::new_1(span.last());
         span
     }
 
@@ -76,7 +76,7 @@ impl OpLog {
 
     fn inner_assign_remote_op_span(&mut self, parents: &[LV], crdt_span: AgentSpan) -> DTRange {
         let time_span = self.cg.merge_and_assign_nonoverlapping(parents, crdt_span);
-        advance_frontier_by_known_run(&mut self.version, parents, time_span);
+        self.version.advance_by_known_run(parents, time_span);
         time_span
     }
 

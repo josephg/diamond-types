@@ -184,6 +184,7 @@
 
 extern crate core;
 
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 use jumprope::JumpRope;
 use smallvec::SmallVec;
@@ -197,7 +198,7 @@ use crate::rle::{KVPair, RleVec};
 use crate::wal::WriteAheadLog;
 use num_enum::TryFromPrimitive;
 pub use ::rle::HasLength;
-pub use frontier::LocalFrontier;
+pub use frontier::Frontier;
 
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
 
@@ -320,7 +321,7 @@ pub struct OpLog {
 
     /// The version that contains everything from CG.
     /// This might make more sense in CG?
-    version: LocalFrontier,
+    version: Frontier,
 
     /// Values which have not yet been flushed to the WAL.
     uncommitted_ops: Ops,
@@ -358,7 +359,7 @@ pub struct Branch {
     /// or has not locally merged.
     ///
     /// This field is public for convenience, but you should never modify it directly.
-    overlay_version: LocalFrontier,
+    overlay_version: Frontier,
 
     // persisted_data: BTreeMap<Time, OverlayValue>, // TODO. Not actually an in-memory object.
     // persisted_version: LocalVersion,

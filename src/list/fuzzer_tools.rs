@@ -46,14 +46,14 @@ pub(crate) fn make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch,
         }
 
         if fwd {
-            oplog.add_insert_at(agent, &branch.version, pos, &content)
+            oplog.add_insert_at(agent, branch.version.as_ref(), pos, &content)
         } else {
             let mut frontier = branch.version.clone();
             for c in content.chars().rev() {
                 let mut buf = [0u8; 8]; // Not sure what the biggest utf8 char is but eh.
                 let str = c.encode_utf8(&mut buf);
-                let v = oplog.add_insert_at(agent, &frontier, pos, str);
-                frontier = smallvec![v];
+                let v = oplog.add_insert_at(agent, frontier.as_ref(), pos, str);
+                frontier.replace_with_1(v);
             }
             // dbg!(&oplog);
             frontier[0]
@@ -77,15 +77,15 @@ pub(crate) fn make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch,
         // I'm using this rather than push_delete to preserve the deleted content.
         if fwd {
             let op = branch.make_delete_op(del_loc);
-            oplog.add_operations_at(agent, &branch.version, &[op])
+            oplog.add_operations_at(agent, branch.version.as_ref(), &[op])
         } else {
             // Backspace each character individually.
             let mut frontier = branch.version.clone(); // Not the most elegant but eh.
             for i in del_loc.rev() {
                 // println!("Delete {}", pos + i);
                 let op = branch.make_delete_op(i .. i + 1);
-                let v = oplog.add_operations_at(agent, &frontier, &[op]);
-                frontier = smallvec![v];
+                let v = oplog.add_operations_at(agent, frontier.as_ref(), &[op]);
+                frontier.replace_with_1(v);
             }
             frontier[0]
         }

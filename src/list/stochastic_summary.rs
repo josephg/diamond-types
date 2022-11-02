@@ -45,7 +45,7 @@ impl ListOpLog {
         };
 
         // No matter what, we'll send the current frontier:
-        for t in &self.version {
+        for t in self.version.iter() {
             push_time(*t);
         }
 

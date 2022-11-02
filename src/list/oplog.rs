@@ -2,16 +2,16 @@ use std::ops::Range;
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, Searchable};
-use crate::{AgentId, LocalFrontier, LV};
+use crate::{AgentId, Frontier, LV};
 use crate::causalgraph::ClientData;
 use crate::list::{ListBranch, ListOpLog};
-use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{TextOperation, ListOpKind};
 use crate::causalgraph::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned, RemoteVersionSpan};
 use crate::dtrange::DTRange;
 use crate::causalgraph::agent_span::*;
+use crate::frontier::clone_smallvec;
 use crate::rev_range::RangeRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::unicount::count_chars;
@@ -30,7 +30,7 @@ impl ListOpLog {
             operation_ctx: ListOperationCtx::new(),
             operations: Default::default(),
             // inserted_content: "".to_string(),
-            version: smallvec![]
+            version: Frontier::root()
         }
     }
 
@@ -42,7 +42,7 @@ impl ListOpLog {
 
     pub fn checkout_tip(&self) -> ListBranch {
         let mut branch = ListBranch::new();
-        branch.merge(self, &self.version);
+        branch.merge(self, self.version.as_ref());
         branch
     }
 
@@ -158,7 +158,7 @@ impl ListOpLog {
 
     /// Advance self.frontier by the named span of time.
     pub(crate) fn advance_frontier(&mut self, parents: &[LV], span: DTRange) {
-        advance_frontier_by_known_run(&mut self.version, parents, span);
+        self.version.advance_by_known_run(parents, span);
     }
 
     /// Append to operations list without adjusting metadata.
@@ -250,8 +250,8 @@ impl ListOpLog {
     /// branch).
     pub fn add_operations(&mut self, agent: AgentId, ops: &[TextOperation]) -> LV {
         // TODO: Rewrite this to avoid the .clone().
-        let frontier = clone_smallvec(&self.version);
-        self.add_operations_at(agent, &frontier, ops)
+        let frontier = self.version.clone();
+        self.add_operations_at(agent, frontier.as_ref(), ops)
     }
 
     /// Add an insert operation to the oplog at the current version.
@@ -300,17 +300,17 @@ impl ListOpLog {
     /// This method is provided alongside [`local_version`](OpLog::local_version) because its
     /// slightly faster.
     pub fn local_frontier_ref(&self) -> &[LV] {
-        &self.version
+        self.version.as_ref()
     }
 
     /// Return the current tip version of the oplog. This is the version which contains all
     /// operations in the oplog.
-    pub fn local_frontier(&self) -> LocalFrontier {
-        clone_smallvec(&self.version)
+    pub fn local_frontier(&self) -> Frontier {
+        self.version.clone()
     }
 
     pub fn remote_frontier(&self) -> RemoteFrontier {
-        self.cg.local_to_remote_frontier(&self.version)
+        self.cg.local_to_remote_frontier(self.version.as_ref())
     }
 
     // pub(crate) fn content_str(&self, tag: InsDelTag) -> &str {
@@ -416,11 +416,11 @@ impl ListOpLog {
     /// changes, and returns the version name for that union. `version_union(a, b)` will often
     /// simply return `a` or `b`. This happens when one of the versions is a strict subset of the
     /// other.
-    pub fn version_union(&self, a: &[LV], b: &[LV]) -> LocalFrontier {
+    pub fn version_union(&self, a: &[LV], b: &[LV]) -> Frontier {
         self.cg.parents.version_union(a, b)
     }
 
-    pub fn parents_at_time(&self, time: LV) -> LocalFrontier {
+    pub fn parents_at_time(&self, time: LV) -> Frontier {
         self.cg.parents.parents_at_time(time)
     }
 }

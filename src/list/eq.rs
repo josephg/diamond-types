@@ -9,7 +9,7 @@
 
 use rle::{HasLength, SplitableSpan};
 use rle::zip::rle_zip3;
-use crate::{AgentId, LV};
+use crate::{AgentId, Frontier, LV};
 use crate::list::ListOpLog;
 use crate::frontier::sort_frontier;
 use crate::causalgraph::parents::ParentsEntrySimple;
@@ -69,10 +69,10 @@ impl PartialEq<Self> for ListOpLog {
 
         // Check frontier contents. Note this is O(n^2) with the size of the respective frontiers.
         // Which should be fine in normal use, but its a DDOS risk.
-        for t in &self.version {
+        for t in self.version.iter() {
             let other_time = map_time_to_other(*t);
             if let Some(other_time) = other_time {
-                if !other.version.contains(&other_time) {
+                if !other.version.0.contains(&other_time) {
                     if VERBOSE { println!("Frontier is not contained by other frontier"); }
                     return false;
                 }
@@ -168,10 +168,10 @@ impl PartialEq<Self> for ListOpLog {
                     span: (mapped_start..mapped_start + len_here).into(),
                     // .unwrap() should be safe here because we've already walked past this item's
                     // parents.
-                    parents: txn.parents.iter().map(|t| map_time_to_other(*t).unwrap()).collect()
+                    parents: Frontier(txn.parents.iter().map(|t| map_time_to_other(*t).unwrap()).collect())
                 };
                 // mapped_txn.parents.sort_unstable();
-                sort_frontier(&mut mapped_txn.parents);
+                sort_frontier(&mut mapped_txn.parents.0);
 
                 if other_txn != mapped_txn {
                     if VERBOSE { println!("Txns do not match {:?} (was {:?}) != {:?}", mapped_txn, txn, other_txn); }

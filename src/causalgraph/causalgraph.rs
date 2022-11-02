@@ -5,8 +5,8 @@ use crate::{AgentId, CausalGraph, LV};
 use crate::causalgraph::*;
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::parents::ParentsEntrySimple;
-use crate::frontier::{advance_frontier_by_known_run, sort_frontier};
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
+use crate::frontier::sort_frontier;
 use crate::rle::RleSpanHelpers;
 
 impl ClientData {
@@ -120,12 +120,11 @@ impl CausalGraph {
     }
 
     #[allow(unused)]
-    pub(crate) fn map_parents(&self, crdt_parents: &[AgentVersion]) -> LocalFrontier {
+    pub(crate) fn map_parents(&self, crdt_parents: &[AgentVersion]) -> Frontier {
         // TODO: Make a try_ version of this.
-        let mut parents = crdt_parents.iter()
-            .map(|p| self.try_agent_version_to_lv(*p).unwrap()).collect();
-        sort_frontier(&mut parents);
-        parents
+        Frontier::from_unsorted_iter(crdt_parents.iter()
+            .map(|p| self.try_agent_version_to_lv(*p).unwrap())
+        )
     }
 
     pub(crate) fn check_flat(&self) {
@@ -292,7 +291,7 @@ impl CausalGraph {
         let aa = self.client_with_localtime.iter_range_packed(range)
             .map(|KVPair(_, data)| data);
 
-        rle_zip(parents, aa).map(|(parents, span)| {
+        rle_zip(parents, aa).map(|(parents, span): (ParentsEntrySimple, AgentSpan)| {
             debug_assert_eq!(parents.len(), span.len());
 
             CGEntry {

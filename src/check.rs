@@ -1,6 +1,5 @@
 use smallvec::smallvec;
-use crate::frontier::advance_frontier_by_known_run;
-use crate::{Branch, LocalFrontier, OverlayValue};
+use crate::{Branch, Frontier, OverlayValue};
 use crate::OpLog;
 
 impl OpLog {

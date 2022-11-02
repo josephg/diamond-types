@@ -1,12 +1,12 @@
 use smallvec::smallvec;
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
-use crate::{DTRange, LocalFrontier, LV};
+use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::agent_span::AgentSpan;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CGEntry {
     pub start: LV,
-    pub parents: LocalFrontier,
+    pub parents: Frontier,
     pub span: AgentSpan,
 }
 
@@ -67,7 +67,7 @@ impl SplitableSpanCtx for CGEntry {
 
         Self {
             start: self.start + at,
-            parents: smallvec![self.start + at - 1],
+            parents: Frontier::new_1(self.start + at - 1),
             span: other_span
         }
     }

@@ -2,7 +2,7 @@
 // checker.
 #![allow(clippy::needless_option_as_deref)]
 
-use std::borrow::BorrowMut;
+use std::borrow::{Borrow, BorrowMut};
 use std::cmp::Ordering;
 use std::ptr::NonNull;
 use jumprope::{JumpRope, JumpRopeBuf};
@@ -18,8 +18,7 @@ use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::{DTRange, is_underwater, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers};
-use crate::{AgentId, LocalFrontier, LV};
-use crate::frontier::{advance_frontier_by, frontier_is_sorted, local_frontier_eq};
+use crate::{AgentId, Frontier, LV};
 use crate::causalgraph::parents::tools::DiffFlag;
 use crate::list::op_metrics::ListOpMetrics;
 use crate::list::buffered_iter::BufferedIter;
@@ -38,6 +37,7 @@ use crate::list::merge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
 use crate::list::operation::ListOpKind::Ins;
 use crate::causalgraph::remote_ids::RemoteVersionSpanOwned;
+use crate::frontier::{local_frontier_eq, FrontierRef};
 use crate::unicount::consume_chars;
 
 const ALLOW_FF: bool = true;
@@ -265,7 +265,7 @@ impl M2Tracker {
         if range.is_empty() { return; }
 
         if let Some(to) = to.as_deref_mut() {
-            advance_frontier_by(&mut to.version, &oplog.cg.parents, range);
+            to.version.advance(&oplog.cg.parents, range);
         }
 
         let mut iter = oplog.iter_metrics_range(range);
@@ -546,7 +546,7 @@ impl M2Tracker {
     ///
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
-    fn walk(&mut self, oplog: &ListOpLog, start_at: LocalFrontier, rev_spans: &[DTRange], mut apply_to: Option<&mut ListBranch>) -> LocalFrontier {
+    fn walk(&mut self, oplog: &ListOpLog, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut ListBranch>) -> Frontier {
         let mut walker = SpanningTreeWalker::new(&oplog.cg.parents, rev_spans, start_at);
 
         for walk in &mut walker {
@@ -575,29 +575,26 @@ pub(crate) struct TransformedOpsIter<'a> {
     // ff_idx: usize,
     did_ff: bool, // TODO: Do I really need this?
 
-    merge_frontier: LocalFrontier,
+    merge_frontier: Frontier,
 
-    common_ancestor: LocalFrontier,
+    common_ancestor: Frontier,
     conflict_ops: SmallVec<[DTRange; 4]>,
     new_ops: SmallVec<[DTRange; 4]>,
 
-    next_frontier: LocalFrontier,
+    next_frontier: Frontier,
 
     // TODO: This tracker allocates - which we don't need to do if we're FF-ing.
     phase2: Option<(M2Tracker, SpanningTreeWalker<'a>)>,
 }
 
 impl<'a> TransformedOpsIter<'a> {
-    fn new(oplog: &'a ListOpLog, from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
+    fn new(oplog: &'a ListOpLog, from_frontier: FrontierRef, merge_frontier: FrontierRef) -> Self {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
         // 2. Generate the conflict set, and make a tracker for it (by iterating all the conflicting
         //    changes).
         // 3. Use OptTxnIter to iterate through the (new) merge set, merging along the way.
-
-        debug_assert!(frontier_is_sorted(merge_frontier));
-        debug_assert!(frontier_is_sorted(from_frontier));
 
         // let mut diff = opset.history.diff(&self.frontier, merge_frontier);
 
@@ -620,27 +617,27 @@ impl<'a> TransformedOpsIter<'a> {
             target.push_reversed_rle(span);
         });
 
+        common_ancestor.debug_check_sorted();
 
         // dbg!(&opset.history);
         // dbg!((&new_ops, &conflict_ops, &common_ancestor));
 
-        debug_assert!(frontier_is_sorted(&common_ancestor));
 
         Self {
             oplog,
             op_iter: None,
             ff_mode: true,
             did_ff: false,
-            merge_frontier: merge_frontier.into(),
+            merge_frontier: Frontier::from(merge_frontier),
             common_ancestor,
             conflict_ops,
             new_ops,
-            next_frontier: from_frontier.into(),
+            next_frontier: Frontier::from(from_frontier),
             phase2: None,
         }
     }
 
-    pub(crate) fn into_frontier(self) -> LocalFrontier {
+    pub(crate) fn into_frontier(self) -> Frontier {
         self.next_frontier
     }
 }
@@ -689,7 +686,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
 
             let span = self.new_ops.last().unwrap();
             let txn = self.oplog.cg.parents.entries.find_packed(span.start);
-            let can_ff = txn.with_parents(span.start, |parents| {
+            let can_ff = txn.with_parents(span.start, |parents: &[LV]| {
                 local_frontier_eq(&self.next_frontier, parents)
             });
 
@@ -700,7 +697,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
 
                 debug_assert!(!span.is_empty());
 
-                self.next_frontier = smallvec![span.last()];
+                self.next_frontier = Frontier::new_1(span.last());
 
                 if let Some(r) = remainder {
                     self.new_ops.push(r);
@@ -728,7 +725,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                     // merge set. This is a pretty bad way to do this - if we're gonna add them to
                     // conflict_ops then FF is pointless.
                     self.conflict_ops.clear();
-                    self.common_ancestor = self.oplog.cg.parents.find_conflicting(&self.next_frontier, &self.merge_frontier, |span, flag| {
+                    self.common_ancestor = self.oplog.cg.parents.find_conflicting(&self.next_frontier.as_ref(), &self.merge_frontier.as_ref(), |span, flag| {
                         if flag != DiffFlag::OnlyB {
                             self.conflict_ops.push_reversed_rle(span);
                         }
@@ -789,7 +786,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             //
             // The walker can be unwrapped into its inner frontier, but that won't include
             // everything. (TODO: Look into fixing that?)
-            advance_frontier_by(&mut self.next_frontier, &self.oplog.cg.parents, walk.consume);
+            self.next_frontier.advance(&self.oplog.cg.parents, walk.consume);
             self.op_iter = Some(self.oplog.iter_metrics_range(walk.consume).into());
         };
 
@@ -814,7 +811,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
 }
 
 impl ListOpLog {
-    pub(crate) fn get_xf_operations_full(&self, from: &[LV], merging: &[LV]) -> TransformedOpsIter {
+    pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter {
         TransformedOpsIter::new(self, from, merging)
     }
 
@@ -825,7 +822,7 @@ impl ListOpLog {
     ///
     /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
     /// changes that could be applied linearly to a document to bring it up to date.
-    pub fn iter_xf_operations_from(&self, from: &[LV], merging: &[LV]) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
+    pub fn iter_xf_operations_from(&self, from: FrontierRef, merging: FrontierRef) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
         TransformedOpsIter::new(self, from, merging)
             .map(|(time, mut origin_op, xf)| {
                 let len = origin_op.len();
@@ -848,7 +845,7 @@ impl ListOpLog {
     ///
     /// See [OpLog::iter_xf_operations_from](OpLog::iter_xf_operations_from) for more information.
     pub fn iter_xf_operations(&self) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
-        self.iter_xf_operations_from(&[], &self.version)
+        self.iter_xf_operations_from(&[], self.version.as_ref())
     }
 }
 
@@ -862,7 +859,7 @@ impl ListBranch {
     /// Add everything in merge_frontier into the set..
     pub fn merge(&mut self, oplog: &ListOpLog, merge_frontier: &[LV]) {
         // let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
-        let mut iter = oplog.get_xf_operations_full(&self.version, merge_frontier);
+        let mut iter = oplog.get_xf_operations_full(self.version.as_ref(), merge_frontier);
 
         for (_time, origin_op, xf) in &mut iter {
             match (origin_op.kind, xf) {
@@ -898,7 +895,7 @@ impl ListBranch {
     //
     // TODO: Remove me!
     #[allow(unused)]
-    fn merge_old(&mut self, oplog: &ListOpLog, merge_frontier: &[LV]) {
+    fn merge_old(&mut self, oplog: &ListOpLog, merge_frontier: FrontierRef) {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
@@ -906,8 +903,8 @@ impl ListBranch {
         //    changes).
         // 3. Use OptTxnIter to iterate through the (new) merge set, merging along the way.
 
-        debug_assert!(frontier_is_sorted(merge_frontier));
-        debug_assert!(frontier_is_sorted(&self.version));
+        // debug_assert!(frontier_is_sorted(merge_frontier));
+        self.version.debug_check_sorted();
 
         // let mut diff = opset.history.diff(&self.frontier, merge_frontier);
 
@@ -925,7 +922,7 @@ impl ListBranch {
         let mut shared_size = 0;
         let mut shared_ranges = 0;
 
-        let mut common_ancestor = oplog.cg.parents.find_conflicting(&self.version, merge_frontier, |span, flag| {
+        let mut common_ancestor = oplog.cg.parents.find_conflicting(self.version.as_ref(), merge_frontier, |span, flag| {
             // Note we'll be visiting these operations in reverse order.
 
             if flag == DiffFlag::Shared {
@@ -966,7 +963,7 @@ impl ListBranch {
         // dbg!(&opset.history);
         // dbg!((&new_ops, &conflict_ops, &common_ancestor));
 
-        debug_assert!(frontier_is_sorted(&common_ancestor));
+        common_ancestor.debug_check_sorted();
 
         // We don't want to have to make and maintain a tracker, and we don't need to in most
         // situations. We don't need to when all operations in diff.only_b can apply cleanly
@@ -980,7 +977,7 @@ impl ListBranch {
                         // Previously this said:
                         //   self.frontier == txn.parents
                         // and the tests still passed. TODO: Was that code wrong? If so make a test case.
-                        local_frontier_eq(self.version.as_slice(), parents)
+                        local_frontier_eq(self.version.as_ref(), parents)
                     });
 
                     if can_ff {
@@ -988,7 +985,7 @@ impl ListBranch {
                         let remainder = span.trim(txn.span.end - span.start);
                         // println!("FF {:?}", &span);
                         self.apply_range_from(oplog, span);
-                        self.version = smallvec![span.last()];
+                        self.version = Frontier::new_1(span.last());
 
                         if let Some(r) = remainder {
                             new_ops.push(r);
@@ -1015,7 +1012,7 @@ impl ListBranch {
             // conflict_ops then FF is pointless.
             conflict_ops.clear();
             shared_size = 0;
-            common_ancestor = oplog.cg.parents.find_conflicting(&self.version, merge_frontier, |span, flag| {
+            common_ancestor = oplog.cg.parents.find_conflicting(self.version.as_ref(), merge_frontier, |span, flag| {
                 if flag == DiffFlag::Shared {
                     shared_size += span.len();
                     shared_ranges += 1;
@@ -1055,9 +1052,9 @@ impl ListBranch {
 impl ListOpLog {
     #[cfg(feature = "ops_to_old")]
     pub fn dbg_items(&self) -> Vec<OldCRDTOp> {
-        debug_assert!(frontier_is_sorted(&self.version));
+        self.version.debug_check_sorted();
         let mut tracker = M2Tracker::new();
-        tracker.walk(self, smallvec![], &[(0..self.len()).into()], None);
+        tracker.walk(self, Frontier::root(), &[(0..self.len()).into()], None);
         tracker.dbg_ops
     }
 }
@@ -1076,7 +1073,7 @@ mod test {
         list.branch.merge(&list.oplog, &[1]);
         list.branch.merge(&list.oplog, &[2]);
 
-        assert_eq!(list.branch.version.as_slice(), &[2]);
+        assert_eq!(list.branch.version.as_ref(), &[2]);
         assert_eq!(list.branch.content, "aaa");
     }
 
@@ -1090,13 +1087,13 @@ mod test {
         list.oplog.add_insert_at(1, &[], 0, "bbb");
         list.branch.merge(&list.oplog, &[2, 5]);
 
-        assert_eq!(list.branch.version.as_slice(), &[2, 5]);
+        assert_eq!(list.branch.version.as_ref(), &[2, 5]);
         assert_eq!(list.branch.content, "aaabbb");
 
         list.oplog.add_insert_at(0, &[2, 5], 0, "ccc"); // 8
         list.branch.merge(&list.oplog, &[8]);
 
-        assert_eq!(list.branch.version.as_slice(), &[8]);
+        assert_eq!(list.branch.version.as_ref(), &[8]);
         assert_eq!(list.branch.content, "cccaaabbb");
     }
 
@@ -1114,7 +1111,7 @@ mod test {
         // list.checkout.merge_changes_m2(&list.ops, &[5]);
 
         // dbg!(list.checkout);
-        assert_eq!(list.branch.version.as_slice(), &[2, 5]);
+        assert_eq!(list.branch.version.as_ref(), &[2, 5]);
         assert_eq!(list.branch.content, "aaabbb");
     }
 
@@ -1251,7 +1248,7 @@ mod test {
         list.get_or_create_agent_id("a");
         list.oplog.add_insert_at(0, &[], 0, "aaa");
 
-        let iter = TransformedOpsIter::new(&list.oplog, &[], &list.oplog.version);
+        let iter = TransformedOpsIter::new(&list.oplog, &[], list.oplog.version.as_ref());
         dbg!(&iter);
         for x in iter {
             dbg!(x);

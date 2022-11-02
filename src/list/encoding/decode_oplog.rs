@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use smallvec::{smallvec, SmallVec};
 use crate::list::encoding::*;
 use crate::encoding::varint::*;
@@ -6,7 +7,7 @@ use crate::frontier::*;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::rev_range::RangeRev;
-use crate::{AgentId, LocalFrontier, LV};
+use crate::{AgentId, Frontier, LV};
 use crate::unicount::*;
 use rle::*;
 use crate::list::buffered_iter::Buffered;
@@ -68,8 +69,8 @@ impl<'a> BufReader<'a> {
         }))
     }
 
-    fn read_version(mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalFrontier, ParseError> {
-        let mut result = LocalFrontier::new();
+    fn read_version(mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<Frontier, ParseError> {
+        let mut result = smallvec![];
         // All frontiers contain at least one item.
         loop {
             // let agent = reader.next_str()?;
@@ -91,10 +92,10 @@ impl<'a> BufReader<'a> {
 
         self.expect_empty()?;
 
-        Ok(result)
+        Ok(Frontier(result))
     }
 
-    fn read_parents(&mut self, oplog: &ListOpLog, next_time: LV, agent_map: &[(AgentId, usize)]) -> Result<SmallVec<[usize; 2]>, ParseError> {
+    fn read_parents(&mut self, oplog: &ListOpLog, next_time: LV, agent_map: &[(AgentId, usize)]) -> Result<Frontier, ParseError> {
         let mut parents = SmallVec::<[usize; 2]>::new();
         loop {
             let mut n = self.next_usize()?;
@@ -135,7 +136,7 @@ impl<'a> BufReader<'a> {
         // This is fine and we should just re-sort.
         sort_frontier(&mut parents);
 
-        Ok(parents)
+        Ok(Frontier(parents))
     }
 
     fn next_history_entry(&mut self, oplog: &ListOpLog, next_time: LV, agent_map: &[(AgentId, usize)]) -> Result<ParentsEntrySimple, ParseError> {
@@ -152,7 +153,7 @@ impl<'a> BufReader<'a> {
 }
 
 impl<'a> ChunkReader<'a> {
-    fn read_version(&mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<LocalFrontier, ParseError> {
+    fn read_version(&mut self, oplog: &ListOpLog, agent_map: &[(AgentId, usize)]) -> Result<Frontier, ParseError> {
         let chunk = self.read_chunk_if_eq(ListChunkType::Version)?;
         if let Some(chunk) = chunk {
             chunk.read_version(oplog, agent_map).map_err(|e| {
@@ -171,7 +172,7 @@ impl<'a> ChunkReader<'a> {
             })
         } else {
             // If the start_frontier chunk is missing, it means we're reading from ROOT.
-            Ok(smallvec![])
+            Ok(Frontier::root())
         }
     }
 
@@ -257,7 +258,7 @@ fn history_entry_map_and_truncate(mut hist_entry: ParentsEntrySimple, version_ma
 
     // Map parents. Parents are underwater when they're local to the file, and need mapping.
     // const UNDERWATER_LAST: usize = ROOT_TIME - 1;
-    for p in hist_entry.parents.iter_mut() {
+    for p in hist_entry.parents.0.iter_mut() {
         if *p >= UNDERWATER_START {
             let (span, offset) = version_map.find_packed_with_offset(*p);
             *p = span.1.start + offset;
@@ -265,7 +266,7 @@ fn history_entry_map_and_truncate(mut hist_entry: ParentsEntrySimple, version_ma
     }
 
     // Parents can become unsorted here because they might not map cleanly. Thanks, fuzzer.
-    sort_frontier(&mut hist_entry.parents);
+    sort_frontier(&mut hist_entry.parents.0);
 
     (hist_entry, remainder)
 }
@@ -464,7 +465,7 @@ impl ListOpLog {
     ///
     /// This method is a convenience method for calling
     /// [`oplog.decode_and_add_opts(data, DecodeOptions::default())`](OpLog::decode_and_add_opts).
-    pub fn decode_and_add(&mut self, data: &[u8]) -> Result<LocalFrontier, ParseError> {
+    pub fn decode_and_add(&mut self, data: &[u8]) -> Result<Frontier, ParseError> {
         self.decode_and_add_opts(data, DecodeOptions::default())
     }
 
@@ -475,7 +476,7 @@ impl ListOpLog {
     ///
     /// This method takes an options object, which for now doesn't do much. Most users should just
     /// call [`OpLog::decode_and_add`](OpLog::decode_and_add)
-    pub fn decode_and_add_opts(&mut self, data: &[u8], opts: DecodeOptions) -> Result<LocalFrontier, ParseError> {
+    pub fn decode_and_add_opts(&mut self, data: &[u8], opts: DecodeOptions) -> Result<Frontier, ParseError> {
         // In order to merge data safely, when an error happens we need to unwind all the merged
         // operations before returning. Otherwise self is in an invalid state.
         //
@@ -487,7 +488,7 @@ impl ListOpLog {
 
         // We could regenerate the frontier, but this is much lazier.
         let doc_id = self.doc_id.clone();
-        let old_frontier = clone_smallvec(&self.version);
+        let old_frontier = self.version.clone();
         let num_known_agents = self.cg.client_data.len();
         let ins_content_length = self.operation_ctx.ins_content.len();
         let del_content_length = self.operation_ctx.del_content.len();
@@ -547,7 +548,7 @@ impl ListOpLog {
                 while idx < hist_entries.num_entries() {
                     // Cloning here is an ugly and kinda slow hack to work around the borrow
                     // checker. But this whole case is rare anyway, so idk.
-                    let parents = clone_smallvec(&hist_entries.0[idx].parents);
+                    let parents = hist_entries.0[idx].parents.clone();
 
                     for p in parents {
                         if p < len {
@@ -589,7 +590,7 @@ impl ListOpLog {
     /// NOTE: This code is quite new.
     /// TODO: Currently if this method returns an error, the local state is undefined & invalid.
     /// Until this is fixed, the signature of the method will stay kinda weird to prevent misuse.
-    fn decode_internal(&mut self, data: &[u8], opts: DecodeOptions) -> Result<LocalFrontier, ParseError> {
+    fn decode_internal(&mut self, data: &[u8], opts: DecodeOptions) -> Result<Frontier, ParseError> {
         // Written to be symmetric with encode functions.
         let mut reader = BufReader(data);
 
@@ -669,7 +670,7 @@ impl ListOpLog {
         // empty document, or we've been sent catchup data from a remote peer. If the data set
         // overlaps, we need to actively filter out operations & txns from that data set.
         // dbg!(&start_frontier, &self.frontier);
-        let patches_overlap = !local_frontier_eq(&start_version, &self.version);
+        let patches_overlap = !local_frontier_eq(start_version.as_ref(), self.version.as_ref());
         // dbg!(patches_overlap);
 
         // *** Patches ***
@@ -882,12 +883,12 @@ impl ListOpLog {
                     let (mut mapped, remainder)
                         = history_entry_map_and_truncate(entry, &version_map);
                     // dbg!(&mapped);
-                    debug_assert!(frontier_is_sorted(&mapped.parents));
+                    mapped.parents.debug_check_sorted();
                     assert!(mapped.span.start <= next_history_time);
 
                     // We'll update merge parents even if nothing is merged.
                     // dbg!((&file_frontier, &mapped));
-                    advance_frontier_by_known_run(&mut file_frontier, &mapped.parents, mapped.span);
+                    file_frontier.advance_by_known_run(mapped.parents.as_ref(), mapped.span);
                     // dbg!(&file_frontier);
 
                     if mapped.span.end > next_history_time {
@@ -900,8 +901,8 @@ impl ListOpLog {
                             mapped.truncate_keeping_right(next_history_time - mapped.span.start);
                         }
 
-                        self.cg.parents.push(&mapped.parents, mapped.span);
-                        self.advance_frontier(&mapped.parents, mapped.span);
+                        self.cg.parents.push(mapped.parents.as_ref(), mapped.span);
+                        self.advance_frontier(mapped.parents.as_ref(), mapped.span);
 
                         next_history_time += mapped.len();
                     } // else we already have these entries. Filter them out.

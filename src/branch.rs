@@ -5,7 +5,6 @@ use smallvec::{Array, smallvec};
 use crate::*;
 use smartstring::alias::String as SmartString;
 use ::rle::HasLength;
-use crate::frontier::{advance_frontier_by, advance_frontier_by_known_run};
 use crate::list::operation::ListOpKind;
 use crate::oplog::ROOT_MAP;
 
@@ -269,7 +268,7 @@ impl Branch {
     }
 
     pub(crate) fn set_time(&mut self, time: LV) {
-        self.overlay_version = smallvec![time];
+        self.overlay_version.replace_with_1(time);
     }
 
 
@@ -457,7 +456,7 @@ impl Branch {
             }
         }
 
-        advance_frontier_by_known_run(&mut self.overlay_version, parents, time.into());
+        self.overlay_version.advance_by_known_run(parents, time.into());
     }
 }
 

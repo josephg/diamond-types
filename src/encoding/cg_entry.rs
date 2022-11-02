@@ -1,6 +1,6 @@
 use bumpalo::Bump;
 use rle::{HasLength, MergableSpan};
-use crate::{AgentId, CausalGraph, DTRange, KVPair, LocalFrontier, LV};
+use crate::{AgentId, CausalGraph, DTRange, KVPair, Frontier, LV};
 use crate::causalgraph::ClientData;
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
@@ -84,7 +84,7 @@ pub(crate) fn write_cg_entry(result: &mut BumpVec<u8>, data: &CGEntry, write_map
     // And optionally write parents info.
     // Write the parents, if it makes sense to do so.
     if write_parents {
-        write_parents_raw(result, &data.parents, next_output_time, persist, write_map, cg);
+        write_parents_raw(result, data.parents.as_ref(), next_output_time, persist, write_map, cg);
     }
 }
 
@@ -147,7 +147,7 @@ fn isize_try_add(x: usize, y: isize) -> Option<usize> {
 }
 
 /// NOTE: This does not put the returned data into the causal graph, or update read_map's txn_map.
-fn read_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_file_time: LV, read_map: &mut ReadMap) -> Result<(LocalFrontier, AgentSpan), ParseError> {
+fn read_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_file_time: LV, read_map: &mut ReadMap) -> Result<(Frontier, AgentSpan), ParseError> {
     // First we have agent assignment, then optional parents.
     let (has_parents, span) = read_cg_aa(reader, persist, cg, read_map)?;
 
@@ -155,7 +155,7 @@ fn read_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_fi
         read_parents_raw(reader, persist, cg, next_file_time, read_map)?
     } else {
         let last_time = read_map.last_time().ok_or(ParseError::GenericInvalidData)?;
-        smallvec![last_time]
+        Frontier::new_1(last_time)
     };
 
     Ok((parents, span))
@@ -168,7 +168,7 @@ fn read_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_fi
 pub(crate) fn read_cg_entry_into_cg_nonoverlapping(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<CGEntry, ParseError> {
     let next_file_time = read_map.len();
     let (parents, span) = read_raw(reader, persist, cg, next_file_time, read_map)?;
-    let merged_span = cg.merge_and_assign_nonoverlapping(&parents, span);
+    let merged_span = cg.merge_and_assign_nonoverlapping(parents.as_ref(), span);
 
     if persist {
         read_map.txn_map.push(KVPair(next_file_time, merged_span));
@@ -186,7 +186,7 @@ pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &
     let (parents, span) = read_raw(reader, persist, cg, next_file_time, read_map)?;
 
     // Save it into the causal graph, and update
-    let merged_span = cg.merge_and_assign(&parents, span);
+    let merged_span = cg.merge_and_assign(parents.as_ref(), span);
 
     if persist {
         if merged_span.len() == span.len() {

@@ -1,14 +1,14 @@
 use smallvec::smallvec;
-use crate::{CausalGraph, Parents, LocalFrontier};
-use crate::frontier::{advance_frontier_by_known_run, clone_smallvec, debug_assert_frontier_sorted};
+use crate::{CausalGraph, Parents, Frontier};
+use crate::frontier::{clone_smallvec, debug_assert_frontier_sorted};
 
 impl CausalGraph {
-    pub fn dbg_get_frontier_inefficiently(&self) -> LocalFrontier {
+    pub fn dbg_get_frontier_inefficiently(&self) -> Frontier {
         // Could improve this by just looking at the last txn, and following shadows down.
 
-        let mut b = smallvec![];
+        let mut b = Frontier::root();
         for txn in self.parents.entries.iter() {
-            advance_frontier_by_known_run(&mut b, txn.parents.as_slice(), txn.span);
+            b.advance_by_known_run(txn.parents.as_ref(), txn.span);
         }
         b
     }
@@ -52,7 +52,7 @@ impl Parents {
             .iter()
             .enumerate()
             .filter_map(|(i, entry)| {
-                if entry.parents.is_empty() {
+                if entry.parents.is_root() {
                     Some(i)
                 } else { None }
             });
@@ -67,11 +67,11 @@ impl Parents {
         for (idx, hist) in self.entries.iter().enumerate() {
             assert!(hist.span.end > hist.span.start);
 
-            debug_assert_frontier_sorted(&hist.parents);
+            hist.parents.debug_check_sorted();
 
             // We contain prev_txn_order *and more*! See if we can extend the shadow by
             // looking at the other entries of parents.
-            let mut parents = clone_smallvec(&hist.parents);
+            let mut parents = hist.parents.clone().0;
             let mut expect_shadow = hist.span.start;
 
             // Check our child_indexes all contain this item in their parents list.

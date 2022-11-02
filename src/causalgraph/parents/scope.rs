@@ -10,7 +10,7 @@ pub(crate) struct ScopedParents {
     /// This isn't a real Version. Its a list of times at which this CRDT was deleted.
     ///
     /// (What do we need this for??)
-    pub(crate) deleted_at: LocalFrontier,
+    pub(crate) deleted_at: Frontier,
 
     pub(crate) owned_times: RleVec<DTRange>,
 }
@@ -24,7 +24,7 @@ impl ScopedParents {
         }
 
         // If the item has been deleted, return false.
-        for v in &self.deleted_at {
+        for v in self.deleted_at.iter() {
             if history.version_contains_time(version, *v) {
                 // Deleted.
                 return false;

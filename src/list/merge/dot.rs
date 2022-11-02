@@ -13,7 +13,7 @@ use rle::{HasLength, SplitableSpan};
 use crate::list::ListOpLog;
 use crate::dtrange::DTRange;
 use crate::rle::KVPair;
-use crate::{Parents, LV};
+use crate::{Parents, LV, Frontier};
 use crate::causalgraph::parents::ParentsEntrySimple;
 
 pub fn name_of(time: LV) -> String {
@@ -51,7 +51,7 @@ impl Parents {
             // let mut children = e.child_indexes.clone();
             for &child_idx in &e.child_indexes {
                 let child = &self.entries[child_idx];
-                for &p in &child.parents {
+                for &p in child.parents.as_ref() {
                     if e.span.contains(p) {
                         split_points.push(p);
                     }
@@ -75,7 +75,7 @@ impl Parents {
                 let parents = if start == e.span.start {
                     e.parents.clone()
                 } else {
-                    smallvec![start - 1]
+                    Frontier::new_1(start - 1)
                 };
 
                 start = next;
