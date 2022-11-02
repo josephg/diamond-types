@@ -5,7 +5,7 @@ use smartstring::alias::String as SmartString;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::dtrange::DTRange;
-use crate::{CausalGraph, CRDTSpan, LocalFrontier, ROOT_AGENT, ROOT_TIME, LV};
+use crate::{CausalGraph, CRDTSpan, LocalFrontier, LV};
 use crate::frontier::sort_frontier;
 use crate::causalgraph::remotespan::CRDTGuid;
 
@@ -79,22 +79,15 @@ impl CausalGraph {
         let agent = self.get_agent_id(id.agent.as_str())
             .ok_or(ConversionError::UnknownAgent)?;
 
-        if agent == ROOT_AGENT { Ok(ROOT_TIME) }
-        else {
-            self.client_data[agent as usize]
-                .try_seq_to_time(id.seq)
-                .ok_or(ConversionError::SeqInFuture)
-        }
+        self.client_data[agent as usize]
+            .try_seq_to_time(id.seq)
+            .ok_or(ConversionError::SeqInFuture)
     }
 
     /// This panics if the ID isn't known to the document.
     pub fn remote_to_local_time(&self, id: &RemoteId) -> LV {
         let agent = self.get_agent_id(id.agent.as_str()).unwrap();
-
-        if agent == ROOT_AGENT { ROOT_TIME }
-        else {
-            self.client_data[agent as usize].seq_to_time(id.seq)
-        }
+        self.client_data[agent as usize].seq_to_time(id.seq)
     }
 
     fn crdt_id_to_remote(&self, loc: CRDTGuid) -> RemoteId {
@@ -153,7 +146,7 @@ impl CausalGraph {
 #[cfg(test)]
 mod test {
     use crate::causalgraph::remote_ids::RemoteId;
-    use crate::{CausalGraph, ROOT_TIME};
+    use crate::CausalGraph;
 
     #[test]
     fn id_smoke_test() {
@@ -162,16 +155,6 @@ mod test {
         cg.get_or_create_agent_id("mike");
         cg.assign_local_op(&[], 0, 2);
         cg.assign_local_op(&[], 1, 4);
-
-        assert_eq!(ROOT_TIME, cg.remote_to_local_time(&RemoteId {
-            agent: "ROOT".into(),
-            seq: 0
-        }));
-
-        assert_eq!(cg.local_to_remote_time(ROOT_TIME), RemoteId {
-            agent: "ROOT".into(),
-            seq: 0
-        });
 
         assert_eq!(0, cg.remote_to_local_time(&RemoteId {
             agent: "seph".into(),

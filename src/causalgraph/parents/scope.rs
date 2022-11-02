@@ -16,10 +16,9 @@ pub(crate) struct ScopedParents {
 }
 
 impl ScopedParents {
-
     pub(crate) fn exists_at(&self, history: &Parents, version: &[LV]) -> bool {
         // If the item has not been created yet, return None.
-        if self.created_at != ROOT_TIME && !history.version_contains_time(version, self.created_at) {
+        if !history.version_contains_time(version, self.created_at) {
             // Not created yet.
             return false;
         }

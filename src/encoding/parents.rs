@@ -30,6 +30,8 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[LV], next_o
         let mut iter = parents.iter().peekable();
         // let mut first = true;
         while let Some(&p) = iter.next() {
+            debug_assert_ne!(p, usize::MAX);
+
             let has_more = iter.peek().is_some();
 
             // TODO: Rewrite to share write_time from op encoding.

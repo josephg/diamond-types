@@ -9,7 +9,7 @@
 
 use rle::{HasLength, SplitableSpan};
 use rle::zip::rle_zip;
-use crate::{CausalGraph, ROOT_AGENT, LV};
+use crate::{AgentId, CausalGraph, LV};
 use crate::frontier::sort_frontier;
 use crate::causalgraph::parents::ParentsEntrySimple;
 
@@ -47,7 +47,7 @@ impl PartialEq<Self> for CausalGraph {
             } else {
                 #[allow(clippy::collapsible_else_if)]
                 if c.is_empty() {
-                    ROOT_AGENT // Just using this as a placeholder. Could use None but its awkward.
+                    AgentId::MAX // Just using this as a placeholder. Could use None but its awkward.
                 } else {
                     // Agent missing.
                     if VERBOSE {

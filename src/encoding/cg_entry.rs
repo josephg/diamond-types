@@ -1,6 +1,6 @@
 use bumpalo::Bump;
 use rle::{HasLength, MergableSpan};
-use crate::{CausalGraph, CRDTSpan, DTRange, KVPair, LocalFrontier, ROOT_AGENT, LV};
+use crate::{AgentId, CausalGraph, CRDTSpan, DTRange, KVPair, LocalFrontier, LV};
 use crate::causalgraph::ClientData;
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
@@ -59,7 +59,7 @@ pub(crate) fn write_cg_aa(result: &mut BumpVec<u8>, write_parents: bool, span: C
 
 pub(crate) fn write_cg_entry(result: &mut BumpVec<u8>, data: &CGEntry, write_map: &mut WriteMap,
                              persist: bool, cg: &CausalGraph) {
-    assert_ne!(data.span.agent, ROOT_AGENT, "Cannot assign operations to ROOT");
+    debug_assert_ne!(data.span.agent, AgentId::MAX, "Internal consistency error: ROOT showing up");
     let write_parents = !data.parents_are_trivial()
         || data.start == 0 // Guard to prevent underflow
         || !write_map.txn_map_has(data.start - 1);

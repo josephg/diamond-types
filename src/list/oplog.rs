@@ -2,7 +2,7 @@ use std::ops::Range;
 use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, Searchable};
-use crate::{AgentId, LocalFrontier, ROOT_AGENT, ROOT_TIME, LV};
+use crate::{AgentId, LocalFrontier, LV};
 use crate::causalgraph::ClientData;
 use crate::list::{ListBranch, ListOpLog};
 use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};

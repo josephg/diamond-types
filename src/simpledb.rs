@@ -107,7 +107,7 @@ mod test {
     use crate::oplog::ROOT_MAP;
     use crate::Primitive::*;
     use crate::CreateValue::*;
-    use crate::causalgraph::remotespan::{CRDT_DOC_ROOT, CRDTGuid};
+    use crate::causalgraph::remotespan::{ROOT_CRDT_ID_GUID, CRDTGuid};
     use crate::simpledb::SimpleDatabase;
 
     #[test]
@@ -142,19 +142,19 @@ mod test {
 
         let t = db.apply_remote_op(&[], CRDTGuid {
             agent: mike, seq: 0
-        }.into(), CRDT_DOC_ROOT, OpContents::MapSet(
+        }.into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
             key.into(), Primitive(I64(1))
         )).end - 1;
 
         db.apply_remote_op(&[], CRDTGuid {
             agent: seph, seq: 0
-        }.into(), CRDT_DOC_ROOT, OpContents::MapSet(
+        }.into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
             key.into(), Primitive(I64(2))
         ));
 
         db.apply_remote_op(&[t], CRDTGuid {
             agent: mike, seq: 1
-        }.into(), CRDT_DOC_ROOT, OpContents::MapSet(
+        }.into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
             key.into(), Primitive(I64(3))
         ));
 

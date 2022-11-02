@@ -1,12 +1,12 @@
 use std::cmp::Ordering;
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 use rle::zip::rle_zip;
-use crate::{AgentId, CausalGraph, ROOT_AGENT, ROOT_TIME, LV};
+use crate::{AgentId, CausalGraph, LV};
 use crate::causalgraph::*;
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::frontier::{advance_frontier_by_known_run, sort_frontier};
-use crate::causalgraph::remotespan::{CRDT_DOC_ROOT, CRDTGuid};
+use crate::causalgraph::remotespan::CRDTGuid;
 use crate::rle::RleSpanHelpers;
 
 impl ClientData {
@@ -50,12 +50,9 @@ impl CausalGraph {
     }
 
     pub fn get_agent_id(&self, name: &str) -> Option<AgentId> {
-        if name == "ROOT" { Some(ROOT_AGENT) }
-        else {
-            self.client_data.iter()
-                .position(|client_data| client_data.name == name)
-                .map(|id| id as AgentId)
-        }
+        self.client_data.iter()
+            .position(|client_data| client_data.name == name)
+            .map(|id| id as AgentId)
     }
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
@@ -72,8 +69,7 @@ impl CausalGraph {
     }
 
     pub fn get_agent_name(&self, agent: AgentId) -> &str {
-        if agent == ROOT_AGENT { ROOT_AGENT_NAME }
-        else { self.client_data[agent as usize].name.as_str() }
+        self.client_data[agent as usize].name.as_str()
     }
 
     pub(crate) fn len_assignment(&self) -> usize {
@@ -96,37 +92,31 @@ impl CausalGraph {
         self.client_with_localtime.is_empty()
     }
 
-    pub fn version_to_crdt_id(&self, version: usize) -> CRDTGuid {
-        if version == ROOT_TIME { CRDT_DOC_ROOT }
-        else {
-            let (loc, offset) = self.client_with_localtime.find_packed_with_offset(version);
-            loc.1.at_offset(offset as usize)
-        }
+    pub fn version_to_crdt_id(&self, version: LV) -> CRDTGuid {
+        debug_assert_ne!(version, usize::MAX);
+
+        let (loc, offset) = self.client_with_localtime.find_packed_with_offset(version);
+        loc.1.at_offset(offset as usize)
     }
 
     pub fn version_span_to_crdt_span(&self, version: DTRange) -> CRDTSpan {
-        // TODO: Consider removing ROOT_TIME reference here.
-        if version.start == ROOT_TIME { CRDTSpan { agent: ROOT_AGENT, seq_range: Default::default() } }
-        else {
-            let (loc, offset) = self.client_with_localtime.find_packed_with_offset(version.start);
-            let start = loc.1.seq_range.start + offset;
-            let end = usize::min(loc.1.seq_range.end, start + version.len());
-            CRDTSpan {
-                agent: loc.1.agent,
-                seq_range: DTRange { start, end }
-            }
+        debug_assert_ne!(version.start, usize::MAX);
+
+        let (loc, offset) = self.client_with_localtime.find_packed_with_offset(version.start);
+        let start = loc.1.seq_range.start + offset;
+        let end = usize::min(loc.1.seq_range.end, start + version.len());
+        CRDTSpan {
+            agent: loc.1.agent,
+            seq_range: DTRange { start, end }
         }
     }
 
     pub fn try_crdt_id_to_version(&self, id: CRDTGuid) -> Option<LV> {
-        if id.agent == ROOT_AGENT {
-            debug_assert_eq!(id.seq, 0);
-            Some(ROOT_TIME)
-        } else {
-            self.client_data.get(id.agent as usize).and_then(|c| {
-                c.try_seq_to_time(id.seq)
-            })
-        }
+        debug_assert_ne!(id.agent, AgentId::MAX);
+
+        self.client_data.get(id.agent as usize).and_then(|c| {
+            c.try_seq_to_time(id.seq)
+        })
     }
 
     #[allow(unused)]

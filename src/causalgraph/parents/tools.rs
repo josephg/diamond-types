@@ -10,7 +10,7 @@ use crate::frontier::{advance_frontier_by, debug_assert_frontier_sorted, frontie
 use crate::causalgraph::parents::Parents;
 use crate::causalgraph::parents::tools::DiffFlag::*;
 use crate::dtrange::DTRange;
-use crate::{LocalFrontier, ROOT_TIME, LV};
+use crate::{LocalFrontier, LV};
 use crate::causalgraph::parents::scope::ScopedParents;
 
 #[cfg(feature = "serde")]
@@ -22,16 +22,22 @@ use serde::Serialize;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) enum DiffFlag { OnlyA, OnlyB, Shared }
 
+/// The code has changed to make ROOT_TIME no longer a thing. Guards against using this are here
+/// during testing, but will eventually be removed.
+///
+/// TODO: Remove this entirely.
+const OLD_INVALID_ROOT_TIME: usize = usize::MAX;
+
 impl Parents {
     fn shadow_of(&self, time: LV) -> LV {
-        debug_assert_ne!(time, ROOT_TIME);
+        debug_assert_ne!(time, OLD_INVALID_ROOT_TIME);
         self.entries.find(time).unwrap().shadow
     }
 
     /// Does the frontier `[a]` contain `[b]` as a direct ancestor according to its shadow?
     fn txn_shadow_contains(&self, a: LV, b: LV) -> bool {
-        debug_assert_ne!(a, ROOT_TIME);
-        debug_assert_ne!(b, ROOT_TIME);
+        debug_assert_ne!(a, OLD_INVALID_ROOT_TIME);
+        debug_assert_ne!(b, OLD_INVALID_ROOT_TIME);
 
         // wrapping_add(1) so we compute ROOT correctly.
         a == b || (a > b && self.shadow_of(a) <= b)
@@ -54,8 +60,8 @@ impl Parents {
     ///
     /// See `diff_shadow_bubble` test below for an example.
     pub(crate) fn is_direct_descendant_coarse(&self, a: LV, b: LV) -> bool {
-        debug_assert_ne!(a, ROOT_TIME);
-        debug_assert_ne!(b, ROOT_TIME);
+        debug_assert_ne!(a, OLD_INVALID_ROOT_TIME);
+        debug_assert_ne!(b, OLD_INVALID_ROOT_TIME);
         // This is a bit more strict than we technically need, but its fast for short circuit
         // evaluation.
         a == b || (a > b && self.entries.find(a).unwrap().contains(b))
@@ -86,7 +92,7 @@ impl Parents {
 
     /// Calculates whether the specified version contains (dominates) the specified time.
     pub(crate) fn version_contains_time(&self, frontier: &[LV], target: LV) -> bool {
-        debug_assert_ne!(target, ROOT_TIME);
+        debug_assert_ne!(target, OLD_INVALID_ROOT_TIME);
         if frontier.contains(&target) { return true; }
         if frontier.is_empty() { return false; }
 
@@ -485,7 +491,7 @@ impl Parents {
     }
 
     pub(crate) fn version_in_scope(&self, version: &[LV], info: &ScopedParents) -> Option<LocalFrontier> {
-        debug_assert_ne!(info.created_at, ROOT_TIME);
+        debug_assert_ne!(info.created_at, OLD_INVALID_ROOT_TIME);
 
         // If v == creation time, its a bit hacky but I still consider that a valid version, because
         // the CRDT has a value then (the default value for the CRDT).
@@ -495,7 +501,7 @@ impl Parents {
             t
         } else {
             // The root item has a creation time at the root time. But nothing else exists then.
-            return if info.created_at == ROOT_TIME {
+            return if info.created_at == OLD_INVALID_ROOT_TIME {
                 Some(smallvec![])
             } else {
                 None
@@ -503,7 +509,7 @@ impl Parents {
         };
 
         // let info = &oplog.items[item];
-        if info.created_at != ROOT_TIME && highest_time < info.created_at {
+        if info.created_at != OLD_INVALID_ROOT_TIME && highest_time < info.created_at {
             // If the version exists entirely before this root was created, there is no common
             // ancestor.
             return None;
@@ -535,7 +541,7 @@ impl Parents {
 
         for &t in version {
             // Append children so long as they aren't earlier than the item's ctime.
-            if info.created_at == ROOT_TIME || t >= info.created_at {
+            if info.created_at == OLD_INVALID_ROOT_TIME || t >= info.created_at {
                 queue.push((t, OnlyA));
             }
         }
@@ -638,7 +644,7 @@ impl Parents {
 
         let mut inputs_remaining = 0;
         let mut queue: BinaryHeap<usize> = versions_iter.map(|v| {
-            debug_assert_ne!(v, ROOT_TIME);
+            debug_assert_ne!(v, OLD_INVALID_ROOT_TIME);
             if v >= usize::MAX / 2 { panic!("Cannot handle version beyond usize::MAX/2"); }
             inputs_remaining += 1;
             enc_input(v)

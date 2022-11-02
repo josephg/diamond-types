@@ -18,7 +18,7 @@ use crate::list::merge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::{DTRange, is_underwater, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers};
-use crate::{AgentId, LocalFrontier, ROOT_TIME, LV};
+use crate::{AgentId, LocalFrontier, LV};
 use crate::frontier::{advance_frontier_by, frontier_is_sorted, local_frontier_eq};
 use crate::causalgraph::parents::tools::DiffFlag;
 use crate::list::op_metrics::ListOpMetrics;

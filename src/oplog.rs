@@ -12,7 +12,7 @@ use crate::frontier::*;
 use crate::causalgraph::parents::Parents;
 use crate::list::operation::{ListOpKind, TextOperation};
 
-use crate::causalgraph::remotespan::{CRDT_DOC_ROOT, CRDTGuid, CRDTSpan};
+use crate::causalgraph::remotespan::{ROOT_CRDT_ID_GUID, ROOT_CRDT_ID, CRDTGuid, CRDTSpan};
 use crate::rev_range::RangeRev;
 use crate::rle::{RleKeyed, RleSpanHelpers};
 use crate::unicount::count_chars;
@@ -91,12 +91,19 @@ impl OpLog {
         time_span
     }
 
+    /// This is different from the CausalGraph method because we need to handle the root CRDT
+    /// object.
+    fn try_crdt_id_to_version(&self, id: CRDTGuid) -> Option<LV> {
+        if id == ROOT_CRDT_ID_GUID { Some(ROOT_CRDT_ID) }
+        else { self.cg.try_crdt_id_to_version(id) }
+    }
+
     pub(crate) fn push_remote_op(&mut self, parents: &[LV], op_id: CRDTSpan, crdt_id: CRDTGuid, contents: OpContents) -> (DTRange, LV) {
         assert_eq!(op_id.len(), contents.len());
 
         // TODO: Filter op by anything we already know.
         let time_span = self.inner_assign_remote_op_span(parents, op_id);
-        let crdt_id = self.cg.try_crdt_id_to_version(crdt_id).unwrap();
+        let crdt_id = self.try_crdt_id_to_version(crdt_id).unwrap();
 
         self.uncommitted_ops.ops.push(KVPair(time_span.start, Op { target_id: crdt_id, contents}));
 

@@ -9,7 +9,7 @@
 
 use rle::{HasLength, SplitableSpan};
 use rle::zip::rle_zip3;
-use crate::{ROOT_AGENT, LV};
+use crate::{AgentId, LV};
 use crate::list::ListOpLog;
 use crate::frontier::sort_frontier;
 use crate::causalgraph::parents::ParentsEntrySimple;
@@ -49,7 +49,7 @@ impl PartialEq<Self> for ListOpLog {
             } else {
                 #[allow(clippy::collapsible_else_if)]
                 if c.is_empty() {
-                    ROOT_AGENT // Just using this as a placeholder. Could use None but its awkward.
+                    AgentId::MAX // Just using this as a placeholder. Could use None but its awkward.
                 } else {
                     // Agent missing.
                     if VERBOSE {

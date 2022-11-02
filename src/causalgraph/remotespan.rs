@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use content_tree::ContentLength;
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
-use crate::{AgentId, ROOT_AGENT};
+use crate::AgentId;
 use crate::dtrange::DTRange;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -24,8 +24,9 @@ pub struct CRDTSpan {
 //     }
 // }
 
-pub const CRDT_DOC_ROOT: CRDTGuid = CRDTGuid {
-    agent: ROOT_AGENT,
+pub const ROOT_CRDT_ID: usize = usize::MAX;
+pub const ROOT_CRDT_ID_GUID: CRDTGuid = CRDTGuid {
+    agent: AgentId::MAX,
     seq: 0
 };
 

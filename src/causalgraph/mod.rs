@@ -14,7 +14,7 @@ pub mod remotespan;
 pub mod remote_ids;
 
 // TODO: Consider removing this now that ROOT is [].
-const ROOT_AGENT_NAME: &str = "ROOT";
+// const ROOT_AGENT_NAME: &str = "ROOT";
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClientData {

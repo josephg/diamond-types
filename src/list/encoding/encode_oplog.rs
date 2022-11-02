@@ -5,7 +5,7 @@ use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::list::{ListBranch, ListOpLog, switch};
 use crate::rle::{KVPair, RleVec};
-use crate::{AgentId, ROOT_AGENT, LV};
+use crate::{AgentId, LV};
 use crate::frontier::local_frontier_is_root;
 use crate::list::op_metrics::ListOpMetrics;
 use crate::list::operation::ListOpKind;
@@ -88,7 +88,7 @@ fn write_op(dest: &mut Vec<u8>, op: &ListOpMetrics, cursor: &mut usize) {
     dest.extend_from_slice(&buf[..pos]);
 }
 
-// TODO: Make these struct fields private before release!
+// TODO: Make a builder API for this
 #[derive(Debug, Clone)]
 pub struct EncodeOptions<'a> {
     pub user_data: Option<&'a [u8]>,
@@ -210,7 +210,8 @@ impl AgentMapping {
 
     fn map(&mut self, oplog: &ListOpLog, agent: AgentId) -> AgentId {
         // 0 is implicitly ROOT.
-        if agent == ROOT_AGENT { return 0; }
+        assert_ne!(agent, AgentId::MAX);
+
         let agent = agent as usize;
 
         self.map[agent].map_or_else(|| {

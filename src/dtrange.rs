@@ -10,7 +10,6 @@ use crate::LV;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
 use crate::serde::DTRangeTuple;
-use crate::ROOT_TIME;
 
 /// This is an internal replacement for Range<usize>. The main use for this is that std::Range
 /// doesn't implement Copy (urgh), and we need that for lots of types. But ultimately, this is just
@@ -199,21 +198,21 @@ pub(crate) fn is_underwater(time: LV) -> bool {
 }
 
 // #[derive(Debug)]
-struct RootTime;
+// struct RootTime;
 
-impl Debug for RootTime {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ROOT")
-    }
-}
+// impl Debug for RootTime {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+//         f.write_str("ROOT")
+//     }
+// }
 
 pub(crate) fn debug_time_raw<F: FnOnce(&dyn Debug) -> R, R>(val: LV, f: F) -> R {
-    const LAST_TIME: usize = ROOT_TIME - 1;
+    // const LAST_TIME: usize = usize::MAX;
     match val {
-        usize::MAX => {
-            f(&RootTime)
-        },
-        start @ (UNDERWATER_START..=LAST_TIME) => {
+        // usize::MAX => {
+        //     f(&RootTime)
+        // },
+        start @ (UNDERWATER_START..) => {
             f(&Underwater(start - UNDERWATER_START))
         },
         start => {

@@ -1,5 +1,5 @@
 use rle::HasLength;
-use crate::{AgentId, DTRange, KVPair, RleVec, ROOT_AGENT, LV};
+use crate::{AgentId, DTRange, KVPair, RleVec, LV};
 use crate::causalgraph::ClientData;
 use crate::rle::RleSpanHelpers;
 
@@ -98,7 +98,7 @@ impl WriteMap {
     }
 
     pub(crate) fn map_no_root_mut<'c>(&mut self, client_data: &'c [ClientData], agent: AgentId, persist: bool) -> Result<AgentId, &'c str> {
-        debug_assert_ne!(agent, ROOT_AGENT);
+        // debug_assert_ne!(agent, ROOT_AGENT);
 
         let agent = agent as usize;
         self.ensure_capacity(agent + 1);
@@ -123,7 +123,7 @@ impl WriteMap {
     /// Same as map_no_root_mut except this doesn't take the persist: bool flag and only takes
     /// &self.
     pub(crate) fn map_no_root<'c>(&self, client_data: &'c [ClientData], agent: AgentId) -> Result<AgentId, &'c str> {
-        debug_assert_ne!(agent, ROOT_AGENT);
+        // debug_assert_ne!(agent, ROOT_AGENT);
 
         let agent = agent as usize;
         self.agent_map.get(agent).and_then(|e| e.0).ok_or_else(|| {
@@ -147,13 +147,13 @@ impl WriteMap {
     }
 
     pub(crate) fn map_maybe_root_mut<'c>(&mut self, client_data: &'c [ClientData], agent: AgentId, persist: bool) -> Result<AgentId, &'c str> {
-        if agent == ROOT_AGENT { Ok(0) }
-        else { self.map_no_root_mut(client_data, agent, persist).map(|a| a + 1) }
+        debug_assert_ne!(agent, AgentId::MAX);
+        self.map_no_root_mut(client_data, agent, persist).map(|a| a + 1)
     }
 
     pub(crate) fn map_maybe_root<'c>(&self, client_data: &'c [ClientData], agent: AgentId) -> Result<AgentId, &'c str> {
-        if agent == ROOT_AGENT { Ok(0) }
-        else { self.map_no_root(client_data, agent).map(|a| a + 1) }
+        debug_assert_ne!(agent, AgentId::MAX);
+        self.map_no_root(client_data, agent).map(|a| a + 1)
     }
 
     // Check if the specified time is known by the txn map.
