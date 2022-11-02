@@ -97,7 +97,7 @@ impl Branch {
                 // We need to pick a winner. Winner is chosen by max(agent,seq).
                 let idx = reg.iter()
                     .enumerate()
-                    .map(|(idx, r)| (idx, cg.version_to_crdt_id(r.version)))
+                    .map(|(idx, r)| (idx, cg.lv_to_agent_version(r.version)))
                     .max_by(|a, b| {
                         // TODO: Check this is the right way around.
                         let a_id = &cg.client_data[a.1.agent as usize].name;

@@ -207,18 +207,8 @@ pub(crate) fn is_underwater(time: LV) -> bool {
 // }
 
 pub(crate) fn debug_time_raw<F: FnOnce(&dyn Debug) -> R, R>(val: LV, f: F) -> R {
-    // const LAST_TIME: usize = usize::MAX;
-    match val {
-        // usize::MAX => {
-        //     f(&RootTime)
-        // },
-        start @ (UNDERWATER_START..) => {
-            f(&Underwater(start - UNDERWATER_START))
-        },
-        start => {
-            f(&start)
-        }
-    }
+    if val >= UNDERWATER_START { f(&Underwater(val - UNDERWATER_START)) }
+    else { f(&val) }
 }
 
 pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: LV) {

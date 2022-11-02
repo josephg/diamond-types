@@ -11,11 +11,11 @@ fn time_to_remote_id(time: usize, oplog: &ListOpLog) -> RemoteId {
     if time == usize::MAX {
         root_id()
     } else {
-        new_to_old_remote_id(oplog.local_to_remote_time(time))
+        new_to_old_remote_id(oplog.cg.local_to_remote_time(time))
     }
 }
 
-fn new_to_old_remote_id(new: diamond_types::list::remote_ids::RemoteId) -> RemoteId {
+fn new_to_old_remote_id(new: diamond_types::causalgraph::remote_ids::RemoteId) -> RemoteId {
     RemoteId {
         agent: new.agent,
         seq: new.seq as _
@@ -27,7 +27,7 @@ fn time_to_remote_span(range: DTRange, oplog: &ListOpLog) -> RemoteIdSpan {
     if range.start == usize::MAX {
         panic!("Cannot convert a root timespan");
     } else {
-        let span = oplog.local_to_remote_time_span(range);
+        let span = oplog.cg.local_to_remote_time_span(range);
         RemoteIdSpan {
             id: RemoteId {
                 agent: span.agent,

@@ -3,7 +3,7 @@ use rle::{HasLength, Searchable};
 use crate::encoding::tools::{push_str, push_u32, push_usize};
 use crate::encoding::varint::*;
 use crate::causalgraph::parents::ParentsEntrySimple;
-use crate::causalgraph::remotespan::CRDTGuid;
+use crate::causalgraph::agent_span::AgentVersion;
 use crate::{AgentId, CausalGraph, DTRange, KVPair, LocalFrontier, OpLog, RleVec, LV};
 use crate::encoding::Merger;
 use bumpalo::collections::vec::Vec as BumpVec;
@@ -64,7 +64,7 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[LV], next_o
                 // Foreign change
                 // println!("Region does not contain parent for {}", p);
 
-                let item = cg.version_to_crdt_id(p);
+                let item = cg.lv_to_agent_version(p);
                 let mapped_agent = write_map.map_maybe_root_mut(&cg.client_data, item.agent, persist);
 
                 // There are probably more compact ways to do this, but the txn data set is
@@ -139,7 +139,7 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
 
             let seq = reader.next_usize()?;
             // dbg!((agent, seq));
-            cg.try_crdt_id_to_version(CRDTGuid { agent, seq })
+            cg.try_agent_version_to_lv(AgentVersion { agent, seq })
                 .ok_or(ParseError::InvalidLength)?
         };
 

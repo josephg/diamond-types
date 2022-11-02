@@ -3,7 +3,7 @@ use crate::branch::DTValue;
 use crate::frontier::local_frontier_eq;
 use crate::list::operation::TextOperation;
 use crate::oplog::ROOT_MAP;
-use crate::causalgraph::remotespan::CRDTGuid;
+use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 use crate::wal::WALError;
 
 #[derive(Debug)]
@@ -44,7 +44,7 @@ impl SimpleDatabase {
         self.get_recursive_at(ROOT_MAP)
     }
 
-    pub(crate) fn apply_remote_op(&mut self, parents: &[LV], op_id: CRDTSpan, crdt_id: CRDTGuid, contents: OpContents) -> DTRange {
+    pub(crate) fn apply_remote_op(&mut self, parents: &[LV], op_id: AgentSpan, crdt_id: AgentVersion, contents: OpContents) -> DTRange {
         let (time, crdt_id) = self.oplog.push_remote_op(parents, op_id, crdt_id, contents.clone());
         self.branch.apply_remote_op(&self.oplog.cg, parents, time.start, &Op {
             target_id: crdt_id,
@@ -107,7 +107,7 @@ mod test {
     use crate::oplog::ROOT_MAP;
     use crate::Primitive::*;
     use crate::CreateValue::*;
-    use crate::causalgraph::remotespan::{ROOT_CRDT_ID_GUID, CRDTGuid};
+    use crate::causalgraph::agent_span::{ROOT_CRDT_ID_GUID, AgentVersion};
     use crate::simpledb::SimpleDatabase;
 
     #[test]
@@ -140,19 +140,19 @@ mod test {
 
         let key = "yooo";
 
-        let t = db.apply_remote_op(&[], CRDTGuid {
+        let t = db.apply_remote_op(&[], AgentVersion {
             agent: mike, seq: 0
         }.into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
             key.into(), Primitive(I64(1))
         )).end - 1;
 
-        db.apply_remote_op(&[], CRDTGuid {
+        db.apply_remote_op(&[], AgentVersion {
             agent: seph, seq: 0
         }.into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
             key.into(), Primitive(I64(2))
         ));
 
-        db.apply_remote_op(&[t], CRDTGuid {
+        db.apply_remote_op(&[t], AgentVersion {
             agent: mike, seq: 1
         }.into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
             key.into(), Primitive(I64(3))

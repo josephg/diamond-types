@@ -5,12 +5,12 @@ use crate::AgentId;
 use crate::dtrange::DTRange;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct CRDTGuid {
+pub struct AgentVersion {
     pub agent: AgentId,
     pub seq: usize,
 }
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct CRDTSpan {
+pub struct AgentSpan {
     pub agent: AgentId,
     pub seq_range: DTRange,
 }
@@ -25,12 +25,12 @@ pub struct CRDTSpan {
 // }
 
 pub const ROOT_CRDT_ID: usize = usize::MAX;
-pub const ROOT_CRDT_ID_GUID: CRDTGuid = CRDTGuid {
+pub const ROOT_CRDT_ID_GUID: AgentVersion = AgentVersion {
     agent: AgentId::MAX,
     seq: 0
 };
 
-impl PartialOrd for CRDTGuid {
+impl PartialOrd for AgentVersion {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.agent != other.agent {
             None
@@ -47,10 +47,10 @@ impl PartialOrd for CRDTGuid {
 // }
 
 
-impl Searchable for CRDTSpan {
-    type Item = CRDTGuid;
+impl Searchable for AgentSpan {
+    type Item = AgentVersion;
 
-    fn get_offset(&self, loc: CRDTGuid) -> Option<usize> {
+    fn get_offset(&self, loc: AgentVersion) -> Option<usize> {
         // let r = self.loc.seq .. self.loc.seq + (self.len.abs() as usize);
         // self.loc.agent == loc.agent && entry.get_seq_range().contains(&loc.seq)
         if self.agent == loc.agent {
@@ -58,16 +58,16 @@ impl Searchable for CRDTSpan {
         } else { None }
     }
 
-    fn at_offset(&self, offset: usize) -> CRDTGuid {
+    fn at_offset(&self, offset: usize) -> AgentVersion {
         assert!(offset < self.len());
-        CRDTGuid {
+        AgentVersion {
             agent: self.agent,
             seq: self.seq_range.start + offset
         }
     }
 }
 
-impl ContentLength for CRDTSpan {
+impl ContentLength for AgentSpan {
     fn content_len(&self) -> usize {
         self.seq_range.len()
     }
@@ -77,29 +77,29 @@ impl ContentLength for CRDTSpan {
     }
 }
 
-impl HasLength for CRDTSpan {
+impl HasLength for AgentSpan {
     /// this length refers to the length that we'll use when we call truncate(). So this does count
     /// deletes.
     fn len(&self) -> usize {
         self.seq_range.len()
     }
 }
-impl SplitableSpanHelpers for CRDTSpan {
+impl SplitableSpanHelpers for AgentSpan {
     fn truncate_h(&mut self, at: usize) -> Self {
-        CRDTSpan {
+        AgentSpan {
             agent: self.agent,
             seq_range: self.seq_range.truncate(at)
         }
     }
 
     fn truncate_keeping_right_h(&mut self, at: usize) -> Self {
-        CRDTSpan {
+        AgentSpan {
             agent: self.agent,
             seq_range: self.seq_range.truncate_keeping_right(at)
         }
     }
 }
-impl MergableSpan for CRDTSpan {
+impl MergableSpan for AgentSpan {
     fn can_append(&self, other: &Self) -> bool {
         self.agent == other.agent
             && self.seq_range.end == other.seq_range.start
@@ -114,8 +114,8 @@ impl MergableSpan for CRDTSpan {
     }
 }
 
-impl From<CRDTGuid> for CRDTSpan {
-    fn from(guid: CRDTGuid) -> Self {
+impl From<AgentVersion> for AgentSpan {
+    fn from(guid: AgentVersion) -> Self {
         Self {
             agent: guid.agent,
             seq_range: guid.seq.into()

@@ -60,9 +60,9 @@ impl PartialEq<Self> for CausalGraph {
         }
 
         let map_time_to_other = |t: LV| -> Option<LV> {
-            let mut crdt_id = self.version_to_crdt_id(t);
+            let mut crdt_id = self.lv_to_agent_version(t);
             crdt_id.agent = agent_a_to_b[crdt_id.agent as usize];
-            other.try_crdt_id_to_version(crdt_id)
+            other.try_agent_version_to_lv(crdt_id)
         };
 
         // Check frontier contents. Note this is O(n^2) with the size of the respective frontiers.

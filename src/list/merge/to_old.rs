@@ -1,7 +1,7 @@
 use rle::{HasLength, MergableSpan};
 use crate::{DTRange, SmartString, LV};
+use crate::causalgraph::remote_ids::RemoteIdSpan;
 use crate::list::ListOpLog;
-use crate::list::remote_ids::RemoteIdSpan;
 use crate::rev_range::RangeRev;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -71,6 +71,6 @@ impl OldCRDTOp {
     }
 
     pub fn remote_span(&self, oplog: &ListOpLog) -> RemoteIdSpan {
-        oplog.local_to_remote_time_span(self.time_span())
+        oplog.cg.local_to_remote_time_span(self.time_span())
     }
 }

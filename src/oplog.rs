@@ -12,7 +12,7 @@ use crate::frontier::*;
 use crate::causalgraph::parents::Parents;
 use crate::list::operation::{ListOpKind, TextOperation};
 
-use crate::causalgraph::remotespan::{ROOT_CRDT_ID_GUID, ROOT_CRDT_ID, CRDTGuid, CRDTSpan};
+use crate::causalgraph::agent_span::{ROOT_CRDT_ID_GUID, ROOT_CRDT_ID, AgentVersion, AgentSpan};
 use crate::rev_range::RangeRev;
 use crate::rle::{RleKeyed, RleSpanHelpers};
 use crate::unicount::count_chars;
@@ -74,13 +74,13 @@ impl OpLog {
     }
 
 
-    fn inner_assign_remote_op_span(&mut self, parents: &[LV], crdt_span: CRDTSpan) -> DTRange {
+    fn inner_assign_remote_op_span(&mut self, parents: &[LV], crdt_span: AgentSpan) -> DTRange {
         let time_span = self.cg.merge_and_assign_nonoverlapping(parents, crdt_span);
         advance_frontier_by_known_run(&mut self.version, parents, time_span);
         time_span
     }
 
-    fn inner_assign_remote_op(&mut self, parents: &[LV], id: CRDTGuid) -> LV {
+    fn inner_assign_remote_op(&mut self, parents: &[LV], id: AgentVersion) -> LV {
         self.inner_assign_remote_op_span(parents, id.into()).start
     }
 
@@ -93,12 +93,12 @@ impl OpLog {
 
     /// This is different from the CausalGraph method because we need to handle the root CRDT
     /// object.
-    fn try_crdt_id_to_version(&self, id: CRDTGuid) -> Option<LV> {
+    fn try_crdt_id_to_version(&self, id: AgentVersion) -> Option<LV> {
         if id == ROOT_CRDT_ID_GUID { Some(ROOT_CRDT_ID) }
-        else { self.cg.try_crdt_id_to_version(id) }
+        else { self.cg.try_agent_version_to_lv(id) }
     }
 
-    pub(crate) fn push_remote_op(&mut self, parents: &[LV], op_id: CRDTSpan, crdt_id: CRDTGuid, contents: OpContents) -> (DTRange, LV) {
+    pub(crate) fn push_remote_op(&mut self, parents: &[LV], op_id: AgentSpan, crdt_id: AgentVersion, contents: OpContents) -> (DTRange, LV) {
         assert_eq!(op_id.len(), contents.len());
 
         // TODO: Filter op by anything we already know.

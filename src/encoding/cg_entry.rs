@@ -1,6 +1,6 @@
 use bumpalo::Bump;
 use rle::{HasLength, MergableSpan};
-use crate::{AgentId, CausalGraph, CRDTSpan, DTRange, KVPair, LocalFrontier, LV};
+use crate::{AgentId, CausalGraph, DTRange, KVPair, LocalFrontier, LV};
 use crate::causalgraph::ClientData;
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
@@ -8,12 +8,13 @@ use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64,
 use bumpalo::collections::vec::Vec as BumpVec;
 use smallvec::smallvec;
 use crate::causalgraph::entry::CGEntry;
+use crate::causalgraph::agent_span::AgentSpan;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::Merger;
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::map::{WriteMap, ReadMap};
 
-pub(crate) fn write_cg_aa(result: &mut BumpVec<u8>, write_parents: bool, span: CRDTSpan,
+pub(crate) fn write_cg_aa(result: &mut BumpVec<u8>, write_parents: bool, span: AgentSpan,
                           agent_map: &mut WriteMap, persist: bool, cg: &CausalGraph) {
     // We only write the parents info if parents is non-trivial.
 
@@ -88,7 +89,7 @@ pub(crate) fn write_cg_entry(result: &mut BumpVec<u8>, data: &CGEntry, write_map
 }
 
 fn read_cg_aa(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap)
-    -> Result<(bool, CRDTSpan), ParseError>
+    -> Result<(bool, AgentSpan), ParseError>
 {
     // Bits are:
     // has_parents
@@ -132,7 +133,7 @@ fn read_cg_aa(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_
         read_map.agent_map[idx].1 = end;
     }
 
-    Ok((has_parents, CRDTSpan {
+    Ok((has_parents, AgentSpan {
         agent,
         seq_range: (start..end).into(),
     }))
@@ -146,7 +147,7 @@ fn isize_try_add(x: usize, y: isize) -> Option<usize> {
 }
 
 /// NOTE: This does not put the returned data into the causal graph, or update read_map's txn_map.
-fn read_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_file_time: LV, read_map: &mut ReadMap) -> Result<(LocalFrontier, CRDTSpan), ParseError> {
+fn read_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_file_time: LV, read_map: &mut ReadMap) -> Result<(LocalFrontier, AgentSpan), ParseError> {
     // First we have agent assignment, then optional parents.
     let (has_parents, span) = read_cg_aa(reader, persist, cg, read_map)?;
 

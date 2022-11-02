@@ -6,7 +6,7 @@ use crate::causalgraph::*;
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::frontier::{advance_frontier_by_known_run, sort_frontier};
-use crate::causalgraph::remotespan::CRDTGuid;
+use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 use crate::rle::RleSpanHelpers;
 
 impl ClientData {
@@ -21,17 +21,17 @@ impl ClientData {
     }
 
     #[inline]
-    pub(crate) fn try_seq_to_time(&self, seq: usize) -> Option<LV> {
+    pub(crate) fn try_seq_to_lv(&self, seq: usize) -> Option<LV> {
         let (entry, offset) = self.item_times.find_with_offset(seq)?;
         Some(entry.1.start + offset)
     }
 
-    pub(crate) fn seq_to_time(&self, seq: usize) -> LV {
-        self.try_seq_to_time(seq).unwrap()
+    pub(crate) fn seq_to_lv(&self, seq: usize) -> LV {
+        self.try_seq_to_lv(seq).unwrap()
     }
 
     /// Note the returned timespan might be shorter than seq_range.
-    pub fn try_seq_to_time_span(&self, seq_range: DTRange) -> Option<DTRange> {
+    pub fn try_seq_to_lv_span(&self, seq_range: DTRange) -> Option<DTRange> {
         let (KVPair(_, entry), offset) = self.item_times.find_with_offset(seq_range.start)?;
 
         let start = entry.start + offset;
@@ -40,7 +40,7 @@ impl ClientData {
     }
 
     pub fn seq_to_time_span(&self, seq_range: DTRange) -> DTRange {
-        self.try_seq_to_time_span(seq_range).unwrap()
+        self.try_seq_to_lv_span(seq_range).unwrap()
     }
 }
 
@@ -92,38 +92,38 @@ impl CausalGraph {
         self.client_with_localtime.is_empty()
     }
 
-    pub fn version_to_crdt_id(&self, version: LV) -> CRDTGuid {
+    pub(crate) fn lv_to_agent_version(&self, version: LV) -> AgentVersion {
         debug_assert_ne!(version, usize::MAX);
 
         let (loc, offset) = self.client_with_localtime.find_packed_with_offset(version);
         loc.1.at_offset(offset as usize)
     }
 
-    pub fn version_span_to_crdt_span(&self, version: DTRange) -> CRDTSpan {
+    pub(crate) fn lv_span_to_agent_span(&self, version: DTRange) -> AgentSpan {
         debug_assert_ne!(version.start, usize::MAX);
 
         let (loc, offset) = self.client_with_localtime.find_packed_with_offset(version.start);
         let start = loc.1.seq_range.start + offset;
         let end = usize::min(loc.1.seq_range.end, start + version.len());
-        CRDTSpan {
+        AgentSpan {
             agent: loc.1.agent,
             seq_range: DTRange { start, end }
         }
     }
 
-    pub fn try_crdt_id_to_version(&self, id: CRDTGuid) -> Option<LV> {
+    pub fn try_agent_version_to_lv(&self, id: AgentVersion) -> Option<LV> {
         debug_assert_ne!(id.agent, AgentId::MAX);
 
         self.client_data.get(id.agent as usize).and_then(|c| {
-            c.try_seq_to_time(id.seq)
+            c.try_seq_to_lv(id.seq)
         })
     }
 
     #[allow(unused)]
-    pub(crate) fn map_parents(&self, crdt_parents: &[CRDTGuid]) -> LocalFrontier {
+    pub(crate) fn map_parents(&self, crdt_parents: &[AgentVersion]) -> LocalFrontier {
         // TODO: Make a try_ version of this.
         let mut parents = crdt_parents.iter()
-            .map(|p| self.try_crdt_id_to_version(*p).unwrap()).collect();
+            .map(|p| self.try_agent_version_to_lv(*p).unwrap()).collect();
         sort_frontier(&mut parents);
         parents
     }
@@ -141,7 +141,7 @@ impl CausalGraph {
         let next_seq = client_data.get_next_seq();
         client_data.item_times.push(KVPair(next_seq, span));
 
-        self.client_with_localtime.push(KVPair(span.start, CRDTSpan {
+        self.client_with_localtime.push(KVPair(span.start, AgentSpan {
             agent,
             seq_range: DTRange { start: next_seq, end: next_seq + span.len() },
         }));
@@ -161,7 +161,7 @@ impl CausalGraph {
 
     /// An alternate variant of merge_and_assign which is slightly faster, but will panic if the
     /// specified span is already included in the causal graph.
-    pub fn merge_and_assign_nonoverlapping(&mut self, parents: &[LV], span: CRDTSpan) -> DTRange {
+    pub fn merge_and_assign_nonoverlapping(&mut self, parents: &[LV], span: AgentSpan) -> DTRange {
         let time_start = self.len();
 
         // Agent ID must have already been assigned.
@@ -194,7 +194,7 @@ impl CausalGraph {
     /// all depend on the first).
     ///
     /// Method returns the
-    pub fn merge_and_assign(&mut self, mut parents: &[LV], mut span: CRDTSpan) -> DTRange {
+    pub fn merge_and_assign(&mut self, mut parents: &[LV], mut span: AgentSpan) -> DTRange {
         let time_start = self.len();
 
         // The agent ID must already be assigned.
@@ -228,7 +228,7 @@ impl CausalGraph {
                         let time_span: DTRange = (time_start..time_start + actual_len).into();
                         let new_entry = KVPair(previous_end, time_span);
 
-                        self.client_with_localtime.push(KVPair(time_start, CRDTSpan {
+                        self.client_with_localtime.push(KVPair(time_start, AgentSpan {
                             agent: span.agent,
                             seq_range: (prev_entry.end()..span.seq_range.end).into()
                         }));
@@ -261,7 +261,7 @@ impl CausalGraph {
     }
 
     /// This is used to break ties.
-    pub(crate) fn tie_break_crdt_versions(&self, v1: CRDTGuid, v2: CRDTGuid) -> Ordering {
+    pub(crate) fn tie_break_crdt_versions(&self, v1: AgentVersion, v2: AgentVersion) -> Ordering {
         if v1 == v2 { return Ordering::Equal; }
         else {
             let c1 = &self.client_data[v1.agent as usize];
@@ -276,8 +276,8 @@ impl CausalGraph {
         if v1 == v2 { Ordering::Equal }
         else {
             self.tie_break_crdt_versions(
-                self.version_to_crdt_id(v1),
-                self.version_to_crdt_id(v2)
+                self.lv_to_agent_version(v1),
+                self.lv_to_agent_version(v2)
             )
         }
     }

@@ -423,7 +423,7 @@ impl M2Tracker {
                     self.dbg_ops.push_rle(OldCRDTOp::Ins {
                         id: time_span,
                         origin_left,
-                        origin_right: if origin_right == UNDERWATER_START { ROOT_TIME } else { origin_right },
+                        origin_right: if origin_right == UNDERWATER_START { usize::MAX } else { origin_right },
                         content: oplog.operation_ctx.get_str(ListOpKind::Ins, op.content_pos.unwrap()).into()
                         // content_pos: op.content_pos.unwrap(),
                     });

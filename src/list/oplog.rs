@@ -11,7 +11,7 @@ use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{TextOperation, ListOpKind};
 use crate::causalgraph::remote_ids::RemoteId;
 use crate::dtrange::DTRange;
-use crate::causalgraph::remotespan::*;
+use crate::causalgraph::agent_span::*;
 use crate::rev_range::RangeRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::unicount::count_chars;
@@ -58,12 +58,12 @@ impl ListOpLog {
         self.cg.get_agent_name(agent)
     }
 
-    pub(crate) fn time_to_crdt_id(&self, time: usize) -> CRDTGuid {
-        self.cg.version_to_crdt_id(time)
+    pub(crate) fn time_to_crdt_id(&self, time: usize) -> AgentVersion {
+        self.cg.lv_to_agent_version(time)
     }
 
     #[allow(unused)]
-    pub(crate) fn crdt_id_to_time(&self, id: CRDTGuid) -> LV {
+    pub(crate) fn crdt_id_to_time(&self, id: AgentVersion) -> LV {
         // if id.agent == ROOT_AGENT {
         //     ROOT_TIME
         // } else {
@@ -74,15 +74,15 @@ impl ListOpLog {
     }
 
     #[allow(unused)]
-    pub(crate) fn try_crdt_id_to_time(&self, id: CRDTGuid) -> Option<LV> {
-        self.cg.try_crdt_id_to_version(id)
+    pub(crate) fn try_crdt_id_to_time(&self, id: AgentVersion) -> Option<LV> {
+        self.cg.try_agent_version_to_lv(id)
     }
 
     /// **NOTE:** This method will return a timespan with length min(time, agent_time). The
     /// resulting length will NOT be guaranteed to be the same as the input.
-    pub(crate) fn get_crdt_span(&self, version: DTRange) -> CRDTSpan {
+    pub(crate) fn get_crdt_span(&self, version: DTRange) -> AgentSpan {
         // TODO: Move to cg.
-        self.cg.version_span_to_crdt_span(version)
+        self.cg.lv_span_to_agent_span(version)
     }
 
     // pub(crate) fn get_time(&self, loc: CRDTId) -> usize {
@@ -113,10 +113,10 @@ impl ListOpLog {
 
     // This is a modified version of assign_next_time_to_client_known to support arbitrary CRDTSpans
     // loaded from remote peers / files.
-    pub(crate) fn assign_time_to_crdt_span(&mut self, start: LV, span: CRDTSpan) {
+    pub(crate) fn assign_time_to_crdt_span(&mut self, start: LV, span: AgentSpan) {
         debug_assert_eq!(start, self.cg.len_assignment());
 
-        let CRDTSpan { agent, seq_range } = span;
+        let AgentSpan { agent, seq_range } = span;
         let client_data = &mut self.cg.client_data[agent as usize];
 
         // let next_seq = client_data.get_next_seq();
@@ -145,7 +145,7 @@ impl ListOpLog {
         let next_seq = client_data.get_next_seq();
         client_data.item_times.push(KVPair(next_seq, span));
 
-        self.cg.client_with_localtime.push(KVPair(span.start, CRDTSpan {
+        self.cg.client_with_localtime.push(KVPair(span.start, AgentSpan {
             agent,
             seq_range: DTRange { start: next_seq, end: next_seq + span.len() },
         }));
@@ -317,11 +317,11 @@ impl ListOpLog {
     //     switch(tag, &self.ins_content, &self.del_content)
     // }
 
-    pub fn iter_mappings(&self) -> impl Iterator<Item = CRDTSpan> + '_ {
+    pub fn iter_mappings(&self) -> impl Iterator<Item =AgentSpan> + '_ {
         self.cg.client_with_localtime.iter().map(|item| item.1)
     }
 
-    pub fn iter_mappings_range(&self, range: DTRange) -> impl Iterator<Item = CRDTSpan> + '_ {
+    pub fn iter_mappings_range(&self, range: DTRange) -> impl Iterator<Item =AgentSpan> + '_ {
         self.cg.client_with_localtime.iter_range_packed_ctx(range, &()).map(|item| item.1)
     }
 

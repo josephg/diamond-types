@@ -13,7 +13,6 @@ use crate::list::operation::ListOpKind;
 use crate::causalgraph::parents::Parents;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::{CausalGraph, LocalFrontier};
-use crate::causalgraph::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 
 pub mod operation;

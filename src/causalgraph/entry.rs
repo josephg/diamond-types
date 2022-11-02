@@ -1,12 +1,13 @@
 use smallvec::smallvec;
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
-use crate::{CRDTSpan, DTRange, LocalFrontier, LV};
+use crate::{DTRange, LocalFrontier, LV};
+use crate::causalgraph::agent_span::AgentSpan;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CGEntry {
     pub start: LV,
     pub parents: LocalFrontier,
-    pub span: CRDTSpan,
+    pub span: AgentSpan,
 }
 
 impl Default for CGEntry {
@@ -14,7 +15,7 @@ impl Default for CGEntry {
         CGEntry {
             start: 0,
             parents: Default::default(),
-            span: CRDTSpan {
+            span: AgentSpan {
                 agent: 0,
                 seq_range: (0..0).into()
             }

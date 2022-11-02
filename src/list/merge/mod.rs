@@ -16,7 +16,7 @@ use rle::{HasLength, MergableSpan};
 use crate::list::merge::markers::MarkerEntry;
 use crate::list::merge::metrics::MarkerMetrics;
 use crate::list::merge::yjsspan::YjsSpan;
-use crate::{CRDTSpan, DTRange, SmartString, LV};
+use crate::{DTRange, SmartString, LV};
 use crate::list::ListOpLog;
 use crate::causalgraph::remote_ids::RemoteIdSpan;
 use crate::rev_range::RangeRev;

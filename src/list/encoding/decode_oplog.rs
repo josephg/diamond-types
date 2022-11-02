@@ -16,7 +16,7 @@ use crate::list::operation::ListOpKind;
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::list::encoding::decode_tools::{BufReader, ChunkReader};
 use crate::frontier::clone_smallvec;
-use crate::causalgraph::remotespan::{CRDTGuid, CRDTSpan};
+use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::calc_checksum;
@@ -27,7 +27,7 @@ const ALLOW_VERBOSE: bool = false;
 // const ALLOW_VERBOSE: bool = true;
 
 impl<'a> BufReader<'a> {
-    fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<CRDTSpan>, ParseError> {
+    fn read_next_agent_assignment(&mut self, map: &mut [(AgentId, usize)]) -> Result<Option<AgentSpan>, ParseError> {
         // Agent assignments are almost always (but not always) linear. They can have gaps, and
         // they can be reordered if the same agent ID is used to contribute to multiple branches.
         //
@@ -62,7 +62,7 @@ impl<'a> BufReader<'a> {
         let end = start + len;
         entry.1 = end;
 
-        Ok(Some(CRDTSpan {
+        Ok(Some(AgentSpan {
             agent,
             seq_range: (start..end).into(),
         }))
@@ -78,7 +78,7 @@ impl<'a> BufReader<'a> {
             if mapped_agent == 0 { break; } // Root.
 
             let agent = agent_map[mapped_agent - 1].0;
-            let id = CRDTGuid { agent, seq };
+            let id = AgentVersion { agent, seq };
 
             let time = oplog.try_crdt_id_to_time(id)
                 .ok_or(ParseError::BaseVersionUnknown)?;
@@ -112,7 +112,7 @@ impl<'a> BufReader<'a> {
                     if let Some(c) = oplog.cg.client_data.get(agent as usize) {
                         // Adding UNDERWATER_START for foreign parents in a horrible hack.
                         // I'm so sorry. This gets pulled back out in history_entry_map_and_truncate
-                        c.try_seq_to_time(seq).ok_or(ParseError::InvalidLength)?
+                        c.try_seq_to_lv(seq).ok_or(ParseError::InvalidLength)?
                     } else {
                         return Err(ParseError::InvalidLength);
                     }
@@ -812,7 +812,7 @@ impl ListOpLog {
                             // println!("push overlap {:?}", KVPair(next_file_time, overlap));
                             false
                         } else {
-                            self.assign_time_to_crdt_span(next_assignment_time, CRDTSpan {
+                            self.assign_time_to_crdt_span(next_assignment_time, AgentSpan {
                                 agent: crdt_span.agent,
                                 seq_range: consume_here,
                             });

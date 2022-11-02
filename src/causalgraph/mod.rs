@@ -1,7 +1,8 @@
 // #![warn(unused)]
 
 use smartstring::alias::String as SmartString;
-use crate::{CRDTSpan, DTRange, KVPair, LocalFrontier, Parents, RleVec};
+use crate::{DTRange, KVPair, LocalFrontier, Parents, RleVec};
+use crate::causalgraph::agent_span::AgentSpan;
 
 pub(crate) mod storage;
 mod causalgraph;
@@ -10,7 +11,7 @@ pub mod parents;
 mod eq;
 pub mod entry;
 pub mod summary;
-pub mod remotespan;
+pub mod agent_span;
 pub mod remote_ids;
 
 // TODO: Consider removing this now that ROOT is [].
@@ -43,7 +44,7 @@ pub struct CausalGraph {
     /// This is used to map Local time -> External CRDT locations.
     ///
     /// List is packed.
-    pub(crate) client_with_localtime: RleVec<KVPair<CRDTSpan>>,
+    pub(crate) client_with_localtime: RleVec<KVPair<AgentSpan>>,
 
     /// For each client, we store some data (above). This is indexed by AgentId.
     ///

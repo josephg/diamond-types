@@ -5,9 +5,9 @@ use smartstring::alias::String as SmartString;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use crate::dtrange::DTRange;
-use crate::{CausalGraph, CRDTSpan, LocalFrontier, LV};
+use crate::{CausalGraph, LocalFrontier, LV};
 use crate::frontier::sort_frontier;
-use crate::causalgraph::remotespan::CRDTGuid;
+use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 
 /// This file contains utilities to convert remote IDs to local time and back.
 ///
@@ -80,24 +80,24 @@ impl CausalGraph {
             .ok_or(ConversionError::UnknownAgent)?;
 
         self.client_data[agent as usize]
-            .try_seq_to_time(id.seq)
+            .try_seq_to_lv(id.seq)
             .ok_or(ConversionError::SeqInFuture)
     }
 
     /// This panics if the ID isn't known to the document.
     pub fn remote_to_local_time(&self, id: &RemoteId) -> LV {
         let agent = self.get_agent_id(id.agent.as_str()).unwrap();
-        self.client_data[agent as usize].seq_to_time(id.seq)
+        self.client_data[agent as usize].seq_to_lv(id.seq)
     }
 
-    fn crdt_id_to_remote(&self, loc: CRDTGuid) -> RemoteId {
+    fn crdt_id_to_remote(&self, loc: AgentVersion) -> RemoteId {
         RemoteId {
             agent: self.get_agent_name(loc.agent).into(),
             seq: loc.seq
         }
     }
 
-    fn crdt_span_to_remote(&self, loc: CRDTSpan) -> RemoteIdSpan {
+    fn crdt_span_to_remote(&self, loc: AgentSpan) -> RemoteIdSpan {
         RemoteIdSpan {
             agent: self.get_agent_name(loc.agent).into(),
             seq_range: loc.seq_range
@@ -105,14 +105,14 @@ impl CausalGraph {
     }
 
     pub fn local_to_remote_time(&self, time: LV) -> RemoteId {
-        let crdt_id = self.version_to_crdt_id(time);
+        let crdt_id = self.lv_to_agent_version(time);
         self.crdt_id_to_remote(crdt_id)
     }
 
     /// **NOTE:** This method will return a timespan with length min(time, agent_time). The
     /// resulting length will NOT be guaranteed to be the same as the input.
     pub fn local_to_remote_time_span(&self, v: DTRange) -> RemoteIdSpan {
-        let crdt_span = self.version_span_to_crdt_span(v);
+        let crdt_span = self.lv_span_to_agent_span(v);
         self.crdt_span_to_remote(crdt_span)
     }
 

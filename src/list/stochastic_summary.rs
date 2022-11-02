@@ -1,6 +1,6 @@
 // WIP.
 
-use crate::causalgraph::remotespan::CRDTGuid;
+use crate::causalgraph::agent_span::AgentVersion;
 use crate::list::ListOpLog;
 use crate::LV;
 
@@ -30,7 +30,7 @@ impl ListOpLog {
     ///
     /// Its not perfect, but it'll do donkey. It'll do.
     #[allow(unused)]
-    fn get_stochastic_version(&self, target_count: usize) -> Vec<CRDTGuid> {
+    fn get_stochastic_version(&self, target_count: usize) -> Vec<AgentVersion> {
         // TODO: WIP.
         let target_count = target_count.max(self.version.len());
         let mut result = Vec::with_capacity(target_count + 10);
@@ -41,7 +41,7 @@ impl ListOpLog {
         if time_len == 0 { return result; }
 
         let mut push_time = |t: LV| {
-            result.push(self.cg.version_to_crdt_id(t));
+            result.push(self.cg.lv_to_agent_version(t));
         };
 
         // No matter what, we'll send the current frontier:

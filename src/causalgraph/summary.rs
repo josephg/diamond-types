@@ -115,7 +115,7 @@ mod tests {
     use smallvec::smallvec;
     use crate::CausalGraph;
     use crate::causalgraph::summary::{VersionSummary, VSEntry};
-    use crate::causalgraph::remotespan::CRDTSpan;
+    use crate::causalgraph::agent_span::AgentSpan;
 
     #[test]
     fn summary_smoke() {
@@ -124,7 +124,7 @@ mod tests {
 
         cg.get_or_create_agent_id("seph");
         cg.get_or_create_agent_id("mike");
-        cg.merge_and_assign(&[], CRDTSpan {
+        cg.merge_and_assign(&[], AgentSpan {
             agent: 0,
             seq_range: (0..5).into()
         });
@@ -137,11 +137,11 @@ mod tests {
             }
         ]));
 
-        cg.merge_and_assign(&[], CRDTSpan {
+        cg.merge_and_assign(&[], AgentSpan {
             agent: 1,
             seq_range: (0..5).into()
         });
-        cg.merge_and_assign(&[4], CRDTSpan {
+        cg.merge_and_assign(&[4], AgentSpan {
             agent: 0,
             seq_range: (5..10).into()
         });
@@ -158,7 +158,7 @@ mod tests {
         ]));
 
         // And with a gap...
-        cg.merge_and_assign(&[4], CRDTSpan {
+        cg.merge_and_assign(&[4], AgentSpan {
             agent: 1,
             seq_range: (15..20).into()
         });
@@ -182,20 +182,20 @@ mod tests {
 
         cg.get_or_create_agent_id("seph");
         cg.get_or_create_agent_id("mike");
-        cg.merge_and_assign(&[], CRDTSpan {
+        cg.merge_and_assign(&[], AgentSpan {
             agent: 0,
             seq_range: (0..5).into()
         });
 
-        cg.merge_and_assign(&[], CRDTSpan {
+        cg.merge_and_assign(&[], AgentSpan {
             agent: 1,
             seq_range: (0..5).into()
         });
-        cg.merge_and_assign(&[4], CRDTSpan {
+        cg.merge_and_assign(&[4], AgentSpan {
             agent: 0,
             seq_range: (5..10).into()
         });
-        cg.merge_and_assign(&[4], CRDTSpan {
+        cg.merge_and_assign(&[4], AgentSpan {
             agent: 1,
             seq_range: (15..20).into()
         });

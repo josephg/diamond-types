@@ -193,7 +193,6 @@ pub use crate::dtrange::DTRange;
 use causalgraph::parents::Parents;
 use crate::causalgraph::storage::CGStorage;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
-use causalgraph::remotespan::CRDTSpan;
 use crate::rle::{KVPair, RleVec};
 use crate::wal::WriteAheadLog;
 use num_enum::TryFromPrimitive;
@@ -221,23 +220,21 @@ mod wal;
 pub(crate) mod serde;
 
 pub type AgentId = u32;
-// #[deprecated]
-// const ROOT_AGENT: AgentId = AgentId::MAX;
-// #[deprecated]
-// const ROOT_TIME: usize = usize::MAX;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
 // systems.
+
+/// An LV (LocalVersion) is used all over the place internally to identify a single operation.
+///
+/// A local version (as the name implies) is local-only. Local versions generally need to be
+/// converted to RawVersions before being sent over the wire or saved to disk.
 pub type LV = usize;
 
-/// A LocalVersion is a set of local Time values which point at the set of changes with no children
-/// at this point in time. When there's a single writer this will
-/// always just be the last order we've seen.
+/// A `LocalFrontier` is a set of local Time values which point at the set of changes with no
+/// children at this point in time. When there's a single writer this will always just be the last
+/// local version we've seen.
 ///
-/// This is never empty.
-///
-/// At the start of time (when there are no changes), LocalVersion is usize::max (which is the root
-/// order).
+/// The start of time is named with an empty list.
 pub type LocalFrontier = SmallVec<[LV; 2]>;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
