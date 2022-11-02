@@ -16,11 +16,11 @@ impl ClientData {
         } else { 0 }
     }
 
-    pub fn get_last_seq(&self) -> Option<usize> {
-        self.item_times
-            .last()
-            .map(|last_entry| last_entry.last())
-    }
+    // pub fn get_last_seq(&self) -> Option<usize> {
+    //     self.item_times
+    //         .last()
+    //         .map(|last_entry| last_entry.last())
+    // }
 
     pub fn is_empty(&self) -> bool {
         self.item_times.is_empty()

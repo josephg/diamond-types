@@ -284,7 +284,7 @@ impl Frontier {
         }
     }
 
-    pub(crate) fn replace_with_1(&mut self, new_val: LV) {
+    pub fn replace_with_1(&mut self, new_val: LV) {
         // I could truncate / etc, but this is faster in benchmarks.
         replace(&mut self.0, smallvec::smallvec![new_val]);
     }

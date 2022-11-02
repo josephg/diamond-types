@@ -324,7 +324,9 @@ impl<'a> Iterator for ParentsIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let e = if let Some(e) = self.history.entries.0.get(self.idx) { e }
-        else { return None; };
+        else { return None; }; // End of the list
+
+        if self.end <= e.span.start { return None; } // End of the requested range.
 
         self.idx += 1;
 
@@ -370,7 +372,7 @@ impl Parents {
 mod tests {
     use smallvec::smallvec;
     use rle::{MergableSpan, test_splitable_methods_valid};
-    use crate::causalgraph::parents::ParentsEntrySimple;
+    use crate::causalgraph::parents::{Parents, ParentsEntrySimple};
     use crate::Frontier;
     use super::ParentsEntryInternal;
 
@@ -403,5 +405,18 @@ mod tests {
             span: (10..20).into(),
             parents: Frontier::new_1(0),
         });
+    }
+
+    #[test]
+    fn iterator_regression() {
+        // There was a bug where this caused a crash.
+        let mut parents = Parents::new();
+        parents.push(&[], (0..1).into());
+        parents.push(&[], (1..2).into());
+
+        for r in parents.iter_range((0..1).into()) {
+            // dbg!(&r);
+            drop(r);
+        }
     }
 }

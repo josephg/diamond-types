@@ -11,6 +11,7 @@ pub struct AgentVersion {
     pub seq: usize,
 }
 
+// TODO: Make this crate-private, and make it a tuple.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct AgentSpan {
     pub agent: AgentId,
