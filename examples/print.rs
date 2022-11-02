@@ -21,8 +21,8 @@ fn print_stats_for_file(name: &str) {
     }
 
     println!("\nAgent assignment mappings:");
-    for m in oplog.iter_mappings() {
-        println!("{:?} ('{}')", m, oplog.get_agent_name(m.agent));
+    for m in oplog.iter_remote_mappings() {
+        println!("{:?}", m);
     }
 
     // println!("\nTransformed operations:");

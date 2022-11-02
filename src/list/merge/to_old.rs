@@ -71,6 +71,6 @@ impl OldCRDTOp {
     }
 
     pub fn remote_span(&self, oplog: &ListOpLog) -> RemoteIdSpan {
-        oplog.cg.local_to_remote_time_span(self.time_span())
+        oplog.cg.local_to_remote_version_span(self.time_span())
     }
 }

@@ -9,7 +9,7 @@ use crate::frontier::{advance_frontier_by_known_run, clone_smallvec};
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{TextOperation, ListOpKind};
-use crate::causalgraph::remote_ids::RemoteId;
+use crate::causalgraph::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned, RemoteVersionSpan};
 use crate::dtrange::DTRange;
 use crate::causalgraph::agent_span::*;
 use crate::rev_range::RangeRev;
@@ -299,30 +299,46 @@ impl ListOpLog {
     ///
     /// This method is provided alongside [`local_version`](OpLog::local_version) because its
     /// slightly faster.
-    pub fn local_version_ref(&self) -> &[LV] {
+    pub fn local_frontier_ref(&self) -> &[LV] {
         &self.version
     }
 
     /// Return the current tip version of the oplog. This is the version which contains all
     /// operations in the oplog.
-    pub fn local_version(&self) -> LocalFrontier {
+    pub fn local_frontier(&self) -> LocalFrontier {
         clone_smallvec(&self.version)
     }
 
-    pub fn remote_version(&self) -> SmallVec<[RemoteId; 4]> {
-        self.cg.local_to_remote_version(&self.version)
+    pub fn remote_frontier(&self) -> RemoteFrontier {
+        self.cg.local_to_remote_frontier(&self.version)
     }
 
     // pub(crate) fn content_str(&self, tag: InsDelTag) -> &str {
     //     switch(tag, &self.ins_content, &self.del_content)
     // }
 
-    pub fn iter_mappings(&self) -> impl Iterator<Item =AgentSpan> + '_ {
-        self.cg.client_with_localtime.iter().map(|item| item.1)
+    pub(crate) fn iter_agent_mappings(&self) -> impl Iterator<Item = AgentSpan> + '_ {
+        self.cg.client_with_localtime
+            .iter()
+            .map(|item| item.1)
     }
 
-    pub fn iter_mappings_range(&self, range: DTRange) -> impl Iterator<Item =AgentSpan> + '_ {
-        self.cg.client_with_localtime.iter_range_packed_ctx(range, &()).map(|item| item.1)
+    pub fn iter_remote_mappings(&self) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
+        self.cg.client_with_localtime
+            .iter()
+            .map(|item| self.cg.agent_span_to_remote(item.1))
+    }
+
+    pub(crate) fn iter_agent_mappings_range(&self, range: DTRange) -> impl Iterator<Item = AgentSpan> + '_ {
+        self.cg.client_with_localtime
+            .iter_range_packed_ctx(range, &())
+            .map(|item| item.1)
+    }
+
+    pub fn iter_remote_mappings_range(&self, range: DTRange) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
+        self.cg.client_with_localtime
+            .iter_range_packed_ctx(range, &())
+            .map(|item| self.cg.agent_span_to_remote(item.1))
     }
 
     pub fn print_stats(&self, detailed: bool) {

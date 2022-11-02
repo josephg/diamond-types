@@ -111,7 +111,7 @@ impl CausalGraph {
         }
     }
 
-    pub fn try_agent_version_to_lv(&self, id: AgentVersion) -> Option<LV> {
+    pub(crate) fn try_agent_version_to_lv(&self, id: AgentVersion) -> Option<LV> {
         debug_assert_ne!(id.agent, AgentId::MAX);
 
         self.client_data.get(id.agent as usize).and_then(|c| {

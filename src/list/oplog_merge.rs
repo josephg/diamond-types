@@ -117,7 +117,7 @@ impl ListOpLog {
 
             // Agent assignments
             t = time;
-            for mut span in other.iter_mappings_range(s) {
+            for mut span in other.iter_agent_mappings_range(s) {
                 // Map other agent ID -> self agent IDs.
                 span.agent = agent_map[span.agent as usize];
                 self.assign_time_to_crdt_span(t, span);

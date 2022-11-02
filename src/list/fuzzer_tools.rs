@@ -151,7 +151,7 @@ impl ListOpLog {
     pub(crate) fn dbg_print_assignments_and_ops(&self) {
         for (time, map, op) in rle_zip3(
             self.iter_history().map(|h| h.span).merge_spans(),
-            self.iter_mappings(),
+            self.iter_remote_mappings(),
             self.iter()
         ) {
             println!("{:?} M: {:?} Op: {:?}", time, map, op);

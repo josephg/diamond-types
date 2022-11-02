@@ -327,7 +327,7 @@ fn merge_returns_version_even_with_overlap() {
     let mut oplog2 = oplog.clone();
     let version = oplog2.decode_and_add(&bytes).unwrap();
 
-    assert!(local_frontier_eq(&version, oplog2.local_version_ref()));
+    assert!(local_frontier_eq(&version, oplog2.local_frontier_ref()));
 }
 
 #[test]
@@ -344,7 +344,7 @@ fn merge_patch_returns_correct_version() {
     let version = oplog2.decode_and_add(&bytes).unwrap();
 
     // dbg!(version);
-    assert!(local_frontier_eq(&version, oplog2.local_version_ref()));
+    assert!(local_frontier_eq(&version, oplog2.local_frontier_ref()));
 }
 
 #[test]

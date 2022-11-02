@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use crate::causalgraph::remote_ids::ConversionError;
+use crate::causalgraph::remote_ids::VersionConversionError;
 
 
 // #[derive(Debug)]
@@ -37,7 +37,7 @@ pub enum ParseError {
     // TODO: Consider elidiing the details here to keep the wasm binary small.
     // InvalidUTF8(Utf8Error),
     InvalidUTF8,
-    InvalidRemoteID(ConversionError),
+    InvalidRemoteID(VersionConversionError),
     InvalidVarInt,
     InvalidContent,
 

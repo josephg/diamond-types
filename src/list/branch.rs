@@ -10,7 +10,7 @@ use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::DTRange;
 use crate::{AgentId, LocalFrontier, LV};
 use crate::frontier::clone_smallvec;
-use crate::causalgraph::remote_ids::RemoteId;
+use crate::causalgraph::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned};
 
 impl ListBranch {
     /// Create a new (empty) branch at the start of history. The branch will be an empty list.
@@ -38,14 +38,14 @@ impl ListBranch {
     ///
     /// This is provided because its slightly faster than calling local_version (since it prevents a
     /// clone(), and they're weirdly expensive with smallvec!)
-    pub fn local_version_ref(&self) -> &[LV] { &self.version }
+    pub fn local_frontier_ref(&self) -> &[LV] { &self.version }
 
     /// Return the current version of the branch
-    pub fn local_version(&self) -> LocalFrontier { clone_smallvec(&self.version) }
+    pub fn local_frontier(&self) -> LocalFrontier { clone_smallvec(&self.version) }
 
     /// Return the current version of the branch in remote form
-    pub fn remote_version(&self, oplog: &ListOpLog) -> SmallVec<[RemoteId; 4]> {
-        oplog.cg.local_to_remote_version(&self.version)
+    pub fn remote_frontier<'a>(&self, oplog: &'a ListOpLog) -> RemoteFrontier<'a> {
+        oplog.cg.local_to_remote_frontier(&self.version)
     }
 
     /// Return the current document contents. Note there is no mutable variant of this method

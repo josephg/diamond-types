@@ -65,7 +65,7 @@
 //! let mut branch = ListBranch::new_at_tip(&oplog);
 //! let george = oplog.get_or_create_agent_id("george");
 //! oplog.add_insert(george, 0, "asdf");
-//! branch.merge(&oplog, oplog.local_version_ref());
+//! branch.merge(&oplog, oplog.local_frontier_ref());
 //! ```
 //!
 //! If you aren't using branches, you can use the simplified [`ListCRDT` API](list::ListCRDT). The
