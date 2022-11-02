@@ -1,39 +1,40 @@
 use criterion::{BenchmarkId, black_box, Criterion, criterion_group, criterion_main};
 use smallvec::{smallvec, SmallVec};
+use diamond_types::causalgraph::remote_ids::{RemoteVersion as NewRemoteVersion};
 use diamond_types::DTRange;
 use diamond_types::list::ListOpLog;
 use diamond_types::list::merge::to_old::OldCRDTOp;
-use diamond_types_old::list::external_txn::{RemoteId, RemoteIdSpan, RemoteTxn};
+use diamond_types_old::list::external_txn::{RemoteId as OldRemoteId, RemoteIdSpan as OldRemoteIdSpan, RemoteTxn};
 use diamond_types_old::root_id;
 use rle::{HasLength, SplitableSpan};
 
-fn time_to_remote_id(time: usize, oplog: &ListOpLog) -> RemoteId {
+fn time_to_remote_id(time: usize, oplog: &ListOpLog) -> OldRemoteId {
     if time == usize::MAX {
         root_id()
     } else {
-        new_to_old_remote_id(oplog.cg.local_to_remote_time(time))
+        new_to_old_remote_id(oplog.cg.local_to_remote_version(time))
     }
 }
 
-fn new_to_old_remote_id(new: diamond_types::causalgraph::remote_ids::RemoteId) -> RemoteId {
-    RemoteId {
-        agent: new.agent,
-        seq: new.seq as _
+fn new_to_old_remote_id(new: NewRemoteVersion) -> OldRemoteId {
+    OldRemoteId {
+        agent: new.0.into(),
+        seq: new.1 as _
     }
 }
 
 // NOTE: Not guaranteed to cover incoming span.
-fn time_to_remote_span(range: DTRange, oplog: &ListOpLog) -> RemoteIdSpan {
+fn time_to_remote_span(range: DTRange, oplog: &ListOpLog) -> OldRemoteIdSpan {
     if range.start == usize::MAX {
         panic!("Cannot convert a root timespan");
     } else {
-        let span = oplog.cg.local_to_remote_time_span(range);
-        RemoteIdSpan {
-            id: RemoteId {
-                agent: span.agent,
-                seq: span.seq_range.start as _
+        let span = oplog.cg.local_to_remote_version_span(range);
+        OldRemoteIdSpan {
+            id: OldRemoteId {
+                agent: span.0.into(),
+                seq: span.1.start as _
             },
-            len: span.seq_range.len() as _
+            len: span.1.len() as _
         }
     }
 }
@@ -95,7 +96,7 @@ fn get_txns(name: &str) -> Vec<RemoteTxn> {
 
         // oplog.
 
-        let mut parents: SmallVec<[RemoteId; 2]> = oplog.parents_at_time(span.start).iter().map(|p| {
+        let mut parents: SmallVec<[OldRemoteId; 2]> = oplog.parents_at_time(span.start).iter().map(|p| {
             time_to_remote_id(*p, &oplog)
         }).collect();
         if parents.is_empty() {

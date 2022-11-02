@@ -16,11 +16,11 @@ use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 /// Remote IDs are IDs you can pass to a remote peer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct RemoteVersionOwned(SmartString, usize);
+pub struct RemoteVersionOwned(pub SmartString, pub usize);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct RemoteVersion<'a>(&'a str, usize);
+pub struct RemoteVersion<'a>(pub &'a str, pub usize);
 
 impl<'a> From<&'a RemoteVersionOwned> for RemoteVersion<'a> {
     fn from(rv: &'a RemoteVersionOwned) -> Self {
@@ -65,11 +65,11 @@ impl<'a, S> From<(S, usize)> for RemoteVersion<'a> where S: Into<&'a str> {
 /// TODO: Do the same treatment here for seq_range.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct RemoteVersionSpanOwned(SmartString, DTRange);
+pub struct RemoteVersionSpanOwned(pub SmartString, pub DTRange);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct RemoteVersionSpan<'a>(&'a str, DTRange);
+pub struct RemoteVersionSpan<'a>(pub &'a str, pub DTRange);
 
 impl<'a> HasLength for RemoteVersionSpan<'a> {
     fn len(&self) -> usize {
