@@ -13,12 +13,13 @@ use rle::{HasLength, SplitableSpan};
 use crate::list::ListOpLog;
 use crate::dtrange::DTRange;
 use crate::rle::KVPair;
-use crate::{Parents, ROOT_TIME, LV};
+use crate::{Parents, LV};
 use crate::causalgraph::parents::ParentsEntrySimple;
 
 pub fn name_of(time: LV) -> String {
-    if time == ROOT_TIME { "ROOT".into() }
-    else { format!("{}", time) }
+    if time == LV::MAX { panic!("Should not see ROOT_TIME here"); }
+
+    format!("{}", time)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -242,7 +243,7 @@ impl ListOpLog {
                     // let color = if parents.len() == 1 { DotColor::Black } else { DotColor::Blue };
 
                     if parents.is_empty() {
-                        out.write_fmt(format_args!("\t{} -> {} [arrowtail=none]\n", name, name_of(ROOT_TIME))).unwrap();
+                        out.write_fmt(format_args!("\t{} -> {} [arrowtail=none]\n", name, "ROOT")).unwrap();
                     } else {
                         for p in parents {
                             out.write_fmt(format_args!("\t{} -> {} [color=\"#6b2828\" arrowtail=diamond]\n", name, name_of(*p))).unwrap();
