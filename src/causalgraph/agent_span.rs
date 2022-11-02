@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::ops::Range;
 use content_tree::ContentLength;
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::AgentId;
@@ -9,10 +10,29 @@ pub struct AgentVersion {
     pub agent: AgentId,
     pub seq: usize,
 }
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct AgentSpan {
     pub agent: AgentId,
     pub seq_range: DTRange,
+}
+
+impl From<(AgentId, usize)> for AgentVersion {
+    fn from((agent, seq): (AgentId, usize)) -> Self {
+        AgentVersion { agent, seq }
+    }
+}
+
+impl From<(AgentId, DTRange)> for AgentSpan {
+    fn from((agent, seq_range): (AgentId, DTRange)) -> Self {
+        AgentSpan { agent, seq_range }
+    }
+}
+
+impl From<(AgentId, Range<usize>)> for AgentSpan {
+    fn from((agent, seq_range): (AgentId, Range<usize>)) -> Self {
+        AgentSpan { agent, seq_range: seq_range.into() }
+    }
 }
 
 // impl Default for CRDTId {
