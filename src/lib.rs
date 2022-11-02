@@ -197,6 +197,7 @@ use crate::rle::{KVPair, RleVec};
 use crate::wal::WriteAheadLog;
 use num_enum::TryFromPrimitive;
 pub use ::rle::HasLength;
+pub use frontier::LocalFrontier;
 
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
 
@@ -229,13 +230,6 @@ pub type AgentId = u32;
 /// A local version (as the name implies) is local-only. Local versions generally need to be
 /// converted to RawVersions before being sent over the wire or saved to disk.
 pub type LV = usize;
-
-/// A `LocalFrontier` is a set of local Time values which point at the set of changes with no
-/// children at this point in time. When there's a single writer this will always just be the last
-/// local version we've seen.
-///
-/// The start of time is named with an empty list.
-pub type LocalFrontier = SmallVec<[LV; 2]>;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Primitive {

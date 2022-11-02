@@ -2,7 +2,14 @@ use std::mem::replace;
 use smallvec::{Array, SmallVec};
 use crate::causalgraph::parents::Parents;
 use crate::dtrange::DTRange;
-use crate::{LocalFrontier, LV};
+use crate::LV;
+
+/// A `LocalFrontier` is a set of local Time values which point at the set of changes with no
+/// children at this point in time. When there's a single writer this will always just be the last
+/// local version we've seen.
+///
+/// The start of time is named with an empty list.
+pub type LocalFrontier = SmallVec<[LV; 2]>;
 
 /// Advance a frontier by the set of time spans in range
 pub fn advance_frontier_by(frontier: &mut LocalFrontier, history: &Parents, mut range: DTRange) {
