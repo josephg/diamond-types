@@ -15,6 +15,10 @@ pub trait RleSpanHelpers: RleKeyed + HasLength {
         self.rle_key() + self.len()
     }
 
+    fn last(&self) -> usize {
+        self.end() - 1
+    }
+
     fn span(&self) -> DTRange {
         let start = self.rle_key();
         DTRange { start, end: start + self.len() }
