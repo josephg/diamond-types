@@ -176,7 +176,7 @@ impl CausalGraph {
                 let v_last = v + seq.len() - 1;
                 versions.push(v_last);
             } else {
-                let remainder = remainder.get_or_insert_with(|| Default::default());
+                let remainder = remainder.get_or_insert_with(Default::default);
                 remainder.0.push((name.into(), seq.end));
             }
         });

@@ -200,11 +200,11 @@ pub fn decode_usize(buf: &[u8]) -> Result<(usize, usize), ParseError> {
 // }
 
 pub fn num_encode_zigzag_i64(val: i64) -> u64 {
-    val.abs() as u64 * 2 + val.is_negative() as u64
+    val.unsigned_abs() * 2 + val.is_negative() as u64
 }
 
 pub fn num_encode_zigzag_i32(val: i32) -> u32 {
-    val.abs() as u32 * 2 + val.is_negative() as u32
+    val.unsigned_abs() * 2 + val.is_negative() as u32
 }
 
 pub fn num_encode_zigzag_isize(val: isize) -> usize {

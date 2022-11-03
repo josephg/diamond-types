@@ -273,6 +273,7 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
         let child_idxs = take(&mut input_entry.child_idxs);
         let parents = take(&mut input_entry.parents);
         let span = input_entry.span;
+        #[allow(clippy::drop_ref)]
         drop(input_entry);
 
         // dbg!(&child_idxs);

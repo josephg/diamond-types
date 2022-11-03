@@ -729,7 +729,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                     // merge set. This is a pretty bad way to do this - if we're gonna add them to
                     // conflict_ops then FF is pointless.
                     self.conflict_ops.clear();
-                    self.common_ancestor = self.oplog.cg.parents.find_conflicting(&self.next_frontier.as_ref(), &self.merge_frontier.as_ref(), |span, flag| {
+                    self.common_ancestor = self.oplog.cg.parents.find_conflicting(self.next_frontier.as_ref(), self.merge_frontier.as_ref(), |span, flag| {
                         if flag != DiffFlag::OnlyB {
                             self.conflict_ops.push_reversed_rle(span);
                         }

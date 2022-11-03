@@ -22,7 +22,7 @@ pub const ROOT_MAP: LV = LV::MAX;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 enum PathElement {
-    CRDT(LV),
+    Crdt(LV),
     MapValue(LV, SmartString),
 }
 

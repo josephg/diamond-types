@@ -265,7 +265,7 @@ impl CausalGraph {
 
     /// This is used to break ties.
     pub(crate) fn tie_break_crdt_versions(&self, v1: AgentVersion, v2: AgentVersion) -> Ordering {
-        if v1 == v2 { return Ordering::Equal; }
+        if v1 == v2 { Ordering::Equal }
         else {
             let c1 = &self.client_data[v1.0 as usize];
             let c2 = &self.client_data[v2.0 as usize];

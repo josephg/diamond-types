@@ -99,7 +99,7 @@ impl WriteAheadLog {
         // Before anything else, we scan the file to find out the current value.
         debug_assert_eq!(file.stream_position()?, 0); // Should be 0 since we're not in append mode.
 
-        Ok(Self::prep_file(file, path.as_ref(), cg)?)
+        Self::prep_file(file, path.as_ref(), cg)
 
         // Ok((Self {
         //     file,
@@ -226,8 +226,7 @@ impl WriteAheadLog {
             return Err(WALError::UnexpectedEOF);
         }
 
-        let mut chunk_bytes = Vec::with_capacity(len);
-        chunk_bytes.resize(len, 0);
+        let mut chunk_bytes = vec![0; len];
         r.read_exact(&mut chunk_bytes)?;
 
         // Now check that the checksum matches.

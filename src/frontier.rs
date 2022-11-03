@@ -136,6 +136,9 @@ impl Frontier {
     pub fn is_root(&self) -> bool {
         self.0.is_empty()
     }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 
     pub fn iter(&self) -> std::slice::Iter<usize> {
         self.0.iter()

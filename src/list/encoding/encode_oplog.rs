@@ -321,8 +321,9 @@ fn write_compressed_chunk(dest: &mut Vec<u8>, data: &[u8]) -> usize {
     let max_compressed_size = lz4_flex::block::get_maximum_output_size(data.len());
 
     // Capacity 10+ because we contain a size.
-    let mut compressed = Vec::with_capacity(5 + max_compressed_size);
-    compressed.resize(compressed.capacity(), 0);
+    // let mut compressed = Vec::with_capacity(5 + max_compressed_size);
+    // compressed.resize(compressed.capacity(), 0);
+    let mut compressed = vec![0; 5 + max_compressed_size];
 
     let mut pos = 0;
 

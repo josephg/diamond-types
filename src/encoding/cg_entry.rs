@@ -174,11 +174,11 @@ pub(crate) fn read_cg_entry_into_cg_nonoverlapping(reader: &mut BufParser, persi
         read_map.txn_map.push(KVPair(next_file_time, merged_span));
     }
 
-    Ok((CGEntry {
+    Ok(CGEntry {
         start: merged_span.start,
         parents,
         span
-    }))
+    })
 }
 
 pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<(), ParseError> {

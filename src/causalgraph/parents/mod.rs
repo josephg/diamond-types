@@ -323,8 +323,8 @@ impl<'a> Iterator for ParentsIter<'a> {
     type Item = ParentsEntrySimple;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let e = if let Some(e) = self.history.entries.0.get(self.idx) { e }
-        else { return None; }; // End of the list
+        // If we hit the end of the list this will be None and return.
+        let e = self.history.entries.0.get(self.idx)?;
 
         if self.end <= e.span.start { return None; } // End of the requested range.
 

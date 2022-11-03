@@ -337,18 +337,18 @@ impl CGStorage {
         body.extend_from_slice(blit.data); // TODO: Less copying!
 
         let checksum = calc_checksum(&body);
-        w.write(&checksum.to_le_bytes())?;
+        w.write_all(&checksum.to_le_bytes())?;
 
         let mut buf = [0u8; 10];
         let len_len = encode_usize(body.len(), &mut buf);
-        w.write(&buf[..len_len])?;
+        w.write_all(&buf[..len_len])?;
 
         // TODO: DO THIS BETTER!!
         if 4 + len_len + body.len() > max_size as usize {
             return Err(CGError::BlitTooLarge)
         }
 
-        w.write(&body)?;
+        w.write_all(&body)?;
 
         Ok(())
     }
@@ -417,7 +417,7 @@ impl CGStorage {
     }
 
     fn encode_last_entry(&mut self, buf: &mut BumpVec<u8>, persist: bool, cg: &CausalGraph) {
-        write_cg_entry(buf, &self.entry, &mut self.write_map, persist, &cg);
+        write_cg_entry(buf, &self.entry, &mut self.write_map, persist, cg);
     }
 
     pub(crate) fn push_entry_no_sync(&mut self, bump: &Bump, entry: CGEntry, cg: &CausalGraph) -> Result<bool, CGError> {

@@ -61,6 +61,12 @@ fn separate_by<T, R>(arr: &mut [T], mut right: R)
     len - right_size
 }
 
+impl Default for Branch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Branch {
     pub fn new() -> Self {
         let mut overlay = BTreeMap::new();
@@ -301,7 +307,7 @@ impl Branch {
             .or_default();
 
         // We need to remove values after the retain() loop to prevent borrowck issues.
-        let keep_idx = separate_by(&mut entry.as_mut(), |reg| {
+        let keep_idx = separate_by(entry.as_mut(), |reg| {
             cg.parents.version_contains_time(&[time], reg.version)
         });
 
@@ -358,7 +364,7 @@ impl Branch {
                 assert!(old_val.is_none(), "Item was already in set");
             }
             SetOp::Remove(target) => {
-                let removed = self.internal_get_set(set_id).remove(&target); // Remove it from the set
+                let removed = self.internal_get_set(set_id).remove(target); // Remove it from the set
                 // We actually don't care if the item was already deleted - this can happen due to
                 // concurrency.
                 if let Some(SnapshotValue::InnerCRDT(id)) = removed {
