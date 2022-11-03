@@ -106,9 +106,9 @@ impl PartialEq<Self> for ListOpLog {
                 // Look up the corresponding operation in other.
 
                 // This maps via agents - so I think that sort of implicitly checks out.
-                let other_time = if let Some(other_time) = map_lv_to_other(txn.span.start) {
-                    other_time
-                } else { return false; };
+                let Some(other_time) = map_lv_to_other(txn.span.start) else {
+                    return false;
+                };
 
                 // Lets take a look at the operation.
                 let (KVPair(_, other_op_int), offset) = other.operations.find_packed_with_offset(other_time);
@@ -157,9 +157,7 @@ impl PartialEq<Self> for ListOpLog {
                 }
 
                 // We can't just compare txns because the parents need to be mapped!
-                let mapped_start = if let Some(mapped) = map_lv_to_other(txn.span.start) {
-                    mapped
-                } else {
+                let Some(mapped_start) = map_lv_to_other(txn.span.start) else {
                     panic!("I think this should be unreachable, since we check the agent / seq matches above.");
                     // return false;
                 };

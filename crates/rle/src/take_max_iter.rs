@@ -27,12 +27,8 @@ impl<T: SplitableSpanCtx + HasLength> Rem<T> {
         r
     }
 
-    pub fn take_max_opt<F: FnOnce() -> Option<T>>(&mut self, max_size: usize, f: F, ctx: &T::Ctx) -> Option<T> {
-        let mut chunk = if let Some(r) = self.0.take() {
-            r
-        } else {
-            f()?
-        };
+    pub fn take_max_opt<F: FnOnce() -> Option<T>>(&mut self, max_size: usize, get_next: F, ctx: &T::Ctx) -> Option<T> {
+        let mut chunk = self.0.take().or_else(get_next)?;
 
         if chunk.len() > max_size {
             let new_remainder = chunk.truncate_ctx(max_size, ctx);
@@ -42,11 +38,12 @@ impl<T: SplitableSpanCtx + HasLength> Rem<T> {
         Some(chunk)
     }
 
-    pub fn take_max_result<E, F: FnOnce() -> Result<T, E>>(&mut self, max_size: usize, f: F, ctx: &T::Ctx) -> Result<T, E> {
+    pub fn take_max_result<E, F: FnOnce() -> Result<T, E>>(&mut self, max_size: usize, get_next: F, ctx: &T::Ctx) -> Result<T, E> {
+        // I bet there's a way to make this code a bit cleaner but I can't figure out what!
         let mut chunk = if let Some(r) = self.0.take() {
             r
         } else {
-            f()?
+            get_next()?
         };
 
         if chunk.len() > max_size {

@@ -32,16 +32,16 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Node
         let mut offset_remaining = raw_pos;
 
         for (idx, elem) in self.children.iter().enumerate() {
-            if let Some(elem) = elem.as_ref() {
-                let count = offset_to_num(self.metrics[idx]);
-                if offset_remaining < count || (stick_end && offset_remaining == count) {
-                    // let elem_box = elem.unwrap();
-                    return Some((offset_remaining, unsafe { elem.as_ptr() }))
-                } else {
-                    offset_remaining -= count;
-                    // And continue.
-                }
-            } else { return None }
+            let Some(elem) = elem.as_ref() else { return None; };
+
+            let count = offset_to_num(self.metrics[idx]);
+            if offset_remaining < count || (stick_end && offset_remaining == count) {
+                // let elem_box = elem.unwrap();
+                return Some((offset_remaining, unsafe { elem.as_ptr() }))
+            } else {
+                offset_remaining -= count;
+                // And continue.
+            }
         }
         None
     }

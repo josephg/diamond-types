@@ -11,6 +11,12 @@ use crate::rle::RleSpanHelpers;
 
 impl ClientData {
     pub fn get_next_seq(&self) -> usize {
+        // Equivalent to this. I'm not sure which I prefer...
+        // self.item_times
+        //     .last()
+        //     .map(|last| last.end())
+        //     .unwrap_or(0)
+
         if let Some(last) = self.item_times.last() {
             last.end()
         } else { 0 }

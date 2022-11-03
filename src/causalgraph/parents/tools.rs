@@ -498,9 +498,7 @@ impl Parents {
         // the CRDT has a value then (the default value for the CRDT).
         debug_assert_frontier_sorted(version);
 
-        let highest_time = if let Some(&t) = version.last() {
-            t
-        } else {
+        let Some(&highest_time) = version.last() else {
             // The root item has a creation time at the root time. But nothing else exists then.
             return if info.created_at == OLD_INVALID_ROOT_TIME {
                 Some(Frontier::root())
