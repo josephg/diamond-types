@@ -113,15 +113,15 @@ impl CausalGraph {
     }
 
     /// This panics if the ID isn't known to the document.
-    pub fn remote_to_local_version(&self, rv: RemoteVersion) -> LV {
-        let agent = self.get_agent_id(rv.0).unwrap();
-        self.client_data[agent as usize].seq_to_lv(rv.1)
+    pub fn remote_to_local_version(&self, RemoteVersion(name, seq): RemoteVersion) -> LV {
+        let agent = self.get_agent_id(name).unwrap();
+        self.client_data[agent as usize].seq_to_lv(seq)
     }
 
-    pub(crate) fn agent_version_to_remote(&self, loc: AgentVersion) -> RemoteVersion {
+    pub(crate) fn agent_version_to_remote(&self, (agent, seq): AgentVersion) -> RemoteVersion {
         RemoteVersion(
-            self.get_agent_name(loc.agent),
-            loc.seq
+            self.get_agent_name(agent),
+            seq
         )
     }
 

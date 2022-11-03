@@ -79,9 +79,8 @@ impl<'a> BufReader<'a> {
             if mapped_agent == 0 { break; } // Root.
 
             let agent = agent_map[mapped_agent - 1].0;
-            let id = AgentVersion { agent, seq };
 
-            let time = oplog.try_crdt_id_to_time(id)
+            let time = oplog.try_crdt_id_to_time((agent, seq))
                 .ok_or(ParseError::BaseVersionUnknown)?;
             result.push(time);
 

@@ -97,12 +97,9 @@ impl Branch {
                 let idx = reg.iter()
                     .enumerate()
                     .map(|(idx, r)| (idx, cg.lv_to_agent_version(r.version)))
-                    .max_by(|a, b| {
+                    .max_by(|(_, a), (_, b)| {
                         // TODO: Check this is the right way around.
-                        let a_id = &cg.client_data[a.1.agent as usize].name;
-                        let b_id = &cg.client_data[b.1.agent as usize].name;
-                        a_id.cmp(b_id)
-                            .then_with(|| a.1.seq.cmp(&b.1.seq))
+                        cg.tie_break_crdt_versions(*a, *b)
                     })
                     .unwrap().0;
 

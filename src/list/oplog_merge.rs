@@ -134,9 +134,9 @@ impl ListOpLog {
                 // We need to convert other parents to self parents. This is a bit gross but eh.
                 // dbg!(&hist_entry.parents);
                 for t in hist_entry.parents.0.iter_mut() {
-                    let mut id = other.time_to_crdt_id(*t);
-                    id.agent = agent_map[id.agent as usize];
-                    let self_time = self.crdt_id_to_time(id);
+                    let mut av = other.lv_to_agent_version(*t);
+                    av.0 = agent_map[av.0 as usize];
+                    let self_time = self.crdt_id_to_time(av);
                     *t = self_time;
                 }
 

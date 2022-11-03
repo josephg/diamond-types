@@ -61,16 +61,16 @@ impl PartialEq<Self> for ListOpLog {
             agent_a_to_b.push(other_agent);
         }
 
-        let map_time_to_other = |t: LV| -> Option<LV> {
-            let mut crdt_id = self.time_to_crdt_id(t);
-            crdt_id.agent = agent_a_to_b[crdt_id.agent as usize];
-            other.try_crdt_id_to_time(crdt_id)
+        let map_lv_to_other = |t: LV| -> Option<LV> {
+            let mut av = self.lv_to_agent_version(t);
+            av.0 = agent_a_to_b[av.0 as usize];
+            other.try_crdt_id_to_time(av)
         };
 
         // Check frontier contents. Note this is O(n^2) with the size of the respective frontiers.
         // Which should be fine in normal use, but its a DDOS risk.
         for t in self.version.iter() {
-            let other_time = map_time_to_other(*t);
+            let other_time = map_lv_to_other(*t);
             if let Some(other_time) = other_time {
                 if !other.version.0.contains(&other_time) {
                     if VERBOSE { println!("Frontier is not contained by other frontier"); }
@@ -106,7 +106,7 @@ impl PartialEq<Self> for ListOpLog {
                 // Look up the corresponding operation in other.
 
                 // This maps via agents - so I think that sort of implicitly checks out.
-                let other_time = if let Some(other_time) = map_time_to_other(txn.span.start) {
+                let other_time = if let Some(other_time) = map_lv_to_other(txn.span.start) {
                     other_time
                 } else { return false; };
 
@@ -157,7 +157,7 @@ impl PartialEq<Self> for ListOpLog {
                 }
 
                 // We can't just compare txns because the parents need to be mapped!
-                let mapped_start = if let Some(mapped) = map_time_to_other(txn.span.start) {
+                let mapped_start = if let Some(mapped) = map_lv_to_other(txn.span.start) {
                     mapped
                 } else {
                     panic!("I think this should be unreachable, since we check the agent / seq matches above.");
@@ -168,7 +168,7 @@ impl PartialEq<Self> for ListOpLog {
                     span: (mapped_start..mapped_start + len_here).into(),
                     // .unwrap() should be safe here because we've already walked past this item's
                     // parents.
-                    parents: Frontier(txn.parents.iter().map(|t| map_time_to_other(*t).unwrap()).collect())
+                    parents: Frontier(txn.parents.iter().map(|t| map_lv_to_other(*t).unwrap()).collect())
                 };
                 // mapped_txn.parents.sort_unstable();
                 sort_frontier(&mut mapped_txn.parents.0);

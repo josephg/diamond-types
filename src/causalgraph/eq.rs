@@ -59,10 +59,10 @@ impl PartialEq<Self> for CausalGraph {
             agent_a_to_b.push(other_agent);
         }
 
-        let map_time_to_other = |t: LV| -> Option<LV> {
-            let mut crdt_id = self.lv_to_agent_version(t);
-            crdt_id.agent = agent_a_to_b[crdt_id.agent as usize];
-            other.try_agent_version_to_lv(crdt_id)
+        let map_lv_to_other = |t: LV| -> Option<LV> {
+            let mut av = self.lv_to_agent_version(t);
+            av.0 = agent_a_to_b[av.0 as usize];
+            other.try_agent_version_to_lv(av)
         };
 
         // Check frontier contents. Note this is O(n^2) with the size of the respective frontiers.
@@ -102,7 +102,7 @@ impl PartialEq<Self> for CausalGraph {
                 // Look up the corresponding operation in other.
 
                 // This maps via agents - so I think that sort of implicitly checks out.
-                let other_time = if let Some(other_time) = map_time_to_other(txn.span.start) {
+                let other_time = if let Some(other_time) = map_lv_to_other(txn.span.start) {
                     other_time
                 } else { return false; };
 
@@ -133,7 +133,7 @@ impl PartialEq<Self> for CausalGraph {
                 }
 
                 // We can't just compare txns because the parents need to be mapped!
-                let mapped_start = if let Some(mapped) = map_time_to_other(txn.span.start) {
+                let mapped_start = if let Some(mapped) = map_lv_to_other(txn.span.start) {
                     mapped
                 } else {
                     panic!("I think this should be unreachable, since we check the agent / seq matches above.");
@@ -144,7 +144,7 @@ impl PartialEq<Self> for CausalGraph {
                     span: (mapped_start..mapped_start + len_here).into(),
                     // .unwrap() should be safe here because we've already walked past this item's
                     // parents.
-                    parents: Frontier::from_unsorted_iter(txn.parents.iter().map(|t| map_time_to_other(*t).unwrap()))
+                    parents: Frontier::from_unsorted_iter(txn.parents.iter().map(|t| map_lv_to_other(*t).unwrap()))
                 };
                 // mapped_txn.parents.sort_unstable();
 

@@ -140,23 +140,23 @@ mod test {
 
         let key = "yooo";
 
-        let t = db.apply_remote_op(&[], AgentVersion {
-            agent: mike, seq: 0
-        }.into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
+        let t = db.apply_remote_op(&[],
+           (mike, 0).into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
             key.into(), Primitive(I64(1))
-        )).end - 1;
+           )
+        ).end - 1;
 
-        db.apply_remote_op(&[], AgentVersion {
-            agent: seph, seq: 0
-        }.into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
+        db.apply_remote_op(&[],
+            (seph, 0).into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
             key.into(), Primitive(I64(2))
-        ));
+            )
+        );
 
-        db.apply_remote_op(&[t], AgentVersion {
-            agent: mike, seq: 1
-        }.into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
+        db.apply_remote_op(&[t],
+           (mike, 1).into(), ROOT_CRDT_ID_GUID, OpContents::MapSet(
             key.into(), Primitive(I64(3))
-        ));
+            )
+        );
 
         let map = db.get_recursive_at(ROOT_MAP)
             .unwrap().unwrap_map();

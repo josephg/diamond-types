@@ -58,8 +58,8 @@ impl ListOpLog {
         self.cg.get_agent_name(agent)
     }
 
-    pub(crate) fn time_to_crdt_id(&self, time: usize) -> AgentVersion {
-        self.cg.lv_to_agent_version(time)
+    pub(crate) fn lv_to_agent_version(&self, lv: LV) -> AgentVersion {
+        self.cg.lv_to_agent_version(lv)
     }
 
     #[allow(unused)]

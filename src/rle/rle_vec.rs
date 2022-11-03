@@ -459,7 +459,7 @@ impl<V: HasLength + MergableSpan + Sized> Default for RleVec<V> {
 
 impl<V: HasLength + MergableSpan + Searchable + RleKeyed> RleVec<V> {
     pub fn get(&self, idx: usize) -> V::Item {
-        let (v, offset) = self.find_with_offset(idx).unwrap();
+        let (v, offset) = self.find_packed_with_offset(idx);
         v.at_offset(offset)
     }
 }

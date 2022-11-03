@@ -110,7 +110,7 @@ impl ListOpLog {
 
             write!(&mut out, "\t{} [label=<{} (Len {})>]\n", range.last(), range.start, range.len()).unwrap();
 
-            if txn.parents.is_empty() {
+            if txn.parents.is_root() {
                 write!(&mut out, "\t{} -> ROOT\n", range.last()).unwrap();
             } else {
                 for &p in txn.parents.iter() {
@@ -169,7 +169,7 @@ impl ListOpLog {
                 0 => "ROOT".to_string(),
                 1 => format!("{}", txn.parents[0]),
                 _ => {
-                    let key = key_for_parents(&txn.parents);
+                    let key = key_for_parents(txn.parents.as_ref());
                     if merges_touched.insert(key.clone()) {
                         // Emit the merge item.
                         write!(&mut out, "\t{key} [fillcolor={} label=\"\" shape=point]\n", DotColor::Blue.to_string()).unwrap();

@@ -101,8 +101,8 @@ impl M2Tracker {
         }
     }
 
-    pub(super) fn marker_at(&self, time: LV) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
-        let cursor = self.index.cursor_at_offset_pos(time, false);
+    pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>> {
+        let cursor = self.index.cursor_at_offset_pos(lv, false);
         // Gross.
         cursor.get_item().unwrap().unwrap()
     }
@@ -119,26 +119,26 @@ impl M2Tracker {
         }
     }
 
-    fn get_cursor_before(&self, time: LV) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
-        if time == usize::MAX {
+    fn get_cursor_before(&self, lv: LV) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+        if lv == usize::MAX {
             // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
             // just panic() here.
             self.range_tree.cursor_at_end()
         } else {
-            let marker = self.marker_at(time);
-            self.range_tree.cursor_before_item(time, marker)
+            let marker = self.marker_at(lv);
+            self.range_tree.cursor_before_item(lv, marker)
         }
     }
 
     // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
-    fn get_cursor_after(&self, time: LV, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
-        if time == usize::MAX {
+    fn get_cursor_after(&self, lv: LV, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE> {
+        if lv == usize::MAX {
             self.range_tree.cursor_at_start()
         } else {
-            let marker = self.marker_at(time);
+            let marker = self.marker_at(lv);
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
             // self.content_tree.
-            let mut cursor = self.range_tree.cursor_before_item(time, marker);
+            let mut cursor = self.range_tree.cursor_before_item(lv, marker);
             // The cursor points to parent. This is safe because of guarantees provided by
             // cursor_before_item.
             cursor.offset += 1;
@@ -160,25 +160,23 @@ impl M2Tracker {
         let mut scanning = false;
 
         loop {
-            let other_order = match unsafe { cursor.unsafe_get_item() } {
-                None => { break; } // End of the document
-                Some(o) => { o }
-            };
+            if !cursor.roll_to_next_entry() { break; } // End of the document
+            let other_entry: YjsSpan = *cursor.get_raw_entry();
+            let other_lv = other_entry.at_offset(cursor.offset);
 
             // Almost always true. Could move this short circuit earlier?
-            if other_order == item.origin_right { break; }
+            if other_lv == item.origin_right { break; }
 
             // This code could be better optimized, but its already O(n * log n), and its extremely
             // rare that you actually get concurrent inserts at the same location in the document
             // anyway.
 
-            let other_entry = *cursor.get_raw_entry();
             // We can only be concurrent with other items which haven't been inserted yet at this
             // point in time.
             debug_assert_eq!(other_entry.state, NOT_INSERTED_YET);
 
-            let other_left_time = other_entry.origin_left_at_offset(cursor.offset);
-            let other_left_cursor = self.get_cursor_after(other_left_time, false);
+            let other_left_lv = other_entry.origin_left_at_offset(cursor.offset);
+            let other_left_cursor = self.get_cursor_after(other_left_lv, false);
 
             // YjsMod semantics
             match unsafe { other_left_cursor.unsafe_cmp(&left_cursor) } {
@@ -188,15 +186,21 @@ impl M2Tracker {
                     if item.origin_right == other_entry.origin_right {
                         // Origin_right matches. Items are concurrent. Order by agent names.
                         let my_name = oplog.get_agent_name(agent);
-                        let other_loc = oplog.cg.client_with_localtime.get(other_order);
-                        let other_name = oplog.get_agent_name(other_loc.agent);
+                        let (other_agent, other_seq) = oplog.cg.lv_to_agent_version(other_lv);
+                        let other_name = oplog.get_agent_name(other_agent);
 
                         // Its possible for a user to conflict with themself if they commit to
                         // multiple branches. In this case, sort by seq number.
                         let ins_here = match my_name.cmp(other_name) {
                             Ordering::Less => true,
                             Ordering::Equal => {
-                                oplog.time_to_crdt_id(item.id.start) < oplog.time_to_crdt_id(other_entry.id.start)
+                                // We can't compare versions here because sequence numbers could be
+                                // used out of order, and the relative version ordering isn't
+                                // consistent in that case.
+                                //
+                                // We could cache this but this code doesn't run often anyway.
+                                let item_seq = oplog.cg.lv_to_agent_version(item.id.start).1;
+                                item_seq < other_seq
                             }
                             Ordering::Greater => false,
                         };
@@ -408,11 +412,11 @@ impl M2Tracker {
 
                 // let origin_right = cursor.get_item().unwrap_or(ROOT_TIME);
 
-                let mut time_span = op_pair.span();
-                time_span.trim(len);
+                let mut lv_span = op_pair.span();
+                lv_span.trim(len);
 
                 let item = YjsSpan {
-                    id: time_span,
+                    id: lv_span,
                     origin_left,
                     origin_right,
                     state: INSERTED,
@@ -421,7 +425,7 @@ impl M2Tracker {
 
                 #[cfg(feature = "ops_to_old")] {
                     self.dbg_ops.push_rle(OldCRDTOp::Ins {
-                        id: time_span,
+                        id: lv_span,
                         origin_left,
                         origin_right: if origin_right == UNDERWATER_START { usize::MAX } else { origin_right },
                         content: oplog.operation_ctx.get_str(ListOpKind::Ins, op.content_pos.unwrap()).into()
@@ -504,11 +508,11 @@ impl M2Tracker {
                 debug_assert_eq!(len, target.len());
                 debug_assert_eq!(del_start_xf, upstream_cursor_pos(&cursor));
 
-                let time_start = op_pair.0;
+                let lv_start = op_pair.0;
 
                 #[cfg(feature = "ops_to_old")] {
                     self.dbg_ops.push_rle(OldCRDTOp::Del {
-                        start_time: time_start,
+                        start_time: lv_start,
                         target: RangeRev {
                             span: target,
                             fwd
@@ -518,10 +522,10 @@ impl M2Tracker {
 
                 if !is_underwater(target.start) {
                     // Deletes must always dominate the item they're deleting in the time dag.
-                    debug_assert!(oplog.cg.parents.version_contains_time(&[time_start], target.start));
+                    debug_assert!(oplog.cg.parents.version_contains_time(&[lv_start], target.start));
                 }
 
-                self.index.replace_range_at_offset(time_start, MarkerEntry {
+                self.index.replace_range_at_offset(lv_start, MarkerEntry {
                     len,
                     inner: DelTarget(RangeRev {
                         span: target,
@@ -824,7 +828,7 @@ impl ListOpLog {
     /// changes that could be applied linearly to a document to bring it up to date.
     pub fn iter_xf_operations_from(&self, from: FrontierRef, merging: FrontierRef) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
         TransformedOpsIter::new(self, from, merging)
-            .map(|(time, mut origin_op, xf)| {
+            .map(|(lv, mut origin_op, xf)| {
                 let len = origin_op.len();
                 let op: Option<TextOperation> = match xf {
                     BaseMoved(base) => {
@@ -834,7 +838,7 @@ impl ListOpLog {
                     }
                     DeleteAlreadyHappened => None,
                 };
-                ((time..time+len).into(), op)
+                ((lv..lv +len).into(), op)
             })
     }
 
@@ -861,7 +865,7 @@ impl ListBranch {
         // let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
         let mut iter = oplog.get_xf_operations_full(self.version.as_ref(), merge_frontier);
 
-        for (_time, origin_op, xf) in &mut iter {
+        for (_lv, origin_op, xf) in &mut iter {
             match (origin_op.kind, xf) {
                 (ListOpKind::Ins, BaseMoved(pos)) => {
                     // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());

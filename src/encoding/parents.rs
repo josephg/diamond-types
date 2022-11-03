@@ -65,7 +65,7 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[LV], next_o
                 // println!("Region does not contain parent for {}", p);
 
                 let item = cg.lv_to_agent_version(p);
-                let mapped_agent = write_map.map_maybe_root_mut(&cg.client_data, item.agent, persist);
+                let mapped_agent = write_map.map_maybe_root_mut(&cg.client_data, item.0, persist);
 
                 // There are probably more compact ways to do this, but the txn data set is
                 // usually quite small anyway, even in large histories. And most parents objects
@@ -82,7 +82,7 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[LV], next_o
                         push_str(result, name);
                     }
                 }
-                push_usize(result, item.seq);
+                push_usize(result, item.1);
             }
         }
     }
@@ -139,7 +139,7 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
 
             let seq = reader.next_usize()?;
             // dbg!((agent, seq));
-            cg.try_agent_version_to_lv(AgentVersion { agent, seq })
+            cg.try_agent_version_to_lv((agent, seq))
                 .ok_or(ParseError::InvalidLength)?
         };
 

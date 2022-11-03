@@ -100,9 +100,7 @@ impl CausalGraph {
 
     pub(crate) fn lv_to_agent_version(&self, version: LV) -> AgentVersion {
         debug_assert_ne!(version, usize::MAX);
-
-        let (loc, offset) = self.client_with_localtime.find_packed_with_offset(version);
-        loc.1.at_offset(offset as usize)
+        self.client_with_localtime.get(version)
     }
 
     pub(crate) fn lv_span_to_agent_span(&self, version: DTRange) -> AgentSpan {
@@ -117,11 +115,11 @@ impl CausalGraph {
         }
     }
 
-    pub(crate) fn try_agent_version_to_lv(&self, id: AgentVersion) -> Option<LV> {
-        debug_assert_ne!(id.agent, AgentId::MAX);
+    pub(crate) fn try_agent_version_to_lv(&self, (agent, seq): AgentVersion) -> Option<LV> {
+        debug_assert_ne!(agent, AgentId::MAX);
 
-        self.client_data.get(id.agent as usize).and_then(|c| {
-            c.try_seq_to_lv(id.seq)
+        self.client_data.get(agent as usize).and_then(|c| {
+            c.try_seq_to_lv(seq)
         })
     }
 
@@ -269,11 +267,11 @@ impl CausalGraph {
     pub(crate) fn tie_break_crdt_versions(&self, v1: AgentVersion, v2: AgentVersion) -> Ordering {
         if v1 == v2 { return Ordering::Equal; }
         else {
-            let c1 = &self.client_data[v1.agent as usize];
-            let c2 = &self.client_data[v2.agent as usize];
+            let c1 = &self.client_data[v1.0 as usize];
+            let c2 = &self.client_data[v2.0 as usize];
 
             c1.name.cmp(&c2.name)
-                .then(v1.seq.cmp(&v2.seq))
+                .then(v1.1.cmp(&v2.1))
         }
     }
 

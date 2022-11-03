@@ -5,23 +5,14 @@ use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpe
 use crate::AgentId;
 use crate::dtrange::DTRange;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct AgentVersion {
-    pub agent: AgentId,
-    pub seq: usize,
-}
+/// (agent_id, seq) pair. The agent ID is an integer which maps to a local string via causal graph.
+pub type AgentVersion = (AgentId, usize);
 
-// TODO: Make this crate-private, and make it a tuple.
+/// An AgentSpan represents a sequential span of (agent, seq) versions.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct AgentSpan {
     pub agent: AgentId,
     pub seq_range: DTRange,
-}
-
-impl From<(AgentId, usize)> for AgentVersion {
-    fn from((agent, seq): (AgentId, usize)) -> Self {
-        AgentVersion { agent, seq }
-    }
 }
 
 impl From<(AgentId, DTRange)> for AgentSpan {
@@ -36,55 +27,30 @@ impl From<(AgentId, Range<usize>)> for AgentSpan {
     }
 }
 
-// impl Default for CRDTId {
-//     fn default() -> Self {
-//         CRDTId {
-//             agent: CLIENT_INVALID,
-//             seq: u64::MAX
-//         }
-//     }
-// }
-
-pub const ROOT_CRDT_ID: usize = usize::MAX;
-pub const ROOT_CRDT_ID_GUID: AgentVersion = AgentVersion {
-    agent: AgentId::MAX,
-    seq: 0
-};
-
-impl PartialOrd for AgentVersion {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.agent != other.agent {
-            None
-        } else {
-            Some(self.seq.cmp(&other.seq))
-        }
+impl From<AgentVersion> for AgentSpan {
+    fn from((agent, seq): AgentVersion) -> Self {
+        AgentSpan { agent, seq_range: seq.into() }
     }
 }
 
-// // From https://github.com/rust-lang/rfcs/issues/997:
-// pub trait IndexGet<Idx: ?Sized> {
-//     type Output;
-//     fn index_get(&self, index: Idx) -> Self::Output;
-// }
+pub const ROOT_CRDT_ID: usize = usize::MAX;
+pub const ROOT_CRDT_ID_GUID: AgentVersion = (AgentId::MAX, 0);
 
 
 impl Searchable for AgentSpan {
     type Item = AgentVersion;
 
-    fn get_offset(&self, loc: AgentVersion) -> Option<usize> {
+    fn get_offset(&self, (agent, seq): AgentVersion) -> Option<usize> {
         // let r = self.loc.seq .. self.loc.seq + (self.len.abs() as usize);
         // self.loc.agent == loc.agent && entry.get_seq_range().contains(&loc.seq)
-        if self.agent == loc.agent {
-            self.seq_range.get_offset(loc.seq)
+        if self.agent == agent {
+            self.seq_range.get_offset(seq)
         } else { None }
     }
 
     fn at_offset(&self, offset: usize) -> AgentVersion {
         assert!(offset < self.len());
-        AgentVersion {
-            agent: self.agent,
-            seq: self.seq_range.start + offset
-        }
+        (self.agent, self.seq_range.start + offset)
     }
 }
 
@@ -132,14 +98,5 @@ impl MergableSpan for AgentSpan {
 
     fn prepend(&mut self, other: Self) {
         self.seq_range.start = other.seq_range.start;
-    }
-}
-
-impl From<AgentVersion> for AgentSpan {
-    fn from(guid: AgentVersion) -> Self {
-        Self {
-            agent: guid.agent,
-            seq_range: guid.seq.into()
-        }
     }
 }

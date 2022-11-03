@@ -40,7 +40,7 @@ fn write_time(result: &mut BumpVec<u8>, time: LV, ref_time: LV, write_map: &Writ
         // Foreign change
         let item = cg.lv_to_agent_version(time);
 
-        match write_map.map_maybe_root(&cg.client_data, item.agent) {
+        match write_map.map_maybe_root(&cg.client_data, item.0) {
             Ok(mapped_agent) => {
                 write_parent_diff(mapped_agent as usize, true, true);
             }
@@ -49,7 +49,7 @@ fn write_time(result: &mut BumpVec<u8>, time: LV, ref_time: LV, write_map: &Writ
                 push_str(result, name);
             }
         }
-        push_usize(result, item.seq);
+        push_usize(result, item.1);
     }
 }
 

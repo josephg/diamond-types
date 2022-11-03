@@ -247,13 +247,13 @@ fn write_local_version(dest: &mut Vec<u8>, version: &[LV], map: &mut AgentMappin
     let mut iter = version.iter().peekable();
     while let Some(t) = iter.next() {
         let has_more = iter.peek().is_some();
-        let id = oplog.time_to_crdt_id(*t);
+        let (agent, seq) = oplog.lv_to_agent_version(*t);
 
         // (Mapped agent ID, seq) pairs. Agent id has mixed in bit for has_more.
-        let mapped = map.map(oplog, id.agent);
+        let mapped = map.map(oplog, agent);
         let n = mix_bit_usize(mapped as _, has_more);
         push_usize(&mut buf, n);
-        push_usize(&mut buf, id.seq);
+        push_usize(&mut buf, seq);
     }
     push_chunk(dest, ListChunkType::Version, &buf);
     // buf.clear();
@@ -519,8 +519,8 @@ impl ListOpLog {
                         // Foreign change
                         // println!("Region does not contain parent for {}", p);
 
-                        let item = self.time_to_crdt_id(p);
-                        let mapped_agent = agent_mapping.map(self, item.agent);
+                        let (local_agent, seq) = self.lv_to_agent_version(p);
+                        let mapped_agent = agent_mapping.map(self, local_agent);
                         debug_assert!(mapped_agent >= 1);
 
                         // There are probably more compact ways to do this, but the txn data set is
@@ -530,7 +530,7 @@ impl ListOpLog {
                         //
                         // I'm adding 1 to the mapped agent to make room for ROOT. This is quite dirty!
                         write_parent_diff(mapped_agent as usize, true);
-                        push_usize(&mut txns_chunk, item.seq);
+                        push_usize(&mut txns_chunk, seq);
                     }
                 }
             }
