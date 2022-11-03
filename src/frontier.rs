@@ -154,6 +154,12 @@ impl Frontier {
         else { None }
     }
 
+    pub fn replace(&mut self, with: FrontierRef) {
+        // TODO: Is this faster than *self = with.into(); ?
+        self.0.resize(with.len(), 0);
+        self.0.copy_from_slice(with);
+    }
+
     pub fn debug_check_sorted(&self) {
         debug_assert_frontier_sorted(self.0.borrow());
     }
