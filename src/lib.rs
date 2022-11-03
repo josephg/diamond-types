@@ -199,6 +199,7 @@ use crate::wal::WriteAheadLog;
 use num_enum::TryFromPrimitive;
 pub use ::rle::HasLength;
 pub use frontier::Frontier;
+use crate::causalgraph::agent_span::AgentVersion;
 
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
 
@@ -302,6 +303,9 @@ pub(crate) struct Ops {
     ops: RleVec<KVPair<Op>>,
     list_ctx: ListOperationCtx,
 }
+
+pub const ROOT_CRDT_ID: usize = usize::MAX;
+pub const ROOT_CRDT_ID_GUID: AgentVersion = (AgentId::MAX, 0);
 
 #[derive(Debug)]
 pub struct OpLog {

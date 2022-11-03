@@ -12,7 +12,7 @@ use crate::frontier::*;
 use crate::causalgraph::parents::Parents;
 use crate::list::operation::{ListOpKind, TextOperation};
 
-use crate::causalgraph::agent_span::{ROOT_CRDT_ID_GUID, ROOT_CRDT_ID, AgentVersion, AgentSpan};
+use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 use crate::rev_range::RangeRev;
 use crate::rle::{RleKeyed, RleSpanHelpers};
 use crate::unicount::count_chars;

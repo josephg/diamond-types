@@ -103,11 +103,11 @@ impl SimpleDatabase {
 #[cfg(test)]
 mod test {
     use crate::branch::DTValue;
-    use crate::{CRDTKind, CreateValue, OpContents};
+    use crate::{CRDTKind, CreateValue, OpContents, ROOT_CRDT_ID_GUID};
     use crate::oplog::ROOT_MAP;
     use crate::Primitive::*;
     use crate::CreateValue::*;
-    use crate::causalgraph::agent_span::{ROOT_CRDT_ID_GUID, AgentVersion};
+    use crate::causalgraph::agent_span::AgentVersion;
     use crate::simpledb::SimpleDatabase;
 
     #[test]

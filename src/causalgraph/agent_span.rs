@@ -33,10 +33,6 @@ impl From<AgentVersion> for AgentSpan {
     }
 }
 
-pub const ROOT_CRDT_ID: usize = usize::MAX;
-pub const ROOT_CRDT_ID_GUID: AgentVersion = (AgentId::MAX, 0);
-
-
 impl Searchable for AgentSpan {
     type Item = AgentVersion;
 
