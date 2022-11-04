@@ -124,11 +124,11 @@ impl OpLog {
 
     // *** Sets ***
     pub fn insert_into_set(&mut self, agent_id: AgentId, set_id: LV, val: CreateValue) -> LV {
-        self.push_local_op(agent_id, set_id, OpContents::Set(SetOp::Insert(val))).start
+        self.push_local_op(agent_id, set_id, OpContents::Collection(CollectionOp::Insert(val))).start
     }
 
     pub fn remove_from_set(&mut self, agent_id: AgentId, set_id: LV, item: LV) -> LV {
-        self.push_local_op(agent_id, set_id, OpContents::Set(SetOp::Remove(item))).start
+        self.push_local_op(agent_id, set_id, OpContents::Collection(CollectionOp::Remove(item))).start
     }
 
     // *** Text ***
@@ -181,7 +181,7 @@ mod test {
     fn foo() {
         let mut oplog = OpLog::new_mem();
         let seph = oplog.get_or_create_agent_id("seph");
-        let set = oplog.local_set_map(seph, ROOT_MAP, "yoo", CreateValue::NewCRDT(CRDTKind::Set));
+        let set = oplog.local_set_map(seph, ROOT_MAP, "yoo", CreateValue::NewCRDT(CRDTKind::Collection));
         let text = oplog.insert_into_set(seph, set, CreateValue::NewCRDT(CRDTKind::Text));
         oplog.insert_into_text(seph, text, 0, "hi there");
         oplog.dbg_check(true);

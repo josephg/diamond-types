@@ -336,7 +336,7 @@ impl WriteAheadLog {
 
 #[cfg(test)]
 mod test {
-    use crate::{CausalGraph, CRDTKind, KVPair, Op, OpContents, OpLog, Ops, CreateValue, Primitive, SetOp, WriteAheadLog};
+    use crate::{CausalGraph, CRDTKind, KVPair, Op, OpContents, OpLog, Ops, CreateValue, Primitive, CollectionOp, WriteAheadLog};
     use crate::oplog::ROOT_MAP;
 
     #[test]
@@ -361,14 +361,14 @@ mod test {
         span = cg.assign_local_op(&[span.last()], seph, 1);
         ops.ops.push(KVPair(span.start, Op {
             target_id: ROOT_MAP,
-            contents: OpContents::MapSet("cool set".into(), CreateValue::NewCRDT(CRDTKind::Set))
+            contents: OpContents::MapSet("cool set".into(), CreateValue::NewCRDT(CRDTKind::Collection))
         }));
 
         let set = span.start;
         span = cg.assign_local_op(&[span.last()], seph, 1);
         ops.ops.push(KVPair(span.start, Op {
             target_id: ROOT_MAP,
-            contents: OpContents::Set(SetOp::Insert(CreateValue::NewCRDT(CRDTKind::Register)))
+            contents: OpContents::Collection(CollectionOp::Insert(CreateValue::NewCRDT(CRDTKind::Register)))
         }));
 
         wal.flush(&cg, &ops).unwrap();

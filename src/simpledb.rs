@@ -69,20 +69,20 @@ impl SimpleDatabase {
     }
 
     // *** Sets ***
-    pub(crate) fn modify_set(&mut self, agent_id: AgentId, set_id: LV, set_op: SetOp) -> LV {
+    pub(crate) fn modify_set(&mut self, agent_id: AgentId, set_id: LV, set_op: CollectionOp) -> LV {
         // TODO: Find a way to remove this clone.
-        let time = self.oplog.push_local_op(agent_id, set_id, OpContents::Set(set_op.clone())).start;
+        let time = self.oplog.push_local_op(agent_id, set_id, OpContents::Collection(set_op.clone())).start;
         self.branch.modify_set_internal(time, set_id, &set_op);
         self.branch.set_time(time);
         time
     }
 
     pub fn set_insert(&mut self, agent_id: AgentId, set_id: LV, val: CreateValue) -> LV {
-        self.modify_set(agent_id, set_id, SetOp::Insert(val))
+        self.modify_set(agent_id, set_id, CollectionOp::Insert(val))
     }
 
     pub fn set_remove(&mut self, agent_id: AgentId, set_id: LV, target: LV) -> LV {
-        self.modify_set(agent_id, set_id, SetOp::Remove(target))
+        self.modify_set(agent_id, set_id, CollectionOp::Remove(target))
     }
 
     // *** Text ***
@@ -119,7 +119,7 @@ mod test {
         let inner = db.modify_map(seph, ROOT_MAP, "facts", NewCRDT(CRDTKind::Map));
         db.modify_map(seph, inner, "cool", Primitive(I64(1)));
 
-        let inner_set = db.modify_map(seph, ROOT_MAP, "set stuff", NewCRDT(CRDTKind::Set));
+        let inner_set = db.modify_map(seph, ROOT_MAP, "set stuff", NewCRDT(CRDTKind::Collection));
         let inner_map = db.set_insert(seph, inner_set, CreateValue::NewCRDT(CRDTKind::Map));
         db.modify_map(seph, inner_map, "whoa", Primitive(I64(3214)));
 

@@ -47,7 +47,7 @@ impl OpContents {
         match self {
             OpContents::RegisterSet(_) => CRDTKind::Register,
             OpContents::MapSet(_, _) => CRDTKind::Map,
-            OpContents::Set(_) => CRDTKind::Set,
+            OpContents::Collection(_) => CRDTKind::Collection,
             OpContents::Text(_) => CRDTKind::Text,
         }
     }

@@ -225,8 +225,7 @@ pub(crate) mod serde;
 pub type AgentId = u32;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit
-// systems.
-
+// systems like wasm32
 /// An LV (LocalVersion) is used all over the place internally to identify a single operation.
 ///
 /// A local version (as the name implies) is local-only. Local versions generally need to be
@@ -257,7 +256,7 @@ pub enum SnapshotValue {
 pub enum CRDTKind {
     Map, // String => Register (like a JS object)
     Register,
-    Set, // SQL table / mongo collection
+    Collection, // SQL table / mongo collection
     Text,
 }
 
@@ -269,7 +268,7 @@ pub enum CreateValue {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum SetOp {
+pub enum CollectionOp {
     Insert(CreateValue),
     Remove(LV),
 }
@@ -278,7 +277,7 @@ pub enum SetOp {
 pub(crate) enum OpContents {
     RegisterSet(CreateValue),
     MapSet(SmartString, CreateValue),
-    Set(SetOp), // TODO: Consider just inlining this.
+    Collection(CollectionOp), // TODO: Consider just inlining this.
     Text(ListOpMetrics),
 
 
@@ -346,7 +345,7 @@ type MVRegister = SmallVec<[RegisterState; 1]>;
 enum OverlayValue {
     Register(MVRegister),
     Map(BTreeMap<SmartString, MVRegister>),
-    Set(BTreeMap<LV, SnapshotValue>),
+    Collection(BTreeMap<LV, SnapshotValue>),
     Text(Box<JumpRope>),
 }
 

@@ -2,7 +2,7 @@ use bumpalo::Bump;
 use bumpalo::collections::vec::Vec as BumpVec;
 use rle::Searchable;
 use crate::encoding::Merger;
-use crate::{CausalGraph, KVPair, ListOperationCtx, ListOpMetrics, Op, OpContents, CreateValue, SetOp, LV};
+use crate::{CausalGraph, KVPair, ListOperationCtx, ListOpMetrics, Op, OpContents, CreateValue, CollectionOp, LV};
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::parseerror::ParseError;
@@ -135,8 +135,8 @@ fn op_type(c: &OpContents) -> u32 {
     match c {
         OpContents::RegisterSet(_) => 1,
         OpContents::MapSet(_, _) => 2,
-        OpContents::Set(SetOp::Insert(_)) => 3,
-        OpContents::Set(SetOp::Remove(_)) => 4,
+        OpContents::Collection(CollectionOp::Insert(_)) => 3,
+        OpContents::Collection(CollectionOp::Remove(_)) => 4,
         OpContents::Text(ListOpMetrics { kind: ListOpKind::Ins, ..}) => 5,
         OpContents::Text(ListOpMetrics { kind: ListOpKind::Del, ..}) => 6,
     }
@@ -175,11 +175,11 @@ fn write_op(result: &mut BumpVec<u8>, content_out: &mut BumpVec<u8>,
             push_str(result, key);
             write_create_value(result, value);
         }
-        OpContents::Set(SetOp::Insert(value)) => {
+        OpContents::Collection(CollectionOp::Insert(value)) => {
             // push_u32(result, *kind as u32);
             write_create_value(result, value);
         }
-        OpContents::Set(SetOp::Remove(target)) => {
+        OpContents::Collection(CollectionOp::Remove(target)) => {
             write_time(result, *target, *time, write_map, cg);
         }
         OpContents::Text(text_metrics) => {

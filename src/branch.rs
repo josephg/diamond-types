@@ -8,13 +8,13 @@ use ::rle::HasLength;
 use crate::list::operation::ListOpKind;
 use crate::oplog::ROOT_MAP;
 
-/// This is used for checkouts.
+/// This is used for checkouts. This is a value tree.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum DTValue {
     Primitive(Primitive),
     // Register(Box<DTValue>),
     Map(BTreeMap<SmartString, Box<DTValue>>),
-    Set(BTreeMap<LV, Box<DTValue>>),
+    Collection(BTreeMap<LV, Box<DTValue>>),
     Text(String),
 }
 
@@ -35,7 +35,7 @@ impl DTValue {
 
     pub fn unwrap_set(self) -> BTreeMap<LV, Box<DTValue>> {
         match self {
-            DTValue::Set(set) => set,
+            DTValue::Collection(set) => set,
             _ => { panic!("Expected set") }
         }
     }
@@ -44,8 +44,7 @@ impl DTValue {
 /// Separate items in the slice into two groups based on a predicate function.
 ///
 /// Returns the index of the first item in the right set (or the length of the slice).
-fn separate_by<T, R>(arr: &mut [T], mut right: R)
-    -> usize
+fn separate_by<T, R>(arr: &mut [T], mut right: R) -> usize
     where R: FnMut(&T) -> bool
 {
     let mut right_size = 0;
@@ -126,8 +125,8 @@ impl Branch {
                     Some((key.clone(), Box::new(self.mv_to_single_value(reg, cg)?)))
                 }).collect()))
             }
-            OverlayValue::Set(id_set) => {
-                Some(DTValue::Set(id_set.iter().filter_map(|(t, val)| {
+            OverlayValue::Collection(id_set) => {
+                Some(DTValue::Collection(id_set.iter().filter_map(|(t, val)| {
                     Some((*t, Box::new(self.snapshot_to_value(val, cg)?)))
                 }).collect()))
             }
@@ -214,7 +213,7 @@ impl Branch {
         match self.overlay.get(&id).unwrap() {
             OverlayValue::Register(_) => CRDTKind::Register,
             OverlayValue::Map(_) => CRDTKind::Map,
-            OverlayValue::Set(_) => CRDTKind::Set,
+            OverlayValue::Collection(_) => CRDTKind::Collection,
             OverlayValue::Text(_) => CRDTKind::Text,
         }
     }
@@ -242,7 +241,7 @@ impl Branch {
     fn inner_create_crdt(&mut self, time: LV, kind: CRDTKind) {
         let new_value = match kind {
             CRDTKind::Map => OverlayValue::Map(BTreeMap::new()),
-            CRDTKind::Set => OverlayValue::Set(BTreeMap::new()),
+            CRDTKind::Collection => OverlayValue::Collection(BTreeMap::new()),
             CRDTKind::Register => {
                 self.num_invalid += 1;
                 OverlayValue::Register(smallvec![RegisterState {
@@ -351,19 +350,19 @@ impl Branch {
 
     fn internal_get_set(&mut self, set_id: LV) -> &mut BTreeMap<LV, SnapshotValue> {
         match self.overlay.get_mut(&set_id).unwrap() {
-            OverlayValue::Set(set) => set,
+            OverlayValue::Collection(set) => set,
             _ => { panic!("Not a set"); }
         }
     }
 
-    pub(crate) fn modify_set_internal(&mut self, time: LV, set_id: LV, op: &SetOp) {
+    pub(crate) fn modify_set_internal(&mut self, time: LV, set_id: LV, op: &CollectionOp) {
         match op {
-            SetOp::Insert(create) => {
+            CollectionOp::Insert(create) => {
                 let val = self.op_to_snapshot_value(time, create);
                 let old_val = self.internal_get_set(set_id).insert(time, val); // Add it to the set
                 assert!(old_val.is_none(), "Item was already in set");
             }
-            SetOp::Remove(target) => {
+            CollectionOp::Remove(target) => {
                 let removed = self.internal_get_set(set_id).remove(target); // Remove it from the set
                 // We actually don't care if the item was already deleted - this can happen due to
                 // concurrency.
@@ -400,7 +399,7 @@ impl Branch {
             OpContents::MapSet(key, op_value) => {
                 self.modify_map_internal(time, op.target_id, key, op_value, cg);
             }
-            OpContents::Set(set_op) => {
+            OpContents::Collection(set_op) => {
                 self.modify_set_internal(time, op.target_id, set_op);
             }
             OpContents::Text(text_metrics) => {
@@ -449,7 +448,7 @@ impl Branch {
             OpContents::MapSet(key, op_value) => {
                 self.modify_map_reg_remote_internal(cg, parents, time, op.target_id, Some(key.as_str()), op_value);
             }
-            OpContents::Set(set_op) => {
+            OpContents::Collection(set_op) => {
                 // Set ops have no concurrency problems anyway. An insert can only happen once, and
                 // deleting an item twice is a no-op.
                 self.modify_set_internal(time, op.target_id, set_op);
