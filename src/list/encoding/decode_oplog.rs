@@ -509,7 +509,7 @@ impl ListOpLog {
                         // Drop entire entry
                         self.cg.client_with_localtime.0.pop().unwrap()
                     } else {
-                        last.truncate_ctx(len - last.0, &())
+                        last.truncate(len - last.0)
                     };
 
                     let client_data = &mut self.cg.client_data[removed.agent as usize];

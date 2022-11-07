@@ -84,7 +84,7 @@ impl OpLog {
         self.inner_assign_remote_op_span(parents, id.into()).start
     }
 
-    pub fn push_local_op(&mut self, agent_id: AgentId, crdt_id: LV, contents: OpContents) -> DTRange {
+    pub(crate) fn push_local_op(&mut self, agent_id: AgentId, crdt_id: LV, contents: OpContents) -> DTRange {
         let len = contents.len();
         let time_span = self.inner_assign_local_op_span(agent_id, len);
         self.uncommitted_ops.ops.push(KVPair(time_span.start, Op { target_id: crdt_id, contents}));
@@ -98,7 +98,7 @@ impl OpLog {
         else { self.cg.try_agent_version_to_lv(id) }
     }
 
-    pub fn push_remote_op(&mut self, parents: &[LV], op_id: AgentSpan, av: AgentVersion, contents: OpContents) -> (DTRange, LV) {
+    pub(crate) fn push_remote_op(&mut self, parents: &[LV], op_id: AgentSpan, av: AgentVersion, contents: OpContents) -> (DTRange, LV) {
         assert_eq!(op_id.len(), contents.len());
         if let OpContents::Text(_) = contents {
             panic!("Cannot push text operation using this method");

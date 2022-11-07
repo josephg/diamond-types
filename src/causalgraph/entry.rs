@@ -1,5 +1,5 @@
 use smallvec::smallvec;
-use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
+use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx, SplitableSpanHelpers};
 use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::agent_span::AgentSpan;
 
@@ -58,11 +58,9 @@ impl CGEntry {
     }
 }
 
-impl SplitableSpanCtx for CGEntry {
-    type Ctx = ();
-
+impl SplitableSpanHelpers for CGEntry {
     #[inline]
-    fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
+    fn truncate_h(&mut self, at: usize) -> Self {
         let other_span = self.span.truncate(at);
 
         Self {

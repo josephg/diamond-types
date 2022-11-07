@@ -246,10 +246,9 @@ pub struct ReverseSpan<S>(pub S);
 impl<T> HasLength for Single<T> {
     fn len(&self) -> usize { 1 }
 }
-impl<T: Clone> SplitableSpanCtx for Single<T> {
-    type Ctx = ();
+impl<T: Clone> SplitableSpanHelpers for Single<T> {
     // This is a valid impl because truncate can never be called for single items.
-    fn truncate_ctx(&mut self, _at: usize, _ctx: &Self::Ctx) -> Self { panic!("Cannot truncate single sized item"); }
+    fn truncate_h(&mut self, _at: usize) -> Self { panic!("Cannot truncate single sized item"); }
 }
 impl<T: Clone> MergableSpan for Single<T> {
     fn can_append(&self, _other: &Self) -> bool { false }
@@ -259,12 +258,11 @@ impl<T: Clone> MergableSpan for Single<T> {
 impl<S: HasLength> HasLength for ReverseSpan<S> {
     fn len(&self) -> usize { self.0.len() }
 }
-impl<S: SplitableSpanCtx<Ctx=()>> SplitableSpanCtx for ReverseSpan<S> {
-    type Ctx = ();
-    fn truncate_ctx(&mut self, at: usize, _ctx: &Self::Ctx) -> Self {
+impl<S: SplitableSpanCtx<Ctx=()>> SplitableSpanHelpers for ReverseSpan<S> {
+    fn truncate_h(&mut self, at: usize) -> Self {
         ReverseSpan(self.0.truncate_keeping_right(at))
     }
-    fn truncate_keeping_right_ctx(&mut self, at: usize, _ctx: &Self::Ctx) -> Self {
+    fn truncate_keeping_right_h(&mut self, at: usize) -> Self {
         ReverseSpan(self.0.truncate(at))
     }
 }
