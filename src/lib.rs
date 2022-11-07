@@ -299,6 +299,7 @@ pub(crate) struct Op {
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub(crate) struct Ops {
+    /// Local version + op pairs
     ops: RleVec<KVPair<Op>>,
     list_ctx: ListOperationCtx,
 }

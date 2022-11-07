@@ -84,7 +84,7 @@ impl OpLog {
         self.inner_assign_remote_op_span(parents, id.into()).start
     }
 
-    pub(crate) fn push_local_op(&mut self, agent_id: AgentId, crdt_id: LV, contents: OpContents) -> DTRange {
+    pub fn push_local_op(&mut self, agent_id: AgentId, crdt_id: LV, contents: OpContents) -> DTRange {
         let len = contents.len();
         let time_span = self.inner_assign_local_op_span(agent_id, len);
         self.uncommitted_ops.ops.push(KVPair(time_span.start, Op { target_id: crdt_id, contents}));
@@ -93,17 +93,20 @@ impl OpLog {
 
     /// This is different from the CausalGraph method because we need to handle the root CRDT
     /// object.
-    fn try_crdt_id_to_version(&self, id: AgentVersion) -> Option<LV> {
+    fn try_agent_version_to_version(&self, id: AgentVersion) -> Option<LV> {
         if id == ROOT_CRDT_ID_GUID { Some(ROOT_CRDT_ID) }
         else { self.cg.try_agent_version_to_lv(id) }
     }
 
-    pub(crate) fn push_remote_op(&mut self, parents: &[LV], op_id: AgentSpan, crdt_id: AgentVersion, contents: OpContents) -> (DTRange, LV) {
+    pub fn push_remote_op(&mut self, parents: &[LV], op_id: AgentSpan, av: AgentVersion, contents: OpContents) -> (DTRange, LV) {
         assert_eq!(op_id.len(), contents.len());
+        if let OpContents::Text(_) = contents {
+            panic!("Cannot push text operation using this method");
+        }
 
         // TODO: Filter op by anything we already know.
         let time_span = self.inner_assign_remote_op_span(parents, op_id);
-        let crdt_id = self.try_crdt_id_to_version(crdt_id).unwrap();
+        let crdt_id = self.try_agent_version_to_version(av).unwrap();
 
         self.uncommitted_ops.ops.push(KVPair(time_span.start, Op { target_id: crdt_id, contents}));
 
