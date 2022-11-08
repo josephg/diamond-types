@@ -6,10 +6,13 @@ use crate::*;
 use smartstring::alias::String as SmartString;
 use ::rle::HasLength;
 use crate::list::operation::ListOpKind;
-use crate::oplog::ROOT_MAP;
+use crate::ROOT_CRDT_ID;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 /// This is used for checkouts. This is a value tree.
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(tag = "type"))]
 pub enum DTValue {
     Primitive(Primitive),
     // Register(Box<DTValue>),
@@ -69,7 +72,7 @@ impl Default for Branch {
 impl Branch {
     pub fn new() -> Self {
         let mut overlay = BTreeMap::new();
-        overlay.insert(ROOT_MAP, OverlayValue::Map(BTreeMap::new()));
+        overlay.insert(ROOT_CRDT_ID, OverlayValue::Map(BTreeMap::new()));
 
         Self {
             overlay,
@@ -137,7 +140,7 @@ impl Branch {
     }
 
     pub fn get_recursive(&self, cg: &CausalGraph) -> Option<DTValue> {
-        self.get_recursive_at(ROOT_MAP, cg)
+        self.get_recursive_at(ROOT_CRDT_ID, cg)
     }
 
     pub(super) fn get_value_of_lww(&self, lww_id: LV) -> Option<&MVRegister> {
@@ -489,7 +492,7 @@ mod test {
     use crate::{CRDTKind, OpLog};
     use smartstring::alias::String as SmartString;
     use crate::branch::separate_by;
-    use crate::oplog::ROOT_MAP;
+    use crate::ROOT_CRDT_ID;
 
     // #[test]
     // fn checkout_inner_map() {

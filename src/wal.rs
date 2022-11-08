@@ -337,7 +337,7 @@ impl WriteAheadLog {
 #[cfg(test)]
 mod test {
     use crate::{CausalGraph, CRDTKind, KVPair, Op, OpContents, OpLog, Ops, CreateValue, Primitive, CollectionOp, WriteAheadLog};
-    use crate::oplog::ROOT_MAP;
+    use crate::ROOT_CRDT_ID;
 
     #[test]
     fn simple_encode_test() {
@@ -355,19 +355,19 @@ mod test {
 
         let mut span = cg.assign_local_op(&[], seph, 1);
         ops.ops.push(KVPair(span.start, Op {
-            target_id: ROOT_MAP,
+            target_id: ROOT_CRDT_ID,
             contents: OpContents::MapSet("hi".into(), CreateValue::Primitive(Primitive::I64(123)))
         }));
         span = cg.assign_local_op(&[span.last()], seph, 1);
         ops.ops.push(KVPair(span.start, Op {
-            target_id: ROOT_MAP,
+            target_id: ROOT_CRDT_ID,
             contents: OpContents::MapSet("cool set".into(), CreateValue::NewCRDT(CRDTKind::Collection))
         }));
 
         let set = span.start;
         span = cg.assign_local_op(&[span.last()], seph, 1);
         ops.ops.push(KVPair(span.start, Op {
-            target_id: ROOT_MAP,
+            target_id: ROOT_CRDT_ID,
             contents: OpContents::Collection(CollectionOp::Insert(CreateValue::NewCRDT(CRDTKind::Register)))
         }));
 
@@ -389,7 +389,7 @@ mod test {
         // oplog.set_at_path(mike, &[Key("name")], I64(4));
         // wal.flush(&oplog).unwrap();
         //
-        // let item = oplog.get_or_create_map_child(ROOT_MAP, "child".into());
+        // let item = oplog.get_or_create_map_child(ROOT_CRDT_ID, "child".into());
         // oplog.append_set(mike, &[t], item, Primitive::I64(321));
         // // dbg!(oplog.checkout(&oplog.version));
         //

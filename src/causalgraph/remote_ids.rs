@@ -32,6 +32,11 @@ impl<'a> From<&RemoteVersion<'a>> for RemoteVersionOwned {
         RemoteVersionOwned(rv.0.into(), rv.1)
     }
 }
+impl<'a> From<RemoteVersion<'a>> for RemoteVersionOwned {
+    fn from(rv: RemoteVersion) -> Self {
+        RemoteVersionOwned(rv.0.into(), rv.1)
+    }
+}
 
 impl<'a> RemoteVersion<'a> {
     pub fn to_owned(&self) -> RemoteVersionOwned {
@@ -130,6 +135,15 @@ impl CausalGraph {
             self.get_agent_name(loc.agent),
             loc.seq_range
         )
+    }
+
+    pub(crate) fn remote_to_agent_version_unknown(&mut self, RemoteVersion(name, seq): RemoteVersion) -> AgentVersion {
+        let agent = self.get_or_create_agent_id(name);
+        (agent, seq)
+    }
+    pub(crate) fn remote_to_agent_version_known(&self, RemoteVersion(name, seq): RemoteVersion) -> AgentVersion {
+        let agent = self.get_agent_id(name).unwrap();
+        (agent, seq)
     }
 
     pub fn local_to_remote_version(&self, v: LV) -> RemoteVersion {

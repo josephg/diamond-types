@@ -9,7 +9,7 @@ use crate::LV;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
-use crate::serde::DTRangeTuple;
+use crate::serde_helpers::DTRangeTuple;
 
 /// This is an internal replacement for Range<usize>. The main use for this is that std::Range
 /// doesn't implement Copy (urgh), and we need that for lots of types. But ultimately, this is just

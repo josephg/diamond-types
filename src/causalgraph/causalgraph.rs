@@ -68,6 +68,9 @@ impl CausalGraph {
     }
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
+        // TODO: -> Result or something so this can be handled.
+        if name == "ROOT" { panic!("Agent ID 'ROOT' is reserved"); }
+
         if let Some(id) = self.get_agent_id(name) {
             id
         } else {

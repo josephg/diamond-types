@@ -1,3 +1,5 @@
+//! TODO: This code is not currently used. Use it or remove it!
+
 use crate::*;
 
 /// A scope is a part of history attached to a specific CRDT

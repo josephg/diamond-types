@@ -2,7 +2,7 @@ use smallvec::SmallVec;
 /// The path API provides a simple way to traverse in and modify values
 use smartstring::alias::String as SmartString;
 use crate::{Branch, CRDTKind, Frontier, OpLog, LV, SnapshotValue};
-use crate::oplog::ROOT_MAP;
+use crate::ROOT_CRDT_ID;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum PathComponent<'a> {

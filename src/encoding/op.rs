@@ -9,7 +9,7 @@ use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
 use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64, strip_bit_u32, strip_bit_u32_2, strip_bit_usize_2};
 use crate::list::operation::ListOpKind;
-use crate::oplog::ROOT_MAP;
+use crate::ROOT_CRDT_ID;
 use crate::rle::RleSpanHelpers;
 
 fn write_time(result: &mut BumpVec<u8>, time: LV, ref_time: LV, write_map: &WriteMap, cg: &CausalGraph) {
@@ -197,7 +197,7 @@ fn write_op(result: &mut BumpVec<u8>, content_out: &mut BumpVec<u8>,
 pub(crate) fn write_ops<'a, I: Iterator<Item = KVPair<Op>>>(bump: &'a Bump, iter: I, first_time: LV, write_map: &WriteMap, ctx: &ListOperationCtx, cg: &CausalGraph) -> BumpVec<'a, u8> {
     let mut result = BumpVec::new_in(bump);
     let mut content_out = BumpVec::new_in(bump);
-    let mut last_crdt_id = ROOT_MAP;
+    let mut last_crdt_id = ROOT_CRDT_ID;
 
     // I'm not sure if this complexity is worth it yet. The idea is that we might be missing
     // information about specific operations - and if we are, we'll have jumps in the ops iterator.

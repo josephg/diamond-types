@@ -13,12 +13,11 @@ use crate::causalgraph::parents::Parents;
 use crate::list::operation::{ListOpKind, TextOperation};
 
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
+use crate::causalgraph::remote_ids::RemoteVersion;
 use crate::rev_range::RangeRev;
 use crate::rle::{RleKeyed, RleSpanHelpers};
 use crate::unicount::count_chars;
 use crate::wal::WALError;
-
-pub const ROOT_MAP: LV = LV::MAX;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 enum PathElement {
@@ -93,12 +92,12 @@ impl OpLog {
 
     /// This is different from the CausalGraph method because we need to handle the root CRDT
     /// object.
-    fn try_agent_version_to_version(&self, id: AgentVersion) -> Option<LV> {
-        if id == ROOT_CRDT_ID_GUID { Some(ROOT_CRDT_ID) }
+    fn try_agent_version_to_target(&self, id: AgentVersion) -> Option<LV> {
+        if id == ROOT_CRDT_ID_AV { Some(ROOT_CRDT_ID) }
         else { self.cg.try_agent_version_to_lv(id) }
     }
 
-    pub(crate) fn push_remote_op(&mut self, parents: &[LV], op_id: AgentSpan, av: AgentVersion, contents: OpContents) -> (DTRange, LV) {
+    pub(crate) fn push_remote_op(&mut self, parents: &[LV], op_id: AgentSpan, crdt_av: AgentVersion, contents: OpContents) -> (DTRange, LV) {
         assert_eq!(op_id.len(), contents.len());
         if let OpContents::Text(_) = contents {
             panic!("Cannot push text operation using this method");
@@ -106,7 +105,7 @@ impl OpLog {
 
         // TODO: Filter op by anything we already know.
         let time_span = self.inner_assign_remote_op_span(parents, op_id);
-        let crdt_id = self.try_agent_version_to_version(av).unwrap();
+        let crdt_id = self.try_agent_version_to_target(crdt_av).unwrap();
 
         self.uncommitted_ops.ops.push(KVPair(time_span.start, Op { target_id: crdt_id, contents}));
 
@@ -183,14 +182,14 @@ impl OpLog {
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use crate::oplog::ROOT_MAP;
+    use crate::ROOT_CRDT_ID;
     use crate::{CRDTKind, OpContents, OpLog, CreateValue, Primitive, SnapshotValue};
 
     #[test]
     fn foo() {
         let mut oplog = OpLog::new_mem();
         let seph = oplog.get_or_create_agent_id("seph");
-        let set = oplog.local_map_set(seph, ROOT_MAP, "yoo", CreateValue::NewCRDT(CRDTKind::Collection));
+        let set = oplog.local_map_set(seph, ROOT_CRDT_ID, "yoo", CreateValue::NewCRDT(CRDTKind::Collection));
         let text = oplog.insert_into_set(seph, set, CreateValue::NewCRDT(CRDTKind::Text));
         oplog.insert_into_text(seph, text, 0, "hi there");
         oplog.dbg_check(true);

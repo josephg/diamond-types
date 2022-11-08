@@ -200,6 +200,8 @@ use num_enum::TryFromPrimitive;
 pub use ::rle::HasLength;
 pub use frontier::Frontier;
 use crate::causalgraph::agent_span::AgentVersion;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
 
@@ -220,7 +222,7 @@ mod operation;
 mod wal;
 
 #[cfg(feature = "serde")]
-pub(crate) mod serde;
+pub(crate) mod serde_helpers;
 
 pub type AgentId = u32;
 
@@ -233,6 +235,7 @@ pub type AgentId = u32;
 pub type LV = usize;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Primitive {
     Nil,
     Bool(bool),
@@ -245,6 +248,7 @@ pub enum Primitive {
 
 // #[derive(Debug, Eq, PartialEq, Copy, Clone, TryFromPrimitive)]
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 // #[repr(u16)]
 pub enum CRDTKind {
     Map, // String => Register (like a JS object)
@@ -254,6 +258,7 @@ pub enum CRDTKind {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CreateValue {
     Primitive(Primitive),
     NewCRDT(CRDTKind),
@@ -298,8 +303,8 @@ pub(crate) struct Ops {
     list_ctx: ListOperationCtx,
 }
 
-pub const ROOT_CRDT_ID: usize = usize::MAX;
-pub const ROOT_CRDT_ID_GUID: AgentVersion = (AgentId::MAX, 0);
+pub const ROOT_CRDT_ID: LV = usize::MAX;
+pub const ROOT_CRDT_ID_AV: AgentVersion = (AgentId::MAX, 0);
 
 #[derive(Debug)]
 pub struct OpLog {
