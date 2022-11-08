@@ -47,6 +47,7 @@ crc = "3.0.0"
 lz4_flex = { version = "0.9.2", optional = true }
 
 [dev-dependencies]
+# TODO: Bump criterion & benchmarks into a child package
 criterion = "0.4.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
 crdt-testdata = { path = "crates/crdt-testdata" }

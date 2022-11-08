@@ -135,10 +135,11 @@ fn op_type(c: &OpContents) -> u32 {
     match c {
         OpContents::RegisterSet(_) => 1,
         OpContents::MapSet(_, _) => 2,
-        OpContents::Collection(CollectionOp::Insert(_)) => 3,
-        OpContents::Collection(CollectionOp::Remove(_)) => 4,
-        OpContents::Text(ListOpMetrics { kind: ListOpKind::Ins, ..}) => 5,
-        OpContents::Text(ListOpMetrics { kind: ListOpKind::Del, ..}) => 6,
+        OpContents::MapDelete(_) => 3,
+        OpContents::Collection(CollectionOp::Insert(_)) => 4,
+        OpContents::Collection(CollectionOp::Remove(_)) => 5,
+        OpContents::Text(ListOpMetrics { kind: ListOpKind::Ins, ..}) => 6,
+        OpContents::Text(ListOpMetrics { kind: ListOpKind::Del, ..}) => 7,
     }
 }
 
@@ -174,6 +175,10 @@ fn write_op(result: &mut BumpVec<u8>, content_out: &mut BumpVec<u8>,
             // TODO: Add some sort of encoding for repeated keys.
             push_str(result, key);
             write_create_value(result, value);
+        }
+        OpContents::MapDelete(key) => {
+            // TODO: Here as well.
+            push_str(result, key);
         }
         OpContents::Collection(CollectionOp::Insert(value)) => {
             // push_u32(result, *kind as u32);

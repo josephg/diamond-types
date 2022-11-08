@@ -46,7 +46,7 @@ impl OpContents {
     pub fn kind(&self) -> CRDTKind {
         match self {
             OpContents::RegisterSet(_) => CRDTKind::Register,
-            OpContents::MapSet(_, _) => CRDTKind::Map,
+            OpContents::MapSet(_, _) | OpContents::MapDelete(_) => CRDTKind::Map,
             OpContents::Collection(_) => CRDTKind::Collection,
             OpContents::Text(_) => CRDTKind::Text,
         }

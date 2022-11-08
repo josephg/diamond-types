@@ -114,14 +114,20 @@ impl OpLog {
     }
 
     // *** LWW / Map operations
-    pub fn local_set_lww(&mut self, agent_id: AgentId, lww_id: LV, value: CreateValue) -> LV {
+    pub fn local_mv_set(&mut self, agent_id: AgentId, lww_id: LV, value: CreateValue) -> LV {
         self.push_local_op(agent_id, lww_id, OpContents::RegisterSet(value))
             .start
     }
 
-    pub fn local_set_map(&mut self, agent_id: AgentId, map_id: LV, key: &str, value: CreateValue) -> LV {
+    pub fn local_map_set(&mut self, agent_id: AgentId, map_id: LV, key: &str, value: CreateValue) -> LV {
         self.push_local_op(agent_id, map_id,
                            OpContents::MapSet(key.into(), value))
+            .start
+    }
+
+    pub fn local_map_delete(&mut self, agent_id: AgentId, map_id: LV, key: &str) -> LV {
+        self.push_local_op(agent_id, map_id,
+                           OpContents::MapDelete(key.into()))
             .start
     }
 
@@ -184,7 +190,7 @@ mod test {
     fn foo() {
         let mut oplog = OpLog::new_mem();
         let seph = oplog.get_or_create_agent_id("seph");
-        let set = oplog.local_set_map(seph, ROOT_MAP, "yoo", CreateValue::NewCRDT(CRDTKind::Collection));
+        let set = oplog.local_map_set(seph, ROOT_MAP, "yoo", CreateValue::NewCRDT(CRDTKind::Collection));
         let text = oplog.insert_into_set(seph, set, CreateValue::NewCRDT(CRDTKind::Text));
         oplog.insert_into_text(seph, text, 0, "hi there");
         oplog.dbg_check(true);

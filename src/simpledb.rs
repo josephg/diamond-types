@@ -55,34 +55,41 @@ impl SimpleDatabase {
     }
 
     // *** Modifying LWW Registers & Map values
-    pub fn modify_map(&mut self, agent_id: AgentId, map_id: LV, key: &str, value: CreateValue) -> LV {
-        let time = self.oplog.local_set_map(agent_id, map_id, key, value.clone());
-        self.branch.modify_map_local(time, map_id, key, &value, &self.oplog.cg);
+    pub fn map_set(&mut self, agent_id: AgentId, map_id: LV, key: &str, value: CreateValue) -> LV {
+        // TODO: Remove this .clone().
+        let time = self.oplog.local_map_set(agent_id, map_id, key, value.clone());
+        self.branch.modify_map_local(time, map_id, key, Some(&value), &self.oplog.cg);
 
         time
     }
 
-    pub fn modify_lww(&mut self, agent_id: AgentId, lww_id: LV, value: CreateValue) -> LV {
-        let time = self.oplog.local_set_lww(agent_id, lww_id, value.clone());
-        self.branch.modify_reg_local(time, lww_id, &value, &self.oplog.cg);
+    pub fn map_delete(&mut self, agent_id: AgentId, map_id: LV, key: &str) -> LV {
+        let time = self.oplog.local_map_delete(agent_id, map_id, key);
+        self.branch.modify_map_local(time, map_id, key, None, &self.oplog.cg);
+        time
+    }
+
+    pub fn mv_set(&mut self, agent_id: AgentId, mv_id: LV, value: CreateValue) -> LV {
+        let time = self.oplog.local_mv_set(agent_id, mv_id, value.clone());
+        self.branch.modify_reg_local(time, mv_id, &value, &self.oplog.cg);
         time
     }
 
     // *** Sets ***
-    pub(crate) fn modify_set(&mut self, agent_id: AgentId, set_id: LV, set_op: CollectionOp) -> LV {
+    pub(crate) fn modify_collection(&mut self, agent_id: AgentId, set_id: LV, c_op: CollectionOp) -> LV {
         // TODO: Find a way to remove this clone.
-        let time = self.oplog.push_local_op(agent_id, set_id, OpContents::Collection(set_op.clone())).start;
-        self.branch.modify_set_internal(time, set_id, &set_op);
+        let time = self.oplog.push_local_op(agent_id, set_id, OpContents::Collection(c_op.clone())).start;
+        self.branch.modify_set_internal(time, set_id, &c_op);
         self.branch.set_time(time);
         time
     }
 
-    pub fn set_insert(&mut self, agent_id: AgentId, set_id: LV, val: CreateValue) -> LV {
-        self.modify_set(agent_id, set_id, CollectionOp::Insert(val))
+    pub fn collection_insert(&mut self, agent_id: AgentId, set_id: LV, val: CreateValue) -> LV {
+        self.modify_collection(agent_id, set_id, CollectionOp::Insert(val))
     }
 
-    pub fn set_remove(&mut self, agent_id: AgentId, set_id: LV, target: LV) -> LV {
-        self.modify_set(agent_id, set_id, CollectionOp::Remove(target))
+    pub fn collection_remove(&mut self, agent_id: AgentId, set_id: LV, target: LV) -> LV {
+        self.modify_collection(agent_id, set_id, CollectionOp::Remove(target))
     }
 
     // *** Text ***
@@ -114,14 +121,16 @@ mod test {
     fn smoke() {
         let mut db = SimpleDatabase::new_mem();
         let seph = db.get_or_create_agent_id("seph");
-        db.modify_map(seph, ROOT_MAP, "name", Primitive(Str("seph".into())));
+        db.map_set(seph, ROOT_MAP, "name", Primitive(Str("seph".into())));
 
-        let inner = db.modify_map(seph, ROOT_MAP, "facts", NewCRDT(CRDTKind::Map));
-        db.modify_map(seph, inner, "cool", Primitive(I64(1)));
+        let inner = db.map_set(seph, ROOT_MAP, "facts", NewCRDT(CRDTKind::Map));
+        db.map_set(seph, inner, "cool", Primitive(I64(1)));
 
-        let inner_set = db.modify_map(seph, ROOT_MAP, "set stuff", NewCRDT(CRDTKind::Collection));
-        let inner_map = db.set_insert(seph, inner_set, CreateValue::NewCRDT(CRDTKind::Map));
-        db.modify_map(seph, inner_map, "whoa", Primitive(I64(3214)));
+        let inner_set = db.map_set(seph, ROOT_MAP, "set stuff", NewCRDT(CRDTKind::Collection));
+        let inner_map = db.collection_insert(seph, inner_set, CreateValue::NewCRDT(CRDTKind::Map));
+        db.map_set(seph, inner_map, "whoa", Primitive(I64(3214)));
+
+        // db.map_delete(seph, inner, "cool");
 
         dbg!(db.get_recursive());
 
@@ -173,7 +182,7 @@ mod test {
         let mut db = SimpleDatabase::new_mem();
         let seph = db.get_or_create_agent_id("seph");
 
-        let text = db.modify_map(seph, ROOT_MAP, "text", NewCRDT(CRDTKind::Text));
+        let text = db.map_set(seph, ROOT_MAP, "text", NewCRDT(CRDTKind::Text));
         db.text_insert(seph, text, 0, "hi there");
         db.text_remove(seph, text, (2..5).into());
 

@@ -294,18 +294,20 @@ impl Branch {
         self.set_time(time);
     }
 
-    fn modify_map_internal(&mut self, time: LV, map_id: LV, key: &str, op_value: &CreateValue, cg: &CausalGraph) {
-        let value = self.op_to_snapshot_value(time, op_value);
+    fn modify_map_internal(&mut self, time: LV, map_id: LV, key: &str, op_value: Option<&CreateValue>, cg: &CausalGraph) {
+        let value = op_value.map(|op_value| self.op_to_snapshot_value(time, op_value));
 
         let inner = match self.overlay.get_mut(&map_id).unwrap() {
             OverlayValue::Map(map) => map,
             _ => { panic!("Cannot set map value in LWW"); }
         };
 
+        // TODO: This method is very poorly optimized for deletes.
         let entry = inner.entry(key.into())
             .or_default();
 
         // We need to remove values after the retain() loop to prevent borrowck issues.
+        // TODO: I suspect this would be faster by calling find_dominators().
         let keep_idx = separate_by(entry.as_mut(), |reg| {
             cg.parents.version_contains_time(&[time], reg.version)
         });
@@ -325,10 +327,17 @@ impl Branch {
             // self.remove_old_value(&e.value);
         }
         entry.truncate(keep_idx);
-        entry.push(RegisterState {
-            value,
-            version: time
-        });
+
+        if let Some(value) = value {
+            entry.push(RegisterState {
+                value,
+                version: time
+            });
+        }
+
+        if entry.is_empty() {
+            inner.remove(key);
+        }
 
         for id in crdts_to_remove.iter() {
             self.internal_remove_crdt(*id);
@@ -338,7 +347,7 @@ impl Branch {
         // don't need to refer to the causal graph on read operations.
     }
 
-    pub fn modify_map_local(&mut self, time: LV, lww_id: LV, key: &str, op_value: &CreateValue, cg: &CausalGraph) {
+    pub fn modify_map_local(&mut self, time: LV, lww_id: LV, key: &str, op_value: Option<&CreateValue>, cg: &CausalGraph) {
         self.modify_map_internal(time, lww_id, key, op_value, cg);
         self.set_time(time);
     }
@@ -397,7 +406,10 @@ impl Branch {
                 self.modify_reg_internal(time, op.target_id, op_value, cg);
             }
             OpContents::MapSet(key, op_value) => {
-                self.modify_map_internal(time, op.target_id, key, op_value, cg);
+                self.modify_map_internal(time, op.target_id, key, Some(op_value), cg);
+            }
+            OpContents::MapDelete(key) => {
+                self.modify_map_internal(time, op.target_id, key, None, cg);
             }
             OpContents::Collection(set_op) => {
                 self.modify_set_internal(time, op.target_id, set_op);
@@ -411,7 +423,7 @@ impl Branch {
     }
 
 
-    pub(crate) fn modify_map_reg_remote_internal(&mut self, cg: &CausalGraph, parents: &[LV], time: LV, crdt_id: LV, key: Option<&str>, op_value: &CreateValue) {
+    pub(crate) fn modify_map_reg_remote_internal(&mut self, cg: &CausalGraph, parents: &[LV], time: LV, crdt_id: LV, key: Option<&str>, op_value: Option<&CreateValue>) {
         // // We set locally if the new version (at time) dominates the current version of the value.
         // let should_write = if let Some(reg) = self.get_register(crdt_id, key) {
         //     // reg.last_modified
@@ -435,7 +447,7 @@ impl Branch {
         if let Some(key) = key {
             self.modify_map_internal(time, crdt_id, key, op_value, cg);
         } else {
-            self.modify_reg_internal(time, crdt_id, op_value, cg);
+            self.modify_reg_internal(time, crdt_id, op_value.unwrap(), cg);
         }
         // }
     }
@@ -443,10 +455,13 @@ impl Branch {
     pub(crate) fn apply_remote_op(&mut self, cg: &CausalGraph, parents: &[LV], time: LV, op: &Op, ctx: &ListOperationCtx) {
         match &op.contents {
             OpContents::RegisterSet(op_value) => {
-                self.modify_map_reg_remote_internal(cg, parents, time, op.target_id, None, op_value);
+                self.modify_map_reg_remote_internal(cg, parents, time, op.target_id, None, Some(op_value));
             }
             OpContents::MapSet(key, op_value) => {
-                self.modify_map_reg_remote_internal(cg, parents, time, op.target_id, Some(key.as_str()), op_value);
+                self.modify_map_reg_remote_internal(cg, parents, time, op.target_id, Some(key.as_str()), Some(op_value));
+            }
+            OpContents::MapDelete(key) => {
+                self.modify_map_reg_remote_internal(cg, parents, time, op.target_id, Some(key.as_str()), None);
             }
             OpContents::Collection(set_op) => {
                 // Set ops have no concurrency problems anyway. An insert can only happen once, and

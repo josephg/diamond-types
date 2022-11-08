@@ -243,13 +243,6 @@ pub enum Primitive {
     InvalidUninitialized,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum SnapshotValue {
-    Primitive(Primitive),
-    InnerCRDT(LV),
-    // Ref(Time),
-}
-
 // #[derive(Debug, Eq, PartialEq, Copy, Clone, TryFromPrimitive)]
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 // #[repr(u16)]
@@ -276,7 +269,8 @@ pub enum CollectionOp {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum OpContents {
     RegisterSet(CreateValue),
-    MapSet(SmartString, CreateValue),
+    MapSet(SmartString, CreateValue), // TODO: Inline the index here.
+    MapDelete(SmartString), // TODO: And here.
     Collection(CollectionOp), // TODO: Consider just inlining this.
     Text(ListOpMetrics),
 
@@ -331,6 +325,13 @@ pub struct OpLog {
     uncommitted_ops: Ops,
 }
 
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum SnapshotValue {
+    Primitive(Primitive),
+    InnerCRDT(LV),
+    // Ref(LV),
+}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct RegisterState {

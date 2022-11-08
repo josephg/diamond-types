@@ -13,6 +13,7 @@ pub mod entry;
 pub mod summary;
 pub mod agent_span;
 pub mod remote_ids;
+// mod hack;
 
 // TODO: Consider removing this now that ROOT is [].
 // const ROOT_AGENT_NAME: &str = "ROOT";
