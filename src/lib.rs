@@ -223,6 +223,7 @@ mod wal;
 
 #[cfg(feature = "serde")]
 pub(crate) mod serde_helpers;
+mod hack;
 
 pub type AgentId = u32;
 
