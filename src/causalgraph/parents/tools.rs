@@ -614,25 +614,7 @@ impl Parents {
         debug_assert_frontier_sorted(&result);
         Some(Frontier(result))
     }
-}
 
-// Used for find_dominators.
-//
-// Using the LSB in the data to encode whether this version was an input to the function.
-// We hit all the "normal" versions before the inputs.
-fn enc_input(v: LV) -> usize { v << 1 }
-fn enc_normal(v: LV) -> usize { (v << 1) + 1 }
-fn dec(v_enc: usize) -> (bool, LV) {
-    (v_enc % 2 == 0, v_enc >> 1)
-}
-fn heap_from_versions_iter<I: Iterator<Item = LV>>(iter: I) -> BinaryHeap<usize> {
-    iter.map(|v| {
-        if v >= usize::MAX / 2 { panic!("Cannot handle version beyond usize::MAX/2"); }
-        enc_input(v)
-    }).collect()
-}
-
-impl Parents {
     /// This is a variant of find_dominators_full for larger sets of versions - eg for all the
     /// versions in the history of a single item.
     ///
@@ -656,50 +638,11 @@ impl Parents {
 
         let mut result_rev = smallvec![];
 
-        // TODO: We don't actually need to slice like this - the filter will take care of it.
-        // Check if it matters & probably simplify.
-        let mut queue: BinaryHeap<usize> = heap_from_versions_iter(versions.iter().copied());
-        let mut inputs_remaining = queue.len();
-
-        while let Some(v_enc) = queue.pop() {
-            // We can't just discard items which are within the shadow because they might point to
-            // other items within their parents.
-            let (is_input, v) = dec(v_enc);
-            // dbg!((v, is_input), &queue);
-
-            if is_input {
+        self.find_dominators_full_internal(versions.iter().copied(), first_v, |v, dom| {
+            if dom {
                 result_rev.push(v);
-                inputs_remaining -= 1;
             }
-
-            let e = self.entries.find_packed(v);
-
-            if e.shadow <= first_v {
-                // We're guaranteed to contain everything.
-                // println!("Early break! {} {inputs_remaining}", v);
-                break;
-            }
-
-            // println!("Pop {v} {is_input}");
-
-            while let Some(&v2_enq) = queue.peek() {
-                let (is_input2, v2) = dec(v2_enq);
-                if v2 < e.span.start { break; } // We don't need is_input2 yet...
-                // println!("Peek {v2} {is_input2}");
-                // if v2 < (e.span.start * 2) { break; }
-                queue.pop();
-
-                if is_input2 {
-                    inputs_remaining -= 1;
-                }
-            }
-            if inputs_remaining == 0 { break; }
-
-            for p in e.parents.iter() {
-                // dbg!(p);
-                queue.push(enc_normal(*p));
-            }
-        }
+        });
 
         result_rev
     }
@@ -710,12 +653,7 @@ impl Parents {
         Frontier(result)
     }
 
-    /// Given some disparate set of versions, figure out which versions are dominators - ie, the
-    /// set of versions which "contains" the entire set of versions in their transitive dependency
-    /// graph.
-    ///
-    /// This function might be better written to output an iterator.
-    pub fn find_dominators_full<F, I>(&self, versions_iter: I, mut visit: F)
+    fn find_dominators_full_internal<F, I>(&self, versions_iter: I, stop_at_shadow: usize, mut visit: F)
         where F: FnMut(LV, bool), I: Iterator<Item=LV>
     {
         if let Some(max_size) = versions_iter.size_hint().1 {
@@ -728,7 +666,18 @@ impl Parents {
             }
         }
 
-        let mut queue: BinaryHeap<usize> = heap_from_versions_iter(versions_iter);
+        // Using the LSB in the data to encode whether this version was an input to the function.
+        // We hit all the "normal" versions before the inputs.
+        fn enc_input(v: LV) -> usize { v << 1 }
+        fn enc_normal(v: LV) -> usize { (v << 1) + 1 }
+        fn dec(v_enc: usize) -> (bool, LV) {
+            (v_enc % 2 == 0, v_enc >> 1)
+        }
+
+        let mut queue: BinaryHeap<usize> = versions_iter.map(|v| {
+            if v >= usize::MAX / 2 { panic!("Cannot handle version beyond usize::MAX/2"); }
+            enc_input(v)
+        }).collect();
         let mut inputs_remaining = queue.len();
 
         let mut last_emitted = usize::MAX;
@@ -744,6 +693,10 @@ impl Parents {
             }
 
             let e = self.entries.find_packed(v);
+
+            if stop_at_shadow != usize::MAX && e.shadow <= stop_at_shadow {
+                break;
+            }
 
             // println!("Pop {v} {is_input}");
 
@@ -771,6 +724,17 @@ impl Parents {
                 queue.push(enc_normal(*p));
             }
         }
+    }
+
+    /// Given some disparate set of versions, figure out which versions are dominators - ie, the
+    /// set of versions which "contains" the entire set of versions in their transitive dependency
+    /// graph.
+    ///
+    /// This function might be better written to output an iterator.
+    pub fn find_dominators_full<F, I>(&self, versions_iter: I, mut visit: F)
+        where F: FnMut(LV, bool), I: Iterator<Item=LV>
+    {
+        self.find_dominators_full_internal(versions_iter, usize::MAX, visit);
     }
 
     /// Find dominators on an unsorted set of versions
@@ -810,7 +774,7 @@ impl Parents {
             }
         );
         result.reverse();
-        result.into()
+        Frontier(result)
     }
 }
 
