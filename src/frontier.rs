@@ -350,31 +350,32 @@ mod test {
         branch.advance_by_known_run(&[], (0..10).into());
         assert_eq!(branch.as_ref(), &[9]);
 
-        let history = Parents::from_entries(&[
+        let parents = Parents::from_entries(&[
             ParentsEntryInternal {
-                span: (0..10).into(), shadow: usize::MAX,
+                span: (0..10).into(), shadow: 0,
                 parents: Frontier::root(),
                 child_indexes: smallvec![]
             }
         ]);
+        parents.dbg_check(true);
 
-        branch.retreat(&history, (5..10).into());
+        branch.retreat(&parents, (5..10).into());
         assert_eq!(branch.as_ref(), &[4]);
 
-        branch.retreat(&history, (0..5).into());
+        branch.retreat(&parents, (0..5).into());
         assert!(branch.is_root());
     }
 
     #[test]
     fn frontier_stays_sorted() {
-        let history = Parents::from_entries(&[
+        let parents = Parents::from_entries(&[
             ParentsEntryInternal {
-                span: (0..2).into(), shadow: usize::MAX,
+                span: (0..2).into(), shadow: 0,
                 parents: Frontier::root(),
-                child_indexes: smallvec![]
+                child_indexes: smallvec![1, 2]
             },
             ParentsEntryInternal {
-                span: (2..6).into(), shadow: usize::MAX,
+                span: (2..6).into(), shadow: 2,
                 parents: Frontier::new_1(0),
                 child_indexes: smallvec![]
             },
@@ -384,18 +385,19 @@ mod test {
                 child_indexes: smallvec![]
             },
         ]);
+        parents.dbg_check(true);
 
         let mut branch: Frontier = Frontier::from_sorted(&[1, 10]);
-        branch.advance(&history, (2..4).into());
+        branch.advance(&parents, (2..4).into());
         assert_eq!(branch.as_ref(), &[1, 3, 10]);
 
-        branch.advance(&history, (11..12).into());
+        branch.advance(&parents, (11..12).into());
         assert_eq!(branch.as_ref(), &[1, 3, 11]);
 
-        branch.retreat(&history, (2..4).into());
+        branch.retreat(&parents, (2..4).into());
         assert_eq!(branch.as_ref(), &[1, 11]);
 
-        branch.retreat(&history, (11..12).into());
+        branch.retreat(&parents, (11..12).into());
         assert_eq!(branch.as_ref(), &[1, 10]);
     }
 }

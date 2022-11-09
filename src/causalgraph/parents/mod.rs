@@ -208,8 +208,7 @@ impl ParentsEntryInternal {
 
     pub fn shadow_contains(&self, time: usize) -> bool {
         debug_assert!(time <= self.last_time());
-        // TODO: Is there a difference between a shadow of 0 and a shadow of usize::MAX?
-        self.shadow == usize::MAX || time >= self.shadow
+        time >= self.shadow
     }
 
     // pub fn parents_at_offset(&self, at: usize) -> SmallVec<[Order; 2]> {

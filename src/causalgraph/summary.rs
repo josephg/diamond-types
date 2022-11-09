@@ -182,7 +182,7 @@ impl CausalGraph {
         });
 
         (
-            self.parents.find_dominators(&versions),
+            self.parents.find_dominators_unsorted(&versions),
             remainder
         )
     }

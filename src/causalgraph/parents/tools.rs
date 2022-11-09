@@ -614,6 +614,101 @@ impl Parents {
         debug_assert_frontier_sorted(&result);
         Some(Frontier(result))
     }
+}
+
+// Used for find_dominators.
+//
+// Using the LSB in the data to encode whether this version was an input to the function.
+// We hit all the "normal" versions before the inputs.
+fn enc_input(v: LV) -> usize { v << 1 }
+fn enc_normal(v: LV) -> usize { (v << 1) + 1 }
+fn dec(v_enc: usize) -> (bool, LV) {
+    (v_enc % 2 == 0, v_enc >> 1)
+}
+fn heap_from_versions_iter<I: Iterator<Item = LV>>(iter: I) -> BinaryHeap<usize> {
+    iter.map(|v| {
+        if v >= usize::MAX / 2 { panic!("Cannot handle version beyond usize::MAX/2"); }
+        enc_input(v)
+    }).collect()
+}
+
+impl Parents {
+    /// This is a variant of find_dominators_full for larger sets of versions - eg for all the
+    /// versions in the history of a single item.
+    ///
+    /// Even with very big lists, this should be pretty quick. However, unlike find_dominators_full:
+    ///
+    /// - This doesn't yield the non-dominator items in the set.
+    /// - This method requires the input versions to be fully sorted.
+    pub fn find_dominators_wide_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
+        if versions.len() <= 1 { return versions.into(); }
+
+        debug_assert_frontier_sorted(versions);
+
+        let first_v = versions[0];
+        let last_v = versions[versions.len() - 1];
+
+        let last_entry = self.entries.find_packed(last_v);
+
+        // Nothing else in the list matters because its all under the shadow of this item.
+        // This is the most common case.
+        if last_entry.shadow <= first_v { return smallvec![last_v]; }
+
+        let mut result_rev = smallvec![];
+
+        // TODO: We don't actually need to slice like this - the filter will take care of it.
+        // Check if it matters & probably simplify.
+        let mut queue: BinaryHeap<usize> = heap_from_versions_iter(versions.iter().copied());
+        let mut inputs_remaining = queue.len();
+
+        while let Some(v_enc) = queue.pop() {
+            // We can't just discard items which are within the shadow because they might point to
+            // other items within their parents.
+            let (is_input, v) = dec(v_enc);
+            // dbg!((v, is_input), &queue);
+
+            if is_input {
+                result_rev.push(v);
+                inputs_remaining -= 1;
+            }
+
+            let e = self.entries.find_packed(v);
+
+            if e.shadow <= first_v {
+                // We're guaranteed to contain everything.
+                // println!("Early break! {} {inputs_remaining}", v);
+                break;
+            }
+
+            // println!("Pop {v} {is_input}");
+
+            while let Some(&v2_enq) = queue.peek() {
+                let (is_input2, v2) = dec(v2_enq);
+                if v2 < e.span.start { break; } // We don't need is_input2 yet...
+                // println!("Peek {v2} {is_input2}");
+                // if v2 < (e.span.start * 2) { break; }
+                queue.pop();
+
+                if is_input2 {
+                    inputs_remaining -= 1;
+                }
+            }
+            if inputs_remaining == 0 { break; }
+
+            for p in e.parents.iter() {
+                // dbg!(p);
+                queue.push(enc_normal(*p));
+            }
+        }
+
+        result_rev
+    }
+
+    pub fn find_dominators(&self, versions: &[LV]) -> Frontier {
+        let mut result = self.find_dominators_wide_rev(versions);
+        result.reverse();
+        Frontier(result)
+    }
 
     /// Given some disparate set of versions, figure out which versions are dominators - ie, the
     /// set of versions which "contains" the entire set of versions in their transitive dependency
@@ -633,23 +728,11 @@ impl Parents {
             }
         }
 
-        // Using the LSB in the data to encode whether this version was an input to the function.
-        // We hit all the "normal" versions before the inputs.
-        fn enc_input(v: LV) -> usize { v << 1 }
-        fn enc_normal(v: LV) -> usize { (v << 1) + 1 }
-        fn dec(v_enc: usize) -> (bool, LV) {
-            (v_enc % 2 == 0, v_enc >> 1)
-        }
-
-        let mut inputs_remaining = 0;
-        let mut queue: BinaryHeap<usize> = versions_iter.map(|v| {
-            debug_assert_ne!(v, OLD_INVALID_ROOT_TIME);
-            if v >= usize::MAX / 2 { panic!("Cannot handle version beyond usize::MAX/2"); }
-            inputs_remaining += 1;
-            enc_input(v)
-        }).collect();
+        let mut queue: BinaryHeap<usize> = heap_from_versions_iter(versions_iter);
+        let mut inputs_remaining = queue.len();
 
         let mut last_emitted = usize::MAX;
+
         while let Some(v_enc) = queue.pop() {
             // dbg!(&queue, v_enc);
             let (is_input, v) = dec(v_enc);
@@ -690,7 +773,8 @@ impl Parents {
         }
     }
 
-    pub fn find_dominators_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
+    /// Find dominators on an unsorted set of versions
+    pub fn find_dominators_unsorted_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
         if versions.len() <= 1 {
             return versions.into();
         }
@@ -704,8 +788,9 @@ impl Parents {
 
         result
     }
-    pub fn find_dominators(&self, versions: &[LV]) -> Frontier {
-        let mut result = self.find_dominators_rev(versions);
+
+    pub fn find_dominators_unsorted(&self, versions: &[LV]) -> Frontier {
+        let mut result = self.find_dominators_unsorted_rev(versions);
         result.reverse();
         Frontier(result)
     }
@@ -715,6 +800,7 @@ impl Parents {
     /// TODO: This needs unit tests.
     pub fn version_union(&self, a: &[LV], b: &[LV]) -> Frontier {
         let mut result = smallvec![];
+        // Using find_dominators_full to avoid a sort() here. Not sure if thats worth it though.
         self.find_dominators_full(
             a.iter().copied().chain(b.iter().copied()),
             |v, is_dom| {
@@ -740,6 +826,7 @@ pub mod test {
     use crate::rle::RleVec;
     use crate::{Frontier, LV};
     use crate::causalgraph::parents::tools::{DiffFlag, DiffResult};
+    use crate::frontier::debug_assert_frontier_sorted;
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).
@@ -999,59 +1086,83 @@ pub mod test {
         // assert!(doc.txns.branch_contains_order(&doc.frontier, 0));
         // assert!(!doc.txns.branch_contains_order(&[ROOT_TIME_X], 0));
 
-        let history = fancy_parents();
+        let parents = fancy_parents();
 
-        assert_version_contains_time(&history, &[], 0, false);
-        assert_version_contains_time(&history, &[0], 0, true);
+        assert_version_contains_time(&parents, &[], 0, false);
+        assert_version_contains_time(&parents, &[0], 0, true);
 
-        assert_version_contains_time(&history, &[2], 0, true);
-        assert_version_contains_time(&history, &[2], 1, true);
-        assert_version_contains_time(&history, &[2], 2, true);
+        assert_version_contains_time(&parents, &[2], 0, true);
+        assert_version_contains_time(&parents, &[2], 1, true);
+        assert_version_contains_time(&parents, &[2], 2, true);
 
-        assert_version_contains_time(&history, &[0], 1, false);
-        assert_version_contains_time(&history, &[1], 2, false);
+        assert_version_contains_time(&parents, &[0], 1, false);
+        assert_version_contains_time(&parents, &[1], 2, false);
 
-        assert_version_contains_time(&history, &[8], 0, true);
-        assert_version_contains_time(&history, &[8], 1, true);
-        assert_version_contains_time(&history, &[8], 2, false);
-        assert_version_contains_time(&history, &[8], 5, false);
+        assert_version_contains_time(&parents, &[8], 0, true);
+        assert_version_contains_time(&parents, &[8], 1, true);
+        assert_version_contains_time(&parents, &[8], 2, false);
+        assert_version_contains_time(&parents, &[8], 5, false);
 
-        assert_version_contains_time(&history, &[1,4], 0, true);
-        assert_version_contains_time(&history, &[1,4], 1, true);
-        assert_version_contains_time(&history, &[1,4], 2, false);
-        assert_version_contains_time(&history, &[1,4], 5, false);
+        assert_version_contains_time(&parents, &[1,4], 0, true);
+        assert_version_contains_time(&parents, &[1,4], 1, true);
+        assert_version_contains_time(&parents, &[1,4], 2, false);
+        assert_version_contains_time(&parents, &[1,4], 5, false);
 
-        assert_version_contains_time(&history, &[9], 2, true);
-        assert_version_contains_time(&history, &[9], 1, true);
-        assert_version_contains_time(&history, &[9], 0, true);
+        assert_version_contains_time(&parents, &[9], 2, true);
+        assert_version_contains_time(&parents, &[9], 1, true);
+        assert_version_contains_time(&parents, &[9], 0, true);
+    }
+
+    fn check_dominators(parents: &Parents, input: &[LV], expected_yes: &[LV]) {
+        debug_assert_frontier_sorted(input);
+        debug_assert_frontier_sorted(expected_yes);
+
+        let expected_no: Vec<_> = input.iter().filter(|v| !expected_yes.contains(v)).copied().collect();
+        debug_assert_frontier_sorted(expected_no.as_slice());
+        assert_eq!(input.len(), expected_yes.len() + expected_no.len());
+
+        assert_eq!(parents.find_dominators(input).as_ref(), expected_yes);
+
+        let mut actual_yes = vec![];
+        let mut actual_no = vec![];
+        parents.find_dominators_full(input.iter().copied(), |v, dom| {
+            if dom { actual_yes.push(v); }
+            else { actual_no.push(v); }
+        });
+        actual_yes.reverse();
+        actual_no.reverse();
+
+        assert_eq!(actual_yes, expected_yes);
+        assert_eq!(actual_no, expected_no);
     }
 
     #[test]
     fn dominator_smoke_test() {
         let parents = fancy_parents();
 
-        assert_eq!(parents.find_dominators(&[0,1,2,3,4,5,6,7,8,9,10]).as_ref(), &[5, 10]);
-        assert_eq!(parents.find_dominators(&[10]).as_ref(), &[10]);
+        check_dominators(&parents, &[0,1,2,3,4,5,6,7,8,9,10], &[5, 10]);
+        check_dominators(&parents, &[10], &[10]);
 
-        assert_eq!(parents.find_dominators(&[5, 6]).as_ref(), &[5, 6]);
-        assert_eq!(parents.find_dominators(&[5, 9]).as_ref(), &[5, 9]);
-        assert_eq!(parents.find_dominators(&[1, 2]).as_ref(), &[2]);
-        assert_eq!(parents.find_dominators(&[0, 2]).as_ref(), &[2]);
-        assert_eq!(parents.find_dominators(&[0, 10]).as_ref(), &[10]);
-        assert_eq!(parents.find_dominators(&[]).len(), 0);
-        assert_eq!(parents.find_dominators(&[2]).as_ref(), &[2]);
-        assert_eq!(parents.find_dominators(&[1, 4]).as_ref(), &[1, 4]);
-        assert_eq!(parents.find_dominators(&[9, 10]).as_ref(), &[10]);
-        assert_eq!(parents.find_dominators(&[9, 2, 8]).as_ref(), &[9]);
-        assert_eq!(parents.find_dominators(&[9, 2, 7]).as_ref(), &[9]);
-        assert_eq!(parents.find_dominators(&[6, 7]).as_ref(), &[7]);
-        assert_eq!(parents.find_dominators(&[0]).as_ref(), &[0]);
+        check_dominators(&parents, &[5, 6], &[5, 6]);
+        check_dominators(&parents, &[5, 9], &[5, 9]);
+        check_dominators(&parents, &[4, 9], &[9]);
+        check_dominators(&parents, &[1, 2], &[2]);
+        check_dominators(&parents, &[0, 2], &[2]);
+        check_dominators(&parents, &[0, 10], &[10]);
+        check_dominators(&parents, &[], &[]);
+        check_dominators(&parents, &[2], &[2]);
+        check_dominators(&parents, &[1, 4], &[1, 4]);
+        check_dominators(&parents, &[9, 10], &[10]);
+        check_dominators(&parents, &[2, 8, 9], &[9]);
+        check_dominators(&parents, &[2, 7, 9], &[9]);
+        check_dominators(&parents, &[6, 7], &[7]);
+        check_dominators(&parents, &[0], &[0]);
     }
 
     #[test]
     fn dominator_duplicates() {
         let parents = fancy_parents();
-        assert_eq!(parents.find_dominators(&[1,1,1]).as_ref(), &[1]);
+        assert_eq!(parents.find_dominators_unsorted(&[1,1,1]).as_ref(), &[1]);
         assert_eq!(parents.version_union(&[1], &[1]).as_ref(), &[1]);
 
         let mut seen_1 = false;
