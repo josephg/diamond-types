@@ -836,7 +836,7 @@ pub mod test {
         }
     }
 
-    fn assert_version_contains_time(history: &Parents, frontier: &[LV], target: LV, expected: bool) {
+    fn assert_version_contains_time(parents: &Parents, frontier: &[LV], target: LV, expected: bool) {
         #[cfg(feature="gen_test_data")] {
             #[cfg_attr(feature = "serde", derive(Serialize))]
             #[derive(Clone, Debug)]
@@ -848,10 +848,10 @@ pub mod test {
             }
 
             let t = Test {
-                hist: history.iter().collect(), frontier, target: target as _, expected
+                hist: parents.iter().collect(), frontier, target: target as _, expected
             };
 
-            let p: Vec<_> = history.iter().collect();
+            let p: Vec<_> = parents.iter().collect();
             use std::io::Write;
             let mut f = std::fs::File::options()
                 .write(true)
@@ -861,7 +861,7 @@ pub mod test {
             writeln!(f, "{}", serde_json::to_string(&t).unwrap());
         }
 
-        assert_eq!(history.version_contains_time(frontier, target), expected);
+        assert_eq!(parents.version_contains_time(frontier, target), expected);
     }
 
     fn assert_diff_eq(history: &Parents, a: &[LV], b: &[LV], expect_a: &[DTRange], expect_b: &[DTRange]) {
@@ -1068,29 +1068,30 @@ pub mod test {
         // 0 |
         // | 1
         // 2
-        let history = Parents {
+        let parents = Parents {
             entries: RleVec(vec![
                 ParentsEntryInternal {
-                    span: (0..1).into(), shadow: usize::MAX,
+                    span: (0..1).into(), shadow: 0,
                     parents: Frontier::from_sorted(&[]),
                     child_indexes: smallvec![2]
                 },
                 ParentsEntryInternal {
-                    span: (1..2).into(), shadow: usize::MAX,
+                    span: (1..2).into(), shadow: 1,
                     parents: Frontier::from_sorted(&[]),
-                    child_indexes: smallvec![3]
+                    child_indexes: smallvec![]
                 },
                 ParentsEntryInternal {
                     span: (2..3).into(), shadow: 2,
                     parents: Frontier::from_sorted(&[0]),
-                    child_indexes: smallvec![4]
+                    child_indexes: smallvec![]
                 },
             ]),
             root_child_indexes: smallvec![0, 1],
         };
+        parents.dbg_check(true);
 
-        assert_diff_eq(&history, &[2], &[], &[(2..3).into(), (0..1).into()], &[]);
-        assert_diff_eq(&history, &[2], &[1], &[(2..3).into(), (0..1).into()], &[(1..2).into()]);
+        assert_diff_eq(&parents, &[2], &[], &[(2..3).into(), (0..1).into()], &[]);
+        assert_diff_eq(&parents, &[2], &[1], &[(2..3).into(), (0..1).into()], &[(1..2).into()]);
     }
 
     #[test]
@@ -1100,11 +1101,11 @@ pub mod test {
         // 0 | |
         //   1 |
         //     2
-        let history = Parents {
+        let parents = Parents {
             entries: RleVec(vec![
                 ParentsEntryInternal {
                     span: (0..1).into(),
-                    shadow: usize::MAX,
+                    shadow: 0,
                     parents: Frontier::root(),
                     child_indexes: smallvec![],
                 },
@@ -1123,16 +1124,17 @@ pub mod test {
             ]),
             root_child_indexes: smallvec![0, 1, 2],
         };
+        parents.dbg_check(true);
 
-        assert_diff_eq(&history, &[0], &[0, 1], &[], &[(1..2).into()]);
+        assert_diff_eq(&parents, &[0], &[0, 1], &[], &[(1..2).into()]);
 
         for time in [0, 1, 2] {
-            assert_diff_eq(&history, &[time], &[], &[(time..time+1).into()], &[]);
-            assert_diff_eq(&history, &[], &[time], &[], &[(time..time+1).into()]);
+            assert_diff_eq(&parents, &[time], &[], &[(time..time+1).into()], &[]);
+            assert_diff_eq(&parents, &[], &[time], &[], &[(time..time+1).into()]);
         }
 
-        assert_diff_eq(&history, &[], &[0, 1], &[], &[(0..2).into()]);
-        assert_diff_eq(&history, &[0], &[1], &[(0..1).into()], &[(1..2).into()]);
+        assert_diff_eq(&parents, &[], &[0, 1], &[], &[(0..2).into()]);
+        assert_diff_eq(&parents, &[0], &[1], &[(0..1).into()], &[(1..2).into()]);
     }
 
     #[test]
@@ -1143,11 +1145,11 @@ pub mod test {
         //      \ 3,4
         //       \ /
         //        5,6
-        let history = Parents {
+        let parents = Parents {
             entries: RleVec(vec![
                 ParentsEntryInternal {
                     span: (0..3).into(),
-                    shadow: usize::MAX,
+                    shadow: 0,
                     parents: Frontier::from_sorted(&[]),
                     child_indexes: smallvec![2],
                 },
@@ -1159,16 +1161,17 @@ pub mod test {
                 },
                 ParentsEntryInternal {
                     span: (5..6).into(),
-                    shadow: usize::MAX,
+                    shadow: 0,
                     parents: Frontier::from_sorted(&[2,4]),
                     child_indexes: smallvec![],
                 },
             ]),
             root_child_indexes: smallvec![0, 1],
         };
+        parents.dbg_check(true);
 
-        assert_diff_eq(&history, &[4], &[5], &[], &[(5..6).into(), (0..3).into()]);
-        assert_diff_eq(&history, &[4], &[], &[(3..5).into()], &[]);
+        assert_diff_eq(&parents, &[4], &[5], &[], &[(5..6).into(), (0..3).into()]);
+        assert_diff_eq(&parents, &[4], &[], &[(3..5).into()], &[]);
     }
 
     #[test]
@@ -1177,22 +1180,22 @@ pub mod test {
         // 0 1
         // |x|
         // 2 3
-        let history = Parents::from_entries(&[
+        let parents = Parents::from_entries(&[
             ParentsEntryInternal {
                 span: (0..1).into(),
-                shadow: usize::MAX,
+                shadow: 0,
                 parents: Frontier::from_sorted(&[]),
-                child_indexes: smallvec![1, 2],
+                child_indexes: smallvec![2, 3],
             },
             ParentsEntryInternal {
                 span: (1..2).into(),
                 shadow: 1,
                 parents: Frontier::from_sorted(&[]),
-                child_indexes: smallvec![1, 2],
+                child_indexes: smallvec![2, 3],
             },
             ParentsEntryInternal {
                 span: (2..3).into(),
-                shadow: usize::MAX,
+                shadow: 0,
                 parents: Frontier::from_sorted(&[0, 1]),
                 child_indexes: smallvec![],
             },
@@ -1203,10 +1206,11 @@ pub mod test {
                 child_indexes: smallvec![],
             },
         ]);
+        parents.dbg_check(true);
 
-        assert_version_contains_time(&history, &[2], 3, false);
-        assert_version_contains_time(&history, &[3], 2, false);
-        assert_diff_eq(&history, &[2], &[3], &[(2..3).into()], &[(3..4).into()]);
+        assert_version_contains_time(&parents, &[2], 3, false);
+        assert_version_contains_time(&parents, &[3], 2, false);
+        assert_diff_eq(&parents, &[2], &[3], &[(2..3).into()], &[(3..4).into()]);
     }
 
 
