@@ -28,7 +28,7 @@ impl SimpleDatabase {
     }
 
     pub fn dbg_check(&self, deep: bool) {
-        assert!(local_frontier_eq(&self.oplog.version, &self.branch.overlay_version));
+        assert!(local_frontier_eq(&self.oplog.version, &self.branch.version));
         self.oplog.dbg_check(deep);
     }
 
@@ -134,7 +134,7 @@ mod test {
 
         dbg!(db.get_recursive());
 
-        dbg!(&db.branch.overlay_version);
+        dbg!(&db.branch.version);
         dbg!(&db.oplog.version);
 
         dbg!(&db);

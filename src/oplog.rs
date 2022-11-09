@@ -99,9 +99,9 @@ impl OpLog {
 
     pub(crate) fn push_remote_op(&mut self, parents: &[LV], op_id: AgentSpan, crdt_av: AgentVersion, contents: OpContents) -> (DTRange, LV) {
         assert_eq!(op_id.len(), contents.len());
-        if let OpContents::Text(_) = contents {
-            panic!("Cannot push text operation using this method");
-        }
+        // if let OpContents::Text(_) = contents {
+        //     panic!("Cannot push text operation using this method");
+        // }
 
         // TODO: Filter op by anything we already know.
         let time_span = self.inner_assign_remote_op_span(parents, op_id);
@@ -140,16 +140,36 @@ impl OpLog {
     }
 
     // *** Text ***
+    pub(crate) fn text_op_to_metrics(&mut self, op: &TextOperation) -> ListOpMetrics {
+        let content_pos = op.content.as_ref().map(|content| {
+            self.uncommitted_ops.list_ctx.push_str(op.kind, content)
+        });
+
+        ListOpMetrics {
+            loc: op.loc,
+            kind: op.kind,
+            content_pos
+        }
+    }
+    
+    pub(crate) fn metrics_to_op(&self, metrics: &ListOpMetrics) -> TextOperation {
+        let content = metrics.content_pos.map(|pos| {
+            self.uncommitted_ops.list_ctx.get_str(metrics.kind, pos).into()
+        });
+        
+        TextOperation {
+            loc: metrics.loc,
+            kind: metrics.kind,
+            content
+        }
+    }
+
     pub(crate) fn modify_text(&mut self, agent_id: AgentId, crdt_id: LV, kind: ListOpKind, loc: RangeRev, content: Option<&str>) -> (DTRange, Op) {
         let len = loc.len();
 
-        let content_pos = if let Some(c) = content {
-            Some(self.uncommitted_ops.list_ctx.push_str(kind, c))
-        } else { None };
-
-        // let time_span = self.push_local_op(agent_id, crdt_id, OpContents::Text(
-        //     ListOpMetrics { loc, kind, content_pos })
-        // );
+        let content_pos = content.as_ref().map(|content| {
+            self.uncommitted_ops.list_ctx.push_str(kind, content)
+        });
 
         let op = Op {
             target_id: crdt_id,

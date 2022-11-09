@@ -66,6 +66,7 @@ pub struct TextOperation {
     /// What content is being inserted or deleted. This is optional for deletes. (And eventually
     /// inserts too, though that code path isn't exercised and may for now cause panics in some
     /// cases).
+    #[cfg_attr(feature = "serde", serde(default))]
     pub content: Option<SmartString>,
 }
 
@@ -98,7 +99,9 @@ impl FlattenSerializable for TextOperation {
             Del => "Del",
         })?;
         self.loc.serialize_fields::<S>(s)?;
-        s.serialize_field("content", &self.content)?;
+        if self.content.is_some() {
+            s.serialize_field("content", &self.content)?;
+        }
         // if let Some(content) = self.content.as_ref() {
         //     s.serialize_field("content", content)?;
         // }

@@ -236,7 +236,8 @@ pub type AgentId = u32;
 pub type LV = usize;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(untagged))]
+// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Primitive {
     Nil,
     Bool(bool),
@@ -244,6 +245,7 @@ pub enum Primitive {
     // F64(f64),
     Str(SmartString),
 
+    #[cfg_attr(feature = "serde", serde(skip))]
     InvalidUninitialized,
 }
 
@@ -364,13 +366,16 @@ enum OverlayValue {
 pub struct Branch {
     /// The overlay contents. This stores values which have either diverged from the persisted data
     /// or are cached.
-    overlay: BTreeMap<LV, OverlayValue>,
+    ///
+    /// Later this will only contain the "overlay" data - ie, data which has diverged from whatever
+    /// we're storing on disk.
+    data: BTreeMap<LV, OverlayValue>,
 
     /// The version the branch is currently at. This is used to track which changes the branch has
     /// or has not locally merged.
     ///
     /// This field is public for convenience, but you should never modify it directly.
-    overlay_version: Frontier,
+    version: Frontier,
 
     // persisted_data: BTreeMap<Time, OverlayValue>, // TODO. Not actually an in-memory object.
     // persisted_version: LocalVersion,

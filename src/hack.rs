@@ -6,7 +6,9 @@ use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use crate::causalgraph::agent_span::AgentVersion;
+use rle::HasLength;
+use crate::causalgraph::agent_span::{AgentSpan, AgentVersion};
+use crate::list::operation::TextOperation;
 use crate::rle::KVPair;
 use crate::simpledb::SimpleDatabase;
 
@@ -19,7 +21,9 @@ pub enum ExtOpContents<'a> {
     CollectionInsert(CreateValue),
     #[cfg_attr(feature = "serde", serde(borrow))]
     CollectionRemove(RemoteVersion<'a>),
-    // Text(ListOpMetrics),
+
+    // Gross that we don't separate insert / remove here.
+    Text(TextOperation),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -53,7 +57,7 @@ impl OpLog {
             OpContents::Collection(CollectionOp::Remove(lv)) => ExtOpContents::CollectionRemove(
                 self.cg.local_to_remote_version(lv)
             ),
-            OpContents::Text(_) => { unimplemented!() }
+            OpContents::Text(metrics) => ExtOpContents::Text(self.metrics_to_op(&metrics))
         }
     }
 
@@ -62,8 +66,6 @@ impl OpLog {
 
         for walk in self.cg.parents.optimized_txns_between(v, self.version.as_ref()) {
             for KVPair(lv, op) in self.uncommitted_ops.ops.iter_range_packed_ctx(walk.consume, &self.uncommitted_ops.list_ctx) {
-
-
                 result.push(ExtOp {
                     target: self.target_to_rv(op.target_id),
                     parents: self.cg.local_to_remote_frontier(self.cg.parents.parents_at_time(lv).as_ref()),
@@ -78,7 +80,7 @@ impl OpLog {
         result
     }
 
-    fn ext_contents_to_local(&self, ext: ExtOpContents) -> OpContents {
+    fn ext_contents_to_local(&mut self, ext: ExtOpContents) -> OpContents {
         match ext {
             ExtOpContents::RegisterSet(val) => OpContents::RegisterSet(val),
             ExtOpContents::MapSet(key, val) => OpContents::MapSet(key, val),
@@ -86,7 +88,8 @@ impl OpLog {
             ExtOpContents::CollectionInsert(val) => OpContents::Collection(CollectionOp::Insert(val)),
             ExtOpContents::CollectionRemove(rv) => OpContents::Collection(CollectionOp::Remove(
                 self.cg.remote_to_local_version(rv)
-            ))
+            )),
+            ExtOpContents::Text(op) => OpContents::Text(self.text_op_to_metrics(&op))
         }
     }
 
@@ -128,7 +131,11 @@ impl SimpleDatabase {
             let target_local = self.oplog.target_rv_to_av(target);
             let contents = self.oplog.ext_contents_to_local(contents);
 
-            self.apply_remote_op(parents_local.as_ref(), version_local.into(), target_local, contents);
+            let version_span = AgentSpan {
+                agent: version_local.0,
+                seq_range: (version_local.1 .. version_local.1 + contents.len()).into()
+            };
+            self.apply_remote_op(parents_local.as_ref(), version_span, target_local, contents);
             // self.push_remote_op(parents_local.as_ref(), version_local.into(), target_local, contents);
         }
     }
@@ -140,7 +147,6 @@ mod tests {
     use crate::ROOT_CRDT_ID;
     use crate::simpledb::SimpleDatabase;
     use crate::Primitive::*;
-    use crate::CreateValue::*;
     use crate::CreateValue::*;
 
     #[test]
@@ -157,8 +163,16 @@ mod tests {
         db.map_set(seph, inner_map, "whoa", Primitive(I64(3214)));
 
         let ops_ext = db.oplog.ext_ops_since(&[]);
+
+        // for op in &ops_ext {
+        //     println!("{}", serde_json::to_string(op).unwrap());
+        // }
         // println!("{}", serde_json::to_string(&ops_ext).unwrap());
-        // dbg!(&ops_ext);
+        // println!("LEN {}", serde_json::to_string(&ops_ext).unwrap().len());
+
+
+        // let ops_ext2 = db.oplog.ext_ops_since(&[4]);
+        // dbg!(&ops_ext2);
 
         // let mut oplog2 = OpLog::new_mem();
         // oplog2.merge_ext_ops(ops_ext);
@@ -172,5 +186,29 @@ mod tests {
         // dbg!(db2.get_recursive());
 
         // println!("{}", serde_json::to_string(&db2.get_recursive()).unwrap());
+        // println!("LEN {}", serde_json::to_string(&db2.get_recursive()).unwrap().len())
+    }
+
+    #[test]
+    #[ignore] // Text is not implemented in branch.
+    fn edit_text() {
+        let mut db = SimpleDatabase::new_mem();
+        let seph = db.get_or_create_agent_id("seph");
+        let text = db.map_set(seph, ROOT_CRDT_ID, "name", NewCRDT(CRDTKind::Text));
+
+        db.text_insert(seph, text, 0, "Oh hai".into());
+        // db.text_remove(seph, text, (0..3).into());
+
+        dbg!(db.get_recursive());
+
+        let ops_ext = db.oplog.ext_ops_since(&[]);
+        // dbg!(&ops_ext);
+
+        // println!("{}", serde_json::to_string(&ops_ext).unwrap());
+
+
+        let mut db2 = SimpleDatabase::new_mem();
+        db2.merge_ext_ops(ops_ext);
+        assert_eq!(db.get_recursive(), db2.get_recursive());
     }
 }

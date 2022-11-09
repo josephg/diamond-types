@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 
 /// This is used for checkouts. This is a value tree.
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(tag = "type"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(untagged))]
+// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum DTValue {
     Primitive(Primitive),
     // Register(Box<DTValue>),
@@ -75,8 +76,8 @@ impl Branch {
         overlay.insert(ROOT_CRDT_ID, OverlayValue::Map(BTreeMap::new()));
 
         Self {
-            overlay,
-            overlay_version: Default::default(),
+            data: overlay,
+            version: Default::default(),
             num_invalid: 0
         }
     }
@@ -121,7 +122,7 @@ impl Branch {
     }
 
     pub fn get_recursive_at(&self, crdt_id: LV, cg: &CausalGraph) -> Option<DTValue> {
-        match self.overlay.get(&crdt_id)? {
+        match self.data.get(&crdt_id)? {
             OverlayValue::Register(reg) => self.mv_to_single_value(reg, cg),
             OverlayValue::Map(map) => {
                 Some(DTValue::Map(map.iter().filter_map(|(key, reg)| {
@@ -144,7 +145,7 @@ impl Branch {
     }
 
     pub(super) fn get_value_of_lww(&self, lww_id: LV) -> Option<&MVRegister> {
-        self.overlay.get(&lww_id).and_then(|val| {
+        self.data.get(&lww_id).and_then(|val| {
             match val {
                 OverlayValue::Register(val) => Some(val),
                 _ => None,
@@ -153,7 +154,7 @@ impl Branch {
     }
 
     fn get_map(&self, map: LV) -> Option<&BTreeMap<SmartString, MVRegister>> {
-        self.overlay.get(&map).and_then(|val| {
+        self.data.get(&map).and_then(|val| {
             match val {
                 OverlayValue::Map(inner_map) => Some(inner_map),
                 _ => None,
@@ -169,14 +170,14 @@ impl Branch {
 
     fn get_register(&self, crdt_id: LV, key: Option<&str>) -> Option<&MVRegister> {
         if let Some(key) = key {
-            match self.overlay.get(&crdt_id)? {
+            match self.data.get(&crdt_id)? {
                 OverlayValue::Map(inner_map) => {
                     Some(inner_map.get(key)?)
                 },
                 _ => None,
             }
         } else {
-            match self.overlay.get(&crdt_id)? {
+            match self.data.get(&crdt_id)? {
                 OverlayValue::Register(val) => Some(val),
                 _ => None,
             }
@@ -213,7 +214,7 @@ impl Branch {
 
     pub(crate) fn get_kind(&self, id: LV) -> CRDTKind {
         // TODO: Remove this unwrap() when we have an actual database.
-        match self.overlay.get(&id).unwrap() {
+        match self.data.get(&id).unwrap() {
             OverlayValue::Register(_) => CRDTKind::Register,
             OverlayValue::Map(_) => CRDTKind::Map,
             OverlayValue::Collection(_) => CRDTKind::Collection,
@@ -225,7 +226,7 @@ impl Branch {
 
     fn internal_remove_crdt(&mut self, crdt_id: LV) {
         // This needs to recursively delete things.
-        let old_value = self.overlay.remove(&crdt_id);
+        let old_value = self.data.remove(&crdt_id);
         todo!("Recurse!");
     }
     fn remove_old_value(&mut self, old_value: &SnapshotValue) {
@@ -257,7 +258,7 @@ impl Branch {
             }
         };
 
-        let old_val = self.overlay.insert(time, new_value);
+        let old_val = self.data.insert(time, new_value);
         assert!(old_val.is_none());
     }
 
@@ -273,14 +274,14 @@ impl Branch {
     }
 
     pub(crate) fn set_time(&mut self, time: LV) {
-        self.overlay_version.replace_with_1(time);
+        self.version.replace_with_1(time);
     }
 
 
     fn modify_reg_internal(&mut self, time: LV, reg_id: LV, op_value: &CreateValue, _cg: &CausalGraph) {
         let value = self.op_to_snapshot_value(time, op_value);
 
-        let inner = match self.overlay.get_mut(&reg_id).unwrap() {
+        let inner = match self.data.get_mut(&reg_id).unwrap() {
             OverlayValue::Register(lww) => lww,
             _ => { panic!("Cannot set register value in map"); }
         };
@@ -300,7 +301,7 @@ impl Branch {
     fn modify_map_internal(&mut self, time: LV, map_id: LV, key: &str, op_value: Option<&CreateValue>, cg: &CausalGraph) {
         let value = op_value.map(|op_value| self.op_to_snapshot_value(time, op_value));
 
-        let inner = match self.overlay.get_mut(&map_id).unwrap() {
+        let inner = match self.data.get_mut(&map_id).unwrap() {
             OverlayValue::Map(map) => map,
             _ => { panic!("Cannot set map value in LWW"); }
         };
@@ -361,7 +362,7 @@ impl Branch {
     // }
 
     fn internal_get_set(&mut self, set_id: LV) -> &mut BTreeMap<LV, SnapshotValue> {
-        match self.overlay.get_mut(&set_id).unwrap() {
+        match self.data.get_mut(&set_id).unwrap() {
             OverlayValue::Collection(set) => set,
             _ => { panic!("Not a set"); }
         }
@@ -379,14 +380,14 @@ impl Branch {
                 // We actually don't care if the item was already deleted - this can happen due to
                 // concurrency.
                 if let Some(SnapshotValue::InnerCRDT(id)) = removed {
-                    self.overlay.remove(&id); // And from the branch.
+                    self.data.remove(&id); // And from the branch.
                 }
             }
         }
     }
 
     pub(crate) fn modify_text_local(&mut self, crdt_id: LV, text_metrics: &ListOpMetrics, ctx: &ListOperationCtx) {
-        let rope = if let OverlayValue::Text(rope) = self.overlay.get_mut(&crdt_id).unwrap() {
+        let rope = if let OverlayValue::Text(rope) = self.data.get_mut(&crdt_id).unwrap() {
             rope
         } else { panic!("Not a rope"); };
 
@@ -402,7 +403,7 @@ impl Branch {
     }
 
     pub(crate) fn apply_local_op(&mut self, time: LV, op: &Op, ctx: &ListOperationCtx, cg: &CausalGraph) {
-        debug_assert!(self.overlay_version.iter().all(|v| time > *v));
+        debug_assert!(self.version.iter().all(|v| time > *v));
 
         match &op.contents {
             OpContents::RegisterSet(op_value) => {
@@ -455,6 +456,7 @@ impl Branch {
         // }
     }
 
+
     pub(crate) fn apply_remote_op(&mut self, cg: &CausalGraph, parents: &[LV], time: LV, op: &Op, ctx: &ListOperationCtx) {
         match &op.contents {
             OpContents::RegisterSet(op_value) => {
@@ -471,12 +473,12 @@ impl Branch {
                 // deleting an item twice is a no-op.
                 self.modify_set_internal(time, op.target_id, set_op);
             }
-            OpContents::Text(_) => {
-                todo!()
+            OpContents::Text(metrics) => {
+                unimplemented!();
             }
         }
 
-        self.overlay_version.advance_by_known_run(parents, time.into());
+        self.version.advance_by_known_run(parents, time.into());
     }
 }
 
