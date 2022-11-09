@@ -925,7 +925,7 @@ pub mod test {
     }
 
     fn fancy_parents() -> Parents {
-        Parents {
+        let p = Parents {
             entries: RleVec(vec![
                 ParentsEntryInternal { // 0-2
                     span: (0..3).into(), shadow: 0,
@@ -943,13 +943,15 @@ pub mod test {
                     child_indexes: smallvec![3],
                 },
                 ParentsEntryInternal { // 9-10
-                    span: (9..11).into(), shadow: 0,
+                    span: (9..11).into(), shadow: 6,
                     parents: Frontier::from_sorted(&[2, 8]),
                     child_indexes: smallvec![],
                 },
             ]),
             root_child_indexes: smallvec![0, 1],
-        }
+        };
+        p.dbg_check(true);
+        p
     }
 
     #[test]

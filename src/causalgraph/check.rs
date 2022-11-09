@@ -6,7 +6,7 @@ impl CausalGraph {
     #[allow(unused)]
     pub fn dbg_check(&self, deep: bool) {
         if deep {
-            self.parents.dbg_check();
+            self.parents.dbg_check(deep);
         }
 
         // The client_with_localtime should match with the corresponding items in client_data

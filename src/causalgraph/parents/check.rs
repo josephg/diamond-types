@@ -13,7 +13,7 @@ impl Parents {
         b
     }
 
-    pub(crate) fn dbg_check(&self) {
+    pub(crate) fn dbg_check(&self, _deep: bool) {
         self.entries.check_packed();
 
         let expect_root_children = self.entries
