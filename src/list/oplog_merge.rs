@@ -146,7 +146,7 @@ impl ListOpLog {
                 // dbg!(&hist_entry.parents);
 
                 self.cg.parents.push(hist_entry.parents.as_ref(), span);
-                self.advance_frontier(hist_entry.parents.as_ref(), span);
+                self.cg.version.advance_by_known_run(hist_entry.parents.as_ref(), span);
                 t += len;
             }
 

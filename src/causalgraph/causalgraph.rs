@@ -170,8 +170,13 @@ impl CausalGraph {
 
         self.assign_next_time_to_client_known(agent, span);
         self.parents.push(parents, span);
-
+        self.version.advance_by_known_run(parents, span);
         span
+    }
+
+    pub(crate) fn assign_span(&mut self, agent: AgentId, parents: &[LV], span: DTRange) {
+        debug_assert_eq!(span.start, self.len_assignment());
+        self.assign_local_op_with_parents(parents, agent, span.len());
     }
 
     pub fn assign_local_op(&mut self, agent: AgentId, num: usize) -> DTRange {
@@ -182,7 +187,7 @@ impl CausalGraph {
 
         self.assign_next_time_to_client_known(agent, span);
         self.parents.push(self.version.as_ref(), span);
-
+        self.version.replace_with_1(span.last());
         span
     }
 

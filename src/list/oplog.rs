@@ -136,7 +136,8 @@ impl ListOpLog {
     }
 
     /// span is the local timespan we're assigning to the named agent.
-    pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
+    /// This function shouldn't be used in new code.
+    pub(super) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
         debug_assert_eq!(span.start, self.cg.len_assignment());
 
         let client_data = &mut self.cg.client_data[agent as usize];
@@ -155,11 +156,6 @@ impl ListOpLog {
     //     self.insert_history_internal(txn_parents, range);
     // }
 
-    /// Advance self.frontier by the named span of time.
-    pub(crate) fn advance_frontier(&mut self, parents: &[LV], span: DTRange) {
-        self.cg.version.advance_by_known_run(parents, span);
-    }
-
     /// Append to operations list without adjusting metadata.
     ///
     /// NOTE: This method is destructive on its own. It must be paired with assign_internal() or
@@ -167,9 +163,12 @@ impl ListOpLog {
     pub(crate) fn push_op_internal(&mut self, next_time: LV, loc: RangeRev, kind: ListOpKind, content: Option<&str>) {
         // next_time should almost always be self.len - except when loading, or modifying the data
         // in some complex way.
-        let content_pos = if let Some(c) = content {
-            Some(self.operation_ctx.push_str(kind, c))
-        } else { None };
+        let content_pos = content.map(|c|
+            self.operation_ctx.push_str(kind, c)
+        );
+        // let content_pos = if let Some(c) = content {
+        //     Some(self.operation_ctx.push_str(kind, c))
+        // } else { None };
 
         // self.operations.push(KVPair(next_time, c.clone()));
         self.operations.push(KVPair(next_time, ListOpMetrics {
@@ -179,10 +178,26 @@ impl ListOpLog {
         }));
     }
 
-    fn assign_internal(&mut self, agent: AgentId, parents: &[LV], span: DTRange) {
-        self.assign_next_time_to_client_known(agent, span);
-        self.cg.parents.push(parents, span);
-        self.advance_frontier(parents, span);
+    /// Push new operations to the opset. Operation parents specified by parents parameter.
+    ///
+    /// Returns the single item version after merging. (The resulting LocalVersion after calling
+    /// this method will be `[time]`).
+    fn add_operations_local(&mut self, agent: AgentId, ops: &[TextOperation]) -> LV {
+        let first_time = self.len();
+        let mut next_time = first_time;
+
+        for op in ops {
+            let len = op.len();
+
+            // let content = if op.content_known { Some(op.content.as_str()) } else { None };
+            // let content = op.content.map(|c| c.as_str());
+            self.push_op_internal(next_time, op.loc, op.kind, op.content_as_str());
+            next_time += len;
+        }
+
+        self.cg.assign_local_op(agent, next_time - first_time);
+        // self.assign_internal(agent, parents, DTRange { start: first_time, end: next_time });
+        next_time - 1
     }
 
     /// Push new operations to the opset. Operation parents specified by parents parameter.
@@ -202,7 +217,7 @@ impl ListOpLog {
             next_time += len;
         }
 
-        self.assign_internal(agent, parents, DTRange { start: first_time, end: next_time });
+        self.cg.assign_span(agent, parents, DTRange { start: first_time, end: next_time });
         next_time - 1
     }
 
@@ -216,7 +231,7 @@ impl ListOpLog {
         let end = start + len;
 
         self.push_op_internal(start, (pos..pos+len).into(), ListOpKind::Ins, Some(ins_content));
-        self.assign_internal(agent, parents, DTRange { start, end });
+        self.cg.assign_span(agent, parents, DTRange { start, end });
         end - 1
     }
 
@@ -231,7 +246,7 @@ impl ListOpLog {
         let end_time = start_time + loc.len();
 
         self.push_op_internal(start_time, loc.into(), ListOpKind::Del, None);
-        self.assign_internal(agent, parents, DTRange { start: start_time, end: end_time });
+        self.cg.assign_span(agent, parents, DTRange { start: start_time, end: end_time });
         end_time - 1
     }
 
@@ -248,9 +263,7 @@ impl ListOpLog {
     /// [`branch.apply_local_operations`](Branch::apply_local_operations) instead when pushing to a
     /// branch).
     pub fn add_operations(&mut self, agent: AgentId, ops: &[TextOperation]) -> LV {
-        // TODO: Rewrite this to avoid the .clone().
-        let frontier = self.cg.version.clone();
-        self.add_operations_at(agent, frontier.as_ref(), ops)
+        self.add_operations_local(agent, ops)
     }
 
     /// Add an insert operation to the oplog at the current version.

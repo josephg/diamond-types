@@ -62,7 +62,6 @@ impl OpLog {
 
     fn inner_assign_local_op_span(&mut self, agent_id: AgentId, len: usize) -> DTRange {
         let span = self.cg.assign_local_op(agent_id, len);
-        self.cg.version = Frontier::new_1(span.last());
         span
     }
 

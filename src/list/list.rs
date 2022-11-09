@@ -78,9 +78,10 @@ pub(crate) fn apply_local_operations(oplog: &mut ListOpLog, branch: &mut ListBra
         end: next_time
     };
 
+    // TODO: Replace this with a call to oplog.cg.assign_local_op_with_parents.
     oplog.assign_next_time_to_client_known(agent, span);
+    oplog.cg.version.advance_by_known_run(branch.version.as_ref(), span);
 
-    oplog.advance_frontier(branch.version.as_ref(), span);
     // replace_frontier_with(&mut oplog.version, next_time - 1);
     insert_history_local(oplog, &mut branch.version, span);
 

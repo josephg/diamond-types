@@ -901,7 +901,7 @@ impl ListOpLog {
                         }
 
                         self.cg.parents.push(mapped.parents.as_ref(), mapped.span);
-                        self.advance_frontier(mapped.parents.as_ref(), mapped.span);
+                        self.cg.version.advance_by_known_run(mapped.parents.as_ref(), mapped.span);
 
                         next_history_time += mapped.len();
                     } // else we already have these entries. Filter them out.
