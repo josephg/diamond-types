@@ -193,8 +193,8 @@ mod test {
         let mut cg = CausalGraph::new();
         cg.get_or_create_agent_id("seph");
         cg.get_or_create_agent_id("mike");
-        cg.assign_local_op(&[], 0, 2);
-        cg.assign_local_op(&[], 1, 4);
+        cg.assign_local_op_with_parents(&[], 0, 2);
+        cg.assign_local_op_with_parents(&[], 1, 4);
 
         assert_eq!(0, cg.remote_to_local_version(RemoteVersion("seph", 0)));
         assert_eq!(1, cg.remote_to_local_version(RemoteVersion("seph", 1)));

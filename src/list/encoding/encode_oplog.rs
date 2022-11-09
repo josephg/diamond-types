@@ -541,7 +541,7 @@ impl ListOpLog {
         // If we just iterate in the current order, this code would be way simpler :p
         // let iter = self.cg.history.optimized_txns_between(from_frontier, &self.frontier);
         // for walk in self.cg.parents.iter() {
-        for walk in self.cg.parents.optimized_txns_between(from_version, self.version.as_ref()) {
+        for walk in self.cg.parents.optimized_txns_between(from_version, self.cg.version.as_ref()) {
             // We only care about walk.consume and parents.
 
             // We need to update *lots* of stuff in here!!
@@ -616,7 +616,7 @@ impl ListOpLog {
 
         let end_branch = if opts.experimentally_store_end_branch_content {
             let mut end_branch = Vec::new();
-            write_local_version(&mut end_branch, self.version.as_ref(), &mut agent_mapping, self);
+            write_local_version(&mut end_branch, self.cg.version.as_ref(), &mut agent_mapping, self);
 
             let branch_here = ListBranch::new_at_tip(self);
             write_content_rope(&mut end_branch, &branch_here.content.borrow(), compress_bytes.as_mut());

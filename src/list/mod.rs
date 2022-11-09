@@ -118,13 +118,13 @@ pub struct ListOpLog {
     // TODO: Replace me with a compact form of this data.
     operations: RleVec<KVPair<ListOpMetrics>>,
 
-    /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into
-    /// a branch, this is the version of that branch.
-    ///
-    /// This is only stored as a convenience - we could recalculate it as needed from history when
-    /// needed, but thats a hassle. And it takes up very little space, and its very convenient to
-    /// have on hand! So here it is.
-    version: Frontier,
+    // /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into
+    // /// a branch, this is the version of that branch.
+    // ///
+    // /// This is only stored as a convenience - we could recalculate it as needed from history when
+    // /// needed, but thats a hassle. And it takes up very little space, and its very convenient to
+    // /// have on hand! So here it is.
+    // version: Frontier,
 }
 
 /// This is a simple helper structure which wraps an [`OpLog`](OpLog) and [`Branch`](Branch)

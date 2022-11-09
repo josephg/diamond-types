@@ -32,7 +32,7 @@ impl PartialEq<Self> for ListOpLog {
         // - [x] frontier
 
         // This check isn't sufficient. We'll check the frontier entries more thoroughly below.
-        if self.version.len() != other.version.len() { return false; }
+        if self.cg.version.len() != other.cg.version.len() { return false; }
 
         // [self.agent] => other.agent.
         let mut agent_a_to_b = Vec::new();
@@ -69,10 +69,10 @@ impl PartialEq<Self> for ListOpLog {
 
         // Check frontier contents. Note this is O(n^2) with the size of the respective frontiers.
         // Which should be fine in normal use, but its a DDOS risk.
-        for t in self.version.iter() {
+        for t in self.cg.version.iter() {
             let other_time = map_lv_to_other(*t);
             if let Some(other_time) = other_time {
-                if !other.version.0.contains(&other_time) {
+                if !other.cg.version.0.contains(&other_time) {
                     if VERBOSE { println!("Frontier is not contained by other frontier"); }
                     return false;
                 }

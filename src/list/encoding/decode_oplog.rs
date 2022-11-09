@@ -487,7 +487,7 @@ impl ListOpLog {
 
         // We could regenerate the frontier, but this is much lazier.
         let doc_id = self.doc_id.clone();
-        let old_frontier = self.version.clone();
+        let old_frontier = self.cg.version.clone();
         let num_known_agents = self.cg.client_data.len();
         let ins_content_length = self.operation_ctx.ins_content.len();
         let del_content_length = self.operation_ctx.del_content.len();
@@ -578,7 +578,7 @@ impl ListOpLog {
             self.operation_ctx.ins_content.truncate(ins_content_length);
             self.operation_ctx.del_content.truncate(del_content_length);
 
-            self.version = old_frontier;
+            self.cg.version = old_frontier;
         }
 
         result
@@ -669,7 +669,7 @@ impl ListOpLog {
         // empty document, or we've been sent catchup data from a remote peer. If the data set
         // overlaps, we need to actively filter out operations & txns from that data set.
         // dbg!(&start_frontier, &self.frontier);
-        let patches_overlap = !local_frontier_eq(start_version.as_ref(), self.version.as_ref());
+        let patches_overlap = !local_frontier_eq(start_version.as_ref(), self.cg.version.as_ref());
         // dbg!(patches_overlap);
 
         // *** Patches ***

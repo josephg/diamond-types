@@ -54,11 +54,11 @@ fn decode_in_parts() {
     doc.insert(0, 0, "hi there");
 
     let data_1 = doc.oplog.encode(EncodeOptions::default());
-    let f1 = doc.oplog.version.clone();
+    let f1 = doc.oplog.cg.version.clone();
 
     doc.delete_without_content(1, 3..7); // 'hi e'
     doc.insert(0, 3, "m");
-    let f2 = doc.oplog.version.clone();
+    let f2 = doc.oplog.cg.version.clone();
 
     let data_2 = doc.oplog.encode_from(EncodeOptions::default(), f1.as_ref());
 
@@ -86,13 +86,13 @@ fn merge_parts() {
     println!("\n------\n");
     let final_v = log2.decode_and_add(&data_2).unwrap();
     assert_eq!(&oplog, &log2);
-    assert_eq!(final_v, oplog.version);
+    assert_eq!(final_v, oplog.cg.version);
 }
 
 #[test]
 fn merge_future_patch_errors() {
     let oplog = simple_doc().oplog;
-    let v = oplog.version[0];
+    let v = oplog.cg.version[0];
     let bytes = oplog.encode_from(ENCODE_FULL, &[v-1]);
 
     let err = ListOpLog::load_from(&bytes).unwrap_err();
@@ -334,7 +334,7 @@ fn merge_returns_version_even_with_overlap() {
 fn merge_patch_returns_correct_version() {
     // This was returning [4, ROOT_VERSION] or some nonsense.
     let mut oplog = simple_doc().oplog;
-    let v = oplog.version.clone();
+    let v = oplog.cg.version.clone();
     let mut oplog2 = oplog.clone();
 
     oplog.add_insert(0, 0, "x");

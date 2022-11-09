@@ -30,7 +30,6 @@ impl ListOpLog {
             operation_ctx: ListOperationCtx::new(),
             operations: Default::default(),
             // inserted_content: "".to_string(),
-            version: Frontier::root()
         }
     }
 
@@ -42,7 +41,7 @@ impl ListOpLog {
 
     pub fn checkout_tip(&self) -> ListBranch {
         let mut branch = ListBranch::new();
-        branch.merge(self, self.version.as_ref());
+        branch.merge(self, self.cg.version.as_ref());
         branch
     }
 
@@ -158,7 +157,7 @@ impl ListOpLog {
 
     /// Advance self.frontier by the named span of time.
     pub(crate) fn advance_frontier(&mut self, parents: &[LV], span: DTRange) {
-        self.version.advance_by_known_run(parents, span);
+        self.cg.version.advance_by_known_run(parents, span);
     }
 
     /// Append to operations list without adjusting metadata.
@@ -250,7 +249,7 @@ impl ListOpLog {
     /// branch).
     pub fn add_operations(&mut self, agent: AgentId, ops: &[TextOperation]) -> LV {
         // TODO: Rewrite this to avoid the .clone().
-        let frontier = self.version.clone();
+        let frontier = self.cg.version.clone();
         self.add_operations_at(agent, frontier.as_ref(), ops)
     }
 
@@ -300,17 +299,17 @@ impl ListOpLog {
     /// This method is provided alongside [`local_version`](OpLog::local_version) because its
     /// slightly faster.
     pub fn local_frontier_ref(&self) -> &[LV] {
-        self.version.as_ref()
+        self.cg.version.as_ref()
     }
 
     /// Return the current tip version of the oplog. This is the version which contains all
     /// operations in the oplog.
     pub fn local_frontier(&self) -> Frontier {
-        self.version.clone()
+        self.cg.version.clone()
     }
 
     pub fn remote_frontier(&self) -> RemoteFrontier {
-        self.cg.local_to_remote_frontier(self.version.as_ref())
+        self.cg.local_to_remote_frontier(self.cg.version.as_ref())
     }
 
     // pub(crate) fn content_str(&self, tag: InsDelTag) -> &str {

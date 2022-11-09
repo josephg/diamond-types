@@ -101,7 +101,7 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             // Every little while, merge everything. This has 2 purposes:
             // 1. It stops the fuzzer being n^2. (Its really unfortunate we need this)
             // And 2. It makes sure n-way merging also works correctly.
-            let all_frontier = oplog.version.as_ref();
+            let all_frontier = oplog.cg.version.as_ref();
 
             for b in branches.iter_mut() {
                 b.merge(&oplog, all_frontier);

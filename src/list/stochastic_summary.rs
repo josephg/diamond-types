@@ -32,7 +32,7 @@ impl ListOpLog {
     #[allow(unused)]
     fn get_stochastic_version(&self, target_count: usize) -> Vec<AgentVersion> {
         // TODO: WIP.
-        let target_count = target_count.max(self.version.len());
+        let target_count = target_count.max(self.cg.version.len());
         let mut result = Vec::with_capacity(target_count + 10);
 
         let time_len = self.len();
@@ -45,7 +45,7 @@ impl ListOpLog {
         };
 
         // No matter what, we'll send the current frontier:
-        for t in self.version.iter() {
+        for t in self.cg.version.iter() {
             push_time(*t);
         }
 
@@ -55,11 +55,11 @@ impl ListOpLog {
         //
         // Given factor, the approx number of operations we'll return is log_f(|ops|).
         // Solving for f gives f = |ops|^(1/target).
-        if target_count > self.version.len() {
+        if target_count > self.cg.version.len() {
             // Note I'm using n_ops here rather than time, since this easily scales time by the
             // approximate size of the transmitted operations. TODO: This might be a faulty
             // assumption given we're probably sending inserted content? Hm!
-            let remaining_count = target_count - self.version.len();
+            let remaining_count = target_count - self.cg.version.len();
             let n_ops = self.operations.0.len();
             let mut factor = f32::powf(n_ops as f32, 1f32 / (remaining_count) as f32);
             factor = factor.max(1.1);

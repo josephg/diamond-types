@@ -109,8 +109,8 @@ fn internal_do_insert(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: Age
     // If this isn't true, we should use oplog.advance_frontier(&branch.version, span), but thats
     // slower.
     // oplog.advance_frontier(&branch.version, time_span);
-    debug_assert_eq!(oplog.version, branch.version);
-    oplog.version.replace_with_1(end - 1);
+    debug_assert_eq!(oplog.cg.version, branch.version);
+    oplog.cg.version.replace_with_1(end - 1);
     insert_history_local(oplog, &mut branch.version, time_span);
     end - 1
 }
@@ -130,8 +130,8 @@ fn internal_do_delete(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: Age
 
     oplog.assign_next_time_to_client_known(agent, time_span);
 
-    debug_assert_eq!(oplog.version, branch.version);
-    oplog.version.replace_with_1(end - 1);
+    debug_assert_eq!(oplog.cg.version, branch.version);
+    oplog.cg.version.replace_with_1(end - 1);
     // oplog.advance_frontier(&branch.version, time_span);
     insert_history_local(oplog, &mut branch.version, time_span);
     end - 1
@@ -161,7 +161,7 @@ impl ListCRDT {
 
     pub fn merge_data_and_ff(&mut self, bytes: &[u8]) -> Result<Frontier, ParseError> {
         let v = self.oplog.decode_and_add(bytes)?;
-        self.branch.merge(&self.oplog, self.oplog.version.as_ref());
+        self.branch.merge(&self.oplog, self.oplog.cg.version.as_ref());
         Ok(v)
     }
 

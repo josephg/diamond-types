@@ -109,7 +109,7 @@ fn fuzz_encode_decode_multi(seed: u64, verbose: bool) {
             panic!("Documents do not match");
         } else {
             if verbose {
-                println!("Merge {:?} -> '{}'", &a.oplog.version, &a.branch.content);
+                println!("Merge {:?} -> '{}'", &a.oplog.cg.version, &a.branch.content);
             }
         }
     }

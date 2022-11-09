@@ -23,7 +23,7 @@ impl ListOpLog {
     pub fn bench_writing_xf_since(&self, from_version: &[LV]) {
         let mut tn_ops: Vec<RleRun<XFState>> = vec![];
 
-        for (_, op, xf) in self.get_xf_operations_full(from_version, self.version.as_ref()) {
+        for (_, op, xf) in self.get_xf_operations_full(from_version, self.cg.version.as_ref()) {
             let val = match xf {
                 TransformedResult::BaseMoved(xf_pos) => {
                     let origin_pos = op.start() as isize;

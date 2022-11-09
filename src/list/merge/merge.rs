@@ -849,7 +849,7 @@ impl ListOpLog {
     ///
     /// See [OpLog::iter_xf_operations_from](OpLog::iter_xf_operations_from) for more information.
     pub fn iter_xf_operations(&self) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
-        self.iter_xf_operations_from(&[], self.version.as_ref())
+        self.iter_xf_operations_from(&[], self.cg.version.as_ref())
     }
 }
 
@@ -1252,7 +1252,7 @@ mod test {
         list.get_or_create_agent_id("a");
         list.oplog.add_insert_at(0, &[], 0, "aaa");
 
-        let iter = TransformedOpsIter::new(&list.oplog, &[], list.oplog.version.as_ref());
+        let iter = TransformedOpsIter::new(&list.oplog, &[], list.oplog.cg.version.as_ref());
         dbg!(&iter);
         for x in iter {
             dbg!(x);

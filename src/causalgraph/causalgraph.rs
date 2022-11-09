@@ -159,7 +159,10 @@ impl CausalGraph {
         }));
     }
 
-    pub fn assign_local_op(&mut self, parents: &[LV], agent: AgentId, num: usize) -> DTRange {
+    // TODO: These functions look incredibly similar! We need both of them because of the borrow
+    // checker. I could write a function which takes parents: Option<&[LV]> but that'll make the
+    // benchmarks slower.
+    pub fn assign_local_op_with_parents(&mut self, parents: &[LV], agent: AgentId, num: usize) -> DTRange {
         if cfg!(debug_assertions) { self.check_flat(); }
 
         let start = self.len();
@@ -167,6 +170,18 @@ impl CausalGraph {
 
         self.assign_next_time_to_client_known(agent, span);
         self.parents.push(parents, span);
+
+        span
+    }
+
+    pub fn assign_local_op(&mut self, agent: AgentId, num: usize) -> DTRange {
+        if cfg!(debug_assertions) { self.check_flat(); }
+
+        let start = self.len();
+        let span = (start .. start + num).into();
+
+        self.assign_next_time_to_client_known(agent, span);
+        self.parents.push(self.version.as_ref(), span);
 
         span
     }

@@ -224,6 +224,7 @@ mod wal;
 #[cfg(feature = "serde")]
 pub(crate) mod serde_helpers;
 mod hack;
+// mod experiments;
 
 pub type AgentId = u32;
 
@@ -325,9 +326,9 @@ pub struct OpLog {
     cg_storage: Option<CGStorage>,
     wal_storage: Option<WriteAheadLog>,
 
-    /// The version that contains everything from CG.
-    /// This might make more sense in CG?
-    version: Frontier,
+    // /// The version that contains everything from CG.
+    // /// This might make more sense in CG?
+    // version: Frontier,
 
     /// Values which have not yet been flushed to the WAL.
     uncommitted_ops: Ops,

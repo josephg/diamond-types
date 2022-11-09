@@ -23,7 +23,7 @@ impl ListOpLog {
 
         let mut queue = BinaryHeap::new();
         // dbg!(&other.frontier, &other.history);
-        for ord in other.version.iter() {
+        for ord in other.cg.version.iter() {
             queue.push(*ord);
         }
 

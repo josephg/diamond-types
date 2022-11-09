@@ -353,19 +353,19 @@ mod test {
         let seph = cg.get_or_create_agent_id("seph");
         let mike = cg.get_or_create_agent_id("mike");
 
-        let mut span = cg.assign_local_op(&[], seph, 1);
+        let mut span = cg.assign_local_op(seph, 1);
         ops.ops.push(KVPair(span.start, Op {
             target_id: ROOT_CRDT_ID,
             contents: OpContents::MapSet("hi".into(), CreateValue::Primitive(Primitive::I64(123)))
         }));
-        span = cg.assign_local_op(&[span.last()], seph, 1);
+        span = cg.assign_local_op(seph, 1);
         ops.ops.push(KVPair(span.start, Op {
             target_id: ROOT_CRDT_ID,
             contents: OpContents::MapSet("cool set".into(), CreateValue::NewCRDT(CRDTKind::Collection))
         }));
 
         let set = span.start;
-        span = cg.assign_local_op(&[span.last()], seph, 1);
+        span = cg.assign_local_op(seph, 1);
         ops.ops.push(KVPair(span.start, Op {
             target_id: ROOT_CRDT_ID,
             contents: OpContents::Collection(CollectionOp::Insert(CreateValue::NewCRDT(CRDTKind::Register)))
