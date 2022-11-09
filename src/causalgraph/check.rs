@@ -3,7 +3,7 @@ use crate::{CausalGraph, Parents, Frontier};
 use crate::frontier::{clone_smallvec, debug_assert_frontier_sorted};
 
 impl CausalGraph {
-    pub fn dbg_get_frontier_inefficiently(&self) -> Frontier {
+    fn dbg_get_frontier_inefficiently(&self) -> Frontier {
         // Could improve this by just looking at the last txn, and following shadows down.
 
         let mut b = Frontier::root();
@@ -31,6 +31,8 @@ impl CausalGraph {
 
             assert_eq!(actual_range.1, expected_range);
         }
+
+        assert_eq!(self.version, self.dbg_get_frontier_inefficiently());
 
         if deep {
             // Also check the other way around.

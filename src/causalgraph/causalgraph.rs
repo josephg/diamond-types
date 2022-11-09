@@ -215,6 +215,7 @@ impl CausalGraph {
         client_data.item_times.insert(KVPair(span.seq_range.start, time_span));
         self.client_with_localtime.push(KVPair(time_start, span));
         self.parents.push(parents, time_span);
+        self.version.advance_by_known_run(parents, time_span);
         time_span
     }
 
@@ -287,6 +288,7 @@ impl CausalGraph {
                 client_data.item_times.0.insert(idx, KVPair(span.seq_range.start, time_span));
                 self.client_with_localtime.push(KVPair(time_start, span));
                 self.parents.push(parents, time_span);
+                self.version.advance_by_known_run(parents, time_span);
                 time_span
             }
         }

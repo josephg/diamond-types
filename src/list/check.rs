@@ -27,9 +27,6 @@ impl ListOpLog {
     /// any time.
     #[allow(unused)]
     pub fn dbg_check(&self, deep: bool) {
-        let actual_frontier = self.cg.dbg_get_frontier_inefficiently();
-        assert_eq!(self.cg.version, actual_frontier);
-
         self.cg.dbg_check(deep);
     }
 

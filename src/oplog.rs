@@ -69,15 +69,9 @@ impl OpLog {
         self.inner_assign_local_op_span(agent_id, 1).start
     }
 
-
-    fn inner_assign_remote_op_span(&mut self, parents: &[LV], crdt_span: AgentSpan) -> DTRange {
-        let time_span = self.cg.merge_and_assign_nonoverlapping(parents, crdt_span);
-        self.cg.version.advance_by_known_run(parents, time_span);
-        time_span
-    }
-
     fn inner_assign_remote_op(&mut self, parents: &[LV], id: AgentVersion) -> LV {
-        self.inner_assign_remote_op_span(parents, id.into()).start
+        // TODO: Make me idemopotent!
+        self.cg.merge_and_assign_nonoverlapping(parents, id.into()).start
     }
 
     pub(crate) fn push_local_op(&mut self, agent_id: AgentId, crdt_id: LV, contents: OpContents) -> DTRange {
@@ -101,7 +95,7 @@ impl OpLog {
         // }
 
         // TODO: Filter op by anything we already know.
-        let time_span = self.inner_assign_remote_op_span(parents, op_id);
+        let time_span = self.cg.merge_and_assign_nonoverlapping(parents, op_id);
         let crdt_id = self.try_agent_version_to_target(crdt_av).unwrap();
 
         self.uncommitted_ops.ops.push(KVPair(time_span.start, Op { target_id: crdt_id, contents}));
