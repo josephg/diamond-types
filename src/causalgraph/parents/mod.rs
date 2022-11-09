@@ -3,6 +3,7 @@
 
 pub(crate) mod tools;
 mod scope;
+mod check;
 
 use std::iter::once;
 use smallvec::{SmallVec, smallvec};
@@ -130,7 +131,7 @@ impl Parents {
 pub(crate) struct ParentsEntryInternal {
     pub span: DTRange, // TODO: Make the span u64s instead of usize.
 
-    /// All txns in this span are direct descendants of all operations from order down to shadow.
+    /// All txns in this span are direct descendants of all operations from span down to shadow.
     /// This is derived from other fields and used as an optimization for some calculations.
     pub shadow: usize,
 

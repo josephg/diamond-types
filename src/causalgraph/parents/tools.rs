@@ -943,7 +943,7 @@ pub mod test {
                     child_indexes: smallvec![3],
                 },
                 ParentsEntryInternal { // 9-10
-                    span: (9..11).into(), shadow: usize::MAX,
+                    span: (9..11).into(), shadow: 0,
                     parents: Frontier::from_sorted(&[2, 8]),
                     child_indexes: smallvec![],
                 },

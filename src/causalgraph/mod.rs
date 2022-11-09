@@ -59,5 +59,5 @@ pub struct CausalGraph {
     pub parents: Parents,
 
     /// This is the version you get if you load the entire causal graph
-    pub(crate) version: Frontier,
+    pub version: Frontier,
 }
