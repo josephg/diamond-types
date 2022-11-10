@@ -1,5 +1,5 @@
 use content_tree::{ContentLength, Cursor, FindContent, Pair, TreeMetrics};
-use crate::list::merge::yjsspan::YjsSpan;
+use crate::listmerge::yjsspan::YjsSpan;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct MarkerMetrics;

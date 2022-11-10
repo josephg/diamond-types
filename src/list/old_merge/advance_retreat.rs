@@ -1,11 +1,11 @@
 use std::ptr::NonNull;
 use content_tree::NodeLeaf;
 use rle::{HasLength, SplitableSpan};
-use crate::list::merge::{DocRangeIndex, M2Tracker};
-use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
-use crate::list::merge::merge::notify_for;
+use crate::list::old_merge::{DocRangeIndex, M2Tracker};
+use crate::list::old_merge::markers::Marker::{DelTarget, InsPtr};
+use crate::list::old_merge::merge::notify_for;
 use crate::rev_range::RangeRev;
-use crate::list::merge::yjsspan::YjsSpan;
+use crate::list::old_merge::yjsspan::YjsSpan;
 use crate::list::operation::ListOpKind;
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::dtrange::DTRange;

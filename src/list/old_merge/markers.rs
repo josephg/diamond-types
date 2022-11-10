@@ -6,9 +6,9 @@ use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use content_tree::*;
 use rle::Searchable;
 use crate::rev_range::RangeRev;
-use crate::list::merge::DocRangeIndex;
-use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
-use crate::list::merge::yjsspan::YjsSpan;
+use crate::list::old_merge::DocRangeIndex;
+use crate::list::old_merge::markers::Marker::{DelTarget, InsPtr};
+use crate::list::old_merge::yjsspan::YjsSpan;
 use crate::list::operation::ListOpKind;
 
 // TODO: Consider refactoring this to be a single enum. Put len in InsPtr and use .len(). But this
@@ -188,8 +188,8 @@ impl Searchable for MarkerEntry {
 mod tests {
     use std::ptr::NonNull;
     use rle::test_splitable_methods_valid;
-    use crate::list::merge::markers::Marker::{DelTarget, InsPtr};
-    use crate::list::merge::markers::MarkerEntry;
+    use crate::list::old_merge::markers::Marker::{DelTarget, InsPtr};
+    use crate::list::old_merge::markers::MarkerEntry;
     use crate::rev_range::RangeRev;
 
     #[test]

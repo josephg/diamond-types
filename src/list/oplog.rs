@@ -79,7 +79,7 @@ impl ListOpLog {
 
     /// **NOTE:** This method will return a timespan with length min(time, agent_time). The
     /// resulting length will NOT be guaranteed to be the same as the input.
-    pub(crate) fn get_crdt_span(&self, version: DTRange) -> AgentSpan {
+    pub(crate) fn lv_span_to_agent_span(&self, version: DTRange) -> AgentSpan {
         // TODO: Move to cg.
         self.cg.lv_span_to_agent_span(version)
     }

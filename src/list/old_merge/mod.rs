@@ -13,9 +13,9 @@
 use std::pin::Pin;
 use content_tree::{ContentTreeRaw, RawPositionMetricsUsize};
 use rle::{HasLength, MergableSpan};
-use crate::list::merge::markers::MarkerEntry;
-use crate::list::merge::metrics::MarkerMetrics;
-use crate::list::merge::yjsspan::YjsSpan;
+use crate::list::old_merge::markers::MarkerEntry;
+use crate::list::old_merge::metrics::MarkerMetrics;
+use crate::list::old_merge::yjsspan::YjsSpan;
 use crate::{DTRange, SmartString, LV};
 use crate::list::ListOpLog;
 use crate::causalgraph::remote_ids::RemoteVersionSpanOwned;

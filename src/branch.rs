@@ -24,24 +24,18 @@ pub enum DTValue {
 
 impl DTValue {
     pub fn unwrap_primitive(self) -> Primitive {
-        match self {
-            DTValue::Primitive(p) => p,
-            _ => { panic!("Expected primitive") }
-        }
+        if let DTValue::Primitive(p) = self { p }
+        else { panic!("Expected primitive") }
     }
 
     pub fn unwrap_map(self) -> BTreeMap<SmartString, Box<DTValue>> {
-        match self {
-            DTValue::Map(map) => map,
-            _ => { panic!("Expected map") }
-        }
+        if let DTValue::Map(map) = self { map }
+        else { panic!("Expected map") }
     }
 
     pub fn unwrap_set(self) -> BTreeMap<LV, Box<DTValue>> {
-        match self {
-            DTValue::Collection(set) => set,
-            _ => { panic!("Expected set") }
-        }
+        if let DTValue::Collection(set) = self { set }
+        else { panic!("Expected set") }
     }
 }
 

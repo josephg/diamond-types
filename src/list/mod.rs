@@ -18,9 +18,9 @@ use crate::rle::{KVPair, RleVec};
 pub mod operation;
 mod list;
 mod check;
-mod op_iter;
+pub(crate) mod op_iter;
 
-pub mod merge;
+pub mod old_merge;
 mod oplog;
 mod branch;
 pub mod encoding;
@@ -33,7 +33,7 @@ mod fuzzer_tools;
 #[cfg(test)]
 mod oplog_merge_fuzzer;
 
-mod buffered_iter;
+pub(crate) mod buffered_iter;
 mod stochastic_summary;
 
 // TODO!

@@ -79,13 +79,20 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
 
 // impl<K: Copy + Eq + Ord + Add<Output = K> + Sub<Output = K> + AddAssign, V: Copy + Eq> RLE<K, V> {
 impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
-    pub(crate) fn find_index(&self, needle: usize) -> Result<usize, usize> {
+    /// Find the index of the requested item via binary search
+    pub fn find_index(&self, needle: usize) -> Result<usize, usize> {
         self.0.binary_search_by(|entry| {
             let key = entry.rle_key();
             if needle < key { Greater }
             else if needle >= key + entry.len() { Less }
             else { Equal }
         })
+    }
+
+    /// Find the index of the requested item. If the item doesn't exist in the map, return the
+    /// index of the next item (or self.0.len()).
+    pub fn find_next_index(&self, needle: usize) -> usize {
+        self.find_index(needle).unwrap_or_else(|i| i)
     }
 
     // /// This is a variant of find_index for data sets where we normally know the index (via

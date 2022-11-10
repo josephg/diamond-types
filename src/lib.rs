@@ -186,6 +186,7 @@ extern crate core;
 
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::{Debug, Formatter};
 use jumprope::JumpRope;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
@@ -224,7 +225,8 @@ mod wal;
 #[cfg(feature = "serde")]
 pub(crate) mod serde_helpers;
 mod hack;
-// mod experiments;
+pub(crate) mod experiments;
+mod listmerge;
 
 pub type AgentId = u32;
 
@@ -236,7 +238,7 @@ pub type AgentId = u32;
 /// converted to RawVersions before being sent over the wire or saved to disk.
 pub type LV = usize;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(untagged))]
 // #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Primitive {
@@ -248,6 +250,19 @@ pub enum Primitive {
 
     #[cfg_attr(feature = "serde", serde(skip))]
     InvalidUninitialized,
+}
+
+impl Debug for Primitive {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Primitive::Nil => f.debug_struct("Nil").finish(),
+            Primitive::Bool(val) => val.fmt(f),
+            // Primitive::I64(val) => f.debug_tuple("I64").field(val).finish(),
+            Primitive::I64(val) => val.fmt(f),
+            Primitive::Str(val) => val.fmt(f),
+            Primitive::InvalidUninitialized => f.debug_tuple("InvalidUninitialized").finish()
+        }
+    }
 }
 
 // #[derive(Debug, Eq, PartialEq, Copy, Clone, TryFromPrimitive)]

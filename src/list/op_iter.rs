@@ -17,6 +17,7 @@ pub(crate) struct OpMetricsIter<'a> {
     range: DTRange,
 }
 
+/// Wrapper around OpMetricsIter which yields (metrics, content) instead of just metrics.
 #[derive(Debug)]
 pub(crate) struct OpIterFast<'a>(OpMetricsIter<'a>);
 
@@ -55,7 +56,7 @@ impl<'a> Iterator for OpIterFast<'a> {
 }
 
 impl<'a> OpMetricsIter<'a> {
-    fn new(list: &'a RleVec<KVPair<ListOpMetrics>>, ctx: &'a ListOperationCtx, range: DTRange) -> Self {
+    pub(crate) fn new(list: &'a RleVec<KVPair<ListOpMetrics>>, ctx: &'a ListOperationCtx, range: DTRange) -> Self {
         let mut iter = OpMetricsIter {
             list,
             ctx,
@@ -68,7 +69,7 @@ impl<'a> OpMetricsIter<'a> {
 
     fn prime(&mut self, range: DTRange) {
         self.range = range;
-        self.idx = if range.is_empty() { 0 } else { self.list.find_index(range.start).unwrap() };
+        self.idx = if range.is_empty() { 0 } else { self.list.find_next_index(range.start) };
     }
 
     #[allow(unused)]

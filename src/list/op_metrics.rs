@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::list::operation::ListOpKind::*;
@@ -48,6 +49,12 @@ impl ListOpMetrics {
         self.loc.span.end
     }
 
+    pub(crate) fn get_content_ctx<'a>(&self, ctx: &'a ListOperationCtx) -> Option<&'a str> {
+        self.content_pos.map(|span| {
+            ctx.get_str(self.kind, span)
+        })
+    }
+
     pub(crate) fn get_content<'a>(&self, oplog: &'a ListOpLog) -> Option<&'a str> {
         self.content_pos.map(|span| {
             oplog.operation_ctx.get_str(self.kind, span)
@@ -66,10 +73,22 @@ impl HasLength for ListOpMetrics {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[derive(Clone, Eq, PartialEq, Default)]
 pub(crate) struct ListOperationCtx {
     pub(crate) ins_content: Vec<u8>,
     pub(crate) del_content: Vec<u8>,
+}
+
+// Not using the derived Debug so we can from_utf8 the internal content.
+impl Debug for ListOperationCtx {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ListOperationCtx")
+            // We should be able to use from_utf8_unchecked here but its Debug, and I'd rather be
+            // safe than sorry.
+            .field("ins_content", &std::str::from_utf8(&self.ins_content).unwrap())
+            .field("del_content", &std::str::from_utf8(&self.del_content).unwrap())
+            .finish()
+    }
 }
 
 impl ListOperationCtx {
