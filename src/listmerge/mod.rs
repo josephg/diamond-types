@@ -33,7 +33,7 @@ mod dot;
 
 #[cfg(feature = "ops_to_old")]
 pub mod to_old;
-mod simple_oplog;
+pub(crate) mod simple_oplog;
 
 type DocRangeIndex = MarkerMetrics;
 type CRDTList2 = Pin<Box<ContentTreeRaw<YjsSpan, DocRangeIndex>>>;

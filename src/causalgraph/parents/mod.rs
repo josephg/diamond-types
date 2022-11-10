@@ -312,59 +312,70 @@ impl From<&ParentsEntryInternal> for ParentsEntrySimple {
     }
 }
 
-pub(crate) struct ParentsIter<'a> {
-    history: &'a Parents,
-    idx: usize,
-    offset: usize,
-    end: usize,
-}
+// This code works, but its much more complex than just using .iter() in the entries list.
 
-impl<'a> Iterator for ParentsIter<'a> {
-    type Item = ParentsEntrySimple;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // If we hit the end of the list this will be None and return.
-        let e = self.history.entries.0.get(self.idx)?;
-
-        if self.end <= e.span.start { return None; } // End of the requested range.
-
-        self.idx += 1;
-
-        let mut m = ParentsEntrySimple::from(e);
-
-        if self.offset > 0 {
-            m.truncate_keeping_right(self.offset);
-            self.offset = 0;
-        }
-
-        if m.span.end > self.end {
-            m.truncate(self.end - m.span.start);
-        }
-
-        Some(m)
-    }
-}
-
+// pub(crate) struct ParentsIter<'a> {
+//     history: &'a Parents,
+//     idx: usize,
+//     offset: usize,
+//     end: usize,
+// }
+//
+// impl<'a> Iterator for ParentsIter<'a> {
+//     type Item = ParentsEntrySimple;
+//
+//     fn next(&mut self) -> Option<Self::Item> {
+//         // If we hit the end of the list this will be None and return.
+//         let e = self.history.entries.0.get(self.idx)?;
+//
+//         if self.end <= e.span.start { return None; } // End of the requested range.
+//
+//         self.idx += 1;
+//
+//         let mut m = ParentsEntrySimple::from(e);
+//
+//         if self.offset > 0 {
+//             m.truncate_keeping_right(self.offset);
+//             self.offset = 0;
+//         }
+//
+//         if m.span.end > self.end {
+//             m.truncate(self.end - m.span.start);
+//         }
+//
+//         Some(m)
+//     }
+// }
+//
+// impl Parents {
+//     pub(crate) fn iter_range(&self, range: DTRange) -> ParentsIter<'_> {
+//         let idx = self.entries.find_index(range.start).unwrap();
+//         let offset = range.start - self.entries.0[idx].rle_key();
+//
+//         ParentsIter {
+//             history: self,
+//             idx,
+//             offset,
+//             end: range.end
+//         }
+//     }
+//
+//     pub(crate) fn iter(&self) -> ParentsIter<'_> {
+//         ParentsIter {
+//             history: self,
+//             idx: 0,
+//             offset: 0,
+//             end: self.get_next_time()
+//         }
+//     }
+// }
 impl Parents {
-    pub(crate) fn iter_range(&self, range: DTRange) -> ParentsIter<'_> {
-        let idx = self.entries.find_index(range.start).unwrap();
-        let offset = range.start - self.entries.0[idx].rle_key();
-
-        ParentsIter {
-            history: self,
-            idx,
-            offset,
-            end: range.end
-        }
+    pub(crate) fn iter_range(&self, range: DTRange) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
+        self.entries.iter_range_map_packed(range, |e| e.into())
     }
 
-    pub(crate) fn iter(&self) -> ParentsIter<'_> {
-        ParentsIter {
-            history: self,
-            idx: 0,
-            offset: 0,
-            end: self.get_next_time()
-        }
+    pub(crate) fn iter(&self) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
+        self.entries.iter().map(|e| e.into())
     }
 }
 

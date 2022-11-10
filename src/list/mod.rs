@@ -29,7 +29,7 @@ mod eq;
 mod oplog_merge;
 
 #[cfg(test)]
-mod fuzzer_tools;
+mod old_fuzzer_tools;
 #[cfg(test)]
 mod oplog_merge_fuzzer;
 

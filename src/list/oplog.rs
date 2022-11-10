@@ -298,12 +298,12 @@ impl ListOpLog {
     }
 
     /// Iterate through history entries
-    pub fn iter_history(&self) -> impl Iterator<Item =ParentsEntrySimple> + '_ {
-        self.cg.parents.entries.iter().map(|e| e.into())
+    pub fn iter_history(&self) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
+        self.cg.parents.iter()
     }
 
-    pub fn iter_history_range(&self, range: DTRange) -> impl Iterator<Item =ParentsEntrySimple> + '_ {
-        self.cg.parents.entries.iter_range_map_packed(range, |e| e.into())
+    pub fn iter_history_range(&self, range: DTRange) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
+        self.cg.parents.iter_range(range)
     }
 
     /// Returns a `&[usize]` reference to the tip of the oplog. This version contains all

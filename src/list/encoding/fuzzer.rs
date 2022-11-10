@@ -1,7 +1,7 @@
 use rand::prelude::*;
 use crate::list::{ListCRDT, ListOpLog};
 use crate::list::encoding::EncodeOptions;
-use crate::list::fuzzer_tools::{choose_2, make_random_change};
+use crate::list::old_fuzzer_tools::{choose_2, make_random_change};
 
 // This fuzzer will make an oplog, spam it with random changes from a single peer. Then save & load
 // it back to make sure the result doesn't change.

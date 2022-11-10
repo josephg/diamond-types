@@ -1,8 +1,8 @@
 use jumprope::JumpRope;
 use rand::prelude::*;
 use crate::AgentId;
-use crate::list::{ListBranch, fuzzer_tools, ListCRDT, ListOpLog};
-use crate::list::fuzzer_tools::choose_2;
+use crate::list::{ListBranch, old_fuzzer_tools, ListCRDT, ListOpLog};
+use crate::list::old_fuzzer_tools::choose_2;
 
 #[test]
 fn random_single_document() {
@@ -15,7 +15,7 @@ fn random_single_document() {
     for _i in 0..1000 {
         // eprintln!("i {}", _i);
         // doc.debug_print_stuff();
-        fuzzer_tools::make_random_change(&mut doc, Some(&mut expected_content), agent, &mut rng);
+        old_fuzzer_tools::make_random_change(&mut doc, Some(&mut expected_content), agent, &mut rng);
         assert_eq!(doc.branch.content, expected_content);
     }
 
@@ -42,7 +42,7 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             let branch = &mut branches[idx];
 
             // This should + does also work if we set idx=0 and use the same agent for all changes.
-            let v = fuzzer_tools::make_random_change_raw(&mut oplog, branch, None, idx as AgentId, &mut rng);
+            let v = old_fuzzer_tools::make_random_change_raw(&mut oplog, branch, None, idx as AgentId, &mut rng);
             // dbg!(opset.iter_range((v..v+1).into()).next().unwrap());
 
             branch.merge(&oplog, &[v]);

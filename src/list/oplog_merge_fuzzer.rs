@@ -1,6 +1,6 @@
 use rand::prelude::*;
-use crate::list::fuzzer_tools::make_random_change;
-use crate::list::{fuzzer_tools, ListCRDT};
+use crate::list::old_fuzzer_tools::make_random_change;
+use crate::list::{old_fuzzer_tools, ListCRDT};
 
 fn oplog_merge_fuzz(seed: u64, verbose: bool) {
     let mut rng = SmallRng::seed_from_u64(seed);
@@ -33,7 +33,7 @@ fn oplog_merge_fuzz(seed: u64, verbose: bool) {
         //     println!("with changes {idx} length {}", d.ops.len());
         // }
 
-        let (_a_idx, a, _b_idx, b) = fuzzer_tools::choose_2(&mut docs, &mut rng);
+        let (_a_idx, a, _b_idx, b) = old_fuzzer_tools::choose_2(&mut docs, &mut rng);
 
         // a.ops.dbg_print_assignments_and_ops();
         // println!("\n");
