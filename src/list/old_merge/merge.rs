@@ -33,7 +33,7 @@ use crate::list::old_merge::markers::Marker::{DelTarget, InsPtr};
 use crate::list::old_merge::markers::MarkerEntry;
 use crate::list::old_merge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::list::old_merge::metrics::upstream_cursor_pos;
-use crate::list::old_merge::txn_trace::SpanningTreeWalker;
+use crate::listmerge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
 use crate::list::operation::ListOpKind::Ins;
 use crate::causalgraph::remote_ids::RemoteVersionSpanOwned;

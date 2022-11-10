@@ -25,7 +25,7 @@ mod yjsspan;
 pub(crate) mod merge;
 mod markers;
 mod advance_retreat;
-pub(crate) mod txn_trace;
+// pub(crate) mod txn_trace;
 mod metrics;
 #[cfg(test)]
 pub mod fuzzer;
