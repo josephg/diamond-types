@@ -6,6 +6,7 @@ use crate::list_fuzzer_tools::{choose_2, make_random_change};
 use crate::listmerge::simple_oplog::{SimpleBranch, SimpleOpLog};
 
 #[test]
+#[ignore]
 fn random_single_document() {
     let mut rng = SmallRng::seed_from_u64(10);
     let mut oplog = SimpleOpLog::new();

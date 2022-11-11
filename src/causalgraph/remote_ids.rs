@@ -190,7 +190,7 @@ impl CausalGraph {
 
     pub fn iter_remote_mappings_range(&self, range: DTRange) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
         self.client_with_localtime
-            .iter_range_packed(range)
+            .iter_range(range)
             .map(|item| self.agent_span_to_remote(item.1))
     }
 }

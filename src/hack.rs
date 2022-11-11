@@ -65,7 +65,7 @@ impl OpLog {
         let mut result = vec![];
 
         for walk in self.cg.parents.optimized_txns_between(v, self.cg.version.as_ref()) {
-            for KVPair(lv, op) in self.uncommitted_ops.ops.iter_range_packed_ctx(walk.consume, &self.uncommitted_ops.list_ctx) {
+            for KVPair(lv, op) in self.uncommitted_ops.ops.iter_range_ctx(walk.consume, &self.uncommitted_ops.list_ctx) {
                 result.push(ExtOp {
                     target: self.target_to_rv(op.target_id),
                     parents: self.cg.local_to_remote_frontier(self.cg.parents.parents_at_time(lv).as_ref()),

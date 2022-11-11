@@ -127,7 +127,7 @@ impl ListOpLog {
             // History entries (parents)
             t = time;
             for mut hist_entry in other.cg.parents.entries
-                .iter_range_map_packed(s, |e| ParentsEntrySimple::from(e)) {
+                .iter_range_map(s, |e| ParentsEntrySimple::from(e)) {
 
                 let len = hist_entry.len();
                 let span = (t..t + len).into();

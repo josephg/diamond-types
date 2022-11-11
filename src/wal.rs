@@ -298,7 +298,7 @@ impl WriteAheadLog {
             let iter = cg.iter_range(range);
             let cg_data = write_cg_entry_iter(bump, iter, &mut write_map, cg);
 
-            let ops_iter = ops.ops.iter_range_packed_ctx(range, &ops.list_ctx);
+            let ops_iter = ops.ops.iter_range_ctx(range, &ops.list_ctx);
             let ops = write_ops(bump, ops_iter, range.start, &write_map, &ops.list_ctx, cg);
             dbg!(&ops);
 

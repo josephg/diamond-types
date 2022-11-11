@@ -371,7 +371,7 @@ impl From<&ParentsEntryInternal> for ParentsEntrySimple {
 // }
 impl Parents {
     pub(crate) fn iter_range(&self, range: DTRange) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
-        self.entries.iter_range_map_packed(range, |e| e.into())
+        self.entries.iter_range_map(range, |e| e.into())
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = ParentsEntrySimple> + '_ {

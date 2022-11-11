@@ -547,7 +547,7 @@ impl ListOpLog {
             // We need to update *lots* of stuff in here!!
 
             // 1. Agent names and agent assignment
-            for KVPair(_, span) in self.cg.client_with_localtime.iter_range_packed_ctx(walk.consume, &()) {
+            for KVPair(_, span) in self.cg.client_with_localtime.iter_range_ctx(walk.consume, &()) {
                 // Mark the agent as in-use (if we haven't already)
                 let mapped_agent = agent_mapping.map(self, span.agent);
 

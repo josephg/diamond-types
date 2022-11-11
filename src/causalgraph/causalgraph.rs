@@ -323,7 +323,7 @@ impl CausalGraph {
 
     pub fn iter_range(&self, range: DTRange) -> impl Iterator<Item=CGEntry> + '_ {
         let parents = self.parents.iter_range(range);
-        let aa = self.client_with_localtime.iter_range_packed(range)
+        let aa = self.client_with_localtime.iter_range(range)
             .map(|KVPair(_, data)| data);
 
         rle_zip(parents, aa).map(|(parents, span): (ParentsEntrySimple, AgentSpan)| {

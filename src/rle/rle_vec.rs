@@ -490,87 +490,71 @@ fn id_clone<V: Clone>(v: &V) -> V {
     v.clone()
 }
 
-impl<V: HasLength + SplitableSpan + RleKeyed + MergableSpan> RleVec<V> {
-    #[allow(unused)]
-    pub fn iter_range_packed(&self, range: DTRange) -> RleVecRangeIter<V, V, impl Fn(&V) -> V> {
-        self.iter_range_map_packed_ctx(range, &(), id_clone)
-    }
+
+
+// We could just use .iter().map() - and thats pretty sensible in most cases. But this inline
+// approach lets us avoid a .clone(). (Is this a good idea? Not sure!)
+#[derive(Debug, Clone)]
+pub struct RleVecRangeIter<'a, V: RleKeyed + HasLength, I: SplitableSpanCtx, F: Fn(&V) -> I> {
+    inner_iter: std::slice::Iter<'a, V>,
+    range: DTRange,
+    ctx: &'a I::Ctx, // This could have a different lifetime specifier.
+    map_fn: F,
 }
 
-impl<V: HasLength + SplitableSpanCtx + RleKeyed + MergableSpan> RleVec<V> {
-    pub fn iter_range_packed_ctx<'a>(&'a self, range: DTRange, ctx: &'a V::Ctx) -> RleVecRangeIter<'a, V, V, impl Fn(&V) -> V> {
-        self.iter_range_map_packed_ctx(range, ctx, id_clone)
+impl<V: HasLength + RleKeyed + SplitableSpanCtx + MergableSpan> RleVec<V> {
+    pub fn iter_range(&self, range: DTRange) -> RleVecRangeIter<V, V, impl Fn(&V) -> V> where V: SplitableSpan {
+        self.iter_range_ctx(range, &())
+    }
+
+
+    pub fn iter_range_ctx<'a>(&'a self, range: DTRange, ctx: &'a V::Ctx) -> RleVecRangeIter<'a, V, V, impl Fn(&V) -> V> {
+        self.iter_range_map_ctx(range, ctx, id_clone)
     }
 }
 
 impl<V: HasLength + RleKeyed + MergableSpan> RleVec<V> {
-    pub fn iter_range_map_packed<I: SplitableSpan + HasLength, F: Fn(&V) -> I>(&self, range: DTRange, map_fn: F) -> RleVecRangeIter<V, I, F> {
-        self.iter_range_map_packed_ctx(range, &(), map_fn)
+    // Yeah these map functions are dirty, but only at compile time. At runtime they should be free.
+    pub fn iter_range_map<I: SplitableSpan + HasLength, F: Fn(&V) -> I>(&self, range: DTRange, map_fn: F) -> RleVecRangeIter<V, I, F> {
+        self.iter_range_map_ctx(range, &(), map_fn)
     }
 
-    pub fn iter_range_map_packed_ctx<'a, I: SplitableSpanCtx + HasLength, F: Fn(&V) -> I>(&'a self, range: DTRange, ctx: &'a I::Ctx, map_fn: F) -> RleVecRangeIter<'a, V, I, F> {
-        if range.is_empty() {
-            // This is needed to prevent a crash if we try to iterate through an empty list.
-            RleVecRangeIter {
-                offset: 0,
-                idx: 0,
-                len_remaining: 0,
-                map_fn,
-                data: &self.0,
-                ctx,
-            }
-        } else {
-            let idx = self.find_index(range.start).unwrap();
-            let entry = &self.0[idx];
-            let offset = range.start - entry.rle_key();
+    pub fn iter_range_map_ctx<'a, I: SplitableSpanCtx, F: Fn(&V) -> I>(&'a self, range: DTRange, ctx: &'a I::Ctx, map_fn: F) -> RleVecRangeIter<'a, V, I, F> {
+        let start_idx = self.find_next_index(range.start);
 
-            RleVecRangeIter {
-                offset,
-                idx,
-                len_remaining: range.len(),
-                map_fn,
-                data: &self.0,
-                ctx,
-            }
+        RleVecRangeIter {
+            inner_iter: self.0[start_idx..].iter(),
+            range,
+            ctx,
+            map_fn
         }
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct RleVecRangeIter<'a, V: HasLength + MergableSpan, I: HasLength + SplitableSpanCtx, F: Fn(&V) -> I> {
-    offset: usize,
-    idx: usize,
-    len_remaining: usize,
-    map_fn: F,
-    data: &'a [V],
-
-    ctx: &'a I::Ctx, // This could have a different lifetime specifier.
-}
-
-impl<'a, V: HasLength + MergableSpan, I: HasLength + SplitableSpanCtx, F: Fn(&V) -> I> Iterator for RleVecRangeIter<'a, V, I, F> {
+impl<'a, V: RleKeyed + HasLength, I: HasLength + SplitableSpanCtx, F: Fn(&V) -> I> Iterator for RleVecRangeIter<'a, V, I, F> {
     type Item = I;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.len_remaining == 0 || self.idx >= self.data.len() { return None; }
+        let item = self.inner_iter.next()?;
 
-        let mut item = (self.map_fn)(&self.data[self.idx]);
-        if self.offset > 0 {
-            assert!(self.offset < item.len());
-            item.truncate_keeping_right_ctx(self.offset, self.ctx);
-            self.offset = 0;
+        // Should always be true given how we construct the iterator.
+        debug_assert!(item.end() >= self.range.start);
+
+        let item_range = item.span();
+        if item_range.start >= self.range.end { return None; }
+
+        let mut item = (self.map_fn)(item);
+        if item_range.end > self.range.end {
+            // Trim the item down.
+            item.truncate_ctx(self.range.end - item_range.start, self.ctx);
         }
-
-        if item.len() > self.len_remaining {
-            item.truncate_ctx(self.len_remaining, self.ctx);
-            self.len_remaining = 0;
-        } else {
-            self.idx += 1;
-            self.len_remaining -= item.len();
+        if item_range.start < self.range.start {
+            item.truncate_keeping_right_ctx(self.range.start - item_range.start, self.ctx);
         }
-
         Some(item)
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -582,7 +566,7 @@ mod tests {
         rle.push((0..10).into());
 
         // This is a sad example.
-        let items = rle.iter_range_packed((5..8).into()).collect::<Vec<_>>();
+        let items = rle.iter_range((5..8).into()).collect::<Vec<_>>();
         assert_eq!(&items, &[(5..8).into()]);
     }
 
@@ -590,9 +574,27 @@ mod tests {
     fn iter_empty() {
         let mut rle: RleVec<DTRange> = RleVec::new();
         let entries_a = rle.iter().collect::<Vec<_>>();
-        let entries_b = rle.iter_range_map_packed((0..0).into(), |x| *x).collect::<Vec<_>>();
+        let entries_b = rle.iter_range_map((0..0).into(), |x| *x).collect::<Vec<_>>();
+        let entries_c = rle.iter_range((0..0).into()).collect::<Vec<_>>();
         assert!(entries_a.is_empty());
         assert!(entries_b.is_empty());
+        assert!(entries_c.is_empty());
+    }
+
+    #[test]
+    fn iter_range_sparse() {
+        let mut rle: RleVec<DTRange> = RleVec::new();
+        rle.push((0..10).into());
+        rle.push((12..18).into());
+        rle.push((20..30).into());
+
+        let iter_items = rle.iter_range((5..25).into()).collect::<Vec<_>>();
+
+        assert_eq!(&iter_items, &[
+            (5..10).into(),
+            (12..18).into(),
+            (20..25).into(),
+        ])
     }
 
 
