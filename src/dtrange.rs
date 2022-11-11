@@ -61,6 +61,10 @@ impl DTRange {
         else { None }
     }
 
+    pub fn does_intersect(&self, other: DTRange) -> bool {
+        self.start < other.end && self.end > other.start
+    }
+
     pub fn partial_cmp_time(&self, time: LV) -> Ordering {
         if time < self.start { Ordering::Less }
         else if time >= self.end { Ordering::Greater }

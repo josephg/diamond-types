@@ -5,7 +5,7 @@ use smallvec::smallvec;
 use rle::MergeableIterator;
 use rle::zip::{rle_zip, rle_zip3};
 use crate::{AgentId, LV};
-use crate::list::{ListBranch, ListCRDT, ListOpLog};
+use crate::listmerge::simple_oplog::*;
 
 const USE_UNICODE: bool = true;
 
@@ -30,9 +30,17 @@ pub(crate) fn random_str(len: usize, rng: &mut SmallRng) -> String {
     str
 }
 
-pub(crate) fn make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch, mut rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> LV {
+pub(crate) fn make_random_change(oplog: &mut SimpleOpLog, branch: &SimpleBranch, mut rope: Option<&mut JumpRope>, agent: &str, rng: &mut SmallRng) -> LV {
     let doc_len = branch.len();
     let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
+
+    if rng.gen_bool(0.2) {
+        let v_start = oplog.cg.len();
+        oplog.goop(10);
+        let v_end = oplog.cg.len();
+        println!("GOOP from {v_start} to {v_end}");
+    }
+
     let v = if doc_len == 0 || rng.gen_bool(insert_weight) {
         // Insert something.
         let pos = rng.gen_range(0..=doc_len);
@@ -77,14 +85,14 @@ pub(crate) fn make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch,
         // I'm using this rather than push_delete to preserve the deleted content.
         if fwd {
             let op = branch.make_delete_op(del_loc);
-            oplog.add_operations_at(agent, branch.version.as_ref(), &[op])
+            oplog.add_operation_at(agent, branch.version.as_ref(), op)
         } else {
             // Backspace each character individually.
             let mut frontier = branch.version.clone(); // Not the most elegant but eh.
             for i in del_loc.rev() {
                 // println!("Delete {}", pos + i);
                 let op = branch.make_delete_op(i .. i + 1);
-                let v = oplog.add_operations_at(agent, frontier.as_ref(), &[op]);
+                let v = oplog.add_operation_at(agent, frontier.as_ref(), op);
                 frontier.replace_with_1(v);
             }
             frontier[0]
@@ -93,15 +101,16 @@ pub(crate) fn make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch,
     };
     // dbg!(&doc.markers);
     oplog.dbg_check(false);
+    // oplog.dbg_check(true);
     v
 }
 
-pub(crate) fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) {
-    let v = make_random_change_raw(&mut doc.oplog, &doc.branch, rope, agent, rng);
-    doc.branch.merge(&doc.oplog, &[v]);
-    // doc.check(true);
-    // doc.check(false);
-}
+// pub(crate) fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) {
+//     let v = make_random_change_raw(&mut doc.oplog, &doc.branch, rope, agent, rng);
+//     doc.branch.merge(&doc.oplog, &[v]);
+//     // doc.check(true);
+//     // doc.check(false);
+// }
 
 pub(crate) fn choose_2<'a, T>(arr: &'a mut [T], rng: &mut SmallRng) -> (usize, &'a mut T, usize, &'a mut T) {
     loop {
@@ -122,39 +131,41 @@ pub(crate) fn choose_2<'a, T>(arr: &'a mut [T], rng: &mut SmallRng) -> (usize, &
     }
 }
 
-impl ListOpLog {
-    /// TODO: Consider removing this
-    #[allow(unused)]
-    pub fn dbg_print_all(&self) {
-        // self.iter_history()
-        // self.operations.iter()
-        for x in rle_zip(
-            self.iter_history(),
-            // self.operations.iter().map(|p| p.1.clone()) // Only the ops.
-            self.iter()
-        ) {
-            println!("{:?}", x);
-        }
-    }
-
-    #[allow(unused)]
-    pub(crate) fn dbg_print_ops(&self) {
-        for (time, op) in rle_zip(
-            self.iter_history().map(|h| h.span).merge_spans(),
-            self.iter()
-        ) {
-            println!("{:?} Op: {:?}", time, op);
-        }
-    }
-
-    #[allow(unused)]
-    pub(crate) fn dbg_print_assignments_and_ops(&self) {
-        for (time, map, op) in rle_zip3(
-            self.iter_history().map(|h| h.span).merge_spans(),
-            self.iter_remote_mappings(),
-            self.iter()
-        ) {
-            println!("{:?} M: {:?} Op: {:?}", time, map, op);
-        }
-    }
-}
+// These methods are currently wrong by virtue of the operations not lining up with the causal
+// into.version = self.cg.version.clone();
+// impl SimpleOpLog {
+//     /// TODO: Consider removing this
+//     #[allow(unused)]
+//     pub fn dbg_print_all(&self) {
+//         // self.iter_history()
+//         // self.operations.iter()
+//         for x in rle_zip(
+//             self.cg.parents.iter(),
+//             // self.operations.iter().map(|p| p.1.clone()) // Only the ops.
+//             self.info.iter()
+//         ) {
+//             println!("{:?}", x);
+//         }
+//     }
+//
+//     #[allow(unused)]
+//     pub(crate) fn dbg_print_ops(&self) {
+//         for (time, op) in rle_zip(
+//             self.cg.parents.iter().map(|h| h.span).merge_spans(),
+//             self.info.iter()
+//         ) {
+//             println!("{:?} Op: {:?}", time, op);
+//         }
+//     }
+//
+//     #[allow(unused)]
+//     pub(crate) fn dbg_print_assignments_and_ops(&self) {
+//         for (time, map, op) in rle_zip3(
+//             self.cg.parents.iter().map(|h| h.span).merge_spans(),
+//             self.cg.iter_remote_mappings(),
+//             self.info.iter()
+//         ) {
+//             println!("{:?} M: {:?} Op: {:?}", time, map, op);
+//         }
+//     }
+// }

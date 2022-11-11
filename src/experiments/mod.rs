@@ -5,7 +5,7 @@ use crate::{AgentId, CausalGraph, CRDTKind, CreateValue, DTRange, Frontier, LV, 
 use smartstring::alias::String as SmartString;
 use rle::HasLength;
 use crate::branch::DTValue;
-use crate::list::op_iter::OpMetricsIter;
+use crate::list::op_iter::{OpIterFast, OpMetricsIter};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::TextOperation;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
@@ -37,6 +37,14 @@ impl TextInfo {
     }
     pub(crate) fn iter_metrics(&self) -> OpMetricsIter {
         OpMetricsIter::new(&self.ops, &self.ctx, (0..self.ops.end()).into())
+    }
+
+    pub(crate) fn iter_fast(&self) -> OpIterFast {
+        self.iter_metrics().into()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = TextOperation> + '_ {
+        self.iter_fast().map(|pair| (pair.0.1, pair.1).into())
     }
 
     pub(crate) fn push_op(&mut self, op: TextOperation, range: DTRange) {

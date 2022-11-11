@@ -1,8 +1,11 @@
 use std::ops::Range;
 use jumprope::JumpRopeBuf;
+use smartstring::SmartString;
+use rle::HasLength;
 use crate::list::operation::TextOperation;
 use crate::{CausalGraph, Frontier, LV};
 use crate::experiments::TextInfo;
+use crate::list::op_iter::{OpIterFast, OpMetricsIter};
 use crate::unicount::count_chars;
 
 #[derive(Debug, Default)]
@@ -31,36 +34,36 @@ impl SimpleOpLog {
         self.cg.assign_local_op(0, n).last()
     }
 
-    pub(crate) fn add_insert_at(&mut self, agent_name: &str, parents: &[LV], pos: usize, content: &str) -> LV {
+    pub(crate) fn add_operation(&mut self, agent_name: &str, op: TextOperation) -> LV  {
         let agent = self.cg.get_or_create_agent_id(agent_name);
-        let len = count_chars(content);
-        let range = self.cg.assign_local_op_with_parents(parents, agent, len);
-        self.info.push_op(TextOperation::new_insert(pos, content), range);
+        let len = op.len();
+        let range = self.cg.assign_local_op(agent, len);
+        self.info.push_op(op, range);
         range.last()
+    }
+
+    pub(crate) fn add_operation_at(&mut self, agent_name: &str, parents: &[LV], op: TextOperation) -> LV  {
+        let agent = self.cg.get_or_create_agent_id(agent_name);
+        let len = op.len();
+        let range = self.cg.assign_local_op_with_parents(parents, agent, len);
+        self.info.push_op(op, range);
+        range.last()
+    }
+
+    pub(crate) fn add_insert_at(&mut self, agent_name: &str, parents: &[LV], pos: usize, content: &str) -> LV {
+        self.add_operation_at(agent_name, parents, TextOperation::new_insert(pos, content))
     }
 
     pub(crate) fn add_insert(&mut self, agent_name: &str, pos: usize, content: &str) -> LV {
-        let agent = self.cg.get_or_create_agent_id(agent_name);
-        let len = count_chars(content);
-        let range = self.cg.assign_local_op(agent, len);
-        self.info.push_op(TextOperation::new_insert(pos, content), range);
-        range.last()
+        self.add_operation(agent_name, TextOperation::new_insert(pos, content))
     }
 
     pub(crate) fn add_delete_at(&mut self, agent_name: &str, parents: &[LV], del_range: Range<usize>) -> LV {
-        let agent = self.cg.get_or_create_agent_id(agent_name);
-        let len = del_range.len();
-        let v_range = self.cg.assign_local_op_with_parents(parents, agent, len);
-        self.info.push_op(TextOperation::new_delete(del_range), v_range);
-        v_range.last()
+        self.add_operation_at(agent_name, parents, TextOperation::new_delete(del_range))
     }
 
     pub(crate) fn add_delete(&mut self, agent_name: &str, del_range: Range<usize>) -> LV {
-        let agent = self.cg.get_or_create_agent_id(agent_name);
-        let len = del_range.len();
-        let v_range = self.cg.assign_local_op(agent, len);
-        self.info.push_op(TextOperation::new_delete(del_range), v_range);
-        v_range.last()
+        self.add_operation(agent_name, TextOperation::new_delete(del_range))
     }
 
     pub(crate) fn to_string(&self) -> String {
@@ -84,5 +87,31 @@ impl SimpleOpLog {
         let old_v = into.version.clone();
         self.merge_raw(&mut into.content, old_v.as_ref(), to_version);
         into.version = to_version.into();
+    }
+
+    pub(crate) fn dbg_check(&self, deep: bool) {
+        // TODO: Check the op ctx makes sense I guess?
+        self.cg.dbg_check(deep);
+    }
+}
+
+impl SimpleBranch {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.content.len_chars()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.content.is_empty()
+    }
+
+    pub fn make_delete_op(&self, loc: Range<usize>) -> TextOperation {
+        assert!(loc.end <= self.content.len_chars());
+        let mut s = SmartString::new();
+        s.extend(self.content.borrow().slice_chars(loc.clone()));
+        TextOperation::new_delete_with_content_range(loc, s)
     }
 }

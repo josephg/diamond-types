@@ -384,8 +384,18 @@ mod tests {
     use smallvec::smallvec;
     use rle::{MergableSpan, test_splitable_methods_valid};
     use crate::causalgraph::parents::{Parents, ParentsEntrySimple};
+    use crate::encoding::ChunkType::CausalGraph;
     use crate::Frontier;
     use super::ParentsEntryInternal;
+
+    #[test]
+    fn test_iter_empty() {
+        let parents = Parents::new();
+        let entries_a = parents.iter().collect::<Vec<_>>();
+        let entries_b = parents.iter_range((0..0).into()).collect::<Vec<_>>();
+        assert!(entries_a.is_empty());
+        assert!(entries_b.is_empty());
+    }
 
     #[test]
     fn test_txn_appends() {

@@ -343,13 +343,13 @@ impl ListOpLog {
 
     pub(crate) fn iter_agent_mappings_range(&self, range: DTRange) -> impl Iterator<Item = AgentSpan> + '_ {
         self.cg.client_with_localtime
-            .iter_range_packed_ctx(range, &())
+            .iter_range_packed(range)
             .map(|item| item.1)
     }
 
     pub fn iter_remote_mappings_range(&self, range: DTRange) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
         self.cg.client_with_localtime
-            .iter_range_packed_ctx(range, &())
+            .iter_range_packed(range)
             .map(|item| self.cg.agent_span_to_remote(item.1))
     }
 

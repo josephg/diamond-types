@@ -21,6 +21,12 @@ pub(crate) struct OpMetricsIter<'a> {
 #[derive(Debug)]
 pub(crate) struct OpIterFast<'a>(OpMetricsIter<'a>);
 
+impl<'a> From<OpMetricsIter<'a>> for OpIterFast<'a> {
+    fn from(inner: OpMetricsIter<'a>) -> Self {
+        OpIterFast(inner)
+    }
+}
+
 impl<'a> Iterator for OpMetricsIter<'a> {
     type Item = KVPair<ListOpMetrics>;
 
@@ -143,7 +149,7 @@ impl ListOpLog {
         OpIterFast::new(self, range)
     }
 
-    pub fn iter_range_since(&self, local_version: &[LV]) -> impl Iterator<Item=TextOperation> + '_ {
+    pub fn iter_range_since(&self, local_version: &[LV]) -> impl Iterator<Item = TextOperation> + '_ {
         let (only_a, only_b) = self.cg.parents.diff(local_version, self.cg.version.as_ref());
         assert!(only_a.is_empty());
 
@@ -155,7 +161,7 @@ impl ListOpLog {
         OpIterFast::new(self, (0..self.len()).into())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item =TextOperation> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = TextOperation> + '_ {
         self.iter_fast().map(|pair| (pair.0.1, pair.1).into())
     }
 }

@@ -228,6 +228,9 @@ mod hack;
 pub(crate) mod experiments;
 mod listmerge;
 
+#[cfg(test)]
+mod list_fuzzer_tools;
+
 pub type AgentId = u32;
 
 // TODO: Consider changing this to u64 to add support for very long lived documents even on 32 bit

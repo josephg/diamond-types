@@ -26,13 +26,14 @@ mod markers;
 mod advance_retreat;
 pub(crate) mod txn_trace;
 mod metrics;
-// #[cfg(test)]
-// pub mod fuzzer;
+#[cfg(test)]
+pub mod fuzzer;
 #[cfg(feature = "dot_export")]
 mod dot;
 
 #[cfg(feature = "ops_to_old")]
 pub mod to_old;
+#[cfg(test)]
 pub(crate) mod simple_oplog;
 
 type DocRangeIndex = MarkerMetrics;

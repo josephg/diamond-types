@@ -509,18 +509,29 @@ impl<V: HasLength + RleKeyed + MergableSpan> RleVec<V> {
     }
 
     pub fn iter_range_map_packed_ctx<'a, I: SplitableSpanCtx + HasLength, F: Fn(&V) -> I>(&'a self, range: DTRange, ctx: &'a I::Ctx, map_fn: F) -> RleVecRangeIter<'a, V, I, F> {
-        let idx = self.find_index(range.start).unwrap();
+        if range.is_empty() {
+            // This is needed to prevent a crash if we try to iterate through an empty list.
+            RleVecRangeIter {
+                offset: 0,
+                idx: 0,
+                len_remaining: 0,
+                map_fn,
+                data: &self.0,
+                ctx,
+            }
+        } else {
+            let idx = self.find_index(range.start).unwrap();
+            let entry = &self.0[idx];
+            let offset = range.start - entry.rle_key();
 
-        let entry = &self.0[idx];
-        let offset = range.start - entry.rle_key();
-
-        RleVecRangeIter {
-            offset,
-            idx,
-            len_remaining: range.len(),
-            map_fn,
-            data: &self.0,
-            ctx,
+            RleVecRangeIter {
+                offset,
+                idx,
+                len_remaining: range.len(),
+                map_fn,
+                data: &self.0,
+                ctx,
+            }
         }
     }
 }
@@ -574,6 +585,16 @@ mod tests {
         let items = rle.iter_range_packed((5..8).into()).collect::<Vec<_>>();
         assert_eq!(&items, &[(5..8).into()]);
     }
+
+    #[test]
+    fn iter_empty() {
+        let mut rle: RleVec<DTRange> = RleVec::new();
+        let entries_a = rle.iter().collect::<Vec<_>>();
+        let entries_b = rle.iter_range_map_packed((0..0).into(), |x| *x).collect::<Vec<_>>();
+        assert!(entries_a.is_empty());
+        assert!(entries_b.is_empty());
+    }
+
 
     // use crate::order::OrderSpan;
     // use crate::rle::KVPair;

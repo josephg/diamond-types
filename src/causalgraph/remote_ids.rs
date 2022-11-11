@@ -181,6 +181,18 @@ impl CausalGraph {
             .map(|lv| self.local_to_remote_version(*lv))
             .collect()
     }
+
+    pub fn iter_remote_mappings(&self) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
+        self.client_with_localtime
+            .iter()
+            .map(|item| self.agent_span_to_remote(item.1))
+    }
+
+    pub fn iter_remote_mappings_range(&self, range: DTRange) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
+        self.client_with_localtime
+            .iter_range_packed(range)
+            .map(|item| self.agent_span_to_remote(item.1))
+    }
 }
 
 #[cfg(test)]

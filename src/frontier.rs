@@ -166,10 +166,10 @@ impl Frontier {
 
 
     /// Advance a frontier by the set of time spans in range
-    pub fn advance(&mut self, history: &Parents, mut range: DTRange) {
-        let mut txn_idx = history.entries.find_index(range.start).unwrap();
+    pub fn advance(&mut self, parents: &Parents, mut range: DTRange) {
+        let mut txn_idx = parents.entries.find_index(range.start).unwrap();
         while !range.is_empty() {
-            let txn = &history.entries[txn_idx];
+            let txn = &parents.entries[txn_idx];
             debug_assert!(txn.contains(range.start));
 
             let end = txn.span.end.min(range.end);
