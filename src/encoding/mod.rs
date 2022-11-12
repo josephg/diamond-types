@@ -105,7 +105,7 @@ impl<S: MergableSpan, F: FnMut(S, &mut ())> Merger<S, F, ()> {
     pub fn flush(self) {
         self.flush2(&mut ());
     }
-    pub fn flush_iter<I: Iterator<Item = S>>(mut self, iter: I) {
+    pub fn flush_iter<I: Iterator<Item = S>>(self, iter: I) {
         self.flush_iter2(iter, &mut ());
     }
 }

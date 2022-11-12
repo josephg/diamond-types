@@ -180,7 +180,7 @@
 //! multiple parents.
 
 #![allow(clippy::module_inception)]
-#![allow(unused)] // During dev. TODO: Take me out!
+#![allow(unused_imports, dead_code)] // During dev. TODO: Take me out!
 
 extern crate core;
 

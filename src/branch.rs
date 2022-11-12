@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::borrow::BorrowMut;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -220,7 +222,7 @@ impl Branch {
 
     fn internal_remove_crdt(&mut self, crdt_id: LV) {
         // This needs to recursively delete things.
-        let old_value = self.data.remove(&crdt_id);
+        let _old_value = self.data.remove(&crdt_id);
         todo!("Recurse!");
     }
     fn remove_old_value(&mut self, old_value: &SnapshotValue) {
@@ -273,9 +275,9 @@ impl Branch {
 
 
     fn modify_reg_internal(&mut self, time: LV, reg_id: LV, op_value: &CreateValue, _cg: &CausalGraph) {
-        let value = self.op_to_snapshot_value(time, op_value);
+        let _value = self.op_to_snapshot_value(time, op_value);
 
-        let inner = match self.data.get_mut(&reg_id).unwrap() {
+        let _inner = match self.data.get_mut(&reg_id).unwrap() {
             OverlayValue::Register(lww) => lww,
             _ => { panic!("Cannot set register value in map"); }
         };
@@ -421,7 +423,8 @@ impl Branch {
     }
 
 
-    pub(crate) fn modify_map_reg_remote_internal(&mut self, cg: &CausalGraph, parents: &[LV], time: LV, crdt_id: LV, key: Option<&str>, op_value: Option<&CreateValue>) {
+    // Parents not currently used - we look up the parents in cg again anyway.
+    pub(crate) fn modify_map_reg_remote_internal(&mut self, cg: &CausalGraph, _parents: &[LV], time: LV, crdt_id: LV, key: Option<&str>, op_value: Option<&CreateValue>) {
         // // We set locally if the new version (at time) dominates the current version of the value.
         // let should_write = if let Some(reg) = self.get_register(crdt_id, key) {
         //     // reg.last_modified
@@ -451,7 +454,7 @@ impl Branch {
     }
 
 
-    pub(crate) fn apply_remote_op(&mut self, cg: &CausalGraph, parents: &[LV], time: LV, op: &Op, ctx: &ListOperationCtx) {
+    pub(crate) fn apply_remote_op(&mut self, cg: &CausalGraph, parents: &[LV], time: LV, op: &Op, _ctx: &ListOperationCtx) {
         match &op.contents {
             OpContents::RegisterSet(op_value) => {
                 self.modify_map_reg_remote_internal(cg, parents, time, op.target_id, None, Some(op_value));
@@ -467,7 +470,7 @@ impl Branch {
                 // deleting an item twice is a no-op.
                 self.modify_set_internal(time, op.target_id, set_op);
             }
-            OpContents::Text(metrics) => {
+            OpContents::Text(_metrics) => {
                 unimplemented!();
             }
         }

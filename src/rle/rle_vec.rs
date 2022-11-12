@@ -572,7 +572,7 @@ mod tests {
 
     #[test]
     fn iter_empty() {
-        let mut rle: RleVec<DTRange> = RleVec::new();
+        let rle: RleVec<DTRange> = RleVec::new();
         let entries_a = rle.iter().collect::<Vec<_>>();
         let entries_b = rle.iter_range_map((0..0).into(), |x| *x).collect::<Vec<_>>();
         let entries_c = rle.iter_range((0..0).into()).collect::<Vec<_>>();

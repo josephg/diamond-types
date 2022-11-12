@@ -38,7 +38,7 @@ impl OpLog {
 
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, WALError> {
         std::fs::create_dir_all(path.as_ref())?;
-        let wal_path: PathBuf = [path.as_ref(), Path::new("wal")].iter().collect();
+        let _wal_path: PathBuf = [path.as_ref(), Path::new("wal")].iter().collect();
         let cg_path: PathBuf = [path.as_ref(), Path::new("cg")].iter().collect();
 
         let (mut cg, cgs) = CGStorage::open(cg_path).unwrap();

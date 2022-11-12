@@ -227,7 +227,7 @@ impl CausalGraph {
     /// all depend on the first).
     ///
     /// Method returns the
-    pub fn merge_and_assign(&mut self, mut parents: &[LV], mut span: AgentSpan) -> DTRange {
+    pub fn merge_and_assign(&mut self, parents: &[LV], span: AgentSpan) -> DTRange {
         let time_start = self.len();
 
         // The agent ID must already be assigned.
@@ -244,7 +244,7 @@ impl CausalGraph {
         //    each item's parents must be known.
 
         match client_data.item_times.find_index(span.seq_range.last()) {
-            Ok(idx) => {
+            Ok(_idx) => {
                 // If we know the last ID, the entire entry is known. Case 1 - discard and return.
                 (time_start..time_start).into()
             }

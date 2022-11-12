@@ -114,7 +114,7 @@ impl WriteAheadLog {
             // Presumably we're creating a new file.
             file.write_all(&WAL_MAGIC_BYTES)?;
             file.write_all(&WAL_VERSION)?;
-            file.sync_all();
+            file.sync_all()?;
         } else {
             // Check the WAL header.
             let mut header = [0u8; WAL_HEADER_LENGTH];
@@ -291,7 +291,7 @@ impl WriteAheadLog {
 
         let range = (self.next_version..next).into();
         self.write_chunk(|bump, buf| {
-            let start = buf.len();
+            // let start = buf.len();
 
             let mut write_map = WriteMap::with_capacity_from(&cg.client_data);
 
@@ -300,7 +300,7 @@ impl WriteAheadLog {
 
             let ops_iter = ops.ops.iter_range_ctx(range, &ops.list_ctx);
             let ops = write_ops(bump, ops_iter, range.start, &write_map, &ops.list_ctx, cg);
-            dbg!(&ops);
+            // dbg!(&ops);
 
             push_chunk(buf, ChunkType::CausalGraph, &cg_data);
             push_chunk(buf, ChunkType::Operations, &ops);
@@ -315,7 +315,7 @@ impl WriteAheadLog {
         Ok(())
     }
 
-    fn read_chunk(bytes: &[u8], ops: &mut Ops, read_map: &mut ReadMap, cg: &mut CausalGraph) -> Result<(), WALError> {
+    fn read_chunk(bytes: &[u8], _ops: &mut Ops, read_map: &mut ReadMap, cg: &mut CausalGraph) -> Result<(), WALError> {
         dbg!(bytes.len());
 
         let mut reader = ChunkReader(BufParser(bytes));
@@ -326,7 +326,7 @@ impl WriteAheadLog {
 
         }
 
-        let ops_chunk = reader.expect_chunk(ChunkType::Operations)?;
+        let _ops_chunk = reader.expect_chunk(ChunkType::Operations)?;
         // TODO: Read ops chunk!
 
         Ok(())
@@ -345,13 +345,13 @@ mod test {
         // let mut oplog = OpLog::new();
 
         let path = "test.wal";
-        std::fs::remove_file(path); // Ignoring errors.
+        drop(std::fs::remove_file(path)); // Ignoring errors.
         let (mut wal, mut ops) = WriteAheadLog::open("test.wal", &mut cg).unwrap();
 
         wal.flush(&cg, &ops).unwrap(); // Should do nothing!
 
         let seph = cg.get_or_create_agent_id("seph");
-        let mike = cg.get_or_create_agent_id("mike");
+        // let mike = cg.get_or_create_agent_id("mike");
 
         let mut span = cg.assign_local_op(seph, 1);
         ops.ops.push(KVPair(span.start, Op {
@@ -364,7 +364,6 @@ mod test {
             contents: OpContents::MapSet("cool set".into(), CreateValue::NewCRDT(CRDTKind::Collection))
         }));
 
-        let set = span.start;
         span = cg.assign_local_op(seph, 1);
         ops.ops.push(KVPair(span.start, Op {
             target_id: ROOT_CRDT_ID,
@@ -377,7 +376,7 @@ mod test {
 
         drop(wal);
         let mut cg = CausalGraph::new();
-        let (mut wal, mut ops) = WriteAheadLog::open("test.wal", &mut cg).unwrap();
+        let (mut _wal, mut _ops) = WriteAheadLog::open("test.wal", &mut cg).unwrap();
 
 
         // let mut v = 0;

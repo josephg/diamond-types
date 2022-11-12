@@ -244,7 +244,7 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
             let e = &self.input[idx];
             if e.parents.len() >= 2 {
                 // Try and find something with no parents to expand first.
-                if let Some((ii, &i)) = self.to_process.iter().enumerate().rfind(|(ii, i)| {
+                if let Some((ii, &i)) = self.to_process.iter().enumerate().rfind(|(_ii, i)| {
                     self.input[**i].parents.len() < 2
                 }) {
                     self.to_process.swap_remove(ii);

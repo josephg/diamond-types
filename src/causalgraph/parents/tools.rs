@@ -318,7 +318,7 @@ impl Parents {
             fn from(version: FrontierRef) -> Self {
                 // debug_assert!(frontier_is_sorted(version));
 
-                let mut result = Self {
+                Self {
                     // Bleh.
                     last: *version.last().unwrap_or(&usize::MAX),
                     merged_with: if version.len() > 1 {
@@ -326,9 +326,7 @@ impl Parents {
                     } else {
                         smallvec![]
                     }
-                };
-
-                result
+                }
             }
         }
 
@@ -731,7 +729,7 @@ impl Parents {
     /// graph.
     ///
     /// This function might be better written to output an iterator.
-    pub fn find_dominators_full<F, I>(&self, versions_iter: I, mut visit: F)
+    pub fn find_dominators_full<F, I>(&self, versions_iter: I, visit: F)
         where F: FnMut(LV, bool), I: Iterator<Item=LV>
     {
         self.find_dominators_full_internal(versions_iter, usize::MAX, visit);
@@ -1130,7 +1128,7 @@ pub mod test {
         assert_eq!(parents.version_union(&[1], &[1]).as_ref(), &[1]);
 
         let mut seen_1 = false;
-        parents.find_dominators_full((&[1,1,1]).iter().copied(), |v, d| {
+        parents.find_dominators_full((&[1,1,1]).iter().copied(), |_v, _d| {
             if !seen_1 { seen_1 = true; }
             else { panic!("Duplicate version!"); }
         });

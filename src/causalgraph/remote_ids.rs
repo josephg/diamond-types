@@ -159,7 +159,7 @@ impl CausalGraph {
     }
 
     pub fn try_remote_to_local_frontier<'a, I: Iterator<Item=RemoteVersion<'a>> + 'a>(&self, ids_iter: I) -> Result<Frontier, VersionConversionError> {
-        let mut frontier: Frontier = ids_iter
+        let frontier: Frontier = ids_iter
             .map(|rv| self.try_remote_to_local_version(rv))
             .collect::<Result<Frontier, VersionConversionError>>()?;
 
@@ -167,7 +167,7 @@ impl CausalGraph {
     }
 
     pub fn remote_to_local_frontier<'a, I: Iterator<Item=RemoteVersion<'a>> + 'a>(&self, ids_iter: I) -> Frontier {
-        let mut frontier: Frontier = ids_iter
+        let frontier: Frontier = ids_iter
             .map(|rv| self.remote_to_local_version(rv))
             .collect();
 

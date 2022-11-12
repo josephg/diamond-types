@@ -139,7 +139,7 @@ impl ExperimentalOpLog {
     pub fn push_text_op(&mut self, agent: AgentId, crdt: LVKey, op: TextOperation) {
         let v_range = self.cg.assign_local_op(agent, op.len());
 
-        let mut entry = self.texts.get_mut(&crdt).unwrap();
+        let entry = self.texts.get_mut(&crdt).unwrap();
 
         // Remove it from the index
         if let Some(last_op) = entry.ops.last() {
@@ -180,7 +180,7 @@ impl ExperimentalOpLog {
     }
 
     pub fn checkout_text(&self, crdt: LVKey) -> JumpRopeBuf {
-        let info = self.texts.get(&crdt).unwrap();
+        let _info = self.texts.get(&crdt).unwrap();
 
 
         todo!()
@@ -191,7 +191,7 @@ impl ExperimentalOpLog {
         // dbg!((crdt, empty_str.clone())..(crdt, empty_str));
         let iter = if crdt == ROOT_CRDT_ID {
             // For the root CRDT we can't use the crdt+1 trick because the range wraps around.
-            self.map_keys.range(((crdt, empty_str)..))
+            self.map_keys.range((crdt, empty_str)..)
         } else {
             self.map_keys.range((crdt, empty_str.clone())..(crdt + 1, empty_str))
         };

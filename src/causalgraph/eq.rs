@@ -136,7 +136,7 @@ impl PartialEq<Self> for CausalGraph {
                     // return false;
                 };
 
-                let mut mapped_txn = ParentsEntrySimple {
+                let mapped_txn = ParentsEntrySimple {
                     span: (mapped_start..mapped_start + len_here).into(),
                     // .unwrap() should be safe here because we've already walked past this item's
                     // parents.

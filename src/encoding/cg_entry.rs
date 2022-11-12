@@ -213,7 +213,6 @@ pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &
 pub(crate) fn write_cg_entry_iter<'a, I: Iterator<Item=CGEntry>>(bump: &'a Bump, iter: I, write_map: &mut WriteMap, cg: &CausalGraph) -> BumpVec<'a, u8> {
     // let mut last_seq_for_agent: LastSeqForAgent = bumpvec![in bump; 0; client_data.len()];
     let mut result = BumpVec::new_in(bump);
-    let mut next_output_time = 0;
 
     Merger::new(|entry: CGEntry, _| {
         write_cg_entry(&mut result, &entry, write_map, true, cg);

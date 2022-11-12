@@ -143,9 +143,9 @@ fn op_type(c: &OpContents) -> u32 {
     }
 }
 
-fn write_op(result: &mut BumpVec<u8>, content_out: &mut BumpVec<u8>,
+fn write_op(result: &mut BumpVec<u8>, _content_out: &mut BumpVec<u8>,
             expect_time: LV, last_crdt_id: LV, pair: &KVPair<Op>,
-            list_ctx: &ListOperationCtx, write_map: &WriteMap, cg: &CausalGraph)
+            _list_ctx: &ListOperationCtx, write_map: &WriteMap, cg: &CausalGraph)
 {
     let KVPair(time, op) = pair;
     debug_assert!(*time >= expect_time);
@@ -187,7 +187,7 @@ fn write_op(result: &mut BumpVec<u8>, content_out: &mut BumpVec<u8>,
         OpContents::Collection(CollectionOp::Remove(target)) => {
             write_time(result, *target, *time, write_map, cg);
         }
-        OpContents::Text(text_metrics) => {
+        OpContents::Text(_text_metrics) => {
             todo!();
             // list_ctx.get_str(text_metrics.kind, text_metrics.content_pos)
         }

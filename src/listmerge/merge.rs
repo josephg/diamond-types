@@ -1097,14 +1097,9 @@ mod test {
     fn ins_back() {
         let mut list = SimpleOpLog::new();
 
-        let mut t;
-        t = list.add_insert_at("seph", &[], 0, "c");
-        t = list.add_insert_at("seph", &[t], 0, "b");
-        t = list.add_insert_at("seph", &[t], 0, "a");
-
-        // dbg!(&list.oplog);
-        // list.branch.merge(&list.oplog, &[t]);
-        // dbg!(&list.branch);
+        list.add_insert("seph", 0, "c");
+        list.add_insert("seph", 0, "b");
+        list.add_insert("seph", 0, "a");
 
         assert_eq!(list.to_string(), "abc");
     }

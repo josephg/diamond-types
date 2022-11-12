@@ -28,7 +28,7 @@ enum ValueType {
     // TODO: Arbitrary shifty list
 }
 
-pub fn encode_op_contents<'a, 'b: 'a, I: Iterator<Item=&'b SnapshotValue>>(bump: &'a Bump, iter: I, oplog: &OpLog) -> BumpVec<'a, u8> {
+pub fn encode_op_contents<'a, 'b: 'a, I: Iterator<Item=&'b SnapshotValue>>(bump: &'a Bump, iter: I, _oplog: &OpLog) -> BumpVec<'a, u8> {
     let mut result = BumpVec::new_in(bump);
 
     for val in iter {
@@ -47,7 +47,7 @@ pub fn encode_op_contents<'a, 'b: 'a, I: Iterator<Item=&'b SnapshotValue>>(bump:
             // Value::Map(_) => {
             //     push_u32(&mut result, ValueType::Map as u32);
             // }
-            SnapshotValue::InnerCRDT(crdt_id) => {
+            SnapshotValue::InnerCRDT(_crdt_id) => {
                 todo!();
                 // let kind = oplog.get_kind(*crdt_id);
                 // let kind_value = match kind {
