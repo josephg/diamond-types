@@ -450,7 +450,6 @@ impl Parents {
         if a.len() == 1 && b.len() == 1 {
             // Check if either operation naively dominates the other. We could do this for more
             // cases, but we may as well use the code below instead.
-
             let a = a[0];
             let b = b[0];
 
@@ -826,16 +825,17 @@ pub mod test {
         }
         list.push((span, flag));
     }
-    fn find_conflicting(history: &Parents, a: &[LV], b: &[LV]) -> ConflictFull {
+
+    fn find_conflicting(parents: &Parents, a: &[LV], b: &[LV]) -> ConflictFull {
         let mut spans_fast = Vec::new();
         let mut spans_slow = Vec::new();
 
-        let common_branch_fast = history.find_conflicting(a, b, |span, flag| {
+        let common_branch_fast = parents.find_conflicting(a, b, |span, flag| {
             debug_assert!(!span.is_empty());
             // spans_fast.push((span, flag));
             push_rev_rle(&mut spans_fast, span, flag);
         });
-        let common_branch_slow = history.find_conflicting_slow(a, b, |span, flag| {
+        let common_branch_slow = parents.find_conflicting_slow(a, b, |span, flag| {
             debug_assert!(!span.is_empty());
             // spans_slow.push((span, flag));
             push_rev_rle(&mut spans_slow, span, flag);

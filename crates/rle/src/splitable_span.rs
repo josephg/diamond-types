@@ -404,6 +404,8 @@ impl<V> SplitableSpanHelpers for Option<V> where V: SplitableSpan {
 //         self.end = other.end;
 //     }
 // }
+
+// Implement me for all numeric types!
 impl HasLength for Range<u32> {
     fn len(&self) -> usize { (self.end - self.start) as _ }
 }
