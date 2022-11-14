@@ -211,7 +211,7 @@ impl Frontier {
             // In order to maintain the order of items in the branch, we want to insert the new item in the
             // appropriate place.
             // TODO: Check if its faster to try and append it to the end first.
-            self.insert(span.last());
+            self.insert_nonoverlapping(span.last());
         }
     }
 
@@ -250,7 +250,7 @@ impl Frontier {
                         debug_assert!(!self.is_root());
                         // TODO: At least check shadow directly.
                         if !history.version_contains_time(self.as_ref(), *parent) {
-                            self.insert(*parent);
+                            self.insert_nonoverlapping(*parent);
                         }
                     }
                 });
@@ -268,12 +268,20 @@ impl Frontier {
         self.debug_check_sorted();
     }
 
-    fn insert(&mut self, new_item: LV) {
+    fn insert_nonoverlapping(&mut self, new_item: LV) {
         // In order to maintain the order of items in the branch, we want to insert the new item in the
         // appropriate place.
 
         // Binary search might actually be slower here than a linear scan.
         let new_idx = self.0.binary_search(&new_item).unwrap_err();
+        self.0.insert(new_idx, new_item);
+        self.debug_check_sorted();
+    }
+
+    pub fn insert(&mut self, new_item: LV) {
+        // And we're returning in the Ok() case here because it means the item is already in the
+        // frontier.
+        let Err(new_idx) = self.0.binary_search(&new_item) else { return; };
         self.0.insert(new_idx, new_item);
         self.debug_check_sorted();
     }

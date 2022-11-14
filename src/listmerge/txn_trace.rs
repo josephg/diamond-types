@@ -68,7 +68,7 @@ fn check_rev_sorted(spans: &[DTRange]) {
 // This is closely related to Edmond's algorithm for finding the minimal spanning arborescence:
 // https://en.wikipedia.org/wiki/Edmonds%27_algorithm
 //
-// The traversal must also obey the ordering rule for time DAGs. No item can be visited before all
+// The traversal must obey the ordering rule for causal graphs. No item can be visited before all
 // of its parents have been visited.
 //
 // The code was manually unrolled into an iterator so we could walk it without needing to collect
@@ -166,26 +166,9 @@ impl<'a> SpanningTreeWalker<'a> {
 
         // Now populate the child_idxs.
         for i in 0..input.len() {
-            let VisitEntry {
-                span, txn_idx, ..
-            } = input[i];
-
-            let txn = &history.entries[txn_idx];
-            // input[i].child_idxs = txn.child_indexes.iter()
-            //     .filter(|i| history.entries[**i]
-            //     .map(|i| history.entries[*i].span.start)
-            //     .filter_map(|t| find_entry_idx(&input, t))
-            //     .collect();
-
-            for history_child_idx in txn.child_indexes.iter() {
-                let child_txn = &history.entries[*history_child_idx];
-                if let Some(child_idx) = find_entry_idx(&input, child_txn.span.start) {
-
-                    // Only add it if the parents names something within span.
-                    if child_txn.parents.iter().any(|p| span.contains(*p)) {
-                        input[i].child_idxs.push(child_idx);
-                    }
-                }
+            for p_i in 0..input[i].parent_idxs.len() {
+                let p = input[i].parent_idxs[p_i];
+                input[p].child_idxs.push(i);
             }
         }
 

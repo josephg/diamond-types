@@ -177,24 +177,24 @@ impl ParentsEntryInternal {
         }
     }
 
-    pub fn next_child_after(&self, time: usize, parents: &Parents) -> Option<usize> {
-        let span: DTRange = (time..self.span.end).into();
-
-        self.child_indexes.iter()
-            // First we want to join all of the childrens' parents
-            .flat_map(|idx| parents.entries[*idx].parents.iter().copied())
-            // But only include the ones which point within the specified range
-            .filter(|p| span.contains(*p))
-            // And we only care about the first one!
-            .min()
-    }
-
-    pub fn split_point(&self, time: usize, parents: &Parents) -> usize {
-        match self.next_child_after(time, parents) {
-            Some(t) => t + 1,
-            None => self.span.end,
-        }
-    }
+    // fn next_child_after(&self, v: LV, parents: &Parents) -> Option<usize> {
+    //     let span: DTRange = (v..self.span.end).into();
+    //
+    //     self.child_indexes.iter()
+    //         // First we want to join all of the childrens' parents
+    //         .flat_map(|idx| parents.entries[*idx].parents.iter().copied())
+    //         // But only include the ones which point within the specified range
+    //         .filter(|p| span.contains(*p))
+    //         // And we only care about the first one!
+    //         .min()
+    // }
+    //
+    // pub fn split_point(&self, v: LV, parents: &Parents) -> usize {
+    //     match self.next_child_after(v, parents) {
+    //         Some(t) => t + 1,
+    //         None => self.span.end,
+    //     }
+    // }
 
     // pub fn local_children_at_time(&self, time: usize) ->
 
