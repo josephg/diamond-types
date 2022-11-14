@@ -36,7 +36,7 @@ mod serde_encoding {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
             let mut map = serializer.serialize_map(Some(self.0.len()))?;
             for e in &self.0 {
-                map.serialize_entry(&e.name, &e.versions);
+                map.serialize_entry(&e.name, &e.versions)?;
             }
             map.end()
         }
@@ -74,7 +74,7 @@ mod serde_encoding {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
             let mut map = serializer.serialize_map(Some(self.0.len()))?;
             for e in &self.0 {
-                map.serialize_entry(&e.0, &e.1);
+                map.serialize_entry(&e.0, &e.1)?;
             }
             map.end()
         }

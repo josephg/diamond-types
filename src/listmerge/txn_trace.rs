@@ -364,12 +364,10 @@ mod test {
             ParentsEntryInternal {
                 span: (0..10).into(), shadow: 0,
                 parents: Frontier(smallvec![]),
-                child_indexes: smallvec![]
             },
             ParentsEntryInternal {
                 span: (10..30).into(), shadow: 0,
                 parents: Frontier(smallvec![]),
-                child_indexes: smallvec![]
             }
         ]);
         let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
@@ -397,17 +395,14 @@ mod test {
             ParentsEntryInternal {
                 span: (0..10).into(), shadow: 0,
                 parents: Frontier(smallvec![]),
-                child_indexes: smallvec![2]
             },
             ParentsEntryInternal {
                 span: (10..30).into(), shadow: 10,
                 parents: Frontier(smallvec![]),
-                child_indexes: smallvec![2]
             },
             ParentsEntryInternal {
                 span: (30..50).into(), shadow: 0,
                 parents: Frontier(smallvec![9, 29]),
-                child_indexes: smallvec![]
             },
         ]);
         let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
@@ -443,27 +438,22 @@ mod test {
             ParentsEntryInternal { // a
                 span: (0..1).into(), shadow: usize::MAX,
                 parents: Frontier(smallvec![]),
-                child_indexes: smallvec![2]
             },
             ParentsEntryInternal { // b
                 span: (1..2).into(), shadow: usize::MAX,
                 parents: Frontier(smallvec![]),
-                child_indexes: smallvec![3]
             },
             ParentsEntryInternal { // a
                 span: (2..3).into(), shadow: 2,
                 parents: Frontier(smallvec![0]),
-                child_indexes: smallvec![4]
             },
             ParentsEntryInternal { // b
                 span: (3..4).into(), shadow: 3,
                 parents: Frontier(smallvec![1]),
-                child_indexes: smallvec![4]
             },
             ParentsEntryInternal { // a+b
                 span: (4..5).into(), shadow: usize::MAX,
                 parents: Frontier(smallvec![2, 3]),
-                child_indexes: smallvec![]
             },
         ]);
 
@@ -520,7 +510,6 @@ mod test {
                 span: (0..10).into(),
                 shadow: usize::MAX,
                 parents: Frontier(smallvec![]),
-                child_indexes: smallvec![]
             },
         ]);
 

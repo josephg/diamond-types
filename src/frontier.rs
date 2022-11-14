@@ -363,7 +363,6 @@ mod test {
             ParentsEntryInternal {
                 span: (0..10).into(), shadow: 0,
                 parents: Frontier::root(),
-                child_indexes: smallvec![]
             }
         ]);
         parents.dbg_check(true);
@@ -381,17 +380,14 @@ mod test {
             ParentsEntryInternal {
                 span: (0..2).into(), shadow: 0,
                 parents: Frontier::root(),
-                child_indexes: smallvec![1, 2]
             },
             ParentsEntryInternal {
                 span: (2..6).into(), shadow: 2,
                 parents: Frontier::new_1(0),
-                child_indexes: smallvec![]
             },
             ParentsEntryInternal {
                 span: (6..50).into(), shadow: 6,
                 parents: Frontier::new_1(0),
-                child_indexes: smallvec![]
             },
         ]);
         parents.dbg_check(true);

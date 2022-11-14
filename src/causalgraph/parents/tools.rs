@@ -855,25 +855,20 @@ pub mod test {
                 ParentsEntryInternal { // 0-2
                     span: (0..3).into(), shadow: 0,
                     parents: Frontier::from_sorted(&[]),
-                    child_indexes: smallvec![2, 3],
                 },
                 ParentsEntryInternal { // 3-5
                     span: (3..6).into(), shadow: 3,
                     parents: Frontier::from_sorted(&[]),
-                    child_indexes: smallvec![2],
                 },
                 ParentsEntryInternal { // 6-8
                     span: (6..9).into(), shadow: 6,
                     parents: Frontier::from_sorted(&[1, 4]),
-                    child_indexes: smallvec![3],
                 },
                 ParentsEntryInternal { // 9-10
                     span: (9..11).into(), shadow: 6,
                     parents: Frontier::from_sorted(&[2, 8]),
-                    child_indexes: smallvec![],
                 },
             ]),
-            root_child_indexes: smallvec![0, 1],
         };
         p.dbg_check(true);
         p
@@ -1022,20 +1017,16 @@ pub mod test {
                 ParentsEntryInternal {
                     span: (0..1).into(), shadow: 0,
                     parents: Frontier::from_sorted(&[]),
-                    child_indexes: smallvec![2]
                 },
                 ParentsEntryInternal {
                     span: (1..2).into(), shadow: 1,
                     parents: Frontier::from_sorted(&[]),
-                    child_indexes: smallvec![]
                 },
                 ParentsEntryInternal {
                     span: (2..3).into(), shadow: 2,
                     parents: Frontier::from_sorted(&[0]),
-                    child_indexes: smallvec![]
                 },
             ]),
-            root_child_indexes: smallvec![0, 1],
         };
         parents.dbg_check(true);
 
@@ -1056,22 +1047,18 @@ pub mod test {
                     span: (0..1).into(),
                     shadow: 0,
                     parents: Frontier::root(),
-                    child_indexes: smallvec![],
                 },
                 ParentsEntryInternal {
                     span: (1..2).into(),
                     shadow: 1,
                     parents: Frontier::root(),
-                    child_indexes: smallvec![],
                 },
                 ParentsEntryInternal {
                     span: (2..3).into(),
                     shadow: 2,
                     parents: Frontier::root(),
-                    child_indexes: smallvec![],
                 },
             ]),
-            root_child_indexes: smallvec![0, 1, 2],
         };
         parents.dbg_check(true);
 
@@ -1100,22 +1087,18 @@ pub mod test {
                     span: (0..3).into(),
                     shadow: 0,
                     parents: Frontier::from_sorted(&[]),
-                    child_indexes: smallvec![2],
                 },
                 ParentsEntryInternal {
                     span: (3..5).into(),
                     shadow: 3,
                     parents: Frontier::from_sorted(&[]),
-                    child_indexes: smallvec![2],
                 },
                 ParentsEntryInternal {
                     span: (5..6).into(),
                     shadow: 0,
                     parents: Frontier::from_sorted(&[2,4]),
-                    child_indexes: smallvec![],
                 },
             ]),
-            root_child_indexes: smallvec![0, 1],
         };
         parents.dbg_check(true);
 
@@ -1134,25 +1117,21 @@ pub mod test {
                 span: (0..1).into(),
                 shadow: 0,
                 parents: Frontier::from_sorted(&[]),
-                child_indexes: smallvec![2, 3],
             },
             ParentsEntryInternal {
                 span: (1..2).into(),
                 shadow: 1,
                 parents: Frontier::from_sorted(&[]),
-                child_indexes: smallvec![2, 3],
             },
             ParentsEntryInternal {
                 span: (2..3).into(),
                 shadow: 0,
                 parents: Frontier::from_sorted(&[0, 1]),
-                child_indexes: smallvec![],
             },
             ParentsEntryInternal {
                 span: (3..4).into(),
                 shadow: 3,
                 parents: Frontier::from_sorted(&[0, 1]),
-                child_indexes: smallvec![],
             },
         ]);
         parents.dbg_check(true);

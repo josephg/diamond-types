@@ -541,35 +541,7 @@ impl ListOpLog {
                     first_idx
                 };
 
-                let mut idx = first_truncated_idx;
-
-                // Go through and unwind from idx.
-                while idx < hist_entries.num_entries() {
-                    // Cloning here is an ugly and kinda slow hack to work around the borrow
-                    // checker. But this whole case is rare anyway, so idk.
-                    let parents = hist_entries.0[idx].parents.clone();
-
-                    for p in parents {
-                        if p < len {
-                            let parent_entry = hist_entries.find_mut(p).unwrap().0;
-                            while let Some(&c_idx) = parent_entry.child_indexes.last() {
-                                if c_idx >= first_truncated_idx {
-                                    parent_entry.child_indexes.pop();
-                                } else { break; }
-                            }
-                        }
-                    }
-
-                    idx += 1;
-                }
-
                 self.cg.parents.entries.0.truncate(first_truncated_idx);
-
-                while let Some(&last_idx) = self.cg.parents.root_child_indexes.last() {
-                    if last_idx >= self.cg.parents.entries.num_entries() {
-                        self.cg.parents.root_child_indexes.pop();
-                    } else { break; }
-                }
             }
 
             // Remove excess agents

@@ -418,13 +418,20 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     }
 
     /// Check that the RLE is contiguous and packed. Panic if not.
-    #[allow(unused)]
     pub(crate) fn check_packed(&self) {
         let mut expect_next = 0;
         for (i, entry) in self.0.iter().enumerate() {
             if i != 0 {
                 assert_eq!(entry.rle_key(), expect_next);
             }
+            expect_next = entry.end();
+        }
+    }
+
+    pub(crate) fn check_packed_from_0(&self) {
+        let mut expect_next = 0;
+        for entry in self.0.iter() {
+            assert_eq!(entry.rle_key(), expect_next);
             expect_next = entry.end();
         }
     }

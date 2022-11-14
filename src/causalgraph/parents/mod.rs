@@ -20,9 +20,6 @@ use crate::frontier::{clone_smallvec, local_frontier_is_root};
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Parents {
     pub(crate) entries: RleVec<ParentsEntryInternal>,
-
-    // The index of all items with ROOT as a direct parent.
-    pub(crate) root_child_indexes: SmallVec<[usize; 2]>,
 }
 
 impl Parents {
@@ -46,9 +43,6 @@ impl Parents {
     pub(crate) fn from_entries(entries: &[ParentsEntryInternal]) -> Self {
         Parents {
             entries: RleVec(entries.to_vec()),
-            root_child_indexes: entries.iter().enumerate().filter_map(|(i, entry)| {
-                if entry.parents.is_root() { Some(i) } else { None }
-            }).collect()
         }
     }
 
@@ -88,35 +82,10 @@ impl Parents {
             txn_parents.len() == 1 && txn_parents[0] == last.last_time() && shadow == last.shadow
         } else { false };
 
-        // let mut parent_indexes = smallvec![];
-        if !will_merge {
-            // The item wasn't merged. So we need to go through the parents and wire up children.
-            let new_idx = self.entries.0.len();
-
-            if txn_parents.is_empty() {
-                self.root_child_indexes.push(new_idx);
-            } else {
-                for &p in txn_parents {
-                    let parent_idx = self.entries.find_index(p).unwrap();
-                    // Interestingly the parent_idx array will always end up the same length as parents
-                    // because it would be invalid for multiple parents to point to the same entry in
-                    // txns. (That would imply one parent is a descendant of another.)
-                    // debug_assert!(!parent_indexes.contains(&parent_idx));
-                    // parent_indexes.push(parent_idx);
-
-                    let parent_children = &mut self.entries.0[parent_idx].child_indexes;
-                    debug_assert!(!parent_children.contains(&new_idx));
-                    parent_children.push(new_idx);
-                }
-            }
-        }
-
         let txn = ParentsEntryInternal {
             span: range,
             shadow,
             parents: txn_parents.into(),
-            // parent_indexes,
-            child_indexes: smallvec![]
         };
 
         let did_merge = self.entries.push(txn);
@@ -142,10 +111,6 @@ pub(crate) struct ParentsEntryInternal {
     /// - Two or more items when concurrent changes have happened, and the first item in this range
     ///   is a merge operation.
     pub parents: Frontier,
-
-    /// This is a cached list of all the other indexes of items in history which name this item as
-    /// a parent.
-    pub child_indexes: SmallVec<[usize; 2]>,
 }
 
 impl ParentsEntryInternal {
@@ -210,15 +175,6 @@ impl ParentsEntryInternal {
         debug_assert!(time <= self.last_time());
         time >= self.shadow
     }
-
-    // pub fn parents_at_offset(&self, at: usize) -> SmallVec<[Order; 2]> {
-    //     if at > 0 {
-    //         smallvec![self.order + at as u32 - 1]
-    //     } else {
-    //         // I don't like this clone here, but it'll be pretty rare anyway.
-    //         self.parents.clone()
-    //     }
-    // }
 }
 
 impl HasLength for ParentsEntryInternal {
@@ -236,12 +192,10 @@ impl MergableSpan for ParentsEntryInternal {
     }
 
     fn append(&mut self, other: Self) {
-        debug_assert!(other.child_indexes.is_empty());
         self.span.append(other.span);
     }
 
     fn prepend(&mut self, other: Self) {
-        debug_assert!(self.child_indexes.is_empty());
         self.span.prepend(other.span);
         self.parents = other.parents;
         debug_assert_eq!(self.shadow, other.shadow);
@@ -402,12 +356,10 @@ mod tests {
         let mut txn_a = ParentsEntryInternal {
             span: (1000..1010).into(), shadow: 500,
             parents: Frontier::new_1(999),
-            child_indexes: smallvec![],
         };
         let txn_b = ParentsEntryInternal {
             span: (1010..1015).into(), shadow: 500,
             parents: Frontier::new_1(1009),
-            child_indexes: smallvec![],
         };
 
         assert!(txn_a.can_append(&txn_b));
@@ -416,7 +368,6 @@ mod tests {
         assert_eq!(txn_a, ParentsEntryInternal {
             span: (1000..1015).into(), shadow: 500,
             parents: Frontier::new_1(999),
-            child_indexes: smallvec![],
         })
     }
 
