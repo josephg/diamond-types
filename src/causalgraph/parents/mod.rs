@@ -4,6 +4,7 @@
 pub(crate) mod tools;
 mod scope;
 mod check;
+mod subgraph;
 
 use std::iter::once;
 use smallvec::{SmallVec, smallvec};
