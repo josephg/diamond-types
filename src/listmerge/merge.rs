@@ -666,7 +666,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             debug_assert!(!self.new_ops.is_empty());
 
             let span = self.new_ops.last().unwrap();
-            let txn = self.cg.parents.entries.find_packed(span.start);
+            let txn = self.cg.parents.0.find_packed(span.start);
             let can_ff = txn.with_parents(span.start, |parents: &[LV]| {
                 local_frontier_eq(&self.next_frontier, parents)
             });

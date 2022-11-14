@@ -60,7 +60,7 @@ impl<A: smallvec::Array> AppendRle<A::Item> for SmallVec<A> where A::Item: Merga
     }
 
     fn push_reversed_rle(&mut self, item: A::Item) -> bool {
-        // debug_assert!(item.len() > 0);
+    // debug_assert!(item.len() > 0);
 
         if let Some(v) = self.last_mut() {
             if item.can_append(v) {

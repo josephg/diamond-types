@@ -395,9 +395,9 @@ impl ListOpLog {
         println!("Delete content length {}", self.operation_ctx.del_content.len());
 
         self.cg.client_with_localtime.print_stats("Client localtime map", detailed);
-        self.cg.parents.entries.print_stats("History", detailed);
+        self.cg.parents.0.print_stats("History", detailed);
 
-        let num_merges: usize = self.cg.parents.entries
+        let num_merges: usize = self.cg.parents.0
             .iter()
             .map(|e| (e.parents.len() >= 2) as usize)
             .sum();

@@ -92,7 +92,7 @@ impl CausalGraph {
     }
 
     pub(crate) fn len_history(&self) -> usize {
-        self.parents.entries.end()
+        self.parents.0.end()
     }
 
     /// Get the number of operations. This method is only valid when the history and assignment
@@ -318,7 +318,7 @@ impl CausalGraph {
 
     /// Iterate through history entries
     pub fn iter_parents(&self) -> impl Iterator<Item=ParentsEntrySimple> + '_ {
-        self.parents.entries.iter().map(|e| e.into())
+        self.parents.0.iter().map(|e| e.into())
     }
 
     pub fn iter_range(&self, range: DTRange) -> impl Iterator<Item=CGEntry> + '_ {

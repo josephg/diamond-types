@@ -523,7 +523,7 @@ impl ListOpLog {
             }
 
             // Trim history
-            let hist_entries = &mut self.cg.parents.entries;
+            let hist_entries = &mut self.cg.parents.0;
             let history_length = hist_entries.end();
             if history_length > len {
                 // We can't use entries.remove because HistoryEntry doesn't support SplitableSpan.
@@ -541,7 +541,7 @@ impl ListOpLog {
                     first_idx
                 };
 
-                self.cg.parents.entries.0.truncate(first_truncated_idx);
+                self.cg.parents.0.0.truncate(first_truncated_idx);
             }
 
             // Remove excess agents

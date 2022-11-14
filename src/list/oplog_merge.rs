@@ -38,7 +38,7 @@ impl ListOpLog {
             // - ord not within self. Find the longest run we can - constrained by other txn and
             //  (agent,seq) pairs. If we find something we know, add to result and end. If not,
             //  add parents to queue.
-            let containing_txn = other.cg.parents.entries.find_packed(ord);
+            let containing_txn = other.cg.parents.0.find_packed(ord);
 
             // Discard any other entries from queue which name the same txn
 
@@ -126,7 +126,7 @@ impl ListOpLog {
 
             // History entries (parents)
             t = time;
-            for mut hist_entry in other.cg.parents.entries
+            for mut hist_entry in other.cg.parents.0
                 .iter_range_map(s, |e| ParentsEntrySimple::from(e)) {
 
                 let len = hist_entry.len();

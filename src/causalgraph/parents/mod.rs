@@ -19,13 +19,11 @@ use serde::{Deserialize, Serialize};
 use crate::frontier::{clone_smallvec, local_frontier_is_root};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Parents {
-    pub(crate) entries: RleVec<ParentsEntryInternal>,
-}
+pub struct Parents(pub(crate) RleVec<ParentsEntryInternal>);
 
 impl Parents {
     pub fn parents_at_time(&self, time: LV) -> Frontier {
-        let entry = self.entries.find_packed(time);
+        let entry = self.0.find_packed(time);
         entry.with_parents(time, |p| p.into())
     }
 
@@ -36,20 +34,18 @@ impl Parents {
 
     #[allow(unused)]
     pub fn num_entries(&self) -> usize {
-        self.entries.num_entries()
+        self.0.num_entries()
     }
 
-    // This is mostly for testing.
+    // This is mostly for testing. TODO: Probably worth adding an impl From.
     #[allow(unused)]
     pub(crate) fn from_entries(entries: &[ParentsEntryInternal]) -> Self {
-        Parents {
-            entries: RleVec(entries.to_vec()),
-        }
+        Parents(RleVec(entries.to_vec()))
     }
 
     #[allow(unused)]
     pub fn get_next_time(&self) -> usize {
-        if let Some(last) = self.entries.last() {
+        if let Some(last) = self.0.last() {
             last.span.end
         } else { 0 }
     }
@@ -60,7 +56,7 @@ impl Parents {
     pub(crate) fn push(&mut self, txn_parents: &[LV], range: DTRange) {
         // dbg!(txn_parents, range, &self.history.entries);
         // Fast path. The code below is weirdly slow, but most txns just append.
-        if let Some(last) = self.entries.0.last_mut() {
+        if let Some(last) = self.0.0.last_mut() {
             if txn_parents.len() == 1
                 && txn_parents[0] == last.last_time()
                 && last.span.can_append(&range)
@@ -73,10 +69,10 @@ impl Parents {
         // let parents = replace(&mut self.frontier, txn_parents);
         let mut shadow = range.start;
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
-            shadow = self.entries.find(shadow - 1).unwrap().shadow;
+            shadow = self.0.find(shadow - 1).unwrap().shadow;
         }
 
-        let will_merge = if let Some(last) = self.entries.last() {
+        let will_merge = if let Some(last) = self.0.last() {
             // TODO: Is this shadow check necessary?
             // This code is from TxnSpan splitablespan impl. Copying it here is a bit ugly but
             // its the least ugly way I could think to implement this.
@@ -89,7 +85,7 @@ impl Parents {
             parents: txn_parents.into(),
         };
 
-        let did_merge = self.entries.push(txn);
+        let did_merge = self.0.push(txn);
         assert_eq!(will_merge, did_merge);
     }
 }
@@ -281,7 +277,7 @@ impl From<&ParentsEntryInternal> for ParentsEntrySimple {
 //
 //     fn next(&mut self) -> Option<Self::Item> {
 //         // If we hit the end of the list this will be None and return.
-//         let e = self.history.entries.0.get(self.idx)?;
+//         let e = self.history.0.0.get(self.idx)?;
 //
 //         if self.end <= e.span.start { return None; } // End of the requested range.
 //
@@ -304,8 +300,8 @@ impl From<&ParentsEntryInternal> for ParentsEntrySimple {
 //
 // impl Parents {
 //     pub(crate) fn iter_range(&self, range: DTRange) -> ParentsIter<'_> {
-//         let idx = self.entries.find_index(range.start).unwrap();
-//         let offset = range.start - self.entries.0[idx].rle_key();
+//         let idx = self.0.find_index(range.start).unwrap();
+//         let offset = range.start - self.0.0[idx].rle_key();
 //
 //         ParentsIter {
 //             history: self,
@@ -326,11 +322,11 @@ impl From<&ParentsEntryInternal> for ParentsEntrySimple {
 // }
 impl Parents {
     pub(crate) fn iter_range(&self, range: DTRange) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
-        self.entries.iter_range_map(range, |e| e.into())
+        self.0.iter_range_map(range, |e| e.into())
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
-        self.entries.iter().map(|e| e.into())
+        self.0.iter().map(|e| e.into())
     }
 }
 

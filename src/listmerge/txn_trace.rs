@@ -126,10 +126,10 @@ impl<'a> SpanningTreeWalker<'a> {
         for mut span_remaining in rev_spans.iter().rev().copied() {
             debug_assert!(!span_remaining.is_empty());
 
-            let mut i = history.entries.find_index(span_remaining.start).unwrap();
+            let mut i = history.0.find_index(span_remaining.start).unwrap();
             // let mut offset = history.entries[i].
             while !span_remaining.is_empty() {
-                let txn = &history.entries[i];
+                let txn = &history.0[i];
                 debug_assert!(span_remaining.start >= txn.span.start && span_remaining.start < txn.span.end);
 
                 let offset = LV::min(span_remaining.len(), txn.span.end - span_remaining.start);

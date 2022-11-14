@@ -689,7 +689,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             debug_assert!(!self.new_ops.is_empty());
 
             let span = self.new_ops.last().unwrap();
-            let txn = self.oplog.cg.parents.entries.find_packed(span.start);
+            let txn = self.oplog.cg.parents.0.find_packed(span.start);
             let can_ff = txn.with_parents(span.start, |parents: &[LV]| {
                 local_frontier_eq(&self.next_frontier, parents)
             });
@@ -976,7 +976,7 @@ impl ListBranch {
         if ALLOW_FF {
             loop {
                 if let Some(span) = new_ops.last() {
-                    let txn = oplog.cg.parents.entries.find_packed(span.start);
+                    let txn = oplog.cg.parents.0.find_packed(span.start);
                     let can_ff = txn.with_parents(span.start, |parents| {
                         // Previously this said:
                         //   self.frontier == txn.parents

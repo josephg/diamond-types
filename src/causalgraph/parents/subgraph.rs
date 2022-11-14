@@ -30,9 +30,11 @@ impl Parents {
                 //    is allowed by the filter.
                 // 2. The filter doesn't allow the txn the entry is inside.
 
-                let txn = self.entries.find_packed(entry.target_parent);
+                let txn = self.0.find_packed(entry.target_parent);
 
                 'txn_loop: loop {
+                    // Could replace this with a call to filter_iter.find(..). Not sure if its
+                    // cleaner - it would let me remove the loop label though.
                     while filter.start > entry.target_parent {
                         if let Some(f) = filter_iter.next() { filter = f; }
                         else { break 'txn_loop; }
@@ -139,9 +141,7 @@ impl Parents {
             }
         }
 
-        Parents {
-            entries: RleVec(result_rev),
-        }
+        Parents(RleVec(result_rev))
     }
 }
 
@@ -153,26 +153,24 @@ mod test {
     use crate::rle::RleVec;
 
     fn fancy_parents() -> Parents {
-        let p = Parents {
-            entries: RleVec(vec![
-                ParentsEntryInternal { // 0-2
-                    span: (0..3).into(), shadow: 0,
-                    parents: Frontier::from_sorted(&[]),
-                },
-                ParentsEntryInternal { // 3-5
-                    span: (3..6).into(), shadow: 3,
-                    parents: Frontier::from_sorted(&[]),
-                },
-                ParentsEntryInternal { // 6-8
-                    span: (6..9).into(), shadow: 6,
-                    parents: Frontier::from_sorted(&[1, 4]),
-                },
-                ParentsEntryInternal { // 9-10
-                    span: (9..11).into(), shadow: 6,
-                    parents: Frontier::from_sorted(&[2, 8]),
-                },
-            ]),
-        };
+        let p = Parents(RleVec(vec![
+            ParentsEntryInternal { // 0-2
+                span: (0..3).into(), shadow: 0,
+                parents: Frontier::from_sorted(&[]),
+            },
+            ParentsEntryInternal { // 3-5
+                span: (3..6).into(), shadow: 3,
+                parents: Frontier::from_sorted(&[]),
+            },
+            ParentsEntryInternal { // 6-8
+                span: (6..9).into(), shadow: 6,
+                parents: Frontier::from_sorted(&[1, 4]),
+            },
+            ParentsEntryInternal { // 9-10
+                span: (9..11).into(), shadow: 6,
+                parents: Frontier::from_sorted(&[2, 8]),
+            },
+        ]));
 
         p.dbg_check(true);
         p
