@@ -526,6 +526,41 @@ impl Parents {
         Frontier(result)
     }
 
+    /// This method assumes v_1 and v_2 are already trimmed.
+    pub fn find_dominators_2(&self, v_1: &[LV], v_2: &[LV]) -> Frontier {
+        if v_1.is_empty() { return v_2.into(); }
+        if v_2.is_empty() { return v_1.into(); }
+
+        if v_1.len() == 1 && v_2.len() == 1 {
+            // There's 4 cases: v_1 == v_2, v_1 > v_2, v_1 < v_2 or v_1 || v_2.
+            let a = v_1[0];
+            let b = v_2[0];
+            return match self.version_cmp(a, b) {
+                None => {
+                    // Versions are concurrent.
+                    if a < b { Frontier::from_sorted(&[a, b]) }
+                    else { Frontier::from_sorted(&[b, a]) }
+                }
+                Some(Ordering::Equal) | Some(Ordering::Less) => Frontier::new_1(b),
+                Some(Ordering::Greater) => Frontier::new_1(a)
+            };
+        }
+
+        let first_v = v_1[0].min(v_2[0]);
+
+        let mut result_rev = smallvec![];
+
+        let iter = v_1.iter().copied().chain(v_2.iter().copied());
+        self.find_dominators_full_internal(iter, first_v, |v, dom| {
+            if dom {
+                result_rev.push(v);
+            }
+        });
+
+        result_rev.reverse();
+        Frontier(result_rev)
+    }
+
     fn find_dominators_full_internal<F, I>(&self, versions_iter: I, stop_at_shadow: usize, mut visit: F)
         where F: FnMut(LV, bool), I: Iterator<Item=LV>
     {
@@ -965,6 +1000,20 @@ pub mod test {
 
         assert_eq!(actual_yes, expected_yes);
         assert_eq!(actual_no, expected_no);
+
+        // This is a bit dirty, but no harm in it!
+        for split in 0..=input.len() {
+            let (a_raw, b_raw) = input.split_at(split);
+            // So unfortunately (for our purposes) find_dominators_2 assumes the two passed arrays
+            // are already trimmed to their dominators.
+            // IF ONLY we had a method to help!!
+            let a = parents.find_dominators(a_raw);
+            let b = parents.find_dominators(b_raw);
+            let fwd = parents.find_dominators_2(a.as_ref(), b.as_ref());
+            let rev = parents.find_dominators_2(b.as_ref(), a.as_ref());
+            assert_eq!(fwd.as_ref(), expected_yes);
+            assert_eq!(rev.as_ref(), expected_yes);
+        }
     }
 
     #[test]

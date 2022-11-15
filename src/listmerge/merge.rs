@@ -550,7 +550,7 @@ impl M2Tracker {
 pub(crate) struct TransformedOpsIter<'a> {
     // oplog: &'a ListOpLog,
     // cg: &'a CausalGraph,
-    parents: &'a Parents,
+    subgraph: &'a Parents,
     aa: &'a AgentAssignment,
     text_info: &'a TextInfo,
 
@@ -608,7 +608,7 @@ impl<'a> TransformedOpsIter<'a> {
 
 
         Self {
-            parents: &cg.parents,
+            subgraph: &cg.parents,
             aa: &cg.agent_assignment,
             text_info,
             op_iter: None,
@@ -671,7 +671,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             debug_assert!(!self.new_ops.is_empty());
 
             let span = self.new_ops.last().unwrap();
-            let txn = self.parents.0.find_packed(span.start);
+            let txn = self.subgraph.0.find_packed(span.start);
             let can_ff = txn.with_parents(span.start, |parents: &[LV]| {
                 local_frontier_eq(&self.next_frontier, parents)
             });
@@ -712,7 +712,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                     // merge set. This is a pretty bad way to do this - if we're gonna add them to
                     // conflict_ops then FF is pointless.
                     self.conflict_ops.clear();
-                    self.common_ancestor = self.parents.find_conflicting(self.next_frontier.as_ref(), self.merge_frontier.as_ref(), |span, flag| {
+                    self.common_ancestor = self.subgraph.find_conflicting(self.next_frontier.as_ref(), self.merge_frontier.as_ref(), |span, flag| {
                         if flag != DiffFlag::OnlyB {
                             self.conflict_ops.push_reversed_rle(span);
                         }
@@ -734,14 +734,14 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 let mut tracker = M2Tracker::new();
                 // dbg!(&self.conflict_ops);
                 let frontier = tracker.walk(
-                    &self.parents, &self.aa,
+                    &self.subgraph, &self.aa,
                     self.text_info,
                     std::mem::take(&mut self.common_ancestor),
                     &self.conflict_ops,
                     None);
                 // dbg!(&tracker);
 
-                let walker = SpanningTreeWalker::new(&self.parents, &self.new_ops, frontier);
+                let walker = SpanningTreeWalker::new(&self.subgraph, &self.new_ops, frontier);
                 self.phase2 = Some((tracker, walker));
                 // This is a kinda gross way to do this. TODO: Rewrite without .unwrap() somehow?
                 self.phase2.as_mut().unwrap()
@@ -777,7 +777,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             //
             // The walker can be unwrapped into its inner frontier, but that won't include
             // everything. (TODO: Look into fixing that?)
-            self.next_frontier.advance(&self.parents, walk.consume);
+            self.next_frontier.advance(&self.subgraph, walk.consume);
             self.op_iter = Some(self.text_info.iter_metrics_range(walk.consume).into());
         };
 

@@ -17,7 +17,7 @@ impl Parents {
     }
 
     // The filter iterator must be reverse-sorted.
-    pub(crate) fn subgraph_raw<I: Iterator<Item=DTRange>>(&self, mut filter_iter: I, parents: &[LV]) -> Parents {
+    pub(crate) fn subgraph_raw<I: Iterator<Item=DTRange>>(&self, mut rev_filter_iter: I, parents: &[LV]) -> Parents {
         #[derive(PartialOrd, Ord, Eq, PartialEq, Clone, Debug)]
         struct QueueEntry {
             target_parent: LV,
@@ -33,7 +33,7 @@ impl Parents {
             });
         }
 
-        if let Some(mut filter) = filter_iter.next() {
+        if let Some(mut filter) = rev_filter_iter.next() {
             'outer: while let Some(mut entry) = queue.pop() {
                 // There's essentially 2 cases here:
                 // 1. The entry is either inside a filtered item, or an earlier item in this txn
@@ -46,7 +46,7 @@ impl Parents {
                     // Could replace this with a call to filter_iter.find(..). Not sure if its
                     // cleaner - it would let me remove the loop label though.
                     while filter.start > entry.target_parent {
-                        if let Some(f) = filter_iter.next() { filter = f; }
+                        if let Some(f) = rev_filter_iter.next() { filter = f; }
                         else { break 'txn_loop; }
                     }
 
