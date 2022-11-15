@@ -16,6 +16,7 @@ use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::{DTRange, is_underwater, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, CausalGraph, Frontier, LV};
+use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::causalgraph::parents::tools::DiffFlag;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::buffered_iter::BufferedIter;
@@ -32,7 +33,8 @@ use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappene
 use crate::listmerge::metrics::upstream_cursor_pos;
 use crate::listmerge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
-use crate::causalgraph::remote_ids::RemoteVersionSpanOwned;
+use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpanOwned;
+use crate::causalgraph::parents::Parents;
 use crate::experiments::TextInfo;
 use crate::frontier::{FrontierRef, local_frontier_eq};
 use crate::unicount::consume_chars;
@@ -143,7 +145,7 @@ impl M2Tracker {
     }
 
     // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
-    pub(super) fn integrate(&mut self, cg: &CausalGraph, agent: AgentId, item: YjsSpan, mut cursor: UnsafeCursor<YjsSpan, DocRangeIndex>) -> usize {
+    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: YjsSpan, mut cursor: UnsafeCursor<YjsSpan, DocRangeIndex>) -> usize {
         assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
@@ -180,9 +182,9 @@ impl M2Tracker {
                 Ordering::Equal => {
                     if item.origin_right == other_entry.origin_right {
                         // Origin_right matches. Items are concurrent. Order by agent names.
-                        let my_name = cg.get_agent_name(agent);
-                        let (other_agent, other_seq) = cg.lv_to_agent_version(other_lv);
-                        let other_name = cg.get_agent_name(other_agent);
+                        let my_name = aa.get_agent_name(agent);
+                        let (other_agent, other_seq) = aa.lv_to_agent_version(other_lv);
+                        let other_name = aa.get_agent_name(other_agent);
 
                         // Its possible for a user to conflict with themself if they commit to
                         // multiple branches. In this case, sort by seq number.
@@ -194,7 +196,7 @@ impl M2Tracker {
                                 // consistent in that case.
                                 //
                                 // We could cache this but this code doesn't run often anyway.
-                                let item_seq = cg.lv_to_agent_version(item.id.start).1;
+                                let item_seq = aa.lv_to_agent_version(item.id.start).1;
                                 item_seq < other_seq
                             }
                             Ordering::Greater => false,
@@ -260,7 +262,7 @@ impl M2Tracker {
         content_pos
     }
 
-    fn apply_range(&mut self, cg: &CausalGraph, text_info: &TextInfo, range: DTRange, mut to: Option<&mut JumpRopeBuf>) {
+    fn apply_range(&mut self, aa: &AgentAssignment, text_info: &TextInfo, range: DTRange, mut to: Option<&mut JumpRopeBuf>) {
         if range.is_empty() { return; }
 
         // if let Some(to) = to.as_deref_mut() {
@@ -271,14 +273,14 @@ impl M2Tracker {
         // let mut iter = OpMetricsIter::new(&text_info.ops, &text_info.ctx, range);
         while let Some(mut pair) = iter.next() {
             loop {
-                let span = cg.lv_span_to_agent_span(pair.span());
+                let span = aa.lv_span_to_agent_span(pair.span());
 
                 let len = span.len();
                 let remainder = pair.trim_ctx(len, iter.ctx);
 
                 let content = iter.get_content(&pair);
 
-                self.apply_to(cg, &text_info.ctx, span.agent, &pair, content, to.as_deref_mut());
+                self.apply_to(aa, &text_info.ctx, span.agent, &pair, content, to.as_deref_mut());
 
                 if let Some(r) = remainder {
                     pair = r;
@@ -287,7 +289,7 @@ impl M2Tracker {
         }
     }
 
-    fn apply_to(&mut self, cg: &CausalGraph, ctx: &ListOperationCtx, agent: AgentId, op_pair: &KVPair<ListOpMetrics>, content: Option<&str>, mut to: Option<&mut JumpRopeBuf>) {
+    fn apply_to(&mut self, aa: &AgentAssignment, ctx: &ListOperationCtx, agent: AgentId, op_pair: &KVPair<ListOpMetrics>, content: Option<&str>, mut to: Option<&mut JumpRopeBuf>) {
         let mut op_pair = op_pair.clone();
 
         loop {
@@ -296,7 +298,7 @@ impl M2Tracker {
             //     s.0 += 1;
             // });
 
-            let (len_here, transformed_pos) = self.apply(cg, agent, &op_pair, usize::MAX);
+            let (len_here, transformed_pos) = self.apply(aa, agent, &op_pair, usize::MAX);
 
             let remainder = op_pair.trim_ctx(len_here, ctx);
 
@@ -355,7 +357,7 @@ impl M2Tracker {
     /// | NotInsYet | Before     | After       |
     /// | Inserted  | After      | Before      |
     /// | Deleted   | Before     | Before      |
-    fn apply(&mut self, cg: &CausalGraph, agent: AgentId, op_pair: &KVPair<ListOpMetrics>, max_len: usize) -> (usize, TransformedResult) {
+    fn apply(&mut self, aa: &AgentAssignment, agent: AgentId, op_pair: &KVPair<ListOpMetrics>, max_len: usize) -> (usize, TransformedResult) {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
         let len = max_len.min(op_pair.len());
@@ -420,7 +422,7 @@ impl M2Tracker {
 
                 // This is dirty because the cursor's lifetime is not associated with self.
                 let cursor = cursor.inner;
-                let ins_pos = self.integrate(cg, agent, item, cursor);
+                let ins_pos = self.integrate(aa, agent, item, cursor);
                 // self.range_tree.check();
                 // self.check_index();
 
@@ -494,10 +496,10 @@ impl M2Tracker {
 
                 let lv_start = op_pair.0;
 
-                if !is_underwater(target.start) {
-                    // Deletes must always dominate the item they're deleting in the time dag.
-                    debug_assert!(cg.parents.version_contains_time(&[lv_start], target.start));
-                }
+                // if !is_underwater(target.start) {
+                //     // Deletes must always dominate the item they're deleting in the time dag.
+                //     debug_assert!(cg.parents.version_contains_time(&[lv_start], target.start));
+                // }
 
                 self.index.replace_range_at_offset(lv_start, MarkerEntry {
                     len,
@@ -524,8 +526,8 @@ impl M2Tracker {
     ///
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
-    fn walk(&mut self, cg: &CausalGraph, text_info: &TextInfo, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut JumpRopeBuf>) -> Frontier {
-        let mut walker = SpanningTreeWalker::new(&cg.parents, rev_spans, start_at);
+    fn walk(&mut self, parents: &Parents, aa: &AgentAssignment, text_info: &TextInfo, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut JumpRopeBuf>) -> Frontier {
+        let mut walker = SpanningTreeWalker::new(&parents, rev_spans, start_at);
 
         for walk in &mut walker {
             for range in walk.retreat {
@@ -537,7 +539,7 @@ impl M2Tracker {
             }
 
             debug_assert!(!walk.consume.is_empty());
-            self.apply_range(cg, text_info, walk.consume, apply_to.as_deref_mut());
+            self.apply_range(&aa, text_info, walk.consume, apply_to.as_deref_mut());
         }
 
         walker.into_frontier()
@@ -547,7 +549,9 @@ impl M2Tracker {
 #[derive(Debug)]
 pub(crate) struct TransformedOpsIter<'a> {
     // oplog: &'a ListOpLog,
-    cg: &'a CausalGraph,
+    // cg: &'a CausalGraph,
+    parents: &'a Parents,
+    aa: &'a AgentAssignment,
     text_info: &'a TextInfo,
 
     op_iter: Option<BufferedIter<OpMetricsIter<'a>>>,
@@ -604,7 +608,8 @@ impl<'a> TransformedOpsIter<'a> {
 
 
         Self {
-            cg,
+            parents: &cg.parents,
+            aa: &cg.agent_assignment,
             text_info,
             op_iter: None,
             ff_mode: true,
@@ -666,7 +671,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             debug_assert!(!self.new_ops.is_empty());
 
             let span = self.new_ops.last().unwrap();
-            let txn = self.cg.parents.0.find_packed(span.start);
+            let txn = self.parents.0.find_packed(span.start);
             let can_ff = txn.with_parents(span.start, |parents: &[LV]| {
                 local_frontier_eq(&self.next_frontier, parents)
             });
@@ -707,7 +712,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                     // merge set. This is a pretty bad way to do this - if we're gonna add them to
                     // conflict_ops then FF is pointless.
                     self.conflict_ops.clear();
-                    self.common_ancestor = self.cg.parents.find_conflicting(self.next_frontier.as_ref(), self.merge_frontier.as_ref(), |span, flag| {
+                    self.common_ancestor = self.parents.find_conflicting(self.next_frontier.as_ref(), self.merge_frontier.as_ref(), |span, flag| {
                         if flag != DiffFlag::OnlyB {
                             self.conflict_ops.push_reversed_rle(span);
                         }
@@ -729,13 +734,14 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 let mut tracker = M2Tracker::new();
                 // dbg!(&self.conflict_ops);
                 let frontier = tracker.walk(
-                    self.cg, self.text_info,
+                    &self.parents, &self.aa,
+                    self.text_info,
                     std::mem::take(&mut self.common_ancestor),
                     &self.conflict_ops,
                     None);
                 // dbg!(&tracker);
 
-                let walker = SpanningTreeWalker::new(&self.cg.parents, &self.new_ops, frontier);
+                let walker = SpanningTreeWalker::new(&self.parents, &self.new_ops, frontier);
                 self.phase2 = Some((tracker, walker));
                 // This is a kinda gross way to do this. TODO: Rewrite without .unwrap() somehow?
                 self.phase2.as_mut().unwrap()
@@ -771,15 +777,15 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             //
             // The walker can be unwrapped into its inner frontier, but that won't include
             // everything. (TODO: Look into fixing that?)
-            self.next_frontier.advance(&self.cg.parents, walk.consume);
+            self.next_frontier.advance(&self.parents, walk.consume);
             self.op_iter = Some(self.text_info.iter_metrics_range(walk.consume).into());
         };
 
         // Ok, try to consume as much as we can from pair.
-        let span = self.cg.lv_span_to_agent_span(pair.span());
+        let span = self.aa.lv_span_to_agent_span(pair.span());
         let len = span.len().min(pair.len());
 
-        let (consumed_here, xf_result) = tracker.apply(self.cg, span.agent, &pair, len);
+        let (consumed_here, xf_result) = tracker.apply(self.aa, span.agent, &pair, len);
 
         let remainder = pair.trim_ctx(consumed_here, &self.text_info.ctx);
 
@@ -998,9 +1004,9 @@ mod test {
 
         let mut content = JumpRopeBuf::new();
         let mut t = M2Tracker::new();
-        t.apply_range(&list.cg, &list.info, (0..3).into(), Some(&mut content));
+        t.apply_range(&list.cg.agent_assignment, &list.info, (0..3).into(), Some(&mut content));
         t.retreat_by_range((0..3).into());
-        t.apply_range(&list.cg, &list.info, (3..6).into(), Some(&mut content));
+        t.apply_range(&list.cg.agent_assignment, &list.info, (3..6).into(), Some(&mut content));
 
         let i: Vec<_> = items(&t, 0).iter().map(|i| (i.id, i.state)).collect();
         assert_eq!(i, &[
@@ -1024,9 +1030,9 @@ mod test {
 
         let mut content = JumpRopeBuf::new();
         let mut t = M2Tracker::new();
-        t.apply_range(&list.cg, &list.info, (0..4).into(), Some(&mut content));
+        t.apply_range(&list.cg.agent_assignment, &list.info, (0..4).into(), Some(&mut content));
         t.retreat_by_range((3..4).into());
-        t.apply_range(&list.cg, &list.info, (4..7).into(), Some(&mut content));
+        t.apply_range(&list.cg.agent_assignment, &list.info, (4..7).into(), Some(&mut content));
         t.advance_by_range((3..4).into());
 
         assert_eq!(items_state(&t, 0), &[
@@ -1051,7 +1057,7 @@ mod test {
         let mut content = JumpRopeBuf::new();
         let end = list.cg.len();
         // dbg!(end);
-        t.apply_range(&list.cg, &list.info, (0..end).into(), Some(&mut content));
+        t.apply_range(&list.cg.agent_assignment, &list.info, (0..end).into(), Some(&mut content));
         assert_eq!(content, "hiere");
         // dbg!(&t);
 
@@ -1080,7 +1086,7 @@ mod test {
         assert_eq!(t, 5);
 
         let mut t = M2Tracker::new();
-        t.apply_range(&list.cg, &list.info, (3..6).into(), None);
+        t.apply_range(&list.cg.agent_assignment, &list.info, (3..6).into(), None);
         assert_eq!(items_state(&t, 3), &[(3, DELETED_ONCE)]);
 
         t.retreat_by_range((5..6).into());

@@ -197,8 +197,9 @@ struct AgentMapping {
 }
 
 impl AgentMapping {
+    // TODO: This should only need the agent assignment I think!
     fn new(oplog: &ListOpLog) -> Self {
-        let client_len = oplog.cg.client_data.len();
+        let client_len = oplog.cg.agent_assignment.client_data.len();
         let mut result = Self {
             map: Vec::with_capacity(client_len),
             next_mapped_agent: 1, // 0 is implicitly assigned to ROOT.
@@ -208,6 +209,7 @@ impl AgentMapping {
         result
     }
 
+    // TODO: Narrow arguments to &AgentAssignment
     fn map(&mut self, oplog: &ListOpLog, agent: AgentId) -> AgentId {
         // 0 is implicitly ROOT.
         assert_ne!(agent, AgentId::MAX);
@@ -217,7 +219,7 @@ impl AgentMapping {
         self.map[agent].map_or_else(|| {
             let mapped = self.next_mapped_agent;
             self.map[agent] = Some((mapped, 0));
-            push_str(&mut self.output, oplog.cg.client_data[agent].name.as_str());
+            push_str(&mut self.output, oplog.cg.agent_assignment.client_data[agent].name.as_str());
             // println!("Mapped agent {} -> {}", oplog.cg.client_data[agent].name, mapped);
             self.next_mapped_agent += 1;
             mapped
@@ -547,7 +549,7 @@ impl ListOpLog {
             // We need to update *lots* of stuff in here!!
 
             // 1. Agent names and agent assignment
-            for KVPair(_, span) in self.cg.client_with_localtime.iter_range_ctx(walk.consume, &()) {
+            for KVPair(_, span) in self.cg.agent_assignment.client_with_localtime.iter_range_ctx(walk.consume, &()) {
                 // Mark the agent as in-use (if we haven't already)
                 let mapped_agent = agent_mapping.map(self, span.agent);
 

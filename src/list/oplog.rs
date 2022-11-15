@@ -3,12 +3,12 @@ use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use rle::{HasLength, Searchable};
 use crate::{AgentId, Frontier, LV};
-use crate::causalgraph::ClientData;
+use crate::causalgraph::agent_assignment::ClientData;
 use crate::list::{ListBranch, ListOpLog};
 use crate::causalgraph::parents::ParentsEntrySimple;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{TextOperation, ListOpKind};
-use crate::causalgraph::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned, RemoteVersionSpan};
+use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned, RemoteVersionSpan};
 use crate::dtrange::DTRange;
 use crate::causalgraph::agent_span::*;
 use crate::frontier::clone_smallvec;
@@ -46,19 +46,19 @@ impl ListOpLog {
     }
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
-        self.cg.get_or_create_agent_id(name)
+        self.cg.agent_assignment.get_or_create_agent_id(name)
     }
 
     pub(crate) fn get_agent_id(&self, name: &str) -> Option<AgentId> {
-        self.cg.get_agent_id(name)
+        self.cg.agent_assignment.get_agent_id(name)
     }
 
     pub fn get_agent_name(&self, agent: AgentId) -> &str {
-        self.cg.get_agent_name(agent)
+        self.cg.agent_assignment.get_agent_name(agent)
     }
 
     pub(crate) fn lv_to_agent_version(&self, lv: LV) -> AgentVersion {
-        self.cg.lv_to_agent_version(lv)
+        self.cg.agent_assignment.lv_to_agent_version(lv)
     }
 
     #[allow(unused)]
@@ -74,14 +74,14 @@ impl ListOpLog {
 
     #[allow(unused)]
     pub(crate) fn try_crdt_id_to_time(&self, id: AgentVersion) -> Option<LV> {
-        self.cg.try_agent_version_to_lv(id)
+        self.cg.agent_assignment.try_agent_version_to_lv(id)
     }
 
     /// **NOTE:** This method will return a timespan with length min(time, agent_time). The
     /// resulting length will NOT be guaranteed to be the same as the input.
     pub(crate) fn lv_span_to_agent_span(&self, version: DTRange) -> AgentSpan {
         // TODO: Move to cg.
-        self.cg.lv_span_to_agent_span(version)
+        self.cg.agent_assignment.lv_span_to_agent_span(version)
     }
 
     // pub(crate) fn get_time(&self, loc: CRDTId) -> usize {
@@ -100,7 +100,7 @@ impl ListOpLog {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.cg.client_with_localtime.is_empty()
+        self.cg.agent_assignment.client_with_localtime.is_empty()
     }
 
     // Unused for now, but it should work.
@@ -116,7 +116,7 @@ impl ListOpLog {
         debug_assert_eq!(start, self.cg.len_assignment());
 
         let AgentSpan { agent, seq_range } = span;
-        let client_data = &mut self.cg.client_data[agent as usize];
+        let client_data = &mut self.cg.agent_assignment.client_data[agent as usize];
 
         // let next_seq = client_data.get_next_seq();
         let timespan = (start..start + span.len()).into();
@@ -132,7 +132,7 @@ impl ListOpLog {
         // }
         client_data.item_times.insert(KVPair(seq_range.start, timespan));
 
-        self.cg.client_with_localtime.push(KVPair(start, span));
+        self.cg.agent_assignment.client_with_localtime.push(KVPair(start, span));
     }
 
     /// span is the local timespan we're assigning to the named agent.
@@ -140,12 +140,12 @@ impl ListOpLog {
     pub(super) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
         debug_assert_eq!(span.start, self.cg.len_assignment());
 
-        let client_data = &mut self.cg.client_data[agent as usize];
+        let client_data = &mut self.cg.agent_assignment.client_data[agent as usize];
 
         let next_seq = client_data.get_next_seq();
         client_data.item_times.push(KVPair(next_seq, span));
 
-        self.cg.client_with_localtime.push(KVPair(span.start, AgentSpan {
+        self.cg.agent_assignment.client_with_localtime.push(KVPair(span.start, AgentSpan {
             agent,
             seq_range: DTRange { start: next_seq, end: next_seq + span.len() },
         }));
@@ -322,35 +322,36 @@ impl ListOpLog {
     }
 
     pub fn remote_frontier(&self) -> RemoteFrontier {
-        self.cg.local_to_remote_frontier(self.cg.version.as_ref())
+        self.cg.agent_assignment.local_to_remote_frontier(self.cg.version.as_ref())
     }
 
     // pub(crate) fn content_str(&self, tag: InsDelTag) -> &str {
     //     switch(tag, &self.ins_content, &self.del_content)
     // }
 
+    // TODO: Probably move these inside agent_assignment.
     pub(crate) fn iter_agent_mappings(&self) -> impl Iterator<Item = AgentSpan> + '_ {
-        self.cg.client_with_localtime
+        self.cg.agent_assignment.client_with_localtime
             .iter()
             .map(|item| item.1)
     }
 
     pub fn iter_remote_mappings(&self) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
-        self.cg.client_with_localtime
+        self.cg.agent_assignment.client_with_localtime
             .iter()
-            .map(|item| self.cg.agent_span_to_remote(item.1))
+            .map(|item| self.cg.agent_assignment.agent_span_to_remote(item.1))
     }
 
     pub(crate) fn iter_agent_mappings_range(&self, range: DTRange) -> impl Iterator<Item = AgentSpan> + '_ {
-        self.cg.client_with_localtime
+        self.cg.agent_assignment.client_with_localtime
             .iter_range(range)
             .map(|item| item.1)
     }
 
     pub fn iter_remote_mappings_range(&self, range: DTRange) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
-        self.cg.client_with_localtime
+        self.cg.agent_assignment.client_with_localtime
             .iter_range(range)
-            .map(|item| self.cg.agent_span_to_remote(item.1))
+            .map(|item| self.cg.agent_assignment.agent_span_to_remote(item.1))
     }
 
     pub fn print_stats(&self, detailed: bool) {
@@ -394,7 +395,7 @@ impl ListOpLog {
         println!("Insert content length {}", self.operation_ctx.ins_content.len());
         println!("Delete content length {}", self.operation_ctx.del_content.len());
 
-        self.cg.client_with_localtime.print_stats("Client localtime map", detailed);
+        self.cg.agent_assignment.client_with_localtime.print_stats("Client localtime map", detailed);
         self.cg.parents.0.print_stats("History", detailed);
 
         let num_merges: usize = self.cg.parents.0

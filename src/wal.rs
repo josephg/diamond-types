@@ -201,7 +201,7 @@ impl WriteAheadLog {
         debug_assert_eq!(pos, total_len);
         Ok((Self {
             file,
-            write_map: WriteMap::from_dec(&cg.client_data, read_map),
+            write_map: WriteMap::from_dec(&cg.agent_assignment.client_data, read_map),
             next_version: 0 // TODO!
         }, ops))
     }
@@ -293,7 +293,7 @@ impl WriteAheadLog {
         self.write_chunk(|bump, buf| {
             // let start = buf.len();
 
-            let mut write_map = WriteMap::with_capacity_from(&cg.client_data);
+            let mut write_map = WriteMap::with_capacity_from(&cg.agent_assignment.client_data);
 
             let iter = cg.iter_range(range);
             let cg_data = write_cg_entry_iter(bump, iter, &mut write_map, cg);

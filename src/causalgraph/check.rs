@@ -1,14 +1,11 @@
 use smallvec::smallvec;
 use crate::{CausalGraph, Parents, Frontier};
+use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::frontier::{clone_smallvec, debug_assert_frontier_sorted};
 
-impl CausalGraph {
+impl AgentAssignment {
     #[allow(unused)]
     pub fn dbg_check(&self, deep: bool) {
-        if deep {
-            self.parents.dbg_check(deep);
-        }
-
         // The client_with_localtime should match with the corresponding items in client_data
         self.client_with_localtime.check_packed();
 
@@ -22,8 +19,6 @@ impl CausalGraph {
             assert_eq!(actual_range.1, expected_range);
         }
 
-        assert_eq!(self.version, self.parents.dbg_get_frontier_inefficiently());
-
         if deep {
             // Also check the other way around.
             for (agent, client) in self.client_data.iter().enumerate() {
@@ -33,5 +28,18 @@ impl CausalGraph {
                 }
             }
         }
+    }
+}
+
+impl CausalGraph {
+    #[allow(unused)]
+    pub fn dbg_check(&self, deep: bool) {
+        if deep {
+            self.parents.dbg_check(deep);
+        }
+
+        self.agent_assignment.dbg_check(deep);
+
+        assert_eq!(self.version, self.parents.dbg_get_frontier_inefficiently());
     }
 }

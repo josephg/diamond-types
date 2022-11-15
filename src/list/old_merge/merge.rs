@@ -36,7 +36,6 @@ use crate::list::old_merge::metrics::upstream_cursor_pos;
 use crate::listmerge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
 use crate::list::operation::ListOpKind::Ins;
-use crate::causalgraph::remote_ids::RemoteVersionSpanOwned;
 use crate::frontier::{local_frontier_eq, FrontierRef};
 use crate::unicount::consume_chars;
 
@@ -186,7 +185,7 @@ impl M2Tracker {
                     if item.origin_right == other_entry.origin_right {
                         // Origin_right matches. Items are concurrent. Order by agent names.
                         let my_name = oplog.get_agent_name(agent);
-                        let (other_agent, other_seq) = oplog.cg.lv_to_agent_version(other_lv);
+                        let (other_agent, other_seq) = oplog.cg.agent_assignment.lv_to_agent_version(other_lv);
                         let other_name = oplog.get_agent_name(other_agent);
 
                         // Its possible for a user to conflict with themself if they commit to
@@ -199,7 +198,7 @@ impl M2Tracker {
                                 // consistent in that case.
                                 //
                                 // We could cache this but this code doesn't run often anyway.
-                                let item_seq = oplog.cg.lv_to_agent_version(item.id.start).1;
+                                let item_seq = oplog.cg.agent_assignment.lv_to_agent_version(item.id.start).1;
                                 item_seq < other_seq
                             }
                             Ordering::Greater => false,
@@ -275,7 +274,7 @@ impl M2Tracker {
         let mut iter = oplog.iter_metrics_range(range);
         while let Some(mut pair) = iter.next() {
             loop {
-                let span = oplog.cg.lv_span_to_agent_span(pair.span());
+                let span = oplog.cg.agent_assignment.lv_span_to_agent_span(pair.span());
 
                 let len = span.len();
                 let remainder = pair.trim_ctx(len, iter.ctx);

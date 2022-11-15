@@ -1,6 +1,6 @@
 //! This file contains some wrappers to interact with operations publicly.
 
-use crate::causalgraph::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned};
+use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned};
 use crate::{CollectionOp, CreateValue, LV, Op, OpContents, OpLog, ROOT_CRDT_ID, ROOT_CRDT_ID_AV};
 use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
@@ -44,7 +44,7 @@ impl OpLog {
         if target == ROOT_CRDT_ID {
             RemoteVersion("ROOT", 0)
         } else {
-            self.cg.local_to_remote_version(target)
+            self.cg.agent_assignment.local_to_remote_version(target)
         }
     }
 
@@ -55,7 +55,7 @@ impl OpLog {
             OpContents::MapDelete(key) => ExtOpContents::MapDelete(key),
             OpContents::Collection(CollectionOp::Insert(val)) => ExtOpContents::CollectionInsert(val),
             OpContents::Collection(CollectionOp::Remove(lv)) => ExtOpContents::CollectionRemove(
-                self.cg.local_to_remote_version(lv)
+                self.cg.agent_assignment.local_to_remote_version(lv)
             ),
             OpContents::Text(metrics) => ExtOpContents::Text(self.metrics_to_op(&metrics))
         }
@@ -68,8 +68,8 @@ impl OpLog {
             for KVPair(lv, op) in self.uncommitted_ops.ops.iter_range_ctx(walk.consume, &self.uncommitted_ops.list_ctx) {
                 result.push(ExtOp {
                     target: self.target_to_rv(op.target_id),
-                    parents: self.cg.local_to_remote_frontier(self.cg.parents.parents_at_time(lv).as_ref()),
-                    version: self.cg.local_to_remote_version(lv),
+                    parents: self.cg.agent_assignment.local_to_remote_frontier(self.cg.parents.parents_at_time(lv).as_ref()),
+                    version: self.cg.agent_assignment.local_to_remote_version(lv),
                     contents: self.op_contents_to_ext_op(op.contents)
                 });
 
@@ -87,7 +87,7 @@ impl OpLog {
             ExtOpContents::MapDelete(key) => OpContents::MapDelete(key),
             ExtOpContents::CollectionInsert(val) => OpContents::Collection(CollectionOp::Insert(val)),
             ExtOpContents::CollectionRemove(rv) => OpContents::Collection(CollectionOp::Remove(
-                self.cg.remote_to_local_version(rv)
+                self.cg.agent_assignment.remote_to_local_version(rv)
             )),
             ExtOpContents::Text(op) => OpContents::Text(self.text_op_to_metrics(&op))
         }
@@ -97,7 +97,7 @@ impl OpLog {
         if target.0 == "ROOT" {
             ROOT_CRDT_ID_AV
         } else {
-            self.cg.remote_to_agent_version_known(target)
+            self.cg.agent_assignment.remote_to_agent_version_known(target)
         }
     }
 
@@ -107,9 +107,9 @@ impl OpLog {
                 target, parents, version, contents
             } = op;
 
-            let parents_local = self.cg.remote_to_local_frontier(parents.into_iter());
+            let parents_local = self.cg.agent_assignment.remote_to_local_frontier(parents.into_iter());
             // let target_local = self.cg.remote_to_local_version(target);
-            let version_local = self.cg.remote_to_agent_version_unknown(version);
+            let version_local = self.cg.agent_assignment.remote_to_agent_version_unknown(version);
             let target_local = self.target_rv_to_av(target);
             let contents = self.ext_contents_to_local(contents);
 
@@ -125,9 +125,9 @@ impl SimpleDatabase {
                 target, parents, version, contents
             } = op;
 
-            let parents_local = self.oplog.cg.remote_to_local_frontier(parents.into_iter());
+            let parents_local = self.oplog.cg.agent_assignment.remote_to_local_frontier(parents.into_iter());
             // let target_local = self.cg.remote_to_local_version(target);
-            let version_local = self.oplog.cg.remote_to_agent_version_unknown(version);
+            let version_local = self.oplog.cg.agent_assignment.remote_to_agent_version_unknown(version);
             let target_local = self.oplog.target_rv_to_av(target);
             let contents = self.oplog.ext_contents_to_local(contents);
 

@@ -13,7 +13,7 @@ use crate::causalgraph::parents::Parents;
 use crate::list::operation::{ListOpKind, TextOperation};
 
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
-use crate::causalgraph::remote_ids::RemoteVersion;
+use crate::causalgraph::agent_assignment::remote_ids::RemoteVersion;
 use crate::rev_range::RangeRev;
 use crate::rle::RleSpanHelpers;
 use crate::unicount::count_chars;
@@ -57,7 +57,7 @@ impl OpLog {
     pub fn is_empty(&self) -> bool { self.cg.is_empty() }
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
-        self.cg.get_or_create_agent_id(name)
+        self.cg.agent_assignment.get_or_create_agent_id(name)
     }
 
     fn inner_assign_local_op_span(&mut self, agent_id: AgentId, len: usize) -> DTRange {
@@ -85,7 +85,7 @@ impl OpLog {
     /// object.
     fn try_agent_version_to_target(&self, id: AgentVersion) -> Option<LV> {
         if id == ROOT_CRDT_ID_AV { Some(ROOT_CRDT_ID) }
-        else { self.cg.try_agent_version_to_lv(id) }
+        else { self.cg.agent_assignment.try_agent_version_to_lv(id) }
     }
 
     pub(crate) fn push_remote_op(&mut self, parents: &[LV], op_id: AgentSpan, crdt_av: AgentVersion, contents: OpContents) -> (DTRange, LV) {

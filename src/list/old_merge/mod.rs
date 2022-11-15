@@ -18,7 +18,6 @@ use crate::list::old_merge::metrics::MarkerMetrics;
 use crate::list::old_merge::yjsspan::YjsSpan;
 use crate::{DTRange, SmartString, LV};
 use crate::list::ListOpLog;
-use crate::causalgraph::remote_ids::RemoteVersionSpanOwned;
 use crate::rev_range::RangeRev;
 
 mod yjsspan;

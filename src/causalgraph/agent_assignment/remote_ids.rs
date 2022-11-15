@@ -10,6 +10,7 @@ use smallvec::SmallVec;
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
 use crate::dtrange::DTRange;
 use crate::{CausalGraph, Frontier, LV};
+use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::frontier::sort_frontier;
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 
@@ -107,7 +108,7 @@ pub enum VersionConversionError {
     SeqInFuture,
 }
 
-impl CausalGraph {
+impl AgentAssignment {
     pub fn try_remote_to_local_version(&self, rv: RemoteVersion) -> Result<LV, VersionConversionError> {
         let agent = self.get_agent_id(rv.0)
             .ok_or(VersionConversionError::UnknownAgent)?;
@@ -197,7 +198,7 @@ impl CausalGraph {
 
 #[cfg(test)]
 mod test {
-    use crate::causalgraph::remote_ids::{RemoteVersion, RemoteVersionOwned};
+    use crate::causalgraph::agent_assignment::remote_ids::{RemoteVersion, RemoteVersionOwned};
     use crate::CausalGraph;
 
     #[test]
@@ -208,13 +209,13 @@ mod test {
         cg.assign_local_op_with_parents(&[], 0, 2);
         cg.assign_local_op_with_parents(&[], 1, 4);
 
-        assert_eq!(0, cg.remote_to_local_version(RemoteVersion("seph", 0)));
-        assert_eq!(1, cg.remote_to_local_version(RemoteVersion("seph", 1)));
-        assert_eq!(2, cg.remote_to_local_version(RemoteVersion("mike", 0)));
+        assert_eq!(0, cg.agent_assignment.remote_to_local_version(RemoteVersion("seph", 0)));
+        assert_eq!(1, cg.agent_assignment.remote_to_local_version(RemoteVersion("seph", 1)));
+        assert_eq!(2, cg.agent_assignment.remote_to_local_version(RemoteVersion("mike", 0)));
 
         for lv in 0..cg.len() {
-            let rv = cg.local_to_remote_version(lv);
-            let expect_lv = cg.remote_to_local_version(rv);
+            let rv = cg.agent_assignment.local_to_remote_version(lv);
+            let expect_lv = cg.agent_assignment.remote_to_local_version(rv);
             assert_eq!(lv, expect_lv);
         }
 
@@ -233,6 +234,6 @@ mod test {
     #[test]
     fn remote_versions_can_be_empty() {
         let cg = CausalGraph::new();
-        assert!(cg.remote_to_local_frontier(std::iter::empty()).is_root());
+        assert!(cg.agent_assignment.remote_to_local_frontier(std::iter::empty()).is_root());
     }
 }

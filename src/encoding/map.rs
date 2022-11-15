@@ -1,6 +1,6 @@
 use rle::HasLength;
 use crate::{AgentId, DTRange, KVPair, RleVec, LV};
-use crate::causalgraph::ClientData;
+use crate::causalgraph::agent_assignment::ClientData;
 use crate::rle::RleSpanHelpers;
 
 /// This struct stores the information we need while reading to map from relative agent info and

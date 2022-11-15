@@ -36,6 +36,7 @@ use crate::encoding::tools::{calc_checksum, push_u64, push_usize};
 use crate::encoding::varint::{decode_usize, encode_usize};
 use crate::{CausalGraph, DTRange, LV};
 use bumpalo::collections::vec::Vec as BumpVec;
+use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::causalgraph::entry::CGEntry;
 use crate::encoding::cg_entry::{read_cg_entry_into_cg, read_cg_entry_into_cg_nonoverlapping, write_cg_entry};
 use crate::encoding::map::{WriteMap, ReadMap};
@@ -170,7 +171,7 @@ impl CGStorage {
             dirty_blit: false,
             next_blit: false,
             entry: Default::default(),
-            write_map: WriteMap::with_capacity_from(&cg.client_data),
+            write_map: WriteMap::with_capacity_from(&cg.agent_assignment.client_data),
             next_flush_time: 0,
         };
 
@@ -416,11 +417,11 @@ impl CGStorage {
         Ok(blitsize)
     }
 
-    fn encode_last_entry(&mut self, buf: &mut BumpVec<u8>, persist: bool, cg: &CausalGraph) {
-        write_cg_entry(buf, &self.entry, &mut self.write_map, persist, cg);
+    fn encode_last_entry(&mut self, buf: &mut BumpVec<u8>, persist: bool, aa: &AgentAssignment) {
+        write_cg_entry(buf, &self.entry, &mut self.write_map, persist, aa);
     }
 
-    pub(crate) fn push_entry_no_sync(&mut self, bump: &Bump, entry: CGEntry, cg: &CausalGraph) -> Result<bool, CGError> {
+    pub(crate) fn push_entry_no_sync(&mut self, bump: &Bump, entry: CGEntry, aa: &AgentAssignment) -> Result<bool, CGError> {
         if entry.is_empty() { return Ok(false); }
 
         let mut buf = BumpVec::new_in(bump);
@@ -435,7 +436,7 @@ impl CGStorage {
         } else {
             // Flush the last entry out.
             // eprintln!("Writing entry to data {:?}", self.entry);
-            self.encode_last_entry(&mut buf, true, cg);
+            self.encode_last_entry(&mut buf, true, aa);
             self.write_data(&buf)?;
 
             // Then save the new value in a fresh blit.
@@ -444,6 +445,7 @@ impl CGStorage {
         })
     }
 
+    // TODO: Consider taking agent assignment here too.
     fn flush(&mut self, bump: &Bump, cg: &CausalGraph) -> Result<(), CGError> {
         if !self.dirty_blit { return Ok(()); }
 
@@ -453,7 +455,7 @@ impl CGStorage {
         // Regardless of what happened above, write a new blit entry.
         // eprintln!("Writing blip {:?} / {:?}", self.last_parents, self.assigned_to);
         let mut buf = BumpVec::new_in(bump);
-        self.encode_last_entry(&mut buf, false, cg);
+        self.encode_last_entry(&mut buf, false, &cg.agent_assignment);
         let result = self.write_blit_with_data(&buf);
 
         match result {
@@ -470,7 +472,7 @@ impl CGStorage {
 
                 // We could only write out the larger of these two, but eh.
                 buf.clear();
-                self.encode_last_entry(&mut buf, true, cg);
+                self.encode_last_entry(&mut buf, true, &cg.agent_assignment);
 
                 self.file.seek(SeekFrom::Start(self.next_write_location + self.data_start()))?;
                 self.write_data(&buf)?;
@@ -494,7 +496,7 @@ impl CGStorage {
 
         let range: DTRange = (self.next_flush_time..cg.len()).into();
         for entry in cg.iter_range(range) {
-            needs_sync |= self.push_entry_no_sync(&bump, entry, cg)?;
+            needs_sync |= self.push_entry_no_sync(&bump, entry, &cg.agent_assignment)?;
         }
 
         if needs_sync {

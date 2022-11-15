@@ -52,12 +52,12 @@ impl ListOpLog {
             }
 
             loop { // Add as much as we can from this txn.
-                let (other_span, offset) = other.cg.client_with_localtime.find_packed_with_offset(ord);
+                let (other_span, offset) = other.cg.agent_assignment.client_with_localtime.find_packed_with_offset(ord);
                 let self_agent = agent_map[other_span.1.agent as usize];
                 let seq = other_span.1.seq_range.start + offset;
 
                 // Find out how many items we can eat
-                let (r, offset) = self.cg.client_data[self_agent as usize]
+                let (r, offset) = self.cg.agent_assignment.client_data[self_agent as usize]
                     .item_times.find_sparse(seq);
                 if r.is_ok() {
                     // Overlap here. Discard from the queue.
@@ -90,10 +90,10 @@ impl ListOpLog {
     /// by testing code, since you rarely have two local oplogs to merge together.
     pub fn add_missing_operations_from(&mut self, other: &Self) {
         // [other.agent] => self.agent
-        let mut agent_map = Vec::with_capacity(other.cg.client_data.len());
+        let mut agent_map = Vec::with_capacity(other.cg.agent_assignment.client_data.len());
 
         // TODO: Construct this lazily.
-        for c in other.cg.client_data.iter() {
+        for c in other.cg.agent_assignment.client_data.iter() {
             let self_agent = self.get_or_create_agent_id(c.name.as_str());
             agent_map.push(self_agent);
         }

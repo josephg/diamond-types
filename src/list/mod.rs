@@ -7,7 +7,7 @@
 
 use jumprope::JumpRope;
 use smartstring::alias::String as SmartString;
-use crate::causalgraph::ClientData;
+use crate::causalgraph::agent_assignment::ClientData;
 
 use crate::list::operation::ListOpKind;
 use crate::causalgraph::parents::Parents;

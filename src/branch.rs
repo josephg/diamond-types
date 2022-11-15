@@ -101,10 +101,10 @@ impl Branch {
                 // We need to pick a winner. Winner is chosen by max(agent,seq).
                 let idx = reg.iter()
                     .enumerate()
-                    .map(|(idx, r)| (idx, cg.lv_to_agent_version(r.version)))
+                    .map(|(idx, r)| (idx, cg.agent_assignment.lv_to_agent_version(r.version)))
                     .max_by(|(_, a), (_, b)| {
                         // TODO: Check this is the right way around.
-                        cg.tie_break_crdt_versions(*a, *b)
+                        cg.agent_assignment.tie_break_crdt_versions(*a, *b)
                     })
                     .unwrap().0;
 

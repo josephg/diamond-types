@@ -167,9 +167,9 @@ impl ExperimentalOpLog {
             1 => reg.supremum[0],
             _ => {
                 reg.supremum.iter()
-                    .map(|s| (*s, self.cg.lv_to_agent_version(reg.ops[*s].0)))
+                    .map(|s| (*s, self.cg.agent_assignment.lv_to_agent_version(reg.ops[*s].0)))
                     .max_by(|(_, a), (_, b)| {
-                        self.cg.tie_break_crdt_versions(*a, *b)
+                        self.cg.agent_assignment.tie_break_crdt_versions(*a, *b)
                     })
                     .unwrap().0
             }

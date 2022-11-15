@@ -8,6 +8,7 @@ use crate::{AgentId, CausalGraph, DTRange, KVPair, Frontier, OpLog, RleVec, LV};
 use crate::encoding::Merger;
 use bumpalo::collections::vec::Vec as BumpVec;
 use smallvec::SmallVec;
+use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::map::{WriteMap, ReadMap};
@@ -15,7 +16,7 @@ use crate::frontier::sort_frontier;
 
 
 
-pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[LV], next_output_time: LV, persist: bool, write_map: &mut WriteMap, cg: &CausalGraph) {
+pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[LV], next_output_time: LV, persist: bool, write_map: &mut WriteMap, aa: &AgentAssignment) {
     // And the parents.
     if parents.is_empty() {
         // Parenting off the root is special-cased, because its rare in practice (well,
@@ -64,8 +65,8 @@ pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[LV], next_o
                 // Foreign change
                 // println!("Region does not contain parent for {}", p);
 
-                let item = cg.lv_to_agent_version(p);
-                let mapped_agent = write_map.map_maybe_root_mut(&cg.client_data, item.0, persist);
+                let item = aa.lv_to_agent_version(p);
+                let mapped_agent = write_map.map_maybe_root_mut(&aa.client_data, item.0, persist);
 
                 // There are probably more compact ways to do this, but the txn data set is
                 // usually quite small anyway, even in large histories. And most parents objects
@@ -119,7 +120,7 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
             let agent = if !is_known {
                 if n != 0 { return Err(ParseError::GenericInvalidData); }
                 let agent_name = reader.next_str()?;
-                let agent = cg.get_or_create_agent_id(agent_name);
+                let agent = cg.agent_assignment.get_or_create_agent_id(agent_name);
                 if persist {
                     read_map.agent_map.push((agent, 0));
                 }
@@ -139,7 +140,7 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
 
             let seq = reader.next_usize()?;
             // dbg!((agent, seq));
-            cg.try_agent_version_to_lv((agent, seq))
+            cg.agent_assignment.try_agent_version_to_lv((agent, seq))
                 .ok_or(ParseError::InvalidLength)?
         };
 

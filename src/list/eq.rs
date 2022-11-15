@@ -36,11 +36,11 @@ impl PartialEq<Self> for ListOpLog {
 
         // [self.agent] => other.agent.
         let mut agent_a_to_b = Vec::new();
-        for c in self.cg.client_data.iter() {
+        for c in self.cg.agent_assignment.client_data.iter() {
             // If there's no corresponding client in other (and the agent is actually in use), the
             // oplogs don't match.
             let other_agent = if let Some(other_agent) = other.get_agent_id(&c.name) {
-                if other.cg.client_data[other_agent as usize].get_next_seq() != c.get_next_seq() {
+                if other.cg.agent_assignment.client_data[other_agent as usize].get_next_seq() != c.get_next_seq() {
                     // Make sure we have exactly the same number of edits for each agent.
                     return false;
                 }
@@ -95,7 +95,7 @@ impl PartialEq<Self> for ListOpLog {
         for (mut op, mut txn, mut crdt_id) in rle_zip3(
             self.iter(),
             self.iter_history(),
-            self.cg.client_with_localtime.iter().map(|pair| pair.1)
+            self.cg.agent_assignment.client_with_localtime.iter().map(|pair| pair.1)
         ) {
 
             // println!("op {:?} txn {:?} crdt {:?}", op, txn, crdt_id);
@@ -119,7 +119,7 @@ impl PartialEq<Self> for ListOpLog {
                 // Although op is contiguous, and all in a run from the same agent, the same isn't
                 // necessarily true of other_op! The max length we can consume here is limited by
                 // other_op's size in agent assignments.
-                let (run, offset) = other.cg.client_with_localtime.find_packed_with_offset(other_time);
+                let (run, offset) = other.cg.agent_assignment.client_with_localtime.find_packed_with_offset(other_time);
                 let mut other_id = run.1;
                 if offset > 0 { other_id.truncate_keeping_right(offset); }
 

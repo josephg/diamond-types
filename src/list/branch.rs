@@ -10,7 +10,7 @@ use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::DTRange;
 use crate::{AgentId, Frontier, LV};
 use crate::frontier::clone_smallvec;
-use crate::causalgraph::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned};
+use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned};
 
 impl ListBranch {
     /// Create a new (empty) branch at the start of history. The branch will be an empty list.
@@ -45,7 +45,7 @@ impl ListBranch {
 
     /// Return the current version of the branch in remote form
     pub fn remote_frontier<'a>(&self, oplog: &'a ListOpLog) -> RemoteFrontier<'a> {
-        oplog.cg.local_to_remote_frontier(self.version.as_ref())
+        oplog.cg.agent_assignment.local_to_remote_frontier(self.version.as_ref())
     }
 
     /// Return the current document contents. Note there is no mutable variant of this method

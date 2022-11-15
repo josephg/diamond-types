@@ -27,7 +27,7 @@ impl SimpleOpLog {
 
     pub(crate) fn goop(&mut self, n: usize) -> LV {
         // Just going to use agent 0 here.
-        if self.cg.client_data.is_empty() {
+        if self.cg.agent_assignment.client_data.is_empty() {
             self.cg.get_or_create_agent_id("goopy");
         }
 

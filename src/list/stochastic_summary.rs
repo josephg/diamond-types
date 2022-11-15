@@ -41,7 +41,7 @@ impl ListOpLog {
         if time_len == 0 { return result; }
 
         let mut push_time = |t: LV| {
-            result.push(self.cg.lv_to_agent_version(t));
+            result.push(self.cg.agent_assignment.lv_to_agent_version(t));
         };
 
         // No matter what, we'll send the current frontier:

@@ -34,11 +34,11 @@ impl PartialEq<Self> for CausalGraph {
 
         // [self.agent] => other.agent.
         let mut agent_a_to_b = Vec::new();
-        for c in self.client_data.iter() {
+        for c in self.agent_assignment.client_data.iter() {
             // If there's no corresponding client in other (and the agent is actually in use), the
             // oplogs don't match.
-            let other_agent = if let Some(other_agent) = other.get_agent_id(&c.name) {
-                if other.client_data[other_agent as usize].get_next_seq() != c.get_next_seq() {
+            let other_agent = if let Some(other_agent) = other.agent_assignment.get_agent_id(&c.name) {
+                if other.agent_assignment.client_data[other_agent as usize].get_next_seq() != c.get_next_seq() {
                     // Make sure we have exactly the same number of edits for each agent.
                     return false;
                 }
@@ -60,9 +60,9 @@ impl PartialEq<Self> for CausalGraph {
         }
 
         let map_lv_to_other = |t: LV| -> Option<LV> {
-            let mut av = self.lv_to_agent_version(t);
+            let mut av = self.agent_assignment.lv_to_agent_version(t);
             av.0 = agent_a_to_b[av.0 as usize];
-            other.try_agent_version_to_lv(av)
+            other.agent_assignment.try_agent_version_to_lv(av)
         };
 
         // Check frontier contents. Note this is O(n^2) with the size of the respective frontiers.
@@ -92,7 +92,7 @@ impl PartialEq<Self> for CausalGraph {
         // But this is pretty neat!
         for (mut txn, mut crdt_id) in rle_zip(
             self.iter_parents(),
-            self.client_with_localtime.iter().map(|pair| pair.1)
+            self.agent_assignment.client_with_localtime.iter().map(|pair| pair.1)
         ) {
             // println!("txn {:?} crdt {:?}", txn, crdt_id);
 
@@ -107,7 +107,7 @@ impl PartialEq<Self> for CausalGraph {
                 // Although op is contiguous, and all in a run from the same agent, the same isn't
                 // necessarily true of other_op! The max length we can consume here is limited by
                 // other_op's size in agent assignments.
-                let (run, offset) = other.client_with_localtime.find_packed_with_offset(other_time);
+                let (run, offset) = other.agent_assignment.client_with_localtime.find_packed_with_offset(other_time);
                 let mut other_id = run.1;
                 if offset > 0 { other_id.truncate_keeping_right(offset); }
 

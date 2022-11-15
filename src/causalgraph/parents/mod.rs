@@ -328,6 +328,14 @@ impl Parents {
     pub(crate) fn iter(&self) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
         self.0.iter().map(|e| e.into())
     }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.end()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ use rle::{HasLength, MergeableIterator, SplitableSpanHelpers};
 
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
+use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::rle::RleSpanHelpers;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -107,11 +108,10 @@ mod serde_encoding {
 }
 
 
-impl CausalGraph {
+impl AgentAssignment {
     pub fn summarize_versions(&self) -> VersionSummary {
         VersionSummary(self.client_data.iter().filter_map(|c| {
-            if c.item_times.is_empty() { None }
-            else {
+            if c.item_times.is_empty() { None } else {
                 Some(VSEntry {
                     name: c.name.clone(),
                     versions: c.item_times
@@ -126,13 +126,12 @@ impl CausalGraph {
 
     pub fn summarize_versions_flat(&self) -> VersionSummaryFlat {
         VersionSummaryFlat(self.client_data.iter().filter_map(|c| {
-            if c.item_times.is_empty() { None }
-            else { Some((c.name.clone(), c.get_next_seq())) }
+            if c.item_times.is_empty() { None } else { Some((c.name.clone(), c.get_next_seq())) }
         }).collect())
     }
 
     pub fn intersect_with_flat_summary_full<V>(&self, summary: &VersionSummaryFlat, mut visitor: V)
-    where V: FnMut(&str, DTRange, Option<LV>)
+        where V: FnMut(&str, DTRange, Option<LV>)
     {
         for (name, end_seq) in summary.0.iter() {
             let agent_id = self.get_agent_id(name);
@@ -164,14 +163,16 @@ impl CausalGraph {
             }
         }
     }
+}
 
+impl CausalGraph {
     pub fn intersect_with_flat_summary(&self, summary: &VersionSummaryFlat, frontier: &[LV]) -> (Frontier, Option<VersionSummaryFlat>) {
         let mut remainder: Option<VersionSummaryFlat> = None;
         // We'll just accumulate all the versions we see and check for dominators.
         // It would probably still be correct to just take the last version from each agent.
         let mut versions: SmallVec<[LV; 4]> = frontier.into();
 
-        self.intersect_with_flat_summary_full(summary, |name, seq, v| {
+        self.agent_assignment.intersect_with_flat_summary_full(summary, |name, seq, v| {
             if let Some(v) = v {
                 let v_last = v + seq.len() - 1;
                 versions.push(v_last);
@@ -220,14 +221,14 @@ mod tests {
     #[test]
     fn summary_smoke() {
         let mut cg = CausalGraph::new();
-        assert_eq!(cg.summarize_versions(), VersionSummary(vec![]));
-        assert_eq!(cg.summarize_versions_flat(), VersionSummaryFlat(vec![]));
+        assert_eq!(cg.agent_assignment.summarize_versions(), VersionSummary(vec![]));
+        assert_eq!(cg.agent_assignment.summarize_versions_flat(), VersionSummaryFlat(vec![]));
 
         cg.get_or_create_agent_id("seph");
         cg.get_or_create_agent_id("mike");
 
-        assert_eq!(cg.summarize_versions(), VersionSummary(vec![]));
-        assert_eq!(cg.summarize_versions_flat(), VersionSummaryFlat(vec![]));
+        assert_eq!(cg.agent_assignment.summarize_versions(), VersionSummary(vec![]));
+        assert_eq!(cg.agent_assignment.summarize_versions_flat(), VersionSummaryFlat(vec![]));
 
         cg.merge_and_assign(&[], AgentSpan {
             agent: 0,
@@ -235,7 +236,7 @@ mod tests {
         });
 
         // dbg!(cg.summarize());
-        assert_eq!(cg.summarize_versions(), VersionSummary(vec![
+        assert_eq!(cg.agent_assignment.summarize_versions(), VersionSummary(vec![
             VSEntry {
                 name: "seph".into(),
                 versions: smallvec![(0..5).into()]
@@ -251,7 +252,7 @@ mod tests {
             seq_range: (5..10).into()
         });
 
-        assert_eq!(cg.summarize_versions(), VersionSummary(vec![
+        assert_eq!(cg.agent_assignment.summarize_versions(), VersionSummary(vec![
             VSEntry {
                 name: "seph".into(),
                 versions: smallvec![(0..10).into()]
@@ -262,7 +263,7 @@ mod tests {
             }
         ]));
 
-        assert_eq!(cg.summarize_versions_flat(), VersionSummaryFlat(vec![
+        assert_eq!(cg.agent_assignment.summarize_versions_flat(), VersionSummaryFlat(vec![
             ("seph".into(), 10),
             ("mike".into(), 5)
         ]));
@@ -284,7 +285,7 @@ mod tests {
             seq_range: (15..20).into()
         });
 
-        assert_eq!(cg.summarize_versions(), VersionSummary(vec![
+        assert_eq!(cg.agent_assignment.summarize_versions(), VersionSummary(vec![
             VSEntry {
                 name: "seph".into(),
                 versions: smallvec![(0..10).into()]

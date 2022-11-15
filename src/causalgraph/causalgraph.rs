@@ -9,90 +9,23 @@ use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 use crate::frontier::sort_frontier;
 use crate::rle::RleSpanHelpers;
 
-impl ClientData {
-    pub fn get_next_seq(&self) -> usize {
-        // Equivalent to this. I'm not sure which I prefer...
-        // self.item_times
-        //     .last()
-        //     .map(|last| last.end())
-        //     .unwrap_or(0)
-
-        if let Some(last) = self.item_times.last() {
-            last.end()
-        } else { 0 }
-    }
-
-    // pub fn get_last_seq(&self) -> Option<usize> {
-    //     self.item_times
-    //         .last()
-    //         .map(|last_entry| last_entry.last())
-    // }
-
-    pub fn is_empty(&self) -> bool {
-        self.item_times.is_empty()
-    }
-
-    #[inline]
-    pub(crate) fn try_seq_to_lv(&self, seq: usize) -> Option<LV> {
-        let (entry, offset) = self.item_times.find_with_offset(seq)?;
-        Some(entry.1.start + offset)
-    }
-
-    pub(crate) fn seq_to_lv(&self, seq: usize) -> LV {
-        self.try_seq_to_lv(seq).unwrap()
-    }
-
-    /// Note the returned timespan might be shorter than seq_range.
-    pub fn try_seq_to_lv_span(&self, seq_range: DTRange) -> Option<DTRange> {
-        let (KVPair(_, entry), offset) = self.item_times.find_with_offset(seq_range.start)?;
-
-        let start = entry.start + offset;
-        let end = usize::min(entry.end, start + seq_range.len());
-        Some(DTRange { start, end })
-    }
-
-    pub fn seq_to_time_span(&self, seq_range: DTRange) -> DTRange {
-        self.try_seq_to_lv_span(seq_range).unwrap()
-    }
-}
-
 impl CausalGraph {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn get_agent_id(&self, name: &str) -> Option<AgentId> {
-        self.client_data.iter()
-            .position(|client_data| client_data.name == name)
-            .map(|id| id as AgentId)
-    }
-
+    // There's a lot of methods in agent_assignment that we could wrap here. This is my one
+    // admission to practicality.
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
-        // TODO: -> Result or something so this can be handled.
-        if name == "ROOT" { panic!("Agent ID 'ROOT' is reserved"); }
-
-        if let Some(id) = self.get_agent_id(name) {
-            id
-        } else {
-            // Create a new id.
-            self.client_data.push(ClientData {
-                name: SmartString::from(name),
-                item_times: RleVec::new()
-            });
-            (self.client_data.len() - 1) as AgentId
-        }
-    }
-
-    pub fn get_agent_name(&self, agent: AgentId) -> &str {
-        self.client_data[agent as usize].name.as_str()
+        self.agent_assignment.get_or_create_agent_id(name)
     }
 
     pub(crate) fn len_assignment(&self) -> usize {
-        self.client_with_localtime.end()
+        self.agent_assignment.len()
     }
 
     pub(crate) fn len_history(&self) -> usize {
-        self.parents.0.end()
+        self.parents.len()
     }
 
     /// Get the number of operations. This method is only valid when the history and assignment
@@ -104,59 +37,19 @@ impl CausalGraph {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.client_with_localtime.is_empty()
+        self.agent_assignment.is_empty()
     }
 
-    pub(crate) fn lv_to_agent_version(&self, version: LV) -> AgentVersion {
-        debug_assert_ne!(version, usize::MAX);
-        self.client_with_localtime.get(version)
-    }
-
-    pub(crate) fn lv_span_to_agent_span(&self, version: DTRange) -> AgentSpan {
-        debug_assert_ne!(version.start, usize::MAX);
-
-        let (loc, offset) = self.client_with_localtime.find_packed_with_offset(version.start);
-        let start = loc.1.seq_range.start + offset;
-        let end = usize::min(loc.1.seq_range.end, start + version.len());
-        AgentSpan {
-            agent: loc.1.agent,
-            seq_range: DTRange { start, end }
-        }
-    }
-
-    pub(crate) fn try_agent_version_to_lv(&self, (agent, seq): AgentVersion) -> Option<LV> {
-        debug_assert_ne!(agent, AgentId::MAX);
-
-        self.client_data.get(agent as usize).and_then(|c| {
-            c.try_seq_to_lv(seq)
-        })
-    }
-
-    #[allow(unused)]
-    pub(crate) fn map_parents(&self, crdt_parents: &[AgentVersion]) -> Frontier {
-        // TODO: Make a try_ version of this.
-        Frontier::from_unsorted_iter(crdt_parents.iter()
-            .map(|p| self.try_agent_version_to_lv(*p).unwrap())
-        )
-    }
+    // #[allow(unused)]
+    // pub(crate) fn map_parents(&self, crdt_parents: &[AgentVersion]) -> Frontier {
+    //     // TODO: Make a try_ version of this.
+    //     Frontier::from_unsorted_iter(crdt_parents.iter()
+    //         .map(|p| self.try_agent_version_to_lv(*p).unwrap())
+    //     )
+    // }
 
     pub(crate) fn check_flat(&self) {
         assert_eq!(self.len_assignment(), self.len_history());
-    }
-
-    /// span is the local timespan we're assigning to the named agent.
-    fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
-        debug_assert_eq!(span.start, self.len());
-
-        let client_data = &mut self.client_data[agent as usize];
-
-        let next_seq = client_data.get_next_seq();
-        client_data.item_times.push(KVPair(next_seq, span));
-
-        self.client_with_localtime.push(KVPair(span.start, AgentSpan {
-            agent,
-            seq_range: DTRange { start: next_seq, end: next_seq + span.len() },
-        }));
     }
 
     // TODO: These functions look incredibly similar! We need both of them because of the borrow
@@ -168,7 +61,7 @@ impl CausalGraph {
         let start = self.len();
         let span = (start .. start + num).into();
 
-        self.assign_next_time_to_client_known(agent, span);
+        self.agent_assignment.assign_next_time_to_client_known(agent, span);
         self.parents.push(parents, span);
         self.version.advance_by_known_run(parents, span);
         span
@@ -180,12 +73,13 @@ impl CausalGraph {
     }
 
     pub fn assign_local_op(&mut self, agent: AgentId, num: usize) -> DTRange {
+        // This is gross. Its a barely changed copy+paste job of assign_local_op_with_parents.
         if cfg!(debug_assertions) { self.check_flat(); }
 
         let start = self.len();
         let span = (start .. start + num).into();
 
-        self.assign_next_time_to_client_known(agent, span);
+        self.agent_assignment.assign_next_time_to_client_known(agent, span);
         self.parents.push(self.version.as_ref(), span);
         self.version.replace_with_1(span.last());
         span
@@ -197,7 +91,7 @@ impl CausalGraph {
         let time_start = self.len();
 
         // Agent ID must have already been assigned.
-        let client_data = &mut self.client_data[span.agent as usize];
+        let client_data = &mut self.agent_assignment.client_data[span.agent as usize];
 
         // Make sure the time isn't already assigned. Can I elide this check in release mode?
         // Note I only need to check the start of the seq_range.
@@ -213,7 +107,7 @@ impl CausalGraph {
         // Almost always appending to the end but its possible for the same agent ID to be used on
         // two concurrent branches, then transmitted in a different order.
         client_data.item_times.insert(KVPair(span.seq_range.start, time_span));
-        self.client_with_localtime.push(KVPair(time_start, span));
+        self.agent_assignment.client_with_localtime.push(KVPair(time_start, span));
         self.parents.push(parents, time_span);
         self.version.advance_by_known_run(parents, time_span);
         time_span
@@ -231,7 +125,7 @@ impl CausalGraph {
         let time_start = self.len();
 
         // The agent ID must already be assigned.
-        let client_data = &mut self.client_data[span.agent as usize];
+        let client_data = &mut self.agent_assignment.client_data[span.agent as usize];
 
         // We're looking to see how much we can assign, which is the (backwards) size of the empty
         // span from the last item.
@@ -261,7 +155,7 @@ impl CausalGraph {
                         let time_span: DTRange = (time_start..time_start + actual_len).into();
                         let new_entry = KVPair(previous_end, time_span);
 
-                        self.client_with_localtime.push(KVPair(time_start, AgentSpan {
+                        self.agent_assignment.client_with_localtime.push(KVPair(time_start, AgentSpan {
                             agent: span.agent,
                             seq_range: (prev_entry.end()..span.seq_range.end).into()
                         }));
@@ -286,7 +180,7 @@ impl CausalGraph {
                 // We know it can't combine with the previous element.
                 let time_span = (time_start..time_start + span.len()).into();
                 client_data.item_times.0.insert(idx, KVPair(span.seq_range.start, time_span));
-                self.client_with_localtime.push(KVPair(time_start, span));
+                self.agent_assignment.client_with_localtime.push(KVPair(time_start, span));
                 self.parents.push(parents, time_span);
                 self.version.advance_by_known_run(parents, time_span);
                 time_span
@@ -294,36 +188,14 @@ impl CausalGraph {
         }
     }
 
-    /// This is used to break ties.
-    pub(crate) fn tie_break_crdt_versions(&self, v1: AgentVersion, v2: AgentVersion) -> Ordering {
-        if v1 == v2 { Ordering::Equal }
-        else {
-            let c1 = &self.client_data[v1.0 as usize];
-            let c2 = &self.client_data[v2.0 as usize];
-
-            c1.name.cmp(&c2.name)
-                .then(v1.1.cmp(&v2.1))
-        }
-    }
-
-    pub(crate) fn tie_break_versions(&self, v1: LV, v2: LV) -> Ordering {
-        if v1 == v2 { Ordering::Equal }
-        else {
-            self.tie_break_crdt_versions(
-                self.lv_to_agent_version(v1),
-                self.lv_to_agent_version(v2)
-            )
-        }
-    }
-
     /// Iterate through history entries
     pub fn iter_parents(&self) -> impl Iterator<Item=ParentsEntrySimple> + '_ {
-        self.parents.0.iter().map(|e| e.into())
+        self.parents.iter()
     }
 
     pub fn iter_range(&self, range: DTRange) -> impl Iterator<Item=CGEntry> + '_ {
         let parents = self.parents.iter_range(range);
-        let aa = self.client_with_localtime.iter_range(range)
+        let aa = self.agent_assignment.client_with_localtime.iter_range(range)
             .map(|KVPair(_, data)| data);
 
         rle_zip(parents, aa).map(|(parents, span): (ParentsEntrySimple, AgentSpan)| {

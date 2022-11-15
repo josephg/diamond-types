@@ -1,7 +1,7 @@
 use bumpalo::Bump;
 use rle::{HasLength, MergableSpan};
 use crate::{AgentId, CausalGraph, DTRange, KVPair, Frontier, LV};
-use crate::causalgraph::ClientData;
+use crate::causalgraph::agent_assignment::{AgentAssignment, ClientData};
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
 use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64, strip_bit_usize_2};
@@ -15,7 +15,7 @@ use crate::encoding::parseerror::ParseError;
 use crate::encoding::map::{WriteMap, ReadMap};
 
 pub(crate) fn write_cg_aa(result: &mut BumpVec<u8>, write_parents: bool, span: AgentSpan,
-                          agent_map: &mut WriteMap, persist: bool, cg: &CausalGraph) {
+                          agent_map: &mut WriteMap, persist: bool, aa: &AgentAssignment) {
     // We only write the parents info if parents is non-trivial.
 
     // Its rare, but possible for the agent assignment sequence to jump around a little.
@@ -24,7 +24,7 @@ pub(crate) fn write_cg_aa(result: &mut BumpVec<u8>, write_parents: bool, span: A
     // - Or the same agent made concurrent changes to multiple branches. The operations may
     //   be reordered to any order which obeys the time dag's partial order.
 
-    let mapped_agent = agent_map.map_no_root_mut(&cg.client_data, span.agent, persist);
+    let mapped_agent = agent_map.map_no_root_mut(&aa.client_data, span.agent, persist);
     let delta = agent_map.seq_delta(span.agent, span.seq_range, persist);
 
     // I tried adding an extra bit field to mark len != 1 - so we can skip encoding the
@@ -59,7 +59,7 @@ pub(crate) fn write_cg_aa(result: &mut BumpVec<u8>, write_parents: bool, span: A
 
 
 pub(crate) fn write_cg_entry(result: &mut BumpVec<u8>, data: &CGEntry, write_map: &mut WriteMap,
-                             persist: bool, cg: &CausalGraph) {
+                             persist: bool, aa: &AgentAssignment) {
     debug_assert_ne!(data.span.agent, AgentId::MAX, "Internal consistency error: ROOT showing up");
     let write_parents = !data.parents_are_trivial()
         || data.start == 0 // Guard to prevent underflow
@@ -79,12 +79,12 @@ pub(crate) fn write_cg_entry(result: &mut BumpVec<u8>, data: &CGEntry, write_map
     }
 
     // We always write the agent assignment info.
-    write_cg_aa(result, write_parents, data.span, write_map, persist, cg);
+    write_cg_aa(result, write_parents, data.span, write_map, persist, aa);
 
     // And optionally write parents info.
     // Write the parents, if it makes sense to do so.
     if write_parents {
-        write_parents_raw(result, data.parents.as_ref(), next_output_time, persist, write_map, cg);
+        write_parents_raw(result, data.parents.as_ref(), next_output_time, persist, write_map, aa);
     }
 }
 
@@ -108,7 +108,7 @@ fn read_cg_aa(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_
     let (agent, last_seq, idx) = if !is_known {
         if mapped_agent != 0 { return Err(ParseError::GenericInvalidData); }
         let agent_name = reader.next_str()?;
-        let agent = cg.get_or_create_agent_id(agent_name);
+        let agent = cg.agent_assignment.get_or_create_agent_id(agent_name);
         let idx = read_map.agent_map.len();
         if persist {
             read_map.agent_map.push((agent, 0));
@@ -199,7 +199,7 @@ pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &
             //
             // We already know the timespan for merged_span - so I could use that and just query the
             // rest. But eh. This is smaller and should be just as performant.
-            let client_data = &cg.client_data[span.agent as usize];
+            let client_data = &cg.agent_assignment.client_data[span.agent as usize];
             for KVPair(_, time) in client_data.item_times.iter_range(span.seq_range) {
                 read_map.txn_map.push(KVPair(next_file_time, time));
                 next_file_time += time.len();
@@ -215,7 +215,7 @@ pub(crate) fn write_cg_entry_iter<'a, I: Iterator<Item=CGEntry>>(bump: &'a Bump,
     let mut result = BumpVec::new_in(bump);
 
     Merger::new(|entry: CGEntry, _| {
-        write_cg_entry(&mut result, &entry, write_map, true, cg);
+        write_cg_entry(&mut result, &entry, write_map, true, &cg.agent_assignment);
         // write_agent_assignment_span(&mut result, None, span, map, true, client_data);
     }).flush_iter(iter);
 
