@@ -9,7 +9,7 @@ use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, MergeIter, Spli
 use rle::Searchable;
 use crate::dtrange::DTRange;
 
-use crate::rle::{RleKeyed, RleKeyedAndSplitable, RleSpanHelpers};
+use crate::rle::{HasRleKey, RleKeyedAndSplitable, RleSpanHelpers};
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -40,7 +40,7 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
     pub fn num_entries(&self) -> usize { self.0.len() }
 
     /// Returns past the end of the last key.
-    pub fn end(&self) -> usize where V: RleKeyed {
+    pub fn end(&self) -> usize where V: HasRleKey {
         if let Some(v) = self.last() {
             v.end()
         } else {
@@ -78,7 +78,7 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
 }
 
 // impl<K: Copy + Eq + Ord + Add<Output = K> + Sub<Output = K> + AddAssign, V: Copy + Eq> RLE<K, V> {
-impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
+impl<V: HasLength + MergableSpan + HasRleKey + Clone + Sized> RleVec<V> {
     /// Find the index of the requested item via binary search
     pub fn find_index(&self, needle: usize) -> Result<usize, usize> {
         self.0.binary_search_by(|entry| {
@@ -102,9 +102,9 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
     //
     //     if *hint < self.0.len() {
     //         let e = &self.0[*hint];
-    //         if needle >= e.get_rle_key() && needle < e.end() {
+    //         if needle >= e.rle_key() && needle < e.end() {
     //             return Ok(*hint);
-    //         } else if needle < e.get_rle_key() {
+    //         } else if needle < e.rle_key() {
     //             if hint > 0 {
     //                 todo!()
     //             } else {
@@ -435,6 +435,13 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
             expect_next = entry.end();
         }
     }
+
+    /// Assert there's no possibility for items to be further compacted
+    pub(crate) fn check_fully_merged(&self) {
+        for i in 1..self.0.len() {
+            assert!(!self.0[i-1].can_append(&self.0[i]));
+        }
+    }
 }
 
 impl<V: HasLength + MergableSpan + Sized> FromIterator<V> for RleVec<V> {
@@ -471,7 +478,7 @@ impl<V: HasLength + MergableSpan + Sized> Default for RleVec<V> {
 //     }
 // }
 
-impl<V: HasLength + MergableSpan + Searchable + RleKeyed> RleVec<V> {
+impl<V: HasLength + MergableSpan + Searchable + HasRleKey> RleVec<V> {
     pub fn get(&self, idx: usize) -> V::Item {
         let (v, offset) = self.find_packed_with_offset(idx);
         v.at_offset(offset)
@@ -502,14 +509,14 @@ fn id_clone<V: Clone>(v: &V) -> V {
 // We could just use .iter().map() - and thats pretty sensible in most cases. But this inline
 // approach lets us avoid a .clone(). (Is this a good idea? Not sure!)
 #[derive(Debug, Clone)]
-pub struct RleVecRangeIter<'a, V: RleKeyed + HasLength, I: SplitableSpanCtx, F: Fn(&V) -> I> {
+pub struct RleVecRangeIter<'a, V: HasRleKey + HasLength, I: SplitableSpanCtx, F: Fn(&V) -> I> {
     inner_iter: std::slice::Iter<'a, V>,
     range: DTRange,
     ctx: &'a I::Ctx, // This could have a different lifetime specifier.
     map_fn: F,
 }
 
-impl<V: HasLength + RleKeyed + SplitableSpanCtx + MergableSpan> RleVec<V> {
+impl<V: HasLength + HasRleKey + SplitableSpanCtx + MergableSpan> RleVec<V> {
     pub fn iter_range(&self, range: DTRange) -> RleVecRangeIter<V, V, impl Fn(&V) -> V> where V: SplitableSpan {
         self.iter_range_ctx(range, &())
     }
@@ -520,7 +527,7 @@ impl<V: HasLength + RleKeyed + SplitableSpanCtx + MergableSpan> RleVec<V> {
     }
 }
 
-impl<V: HasLength + RleKeyed + MergableSpan> RleVec<V> {
+impl<V: HasLength + HasRleKey + MergableSpan> RleVec<V> {
     // Yeah these map functions are dirty, but only at compile time. At runtime they should be free.
     pub fn iter_range_map<I: SplitableSpan + HasLength, F: Fn(&V) -> I>(&self, range: DTRange, map_fn: F) -> RleVecRangeIter<V, I, F> {
         self.iter_range_map_ctx(range, &(), map_fn)
@@ -538,7 +545,7 @@ impl<V: HasLength + RleKeyed + MergableSpan> RleVec<V> {
     }
 }
 
-impl<'a, V: RleKeyed + HasLength, I: HasLength + SplitableSpanCtx, F: Fn(&V) -> I> Iterator for RleVecRangeIter<'a, V, I, F> {
+impl<'a, V: HasRleKey + HasLength, I: HasLength + SplitableSpanCtx, F: Fn(&V) -> I> Iterator for RleVecRangeIter<'a, V, I, F> {
     type Item = I;
 
     fn next(&mut self) -> Option<Self::Item> {

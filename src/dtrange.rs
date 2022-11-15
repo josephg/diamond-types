@@ -1,9 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::Bound;
 use std::fmt::{Debug, DebugStruct, Formatter};
-use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
+use rle::{HasLength, HasRleKey, MergableSpan, Searchable, SplitableSpanHelpers};
 
-use crate::rle::RleKeyed;
 use std::ops::{Range, RangeBounds};
 use crate::LV;
 #[cfg(feature = "serde")]
@@ -189,7 +188,7 @@ impl Searchable for DTRange {
 
 // This is used for vector clocks. Note if you want order spans keyed by something else, use
 // KVPair<OrderSpan> instead.
-impl RleKeyed for DTRange {
+impl HasRleKey for DTRange {
     fn rle_key(&self) -> usize {
         self.start
     }

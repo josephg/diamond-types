@@ -2,8 +2,9 @@ use std::cmp::Ordering;
 use std::mem::take;
 use crate::{HasLength, SplitableSpan};
 
+// Also used by intersect.
 #[derive(Clone, Debug)]
-enum Remainder<A, B> {
+pub(crate) enum Remainder<A, B> {
     Nothing,
     SomeA(A),
     SomeB(B),
@@ -11,6 +12,29 @@ enum Remainder<A, B> {
 
 impl<A, B> Default for Remainder<A, B> {
     fn default() -> Self { Remainder::Nothing }
+}
+
+impl<A, B> Remainder<A, B> {
+    pub(crate) fn take_from_iter<AI, BI>(&mut self, ai: &mut AI, bi: &mut BI) -> Option<(A, B)>
+        where AI: Iterator<Item=A>, BI: Iterator<Item=B>
+    {
+        Some(match take(self) {
+            Remainder::Nothing => {
+                // Fetch from both.
+                let a = ai.next()?;
+                let b = bi.next()?;
+                (a, b)
+            }
+            Remainder::SomeA(a) => {
+                let b = bi.next()?;
+                (a, b)
+            }
+            Remainder::SomeB(b) => {
+                let a = ai.next()?;
+                (a, b)
+            }
+        })
+    }
 }
 
 /// A RleZip is a zip iterator over 2 SplitableSpan iterators. Each item it yields contains the
@@ -34,22 +58,7 @@ impl<A, B> Iterator for RleZip<A, B>
     type Item = (A::Item, B::Item);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (mut a, mut b) = match take(&mut self.rem) {
-            Remainder::Nothing => {
-                // Fetch from both.
-                let a = self.a.next()?;
-                let b = self.b.next()?;
-                (a, b)
-            }
-            Remainder::SomeA(a) => {
-                let b = self.b.next()?;
-                (a, b)
-            }
-            Remainder::SomeB(b) => {
-                let a = self.a.next()?;
-                (a, b)
-            }
-        };
+        let (mut a, mut b) = self.rem.take_from_iter(&mut self.a, &mut self.b)?;
 
         let a_len = a.len();
         let b_len = b.len();

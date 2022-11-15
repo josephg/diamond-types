@@ -9,10 +9,10 @@ mod subgraph;
 use std::iter::once;
 use smallvec::{SmallVec, smallvec};
 
-use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
+use rle::{HasLength, HasRleKey, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::{Frontier, LV};
 
-use crate::rle::{RleKeyed, RleVec};
+use crate::rle::RleVec;
 use crate::dtrange::DTRange;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -86,7 +86,7 @@ impl Parents {
         };
 
         let did_merge = self.0.push(txn);
-        assert_eq!(will_merge, did_merge);
+        debug_assert_eq!(will_merge, did_merge);
     }
 }
 
@@ -199,7 +199,7 @@ impl MergableSpan for ParentsEntryInternal {
     }
 }
 
-impl RleKeyed for ParentsEntryInternal {
+impl HasRleKey for ParentsEntryInternal {
     fn rle_key(&self) -> usize {
         self.span.start
     }

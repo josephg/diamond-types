@@ -15,7 +15,7 @@ use crate::list::operation::{ListOpKind, TextOperation};
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 use crate::causalgraph::remote_ids::RemoteVersion;
 use crate::rev_range::RangeRev;
-use crate::rle::{RleKeyed, RleSpanHelpers};
+use crate::rle::RleSpanHelpers;
 use crate::unicount::count_chars;
 use crate::wal::WALError;
 

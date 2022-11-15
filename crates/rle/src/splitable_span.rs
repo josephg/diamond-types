@@ -10,6 +10,10 @@ pub trait HasLength {
     }
 }
 
+impl<V> HasLength for &V where V: HasLength {
+    fn len(&self) -> usize { (*self).len() }
+}
+
 pub trait SplitableSpanHelpers: Clone {
     /// Split the entry, returning the part of the entry which was jettisoned. After truncating at
     /// `pos`, self.len() == `pos` and the returned value contains the rest of the items.

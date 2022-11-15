@@ -1,16 +1,12 @@
 use std::fmt::{Debug, Formatter};
 
-use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanCtx};
+use rle::{HasRleKey, HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanCtx};
 pub use rle_vec::RleVec;
 use crate::dtrange::{debug_time_raw, DTRange};
 
 pub mod rle_vec;
 
-pub trait RleKeyed {
-    fn rle_key(&self) -> usize;
-}
-
-pub trait RleSpanHelpers: RleKeyed + HasLength {
+pub trait RleSpanHelpers: HasRleKey + HasLength {
     fn end(&self) -> usize {
         self.rle_key() + self.len()
     }
@@ -25,9 +21,9 @@ pub trait RleSpanHelpers: RleKeyed + HasLength {
     }
 }
 
-impl<V: RleKeyed + HasLength> RleSpanHelpers for V {}
+impl<V: HasRleKey + HasLength> RleSpanHelpers for V {}
 
-pub trait RleKeyedAndSplitable: RleKeyed + SplitableSpanCtx {
+pub trait RleKeyedAndSplitable: HasRleKey + SplitableSpanCtx {
     #[inline(always)]
     fn truncate_from_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
         self.truncate_ctx(at - self.rle_key(), ctx)
@@ -49,7 +45,7 @@ pub trait RleKeyedAndSplitable: RleKeyed + SplitableSpanCtx {
     }
 }
 
-impl<V: RleKeyed + SplitableSpanCtx> RleKeyedAndSplitable for V {}
+impl<V: HasRleKey + SplitableSpanCtx> RleKeyedAndSplitable for V {}
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct KVPair<V>(pub usize, pub V);
@@ -64,7 +60,7 @@ impl<V: Debug> Debug for KVPair<V> {
 }
 
 
-impl<V> RleKeyed for KVPair<V> {
+impl<V> HasRleKey for KVPair<V> {
     fn rle_key(&self) -> usize {
         self.0
     }
@@ -132,7 +128,7 @@ impl<V: Default> Default for KVPair<V> {
 
 #[allow(unused)]
 pub fn try_trim<V>(mut x: V, target_span: DTRange) -> Option<V>
-    where V: RleKeyed + HasLength + SplitableSpan
+    where V: HasRleKey + HasLength + SplitableSpan
 {
     let x_span = x.span();
     if x_span.start < target_span.start {
@@ -150,14 +146,14 @@ pub fn try_trim<V>(mut x: V, target_span: DTRange) -> Option<V>
 
 #[allow(unused)]
 pub fn trim<V>(val: V, span: DTRange) -> V
-    where V: RleKeyed + HasLength + SplitableSpan
+    where V: HasRleKey + HasLength + SplitableSpan
 {
     try_trim(val, span).unwrap()
 }
 
 // pub fn intersect<A, B>(mut a: A, mut b: B) -> Option<(A, B)>
-//     where A: RleKeyed + HasLength + SplitableSpan,
-//           B: RleKeyed + HasLength + SplitableSpan
+//     where A: HasKey + HasLength + SplitableSpan,
+//           B: HasKey + HasLength + SplitableSpan
 // {
 //     let a_span = a.span();
 //     let b_span = b.span();

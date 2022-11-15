@@ -4,16 +4,26 @@ use crate::causalgraph::parents::{Parents, ParentsEntryInternal};
 use crate::{DTRange, Frontier, LV};
 use crate::rle::RleVec;
 
+fn push_light_dedup(f: &mut Frontier, new_item: LV) {
+    if f.0.last() != Some(&new_item) {
+        f.0.push(new_item);
+    }
+}
+
 impl Parents {
     pub fn subgraph(&self, filter: &[DTRange], parents: &[LV]) -> Parents {
+        let filter_iter = filter.iter().copied().rev();
+        self.subgraph_raw(filter_iter, parents)
+    }
+
+    // The filter iterator must be reverse-sorted.
+    pub(crate) fn subgraph_raw<I: Iterator<Item=DTRange>>(&self, mut filter_iter: I, parents: &[LV]) -> Parents {
         #[derive(PartialOrd, Ord, Eq, PartialEq, Clone, Debug)]
         struct QueueEntry {
             target_parent: LV,
             children: SmallVec<[usize; 2]>,
         }
 
-        // Filter must be sorted.
-        let mut filter_iter = filter.iter().copied().rev();
         let mut queue: BinaryHeap<QueueEntry> = BinaryHeap::new();
         let mut result_rev = Vec::<ParentsEntryInternal>::new();
         for p in parents {
@@ -54,8 +64,7 @@ impl Parents {
                     let idx_here = result_rev.len();
 
                     for idx in entry.children {
-                        // result_rev[idx].parents.insert(p);
-                        result_rev[idx].parents.0.push(p);
+                        push_light_dedup(&mut result_rev[idx].parents, p);
                     }
 
                     let base = filter.start.max(txn.span.start);
@@ -65,9 +74,7 @@ impl Parents {
 
                         let peeked_target = peeked_entry.target_parent.min(filter.end - 1);
                         for idx in &peeked_entry.children {
-                            // if !child_indexes.contains(&idx) { child_indexes.push(*idx); }
-                            // result_rev[*idx].parents.insert(peeked_target);
-                            result_rev[*idx].parents.0.push(peeked_target);
+                            push_light_dedup(&mut result_rev[*idx].parents, peeked_target);
                         }
 
                         queue.pop();
@@ -134,7 +141,7 @@ impl Parents {
 
         for e in result_rev.iter_mut() {
             if e.parents.len() >= 2 {
-                e.parents.0.reverse();
+                e.parents.0.reverse(); // Parents will always end up in reverse order.
                 // I wish I didn't need to do this. At least I don't think it'll show up on the
                 // performance profile.
                 e.parents = self.find_dominators(&e.parents.0);
@@ -147,9 +154,12 @@ impl Parents {
 
 #[cfg(test)]
 mod test {
+    use std::ops::Range;
     use smallvec::smallvec;
+    use rle::intersect::{rle_intersect, rle_intersect_first};
+    use rle::MergeableIterator;
     use crate::causalgraph::parents::{Parents, ParentsEntryInternal};
-    use crate::Frontier;
+    use crate::{DTRange, Frontier, LV};
     use crate::rle::RleVec;
 
     fn fancy_parents() -> Parents {
@@ -176,21 +186,61 @@ mod test {
         p
     }
 
+    fn check_subgraph(p: &Parents, filter_r: &[Range<usize>], frontier: &[LV], expect_parents: &[&[LV]]) {
+        let filter: Vec<DTRange> = filter_r.iter().map(|r| r.clone().into()).collect();
+        let subgraph = p.subgraph(&filter, frontier);
+        // dbg!(&subgraph);
+
+        // The entries in the subgraph should be the same as the diff, passed through the filter.
+        let mut diff = p.diff(&[], frontier).1;
+        diff.reverse();
+
+        // dbg!(&diff, &filter);
+        let expected_items = rle_intersect_first(diff.iter().copied(), filter.iter().copied())
+            .collect::<Vec<_>>();
+
+        let actual_items = subgraph.0.iter()
+            .map(|e| e.span)
+            .merge_spans()
+            .collect::<Vec<_>>();
+
+        // dbg!(&expected_items, &actual_items);
+        assert_eq!(expected_items, actual_items);
+
+        for (entry, expect_parents) in subgraph.0.iter().zip(expect_parents.iter()) {
+            assert_eq!(entry.parents.as_ref(), *expect_parents);
+        }
+
+        subgraph.dbg_check_subgraph(true);
+    }
+
     #[test]
-    #[ignore]
-    fn foo() {
+    fn test_subgraph() {
         let parents = fancy_parents();
 
-        // let subgraph = parents.subgraph(&[(0..11).into()], &[5, 10]);
-        // assert_eq!(subgraph, parents);
+        check_subgraph(&parents, &[0..11], &[5, 10], &[
+            &[], &[], &[1, 4], &[2, 8],
+        ]);
+        check_subgraph(&parents, &[1..11], &[5, 10], &[
+            &[], &[], &[1, 4], &[2, 8],
+        ]);
+        check_subgraph(&parents, &[5..6], &[5, 10], &[&[]]);
+        check_subgraph(&parents, &[0..1, 10..11], &[5, 10], &[
+            &[], &[0]
+        ]);
+        check_subgraph(&parents, &[0..11], &[10], &[
+            &[], &[], &[1, 4], &[2, 8],
+        ]);
+        check_subgraph(&parents, &[0..11], &[5], &[
+            &[]
+        ]);
+        check_subgraph(&parents, &[0..3, 9..11], &[10], &[
+            &[], &[2]
+        ]);
+        check_subgraph(&parents, &[9..11], &[3], &[]);
+        check_subgraph(&parents, &[5..6], &[9], &[]);
+        check_subgraph(&parents, &[0..1, 2..3], &[2], &[&[], &[0]]);
+        check_subgraph(&parents, &[0..1, 2..3], &[9], &[&[], &[0]]);
 
-        let subgraph2 = parents.subgraph(&[(1..11).into()], &[5, 10]);
-        dbg!(&subgraph2);
-        // subgraph2.dbg_check(true);
-        // let subgraph3 = parents.subgraph(&[(5..6).into()], &[5, 10]);
-        // let subgraph3 = parents.subgraph(&[(0..1).into(), (10..11).into()], &[5, 10]);
-        // let subgraph3 = parents.subgraph(&[(0..11).into()], &[10]);
-        // dbg!(&subgraph3);
-        // subgraph3.dbg_check(true);
     }
 }
