@@ -9,7 +9,7 @@ use jumprope::{JumpRope, JumpRopeBuf};
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
 use content_tree::*;
-use rle::{AppendRle, HasLength, Searchable, Trim, TrimCtx};
+use rle::{AppendRle, HasLength, MergeableIterator, Searchable, Trim, TrimCtx};
 use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
@@ -572,7 +572,7 @@ pub(crate) struct TransformedOpsIter<'a> {
 }
 
 impl<'a> TransformedOpsIter<'a> {
-    fn new(cg: &'a CausalGraph, text_info: &'a TextInfo, from_frontier: FrontierRef, merge_frontier: FrontierRef) -> Self {
+    fn new(subgraph: &'a Parents, aa: &'a AgentAssignment, text_info: &'a TextInfo, from_frontier: FrontierRef, merge_frontier: FrontierRef) -> Self {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
@@ -590,7 +590,7 @@ impl<'a> TransformedOpsIter<'a> {
         let mut new_ops: SmallVec<[DTRange; 4]> = smallvec![];
         let mut conflict_ops: SmallVec<[DTRange; 4]> = smallvec![];
 
-        let common_ancestor = cg.parents.find_conflicting(from_frontier, merge_frontier, |span, flag| {
+        let common_ancestor = subgraph.find_conflicting(from_frontier, merge_frontier, |span, flag| {
             // Note we'll be visiting these operations in reverse order.
 
             // dbg!(&span, flag);
@@ -608,8 +608,8 @@ impl<'a> TransformedOpsIter<'a> {
 
 
         Self {
-            subgraph: &cg.parents,
-            aa: &cg.agent_assignment,
+            subgraph,
+            aa,
             text_info,
             op_iter: None,
             ff_mode: true,
@@ -808,47 +808,61 @@ fn reverse_str(s: &str) -> SmartString {
 }
 
 impl TextInfo {
-    pub(crate) fn get_xf_operations_full<'a>(&'a self, cg: &'a CausalGraph, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter<'a> {
-        TransformedOpsIter::new(cg, self, from, merging)
+    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Parents, aa: &'a AgentAssignment, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter<'a> {
+        TransformedOpsIter::new(subgraph, aa, self, from, merging)
     }
 
-    /// Iterate through all the *transformed* operations from some point in time. Internally, the
-    /// OpLog stores all changes as they were when they were created. This makes a lot of sense from
-    /// CRDT academic point of view (and makes signatures and all that easy). But its is rarely
-    /// useful for a text editor.
-    ///
-    /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
-    /// changes that could be applied linearly to a document to bring it up to date.
-    pub fn iter_xf_operations_from<'a>(&'a self, cg: &'a CausalGraph, from: FrontierRef, merging: FrontierRef) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + 'a {
-        TransformedOpsIter::new(cg, self, from, merging)
-            .map(|(lv, mut origin_op, xf)| {
-                let len = origin_op.len();
-                let op: Option<TextOperation> = match xf {
-                    BaseMoved(base) => {
-                        origin_op.loc.span = (base..base+len).into();
-                        let content = origin_op.get_content_ctx(&self.ctx);
-                        Some((origin_op, content).into())
-                    }
-                    DeleteAlreadyHappened => None,
-                };
-                ((lv..lv +len).into(), op)
-            })
-    }
+    // /// Iterate through all the *transformed* operations from some point in time. Internally, the
+    // /// OpLog stores all changes as they were when they were created. This makes a lot of sense from
+    // /// CRDT academic point of view (and makes signatures and all that easy). But its is rarely
+    // /// useful for a text editor.
+    // ///
+    // /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
+    // /// changes that could be applied linearly to a document to bring it up to date.
+    // pub fn iter_xf_operations_from<'a>(&'a self, cg: &'a CausalGraph, from: FrontierRef, merging: FrontierRef) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + 'a {
+    //     TransformedOpsIter::new(cg, self, from, merging)
+    //         .map(|(lv, mut origin_op, xf)| {
+    //             let len = origin_op.len();
+    //             let op: Option<TextOperation> = match xf {
+    //                 BaseMoved(base) => {
+    //                     origin_op.loc.span = (base..base+len).into();
+    //                     let content = origin_op.get_content_ctx(&self.ctx);
+    //                     Some((origin_op, content).into())
+    //                 }
+    //                 DeleteAlreadyHappened => None,
+    //             };
+    //             ((lv..lv +len).into(), op)
+    //         })
+    // }
 
-    /// Get all transformed operations from the start of time.
-    ///
-    /// This is a shorthand for `oplog.get_xf_operations(&[], oplog.local_version)`, but
-    /// I hope that future optimizations make this method way faster.
-    ///
-    /// See [OpLog::iter_xf_operations_from](OpLog::iter_xf_operations_from) for more information.
-    pub fn iter_xf_operations<'a>(&'a self, cg: &'a CausalGraph) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + 'a {
-        self.iter_xf_operations_from(cg, &[], cg.version.as_ref())
-    }
+    // /// Get all transformed operations from the start of time.
+    // ///
+    // /// This is a shorthand for `oplog.get_xf_operations(&[], oplog.local_version)`, but
+    // /// I hope that future optimizations make this method way faster.
+    // ///
+    // /// See [OpLog::iter_xf_operations_from](OpLog::iter_xf_operations_from) for more information.
+    // pub fn iter_xf_operations<'a>(&'a self, cg: &'a CausalGraph) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + 'a {
+    //     self.iter_xf_operations_from(cg, &[], cg.version.as_ref())
+    // }
 
     /// Add everything in merge_frontier into the set..
     pub fn merge_into(&self, into: &mut JumpRopeBuf, cg: &CausalGraph, from: FrontierRef, merge_frontier: FrontierRef) -> Frontier {
+        // This is a bit dirty for now, but it should be correct at least.
+        let final_frontier = cg.parents.find_dominators_2(from, merge_frontier);
+        let iter = self.ops.iter().map(|e| e.span()).rev();
+        let (subgraph, ff) = cg.parents.subgraph_raw(iter, final_frontier.as_ref());
+        subgraph.dbg_check_subgraph(true); // For debugging.
+        dbg!(&subgraph, ff.as_ref());
+
+        // DIRTY DIRTY!!! It would be much faster & cleaner to have a projection function for v -> subgraph.
+        dbg!(from, merge_frontier);
+        let from = cg.parents.find_conflicting_simple(ff.as_ref(), from).common_ancestor;
+        let merge_frontier = cg.parents.find_conflicting_simple(ff.as_ref(), merge_frontier).common_ancestor;
+        dbg!(&from, &merge_frontier);
+
+
         // let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
-        let mut iter = self.get_xf_operations_full(cg, from, merge_frontier);
+        let mut iter = self.get_xf_operations_full(&subgraph, &cg.agent_assignment, from.as_ref(), merge_frontier.as_ref());
 
         for (_lv, origin_op, xf) in &mut iter {
             match (origin_op.kind, xf) {
@@ -911,8 +925,8 @@ mod test {
         list.add_insert_at("a", &[v], 1, "bb");
 
         let mut result = JumpRopeBuf::new();
-        list.merge_raw(&mut result, &[], &[5]);
-        list.merge_raw(&mut result, &[5], &[7]);
+        let f1 = list.merge_raw(&mut result, &[], &[5]);
+        list.merge_raw(&mut result, f1.as_ref(), &[7]);
 
         assert_eq!(result, "abb");
     }
@@ -1109,23 +1123,4 @@ mod test {
 
         assert_eq!(list.to_string(), "abc");
     }
-
-    #[test]
-    #[ignore]
-    fn test_ff_2() {
-        let mut list = SimpleOpLog::new();
-        list.add_insert_at("a", &[], 0, "aaa");
-
-        let iter = TransformedOpsIter::new(&list.cg, &list.info, &[], list.cg.version.as_ref());
-        dbg!(&iter);
-        for x in iter {
-            dbg!(x);
-        }
-        // list.branch.merge(&list.oplog, &[1]);
-        // list.branch.merge(&list.oplog, &[2]);
-        //
-        // assert_eq!(list.branch.frontier.as_slice(), &[2]);
-        // assert_eq!(list.branch.content, "aaa");
-    }
-
 }

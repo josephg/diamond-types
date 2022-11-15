@@ -1,5 +1,6 @@
 use std::collections::BinaryHeap;
 use smallvec::{SmallVec, smallvec};
+use rle::{MergeableIterator, MergeIter};
 use crate::causalgraph::parents::{Parents, ParentsEntryInternal};
 use crate::{DTRange, Frontier, LV};
 use crate::rle::RleVec;
@@ -10,14 +11,38 @@ fn push_light_dedup(f: &mut Frontier, new_item: LV) {
     }
 }
 
+struct Filter<I: Iterator<Item = DTRange>> {
+    iter: MergeIter<I, false>,
+    current: Option<DTRange>, // Could use (usize::MAX, usize::MAX) or something for None but its gross.
+}
+
+impl<I: Iterator<Item = DTRange>> Filter<I> {
+    fn new(iter: I) -> Self {
+        let mut iter = iter.merge_spans_rev();
+        let first = iter.next();
+        Self {
+            iter,
+            current: first,
+            // current: (usize::MAX, usize::MAX).into() // A bit dirty using this but eh.
+        }
+    }
+
+    fn scan_until_below(&mut self, v: LV) -> Option<DTRange> {
+        while self.current.map_or(false, |c| c.start > v) {
+            self.current = self.iter.next();
+        }
+        self.current
+    }
+}
+
 impl Parents {
-    pub fn subgraph(&self, filter: &[DTRange], parents: &[LV]) -> Parents {
+    pub fn subgraph(&self, filter: &[DTRange], parents: &[LV]) -> (Parents, Frontier) {
         let filter_iter = filter.iter().copied().rev();
         self.subgraph_raw(filter_iter, parents)
     }
 
     // The filter iterator must be reverse-sorted.
-    pub(crate) fn subgraph_raw<I: Iterator<Item=DTRange>>(&self, mut rev_filter_iter: I, parents: &[LV]) -> Parents {
+    pub(crate) fn subgraph_raw<I: Iterator<Item=DTRange>>(&self, rev_filter_iter: I, parents: &[LV]) -> (Parents, Frontier) {
         #[derive(PartialOrd, Ord, Eq, PartialEq, Clone, Debug)]
         struct QueueEntry {
             target_parent: LV,
@@ -29,11 +54,24 @@ impl Parents {
         for p in parents {
             queue.push(QueueEntry {
                 target_parent: *p,
-                children: smallvec![]
+                children: smallvec![usize::MAX]
             });
         }
+        let mut filtered_frontier = Frontier::default();
 
-        if let Some(mut filter) = rev_filter_iter.next() {
+        fn push_children(result_rev: &mut Vec<ParentsEntryInternal>, frontier: &mut Frontier, children: &[LV], p: LV) {
+            for idx in children {
+                push_light_dedup(if *idx == usize::MAX {
+                    frontier
+                } else {
+                    &mut result_rev[*idx].parents
+                }, p);
+            }
+        }
+
+        let mut filter_iter = Filter::new(rev_filter_iter);
+
+        if filter_iter.current.is_some() {
             'outer: while let Some(mut entry) = queue.pop() {
                 // There's essentially 2 cases here:
                 // 1. The entry is either inside a filtered item, or an earlier item in this txn
@@ -42,13 +80,11 @@ impl Parents {
 
                 let txn = self.0.find_packed(entry.target_parent);
 
-                'txn_loop: loop {
-                    // Could replace this with a call to filter_iter.find(..). Not sure if its
-                    // cleaner - it would let me remove the loop label though.
-                    while filter.start > entry.target_parent {
-                        if let Some(f) = rev_filter_iter.next() { filter = f; }
-                        else { break 'txn_loop; }
-                    }
+                while let Some(filter) = filter_iter.scan_until_below(entry.target_parent) {
+                    // while filter.start > entry.target_parent {
+                    //     if let Some(f) = rev_filter_iter.next() { filter = f; }
+                    //     else { break 'txn_loop; }
+                    // }
 
                     if filter.end <= txn.span.start {
                         break;
@@ -63,9 +99,7 @@ impl Parents {
                     let p = entry.target_parent.min(filter.end - 1);
                     let idx_here = result_rev.len();
 
-                    for idx in entry.children {
-                        push_light_dedup(&mut result_rev[idx].parents, p);
-                    }
+                    push_children(&mut result_rev, &mut filtered_frontier, &entry.children, p);
 
                     let base = filter.start.max(txn.span.start);
                     // For simplicity, pull out anything that is within this txn *and* this filter.
@@ -73,9 +107,7 @@ impl Parents {
                         if peeked_entry.target_parent < base { break; }
 
                         let peeked_target = peeked_entry.target_parent.min(filter.end - 1);
-                        for idx in &peeked_entry.children {
-                            push_light_dedup(&mut result_rev[*idx].parents, peeked_target);
-                        }
+                        push_children(&mut result_rev, &mut filtered_frontier, &peeked_entry.children, peeked_target);
 
                         queue.pop();
                     }
@@ -139,16 +171,21 @@ impl Parents {
 
         result_rev.reverse();
 
-        for e in result_rev.iter_mut() {
-            if e.parents.len() >= 2 {
-                e.parents.0.reverse(); // Parents will always end up in reverse order.
+        fn clean_frontier(parents: &Parents, f: &mut Frontier) {
+            if f.len() >= 2 {
+                f.0.reverse(); // Parents will always end up in reverse order.
                 // I wish I didn't need to do this. At least I don't think it'll show up on the
                 // performance profile.
-                e.parents = self.find_dominators(&e.parents.0);
+                *f = parents.find_dominators(f.as_ref());
             }
         }
 
-        Parents(RleVec(result_rev))
+        for e in result_rev.iter_mut() {
+            clean_frontier(self, &mut e.parents);
+        }
+        clean_frontier(self, &mut filtered_frontier);
+
+        (Parents(RleVec(result_rev)), filtered_frontier)
     }
 }
 
@@ -186,10 +223,12 @@ mod test {
         p
     }
 
-    fn check_subgraph(p: &Parents, filter_r: &[Range<usize>], frontier: &[LV], expect_parents: &[&[LV]]) {
+    fn check_subgraph(p: &Parents, filter_r: &[Range<usize>], frontier: &[LV], expect_parents: &[&[LV]], expect_frontier: &[LV]) {
         let filter: Vec<DTRange> = filter_r.iter().map(|r| r.clone().into()).collect();
-        let subgraph = p.subgraph(&filter, frontier);
+        let (subgraph, ff) = p.subgraph(&filter, frontier);
         // dbg!(&subgraph);
+
+        assert_eq!(ff.as_ref(), expect_frontier);
 
         // The entries in the subgraph should be the same as the diff, passed through the filter.
         let mut diff = p.diff(&[], frontier).1;
@@ -220,27 +259,26 @@ mod test {
 
         check_subgraph(&parents, &[0..11], &[5, 10], &[
             &[], &[], &[1, 4], &[2, 8],
-        ]);
+        ], &[5, 10]);
         check_subgraph(&parents, &[1..11], &[5, 10], &[
             &[], &[], &[1, 4], &[2, 8],
-        ]);
-        check_subgraph(&parents, &[5..6], &[5, 10], &[&[]]);
+        ], &[5, 10]);
+        check_subgraph(&parents, &[5..6], &[5, 10], &[&[]], &[5]);
         check_subgraph(&parents, &[0..1, 10..11], &[5, 10], &[
             &[], &[0]
-        ]);
+        ], &[10]);
         check_subgraph(&parents, &[0..11], &[10], &[
             &[], &[], &[1, 4], &[2, 8],
-        ]);
+        ], &[10]);
         check_subgraph(&parents, &[0..11], &[5], &[
             &[]
-        ]);
+        ], &[5]);
         check_subgraph(&parents, &[0..3, 9..11], &[10], &[
             &[], &[2]
-        ]);
-        check_subgraph(&parents, &[9..11], &[3], &[]);
-        check_subgraph(&parents, &[5..6], &[9], &[]);
-        check_subgraph(&parents, &[0..1, 2..3], &[2], &[&[], &[0]]);
-        check_subgraph(&parents, &[0..1, 2..3], &[9], &[&[], &[0]]);
-
+        ], &[10]);
+        check_subgraph(&parents, &[9..11], &[3], &[], &[]);
+        check_subgraph(&parents, &[5..6], &[9], &[], &[]);
+        check_subgraph(&parents, &[0..1, 2..3], &[2], &[&[], &[0]], &[2]);
+        check_subgraph(&parents, &[0..1, 2..3], &[9], &[&[], &[0]], &[2]);
     }
 }

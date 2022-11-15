@@ -76,7 +76,7 @@ fn check_rev_sorted(spans: &[DTRange]) {
 #[derive(Debug)]
 pub(crate) struct SpanningTreeWalker<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
-    history: &'a Parents,
+    subgraph: &'a Parents,
 
     frontier: Frontier,
 
@@ -181,7 +181,7 @@ impl<'a> SpanningTreeWalker<'a> {
         assert!(rev_spans.is_empty() || !to_process.is_empty());
 
         Self {
-            history,
+            subgraph: history,
             frontier: start_at,
             input,
             to_process,
@@ -262,29 +262,29 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
         // dbg!(&child_idxs);
 
         // let parents = &input_entry.parents;
-        let (only_branch, only_txn) = self.history.diff(self.frontier.as_ref(), parents.as_ref());
+        let (only_branch, only_txn) = self.subgraph.diff(self.frontier.as_ref(), parents.as_ref());
 
         // Note that even if we're moving to one of our direct children we might see items only
         // in only_branch if the child has a parent in the middle of our txn.
         for range in &only_branch {
             // println!("Retreat branch {:?} by {:?}", &self.branch, range);
-            self.frontier.retreat(self.history, *range);
+            self.frontier.retreat(self.subgraph, *range);
             // println!(" -> {:?}", &self.branch);
             // dbg!(&branch);
         }
 
         if cfg!(debug_assertions) {
-            self.frontier.check(self.history);
+            self.frontier.check(self.subgraph);
         }
 
         for range in only_txn.iter().rev() {
             // println!("Advance branch by {:?}", range);
-            self.frontier.advance(self.history, *range);
+            self.frontier.advance(self.subgraph, *range);
             // dbg!(&branch);
         }
 
         if cfg!(debug_assertions) {
-            self.frontier.check(self.history);
+            self.frontier.check(self.subgraph);
         }
 
         // println!("consume {} (order {:?})", next_idx, next_txn.as_span());

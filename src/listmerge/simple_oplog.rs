@@ -17,6 +17,8 @@ pub(crate) struct SimpleOpLog {
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub(crate) struct SimpleBranch {
     pub content: JumpRopeBuf,
+
+    // Always points to a version in the subgraph.
     pub version: Frontier,
 }
 
@@ -72,15 +74,12 @@ impl SimpleOpLog {
         result.to_string()
     }
 
-    pub(crate) fn merge_raw(&self, into: &mut JumpRopeBuf, from: &[LV], to: &[LV]) {
-        self.info.merge_into(into, &self.cg, from, to);
+    pub(crate) fn merge_raw(&self, into: &mut JumpRopeBuf, from: &[LV], to: &[LV]) -> Frontier {
+        self.info.merge_into(into, &self.cg, from, to)
     }
 
     pub(crate) fn merge_all(&self, into: &mut SimpleBranch) {
-        // This is a bit inelegant.
-        let old_v = into.version.clone();
-        self.merge_raw(&mut into.content, old_v.as_ref(), self.cg.version.as_ref());
-        into.version = self.cg.version.clone();
+        into.version = self.merge_raw(&mut into.content, into.version.as_ref(), self.cg.version.as_ref());
     }
 
     pub(crate) fn merge_to_version(&self, into: &mut SimpleBranch, to_version: &[LV]) {
