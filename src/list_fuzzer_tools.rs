@@ -34,13 +34,6 @@ pub(crate) fn make_random_change(oplog: &mut SimpleOpLog, branch: &SimpleBranch,
     let doc_len = branch.len();
     let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
 
-    if rng.gen_bool(0.2) {
-        let v_start = oplog.cg.len();
-        oplog.goop(10);
-        let v_end = oplog.cg.len();
-        println!("GOOP from {v_start} to {v_end}");
-    }
-
     let v = if doc_len == 0 || rng.gen_bool(insert_weight) {
         // Insert something.
         let pos = rng.gen_range(0..=doc_len);

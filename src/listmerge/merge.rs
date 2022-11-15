@@ -509,9 +509,9 @@ impl M2Tracker {
                     })
                 });
 
-                if cfg!(debug_assertions) {
-                    self.check_index();
-                }
+                // if cfg!(debug_assertions) {
+                //     self.check_index();
+                // }
 
                 (len, if !ever_deleted {
                     BaseMoved(del_start_xf)
@@ -850,16 +850,12 @@ impl TextInfo {
         // This is a bit dirty for now, but it should be correct at least.
         let final_frontier = cg.parents.find_dominators_2(from, merge_frontier);
         let iter = self.ops.iter().map(|e| e.span()).rev();
-        let (subgraph, ff) = cg.parents.subgraph_raw(iter, final_frontier.as_ref());
-        subgraph.dbg_check_subgraph(true); // For debugging.
-        dbg!(&subgraph, ff.as_ref());
+        let (subgraph, _ff) = cg.parents.subgraph_raw(iter.clone(), final_frontier.as_ref());
+        // subgraph.dbg_check_subgraph(true); // For debugging.
+        // dbg!(&subgraph, ff.as_ref());
 
-        // DIRTY DIRTY!!! It would be much faster & cleaner to have a projection function for v -> subgraph.
-        dbg!(from, merge_frontier);
-        let from = cg.parents.find_conflicting_simple(ff.as_ref(), from).common_ancestor;
-        let merge_frontier = cg.parents.find_conflicting_simple(ff.as_ref(), merge_frontier).common_ancestor;
-        dbg!(&from, &merge_frontier);
-
+        let from = cg.parents.project_onto_subgraph_raw(iter.clone(), from);
+        let merge_frontier = cg.parents.project_onto_subgraph_raw(iter.clone(), merge_frontier);
 
         // let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
         let mut iter = self.get_xf_operations_full(&subgraph, &cg.agent_assignment, from.as_ref(), merge_frontier.as_ref());

@@ -6,7 +6,6 @@ use crate::list_fuzzer_tools::{choose_2, make_random_change};
 use crate::listmerge::simple_oplog::{SimpleBranch, SimpleOpLog};
 
 #[test]
-#[ignore]
 fn random_single_document() {
     let mut rng = SmallRng::seed_from_u64(10);
     let mut oplog = SimpleOpLog::new();
@@ -14,24 +13,20 @@ fn random_single_document() {
 
     let mut expected_content = JumpRope::new();
 
-    for _i in 0..3 {
+    for _i in 0..1000 {
         // eprintln!("i {}", _i);
 
-        // if rng.gen_bool(0.2) {
-        //     let v = oplog.goop(10);
-        //     branch.version.replace_with_1(v);
-        // }
+        if rng.gen_bool(0.2) {
+            oplog.goop(10);
+            branch.version = oplog.cg.version.clone();
+        }
 
         make_random_change(&mut oplog, &mut branch, Some(&mut expected_content), "seph", &mut rng);
 
-        // dbg!(oplog.cg.iter().collect::<Vec<_>>());
         oplog.merge_all(&mut branch);
         assert_eq!(branch.content, expected_content);
     }
 
-    println!("\n----------------------");
-    dbg!(oplog.info.iter_fast().map(|pair| (pair.0.range(), (pair.0.1, pair.1).into())).collect::<Vec<(DTRange, TextOperation)>>());
-    // dbg!(&oplog.
     assert_eq!(expected_content, oplog.to_string());
     oplog.dbg_check(true);
 }

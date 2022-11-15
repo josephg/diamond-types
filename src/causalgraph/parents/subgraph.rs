@@ -27,7 +27,7 @@ impl<I: Iterator<Item = DTRange>> Filter<I> {
         }
     }
 
-    fn scan_until_below(&mut self, v: LV) -> Option<DTRange> {
+    fn scan_until_start_below(&mut self, v: LV) -> Option<DTRange> {
         while self.current.map_or(false, |c| c.start > v) {
             self.current = self.iter.next();
         }
@@ -80,7 +80,7 @@ impl Parents {
 
                 let txn = self.0.find_packed(entry.target_parent);
 
-                while let Some(filter) = filter_iter.scan_until_below(entry.target_parent) {
+                while let Some(filter) = filter_iter.scan_until_start_below(entry.target_parent) {
                     // while filter.start > entry.target_parent {
                     //     if let Some(f) = rev_filter_iter.next() { filter = f; }
                     //     else { break 'txn_loop; }
@@ -187,6 +187,78 @@ impl Parents {
 
         (Parents(RleVec(result_rev)), filtered_frontier)
     }
+
+    pub(crate) fn project_onto_subgraph(&self, filter: &[DTRange], frontier: &[LV]) -> Frontier {
+        let filter_iter = filter.iter().copied().rev();
+        self.project_onto_subgraph_raw(filter_iter, frontier)
+    }
+
+    // TODO: Another way I could write this method would be to pass in the subgraph's frontier. Maybe better??
+    pub(crate) fn project_onto_subgraph_raw<I: Iterator<Item=DTRange>>(&self, rev_filter_iter: I, frontier: &[LV]) -> Frontier {
+        if frontier.is_empty() { return Frontier::root(); }
+
+        let mut queue: BinaryHeap<usize> = BinaryHeap::new();
+        let mut result = Frontier::default();
+
+        fn dec(v_enc: usize) -> (bool, LV) {
+            (v_enc % 2 == 1, v_enc >> 1)
+        }
+        fn enc(active: bool, v: LV) -> usize {
+            (v << 1) + (active as usize)
+        }
+
+        for v in frontier {
+            queue.push(enc(true, *v));
+        }
+        let mut num_active_entries = frontier.len();
+
+        let mut filter_iter = Filter::new(rev_filter_iter);
+
+        while let Some(vv) = queue.pop() {
+            let (mut mark_active, v) = dec(vv);
+            if mark_active { num_active_entries -= 1; }
+
+            let txn = self.0.find_packed(v);
+
+            let Some(filter) = filter_iter.scan_until_start_below(v) else { break; };
+
+            debug_assert!(v >= filter.start);
+            debug_assert!(v >= txn.span.start);
+
+            let mark_v = v.min(filter.end - 1);
+
+            while let Some(peek_vv) = queue.peek() {
+                let (peek_active, peek_v) = dec(*peek_vv);
+                if peek_v >= txn.span.start {
+                    if peek_v >= mark_v && !peek_active {
+                        // Anything under the marked version is irrelevant.
+                        mark_active = false;
+                    }
+                    if peek_active { num_active_entries -= 1; }
+                    // Regardless, throw away anything else within this txn.
+                    queue.pop();
+                } else { break; }
+            }
+
+            if filter.end > txn.span.start && mark_active {
+                debug_assert!(txn.span.start <= mark_v);
+
+                result.0.push(mark_v);
+                mark_active = false;
+            }
+
+            if mark_active {
+                num_active_entries += txn.parents.len();
+            } else if num_active_entries == 0 { break; }
+
+            for p in txn.parents.iter() {
+                queue.push(enc(mark_active, *p));
+            }
+        }
+
+        result.0.reverse();
+        result
+    }
 }
 
 #[cfg(test)]
@@ -223,8 +295,8 @@ mod test {
         p
     }
 
-    fn check_subgraph(p: &Parents, filter_r: &[Range<usize>], frontier: &[LV], expect_parents: &[&[LV]], expect_frontier: &[LV]) {
-        let filter: Vec<DTRange> = filter_r.iter().map(|r| r.clone().into()).collect();
+    fn check_subgraph(p: &Parents, filter: &[Range<usize>], frontier: &[LV], expect_parents: &[&[LV]], expect_frontier: &[LV]) {
+        let filter: Vec<DTRange> = filter.iter().map(|r| r.clone().into()).collect();
         let (subgraph, ff) = p.subgraph(&filter, frontier);
         // dbg!(&subgraph);
 
@@ -251,6 +323,9 @@ mod test {
         }
 
         subgraph.dbg_check_subgraph(true);
+
+        let actual_projection = p.project_onto_subgraph(&filter, frontier);
+        assert_eq!(actual_projection.as_ref(), expect_frontier);
     }
 
     #[test]
@@ -281,4 +356,20 @@ mod test {
         check_subgraph(&parents, &[0..1, 2..3], &[2], &[&[], &[0]], &[2]);
         check_subgraph(&parents, &[0..1, 2..3], &[9], &[&[], &[0]], &[2]);
     }
+    //
+    // #[test]
+    // fn subgraph_is_collapsed() {
+    //     let parents = Parents(RleVec(vec![
+    //         ParentsEntryInternal { // 0-10
+    //             span: (0..11).into(), shadow: 0,
+    //             parents: Frontier::from_sorted(&[]),
+    //         },
+    //         ParentsEntryInternal { // 10-20
+    //             span: (10..21).into(), shadow: 10,
+    //             parents: Frontier::from_sorted(&[1]),
+    //         },
+    //     ]));
+    //
+    //     check_subgraph(&parents, &[0..2, 10..12], &[10, 20], &[&[], &[1]], &[11]);
+    // }
 }
