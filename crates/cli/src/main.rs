@@ -6,9 +6,9 @@ use rand::distributions::Alphanumeric;
 use rand::Rng;
 use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
+use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionOwned;
 use diamond_types::list::{ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
-use diamond_types::causalgraph::remote_ids::RemoteId;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -56,7 +56,7 @@ enum Commands {
         /// If not specified, the version defaults to the latest version, printing the result of
         /// merging all changes.
         #[clap(short, long, parse(try_from_str = serde_json::from_str))]
-        version: Option<Box<[RemoteId]>>,
+        version: Option<Box<[RemoteVersionOwned]>>,
     },
 
     /// Print the operations contained within a diamond types file
@@ -99,7 +99,7 @@ enum Commands {
         ///
         /// If not specified, the version defaults to the latest version (including all changes)
         #[clap(short, long, parse(try_from_str = serde_json::from_str))]
-        version: Option<Box<[RemoteId]>>,
+        version: Option<Box<[RemoteVersionOwned]>>,
 
         /// Suppress output to stdout
         #[clap(short, long)]
@@ -138,7 +138,7 @@ enum Commands {
 
         /// Trim the file to only contain changes from the specified point in time onwards.
         #[clap(short, long, parse(try_from_str = serde_json::from_str))]
-        version: Option<Box<[RemoteId]>>,
+        version: Option<Box<[RemoteVersionOwned]>>,
 
         /// Save a patch. Patch files do not contain the base snapshot state. They must be merged
         /// with an existing DT file.
@@ -170,15 +170,15 @@ fn parse_dt_oplog(filename: &str) -> Result<ListOpLog, anyhow::Error> {
     Ok(oplog)
 }
 
-// fn checkout_version_or_tip(oplog: OpLog, version: Option<&[RemoteId]>) -> Branch {
-fn checkout_version_or_tip(oplog: &ListOpLog, version: Option<Box<[RemoteId]>>) -> ListBranch {
+// fn checkout_version_or_tip(oplog: OpLog, version: Option<&[RemoteVersionOwned]>) -> Branch {
+fn checkout_version_or_tip(oplog: &ListOpLog, version: Option<Box<[RemoteVersionOwned]>>) -> ListBranch {
     let v = if let Some(version) = version {
-        oplog.cg.try_remote_to_local_version(version.iter()).unwrap()
+        oplog.cg.agent_assignment.try_remote_to_local_frontier(version.iter()).unwrap()
     } else {
-        oplog.local_version()
+        oplog.local_frontier()
     };
 
-    oplog.checkout(&v)
+    oplog.checkout(v.as_ref())
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -252,7 +252,7 @@ fn main() -> Result<(), anyhow::Error> {
         }
 
         Commands::Version { oplog } => {
-            let version = serde_json::to_string(&oplog.remote_version()).unwrap();
+            let version = serde_json::to_string(&oplog.remote_frontier()).unwrap();
             println!("{version}");
         }
 
@@ -268,7 +268,7 @@ fn main() -> Result<(), anyhow::Error> {
                     serde_json::to_string(v)
                 } else {
                     // println!("Editing from tip version {:?}", oplog.remote_version());
-                    serde_json::to_string(&oplog.remote_version())
+                    serde_json::to_string(&oplog.remote_frontier())
                 }.unwrap();
                 println!("Editing from version {v_json}");
             }
@@ -303,9 +303,9 @@ fn main() -> Result<(), anyhow::Error> {
 
             if !quiet {
                 println!("Resulting branch version after changes {}",
-                         serde_json::to_string(&branch.remote_version(&oplog)).unwrap());
+                         serde_json::to_string(&branch.remote_frontier(&oplog)).unwrap());
                 println!("Resulting file version after changes {}",
-                         serde_json::to_string(&oplog.remote_version()).unwrap());
+                         serde_json::to_string(&oplog.remote_frontier()).unwrap());
             }
 
             // TODO: Do that atomic rename nonsense instead of just overwriting.
@@ -321,7 +321,7 @@ fn main() -> Result<(), anyhow::Error> {
                 Some(v) => v.as_ref(),
                 None => &[],
             };
-            let from_version = oplog.cg.remote_to_local_version(from_version.iter());
+            let from_version = oplog.cg.agent_assignment.remote_to_local_frontier(from_version.iter());
 
             let new_data = oplog.encode_from(EncodeOptions {
                 user_data: None,
@@ -331,7 +331,7 @@ fn main() -> Result<(), anyhow::Error> {
                 store_deleted_content: !no_deleted_content,
                 compress_content: !uncompressed,
                 verbose: false
-            }, &from_version);
+            }, from_version.as_ref());
 
             let lossy = no_inserted_content || no_deleted_content || !from_version.is_empty();
             if output.is_none() && !force && lossy {

@@ -1,6 +1,6 @@
 use rle::{HasLength, MergableSpan};
 use crate::{DTRange, SmartString, LV};
-use crate::causalgraph::remote_ids::RemoteVersionSpan;
+use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
 use crate::list::ListOpLog;
 use crate::rev_range::RangeRev;
 
@@ -26,7 +26,7 @@ impl MergableSpan for OldCRDTOp {
         use OldCRDTOp::*;
 
         match (self, other) {
-            (Ins { id: id1, .. }, Ins { id: id2, .. }) => {
+            (Ins { id: _id1, .. }, Ins { id: _id2, .. }) => {
                 // Could implement this I guess?
                 false
             },
@@ -71,6 +71,6 @@ impl OldCRDTOp {
     }
 
     pub fn remote_span<'a>(&self, oplog: &'a ListOpLog) -> RemoteVersionSpan<'a> {
-        oplog.cg.local_to_remote_version_span(self.time_span())
+        oplog.cg.agent_assignment.local_to_remote_version_span(self.time_span())
     }
 }

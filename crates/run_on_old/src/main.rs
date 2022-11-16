@@ -1,9 +1,9 @@
 use criterion::{BenchmarkId, black_box, Criterion, criterion_group, criterion_main};
 use smallvec::{smallvec, SmallVec};
-use diamond_types::causalgraph::remote_ids::{RemoteVersion as NewRemoteVersion};
+use diamond_types::causalgraph::agent_assignment::remote_ids::{RemoteVersionOwned as NewRemoteVersion};
 use diamond_types::DTRange;
 use diamond_types::list::ListOpLog;
-use diamond_types::list::merge::to_old::OldCRDTOp;
+use diamond_types::list::old_merge::to_old::OldCRDTOp;
 use diamond_types_old::list::external_txn::{RemoteId as OldRemoteId, RemoteIdSpan as OldRemoteIdSpan, RemoteTxn};
 use diamond_types_old::root_id;
 use rle::{HasLength, SplitableSpan};
@@ -12,7 +12,7 @@ fn time_to_remote_id(time: usize, oplog: &ListOpLog) -> OldRemoteId {
     if time == usize::MAX {
         root_id()
     } else {
-        new_to_old_remote_id(oplog.cg.local_to_remote_version(time))
+        new_to_old_remote_id(oplog.cg.agent_assignment.local_to_remote_version(time).into())
     }
 }
 
@@ -28,7 +28,7 @@ fn time_to_remote_span(range: DTRange, oplog: &ListOpLog) -> OldRemoteIdSpan {
     if range.start == usize::MAX {
         panic!("Cannot convert a root timespan");
     } else {
-        let span = oplog.cg.local_to_remote_version_span(range);
+        let span = oplog.cg.agent_assignment.local_to_remote_version_span(range);
         OldRemoteIdSpan {
             id: OldRemoteId {
                 agent: span.0.into(),

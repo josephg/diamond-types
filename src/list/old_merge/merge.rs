@@ -1055,7 +1055,7 @@ impl ListBranch {
 impl ListOpLog {
     #[cfg(feature = "ops_to_old")]
     pub fn dbg_items(&self) -> Vec<OldCRDTOp> {
-        self.version.debug_check_sorted();
+        self.cg.version.debug_check_sorted();
         let mut tracker = M2Tracker::new();
         tracker.walk(self, Frontier::root(), &[(0..self.len()).into()], None);
         tracker.dbg_ops

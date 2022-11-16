@@ -159,17 +159,25 @@ impl AgentAssignment {
         self.agent_span_to_remote(agent_span)
     }
 
-    pub fn try_remote_to_local_frontier<'a, I: Iterator<Item=RemoteVersion<'a>> + 'a>(&self, ids_iter: I) -> Result<Frontier, VersionConversionError> {
+    pub fn try_remote_to_local_frontier<'a, B: 'a, I>(&self, ids_iter: I) -> Result<Frontier, VersionConversionError>
+        where RemoteVersion<'a>: From<B>, I: Iterator<Item=B> + 'a
+    {
         let frontier: Frontier = ids_iter
-            .map(|rv| self.try_remote_to_local_version(rv))
+            .map(|rv| self.try_remote_to_local_version(rv.into()))
             .collect::<Result<Frontier, VersionConversionError>>()?;
 
         Ok(frontier)
     }
 
-    pub fn remote_to_local_frontier<'a, I: Iterator<Item=RemoteVersion<'a>> + 'a>(&self, ids_iter: I) -> Frontier {
+    // pub fn try_remote_to_local_frontier<'a, I: Iterator<Item=RemoteVersion<'a>> + 'a>(&self, ids_iter: I) -> Result<Frontier, VersionConversionError> {
+    // }
+
+    // This method should work for &RemoteVersionOwned and RemoteVersion and whatever else.
+    pub fn remote_to_local_frontier<'a, B: 'a, I>(&self, ids_iter: I) -> Frontier
+        where RemoteVersion<'a>: From<B>, I: Iterator<Item=B> + 'a
+    {
         let frontier: Frontier = ids_iter
-            .map(|rv| self.remote_to_local_version(rv))
+            .map(|rv| self.remote_to_local_version(rv.into()))
             .collect();
 
         frontier
