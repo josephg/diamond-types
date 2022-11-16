@@ -180,10 +180,11 @@ impl ExperimentalOpLog {
     }
 
     pub fn checkout_text(&self, crdt: LVKey) -> JumpRopeBuf {
-        let _info = self.texts.get(&crdt).unwrap();
+        let info = self.texts.get(&crdt).unwrap();
 
-
-        todo!()
+        let mut result = JumpRopeBuf::new();
+        info.merge_into(&mut result, &self.cg, &[], self.cg.version.as_ref());
+        result
     }
 
     pub fn checkout_map(&self, crdt: LVKey) -> BTreeMap<SmartString, Box<DTValue>> {
@@ -199,9 +200,10 @@ impl ExperimentalOpLog {
         iter.map(|((_, key), info)| {
             let inner = match self.resolve_mv(info) {
                 RegisterValue::Primitive(p) => DTValue::Primitive(p),
-                RegisterValue::OwnedCRDT(kind, key) => {
+                RegisterValue::OwnedCRDT(kind, child_crdt) => {
                     match kind {
-                        CRDTKind::Map => DTValue::Map(self.checkout_map(key)),
+                        CRDTKind::Map => DTValue::Map(self.checkout_map(child_crdt)),
+                        CRDTKind::Text => DTValue::Text(self.checkout_text(child_crdt).to_string()),
                         _ => unimplemented!(),
                         // CRDTKind::Register => {}
                         // CRDTKind::Collection => {}
@@ -245,7 +247,11 @@ mod tests {
         oplog.push_text_op(seph, text, TextOperation::new_insert(0, "Oh hai!"));
         oplog.push_text_op(seph, text, TextOperation::new_delete(0..3));
 
-        dbg!(&oplog);
+        // dbg!(&oplog);
+
+        assert_eq!(oplog.checkout_text(text).to_string(), "hai!");
+
+        // dbg!(oplog.checkout());
     }
 
     #[test]

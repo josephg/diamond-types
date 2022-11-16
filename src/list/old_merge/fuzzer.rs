@@ -135,7 +135,7 @@ fn fuzz_once() {
 
 #[test]
 #[ignore]
-fn fuzz_merge_forever() {
+fn fuzz_merge_forever_old() {
     for k in 0.. {
         // println!("\n\n*** Iteration {} ***\n", k);
         if k % 100 == 0 {

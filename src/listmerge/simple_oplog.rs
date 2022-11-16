@@ -79,14 +79,11 @@ impl SimpleOpLog {
     }
 
     pub(crate) fn merge_all(&self, into: &mut SimpleBranch) {
-        self.merge_raw(&mut into.content, into.version.as_ref(), self.cg.version.as_ref());
-        into.version = self.cg.version.clone();
+        into.version = self.merge_raw(&mut into.content, into.version.as_ref(), self.cg.version.as_ref());
     }
 
     pub(crate) fn merge_to_version(&self, into: &mut SimpleBranch, to_version: &[LV]) {
-        let old_v = into.version.clone();
-        self.merge_raw(&mut into.content, old_v.as_ref(), to_version);
-        into.version = to_version.into();
+        into.version = self.merge_raw(&mut into.content, into.version.as_ref(), to_version);
     }
 
     pub(crate) fn dbg_check(&self, deep: bool) {

@@ -847,10 +847,19 @@ impl TextInfo {
 
     /// Add everything in merge_frontier into the set..
     pub fn merge_into(&self, into: &mut JumpRopeBuf, cg: &CausalGraph, from: FrontierRef, merge_frontier: FrontierRef) -> Frontier {
-        // This is a bit dirty for now, but it should be correct at least.
+        // This is a big dirty mess for now, but it should be correct at least.
+        let common = cg.parents.find_conflicting_simple(from, merge_frontier).common_ancestor;
+        let earliest = common.0.get(0).copied().unwrap_or(0);
+
         let final_frontier = cg.parents.find_dominators_2(from, merge_frontier);
-        let iter = self.ops.iter().map(|e| e.span()).rev();
+        if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
+
+        let iter = self.ops.iter().map(|e| e.span())
+            .filter(|r| r.end > earliest)
+            .rev();
         let (subgraph, _ff) = cg.parents.subgraph_raw(iter.clone(), final_frontier.as_ref());
+
+        // println!("{}", subgraph.0.0.len());
         // subgraph.dbg_check_subgraph(true); // For debugging.
         // dbg!(&subgraph, ff.as_ref());
 
@@ -887,7 +896,8 @@ impl TextInfo {
             }
         }
 
-        iter.into_frontier()
+        // iter.into_frontier()
+        final_frontier
     }
 }
 
