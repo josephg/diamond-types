@@ -4,11 +4,11 @@ use rle::{AppendRle, HasLength};
 use crate::list::ListOpLog;
 use crate::dtrange::DTRange;
 use crate::rle::KVPair;
-use crate::AgentId;
+use crate::{AgentId, CausalGraph};
 use crate::frontier::debug_assert_frontier_sorted;
 use crate::causalgraph::parents::ParentsEntrySimple;
 
-impl ListOpLog {
+impl CausalGraph {
     /// Find all the items to merge from other into self.
     fn to_merge(&self, other: &Self, agent_map: &[AgentId]) -> SmallVec<[DTRange; 4]> {
         // This method is in many ways a baby version of diff_slow, with some changes:
@@ -23,7 +23,7 @@ impl ListOpLog {
 
         let mut queue = BinaryHeap::new();
         // dbg!(&other.frontier, &other.history);
-        for ord in other.cg.version.iter() {
+        for ord in other.version.iter() {
             queue.push(*ord);
         }
 
@@ -38,7 +38,7 @@ impl ListOpLog {
             // - ord not within self. Find the longest run we can - constrained by other txn and
             //  (agent,seq) pairs. If we find something we know, add to result and end. If not,
             //  add parents to queue.
-            let containing_txn = other.cg.parents.0.find_packed(ord);
+            let containing_txn = other.parents.0.find_packed(ord);
 
             // Discard any other entries from queue which name the same txn
 
@@ -52,12 +52,12 @@ impl ListOpLog {
             }
 
             loop { // Add as much as we can from this txn.
-                let (other_span, offset) = other.cg.agent_assignment.client_with_localtime.find_packed_with_offset(ord);
+                let (other_span, offset) = other.agent_assignment.client_with_localtime.find_packed_with_offset(ord);
                 let self_agent = agent_map[other_span.1.agent as usize];
                 let seq = other_span.1.seq_range.start + offset;
 
                 // Find out how many items we can eat
-                let (r, offset) = self.cg.agent_assignment.client_data[self_agent as usize]
+                let (r, offset) = self.agent_assignment.client_data[self_agent as usize]
                     .item_times.find_sparse(seq);
                 if r.is_ok() {
                     // Overlap here. Discard from the queue.
@@ -85,7 +85,9 @@ impl ListOpLog {
 
         result
     }
+}
 
+impl ListOpLog {
     /// Add all missing operations from the other oplog into this oplog. This method is mostly used
     /// by testing code, since you rarely have two local oplogs to merge together.
     pub fn add_missing_operations_from(&mut self, other: &Self) {
@@ -101,7 +103,7 @@ impl ListOpLog {
         // So we need to figure out which changes in other *aren't* in self. To do that, I'll walk
         // backwards through other, looking for changes which are missing in self.
 
-        let spans = self.to_merge(other, &agent_map);
+        let spans = self.cg.to_merge(&other.cg, &agent_map);
         // dbg!(&spans);
 
         let mut time = self.len();
