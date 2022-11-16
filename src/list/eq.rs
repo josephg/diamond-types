@@ -12,7 +12,7 @@ use rle::zip::rle_zip3;
 use crate::{AgentId, Frontier, LV};
 use crate::list::ListOpLog;
 use crate::frontier::sort_frontier;
-use crate::causalgraph::parents::ParentsEntrySimple;
+use crate::causalgraph::graph::GraphEntrySimple;
 use crate::rle::KVPair;
 
 // const VERBOSE: bool = true;
@@ -149,8 +149,8 @@ impl PartialEq<Self> for ListOpLog {
                 }
 
                 // Ok, and we also need to check the txns match.
-                let (other_txn_entry, offset) = other.cg.parents.0.find_packed_with_offset(other_time);
-                let mut other_txn: ParentsEntrySimple = other_txn_entry.clone().into();
+                let (other_txn_entry, offset) = other.cg.graph.0.find_packed_with_offset(other_time);
+                let mut other_txn: GraphEntrySimple = other_txn_entry.clone().into();
                 if offset > 0 { other_txn.truncate_keeping_right(offset); }
                 if other_txn.len() > len_here {
                     other_txn.truncate(len_here);
@@ -162,7 +162,7 @@ impl PartialEq<Self> for ListOpLog {
                     // return false;
                 };
 
-                let mut mapped_txn = ParentsEntrySimple {
+                let mut mapped_txn = GraphEntrySimple {
                     span: (mapped_start..mapped_start + len_here).into(),
                     // .unwrap() should be safe here because we've already walked past this item's
                     // parents.

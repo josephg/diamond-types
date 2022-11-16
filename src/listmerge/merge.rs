@@ -17,7 +17,7 @@ use crate::dtrange::{DTRange, is_underwater, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers};
 use crate::{AgentId, CausalGraph, Frontier, LV};
 use crate::causalgraph::agent_assignment::AgentAssignment;
-use crate::causalgraph::parents::tools::DiffFlag;
+use crate::causalgraph::graph::tools::DiffFlag;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::buffered_iter::BufferedIter;
 use crate::rev_range::RangeRev;
@@ -34,7 +34,7 @@ use crate::listmerge::metrics::upstream_cursor_pos;
 use crate::listmerge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
 use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpanOwned;
-use crate::causalgraph::parents::Parents;
+use crate::causalgraph::graph::Graph;
 use crate::experiments::TextInfo;
 use crate::frontier::{FrontierRef, local_frontier_eq};
 use crate::unicount::consume_chars;
@@ -526,8 +526,8 @@ impl M2Tracker {
     ///
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
-    fn walk(&mut self, parents: &Parents, aa: &AgentAssignment, text_info: &TextInfo, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut JumpRopeBuf>) -> Frontier {
-        let mut walker = SpanningTreeWalker::new(&parents, rev_spans, start_at);
+    fn walk(&mut self, graph: &Graph, aa: &AgentAssignment, text_info: &TextInfo, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut JumpRopeBuf>) -> Frontier {
+        let mut walker = SpanningTreeWalker::new(&graph, rev_spans, start_at);
 
         for walk in &mut walker {
             for range in walk.retreat {
@@ -550,7 +550,7 @@ impl M2Tracker {
 pub(crate) struct TransformedOpsIter<'a> {
     // oplog: &'a ListOpLog,
     // cg: &'a CausalGraph,
-    subgraph: &'a Parents,
+    subgraph: &'a Graph,
     aa: &'a AgentAssignment,
     text_info: &'a TextInfo,
 
@@ -572,7 +572,7 @@ pub(crate) struct TransformedOpsIter<'a> {
 }
 
 impl<'a> TransformedOpsIter<'a> {
-    fn new(subgraph: &'a Parents, aa: &'a AgentAssignment, text_info: &'a TextInfo, from_frontier: FrontierRef, merge_frontier: FrontierRef) -> Self {
+    fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, text_info: &'a TextInfo, from_frontier: FrontierRef, merge_frontier: FrontierRef) -> Self {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
@@ -808,7 +808,7 @@ fn reverse_str(s: &str) -> SmartString {
 }
 
 impl TextInfo {
-    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Parents, aa: &'a AgentAssignment, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter<'a> {
+    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Graph, aa: &'a AgentAssignment, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter<'a> {
         TransformedOpsIter::new(subgraph, aa, self, from, merging)
     }
 
@@ -848,23 +848,23 @@ impl TextInfo {
     /// Add everything in merge_frontier into the set..
     pub fn merge_into(&self, into: &mut JumpRopeBuf, cg: &CausalGraph, from: FrontierRef, merge_frontier: FrontierRef) -> Frontier {
         // This is a big dirty mess for now, but it should be correct at least.
-        let common = cg.parents.find_conflicting_simple(from, merge_frontier).common_ancestor;
+        let common = cg.graph.find_conflicting_simple(from, merge_frontier).common_ancestor;
         let earliest = common.0.get(0).copied().unwrap_or(0);
 
-        let final_frontier = cg.parents.find_dominators_2(from, merge_frontier);
+        let final_frontier = cg.graph.find_dominators_2(from, merge_frontier);
         if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
 
         let iter = self.ops.iter().map(|e| e.span())
             .filter(|r| r.end > earliest)
             .rev();
-        let (subgraph, _ff) = cg.parents.subgraph_raw(iter.clone(), final_frontier.as_ref());
+        let (subgraph, _ff) = cg.graph.subgraph_raw(iter.clone(), final_frontier.as_ref());
 
         // println!("{}", subgraph.0.0.len());
         // subgraph.dbg_check_subgraph(true); // For debugging.
         // dbg!(&subgraph, ff.as_ref());
 
-        let from = cg.parents.project_onto_subgraph_raw(iter.clone(), from);
-        let merge_frontier = cg.parents.project_onto_subgraph_raw(iter.clone(), merge_frontier);
+        let from = cg.graph.project_onto_subgraph_raw(iter.clone(), from);
+        let merge_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), merge_frontier);
 
         // let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
         let mut iter = self.get_xf_operations_full(&subgraph, &cg.agent_assignment, from.as_ref(), merge_frontier.as_ref());

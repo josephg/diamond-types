@@ -12,7 +12,7 @@ use crate::unicount::*;
 use rle::*;
 use crate::list::buffered_iter::Buffered;
 use crate::list::encoding::ListChunkType::*;
-use crate::causalgraph::parents::ParentsEntrySimple;
+use crate::causalgraph::graph::GraphEntrySimple;
 use crate::list::operation::ListOpKind;
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::list::encoding::decode_tools::{BufReader, ChunkReader};
@@ -138,12 +138,12 @@ impl<'a> BufReader<'a> {
         Ok(Frontier(parents))
     }
 
-    fn next_history_entry(&mut self, oplog: &ListOpLog, next_time: LV, agent_map: &[(AgentId, usize)]) -> Result<ParentsEntrySimple, ParseError> {
+    fn next_history_entry(&mut self, oplog: &ListOpLog, next_time: LV, agent_map: &[(AgentId, usize)]) -> Result<GraphEntrySimple, ParseError> {
         let len = self.next_usize()?;
         let parents = self.read_parents(oplog, next_time, agent_map)?;
 
         // Bleh its gross passing a &[Time] into here when we have a Frontier already.
-        Ok(ParentsEntrySimple {
+        Ok(GraphEntrySimple {
             span: (next_time..next_time + len).into(),
             parents,
         })
@@ -240,7 +240,7 @@ struct FileInfoData<'a> {
 
 /// Returns (mapped span, remainder).
 /// The returned remainder is *NOT MAPPED*. This allows this method to be called in a loop.
-fn history_entry_map_and_truncate(mut hist_entry: ParentsEntrySimple, version_map: &RleVec<KVPair<DTRange>>) -> (ParentsEntrySimple, Option<ParentsEntrySimple>) {
+fn history_entry_map_and_truncate(mut hist_entry: GraphEntrySimple, version_map: &RleVec<KVPair<DTRange>>) -> (GraphEntrySimple, Option<GraphEntrySimple>) {
     let (map_entry, offset) = version_map.find_packed_with_offset(hist_entry.span.start);
 
     let mut map_entry = map_entry.1;
@@ -523,7 +523,7 @@ impl ListOpLog {
             }
 
             // Trim history
-            let hist_entries = &mut self.cg.parents.0;
+            let hist_entries = &mut self.cg.graph.0;
             let history_length = hist_entries.end();
             if history_length > len {
                 // We can't use entries.remove because HistoryEntry doesn't support SplitableSpan.
@@ -541,7 +541,7 @@ impl ListOpLog {
                     first_idx
                 };
 
-                self.cg.parents.0.0.truncate(first_truncated_idx);
+                self.cg.graph.0.0.truncate(first_truncated_idx);
             }
 
             // Remove excess agents
@@ -872,7 +872,7 @@ impl ListOpLog {
                             mapped.truncate_keeping_right(next_history_time - mapped.span.start);
                         }
 
-                        self.cg.parents.push(mapped.parents.as_ref(), mapped.span);
+                        self.cg.graph.push(mapped.parents.as_ref(), mapped.span);
                         self.cg.version.advance_by_known_run(mapped.parents.as_ref(), mapped.span);
 
                         next_history_time += mapped.len();

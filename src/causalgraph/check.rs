@@ -1,5 +1,5 @@
 use smallvec::smallvec;
-use crate::{CausalGraph, Parents, Frontier};
+use crate::{CausalGraph, Graph, Frontier};
 use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::frontier::{clone_smallvec, debug_assert_frontier_sorted};
 
@@ -35,11 +35,11 @@ impl CausalGraph {
     #[allow(unused)]
     pub fn dbg_check(&self, deep: bool) {
         if deep {
-            self.parents.dbg_check(deep);
+            self.graph.dbg_check(deep);
         }
 
         self.agent_assignment.dbg_check(deep);
 
-        assert_eq!(self.version, self.parents.dbg_get_frontier_inefficiently());
+        assert_eq!(self.version, self.graph.dbg_get_frontier_inefficiently());
     }
 }

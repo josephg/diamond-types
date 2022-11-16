@@ -10,7 +10,7 @@ use smartstring::alias::String as SmartString;
 use crate::causalgraph::agent_assignment::ClientData;
 
 use crate::list::operation::ListOpKind;
-use crate::causalgraph::parents::Parents;
+use crate::causalgraph::graph::Graph;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::{CausalGraph, Frontier};
 use crate::rle::{KVPair, RleVec};

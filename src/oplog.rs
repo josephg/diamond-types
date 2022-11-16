@@ -9,7 +9,7 @@ use smartstring::alias::String as SmartString;
 use ::rle::*;
 use crate::*;
 use crate::frontier::*;
-use crate::causalgraph::parents::Parents;
+use crate::causalgraph::graph::Graph;
 use crate::list::operation::{ListOpKind, TextOperation};
 
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};

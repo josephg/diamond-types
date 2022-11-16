@@ -174,7 +174,7 @@ fn decode_example() {
     //     println!("{} .. {}", c.name, c.get_next_seq());
     // }
     dbg!(oplog.operations.0.len());
-    dbg!(oplog.cg.parents.0.0.len());
+    dbg!(oplog.cg.graph.0.0.len());
 }
 
 fn check_unroll_works(dest: &ListOpLog, src: &ListOpLog) {

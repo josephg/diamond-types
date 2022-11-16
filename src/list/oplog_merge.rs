@@ -6,7 +6,7 @@ use crate::dtrange::DTRange;
 use crate::rle::KVPair;
 use crate::{AgentId, CausalGraph};
 use crate::frontier::debug_assert_frontier_sorted;
-use crate::causalgraph::parents::ParentsEntrySimple;
+use crate::causalgraph::graph::GraphEntrySimple;
 
 impl CausalGraph {
     /// Find all the items to merge from other into self.
@@ -38,7 +38,7 @@ impl CausalGraph {
             // - ord not within self. Find the longest run we can - constrained by other txn and
             //  (agent,seq) pairs. If we find something we know, add to result and end. If not,
             //  add parents to queue.
-            let containing_txn = other.parents.0.find_packed(ord);
+            let containing_txn = other.graph.0.find_packed(ord);
 
             // Discard any other entries from queue which name the same txn
 
@@ -128,8 +128,8 @@ impl ListOpLog {
 
             // History entries (parents)
             t = time;
-            for mut hist_entry in other.cg.parents.0
-                .iter_range_map(s, |e| ParentsEntrySimple::from(e)) {
+            for mut hist_entry in other.cg.graph.0
+                .iter_range_map(s, |e| GraphEntrySimple::from(e)) {
 
                 let len = hist_entry.len();
                 let span = (t..t + len).into();
@@ -147,7 +147,7 @@ impl ListOpLog {
                 hist_entry.parents.debug_check_sorted();
                 // dbg!(&hist_entry.parents);
 
-                self.cg.parents.push(hist_entry.parents.as_ref(), span);
+                self.cg.graph.push(hist_entry.parents.as_ref(), span);
                 self.cg.version.advance_by_known_run(hist_entry.parents.as_ref(), span);
                 t += len;
             }

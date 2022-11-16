@@ -64,13 +64,13 @@ pub fn get_history(oplog: &DTOpLog) -> WasmResult {
 //     serde_wasm_bindgen::to_value(&remote_time)
 // }
 pub fn local_to_remote_version(oplog: &DTOpLog, local_version: &[LV]) -> WasmResult {
-    let remote_version = oplog.cg.local_to_remote_frontier(local_version);
+    let remote_version = oplog.cg.agent_assignment.local_to_remote_frontier(local_version);
     serde_wasm_bindgen::to_value(&remote_version)
 }
 
 pub fn oplog_version_to_remote_version(oplog: &DTOpLog) -> WasmResult {
     let version = oplog.local_frontier_ref();
-    let frontier = oplog.cg.local_to_remote_frontier(version);
+    let frontier = oplog.cg.agent_assignment.local_to_remote_frontier(version);
     serde_wasm_bindgen::to_value(&frontier)
 }
 

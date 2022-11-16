@@ -7,11 +7,11 @@ use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
 use crate::frontier::{debug_assert_frontier_sorted, FrontierRef};
-use crate::causalgraph::parents::Parents;
-use crate::causalgraph::parents::tools::DiffFlag::*;
+use crate::causalgraph::graph::Graph;
+use crate::causalgraph::graph::tools::DiffFlag::*;
+use crate::causalgraph::graph::scope::ScopedParents;
 use crate::dtrange::DTRange;
 use crate::{Frontier, LV};
-use crate::causalgraph::parents::scope::ScopedParents;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -28,7 +28,7 @@ pub(crate) enum DiffFlag { OnlyA, OnlyB, Shared }
 /// TODO: Remove this entirely.
 const OLD_INVALID_ROOT_TIME: usize = usize::MAX;
 
-impl Parents {
+impl Graph {
     fn shadow_of(&self, time: LV) -> LV {
         debug_assert_ne!(time, OLD_INVALID_ROOT_TIME);
         self.0.find(time).unwrap().shadow
@@ -155,7 +155,7 @@ impl Parents {
 
 pub(crate) type DiffResult = (SmallVec<[DTRange; 4]>, SmallVec<[DTRange; 4]>);
 
-impl Parents {
+impl Graph {
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
     ///
     /// Also find which operation is the greatest common ancestor.
@@ -476,7 +476,7 @@ pub(crate) struct ConflictZone {
     pub(crate) spans: SmallVec<[DTRange; 4]>,
 }
 
-impl Parents {
+impl Graph {
     // Turns out I'm not finding this variant useful. Might be worth discarding it?
     #[allow(unused)]
     pub(crate) fn find_conflicting_simple(&self, a: &[LV], b: &[LV]) -> ConflictZone {
@@ -692,21 +692,21 @@ pub mod test {
     use smallvec::smallvec;
     use rle::{AppendRle, MergableSpan};
 
-    use crate::causalgraph::parents::*;
-    use crate::causalgraph::parents::tools::DiffFlag::*;
+    use crate::causalgraph::graph::*;
+    use crate::causalgraph::graph::tools::DiffFlag::*;
+    use crate::causalgraph::graph::tools::{DiffFlag, DiffResult};
     use crate::dtrange::DTRange;
     use crate::rle::RleVec;
     use crate::{Frontier, LV};
-    use crate::causalgraph::parents::tools::{DiffFlag, DiffResult};
     use crate::frontier::debug_assert_frontier_sorted;
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).
-    fn diff_via_conflicting(history: &Parents, a: &[LV], b: &[LV]) -> DiffResult {
+    fn diff_via_conflicting(graph: &Graph, a: &[LV], b: &[LV]) -> DiffResult {
         let mut only_a = smallvec![];
         let mut only_b = smallvec![];
 
-        history.find_conflicting(a, b, |span, flag| {
+        graph.find_conflicting(a, b, |span, flag| {
             // dbg!((span, flag));
             let target = match flag {
                 OnlyA => { &mut only_a }
@@ -737,16 +737,16 @@ pub mod test {
         list.push((span, flag));
     }
 
-    fn find_conflicting(parents: &Parents, a: &[LV], b: &[LV]) -> ConflictFull {
+    fn find_conflicting(graph: &Graph, a: &[LV], b: &[LV]) -> ConflictFull {
         let mut spans_fast = Vec::new();
         let mut spans_slow = Vec::new();
 
-        let common_branch_fast = parents.find_conflicting(a, b, |span, flag| {
+        let common_branch_fast = graph.find_conflicting(a, b, |span, flag| {
             debug_assert!(!span.is_empty());
             // spans_fast.push((span, flag));
             push_rev_rle(&mut spans_fast, span, flag);
         });
-        let common_branch_slow = parents.find_conflicting_slow(a, b, |span, flag| {
+        let common_branch_slow = graph.find_conflicting_slow(a, b, |span, flag| {
             debug_assert!(!span.is_empty());
             // spans_slow.push((span, flag));
             push_rev_rle(&mut spans_slow, span, flag);
@@ -760,13 +760,13 @@ pub mod test {
         }
     }
 
-    fn assert_conflicting(history: &Parents, a: &[LV], b: &[LV], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[LV]) {
+    fn assert_conflicting(graph: &Graph, a: &[LV], b: &[LV], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[LV]) {
         let expect: Vec<(DTRange, DiffFlag)> = expect_spans
             .iter()
             .rev()
             .map(|(r, flag)| (r.clone().into(), *flag))
             .collect();
-        let actual = find_conflicting(history, a, b);
+        let actual = find_conflicting(graph, a, b);
         assert_eq!(actual.common_branch.as_ref(), expect_common);
         assert_eq!(actual.spans, expect);
 
@@ -774,7 +774,7 @@ pub mod test {
             #[cfg_attr(feature = "serde", derive(Serialize))]
             #[derive(Clone)]
             struct Test<'a> {
-                hist: Vec<ParentsEntrySimple>,
+                hist: Vec<GraphEntrySimple>,
                 a: &'a [LV],
                 b: &'a [LV],
                 expect_spans: &'a [(Range<usize>, DiffFlag)],
@@ -782,10 +782,10 @@ pub mod test {
             }
 
             let t = Test {
-                hist: history.iter().collect(), a, b, expect_spans, expect_common
+                hist: graph.iter().collect(), a, b, expect_spans, expect_common
             };
 
-            let p: Vec<_> = history.iter().collect();
+            let p: Vec<_> = graph.iter().collect();
             use std::io::Write;
             let mut f = std::fs::File::options()
                 .write(true)
@@ -796,22 +796,22 @@ pub mod test {
         }
     }
 
-    fn assert_version_contains_time(parents: &Parents, frontier: &[LV], target: LV, expected: bool) {
+    fn assert_version_contains_time(graph: &Graph, frontier: &[LV], target: LV, expected: bool) {
         #[cfg(feature="gen_test_data")] {
             #[cfg_attr(feature = "serde", derive(Serialize))]
             #[derive(Clone, Debug)]
             struct Test<'a> {
-                hist: Vec<ParentsEntrySimple>,
+                hist: Vec<GraphEntrySimple>,
                 frontier: &'a [LV],
                 target: isize,
                 expected: bool,
             }
 
             let t = Test {
-                hist: parents.iter().collect(), frontier, target: target as _, expected
+                hist: graph.iter().collect(), frontier, target: target as _, expected
             };
 
-            let p: Vec<_> = parents.iter().collect();
+            let p: Vec<_> = graph.iter().collect();
             use std::io::Write;
             let mut f = std::fs::File::options()
                 .write(true)
@@ -821,15 +821,15 @@ pub mod test {
             writeln!(f, "{}", serde_json::to_string(&t).unwrap());
         }
 
-        assert_eq!(parents.version_contains_time(frontier, target), expected);
+        assert_eq!(graph.version_contains_time(frontier, target), expected);
     }
 
-    fn assert_diff_eq(history: &Parents, a: &[LV], b: &[LV], expect_a: &[DTRange], expect_b: &[DTRange]) {
+    fn assert_diff_eq(graph: &Graph, a: &[LV], b: &[LV], expect_a: &[DTRange], expect_b: &[DTRange]) {
         #[cfg(feature="gen_test_data")] {
             #[cfg_attr(feature = "serde", derive(Serialize))]
             #[derive(Clone)]
             struct Test<'a> {
-                hist: Vec<ParentsEntrySimple>,
+                hist: Vec<GraphEntrySimple>,
                 a: &'a [LV],
                 b: &'a [LV],
                 expect_a: &'a [DTRange],
@@ -837,14 +837,14 @@ pub mod test {
             }
 
             let t = Test {
-                hist: history.iter().collect(),
+                hist: graph.iter().collect(),
                 a,
                 b,
                 expect_a,
                 expect_b
             };
 
-            let p: Vec<_> = history.iter().collect();
+            let p: Vec<_> = graph.iter().collect();
             use std::io::Write;
             let mut f = std::fs::File::options()
                 .write(true)
@@ -854,9 +854,9 @@ pub mod test {
             writeln!(f, "{}", serde_json::to_string(&t).unwrap());
         }
 
-        let slow_result = history.diff_slow(a, b);
-        let fast_result = history.diff(a, b);
-        let c_result = diff_via_conflicting(history, a, b);
+        let slow_result = graph.diff_slow(a, b);
+        let fast_result = graph.diff(a, b);
+        let c_result = diff_via_conflicting(graph, a, b);
 
         assert_eq!(slow_result.0.as_slice(), expect_a);
         assert_eq!(slow_result.1.as_slice(), expect_b);
@@ -868,77 +868,77 @@ pub mod test {
 
         for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
             for o in spans {
-                assert_version_contains_time(history, branch, o.start, true);
+                assert_version_contains_time(graph, branch, o.start, true);
                 if o.len() > 1 {
-                    assert_version_contains_time(history, branch, o.last(), true);
+                    assert_version_contains_time(graph, branch, o.last(), true);
                 }
             }
 
             if branch.len() == 1 {
                 // dbg!(&other, branch[0], &spans);
                 let expect = spans.is_empty();
-                assert_version_contains_time(history, other, branch[0], expect);
+                assert_version_contains_time(graph, other, branch[0], expect);
             }
         }
 
         // TODO: Could add extra checks for each specific version in here too. Eh!
     }
 
-    fn fancy_parents() -> Parents {
-        let p = Parents(RleVec(vec![
-            ParentsEntryInternal { // 0-2
+    fn fancy_graph() -> Graph {
+        let g = Graph(RleVec(vec![
+            GraphEntryInternal { // 0-2
                 span: (0..3).into(), shadow: 0,
                 parents: Frontier::from_sorted(&[]),
             },
-            ParentsEntryInternal { // 3-5
+            GraphEntryInternal { // 3-5
                 span: (3..6).into(), shadow: 3,
                 parents: Frontier::from_sorted(&[]),
             },
-            ParentsEntryInternal { // 6-8
+            GraphEntryInternal { // 6-8
                 span: (6..9).into(), shadow: 6,
                 parents: Frontier::from_sorted(&[1, 4]),
             },
-            ParentsEntryInternal { // 9-10
+            GraphEntryInternal { // 9-10
                 span: (9..11).into(), shadow: 6,
                 parents: Frontier::from_sorted(&[2, 8]),
             },
         ]));
-        p.dbg_check(true);
-        p
+        g.dbg_check(true);
+        g
     }
 
     #[test]
     fn common_item_smoke_test() {
-        let parents = fancy_parents();
+        let graph = fancy_graph();
 
         for t in 0..=9 {
             // dbg!(t);
             // The same item should never conflict with itself.
-            assert_conflicting(&parents, &[t], &[t], &[], &[t]);
+            assert_conflicting(&graph, &[t], &[t], &[], &[t]);
         }
-        assert_conflicting(&parents, &[5, 6], &[5, 6], &[], &[5, 6]);
+        assert_conflicting(&graph, &[5, 6], &[5, 6], &[], &[5, 6]);
 
-        assert_conflicting(&parents, &[1], &[2], &[(2..3, OnlyB)], &[1]);
-        assert_conflicting(&parents, &[0], &[2], &[(1..3, OnlyB)], &[0]);
-        assert_conflicting(&parents, &[], &[], &[], &[]);
-        assert_conflicting(&parents, &[], &[2], &[(0..3, OnlyB)], &[]);
+        assert_conflicting(&graph, &[1], &[2], &[(2..3, OnlyB)], &[1]);
+        assert_conflicting(&graph, &[0], &[2], &[(1..3, OnlyB)], &[0]);
+        assert_conflicting(&graph, &[], &[], &[], &[]);
+        assert_conflicting(&graph, &[], &[2], &[(0..3, OnlyB)], &[]);
 
-        assert_conflicting(&parents, &[2], &[3], &[(0..3, OnlyA), (3..4, OnlyB)], &[]); // 0,1,2 and 3.
-        assert_conflicting(&parents, &[1, 4], &[4], &[(0..2, OnlyA), (3..5, Shared)], &[]); // 0,1,2 and 3.
-        assert_conflicting(&parents, &[6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..5, OnlyA), (6..7, OnlyA)], &[]);
-        assert_conflicting(&parents, &[6], &[5], &[(0..2, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]); // 6 includes 1, 0.
-        assert_conflicting(&parents, &[5, 6], &[5], &[(0..2, OnlyA), (3..6, Shared), (6..7, OnlyA)], &[]);
-        assert_conflicting(&parents, &[5, 6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..7, OnlyA)], &[]);
-        assert_conflicting(&parents, &[2, 6], &[5], &[(0..3, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]);
-        assert_conflicting(&parents, &[9], &[10], &[(10..11, OnlyB)], &[9]);
-        assert_conflicting(&parents, &[6], &[7], &[(7..8, OnlyB)], &[6]);
+        assert_conflicting(&graph, &[2], &[3], &[(0..3, OnlyA), (3..4, OnlyB)], &[]); // 0,1,2 and 3.
+        assert_conflicting(&graph, &[1, 4], &[4], &[(0..2, OnlyA), (3..5, Shared)], &[]); // 0,1,2 and 3.
+        assert_conflicting(&graph, &[6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..5, OnlyA), (6..7, OnlyA)], &[]);
+        assert_conflicting(&graph, &[6], &[5], &[(0..2, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]); // 6 includes 1, 0.
+        assert_conflicting(&graph, &[5, 6], &[5], &[(0..2, OnlyA), (3..6, Shared), (6..7, OnlyA)], &[]);
+        assert_conflicting(&graph, &[5, 6], &[2], &[(0..2, Shared), (2..3, OnlyB), (3..7, OnlyA)], &[]);
+        assert_conflicting(&graph, &[2, 6], &[5], &[(0..3, OnlyA), (3..5, Shared), (5..6, OnlyB), (6..7, OnlyA)], &[]);
+        assert_conflicting(&graph, &[9], &[10], &[(10..11, OnlyB)], &[9]);
+        assert_conflicting(&graph, &[6], &[7], &[(7..8, OnlyB)], &[6]);
 
         // This looks weird, but its right because 9 shares the same parents.
-        assert_conflicting(&parents, &[9], &[2, 8], &[(9..10, OnlyA)], &[2, 8]);
+        assert_conflicting(&graph, &[9], &[2, 8], &[(9..10, OnlyA)], &[2, 8]);
 
         // Everything! Just because we need to rebase operation 8 on top of 7, and can't produce
         // that without basically all of time. Hopefully this doesn't come up a lot in practice.
-        assert_conflicting(&parents, &[9], &[2, 7], &[(0..5, Shared), (6..8, Shared), (8..10, OnlyA)], &[]);
+        assert_conflicting(&graph, &[9], &[2, 7], &[(0..5, Shared), (6..8, Shared), (8..10, OnlyA)], &[]);
     }
 
     #[test]
@@ -952,7 +952,7 @@ pub mod test {
         // assert!(doc.txns.branch_contains_order(&doc.frontier, 0));
         // assert!(!doc.txns.branch_contains_order(&[ROOT_TIME_X], 0));
 
-        let parents = fancy_parents();
+        let parents = fancy_graph();
 
         assert_version_contains_time(&parents, &[], 0, false);
         assert_version_contains_time(&parents, &[0], 0, true);
@@ -979,7 +979,7 @@ pub mod test {
         assert_version_contains_time(&parents, &[9], 0, true);
     }
 
-    fn check_dominators(parents: &Parents, input: &[LV], expected_yes: &[LV]) {
+    fn check_dominators(graph: &Graph, input: &[LV], expected_yes: &[LV]) {
         debug_assert_frontier_sorted(input);
         debug_assert_frontier_sorted(expected_yes);
 
@@ -987,11 +987,11 @@ pub mod test {
         debug_assert_frontier_sorted(expected_no.as_slice());
         assert_eq!(input.len(), expected_yes.len() + expected_no.len());
 
-        assert_eq!(parents.find_dominators(input).as_ref(), expected_yes);
+        assert_eq!(graph.find_dominators(input).as_ref(), expected_yes);
 
         let mut actual_yes = vec![];
         let mut actual_no = vec![];
-        parents.find_dominators_full(input.iter().copied(), |v, dom| {
+        graph.find_dominators_full(input.iter().copied(), |v, dom| {
             if dom { actual_yes.push(v); }
             else { actual_no.push(v); }
         });
@@ -1007,10 +1007,10 @@ pub mod test {
             // So unfortunately (for our purposes) find_dominators_2 assumes the two passed arrays
             // are already trimmed to their dominators.
             // IF ONLY we had a method to help!!
-            let a = parents.find_dominators(a_raw);
-            let b = parents.find_dominators(b_raw);
-            let fwd = parents.find_dominators_2(a.as_ref(), b.as_ref());
-            let rev = parents.find_dominators_2(b.as_ref(), a.as_ref());
+            let a = graph.find_dominators(a_raw);
+            let b = graph.find_dominators(b_raw);
+            let fwd = graph.find_dominators_2(a.as_ref(), b.as_ref());
+            let rev = graph.find_dominators_2(b.as_ref(), a.as_ref());
             assert_eq!(fwd.as_ref(), expected_yes);
             assert_eq!(rev.as_ref(), expected_yes);
         }
@@ -1018,7 +1018,7 @@ pub mod test {
 
     #[test]
     fn dominator_smoke_test() {
-        let parents = fancy_parents();
+        let parents = fancy_graph();
 
         check_dominators(&parents, &[0,1,2,3,4,5,6,7,8,9,10], &[5, 10]);
         check_dominators(&parents, &[10], &[10]);
@@ -1041,7 +1041,7 @@ pub mod test {
 
     #[test]
     fn dominator_duplicates() {
-        let parents = fancy_parents();
+        let parents = fancy_graph();
         assert_eq!(parents.find_dominators_unsorted(&[1,1,1]).as_ref(), &[1]);
         assert_eq!(parents.version_union(&[1], &[1]).as_ref(), &[1]);
 
@@ -1059,24 +1059,24 @@ pub mod test {
         // 0 |
         // | 1
         // 2
-        let parents = Parents(RleVec(vec![
-            ParentsEntryInternal {
+        let graph = Graph(RleVec(vec![
+            GraphEntryInternal {
                 span: (0..1).into(), shadow: 0,
                 parents: Frontier::from_sorted(&[]),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (1..2).into(), shadow: 1,
                 parents: Frontier::from_sorted(&[]),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (2..3).into(), shadow: 2,
                 parents: Frontier::from_sorted(&[0]),
             },
         ]));
-        parents.dbg_check(true);
+        graph.dbg_check(true);
 
-        assert_diff_eq(&parents, &[2], &[], &[(2..3).into(), (0..1).into()], &[]);
-        assert_diff_eq(&parents, &[2], &[1], &[(2..3).into(), (0..1).into()], &[(1..2).into()]);
+        assert_diff_eq(&graph, &[2], &[], &[(2..3).into(), (0..1).into()], &[]);
+        assert_diff_eq(&graph, &[2], &[1], &[(2..3).into(), (0..1).into()], &[(1..2).into()]);
     }
 
     #[test]
@@ -1086,34 +1086,34 @@ pub mod test {
         // 0 | |
         //   1 |
         //     2
-        let parents = Parents(RleVec(vec![
-            ParentsEntryInternal {
+        let graph = Graph(RleVec(vec![
+            GraphEntryInternal {
                 span: (0..1).into(),
                 shadow: 0,
                 parents: Frontier::root(),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (1..2).into(),
                 shadow: 1,
                 parents: Frontier::root(),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (2..3).into(),
                 shadow: 2,
                 parents: Frontier::root(),
             },
         ]));
-        parents.dbg_check(true);
+        graph.dbg_check(true);
 
-        assert_diff_eq(&parents, &[0], &[0, 1], &[], &[(1..2).into()]);
+        assert_diff_eq(&graph, &[0], &[0, 1], &[], &[(1..2).into()]);
 
         for time in [0, 1, 2] {
-            assert_diff_eq(&parents, &[time], &[], &[(time..time+1).into()], &[]);
-            assert_diff_eq(&parents, &[], &[time], &[], &[(time..time+1).into()]);
+            assert_diff_eq(&graph, &[time], &[], &[(time..time+1).into()], &[]);
+            assert_diff_eq(&graph, &[], &[time], &[], &[(time..time+1).into()]);
         }
 
-        assert_diff_eq(&parents, &[], &[0, 1], &[], &[(0..2).into()]);
-        assert_diff_eq(&parents, &[0], &[1], &[(0..1).into()], &[(1..2).into()]);
+        assert_diff_eq(&graph, &[], &[0, 1], &[], &[(0..2).into()]);
+        assert_diff_eq(&graph, &[0], &[1], &[(0..1).into()], &[(1..2).into()]);
     }
 
     #[test]
@@ -1124,27 +1124,27 @@ pub mod test {
         //      \ 3,4
         //       \ /
         //        5,6
-        let parents = Parents(RleVec(vec![
-            ParentsEntryInternal {
+        let graph = Graph(RleVec(vec![
+            GraphEntryInternal {
                 span: (0..3).into(),
                 shadow: 0,
                 parents: Frontier::from_sorted(&[]),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (3..5).into(),
                 shadow: 3,
                 parents: Frontier::from_sorted(&[]),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (5..6).into(),
                 shadow: 0,
                 parents: Frontier::from_sorted(&[2,4]),
             },
         ]));
-        parents.dbg_check(true);
+        graph.dbg_check(true);
 
-        assert_diff_eq(&parents, &[4], &[5], &[], &[(5..6).into(), (0..3).into()]);
-        assert_diff_eq(&parents, &[4], &[], &[(3..5).into()], &[]);
+        assert_diff_eq(&graph, &[4], &[5], &[], &[(5..6).into(), (0..3).into()]);
+        assert_diff_eq(&graph, &[4], &[], &[(3..5).into()], &[]);
     }
 
     #[test]
@@ -1153,23 +1153,23 @@ pub mod test {
         // 0 1
         // |x|
         // 2 3
-        let parents = Parents::from_entries(&[
-            ParentsEntryInternal {
+        let parents = Graph::from_entries(&[
+            GraphEntryInternal {
                 span: (0..1).into(),
                 shadow: 0,
                 parents: Frontier::from_sorted(&[]),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (1..2).into(),
                 shadow: 1,
                 parents: Frontier::from_sorted(&[]),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (2..3).into(),
                 shadow: 0,
                 parents: Frontier::from_sorted(&[0, 1]),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (3..4).into(),
                 shadow: 3,
                 parents: Frontier::from_sorted(&[0, 1]),

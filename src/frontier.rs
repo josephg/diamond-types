@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::mem::replace;
 use std::ops::{Index, IndexMut};
 use smallvec::{Array, SmallVec, smallvec};
-use crate::causalgraph::parents::Parents;
+use crate::causalgraph::graph::Graph;
 use crate::dtrange::DTRange;
 use crate::LV;
 #[cfg(feature = "serde")]
@@ -166,10 +166,10 @@ impl Frontier {
 
 
     /// Advance a frontier by the set of time spans in range
-    pub fn advance(&mut self, parents: &Parents, mut range: DTRange) {
-        let mut txn_idx = parents.0.find_index(range.start).unwrap();
+    pub fn advance(&mut self, graph: &Graph, mut range: DTRange) {
+        let mut txn_idx = graph.0.find_index(range.start).unwrap();
         while !range.is_empty() {
-            let txn = &parents.0[txn_idx];
+            let txn = &graph.0[txn_idx];
             debug_assert!(txn.contains(range.start));
 
             let end = txn.span.end.min(range.end);
@@ -215,17 +215,17 @@ impl Frontier {
         }
     }
 
-    pub fn retreat(&mut self, history: &Parents, mut range: DTRange) {
+    pub fn retreat(&mut self, graph: &Graph, mut range: DTRange) {
         if range.is_empty() { return; }
 
         self.debug_check_sorted();
 
-        let mut txn_idx = history.0.find_index(range.last()).unwrap();
+        let mut txn_idx = graph.0.find_index(range.last()).unwrap();
         loop {
             let last_order = range.last();
-            let txn = &history.0[txn_idx];
+            let txn = &graph.0[txn_idx];
             // debug_assert_eq!(txn_idx, history.0.find_index(range.last()).unwrap());
-            debug_assert_eq!(txn, history.0.find(last_order).unwrap());
+            debug_assert_eq!(txn, graph.0.find(last_order).unwrap());
             // let mut idx = frontier.iter().position(|&e| e == last_order).unwrap();
 
             if self.len() == 1 {
@@ -249,7 +249,7 @@ impl Frontier {
                         // turn for each item in branch.
                         debug_assert!(!self.is_root());
                         // TODO: At least check shadow directly.
-                        if !history.version_contains_time(self.as_ref(), *parent) {
+                        if !graph.version_contains_time(self.as_ref(), *parent) {
                             self.insert_nonoverlapping(*parent);
                         }
                     }
@@ -264,7 +264,7 @@ impl Frontier {
             range.end = txn.span.start;
             txn_idx -= 1;
         }
-        if cfg!(debug_assertions) { self.check(history); }
+        if cfg!(debug_assertions) { self.check(graph); }
         self.debug_check_sorted();
     }
 
@@ -286,7 +286,7 @@ impl Frontier {
         self.debug_check_sorted();
     }
 
-    pub(crate) fn check(&self, parents: &Parents) {
+    pub(crate) fn check(&self, parents: &Graph) {
         assert!(frontier_is_sorted(&self.0));
         if self.len() >= 2 {
             let dominators = parents.find_dominators(&self.0);
@@ -349,7 +349,7 @@ mod test {
     use smallvec::smallvec;
 
     use crate::Frontier;
-    use crate::causalgraph::parents::ParentsEntryInternal;
+    use crate::causalgraph::graph::GraphEntryInternal;
 
     use super::*;
 
@@ -359,8 +359,8 @@ mod test {
         branch.advance_by_known_run(&[], (0..10).into());
         assert_eq!(branch.as_ref(), &[9]);
 
-        let parents = Parents::from_entries(&[
-            ParentsEntryInternal {
+        let parents = Graph::from_entries(&[
+            GraphEntryInternal {
                 span: (0..10).into(), shadow: 0,
                 parents: Frontier::root(),
             }
@@ -376,16 +376,16 @@ mod test {
 
     #[test]
     fn frontier_stays_sorted() {
-        let parents = Parents::from_entries(&[
-            ParentsEntryInternal {
+        let parents = Graph::from_entries(&[
+            GraphEntryInternal {
                 span: (0..2).into(), shadow: 0,
                 parents: Frontier::root(),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (2..6).into(), shadow: 2,
                 parents: Frontier::new_1(0),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (6..50).into(), shadow: 6,
                 parents: Frontier::new_1(0),
             },

@@ -192,7 +192,7 @@ use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 pub use crate::causalgraph::CausalGraph;
 pub use crate::dtrange::DTRange;
-use causalgraph::parents::Parents;
+use causalgraph::graph::Graph;
 use crate::causalgraph::storage::CGStorage;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::rle::{KVPair, RleVec};

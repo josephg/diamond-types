@@ -64,11 +64,11 @@ impl OpLog {
     pub fn ext_ops_since(&self, v: &[LV]) -> Vec<ExtOp> {
         let mut result = vec![];
 
-        for walk in self.cg.parents.optimized_txns_between(v, self.cg.version.as_ref()) {
+        for walk in self.cg.graph.optimized_txns_between(v, self.cg.version.as_ref()) {
             for KVPair(lv, op) in self.uncommitted_ops.ops.iter_range_ctx(walk.consume, &self.uncommitted_ops.list_ctx) {
                 result.push(ExtOp {
                     target: self.target_to_rv(op.target_id),
-                    parents: self.cg.agent_assignment.local_to_remote_frontier(self.cg.parents.parents_at_time(lv).as_ref()),
+                    parents: self.cg.agent_assignment.local_to_remote_frontier(self.cg.graph.parents_at_time(lv).as_ref()),
                     version: self.cg.agent_assignment.local_to_remote_version(lv),
                     contents: self.op_contents_to_ext_op(op.contents)
                 });

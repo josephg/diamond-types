@@ -4,7 +4,7 @@ use rle::zip::rle_zip;
 use crate::{AgentId, CausalGraph, LV};
 use crate::causalgraph::*;
 use crate::causalgraph::entry::CGEntry;
-use crate::causalgraph::parents::ParentsEntrySimple;
+use crate::causalgraph::graph::GraphEntrySimple;
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 use crate::frontier::sort_frontier;
 use crate::rle::RleSpanHelpers;
@@ -25,7 +25,7 @@ impl CausalGraph {
     }
 
     pub(crate) fn len_history(&self) -> usize {
-        self.parents.len()
+        self.graph.len()
     }
 
     /// Get the number of operations. This method is only valid when the history and assignment
@@ -62,7 +62,7 @@ impl CausalGraph {
         let span = (start .. start + num).into();
 
         self.agent_assignment.assign_next_time_to_client_known(agent, span);
-        self.parents.push(parents, span);
+        self.graph.push(parents, span);
         self.version.advance_by_known_run(parents, span);
         span
     }
@@ -80,7 +80,7 @@ impl CausalGraph {
         let span = (start .. start + num).into();
 
         self.agent_assignment.assign_next_time_to_client_known(agent, span);
-        self.parents.push(self.version.as_ref(), span);
+        self.graph.push(self.version.as_ref(), span);
         self.version.replace_with_1(span.last());
         span
     }
@@ -108,7 +108,7 @@ impl CausalGraph {
         // two concurrent branches, then transmitted in a different order.
         client_data.item_times.insert(KVPair(span.seq_range.start, time_span));
         self.agent_assignment.client_with_localtime.push(KVPair(time_start, span));
-        self.parents.push(parents, time_span);
+        self.graph.push(parents, time_span);
         self.version.advance_by_known_run(parents, time_span);
         time_span
     }
@@ -162,9 +162,9 @@ impl CausalGraph {
 
                         if previous_end > span.seq_range.start {
                             // Case 3 - there's some overlap.
-                            self.parents.push(&[prev_entry.1.last()], time_span);
+                            self.graph.push(&[prev_entry.1.last()], time_span);
                         } else {
-                            self.parents.push(parents, time_span);
+                            self.graph.push(parents, time_span);
                         }
 
                         if prev_entry.can_append(&new_entry) {
@@ -181,7 +181,7 @@ impl CausalGraph {
                 let time_span = (time_start..time_start + span.len()).into();
                 client_data.item_times.0.insert(idx, KVPair(span.seq_range.start, time_span));
                 self.agent_assignment.client_with_localtime.push(KVPair(time_start, span));
-                self.parents.push(parents, time_span);
+                self.graph.push(parents, time_span);
                 self.version.advance_by_known_run(parents, time_span);
                 time_span
             }
@@ -189,16 +189,16 @@ impl CausalGraph {
     }
 
     /// Iterate through history entries
-    pub fn iter_parents(&self) -> impl Iterator<Item=ParentsEntrySimple> + '_ {
-        self.parents.iter()
+    pub fn iter_parents(&self) -> impl Iterator<Item=GraphEntrySimple> + '_ {
+        self.graph.iter()
     }
 
     pub fn iter_range(&self, range: DTRange) -> impl Iterator<Item=CGEntry> + '_ {
-        let parents = self.parents.iter_range(range);
+        let parents = self.graph.iter_range(range);
         let aa = self.agent_assignment.client_with_localtime.iter_range(range)
             .map(|KVPair(_, data)| data);
 
-        rle_zip(parents, aa).map(|(parents, span): (ParentsEntrySimple, AgentSpan)| {
+        rle_zip(parents, aa).map(|(parents, span): (GraphEntrySimple, AgentSpan)| {
             debug_assert_eq!(parents.len(), span.len());
 
             CGEntry {

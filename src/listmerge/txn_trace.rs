@@ -27,7 +27,7 @@ use std::mem::take;
 use smallvec::{SmallVec, smallvec};
 use crate::frontier::*;
 use rle::{HasLength, SplitableSpan};
-use crate::causalgraph::parents::Parents;
+use crate::causalgraph::graph::Graph;
 use crate::dtrange::DTRange;
 use crate::frontier::clone_smallvec;
 use crate::{Frontier, LV};
@@ -76,7 +76,7 @@ fn check_rev_sorted(spans: &[DTRange]) {
 #[derive(Debug)]
 pub(crate) struct SpanningTreeWalker<'a> {
     // I could hold a slice reference here instead, but it'd be missing the find() methods.
-    subgraph: &'a Parents,
+    subgraph: &'a Graph,
 
     frontier: Frontier,
 
@@ -101,19 +101,19 @@ pub(crate) struct TxnWalkItem {
 
 impl<'a> SpanningTreeWalker<'a> {
     #[allow(unused)]
-    pub(crate) fn new_all(history: &'a Parents) -> Self {
+    pub(crate) fn new_all(graph: &'a Graph) -> Self {
         let mut spans: SmallVec<[DTRange; 4]> = smallvec![];
-        if history.get_next_time() > 0 {
+        if graph.get_next_time() > 0 {
             // Kinda gross. Only add the span if the document isn't empty.
-            spans.push((0..history.get_next_time()).into());
+            spans.push((0..graph.get_next_time()).into());
         }
         // spans.reverse(); // Unneeded - there's 0 or 1 item in the spans list.
 
-        Self::new(history, &spans, Frontier::root())
+        Self::new(graph, &spans, Frontier::root())
     }
 
     // TODO: It'd be cleaner to pass in spans as an Iterator<Item=DTRange>.
-    pub(crate) fn new(history: &'a Parents, rev_spans: &[DTRange], start_at: Frontier) -> Self {
+    pub(crate) fn new(graph: &'a Graph, rev_spans: &[DTRange], start_at: Frontier) -> Self {
         // println!("\n----- NEW TRAVERSAL -----");
 
         if cfg!(debug_assertions) {
@@ -126,10 +126,10 @@ impl<'a> SpanningTreeWalker<'a> {
         for mut span_remaining in rev_spans.iter().rev().copied() {
             debug_assert!(!span_remaining.is_empty());
 
-            let mut i = history.0.find_index(span_remaining.start).unwrap();
+            let mut i = graph.0.find_index(span_remaining.start).unwrap();
             // let mut offset = history.entries[i].
             while !span_remaining.is_empty() {
-                let txn = &history.0[i];
+                let txn = &graph.0[i];
                 debug_assert!(span_remaining.start >= txn.span.start && span_remaining.start < txn.span.end);
 
                 let offset = LV::min(span_remaining.len(), txn.span.end - span_remaining.start);
@@ -181,7 +181,7 @@ impl<'a> SpanningTreeWalker<'a> {
         assert!(rev_spans.is_empty() || !to_process.is_empty());
 
         Self {
-            subgraph: history,
+            subgraph: graph,
             frontier: start_at,
             input,
             to_process,
@@ -315,7 +315,7 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
     }
 }
 
-impl Parents {
+impl Graph {
     /// This function is for efficiently finding the order we should traverse the time DAG in order to
     /// walk all the changes so we can efficiently save everything to disk. This is needed because if
     /// we simply traverse the txns in the order they're in right now, we can have pathological
@@ -347,25 +347,25 @@ impl Parents {
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use crate::causalgraph::parents::ParentsEntryInternal;
-    use crate::causalgraph::parents::tools::ConflictZone;
+    use crate::causalgraph::graph::GraphEntryInternal;
+    use crate::causalgraph::graph::tools::ConflictZone;
     use super::*;
 
     #[test]
     fn iter_span_for_empty_doc() {
-        let history = Parents::new();
+        let history = Graph::new();
         let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
         assert!(walk.is_empty());
     }
 
     #[test]
     fn iter_span_from_root() {
-        let history = Parents::from_entries(&[
-            ParentsEntryInternal {
+        let history = Graph::from_entries(&[
+            GraphEntryInternal {
                 span: (0..10).into(), shadow: 0,
                 parents: Frontier(smallvec![]),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (10..30).into(), shadow: 0,
                 parents: Frontier(smallvec![]),
             }
@@ -391,16 +391,16 @@ mod test {
 
     #[test]
     fn fork_and_join() {
-        let history = Parents::from_entries(&[
-            ParentsEntryInternal {
+        let history = Graph::from_entries(&[
+            GraphEntryInternal {
                 span: (0..10).into(), shadow: 0,
                 parents: Frontier(smallvec![]),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (10..30).into(), shadow: 10,
                 parents: Frontier(smallvec![]),
             },
-            ParentsEntryInternal {
+            GraphEntryInternal {
                 span: (30..50).into(), shadow: 0,
                 parents: Frontier(smallvec![9, 29]),
             },
@@ -434,24 +434,24 @@ mod test {
 
     #[test]
     fn two_chains() { // Sounds like the name of a rap song.
-        let history = Parents::from_entries(&[
-            ParentsEntryInternal { // a
+        let history = Graph::from_entries(&[
+            GraphEntryInternal { // a
                 span: (0..1).into(), shadow: usize::MAX,
                 parents: Frontier(smallvec![]),
             },
-            ParentsEntryInternal { // b
+            GraphEntryInternal { // b
                 span: (1..2).into(), shadow: usize::MAX,
                 parents: Frontier(smallvec![]),
             },
-            ParentsEntryInternal { // a
+            GraphEntryInternal { // a
                 span: (2..3).into(), shadow: 2,
                 parents: Frontier(smallvec![0]),
             },
-            ParentsEntryInternal { // b
+            GraphEntryInternal { // b
                 span: (3..4).into(), shadow: 3,
                 parents: Frontier(smallvec![1]),
             },
-            ParentsEntryInternal { // a+b
+            GraphEntryInternal { // a+b
                 span: (4..5).into(), shadow: usize::MAX,
                 parents: Frontier(smallvec![2, 3]),
             },
@@ -505,8 +505,8 @@ mod test {
     #[test]
     fn iter_txn_middle() {
         // regression
-        let history = Parents::from_entries(&[
-            ParentsEntryInternal {
+        let history = Graph::from_entries(&[
+            GraphEntryInternal {
                 span: (0..10).into(),
                 shadow: usize::MAX,
                 parents: Frontier(smallvec![]),

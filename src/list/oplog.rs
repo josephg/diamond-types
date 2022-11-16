@@ -5,7 +5,7 @@ use rle::{HasLength, Searchable};
 use crate::{AgentId, Frontier, LV};
 use crate::causalgraph::agent_assignment::ClientData;
 use crate::list::{ListBranch, ListOpLog};
-use crate::causalgraph::parents::ParentsEntrySimple;
+use crate::causalgraph::graph::GraphEntrySimple;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{TextOperation, ListOpKind};
 use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned, RemoteVersionSpan};
@@ -298,12 +298,12 @@ impl ListOpLog {
     }
 
     /// Iterate through history entries
-    pub fn iter_history(&self) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
-        self.cg.parents.iter()
+    pub fn iter_history(&self) -> impl Iterator<Item =GraphEntrySimple> + '_ {
+        self.cg.graph.iter()
     }
 
-    pub fn iter_history_range(&self, range: DTRange) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
-        self.cg.parents.iter_range(range)
+    pub fn iter_history_range(&self, range: DTRange) -> impl Iterator<Item =GraphEntrySimple> + '_ {
+        self.cg.graph.iter_range(range)
     }
 
     /// Returns a `&[usize]` reference to the tip of the oplog. This version contains all
@@ -396,9 +396,9 @@ impl ListOpLog {
         println!("Delete content length {}", self.operation_ctx.del_content.len());
 
         self.cg.agent_assignment.client_with_localtime.print_stats("Client localtime map", detailed);
-        self.cg.parents.0.print_stats("History", detailed);
+        self.cg.graph.0.print_stats("History", detailed);
 
-        let num_merges: usize = self.cg.parents.0
+        let num_merges: usize = self.cg.graph.0
             .iter()
             .map(|e| (e.parents.len() >= 2) as usize)
             .sum();
@@ -410,7 +410,7 @@ impl ListOpLog {
     // Exported for the fuzzer. Not sure if I actually want this exposed.
     pub fn version_contains_time(&self, local_version: &[LV], target: LV) -> bool {
         if local_version.is_empty() { true }
-        else { self.cg.parents.version_contains_time(local_version, target) }
+        else { self.cg.graph.version_contains_time(local_version, target) }
     }
 
     // /// Returns all the changes since some (static) point in time.
@@ -430,10 +430,10 @@ impl ListOpLog {
     /// simply return `a` or `b`. This happens when one of the versions is a strict subset of the
     /// other.
     pub fn version_union(&self, a: &[LV], b: &[LV]) -> Frontier {
-        self.cg.parents.version_union(a, b)
+        self.cg.graph.version_union(a, b)
     }
 
     pub fn parents_at_time(&self, time: LV) -> Frontier {
-        self.cg.parents.parents_at_time(time)
+        self.cg.graph.parents_at_time(time)
     }
 }

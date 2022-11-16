@@ -2,7 +2,7 @@ use bumpalo::Bump;
 use rle::{HasLength, Searchable};
 use crate::encoding::tools::{push_str, push_u32, push_usize};
 use crate::encoding::varint::*;
-use crate::causalgraph::parents::ParentsEntrySimple;
+use crate::causalgraph::graph::GraphEntrySimple;
 use crate::causalgraph::agent_span::AgentVersion;
 use crate::{AgentId, CausalGraph, DTRange, KVPair, Frontier, OpLog, RleVec, LV};
 use crate::encoding::Merger;

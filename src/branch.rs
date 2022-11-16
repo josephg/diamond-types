@@ -309,7 +309,7 @@ impl Branch {
         // We need to remove values after the retain() loop to prevent borrowck issues.
         // TODO: I suspect this would be faster by calling find_dominators().
         let keep_idx = separate_by(entry.as_mut(), |reg| {
-            cg.parents.version_contains_time(&[time], reg.version)
+            cg.graph.version_contains_time(&[time], reg.version)
         });
 
         // Borrowck is the worst.

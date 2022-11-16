@@ -1,7 +1,7 @@
-use crate::causalgraph::parents::Parents;
+use crate::causalgraph::graph::Graph;
 use crate::Frontier;
 
-impl Parents {
+impl Graph {
     pub(crate) fn dbg_get_frontier_inefficiently(&self) -> Frontier {
         // Could improve this by just looking at the last txn, and following shadows down.
         // TODO: Actually thats a useful function!

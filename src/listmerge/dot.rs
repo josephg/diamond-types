@@ -104,7 +104,7 @@ impl ListOpLog {
         out.push_str("\tedge [color=\"#333333\" dir=none]\n");
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.cg.parents.iter_atomic_chunks() {
+        for txn in self.cg.graph.iter_atomic_chunks() {
             // dbg!(txn);
             let range = txn.span;
 
@@ -161,7 +161,7 @@ impl ListOpLog {
         out.push_str("\tedge [color=\"#333333\" dir=none]\n");
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.cg.parents.iter_atomic_chunks() {
+        for txn in self.cg.graph.iter_atomic_chunks() {
             // dbg!(txn);
             let range = txn.span;
 
@@ -226,7 +226,7 @@ impl ListOpLog {
                 op.truncate_keeping_right(offset);
                 op.truncate(1);
 
-                let txn = self.cg.parents.entries.find_packed(time);
+                let txn = self.cg.graph.entries.find_packed(time);
 
                 // let label = if op.tag == Ins {
                 // let label = if op.content_known {

@@ -27,7 +27,7 @@ pub(crate) struct ClientData {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct AgentAssignment {
+pub struct AgentAssignment {
 
     /// This is a bunch of ranges of (item order -> CRDT location span).
     /// The entries always have positive len.

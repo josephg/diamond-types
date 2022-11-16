@@ -1,7 +1,7 @@
 use std::collections::BinaryHeap;
 use smallvec::{SmallVec, smallvec};
 use rle::{MergeableIterator, MergeIter};
-use crate::causalgraph::parents::{Parents, ParentsEntryInternal};
+use crate::causalgraph::graph::{Graph, GraphEntryInternal};
 use crate::{DTRange, Frontier, LV};
 use crate::rle::RleVec;
 
@@ -35,14 +35,14 @@ impl<I: Iterator<Item = DTRange>> Filter<I> {
     }
 }
 
-impl Parents {
-    pub fn subgraph(&self, filter: &[DTRange], parents: &[LV]) -> (Parents, Frontier) {
+impl Graph {
+    pub fn subgraph(&self, filter: &[DTRange], parents: &[LV]) -> (Graph, Frontier) {
         let filter_iter = filter.iter().copied().rev();
         self.subgraph_raw(filter_iter, parents)
     }
 
     // The filter iterator must be reverse-sorted.
-    pub(crate) fn subgraph_raw<I: Iterator<Item=DTRange>>(&self, rev_filter_iter: I, parents: &[LV]) -> (Parents, Frontier) {
+    pub(crate) fn subgraph_raw<I: Iterator<Item=DTRange>>(&self, rev_filter_iter: I, parents: &[LV]) -> (Graph, Frontier) {
         #[derive(PartialOrd, Ord, Eq, PartialEq, Clone, Debug)]
         struct QueueEntry {
             target_parent: LV,
@@ -50,7 +50,7 @@ impl Parents {
         }
 
         let mut queue: BinaryHeap<QueueEntry> = BinaryHeap::new();
-        let mut result_rev = Vec::<ParentsEntryInternal>::new();
+        let mut result_rev = Vec::<GraphEntryInternal>::new();
         for p in parents {
             queue.push(QueueEntry {
                 target_parent: *p,
@@ -59,7 +59,7 @@ impl Parents {
         }
         let mut filtered_frontier = Frontier::default();
 
-        fn push_children(result_rev: &mut Vec<ParentsEntryInternal>, frontier: &mut Frontier, children: &[LV], p: LV) {
+        fn push_children(result_rev: &mut Vec<GraphEntryInternal>, frontier: &mut Frontier, children: &[LV], p: LV) {
             for idx in children {
                 push_light_dedup(if *idx == usize::MAX {
                     frontier
@@ -112,7 +112,7 @@ impl Parents {
                         queue.pop();
                     }
 
-                    result_rev.push(ParentsEntryInternal {
+                    result_rev.push(GraphEntryInternal {
                         span: (base..p + 1).into(),
                         shadow: txn.shadow, // This is pessimistic.
                         parents: Frontier::default(), // Parents current unknown!
@@ -171,12 +171,12 @@ impl Parents {
 
         result_rev.reverse();
 
-        fn clean_frontier(parents: &Parents, f: &mut Frontier) {
+        fn clean_frontier(graph: &Graph, f: &mut Frontier) {
             if f.len() >= 2 {
                 f.0.reverse(); // Parents will always end up in reverse order.
                 // I wish I didn't need to do this. At least I don't think it'll show up on the
                 // performance profile.
-                *f = parents.find_dominators(f.as_ref());
+                *f = graph.find_dominators(f.as_ref());
             }
         }
 
@@ -185,7 +185,7 @@ impl Parents {
         }
         clean_frontier(self, &mut filtered_frontier);
 
-        (Parents(RleVec(result_rev)), filtered_frontier)
+        (Graph(RleVec(result_rev)), filtered_frontier)
     }
 
     pub(crate) fn project_onto_subgraph(&self, filter: &[DTRange], frontier: &[LV]) -> Frontier {
@@ -267,43 +267,43 @@ mod test {
     use smallvec::smallvec;
     use rle::intersect::{rle_intersect, rle_intersect_first};
     use rle::MergeableIterator;
-    use crate::causalgraph::parents::{Parents, ParentsEntryInternal};
+    use crate::causalgraph::graph::{Graph, GraphEntryInternal};
     use crate::{DTRange, Frontier, LV};
     use crate::rle::RleVec;
 
-    fn fancy_parents() -> Parents {
-        let p = Parents(RleVec(vec![
-            ParentsEntryInternal { // 0-2
+    fn fancy_graph() -> Graph {
+        let g = Graph(RleVec(vec![
+            GraphEntryInternal { // 0-2
                 span: (0..3).into(), shadow: 0,
                 parents: Frontier::from_sorted(&[]),
             },
-            ParentsEntryInternal { // 3-5
+            GraphEntryInternal { // 3-5
                 span: (3..6).into(), shadow: 3,
                 parents: Frontier::from_sorted(&[]),
             },
-            ParentsEntryInternal { // 6-8
+            GraphEntryInternal { // 6-8
                 span: (6..9).into(), shadow: 6,
                 parents: Frontier::from_sorted(&[1, 4]),
             },
-            ParentsEntryInternal { // 9-10
+            GraphEntryInternal { // 9-10
                 span: (9..11).into(), shadow: 6,
                 parents: Frontier::from_sorted(&[2, 8]),
             },
         ]));
 
-        p.dbg_check(true);
-        p
+        g.dbg_check(true);
+        g
     }
 
-    fn check_subgraph(p: &Parents, filter: &[Range<usize>], frontier: &[LV], expect_parents: &[&[LV]], expect_frontier: &[LV]) {
+    fn check_subgraph(g: &Graph, filter: &[Range<usize>], frontier: &[LV], expect_parents: &[&[LV]], expect_frontier: &[LV]) {
         let filter: Vec<DTRange> = filter.iter().map(|r| r.clone().into()).collect();
-        let (subgraph, ff) = p.subgraph(&filter, frontier);
+        let (subgraph, ff) = g.subgraph(&filter, frontier);
         // dbg!(&subgraph);
 
         assert_eq!(ff.as_ref(), expect_frontier);
 
         // The entries in the subgraph should be the same as the diff, passed through the filter.
-        let mut diff = p.diff(&[], frontier).1;
+        let mut diff = g.diff(&[], frontier).1;
         diff.reverse();
 
         // dbg!(&diff, &filter);
@@ -324,37 +324,37 @@ mod test {
 
         subgraph.dbg_check_subgraph(true);
 
-        let actual_projection = p.project_onto_subgraph(&filter, frontier);
+        let actual_projection = g.project_onto_subgraph(&filter, frontier);
         assert_eq!(actual_projection.as_ref(), expect_frontier);
     }
 
     #[test]
     fn test_subgraph() {
-        let parents = fancy_parents();
+        let graph = fancy_graph();
 
-        check_subgraph(&parents, &[0..11], &[5, 10], &[
+        check_subgraph(&graph, &[0..11], &[5, 10], &[
             &[], &[], &[1, 4], &[2, 8],
         ], &[5, 10]);
-        check_subgraph(&parents, &[1..11], &[5, 10], &[
+        check_subgraph(&graph, &[1..11], &[5, 10], &[
             &[], &[], &[1, 4], &[2, 8],
         ], &[5, 10]);
-        check_subgraph(&parents, &[5..6], &[5, 10], &[&[]], &[5]);
-        check_subgraph(&parents, &[0..1, 10..11], &[5, 10], &[
+        check_subgraph(&graph, &[5..6], &[5, 10], &[&[]], &[5]);
+        check_subgraph(&graph, &[0..1, 10..11], &[5, 10], &[
             &[], &[0]
         ], &[10]);
-        check_subgraph(&parents, &[0..11], &[10], &[
+        check_subgraph(&graph, &[0..11], &[10], &[
             &[], &[], &[1, 4], &[2, 8],
         ], &[10]);
-        check_subgraph(&parents, &[0..11], &[5], &[
+        check_subgraph(&graph, &[0..11], &[5], &[
             &[]
         ], &[5]);
-        check_subgraph(&parents, &[0..3, 9..11], &[10], &[
+        check_subgraph(&graph, &[0..3, 9..11], &[10], &[
             &[], &[2]
         ], &[10]);
-        check_subgraph(&parents, &[9..11], &[3], &[], &[]);
-        check_subgraph(&parents, &[5..6], &[9], &[], &[]);
-        check_subgraph(&parents, &[0..1, 2..3], &[2], &[&[], &[0]], &[2]);
-        check_subgraph(&parents, &[0..1, 2..3], &[9], &[&[], &[0]], &[2]);
+        check_subgraph(&graph, &[9..11], &[3], &[], &[]);
+        check_subgraph(&graph, &[5..6], &[9], &[], &[]);
+        check_subgraph(&graph, &[0..1, 2..3], &[2], &[&[], &[0]], &[2]);
+        check_subgraph(&graph, &[0..1, 2..3], &[9], &[&[], &[0]], &[2]);
     }
     //
     // #[test]

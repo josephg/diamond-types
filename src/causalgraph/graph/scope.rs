@@ -3,8 +3,8 @@
 use std::collections::BinaryHeap;
 use smallvec::smallvec;
 use crate::*;
-use crate::causalgraph::parents::tools::DiffFlag;
-use crate::causalgraph::parents::tools::DiffFlag::{OnlyA, OnlyB, Shared};
+use crate::causalgraph::graph::tools::DiffFlag;
+use crate::causalgraph::graph::tools::DiffFlag::{OnlyA, OnlyB, Shared};
 use crate::frontier::debug_assert_frontier_sorted;
 
 /// A scope is a part of history attached to a specific CRDT
@@ -23,16 +23,16 @@ pub(crate) struct ScopedParents {
 }
 
 impl ScopedParents {
-    pub(crate) fn exists_at(&self, history: &Parents, version: &[LV]) -> bool {
+    pub(crate) fn exists_at(&self, graph: &Graph, version: &[LV]) -> bool {
         // If the item has not been created yet, return None.
-        if !history.version_contains_time(version, self.created_at) {
+        if !graph.version_contains_time(version, self.created_at) {
             // Not created yet.
             return false;
         }
 
         // If the item has been deleted, return false.
         for v in self.deleted_at.iter() {
-            if history.version_contains_time(version, *v) {
+            if graph.version_contains_time(version, *v) {
                 // Deleted.
                 return false;
             }
@@ -45,7 +45,7 @@ impl ScopedParents {
 // TODO: Remove this.
 const OLD_INVALID_ROOT_TIME: usize = usize::MAX;
 
-impl Parents {
+impl Graph {
     pub(crate) fn version_in_scope(&self, version: &[LV], info: &ScopedParents) -> Option<Frontier> {
         debug_assert_ne!(info.created_at, OLD_INVALID_ROOT_TIME);
 

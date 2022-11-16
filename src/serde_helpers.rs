@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize, Serializer};
 // use serde::de::{EnumAccess, Error, MapAccess, SeqAccess};
 use serde::ser::SerializeStruct;
-use crate::causalgraph::remote_ids::RemoteVersionOwned;
 // use serde::de::Visitor;
 use crate::rev_range::RangeRev;
 use smartstring::alias::String as SmartString;

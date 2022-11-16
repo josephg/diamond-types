@@ -19,9 +19,9 @@ use serde::{Deserialize, Serialize};
 use crate::frontier::{clone_smallvec, local_frontier_is_root};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Parents(pub(crate) RleVec<ParentsEntryInternal>);
+pub struct Graph(pub(crate) RleVec<GraphEntryInternal>);
 
-impl Parents {
+impl Graph {
     pub fn parents_at_time(&self, time: LV) -> Frontier {
         let entry = self.0.find_packed(time);
         entry.with_parents(time, |p| p.into())
@@ -39,8 +39,8 @@ impl Parents {
 
     // This is mostly for testing. TODO: Probably worth adding an impl From.
     #[allow(unused)]
-    pub(crate) fn from_entries(entries: &[ParentsEntryInternal]) -> Self {
-        Parents(RleVec(entries.to_vec()))
+    pub(crate) fn from_entries(entries: &[GraphEntryInternal]) -> Self {
+        Graph(RleVec(entries.to_vec()))
     }
 
     #[allow(unused)]
@@ -79,7 +79,7 @@ impl Parents {
             txn_parents.len() == 1 && txn_parents[0] == last.last_time() && shadow == last.shadow
         } else { false };
 
-        let txn = ParentsEntryInternal {
+        let txn = GraphEntryInternal {
             span: range,
             shadow,
             parents: txn_parents.into(),
@@ -94,7 +94,7 @@ impl Parents {
 ///
 /// Both individual inserts and deletes will use up txn numbers.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ParentsEntryInternal {
+pub(crate) struct GraphEntryInternal {
     pub span: DTRange, // TODO: Make the span u64s instead of usize.
 
     /// All txns in this span are direct descendants of all operations from span down to shadow.
@@ -110,7 +110,7 @@ pub(crate) struct ParentsEntryInternal {
     pub parents: Frontier,
 }
 
-impl ParentsEntryInternal {
+impl GraphEntryInternal {
     // pub fn parent_at_offset(&self, at: usize) -> Option<usize> {
     //     if at > 0 {
     //         Some(self.span.start + at - 1)
@@ -174,13 +174,13 @@ impl ParentsEntryInternal {
     }
 }
 
-impl HasLength for ParentsEntryInternal {
+impl HasLength for GraphEntryInternal {
     fn len(&self) -> usize {
         self.span.len()
     }
 }
 
-impl MergableSpan for ParentsEntryInternal {
+impl MergableSpan for GraphEntryInternal {
     fn can_append(&self, other: &Self) -> bool {
         self.span.can_append(&other.span)
             && other.parents.len() == 1
@@ -199,21 +199,24 @@ impl MergableSpan for ParentsEntryInternal {
     }
 }
 
-impl HasRleKey for ParentsEntryInternal {
+impl HasRleKey for GraphEntryInternal {
     fn rle_key(&self) -> usize {
         self.span.start
     }
 }
 
-/// This is a simplified history entry for exporting and viewing externally.
+/// This is a simplified graph entry for exporting and viewing externally.
+///
+/// Its now only missing shadow - so I'm not really sure if it still makes sense to keep this as a
+/// separate struct.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ParentsEntrySimple {
+pub struct GraphEntrySimple {
     pub span: DTRange,
     pub parents: Frontier,
 }
 
-impl MergableSpan for ParentsEntrySimple {
+impl MergableSpan for GraphEntrySimple {
     fn can_append(&self, other: &Self) -> bool {
         self.span.can_append(&other.span)
             && other.parents.len() == 1
@@ -230,23 +233,23 @@ impl MergableSpan for ParentsEntrySimple {
     }
 }
 
-impl HasLength for ParentsEntrySimple {
+impl HasLength for GraphEntrySimple {
     fn len(&self) -> usize { self.span.len() }
 }
 
-impl SplitableSpanHelpers for ParentsEntrySimple {
+impl SplitableSpanHelpers for GraphEntrySimple {
     fn truncate_h(&mut self, at: usize) -> Self {
         debug_assert!(at >= 1);
 
-        ParentsEntrySimple {
+        GraphEntrySimple {
             span: self.span.truncate(at),
             parents: Frontier::new_1(self.span.start + at - 1)
         }
     }
 }
 
-impl From<ParentsEntryInternal> for ParentsEntrySimple {
-    fn from(entry: ParentsEntryInternal) -> Self {
+impl From<GraphEntryInternal> for GraphEntrySimple {
+    fn from(entry: GraphEntryInternal) -> Self {
         Self {
             span: entry.span,
             parents: entry.parents
@@ -254,8 +257,8 @@ impl From<ParentsEntryInternal> for ParentsEntrySimple {
     }
 }
 
-impl From<&ParentsEntryInternal> for ParentsEntrySimple {
-    fn from(entry: &ParentsEntryInternal) -> Self {
+impl From<&GraphEntryInternal> for GraphEntrySimple {
+    fn from(entry: &GraphEntryInternal) -> Self {
         Self {
             span: entry.span,
             parents: entry.parents.clone()
@@ -320,12 +323,12 @@ impl From<&ParentsEntryInternal> for ParentsEntrySimple {
 //         }
 //     }
 // }
-impl Parents {
-    pub(crate) fn iter_range(&self, range: DTRange) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
+impl Graph {
+    pub(crate) fn iter_range(&self, range: DTRange) -> impl Iterator<Item =GraphEntrySimple> + '_ {
         self.0.iter_range_map(range, |e| e.into())
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
+    pub(crate) fn iter(&self) -> impl Iterator<Item =GraphEntrySimple> + '_ {
         self.0.iter().map(|e| e.into())
     }
 
@@ -342,14 +345,14 @@ impl Parents {
 mod tests {
     use smallvec::smallvec;
     use rle::{MergableSpan, test_splitable_methods_valid};
-    use crate::causalgraph::parents::{Parents, ParentsEntrySimple};
+    use crate::causalgraph::graph::{Graph, GraphEntrySimple};
     use crate::encoding::ChunkType::CausalGraph;
     use crate::Frontier;
-    use super::ParentsEntryInternal;
+    use super::GraphEntryInternal;
 
     #[test]
     fn test_iter_empty() {
-        let parents = Parents::new();
+        let parents = Graph::new();
         let entries_a = parents.iter().collect::<Vec<_>>();
         let entries_b = parents.iter_range((0..0).into()).collect::<Vec<_>>();
         assert!(entries_a.is_empty());
@@ -358,11 +361,11 @@ mod tests {
 
     #[test]
     fn test_txn_appends() {
-        let mut txn_a = ParentsEntryInternal {
+        let mut txn_a = GraphEntryInternal {
             span: (1000..1010).into(), shadow: 500,
             parents: Frontier::new_1(999),
         };
-        let txn_b = ParentsEntryInternal {
+        let txn_b = GraphEntryInternal {
             span: (1010..1015).into(), shadow: 500,
             parents: Frontier::new_1(1009),
         };
@@ -370,7 +373,7 @@ mod tests {
         assert!(txn_a.can_append(&txn_b));
 
         txn_a.append(txn_b);
-        assert_eq!(txn_a, ParentsEntryInternal {
+        assert_eq!(txn_a, GraphEntryInternal {
             span: (1000..1015).into(), shadow: 500,
             parents: Frontier::new_1(999),
         })
@@ -378,7 +381,7 @@ mod tests {
 
     #[test]
     fn txn_entry_valid() {
-        test_splitable_methods_valid(ParentsEntrySimple {
+        test_splitable_methods_valid(GraphEntrySimple {
             span: (10..20).into(),
             parents: Frontier::new_1(0),
         });
@@ -387,7 +390,7 @@ mod tests {
     #[test]
     fn iterator_regression() {
         // There was a bug where this caused a crash.
-        let mut parents = Parents::new();
+        let mut parents = Graph::new();
         parents.push(&[], (0..1).into());
         parents.push(&[], (1..2).into());
 
