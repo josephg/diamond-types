@@ -71,100 +71,104 @@ impl Graph {
 
         let mut filter_iter = Filter::new(rev_filter_iter);
 
-        if filter_iter.current.is_some() {
-            'outer: while let Some(mut entry) = queue.pop() {
-                // There's essentially 2 cases here:
-                // 1. The entry is either inside a filtered item, or an earlier item in this txn
-                //    is allowed by the filter.
-                // 2. The filter doesn't allow the txn the entry is inside.
+        'outer: while let Some(mut entry) = queue.pop() {
+            // There's essentially 2 cases here:
+            // 1. The entry is either inside a filtered item, or an earlier item in this txn
+            //    is allowed by the filter.
+            // 2. The filter doesn't allow the txn the entry is inside.
 
-                let txn = self.0.find_packed(entry.target_parent);
+            let txn = self.0.find_packed(entry.target_parent);
 
-                while let Some(filter) = filter_iter.scan_until_start_below(entry.target_parent) {
-                    // while filter.start > entry.target_parent {
-                    //     if let Some(f) = rev_filter_iter.next() { filter = f; }
-                    //     else { break 'txn_loop; }
-                    // }
+            while let Some(filter) = filter_iter.scan_until_start_below(entry.target_parent) {
+                // while filter.start > entry.target_parent {
+                //     if let Some(f) = rev_filter_iter.next() { filter = f; }
+                //     else { break 'txn_loop; }
+                // }
 
-                    if filter.end <= txn.span.start {
-                        break;
-                    }
-
-                    debug_assert!(txn.span.start < filter.end);
-                    debug_assert!(entry.target_parent >= filter.start);
-                    debug_assert!(entry.target_parent >= txn.span.start);
-
-                    // Case 1. We'll add a new parents entry this loop iteration.
-
-                    let p = entry.target_parent.min(filter.end - 1);
-                    let idx_here = result_rev.len();
-
-                    push_children(&mut result_rev, &mut filtered_frontier, &entry.children, p);
-
-                    let base = filter.start.max(txn.span.start);
-                    // For simplicity, pull out anything that is within this txn *and* this filter.
-                    while let Some(peeked_entry) = queue.peek() {
-                        if peeked_entry.target_parent < base { break; }
-
-                        let peeked_target = peeked_entry.target_parent.min(filter.end - 1);
-                        push_children(&mut result_rev, &mut filtered_frontier, &peeked_entry.children, peeked_target);
-
-                        queue.pop();
-                    }
-
-                    result_rev.push(GraphEntryInternal {
-                        span: (base..p + 1).into(),
-                        shadow: txn.shadow, // This is pessimistic.
-                        parents: Frontier::default(), // Parents current unknown!
-                    });
-
-                    if filter.start > txn.span.start {
-                        // The item we've just added has an (implicit) parent of base-1. We'll
-                        // update entry and loop - which might either find more filter items
-                        // within this txn, or it might bump us to the case below where the txn's
-                        // items are added.
-                        entry = QueueEntry {
-                            target_parent: filter.start - 1,
-                            children: smallvec![idx_here],
-                        };
-                    } else {
-                        // filter.start <= txn.span.start. We're done with this txn.
-                        if !txn.parents.is_empty() {
-                            for p in txn.parents.iter() {
-                                queue.push(QueueEntry {
-                                    target_parent: *p,
-                                    children: smallvec![idx_here],
-                                })
-                            }
-                        }
-                        continue 'outer;
-                    }
+                if filter.end <= txn.span.start {
+                    break;
                 }
 
-                // Case 2. The remainder of this txn is filtered out.
-                //
-                // We'll create new queue entries for all of this txn's parents.
-                let mut child_idxs = entry.children;
+                debug_assert!(txn.span.start < filter.end);
+                debug_assert!(entry.target_parent >= filter.start);
+                debug_assert!(entry.target_parent >= txn.span.start);
 
+                // Case 1. We'll add a new parents entry this loop iteration.
+
+                let p = entry.target_parent.min(filter.end - 1);
+                let idx_here = result_rev.len();
+
+                push_children(&mut result_rev, &mut filtered_frontier, &entry.children, p);
+
+                let base = filter.start.max(txn.span.start);
+                // For simplicity, pull out anything that is within this txn *and* this filter.
                 while let Some(peeked_entry) = queue.peek() {
-                    if peeked_entry.target_parent < txn.span.start { break; } // Next item is out of this txn.
+                    if peeked_entry.target_parent < base { break; }
 
-                    for i in peeked_entry.children.iter() {
-                        if !child_idxs.contains(&i) { child_idxs.push(*i); }
-                    }
+                    let peeked_target = peeked_entry.target_parent.min(filter.end - 1);
+                    push_children(&mut result_rev, &mut filtered_frontier, &peeked_entry.children, peeked_target);
+                    // iterations += 1;
+
                     queue.pop();
                 }
 
-                if txn.parents.0.len() == 1 {
-                    // A silly little optimization to avoid an unnecessary clone() below.
-                    queue.push(QueueEntry { target_parent: txn.parents.0[0], children: child_idxs })
+                result_rev.push(GraphEntryInternal {
+                    span: (base..p + 1).into(),
+                    shadow: txn.shadow, // This is pessimistic.
+                    parents: Frontier::default(), // Parents current unknown!
+                });
+
+                if filter.start > txn.span.start {
+                    // The item we've just added has an (implicit) parent of base-1. We'll
+                    // update entry and loop - which might either find more filter items
+                    // within this txn, or it might bump us to the case below where the txn's
+                    // items are added.
+                    entry = QueueEntry {
+                        target_parent: filter.start - 1,
+                        children: smallvec![idx_here],
+                    };
                 } else {
-                    for p in txn.parents.iter() {
-                        queue.push(QueueEntry {
-                            target_parent: *p,
-                            children: child_idxs.clone()
-                        })
+                    // filter.start <= txn.span.start. We're done with this txn.
+                    if !txn.parents.is_empty() {
+                        for p in txn.parents.iter() {
+                            queue.push(QueueEntry {
+                                target_parent: *p,
+                                children: smallvec![idx_here],
+                            })
+                        }
                     }
+                    continue 'outer;
+                }
+            }
+
+            // If we're at the end of the filter, nothing else in the queue matters.
+            if filter_iter.current.is_none() { break; }
+
+            // Case 2. The remainder of this txn is filtered out.
+            //
+            // We'll create new queue entries for all of this txn's parents.
+            let mut child_idxs = entry.children;
+
+            while let Some(peeked_entry) = queue.peek() {
+                if peeked_entry.target_parent < txn.span.start { break; } // Next item is out of this txn.
+
+                for i in peeked_entry.children.iter() {
+                    if !child_idxs.contains(&i) { child_idxs.push(*i); }
+                }
+                // iterations += 1;
+
+                queue.pop();
+            }
+
+            if txn.parents.0.len() == 1 {
+                // A silly little optimization to avoid an unnecessary clone() below.
+                queue.push(QueueEntry { target_parent: txn.parents.0[0], children: child_idxs })
+            } else {
+                for p in txn.parents.iter() {
+                    queue.push(QueueEntry {
+                        target_parent: *p,
+                        children: child_idxs.clone()
+                    })
                 }
             }
         }
