@@ -3,7 +3,7 @@ use smallvec::{smallvec, SmallVec};
 use diamond_types::causalgraph::agent_assignment::remote_ids::{RemoteVersionOwned as NewRemoteVersion};
 use diamond_types::DTRange;
 use diamond_types::list::ListOpLog;
-use diamond_types::list::old_merge::to_old::OldCRDTOp;
+use diamond_types::listmerge::to_old::OldCRDTOp;
 use diamond_types_old::list::external_txn::{RemoteId as OldRemoteId, RemoteIdSpan as OldRemoteIdSpan, RemoteTxn};
 use diamond_types_old::root_id;
 use rle::{HasLength, SplitableSpan};

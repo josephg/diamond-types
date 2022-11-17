@@ -226,7 +226,9 @@ mod wal;
 pub(crate) mod serde_helpers;
 mod hack;
 pub(crate) mod experiments;
-mod listmerge;
+
+// TODO: Make me private!
+pub mod listmerge;
 
 #[cfg(test)]
 mod list_fuzzer_tools;

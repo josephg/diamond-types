@@ -4,7 +4,7 @@ use crate::encoding::tools::push_usize;
 use crate::encoding::varint::num_encode_zigzag_isize;
 use crate::list::encoding::encode_tools::write_bit_run;
 use crate::list::ListOpLog;
-use crate::list::old_merge::merge::TransformedResult;
+use crate::listmerge::merge::TransformedResult;
 use crate::LV;
 
 /// *** This is EXPERIMENTAL work-in-progress code to save transformed positions ***

@@ -37,6 +37,8 @@ use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpanOwned;
 use crate::causalgraph::graph::Graph;
 use crate::experiments::TextInfo;
 use crate::frontier::{FrontierRef, local_frontier_eq};
+#[cfg(feature = "ops_to_old")]
+use crate::listmerge::to_old::OldCRDTOpInternal;
 use crate::unicount::consume_chars;
 
 const ALLOW_FF: bool = true;
@@ -95,6 +97,8 @@ impl M2Tracker {
         Self {
             range_tree,
             index,
+            #[cfg(feature = "ops_to_old")]
+            dbg_ops: vec![]
         }
     }
 
@@ -420,6 +424,16 @@ impl M2Tracker {
                     ever_deleted: false,
                 };
 
+
+                #[cfg(feature = "ops_to_old")] {
+                    self.dbg_ops.push_rle(OldCRDTOpInternal::Ins {
+                        id: lv_span,
+                        origin_left,
+                        origin_right: if origin_right == UNDERWATER_START { usize::MAX } else { origin_right },
+                        content_pos: op.content_pos.unwrap(),
+                    });
+                }
+
                 // This is dirty because the cursor's lifetime is not associated with self.
                 let cursor = cursor.inner;
                 let ins_pos = self.integrate(aa, agent, item, cursor);
@@ -496,6 +510,16 @@ impl M2Tracker {
 
                 let lv_start = op_pair.0;
 
+                #[cfg(feature = "ops_to_old")] {
+                    self.dbg_ops.push_rle(OldCRDTOpInternal::Del {
+                        start_time: lv_start,
+                        target: RangeRev {
+                            span: target,
+                            fwd
+                        }
+                    });
+                }
+
                 // if !is_underwater(target.start) {
                 //     // Deletes must always dominate the item they're deleting in the time dag.
                 //     debug_assert!(cg.parents.version_contains_time(&[lv_start], target.start));
@@ -526,7 +550,7 @@ impl M2Tracker {
     ///
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
-    fn walk(&mut self, graph: &Graph, aa: &AgentAssignment, op_ctx: &ListOperationCtx, ops: &RleVec<KVPair<ListOpMetrics>>, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut JumpRopeBuf>) -> Frontier {
+    pub(super) fn walk(&mut self, graph: &Graph, aa: &AgentAssignment, op_ctx: &ListOperationCtx, ops: &RleVec<KVPair<ListOpMetrics>>, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut JumpRopeBuf>) -> Frontier {
         let mut walker = SpanningTreeWalker::new(&graph, rev_spans, start_at);
 
         for walk in &mut walker {
@@ -573,7 +597,7 @@ pub(crate) struct TransformedOpsIter<'a> {
 }
 
 impl<'a> TransformedOpsIter<'a> {
-    fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>, from_frontier: FrontierRef, merge_frontier: FrontierRef) -> Self {
+    pub(crate) fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>, from_frontier: FrontierRef, merge_frontier: FrontierRef) -> Self {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
@@ -804,7 +828,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
     }
 }
 
-fn reverse_str(s: &str) -> SmartString {
+pub fn reverse_str(s: &str) -> SmartString {
     let mut result = SmartString::new();
     result.extend(s.chars().rev());
     result

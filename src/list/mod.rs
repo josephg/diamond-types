@@ -20,7 +20,7 @@ mod list;
 mod check;
 pub(crate) mod op_iter;
 
-pub mod old_merge;
+// pub mod old_merge;
 mod oplog;
 mod branch;
 pub mod encoding;
@@ -35,6 +35,7 @@ mod oplog_merge_fuzzer;
 
 pub(crate) mod buffered_iter;
 mod stochastic_summary;
+mod merge;
 
 // TODO!
 // trait InlineReplace<T> {
@@ -114,9 +115,9 @@ pub struct ListOpLog {
 
     /// This contains all content ever inserted into the document, in time order (not document
     /// order). This object is indexed by the operation set.
-    operation_ctx: ListOperationCtx,
+    pub(crate) operation_ctx: ListOperationCtx,
     // TODO: Replace me with a compact form of this data.
-    operations: RleVec<KVPair<ListOpMetrics>>,
+    pub(crate) operations: RleVec<KVPair<ListOpMetrics>>,
 
     // /// This is the LocalVersion for the entire oplog. So, if you merged every change we store into
     // /// a branch, this is the version of that branch.

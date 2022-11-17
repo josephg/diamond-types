@@ -50,4 +50,7 @@ struct M2Tracker {
     /// - For inserts, this contains a pointer to the node in range_tree which contains this time.
     /// - For deletes, this names the time at which the delete happened.
     index: SpaceIndex,
+
+    #[cfg(feature = "ops_to_old")]
+    dbg_ops: Vec<to_old::OldCRDTOpInternal>,
 }
