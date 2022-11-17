@@ -47,8 +47,6 @@ crc = "3.0.0"
 lz4_flex = { version = "0.9.2", optional = true }
 
 [dev-dependencies]
-# TODO: Bump criterion & benchmarks into a child package
-criterion = "0.4.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
 crdt-testdata = { path = "crates/crdt-testdata" }
 trace-alloc = { path = "crates/trace-alloc" }
@@ -74,11 +72,6 @@ gen_test_data = ["dep:serde", "serde_json"]
 [lib]
 bench = false
 
-[[bench]]
-name = "core"
-harness = false
-
-
 [profile.release]
 #debug = true
 lto = true
@@ -98,3 +91,6 @@ opt-level = "z"
 
 [profile.release.package.run_on_old]
 debug = true
+
+[profile.release.package.bench]
+codegen-units = 1

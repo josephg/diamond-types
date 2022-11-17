@@ -1,0 +1,12 @@
+[package]
+name = "bench"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+diamond-types = { path = "../.." }
+rle = { path = "../rle" }
+criterion = "0.4.0"
+crdt-testdata = { path = "../crdt-testdata" }
