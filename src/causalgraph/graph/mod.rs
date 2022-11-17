@@ -18,6 +18,26 @@ use crate::dtrange::DTRange;
 use serde::{Deserialize, Serialize};
 use crate::frontier::{clone_smallvec, local_frontier_is_root};
 
+/// This type stores metadata for a run of transactions created by the users.
+///
+/// Both individual inserts and deletes will use up txn numbers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GraphEntryInternal {
+    pub span: DTRange, // TODO: Make the span u64s instead of usize.
+
+    /// All txns in this span are direct descendants of all operations from span down to shadow.
+    /// This is derived from other fields and used as an optimization for some calculations.
+    pub shadow: usize, // I'd move this below parents, but that makes some benchmarks inexplicably 20% slower O_o
+
+    /// The parents vector of the first txn in this span. This vector will contain:
+    /// - Nothing when the range has "root" as a parent. Usually this is just the case for the first
+    ///   entry in history
+    /// - One item when its a simple change
+    /// - Two or more items when concurrent changes have happened, and the first item in this range
+    ///   is a merge operation.
+    pub parents: Frontier,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Graph(pub(crate) RleVec<GraphEntryInternal>);
 
@@ -88,26 +108,6 @@ impl Graph {
         let did_merge = self.0.push(txn);
         debug_assert_eq!(will_merge, did_merge);
     }
-}
-
-/// This type stores metadata for a run of transactions created by the users.
-///
-/// Both individual inserts and deletes will use up txn numbers.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct GraphEntryInternal {
-    pub span: DTRange, // TODO: Make the span u64s instead of usize.
-
-    /// All txns in this span are direct descendants of all operations from span down to shadow.
-    /// This is derived from other fields and used as an optimization for some calculations.
-    pub shadow: usize,
-
-    /// The parents vector of the first txn in this span. This vector will contain:
-    /// - Nothing when the range has "root" as a parent. Usually this is just the case for the first
-    ///   entry in history
-    /// - One item when its a simple change
-    /// - Two or more items when concurrent changes have happened, and the first item in this range
-    ///   is a merge operation.
-    pub parents: Frontier,
 }
 
 impl GraphEntryInternal {

@@ -855,8 +855,8 @@ impl TextInfo {
         if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
 
         let iter = self.ops.iter().map(|e| e.span())
-            .filter(|r| r.end > earliest)
-            .rev();
+            .rev()
+            .take_while(|r| r.end > earliest);
         let (subgraph, _ff) = cg.graph.subgraph_raw(iter.clone(), final_frontier.as_ref());
 
         // println!("{}", subgraph.0.0.len());

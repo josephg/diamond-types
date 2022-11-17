@@ -242,6 +242,6 @@ mod test {
     #[test]
     fn remote_versions_can_be_empty() {
         let cg = CausalGraph::new();
-        assert!(cg.agent_assignment.remote_to_local_frontier(std::iter::empty()).is_root());
+        assert!(cg.agent_assignment.remote_to_local_frontier(std::iter::empty::<RemoteVersion>()).is_root());
     }
 }
