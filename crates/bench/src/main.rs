@@ -1,10 +1,9 @@
 // This benchmark interacts with the automerge-perf data set from here:
 // https://github.com/automerge/automerge-perf/
 // mod testdata;
-
 mod utils;
 
-use criterion::{criterion_group, criterion_main, black_box, Criterion, BenchmarkId, Throughput};
+use criterion::{black_box, Criterion, BenchmarkId, Throughput};
 use crdt_testdata::{load_testing_data, TestData};
 use diamond_types::list::{ListCRDT, ListOpLog};
 use diamond_types::list::encoding::*;
@@ -143,9 +142,20 @@ fn encoding_nodecc_benchmarks(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches,
-    local_benchmarks,
-    encoding_nodecc_benchmarks,
-    // encoding_benchmarks,
-);
-criterion_main!(benches);
+// criterion_group!(benches,
+//     local_benchmarks,
+//     encoding_nodecc_benchmarks,
+//     // encoding_benchmarks,
+// );
+// criterion_main!(benches);
+
+
+fn main() {
+    // benches();
+    let mut c = Criterion::default()
+        .configure_from_args();
+
+    local_benchmarks(&mut c);
+    encoding_nodecc_benchmarks(&mut c);
+    c.final_summary();
+}
