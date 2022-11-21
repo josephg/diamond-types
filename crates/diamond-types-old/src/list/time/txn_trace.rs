@@ -296,7 +296,7 @@ mod test {
         //     dbg!(item);
         // }
 
-        assert!(iter.eq(std::array::IntoIter::new([
+        assert!(iter.eq(IntoIterator::into_iter([
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
