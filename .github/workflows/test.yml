@@ -19,8 +19,5 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Test diamond-types
       - run: cargo test
-
-      - name: Test diamond-types
       - run: cargo test -p dt-cli -p diamond-types-old -p rle -p content-tree -p dt-wasm -p dt-swift
