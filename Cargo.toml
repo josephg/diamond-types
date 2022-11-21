@@ -84,7 +84,7 @@ opt-level = 2
 #opt-level = "s"
 #debugging = true
 
-[profile.release.package.diamond-cli]
+[profile.release.package.dt-cli]
 opt-level = "z"
 #lto = false
 #strip = true
