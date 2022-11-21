@@ -20,11 +20,7 @@ jobs:
           override: true
 
       - name: Test diamond-types
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
+      - run: cargo test
 
-      - name: Test sub crates
-        uses: actions-rs/cargo@v1
-        with:
-          command: test -p dt-cli -p diamond-types-old -p rle -p content-tree -p dt-wasm -p dt-swift
+      - name: Test diamond-types
+      - run: cargo test -p dt-cli -p diamond-types-old -p rle -p content-tree -p dt-wasm -p dt-swift
