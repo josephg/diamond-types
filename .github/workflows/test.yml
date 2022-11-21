@@ -19,7 +19,13 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Run cargo test
+      - name: Test diamond-types
         uses: actions-rs/cargo@v1
         with:
           command: test
+
+      - name: Test sub crates
+        uses: actions-rs/cargo@v1
+        with:
+          command: test -p dt-cli -p diamond-types-old -p rle -p content-tree -p dt-wasm -p dt-swift
+          

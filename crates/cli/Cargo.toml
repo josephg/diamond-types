@@ -1,5 +1,5 @@
 [package]
-name = "diamond-cli"
+name = "dt-cli"
 version = "0.1.0"
 edition = "2021"
 description = "CLI for interacting with diamond-types data"
