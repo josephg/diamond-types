@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
+use bumpalo::Bump;
 use jumprope::JumpRopeBuf;
 use smallvec::{SmallVec, smallvec};
 use crate::{AgentId, CausalGraph, CRDTKind, CreateValue, DTRange, Frontier, LV, Primitive, ROOT_CRDT_ID, SnapshotValue};
 use smartstring::alias::String as SmartString;
 use rle::HasLength;
 use crate::branch::DTValue;
+use crate::encoding::bufparser::BufParser;
+use crate::encoding::cg_entry::{read_cg_entry_into_cg, write_cg_entry_iter};
+use crate::encoding::map::{ReadMap, WriteMap};
 use crate::list::op_iter::{OpIterFast, OpMetricsIter};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::TextOperation;
@@ -218,6 +222,24 @@ impl ExperimentalOpLog {
     pub fn checkout(&self) -> BTreeMap<SmartString, Box<DTValue>> {
         self.checkout_map(ROOT_CRDT_ID)
     }
+
+    pub fn changes_since(&self, since_version: &[LV]) {
+        let mut write_map = WriteMap::with_capacity_from(&self.cg.agent_assignment.client_data);
+
+        let diff = self.cg.graph.diff(since_version, self.cg.version.as_ref()).1;
+        let bump = Bump::new();
+        let mut result = bumpalo::collections::Vec::new_in(&bump);
+        for range in diff {
+            let iter = self.cg.iter_range(range);
+            write_cg_entry_iter(&mut result, iter, &mut write_map, &self.cg);
+        }
+        dbg!(&result);
+
+        let mut new_cg = CausalGraph::new();
+        let mut read_map = ReadMap::new();
+        read_cg_entry_into_cg(&mut BufParser(&result), true, &mut new_cg, &mut read_map).unwrap();
+        dbg!(new_cg);
+    }
 }
 
 #[cfg(test)]
@@ -242,16 +264,20 @@ mod tests {
         let mut oplog = ExperimentalOpLog::new();
 
         let seph = oplog.cg.get_or_create_agent_id("seph");
-        let text = oplog.push_map_set(seph, ROOT_CRDT_ID, "textitem", CreateValue::NewCRDT(CRDTKind::Text));
-
+        let text = oplog.push_map_set(seph, ROOT_CRDT_ID, "content", CreateValue::NewCRDT(CRDTKind::Text));
         oplog.push_text_op(seph, text, TextOperation::new_insert(0, "Oh hai!"));
         oplog.push_text_op(seph, text, TextOperation::new_delete(0..3));
+
+        let title = oplog.push_map_set(seph, ROOT_CRDT_ID, "title", CreateValue::NewCRDT(CRDTKind::Text));
+        oplog.push_text_op(seph, title, TextOperation::new_insert(0, "Please read this cool info"));
 
         // dbg!(&oplog);
 
         assert_eq!(oplog.checkout_text(text).to_string(), "hai!");
 
-        // dbg!(oplog.checkout());
+        dbg!(oplog.checkout());
+
+        oplog.changes_since(&[]);
     }
 
     #[test]

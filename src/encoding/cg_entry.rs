@@ -210,14 +210,10 @@ pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &
     Ok(())
 }
 
-pub(crate) fn write_cg_entry_iter<'a, I: Iterator<Item=CGEntry>>(bump: &'a Bump, iter: I, write_map: &mut WriteMap, cg: &CausalGraph) -> BumpVec<'a, u8> {
+pub(crate) fn write_cg_entry_iter<'a, I: Iterator<Item=CGEntry>>(result: &mut BumpVec<u8>, iter: I, write_map: &mut WriteMap, cg: &CausalGraph) {
     // let mut last_seq_for_agent: LastSeqForAgent = bumpvec![in bump; 0; client_data.len()];
-    let mut result = BumpVec::new_in(bump);
-
     Merger::new(|entry: CGEntry, _| {
-        write_cg_entry(&mut result, &entry, write_map, true, &cg.agent_assignment);
+        write_cg_entry(result, &entry, write_map, true, &cg.agent_assignment);
         // write_agent_assignment_span(&mut result, None, span, map, true, client_data);
     }).flush_iter(iter);
-
-    result
 }
