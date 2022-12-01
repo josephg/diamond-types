@@ -1,3 +1,5 @@
+use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use rand::prelude::SmallRng;
 use jumprope::JumpRope;
 use rand::Rng;
@@ -123,6 +125,56 @@ pub(crate) fn choose_2<'a, T>(arr: &'a mut [T], rng: &mut SmallRng) -> (usize, &
         }
     }
 }
+
+// TODO: Replace with an actual CPU query.
+pub(crate) const NUM_THREADS: usize = 16;
+
+/// A seed wrapper which prints out the seed on panic. This is handy because drop() is called during
+/// unwinding so we can see the seed which crashed things.
+pub(crate) struct Seed(pub u64);
+impl Drop for Seed {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            println!("CRASHED ON SEED {}", self.0);
+            drop(std::io::stdout().flush());
+        }
+    }
+}
+
+// It'd be better to make IS_ERROR a local variable during the tests, but its much more complicated
+// and this is fine. Well, this might create problems if multiple tests are running at once but
+// the only downside is we only find out about the first error in that case.
+static IS_ERROR: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn fuzz_multithreaded<F: Fn(u64) + Send + Sync + Copy + Clone + 'static>(num_iter: u64, f: F) {
+    let mut threads = vec![];
+    IS_ERROR.store(false, Ordering::Relaxed);
+
+    for t in 0..NUM_THREADS {
+        threads.push(std::thread::spawn(move || {
+            let orig_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                // Signal to the other threads to stop iterating.
+                IS_ERROR.store(true, Ordering::Relaxed);
+                orig_hook(info);
+            }));
+
+
+            let chunk_size = u64::MAX / (NUM_THREADS as u64);
+            let seed_start = (chunk_size * t as u64) / 1000 * 1000;
+            for seed_n in seed_start..seed_start.saturating_add(num_iter) {
+                let seed = Seed(seed_n);
+                f(seed.0);
+                if IS_ERROR.load(Ordering::Relaxed) { break; }
+            }
+        }));
+    }
+
+    for t in threads {
+        t.join().unwrap();
+    }
+}
+
 
 // These methods are currently wrong by virtue of the operations not lining up with the causal
 // into.version = self.cg.version.clone();

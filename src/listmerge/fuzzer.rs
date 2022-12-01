@@ -2,7 +2,7 @@ use jumprope::JumpRope;
 use rand::prelude::*;
 use crate::{AgentId, DTRange};
 use crate::list::operation::TextOperation;
-use crate::list_fuzzer_tools::{choose_2, make_random_change};
+use crate::list_fuzzer_tools::{choose_2, fuzz_multithreaded, make_random_change, NUM_THREADS};
 use crate::listmerge::simple_oplog::{SimpleBranch, SimpleOpLog};
 
 #[test]
@@ -32,6 +32,7 @@ fn random_single_document() {
 }
 
 fn merge_fuzz(seed: u64, verbose: bool) {
+    // A parachute so if the fuzzer crashes we can recover the seed.
     let mut rng = SmallRng::seed_from_u64(seed);
     let mut oplog = SimpleOpLog::new();
     let mut branches = [SimpleBranch::new(), SimpleBranch::new(), SimpleBranch::new()];
@@ -119,6 +120,10 @@ fn merge_fuzz(seed: u64, verbose: bool) {
         }
     }
 
+    if rng.gen_bool(0.001) {
+        panic!("blerp!");
+    }
+
     // for doc in &branches {
     //     doc.check(true);
     // }
@@ -138,7 +143,7 @@ fn fuzz_once() {
 
 #[test]
 #[ignore]
-fn fuzz_merge_forever() {
+fn fuzz_merge_forever_single_thread() {
     for k in 0.. {
         // println!("\n\n*** Iteration {} ***\n", k);
         if k % 100 == 0 {
@@ -146,4 +151,15 @@ fn fuzz_merge_forever() {
         }
         merge_fuzz(1000000 + k, false);
     }
+}
+
+#[test]
+#[ignore]
+fn fuzz_merge_forever() {
+    fuzz_multithreaded(u64::MAX, |seed| {
+        if seed % 100 == 0 {
+            println!("Iteration {}", seed);
+        }
+        merge_fuzz(seed, false);
+    })
 }
