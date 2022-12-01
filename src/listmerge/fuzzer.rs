@@ -2,7 +2,7 @@ use jumprope::JumpRope;
 use rand::prelude::*;
 use crate::{AgentId, DTRange};
 use crate::list::operation::TextOperation;
-use crate::list_fuzzer_tools::{choose_2, fuzz_multithreaded, make_random_change, NUM_THREADS};
+use crate::list_fuzzer_tools::{choose_2, fuzz_multithreaded, make_random_change};
 use crate::listmerge::simple_oplog::{SimpleBranch, SimpleOpLog};
 
 #[test]
@@ -120,9 +120,9 @@ fn merge_fuzz(seed: u64, verbose: bool) {
         }
     }
 
-    if rng.gen_bool(0.001) {
-        panic!("blerp!");
-    }
+    // if rng.gen_bool(0.0001) {
+    //     panic!("blerp!");
+    // }
 
     // for doc in &branches {
     //     doc.check(true);
@@ -143,7 +143,7 @@ fn fuzz_once() {
 
 #[test]
 #[ignore]
-fn fuzz_merge_forever_single_thread() {
+fn fuzz_merge_st_forever() {
     for k in 0.. {
         // println!("\n\n*** Iteration {} ***\n", k);
         if k % 100 == 0 {
