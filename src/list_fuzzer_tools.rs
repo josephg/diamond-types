@@ -142,10 +142,11 @@ impl Drop for Seed {
 }
 
 pub(crate) fn fuzz_multithreaded<F: Fn(u64) + Send + Sync + Copy + Clone + 'static>(num_iter: u64, f: F) {
+    let num_threads: usize = std::thread::available_parallelism().unwrap().into();
     let mut threads = vec![];
     let is_error = Arc::new(AtomicBool::new(false));
 
-    for t in 0..num_cpus::get() {
+    for t in 0..num_threads {
         let is_error = is_error.clone();
         let is_error2 = is_error.clone();
         threads.push(std::thread::spawn(move || {
@@ -156,7 +157,7 @@ pub(crate) fn fuzz_multithreaded<F: Fn(u64) + Send + Sync + Copy + Clone + 'stat
                 orig_hook(info);
             }));
 
-            let chunk_size = u64::MAX / (num_cpus::get() as u64);
+            let chunk_size = u64::MAX / (num_threads as u64);
             let seed_start = (chunk_size * t as u64) / 1000 * 1000;
             for seed_n in seed_start..seed_start.saturating_add(num_iter) {
                 let seed = Seed(seed_n);
