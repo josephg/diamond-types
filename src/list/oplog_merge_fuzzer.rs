@@ -1,6 +1,7 @@
 use rand::prelude::*;
-use crate::list::old_fuzzer_tools::make_random_change;
-use crate::list::{old_fuzzer_tools, ListCRDT};
+use crate::list::ListCRDT;
+use crate::list::old_fuzzer_tools::old_make_random_change;
+use crate::list_fuzzer_tools::{choose_2, make_random_change};
 
 fn oplog_merge_fuzz(seed: u64, verbose: bool) {
     let mut rng = SmallRng::seed_from_u64(seed);
@@ -26,14 +27,14 @@ fn oplog_merge_fuzz(seed: u64, verbose: bool) {
 
             // This should + does also work if we set idx=0 and use the same agent for all changes.
             // make_random_change(&mut docs[idx], None, 0, &mut rng);
-            make_random_change(&mut docs[idx], None, idx as _, &mut rng);
+            old_make_random_change(&mut docs[idx], None, idx as _, &mut rng);
         }
 
         // for (idx, d) in docs.iter().enumerate() {
         //     println!("with changes {idx} length {}", d.ops.len());
         // }
 
-        let (_a_idx, a, _b_idx, b) = old_fuzzer_tools::choose_2(&mut docs, &mut rng);
+        let (_a_idx, a, _b_idx, b) = choose_2(&mut docs, &mut rng);
 
         // a.ops.dbg_print_assignments_and_ops();
         // println!("\n");

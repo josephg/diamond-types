@@ -6,13 +6,13 @@ use crate::{CausalGraph, KVPair, ListOperationCtx, ListOpMetrics, Op, OpContents
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
+use crate::encoding::tools::{ExtendFromSlice, push_str, push_u32, push_u64, push_usize};
 use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64, strip_bit_u32, strip_bit_u32_2, strip_bit_usize_2};
 use crate::list::operation::ListOpKind;
 use crate::ROOT_CRDT_ID;
 use crate::rle::RleSpanHelpers;
 
-fn write_time(result: &mut BumpVec<u8>, time: LV, ref_time: LV, write_map: &WriteMap, cg: &CausalGraph) {
+fn write_time<R: ExtendFromSlice>(result: &mut R, time: LV, ref_time: LV, write_map: &WriteMap, cg: &CausalGraph) {
     debug_assert!(ref_time >= time);
 
     // This code is adapted from parents encoding.
@@ -103,7 +103,7 @@ fn write_time(result: &mut BumpVec<u8>, time: LV, ref_time: LV, write_map: &Writ
 //     })
 // }
 
-fn write_create_value(result: &mut BumpVec<u8>, value: &CreateValue) {
+fn write_create_value<R: ExtendFromSlice>(result: &mut R, value: &CreateValue) {
     use crate::Primitive::*;
 
     match value {
@@ -143,7 +143,7 @@ fn op_type(c: &OpContents) -> u32 {
     }
 }
 
-fn write_op(result: &mut BumpVec<u8>, _content_out: &mut BumpVec<u8>,
+fn write_op<R: ExtendFromSlice>(result: &mut R, _content_out: &mut R,
             expect_time: LV, last_crdt_id: LV, pair: &KVPair<Op>,
             _list_ctx: &ListOperationCtx, write_map: &WriteMap, cg: &CausalGraph)
 {

@@ -3,7 +3,7 @@ use rle::{HasLength, MergableSpan};
 use crate::{AgentId, CausalGraph, DTRange, KVPair, Frontier, LV};
 use crate::causalgraph::agent_assignment::{AgentAssignment, ClientData};
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
-use crate::encoding::tools::{push_str, push_u32, push_u64, push_usize};
+use crate::encoding::tools::{ExtendFromSlice, push_str, push_u32, push_u64, push_usize};
 use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64, strip_bit_usize_2};
 use bumpalo::collections::vec::Vec as BumpVec;
 use smallvec::smallvec;
@@ -14,7 +14,7 @@ use crate::encoding::Merger;
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::map::{WriteMap, ReadMap};
 
-pub(crate) fn write_cg_aa(result: &mut BumpVec<u8>, write_parents: bool, span: AgentSpan,
+pub(crate) fn write_cg_aa<R: ExtendFromSlice>(result: &mut R, write_parents: bool, span: AgentSpan,
                           agent_map: &mut WriteMap, persist: bool, aa: &AgentAssignment) {
     // We only write the parents info if parents is non-trivial.
 
@@ -58,7 +58,7 @@ pub(crate) fn write_cg_aa(result: &mut BumpVec<u8>, write_parents: bool, span: A
 }
 
 
-pub(crate) fn write_cg_entry(result: &mut BumpVec<u8>, data: &CGEntry, write_map: &mut WriteMap,
+pub(crate) fn write_cg_entry<R: ExtendFromSlice>(result: &mut R, data: &CGEntry, write_map: &mut WriteMap,
                              persist: bool, aa: &AgentAssignment) {
     debug_assert_ne!(data.span.agent, AgentId::MAX, "Internal consistency error: ROOT showing up");
     let write_parents = !data.parents_are_trivial()
@@ -210,7 +210,7 @@ pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &
     Ok(())
 }
 
-pub(crate) fn write_cg_entry_iter<'a, I: Iterator<Item=CGEntry>>(result: &mut BumpVec<u8>, iter: I, write_map: &mut WriteMap, cg: &CausalGraph) {
+pub(crate) fn write_cg_entry_iter<'a, I: Iterator<Item=CGEntry>, R: ExtendFromSlice>(result: &mut R, iter: I, write_map: &mut WriteMap, cg: &CausalGraph) {
     // let mut last_seq_for_agent: LastSeqForAgent = bumpvec![in bump; 0; client_data.len()];
     Merger::new(|entry: CGEntry, _| {
         write_cg_entry(result, &entry, write_map, true, &cg.agent_assignment);

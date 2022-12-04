@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use bumpalo::Bump;
 use jumprope::JumpRopeBuf;
 use smallvec::{SmallVec, smallvec};
@@ -6,6 +6,7 @@ use crate::{AgentId, CausalGraph, CRDTKind, CreateValue, DTRange, Frontier, LV, 
 use smartstring::alias::String as SmartString;
 use rle::HasLength;
 use crate::branch::DTValue;
+use crate::causalgraph::agent_assignment::remote_ids::{RemoteVersion, RemoteVersionOwned};
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::cg_entry::{read_cg_entry_into_cg, write_cg_entry_iter};
 use crate::encoding::map::{ReadMap, WriteMap};
@@ -13,6 +14,8 @@ use crate::list::op_iter::{OpIterFast, OpMetricsIter};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::TextOperation;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 // type Pair<T> = (LV, T);
 type ValPair = (LV, CreateValue);
@@ -82,7 +85,7 @@ struct ExperimentalOpLog {
 
     // A different index for each data set, or one index with an enum?
     map_index: BTreeMap<LV, (LVKey, SmartString)>,
-    text_indexes: BTreeMap<LV, LVKey>,
+    text_index: BTreeMap<LV, LVKey>,
 }
 
 // #[derive(Debug, Clone, Default)]
@@ -147,14 +150,14 @@ impl ExperimentalOpLog {
 
         // Remove it from the index
         if let Some(last_op) = entry.ops.last() {
-            let old_index_item = self.text_indexes.remove(&last_op.last());
+            let old_index_item = self.text_index.remove(&last_op.last());
             assert!(old_index_item.is_some());
         }
 
         entry.push_op(op, v_range);
 
         // And add it back to the index.
-        self.text_indexes.insert(v_range.last(), crdt);
+        self.text_index.insert(v_range.last(), crdt);
     }
 
 
@@ -222,24 +225,127 @@ impl ExperimentalOpLog {
     pub fn checkout(&self) -> BTreeMap<SmartString, Box<DTValue>> {
         self.checkout_map(ROOT_CRDT_ID)
     }
+}
 
-    pub fn changes_since(&self, since_version: &[LV]) {
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+struct SerializedChanges<'a> {
+    cg_changes: Vec<u8>,
+
+    // The version of the op, and the name of the containing CRDT.
+    #[cfg_attr(feature = "serde", serde(borrow))]
+    map_ops: Vec<(RemoteVersion<'a>, RemoteVersion<'a>, &'a str, CreateValue)>,
+    text_ops: Vec<(RemoteVersion<'a>, ListOpMetrics)>,
+    text_content: Vec<u8>,
+}
+
+impl ExperimentalOpLog {
+    fn crdt_name_to_remote_version(&self, crdt: LVKey) -> RemoteVersion {
+        if crdt == ROOT_CRDT_ID {
+            RemoteVersion("ROOT", 0)
+        } else {
+            self.cg.agent_assignment.local_to_remote_version(crdt)
+        }
+    }
+
+    pub fn changes_since(&self, since_version: &[LV]) -> SerializedChanges {
         let mut write_map = WriteMap::with_capacity_from(&self.cg.agent_assignment.client_data);
 
         let diff = self.cg.graph.diff(since_version, self.cg.version.as_ref()).1;
-        let bump = Bump::new();
-        let mut result = bumpalo::collections::Vec::new_in(&bump);
-        for range in diff {
-            let iter = self.cg.iter_range(range);
-            write_cg_entry_iter(&mut result, iter, &mut write_map, &self.cg);
-        }
-        dbg!(&result);
+        // let bump = Bump::new();
+        // let mut result = bumpalo::collections::Vec::new_in(&bump);
+        let mut cg_changes = Vec::new();
+        let mut text_crdts_to_send = BTreeSet::new();
+        let mut map_crdts_to_send = BTreeSet::new();
+        for range in diff.iter() {
+            let iter = self.cg.iter_range(*range);
+            write_cg_entry_iter(&mut cg_changes, iter, &mut write_map, &self.cg);
 
-        let mut new_cg = CausalGraph::new();
-        let mut read_map = ReadMap::new();
-        read_cg_entry_into_cg(&mut BufParser(&result), true, &mut new_cg, &mut read_map).unwrap();
-        dbg!(new_cg);
+            for (_, text_crdt) in self.text_index.range(*range) {
+                // dbg!(text_crdt);
+                // self.texts[text_crdt].
+                text_crdts_to_send.insert(*text_crdt);
+            }
+
+            for (_, (map_crdt, key)) in self.map_index.range(*range) {
+                // dbg!(map_crdt, key);
+                map_crdts_to_send.insert((*map_crdt, key));
+            }
+        }
+
+        // Serialize map operations
+        let mut map_ops = Vec::new();
+        for (crdt, key) in map_crdts_to_send {
+            let crdt_name = self.crdt_name_to_remote_version(crdt);
+            let entry = self.map_keys.get(&(crdt, key.clone()));
+            if let Some(entry) = entry {
+                for r in diff.iter() {
+                    // Find all the unknown ops.
+                    // TODO: Add a flag to trim this to only the most recent ops.
+                    let start_idx = entry.ops
+                        .binary_search_by_key(&r.start, |e| e.0)
+                        .unwrap_or_else(|idx| idx);
+
+                    for pair in &entry.ops[start_idx..] {
+                        if pair.0 >= r.end { break; }
+
+                        // dbg!(pair);
+                        let rv = self.cg.agent_assignment.local_to_remote_version(pair.0);
+                        map_ops.push((crdt_name, rv, key.as_str(), pair.1.clone()));
+                    }
+                }
+            }
+        }
+
+        // Serialize text operations
+        let mut text_content = Vec::new();
+        let mut text_ops = Vec::new();
+        for crdt in text_crdts_to_send {
+            let info = &self.texts[&crdt];
+            for r in diff.iter() {
+                for KVPair(lv, op) in info.ops.iter_range_ctx(*r, &info.ctx) {
+                    // dbg!(&op);
+
+                    let op_out = ListOpMetrics {
+                        loc: op.loc,
+                        kind: op.kind,
+                        content_pos: op.content_pos.map(|content_pos| {
+                            let start = text_content.len();
+                            text_content.extend_from_slice(info.ctx.get_str(op.kind, content_pos).as_bytes());
+                            (start..start + content_pos.len()).into()
+                        }),
+                    };
+                    let rv = self.cg.agent_assignment.local_to_remote_version(lv);
+                    text_ops.push((rv.into(), op_out));
+                }
+            }
+        }
+
+        // dbg!(std::str::from_utf8(&text_content).unwrap());
+        // dbg!(&text_ops);
+
+        // And changes from text edits
+
+
+        SerializedChanges {
+            cg_changes,
+            map_ops,
+            text_ops,
+            text_content,
+        }
+        // dbg!(&result);
+
+        // let mut new_cg = CausalGraph::new();
+        // let mut read_map = ReadMap::new();
+        // read_cg_entry_into_cg(&mut BufParser(&result), true, &mut new_cg, &mut read_map).unwrap();
+        // dbg!(new_cg);
     }
+
+
+    // pub fn merge_ops(&mut self, changes: SerializedChanges) {
+    //     // read_cg_entry_into_cg(&mut BufParser(&changes.cg_changes), true, &mut new_cg, &mut read_map).unwrap();
+    //     todo!()
+    // }
 }
 
 #[cfg(test)]
@@ -277,7 +383,8 @@ mod tests {
 
         dbg!(oplog.checkout());
 
-        oplog.changes_since(&[]);
+        dbg!(oplog.changes_since(&[]));
+        // dbg!(oplog.changes_since(&[title]));
     }
 
     #[test]

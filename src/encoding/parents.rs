@@ -1,6 +1,6 @@
 use bumpalo::Bump;
 use rle::{HasLength, Searchable};
-use crate::encoding::tools::{push_str, push_u32, push_usize};
+use crate::encoding::tools::{ExtendFromSlice, push_str, push_u32, push_usize};
 use crate::encoding::varint::*;
 use crate::causalgraph::graph::GraphEntrySimple;
 use crate::causalgraph::agent_span::AgentVersion;
@@ -16,7 +16,7 @@ use crate::frontier::sort_frontier;
 
 
 
-pub(crate) fn write_parents_raw(result: &mut BumpVec<u8>, parents: &[LV], next_output_time: LV, persist: bool, write_map: &mut WriteMap, aa: &AgentAssignment) {
+pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[LV], next_output_time: LV, persist: bool, write_map: &mut WriteMap, aa: &AgentAssignment) {
     // And the parents.
     if parents.is_empty() {
         // Parenting off the root is special-cased, because its rare in practice (well,

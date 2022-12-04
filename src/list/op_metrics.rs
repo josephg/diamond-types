@@ -6,6 +6,8 @@ use crate::list::{ListOpLog, switch};
 use crate::dtrange::DTRange;
 use crate::rev_range::RangeRev;
 use crate::unicount::chars_to_bytes;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 /// This is an internal structure for passing around information about a change. Notably the content
 /// of the change is not stored here - but is instead stored in a contiguous array in the oplog
@@ -18,6 +20,7 @@ use crate::unicount::chars_to_bytes;
 ///
 /// Note that OperationInternal can't directly implement
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub(crate) struct ListOpMetrics {
     /// The span of content which is inserted or deleted.
     ///

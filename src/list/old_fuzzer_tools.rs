@@ -6,31 +6,9 @@ use rle::MergeableIterator;
 use rle::zip::{rle_zip, rle_zip3};
 use crate::{AgentId, LV};
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
+use crate::list_fuzzer_tools::random_str;
 
-const USE_UNICODE: bool = true;
-
-const UCHARS: [char; 23] = [
-    'a', 'b', 'c', '1', '2', '3', ' ', '\n', // ASCII
-    '©', '¥', '½', // The Latin-1 suppliment (U+80 - U+ff)
-    'Ύ', 'Δ', 'δ', 'Ϡ', // Greek (U+0370 - U+03FF)
-    '←', '↯', '↻', '⇈', // Arrows (U+2190 – U+21FF)
-    '𐆐', '𐆔', '𐆘', '𐆚', // Ancient roman symbols (U+10190 – U+101CF)
-];
-
-pub(crate) fn random_str(len: usize, rng: &mut SmallRng) -> String {
-    let mut str = String::new();
-    let alphabet: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars().collect();
-
-    for _ in 0..len {
-        let charset = if USE_UNICODE { &UCHARS[..] } else { &alphabet };
-        str.push(charset[rng.gen_range(0..charset.len())]);
-            // str.push(UCHARS[rng.gen_range(0..UCHARS.len())]);
-            // str.push(alphabet[rng.gen_range(0..alphabet.len())]);
-    }
-    str
-}
-
-pub(crate) fn make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch, mut rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> LV {
+fn old_make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch, mut rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> LV {
     let doc_len = branch.len();
     let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
     let v = if doc_len == 0 || rng.gen_bool(insert_weight) {
@@ -96,30 +74,11 @@ pub(crate) fn make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch,
     v
 }
 
-pub(crate) fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) {
-    let v = make_random_change_raw(&mut doc.oplog, &doc.branch, rope, agent, rng);
+pub(crate) fn old_make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) {
+    let v = old_make_random_change_raw(&mut doc.oplog, &doc.branch, rope, agent, rng);
     doc.branch.merge(&doc.oplog, &[v]);
     // doc.check(true);
     // doc.check(false);
-}
-
-pub(crate) fn choose_2<'a, T>(arr: &'a mut [T], rng: &mut SmallRng) -> (usize, &'a mut T, usize, &'a mut T) {
-    loop {
-        // Then merge 2 branches at random
-        let a_idx = rng.gen_range(0..arr.len());
-        let b_idx = rng.gen_range(0..arr.len());
-
-        if a_idx != b_idx {
-            // Oh god this is awful. I can't take mutable references to two array items.
-            let (a_idx, b_idx) = if a_idx < b_idx { (a_idx, b_idx) } else { (b_idx, a_idx) };
-            // a<b.
-            let (start, end) = arr[..].split_at_mut(b_idx);
-            let a = &mut start[a_idx];
-            let b = &mut end[0];
-
-            return (a_idx, a, b_idx, b);
-        }
-    }
 }
 
 impl ListOpLog {

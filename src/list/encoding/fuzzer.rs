@@ -1,7 +1,9 @@
 use rand::prelude::*;
 use crate::list::{ListCRDT, ListOpLog};
 use crate::list::encoding::EncodeOptions;
-use crate::list::old_fuzzer_tools::{choose_2, make_random_change};
+use crate::list::old_fuzzer_tools::old_make_random_change;
+use crate::list_fuzzer_tools::{choose_2, make_random_change};
+use crate::listmerge::simple_oplog::{SimpleBranch, SimpleOpLog};
 
 // This fuzzer will make an oplog, spam it with random changes from a single peer. Then save & load
 // it back to make sure the result doesn't change.
@@ -17,7 +19,7 @@ fn fuzz_encode_decode_once(seed: u64) {
         // println!("\n\nIteration {i}");
         let agent = rng.gen_range(0..3);
         for _k in 0..rng.gen_range(1..=3) {
-            make_random_change(&mut doc, None, agent, &mut rng);
+            old_make_random_change(&mut doc, None, agent, &mut rng);
         }
 
         let bytes = doc.oplog.encode(EncodeOptions {
@@ -79,7 +81,7 @@ fn fuzz_encode_decode_multi(seed: u64, verbose: bool) {
             let doc = &mut docs[idx];
 
             // make_random_change(doc, None, idx as AgentId, &mut rng);
-            make_random_change(doc, None, 0, &mut rng);
+            old_make_random_change(doc, None, 0, &mut rng);
         }
 
         let (a_idx, a, b_idx, b) = choose_2(&mut docs, &mut rng);
