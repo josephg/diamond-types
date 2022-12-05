@@ -68,7 +68,7 @@ pub(crate) fn write_cg_entry<R: ExtendFromSlice>(result: &mut R, data: &CGEntry,
     // Keep the txn map up to date. This is only needed for parents, and it maps from local time
     // values -> output time values (the order in the file). This lets the file be ordered
     // differently from the local time.
-    let next_output_time = write_map.txn_map.last().map_or(0, |last| last.1.end);
+    let next_output_time = write_map.txn_map.last_entry().map_or(0, |last| last.1.end);
     let output_range = (next_output_time .. next_output_time + data.len()).into();
 
     if persist {

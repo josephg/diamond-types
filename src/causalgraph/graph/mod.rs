@@ -65,7 +65,7 @@ impl Graph {
 
     #[allow(unused)]
     pub fn get_next_time(&self) -> usize {
-        if let Some(last) = self.0.last() {
+        if let Some(last) = self.0.last_entry() {
             last.span.end
         } else { 0 }
     }
@@ -92,7 +92,7 @@ impl Graph {
             shadow = self.0.find(shadow - 1).unwrap().shadow;
         }
 
-        let will_merge = if let Some(last) = self.0.last() {
+        let will_merge = if let Some(last) = self.0.last_entry() {
             // TODO: Is this shadow check necessary?
             // This code is from TxnSpan splitablespan impl. Copying it here is a bit ugly but
             // its the least ugly way I could think to implement this.

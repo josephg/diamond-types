@@ -70,7 +70,7 @@ impl Graph {
         }
 
         if version.len() == 1 {
-            if let Some(last) = info.owned_times.last() {
+            if let Some(last) = info.owned_times.last_entry() {
                 let last_time = last.last();
 
                 // Fast path. If the last operation in the root is a parent of v, we're done.

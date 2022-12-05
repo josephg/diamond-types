@@ -28,20 +28,20 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
 
     #[allow(unused)]
     pub fn push_will_merge(&self, item: &V) -> bool {
-        if let Some(v) = self.last() {
+        if let Some(v) = self.last_entry() {
             v.can_append(item)
         } else { false }
     }
 
     // Forward to vec.
-    pub fn last(&self) -> Option<&V> { self.0.last() }
+    pub fn last_entry(&self) -> Option<&V> { self.0.last() }
 
     #[allow(unused)]
     pub fn num_entries(&self) -> usize { self.0.len() }
 
     /// Returns past the end of the last key.
     pub fn end(&self) -> usize where V: HasRleKey {
-        if let Some(v) = self.last() {
+        if let Some(v) = self.last_entry() {
             v.end()
         } else {
             0
@@ -225,7 +225,7 @@ impl<V: HasLength + MergableSpan + HasRleKey + Clone + Sized> RleVec<V> {
     pub fn insert(&mut self, val: V) {
         // The way insert is usually used, data *usually* gets appended to the end. We'll check that
         // case first since its a useful optimization.
-        if self.last()
+        if self.last_entry()
             .map(|last| last.end() <= val.rle_key())
             .unwrap_or(true)
         {

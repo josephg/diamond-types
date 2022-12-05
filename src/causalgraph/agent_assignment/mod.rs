@@ -53,7 +53,7 @@ impl ClientData {
         //     .map(|last| last.end())
         //     .unwrap_or(0)
 
-        if let Some(last) = self.item_times.last() {
+        if let Some(last) = self.item_times.last_entry() {
             last.end()
         } else { 0 }
     }

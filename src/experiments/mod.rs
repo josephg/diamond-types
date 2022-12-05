@@ -149,7 +149,7 @@ impl ExperimentalOpLog {
         let entry = self.texts.get_mut(&crdt).unwrap();
 
         // Remove it from the index
-        if let Some(last_op) = entry.ops.last() {
+        if let Some(last_op) = entry.ops.last_entry() {
             let old_index_item = self.text_index.remove(&last_op.last());
             assert!(old_index_item.is_some());
         }

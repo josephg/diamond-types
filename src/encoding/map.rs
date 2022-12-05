@@ -25,14 +25,14 @@ impl ReadMap {
     pub fn last_time(&self) -> Option<LV> {
         // Another way to implement this would be to default to ROOT_TIME or something and let
         // entries be "simple" if they're first, and they parent off ROOT. But that way lie bugs.
-        self.txn_map.last().map(|e| {
+        self.txn_map.last_entry().map(|e| {
             e.1.last()
         })
     }
 
     pub fn len(&self) -> LV {
         self.txn_map
-            .last()
+            .last_entry()
             .map(|e| e.end())
             .unwrap_or(0)
             // .unwrap_or(4000) // For testing.
