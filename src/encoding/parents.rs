@@ -36,15 +36,20 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
     // A foreign change with known agent is (has_more, true, true) with mapped agent ID 1+mapped.
     // A foreign change with unknown agent is (has_more, false, true) followed by the agent string.
 
+    #[inline]
+    fn write_parent_diff<R: ExtendFromSlice>(result: &mut R, mut n: usize, has_more: bool, is_foreign: bool) {
+        // dbg!(n, is_foreign, is_known);
+        n = mix_bit_usize(n, has_more);
+        n = mix_bit_usize(n, is_foreign);
+        push_usize(result, n);
+    }
+
     if parents.is_empty() {
         // Parenting off the root is special-cased, because its rare in practice (well,
         // usually exactly 1 item will have the parents as root). We'll write a single dummy
         // value with foreign 0 here, because we (unfortunately) need to mark the list is
         // empty.
-
-        // push_usize(result, 2);
-        // let mapped_agent = 0, has_more = false, is_foreign = true, is_known = true, first = true -> val = 3.
-        push_u32(result, 0b011);
+        write_parent_diff(result, 0, false, true);
     } else {
         let mut iter = parents.iter().peekable();
         // let mut first = true;
@@ -55,22 +60,11 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
 
             // TODO: Rewrite to share write_time from op encoding.
 
-            let mut write_parent_diff = |mut n: usize, is_foreign: bool, is_known: bool| {
-                dbg!(n, is_foreign, is_known);
-                n = mix_bit_usize(n, has_more);
-                if is_foreign {
-                    n = mix_bit_usize(n, is_known);
-                }
-                n = mix_bit_usize(n, is_foreign);
-                push_usize(result, n);
-            };
-
             // Parents are either local or foreign. Local changes are changes we've written
             // (already) to the file. And foreign changes are changes that point outside the
             // local part of the DAG we're sending.
             //
             // Most parents will be local.
-
             if let Some((map, offset)) = write_map.txn_map.find_with_offset(p) {
                 // Local change!
                 // TODO: There's a sort of bug here. Local parents should (probably?) be sorted
@@ -79,7 +73,7 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
                 // But allowing unsorted local parents is vaguely upsetting.
                 let mapped_parent = map.1.start + offset;
 
-                write_parent_diff(next_output_time - mapped_parent, false, true);
+                write_parent_diff(result, next_output_time - mapped_parent, has_more, false);
             } else {
                 // Foreign change
                 // println!("Region does not contain parent for {}", p);
@@ -96,10 +90,10 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
                 match mapped_agent {
                     Ok(mapped_agent) => {
                         // If the parent is ROOT, the parents is empty - which is handled above.
-                        write_parent_diff(mapped_agent as usize + 1, true, true);
+                        write_parent_diff(result, mapped_agent as usize + 2, has_more, true);
                     }
                     Err(name) => {
-                        write_parent_diff(0, true, false);
+                        write_parent_diff(result, 1, has_more, true);
                         push_str(result, name);
                     }
                 }
@@ -117,17 +111,7 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, aa: &mut A
 
     loop {
         let mut n = reader.next_usize()?;
-
-        // Parents bits:
-        // is_foreign
-        // is_known (only if is_foreign)
-        // has_more
-        // diff (only if is_known)
-
         let is_foreign = strip_bit_usize_2(&mut n);
-        let is_known = if is_foreign {
-            strip_bit_usize_2(&mut n)
-        } else { true };
         let has_more = strip_bit_usize_2(&mut n);
 
         let parent = if !is_foreign {
@@ -138,24 +122,25 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, aa: &mut A
             let (entry, offset) = read_map.txn_map.find_with_offset(file_time).unwrap();
             entry.1.at_offset(offset)
         } else {
-            let agent = if !is_known {
-                if n != 0 { return Err(ParseError::GenericInvalidData); }
-                let agent_name = reader.next_str()?;
-                let agent = aa.get_or_create_agent_id(agent_name);
-                if persist {
-                    read_map.agent_map.push((agent, 0));
-                }
-                agent
-            } else {
-                // The remaining data is the mapped agent. We need to un-map it!
-                let mapped_agent = n;
-
-                if mapped_agent == 0 {
-                    // The parents list is empty (ie, our parent is ROOT). We're done here!
+            let agent = match n {
+                0 => {
+                    // 0 is a dummy item for empty parent lists (ie, ROOT items).
                     if has_more { return Err(ParseError::GenericInvalidData); }
                     break;
-                } else {
-                    read_map.agent_map[mapped_agent - 1].0
+                },
+                1 => {
+                    // This is a foreign (unknown) item.
+                    let agent_name = reader.next_str()?;
+                    let agent = aa.get_or_create_agent_id(agent_name);
+                    if persist {
+                        read_map.agent_map.push((agent, 0));
+                    }
+                    agent
+                }
+                n => {
+                    // n references a mapped agent.
+                    let mapped_agent = n - 2;
+                    read_map.agent_map[mapped_agent].0
                 }
             };
 

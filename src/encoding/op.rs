@@ -12,11 +12,18 @@ use crate::list::operation::ListOpKind;
 use crate::ROOT_CRDT_ID;
 use crate::rle::RleSpanHelpers;
 
-fn write_time<R: ExtendFromSlice>(result: &mut R, time: LV, ref_time: LV, write_map: &WriteMap, cg: &CausalGraph) {
+fn write_time<R: ExtendFromSlice>(result: &mut R, time: LV, ref_time: LV, persist: bool, write_map: &mut WriteMap, cg: &CausalGraph) {
     debug_assert!(ref_time >= time);
 
-    // This code is adapted from parents encoding.
-    // TODO: Generalize this to reuse it in both places.
+    // This code is adapted from parents encoding. I've tried really hard to share code between this
+    // function and write_parents, but the combined result seems consistently more complex than
+    // simply duplicating this method.
+
+    // There are 3 kinds of values we store:
+    // - Local versions - which reference times in the output write map.
+    // - Foreign versions - which reference times not in the output write map
+    //   - And they either have an as-of-yet unnamed agent name (in which case this is included)
+    //   - Or the agent name is known, and named.
 
     // Parents are either local or foreign. Local changes are changes we've written
     // (already) to the file. And foreign changes are changes that point outside the
@@ -37,14 +44,15 @@ fn write_time<R: ExtendFromSlice>(result: &mut R, time: LV, ref_time: LV, write_
         // Foreign change
         let item = cg.agent_assignment.lv_to_agent_version(time);
 
-        match write_map.map(&cg.agent_assignment.client_data, item.0) {
+        // Foreign items are encoded as:
+        // - unknown agent: 0, followed by agent name.
+        // - known agents are stored as (mapped + 1).
+
+        match write_map.map_mut(&cg.agent_assignment.client_data, item.0, persist) {
             Ok(mapped_agent) => {
-                let mut n = mapped_agent as u64;
-                n = mix_bit_u64(n + 1, true);
-                write_n(n, true);
+                write_n(mapped_agent as u64 + 1, true);
             }
             Err(name) => {
-                // n = 0 + is_known (0) = 0.
                 write_n(0, true);
                 push_str(result, name);
             }
@@ -54,97 +62,6 @@ fn write_time<R: ExtendFromSlice>(result: &mut R, time: LV, ref_time: LV, write_
         push_usize(result, item.1);
     }
 }
-
-// fn write_time<R: ExtendFromSlice>(result: &mut R, time: LV, ref_time: LV, write_map: &WriteMap, cg: &CausalGraph) {
-//     debug_assert!(ref_time >= time);
-//
-//     // This code is adapted from parents encoding.
-//     // TODO: Generalize this to reuse it in both places.
-//
-//     let mut write_parent_diff = |mut n: usize, is_foreign: bool, is_known: bool| {
-//         if is_foreign {
-//             n = mix_bit_usize(n, is_known);
-//         }
-//         n = mix_bit_usize(n, is_foreign);
-//         push_usize(result, n);
-//     };
-//
-//     // Parents are either local or foreign. Local changes are changes we've written
-//     // (already) to the file. And foreign changes are changes that point outside the
-//     // local part of the DAG we're sending.
-//     //
-//     // Most parents will be local.
-//
-//     if let Some((map, offset)) = write_map.txn_map.find_with_offset(time) {
-//         // Local change
-//         let mapped_parent = map.1.start + offset;
-//         write_parent_diff(ref_time - mapped_parent, false, true);
-//     } else {
-//         // Foreign change
-//         let item = cg.agent_assignment.lv_to_agent_version(time);
-//
-//         match write_map.map_maybe_root(&cg.agent_assignment.client_data, item.0) {
-//             Ok(mapped_agent) => {
-//                 write_parent_diff(mapped_agent as usize, true, true);
-//             }
-//             Err(name) => {
-//                 write_parent_diff(0, true, false);
-//                 push_str(result, name);
-//             }
-//         }
-//         push_usize(result, item.1);
-//     }
-// }
-
-// fn read_time(reader: &mut BufParser, read_map: &mut ReadMap, cg: &CausalGraph, next_time: Time) -> Result<Time, ParseError> {
-//     // TODO: Unify this with parents.read_parents_raw
-//
-//     // Parents bits:
-//     // is_foreign
-//     // is_known (only if is_foreign)
-//     // diff (only if is_known)
-//
-//     let is_foreign = strip_bit_usize_2(&mut n);
-//     let is_known = if is_foreign {
-//         strip_bit_usize_2(&mut n)
-//     } else { true };
-//
-//     Ok(if !is_foreign {
-//         let diff = n;
-//         // Local parents (parents inside this chunk of data) are stored using their local (file)
-//         // time offset.
-//         let file_time = next_time - diff;
-//         let (entry, offset) = read_map.txn_map.find_with_offset(file_time).unwrap();
-//         entry.1.at_offset(offset)
-//     } else {
-//         let agent = if !is_known {
-//             if n != 0 { return Err(ParseError::GenericInvalidData); }
-//             let agent_name = reader.next_str()?;
-//             let agent = cg.get_agent_id(agent_name)
-//                 .ok_or(ParseError::DataMissing)?;
-//             // if persist {
-//             //     read_map.agent_map.push((agent, 0));
-//             // }
-//             agent
-//         } else {
-//             // The remaining data is the mapped agent. We need to un-map it!
-//             let mapped_agent = n;
-//
-//             if mapped_agent == 0 {
-//                 // The parents list is empty (ie, our parent is ROOT). We're done here!
-//                 if has_more { return Err(ParseError::GenericInvalidData); }
-//                 break;
-//             } else {
-//                 read_map.agent_map[mapped_agent - 1].0
-//             }
-//         };
-//
-//         let seq = reader.next_usize()?;
-//         // dbg!((agent, seq));
-//         cg.try_crdt_id_to_version(CRDTGuid { agent, seq })
-//             .ok_or(ParseError::InvalidLength)?
-//     })
-// }
 
 fn write_create_value<R: ExtendFromSlice>(result: &mut R, value: &CreateValue) {
     use crate::Primitive::*;
@@ -188,7 +105,7 @@ fn op_type(c: &OpContents) -> u32 {
 
 fn write_op<R: ExtendFromSlice>(result: &mut R, _content_out: &mut R,
             expect_time: LV, last_crdt_id: LV, pair: &KVPair<Op>,
-            _list_ctx: &ListOperationCtx, write_map: &WriteMap, cg: &CausalGraph)
+            _list_ctx: &ListOperationCtx, write_map: &mut WriteMap, cg: &CausalGraph)
 {
     let KVPair(time, op) = pair;
     debug_assert!(*time >= expect_time);
@@ -207,7 +124,7 @@ fn write_op<R: ExtendFromSlice>(result: &mut R, _content_out: &mut R,
     }
 
     if encode_crdt_id {
-        write_time(result, op.target_id, *time, write_map, cg);
+        write_time(result, op.target_id, *time, true, write_map, cg);
     }
 
     match &op.contents {
@@ -228,7 +145,7 @@ fn write_op<R: ExtendFromSlice>(result: &mut R, _content_out: &mut R,
             write_create_value(result, value);
         }
         OpContents::Collection(CollectionOp::Remove(target)) => {
-            write_time(result, *target, *time, write_map, cg);
+            write_time(result, *target, *time, true, write_map, cg);
         }
         OpContents::Text(_text_metrics) => {
             todo!();
@@ -237,7 +154,7 @@ fn write_op<R: ExtendFromSlice>(result: &mut R, _content_out: &mut R,
     }
 }
 
-pub(crate) fn write_ops<'a, I: Iterator<Item = KVPair<Op>>>(bump: &'a Bump, iter: I, first_time: LV, write_map: &WriteMap, ctx: &ListOperationCtx, cg: &CausalGraph) -> BumpVec<'a, u8> {
+pub(crate) fn write_ops<'a, I: Iterator<Item = KVPair<Op>>>(bump: &'a Bump, iter: I, first_time: LV, write_map: &mut WriteMap, ctx: &ListOperationCtx, cg: &CausalGraph) -> BumpVec<'a, u8> {
     let mut result = BumpVec::new_in(bump);
     let mut content_out = BumpVec::new_in(bump);
     let mut last_crdt_id = ROOT_CRDT_ID;

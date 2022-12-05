@@ -300,7 +300,7 @@ impl WriteAheadLog {
             write_cg_entry_iter(&mut cg_data, iter, &mut write_map, cg);
 
             let ops_iter = ops.ops.iter_range_ctx(range, &ops.list_ctx);
-            let ops = write_ops(bump, ops_iter, range.start, &write_map, &ops.list_ctx, cg);
+            let ops = write_ops(bump, ops_iter, range.start, &mut write_map, &ops.list_ctx, cg);
             // dbg!(&ops);
 
             push_chunk(buf, ChunkType::CausalGraph, &cg_data);
