@@ -92,12 +92,22 @@ impl WriteMap {
         // This is a little bit gross. This is a worst-case O(n^2) insertion, but its almost always
         // linear because of how data will actually be read and written.
         for KVPair(file_base, op_range) in read_map.txn_map.iter() {
-            let inverted = KVPair(op_range.start, (*file_base..*file_base+op_range.len()).into());
-            self.txn_map.insert(inverted);
+            self.insert_known(*op_range, *file_base);
+            // let inverted = KVPair(op_range.start, (*file_base..*file_base+op_range.len()).into());
+            // self.txn_map.insert(inverted);
         }
     }
 
-    pub(crate) fn map_no_root_mut<'c>(&mut self, client_data: &'c [ClientData], agent: AgentId, persist: bool) -> Result<AgentId, &'c str> {
+    pub(crate) fn insert_known(&mut self, local_range: DTRange, next_output_lv: LV) {
+        let output_range = (next_output_lv .. next_output_lv + local_range.len()).into();
+
+        // NOTE: We have to use .insert instead of .push here so the txn_map stays in the expected
+        // order! This will only be relevant if write() is called in a different order from the
+        // CG, which happens when we optimize the order.
+        self.txn_map.insert(KVPair(local_range.start, output_range));
+    }
+
+    pub(crate) fn map_mut<'c>(&mut self, client_data: &'c [ClientData], agent: AgentId, persist: bool) -> Result<AgentId, &'c str> {
         // debug_assert_ne!(agent, ROOT_AGENT);
 
         let agent = agent as usize;
@@ -122,7 +132,7 @@ impl WriteMap {
     ///
     /// Same as map_no_root_mut except this doesn't take the persist: bool flag and only takes
     /// &self.
-    pub(crate) fn map_no_root<'c>(&self, client_data: &'c [ClientData], agent: AgentId) -> Result<AgentId, &'c str> {
+    pub(crate) fn map<'c>(&self, client_data: &'c [ClientData], agent: AgentId) -> Result<AgentId, &'c str> {
         // debug_assert_ne!(agent, ROOT_AGENT);
 
         let agent = agent as usize;
@@ -146,15 +156,15 @@ impl WriteMap {
         isize_diff(span.start, old_seq)
     }
 
-    pub(crate) fn map_maybe_root_mut<'c>(&mut self, client_data: &'c [ClientData], agent: AgentId, persist: bool) -> Result<AgentId, &'c str> {
-        debug_assert_ne!(agent, AgentId::MAX);
-        self.map_no_root_mut(client_data, agent, persist).map(|a| a + 1)
-    }
-
-    pub(crate) fn map_maybe_root<'c>(&self, client_data: &'c [ClientData], agent: AgentId) -> Result<AgentId, &'c str> {
-        debug_assert_ne!(agent, AgentId::MAX);
-        self.map_no_root(client_data, agent).map(|a| a + 1)
-    }
+    // pub(crate) fn map_maybe_root_mut<'c>(&mut self, client_data: &'c [ClientData], agent: AgentId, persist: bool) -> Result<AgentId, &'c str> {
+    //     debug_assert_ne!(agent, AgentId::MAX);
+    //     self.map_no_root_mut(client_data, agent, persist).map(|a| a + 1)
+    // }
+    //
+    // pub(crate) fn map_maybe_root<'c>(&self, client_data: &'c [ClientData], agent: AgentId) -> Result<AgentId, &'c str> {
+    //     debug_assert_ne!(agent, AgentId::MAX);
+    //     self.map_no_root(client_data, agent).map(|a| a + 1)
+    // }
 
     // Check if the specified time is known by the txn map.
     pub(crate) fn txn_map_has(&self, time: LV) -> bool {

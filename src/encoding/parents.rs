@@ -17,7 +17,25 @@ use crate::frontier::sort_frontier;
 
 
 pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[LV], next_output_time: LV, persist: bool, write_map: &mut WriteMap, aa: &AgentAssignment) {
-    // And the parents.
+    // For parents we need to differentiate a few different cases:
+    // - The parents list is empty. This means the item is the first operation in its history.
+    // - If that isn't true, each item in parents is either:
+    //   1. A "local change" (part of this write map). We store the offset in the file / data set.
+    //   2. A "foreign change" with a known user agent. Mark the mapped user agent and the seq.
+    //   3. A foreign change with an unknown user agent. Write the agent string and offset.
+
+    // To express this, each item has 3 bits mixed in:
+    // 1. has_more (are there more entries in this list)
+    // 2. is_known (only if is_foreign). Is the agent known? If this is false, the number will
+    //    be followed by an agent name string.
+    // 3. is_foreign. Is the version part of the write_map? If so, we encode a delta. If false,
+    //    we encode the remote (mapped agent, seq) pair.
+
+    // An empty list (ROOT item) is encoded as (false, true, true) with mapped agent ID 0.
+    // A local item is encoded as (has_more, _, false).
+    // A foreign change with known agent is (has_more, true, true) with mapped agent ID 1+mapped.
+    // A foreign change with unknown agent is (has_more, false, true) followed by the agent string.
+
     if parents.is_empty() {
         // Parenting off the root is special-cased, because its rare in practice (well,
         // usually exactly 1 item will have the parents as root). We'll write a single dummy
@@ -26,7 +44,7 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
 
         // push_usize(result, 2);
         // let mapped_agent = 0, has_more = false, is_foreign = true, is_known = true, first = true -> val = 3.
-        push_u32(result, 3);
+        push_u32(result, 0b011);
     } else {
         let mut iter = parents.iter().peekable();
         // let mut first = true;
@@ -38,6 +56,7 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
             // TODO: Rewrite to share write_time from op encoding.
 
             let mut write_parent_diff = |mut n: usize, is_foreign: bool, is_known: bool| {
+                dbg!(n, is_foreign, is_known);
                 n = mix_bit_usize(n, has_more);
                 if is_foreign {
                     n = mix_bit_usize(n, is_known);
@@ -66,7 +85,9 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
                 // println!("Region does not contain parent for {}", p);
 
                 let item = aa.lv_to_agent_version(p);
-                let mapped_agent = write_map.map_maybe_root_mut(&aa.client_data, item.0, persist);
+                // I'm using maybe_root here not because item.0 is ever ROOT, but because we're
+                // special casing mapped agent 0 to express an empty parents list above.
+                let mapped_agent = write_map.map_mut(&aa.client_data, item.0, persist);
 
                 // There are probably more compact ways to do this, but the txn data set is
                 // usually quite small anyway, even in large histories. And most parents objects
@@ -75,14 +96,14 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
                 match mapped_agent {
                     Ok(mapped_agent) => {
                         // If the parent is ROOT, the parents is empty - which is handled above.
-                        debug_assert!(mapped_agent >= 1);
-                        write_parent_diff(mapped_agent as usize, true, true);
+                        write_parent_diff(mapped_agent as usize + 1, true, true);
                     }
                     Err(name) => {
                         write_parent_diff(0, true, false);
                         push_str(result, name);
                     }
                 }
+                // And the sequence number.
                 push_usize(result, item.1);
             }
         }
@@ -91,7 +112,7 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
 
 // *** Read path ***
 
-pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_time: LV, read_map: &mut ReadMap) -> Result<Frontier, ParseError> {
+pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, next_time: LV, read_map: &mut ReadMap) -> Result<Frontier, ParseError> {
     let mut parents = SmallVec::<[LV; 2]>::new();
 
     loop {
@@ -120,7 +141,7 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
             let agent = if !is_known {
                 if n != 0 { return Err(ParseError::GenericInvalidData); }
                 let agent_name = reader.next_str()?;
-                let agent = cg.agent_assignment.get_or_create_agent_id(agent_name);
+                let agent = aa.get_or_create_agent_id(agent_name);
                 if persist {
                     read_map.agent_map.push((agent, 0));
                 }
@@ -139,8 +160,7 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
             };
 
             let seq = reader.next_usize()?;
-            // dbg!((agent, seq));
-            cg.agent_assignment.try_agent_version_to_lv((agent, seq))
+            aa.try_agent_version_to_lv((agent, seq))
                 .ok_or(ParseError::InvalidLength)?
         };
 
@@ -157,4 +177,63 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, cg: &mut C
     sort_frontier(&mut parents);
 
     Ok(Frontier(parents))
+}
+
+#[cfg(test)]
+mod test {
+    use crate::CausalGraph;
+    use crate::causalgraph::agent_assignment::AgentAssignment;
+    use crate::encoding::bufparser::BufParser;
+    use crate::encoding::map::{ReadMap, WriteMap};
+    use crate::encoding::parents::{read_parents_raw, write_parents_raw};
+    use crate::rle::KVPair;
+
+    #[test]
+    fn round_trip_items() {
+        // We'll write each of the variants.
+        let mut result = vec![];
+        let mut write_map = WriteMap::new();
+        let mut aa = AgentAssignment::new();
+        let seph = aa.get_or_create_agent_id("seph");
+        aa.assign_next_time_to_client_known(seph, (0..10).into());
+        // Item 1: A ROOT item:
+        write_parents_raw(&mut result, &[], 0, true, &mut write_map, &aa);
+
+        // Item 2: An item with a foreign agent name. (Actually the 6 here has a known agent name):
+        write_parents_raw(&mut result, &[5, 6], 10, true, &mut write_map, &aa);
+
+        // Item 3: An item with a known agent name:
+        write_parents_raw(&mut result, &[0, 1], 20, true, &mut write_map, &aa);
+
+        // Item 4: A local item:
+        write_map.insert_known((0..10).into(), 0);
+        write_parents_raw(&mut result, &[3, 8], 30, true, &mut write_map, &aa);
+
+        let mut aa_out = AgentAssignment::new();
+        let george = aa_out.get_or_create_agent_id("george");
+        aa_out.assign_next_time_to_client_known(george, (0..100).into());
+
+        let mut read_map = ReadMap::new();
+
+        let mut reader = BufParser(&result);
+
+        // 1. ROOT
+        let frontier = read_parents_raw(&mut reader, true, &mut aa_out, 0, &mut read_map).unwrap();
+        assert!(frontier.is_root());
+
+        // 2. Foreign agent
+        let seph = aa_out.get_or_create_agent_id("seph");
+        aa_out.assign_next_time_to_client_known(seph, (100..110).into());
+        let frontier = read_parents_raw(&mut reader, true, &mut aa_out, 10, &mut read_map).unwrap();
+        assert_eq!(frontier.as_ref(), &[105, 106]);
+
+        // 3. Known agent (local changes):
+        let frontier = read_parents_raw(&mut reader, true, &mut aa_out, 20, &mut read_map).unwrap();
+        assert_eq!(frontier.as_ref(), &[100, 101]);
+
+        // 4. Local changes
+        read_map.txn_map.push(KVPair(0, (100..110).into()));
+        let frontier = read_parents_raw(&mut reader, true, &mut aa_out, 30, &mut read_map).unwrap();
+        assert_eq!(frontier.as_ref(), &[103, 108]);
+    }
 }

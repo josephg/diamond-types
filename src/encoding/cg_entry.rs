@@ -24,7 +24,7 @@ pub(crate) fn write_cg_aa<R: ExtendFromSlice>(result: &mut R, write_parents: boo
     // - Or the same agent made concurrent changes to multiple branches. The operations may
     //   be reordered to any order which obeys the time dag's partial order.
 
-    let mapped_agent = agent_map.map_no_root_mut(&aa.client_data, span.agent, persist);
+    let mapped_agent = agent_map.map_mut(&aa.client_data, span.agent, persist);
     let delta = agent_map.seq_delta(span.agent, span.seq_range, persist);
 
     // I tried adding an extra bit field to mark len != 1 - so we can skip encoding the
@@ -68,14 +68,11 @@ pub(crate) fn write_cg_entry<R: ExtendFromSlice>(result: &mut R, data: &CGEntry,
     // Keep the txn map up to date. This is only needed for parents, and it maps from local time
     // values -> output time values (the order in the file). This lets the file be ordered
     // differently from the local time.
-    let next_output_time = write_map.txn_map.last_entry().map_or(0, |last| last.1.end);
-    let output_range = (next_output_time .. next_output_time + data.len()).into();
+    let next_output_time = write_map.txn_map.end();
 
     if persist {
-        // NOTE: We have to use .insert instead of .push here so the txn_map stays in the expected
-        // order! This will only be relevant if write() is called in a different order from the
-        // CG, which happens when we optimize the order.
-        write_map.txn_map.insert(KVPair(data.start, output_range));
+        // This is a bit of an inefficient API. Might be better to pass start / len.
+        write_map.insert_known(data.time_span(), next_output_time);
     }
 
     // We always write the agent assignment info.
@@ -88,8 +85,8 @@ pub(crate) fn write_cg_entry<R: ExtendFromSlice>(result: &mut R, data: &CGEntry,
     }
 }
 
-fn read_cg_aa(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap)
-    -> Result<(bool, AgentSpan), ParseError>
+fn read_cg_aa(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, read_map: &mut ReadMap)
+              -> Result<(bool, AgentSpan), ParseError>
 {
     // Bits are:
     // has_parents
@@ -108,7 +105,7 @@ fn read_cg_aa(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_
     let (agent, last_seq, idx) = if !is_known {
         if mapped_agent != 0 { return Err(ParseError::GenericInvalidData); }
         let agent_name = reader.next_str()?;
-        let agent = cg.agent_assignment.get_or_create_agent_id(agent_name);
+        let agent = aa.get_or_create_agent_id(agent_name);
         let idx = read_map.agent_map.len();
         if persist {
             read_map.agent_map.push((agent, 0));
@@ -147,12 +144,12 @@ fn isize_try_add(x: usize, y: isize) -> Option<usize> {
 }
 
 /// NOTE: This does not put the returned data into the causal graph, or update read_map's txn_map.
-fn read_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_file_time: LV, read_map: &mut ReadMap) -> Result<(Frontier, AgentSpan), ParseError> {
+fn read_raw(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, next_file_time: LV, read_map: &mut ReadMap) -> Result<(Frontier, AgentSpan), ParseError> {
     // First we have agent assignment, then optional parents.
-    let (has_parents, span) = read_cg_aa(reader, persist, cg, read_map)?;
+    let (has_parents, span) = read_cg_aa(reader, persist, aa, read_map)?;
 
     let parents = if has_parents {
-        read_parents_raw(reader, persist, cg, next_file_time, read_map)?
+        read_parents_raw(reader, persist, aa, next_file_time, read_map)?
     } else {
         let last_time = read_map.last_time().ok_or(ParseError::GenericInvalidData)?;
         Frontier::new_1(last_time)
@@ -167,7 +164,7 @@ fn read_raw(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, next_fi
 /// contiguous in the causal graph.
 pub(crate) fn read_cg_entry_into_cg_nonoverlapping(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<CGEntry, ParseError> {
     let next_file_time = read_map.len();
-    let (parents, span) = read_raw(reader, persist, cg, next_file_time, read_map)?;
+    let (parents, span) = read_raw(reader, persist, &mut cg.agent_assignment, next_file_time, read_map)?;
     let merged_span = cg.merge_and_assign_nonoverlapping(parents.as_ref(), span);
 
     if persist {
@@ -183,7 +180,7 @@ pub(crate) fn read_cg_entry_into_cg_nonoverlapping(reader: &mut BufParser, persi
 
 pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<(), ParseError> {
     let mut next_file_time = read_map.len();
-    let (parents, span) = read_raw(reader, persist, cg, next_file_time, read_map)?;
+    let (parents, span) = read_raw(reader, persist, &mut cg.agent_assignment, next_file_time, read_map)?;
 
     // Save it into the causal graph, and update
     let merged_span = cg.merge_and_assign(parents.as_ref(), span);

@@ -7,7 +7,7 @@ use crate::encoding::bufparser::BufParser;
 use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::{ExtendFromSlice, push_str, push_u32, push_u64, push_usize};
-use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64, strip_bit_u32, strip_bit_u32_2, strip_bit_usize_2};
+use crate::encoding::varint::{mix_bit_u32, mix_bit_u64, mix_bit_usize, num_encode_zigzag_i64, strip_bit_u32, strip_bit_u32_2, strip_bit_usize_2};
 use crate::list::operation::ListOpKind;
 use crate::ROOT_CRDT_ID;
 use crate::rle::RleSpanHelpers;
@@ -18,40 +18,83 @@ fn write_time<R: ExtendFromSlice>(result: &mut R, time: LV, ref_time: LV, write_
     // This code is adapted from parents encoding.
     // TODO: Generalize this to reuse it in both places.
 
-    let mut write_parent_diff = |mut n: usize, is_foreign: bool, is_known: bool| {
-        if is_foreign {
-            n = mix_bit_usize(n, is_known);
-        }
-        n = mix_bit_usize(n, is_foreign);
-        push_usize(result, n);
-    };
-
     // Parents are either local or foreign. Local changes are changes we've written
     // (already) to the file. And foreign changes are changes that point outside the
     // local part of the DAG we're sending.
     //
     // Most parents will be local.
 
+    let mut write_n = |mut n: u64, is_foreign: bool| {
+        n = mix_bit_u64(n, is_foreign);
+        push_u64(result, n);
+    };
+
     if let Some((map, offset)) = write_map.txn_map.find_with_offset(time) {
         // Local change
         let mapped_parent = map.1.start + offset;
-        write_parent_diff(ref_time - mapped_parent, false, true);
+        write_n((ref_time - mapped_parent) as u64, false);
     } else {
         // Foreign change
         let item = cg.agent_assignment.lv_to_agent_version(time);
 
-        match write_map.map_maybe_root(&cg.agent_assignment.client_data, item.0) {
+        match write_map.map(&cg.agent_assignment.client_data, item.0) {
             Ok(mapped_agent) => {
-                write_parent_diff(mapped_agent as usize, true, true);
+                let mut n = mapped_agent as u64;
+                n = mix_bit_u64(n + 1, true);
+                write_n(n, true);
             }
             Err(name) => {
-                write_parent_diff(0, true, false);
+                // n = 0 + is_known (0) = 0.
+                write_n(0, true);
                 push_str(result, name);
             }
         }
+
+        // And write the sequence number.
         push_usize(result, item.1);
     }
 }
+
+// fn write_time<R: ExtendFromSlice>(result: &mut R, time: LV, ref_time: LV, write_map: &WriteMap, cg: &CausalGraph) {
+//     debug_assert!(ref_time >= time);
+//
+//     // This code is adapted from parents encoding.
+//     // TODO: Generalize this to reuse it in both places.
+//
+//     let mut write_parent_diff = |mut n: usize, is_foreign: bool, is_known: bool| {
+//         if is_foreign {
+//             n = mix_bit_usize(n, is_known);
+//         }
+//         n = mix_bit_usize(n, is_foreign);
+//         push_usize(result, n);
+//     };
+//
+//     // Parents are either local or foreign. Local changes are changes we've written
+//     // (already) to the file. And foreign changes are changes that point outside the
+//     // local part of the DAG we're sending.
+//     //
+//     // Most parents will be local.
+//
+//     if let Some((map, offset)) = write_map.txn_map.find_with_offset(time) {
+//         // Local change
+//         let mapped_parent = map.1.start + offset;
+//         write_parent_diff(ref_time - mapped_parent, false, true);
+//     } else {
+//         // Foreign change
+//         let item = cg.agent_assignment.lv_to_agent_version(time);
+//
+//         match write_map.map_maybe_root(&cg.agent_assignment.client_data, item.0) {
+//             Ok(mapped_agent) => {
+//                 write_parent_diff(mapped_agent as usize, true, true);
+//             }
+//             Err(name) => {
+//                 write_parent_diff(0, true, false);
+//                 push_str(result, name);
+//             }
+//         }
+//         push_usize(result, item.1);
+//     }
+// }
 
 // fn read_time(reader: &mut BufParser, read_map: &mut ReadMap, cg: &CausalGraph, next_time: Time) -> Result<Time, ParseError> {
 //     // TODO: Unify this with parents.read_parents_raw
