@@ -71,6 +71,7 @@ impl HasLength for ListOpMetrics {
 }
 
 #[derive(Clone, Eq, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub(crate) struct ListOperationCtx {
     pub(crate) ins_content: Vec<u8>,
     pub(crate) del_content: Vec<u8>,

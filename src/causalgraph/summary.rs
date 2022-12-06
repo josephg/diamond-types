@@ -322,7 +322,7 @@ mod tests {
             seq_range: (15..20).into()
         });
 
-        let summary = cg.summarize_versions();
+        let summary = cg.agent_assignment.summarize_versions();
         let s = serde_json::to_string(&summary).unwrap();
 
         let summary2: VersionSummary = serde_json::from_str(&s).unwrap();
