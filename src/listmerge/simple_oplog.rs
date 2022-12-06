@@ -4,6 +4,7 @@ use smartstring::SmartString;
 use rle::HasLength;
 use crate::list::operation::TextOperation;
 use crate::{CausalGraph, Frontier, LV};
+use crate::causalgraph::graph::Graph;
 use crate::experiments::TextInfo;
 use crate::list::op_iter::{OpIterFast, OpMetricsIter};
 use crate::unicount::count_chars;
@@ -40,7 +41,7 @@ impl SimpleOpLog {
         let agent = self.cg.get_or_create_agent_id(agent_name);
         let len = op.len();
         let range = self.cg.assign_local_op(agent, len);
-        self.info.push_op(op, range);
+        self.info.local_push_op(op, range);
         range.last()
     }
 
@@ -48,7 +49,7 @@ impl SimpleOpLog {
         let agent = self.cg.get_or_create_agent_id(agent_name);
         let len = op.len();
         let range = self.cg.assign_local_op_with_parents(parents, agent, len);
-        self.info.push_op(op, range);
+        self.info.remote_push_op(op, range, parents, &self.cg.graph);
         range.last()
     }
 

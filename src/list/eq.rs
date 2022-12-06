@@ -15,8 +15,8 @@ use crate::frontier::sort_frontier;
 use crate::causalgraph::graph::GraphEntrySimple;
 use crate::rle::KVPair;
 
-// const VERBOSE: bool = true;
-const VERBOSE: bool = false;
+const VERBOSE: bool = true;
+// const VERBOSE: bool = false;
 
 impl PartialEq<Self> for ListOpLog {
     fn eq(&self, other: &Self) -> bool {
@@ -113,7 +113,7 @@ impl PartialEq<Self> for ListOpLog {
                 // Lets take a look at the operation.
                 let (KVPair(_, other_op_int), offset) = other.operations.find_packed_with_offset(other_time);
 
-                let mut other_op = other_op_int.to_operation(other);
+                let mut other_op = other_op_int.to_operation(&other.operation_ctx);
                 if offset > 0 { other_op.truncate_keeping_right(offset); }
 
                 // Although op is contiguous, and all in a run from the same agent, the same isn't

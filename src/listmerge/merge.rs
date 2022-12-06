@@ -901,7 +901,7 @@ impl TextInfo {
                 (ListOpKind::Ins, BaseMoved(pos)) => {
                     // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                     debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
-                    let content = origin_op.get_content_ctx(&self.ctx).unwrap();
+                    let content = origin_op.get_content(&self.ctx).unwrap();
                     assert!(pos <= into.len_chars());
                     if origin_op.loc.fwd {
                         into.insert(pos, content);
@@ -941,7 +941,7 @@ mod test {
     #[test]
     fn test_ff() {
         let mut list = SimpleOpLog::new();
-        list.add_insert_at("a", &[], 0, "aaa");
+        list.add_insert("a", 0, "aaa");
 
         let mut result = JumpRopeBuf::new();
         list.merge_raw(&mut result, &[], &[1]);
@@ -953,9 +953,9 @@ mod test {
     #[test]
     fn test_ff_goop() {
         let mut list = SimpleOpLog::new();
-        list.add_insert_at("a", &[], 0, "a");
-        let v = list.goop(5);
-        list.add_insert_at("a", &[v], 1, "bb");
+        list.add_insert("a", 0, "a");
+        list.goop(5);
+        list.add_insert("a", 1, "bb");
 
         let mut result = JumpRopeBuf::new();
         let f1 = list.merge_raw(&mut result, &[], &[5]);
@@ -1125,11 +1125,10 @@ mod test {
     #[test]
     fn backspace() {
         let mut list = SimpleOpLog::new();
-        let mut t;
-        t = list.add_insert_at("seph", &[], 0, "abc"); // 2
-        t = list.add_delete_at("seph", &[t], 2..3); // 3 -> "ab_"
-        t = list.add_delete_at("seph", &[t], 1..2); // 4 -> "a__"
-        t = list.add_delete_at("seph", &[t], 0..1); // 5 -> "___"
+        list.add_insert("seph", 0, "abc"); // 2
+        list.add_delete("seph", 2..3); // 3 -> "ab_"
+        list.add_delete("seph", 1..2); // 4 -> "a__"
+        let t = list.add_delete("seph", 0..1); // 5 -> "___"
         assert_eq!(t, 5);
 
         let mut t = M2Tracker::new();

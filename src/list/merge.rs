@@ -31,7 +31,7 @@ impl ListOpLog {
                 let op: Option<TextOperation> = match xf {
                     BaseMoved(base) => {
                         origin_op.loc.span = (base..base+len).into();
-                        let content = origin_op.get_content(self);
+                        let content = origin_op.get_content(&self.operation_ctx);
                         Some((origin_op, content).into())
                     }
                     DeleteAlreadyHappened => None,
@@ -62,7 +62,7 @@ impl ListBranch {
                 (ListOpKind::Ins, BaseMoved(pos)) => {
                     // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                     debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
-                    let content = origin_op.get_content(oplog).unwrap();
+                    let content = origin_op.get_content(&oplog.operation_ctx).unwrap();
                     assert!(pos <= self.content.len_chars());
                     if origin_op.loc.fwd {
                         self.content.insert(pos, content);

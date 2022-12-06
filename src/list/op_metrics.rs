@@ -52,20 +52,14 @@ impl ListOpMetrics {
         self.loc.span.end
     }
 
-    pub(crate) fn get_content_ctx<'a>(&self, ctx: &'a ListOperationCtx) -> Option<&'a str> {
+    pub(crate) fn get_content<'a>(&self, ctx: &'a ListOperationCtx) -> Option<&'a str> {
         self.content_pos.map(|span| {
             ctx.get_str(self.kind, span)
         })
     }
 
-    pub(crate) fn get_content<'a>(&self, oplog: &'a ListOpLog) -> Option<&'a str> {
-        self.content_pos.map(|span| {
-            oplog.operation_ctx.get_str(self.kind, span)
-        })
-    }
-
-    pub(crate) fn to_operation(&self, oplog: &ListOpLog) -> TextOperation {
-        let content = self.get_content(oplog);
+    pub(crate) fn to_operation(&self, ctx: &ListOperationCtx) -> TextOperation {
+        let content = self.get_content(ctx);
         (self, content).into()
     }
 }

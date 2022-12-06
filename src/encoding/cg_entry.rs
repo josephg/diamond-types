@@ -178,7 +178,7 @@ pub(crate) fn read_cg_entry_into_cg_nonoverlapping(reader: &mut BufParser, persi
     })
 }
 
-pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<(), ParseError> {
+pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<DTRange, ParseError> {
     let mut next_file_time = read_map.len();
     let (parents, span) = read_raw(reader, persist, &mut cg.agent_assignment, next_file_time, read_map)?;
 
@@ -204,7 +204,7 @@ pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &
         }
     }
 
-    Ok(())
+    Ok(merged_span)
 }
 
 pub(crate) fn write_cg_entry_iter<'a, I: Iterator<Item=CGEntry>, R: ExtendFromSlice>(result: &mut R, iter: I, write_map: &mut WriteMap, cg: &CausalGraph) {

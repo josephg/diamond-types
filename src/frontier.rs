@@ -1,4 +1,5 @@
 use std::borrow::{Borrow, BorrowMut};
+use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::mem::replace;
 use std::ops::{Index, IndexMut};
@@ -8,6 +9,7 @@ use crate::dtrange::DTRange;
 use crate::LV;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use crate::causalgraph::graph::tools::{DiffFlag, DiffResult};
 
 /// A `LocalFrontier` is a set of local Time values which point at the set of changes with no
 /// children at this point in time. When there's a single writer this will always just be the last
@@ -63,18 +65,41 @@ impl IndexMut<usize> for Frontier {
     }
 }
 
-pub(crate) fn frontier_is_sorted(f: FrontierRef) -> bool {
-    // self.0.borrow().is_sorted()
-    // For debugging.
-    if f.len() >= 2 {
-        let mut last = f[0];
-        for t in &f[1..] {
-            debug_assert!(*t != last);
-            if last > *t { return false; }
+// Helper method. Not sure where to put this.
+pub(crate) fn is_sorted_iter<const EXPECT_UNIQ: bool, V: Ord + Eq + Debug, I: Iterator<Item = V>>(mut iter: I) -> bool {
+    let Some(mut last) = iter.next() else { return true; };
+
+    for i in iter {
+        if EXPECT_UNIQ {
+            debug_assert_ne!(i, last);
+        }
+        if i <= last { return false; }
+        last = i;
+    }
+
+    true
+}
+pub(crate) fn is_sorted_iter_uniq<V: Ord + Eq + Debug, I: Iterator<Item = V>>(iter: I) -> bool {
+    is_sorted_iter::<true, V, I>(iter)
+}
+
+pub(crate) fn is_sorted_slice<const EXPECT_UNIQ: bool, V: Ord + Eq + Debug + Copy>(slice: &[V]) -> bool {
+    if slice.len() >= 2 {
+        let mut last = slice[0];
+        for t in &slice[1..] {
+            if EXPECT_UNIQ {
+                debug_assert!(*t != last);
+            }
+            if last >= *t { return false; }
             last = *t;
         }
     }
     true
+}
+
+pub(crate) fn frontier_is_sorted(f: FrontierRef) -> bool {
+    // is_sorted_iter(f.iter().copied())
+    is_sorted_slice::<true, _>(f)
 }
 
 pub(crate) fn debug_assert_frontier_sorted(frontier: FrontierRef) {
@@ -167,9 +192,10 @@ impl Frontier {
 
     /// Advance a frontier by the set of time spans in range
     pub fn advance(&mut self, graph: &Graph, mut range: DTRange) {
-        let mut txn_idx = graph.0.find_index(range.start).unwrap();
-        while !range.is_empty() {
-            let txn = &graph.0[txn_idx];
+        // This is a little crass. Might be nicer to use a &T iterator in RLEVec.
+        let txn_idx = graph.0.find_index(range.start).unwrap();
+
+        for txn in &graph.0[txn_idx..] {
             debug_assert!(txn.contains(range.start));
 
             let end = txn.span.end.min(range.end);
@@ -177,10 +203,40 @@ impl Frontier {
                 self.advance_by_known_run(parents, (range.start..end).into());
             });
 
+            if end >= range.end { break; }
             range.start = end;
-            // The txns are in order, so we're guaranteed that subsequent ranges will be in subsequent
-            // txns in the list.
-            txn_idx += 1;
+        }
+    }
+
+    /// Just like advance_by_known_run, the range MUST be in a single transaction in the graph.
+    pub fn advance_sparse_known_run(&mut self, graph: &Graph, parents: &[LV], range: DTRange) {
+        // Could copy the other cases from advance_by_known_run... eh.
+        if self.as_ref() == parents {
+            // Fastest path. We're just extending the span.
+            self.replace_with_1(range.last());
+        } else {
+            // We'll probably still replace the version with range.last(), but there's some edge
+            // cases for find_dominators to figure out.
+            self.0 = graph.find_dominators_2(self.as_ref(), &[range.last()]).0;
+        }
+    }
+
+    pub fn advance_sparse(&mut self, graph: &Graph, range: DTRange) {
+        let txn_idx = graph.0.find_index(range.start).unwrap();
+        let first_txn = &graph.0[txn_idx];
+        if first_txn.span.end >= range.end {
+            // Fast path.
+            first_txn.with_parents(range.start, |parents| {
+                self.advance_sparse_known_run(graph, parents, range);
+            })
+        } else {
+            // This is a lot more complicated than I'd like, but I think its the fastest approach
+            // here. We'll make a frontier from from the transactions within the range, then merge
+            // that with the current frontier.
+            let mut f2 = Frontier::root();
+            f2.advance(graph, range); // This is a bit cheeky, but the result should be correct.
+            // And merge that together. This will usually just return f2.
+            self.0 = graph.find_dominators_2(self.as_ref(), f2.as_ref()).0;
         }
     }
 
@@ -208,8 +264,10 @@ impl Frontier {
 
             self.0.retain(|o| !parents.contains(o)); // Usually removes all elements.
 
-            // In order to maintain the order of items in the branch, we want to insert the new item in the
-            // appropriate place.
+            // In order to maintain the order of items in the branch, we want to insert the new item
+            // in the appropriate place. This will almost always do self.0.push(), but when changes
+            // are concurrent that won't be correct. (Do it and run the tests if you don't believe
+            // me).
             // TODO: Check if its faster to try and append it to the end first.
             self.insert_nonoverlapping(span.last());
         }
@@ -320,6 +378,64 @@ pub fn local_frontier_is_root(branch: &[LV]) -> bool {
     branch.is_empty()
 }
 
+
+// This walks both frontiers and finds how the frontier has changed. There's probably a better way
+// to implement this.
+struct FrontierDiff<'a> {
+    a: &'a [LV],
+    b: &'a [LV],
+}
+
+pub(crate) fn diff_frontier_entries<'a>(a: &'a [LV], b: &'a [LV]) -> impl Iterator<Item = (DiffFlag, LV)> + 'a {
+    FrontierDiff { a, b }
+}
+
+
+fn slice_take_first<'a>(slice: &mut &[LV]) -> Option<LV> {
+    if let [first, tail @ ..] = slice {
+        *slice = tail;
+        Some(*first)
+    } else { None }
+}
+
+impl<'a> Iterator for FrontierDiff<'a> {
+    type Item = (DiffFlag, LV);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match (self.a.split_first(), self.b.split_first()) {
+            (None, None) => None,
+            (Some((a, rest)), None) => {
+                self.a = rest;
+                Some((DiffFlag::OnlyA, *a))
+            },
+            (None, Some((b, rest))) => {
+                self.b = rest;
+                Some((DiffFlag::OnlyB, *b))
+            },
+            (Some((a, a_rest)), Some((b, b_rest))) => {
+                match a.cmp(b) {
+                    Ordering::Equal => {
+                        // Take from both.
+                        self.a = a_rest;
+                        self.b = b_rest;
+                        Some((DiffFlag::Shared, *a))
+                    }
+                    Ordering::Less => {
+                        // Take from a.
+                        self.a = a_rest;
+                        Some((DiffFlag::OnlyA, *a))
+                    }
+                    Ordering::Greater => {
+                        // Take from b.
+                        self.b = b_rest;
+                        Some((DiffFlag::OnlyB, *a))
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// This method clones a version or parents vector. Its slightly faster and smaller than just
 /// calling v.clone() directly.
 #[inline]
@@ -359,24 +475,24 @@ mod test {
         branch.advance_by_known_run(&[], (0..10).into());
         assert_eq!(branch.as_ref(), &[9]);
 
-        let parents = Graph::from_entries(&[
+        let graph = Graph::from_entries(&[
             GraphEntryInternal {
                 span: (0..10).into(), shadow: 0,
                 parents: Frontier::root(),
             }
         ]);
-        parents.dbg_check(true);
+        graph.dbg_check(true);
 
-        branch.retreat(&parents, (5..10).into());
+        branch.retreat(&graph, (5..10).into());
         assert_eq!(branch.as_ref(), &[4]);
 
-        branch.retreat(&parents, (0..5).into());
+        branch.retreat(&graph, (0..5).into());
         assert!(branch.is_root());
     }
 
     #[test]
     fn frontier_stays_sorted() {
-        let parents = Graph::from_entries(&[
+        let graph = Graph::from_entries(&[
             GraphEntryInternal {
                 span: (0..2).into(), shadow: 0,
                 parents: Frontier::root(),
@@ -390,19 +506,50 @@ mod test {
                 parents: Frontier::new_1(0),
             },
         ]);
-        parents.dbg_check(true);
+        graph.dbg_check(true);
 
         let mut branch: Frontier = Frontier::from_sorted(&[1, 10]);
-        branch.advance(&parents, (2..4).into());
+        branch.advance(&graph, (2..4).into());
         assert_eq!(branch.as_ref(), &[1, 3, 10]);
 
-        branch.advance(&parents, (11..12).into());
+        branch.advance(&graph, (11..12).into());
         assert_eq!(branch.as_ref(), &[1, 3, 11]);
 
-        branch.retreat(&parents, (2..4).into());
+        branch.retreat(&graph, (2..4).into());
         assert_eq!(branch.as_ref(), &[1, 11]);
 
-        branch.retreat(&parents, (11..12).into());
+        branch.retreat(&graph, (11..12).into());
         assert_eq!(branch.as_ref(), &[1, 10]);
+    }
+
+    #[test]
+    fn advance_sparse() {
+        let graph = Graph::from_entries(&[
+            GraphEntryInternal {
+                span: (0..10).into(), shadow: 0,
+                parents: Frontier::root(),
+            },
+            GraphEntryInternal {
+                span: (10..20).into(), shadow: 10,
+                parents: Frontier::new_1(5),
+            },
+            // GraphEntryInternal {
+            //     span: (6..50).into(), shadow: 6,
+            //     parents: Frontier::new_1(0),
+            // },
+        ]);
+        graph.dbg_check(true);
+
+        // This isn't thorough, but should be good enough.
+        let mut f = Frontier::root();
+        f.advance_sparse(&graph, (0..5).into());
+        // Should only include subgraph items
+        assert_eq!(f.as_ref(), &[4]);
+
+        f.advance_sparse(&graph, (7..8).into());
+        assert_eq!(f.as_ref(), &[7]);
+
+        f.advance_sparse(&graph, (9..15).into());
+        assert_eq!(f.as_ref(), &[9, 14]);
     }
 }

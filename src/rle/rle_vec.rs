@@ -504,10 +504,11 @@ fn id_clone<V: Clone>(v: &V) -> V {
     v.clone()
 }
 
-
-
 // We could just use .iter().map() - and thats pretty sensible in most cases. But this inline
 // approach lets us avoid a .clone(). (Is this a good idea? Not sure!)
+//
+// TODO: Could split this into two iterators - one to iterate through (Range, &V) and another
+// which wraps that, and clones and splits.
 #[derive(Debug, Clone)]
 pub struct RleVecRangeIter<'a, V: HasRleKey + HasLength, I: SplitableSpanCtx, F: Fn(&V) -> I> {
     inner_iter: std::slice::Iter<'a, V>,

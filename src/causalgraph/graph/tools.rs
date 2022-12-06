@@ -70,6 +70,12 @@ impl Graph {
         //     || (a != ROOT_TIME && a > b && self.0.find(a).unwrap().contains(b))
     }
 
+    /// Compare two versions and figure out how they relate.
+    ///
+    /// * If the operations are concurrent, this returns `None`.
+    /// * If they're numerically equal it returns `Some(Equal)`.
+    /// * Otherwise it returns `Some(Greater)` or `Some(Lesser)` depending on which operation
+    ///   dominates the other.
     pub fn version_cmp(&self, v1: LV, v2: LV) -> Option<Ordering> {
         match v1.cmp(&v2) {
             Ordering::Equal => Some(Ordering::Equal),
@@ -545,6 +551,7 @@ impl Graph {
                 Some(Ordering::Greater) => Frontier::new_1(a)
             };
         }
+        // Could do some more fast path things here using version_contains_time() if v_1 / v_2.len == 1.
 
         let first_v = v_1[0].min(v_2[0]);
 
