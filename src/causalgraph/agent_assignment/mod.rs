@@ -47,15 +47,7 @@ pub struct AgentAssignment {
 
 impl ClientData {
     pub fn get_next_seq(&self) -> usize {
-        // Equivalent to this. I'm not sure which I prefer...
-        // self.item_times
-        //     .last()
-        //     .map(|last| last.end())
-        //     .unwrap_or(0)
-
-        if let Some(last) = self.item_times.last_entry() {
-            last.end()
-        } else { 0 }
+        self.item_times.end()
     }
 
     pub fn is_empty(&self) -> bool {

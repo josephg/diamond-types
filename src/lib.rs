@@ -225,7 +225,7 @@ mod wal;
 #[cfg(feature = "serde")]
 pub(crate) mod serde_helpers;
 mod hack;
-pub(crate) mod experiments;
+pub mod experiments;
 
 // TODO: Make me private!
 pub mod listmerge;

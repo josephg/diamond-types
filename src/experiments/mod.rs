@@ -16,7 +16,7 @@ use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::TextOperation;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 #[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::encoding::parseerror::ParseError;
@@ -102,8 +102,8 @@ impl TextInfo {
 
 
 #[derive(Debug, Clone, Default)]
-struct ExperimentalOpLog {
-    cg: CausalGraph,
+pub struct ExperimentalOpLog {
+    pub cg: CausalGraph,
 
     // TODO: Vec -> SmallVec.
     registers: BTreeMap<LVKey, RegisterInfo>,
@@ -132,6 +132,13 @@ struct ExperimentalOpLog {
 enum RegisterValue {
     Primitive(Primitive),
     OwnedCRDT(CRDTKind, LVKey),
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for ExperimentalOpLog {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        self.changes_since(&[]).serialize(serializer)
+    }
 }
 
 impl ExperimentalOpLog {
@@ -402,7 +409,7 @@ impl ExperimentalOpLog {
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-struct SerializedChanges<'a> {
+pub struct SerializedChanges<'a> {
     cg_changes: Vec<u8>,
 
     // The version of the op, and the name of the containing CRDT.
@@ -621,6 +628,12 @@ mod tests {
         let kaarina = oplog2.cg.get_or_create_agent_id("kaarina");
         let title = oplog2.local_map_set(kaarina, ROOT_CRDT_ID, "title", CreateValue::NewCRDT(CRDTKind::Text));
         oplog2.local_text_op(kaarina, title, TextOperation::new_insert(0, "Better keep it clean"));
+
+
+        // let c = oplog1.changes_since(&[]);
+        // dbg!(serde_json::to_string(&c).unwrap());
+        // let c = oplog2.changes_since(&[]);
+        // dbg!(serde_json::to_string(&c).unwrap());
 
         oplog2.merge_ops(oplog1.changes_since(&[])).unwrap();
         oplog2.dbg_check(true);

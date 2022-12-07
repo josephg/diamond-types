@@ -41,6 +41,12 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
 
     /// Returns past the end of the last key.
     pub fn end(&self) -> usize where V: HasRleKey {
+        // Equivalent to this. I'm not sure which I prefer...
+        // self.item_times
+        //     .last()
+        //     .map(|last| last.end())
+        //     .unwrap_or(0)
+
         if let Some(v) = self.last_entry() {
             v.end()
         } else {
