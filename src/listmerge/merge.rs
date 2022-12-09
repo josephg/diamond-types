@@ -10,6 +10,7 @@ use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
 use content_tree::*;
 use rle::{AppendRle, HasLength, MergeableIterator, Searchable, Trim, TrimCtx};
+use rle::intersect::{rle_intersect_rev, rle_intersect_rev_first};
 use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
@@ -36,7 +37,7 @@ use crate::list::op_iter::OpMetricsIter;
 use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpanOwned;
 use crate::causalgraph::graph::Graph;
 use crate::experiments::TextInfo;
-use crate::frontier::{FrontierRef, local_frontier_eq};
+use crate::frontier::local_frontier_eq;
 #[cfg(feature = "ops_to_old")]
 use crate::listmerge::to_old::OldCRDTOpInternal;
 use crate::unicount::consume_chars;
@@ -597,7 +598,7 @@ pub(crate) struct TransformedOpsIter<'a> {
 }
 
 impl<'a> TransformedOpsIter<'a> {
-    pub(crate) fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>, from_frontier: FrontierRef, merge_frontier: FrontierRef) -> Self {
+    pub(crate) fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>, from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
         // 1. Find the parent set of the spans to merge
@@ -653,6 +654,92 @@ impl<'a> TransformedOpsIter<'a> {
         self.next_frontier
     }
 }
+
+// #[derive(Debug)]
+// struct FlattenedOps {
+//     common_ancestor: Frontier,
+//     conflict_ops: SmallVec<[DTRange; 4]>,
+//     new_ops: SmallVec<[DTRange; 4]>,
+//     from_frontier: Frontier,
+//     merge_frontier: Frontier,
+// }
+//
+// impl FlattenedOps {
+//     fn new_from_subgraph(cg: &CausalGraph, from_frontier: &[LV], merge_frontier: &[LV], ops: &RleVec<KVPair<ListOpMetrics>>) -> Result<(Graph, Self), Frontier> {
+//         // This is a big dirty mess for now, but it should be correct at least.
+//         let global_conflict_zone = cg.graph.find_conflicting_simple(from_frontier, merge_frontier);
+//         let earliest = global_conflict_zone.common_ancestor.0.get(0).copied().unwrap_or(0);
+//
+//         let final_frontier_global = cg.graph.find_dominators_2(from_frontier, merge_frontier);
+//         // if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
+//
+//         // We actually only need the ops in intersection b
+//         let op_spans = ops.iter().map(|e| e.span())
+//             .rev()
+//             // .merge_spans_rev()
+//             .take_while(|r| r.end > earliest);
+//         // let iter = rle_intersect_rev_first(op_spans, global_conflict_zone.rev_spans.iter().copied());
+//         let iter = op_spans;
+//
+//         let (subgraph, _ff) = cg.graph.subgraph_raw(iter.clone(), final_frontier_global.as_ref());
+//
+//         // println!("{}", subgraph.0.0.len());
+//         // subgraph.dbg_check_subgraph(true); // For debugging.
+//         // dbg!(&subgraph, ff.as_ref());
+//
+//         let from_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), from_frontier);
+//         let merge_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), merge_frontier);
+//
+//         let mut new_ops: SmallVec<[DTRange; 4]> = smallvec![];
+//         let mut conflict_ops: SmallVec<[DTRange; 4]> = smallvec![];
+//
+//         // Process the conflicting edits again, this time just scanning the subgraph.
+//         let common_ancestor = subgraph.find_conflicting(from_frontier.as_ref(), merge_frontier.as_ref(), |span, flag| {
+//             // Note we'll be visiting these operations in reverse order.
+//             let target = match flag {
+//                 DiffFlag::OnlyB => &mut new_ops,
+//                 _ => &mut conflict_ops
+//             };
+//             target.push_reversed_rle(span);
+//         });
+//         // dbg!(&common_ancestor);
+//
+//         let final_frontier_subgraph = subgraph.find_dominators_2(from_frontier.as_ref(), merge_frontier.as_ref());
+//         if final_frontier_subgraph == from_frontier { return Result::Err(final_frontier_global); } // Nothing to do! Just an optimization... Not sure if its necessary.
+//
+//         // dbg!(ops.iter().map(|e| e.span())
+//         //     .rev()
+//         //     .take_while(|r| r.end > earliest).collect::<Vec<_>>());
+//         // dbg!(&subgraph);
+//         // dbg!(&new_ops);
+//
+//         Result::Ok((subgraph, Self {
+//             from_frontier,
+//             merge_frontier,
+//             common_ancestor,
+//             conflict_ops,
+//             new_ops,
+//         }))
+//     }
+//
+//     fn iter<'a>(self, subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>) -> TransformedOpsIter<'a> {
+//         TransformedOpsIter {
+//             subgraph,
+//             aa,
+//             op_ctx,
+//             ops,
+//             op_iter: None,
+//             ff_mode: true,
+//             did_ff: false,
+//             merge_frontier: self.merge_frontier,
+//             common_ancestor: self.common_ancestor,
+//             conflict_ops: self.conflict_ops,
+//             new_ops: self.new_ops,
+//             next_frontier: self.from_frontier,
+//             phase2: None,
+//         }
+//     }
+// }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TransformedResult {
@@ -835,55 +922,28 @@ pub fn reverse_str(s: &str) -> SmartString {
 }
 
 impl TextInfo {
-    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Graph, aa: &'a AgentAssignment, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter<'a> {
+    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Graph, aa: &'a AgentAssignment, from: &[LV], merging: &[LV]) -> TransformedOpsIter<'a> {
         TransformedOpsIter::new(subgraph, aa, &self.ctx, &self.ops, from, merging)
     }
 
-    // /// Iterate through all the *transformed* operations from some point in time. Internally, the
-    // /// OpLog stores all changes as they were when they were created. This makes a lot of sense from
-    // /// CRDT academic point of view (and makes signatures and all that easy). But its is rarely
-    // /// useful for a text editor.
-    // ///
-    // /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
-    // /// changes that could be applied linearly to a document to bring it up to date.
-    // pub fn iter_xf_operations_from<'a>(&'a self, cg: &'a CausalGraph, from: FrontierRef, merging: FrontierRef) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + 'a {
-    //     TransformedOpsIter::new(cg, self, from, merging)
-    //         .map(|(lv, mut origin_op, xf)| {
-    //             let len = origin_op.len();
-    //             let op: Option<TextOperation> = match xf {
-    //                 BaseMoved(base) => {
-    //                     origin_op.loc.span = (base..base+len).into();
-    //                     let content = origin_op.get_content_ctx(&self.ctx);
-    //                     Some((origin_op, content).into())
-    //                 }
-    //                 DeleteAlreadyHappened => None,
-    //             };
-    //             ((lv..lv +len).into(), op)
-    //         })
-    // }
-
-    // /// Get all transformed operations from the start of time.
-    // ///
-    // /// This is a shorthand for `oplog.get_xf_operations(&[], oplog.local_version)`, but
-    // /// I hope that future optimizations make this method way faster.
-    // ///
-    // /// See [OpLog::iter_xf_operations_from](OpLog::iter_xf_operations_from) for more information.
-    // pub fn iter_xf_operations<'a>(&'a self, cg: &'a CausalGraph) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + 'a {
-    //     self.iter_xf_operations_from(cg, &[], cg.version.as_ref())
-    // }
-
-    /// Add everything in merge_frontier into the set..
-    pub fn merge_into(&self, into: &mut JumpRopeBuf, cg: &CausalGraph, from: FrontierRef, merge_frontier: FrontierRef) -> Frontier {
+    pub(crate) fn with_xf_iter<F: FnOnce(TransformedOpsIter, Frontier) -> R, R>(&self, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV], f: F) -> R {
         // This is a big dirty mess for now, but it should be correct at least.
-        let common = cg.graph.find_conflicting_simple(from, merge_frontier).common_ancestor;
-        let earliest = common.0.get(0).copied().unwrap_or(0);
+        let conflict = cg.graph.find_conflicting_simple(from, merge_frontier);
 
         let final_frontier = cg.graph.find_dominators_2(from, merge_frontier);
-        if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
+        // if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
 
-        let iter = self.ops.iter().map(|e| e.span())
+        let op_spans = self.ops.iter().map(|e| e.span())
             .rev()
-            .take_while(|r| r.end > earliest);
+            .merge_spans_rev();
+
+        // We create the subgraph from operations which intersect:
+        // - The graph passed in
+        // - The conflict zone between from -> merge_frontier
+        // - The operations on this text document
+        let iter = rle_intersect_rev(op_spans, conflict.rev_spans.iter().copied())
+            .map(|(a, _)| a);
+
         let (subgraph, _ff) = cg.graph.subgraph_raw(iter.clone(), final_frontier.as_ref());
 
         // println!("{}", subgraph.0.0.len());
@@ -894,38 +954,115 @@ impl TextInfo {
         let merge_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), merge_frontier);
 
         // let mut iter = TransformedOpsIter::new(oplog, &self.frontier, merge_frontier);
-        let mut iter = self.get_xf_operations_full(&subgraph, &cg.agent_assignment, from.as_ref(), merge_frontier.as_ref());
+        let iter = self.get_xf_operations_full(&subgraph, &cg.agent_assignment, from.as_ref(), merge_frontier.as_ref());
+        f(iter, final_frontier)
+    }
 
-        for (_lv, origin_op, xf) in &mut iter {
-            match (origin_op.kind, xf) {
-                (ListOpKind::Ins, BaseMoved(pos)) => {
-                    // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
-                    debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
-                    let content = origin_op.get_content(&self.ctx).unwrap();
-                    assert!(pos <= into.len_chars());
-                    if origin_op.loc.fwd {
-                        into.insert(pos, content);
-                    } else {
-                        // We need to insert the content in reverse order.
-                        let c = reverse_str(content);
-                        into.insert(pos, &c);
+    /// Iterate through all the *transformed* operations from some point in time. Internally, the
+    /// OpLog stores all changes as they were when they were created. This makes a lot of sense from
+    /// CRDT academic point of view (and makes signatures and all that easy). But its is rarely
+    /// useful for a text editor.
+    ///
+    /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
+    /// changes that could be applied linearly to a document to bring it up to date.
+    pub fn xf_operations_from<'a>(&'a self, cg: &'a CausalGraph, from: &[LV], merging: &[LV]) -> Vec<(DTRange, Option<TextOperation>)> {
+        self.with_xf_iter(cg, from, merging, |iter, _| {
+            iter.map(|(lv, mut origin_op, xf)| {
+                let len = origin_op.len();
+                let op: Option<TextOperation> = match xf {
+                    BaseMoved(base) => {
+                        origin_op.loc.span = (base..base+len).into();
+                        let content = origin_op.get_content(&self.ctx);
+                        Some((origin_op, content).into())
+                    }
+                    DeleteAlreadyHappened => None,
+                };
+                ((lv..lv + len).into(), op)
+            }).collect()
+        })
+    }
+
+    /// Get all transformed operations from the start of time.
+    ///
+    /// This is a shorthand for `oplog.xf_operations_from(&[], oplog.local_version)`, but
+    /// I hope that future optimizations make this method way faster.
+    pub fn iter_xf_operations<'a>(&'a self, cg: &'a CausalGraph) -> Vec<(DTRange, Option<TextOperation>)> {
+        self.xf_operations_from(&cg, &[], cg.version.as_ref())
+    }
+
+    /// Add everything in merge_frontier into the set..
+    pub fn merge_into(&self, into: &mut JumpRopeBuf, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV]) -> Frontier {
+        self.with_xf_iter(cg, from, merge_frontier, |iter, final_frontier| {
+            for (_lv, origin_op, xf) in iter {
+                match (origin_op.kind, xf) {
+                    (ListOpKind::Ins, BaseMoved(pos)) => {
+                        // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
+                        debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
+                        let content = origin_op.get_content(&self.ctx).unwrap();
+                        assert!(pos <= into.len_chars());
+                        if origin_op.loc.fwd {
+                            into.insert(pos, content);
+                        } else {
+                            // We need to insert the content in reverse order.
+                            let c = reverse_str(content);
+                            into.insert(pos, &c);
+                        }
+                    }
+
+                    (_, DeleteAlreadyHappened) => {}, // Discard.
+
+                    (ListOpKind::Del, BaseMoved(pos)) => {
+                        let del_end = pos + origin_op.len();
+                        debug_assert!(into.len_chars() >= del_end);
+                        // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
+                        into.remove(pos..del_end);
                     }
                 }
-
-                (_, DeleteAlreadyHappened) => {}, // Discard.
-
-                (ListOpKind::Del, BaseMoved(pos)) => {
-                    let del_end = pos + origin_op.len();
-                    debug_assert!(into.len_chars() >= del_end);
-                    // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
-                    into.remove(pos..del_end);
-                }
             }
-        }
 
-        // iter.into_frontier()
-        final_frontier
+            // iter.into_frontier()
+            final_frontier
+        })
     }
+
+
+    // /// Add everything in merge_frontier into the set..
+    // pub fn merge_into(&self, into: &mut JumpRopeBuf, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV]) -> Frontier {
+    //     let (graph, flat) = match FlattenedOps::new_from_subgraph(cg, from, merge_frontier, &self.ops) {
+    //         Ok(flat) => { flat }
+    //         Err(final_frontier) => { return final_frontier; }
+    //     };
+    //
+    //     let mut iter = flat.iter(&graph, &cg.agent_assignment, &self.ctx, &self.ops);
+    //     for (_lv, origin_op, xf) in &mut iter {
+    //         match (origin_op.kind, xf) {
+    //             (ListOpKind::Ins, BaseMoved(pos)) => {
+    //                 // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
+    //                 debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
+    //                 let content = origin_op.get_content(&self.ctx).unwrap();
+    //                 assert!(pos <= into.len_chars());
+    //                 if origin_op.loc.fwd {
+    //                     into.insert(pos, content);
+    //                 } else {
+    //                     // We need to insert the content in reverse order.
+    //                     let c = reverse_str(content);
+    //                     into.insert(pos, &c);
+    //                 }
+    //             }
+    //
+    //             (_, DeleteAlreadyHappened) => {}, // Discard.
+    //
+    //             (ListOpKind::Del, BaseMoved(pos)) => {
+    //                 let del_end = pos + origin_op.len();
+    //                 debug_assert!(into.len_chars() >= del_end);
+    //                 // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
+    //                 into.remove(pos..del_end);
+    //             }
+    //         }
+    //     }
+    //
+    //     iter.into_frontier()
+    // }
 }
 
 #[cfg(test)]

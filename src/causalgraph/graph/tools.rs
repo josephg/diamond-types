@@ -479,19 +479,19 @@ impl Graph {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ConflictZone {
     pub(crate) common_ancestor: Frontier,
-    pub(crate) spans: SmallVec<[DTRange; 4]>,
+    pub(crate) rev_spans: SmallVec<[DTRange; 4]>,
 }
 
 impl Graph {
     // Turns out I'm not finding this variant useful. Might be worth discarding it?
     #[allow(unused)]
     pub(crate) fn find_conflicting_simple(&self, a: &[LV], b: &[LV]) -> ConflictZone {
-        let mut spans = smallvec![];
+        let mut rev_spans = smallvec![];
         let common_ancestor = self.find_conflicting(a, b, |span, _flag| {
-            spans.push_reversed_rle(span);
+            rev_spans.push_reversed_rle(span);
         });
 
-        ConflictZone { common_ancestor, spans }
+        ConflictZone { common_ancestor, rev_spans }
     }
 
     /// This is a variant of find_dominators_full for larger sets of versions - eg for all the

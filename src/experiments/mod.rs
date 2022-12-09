@@ -137,7 +137,7 @@ enum RegisterValue {
 #[cfg(feature = "serde")]
 impl Serialize for ExperimentalOpLog {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-        self.changes_since(&[]).serialize(serializer)
+        self.ops_since(&[]).serialize(serializer)
     }
 }
 
@@ -409,7 +409,7 @@ impl ExperimentalOpLog {
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct SerializedChanges<'a> {
+pub struct SerializedOps<'a> {
     cg_changes: Vec<u8>,
 
     // The version of the op, and the name of the containing CRDT.
@@ -433,10 +433,16 @@ impl ExperimentalOpLog {
         else { self.cg.agent_assignment.remote_to_local_version(crdt_rv) }
     }
 
-    pub fn changes_since(&self, since_version: &[LV]) -> SerializedChanges {
+    // pub fn xf_text_changes_since(&self, text_item: LVKey, since_frontier: &[LV]) {
+    //     let crdt = self.texts.get(&text_item).unwrap();
+    //
+    //     crdt.iter_xf_operations_from(&sel)
+    // }
+
+    pub fn ops_since(&self, since_frontier: &[LV]) -> SerializedOps {
         let mut write_map = WriteMap::with_capacity_from(&self.cg.agent_assignment.client_data);
 
-        let diff = self.cg.graph.diff(since_version, self.cg.version.as_ref()).1;
+        let diff = self.cg.graph.diff(since_frontier, self.cg.version.as_ref()).1;
         // let bump = Bump::new();
         // let mut result = bumpalo::collections::Vec::new_in(&bump);
         let mut cg_changes = Vec::new();
@@ -513,7 +519,7 @@ impl ExperimentalOpLog {
         // And changes from text edits
 
 
-        SerializedChanges {
+        SerializedOps {
             cg_changes,
             map_ops,
             text_ops,
@@ -528,7 +534,7 @@ impl ExperimentalOpLog {
     }
 
 
-    pub fn merge_ops(&mut self, changes: SerializedChanges) -> Result<(), ParseError> {
+    pub fn merge_ops(&mut self, changes: SerializedOps) -> Result<(), ParseError> {
         let mut read_map = ReadMap::new();
         let new_range = read_cg_entry_into_cg(&mut BufParser(&changes.cg_changes), true, &mut self.cg, &mut read_map)?;
         // dbg!(read_map);
@@ -603,7 +609,7 @@ mod tests {
         // dbg!(oplog.changes_since(&[title]));
 
 
-        let c = oplog.changes_since(&[]);
+        let c = oplog.ops_since(&[]);
         let mut oplog_2 = ExperimentalOpLog::new();
         oplog_2.merge_ops(c).unwrap();
         assert_eq!(oplog_2.cg, oplog.cg);
@@ -635,10 +641,10 @@ mod tests {
         // let c = oplog2.changes_since(&[]);
         // dbg!(serde_json::to_string(&c).unwrap());
 
-        oplog2.merge_ops(oplog1.changes_since(&[])).unwrap();
+        oplog2.merge_ops(oplog1.ops_since(&[])).unwrap();
         oplog2.dbg_check(true);
 
-        oplog1.merge_ops(oplog2.changes_since(&[])).unwrap();
+        oplog1.merge_ops(oplog2.ops_since(&[])).unwrap();
         oplog1.dbg_check(true);
 
         // dbg!(oplog1.checkout());

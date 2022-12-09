@@ -23,9 +23,7 @@ impl ListOpLog {
     /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
     /// changes that could be applied linearly to a document to bring it up to date.
     pub fn iter_xf_operations_from(&self, from: FrontierRef, merging: FrontierRef) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
-        TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
-                                &self.operation_ctx, &self.operations,
-                                from, merging)
+        self.get_xf_operations_full(from, merging)
             .map(|(lv, mut origin_op, xf)| {
                 let len = origin_op.len();
                 let op: Option<TextOperation> = match xf {

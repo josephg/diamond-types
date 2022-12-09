@@ -137,6 +137,14 @@ fn fuzz_once_quietly_new() {
 
 #[test]
 #[ignore]
+fn fuzz_dirty_benchmark() {
+    for k in 0..100 {
+        merge_fuzz(k, false);
+    }
+}
+
+#[test]
+#[ignore]
 fn fuzz_once() {
     merge_fuzz(2000 + 32106, true);
 }

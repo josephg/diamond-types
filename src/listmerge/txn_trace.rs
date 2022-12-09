@@ -516,9 +516,9 @@ mod test {
         let conflict = history.find_conflicting_simple(&[5], &[6]);
         assert_eq!(conflict, ConflictZone {
             common_ancestor: Frontier(smallvec![5]),
-            spans: smallvec![(6..7).into()],
+            rev_spans: smallvec![(6..7).into()],
         });
-        let iter = SpanningTreeWalker::new(&history, &conflict.spans, conflict.common_ancestor);
+        let iter = SpanningTreeWalker::new(&history, &conflict.rev_spans, conflict.common_ancestor);
         // dbg!(&iter);
 
         assert!(iter.eq(IntoIterator::into_iter([
