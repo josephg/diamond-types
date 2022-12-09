@@ -259,6 +259,12 @@ impl<T: Clone> MergableSpan for Single<T> {
     fn append(&mut self, _other: Self) { panic!("Cannot append to single sized item"); }
 }
 
+// impl<T: HasRleKey> HasRleKey for ReverseSpan<T> {
+//     // You might think we need to reverse this or something, but I don't think thats generally true.
+//     fn rle_key(&self) -> usize {
+//         self.0.rle_key()
+//     }
+// }
 impl<S: HasLength> HasLength for ReverseSpan<S> {
     fn len(&self) -> usize { self.0.len() }
 }
