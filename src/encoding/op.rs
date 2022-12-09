@@ -42,7 +42,7 @@ fn write_time<R: ExtendFromSlice>(result: &mut R, time: LV, ref_time: LV, persis
         write_n((ref_time - mapped_parent) as u64, false);
     } else {
         // Foreign change
-        let item = cg.agent_assignment.lv_to_agent_version(time);
+        let item = cg.agent_assignment.local_to_agent_version(time);
 
         // Foreign items are encoded as:
         // - unknown agent: 0, followed by agent name.

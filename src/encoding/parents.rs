@@ -78,7 +78,7 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
                 // Foreign change
                 // println!("Region does not contain parent for {}", p);
 
-                let item = aa.lv_to_agent_version(p);
+                let item = aa.local_to_agent_version(p);
                 // I'm using maybe_root here not because item.0 is ever ROOT, but because we're
                 // special casing mapped agent 0 to express an empty parents list above.
                 let mapped_agent = write_map.map_mut(&aa.client_data, item.0, persist);

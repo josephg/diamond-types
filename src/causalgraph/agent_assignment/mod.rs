@@ -115,12 +115,12 @@ impl AgentAssignment {
         self.client_with_localtime.is_empty()
     }
 
-    pub(crate) fn lv_to_agent_version(&self, version: LV) -> AgentVersion {
+    pub fn local_to_agent_version(&self, version: LV) -> AgentVersion {
         debug_assert_ne!(version, usize::MAX);
         self.client_with_localtime.get(version)
     }
 
-    pub(crate) fn lv_span_to_agent_span(&self, version: DTRange) -> AgentSpan {
+    pub(crate) fn local_span_to_agent_span(&self, version: DTRange) -> AgentSpan {
         debug_assert_ne!(version.start, usize::MAX);
 
         let (loc, offset) = self.client_with_localtime.find_packed_with_offset(version.start);
@@ -156,7 +156,7 @@ impl AgentAssignment {
     }
 
     /// This is used to break ties.
-    pub(crate) fn tie_break_crdt_versions(&self, v1: AgentVersion, v2: AgentVersion) -> Ordering {
+    pub fn tie_break_agent_versions(&self, v1: AgentVersion, v2: AgentVersion) -> Ordering {
         if v1 == v2 { Ordering::Equal }
         else {
             let c1 = &self.client_data[v1.0 as usize];
@@ -167,12 +167,12 @@ impl AgentAssignment {
         }
     }
 
-    pub(crate) fn tie_break_versions(&self, v1: LV, v2: LV) -> Ordering {
+    pub fn tie_break_versions(&self, v1: LV, v2: LV) -> Ordering {
         if v1 == v2 { Ordering::Equal }
         else {
-            self.tie_break_crdt_versions(
-                self.lv_to_agent_version(v1),
-                self.lv_to_agent_version(v2)
+            self.tie_break_agent_versions(
+                self.local_to_agent_version(v1),
+                self.local_to_agent_version(v2)
             )
         }
     }

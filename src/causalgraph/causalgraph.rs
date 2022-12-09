@@ -3,6 +3,7 @@ use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
 use rle::zip::rle_zip;
 use crate::{AgentId, CausalGraph, LV};
 use crate::causalgraph::*;
+use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteFrontierOwned};
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::graph::GraphEntrySimple;
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
@@ -207,6 +208,14 @@ impl CausalGraph {
                 span
             }
         })
+    }
+
+    pub fn remote_frontier(&self) -> RemoteFrontier {
+        self.agent_assignment.local_to_remote_frontier(self.version.as_ref())
+    }
+
+    pub fn remote_frontier_owned(&self) -> RemoteFrontierOwned {
+        self.agent_assignment.local_to_remote_frontier_owned(self.version.as_ref())
     }
 
     #[allow(unused)]

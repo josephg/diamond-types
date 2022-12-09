@@ -58,7 +58,7 @@ impl ListOpLog {
     }
 
     pub(crate) fn lv_to_agent_version(&self, lv: LV) -> AgentVersion {
-        self.cg.agent_assignment.lv_to_agent_version(lv)
+        self.cg.agent_assignment.local_to_agent_version(lv)
     }
 
     #[allow(unused)]
@@ -81,7 +81,7 @@ impl ListOpLog {
     /// resulting length will NOT be guaranteed to be the same as the input.
     pub(crate) fn lv_span_to_agent_span(&self, version: DTRange) -> AgentSpan {
         // TODO: Move to cg.
-        self.cg.agent_assignment.lv_span_to_agent_span(version)
+        self.cg.agent_assignment.local_span_to_agent_span(version)
     }
 
     // pub(crate) fn get_time(&self, loc: CRDTId) -> usize {

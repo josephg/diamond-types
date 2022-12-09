@@ -60,7 +60,7 @@ impl PartialEq<Self> for CausalGraph {
         }
 
         let map_lv_to_other = |t: LV| -> Option<LV> {
-            let mut av = self.agent_assignment.lv_to_agent_version(t);
+            let mut av = self.agent_assignment.local_to_agent_version(t);
             av.0 = agent_a_to_b[av.0 as usize];
             other.agent_assignment.try_agent_version_to_lv(av)
         };

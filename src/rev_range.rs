@@ -17,10 +17,8 @@ use serde::{Deserialize};
 /// This is *not true* for example with delete operations, where:
 ///     (Del 0..10) + (Del 0..10) = (Del 0..20)
 #[derive(Copy, Clone, Debug, Eq, Default)] // Default needed for ContentTree.
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-pub struct RangeRev {
+pub struct RangeRev { // Serialize / Deserialize is implemented in serde_helpers.
     /// The inner span.
-    #[cfg_attr(feature = "serde", serde(flatten))]
     pub span: DTRange,
 
     /// If target is `1..4` then we either reference `1,2,3` (rev=false) or `3,2,1` (rev=true).
@@ -227,5 +225,12 @@ mod test {
                 // assert_eq!(span.offset_at_time())
             }
         }
+    }
+
+    #[cfg(all(feature = "serde", feature = "serde_json"))]
+    #[test]
+    fn serde_deserialize() {
+        let line = r#"{"start":0,"end":8,"fwd":true}"#;
+        let _x: RangeRev = serde_json::from_str(&line).unwrap();
     }
 }

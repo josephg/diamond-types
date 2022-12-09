@@ -354,9 +354,9 @@ impl ExperimentalOpLog {
             1 => reg.supremum[0],
             _ => {
                 reg.supremum.iter()
-                    .map(|s| (*s, self.cg.agent_assignment.lv_to_agent_version(reg.ops[*s].0)))
+                    .map(|s| (*s, self.cg.agent_assignment.local_to_agent_version(reg.ops[*s].0)))
                     .max_by(|(_, a), (_, b)| {
-                        self.cg.agent_assignment.tie_break_crdt_versions(*a, *b)
+                        self.cg.agent_assignment.tie_break_agent_versions(*a, *b)
                     })
                     .unwrap().0
             }
@@ -404,6 +404,46 @@ impl ExperimentalOpLog {
 
     pub fn checkout(&self) -> BTreeMap<SmartString, Box<DTValue>> {
         self.checkout_map(ROOT_CRDT_ID)
+    }
+
+    pub fn crdt_at_path(&self, path: &[&str]) -> (CRDTKind, LVKey) {
+        let mut kind = CRDTKind::Map;
+        let mut key = ROOT_CRDT_ID;
+
+        for p in path {
+            match kind {
+                CRDTKind::Map => {
+                    let container = self.map_keys.get(&(key, (*p).into()))
+                        .unwrap();
+                    match self.resolve_mv(container) {
+                        RegisterValue::Primitive(_) => {
+                            panic!("Found primitive, not CRDT");
+                        }
+                        RegisterValue::OwnedCRDT(new_kind, new_key) => {
+                            kind = new_kind;
+                            key = new_key;
+                        }
+                    }
+                }
+                _ => {
+                    panic!("Invalid path in document");
+                }
+            }
+        }
+
+        (kind, key)
+    }
+
+    pub fn text_at_path(&self, path: &[&str]) -> LVKey {
+        let (kind, key) = self.crdt_at_path(path);
+        if kind != CRDTKind::Text {
+            panic!("Unexpected CRDT kind {:?}", kind);
+        } else { key }
+    }
+
+    pub fn text_changes_since(&self, text: LVKey, since_frontier: &[LV]) -> Vec<(DTRange, Option<TextOperation>)> {
+        let info = self.texts.get(&text).unwrap();
+        info.xf_operations_from(&self.cg, since_frontier, self.cg.version.as_ref())
     }
 }
 
@@ -568,10 +608,17 @@ impl ExperimentalOpLog {
     }
 }
 
+
+
+
 #[cfg(test)]
 mod tests {
-    use crate::experiments::ExperimentalOpLog;
+    #[cfg(feature = "serde")]
+    use serde::{Deserialize, Serialize};
+    use crate::experiments::{ExperimentalOpLog, SerializedOps};
     use crate::{CRDTKind, CreateValue, Primitive, ROOT_CRDT_ID};
+    use crate::causalgraph::agent_assignment::remote_ids::RemoteVersion;
+    use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
     use crate::list::operation::TextOperation;
 
     #[test]
@@ -650,6 +697,8 @@ mod tests {
         // dbg!(oplog1.checkout());
         // dbg!(oplog2.checkout());
         assert_eq!(oplog1.checkout(), oplog2.checkout());
+
+        dbg!(oplog1.crdt_at_path(&["title"]));
     }
 
     #[test]
@@ -663,5 +712,38 @@ mod tests {
 
         dbg!(oplog.checkout());
         oplog.dbg_check(true);
+    }
+
+
+
+
+
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_stuff() {
+        // let line = r##"{"type":"DocsDelta","deltas":[[["RUWYEZu",0],{"cg_changes":[1,6,83,67,72,69,77,65,10,1],"map_ops":[[["ROOT",0],["SCHEMA",9],"content",{"NewCRDT":"Text"}],[["ROOT",0],["SCHEMA",0],"title",{"NewCRDT":"Text"}]],"text_ops":[[["SCHEMA",0],["SCHEMA",1],{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}]],"text_context":{"ins_content":[85,110,116,105,116,108,101,100],"del_content":[]}}]]}"##;
+        // let line = r##"{"cg_changes":[1,6,83,67,72,69,77,65,10,1],"map_ops":[[["ROOT",0],["SCHEMA",9],"content",{"NewCRDT":"Text"}],[["ROOT",0],["SCHEMA",0],"title",{"NewCRDT":"Text"}]],"text_ops":[[["SCHEMA",0],["SCHEMA",1],{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}]],"text_context":{"ins_content":[85,110,116,105,116,108,101,100],"del_content":[]}}"##;
+        //
+        // let msg: SerializedOps = serde_json::from_str(&line).unwrap();
+
+        #[derive(Debug, Clone)]
+        #[derive(Serialize, Deserialize)]
+        pub struct SS {
+            // cg_changes: Vec<u8>,
+
+            // The version of the op, and the name of the containing CRDT.
+            // map_ops: Vec<(RemoteVersion<'a>, RemoteVersion<'a>, &'a str, CreateValue)>,
+            // text_ops: Vec<ListOpMetrics>,
+            // text_context: ListOperationCtx,
+        }
+
+        // let line = r#"{"cg_changes":[1,6,83,67,72,69,77,65,10,1],"map_ops":[[["ROOT",0],["SCHEMA",9],"content",{"NewCRDT":"Text"}],[["ROOT",0],["SCHEMA",0],"title",{"NewCRDT":"Text"}]],"text_ops":[[["SCHEMA",0],["SCHEMA",1],{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}]],"text_context":{"ins_content":[85,110,116,105,116,108,101,100],"del_content":[]}}"#;
+        // let x: SS = serde_json::from_str(&line).unwrap();
+        // let line = r#"{"text_ops":[{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}]}"#;
+        // let x: SS = serde_json::from_str(&line).unwrap();
+        let line = r#"{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}"#;
+        let _x: ListOpMetrics = serde_json::from_str(&line).unwrap();
+
     }
 }

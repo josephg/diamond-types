@@ -432,7 +432,7 @@ mod tests {
         ]);
 
         let (frontier, remainder) = cg.intersect_with_summary(&vs, &[]);
-        assert_eq!(frontier.as_ref(), &[]);
+        assert!(frontier.is_empty());
         assert_eq!(remainder.as_ref(), Some(&vs));
 
         cg.get_or_create_agent_id("mike");

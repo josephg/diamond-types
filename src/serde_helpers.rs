@@ -1,4 +1,7 @@
-use serde::{Deserialize, Serialize, Serializer};
+use std::fmt;
+use std::fmt::Formatter;
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::de::{MapAccess, SeqAccess, Visitor};
 // use serde::de::{EnumAccess, Error, MapAccess, SeqAccess};
 use serde::ser::SerializeStruct;
 // use serde::de::Visitor;
@@ -6,7 +9,6 @@ use crate::rev_range::RangeRev;
 use smartstring::alias::String as SmartString;
 use crate::dtrange::DTRange;
 
-#[cfg(feature = "serde")]
 pub(crate) trait FlattenSerializable {
     fn struct_name() -> &'static str;
     fn num_serialized_fields() -> usize;
@@ -20,14 +22,83 @@ pub(crate) trait FlattenSerializable {
 }
 
 // I can't use the default flattening code because bleh.
-#[cfg(feature = "serde")]
 impl Serialize for RangeRev {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         self.serialize_struct(serializer)
     }
 }
 
-#[cfg(feature = "serde")]
+// This is sooo looong. I just wanted RangeRev.span to be inlined :(
+impl<'de> Deserialize<'de> for RangeRev {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field { Start, End, Fwd }
+
+        struct DurationVisitor;
+
+        impl<'de> Visitor<'de> for DurationVisitor {
+            type Value = RangeRev;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct RangeRev")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<RangeRev, V::Error>
+                where
+                    V: SeqAccess<'de>,
+            {
+                let start = seq.next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let end = seq.next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let fwd = seq.next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                Ok(RangeRev { span: (start..end).into(), fwd })
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<RangeRev, V::Error>
+                where
+                    V: MapAccess<'de>,
+            {
+                let mut start = None;
+                let mut end = None;
+                let mut fwd = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Start => {
+                            if start.is_some() {
+                                return Err(de::Error::duplicate_field("start"));
+                            }
+                            start = Some(map.next_value()?);
+                        }
+                        Field::End => {
+                            if end.is_some() {
+                                return Err(de::Error::duplicate_field("end"));
+                            }
+                            end = Some(map.next_value()?);
+                        }
+                        Field::Fwd => {
+                            if fwd.is_some() {
+                                return Err(de::Error::duplicate_field("fwd"));
+                            }
+                            fwd = Some(map.next_value()?);
+                        }
+                    }
+                }
+                let start = start.ok_or_else(|| de::Error::missing_field("start"))?;
+                let end = end.ok_or_else(|| de::Error::missing_field("end"))?;
+                let fwd = fwd.ok_or_else(|| de::Error::missing_field("fwd"))?;
+                Ok(RangeRev { span: (start..end).into(), fwd })
+            }
+        }
+
+        const FIELDS: &'static [&'static str] = &["start", "end", "fwd"];
+        deserializer.deserialize_struct("Duration", FIELDS, DurationVisitor)
+        // deserializer.deserialize_struct("RangeRev", &["start", "end", "fwd"], RangeRevVisitor)
+    }
+}
+
 impl FlattenSerializable for RangeRev {
     fn struct_name() -> &'static str {
         "TimeSpanRev"
@@ -47,7 +118,7 @@ impl FlattenSerializable for RangeRev {
 
 /// This is used to flatten `[agent, seq]` into a tuple for serde serialization.
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Serialize, Deserialize)]
 pub(crate) struct DTRangeTuple(usize, usize); // from, to.
 
 impl From<DTRangeTuple> for DTRange {
@@ -63,7 +134,7 @@ impl From<DTRange> for DTRangeTuple {
 
 
 
-// #[cfg(feature = "serde")]
+
 // impl<'de> Deserialize<'de> for TimeSpanRev {
 //     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
 //         struct V;

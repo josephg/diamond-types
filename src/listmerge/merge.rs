@@ -188,7 +188,7 @@ impl M2Tracker {
                     if item.origin_right == other_entry.origin_right {
                         // Origin_right matches. Items are concurrent. Order by agent names.
                         let my_name = aa.get_agent_name(agent);
-                        let (other_agent, other_seq) = aa.lv_to_agent_version(other_lv);
+                        let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
                         let other_name = aa.get_agent_name(other_agent);
 
                         // Its possible for a user to conflict with themself if they commit to
@@ -201,7 +201,7 @@ impl M2Tracker {
                                 // consistent in that case.
                                 //
                                 // We could cache this but this code doesn't run often anyway.
-                                let item_seq = aa.lv_to_agent_version(item.id.start).1;
+                                let item_seq = aa.local_to_agent_version(item.id.start).1;
                                 item_seq < other_seq
                             }
                             Ordering::Greater => false,
@@ -278,7 +278,7 @@ impl M2Tracker {
         // let mut iter = OpMetricsIter::new(&text_info.ops, &text_info.ctx, range);
         while let Some(mut pair) = iter.next() {
             loop {
-                let span = aa.lv_span_to_agent_span(pair.span());
+                let span = aa.local_span_to_agent_span(pair.span());
 
                 let len = span.len();
                 let remainder = pair.trim_ctx(len, iter.ctx);
@@ -896,7 +896,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
         };
 
         // Ok, try to consume as much as we can from pair.
-        let span = self.aa.lv_span_to_agent_span(pair.span());
+        let span = self.aa.local_span_to_agent_span(pair.span());
         let len = span.len().min(pair.len());
 
         let (consumed_here, xf_result) = tracker.apply(self.aa, span.agent, &pair, len);

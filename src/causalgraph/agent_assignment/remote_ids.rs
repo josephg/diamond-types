@@ -101,6 +101,8 @@ impl<'a> MergableSpan for RemoteVersionSpan<'a> {
 
 pub type RemoteFrontier<'a> = SmallVec<[RemoteVersion<'a>; 2]>;
 
+pub type RemoteFrontierOwned = SmallVec<[RemoteVersionOwned; 2]>;
+
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum VersionConversionError {
@@ -148,14 +150,14 @@ impl AgentAssignment {
     }
 
     pub fn local_to_remote_version(&self, v: LV) -> RemoteVersion {
-        let agent_v = self.lv_to_agent_version(v);
+        let agent_v = self.local_to_agent_version(v);
         self.agent_version_to_remote(agent_v)
     }
 
     /// **NOTE:** This method will return a version span with length min(lv, agent_v). The
     /// resulting length will NOT be guaranteed to be the same as the input.
     pub fn local_to_remote_version_span(&self, v: DTRange) -> RemoteVersionSpan {
-        let agent_span = self.lv_span_to_agent_span(v);
+        let agent_span = self.local_span_to_agent_span(v);
         self.agent_span_to_remote(agent_span)
     }
 
@@ -188,6 +190,14 @@ impl AgentAssignment {
         local_frontier
             .iter()
             .map(|lv| self.local_to_remote_version(*lv))
+            .collect()
+    }
+
+    pub fn local_to_remote_frontier_owned(&'_ self, local_frontier: &[LV]) -> RemoteFrontierOwned {
+        // Could return an impl Iterator here instead.
+        local_frontier
+            .iter()
+            .map(|lv| self.local_to_remote_version(*lv).into())
             .collect()
     }
 
