@@ -5,7 +5,7 @@ use rle::HasLength;
 use crate::list::operation::TextOperation;
 use crate::{CausalGraph, Frontier, LV};
 use crate::causalgraph::graph::Graph;
-use crate::experiments::TextInfo;
+use crate::experiments::textinfo::TextInfo;
 use crate::list::op_iter::{OpIterFast, OpMetricsIter};
 use crate::unicount::count_chars;
 

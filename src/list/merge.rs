@@ -1,5 +1,4 @@
 use rle::HasLength;
-use crate::experiments::TextInfo;
 use crate::frontier::FrontierRef;
 use crate::list::{ListBranch, ListOpLog};
 use crate::list::operation::{ListOpKind, TextOperation};
