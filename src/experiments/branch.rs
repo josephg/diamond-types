@@ -179,6 +179,42 @@ impl ExperimentalBranch {
         self.frontier = oplog.cg.version.clone();
     }
 
+    pub fn crdt_at_path(&self, path: &[&str]) -> (CRDTKind, LVKey) {
+        let mut kind = CRDTKind::Map;
+        let mut key = ROOT_CRDT_ID;
+
+        for p in path {
+            match kind {
+                CRDTKind::Map => {
+                    let obj = self.maps.get(&key).unwrap();
+                    let state = obj.get(*p).unwrap();
+
+                    match state.value {
+                        RegisterValue::Primitive(_) => {
+                            panic!("Found primitive, not CRDT");
+                        }
+                        RegisterValue::OwnedCRDT(new_kind, new_key) => {
+                            kind = new_kind;
+                            key = new_key;
+                        }
+                    }
+                }
+                _ => {
+                    panic!("Invalid path in document");
+                }
+            }
+        }
+
+        (kind, key)
+    }
+
+    pub fn text_at_path(&self, path: &[&str]) -> LVKey {
+        let (kind, key) = self.crdt_at_path(path);
+        if kind != CRDTKind::Text {
+            panic!("Unexpected CRDT kind {:?}", kind);
+        } else { key }
+    }
+
     fn dbg_check(&self, _deep: bool) {
         // Every CRDT (except for the root) should be referenced in exactly 1 place.
         let mut owned_map_crdts = BTreeSet::from([ROOT_CRDT_ID]);

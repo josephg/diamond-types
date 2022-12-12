@@ -84,7 +84,7 @@ struct RegisterState {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ExperimentalBranch {
-    frontier: Frontier,
+    pub frontier: Frontier,
 
     // Objects are always created at the highest version ID, but can be deleted anywhere in the
     // range.
@@ -92,7 +92,7 @@ pub struct ExperimentalBranch {
     // TODO: Replace BTreeMap with something more appropriate later.
     // registers: BTreeMap<LVKey, SmallVec<[LV; 2]>>, // TODO.
     maps: BTreeMap<LVKey, BTreeMap<SmartString, RegisterState>>, // any objects.
-    texts: BTreeMap<LVKey, JumpRopeBuf>,
+    pub texts: BTreeMap<LVKey, JumpRopeBuf>,
 }
 
 fn subgraph_rev_iter(ops: &RleVec<KVPair<ListOpMetrics>>) -> impl Iterator<Item=DTRange> + '_ {
