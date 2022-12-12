@@ -67,6 +67,11 @@ pub struct ExperimentalOpLog {
 
     // TODO: Vec -> SmallVec.
     // registers: BTreeMap<LVKey, RegisterInfo>,
+
+    // The set of CRDTs which have been deleted or superceded in the current version. This data is
+    // pretty similar to the _index data, in that its mainly just useful for branches doing
+    // checkouts.
+    deleted_crdts: BTreeSet<LVKey>,
 }
 
 /// The register stores the specified value, but if conflicts_with is not empty, it has some
@@ -211,6 +216,39 @@ mod tests {
         oplog.dbg_check(true);
     }
 
+    #[test]
+    fn overwrite_local() {
+        let mut oplog = ExperimentalOpLog::new();
+        let seph = oplog.cg.get_or_create_agent_id("seph");
+
+        let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Map));
+        let text_item = oplog.local_map_set(seph, child_obj, "text_item", CreateValue::NewCRDT(CRDTKind::Text));
+        oplog.local_text_op(seph, text_item, TextOperation::new_insert(0, "yooo"));
+        oplog.local_map_set(seph, child_obj, "smol_embedded", CreateValue::NewCRDT(CRDTKind::Map));
+
+        // Now overwrite the parent item.
+        oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::Primitive(Primitive::I64(123)));
+
+        // dbg!(&oplog);
+        oplog.dbg_check(true);
+    }
+
+    #[test]
+    fn overwrite_remote() {
+        let mut oplog = ExperimentalOpLog::new();
+        let seph = oplog.cg.get_or_create_agent_id("seph");
+
+        let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Map));
+        let text_item = oplog.local_map_set(seph, child_obj, "text_item", CreateValue::NewCRDT(CRDTKind::Text));
+        oplog.local_text_op(seph, text_item, TextOperation::new_insert(0, "yooo"));
+        oplog.local_map_set(seph, child_obj, "smol_embedded", CreateValue::NewCRDT(CRDTKind::Map));
+
+        // Now overwrite the parent item with a remote operation.
+        let lv = oplog.cg.assign_local_op(seph, 1).start;
+        oplog.remote_map_set(ROOT_CRDT_ID, lv, "overwritten", CreateValue::Primitive(Primitive::I64(123)));
+
+        oplog.dbg_check(true);
+    }
 
 
 

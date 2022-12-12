@@ -16,6 +16,7 @@ use crate::encoding::bufparser::BufParser;
 use crate::encoding::cg_entry::{read_cg_entry_into_cg, write_cg_entry_iter};
 use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::parseerror::ParseError;
+use crate::experiments::branch::btree_range_for_crdt;
 use crate::frontier::{is_sorted_iter_uniq, is_sorted_slice};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::TextOperation;
@@ -115,6 +116,81 @@ impl ExperimentalOpLog {
             }
         }
         assert_eq!(self.text_index.len(), expected_idx_count);
+
+        if deep {
+            // Find all the CRDTs which have been created then later overwritten or deleted.
+            let mut deleted_crdts = BTreeSet::new();
+            let mut directly_overwritten_maps = vec![];
+            for (_, reg_info) in &self.map_keys {
+                for (idx, (lv, val)) in reg_info.ops.iter().enumerate() {
+                    if !reg_info.supremum.contains(&idx) {
+                        if let CreateValue::NewCRDT(kind) = val {
+                            deleted_crdts.insert(*lv);
+
+                            if *kind == CRDTKind::Map {
+                                directly_overwritten_maps.push(*lv);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Now find everything that has been removed indirectly
+            let mut queue = directly_overwritten_maps;
+            while let Some(crdt_id) = queue.pop() {
+                for (_, info) in btree_range_for_crdt(&self.map_keys, crdt_id) {
+                    for s in info.supremum.iter() {
+                        let (lv, create_val) = &info.ops[*s];
+                        if let CreateValue::NewCRDT(kind) = create_val {
+                            assert_eq!(true, deleted_crdts.insert(*lv));
+
+                            if *kind == CRDTKind::Map {
+                                // Go through this CRDT's children.
+                                queue.push(*lv);
+                            }
+                        }
+                    }
+                }
+            }
+
+            assert_eq!(deleted_crdts, self.deleted_crdts);
+
+            // // Recursively traverse the "alive" data, checking that the deleted_crdts data is
+            // // correct.
+            //
+            // // First lets make a set of all the CRDTs which are "alive".
+            // let mut all_crdts: BTreeSet<LV> = self.texts.keys().copied().collect();
+            // let mut last_crdt = ROOT_CRDT_ID;
+            // for (crdt, _) in self.map_keys.keys() {
+            //     if *crdt != last_crdt {
+            //         last_crdt = *crdt;
+            //         all_crdts.insert(*crdt);
+            //     }
+            // }
+            // dbg!(&all_crdts);
+            //
+            // // Now recursively walk the map CRDTs looking for items which aren't deleted.
+            //
+            // let mut dead_crdts = all_crdts;
+            // let mut crdt_maps = vec![ROOT_CRDT_ID];
+            // dead_crdts.remove(&ROOT_CRDT_ID);
+            //
+            // // Recursively go through all the "alive" items and remove them from dead_crdts.
+            // while let Some(crdt) = crdt_maps.pop() {
+            //     for (_, info) in btree_range_for_crdt(&self.map_keys, crdt) {
+            //         for s in info.supremum.iter() {
+            //             let (lv, create_val) = &info.ops[*s];
+            //             if let CreateValue::NewCRDT(kind) = create_val {
+            //                 assert!(dead_crdts.remove(lv));
+            //                 if *kind == CRDTKind::Map {
+            //                     // Go through this CRDT's children.
+            //                     crdt_maps.push(*lv);
+            //                 }
+            //             }
+            //         }
+            //     }
+            // }
+        }
     }
 
     pub fn new() -> Self {
@@ -133,6 +209,24 @@ impl ExperimentalOpLog {
         }
     }
 
+    fn recursive_mark_deleted_inner(&mut self, mut to_delete: Vec<LV>) {
+        while let Some(crdt) = to_delete.pop() {
+            for (_, info) in btree_range_for_crdt(&self.map_keys, crdt) {
+                for s in info.supremum.iter() {
+                    let (lv, create_val) = &info.ops[*s];
+                    if let CreateValue::NewCRDT(kind) = create_val {
+                        assert!(self.deleted_crdts.insert(*lv));
+
+                        if *kind == CRDTKind::Map {
+                            // Go through this CRDT's children.
+                            to_delete.push(*lv);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn local_map_set(&mut self, agent: AgentId, crdt: LVKey, key: &str, value: CreateValue) -> LV {
         let v = self.cg.assign_local_op(agent, 1).start;
         if let CreateValue::NewCRDT(kind) = value {
@@ -144,15 +238,27 @@ impl ExperimentalOpLog {
 
         let new_idx = entry.ops.len();
 
+        let mut to_delete = vec![];
         // Remove the old supremum from the index
         for idx in &entry.supremum {
-            self.map_index.remove(&entry.ops[*idx].0);
+            let (lv, val) = &entry.ops[*idx];
+            if let CreateValue::NewCRDT(kind) = val {
+                assert!(self.deleted_crdts.insert(*lv));
+                if *kind == CRDTKind::Map {
+                    to_delete.push(*lv);
+                }
+            }
+
+            self.map_index.remove(&lv);
         }
 
         entry.supremum = smallvec![new_idx];
         entry.ops.push((v, value));
 
         self.map_index.insert(v, (crdt, key.into()));
+
+        // dbg!((crdt, key, &to_delete));
+        self.recursive_mark_deleted_inner(to_delete);
         v
     }
 
@@ -182,25 +288,35 @@ impl ExperimentalOpLog {
         // would special case that and fall back to the more complex version if need be.
         let mut new_sup = smallvec![new_idx];
         self.map_index.insert(v, (crdt, key.into()));
+        let mut to_delete = vec![];
 
         for s_idx in &entry.supremum {
-            let s_v = entry.ops[*s_idx].0;
-            match self.cg.graph.version_cmp(s_v, v) {
+            let (old_lv, old_val) = &entry.ops[*s_idx];
+            match self.cg.graph.version_cmp(*old_lv, v) {
                 None => {
                     // Versions are concurrent. Leave the old entry in index.
                     new_sup.push(*s_idx);
                 }
                 Some(Ordering::Less) => {
                     // The most common case. The new version dominates the old version. Remove the
-                    // old version from the index.
-                    self.map_index.remove(&s_v);
+                    // old (version, value) pair.
+                    if let CreateValue::NewCRDT(kind) = old_val {
+                        assert!(self.deleted_crdts.insert(*old_lv));
+                        if *kind == CRDTKind::Map {
+                            to_delete.push(*old_lv);
+                        }
+                    }
+                    self.map_index.remove(old_lv);
                 }
                 Some(_) => {
+                    // Either the versions are equal, or the newly inserted version is earlier than
+                    // the existing version. Either way, this is an invalid operation.
                     panic!("Invalid state");
                 }
             }
         }
         entry.supremum = new_sup;
+        self.recursive_mark_deleted_inner(to_delete);
     }
 
     pub fn local_text_op(&mut self, agent: AgentId, crdt: LVKey, op: TextOperation) {

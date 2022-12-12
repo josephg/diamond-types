@@ -3,7 +3,7 @@ use crate::experiments::{ExperimentalBranch, ExperimentalOpLog, LVKey, RegisterI
 use crate::{CRDTKind, LV, ROOT_CRDT_ID};
 use smartstring::alias::String as SmartString;
 
-fn btree_range_for_crdt<V>(map: &BTreeMap<(LVKey, SmartString), V>, crdt: LVKey) -> btree_map::Range<'_, (LVKey, SmartString), V> {
+pub(super) fn btree_range_for_crdt<V>(map: &BTreeMap<(LVKey, SmartString), V>, crdt: LVKey) -> btree_map::Range<'_, (LVKey, SmartString), V> {
     let empty_str: SmartString = "".into();
     if crdt == ROOT_CRDT_ID {
         // For the root CRDT we can't use the crdt+1 trick because the range wraps around.
@@ -13,7 +13,7 @@ fn btree_range_for_crdt<V>(map: &BTreeMap<(LVKey, SmartString), V>, crdt: LVKey)
     }
 }
 
-fn btree_range_mut_for_crdt<V>(map: &mut BTreeMap<(LVKey, SmartString), V>, crdt: LVKey) -> btree_map::RangeMut<'_, (LVKey, SmartString), V> {
+pub(super) fn btree_range_mut_for_crdt<V>(map: &mut BTreeMap<(LVKey, SmartString), V>, crdt: LVKey) -> btree_map::RangeMut<'_, (LVKey, SmartString), V> {
     let empty_str: SmartString = "".into();
     if crdt == ROOT_CRDT_ID {
         // For the root CRDT we can't use the crdt+1 trick because the range wraps around.
@@ -144,20 +144,31 @@ impl ExperimentalBranch {
             // }
 
             for (_v, (map_crdt, key)) in oplog.map_index.range(*range) {
+                if oplog.deleted_crdts.contains(map_crdt) { continue; } // Container was deleted. Ignore!
+
                 // I could be more clever here, but the easier answer is to just fully replace this
                 // object key with the new (current) value.
-
-                // This might be a little more complex if / when we implement deleting.
                 let obj = self.maps.entry(*map_crdt).or_default();
                 let info = oplog.map_keys.get(&(*map_crdt, key.clone())).unwrap();
                 let state = oplog.get_state_for_register(info);
 
                 // I could iterate through the state looking for new CRDT items to insert, but I
                 // don't think I need to since they'll also show up in the map_index set.
-                obj.insert(key.clone(), state);
+                let old_state = obj.insert(key.clone(), state);
+
+                let Some(old_state) = old_state else { continue; };
+                old_state.each_value(|v| {
+                    if let RegisterValue::OwnedCRDT(kind, key) = v {
+                        // A register was superceded which used to store a CRDT value. Recursively
+                        // delete the old value.
+                        self.recursive_delete(*kind, *key);
+                    }
+                })
             }
 
             for (_v, text_crdt) in oplog.text_index.range(*range) {
+                if oplog.deleted_crdts.contains(text_crdt) { continue; }
+
                 let textinfo = oplog.texts.get(text_crdt).unwrap();
                 let text_content = self.texts.entry(*text_crdt).or_default();
 
@@ -254,14 +265,22 @@ mod tests {
         let mut oplog = ExperimentalOpLog::new();
         let seph = oplog.cg.get_or_create_agent_id("seph");
 
+        let mut branch_incremental = ExperimentalBranch::new();
         let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Map));
+        branch_incremental.merge_changes_to_tip(&oplog);
         let text_item = oplog.local_map_set(seph, child_obj, "text_item", CreateValue::NewCRDT(CRDTKind::Text));
+        branch_incremental.merge_changes_to_tip(&oplog);
         oplog.local_text_op(seph, text_item, TextOperation::new_insert(0, "yooo"));
+        branch_incremental.merge_changes_to_tip(&oplog);
         oplog.local_map_set(seph, child_obj, "smol_embedded", CreateValue::NewCRDT(CRDTKind::Map));
+        branch_incremental.merge_changes_to_tip(&oplog);
 
         // Now overwrite the parent item.
         oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::Primitive(Primitive::I64(123)));
+        branch_incremental.merge_changes_to_tip(&oplog);
 
-        check_oplog_checkouts_match(&oplog);
+        let branch_expected = check_oplog_checkouts_match(&oplog);
+
+        assert_eq!(branch_expected, branch_incremental);
     }
 }
