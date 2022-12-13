@@ -121,7 +121,8 @@ impl CausalGraph {
     /// easier (its constant time rather than needing to loop, because subsequent ops in the region)
     /// all depend on the first).
     ///
-    /// Method returns the
+    /// Method returns the new span of local versions. Note this span might be smaller than `span`
+    /// if some or all of the operations are already known by the causal graph.
     pub fn merge_and_assign(&mut self, parents: &[LV], span: AgentSpan) -> DTRange {
         let time_start = self.len();
 
@@ -163,8 +164,12 @@ impl CausalGraph {
 
                         if previous_end > span.seq_range.start {
                             // Case 3 - there's some overlap.
-                            self.graph.push(&[prev_entry.1.last()], time_span);
+                            let parents = &[prev_entry.1.last()];
+                            self.version.advance_by_known_run(parents, time_span);
+                            self.graph.push(parents, time_span);
                         } else {
+                            // I don't like the duplication here but ... ehhh.
+                            self.version.advance_by_known_run(parents, time_span);
                             self.graph.push(parents, time_span);
                         }
 
@@ -221,5 +226,26 @@ impl CausalGraph {
     #[allow(unused)]
     pub fn iter(&self) -> impl Iterator<Item=CGEntry> + '_ {
         self.iter_range((0..self.len()).into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{CausalGraph, DTRange};
+
+    #[test]
+    fn merge_and_assign_updates_version() {
+        // Regression.
+
+        let mut cg = CausalGraph::new();
+        let agent = cg.get_or_create_agent_id("seph");
+        cg.merge_and_assign(&[], (agent, 0..10).into());
+        cg.dbg_check(true);
+
+        cg.merge_and_assign(&[4], (agent, 5..10).into());
+        cg.dbg_check(true);
+
+        cg.merge_and_assign(&[4], (agent, 5..15).into());
+        cg.dbg_check(true);
     }
 }
