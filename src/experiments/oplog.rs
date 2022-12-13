@@ -319,7 +319,7 @@ impl ExperimentalOpLog {
         self.recursive_mark_deleted_inner(to_delete);
     }
 
-    pub fn local_text_op(&mut self, agent: AgentId, crdt: LVKey, op: TextOperation) {
+    pub fn local_text_op(&mut self, agent: AgentId, crdt: LVKey, op: TextOperation) -> DTRange {
         let v_range = self.cg.assign_local_op(agent, op.len());
 
         let entry = self.texts.get_mut(&crdt).unwrap();
@@ -334,6 +334,8 @@ impl ExperimentalOpLog {
 
         // And add it back to the index.
         self.text_index.insert(v_range.last(), crdt);
+
+        v_range
     }
 
     pub fn remote_text_op(&mut self, crdt: LVKey, v_range: DTRange, op: TextOperation) {
@@ -565,10 +567,20 @@ impl ExperimentalOpLog {
     }
 
 
-    pub fn merge_ops(&mut self, changes: SerializedOps) -> Result<(), ParseError> {
+    pub fn merge_ops(&mut self, changes: SerializedOps) -> Result<DTRange, ParseError> {
         let mut read_map = ReadMap::new();
-        let new_range = read_cg_entry_into_cg(&mut BufParser(&changes.cg_changes), true, &mut self.cg, &mut read_map)?;
-        // dbg!(read_map);
+
+        let old_end = self.cg.len();
+
+        let mut buf = BufParser(&changes.cg_changes);
+        while !buf.is_empty() {
+            read_cg_entry_into_cg(&mut buf, true, &mut self.cg, &mut read_map)?;
+        }
+
+        let new_end = self.cg.len();
+        let new_range: DTRange = (old_end..new_end).into();
+
+        if new_range.is_empty() { return Ok(new_range); }
 
         for (crdt_r_name, rv, key, val) in changes.map_ops {
             let lv = self.cg.agent_assignment.remote_to_local_version(rv);
@@ -595,6 +607,6 @@ impl ExperimentalOpLog {
             self.remote_text_op(crdt_id, v_range, op);
         }
 
-        Ok(())
+        Ok(new_range)
     }
 }

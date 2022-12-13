@@ -333,6 +333,16 @@ impl Frontier {
         // Binary search might actually be slower here than a linear scan.
         let new_idx = self.0.binary_search(&new_item).unwrap_err();
         self.0.insert(new_idx, new_item);
+
+        // match self.0.last() {
+        //     Some(v) if *v < new_item => { self.0.push(new_item); }
+        //     None => { self.0.push(new_item); }
+        //     _ => {
+        //         let new_idx = self.0.binary_search(&new_item).unwrap_err();
+        //         self.0.insert(new_idx, new_item);
+        //     }
+        // }
+
         self.debug_check_sorted();
     }
 
@@ -551,5 +561,20 @@ mod test {
 
         f.advance_sparse(&graph, (9..15).into());
         assert_eq!(f.as_ref(), &[9, 14]);
+    }
+
+    #[test]
+    fn advance_empty_by_known_run() {
+        // Regression.
+        // let graph = Graph::from_entries(&[
+        //     GraphEntryInternal {
+        //         span: (0..10).into(), shadow: 0,
+        //         parents: Frontier::root(),
+        //     },
+        //  ];
+
+        let mut f = Frontier::root();
+        f.insert_nonoverlapping(4);
+        assert_eq!(f.as_ref(), &[4]);
     }
 }
