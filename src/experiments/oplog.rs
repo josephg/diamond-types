@@ -593,12 +593,13 @@ impl ExperimentalOpLog {
 
         for (crdt_r_name, rv, mut op_metrics) in changes.text_ops {
             let lv = self.cg.agent_assignment.remote_to_local_version(rv);
-            let v_range: DTRange = (lv..lv + op_metrics.len()).into();
+            let mut v_range: DTRange = (lv..lv + op_metrics.len()).into();
 
             if v_range.end <= new_range.start { continue; }
             else if v_range.start < new_range.start {
                 // Trim the new operation.
                 op_metrics.truncate_keeping_right_ctx(new_range.start - v_range.start, &changes.text_context);
+                v_range.start = new_range.start;
             }
 
             let crdt_id = self.remote_to_crdt_name(crdt_r_name);
@@ -608,5 +609,199 @@ impl ExperimentalOpLog {
         }
 
         Ok(new_range)
+    }
+
+    pub fn xf_text_changes_since(&self, text_crdt: LVKey, since: &[LV]) -> Vec<(DTRange, Option<TextOperation>)> {
+        let textinfo = self.texts.get(&text_crdt).unwrap();
+        textinfo.xf_operations_from(&self.cg, since, textinfo.frontier.as_ref())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "serde")]
+    use serde::{Deserialize, Serialize};
+    use crate::experiments::{ExperimentalOpLog, SerializedOps};
+    use crate::{CRDTKind, CreateValue, Primitive, ROOT_CRDT_ID};
+    use crate::causalgraph::agent_assignment::remote_ids::RemoteVersion;
+    use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
+    use crate::list::operation::TextOperation;
+
+    #[test]
+    fn smoke() {
+        let mut oplog = ExperimentalOpLog::new();
+
+        let seph = oplog.cg.get_or_create_agent_id("seph");
+        oplog.local_map_set(seph, ROOT_CRDT_ID, "hi", CreateValue::Primitive(Primitive::I64(123)));
+        oplog.local_map_set(seph, ROOT_CRDT_ID, "hi", CreateValue::Primitive(Primitive::I64(321)));
+
+        dbg!(&oplog);
+        oplog.dbg_check(true);
+    }
+
+    #[test]
+    fn text() {
+        let mut oplog = ExperimentalOpLog::new();
+
+        let seph = oplog.cg.get_or_create_agent_id("seph");
+        let text = oplog.local_map_set(seph, ROOT_CRDT_ID, "content", CreateValue::NewCRDT(CRDTKind::Text));
+        oplog.local_text_op(seph, text, TextOperation::new_insert(0, "Oh hai!"));
+        oplog.local_text_op(seph, text, TextOperation::new_delete(0..3));
+
+        let title = oplog.local_map_set(seph, ROOT_CRDT_ID, "title", CreateValue::NewCRDT(CRDTKind::Text));
+        oplog.local_text_op(seph, title, TextOperation::new_insert(0, "Please read this cool info"));
+
+        // dbg!(&oplog);
+
+        assert_eq!(oplog.checkout_text(text).to_string(), "hai!");
+        oplog.dbg_check(true);
+
+        // dbg!(oplog.checkout());
+
+        // dbg!(oplog.changes_since(&[]));
+        // dbg!(oplog.changes_since(&[title]));
+
+
+        let c = oplog.ops_since(&[]);
+        let mut oplog_2 = ExperimentalOpLog::new();
+        oplog_2.merge_ops(c).unwrap();
+        assert_eq!(oplog_2.cg, oplog.cg);
+        // dbg!(oplog_2)
+        // dbg!(oplog_2.checkout());
+        oplog_2.dbg_check(true);
+
+        assert_eq!(oplog.checkout(), oplog_2.checkout());
+    }
+
+    #[test]
+    fn concurrent_changes() {
+        let mut oplog1 = ExperimentalOpLog::new();
+        let mut oplog2 = ExperimentalOpLog::new();
+
+
+        let seph = oplog1.cg.get_or_create_agent_id("seph");
+        let text = oplog1.local_map_set(seph, ROOT_CRDT_ID, "content", CreateValue::NewCRDT(CRDTKind::Text));
+        oplog1.local_text_op(seph, text, TextOperation::new_insert(0, "Oh hai!"));
+
+
+        let kaarina = oplog2.cg.get_or_create_agent_id("kaarina");
+        let title = oplog2.local_map_set(kaarina, ROOT_CRDT_ID, "title", CreateValue::NewCRDT(CRDTKind::Text));
+        oplog2.local_text_op(kaarina, title, TextOperation::new_insert(0, "Better keep it clean"));
+
+
+        // let c = oplog1.changes_since(&[]);
+        // dbg!(serde_json::to_string(&c).unwrap());
+        // let c = oplog2.changes_since(&[]);
+        // dbg!(serde_json::to_string(&c).unwrap());
+
+        oplog2.merge_ops(oplog1.ops_since(&[])).unwrap();
+        oplog2.dbg_check(true);
+
+        oplog1.merge_ops(oplog2.ops_since(&[])).unwrap();
+        oplog1.dbg_check(true);
+
+        // dbg!(oplog1.checkout());
+        // dbg!(oplog2.checkout());
+        assert_eq!(oplog1.checkout(), oplog2.checkout());
+
+        dbg!(oplog1.crdt_at_path(&["title"]));
+    }
+
+    #[test]
+    fn checkout() {
+        let mut oplog = ExperimentalOpLog::new();
+
+        let seph = oplog.cg.get_or_create_agent_id("seph");
+        oplog.local_map_set(seph, ROOT_CRDT_ID, "hi", CreateValue::Primitive(Primitive::I64(123)));
+        let map = oplog.local_map_set(seph, ROOT_CRDT_ID, "yo", CreateValue::NewCRDT(CRDTKind::Map));
+        oplog.local_map_set(seph, map, "yo", CreateValue::Primitive(Primitive::Str("blah".into())));
+
+        dbg!(oplog.checkout());
+        oplog.dbg_check(true);
+    }
+
+    #[test]
+    fn overwrite_local() {
+        let mut oplog = ExperimentalOpLog::new();
+        let seph = oplog.cg.get_or_create_agent_id("seph");
+
+        let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Map));
+        let text_item = oplog.local_map_set(seph, child_obj, "text_item", CreateValue::NewCRDT(CRDTKind::Text));
+        oplog.local_text_op(seph, text_item, TextOperation::new_insert(0, "yooo"));
+        oplog.local_map_set(seph, child_obj, "smol_embedded", CreateValue::NewCRDT(CRDTKind::Map));
+
+        // Now overwrite the parent item.
+        oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::Primitive(Primitive::I64(123)));
+
+        // dbg!(&oplog);
+        oplog.dbg_check(true);
+    }
+
+    #[test]
+    fn overwrite_remote() {
+        let mut oplog = ExperimentalOpLog::new();
+        let seph = oplog.cg.get_or_create_agent_id("seph");
+
+        let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Map));
+        let text_item = oplog.local_map_set(seph, child_obj, "text_item", CreateValue::NewCRDT(CRDTKind::Text));
+        oplog.local_text_op(seph, text_item, TextOperation::new_insert(0, "yooo"));
+        oplog.local_map_set(seph, child_obj, "smol_embedded", CreateValue::NewCRDT(CRDTKind::Map));
+
+        // Now overwrite the parent item with a remote operation.
+        let lv = oplog.cg.assign_local_op(seph, 1).start;
+        oplog.remote_map_set(ROOT_CRDT_ID, lv, "overwritten", CreateValue::Primitive(Primitive::I64(123)));
+
+        oplog.dbg_check(true);
+    }
+
+    #[test]
+    fn overlapping_updates() {
+        // Regression.
+        let mut oplog = ExperimentalOpLog::new();
+        let mut oplog2 = ExperimentalOpLog::new();
+        let seph = oplog.cg.get_or_create_agent_id("seph");
+
+        let text_item = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Text));
+        oplog.local_text_op(seph, text_item, TextOperation::new_insert(0, "a"));
+
+        let partial_update = oplog.ops_since(&[]);
+        oplog2.merge_ops(partial_update).unwrap();
+
+        oplog.local_text_op(seph, text_item, TextOperation::new_insert(1, "b"));
+        let full_update = oplog.ops_since(&[]);
+
+        oplog2.merge_ops(full_update).unwrap();
+    }
+
+
+
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_stuff() {
+        // let line = r##"{"type":"DocsDelta","deltas":[[["RUWYEZu",0],{"cg_changes":[1,6,83,67,72,69,77,65,10,1],"map_ops":[[["ROOT",0],["SCHEMA",9],"content",{"NewCRDT":"Text"}],[["ROOT",0],["SCHEMA",0],"title",{"NewCRDT":"Text"}]],"text_ops":[[["SCHEMA",0],["SCHEMA",1],{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}]],"text_context":{"ins_content":[85,110,116,105,116,108,101,100],"del_content":[]}}]]}"##;
+        // let line = r##"{"cg_changes":[1,6,83,67,72,69,77,65,10,1],"map_ops":[[["ROOT",0],["SCHEMA",9],"content",{"NewCRDT":"Text"}],[["ROOT",0],["SCHEMA",0],"title",{"NewCRDT":"Text"}]],"text_ops":[[["SCHEMA",0],["SCHEMA",1],{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}]],"text_context":{"ins_content":[85,110,116,105,116,108,101,100],"del_content":[]}}"##;
+        //
+        // let msg: SerializedOps = serde_json::from_str(&line).unwrap();
+
+        #[derive(Debug, Clone)]
+        #[derive(Serialize, Deserialize)]
+        pub struct SS {
+            // cg_changes: Vec<u8>,
+
+            // The version of the op, and the name of the containing CRDT.
+            // map_ops: Vec<(RemoteVersion<'a>, RemoteVersion<'a>, &'a str, CreateValue)>,
+            // text_ops: Vec<ListOpMetrics>,
+            // text_context: ListOperationCtx,
+        }
+
+        // let line = r#"{"cg_changes":[1,6,83,67,72,69,77,65,10,1],"map_ops":[[["ROOT",0],["SCHEMA",9],"content",{"NewCRDT":"Text"}],[["ROOT",0],["SCHEMA",0],"title",{"NewCRDT":"Text"}]],"text_ops":[[["SCHEMA",0],["SCHEMA",1],{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}]],"text_context":{"ins_content":[85,110,116,105,116,108,101,100],"del_content":[]}}"#;
+        // let x: SS = serde_json::from_str(&line).unwrap();
+        // let line = r#"{"text_ops":[{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}]}"#;
+        // let x: SS = serde_json::from_str(&line).unwrap();
+        let line = r#"{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}"#;
+        let _x: ListOpMetrics = serde_json::from_str(&line).unwrap();
+
     }
 }

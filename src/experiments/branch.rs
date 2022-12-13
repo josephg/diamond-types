@@ -1,6 +1,7 @@
 use std::collections::{btree_map, BTreeMap, BTreeSet};
+use smallvec::SmallVec;
 use crate::experiments::{ExperimentalBranch, ExperimentalOpLog, LVKey, RegisterInfo, RegisterState, RegisterValue};
-use crate::{CRDTKind, LV, ROOT_CRDT_ID};
+use crate::{CRDTKind, DTRange, LV, ROOT_CRDT_ID};
 use smartstring::alias::String as SmartString;
 
 pub(super) fn btree_range_for_crdt<V>(map: &BTreeMap<(LVKey, SmartString), V>, crdt: LVKey) -> btree_map::Range<'_, (LVKey, SmartString), V> {
@@ -134,7 +135,8 @@ impl ExperimentalBranch {
         }
     }
 
-    pub fn merge_changes_to_tip(&mut self, oplog: &ExperimentalOpLog) {
+    // Returns the list of version ranges which were merged
+    pub fn merge_changes_to_tip(&mut self, oplog: &ExperimentalOpLog) -> SmallVec<[DTRange; 4]> {
         // Well, for now nothing can be deleted yet. So that makes things easier.
         let diff = oplog.cg.graph.diff(self.frontier.as_ref(), oplog.cg.version.as_ref()).1;
 
@@ -177,6 +179,7 @@ impl ExperimentalBranch {
         }
 
         self.frontier = oplog.cg.version.clone();
+        diff
     }
 
     pub fn crdt_at_path(&self, path: &[&str]) -> (CRDTKind, LVKey) {
