@@ -231,21 +231,24 @@ fn main() -> Result<(), anyhow::Error> {
             } else {
                 if transformed {
                     for (_, op) in oplog.iter_xf_operations() {
+                        if let Some(op) = op {
+                            if json {
+                                let s = serde_json::to_string(&op).unwrap();
+                                println!("{s}");
+                            } else {
+                                println!("{:?}", op);
+                            }
+                        }
+                    }
+                } else {
+                    for op in oplog.iter() {
+                        // println!("{} len {}", op.tag, op.len());
                         if json {
                             let s = serde_json::to_string(&op).unwrap();
                             println!("{s}");
                         } else {
                             println!("{:?}", op);
                         }
-                    }
-                }
-                for op in oplog.iter() {
-                    // println!("{} len {}", op.tag, op.len());
-                    if json {
-                        let s = serde_json::to_string(&op).unwrap();
-                        println!("{s}");
-                    } else {
-                        println!("{:?}", op);
                     }
                 }
             }
