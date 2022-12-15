@@ -23,11 +23,11 @@ use crate::frontier::{clone_smallvec, local_frontier_is_root};
 /// Both individual inserts and deletes will use up txn numbers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct GraphEntryInternal {
-    pub span: DTRange, // TODO: Make the span u64s instead of usize.
+    pub span: DTRange,
 
     /// All txns in this span are direct descendants of all operations from span down to shadow.
     /// This is derived from other fields and used as an optimization for some calculations.
-    pub shadow: usize, // I'd move this below parents, but that makes some benchmarks inexplicably 20% slower O_o
+    shadow: LV, // I'd move this below parents, but that makes some benchmarks inexplicably 20% slower O_o
 
     /// The parents vector of the first txn in this span. This vector will contain:
     /// - Nothing when the range has "root" as a parent. Usually this is just the case for the first
@@ -59,9 +59,7 @@ impl Graph {
 
     #[allow(unused)]
     pub fn get_next_time(&self) -> usize {
-        if let Some(last) = self.0.last_entry() {
-            last.span.end
-        } else { 0 }
+        self.0.end()
     }
 
     /// Insert a new history entry for the specified range of versions, and the named parents.

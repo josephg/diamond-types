@@ -398,7 +398,7 @@ impl ListOpLog {
         self.cg.agent_assignment.client_with_localtime.print_stats("Client localtime map", detailed);
         self.cg.graph.0.print_stats("History", detailed);
 
-        let num_merges: usize = self.cg.graph.0
+        let num_merges: usize = self.cg.graph
             .iter()
             .map(|e| (e.parents.len() >= 2) as usize)
             .sum();
