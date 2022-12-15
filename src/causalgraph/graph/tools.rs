@@ -1126,27 +1126,11 @@ pub mod test {
         // 0 1
         // |x|
         // 2 3
-        let parents = Graph::from_entries(&[
-            GraphEntryInternal {
-                span: (0..1).into(),
-                shadow: 0,
-                parents: Frontier::from_sorted(&[]),
-            },
-            GraphEntryInternal {
-                span: (1..2).into(),
-                shadow: 1,
-                parents: Frontier::from_sorted(&[]),
-            },
-            GraphEntryInternal {
-                span: (2..3).into(),
-                shadow: 0,
-                parents: Frontier::from_sorted(&[0, 1]),
-            },
-            GraphEntryInternal {
-                span: (3..4).into(),
-                shadow: 3,
-                parents: Frontier::from_sorted(&[0, 1]),
-            },
+        let parents = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..1).into(), parents: Frontier::from_sorted(&[]) },
+            GraphEntrySimple { span: (1..2).into(), parents: Frontier::from_sorted(&[]) },
+            GraphEntrySimple { span: (2..3).into(), parents: Frontier::from_sorted(&[0, 1]) },
+            GraphEntrySimple { span: (3..4).into(), parents: Frontier::from_sorted(&[0, 1]) },
         ]);
         parents.dbg_check(true);
 

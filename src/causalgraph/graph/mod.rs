@@ -57,12 +57,6 @@ impl Graph {
         self.0.num_entries()
     }
 
-    // This is mostly for testing. TODO: Probably worth adding an impl From.
-    #[allow(unused)]
-    pub(crate) fn from_entries(entries: &[GraphEntryInternal]) -> Self {
-        Graph(RleVec(entries.to_vec()))
-    }
-
     #[allow(unused)]
     pub fn get_next_time(&self) -> usize {
         if let Some(last) = self.0.last_entry() {

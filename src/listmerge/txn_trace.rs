@@ -347,43 +347,37 @@ impl Graph {
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use crate::causalgraph::graph::GraphEntryInternal;
+    use crate::causalgraph::graph::{GraphEntryInternal, GraphEntrySimple};
     use crate::causalgraph::graph::tools::ConflictZone;
     use super::*;
 
     #[test]
     fn iter_span_for_empty_doc() {
-        let history = Graph::new();
-        let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
+        let graph = Graph::new();
+        let walk = graph.txn_spanning_tree_iter().collect::<Vec<_>>();
         assert!(walk.is_empty());
     }
 
     #[test]
     fn iter_span_from_root() {
-        let history = Graph::from_entries(&[
-            GraphEntryInternal {
-                span: (0..10).into(), shadow: 0,
-                parents: Frontier(smallvec![]),
-            },
-            GraphEntryInternal {
-                span: (10..30).into(), shadow: 0,
-                parents: Frontier(smallvec![]),
-            }
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..10).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (10..30).into(), parents: Frontier::root() }
         ]);
-        let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
+        let walk = graph.txn_spanning_tree_iter().collect::<Vec<_>>();
         // dbg!(&walk);
 
         assert_eq!(walk, [
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: Frontier(smallvec![]),
+                parents: Frontier::root(),
                 consume: (0..10).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![(0..10).into()],
                 advance_rev: smallvec![],
-                parents: Frontier(smallvec![]),
+                parents: Frontier::root(),
                 consume: (10..30).into(),
             },
         ]);
@@ -391,40 +385,31 @@ mod test {
 
     #[test]
     fn fork_and_join() {
-        let history = Graph::from_entries(&[
-            GraphEntryInternal {
-                span: (0..10).into(), shadow: 0,
-                parents: Frontier(smallvec![]),
-            },
-            GraphEntryInternal {
-                span: (10..30).into(), shadow: 10,
-                parents: Frontier(smallvec![]),
-            },
-            GraphEntryInternal {
-                span: (30..50).into(), shadow: 0,
-                parents: Frontier(smallvec![9, 29]),
-            },
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..10).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (10..30).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (30..50).into(), parents: Frontier::from_sorted(&[9, 29]) },
         ]);
-        let walk = history.txn_spanning_tree_iter().collect::<Vec<_>>();
+        let walk = graph.txn_spanning_tree_iter().collect::<Vec<_>>();
         // dbg!(&walk);
 
         assert_eq!(walk, [
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: Frontier(smallvec![]),
+                parents: Frontier::root(),
                 consume: (0..10).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![(0..10).into()],
                 advance_rev: smallvec![],
-                parents: Frontier(smallvec![]),
+                parents: Frontier::root(),
                 consume: (10..30).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![(0..10).into()],
-                parents: Frontier(smallvec![9, 29]),
+                parents: Frontier::from_sorted(&[9, 29]),
                 consume: (30..50).into(),
             },
         ]);
@@ -434,27 +419,12 @@ mod test {
 
     #[test]
     fn two_chains() { // Sounds like the name of a rap song.
-        let history = Graph::from_entries(&[
-            GraphEntryInternal { // a
-                span: (0..1).into(), shadow: usize::MAX,
-                parents: Frontier(smallvec![]),
-            },
-            GraphEntryInternal { // b
-                span: (1..2).into(), shadow: usize::MAX,
-                parents: Frontier(smallvec![]),
-            },
-            GraphEntryInternal { // a
-                span: (2..3).into(), shadow: 2,
-                parents: Frontier(smallvec![0]),
-            },
-            GraphEntryInternal { // b
-                span: (3..4).into(), shadow: 3,
-                parents: Frontier(smallvec![1]),
-            },
-            GraphEntryInternal { // a+b
-                span: (4..5).into(), shadow: usize::MAX,
-                parents: Frontier(smallvec![2, 3]),
-            },
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..1).into(), parents: Frontier::root() }, // a
+            GraphEntrySimple { span: (1..2).into(), parents: Frontier::root() }, // b
+            GraphEntrySimple { span: (2..3).into(), parents: Frontier::from_sorted(&[0]) }, // a
+            GraphEntrySimple { span: (3..4).into(), parents: Frontier::from_sorted(&[1]) }, // b
+            GraphEntrySimple { span: (4..5).into(), parents: Frontier::from_sorted(&[2, 3]) }, // a+b
         ]);
 
         // dbg!(history.optimized_txns_between(&[3], &[4]).collect::<Vec<_>>());
@@ -465,38 +435,38 @@ mod test {
         //     dbg!(item);
         // }
 
-        let iter = SpanningTreeWalker::new_all(&history);
+        let iter = SpanningTreeWalker::new_all(&graph);
         assert!(iter.eq(IntoIterator::into_iter([
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: Frontier(smallvec![]),
+                parents: Frontier::root(),
                 consume: (0..1).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: Frontier(smallvec![0]),
+                parents: Frontier::from_sorted(&[0]),
                 consume: (2..3).into(),
             },
 
             TxnWalkItem {
                 retreat: smallvec![(2..3).into(), (0..1).into()],
                 advance_rev: smallvec![],
-                parents: Frontier(smallvec![]),
+                parents: Frontier::root(),
                 consume: (1..2).into(),
             },
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: Frontier(smallvec![1]),
+                parents: Frontier::from_sorted(&[1]),
                 consume: (3..4).into(),
             },
 
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![(2..3).into(), (0..1).into()],
-                parents: Frontier(smallvec![2, 3]),
+                parents: Frontier::from_sorted(&[2, 3]),
                 consume: (4..5).into(),
             },
         ])));
@@ -505,27 +475,23 @@ mod test {
     #[test]
     fn iter_txn_middle() {
         // regression
-        let history = Graph::from_entries(&[
-            GraphEntryInternal {
-                span: (0..10).into(),
-                shadow: usize::MAX,
-                parents: Frontier(smallvec![]),
-            },
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..10).into(), parents: Frontier::root() },
         ]);
 
-        let conflict = history.find_conflicting_simple(&[5], &[6]);
+        let conflict = graph.find_conflicting_simple(&[5], &[6]);
         assert_eq!(conflict, ConflictZone {
-            common_ancestor: Frontier(smallvec![5]),
+            common_ancestor: Frontier::from_sorted(&[5]),
             rev_spans: smallvec![(6..7).into()],
         });
-        let iter = SpanningTreeWalker::new(&history, &conflict.rev_spans, conflict.common_ancestor);
+        let iter = SpanningTreeWalker::new(&graph, &conflict.rev_spans, conflict.common_ancestor);
         // dbg!(&iter);
 
         assert!(iter.eq(IntoIterator::into_iter([
             TxnWalkItem {
                 retreat: smallvec![],
                 advance_rev: smallvec![],
-                parents: Frontier(smallvec![5]),
+                parents: Frontier::from_sorted(&[5]),
                 consume: (6..7).into(),
             }
         ])));

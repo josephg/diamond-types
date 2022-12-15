@@ -473,10 +473,9 @@ pub fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<[T; LEN]>) -> SmallVec<[
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
+    use crate::causalgraph::graph::GraphEntrySimple;
 
     use crate::Frontier;
-    use crate::causalgraph::graph::GraphEntryInternal;
-
     use super::*;
 
     #[test]
@@ -485,11 +484,8 @@ mod test {
         branch.advance_by_known_run(&[], (0..10).into());
         assert_eq!(branch.as_ref(), &[9]);
 
-        let graph = Graph::from_entries(&[
-            GraphEntryInternal {
-                span: (0..10).into(), shadow: 0,
-                parents: Frontier::root(),
-            }
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..10).into(), parents: Frontier::root() }
         ]);
         graph.dbg_check(true);
 
@@ -502,19 +498,10 @@ mod test {
 
     #[test]
     fn frontier_stays_sorted() {
-        let graph = Graph::from_entries(&[
-            GraphEntryInternal {
-                span: (0..2).into(), shadow: 0,
-                parents: Frontier::root(),
-            },
-            GraphEntryInternal {
-                span: (2..6).into(), shadow: 2,
-                parents: Frontier::new_1(0),
-            },
-            GraphEntryInternal {
-                span: (6..50).into(), shadow: 6,
-                parents: Frontier::new_1(0),
-            },
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..2).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (2..6).into(), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: (6..50).into(), parents: Frontier::new_1(0) },
         ]);
         graph.dbg_check(true);
 
@@ -534,19 +521,10 @@ mod test {
 
     #[test]
     fn advance_sparse() {
-        let graph = Graph::from_entries(&[
-            GraphEntryInternal {
-                span: (0..10).into(), shadow: 0,
-                parents: Frontier::root(),
-            },
-            GraphEntryInternal {
-                span: (10..20).into(), shadow: 10,
-                parents: Frontier::new_1(5),
-            },
-            // GraphEntryInternal {
-            //     span: (6..50).into(), shadow: 6,
-            //     parents: Frontier::new_1(0),
-            // },
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..10).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (10..20).into(), parents: Frontier::new_1(5) },
+            // GraphEntrySimple { span: (6..50).into(), parents: Frontier::new_1(0) },
         ]);
         graph.dbg_check(true);
 
@@ -567,10 +545,7 @@ mod test {
     fn advance_empty_by_known_run() {
         // Regression.
         // let graph = Graph::from_entries(&[
-        //     GraphEntryInternal {
-        //         span: (0..10).into(), shadow: 0,
-        //         parents: Frontier::root(),
-        //     },
+        //     GraphEntrySimple { span: (0..10).into(), parents: Frontier::root(), },
         //  ];
 
         let mut f = Frontier::root();
