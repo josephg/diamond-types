@@ -266,6 +266,26 @@ impl From<&GraphEntryInternal> for GraphEntrySimple {
     }
 }
 
+impl Graph {
+    pub fn from_simple_items_iter<'a, I: Iterator<Item = &'a GraphEntrySimple>>(iter: I) -> Self {
+        let mut graph = Self::new();
+        for e in iter {
+            graph.push(e.parents.as_ref(), e.span);
+        }
+        graph
+    }
+
+    pub fn from_simple_items(slice: &[GraphEntrySimple]) -> Self {
+        Self::from_simple_items_iter(slice.iter())
+    }
+}
+
+impl<'a, I: Iterator<Item = &'a GraphEntrySimple>> From<I> for Graph {
+    fn from(iter: I) -> Self {
+        Graph::from_simple_items_iter(iter)
+    }
+}
+
 // This code works, but its much more complex than just using .iter() in the entries list.
 
 // pub(crate) struct ParentsIter<'a> {

@@ -891,25 +891,20 @@ pub mod test {
         // TODO: Could add extra checks for each specific version in here too. Eh!
     }
 
-    fn fancy_graph() -> Graph {
-        let g = Graph(RleVec(vec![
-            GraphEntryInternal { // 0-2
-                span: (0..3).into(), shadow: 0,
-                parents: Frontier::from_sorted(&[]),
-            },
-            GraphEntryInternal { // 3-5
-                span: (3..6).into(), shadow: 3,
-                parents: Frontier::from_sorted(&[]),
-            },
-            GraphEntryInternal { // 6-8
-                span: (6..9).into(), shadow: 6,
-                parents: Frontier::from_sorted(&[1, 4]),
-            },
-            GraphEntryInternal { // 9-10
-                span: (9..11).into(), shadow: 6,
-                parents: Frontier::from_sorted(&[2, 8]),
-            },
-        ]));
+    pub(crate) fn fancy_graph() -> Graph {
+        let g = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..3).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (3..6).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (6..9).into(), parents: Frontier::from_sorted(&[1, 4]) },
+            GraphEntrySimple { span: (9..11).into(), parents: Frontier::from_sorted(&[2, 8]) },
+        ]);
+
+        assert_eq!(g.0.0.len(), 4);
+        assert_eq!(g.0[0].shadow, 0);
+        assert_eq!(g.0[1].shadow, 3);
+        assert_eq!(g.0[2].shadow, 6);
+        assert_eq!(g.0[3].shadow, 6);
+
         g.dbg_check(true);
         g
     }
@@ -1066,20 +1061,13 @@ pub mod test {
         // 0 |
         // | 1
         // 2
-        let graph = Graph(RleVec(vec![
-            GraphEntryInternal {
-                span: (0..1).into(), shadow: 0,
-                parents: Frontier::from_sorted(&[]),
-            },
-            GraphEntryInternal {
-                span: (1..2).into(), shadow: 1,
-                parents: Frontier::from_sorted(&[]),
-            },
-            GraphEntryInternal {
-                span: (2..3).into(), shadow: 2,
-                parents: Frontier::from_sorted(&[0]),
-            },
-        ]));
+
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..1).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (1..2).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (2..3).into(), parents: Frontier::from_sorted(&[0]) },
+        ]);
+
         graph.dbg_check(true);
 
         assert_diff_eq(&graph, &[2], &[], &[(2..3).into(), (0..1).into()], &[]);
@@ -1093,23 +1081,12 @@ pub mod test {
         // 0 | |
         //   1 |
         //     2
-        let graph = Graph(RleVec(vec![
-            GraphEntryInternal {
-                span: (0..1).into(),
-                shadow: 0,
-                parents: Frontier::root(),
-            },
-            GraphEntryInternal {
-                span: (1..2).into(),
-                shadow: 1,
-                parents: Frontier::root(),
-            },
-            GraphEntryInternal {
-                span: (2..3).into(),
-                shadow: 2,
-                parents: Frontier::root(),
-            },
-        ]));
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..1).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (1..2).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (2..3).into(), parents: Frontier::root() },
+        ]);
+
         graph.dbg_check(true);
 
         assert_diff_eq(&graph, &[0], &[0, 1], &[], &[(1..2).into()]);
@@ -1131,23 +1108,12 @@ pub mod test {
         //      \ 3,4
         //       \ /
         //        5,6
-        let graph = Graph(RleVec(vec![
-            GraphEntryInternal {
-                span: (0..3).into(),
-                shadow: 0,
-                parents: Frontier::from_sorted(&[]),
-            },
-            GraphEntryInternal {
-                span: (3..5).into(),
-                shadow: 3,
-                parents: Frontier::from_sorted(&[]),
-            },
-            GraphEntryInternal {
-                span: (5..6).into(),
-                shadow: 0,
-                parents: Frontier::from_sorted(&[2,4]),
-            },
-        ]));
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..3).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (3..5).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (5..6).into(), parents: Frontier::from_sorted(&[2, 4]) },
+        ]);
+
         graph.dbg_check(true);
 
         assert_diff_eq(&graph, &[4], &[5], &[], &[(5..6).into(), (0..3).into()]);

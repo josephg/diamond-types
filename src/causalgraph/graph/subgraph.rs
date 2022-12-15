@@ -273,31 +273,8 @@ mod test {
     use rle::MergeableIterator;
     use crate::causalgraph::graph::{Graph, GraphEntryInternal};
     use crate::{DTRange, Frontier, LV};
+    use crate::causalgraph::graph::tools::test::fancy_graph;
     use crate::rle::RleVec;
-
-    fn fancy_graph() -> Graph {
-        let g = Graph(RleVec(vec![
-            GraphEntryInternal { // 0-2
-                span: (0..3).into(), shadow: 0,
-                parents: Frontier::from_sorted(&[]),
-            },
-            GraphEntryInternal { // 3-5
-                span: (3..6).into(), shadow: 3,
-                parents: Frontier::from_sorted(&[]),
-            },
-            GraphEntryInternal { // 6-8
-                span: (6..9).into(), shadow: 6,
-                parents: Frontier::from_sorted(&[1, 4]),
-            },
-            GraphEntryInternal { // 9-10
-                span: (9..11).into(), shadow: 6,
-                parents: Frontier::from_sorted(&[2, 8]),
-            },
-        ]));
-
-        g.dbg_check(true);
-        g
-    }
 
     fn check_subgraph(g: &Graph, filter: &[Range<usize>], frontier: &[LV], expect_parents: &[&[LV]], expect_frontier: &[LV]) {
         let filter: Vec<DTRange> = filter.iter().map(|r| r.clone().into()).collect();
