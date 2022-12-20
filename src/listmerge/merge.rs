@@ -1067,6 +1067,7 @@ impl TextInfo {
 mod test {
     use std::ops::Range;
     use rle::{MergeableIterator, SplitableSpan};
+    use crate::dtrange::UNDERWATER_START;
     use crate::list::ListCRDT;
     use crate::listmerge::simple_oplog::SimpleOpLog;
     use crate::listmerge::yjsspan::{deleted_n_state, DELETED_ONCE, YjsSpanState};

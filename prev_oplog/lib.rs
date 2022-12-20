@@ -210,13 +210,19 @@ mod dtrange;
 mod unicount;
 mod rev_range;
 pub mod frontier;
+mod oplog;
 mod check;
+mod branch;
+mod path;
 mod encoding;
 pub mod causalgraph;
+mod simpledb;
+mod operation;
 mod wal;
 
 #[cfg(feature = "serde")]
 pub(crate) mod serde_helpers;
+mod hack;
 pub mod experiments;
 
 // TODO: Make me private!
@@ -281,69 +287,117 @@ pub enum CreateValue {
     // Deleted, // Marks that the key / contents should be deleted.
 }
 
-// #[derive(Debug, Clone, Eq, PartialEq)]
-// pub enum CollectionOp {
-//     Insert(CreateValue),
-//     Remove(LV),
-// }
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum CollectionOp {
+    Insert(CreateValue),
+    Remove(LV),
+}
 
-// #[derive(Debug, Clone, Eq, PartialEq)]
-// pub(crate) enum OpContents {
-//     RegisterSet(CreateValue),
-//     MapSet(SmartString, CreateValue), // TODO: Inline the index here.
-//     MapDelete(SmartString), // TODO: And here.
-//     Collection(CollectionOp), // TODO: Consider just inlining this.
-//     Text(ListOpMetrics),
-//
-//
-//     // The other way to write this would be:
-//
-//
-//     // SetInsert(CRDTKind),
-//     // SetRemove(Time),
-//
-//     // TextInsert(..),
-//     // TextRemove(..)
-// }
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum OpContents {
+    RegisterSet(CreateValue),
+    MapSet(SmartString, CreateValue), // TODO: Inline the index here.
+    MapDelete(SmartString), // TODO: And here.
+    Collection(CollectionOp), // TODO: Consider just inlining this.
+    Text(ListOpMetrics),
 
-// #[derive(Debug, Clone, Eq, PartialEq)]
-// pub(crate) struct Op {
-//     pub target_id: LV,
-//     pub contents: OpContents,
-// }
 
-// #[derive(Debug, Clone, Eq, PartialEq, Default)]
-// pub(crate) struct Ops {
-//     /// Local version + op pairs
-//     ops: RleVec<KVPair<Op>>,
-//     list_ctx: ListOperationCtx,
-// }
+    // The other way to write this would be:
+
+
+    // SetInsert(CRDTKind),
+    // SetRemove(Time),
+
+    // TextInsert(..),
+    // TextRemove(..)
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct Op {
+    pub target_id: LV,
+    pub contents: OpContents,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub(crate) struct Ops {
+    /// Local version + op pairs
+    ops: RleVec<KVPair<Op>>,
+    list_ctx: ListOperationCtx,
+}
 
 pub const ROOT_CRDT_ID: LV = usize::MAX;
 pub const ROOT_CRDT_ID_AV: AgentVersion = (AgentId::MAX, 0);
 
+#[derive(Debug)]
+pub struct OpLog {
+    // /// The ID of the document (if any). This is useful if you want to give a document a GUID or
+    // /// something to make sure you're merging into the right place.
+    // ///
+    // /// Optional - only used if you set it.
+    // doc_id: Option<SmartString>,
 
-// #[derive(Debug, Clone, Eq, PartialEq)]
-// pub enum SnapshotValue {
-//     Primitive(Primitive),
-//     InnerCRDT(LV),
-//     // Ref(LV),
-// }
-//
-// #[derive(Debug, Clone, Eq, PartialEq)]
-// struct RegisterState {
-//     value: SnapshotValue,
-//     version: LV,
-// }
+    /// The causal graph stores the mapping from (local) time values <-> (agent, seq) pairs.
+    /// This is loaded from disk on startup in its entirety and appended to with each change when
+    /// the WAL is flushed.
+    pub(crate) cg: CausalGraph,
 
-// /// Guaranteed to always have at least 1 value inside.
-// type MVRegister = SmallVec<[RegisterState; 1]>;
+    cg_storage: Option<CGStorage>,
+    wal_storage: Option<WriteAheadLog>,
 
-// // TODO: Probably should also store a dirty flag for when we flush to disk.
-// #[derive(Debug, Clone, Eq, PartialEq)]
-// enum OverlayValue {
-//     Register(MVRegister),
-//     Map(BTreeMap<SmartString, MVRegister>),
-//     Collection(BTreeMap<LV, SnapshotValue>),
-//     Text(Box<JumpRope>),
-// }
+    // /// The version that contains everything from CG.
+    // /// This might make more sense in CG?
+    // version: Frontier,
+
+    /// Values which have not yet been flushed to the WAL.
+    uncommitted_ops: Ops,
+}
+
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum SnapshotValue {
+    Primitive(Primitive),
+    InnerCRDT(LV),
+    // Ref(LV),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct RegisterState {
+    value: SnapshotValue,
+    version: LV,
+}
+
+/// Guaranteed to always have at least 1 value inside.
+type MVRegister = SmallVec<[RegisterState; 1]>;
+
+// TODO: Probably should also store a dirty flag for when we flush to disk.
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum OverlayValue {
+    Register(MVRegister),
+    Map(BTreeMap<SmartString, MVRegister>),
+    Collection(BTreeMap<LV, SnapshotValue>),
+    Text(Box<JumpRope>),
+}
+
+/// The branch object stores the *data* at some particular version of the database. This is
+/// implemented via an overlay of data fields on top of a snapshot database. The overlay data is
+/// periodically flushed to disk.
+#[derive(Debug, Clone)]
+pub struct Branch {
+    /// The overlay contents. This stores values which have either diverged from the persisted data
+    /// or are cached.
+    ///
+    /// Later this will only contain the "overlay" data - ie, data which has diverged from whatever
+    /// we're storing on disk.
+    data: BTreeMap<LV, OverlayValue>,
+
+    /// The version the branch is currently at. This is used to track which changes the branch has
+    /// or has not locally merged.
+    ///
+    /// This field is public for convenience, but you should never modify it directly.
+    version: Frontier,
+
+    // persisted_data: BTreeMap<Time, OverlayValue>, // TODO. Not actually an in-memory object.
+    // persisted_version: LocalVersion,
+
+    num_invalid: usize,
+}

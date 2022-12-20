@@ -5,7 +5,7 @@ mod branch;
 use std::collections::{BTreeMap, BTreeSet};
 use jumprope::JumpRopeBuf;
 use smallvec::{SmallVec, smallvec};
-use crate::{AgentId, CausalGraph, CRDTKind, CreateValue, DTRange, Frontier, LV, Primitive, ROOT_CRDT_ID, SnapshotValue};
+use crate::{AgentId, CausalGraph, CRDTKind, CreateValue, DTRange, Frontier, LV, Primitive, ROOT_CRDT_ID};
 use smartstring::alias::String as SmartString;
 use rle::{HasLength, SplitableSpan, SplitableSpanCtx};
 use crate::causalgraph::agent_assignment::remote_ids::{RemoteVersion, RemoteVersionOwned};
@@ -45,6 +45,10 @@ pub enum RegisterValue {
 #[derive(Debug, Clone, Default)]
 pub struct ExperimentalOpLog {
     pub cg: CausalGraph,
+
+
+    // cg_storage: Option<CGStorage>,
+    // wal_storage: Option<WriteAheadLog>,
 
     // Information about whether the map still exists!
     // maps: BTreeMap<LVKey, MapInfo>,
@@ -101,4 +105,16 @@ pub struct SerializedOps<'a> {
     map_ops: Vec<(RemoteVersion<'a>, RemoteVersion<'a>, &'a str, CreateValue)>,
     text_ops: Vec<(RemoteVersion<'a>, RemoteVersion<'a>, ListOpMetrics)>,
     text_context: ListOperationCtx,
+}
+
+/// This is used for checkouts. This is a value tree.
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(untagged))]
+// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum DTValue {
+    Primitive(Primitive),
+    // Register(Box<DTValue>),
+    Map(BTreeMap<SmartString, Box<DTValue>>),
+    // Collection(BTreeMap<LV, Box<DTValue>>),
+    Text(String),
 }

@@ -9,9 +9,8 @@ use serde::{Serialize, Serializer};
 
 use rle::{HasLength, SplitableSpanCtx};
 use crate::causalgraph::agent_assignment::remote_ids::RemoteVersion;
-use crate::experiments::{ExperimentalOpLog, LVKey, RegisterInfo, RegisterValue, SerializedOps, ValPair};
+use crate::experiments::{DTValue, ExperimentalOpLog, LVKey, RegisterInfo, RegisterValue, SerializedOps, ValPair};
 use crate::{AgentId, CRDTKind, CreateValue, DTRange, LV, ROOT_CRDT_ID};
-use crate::branch::DTValue;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::cg_entry::{read_cg_entry_into_cg, write_cg_entry_iter};
 use crate::encoding::map::{ReadMap, WriteMap};
