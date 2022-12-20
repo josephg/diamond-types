@@ -9,20 +9,19 @@ use serde::{Serialize, Serializer};
 
 use rle::{HasLength, SplitableSpanCtx};
 use crate::causalgraph::agent_assignment::remote_ids::RemoteVersion;
-use crate::experiments::{DTValue, ExperimentalOpLog, LVKey, RegisterInfo, RegisterValue, SerializedOps, ValPair};
-use crate::{AgentId, CRDTKind, CreateValue, DTRange, LV, ROOT_CRDT_ID};
+use crate::{AgentId, CRDTKind, CreateValue, DTRange, DTValue, OpLog, LV, LVKey, RegisterInfo, RegisterValue, ROOT_CRDT_ID, SerializedOps, ValPair};
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::cg_entry::{read_cg_entry_into_cg, write_cg_entry_iter};
 use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::parseerror::ParseError;
-use crate::experiments::branch::btree_range_for_crdt;
+use crate::branch::btree_range_for_crdt;
 use crate::frontier::{is_sorted_iter_uniq, is_sorted_slice};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::TextOperation;
 use crate::rle::{KVPair, RleSpanHelpers};
 
 #[cfg(feature = "serde")]
-impl Serialize for ExperimentalOpLog {
+impl Serialize for OpLog {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         self.ops_since(&[]).serialize(serializer)
     }
@@ -41,7 +40,7 @@ impl From<&ValPair> for RegisterValue {
     }
 }
 
-impl ExperimentalOpLog {
+impl OpLog {
     pub(crate) fn dbg_check(&self, deep: bool) {
         self.cg.dbg_check(deep);
         let cg_len = self.cg.len();
@@ -467,7 +466,7 @@ impl ExperimentalOpLog {
     }
 }
 
-impl ExperimentalOpLog {
+impl OpLog {
     fn crdt_name_to_remote(&self, crdt: LVKey) -> RemoteVersion {
         if crdt == ROOT_CRDT_ID {
             RemoteVersion("ROOT", 0)
@@ -621,15 +620,14 @@ impl ExperimentalOpLog {
 mod tests {
     #[cfg(feature = "serde")]
     use serde::{Deserialize, Serialize};
-    use crate::experiments::{ExperimentalOpLog, SerializedOps};
-    use crate::{CRDTKind, CreateValue, Primitive, ROOT_CRDT_ID};
+    use crate::{CRDTKind, CreateValue, OpLog, Primitive, ROOT_CRDT_ID, SerializedOps};
     use crate::causalgraph::agent_assignment::remote_ids::RemoteVersion;
     use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
     use crate::list::operation::TextOperation;
 
     #[test]
     fn smoke() {
-        let mut oplog = ExperimentalOpLog::new();
+        let mut oplog = OpLog::new();
 
         let seph = oplog.cg.get_or_create_agent_id("seph");
         oplog.local_map_set(seph, ROOT_CRDT_ID, "hi", CreateValue::Primitive(Primitive::I64(123)));
@@ -641,7 +639,7 @@ mod tests {
 
     #[test]
     fn text() {
-        let mut oplog = ExperimentalOpLog::new();
+        let mut oplog = OpLog::new();
 
         let seph = oplog.cg.get_or_create_agent_id("seph");
         let text = oplog.local_map_set(seph, ROOT_CRDT_ID, "content", CreateValue::NewCRDT(CRDTKind::Text));
@@ -663,7 +661,7 @@ mod tests {
 
 
         let c = oplog.ops_since(&[]);
-        let mut oplog_2 = ExperimentalOpLog::new();
+        let mut oplog_2 = OpLog::new();
         oplog_2.merge_ops(c).unwrap();
         assert_eq!(oplog_2.cg, oplog.cg);
         // dbg!(oplog_2)
@@ -675,8 +673,8 @@ mod tests {
 
     #[test]
     fn concurrent_changes() {
-        let mut oplog1 = ExperimentalOpLog::new();
-        let mut oplog2 = ExperimentalOpLog::new();
+        let mut oplog1 = OpLog::new();
+        let mut oplog2 = OpLog::new();
 
 
         let seph = oplog1.cg.get_or_create_agent_id("seph");
@@ -709,7 +707,7 @@ mod tests {
 
     #[test]
     fn checkout() {
-        let mut oplog = ExperimentalOpLog::new();
+        let mut oplog = OpLog::new();
 
         let seph = oplog.cg.get_or_create_agent_id("seph");
         oplog.local_map_set(seph, ROOT_CRDT_ID, "hi", CreateValue::Primitive(Primitive::I64(123)));
@@ -722,7 +720,7 @@ mod tests {
 
     #[test]
     fn overwrite_local() {
-        let mut oplog = ExperimentalOpLog::new();
+        let mut oplog = OpLog::new();
         let seph = oplog.cg.get_or_create_agent_id("seph");
 
         let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Map));
@@ -739,7 +737,7 @@ mod tests {
 
     #[test]
     fn overwrite_remote() {
-        let mut oplog = ExperimentalOpLog::new();
+        let mut oplog = OpLog::new();
         let seph = oplog.cg.get_or_create_agent_id("seph");
 
         let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Map));
@@ -757,8 +755,8 @@ mod tests {
     #[test]
     fn overlapping_updates() {
         // Regression.
-        let mut oplog = ExperimentalOpLog::new();
-        let mut oplog2 = ExperimentalOpLog::new();
+        let mut oplog = OpLog::new();
+        let mut oplog2 = OpLog::new();
         let seph = oplog.cg.get_or_create_agent_id("seph");
 
         let text_item = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Text));

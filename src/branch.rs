@@ -1,10 +1,9 @@
 use std::collections::{btree_map, BTreeMap, BTreeSet};
 use smallvec::SmallVec;
-use crate::experiments::{ExperimentalBranch, ExperimentalOpLog, LVKey, RegisterInfo, RegisterState, RegisterValue};
-use crate::{CRDTKind, DTRange, LV, ROOT_CRDT_ID};
+use crate::{CRDTKind, DTRange, Branch, OpLog, LV, LVKey, RegisterInfo, RegisterState, RegisterValue, ROOT_CRDT_ID};
 use smartstring::alias::String as SmartString;
 
-pub(super) fn btree_range_for_crdt<V>(map: &BTreeMap<(LVKey, SmartString), V>, crdt: LVKey) -> btree_map::Range<'_, (LVKey, SmartString), V> {
+pub(crate) fn btree_range_for_crdt<V>(map: &BTreeMap<(LVKey, SmartString), V>, crdt: LVKey) -> btree_map::Range<'_, (LVKey, SmartString), V> {
     let empty_str: SmartString = "".into();
     if crdt == ROOT_CRDT_ID {
         // For the root CRDT we can't use the crdt+1 trick because the range wraps around.
@@ -14,7 +13,7 @@ pub(super) fn btree_range_for_crdt<V>(map: &BTreeMap<(LVKey, SmartString), V>, c
     }
 }
 
-pub(super) fn btree_range_mut_for_crdt<V>(map: &mut BTreeMap<(LVKey, SmartString), V>, crdt: LVKey) -> btree_map::RangeMut<'_, (LVKey, SmartString), V> {
+pub(crate) fn btree_range_mut_for_crdt<V>(map: &mut BTreeMap<(LVKey, SmartString), V>, crdt: LVKey) -> btree_map::RangeMut<'_, (LVKey, SmartString), V> {
     let empty_str: SmartString = "".into();
     if crdt == ROOT_CRDT_ID {
         // For the root CRDT we can't use the crdt+1 trick because the range wraps around.
@@ -33,8 +32,8 @@ impl RegisterState {
     }
 }
 
-impl ExperimentalOpLog {
-    pub fn checkout_at_version(_frontier: &[LV]) -> ExperimentalBranch {
+impl OpLog {
+    pub fn checkout_at_version(_frontier: &[LV]) -> Branch {
         todo!()
     }
 
@@ -49,7 +48,7 @@ impl ExperimentalOpLog {
         }
     }
 
-    pub fn checkout_tip(&self) -> ExperimentalBranch {
+    pub fn checkout_tip(&self) -> Branch {
         // There's 2 strategies I could employ here:
         // 1. Walk recursively through the tree and copy items
         // 2. Walk through all the living items (registers, maps, texts) and copy them
@@ -57,7 +56,7 @@ impl ExperimentalOpLog {
         // I'm going with option 2, but that might not be the best option.
 
         let mut maps_to_copy = vec![ROOT_CRDT_ID];
-        let mut result = ExperimentalBranch {
+        let mut result = Branch {
             frontier: self.cg.version.clone(),
             maps: Default::default(),
             texts: Default::default(),
@@ -97,7 +96,7 @@ impl ExperimentalOpLog {
     }
 }
 
-impl ExperimentalBranch {
+impl Branch {
     pub fn new() -> Self {
         Self {
             frontier: Default::default(),
@@ -107,7 +106,7 @@ impl ExperimentalBranch {
     }
 
     fn recursive_delete_reg_state(&mut self, state: RegisterState) {
-        fn delete_value(b: &mut ExperimentalBranch, val: RegisterValue) {
+        fn delete_value(b: &mut Branch, val: RegisterValue) {
             if let RegisterValue::OwnedCRDT(kind, key) = val {
                 b.recursive_delete(kind, key);
             }
@@ -136,7 +135,7 @@ impl ExperimentalBranch {
     }
 
     // Returns the list of version ranges which were merged
-    pub fn merge_changes_to_tip(&mut self, oplog: &ExperimentalOpLog) -> SmallVec<[DTRange; 4]> {
+    pub fn merge_changes_to_tip(&mut self, oplog: &OpLog) -> SmallVec<[DTRange; 4]> {
         // Well, for now nothing can be deleted yet. So that makes things easier.
         let diff = oplog.cg.graph.diff(self.frontier.as_ref(), oplog.cg.version.as_ref()).1;
 
@@ -251,11 +250,10 @@ impl ExperimentalBranch {
 
 #[cfg(test)]
 mod tests {
-    use crate::experiments::{ExperimentalBranch, ExperimentalOpLog};
-    use crate::{CRDTKind, CreateValue, Primitive, ROOT_CRDT_ID};
+    use crate::{CRDTKind, CreateValue, Branch, OpLog, Primitive, ROOT_CRDT_ID};
     use crate::list::operation::TextOperation;
 
-    fn check_oplog_checkouts_match(oplog: &ExperimentalOpLog) -> ExperimentalBranch {
+    fn check_oplog_checkouts_match(oplog: &OpLog) -> Branch {
         // There's two ways we can get a checkout for an oplog: Either call checkout_tip() or
         // make a new branch and call merge_changes_to_tip().
 
@@ -265,7 +263,7 @@ mod tests {
         branch1.dbg_check(true);
         // dbg!(&branch);
 
-        let mut branch2 = ExperimentalBranch::new();
+        let mut branch2 = Branch::new();
         branch2.merge_changes_to_tip(&oplog);
         branch2.dbg_check(true);
 
@@ -275,10 +273,10 @@ mod tests {
 
     #[test]
     fn simple_branch_checkout() {
-        let mut oplog = ExperimentalOpLog::new();
+        let mut oplog = OpLog::new();
         let branch = oplog.checkout_tip();
         branch.dbg_check(true);
-        assert_eq!(branch, ExperimentalBranch::new());
+        assert_eq!(branch, Branch::new());
 
         let seph = oplog.cg.get_or_create_agent_id("seph");
         let text = oplog.local_map_set(seph, ROOT_CRDT_ID, "content", CreateValue::NewCRDT(CRDTKind::Text));
@@ -301,10 +299,10 @@ mod tests {
 
     #[test]
     fn overwrite_crdt_works() {
-        let mut oplog = ExperimentalOpLog::new();
+        let mut oplog = OpLog::new();
         let seph = oplog.cg.get_or_create_agent_id("seph");
 
-        let mut branch_incremental = ExperimentalBranch::new();
+        let mut branch_incremental = Branch::new();
         let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Map));
         branch_incremental.merge_changes_to_tip(&oplog);
         let text_item = oplog.local_map_set(seph, child_obj, "text_item", CreateValue::NewCRDT(CRDTKind::Text));

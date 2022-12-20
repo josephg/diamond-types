@@ -184,9 +184,9 @@
 
 extern crate core;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Formatter};
-use jumprope::JumpRope;
+use jumprope::{JumpRope, JumpRopeBuf};
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 pub use crate::causalgraph::CausalGraph;
@@ -201,6 +201,8 @@ pub use frontier::Frontier;
 use crate::causalgraph::agent_span::AgentVersion;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use crate::causalgraph::agent_assignment::remote_ids::RemoteVersion;
+use crate::textinfo::TextInfo;
 
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
 
@@ -217,13 +219,15 @@ mod wal;
 
 #[cfg(feature = "serde")]
 pub(crate) mod serde_helpers;
-pub mod experiments;
 
 // TODO: Make me private!
 pub mod listmerge;
 
 #[cfg(test)]
 mod list_fuzzer_tools;
+mod branch;
+mod textinfo;
+mod oplog;
 
 pub type AgentId = u32;
 
@@ -347,3 +351,103 @@ pub const ROOT_CRDT_ID_AV: AgentVersion = (AgentId::MAX, 0);
 //     Collection(BTreeMap<LV, SnapshotValue>),
 //     Text(Box<JumpRope>),
 // }
+
+// type Pair<T> = (LV, T);
+type ValPair = (LV, CreateValue);
+// type RawPair<'a, T> = (RemoteVersion<'a>, T);
+type LVKey = LV;
+
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RegisterInfo {
+    // I bet there's a clever way to use RLE to optimize this. Right now this contains the full
+    // history of values this register has ever held.
+    ops: Vec<ValPair>,
+
+    // Indexes into ops.
+    supremum: SmallVec<[usize; 2]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegisterValue {
+    Primitive(Primitive),
+    OwnedCRDT(CRDTKind, LVKey),
+}
+
+
+#[derive(Debug, Clone, Default)]
+pub struct OpLog {
+    pub cg: CausalGraph,
+
+
+    // cg_storage: Option<CGStorage>,
+    // wal_storage: Option<WriteAheadLog>,
+
+    // Information about whether the map still exists!
+    // maps: BTreeMap<LVKey, MapInfo>,
+
+    map_keys: BTreeMap<(LVKey, SmartString), RegisterInfo>,
+    texts: BTreeMap<LVKey, TextInfo>,
+
+    // A different index for each data set, or one index with an enum?
+    map_index: BTreeMap<LV, (LVKey, SmartString)>,
+    text_index: BTreeMap<LV, LVKey>,
+
+    // TODO: Vec -> SmallVec.
+    // registers: BTreeMap<LVKey, RegisterInfo>,
+
+    // The set of CRDTs which have been deleted or superceded in the current version. This data is
+    // pretty similar to the _index data, in that its mainly just useful for branches doing
+    // checkouts.
+    deleted_crdts: BTreeSet<LVKey>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Branch {
+    pub frontier: Frontier,
+
+    // Objects are always created at the highest version ID, but can be deleted anywhere in the
+    // range.
+    //
+    // TODO: Replace BTreeMap with something more appropriate later.
+    // registers: BTreeMap<LVKey, SmallVec<[LV; 2]>>, // TODO.
+    maps: BTreeMap<LVKey, BTreeMap<SmartString, RegisterState>>, // any objects.
+    pub texts: BTreeMap<LVKey, JumpRopeBuf>,
+}
+
+/// The register stores the specified value, but if conflicts_with is not empty, it has some
+/// conflicting concurrent values too. The `value` field will be consistent across all peers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RegisterState {
+    value: RegisterValue,
+    conflicts_with: Vec<RegisterValue>,
+}
+
+fn subgraph_rev_iter(ops: &RleVec<KVPair<ListOpMetrics>>) -> impl Iterator<Item=DTRange> + '_ {
+    ops.0.iter().rev().map(|e| e.range())
+}
+
+
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct SerializedOps<'a> {
+    cg_changes: Vec<u8>,
+
+    // The version of the op, and the name of the containing CRDT.
+    #[cfg_attr(feature = "serde", serde(borrow))]
+    map_ops: Vec<(RemoteVersion<'a>, RemoteVersion<'a>, &'a str, CreateValue)>,
+    text_ops: Vec<(RemoteVersion<'a>, RemoteVersion<'a>, ListOpMetrics)>,
+    text_context: ListOperationCtx,
+}
+
+/// This is used for checkouts. This is a value tree.
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(untagged))]
+// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum DTValue {
+    Primitive(Primitive),
+    // Register(Box<DTValue>),
+    Map(BTreeMap<SmartString, Box<DTValue>>),
+    // Collection(BTreeMap<LV, Box<DTValue>>),
+    Text(String),
+}

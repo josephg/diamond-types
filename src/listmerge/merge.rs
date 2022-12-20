@@ -34,7 +34,7 @@ use crate::listmerge::metrics::upstream_cursor_pos;
 use crate::listmerge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
 use crate::causalgraph::graph::Graph;
-use crate::experiments::textinfo::TextInfo;
+use crate::textinfo::TextInfo;
 use crate::frontier::local_frontier_eq;
 #[cfg(feature = "ops_to_old")]
 use crate::listmerge::to_old::OldCRDTOpInternal;
