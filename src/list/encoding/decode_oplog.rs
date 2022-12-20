@@ -1,4 +1,3 @@
-use std::borrow::Borrow;
 use smallvec::{smallvec, SmallVec};
 use crate::list::encoding::*;
 use crate::encoding::varint::*;
@@ -16,8 +15,7 @@ use crate::causalgraph::graph::GraphEntrySimple;
 use crate::list::operation::ListOpKind;
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::list::encoding::decode_tools::{BufReader, ChunkReader};
-use crate::frontier::clone_smallvec;
-use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
+use crate::causalgraph::agent_span::AgentSpan;
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::calc_checksum;

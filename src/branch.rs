@@ -1,9 +1,7 @@
 #![allow(dead_code)]
 
-use std::borrow::BorrowMut;
-use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use smallvec::{Array, smallvec};
+use smallvec::smallvec;
 use crate::*;
 use smartstring::alias::String as SmartString;
 use ::rle::HasLength;

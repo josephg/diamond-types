@@ -5,7 +5,6 @@ use crate::list::ListOpLog;
 use crate::dtrange::DTRange;
 use crate::rle::KVPair;
 use crate::{AgentId, CausalGraph};
-use crate::frontier::debug_assert_frontier_sorted;
 use crate::causalgraph::graph::GraphEntrySimple;
 
 impl CausalGraph {

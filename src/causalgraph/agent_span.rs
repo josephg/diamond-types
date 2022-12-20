@@ -1,6 +1,5 @@
 // TODO: Consider moving me into agent_assignment/.
 
-use std::cmp::Ordering;
 use std::ops::Range;
 use content_tree::ContentLength;
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};

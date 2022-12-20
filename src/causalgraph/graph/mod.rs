@@ -6,9 +6,6 @@ mod scope;
 mod check;
 mod subgraph;
 
-use std::iter::once;
-use smallvec::{SmallVec, smallvec};
-
 use rle::{HasLength, HasRleKey, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::{Frontier, LV};
 
@@ -16,7 +13,6 @@ use crate::rle::RleVec;
 use crate::dtrange::DTRange;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use crate::frontier::{clone_smallvec, local_frontier_is_root};
 
 /// This type stores metadata for a run of transactions created by the users.
 ///

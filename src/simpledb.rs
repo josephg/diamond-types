@@ -1,7 +1,6 @@
 use crate::*;
 use crate::branch::DTValue;
 use crate::frontier::local_frontier_eq;
-use crate::list::operation::TextOperation;
 use crate::ROOT_CRDT_ID;
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 use crate::wal::WALError;

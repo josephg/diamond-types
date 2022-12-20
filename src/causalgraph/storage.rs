@@ -38,7 +38,7 @@ use crate::{CausalGraph, DTRange, LV};
 use bumpalo::collections::vec::Vec as BumpVec;
 use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::causalgraph::entry::CGEntry;
-use crate::encoding::cg_entry::{read_cg_entry_into_cg, read_cg_entry_into_cg_nonoverlapping, write_cg_entry};
+use crate::encoding::cg_entry::{read_cg_entry_into_cg_nonoverlapping, write_cg_entry};
 use crate::encoding::map::{WriteMap, ReadMap};
 
 

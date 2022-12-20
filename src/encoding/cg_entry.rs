@@ -1,12 +1,10 @@
-use bumpalo::Bump;
-use rle::{HasLength, MergableSpan};
+use rle::HasLength;
 use crate::{AgentId, CausalGraph, DTRange, KVPair, Frontier, LV};
-use crate::causalgraph::agent_assignment::{AgentAssignment, ClientData};
+use crate::causalgraph::agent_assignment::{AgentAssignment};
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::tools::{ExtendFromSlice, push_str, push_u32, push_u64, push_usize};
-use crate::encoding::varint::{mix_bit_u32, mix_bit_usize, num_encode_zigzag_i64, strip_bit_usize_2};
-use bumpalo::collections::vec::Vec as BumpVec;
-use smallvec::smallvec;
+use crate::encoding::varint::{mix_bit_u32, num_encode_zigzag_i64, strip_bit_usize_2};
+// use bumpalo::collections::vec::Vec as BumpVec;
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::agent_span::AgentSpan;
 use crate::encoding::bufparser::BufParser;

@@ -1,4 +1,3 @@
-use std::borrow::Borrow;
 use smallvec::SmallVec;
 use rle::{HasLength, SplitableSpanCtx};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};

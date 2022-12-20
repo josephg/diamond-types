@@ -1,13 +1,11 @@
-use std::cmp::Ordering;
-use rle::{HasLength, MergableSpan, Searchable, SplitableSpan};
+use rle::{HasLength, MergableSpan};
 use rle::zip::rle_zip;
 use crate::{AgentId, CausalGraph, LV};
 use crate::causalgraph::*;
 use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteFrontierOwned};
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::graph::GraphEntrySimple;
-use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
-use crate::frontier::sort_frontier;
+use crate::causalgraph::agent_span::AgentSpan;
 use crate::rle::RleSpanHelpers;
 
 impl CausalGraph {

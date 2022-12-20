@@ -1,7 +1,5 @@
-use smallvec::smallvec;
-use crate::{CausalGraph, Graph, Frontier};
+use crate::CausalGraph;
 use crate::causalgraph::agent_assignment::AgentAssignment;
-use crate::frontier::{clone_smallvec, debug_assert_frontier_sorted};
 
 impl AgentAssignment {
     #[allow(unused)]

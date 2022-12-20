@@ -4,7 +4,7 @@ use crate::list::{ListBranch, ListOpLog};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::listmerge::merge::{reverse_str, TransformedOpsIter};
 use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
-use crate::{DTRange, Frontier, LV};
+use crate::{DTRange, LV};
 
 impl ListOpLog {
     pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter {

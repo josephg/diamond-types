@@ -1,7 +1,6 @@
-use std::borrow::{Borrow, BorrowMut};
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::Debug;
-use std::mem::replace;
 use std::ops::{Index, IndexMut};
 use smallvec::{Array, SmallVec, smallvec};
 use crate::causalgraph::graph::Graph;
@@ -9,7 +8,7 @@ use crate::dtrange::DTRange;
 use crate::LV;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use crate::causalgraph::graph::tools::{DiffFlag, DiffResult};
+use crate::causalgraph::graph::tools::DiffFlag;
 
 /// A `LocalFrontier` is a set of local Time values which point at the set of changes with no
 /// children at this point in time. When there's a single writer this will always just be the last

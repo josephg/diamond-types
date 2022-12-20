@@ -1,19 +1,15 @@
 use std::ops::Range;
-use smallvec::{smallvec, SmallVec};
-use smartstring::SmartString;
-use rle::{HasLength, Searchable};
+use rle::HasLength;
 use crate::{AgentId, Frontier, LV};
-use crate::causalgraph::agent_assignment::ClientData;
 use crate::list::{ListBranch, ListOpLog};
 use crate::causalgraph::graph::GraphEntrySimple;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{TextOperation, ListOpKind};
-use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned, RemoteVersionSpan};
+use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersionSpan};
 use crate::dtrange::DTRange;
 use crate::causalgraph::agent_span::*;
-use crate::frontier::clone_smallvec;
 use crate::rev_range::RangeRev;
-use crate::rle::{KVPair, RleSpanHelpers, RleVec};
+use crate::rle::KVPair;
 use crate::unicount::count_chars;
 
 impl Default for ListOpLog {

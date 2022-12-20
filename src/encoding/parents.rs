@@ -1,12 +1,8 @@
-use bumpalo::Bump;
-use rle::{HasLength, Searchable};
-use crate::encoding::tools::{ExtendFromSlice, push_str, push_u32, push_usize};
+use rle::Searchable;
+use crate::encoding::tools::{ExtendFromSlice, push_str, push_usize};
 use crate::encoding::varint::*;
-use crate::causalgraph::graph::GraphEntrySimple;
-use crate::causalgraph::agent_span::AgentVersion;
-use crate::{AgentId, CausalGraph, DTRange, KVPair, Frontier, OpLog, RleVec, LV};
-use crate::encoding::Merger;
-use bumpalo::collections::vec::Vec as BumpVec;
+use crate::{Frontier, LV};
+// use bumpalo::collections::vec::Vec as BumpVec;
 use smallvec::SmallVec;
 use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::encoding::bufparser::BufParser;

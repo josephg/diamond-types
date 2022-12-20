@@ -1,7 +1,5 @@
 use jumprope::JumpRope;
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
-use smallvec::smallvec;
-use crate::Frontier;
 
 /// This file contains debugging assertions to validate the document's internal state.
 ///

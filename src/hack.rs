@@ -1,11 +1,10 @@
 //! This file contains some wrappers to interact with operations publicly.
 
-use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned};
-use crate::{CollectionOp, CreateValue, LV, Op, OpContents, OpLog, ROOT_CRDT_ID, ROOT_CRDT_ID_AV};
+use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersion};
+use crate::{CollectionOp, CreateValue, LV, OpContents, OpLog, ROOT_CRDT_ID, ROOT_CRDT_ID_AV};
 use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
 use rle::HasLength;
 use crate::causalgraph::agent_span::{AgentSpan, AgentVersion};
 use crate::list::operation::TextOperation;

@@ -184,8 +184,7 @@
 
 extern crate core;
 
-use std::borrow::Borrow;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
 use jumprope::JumpRope;
 use smallvec::SmallVec;
@@ -197,7 +196,6 @@ use crate::causalgraph::storage::CGStorage;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::rle::{KVPair, RleVec};
 use crate::wal::WriteAheadLog;
-use num_enum::TryFromPrimitive;
 pub use ::rle::HasLength;
 pub use frontier::Frontier;
 use crate::causalgraph::agent_span::AgentVersion;

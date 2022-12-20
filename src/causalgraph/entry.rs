@@ -1,5 +1,4 @@
-use smallvec::smallvec;
-use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx, SplitableSpanHelpers};
+use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::agent_span::AgentSpan;
 

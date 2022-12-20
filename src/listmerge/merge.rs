@@ -2,19 +2,18 @@
 // checker.
 #![allow(clippy::needless_option_as_deref)]
 
-use std::borrow::{Borrow, BorrowMut};
 use std::cmp::Ordering;
 use std::ptr::NonNull;
-use jumprope::{JumpRope, JumpRopeBuf};
+use jumprope::JumpRopeBuf;
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
 use content_tree::*;
 use rle::{AppendRle, HasLength, MergeableIterator, Searchable, Trim, TrimCtx};
-use rle::intersect::{rle_intersect_rev, rle_intersect_rev_first};
+use rle::intersect::rle_intersect_rev;
 use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::dtrange::{DTRange, is_underwater, UNDERWATER_START};
+use crate::dtrange::DTRange;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::{AgentId, CausalGraph, Frontier, LV};
 use crate::causalgraph::agent_assignment::AgentAssignment;
@@ -34,7 +33,6 @@ use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappene
 use crate::listmerge::metrics::upstream_cursor_pos;
 use crate::listmerge::txn_trace::SpanningTreeWalker;
 use crate::list::op_iter::OpMetricsIter;
-use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpanOwned;
 use crate::causalgraph::graph::Graph;
 use crate::experiments::textinfo::TextInfo;
 use crate::frontier::local_frontier_eq;

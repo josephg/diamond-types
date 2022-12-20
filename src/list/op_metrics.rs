@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::list::operation::ListOpKind::*;
-use crate::list::{ListOpLog, switch};
+use crate::list::switch;
 use crate::dtrange::DTRange;
 use crate::rev_range::RangeRev;
 use crate::unicount::chars_to_bytes;

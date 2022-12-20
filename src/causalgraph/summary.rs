@@ -6,7 +6,7 @@ use rle::{HasLength, MergeableIterator, SplitableSpanHelpers};
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
 use crate::causalgraph::agent_assignment::AgentAssignment;
-use crate::rle::{KVPair, RleSpanHelpers};
+use crate::rle::RleSpanHelpers;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

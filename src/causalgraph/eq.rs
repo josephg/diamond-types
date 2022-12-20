@@ -10,7 +10,6 @@
 use rle::{HasLength, SplitableSpan};
 use rle::zip::rle_zip;
 use crate::{AgentId, CausalGraph, Frontier, LV};
-use crate::frontier::sort_frontier;
 use crate::causalgraph::graph::GraphEntrySimple;
 
 // const VERBOSE: bool = true;

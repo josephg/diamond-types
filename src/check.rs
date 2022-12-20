@@ -1,5 +1,4 @@
-use smallvec::smallvec;
-use crate::{Branch, Frontier, OverlayValue};
+use crate::Branch;
 use crate::OpLog;
 
 impl OpLog {

@@ -1,4 +1,4 @@
-use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
+use rle::{HasLength, MergableSpan, SplitableSpanCtx};
 use crate::{CRDTKind, ListOperationCtx, Op, OpContents};
 
 impl HasLength for OpContents {

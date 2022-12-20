@@ -1,13 +1,9 @@
 use bumpalo::Bump;
 use bumpalo::collections::vec::Vec as BumpVec;
-use rle::Searchable;
-use crate::encoding::Merger;
 use crate::{CausalGraph, KVPair, ListOperationCtx, ListOpMetrics, Op, OpContents, CreateValue, CollectionOp, LV};
-use crate::encoding::bufparser::BufParser;
-use crate::encoding::map::{ReadMap, WriteMap};
-use crate::encoding::parseerror::ParseError;
+use crate::encoding::map::WriteMap;
 use crate::encoding::tools::{ExtendFromSlice, push_str, push_u32, push_u64, push_usize};
-use crate::encoding::varint::{mix_bit_u32, mix_bit_u64, mix_bit_usize, num_encode_zigzag_i64, strip_bit_u32, strip_bit_u32_2, strip_bit_usize_2};
+use crate::encoding::varint::{mix_bit_u32, mix_bit_u64, num_encode_zigzag_i64};
 use crate::list::operation::ListOpKind;
 use crate::ROOT_CRDT_ID;
 use crate::rle::RleSpanHelpers;

@@ -9,7 +9,6 @@ use rle::{AppendRle, SplitableSpan};
 use crate::frontier::{debug_assert_frontier_sorted, FrontierRef};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag::*;
-use crate::causalgraph::graph::scope::ScopedParents;
 use crate::dtrange::DTRange;
 use crate::{Frontier, LV};
 

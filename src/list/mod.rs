@@ -5,12 +5,9 @@
 //! Currently this code only supports lists of unicode characters (text documents). Support for
 //! more data types will be added over time.
 
-use jumprope::JumpRope;
 use smartstring::alias::String as SmartString;
-use crate::causalgraph::agent_assignment::ClientData;
 
 use crate::list::operation::ListOpKind;
-use crate::causalgraph::graph::Graph;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::{CausalGraph, Frontier};
 use crate::rle::{KVPair, RleVec};

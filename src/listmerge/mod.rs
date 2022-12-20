@@ -12,13 +12,9 @@
 
 use std::pin::Pin;
 use content_tree::{ContentTreeRaw, RawPositionMetricsUsize};
-use rle::{HasLength, MergableSpan};
 use crate::listmerge::markers::MarkerEntry;
 use crate::listmerge::metrics::MarkerMetrics;
 use crate::listmerge::yjsspan::YjsSpan;
-use crate::{DTRange, SmartString, LV};
-use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpanOwned;
-use crate::rev_range::RangeRev;
 
 mod yjsspan;
 pub(crate) mod merge;

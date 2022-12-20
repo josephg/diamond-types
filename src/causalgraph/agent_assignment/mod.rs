@@ -3,7 +3,7 @@ use smartstring::alias::String as SmartString;
 use rle::HasLength;
 use crate::causalgraph::agent_span::{AgentSpan, AgentVersion};
 use crate::{AgentId, DTRange, LV};
-use crate::rle::{KVPair, RleSpanHelpers, RleVec};
+use crate::rle::{KVPair, RleVec};
 
 pub mod remote_ids;
 

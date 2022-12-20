@@ -1,10 +1,7 @@
 // #![warn(unused)]
 
-use smartstring::alias::String as SmartString;
-use agent_assignment::ClientData;
-use crate::{DTRange, Frontier, KVPair, Graph, RleVec};
+use crate::{DTRange, Frontier, KVPair, Graph};
 use crate::causalgraph::agent_assignment::AgentAssignment;
-use crate::causalgraph::agent_span::AgentSpan;
 
 pub(crate) mod storage;
 mod causalgraph;

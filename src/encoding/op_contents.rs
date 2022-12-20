@@ -1,6 +1,6 @@
 use bumpalo::Bump;
 use bumpalo::collections::vec::Vec as BumpVec;
-use crate::{CRDTKind, OpLog, Primitive, SnapshotValue};
+use crate::{OpLog, Primitive, SnapshotValue};
 use num_enum::TryFromPrimitive;
 use crate::encoding::tools::{push_str, push_u32, push_u64};
 use crate::encoding::varint::num_encode_zigzag_i64;

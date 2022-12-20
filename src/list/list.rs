@@ -1,9 +1,6 @@
-use std::borrow::Borrow;
-use std::mem::replace;
 use std::ops::Range;
 use humansize::{BINARY, format_size};
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
-use smallvec::smallvec;
 use crate::{AgentId, Frontier, LV};
 use rle::HasLength;
 use crate::list::operation::ListOpKind::{Del, Ins};
@@ -116,12 +113,12 @@ fn internal_do_insert(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: Age
     end - 1
 }
 
-fn internal_do_delete(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, pos: Range<usize>) -> LV {
+fn internal_do_delete(oplog: &mut ListOpLog, branch: &mut ListBranch, agent: AgentId, pos: DTRange) -> LV {
     let start = oplog.len();
 
-    branch.content.remove(pos.clone());
+    branch.content.remove(pos.into());
 
-    oplog.push_op_internal(start, pos.clone().into(), ListOpKind::Del, None);
+    oplog.push_op_internal(start, pos.into(), ListOpKind::Del, None);
 
     let end = start + pos.len();
     let time_span = DTRange {
@@ -194,7 +191,7 @@ impl ListCRDT {
 
     pub fn delete_without_content(&mut self, agent: AgentId, loc: Range<usize>) -> LV {
         // self.branch.delete_without_content(&mut self.oplog, agent, loc)
-        internal_do_delete(&mut self.oplog, &mut self.branch, agent, loc)
+        internal_do_delete(&mut self.oplog, &mut self.branch, agent, loc.into())
     }
 
     pub fn delete(&mut self, agent: AgentId, range: Range<usize>) -> LV {

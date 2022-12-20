@@ -2,29 +2,20 @@ pub mod textinfo;
 pub mod oplog;
 mod branch;
 
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
-use bumpalo::Bump;
 use jumprope::JumpRopeBuf;
 use smallvec::{SmallVec, smallvec};
 use crate::{AgentId, CausalGraph, CRDTKind, CreateValue, DTRange, Frontier, LV, Primitive, ROOT_CRDT_ID, SnapshotValue};
 use smartstring::alias::String as SmartString;
 use rle::{HasLength, SplitableSpan, SplitableSpanCtx};
-use crate::branch::DTValue;
 use crate::causalgraph::agent_assignment::remote_ids::{RemoteVersion, RemoteVersionOwned};
-use crate::encoding::bufparser::BufParser;
 use crate::encoding::cg_entry::{read_cg_entry_into_cg, write_cg_entry_iter};
 use crate::encoding::map::{ReadMap, WriteMap};
 use crate::list::op_iter::{OpIterFast, OpMetricsIter};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
-use crate::list::operation::TextOperation;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize, Serializer};
-use crate::causalgraph::graph::Graph;
-use crate::causalgraph::graph::tools::DiffFlag;
-use crate::encoding::parseerror::ParseError;
-use crate::experiments::oplog::create_to_snapshot;
 use crate::experiments::textinfo::TextInfo;
 use crate::frontier::{debug_assert_frontier_sorted, diff_frontier_entries, is_sorted_iter, is_sorted_iter_uniq, is_sorted_slice};
 

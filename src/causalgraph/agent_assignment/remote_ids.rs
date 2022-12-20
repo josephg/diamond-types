@@ -1,17 +1,14 @@
 /// This file contains utilities to convert remote IDs to local version and back.
 
 
-use std::ops::Range;
-use crate::list::ListOpLog;
 use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
+use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 use crate::dtrange::DTRange;
-use crate::{CausalGraph, Frontier, LV};
+use crate::{Frontier, LV};
 use crate::causalgraph::agent_assignment::AgentAssignment;
-use crate::frontier::sort_frontier;
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 
 /// Remote IDs are IDs you can pass to a remote peer.

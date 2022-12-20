@@ -25,11 +25,9 @@
 
 use std::mem::take;
 use smallvec::{SmallVec, smallvec};
-use crate::frontier::*;
 use rle::{HasLength, SplitableSpan};
 use crate::causalgraph::graph::Graph;
 use crate::dtrange::DTRange;
-use crate::frontier::clone_smallvec;
 use crate::{Frontier, LV};
 
 #[derive(Debug)]

@@ -1,16 +1,13 @@
-use std::cell::Ref;
-use std::ops::{Deref, Range};
+use std::ops::Range;
 use jumprope::{JumpRope, JumpRopeBuf};
 use crate::list::{ListBranch, ListOpLog};
-use smallvec::{smallvec, SmallVec};
 use smartstring::SmartString;
 use crate::list::list::{apply_local_operations};
 use crate::list::operation::ListOpKind::*;
 use crate::list::operation::{TextOperation, ListOpKind};
 use crate::dtrange::DTRange;
 use crate::{AgentId, Frontier, LV};
-use crate::frontier::clone_smallvec;
-use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersion, RemoteVersionOwned};
+use crate::causalgraph::agent_assignment::remote_ids::RemoteFrontier;
 
 impl ListBranch {
     /// Create a new (empty) branch at the start of history. The branch will be an empty list.
