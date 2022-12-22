@@ -39,15 +39,16 @@ const ENC_8_U64: u64 = (1u64 << 54) + ENC_7_U64;
 /// Encode u32 as a length-prefixed varint.
 ///
 /// Returns the number of bytes which have been consumed in the provided buffer.
-pub fn encode_prefix_varint_u32(mut value: u32, buf: &mut [u8; 5]) -> usize {
+pub fn encode_prefix_varint_u32(mut value: u32) -> ([u8; 5], usize) {
+    let mut buf = [0u8; 5];
     if value < ENC_1_U32 {
         buf[0] = value as u8;
-        1
+        (buf, 1)
     } else if value < ENC_2_U32 {
         value -= ENC_1_U32;
         buf[0] = 0b1000_0000 | (value >> 8) as u8;
         buf[1] = value as u8; // Rust's casting rules will truncate this.
-        2
+        (buf, 2)
     } else if value < ENC_3_U32 {
         value -= ENC_2_U32;
         buf[0] = 0b1100_0000 | (value >> 16) as u8;
@@ -55,33 +56,36 @@ pub fn encode_prefix_varint_u32(mut value: u32, buf: &mut [u8; 5]) -> usize {
         // buf[1..3].copy_from_slice(&(value as u16).to_be_bytes());
         buf[1] = (value >> 8) as u8;
         buf[2] = value as u8;
-        3
+        (buf, 3)
     } else if value < ENC_4_U32 {
         value -= ENC_3_U32;
+
+        // The code below is equivalent to this, but the generated assembly is a wash.
+        // let n = (0b1110_0000 << 24) + value;
+        // buf[0..4].copy_from_slice(&n.to_be_bytes());
+
         buf[0] = 0b1110_0000 | (value >> 24) as u8;
-
-        // Could use something like this, but the resulting binary isn't as good.
-        // buf[1..5].copy_from_slice(&(value & 0xffffff).to_be_bytes());
-
         buf[1] = (value >> 16) as u8;
         buf[2] = (value >> 8) as u8;
         buf[3] = value as u8;
-        4
+        (buf, 4)
     } else {
         value -= ENC_4_U32;
         buf[0] = 0b1111_0000; // + (value >> 32) as u8;
 
         // This compiles to smaller code than the unrolled version.
         buf[1..5].copy_from_slice(&value.to_be_bytes());
-        5
+        (buf, 5)
     }
 }
 
 /// Encode a u64 as a length-prefixed varint.
 ///
 /// Returns the number of bytes which have been consumed in the provided buffer.
-pub fn encode_prefix_varint_u64(mut value: u64, buf: &mut [u8; 9]) -> usize {
-    if value < ENC_1_U64 {
+pub fn encode_prefix_varint_u64(mut value: u64) -> ([u8; 9], usize) {
+    let mut buf = [0u8; 9];
+
+    let bytes_used = if value < ENC_1_U64 {
         buf[0] = value as u8;
         1
     } else if value < ENC_2_U64 {
@@ -133,21 +137,12 @@ pub fn encode_prefix_varint_u64(mut value: u64, buf: &mut [u8; 9]) -> usize {
         buf[0] = 0b1111_1111;
         buf[1..9].copy_from_slice(&value.to_be_bytes());
         9
-    }
-}
-
-fn decode_prefix_varint_u32_loop(buf: &[u8]) -> Result<(u32, usize), ParseError> {
-    decode_prefix_varint_u64(buf)
-        .and_then(|(val, bytes)| {
-            if val > u32::MAX as u64 {
-                Err(ParseError::InvalidVarInt)
-            } else {
-                Ok((val as u32, bytes))
-            }
-        })
+    };
+    (buf, bytes_used)
 }
 
 const ENC_U64_VALS: [u64; 8] = [ENC_1_U64, ENC_2_U64, ENC_3_U64, ENC_4_U64, ENC_5_U64, ENC_6_U64, ENC_7_U64, ENC_8_U64];
+
 pub fn decode_prefix_varint_u64(buf: &[u8]) -> Result<(u64, usize), ParseError> {
     // This implementation actually produces more code than the unrolled version below.
     if buf.is_empty() {
@@ -155,8 +150,14 @@ pub fn decode_prefix_varint_u64(buf: &[u8]) -> Result<(u64, usize), ParseError> 
     }
 
     let b0 = buf[0];
-    if b0 < ENC_1_U64 as u8 {
+    if b0 <= 0b0111_1111 as u8 {
         Ok((b0 as u64, 1))
+    } else if b0 <= 0b1011_1111 {
+        if buf.len() < 2 { return Err(ParseError::UnexpectedEOF); }
+        let val: u64 = ((b0 as u64 & 0b0011_1111) << 8)
+            + buf[1] as u64
+            + ENC_1_U64;
+        Ok((val, 2))
     } else {
         // The & 0b111 is unnecessary, but this tells LLVM that the variable will definitely be
         // in the range of 0..7, which prevents the compiler from getting too excited about
@@ -178,7 +179,30 @@ pub fn decode_prefix_varint_u64(buf: &[u8]) -> Result<(u64, usize), ParseError> 
     }
 }
 
-pub fn decode_prefix_varint_u32_unroll(buf: &[u8]) -> Result<(u32, usize), ParseError> {
+pub fn decode_prefix_varint_u32(buf: &[u8]) -> Result<(u32, usize), ParseError> {
+    if cfg!(target_arch = "wasm32") {
+        // For some reason, the rust compiler does a *terrible* job optimizing the
+        // decode_prefix_varint_u32_loop variant of this function for wasm (or generally when
+        // optimizing for size). We'll use the hand unrolled version for wasm to save 3kb off the
+        // compiled wasm size.
+        decode_prefix_varint_u32_unroll(buf)
+    } else {
+        decode_prefix_varint_u32_loop(buf)
+    }
+}
+
+fn decode_prefix_varint_u32_loop(buf: &[u8]) -> Result<(u32, usize), ParseError> {
+    decode_prefix_varint_u64(buf)
+        .and_then(|(val, bytes)| {
+            if val > u32::MAX as u64 {
+                Err(ParseError::InvalidVarInt)
+            } else {
+                Ok((val as u32, bytes))
+            }
+        })
+}
+
+fn decode_prefix_varint_u32_unroll(buf: &[u8]) -> Result<(u32, usize), ParseError> {
     // println!("{:b} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x}", buf[0], buf[0], buf[1], buf[2], buf[3], buf[4]);
     // assert!(buf.len() >= 5);
     if buf.is_empty() {
@@ -221,14 +245,156 @@ pub fn decode_prefix_varint_u32_unroll(buf: &[u8]) -> Result<(u32, usize), Parse
     }
 }
 
-// Who coded it better?
-// pub fn encode_zig_zag_32(n: i32) -> u32 {
-//     ((n << 1) ^ (n >> 31)) as u32
-// }
-//
-// pub fn encode_zig_zag_64(n: i64) -> u64 {
-//     ((n << 1) ^ (n >> 63)) as u64
-// }
+pub fn decode_prefix_varint_u64_unroll(buf: &[u8]) -> Result<(u64, usize), ParseError> {
+    // println!("{:b} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x}", buf[0], buf[0], buf[1], buf[2], buf[3], buf[4]);
+    // assert!(buf.len() >= 5);
+    if buf.is_empty() {
+        return Err(ParseError::UnexpectedEOF);
+    }
+
+    let b0 = buf[0];
+    if b0 <= 0b0111_1111 as u8 {
+        Ok((b0 as u64, 1))
+    } else if b0 <= 0b1011_1111 {
+        if buf.len() < 2 { return Err(ParseError::UnexpectedEOF); }
+        let val: u64 = ((b0 as u64 & 0b0011_1111) << 8)
+            + buf[1] as u64
+            + ENC_1_U64;
+        Ok((val, 2))
+    } else if b0 <= 0b1101_1111 {
+        if buf.len() < 3 { return Err(ParseError::UnexpectedEOF); }
+        let val: u64 = ((b0 as u64 & 0b0001_1111) << 16)
+            + ((buf[1] as u64) << 8)
+            + buf[2] as u64
+            + ENC_2_U64;
+        Ok((val, 3))
+    } else if b0 <= 0b1110_1111 {
+        if buf.len() < 4 { return Err(ParseError::UnexpectedEOF); }
+        let n = unsafe { std::ptr::read_unaligned(&buf[0] as *const u8 as *const u32) };
+        let val = u32::from_be(n) as u64 - (0b1110_0000 << 24)
+            + ENC_3_U64;
+        Ok((val, 4))
+    } else if b0 <= 0b1111_0111 {
+        if buf.len() < 5 { return Err(ParseError::UnexpectedEOF); }
+
+        // Here we're really parsing a u64 big endian value. The optimizer is clever enough to
+        // figure that out and optimize this code with a read + byteswap.
+        let val: u64 = ((b0 as u64 & 0b0000_0111) << 32)
+            + ((buf[1] as u64) << 24)
+            + ((buf[2] as u64) << 16)
+            + ((buf[3] as u64) << 8)
+            + buf[4] as u64
+            + ENC_4_U64;
+        Ok((val, 5))
+    } else if b0 <= 0b1111_1011 {
+        if buf.len() < 6 { return Err(ParseError::UnexpectedEOF); }
+
+        let val: u64 = ((b0 as u64 & 0b0000_0011) << 40)
+            + ((buf[1] as u64) << 32)
+            + ((buf[2] as u64) << 24)
+            + ((buf[3] as u64) << 16)
+            + ((buf[4] as u64) << 8)
+            + buf[5] as u64
+            + ENC_5_U64;
+        Ok((val, 6))
+    } else if b0 <= 0b1111_1101 {
+        if buf.len() < 7 { return Err(ParseError::UnexpectedEOF); }
+        let val: u64 = ((b0 as u64 & 0b0000_0001) << 48)
+            + ((buf[1] as u64) << 40)
+            + ((buf[2] as u64) << 32)
+            + ((buf[3] as u64) << 24)
+            + ((buf[4] as u64) << 16)
+            + ((buf[5] as u64) << 8)
+            + buf[6] as u64
+            + ENC_6_U64;
+        Ok((val, 7))
+    } else if b0 == 0b1111_1110 {
+        if buf.len() < 8 { return Err(ParseError::UnexpectedEOF); }
+        let n = unsafe { std::ptr::read_unaligned(&buf[0] as *const u8 as *const u64) };
+
+        let val = u64::from_be(n) - (0b1111_1110 << 56)
+            + ENC_7_U64;
+        Ok((val, 8))
+    } else {
+        if buf.len() < 9 { return Err(ParseError::UnexpectedEOF); }
+        let n = unsafe { std::ptr::read_unaligned(&buf[1] as *const u8 as *const u64) };
+
+        let val = u64::from_be(n) + ENC_8_U64;
+        Ok((val, 9))
+    }
+}
+
+#[inline]
+pub(crate) fn decode_prefix_varint_u64_unroll_flat(buf: &[u8; 9]) -> (u64, usize) {
+    // println!("{:b} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x}", buf[0], buf[0], buf[1], buf[2], buf[3], buf[4]);
+    // assert!(buf.len() >= 5);
+    let b0 = buf[0];
+    if b0 <= 0b0111_1111 as u8 {
+        (b0 as u64, 1)
+    } else if b0 <= 0b1011_1111 {
+        let val: u64 = ((b0 as u64 & 0b0011_1111) << 8)
+            + buf[1] as u64
+            + ENC_1_U64;
+        (val, 2)
+    } else if b0 <= 0b1101_1111 {
+        let val: u64 = ((b0 as u64 & 0b0001_1111) << 16)
+            + ((buf[1] as u64) << 8)
+            + buf[2] as u64
+            + ENC_2_U64;
+        (val, 3)
+    } else if b0 <= 0b1110_1111 {
+        let n = unsafe { std::ptr::read_unaligned(&buf[0] as *const u8 as *const u32) };
+        let val = u32::from_be(n) as u64 - (0b1110_0000 << 24)
+            + ENC_3_U64;
+        (val, 4)
+    } else if b0 <= 0b1111_0111 {
+
+        // Here we're really parsing a u64 big endian value. The optimizer is clever enough to
+        // figure that out and optimize this code with a read + byteswap.
+        let n = unsafe { std::ptr::read_unaligned(&buf[1] as *const u8 as *const u32) };
+
+        let val: u64 = ((b0 as u64 & 0b0000_0111) << 32)
+            + u32::from_be(n as u32) as u64
+            // + ((buf[1] as u64) << 24)
+            // + ((buf[2] as u64) << 16)
+            // + ((buf[3] as u64) << 8)
+            // + buf[4] as u64
+            + ENC_4_U64;
+        (val, 5)
+    } else if b0 <= 0b1111_1011 {
+
+        let val: u64 = ((b0 as u64 & 0b0000_0011) << 40)
+            + ((buf[1] as u64) << 32)
+            + ((buf[2] as u64) << 24)
+            + ((buf[3] as u64) << 16)
+            + ((buf[4] as u64) << 8)
+            + buf[5] as u64
+            + ENC_5_U64;
+        (val, 6)
+    } else if b0 <= 0b1111_1101 {
+        let val: u64 = ((b0 as u64 & 0b0000_0001) << 48)
+            + ((buf[1] as u64) << 40)
+            + ((buf[2] as u64) << 32)
+            + ((buf[3] as u64) << 24)
+            + ((buf[4] as u64) << 16)
+            + ((buf[5] as u64) << 8)
+            + buf[6] as u64
+            + ENC_6_U64;
+        (val, 7)
+    } else if b0 == 0b1111_1110 {
+        let n = unsafe { std::ptr::read_unaligned(&buf[0] as *const u8 as *const u64) };
+
+        let val = u64::from_be(n) - (0b1111_1110 << 56)
+            + ENC_7_U64;
+        (val, 8)
+    } else {
+        let n = unsafe { std::ptr::read_unaligned(&buf[1] as *const u8 as *const u64) };
+
+        let val = u64::from_be(n) + ENC_8_U64;
+        (val, 9)
+    }
+}
+
 
 pub fn num_encode_zigzag_i64(val: i64) -> u64 {
     val.unsigned_abs() * 2 + val.is_negative() as u64
@@ -328,7 +494,6 @@ pub fn num_decode_i64_with_extra_bit(value: u64) -> (i64, bool) {
 mod test {
     use super::*;
     use rand::prelude::*;
-    use crate::list::encoding::leb::{decode_leb_u64, decode_leb_u64_slow, encode_leb_u32, encode_leb_u64};
 
     fn check_zigzag(val: i64) {
         let zz = num_encode_zigzag_i64(val);
@@ -351,16 +516,18 @@ mod test {
     }
 
     fn check_enc_dec_unsigned(val: u64) {
-        let mut buf = [0u8; 9];
-        let bytes_used = encode_prefix_varint_u64(val, &mut buf);
+        let (buf, bytes_used) = encode_prefix_varint_u64(val);
+        // println!("{:#04x} {:#04x} {:#04x} {:#04x} {:#04x}", buf[0], buf[1], buf[2], buf[3], buf[4]);
         let v1 = decode_prefix_varint_u64(&buf).unwrap();
         assert_eq!(v1, (val, bytes_used));
-        // println!("{:#04x} {:#04x} {:#04x} {:#04x} {:#04x}", buf[0], buf[1], buf[2], buf[3], buf[4]);
+        let v2 = decode_prefix_varint_u64_unroll(&buf).unwrap();
+        assert_eq!(v2, (val, bytes_used));
+        let v3 = decode_prefix_varint_u64_unroll_flat(&buf);
+        assert_eq!(v3, (val, bytes_used));
 
         // And check 32 bit variants.
         let val32 = val as u32;
-        let mut buf = [0u8; 5];
-        let bytes_used_u32 = encode_prefix_varint_u32(val32, &mut buf);
+        let (buf, bytes_used_u32) = encode_prefix_varint_u32(val32);
 
         if val == val32 as u64 {
             assert_eq!(bytes_used, bytes_used_u32);
@@ -381,6 +548,7 @@ mod test {
         check_enc_dec_unsigned(0x100);
         check_enc_dec_unsigned(0xffffffff);
         check_enc_dec_unsigned(158933560); // from testing.
+        check_enc_dec_unsigned(15779779462787834424); // from testing.
     }
 
     #[test]

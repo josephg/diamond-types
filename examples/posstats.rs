@@ -79,6 +79,7 @@ fn print_stats_for_testdata(name: &str) {
         compress_content: true,
         verbose: true
     });
+    println!("Regular file size {} bytes", data.len());
     std::fs::write(out_file.clone(), data.as_slice()).unwrap();
     println!("Saved to {}", out_file);
 }

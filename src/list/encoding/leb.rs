@@ -111,7 +111,7 @@ pub fn encode_leb_usize(value: usize, buf: &mut [u8]) -> usize {
 /// Returns (varint, number of bytes read). Or an empty Err if the parsing failed.
 ///
 /// TODO: Make some ParseError struct or enum or something.
-pub fn decode_leb_u64_slow(buf: &[u8]) -> Result<(u64, usize), ParseError> {
+fn decode_leb_u64_slow(buf: &[u8]) -> Result<(u64, usize), ParseError> {
     let mut r: u64 = 0;
     let mut i = 0;
     while i < buf.len() {
