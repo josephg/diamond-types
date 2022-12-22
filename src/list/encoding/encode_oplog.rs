@@ -12,6 +12,7 @@ use crate::list::operation::ListOpKind;
 use crate::dtrange::DTRange;
 use crate::encoding::tools::calc_checksum;
 use crate::list::encoding::encode_tools::*;
+use crate::list::encoding::leb::{encode_i64, encode_leb_u32, encode_leb_usize};
 
 const ALLOW_VERBOSE: bool = false;
 
@@ -78,11 +79,11 @@ fn write_op(dest: &mut Vec<u8>, op: &ListOpMetrics, cursor: &mut usize) {
     n = mix_bit_usize(n, op.kind == Del);
     n = mix_bit_usize(n, cursor_diff != 0);
     n = mix_bit_usize(n, len != 1);
-    pos += encode_usize(n, &mut buf[pos..]);
+    pos += encode_leb_usize(n, &mut buf[pos..]);
 
     if len != 1 && cursor_diff != 0 {
         let n2 = num_encode_zigzag_isize(cursor_diff);
-        pos += encode_usize(n2, &mut buf[pos..]);
+        pos += encode_leb_usize(n2, &mut buf[pos..]);
     }
 
     dest.extend_from_slice(&buf[..pos]);
@@ -177,8 +178,8 @@ fn write_assignment_run(dest: &mut Vec<u8>, run: AgentAssignmentRun) {
 
     // dbg!(run);
     let n = mix_bit_u32(run.agent, has_jump);
-    pos += encode_u32(n, &mut buf);
-    pos += encode_usize(run.len, &mut buf[pos..]);
+    pos += encode_leb_u32(n, &mut buf);
+    pos += encode_leb_usize(run.len, &mut buf[pos..]);
 
     if has_jump {
         pos += encode_i64(run.delta as i64, &mut buf[pos..]);
@@ -331,7 +332,7 @@ fn write_compressed_chunk(dest: &mut Vec<u8>, data: &[u8]) -> usize {
 
     // Encoding the uncompressed length is technically redundant, since you could just
     // scan the whole file. But its convenient and fine in practice.
-    pos += encode_usize(data.len(), &mut compressed[pos..]);
+    pos += encode_leb_usize(data.len(), &mut compressed[pos..]);
 
     // I could wrap and return the compression error, but the only lz4 error is
     // TooSmall, and that should probably be a panic anyway.

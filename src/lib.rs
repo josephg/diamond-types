@@ -389,7 +389,8 @@ pub struct OpLog {
     map_keys: BTreeMap<(LVKey, SmartString), RegisterInfo>,
     texts: BTreeMap<LVKey, TextInfo>,
 
-    // A different index for each data set, or one index with an enum?
+    // These are always inserted at the end, but items in the middle are removed. There's probably
+    // a better data structure to accomplish this.
     map_index: BTreeMap<LV, (LVKey, SmartString)>,
     text_index: BTreeMap<LV, LVKey>,
 
@@ -422,11 +423,6 @@ struct RegisterState {
     value: RegisterValue,
     conflicts_with: Vec<RegisterValue>,
 }
-
-fn subgraph_rev_iter(ops: &RleVec<KVPair<ListOpMetrics>>) -> impl Iterator<Item=DTRange> + '_ {
-    ops.0.iter().rev().map(|e| e.range())
-}
-
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

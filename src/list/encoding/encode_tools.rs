@@ -2,20 +2,21 @@ use std::mem::{replace, size_of};
 use rle::{MergableSpan, RleRun};
 use std::marker::PhantomData;
 use crate::list::encoding::ListChunkType;
-use crate::encoding::varint::{encode_u32, encode_u64, mix_bit_usize};
+use crate::encoding::varint::mix_bit_usize;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+use crate::list::encoding::leb::{encode_leb_u32, encode_leb_u64};
 
 pub(super) fn push_u32(into: &mut Vec<u8>, val: u32) {
     let mut buf = [0u8; 5];
-    let pos = encode_u32(val, &mut buf);
+    let pos = encode_leb_u32(val, &mut buf);
     into.extend_from_slice(&buf[..pos]);
 }
 
 pub(super) fn push_u64(into: &mut Vec<u8>, val: u64) {
     let mut buf = [0u8; 10];
-    let pos = encode_u64(val, &mut buf);
+    let pos = encode_leb_u64(val, &mut buf);
     into.extend_from_slice(&buf[..pos]);
 }
 

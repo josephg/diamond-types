@@ -1,7 +1,7 @@
 use std::mem::size_of;
 use crate::encoding::ChunkType;
-use crate::encoding::varint::{encode_u32, encode_u64};
 use bumpalo::collections::vec::Vec as BumpVec;
+use crate::list::encoding::leb::{encode_leb_u32, encode_leb_u64};
 
 pub(crate) trait ExtendFromSlice {
     fn extend_from_slice(&mut self, slice: &[u8]);
@@ -21,13 +21,13 @@ impl<'a> ExtendFromSlice for BumpVec<'a, u8> {
 
 pub(crate) fn push_u32<V: ExtendFromSlice>(into: &mut V, val: u32) {
     let mut buf = [0u8; 5];
-    let pos = encode_u32(val, &mut buf);
+    let pos = encode_leb_u32(val, &mut buf);
     into.extend_from_slice(&buf[..pos]);
 }
 
 pub(crate) fn push_u64<V: ExtendFromSlice>(into: &mut V, val: u64) {
     let mut buf = [0u8; 10];
-    let pos = encode_u64(val, &mut buf);
+    let pos = encode_leb_u64(val, &mut buf);
     into.extend_from_slice(&buf[..pos]);
 }
 

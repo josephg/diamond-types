@@ -1,6 +1,7 @@
 use std::mem::size_of;
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::varint::*;
+use crate::list::encoding::leb::{decode_leb_u32, decode_leb_u64, decode_leb_usize};
 
 #[derive(Debug, Clone)]
 pub struct BufParser<'a>(pub(crate) &'a [u8]);
@@ -45,12 +46,12 @@ impl<'a> BufParser<'a> {
     pub(crate) fn peek_u32(&self) -> Result<Option<u32>, ParseError> {
         if self.is_empty() { return Ok(None); }
         // Some(decode_u32(self.0))
-        Ok(Some(decode_u32(self.0)?.0))
+        Ok(Some(decode_leb_u32(self.0)?.0))
     }
 
     pub(crate) fn next_u32(&mut self) -> Result<u32, ParseError> {
         self.check_not_empty()?;
-        let (val, count) = decode_u32(self.0)?;
+        let (val, count) = decode_leb_u32(self.0)?;
         self.consume(count);
         Ok(val)
     }
@@ -65,14 +66,14 @@ impl<'a> BufParser<'a> {
     #[allow(unused)]
     pub(crate) fn next_u64(&mut self) -> Result<u64, ParseError> {
         self.check_not_empty()?;
-        let (val, count) = decode_u64(self.0)?;
+        let (val, count) = decode_leb_u64(self.0)?;
         self.consume(count);
         Ok(val)
     }
 
     pub(crate) fn next_usize(&mut self) -> Result<usize, ParseError> {
         self.check_not_empty()?;
-        let (val, count) = decode_usize(self.0)?;
+        let (val, count) = decode_leb_usize(self.0)?;
         self.consume(count);
         Ok(val)
     }
