@@ -12,7 +12,8 @@ use crate::encoding::varint;
 ///
 /// (With some modifications.)
 
-/// Encode u64 as varint.
+/// Encode u64 using LEB - https://en.wikipedia.org/wiki/LEB128.
+/// The encoder is based on Google's encoder for protobuf.
 /// Panics if buffer length is less than 10.
 pub fn encode_leb_u64(mut value: u64, buf: &mut [u8]) -> usize {
     assert!(buf.len() >= 10);
