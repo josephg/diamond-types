@@ -36,14 +36,6 @@ const ENC_6_U64: u64 = (1u64 << 42) + ENC_5_U64;
 const ENC_7_U64: u64 = (1u64 << 49) + ENC_6_U64;
 const ENC_8_U64: u64 = (1u64 << 54) + ENC_7_U64;
 
-// /// Encode u64 as a length-prefixed varint.
-// /// Panics if buffer length is less than 10.
-// ///
-// /// Returns the number of bytes which have been consumed in the provided buffer.
-// pub fn encode_prefix_varint_u64(mut value: u64, buf: &mut [u8]) -> usize {
-//     todo!()
-// }
-
 /// Encode u32 as a length-prefixed varint.
 ///
 /// Returns the number of bytes which have been consumed in the provided buffer.
@@ -81,10 +73,6 @@ pub fn encode_prefix_varint_u32(mut value: u32, buf: &mut [u8; 5]) -> usize {
 
         // This compiles to smaller code than the unrolled version.
         buf[1..5].copy_from_slice(&value.to_be_bytes());
-        // buf[1] = (value >> 24) as u8;
-        // buf[2] = (value >> 16) as u8;
-        // buf[3] = (value >> 8) as u8;
-        // buf[4] = value as u8;
         5
     }
 }
@@ -118,20 +106,12 @@ pub fn encode_prefix_varint_u64(mut value: u64, buf: &mut [u8; 9]) -> usize {
         value -= ENC_4_U64;
         buf[0] = 0b1111_0000 | (value >> 32) as u8;
         buf[1..5].copy_from_slice(&(value as u32).to_be_bytes());
-        // buf[1] = (value >> 24) as u8;
-        // buf[2] = (value >> 16) as u8;
-        // buf[3] = (value >> 8) as u8;
-        // buf[4] = value as u8;
         5
     } else if value < ENC_6_U64 {
         value -= ENC_5_U64;
         buf[0] = 0b1111_1000 | (value >> 40) as u8;
         buf[1] = (value >> 32) as u8;
         buf[2..6].copy_from_slice(&(value as u32).to_be_bytes());
-        // buf[2] = (value >> 24) as u8;
-        // buf[3] = (value >> 16) as u8;
-        // buf[4] = (value >> 8) as u8;
-        // buf[5] = value as u8;
         6
     } else if value < ENC_7_U64 {
         value -= ENC_6_U64;
@@ -139,10 +119,6 @@ pub fn encode_prefix_varint_u64(mut value: u64, buf: &mut [u8; 9]) -> usize {
         buf[1] = (value >> 40) as u8;
         buf[2] = (value >> 32) as u8;
         buf[3..7].copy_from_slice(&(value as u32).to_be_bytes());
-        // buf[3] = (value >> 24) as u8;
-        // buf[4] = (value >> 16) as u8;
-        // buf[5] = (value >> 8) as u8;
-        // buf[6] = value as u8;
         7
     } else if value < ENC_8_U64 {
         value -= ENC_7_U64;
@@ -151,23 +127,11 @@ pub fn encode_prefix_varint_u64(mut value: u64, buf: &mut [u8; 9]) -> usize {
         buf[2] = (value >> 40) as u8;
         buf[3] = (value >> 32) as u8;
         buf[4..8].copy_from_slice(&(value as u32).to_be_bytes());
-        // buf[4] = (value >> 24) as u8;
-        // buf[5] = (value >> 16) as u8;
-        // buf[6] = (value >> 8) as u8;
-        // buf[7] = value as u8;
         8
     } else {
         value -= ENC_8_U64;
         buf[0] = 0b1111_1111;
         buf[1..9].copy_from_slice(&value.to_be_bytes());
-        // buf[1] = (value >> 56) as u8;
-        // buf[2] = (value >> 48) as u8;
-        // buf[3] = (value >> 40) as u8;
-        // buf[4] = (value >> 32) as u8;
-        // buf[5] = (value >> 24) as u8;
-        // buf[6] = (value >> 16) as u8;
-        // buf[7] = (value >> 8) as u8;
-        // buf[8] = value as u8;
         9
     }
 }
@@ -183,27 +147,34 @@ fn decode_prefix_varint_u32_loop(buf: &[u8]) -> Result<(u32, usize), ParseError>
         })
 }
 
+const ENC_U64_VALS: [u64; 8] = [ENC_1_U64, ENC_2_U64, ENC_3_U64, ENC_4_U64, ENC_5_U64, ENC_6_U64, ENC_7_U64, ENC_8_U64];
 pub fn decode_prefix_varint_u64(buf: &[u8]) -> Result<(u64, usize), ParseError> {
     // This implementation actually produces more code than the unrolled version below.
     if buf.is_empty() {
-        Err(ParseError::UnexpectedEOF)
-    } else if buf[0] < ENC_1_U64 as u8 {
-        Ok((buf[0] as u64, 1))
+        return Err(ParseError::UnexpectedEOF);
+    }
+
+    let b0 = buf[0];
+    if b0 < ENC_1_U64 as u8 {
+        Ok((b0 as u64, 1))
     } else {
-        let trailing_bytes = buf[0].leading_ones() as usize;
-        if buf.len() < trailing_bytes + 1 {
+        // The & 0b111 is unnecessary, but this tells LLVM that the variable will definitely be
+        // in the range of 0..7, which prevents the compiler from getting too excited about
+        // unrolling the loop (below).
+        let idx = (b0.leading_ones() as usize - 1) & 0b111;
+        let byte_len = idx + 2;
+        if buf.len() < byte_len {
             return Err(ParseError::UnexpectedEOF)
         }
 
-        // TODO: Could get_unchecked() for these.
-        let mut val: u64 = (buf[0] & ((1 << (8 - trailing_bytes)) - 1)) as u64;
-        for t in 0..trailing_bytes {
-            val = (val << 8) + buf[1 + t as usize] as u64;
+        let mut val: u64 = (b0 & ((1 << (7 - idx)) - 1)) as u64;
+        for b in &buf[1..byte_len] {
+            val = (val << 8) + *b as u64;
         }
 
-        val += [ENC_1_U64, ENC_2_U64, ENC_3_U64, ENC_4_U64, ENC_5_U64, ENC_6_U64, ENC_7_U64, ENC_8_U64][(trailing_bytes - 1) & 0b111];
+        val += ENC_U64_VALS[idx];
 
-        Ok((val, trailing_bytes + 1))
+        Ok((val, byte_len))
     }
 }
 
@@ -232,11 +203,8 @@ pub fn decode_prefix_varint_u32_unroll(buf: &[u8]) -> Result<(u32, usize), Parse
         Ok((val, 3))
     } else if b0 <= 0b1110_1111 {
         if buf.len() < 4 { return Err(ParseError::UnexpectedEOF); }
-        let val: u32 = ((b0 as u32 & 0b0000_1111) << 24)
-            + ((buf[1] as u32) << 16)
-            + ((buf[2] as u32) << 8)
-            + buf[3] as u32
-            + ENC_3_U32;
+        let n = unsafe { std::ptr::read_unaligned(&buf[0] as *const u8 as *const u32) };
+        let val = u32::from_be(n) - (0b1110_0000 << 24) + ENC_3_U32;
         Ok((val, 4))
     } else {
         if buf.len() < 5 { return Err(ParseError::UnexpectedEOF); }
