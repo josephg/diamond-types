@@ -12,7 +12,7 @@ use crate::list::operation::ListOpKind;
 use crate::dtrange::DTRange;
 use crate::encoding::tools::calc_checksum;
 use crate::list::encoding::encode_tools::*;
-use crate::list::encoding::leb::{encode_i64, encode_leb_u32, encode_leb_usize};
+use crate::list::encoding::leb::{encode_leb_u32, encode_leb_usize};
 
 const ALLOW_VERBOSE: bool = false;
 
@@ -182,7 +182,7 @@ fn write_assignment_run(dest: &mut Vec<u8>, run: AgentAssignmentRun) {
     pos += encode_leb_usize(run.len, &mut buf[pos..]);
 
     if has_jump {
-        pos += encode_i64(run.delta as i64, &mut buf[pos..]);
+        pos += encode_leb_usize(num_encode_zigzag_isize(run.delta), &mut buf[pos..]);
     }
 
     dest.extend_from_slice(&buf[..pos]);

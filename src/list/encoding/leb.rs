@@ -190,26 +190,6 @@ pub fn decode_leb_usize(buf: &[u8]) -> Result<(usize, usize), ParseError> {
     }
 }
 
-pub fn encode_i64(value: i64, buf: &mut[u8]) -> usize {
-    encode_leb_u64(varint::num_encode_zigzag_i64(value), buf)
-}
-
-pub fn encode_i32(value: i32, buf: &mut[u8]) -> usize {
-    encode_leb_u32(varint::num_encode_zigzag_i32(value), buf)
-}
-
-pub fn encode_u32_with_extra_bit(value: u32, extra: bool, buf: &mut[u8]) -> usize {
-    debug_assert!(value < (u32::MAX >> 1));
-    let val_2 = value * 2 + (extra as u32);
-    encode_leb_u32(val_2, buf)
-}
-
-pub fn encode_u32_with_extra_bit_2(value: u32, extra_1: bool, extra_2: bool, buf: &mut[u8]) -> usize {
-    debug_assert!(value < (u32::MAX >> 2));
-    let val_2 = (value << 2) + ((extra_1 as u32) << 1) + (extra_2 as u32);
-    encode_leb_u32(val_2, buf)
-}
-
 #[cfg(test)]
 mod test {
     use rand::prelude::*;

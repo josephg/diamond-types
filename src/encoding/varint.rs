@@ -79,27 +79,6 @@ pub(crate) fn strip_bit_usize_2(value: &mut usize) -> bool {
     bit
 }
 
-
-// TODO: Remove this method. Callers should just use mix_bit.
-// fn num_encode_i64_with_extra_bit(value: i64, extra: bool) -> u64 {
-//     // We only have enough remaining bits in the u64 encoding to fit +/- 2^62.
-//     debug_assert!(value.abs() < (i64::MAX / 2));
-//     let val_1 = num_encode_zigzag_i64(value);
-//     mix_bit_u64(val_1, extra)
-// }
-
-// pub(crate) fn num_encode_i64_with_extra_bit_2(value: i64, extra_1: bool, extra_2: bool) -> u64 {
-//     // We only have enough remaining bits in the u64 encoding to fit +/- 2^62.
-//     debug_assert!(value.abs() < (i64::MAX / 2));
-//     let val_1 = num_encode_zigzag_i64(value);
-//     let val_2 = mix_bit_u64(val_1, extra_1);
-//     mix_bit_u64(val_2, extra_2)
-// }
-
-// pub fn encode_i64_with_extra_bit(value: i64, extra: bool, buf: &mut[u8]) -> usize {
-//     encode_u64(num_encode_i64_with_extra_bit(value, extra), buf)
-// }
-
 pub fn num_decode_zigzag_i32(val: u32) -> i32 {
     // dbg!(val);
     (val >> 1) as i32 * (if val & 1 == 1 { -1 } else { 1 })
