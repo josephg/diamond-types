@@ -1,6 +1,5 @@
 use smallvec::{smallvec, SmallVec};
 use crate::list::encoding::*;
-use crate::encoding::varint::*;
 use crate::list::{ListOpLog, switch};
 use crate::frontier::*;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};

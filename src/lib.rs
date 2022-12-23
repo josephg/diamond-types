@@ -225,6 +225,8 @@ pub mod listmerge;
 
 #[cfg(test)]
 mod list_fuzzer_tools;
+#[cfg(test)]
+mod fuzzer;
 mod branch;
 mod textinfo;
 mod oplog;

@@ -18,6 +18,7 @@
 use std::hint::unreachable_unchecked;
 use std::mem::size_of;
 use crate::encoding::parseerror::ParseError;
+use crate::encoding::tools::ExtendFromSlice;
 
 // const ENC_1_U64: u64 = 1u64 << 7;
 // const ENC_2_U64: u64 = (1u64 << 14) + (1u64 << 7);
@@ -395,6 +396,18 @@ pub(crate) fn decode_prefix_varint_u64_unroll_flat(buf: &[u8; 9]) -> (u64, usize
     }
 }
 
+pub fn decode_prefix_varint_usize(buf: &[u8]) -> Result<(usize, usize), ParseError> {
+    if size_of::<usize>() <= size_of::<u32>() {
+        let (val, count) = decode_prefix_varint_u32(buf)?;
+        Ok((val as usize, count))
+    } else if size_of::<usize>() == size_of::<u64>() {
+        let (val, count) = decode_prefix_varint_u64(buf)?;
+        Ok((val as usize, count))
+    } else {
+        panic!("usize larger than u64 not supported");
+    }
+}
+
 
 pub fn num_encode_zigzag_i64(val: i64) -> u64 {
     val.unsigned_abs() * 2 + val.is_negative() as u64
@@ -437,6 +450,32 @@ pub(crate) fn mix_bit_usize(value: usize, extra: bool) -> usize {
     } else {
         panic!("Unsupported target pointer width")
     }
+}
+
+pub(crate) fn push_u32<V: ExtendFromSlice>(into: &mut V, val: u32) {
+    let (buf, pos) = encode_prefix_varint_u32(val);
+    into.extend_from_slice(&buf[..pos]);
+}
+
+pub(crate) fn push_u64<V: ExtendFromSlice>(into: &mut V, val: u64) {
+    let (buf, pos) = encode_prefix_varint_u64(val);
+    into.extend_from_slice(&buf[..pos]);
+}
+
+pub(crate) fn push_usize<V: ExtendFromSlice>(into: &mut V, val: usize) {
+    if size_of::<usize>() <= size_of::<u32>() {
+        push_u32(into, val as u32);
+    } else if size_of::<usize>() == size_of::<u64>() {
+        push_u64(into, val as u64);
+    } else {
+        panic!("usize larger than u64 is not supported");
+    }
+}
+
+pub(crate) fn push_str<V: ExtendFromSlice>(into: &mut V, val: &str) {
+    let bytes = val.as_bytes();
+    push_usize(into, bytes.len());
+    into.extend_from_slice(bytes);
 }
 
 pub(crate) fn strip_bit_u64(value: u64) -> (u64, bool) {

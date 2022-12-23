@@ -11,7 +11,7 @@ use crate::list::op_metrics::ListOpMetrics;
 use crate::list::operation::ListOpKind;
 use crate::dtrange::DTRange;
 use crate::encoding::tools::calc_checksum;
-use crate::list::encoding::encode_tools::*;
+use crate::list::encoding::encode_tools::{Merger, push_leb_chunk, push_leb_str, push_leb_u32, push_leb_usize, push_u32_le, write_leb_bit_run};
 use crate::list::encoding::leb::{encode_leb_u32, encode_leb_usize};
 
 const ALLOW_VERBOSE: bool = false;
@@ -220,7 +220,7 @@ impl AgentMapping {
         self.map[agent].map_or_else(|| {
             let mapped = self.next_mapped_agent;
             self.map[agent] = Some((mapped, 0));
-            push_str(&mut self.output, oplog.cg.agent_assignment.client_data[agent].name.as_str());
+            push_leb_str(&mut self.output, oplog.cg.agent_assignment.client_data[agent].name.as_str());
             // println!("Mapped agent {} -> {}", oplog.cg.client_data[agent].name, mapped);
             self.next_mapped_agent += 1;
             mapped
@@ -255,10 +255,10 @@ fn write_local_version(dest: &mut Vec<u8>, version: &[LV], map: &mut AgentMappin
         // (Mapped agent ID, seq) pairs. Agent id has mixed in bit for has_more.
         let mapped = map.map(oplog, agent);
         let n = mix_bit_usize(mapped as _, has_more);
-        push_usize(&mut buf, n);
-        push_usize(&mut buf, seq);
+        push_leb_usize(&mut buf, n);
+        push_leb_usize(&mut buf, seq);
     }
-    push_chunk(dest, ListChunkType::Version, &buf);
+    push_leb_chunk(dest, ListChunkType::Version, &buf);
     // buf.clear();
 }
 
@@ -271,7 +271,7 @@ fn write_content<'a, I: Iterator<Item = &'a [u8]>>(dest: &mut Vec<u8>, kind: Dat
     //   situ, and then put the compressed data itself into compressed for later compression.
 
     let mut buf = Vec::new(); // :(
-    push_u32(&mut buf, kind as _);
+    push_leb_u32(&mut buf, kind as _);
 
     // Right now I'm compressing content whenever len > 20. I'm not sure what the right parameter
     // here is, but thats probably about right. LZ4 has a minimum block size of 12 anyway.
@@ -283,7 +283,7 @@ fn write_content<'a, I: Iterator<Item = &'a [u8]>>(dest: &mut Vec<u8>, kind: Dat
         #[cfg(feature = "lz4")]
         (Some(b), true) => {
             // Store the compressed length in the origin chunk.
-            push_usize(&mut buf, len);
+            push_leb_usize(&mut buf, len);
             (b, ListChunkType::ContentCompressed)
         },
         _ => (&mut buf, ListChunkType::Content),
@@ -297,7 +297,7 @@ fn write_content<'a, I: Iterator<Item = &'a [u8]>>(dest: &mut Vec<u8>, kind: Dat
     }
     debug_assert_eq!(actual_len, len);
 
-    push_chunk(dest, chunk_type, &buf);
+    push_leb_chunk(dest, chunk_type, &buf);
 }
 
 fn write_content_str(dest: &mut Vec<u8>, s: &str, compressed: Option<&mut Vec<u8>>) {
@@ -312,9 +312,9 @@ fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ListChunkType) {
     debug_assert_ne!(chunk_type, ListChunkType::Content); // Use write_content_str instead.
 
     let mut buf = Vec::new(); // :(
-    push_u32(&mut buf, DataType::PlainText as _);
+    push_leb_u32(&mut buf, DataType::PlainText as _);
     buf.extend_from_slice(s.as_bytes());
-    push_chunk(dest, chunk_type, &buf);
+    push_leb_chunk(dest, chunk_type, &buf);
 }
 
 /// Returns compressed chunk size
@@ -339,7 +339,7 @@ fn write_compressed_chunk(dest: &mut Vec<u8>, data: &[u8]) -> usize {
     pos += lz4_flex::compress_into(data, &mut compressed[pos..]).unwrap();
     compressed.truncate(pos);
     // write_chunk(ChunkType::CompressedFields, &mut compressed);
-    push_chunk(dest, ListChunkType::CompressedFieldsLZ4, &compressed[..pos]);
+    push_leb_chunk(dest, ListChunkType::CompressedFieldsLZ4, &compressed[..pos]);
 
     pos
 }
@@ -387,12 +387,12 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
         } else {
             let mut buf = Vec::new();
             // Operation type
-            push_u32(&mut buf, match self.kind { Ins => 0, Del => 1 });
+            push_leb_u32(&mut buf, match self.kind { Ins => 0, Del => 1 });
 
             // This writes a length-prefixed string, which it really doesn't need to do.
             write_content_str(&mut buf, &self.content, compressed_out);
 
-            push_chunk(&mut buf, ListChunkType::ContentIsKnown, &self.known_out);
+            push_leb_chunk(&mut buf, ListChunkType::ContentIsKnown, &self.known_out);
             Some(buf)
         }
     }
@@ -442,10 +442,10 @@ impl ListOpLog {
         } else { None };
 
         let mut inserted_content = if opts.store_inserted_content {
-            Some(ContentChunk::new(write_bit_run, Ins))
+            Some(ContentChunk::new(write_leb_bit_run, Ins))
         } else { None };
         let mut deleted_content = if opts.store_deleted_content {
-            Some(ContentChunk::new(write_bit_run, Del))
+            Some(ContentChunk::new(write_leb_bit_run, Del))
         } else { None };
 
         // Map from old agent ID -> new agent ID in the file.
@@ -482,7 +482,7 @@ impl ListOpLog {
             txn_map.insert(KVPair(txn.span.start, output_range));
             next_output_time = output_range.end;
 
-            push_usize(&mut txns_chunk, len);
+            push_leb_usize(&mut txns_chunk, len);
 
             // Then the parents.
             if txn.parents.is_root() {
@@ -492,7 +492,7 @@ impl ListOpLog {
                 // empty.
 
                 // let n = 0, has_more = false, is_foreign = true. -> val = 1.
-                push_usize(&mut txns_chunk, 1);
+                push_leb_usize(&mut txns_chunk, 1);
             } else {
                 let mut iter = txn.parents.iter().peekable();
                 while let Some(&p) = iter.next() {
@@ -502,7 +502,7 @@ impl ListOpLog {
                     let mut write_parent_diff = |mut n: usize, is_foreign: bool| {
                         n = mix_bit_usize(n, has_more);
                         n = mix_bit_usize(n, is_foreign);
-                        push_usize(&mut txns_chunk, n);
+                        push_leb_usize(&mut txns_chunk, n);
                     };
 
                     // Parents are either local or foreign. Local changes are changes we've written
@@ -534,7 +534,7 @@ impl ListOpLog {
                         //
                         // I'm adding 1 to the mapped agent to make room for ROOT. This is quite dirty!
                         write_parent_diff(mapped_agent as usize, true);
-                        push_usize(&mut txns_chunk, seq);
+                        push_leb_usize(&mut txns_chunk, seq);
                     }
                 }
             }
@@ -642,11 +642,11 @@ impl ListOpLog {
         }
 
         // agent names
-        push_chunk(&mut fileinfo_buf, ListChunkType::AgentNames, &agent_mapping.consume());
+        push_leb_chunk(&mut fileinfo_buf, ListChunkType::AgentNames, &agent_mapping.consume());
 
         // User data
         if let Some(data) = opts.user_data {
-            push_chunk(&mut fileinfo_buf, ListChunkType::UserData, data);
+            push_leb_chunk(&mut fileinfo_buf, ListChunkType::UserData, data);
         }
 
         // Bake inserted & deleted content. I need to do this here because the CompressedFields
@@ -671,7 +671,7 @@ impl ListOpLog {
         let mut result = Vec::new();
         // The file starts with MAGIC_BYTES
         result.extend_from_slice(&MAGIC_BYTES);
-        push_usize(&mut result, PROTOCOL_VERSION);
+        push_leb_usize(&mut result, PROTOCOL_VERSION);
 
         // We'll write a series of chunks. Each chunk has a chunk header (chunk type, length).
         // The first chunk is CompressedFields, in case we need compressed content later.
@@ -696,7 +696,7 @@ impl ListOpLog {
                 println!("{:?} length {}", c, data.len());
             }
             // dbg!(&data);
-            push_chunk(&mut result, c, data.as_slice());
+            push_leb_chunk(&mut result, c, data.as_slice());
             data.clear();
         };
 
@@ -714,15 +714,15 @@ impl ListOpLog {
         let mut patches_buf = fileinfo_buf;
 
         if let Some(bytes) = inserted_content {
-            push_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes);
+            push_leb_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes);
         }
         if let Some(bytes) = deleted_content {
-            push_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes);
+            push_leb_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes);
         }
 
-        push_chunk(&mut patches_buf, ListChunkType::OpVersions, &agent_assignment_chunk);
-        push_chunk(&mut patches_buf, ListChunkType::OpTypeAndPosition, &ops_chunk);
-        push_chunk(&mut patches_buf, ListChunkType::OpParents, &txns_chunk);
+        push_leb_chunk(&mut patches_buf, ListChunkType::OpVersions, &agent_assignment_chunk);
+        push_leb_chunk(&mut patches_buf, ListChunkType::OpTypeAndPosition, &ops_chunk);
+        push_leb_chunk(&mut patches_buf, ListChunkType::OpParents, &txns_chunk);
 
         write_chunk(ListChunkType::Patches, &mut patches_buf);
 
@@ -731,7 +731,7 @@ impl ListOpLog {
         // println!("checksum {checksum}");
         let checksum = calc_checksum(&result);
         push_u32_le(&mut patches_buf, checksum);
-        push_chunk(&mut result, ListChunkType::Crc, &patches_buf);
+        push_leb_chunk(&mut result, ListChunkType::Crc, &patches_buf);
         // write_chunk(Chunk::CRC, &mut buf);
         // push_u32(&mut result, checksum);
 

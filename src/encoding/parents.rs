@@ -1,5 +1,5 @@
 use rle::Searchable;
-use crate::encoding::tools::{ExtendFromSlice, push_str, push_usize};
+use crate::encoding::tools::{ExtendFromSlice, push_str};
 use crate::encoding::varint::*;
 use crate::{Frontier, LV};
 // use bumpalo::collections::vec::Vec as BumpVec;
@@ -7,12 +7,11 @@ use smallvec::SmallVec;
 use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::map::{WriteMap, ReadMap};
+use crate::encoding::map::{ReadMap, WriteMap};
 use crate::frontier::sort_frontier;
 
-
-
 pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[LV], next_output_time: LV, persist: bool, write_map: &mut WriteMap, aa: &AgentAssignment) {
+    // println!("Write parents {:?} next_output_time {next_output_time}", parents);
     // For parents we need to differentiate a few different cases:
     // - The parents list is empty. This means the item is the first operation in its history.
     // - If that isn't true, each item in parents is either:
@@ -75,6 +74,7 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
                 // println!("Region does not contain parent for {}", p);
 
                 let item = aa.local_to_agent_version(p);
+                // println!("Writing foreign parent item {:?}", item);
                 // I'm using maybe_root here not because item.0 is ever ROOT, but because we're
                 // special casing mapped agent 0 to express an empty parents list above.
                 let mapped_agent = write_map.map_mut(&aa.client_data, item.0, persist);
@@ -103,6 +103,7 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
 // *** Read path ***
 
 pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, next_time: LV, read_map: &mut ReadMap) -> Result<Frontier, ParseError> {
+    // println!("read parents raw {}", reader.len());
     let mut parents = SmallVec::<[LV; 2]>::new();
 
     loop {
@@ -142,7 +143,7 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, aa: &mut A
 
             let seq = reader.next_usize()?;
             aa.try_agent_version_to_lv((agent, seq))
-                .ok_or(ParseError::InvalidLength)?
+                .ok_or(ParseError::DataMissing)? // missing expected (agent, seq).
         };
 
         parents.push(parent);
@@ -162,7 +163,6 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, aa: &mut A
 
 #[cfg(test)]
 mod test {
-    use crate::CausalGraph;
     use crate::causalgraph::agent_assignment::AgentAssignment;
     use crate::encoding::bufparser::BufParser;
     use crate::encoding::map::{ReadMap, WriteMap};

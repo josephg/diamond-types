@@ -1,7 +1,6 @@
-use std::mem::size_of;
 use crate::encoding::ChunkType;
 use bumpalo::collections::vec::Vec as BumpVec;
-use crate::list::encoding::leb::{encode_leb_u32, encode_leb_u64};
+use crate::encoding::varint::{push_u32, push_usize};
 
 pub(crate) trait ExtendFromSlice {
     fn extend_from_slice(&mut self, slice: &[u8]);
@@ -18,29 +17,6 @@ impl<'a> ExtendFromSlice for BumpVec<'a, u8> {
         BumpVec::extend_from_slice(self, slice);
     }
 }
-
-pub(crate) fn push_u32<V: ExtendFromSlice>(into: &mut V, val: u32) {
-    let mut buf = [0u8; 5];
-    let pos = encode_leb_u32(val, &mut buf);
-    into.extend_from_slice(&buf[..pos]);
-}
-
-pub(crate) fn push_u64<V: ExtendFromSlice>(into: &mut V, val: u64) {
-    let mut buf = [0u8; 10];
-    let pos = encode_leb_u64(val, &mut buf);
-    into.extend_from_slice(&buf[..pos]);
-}
-
-pub(crate) fn push_usize<V: ExtendFromSlice>(into: &mut V, val: usize) {
-    if size_of::<usize>() <= size_of::<u32>() {
-        push_u32(into, val as u32);
-    } else if size_of::<usize>() == size_of::<u64>() {
-        push_u64(into, val as u64);
-    } else {
-        panic!("usize larger than u64 is not supported");
-    }
-}
-
 
 pub(crate) fn push_str<V: ExtendFromSlice>(into: &mut V, val: &str) {
     let bytes = val.as_bytes();

@@ -32,13 +32,14 @@ use bumpalo::Bump;
 use rle::{HasLength, MergableSpan};
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::{calc_checksum, push_u64, push_usize};
+use crate::encoding::tools::calc_checksum;
 use crate::{CausalGraph, DTRange, LV};
 use bumpalo::collections::vec::Vec as BumpVec;
 use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::causalgraph::entry::CGEntry;
 use crate::encoding::cg_entry::{read_cg_entry_into_cg_nonoverlapping, write_cg_entry};
 use crate::encoding::map::{ReadMap, WriteMap};
+use crate::encoding::varint::{push_u64, push_usize};
 use crate::list::encoding::leb::{decode_leb_usize, encode_leb_usize};
 
 

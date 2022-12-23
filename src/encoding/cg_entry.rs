@@ -2,8 +2,8 @@ use rle::HasLength;
 use crate::{AgentId, CausalGraph, DTRange, KVPair, Frontier, LV};
 use crate::causalgraph::agent_assignment::{AgentAssignment};
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
-use crate::encoding::tools::{ExtendFromSlice, push_str, push_u32, push_u64, push_usize};
-use crate::encoding::varint::{mix_bit_u32, num_encode_zigzag_i64, strip_bit_usize_2};
+use crate::encoding::tools::{ExtendFromSlice, push_str};
+use crate::encoding::varint::{mix_bit_u32, num_encode_zigzag_i64, push_u32, push_u64, push_usize, strip_bit_usize_2};
 // use bumpalo::collections::vec::Vec as BumpVec;
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::agent_span::AgentSpan;
@@ -66,7 +66,12 @@ pub(crate) fn write_cg_entry<R: ExtendFromSlice>(result: &mut R, data: &CGEntry,
     // Keep the txn map up to date. This is only needed for parents, and it maps from local time
     // values -> output time values (the order in the file). This lets the file be ordered
     // differently from the local time.
-    let next_output_time = write_map.txn_map.end();
+    let next_output_time = write_map.txn_map.last_entry()
+        .map(|e| e.1.end())
+        .unwrap_or(0);
+
+    // println!("Write CG entry {:?} write_parents: {write_parents} next_time {next_output_time}", data);
+    // dbg!(&write_map);
 
     if persist {
         // This is a bit of an inefficient API. Might be better to pass start / len.
@@ -179,6 +184,7 @@ pub(crate) fn read_cg_entry_into_cg_nonoverlapping(reader: &mut BufParser, persi
 pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<DTRange, ParseError> {
     let mut next_file_time = read_map.len();
     let (parents, span) = read_raw(reader, persist, &mut cg.agent_assignment, next_file_time, read_map)?;
+    // dbg!((&parents, span));
 
     // Save it into the causal graph, and update
     let merged_span = cg.merge_and_assign(parents.as_ref(), span);

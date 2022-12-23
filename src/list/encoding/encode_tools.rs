@@ -8,31 +8,31 @@ use crate::encoding::varint::mix_bit_usize;
 use serde::Serialize;
 use crate::list::encoding::leb::{encode_leb_u32, encode_leb_u64};
 
-pub(super) fn push_u32(into: &mut Vec<u8>, val: u32) {
+pub(super) fn push_leb_u32(into: &mut Vec<u8>, val: u32) {
     let mut buf = [0u8; 5];
     let pos = encode_leb_u32(val, &mut buf);
     into.extend_from_slice(&buf[..pos]);
 }
 
-pub(super) fn push_u64(into: &mut Vec<u8>, val: u64) {
+pub(super) fn push_leb_u64(into: &mut Vec<u8>, val: u64) {
     let mut buf = [0u8; 10];
     let pos = encode_leb_u64(val, &mut buf);
     into.extend_from_slice(&buf[..pos]);
 }
 
-pub(super) fn push_usize(into: &mut Vec<u8>, val: usize) {
+pub(super) fn push_leb_usize(into: &mut Vec<u8>, val: usize) {
     if size_of::<usize>() <= size_of::<u32>() {
-        push_u32(into, val as u32);
+        push_leb_u32(into, val as u32);
     } else if size_of::<usize>() == size_of::<u64>() {
-        push_u64(into, val as u64);
+        push_leb_u64(into, val as u64);
     } else {
         panic!("usize larger than u64 is not supported");
     }
 }
 
-pub(super) fn push_str(into: &mut Vec<u8>, val: &str) {
+pub(super) fn push_leb_str(into: &mut Vec<u8>, val: &str) {
     let bytes = val.as_bytes();
-    push_usize(into, bytes.len());
+    push_leb_usize(into, bytes.len());
     into.extend_from_slice(bytes);
 }
 
@@ -42,21 +42,21 @@ pub(super) fn push_u32_le(into: &mut Vec<u8>, val: u32) {
     into.extend_from_slice(&bytes);
 }
 
-fn push_chunk_header(into: &mut Vec<u8>, chunk_type: ListChunkType, len: usize) {
-    push_u32(into, chunk_type as u32);
-    push_usize(into, len);
+fn push_leb_chunk_header(into: &mut Vec<u8>, chunk_type: ListChunkType, len: usize) {
+    push_leb_u32(into, chunk_type as u32);
+    push_leb_usize(into, len);
 }
 
-pub(super) fn push_chunk(into: &mut Vec<u8>, chunk_type: ListChunkType, data: &[u8]) {
-    push_chunk_header(into, chunk_type, data.len());
+pub(super) fn push_leb_chunk(into: &mut Vec<u8>, chunk_type: ListChunkType, data: &[u8]) {
+    push_leb_chunk_header(into, chunk_type, data.len());
     into.extend_from_slice(data);
 }
 
-pub(super) fn write_bit_run(run: RleRun<bool>, into: &mut Vec<u8>) {
+pub(super) fn write_leb_bit_run(run: RleRun<bool>, into: &mut Vec<u8>) {
     // dbg!(run);
     let mut n = run.len;
     n = mix_bit_usize(n, run.val);
-    push_usize(into, n);
+    push_leb_usize(into, n);
 }
 
 #[derive(Clone)]

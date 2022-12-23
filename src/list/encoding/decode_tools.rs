@@ -1,7 +1,7 @@
 use std::mem::size_of;
 use crate::encoding::parseerror::ParseError;
+use crate::encoding::varint::num_decode_zigzag_isize;
 use crate::list::encoding::{DataType, ListChunkType, MAGIC_BYTES};
-use crate::encoding::varint::*;
 use crate::list::encoding::leb::{decode_leb_u32, decode_leb_u64, decode_leb_usize};
 
 #[derive(Debug, Clone)]

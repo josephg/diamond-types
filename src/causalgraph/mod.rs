@@ -13,6 +13,9 @@ pub mod summary;
 pub mod agent_span;
 pub mod agent_assignment;
 
+#[cfg(test)]
+mod enc_fuzzer;
+
 #[derive(Clone, Debug, Default)]
 pub struct CausalGraph {
     pub agent_assignment: AgentAssignment,

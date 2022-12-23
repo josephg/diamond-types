@@ -1,6 +1,6 @@
 use std::mem::size_of;
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::varint;
+use crate::encoding::tools::ExtendFromSlice;
 
 /// We're using protobuf's encoding system for variable sized integers. Most numbers we store here
 /// follow a Parato distribution, so this ends up being a space savings overall.
@@ -260,3 +260,25 @@ mod test {
         check_enc_dec_unsigned(0b10011000011101100101);
     }
 }
+
+// pub(crate) fn push_leb_u32<V: ExtendFromSlice>(into: &mut V, val: u32) {
+//     let mut buf = [0u8; 5];
+//     let pos = encode_leb_u32(val, &mut buf);
+//     into.extend_from_slice(&buf[..pos]);
+// }
+// 
+// pub(crate) fn push_leb_u64<V: ExtendFromSlice>(into: &mut V, val: u64) {
+//     let mut buf = [0u8; 10];
+//     let pos = encode_leb_u64(val, &mut buf);
+//     into.extend_from_slice(&buf[..pos]);
+// }
+// 
+// pub(crate) fn push_leb_usize<V: ExtendFromSlice>(into: &mut V, val: usize) {
+//     if size_of::<usize>() <= size_of::<u32>() {
+//         push_leb_u32(into, val as u32);
+//     } else if size_of::<usize>() == size_of::<u64>() {
+//         push_leb_u64(into, val as u64);
+//     } else {
+//         panic!("usize larger than u64 is not supported");
+//     }
+// }

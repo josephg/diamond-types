@@ -32,12 +32,11 @@ fn random_single_document() {
 }
 
 fn merge_fuzz(seed: u64, verbose: bool) {
-    // A parachute so if the fuzzer crashes we can recover the seed.
     let mut rng = SmallRng::seed_from_u64(seed);
     let mut oplog = SimpleOpLog::new();
     let mut branches = [SimpleBranch::new(), SimpleBranch::new(), SimpleBranch::new()];
 
-    let agents = &["a", "b", "c"];
+    let agents = ["a", "b", "c"];
 
     for _i in 0..300 {
         if verbose { println!("\n\ni {}", _i); }
