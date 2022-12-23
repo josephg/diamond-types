@@ -489,7 +489,7 @@ impl OpLog {
     pub fn ops_since(&self, since_frontier: &[LV]) -> SerializedOps {
         let mut write_map = WriteMap::with_capacity_from(&self.cg.agent_assignment.client_data);
 
-        let diff = self.cg.graph.diff(since_frontier, self.cg.version.as_ref()).1;
+        let diff = self.cg.graph.diff_rev(since_frontier, self.cg.version.as_ref()).1;
         // let bump = Bump::new();
         // let mut result = bumpalo::collections::Vec::new_in(&bump);
         let mut cg_changes = Vec::new();

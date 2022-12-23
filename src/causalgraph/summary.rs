@@ -141,7 +141,7 @@ impl AgentAssignment {
     pub fn intersect_with_flat_summary_full<V>(&self, summary: &VersionSummaryFlat, mut visitor: V)
         where V: FnMut(&str, DTRange, Option<LV>)
     {
-        for (name, end_seq) in summary.0.iter() {
+        for (name, known_next_seq) in summary.0.iter() {
             let agent_id = self.get_agent_id(name);
             let mut next_seq = 0;
 
@@ -155,19 +155,19 @@ impl AgentAssignment {
                     let entry_end_seq = e.end();
                     next_seq = entry_end_seq;
 
-                    if entry_start >= *end_seq { break; }
+                    if entry_start >= *known_next_seq { break; }
 
                     let mut seq_range = e.range();
-                    if entry_end_seq > *end_seq {
-                        seq_range.truncate_h(*end_seq - entry_start);
+                    if entry_end_seq > *known_next_seq {
+                        seq_range.truncate_h(*known_next_seq - entry_start);
                     }
 
                     visitor(name, seq_range, Some(e.1.start));
                 }
             }
 
-            if next_seq < *end_seq {
-                visitor(name, (next_seq..*end_seq).into(), None);
+            if next_seq < *known_next_seq {
+                visitor(name, (next_seq..*known_next_seq).into(), None);
             }
         }
     }

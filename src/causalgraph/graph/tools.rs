@@ -161,10 +161,20 @@ impl Graph {
 pub(crate) type DiffResult = (SmallVec<[DTRange; 4]>, SmallVec<[DTRange; 4]>);
 
 impl Graph {
-    /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
+    /// Returns (spans only in a, spans only in b). Spans are in natural (ascending) order.
     ///
     /// Also find which operation is the greatest common ancestor.
     pub fn diff(&self, a: &[LV], b: &[LV]) -> DiffResult {
+        let mut result = self.diff_rev(a, b);
+        result.0.reverse();
+        result.1.reverse();
+        result
+    }
+
+    /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
+    ///
+    /// Also find which operation is the greatest common ancestor.
+    pub fn diff_rev(&self, a: &[LV], b: &[LV]) -> DiffResult {
         // First some simple short circuit checks to avoid needless work in common cases.
         // Note most of the time this method is called, one of these early short circuit cases will
         // fire.
@@ -861,7 +871,7 @@ pub mod test {
         }
 
         let slow_result = graph.diff_slow(a, b);
-        let fast_result = graph.diff(a, b);
+        let fast_result = graph.diff_rev(a, b);
         let c_result = diff_via_conflicting(graph, a, b);
 
         assert_eq!(slow_result.0.as_slice(), expect_a);

@@ -99,15 +99,15 @@ impl<'a> OpIterFast<'a> {
 /// a document.
 #[derive(Debug)]
 struct OpIterRanges<'a> {
-    ranges: SmallVec<[DTRange; 4]>, // We own this. This is in descending order.
+    ranges_rev: SmallVec<[DTRange; 4]>, // We own this. This is in descending order.
     current: OpIterFast<'a>
 }
 
 impl<'a> OpIterRanges<'a> {
-    fn new(oplog: &'a ListOpLog, mut r: SmallVec<[DTRange; 4]>) -> Self {
-        let last = r.pop().unwrap_or_else(|| (0..0).into());
+    fn new(oplog: &'a ListOpLog, mut ranges_rev: SmallVec<[DTRange; 4]>) -> Self {
+        let last = ranges_rev.pop().unwrap_or_else(|| (0..0).into());
         Self {
-            ranges: r,
+            ranges_rev,
             current: OpIterFast::new(oplog, last)
         }
     }
@@ -121,7 +121,7 @@ impl<'a> Iterator for OpIterRanges<'a> {
         let inner_next = self.current.next();
         if inner_next.is_some() { return inner_next; }
 
-        if let Some(range) = self.ranges.pop() {
+        if let Some(range) = self.ranges_rev.pop() {
             debug_assert!(!range.is_empty());
             self.current.0.prime(range);
             let inner_next = self.current.next();
@@ -149,7 +149,7 @@ impl ListOpLog {
     }
 
     pub fn iter_range_since(&self, local_version: &[LV]) -> impl Iterator<Item = TextOperation> + '_ {
-        let (only_a, only_b) = self.cg.graph.diff(local_version, self.cg.version.as_ref());
+        let (only_a, only_b) = self.cg.graph.diff_rev(local_version, self.cg.version.as_ref());
         assert!(only_a.is_empty());
 
         OpIterRanges::new(self, only_b)

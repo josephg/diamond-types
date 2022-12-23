@@ -137,7 +137,7 @@ impl Branch {
     // Returns the list of version ranges which were merged
     pub fn merge_changes_to_tip(&mut self, oplog: &OpLog) -> SmallVec<[DTRange; 4]> {
         // Well, for now nothing can be deleted yet. So that makes things easier.
-        let diff = oplog.cg.graph.diff(self.frontier.as_ref(), oplog.cg.version.as_ref()).1;
+        let diff = oplog.cg.graph.diff_rev(self.frontier.as_ref(), oplog.cg.version.as_ref()).1;
 
         for range in diff.iter() {
             // for (_, text_crdt) in self.text_index.range(*range) {

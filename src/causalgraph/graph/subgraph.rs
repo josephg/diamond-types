@@ -284,7 +284,7 @@ mod test {
         assert_eq!(ff.as_ref(), expect_frontier);
 
         // The entries in the subgraph should be the same as the diff, passed through the filter.
-        let mut diff = g.diff(&[], frontier).1;
+        let mut diff = g.diff_rev(&[], frontier).1;
         diff.reverse();
 
         // dbg!(&diff, &filter);

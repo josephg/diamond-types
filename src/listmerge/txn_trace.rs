@@ -260,7 +260,7 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
         // dbg!(&child_idxs);
 
         // let parents = &input_entry.parents;
-        let (only_branch, only_txn) = self.subgraph.diff(self.frontier.as_ref(), parents.as_ref());
+        let (only_branch, only_txn) = self.subgraph.diff_rev(self.frontier.as_ref(), parents.as_ref());
 
         // Note that even if we're moving to one of our direct children we might see items only
         // in only_branch if the child has a parent in the middle of our txn.
@@ -335,7 +335,7 @@ impl Graph {
     // }
 
     pub(crate) fn optimized_txns_between(&self, from: &[LV], to: &[LV]) -> SpanningTreeWalker {
-        let (_a, txns) = self.diff(from, to);
+        let (_a, txns) = self.diff_rev(from, to);
         // _a might always be empty.
         SpanningTreeWalker::new(self, &txns, from.into())
     }
