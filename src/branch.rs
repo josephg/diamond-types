@@ -134,12 +134,12 @@ impl Branch {
         }
     }
 
-    // Returns the list of version ranges which were merged
+    /// Returns the list of version ranges which were merged, in reverse order (!!!)
     pub fn merge_changes_to_tip(&mut self, oplog: &OpLog) -> SmallVec<[DTRange; 4]> {
         // Well, for now nothing can be deleted yet. So that makes things easier.
-        let diff = oplog.cg.graph.diff_rev(self.frontier.as_ref(), oplog.cg.version.as_ref()).1;
+        let diff_rev = oplog.cg.diff_since_rev(self.frontier.as_ref());
 
-        for range in diff.iter() {
+        for range in diff_rev.iter().rev() {
             // for (_, text_crdt) in self.text_index.range(*range) {
             //     text_crdts_to_send.insert(*text_crdt);
             // }
@@ -178,7 +178,7 @@ impl Branch {
         }
 
         self.frontier = oplog.cg.version.clone();
-        diff
+        diff_rev
     }
 
     pub fn crdt_at_path(&self, path: &[&str]) -> (CRDTKind, LVKey) {

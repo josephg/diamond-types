@@ -149,8 +149,7 @@ impl ListOpLog {
     }
 
     pub fn iter_range_since(&self, local_version: &[LV]) -> impl Iterator<Item = TextOperation> + '_ {
-        let (only_a, only_b) = self.cg.graph.diff_rev(local_version, self.cg.version.as_ref());
-        assert!(only_a.is_empty());
+        let only_b = self.cg.diff_since_rev(local_version);
 
         OpIterRanges::new(self, only_b)
             .map(|pair| (pair.0.1, pair.1).into())
