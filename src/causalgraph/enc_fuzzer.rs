@@ -16,19 +16,10 @@ fn merge_changes(from_cg: &CausalGraph, into_cg: &mut CausalGraph, from_root: bo
     };
 
     // Serialize the changes from from_frontier.
-    let mut msg = vec![];
-    let mut write_map = WriteMap::with_capacity_from(&from_cg.agent_assignment.client_data);
-    for range in from_cg.diff_since(from_frontier.as_ref()) {
-        let iter = from_cg.iter_range(range);
-        write_cg_entry_iter(&mut msg, iter, &mut write_map, from_cg);
-    }
+    let msg = from_cg.serialize_changes_since(from_frontier.as_ref());
 
     // And merge them in!
-    let mut read_map = ReadMap::new();
-    let mut buf = BufParser(&msg);
-    while !buf.is_empty() {
-        read_cg_entry_into_cg(&mut buf, true, into_cg, &mut read_map).unwrap();
-    }
+    into_cg.merge_serialized_changes(&msg).unwrap();
 }
 
 /// This fuzzer variant creates linear timelines from 3 different user agents. We still end up with

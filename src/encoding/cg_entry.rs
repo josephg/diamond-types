@@ -218,3 +218,28 @@ pub(crate) fn write_cg_entry_iter<'a, I: Iterator<Item=CGEntry>, R: ExtendFromSl
         // write_agent_assignment_span(&mut result, None, span, map, true, client_data);
     }).flush_iter(iter);
 }
+
+impl CausalGraph {
+    pub fn serialize_changes_since(&self, frontier: &[LV]) -> Vec<u8> {
+        let mut msg = vec![];
+        let mut write_map = WriteMap::with_capacity_from(&self.agent_assignment.client_data);
+        for range in self.diff_since(frontier) {
+            let iter = self.iter_range(range);
+            write_cg_entry_iter(&mut msg, iter, &mut write_map, self);
+        }
+
+        msg
+    }
+
+    pub fn merge_serialized_changes(&mut self, msg: &[u8]) -> Result<DTRange, ParseError> {
+        let mut read_map = ReadMap::new();
+        let mut buf = BufParser(msg);
+
+        let start = self.len();
+        while !buf.is_empty() {
+            read_cg_entry_into_cg(&mut buf, true, self, &mut read_map)?;
+        }
+
+        Ok((start..self.len()).into())
+    }
+}
