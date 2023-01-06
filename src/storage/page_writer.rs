@@ -3,7 +3,7 @@ use std::io::{Seek, SeekFrom, Write};
 use crate::encoding::tools::{calc_checksum, ExtendFromSlice};
 use crate::encoding::varint::{push_u32, push_u64, push_usize};
 use crate::storage;
-use crate::storage::{DEFAULT_PAGE_SIZE, PageNum, SE_MAGIC_BYTES, SEError};
+use crate::storage::{DEFAULT_PAGE_SIZE, PageNum, PageType, SE_MAGIC_BYTES, SEError};
 
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::FileExt;
@@ -62,12 +62,16 @@ impl PageWriter {
         writer
     }
 
-    pub(super) fn new() -> Self {
-        Self {
+    pub(super) fn new(kind: PageType) -> Self {
+        let mut writer = Self {
             data: [0; DEFAULT_PAGE_SIZE],
             pos: page_first_byte_offset(false),
             is_header: false,
-        }
+        };
+
+        writer.write_usize(kind as usize).unwrap();
+
+        writer
     }
 
     // I could write it like this but the optimizer inlines it the same without forcing it to

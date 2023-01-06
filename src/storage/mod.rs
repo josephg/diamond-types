@@ -14,6 +14,7 @@ use page_writer::PageWriter;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::{calc_checksum, ExtendFromSlice};
+use crate::encoding::varint::{decode_prefix_varint_u32, decode_prefix_varint_usize};
 use crate::storage::page_writer::page_checksum_offset;
 
 mod page_writer;
@@ -48,6 +49,8 @@ pub enum SEError {
 
     PageTooLarge,
     InvalidChecksum,
+
+    UnexpectedPageType,
 
     GenericInvalidData,
 
@@ -84,9 +87,10 @@ struct StorageEngine {
     header_fields: StorageHeaderFields,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[repr(u16)]
-enum StoragePageType {
+enum PageType {
+    Header = 0,
     AgentNames = 1,
     CGInfo = 2,
     // etc.
@@ -128,7 +132,7 @@ struct OwnedPage {
     end: usize
 }
 
-fn read_page(file: &mut File, page_no: PageNum, expect_header: bool) -> Result<OwnedPage, SEError> {
+fn read_page(file: &mut File, page_no: PageNum, expect_type: PageType) -> Result<OwnedPage, SEError> {
     let mut buffer = [0u8; DEFAULT_PAGE_SIZE];
 
     #[cfg(target_os = "linux")]
@@ -138,7 +142,7 @@ fn read_page(file: &mut File, page_no: PageNum, expect_header: bool) -> Result<O
         file.read_exact(&mut buffer)?;
     }
 
-    let checksum_start = if expect_header {
+    let checksum_start = if expect_type == PageType::Header {
         if buffer[0..SE_MAGIC_BYTES.len()] != SE_MAGIC_BYTES {
             return Err(HeaderError::InvalidMagicBytes.into());
         }
@@ -146,7 +150,7 @@ fn read_page(file: &mut File, page_no: PageNum, expect_header: bool) -> Result<O
         SE_MAGIC_BYTES.len()
     } else { 0 };
 
-    debug_assert_eq!(checksum_start, page_checksum_offset(expect_header));
+    debug_assert_eq!(checksum_start, page_checksum_offset(expect_type == PageType::Header));
 
     let mut checksum_bytes = [0u8; 4];
     checksum_bytes.copy_from_slice(&buffer[checksum_start..checksum_start + 4]);
@@ -158,7 +162,7 @@ fn read_page(file: &mut File, page_no: PageNum, expect_header: bool) -> Result<O
     len_bytes.copy_from_slice(&buffer[len_start..len_start + 2]);
     let len = u16::from_le_bytes(len_bytes) as usize;
 
-    let data_start = len_start + 2;
+    let mut data_start = len_start + 2;
 
     if data_start + len > DEFAULT_PAGE_SIZE {
         return Err(SEError::PageTooLarge);
@@ -169,6 +173,16 @@ fn read_page(file: &mut File, page_no: PageNum, expect_header: bool) -> Result<O
         return Err(SEError::InvalidChecksum);
     }
 
+    if expect_type != PageType::Header {
+        // The first value is the page type. Check that it matches and consume it.
+        let (actual_type, bytes_consumed) = decode_prefix_varint_u32(&buffer[data_start..])?;
+        data_start += bytes_consumed;
+        if actual_type != expect_type as u32 {
+            return Err(SEError::UnexpectedPageType);
+        }
+        // PageType::try_from(val as u16).unwrap()
+    }
+
     Ok(OwnedPage {
         data: buffer,
         start: data_start,
@@ -177,7 +191,7 @@ fn read_page(file: &mut File, page_no: PageNum, expect_header: bool) -> Result<O
 }
 
 fn read_header_page(file: &mut File, page_no: PageNum) -> Result<StorageHeaderFields, SEError> {
-    let page = read_page(file, page_no, true)?;
+    let page = read_page(file, page_no, PageType::Header)?;
 
     let mut parser = BufParser(&page.data[page.start..page.end]);
     let file_format_version = parser.next_u32()?;
@@ -274,6 +288,10 @@ impl StorageEngine {
             let header_fields = StorageHeaderFields::default();
             Self::encode_header(&header_fields)?
                 .finish_and_write(file, 0)?;
+
+            // Could probably get away with this flush here, but its basically free and it makes me
+            // feel better.
+            file.sync_all()?;
             Ok(header_fields)
         } else {
             println!("Parsing fields");
