@@ -87,7 +87,7 @@ impl PageWriter {
     }
 
     /// Fill in the page length and checksum.
-    pub(super) fn finish(mut self) -> Result<([u8; DEFAULT_PAGE_SIZE], usize), SEError> {
+    pub(super) fn finish(mut self) -> ([u8; DEFAULT_PAGE_SIZE], usize) {
         assert!(self.pos <= DEFAULT_PAGE_SIZE);
 
         // Fill in the page length
@@ -104,26 +104,12 @@ impl PageWriter {
 
         // file.seek(SeekFrom::Start(page_no as u64 * DEFAULT_PAGE_SIZE as u64))?;
         // file.write_all(&self.data[0..self.pos])?;
-        Ok((self.data, self.pos))
+        (self.data, self.pos)
     }
 
     pub(super) fn finish_and_write(self, file: &mut File, page_no: PageNum) -> Result<(), SEError> {
-        let (buffer, _len) = self.finish()?;
-
-        // file.write_all(&buffer[0..len], page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
-
-        // We have a choice here about whether we want to write the whole page, or just write the
-        // edited data.
-        //
-        // Given modern block storage devices usually work on 4k pages, I suspect writing an entire
-        // 4kb will be faster, but this is worth benchmarking.
-        #[cfg(target_os = "linux")]
-        file.write_all_at(&buffer, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
-        #[cfg(not(target_os = "linux"))] {
-            file.seek(SeekFrom::Start(page_no as u64 * DEFAULT_PAGE_SIZE as u64))?;
-            file.write_all(buffer)?;
-        }
-
+        let (buffer, _len) = self.finish();
+        write_page(file, page_no, &buffer)?;
         Ok(())
     }
 
@@ -136,4 +122,20 @@ impl PageWriter {
     pub(super) fn write_usize(&mut self, val: usize) -> Result<(), SEError> {
         push_usize(self, val)
     }
+}
+
+pub(super) fn write_page(file: &mut File, page_no: PageNum, buffer: &[u8; DEFAULT_PAGE_SIZE]) -> Result<(), SEError> {
+    // We have a choice here about whether we want to write the whole page, or just write the
+    // edited data.
+    //
+    // Given modern block storage devices usually work on 4k pages, I suspect writing an entire
+    // 4kb will be faster, but this is worth benchmarking.
+    #[cfg(target_os = "linux")]
+    file.write_all_at(buffer, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
+    #[cfg(not(target_os = "linux"))] {
+        file.seek(SeekFrom::Start(page_no as u64 * DEFAULT_PAGE_SIZE as u64))?;
+        file.write_all(buffer)?;
+    }
+
+    Ok(())
 }
