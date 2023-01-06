@@ -452,31 +452,31 @@ pub(crate) fn mix_bit_usize(value: usize, extra: bool) -> usize {
     }
 }
 
-pub(crate) fn push_u32<V: ExtendFromSlice>(into: &mut V, val: u32) {
+pub(crate) fn push_u32<V: ExtendFromSlice>(into: &mut V, val: u32) -> V::Result {
     let (buf, pos) = encode_prefix_varint_u32(val);
-    into.extend_from_slice(&buf[..pos]);
+    into.extend_from_slice(&buf[..pos])
 }
 
-pub(crate) fn push_u64<V: ExtendFromSlice>(into: &mut V, val: u64) {
+pub(crate) fn push_u64<V: ExtendFromSlice>(into: &mut V, val: u64) -> V::Result {
     let (buf, pos) = encode_prefix_varint_u64(val);
-    into.extend_from_slice(&buf[..pos]);
+    into.extend_from_slice(&buf[..pos])
 }
 
-pub(crate) fn push_usize<V: ExtendFromSlice>(into: &mut V, val: usize) {
+pub(crate) fn push_usize<V: ExtendFromSlice>(into: &mut V, val: usize) -> V::Result {
     if size_of::<usize>() <= size_of::<u32>() {
-        push_u32(into, val as u32);
+        push_u32(into, val as u32)
     } else if size_of::<usize>() == size_of::<u64>() {
-        push_u64(into, val as u64);
+        push_u64(into, val as u64)
     } else {
         panic!("usize larger than u64 is not supported");
     }
 }
 
-pub(crate) fn push_str<V: ExtendFromSlice>(into: &mut V, val: &str) {
-    let bytes = val.as_bytes();
-    push_usize(into, bytes.len());
-    into.extend_from_slice(bytes);
-}
+// pub(crate) fn push_str<V: ExtendFromSlice>(into: &mut V, val: &str) -> V::Result {
+//     let bytes = val.as_bytes();
+//     push_usize(into, bytes.len());
+//     into.extend_from_slice(bytes)
+// }
 
 pub(crate) fn strip_bit_u64(value: u64) -> (u64, bool) {
     let bit = (value & 1) != 0;
