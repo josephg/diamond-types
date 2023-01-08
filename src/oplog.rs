@@ -119,7 +119,7 @@ impl OpLog {
             // Find all the CRDTs which have been created then later overwritten or deleted.
             let mut deleted_crdts = BTreeSet::new();
             let mut directly_overwritten_maps = vec![];
-            for (_, reg_info) in &self.map_keys {
+            for reg_info in self.map_keys.values() {
                 for (idx, (lv, val)) in reg_info.ops.iter().enumerate() {
                     if !reg_info.supremum.contains(&idx) {
                         if let CreateValue::NewCRDT(kind) = val {
@@ -140,7 +140,7 @@ impl OpLog {
                     for s in info.supremum.iter() {
                         let (lv, create_val) = &info.ops[*s];
                         if let CreateValue::NewCRDT(kind) = create_val {
-                            assert_eq!(true, deleted_crdts.insert(*lv));
+                            assert!(deleted_crdts.insert(*lv));
 
                             if *kind == CRDTKind::Map {
                                 // Go through this CRDT's children.
@@ -247,7 +247,7 @@ impl OpLog {
                 }
             }
 
-            self.map_index.remove(&lv);
+            self.map_index.remove(lv);
         }
 
         entry.supremum = smallvec![new_idx];

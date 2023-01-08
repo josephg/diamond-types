@@ -40,7 +40,7 @@ pub(crate) fn write_cg_aa<R: ExtendFromSlice>(result: &mut R, write_parents: boo
     match mapped_agent {
         Ok(mapped_agent) => {
             // Agent is already known in the file. Just use its mapped ID.
-            write_n(mapped_agent as u32, true);
+            write_n(mapped_agent, true);
         }
         Err(name) => {
             write_n(0, false);
@@ -211,7 +211,7 @@ pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &
     Ok(merged_span)
 }
 
-pub(crate) fn write_cg_entry_iter<'a, I: Iterator<Item=CGEntry>, R: ExtendFromSlice>(result: &mut R, iter: I, write_map: &mut WriteMap, cg: &CausalGraph) {
+pub(crate) fn write_cg_entry_iter<I: Iterator<Item=CGEntry>, R: ExtendFromSlice>(result: &mut R, iter: I, write_map: &mut WriteMap, cg: &CausalGraph) {
     // let mut last_seq_for_agent: LastSeqForAgent = bumpvec![in bump; 0; client_data.len()];
     Merger::new(|entry: CGEntry, _| {
         write_cg_entry(result, &entry, write_map, true, &cg.agent_assignment);

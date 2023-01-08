@@ -151,7 +151,7 @@ pub fn decode_prefix_varint_u64(buf: &[u8]) -> Result<(u64, usize), ParseError> 
     }
 
     let b0 = buf[0];
-    if b0 <= 0b0111_1111 as u8 {
+    if b0 <= 0b0111_1111 {
         Ok((b0 as u64, 1))
     } else if b0 <= 0b1011_1111 {
         if buf.len() < 2 { return Err(ParseError::UnexpectedEOF); }
@@ -211,7 +211,7 @@ fn decode_prefix_varint_u32_unroll(buf: &[u8]) -> Result<(u32, usize), ParseErro
     }
 
     let b0 = buf[0];
-    if b0 <= 0b0111_1111 as u8 {
+    if b0 <= 0b0111_1111 {
         Ok((b0 as u32, 1))
     } else if b0 <= 0b1011_1111 {
         if buf.len() < 2 { return Err(ParseError::UnexpectedEOF); }
@@ -254,7 +254,7 @@ pub fn decode_prefix_varint_u64_unroll(buf: &[u8]) -> Result<(u64, usize), Parse
     }
 
     let b0 = buf[0];
-    if b0 <= 0b0111_1111 as u8 {
+    if b0 <= 0b0111_1111 {
         Ok((b0 as u64, 1))
     } else if b0 <= 0b1011_1111 {
         if buf.len() < 2 { return Err(ParseError::UnexpectedEOF); }
@@ -330,7 +330,7 @@ pub(crate) fn decode_prefix_varint_u64_unroll_flat(buf: &[u8; 9]) -> (u64, usize
     // println!("{:b} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x}", buf[0], buf[0], buf[1], buf[2], buf[3], buf[4]);
     // assert!(buf.len() >= 5);
     let b0 = buf[0];
-    if b0 <= 0b0111_1111 as u8 {
+    if b0 <= 0b0111_1111 {
         (b0 as u64, 1)
     } else if b0 <= 0b1011_1111 {
         let val: u64 = ((b0 as u64 & 0b0011_1111) << 8)
@@ -355,7 +355,7 @@ pub(crate) fn decode_prefix_varint_u64_unroll_flat(buf: &[u8; 9]) -> (u64, usize
         let n = unsafe { std::ptr::read_unaligned(&buf[1] as *const u8 as *const u32) };
 
         let val: u64 = ((b0 as u64 & 0b0000_0111) << 32)
-            + u32::from_be(n as u32) as u64
+            + u32::from_be(n) as u64
             // + ((buf[1] as u64) << 24)
             // + ((buf[2] as u64) << 16)
             // + ((buf[3] as u64) << 8)

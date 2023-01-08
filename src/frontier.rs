@@ -400,7 +400,7 @@ pub(crate) fn diff_frontier_entries<'a>(a: &'a [LV], b: &'a [LV]) -> impl Iterat
 }
 
 
-fn slice_take_first<'a>(slice: &mut &[LV]) -> Option<LV> {
+fn slice_take_first(slice: &mut &[LV]) -> Option<LV> {
     if let [first, tail @ ..] = slice {
         *slice = tail;
         Some(*first)

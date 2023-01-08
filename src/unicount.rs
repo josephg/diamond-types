@@ -18,7 +18,7 @@ pub fn split_at_char(s: &str, char_pos: usize) -> (&str, &str) {
 #[inline]
 #[allow(unused)]
 pub fn consume_chars<'a>(content: &mut &'a str, len: usize) -> &'a str {
-    let (here, remaining) = split_at_char(*content, len);
+    let (here, remaining) = split_at_char(content, len);
     *content = remaining;
     here
 }

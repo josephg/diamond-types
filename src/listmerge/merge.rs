@@ -47,7 +47,7 @@ const MAKE_GRAPHS: bool = false;
 
 fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     // TODO: Use dirty tricks to avoid this for more performance.
-    let index_len = index.len() as usize;
+    let index_len = index.len();
 
     if index_len < desired_len {
         index.push(MarkerEntry {
@@ -550,7 +550,7 @@ impl M2Tracker {
     /// Returns the tracker's frontier after this has happened; which will be at some pretty
     /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
     pub(super) fn walk(&mut self, graph: &Graph, aa: &AgentAssignment, op_ctx: &ListOperationCtx, ops: &RleVec<KVPair<ListOpMetrics>>, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut JumpRopeBuf>) -> Frontier {
-        let mut walker = SpanningTreeWalker::new(&graph, rev_spans, start_at);
+        let mut walker = SpanningTreeWalker::new(graph, rev_spans, start_at);
 
         for walk in &mut walker {
             for range in walk.retreat {
@@ -562,7 +562,7 @@ impl M2Tracker {
             }
 
             debug_assert!(!walk.consume.is_empty());
-            self.apply_range(&aa, op_ctx, ops, walk.consume, apply_to.as_deref_mut());
+            self.apply_range(aa, op_ctx, ops, walk.consume, apply_to.as_deref_mut());
         }
 
         walker.into_frontier()
@@ -801,7 +801,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 }
                 self.did_ff = true;
 
-                let mut iter = OpMetricsIter::new(&self.ops, &self.op_ctx, span);
+                let mut iter = OpMetricsIter::new(self.ops, self.op_ctx, span);
 
                 // Pull the first item off the iterator and keep it for later.
                 // A fresh iterator should always return something!
@@ -845,7 +845,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 let mut tracker = M2Tracker::new();
                 // dbg!(&self.conflict_ops);
                 let frontier = tracker.walk(
-                    &self.subgraph, &self.aa,
+                    self.subgraph, self.aa,
                     self.op_ctx,
                     self.ops,
                     std::mem::take(&mut self.common_ancestor),
@@ -853,7 +853,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                     None);
                 // dbg!(&tracker);
 
-                let walker = SpanningTreeWalker::new(&self.subgraph, &self.new_ops, frontier);
+                let walker = SpanningTreeWalker::new(self.subgraph, &self.new_ops, frontier);
                 self.phase2 = Some((tracker, walker));
                 // This is a kinda gross way to do this. TODO: Rewrite without .unwrap() somehow?
                 self.phase2.as_mut().unwrap()
@@ -889,7 +889,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             //
             // The walker can be unwrapped into its inner frontier, but that won't include
             // everything. (TODO: Look into fixing that?)
-            self.next_frontier.advance(&self.subgraph, walk.consume);
+            self.next_frontier.advance(self.subgraph, walk.consume);
             self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, walk.consume).into());
         };
 
@@ -899,7 +899,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
 
         let (consumed_here, xf_result) = tracker.apply(self.aa, span.agent, &pair, len);
 
-        let remainder = pair.trim_ctx(consumed_here, &self.op_ctx);
+        let remainder = pair.trim_ctx(consumed_here, self.op_ctx);
 
         // (Time, OperationInternal, TransformedResult)
         let result = (pair.0, pair.1, xf_result);
@@ -985,7 +985,7 @@ impl TextInfo {
     /// This is a shorthand for `oplog.xf_operations_from(&[], oplog.local_version)`, but
     /// I hope that future optimizations make this method way faster.
     pub fn iter_xf_operations<'a>(&'a self, cg: &'a CausalGraph) -> Vec<(DTRange, Option<TextOperation>)> {
-        self.xf_operations_from(&cg, &[], cg.version.as_ref())
+        self.xf_operations_from(cg, &[], cg.version.as_ref())
     }
 
     /// Add everything in merge_frontier into the set..

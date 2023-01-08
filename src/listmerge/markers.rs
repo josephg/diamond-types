@@ -57,7 +57,7 @@ impl Marker {
 
 impl HasLength for MarkerEntry {
     fn len(&self) -> usize {
-        self.len as usize
+        self.len
     }
 }
 

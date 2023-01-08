@@ -66,7 +66,7 @@ impl<E: ContentTraits + ContentLength> TreeMetrics<E> for ContentMetrics {
 }
 
 impl<E: ContentTraits + ContentLength> FindContent<E> for ContentMetrics {
-    fn index_to_content(offset: Self::Value) -> usize { offset as usize }
+    fn index_to_content(offset: Self::Value) -> usize { offset }
     // fn entry_to_num(entry: &E) -> usize { entry.content_len() }
 }
 

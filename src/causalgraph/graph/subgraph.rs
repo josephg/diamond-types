@@ -59,7 +59,7 @@ impl Graph {
         }
         let mut filtered_frontier = Frontier::default();
 
-        fn push_children(result_rev: &mut Vec<GraphEntryInternal>, frontier: &mut Frontier, children: &[LV], p: LV) {
+        fn push_children(result_rev: &mut [GraphEntryInternal], frontier: &mut Frontier, children: &[LV], p: LV) {
             for idx in children {
                 push_light_dedup(if *idx == usize::MAX {
                     frontier
@@ -153,7 +153,7 @@ impl Graph {
                 if peeked_entry.target_parent < txn.span.start { break; } // Next item is out of this txn.
 
                 for i in peeked_entry.children.iter() {
-                    if !child_idxs.contains(&i) { child_idxs.push(*i); }
+                    if !child_idxs.contains(i) { child_idxs.push(*i); }
                 }
                 // iterations += 1;
 

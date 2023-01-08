@@ -359,7 +359,7 @@ struct ContentItem<'a> {
 impl<'a> SplitableSpanHelpers for ContentItem<'a> {
     fn truncate_h(&mut self, at: usize) -> Self {
         let content_remainder = if let Some(str) = self.content.as_mut() {
-            let (here, remainder) = split_at_char(*str, at);
+            let (here, remainder) = split_at_char(str, at);
             *str = here;
             Some(remainder)
         } else { None };

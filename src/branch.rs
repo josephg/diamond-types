@@ -96,6 +96,12 @@ impl OpLog {
     }
 }
 
+impl Default for Branch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Branch {
     pub fn new() -> Self {
         Self {
@@ -223,14 +229,14 @@ impl Branch {
         let mut root_map_crdts = BTreeSet::new();
 
         let mut owned_text_crdts = BTreeSet::new();
-        let root_text_crdts: BTreeSet<_> = self.texts.iter()
-            .map(|(key, _)| *key)
+        let root_text_crdts: BTreeSet<_> = self.texts.keys()
+            .copied()
             .collect();
 
         for (map_crdt, state) in &self.maps {
             root_map_crdts.insert(*map_crdt);
 
-            for (_key, reg_state) in state {
+            for reg_state in state.values() {
                 reg_state.each_value(|v| {
                     if let RegisterValue::OwnedCRDT(kind, key) = v {
                         match kind {

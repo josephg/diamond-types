@@ -299,7 +299,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
 
         for entry in self.raw_iter() {
             // println!("entry {:?}", entry);
-            let bucket = entry.len() as usize;
+            let bucket = entry.len();
             if bucket >= size_counts.len() {
                 size_counts.resize(bucket + 1, 0);
             }
