@@ -12,15 +12,13 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::FileExt;
 
 use std::path::Path;
+use num_enum::TryFromPrimitive;
 use smallvec::{smallvec, SmallVec};
-use page_writer::PageWriter;
-use crate::encoding::bufparser::BufParser;
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::{calc_checksum, ExtendFromSlice};
-use crate::encoding::varint::{decode_prefix_varint_u32, decode_prefix_varint_usize};
-use crate::storage::page_writer::{page_checksum_offset, write_page};
+use crate::encoding::tools::ExtendFromSlice;
+use crate::storage::page::{DataPage, HeaderPage, Page};
 
-mod page_writer;
+mod page;
 
 const SE_MAGIC_BYTES: [u8; 8] = *b"DT_STOR1";
 const SE_VERSION: u32 = 1; // 2 bytes would probably be fine for this but eh.
@@ -34,9 +32,10 @@ const DEFAULT_PAGE_SIZE: usize = 4096;
 
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum HeaderError {
-    InvalidMagicBytes,
-    VersionTooNew(u32),
+pub enum PageDataError {
+    InvalidHeaderMagicBytes,
+    InvalidChecksum,
+    VersionTooNew(u16),
     InvalidPageSize(usize),
 }
 
@@ -51,13 +50,12 @@ pub enum SEError {
     // InvalidData,
 
     PageTooLarge,
-    InvalidChecksum,
 
     UnexpectedPageType,
 
     GenericInvalidData,
 
-    HeaderError(HeaderError),
+    PageDataError(PageDataError),
     ParseError(ParseError),
     IO(io::Error),
 }
@@ -77,9 +75,9 @@ impl From<ParseError> for SEError {
         SEError::ParseError(pe)
     }
 }
-impl From<HeaderError> for SEError {
-    fn from(inner: HeaderError) -> Self {
-        SEError::HeaderError(inner)
+impl From<PageDataError> for SEError {
+    fn from(inner: PageDataError) -> Self {
+        SEError::PageDataError(inner)
     }
 }
 
@@ -89,24 +87,41 @@ struct StorageEngine {
 
     header_fields: StorageHeaderFields,
     next_free_page: PageNum,
+
+    data_chunks: [Option<Box<DataPage>>; NUM_DATA_CHUNK_TYPES] // The slot is the chunk type.
+}
+
+#[derive(Debug)]
+struct WritePageData {
+    next_page_no: PageNum,
+    write_to_blit_next: bool,
+    data: Box<OwnedPage>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(TryFromPrimitive)]
+#[repr(u16)]
+enum PageType {
+    Header = 0,
+    Data = 1,
+    Overflow = 2,
+    Free = 3,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[repr(u16)]
-enum PageType {
-    Header = 0,
-    AgentNames = 1,
-    CGInfo = 2,
+enum DataPageType {
+    AgentNames = 0,
+    CGInfo = 1,
     // etc.
-
-    ChunkMax,
 }
-const NUM_STORAGE_CHUNK_TYPES: usize = 3;
+
+const NUM_DATA_CHUNK_TYPES: usize = 3;
 
 type PageNum = u32;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-struct ChunkInfo {
+struct DataChunkHeaderInfo {
     blit_page: PageNum,
     first_page: PageNum,
 
@@ -114,29 +129,27 @@ struct ChunkInfo {
 }
 
 #[derive(Debug)]
-struct StorageHeaderFields {
-    file_format_version: u32,
+pub(super) struct StorageHeaderFields {
     page_size: usize,
 
     // The slot (array index) is the chunk type. We can't actually read any chunk types beyond
     // the ones this code knows about, but when we write a new copy of the file header, we'll
     // preserve any chunk info blocks that are here that we don't recognise.
-    chunks: SmallVec<[Option<ChunkInfo>; NUM_STORAGE_CHUNK_TYPES]> // The slot is the chunk type.
+    data_page_info: SmallVec<[Option<DataChunkHeaderInfo>; NUM_DATA_CHUNK_TYPES]> // The slot is the chunk type.
 }
 
 impl Default for StorageHeaderFields {
     fn default() -> Self {
         Self {
-            file_format_version: SE_VERSION,
             page_size: DEFAULT_PAGE_SIZE,
-            chunks: smallvec![],
+            data_page_info: smallvec![],
         }
     }
 }
 
 impl StorageHeaderFields {
-    fn each_chunk_info(&self) -> impl Iterator<Item = (u32, ChunkInfo)> + '_ {
-        self.chunks
+    fn data_chunk_info_iter(&self) -> impl Iterator<Item = (u32, DataChunkHeaderInfo)> + '_ {
+        self.data_page_info
             .iter()
             .enumerate()
             .filter_map(|(i, data)|
@@ -156,6 +169,7 @@ impl StorageHeaderFields {
     // }
 }
 
+#[derive(Debug)]
 struct OwnedPage {
     data: [u8; DEFAULT_PAGE_SIZE],
     start: usize,
@@ -179,118 +193,7 @@ impl OwnedPage {
 
 const NEXT_PAGE_BYTE_OFFSET: usize = 4 + 2; // checksum then length.
 
-// fn read_page(file: &mut File, page_no: PageNum, expect_type: u32) -> Result<OwnedPage, SEError> {
-fn read_page_raw(file: &mut File, page_no: PageNum, is_header: bool) -> Result<OwnedPage, SEError> {
-    let mut buffer = [0u8; DEFAULT_PAGE_SIZE];
-
-    #[cfg(target_os = "linux")]
-    file.read_exact_at(&mut buffer, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
-    #[cfg(not(target_os = "linux"))] {
-        file.seek(SeekFrom::Start(page_no as u64 * DEFAULT_PAGE_SIZE as u64))?;
-        file.read_exact(&mut buffer)?;
-    }
-
-    let checksum_start = if is_header {
-        if buffer[0..SE_MAGIC_BYTES.len()] != SE_MAGIC_BYTES {
-            return Err(HeaderError::InvalidMagicBytes.into());
-        }
-
-        SE_MAGIC_BYTES.len()
-    } else { 0 };
-
-    debug_assert_eq!(checksum_start, page_checksum_offset(is_header));
-
-    let mut checksum_bytes = [0u8; 4];
-    checksum_bytes.copy_from_slice(&buffer[checksum_start..checksum_start + 4]);
-    let expected_checksum = u32::from_le_bytes(checksum_bytes);
-
-    let len_start = checksum_start + 4;
-
-    let mut len_bytes = [0u8; 2];
-    len_bytes.copy_from_slice(&buffer[len_start..len_start + 2]);
-    let len = u16::from_le_bytes(len_bytes) as usize;
-
-    let data_start = len_start + 2;
-
-    if data_start + len > DEFAULT_PAGE_SIZE {
-        return Err(SEError::PageTooLarge);
-    }
-
-    let actual_checksum = calc_checksum(&buffer[len_start..data_start+len]);
-    if expected_checksum != actual_checksum {
-        return Err(SEError::InvalidChecksum);
-    }
-
-    Ok(OwnedPage {
-        data: buffer,
-        start: data_start,
-        end: data_start + len,
-    })
-}
-
-fn read_data_page(file: &mut File, page_no: PageNum, expect_type: u32) -> Result<OwnedPage, SEError> {
-    debug_assert_ne!(expect_type, PageType::Header as u32);
-
-    let mut page = read_page_raw(file, page_no, false)?;
-
-    // Data pages start with the next page number (u32_le). This is filled in with 0, and filled in
-    // when the data page is allocated.
-
-    page.start += 4;
-
-    // Then the page type. Check that it matches and consume it.
-    let (actual_type, bytes_consumed) = decode_prefix_varint_u32(&page.data[page.start..])?;
-    page.start += bytes_consumed;
-    if actual_type != expect_type {
-        return Err(SEError::UnexpectedPageType);
-    }
-
-    Ok(page)
-}
-
-fn read_header_page(file: &mut File, page_no: PageNum) -> Result<StorageHeaderFields, SEError> {
-    let page = read_page_raw(file, page_no, true)?;
-
-    let mut parser = BufParser(&page.data[page.start..page.end]);
-    let file_format_version = parser.next_u32()?;
-    if file_format_version != SE_VERSION {
-        return Err(HeaderError::VersionTooNew(file_format_version).into());
-    }
-
-    let req_page_size = parser.next_usize()?;
-    if req_page_size != DEFAULT_PAGE_SIZE {
-        return Err(HeaderError::InvalidPageSize(req_page_size).into());
-    }
-
-    let mut chunks = smallvec![None; NUM_STORAGE_CHUNK_TYPES];
-    loop {
-        let chunk_type_or_end = parser.next_usize()?;
-        if chunk_type_or_end == 0 { break; }
-        let chunk_type = chunk_type_or_end - 1;
-        let first_page = parser.next_u32()?;
-        let blit_page = parser.next_u32()?;
-
-        // TODO: Is it worth checking that the pages are valid?
-        if first_page == blit_page { return Err(SEError::GenericInvalidData); }
-
-        if chunks.len() < chunk_type {
-            chunks.resize(chunk_type, None);
-        }
-
-        chunks[chunk_type] = Some(ChunkInfo {
-            blit_page,
-            first_page,
-        });
-    }
-
-    Ok(StorageHeaderFields {
-        file_format_version,
-        page_size: req_page_size,
-        chunks,
-    })
-}
-
-fn scan_for_next_free_block(file: &mut File, header_fields: &StorageHeaderFields) -> Result<PageNum, SEError> {
+fn scan_blocks<F: FnMut(PageNum, u32, bool, Option<&DataPage>)>(file: &mut File, header_fields: &StorageHeaderFields, mut visit: F) -> Result<PageNum, SEError> {
     // Ok, now we need to find the next free page.
     // For now, the file should always be "packed" - that is, there can't be any holes in
     // the file. I might be able to get away with scanning from the back, but this is
@@ -303,7 +206,7 @@ fn scan_for_next_free_block(file: &mut File, header_fields: &StorageHeaderFields
 
     // I'm not super happy about making this queue have multiple fields.
     #[derive(PartialEq, Eq)]
-    struct Item(PageNum, u32, bool); // Page number, page type, blit flag.
+    struct Item(PageNum, u32, bool); // Page number, data page type, blit flag.
 
     impl Ord for Item {
         fn cmp(&self, other: &Self) -> Ordering {
@@ -319,7 +222,7 @@ fn scan_for_next_free_block(file: &mut File, header_fields: &StorageHeaderFields
     }
 
     let mut queue = BinaryHeap::<Item>::new();
-    for (kind, info) in header_fields.each_chunk_info() {
+    for (kind, info) in header_fields.data_chunk_info_iter() {
         queue.push(Item(info.first_page, kind, false));
         queue.push(Item(info.blit_page, kind, true));
     }
@@ -327,7 +230,7 @@ fn scan_for_next_free_block(file: &mut File, header_fields: &StorageHeaderFields
     dbg!(header_fields);
     let mut next_page = 1;
     while let Some(Item(page_no, kind, is_blit)) = queue.pop() {
-        dbg!((page_no, kind, is_blit, next_page));
+        // dbg!((page_no, kind, is_blit, next_page));
         if page_no != next_page {
             panic!("Ermagherd bad");
             // return Err(SEError::GenericInvalidData);
@@ -335,24 +238,34 @@ fn scan_for_next_free_block(file: &mut File, header_fields: &StorageHeaderFields
 
         next_page = page_no + 1;
 
-        if is_blit { continue; } // We don't care about blits.
+        if is_blit {
+            // We don't really care about blits, or need to read them.
+            visit(page_no, kind, true, None);
+        } else {
+            // Read the page, looking for info on the next page information.
 
-        let page = match read_data_page(file, page_no, kind) {
-            Ok(page) => page,
-            Err(SEError::InvalidChecksum) => { continue; } // Ignore this.
-            Err(SEError::IO(io_err)) => {
-                // We'll get an UnexpectedEof error if we hit the end of the file. Its
-                // possible the next block is assigned by the previous block, but not
-                // actually allocated on disk yet.
-                if io_err.kind() == ErrorKind::UnexpectedEof { continue; }
-                else { return Err(SEError::IO(io_err)); }
-            },
-            Err(e) => { return Err(e); }
-        };
+            let page = match DataPage::read_raw(file, page_no) {
+                Ok(page) => Some(page),
+                Err(SEError::PageDataError(PageDataError::InvalidChecksum)) => None, // Ignore this.
+                Err(SEError::IO(io_err)) => {
+                    // We'll get an UnexpectedEof error if we hit the end of the file. Its
+                    // possible the next block is assigned by the previous block, but not
+                    // actually allocated on disk yet.
+                    if io_err.kind() == ErrorKind::UnexpectedEof { None } else { return Err(SEError::IO(io_err)); }
+                },
+                Err(e) => { return Err(e); }
+            };
 
-        let next_page = page.get_next_page_no();
-        if next_page != 0 {
-            queue.push(Item(next_page, kind, false));
+            // TODO: Maybe check the page type is correct?
+
+            visit(page_no, kind, false, page.as_ref());
+
+            if let Some(page) = page {
+                let next_page = page.get_next_page();
+                if next_page != 0 {
+                    queue.push(Item(next_page, kind, false));
+                }
+            }
         }
     }
 
@@ -373,33 +286,16 @@ impl StorageEngine {
 
         let (header_fields, next_free_page) = Self::read_or_initialize_header(&mut file, total_len)?;
 
+        // Gross!
+        const HACK_NONE: Option<Box<DataPage>> = None;
         Ok(Self {
             file,
             header_fields,
             next_free_page,
+            data_chunks: [HACK_NONE; NUM_DATA_CHUNK_TYPES],
         })
     }
 
-    fn encode_header(header_fields: &StorageHeaderFields) -> Result<PageWriter, SEError> {
-        assert_eq!(header_fields.page_size, DEFAULT_PAGE_SIZE, "Other block sizes are not yet implemented");
-        let mut page = PageWriter::new_header();
-
-        page.write_u32(header_fields.file_format_version)?;
-        page.write_usize(header_fields.page_size)?;
-
-        for (kind, c) in header_fields.each_chunk_info() {
-            page.write_u32(kind + 1)?;
-            page.write_u32(c.first_page)?;
-            page.write_u32(c.blit_page)?;
-        }
-        page.write_usize(0)?;
-
-        Ok(page)
-    }
-
-    // fn write_header(mut file: &mut File, current_len: u64) -> Result<(), SEError> {
-    //
-    // }
 
     /// Read the header block - which is the start of the file. Returns the block size.
     fn read_or_initialize_header(file: &mut File, total_len: u64) -> Result<(StorageHeaderFields, PageNum), SEError> {
@@ -407,8 +303,8 @@ impl StorageEngine {
             println!("Initializing headers");
             // Presumably a new file. Initialize it using the default options.
             let header_fields = StorageHeaderFields::default();
-            Self::encode_header(&header_fields)?
-                .finish_and_write(file, 0)?;
+            HeaderPage::encode_and_bake(&header_fields)
+                .write(file, 0)?;
 
             // Could probably get away with this flush here, but its basically free and it makes me
             // feel better.
@@ -417,12 +313,15 @@ impl StorageEngine {
         } else {
             println!("Parsing fields");
             // Parse the header page.
-            let header_fields = read_header_page(file, 0)?;
+            let header_fields = HeaderPage::read(file, 0)?;
             // TODO: If the header page has an invalid checksum, we should now search the file for
             // the backup header page and load that instead.
 
-            let free_page = scan_for_next_free_block(file, &header_fields)?;
-
+            // TODO: It would be better if I didn't have to do this, but eh.
+            let free_page = scan_blocks(file, &header_fields, |page_no, kind, is_blit, page_data| {
+                dbg!((page_no, kind, is_blit, page_data));
+            })?;
+// [Option<Box<PageData>>; NUM_STORAGE_CHUNK_TYPES]
             Ok((header_fields, free_page))
         }
     }
@@ -433,9 +332,9 @@ impl StorageEngine {
         page
     }
 
-    fn make_data(&mut self, kind: PageType) -> Result<(), SEError> {
+    fn make_data(&mut self, kind: DataPageType) -> Result<(), SEError> {
         let kind_usize = kind as usize;
-        if let Some(Some(t)) = self.header_fields.chunks.get(kind_usize) {
+        if let Some(Some(t)) = self.header_fields.data_page_info.get(kind_usize) {
             dbg!(t);
         } else {
             // Assign new pages for it.
@@ -443,23 +342,37 @@ impl StorageEngine {
             let first_page = self.assign_next_page();
             dbg!((blit_page, first_page));
 
-            let chunks = &mut self.header_fields.chunks;
+            let chunks = &mut self.header_fields.data_page_info;
             if chunks.len() < kind_usize {
                 chunks.resize(kind_usize, None);
             }
 
-            chunks[kind_usize] = Some(ChunkInfo {
+            chunks[kind_usize] = Some(DataChunkHeaderInfo {
                 blit_page,
                 first_page,
             });
 
             // And rewrite the header.
-            let (new_head, _len) = Self::encode_header(&self.header_fields).unwrap()
-                .finish();
+            // let (new_head, _len) = Self::encode_header(&self.header_fields).unwrap()
+            //     .finish();
 
-            write_page(&mut self.file, blit_page, &new_head)?;
+            let new_head = HeaderPage::encode_and_bake(&self.header_fields);
+
+            new_head.write(&mut self.file, blit_page)?;
             self.file.sync_all()?;
-            write_page(&mut self.file, 0, &new_head)?;
+            new_head.write(&mut self.file, 0)?;
+
+            assert!(kind_usize < self.data_chunks.len());
+            // Since we're adding data, the old data must have been None.
+            // self.chunks[kind_usize].replace(Box::new(WritePageData {
+            //     next_page_no: first_page,
+            //     write_to_blit_next: false,
+            //     data: Box::new(OwnedPage {
+            //         data: [],
+            //         start: 0,
+            //         end: 0,
+            //     }),
+            // });
 
             // I don't think we actually need to sync again here.
             //
@@ -470,18 +383,21 @@ impl StorageEngine {
 
         Ok(())
     }
+
+    fn append_bytes_to(&mut self, _kind: PageType) -> Result<(), SEError> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use std::os::unix::fs::FileExt;
-    use crate::storage::{PageType, StorageEngine};
+    use crate::storage::{DataPageType, StorageEngine};
 
     #[test]
     fn foo() {
         let mut se = StorageEngine::open("foo.dts").unwrap();
 
-        se.make_data(PageType::AgentNames).unwrap();
+        se.make_data(DataPageType::AgentNames).unwrap();
         dbg!(&se);
     }
 
