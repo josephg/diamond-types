@@ -16,7 +16,7 @@ use num_enum::TryFromPrimitive;
 use smallvec::{smallvec, SmallVec};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::ExtendFromSlice;
-use crate::storage::page::{DataPage, HeaderPage, Page};
+use crate::storage::page::{BlitStatus, DataPage, DataPageImmutableFields, HeaderPage, Page};
 
 mod page;
 
@@ -36,7 +36,8 @@ pub enum PageDataError {
     InvalidHeaderMagicBytes,
     InvalidChecksum,
     VersionTooNew(u16),
-    InvalidPageSize(usize),
+    InvalidHeaderPageSize(usize),
+    PageTooLarge(u16),
 }
 
 #[derive(Debug)]
@@ -49,7 +50,7 @@ pub enum SEError {
     // InvalidBlit,
     // InvalidData,
 
-    PageTooLarge,
+    PageFull,
 
     UnexpectedPageType,
 
@@ -88,14 +89,14 @@ struct StorageEngine {
     header_fields: StorageHeaderFields,
     next_free_page: PageNum,
 
-    data_chunks: [Option<Box<DataPage>>; NUM_DATA_CHUNK_TYPES] // The slot is the chunk type.
+    data_chunks: [Option<Box<DataPageState>>; NUM_DATA_CHUNK_TYPES] // The slot is the chunk type.
 }
 
 #[derive(Debug)]
-struct WritePageData {
+struct DataPageState {
     next_page_no: PageNum,
     write_to_blit_next: bool,
-    data: Box<OwnedPage>,
+    page: DataPage,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -109,6 +110,7 @@ enum PageType {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(TryFromPrimitive)]
 #[repr(u16)]
 enum DataPageType {
     AgentNames = 0,
@@ -169,31 +171,11 @@ impl StorageHeaderFields {
     // }
 }
 
-#[derive(Debug)]
-struct OwnedPage {
-    data: [u8; DEFAULT_PAGE_SIZE],
-    start: usize,
-    end: usize
-}
-
-impl OwnedPage {
-    fn get_next_page_no(&self) -> PageNum {
-        // This is a pretty round about way to write this code, but the optimizer makes it trivial.
-        let mut buf = [0u8; 4];
-        buf.copy_from_slice(&self.data[NEXT_PAGE_BYTE_OFFSET..NEXT_PAGE_BYTE_OFFSET+4]);
-        u32::from_le_bytes(buf)
-    }
-}
-
-// struct DataPage {
-//     page: OwnedPage, // starting at the first byte of data.
-//     next_page_no: PageNum,
-//     prev_page_no: PageNum,
-// }
-
 const NEXT_PAGE_BYTE_OFFSET: usize = 4 + 2; // checksum then length.
 
-fn scan_blocks<F: FnMut(PageNum, u32, bool, Option<&DataPage>)>(file: &mut File, header_fields: &StorageHeaderFields, mut visit: F) -> Result<PageNum, SEError> {
+// This function does a lot. I could refactor it to pass a visitor function or something, but I'm
+// only using it in this one context so I think its ok.
+fn scan_blocks(file: &mut File, header_fields: &StorageHeaderFields) -> Result<(PageNum, [Option<Box<DataPageState>>; NUM_DATA_CHUNK_TYPES]), SEError> {
     // Ok, now we need to find the next free page.
     // For now, the file should always be "packed" - that is, there can't be any holes in
     // the file. I might be able to get away with scanning from the back, but this is
@@ -206,7 +188,7 @@ fn scan_blocks<F: FnMut(PageNum, u32, bool, Option<&DataPage>)>(file: &mut File,
 
     // I'm not super happy about making this queue have multiple fields.
     #[derive(PartialEq, Eq)]
-    struct Item(PageNum, u32, bool); // Page number, data page type, blit flag.
+    struct Item(PageNum, PageNum, u32, bool); // Page number, prev page num, data page type, blit flag.
 
     impl Ord for Item {
         fn cmp(&self, other: &Self) -> Ordering {
@@ -223,14 +205,21 @@ fn scan_blocks<F: FnMut(PageNum, u32, bool, Option<&DataPage>)>(file: &mut File,
 
     let mut queue = BinaryHeap::<Item>::new();
     for (kind, info) in header_fields.data_chunk_info_iter() {
-        queue.push(Item(info.first_page, kind, false));
-        queue.push(Item(info.blit_page, kind, true));
+        queue.push(Item(info.first_page, 0, kind, false));
+        // Only adding the blit pages so we can move past them while checking that the file is
+        // packed.
+        queue.push(Item(info.blit_page, 0, kind, true));
     }
 
     dbg!(header_fields);
+    const HACK_NONE: Option<Box<DataPageState>> = None;
+    let mut data_chunks = [HACK_NONE; NUM_DATA_CHUNK_TYPES];
+    // let mut blit_flags = [BlitStatus(u8::MAX); NUM_DATA_CHUNK_TYPES];
+    // let mut blit_associated_page = [PageNum; NUM_DATA_CHUNK_TYPES];
+
     let mut next_page = 1;
-    while let Some(Item(page_no, kind, is_blit)) = queue.pop() {
-        // dbg!((page_no, kind, is_blit, next_page));
+    while let Some(Item(page_no, prev_page, kind, is_blit)) = queue.pop() {
+        dbg!((page_no, kind, is_blit, next_page));
         if page_no != next_page {
             panic!("Ermagherd bad");
             // return Err(SEError::GenericInvalidData);
@@ -238,38 +227,105 @@ fn scan_blocks<F: FnMut(PageNum, u32, bool, Option<&DataPage>)>(file: &mut File,
 
         next_page = page_no + 1;
 
-        if is_blit {
-            // We don't really care about blits, or need to read them.
-            visit(page_no, kind, true, None);
-        } else {
+        // We don't need to read blits just yet. First we'll scan to the last allocated page for
+        // all the types of data.
+        if !is_blit {
             // Read the page, looking for info on the next page information.
+            //
+            // There's 3 things that can happen here:
+            // 1. The page has a valid checksum but its still corrupted somehow, or we get a read
+            //   error. Bail and return the error.
+            // 2. The read is past the end of the file, or the checksum doesn't match. This means
+            //   the page we're looking at is assigned but not valid, or the last write to this page
+            //   failed. page = None.
+            // 3. (Most common) The page is valid. If we can, we'll keep walking through the pages.
 
-            let page = match DataPage::read_raw(file, page_no) {
-                Ok(page) => Some(page),
-                Err(SEError::PageDataError(PageDataError::InvalidChecksum)) => None, // Ignore this.
-                Err(SEError::IO(io_err)) => {
-                    // We'll get an UnexpectedEof error if we hit the end of the file. Its
-                    // possible the next block is assigned by the previous block, but not
-                    // actually allocated on disk yet.
-                    if io_err.kind() == ErrorKind::UnexpectedEof { None } else { return Err(SEError::IO(io_err)); }
-                },
-                Err(e) => { return Err(e); }
-            };
-
-            // TODO: Maybe check the page type is correct?
-
-            visit(page_no, kind, false, page.as_ref());
-
-            if let Some(page) = page {
-                let next_page = page.get_next_page();
-                if next_page != 0 {
-                    queue.push(Item(next_page, kind, false));
+            fn try_read(file: &mut File, page_no: PageNum) -> Result<Option<DataPage>, SEError> {
+                match DataPage::read_raw(file, page_no) {
+                    Ok(page) => Ok(Some(page)),
+                    Err(SEError::PageDataError(PageDataError::InvalidChecksum)) => Ok(None), // Ignore this.
+                    Err(SEError::IO(io_err)) => {
+                        // We'll get an UnexpectedEof error if we hit the end of the file. Its
+                        // possible the next block is assigned by the previous block, but not
+                        // actually allocated on disk yet.
+                        if io_err.kind() == ErrorKind::UnexpectedEof { Ok(None) } else { return Err(SEError::IO(io_err)); }
+                    },
+                    Err(e) => { return Err(e); }
                 }
             }
+
+            let page = try_read(file, page_no)?;
+
+            // TODO: Check the page type and page prev fields are correct
+
+            if let Some(page) = page.as_ref() {
+                let next_page = page.get_next_or_associated_page();
+                if next_page != 0 {
+                    // The page is valid and it has an assigned next page. Onwards!
+                    queue.push(Item(next_page, page_no, kind, false));
+                    continue;
+                }
+            }
+
+            // We get here if its the last page in the history for this data type. The page might
+            // be None if it hasn't been written to yet, or the last write failed.
+
+            // Check the blit data at this point.
+            let blit_page_no = header_fields.data_page_info[kind as usize].unwrap().blit_page;
+            let mut blit_page = try_read(file, blit_page_no)?;
+
+            // This is a bit of a hack. If the blit page is old (it is associated with an earlier
+            // page) then discard it.
+            if let Some(p) = blit_page.as_ref() {
+                if p.get_next_or_associated_page() != page_no {
+                    blit_page = None;
+                }
+            }
+
+            dbg!((page.is_some(), blit_page.is_some()));
+            let (blit, page_used) = match (page, blit_page) {
+                (Some(page), Some(blit_page)) => {
+                    // Keep the page which is "furthest along".
+                    dbg!(page.get_blit_status());
+                    dbg!(blit_page.get_blit_status());
+                    match page.get_blit_status().partial_cmp(&blit_page.get_blit_status()) {
+                        // Use the page version.
+                        None => { return Err(SEError::GenericInvalidData); }
+                        Some(Ordering::Greater) | Some(Ordering::Equal) => {
+                            println!("page");
+                            // Use the page version. If the blits are equal it doesn't matter.
+                            (true, page)
+                        }
+                        Some(Ordering::Less) => {
+                            println!("blit");
+                            // Use the blit version.
+                            (false, blit_page)
+                        }
+                    }
+                }
+                (None, Some(blit_page)) => {
+                    (false, blit_page)
+                }
+                (Some(page), None) => {
+                    (true, page)
+                }
+                (None, None) => {
+                    (true, DataPage::new(DataPageImmutableFields {
+                        kind: (kind as u16).try_into().unwrap(),
+                        prev_page,
+                    }))
+                }
+            };
+
+            data_chunks[kind as usize] = Some(Box::new(DataPageState {
+                next_page_no: page_no,
+                write_to_blit_next: blit,
+                page: page_used
+            }));
         }
     }
 
-    Ok(next_page)
+    Ok((next_page, data_chunks))
 }
 
 impl StorageEngine {
@@ -284,45 +340,46 @@ impl StorageEngine {
         let total_len = file.seek(SeekFrom::End(0))?;
         file.seek(SeekFrom::Start(0))?;
 
-        let (header_fields, next_free_page) = Self::read_or_initialize_header(&mut file, total_len)?;
+        // let (header_fields, next_free_page, data_chunks) = Self::read_or_initialize_header(&mut file, total_len)?;
 
         // Gross!
-        const HACK_NONE: Option<Box<DataPage>> = None;
-        Ok(Self {
-            file,
-            header_fields,
-            next_free_page,
-            data_chunks: [HACK_NONE; NUM_DATA_CHUNK_TYPES],
-        })
-    }
+        const HACK_NONE: Option<Box<DataPageState>> = None;
 
-
-    /// Read the header block - which is the start of the file. Returns the block size.
-    fn read_or_initialize_header(file: &mut File, total_len: u64) -> Result<(StorageHeaderFields, PageNum), SEError> {
         if total_len == 0 {
             println!("Initializing headers");
             // Presumably a new file. Initialize it using the default options.
             let header_fields = StorageHeaderFields::default();
             HeaderPage::encode_and_bake(&header_fields)
-                .write(file, 0)?;
+                .write(&mut file, 0)?;
 
             // Could probably get away with this flush here, but its basically free and it makes me
             // feel better.
             file.sync_all()?;
-            Ok((header_fields, 1))
+            Ok(Self {
+                file,
+                header_fields,
+                next_free_page: 1,
+                data_chunks: [HACK_NONE; NUM_DATA_CHUNK_TYPES],
+            })
         } else {
             println!("Parsing fields");
             // Parse the header page.
-            let header_fields = HeaderPage::read(file, 0)?;
+            let header_fields = HeaderPage::read(&mut file, 0)?;
             // TODO: If the header page has an invalid checksum, we should now search the file for
             // the backup header page and load that instead.
 
             // TODO: It would be better if I didn't have to do this, but eh.
-            let free_page = scan_blocks(file, &header_fields, |page_no, kind, is_blit, page_data| {
-                dbg!((page_no, kind, is_blit, page_data));
-            })?;
-// [Option<Box<PageData>>; NUM_STORAGE_CHUNK_TYPES]
-            Ok((header_fields, free_page))
+            // let last_page_for_type
+            // let data_chunks = [HACK_NONE; NUM_DATA_CHUNK_TYPES];
+
+            let (next_free_page, data_chunks) = scan_blocks(&mut file, &header_fields)?;
+
+            Ok(Self {
+                file,
+                header_fields,
+                next_free_page,
+                data_chunks,
+            })
         }
     }
 
@@ -334,17 +391,15 @@ impl StorageEngine {
 
     fn make_data(&mut self, kind: DataPageType) -> Result<(), SEError> {
         let kind_usize = kind as usize;
-        if let Some(Some(t)) = self.header_fields.data_page_info.get(kind_usize) {
-            dbg!(t);
-        } else {
+        if self.data_chunks[kind_usize].is_none() {
             // Assign new pages for it.
             let blit_page = self.assign_next_page();
             let first_page = self.assign_next_page();
             dbg!((blit_page, first_page));
 
             let chunks = &mut self.header_fields.data_page_info;
-            if chunks.len() < kind_usize {
-                chunks.resize(kind_usize, None);
+            if chunks.len() <= kind_usize {
+                chunks.resize(kind_usize + 1, None);
             }
 
             chunks[kind_usize] = Some(DataChunkHeaderInfo {
@@ -358,21 +413,21 @@ impl StorageEngine {
 
             let new_head = HeaderPage::encode_and_bake(&self.header_fields);
 
+            println!("Writing new header {:?}", &self.header_fields);
             new_head.write(&mut self.file, blit_page)?;
             self.file.sync_all()?;
             new_head.write(&mut self.file, 0)?;
 
             assert!(kind_usize < self.data_chunks.len());
-            // Since we're adding data, the old data must have been None.
-            // self.chunks[kind_usize].replace(Box::new(WritePageData {
-            //     next_page_no: first_page,
-            //     write_to_blit_next: false,
-            //     data: Box::new(OwnedPage {
-            //         data: [],
-            //         start: 0,
-            //         end: 0,
-            //     }),
-            // });
+
+            self.data_chunks[kind_usize] = Some(Box::new(DataPageState {
+                next_page_no: first_page,
+                write_to_blit_next: false,
+                page: DataPage::new(DataPageImmutableFields {
+                    kind,
+                    prev_page: 0,
+                }),
+            }));
 
             // I don't think we actually need to sync again here.
             //
@@ -384,8 +439,33 @@ impl StorageEngine {
         Ok(())
     }
 
-    fn append_bytes_to(&mut self, _kind: PageType) -> Result<(), SEError> {
-        todo!()
+    fn append_bytes_to(&mut self, kind: DataPageType) -> Result<(), SEError> {
+        let kind_usize = kind as usize;
+        if self.data_chunks[kind_usize].is_none() {
+            self.make_data(kind)?;
+        }
+
+        let state = self.data_chunks[kind_usize].as_mut().unwrap();
+        state.page.push_usize(100 * 128 + 55)?;
+
+        // TODO: There is a bug here: If this write fails, the in-memory state is corrupt.
+        state.page.roll_blit_status();
+        if state.write_to_blit_next {
+            state.page.set_next_page(state.next_page_no);
+
+            let blit_page = self.header_fields.data_page_info[kind_usize]
+                .as_ref().unwrap().blit_page;
+            state.page.bake_and_write(&mut self.file, blit_page)?;
+            state.write_to_blit_next = false;
+            println!("Wrote blit page {blit_page}");
+        } else {
+            state.page.set_next_page(0); // Unassigned.
+            state.page.bake_and_write(&mut self.file, state.next_page_no)?;
+            state.write_to_blit_next = true;
+            println!("Wrote normal page {}", state.next_page_no);
+        }
+
+        Ok(())
     }
 }
 
@@ -397,7 +477,9 @@ mod test {
     fn foo() {
         let mut se = StorageEngine::open("foo.dts").unwrap();
 
-        se.make_data(DataPageType::AgentNames).unwrap();
+        // se.make_data(DataPageType::AgentNames).unwrap();
+        se.append_bytes_to(DataPageType::AgentNames).unwrap();
+        se.append_bytes_to(DataPageType::AgentNames).unwrap();
         dbg!(&se);
     }
 

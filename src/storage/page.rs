@@ -11,7 +11,7 @@ use std::os::unix::fs::FileExt;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::tools::{calc_checksum, ExtendFromSlice};
 use crate::encoding::varint::{decode_prefix_varint_u32, push_u32, push_u64, push_usize};
-use crate::storage::{DataChunkHeaderInfo, DataPageType, DEFAULT_PAGE_SIZE, PageDataError, NUM_DATA_CHUNK_TYPES, OwnedPage, PageNum, PageType, SEError, StorageHeaderFields};
+use crate::storage::*;
 
 
 /// Pages have 3 kinds of data:
@@ -60,7 +60,7 @@ pub(super) struct Page<const T: usize> {
     // *** Mutable fields ***
 
     data: [u8; DEFAULT_PAGE_SIZE],
-    cursor_start_pos: usize,
+    // cursor_start_pos: usize,
     content_start_pos: usize,
     content_end_pos: usize,
 }
@@ -77,7 +77,7 @@ impl<const T: usize> fmt::Debug for Page<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("DataPage")
             .field("(page type)", &PageType::try_from(T as u16).unwrap())
-            .field("cursor_start_pos", &self.cursor_start_pos)
+            // .field("cursor_start_pos", &self.cursor_start_pos)
             .field("content_start_pos", &self.content_start_pos)
             .field("content_end_pos", &self.content_end_pos)
             .field("data", &&self.data[0..self.content_end_pos])
@@ -96,13 +96,22 @@ const PO_DATA_IMMUTABLE_FIELD_START: usize = 12;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) struct DataPageImmutableFields {
-    kind: DataPageType,
-    prev_page: PageNum,
+    pub(super) kind: DataPageType,
+    pub(super) prev_page: PageNum,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub(super) struct BlitStatus(u8);
+pub(super) struct BlitStatus(pub u8);
 
+impl PartialOrd for BlitStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // TODO: There's almost certainly better ways to write this code.
+        if self.0 == other.0 { Some(Ordering::Equal) }
+        else if self.0 == (other.0 + 1) % 3 { Some(Ordering::Greater) }
+        else if other.0 == (self.0 + 1) % 3 { Some(Ordering::Less) }
+        else { None }
+    }
+}
 
 // *** Header pages ***
 
@@ -125,7 +134,7 @@ impl<const T: usize> ExtendFromSlice for Page<T> {
 
     fn extend_from_slice(&mut self, slice: &[u8]) -> Result<(), SEError> {
         if self.content_end_pos + slice.len() > self.data.len() {
-            return Err(SEError::PageTooLarge);
+            return Err(SEError::PageFull);
         }
         self.data[self.content_end_pos..self.content_end_pos + slice.len()].copy_from_slice(slice);
         self.content_end_pos += slice.len();
@@ -164,8 +173,8 @@ impl<const T: usize> Page<T> {
 
     fn immutable_data_start_offset() -> usize {
         match T {
-            PAGE_TYPE_HEADER => PO_DATA_IMMUTABLE_FIELD_START,
-            PAGE_TYPE_DATA => PO_HEADER_START,
+            PAGE_TYPE_HEADER => PO_HEADER_START,
+            PAGE_TYPE_DATA => PO_DATA_IMMUTABLE_FIELD_START,
             _ => unimplemented!(),
         }
     }
@@ -219,13 +228,13 @@ impl<const T: usize> Page<T> {
         // self.data
     }
 
-    fn push_u32(&mut self, num: u32) -> Result<(), SEError> {
+    pub(crate) fn push_u32(&mut self, num: u32) -> Result<(), SEError> {
         push_u32(self, num)
     }
-    fn push_u64(&mut self, num: u64) -> Result<(), SEError> {
+    pub(crate) fn push_u64(&mut self, num: u64) -> Result<(), SEError> {
         push_u64(self, num)
     }
-    fn push_usize(&mut self, num: usize) -> Result<(), SEError> {
+    pub(crate) fn push_usize(&mut self, num: usize) -> Result<(), SEError> {
         push_usize(self, num)
     }
 
@@ -263,7 +272,7 @@ impl<const T: usize> Page<T> {
     pub(super) fn read_raw(file: &mut File, page_no: PageNum) -> Result<Self, SEError> {
         let mut page = Self {
             data: [0; DEFAULT_PAGE_SIZE],
-            cursor_start_pos: Self::immutable_data_start_offset(),
+            // cursor_start_pos: Self::immutable_data_start_offset(),
             content_start_pos: Self::immutable_data_start_offset(),
             content_end_pos: usize::MAX,
         };
@@ -285,7 +294,7 @@ impl<const T: usize> Page<T> {
 
         let len = page.get_len();
         if len > page.data.len() {
-            return Err(PageDataError::InvalidPageSize(len).into());
+            return Err(PageDataError::PageTooLarge(len as u16).into());
         }
 
         page.content_end_pos = len;
@@ -311,7 +320,7 @@ impl HeaderPage {
 
         let mut page = Self {
             data: [0; DEFAULT_PAGE_SIZE],
-            cursor_start_pos: usize::MAX,
+            // cursor_start_pos: usize::MAX,
             content_start_pos: PO_HEADER_START,
             content_end_pos: PO_HEADER_START,
         };
@@ -351,7 +360,7 @@ impl HeaderPage {
         let mut parser = page.make_parser();
         let page_size = parser.next_usize()?;
         if page_size != DEFAULT_PAGE_SIZE {
-            return Err(PageDataError::InvalidPageSize(page_size).into());
+            return Err(PageDataError::InvalidHeaderPageSize(page_size).into());
         }
 
         let mut data_page_info = smallvec![None; NUM_DATA_CHUNK_TYPES];
@@ -384,10 +393,10 @@ impl HeaderPage {
 }
 
 impl DataPage {
-    pub(super) fn new(fields: DataPageImmutableFields, cursor_data: &[u8]) -> Self {
+    pub(super) fn new(fields: DataPageImmutableFields) -> Self {
         let mut page = Self {
             data: [0; DEFAULT_PAGE_SIZE],
-            cursor_start_pos: usize::MAX,
+            // cursor_start_pos: usize::MAX,
             content_start_pos: usize::MAX,
             content_end_pos: PO_DATA_IMMUTABLE_FIELD_START,
         };
@@ -395,19 +404,19 @@ impl DataPage {
         // Write the immutable bytes. This will write at self.content_start_pos.
         page.push_u32_infallable(fields.kind as u32);
         page.push_u32_infallable(fields.prev_page);
-        page.cursor_start_pos = page.content_end_pos;
-        page.extend_from_slice_infallible(cursor_data);
+        // page.cursor_start_pos = page.content_end_pos;
+        // page.extend_from_slice_infallible(cursor_data);
 
         page.content_start_pos = page.content_end_pos;
 
         page
     }
 
-    pub fn get_cursor_data(&self) -> &[u8] {
-        &self.data[self.cursor_start_pos..self.content_start_pos]
-    }
+    // pub fn get_cursor_data(&self) -> &[u8] {
+    //     &self.data[self.cursor_start_pos..self.content_start_pos]
+    // }
 
-    pub fn get_next_page(&self) -> PageNum {
+    pub fn get_next_or_associated_page(&self) -> PageNum {
         let mut buf = [0u8; 4];
         buf.copy_from_slice(&self.data[PO_DATA_NEXT_PAGE]);
         u32::from_le_bytes(buf)
@@ -421,8 +430,14 @@ impl DataPage {
         BlitStatus(self.data[PO_DATA_BLIT_STATUS.start])
     }
 
-    pub fn set_blit_status(&mut self, status: BlitStatus) {
+    fn set_blit_status(&mut self, status: BlitStatus) {
         self.data[PO_DATA_BLIT_STATUS.start] = status.0;
+    }
+
+    pub fn roll_blit_status(&mut self) {
+        let last = self.get_blit_status();
+        // self.set_blit_status(BlitStatus(last.0.wrapping_add(1)));
+        self.set_blit_status(BlitStatus((last.0 + 1) % 3));
     }
 }
 
@@ -455,7 +470,7 @@ mod test {
         let mut page = DataPage::new(DataPageImmutableFields {
             kind: DataPageType::AgentNames,
             prev_page: 0,
-        }, &[1,2,3]);
+        });
 
         page.extend_from_slice("hello".as_bytes()).unwrap();
 
