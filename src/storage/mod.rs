@@ -407,7 +407,7 @@ impl StorageEngine {
 
     // This method could return a &mut DataPageState but I can't really use it because of the borrow
     // check rules. (The field needs to be a partial borrow of &self)
-    fn prepare_data_page_type(&mut self, kind: DataPageType) -> (&File, &mut PageNum, &mut DataPageState) {
+    fn prepare_data_page_type(&mut self, kind: DataPageType) -> (&mut File, &mut PageNum, &mut DataPageState) {
         let kind_usize = kind as usize;
 
         assert!(kind_usize < self.data_chunks.len());
@@ -450,7 +450,7 @@ impl StorageEngine {
             })
         });
 
-        (&self.file, &mut self.next_free_page, state)
+        (&mut self.file, &mut self.next_free_page, state)
     }
 
     fn append_bytes_to(&mut self, kind: DataPageType) -> Result<(), SEError> {
@@ -492,19 +492,19 @@ impl StorageEngine {
     }
 
     /// returns true if the page written was a blit page.
-    fn write_page(file: &File, state: &mut DataPageState, next_page: PageNum) -> Result::<bool, SEError> {
+    fn write_page(file: &mut File, state: &mut DataPageState, next_page: PageNum) -> Result::<bool, SEError> {
         // TODO: This code assumes that if this write fails, then no further writes will happen.
         state.dirty = false;
         state.page.roll_blit_status();
         if state.write_to_blit_next {
             state.page.set_next_page(state.current_page_no);
-            state.page.bake_and_write(&file, state.blit_page)?;
+            state.page.bake_and_write(file, state.blit_page)?;
             state.write_to_blit_next = false;
             println!("Wrote blit page {}", state.blit_page);
             Ok(true)
         } else {
             state.page.set_next_page(next_page); // Unassigned.
-            state.page.bake_and_write(&file, state.current_page_no)?;
+            state.page.bake_and_write(file, state.current_page_no)?;
             state.write_to_blit_next = true;
             println!("Wrote normal page {}", state.current_page_no);
             Ok(false)
@@ -538,7 +538,7 @@ impl StorageEngine {
             .filter(|chunk| chunk.dirty)
             .map(|s| s.as_mut()) // Not strictly needed, but kinda cleaner.
         {
-            Self::write_page(&self.file, state, 0)?;
+            Self::write_page(&mut self.file, state, 0)?;
             sync_needed = true;
         }
 

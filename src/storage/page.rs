@@ -252,17 +252,17 @@ impl<const T: usize> Page<T> {
         push_usize(&mut InfallibleWritePage(self), num);
     }
 
-    pub(super) fn write(&self, file: &File, page_no: PageNum) -> Result<(), SEError> {
-        #[cfg(target_os = "linux")]
+    pub(super) fn write(&self, file: &mut File, page_no: PageNum) -> Result<(), SEError> {
+        #[cfg(unix)]
         file.write_all_at(&self.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
-        #[cfg(not(target_os = "linux"))] {
+        #[cfg(not(unix))] {
             file.seek(SeekFrom::Start(page_no as u64 * DEFAULT_PAGE_SIZE as u64))?;
             file.write_all(&self.data)?;
         }
         Ok(())
     }
 
-    pub(super) fn bake_and_write(&mut self, file: &File, page_no: PageNum) -> Result<(), SEError> {
+    pub(super) fn bake_and_write(&mut self, file: &mut File, page_no: PageNum) -> Result<(), SEError> {
         self.bake_len_and_checksum();
         self.write(file, page_no)
     }
@@ -278,11 +278,11 @@ impl<const T: usize> Page<T> {
             content_end_pos: usize::MAX,
         };
 
-        #[cfg(target_os = "linux")]
+        #[cfg(unix)]
         file.read_exact_at(&mut page.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
-        #[cfg(not(target_os = "linux"))] {
+        #[cfg(not(unix))] {
             file.seek(SeekFrom::Start(page_no as u64 * DEFAULT_PAGE_SIZE as u64))?;
-            file.read_exact(&mut buffer)?;
+            file.read_exact(&mut page.data)?;
         }
 
         // I hate doing this here, but its the right place - since checking magic is cheaper than
