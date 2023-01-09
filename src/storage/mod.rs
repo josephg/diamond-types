@@ -32,12 +32,12 @@ const DEFAULT_PAGE_SIZE: usize = 4096;
 
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum PageDataError {
+pub enum CorruptPageError {
     InvalidHeaderMagicBytes,
     InvalidChecksum,
     VersionTooNew(u16),
     InvalidHeaderPageSize(usize),
-    PageTooLarge(u16),
+    PageLengthInvalid(u16),
 }
 
 #[derive(Debug)]
@@ -56,7 +56,7 @@ pub enum SEError {
 
     GenericInvalidData,
 
-    PageDataError(PageDataError),
+    PageIsCorrupt(CorruptPageError),
     ParseError(ParseError),
     IO(io::Error),
 }
@@ -76,27 +76,56 @@ impl From<ParseError> for SEError {
         SEError::ParseError(pe)
     }
 }
-impl From<PageDataError> for SEError {
-    fn from(inner: PageDataError) -> Self {
-        SEError::PageDataError(inner)
+impl From<CorruptPageError> for SEError {
+    fn from(inner: CorruptPageError) -> Self {
+        SEError::PageIsCorrupt(inner)
     }
 }
+
+const NUM_DATA_CHUNK_TYPES: usize = 3;
+type PageNum = u32;
 
 #[derive(Debug)]
 struct StorageEngine {
     file: File,
 
+    header_dirty: bool,
     header_fields: StorageHeaderFields,
     next_free_page: PageNum,
 
+    // Using a Box<> here because the inlined data pages are 4kb each. Could just box the entire
+    // array or something instead? Eh.
     data_chunks: [Option<Box<DataPageState>>; NUM_DATA_CHUNK_TYPES] // The slot is the chunk type.
 }
 
 #[derive(Debug)]
+pub(super) struct StorageHeaderFields {
+    page_size: usize,
+
+    // The slot (array index) is the chunk type. We can't actually read any chunk types beyond
+    // the ones this code knows about, but when we write a new copy of the file header, we'll
+    // preserve any chunk info blocks that are here that we don't recognise.
+    data_page_info: SmallVec<[Option<DataChunkHeaderInfo>; NUM_DATA_CHUNK_TYPES]> // The slot is the chunk type.
+}
+
+// For each chunk type we store two structs - one in the header fields and one in the storage engine
+// data. This is so if there's new data types we don't know about, we leave their header fields
+// alone.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+struct DataChunkHeaderInfo {
+    blit_page: PageNum,
+    first_page: PageNum,
+
+    // cur_block: BlockNum,
+}
+
+#[derive(Debug)]
 struct DataPageState {
-    next_page_no: PageNum,
+    current_page_no: PageNum,
     write_to_blit_next: bool,
+    blit_page: PageNum, // Copied from header info.
     page: DataPage,
+    dirty: bool,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -116,28 +145,6 @@ enum DataPageType {
     AgentNames = 0,
     CGInfo = 1,
     // etc.
-}
-
-const NUM_DATA_CHUNK_TYPES: usize = 3;
-
-type PageNum = u32;
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-struct DataChunkHeaderInfo {
-    blit_page: PageNum,
-    first_page: PageNum,
-
-    // cur_block: BlockNum,
-}
-
-#[derive(Debug)]
-pub(super) struct StorageHeaderFields {
-    page_size: usize,
-
-    // The slot (array index) is the chunk type. We can't actually read any chunk types beyond
-    // the ones this code knows about, but when we write a new copy of the file header, we'll
-    // preserve any chunk info blocks that are here that we don't recognise.
-    data_page_info: SmallVec<[Option<DataChunkHeaderInfo>; NUM_DATA_CHUNK_TYPES]> // The slot is the chunk type.
 }
 
 impl Default for StorageHeaderFields {
@@ -243,7 +250,10 @@ fn scan_blocks(file: &mut File, header_fields: &StorageHeaderFields) -> Result<(
             fn try_read(file: &mut File, page_no: PageNum) -> Result<Option<DataPage>, SEError> {
                 match DataPage::read_raw(file, page_no) {
                     Ok(page) => Ok(Some(page)),
-                    Err(SEError::PageDataError(PageDataError::InvalidChecksum)) => Ok(None), // Ignore this.
+                    Err(SEError::PageIsCorrupt(e)) => {
+                        eprintln!("Page is corrupt. This is probably fine? {:?}", e);
+                        Ok(None)
+                    }, // Ignore this.
                     Err(SEError::IO(io_err)) => {
                         // We'll get an UnexpectedEof error if we hit the end of the file. Its
                         // possible the next block is assigned by the previous block, but not
@@ -318,9 +328,11 @@ fn scan_blocks(file: &mut File, header_fields: &StorageHeaderFields) -> Result<(
             };
 
             data_chunks[kind as usize] = Some(Box::new(DataPageState {
-                next_page_no: page_no,
+                current_page_no: page_no,
                 write_to_blit_next: blit,
-                page: page_used
+                blit_page: blit_page_no,
+                page: page_used,
+                dirty: false,
             }));
         }
     }
@@ -349,6 +361,8 @@ impl StorageEngine {
             println!("Initializing headers");
             // Presumably a new file. Initialize it using the default options.
             let header_fields = StorageHeaderFields::default();
+
+            // TODO: Consider just leaving header_dirty=true here and not writing the inital header.
             HeaderPage::encode_and_bake(&header_fields)
                 .write(&mut file, 0)?;
 
@@ -357,6 +371,7 @@ impl StorageEngine {
             file.sync_all()?;
             Ok(Self {
                 file,
+                header_dirty: false,
                 header_fields,
                 next_free_page: 1,
                 data_chunks: [HACK_NONE; NUM_DATA_CHUNK_TYPES],
@@ -376,6 +391,7 @@ impl StorageEngine {
 
             Ok(Self {
                 file,
+                header_dirty: false,
                 header_fields,
                 next_free_page,
                 data_chunks,
@@ -389,12 +405,19 @@ impl StorageEngine {
         page
     }
 
-    fn make_data(&mut self, kind: DataPageType) -> Result<(), SEError> {
+    // This method could return a &mut DataPageState but I can't really use it because of the borrow
+    // check rules. (The field needs to be a partial borrow of &self)
+    fn prepare_data_page_type(&mut self, kind: DataPageType) -> (&File, &mut PageNum, &mut DataPageState) {
         let kind_usize = kind as usize;
-        if self.data_chunks[kind_usize].is_none() {
+
+        assert!(kind_usize < self.data_chunks.len());
+        let state = self.data_chunks[kind_usize].get_or_insert_with(|| {
             // Assign new pages for it.
-            let blit_page = self.assign_next_page();
-            let first_page = self.assign_next_page();
+            println!("Assigning new pages {}", self.next_free_page);
+            // not using assign_next_page because of borrowck.
+            let blit_page = self.next_free_page;
+            let first_page = self.next_free_page + 1;
+            self.next_free_page += 2;
             dbg!((blit_page, first_page));
 
             let chunks = &mut self.header_fields.data_page_info;
@@ -407,65 +430,129 @@ impl StorageEngine {
                 first_page,
             });
 
-            // And rewrite the header.
-            // let (new_head, _len) = Self::encode_header(&self.header_fields).unwrap()
-            //     .finish();
-
-            let new_head = HeaderPage::encode_and_bake(&self.header_fields);
-
-            println!("Writing new header {:?}", &self.header_fields);
-            new_head.write(&mut self.file, blit_page)?;
-            self.file.sync_all()?;
-            new_head.write(&mut self.file, 0)?;
-
-            assert!(kind_usize < self.data_chunks.len());
-
-            self.data_chunks[kind_usize] = Some(Box::new(DataPageState {
-                next_page_no: first_page,
-                write_to_blit_next: false,
-                page: DataPage::new(DataPageImmutableFields {
-                    kind,
-                    prev_page: 0,
-                }),
-            }));
+            self.header_dirty = true;
 
             // I don't think we actually need to sync again here.
             //
             // If pages are used but not assigned, the contents are ignored.
             // If pages are assigned but not used, it doesn't matter.
             // So it only matters when the content is written to the new blocks.
+
+            Box::new(DataPageState {
+                current_page_no: first_page,
+                write_to_blit_next: false,
+                blit_page,
+                page: DataPage::new(DataPageImmutableFields {
+                    kind,
+                    prev_page: 0,
+                }),
+                dirty: false,
+            })
+        });
+
+        (&self.file, &mut self.next_free_page, state)
+    }
+
+    fn append_bytes_to(&mut self, kind: DataPageType) -> Result<(), SEError> {
+        let (file, next_free_page, state) = self.prepare_data_page_type(kind);
+
+        state.dirty = true;
+        match state.page.push_usize(100 * 128 + 55) {
+            Ok(()) => {},
+            Err(SEError::PageFull) => {
+                // If the page is full, finish out the page and assign a new one. We need to write
+                // the new page to register the new page ID.
+                let new_page = *next_free_page;
+                *next_free_page += 1;
+
+                println!("Assigning new page {}", new_page);
+
+                let is_blit = Self::write_page(file, state, new_page)?;
+
+                if is_blit {
+                    // fsync here to make sure we don't partially overwrite the current state
+                    // before the blit page has been written.
+                    file.sync_data()?;
+                    Self::write_page(file, state, new_page)?;
+                }
+
+                // Might be an easier way to wipe this.
+                state.page = DataPage::new(DataPageImmutableFields {
+                    kind,
+                    prev_page: state.current_page_no,
+                });
+                state.current_page_no = new_page;
+
+                state.page.push_usize(100 * 128 + 55)?;
+            }
+            Err(e) => { return Err(e); }
         }
 
         Ok(())
     }
 
-    fn append_bytes_to(&mut self, kind: DataPageType) -> Result<(), SEError> {
-        let kind_usize = kind as usize;
-        if self.data_chunks[kind_usize].is_none() {
-            self.make_data(kind)?;
-        }
-
-        let state = self.data_chunks[kind_usize].as_mut().unwrap();
-        state.page.push_usize(100 * 128 + 55)?;
-
-        // TODO: There is a bug here: If this write fails, the in-memory state is corrupt.
+    /// returns true if the page written was a blit page.
+    fn write_page(file: &File, state: &mut DataPageState, next_page: PageNum) -> Result::<bool, SEError> {
+        // TODO: This code assumes that if this write fails, then no further writes will happen.
+        state.dirty = false;
         state.page.roll_blit_status();
         if state.write_to_blit_next {
-            state.page.set_next_page(state.next_page_no);
-
-            let blit_page = self.header_fields.data_page_info[kind_usize]
-                .as_ref().unwrap().blit_page;
-            state.page.bake_and_write(&mut self.file, blit_page)?;
+            state.page.set_next_page(state.current_page_no);
+            state.page.bake_and_write(&file, state.blit_page)?;
             state.write_to_blit_next = false;
-            println!("Wrote blit page {blit_page}");
+            println!("Wrote blit page {}", state.blit_page);
+            Ok(true)
         } else {
-            state.page.set_next_page(0); // Unassigned.
-            state.page.bake_and_write(&mut self.file, state.next_page_no)?;
+            state.page.set_next_page(next_page); // Unassigned.
+            state.page.bake_and_write(&file, state.current_page_no)?;
             state.write_to_blit_next = true;
-            println!("Wrote normal page {}", state.next_page_no);
+            println!("Wrote normal page {}", state.current_page_no);
+            Ok(false)
+        }
+    }
+
+    pub fn fsync(&mut self) -> Result<(), SEError> {
+        let mut sync_needed = false;
+
+        if self.header_dirty {
+            let new_head = HeaderPage::encode_and_bake(&self.header_fields);
+
+            println!("Writing new header {:?} to page {}", &self.header_fields, self.next_free_page);
+            new_head.write(&mut self.file, self.next_free_page)?;
+            // We need a sync here in case the writes are reordered, and the write to page 0 is
+            // only partially completed and the write to next_free_page doesn't happen at all.
+            self.file.sync_data()?;
+            new_head.write(&mut self.file, 0)?;
+
+            sync_needed = true;
+        }
+
+        // for (kind_usize, state) in self.data_chunks.iter_mut()
+        //     .enumerate()
+        //     .filter_map(|(kind, chunk)| {
+        //         chunk.as_mut().map(|c| (kind, c))
+        //     })
+        //     .filter(|(_, chunk)| chunk.dirty)
+        for state in self.data_chunks.iter_mut()
+            .flatten()
+            .filter(|chunk| chunk.dirty)
+            .map(|s| s.as_mut()) // Not strictly needed, but kinda cleaner.
+        {
+            Self::write_page(&self.file, state, 0)?;
+            sync_needed = true;
+        }
+
+        if sync_needed {
+            self.file.sync_data()?;
         }
 
         Ok(())
+    }
+}
+
+impl Drop for StorageEngine {
+    fn drop(&mut self) {
+        self.fsync().unwrap();
     }
 }
 
@@ -479,6 +566,7 @@ mod test {
 
         // se.make_data(DataPageType::AgentNames).unwrap();
         se.append_bytes_to(DataPageType::AgentNames).unwrap();
+        se.fsync().unwrap();
         se.append_bytes_to(DataPageType::AgentNames).unwrap();
         dbg!(&se);
     }

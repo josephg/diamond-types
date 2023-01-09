@@ -215,6 +215,7 @@ impl<const T: usize> Page<T> {
 
         // Calculate and fill in the checksum. The checksum includes the length to the end of the page.
         let checksum = calc_checksum(&self.data[Self::checksum_offset().end..self.content_end_pos]);
+        println!("Shake and bake {} {}", self.content_end_pos, checksum);
         self.set_checksum(checksum);
     }
 
@@ -251,7 +252,7 @@ impl<const T: usize> Page<T> {
         push_usize(&mut InfallibleWritePage(self), num);
     }
 
-    pub(super) fn write(&self, file: &mut File, page_no: PageNum) -> Result<(), SEError> {
+    pub(super) fn write(&self, file: &File, page_no: PageNum) -> Result<(), SEError> {
         #[cfg(target_os = "linux")]
         file.write_all_at(&self.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
         #[cfg(not(target_os = "linux"))] {
@@ -261,7 +262,7 @@ impl<const T: usize> Page<T> {
         Ok(())
     }
 
-    pub(super) fn bake_and_write(&mut self, file: &mut File, page_no: PageNum) -> Result<(), SEError> {
+    pub(super) fn bake_and_write(&mut self, file: &File, page_no: PageNum) -> Result<(), SEError> {
         self.bake_len_and_checksum();
         self.write(file, page_no)
     }
@@ -288,19 +289,19 @@ impl<const T: usize> Page<T> {
         // reading the checksum.
         if T == PAGE_TYPE_HEADER {
             if page.data[PO_HEADER_MAGIC] != MAGIC_BYTES {
-                return Err(PageDataError::InvalidHeaderMagicBytes.into());
+                return Err(CorruptPageError::InvalidHeaderMagicBytes.into());
             }
         }
 
         let len = page.get_len();
-        if len > page.data.len() {
-            return Err(PageDataError::PageTooLarge(len as u16).into());
+        if len <= Self::len_offset().end || len > page.data.len() {
+            return Err(CorruptPageError::PageLengthInvalid(len as u16).into());
         }
 
         page.content_end_pos = len;
 
         if page.read_checksum() != page.calc_checksum() {
-            return Err(PageDataError::InvalidChecksum.into());
+            return Err(CorruptPageError::InvalidChecksum.into());
         }
 
         Ok(page)
@@ -354,13 +355,13 @@ impl HeaderPage {
 
         let file_version = page.get_version();
         if file_version != FORMAT_VERSION {
-            return Err(PageDataError::VersionTooNew(file_version).into());
+            return Err(CorruptPageError::VersionTooNew(file_version).into());
         }
 
         let mut parser = page.make_parser();
         let page_size = parser.next_usize()?;
         if page_size != DEFAULT_PAGE_SIZE {
-            return Err(PageDataError::InvalidHeaderPageSize(page_size).into());
+            return Err(CorruptPageError::InvalidHeaderPageSize(page_size).into());
         }
 
         let mut data_page_info = smallvec![None; NUM_DATA_CHUNK_TYPES];
