@@ -10,7 +10,7 @@ use smallvec::smallvec;
 use std::os::unix::fs::FileExt;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::tools::{calc_checksum, ExtendFromSlice};
-use crate::encoding::varint::{decode_prefix_varint_u32, push_u32, push_u64, push_usize};
+use crate::encoding::varint::*;
 use crate::storage::*;
 
 
@@ -215,7 +215,7 @@ impl<const T: usize> Page<T> {
 
         // Calculate and fill in the checksum. The checksum includes the length to the end of the page.
         let checksum = calc_checksum(&self.data[Self::checksum_offset().end..self.content_end_pos]);
-        println!("Shake and bake {} checksum {:x}", self.content_end_pos, checksum);
+        // println!("Shake and bake {} checksum {:x}", self.content_end_pos, checksum);
         self.set_checksum(checksum);
     }
 
@@ -253,7 +253,7 @@ impl<const T: usize> Page<T> {
     }
 
     pub(super) fn write<F: DTFile>(&self, file: &mut F, page_no: PageNum) -> Result<(), SEError> {
-        file.dt_write_all_at(&self.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
+        file.write_all_at(&self.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
         Ok(())
     }
 
@@ -273,14 +273,12 @@ impl<const T: usize> Page<T> {
             content_end_pos: usize::MAX,
         };
 
-        file.dt_read_all_at(&mut page.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
+        file.read_all_at(&mut page.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
 
         // I hate doing this here, but its the right place - since checking magic is cheaper than
         // reading the checksum.
-        if T == PAGE_TYPE_HEADER {
-            if page.data[PO_HEADER_MAGIC] != MAGIC_BYTES {
-                return Err(CorruptPageError::InvalidHeaderMagicBytes.into());
-            }
+        if T == PAGE_TYPE_HEADER && page.data[PO_HEADER_MAGIC] != MAGIC_BYTES {
+            return Err(CorruptPageError::InvalidHeaderMagicBytes.into());
         }
 
         let len = page.get_len();
@@ -297,8 +295,67 @@ impl<const T: usize> Page<T> {
         Ok(page)
     }
 
+    /// This is a wrapper around read_raw which does some preprocessing in the case of errors.
+    pub fn try_read_raw<F: DTFile>(file: &mut F, page_no: PageNum) -> Result<Option<Self>, SEError> {
+        // Read the page, looking for info on the next page information.
+        //
+        // There's 3 things that can happen here:
+        // 1. The page has a valid checksum but its still corrupted somehow, or we get a read
+        //   error. Bail and return the error.
+        // 2. The read is past the end of the file, or the checksum doesn't match. This means either:
+        //   - The page we're looking at is corrupted due to a power failure or crash
+        //   - The regular page was assigned but not written to
+        //   - The blit page is unused
+        //   In all of these cases, return Ok(None).
+        // 3. (Most common) The page is valid. Return it.
+        let p = Self::read_raw(file, page_no);
+        // dbg!((page_no, &p, p.as_ref().ok().map(|p| p.get_next_or_associated_page())));
+        match p {
+            Ok(page) => Ok(Some(page)),
+            Err(SEError::PageIsCorrupt(e)) => {
+                eprintln!("Page is corrupt. This is probably fine? {:?}", e);
+                Ok(None)
+            }, // Ignore this.
+            Err(SEError::IO(io_err)) => {
+                // We'll get an UnexpectedEof error if we hit the end of the file. Its
+                // possible the next block is assigned by the previous block, but not
+                // actually allocated on disk yet.
+                if io_err.kind() == ErrorKind::UnexpectedEof { Ok(None) } else { Err(SEError::IO(io_err)) }
+            },
+            Err(e) => { Err(e) }
+        }
+    }
+
     fn make_parser(&self) -> BufParser {
-        BufParser(&self.data[self.content_start_pos..self.content_end_pos])
+        BufParser(self.get_content())
+    }
+
+    fn consume(&mut self, num: usize) {
+        self.content_start_pos += num;
+        debug_assert!(self.content_start_pos <= self.content_end_pos);
+    }
+
+    pub(crate) fn get_content(&self) -> &[u8] {
+        &self.data[self.content_start_pos..self.content_end_pos]
+    }
+
+    pub(crate) fn next_u32(&mut self) -> Result<u32, ParseError> {
+        // self.check_not_empty()?;
+        let (val, count) = decode_prefix_varint_u32(self.get_content())?;
+        self.consume(count);
+        Ok(val)
+    }
+    pub(crate) fn next_u64(&mut self) -> Result<u64, ParseError> {
+        // self.check_not_empty()?;
+        let (val, count) = decode_prefix_varint_u64(self.get_content())?;
+        self.consume(count);
+        Ok(val)
+    }
+    pub(crate) fn next_usize(&mut self) -> Result<usize, ParseError> {
+        // self.check_not_empty()?;
+        let (val, count) = decode_prefix_varint_usize(self.get_content())?;
+        self.consume(count);
+        Ok(val)
     }
 }
 
@@ -401,6 +458,16 @@ impl DataPage {
         page.content_start_pos = page.content_end_pos;
 
         page
+    }
+
+    /// Read the immutable fields and position the cursor after them, ready to read content.
+    pub(super) fn read_fields(&mut self) -> Result<DataPageImmutableFields, SEError> {
+        let kind = self.next_u32()?;
+        let prev_page = self.next_u32()?;
+        Ok(DataPageImmutableFields {
+            kind: DataPageType::try_from(kind as u16)?,
+            prev_page,
+        })
     }
 
     // pub fn get_cursor_data(&self) -> &[u8] {

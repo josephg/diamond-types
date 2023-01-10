@@ -12,7 +12,7 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::FileExt;
 
 use std::path::Path;
-use num_enum::TryFromPrimitive;
+use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use smallvec::{smallvec, SmallVec};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::ExtendFromSlice;
@@ -73,14 +73,23 @@ impl From<io::Error> for SEError {
         // else { SEError::IO(io_err) }
     }
 }
+
 impl From<ParseError> for SEError {
     fn from(pe: ParseError) -> Self {
         SEError::ParseError(pe)
     }
 }
+
 impl From<CorruptPageError> for SEError {
     fn from(inner: CorruptPageError) -> Self {
         SEError::PageIsCorrupt(inner)
+    }
+}
+
+impl<E: TryFromPrimitive> From<TryFromPrimitiveError<E>> for SEError {
+    fn from(_value: TryFromPrimitiveError<E>) -> Self {
+        // TODO: Something better here.
+        SEError::GenericInvalidData
     }
 }
 
@@ -239,36 +248,7 @@ fn scan_blocks<F: DTFile>(file: &mut F, header_fields: &StorageHeaderFields) -> 
         // We don't need to read blits just yet. First we'll scan to the last allocated page for
         // all the types of data.
         if !is_blit {
-            // Read the page, looking for info on the next page information.
-            //
-            // There's 3 things that can happen here:
-            // 1. The page has a valid checksum but its still corrupted somehow, or we get a read
-            //   error. Bail and return the error.
-            // 2. The read is past the end of the file, or the checksum doesn't match. This means
-            //   the page we're looking at is assigned but not valid, or the last write to this page
-            //   failed. page = None.
-            // 3. (Most common) The page is valid. If we can, we'll keep walking through the pages.
-
-            fn try_read<F: DTFile>(file: &mut F, page_no: PageNum) -> Result<Option<DataPage>, SEError> {
-                let p = DataPage::read_raw(file, page_no);
-                dbg!((page_no, &p, p.as_ref().ok().map(|p| p.get_next_or_associated_page())));
-                match p {
-                    Ok(page) => Ok(Some(page)),
-                    Err(SEError::PageIsCorrupt(e)) => {
-                        eprintln!("Page is corrupt. This is probably fine? {:?}", e);
-                        Ok(None)
-                    }, // Ignore this.
-                    Err(SEError::IO(io_err)) => {
-                        // We'll get an UnexpectedEof error if we hit the end of the file. Its
-                        // possible the next block is assigned by the previous block, but not
-                        // actually allocated on disk yet.
-                        if io_err.kind() == ErrorKind::UnexpectedEof { Ok(None) } else { return Err(SEError::IO(io_err)); }
-                    },
-                    Err(e) => { return Err(e); }
-                }
-            }
-
-            let page = try_read(file, page_no)?;
+            let page = DataPage::try_read_raw(file, page_no)?;
 
             // TODO: Check the page type and page prev fields are correct
 
@@ -287,7 +267,7 @@ fn scan_blocks<F: DTFile>(file: &mut F, header_fields: &StorageHeaderFields) -> 
 
             // Check the blit data at this point.
             let blit_page_no = header_fields.data_page_info[kind as usize].unwrap().blit_page;
-            let mut blit_page = try_read(file, blit_page_no)?;
+            let mut blit_page = DataPage::try_read_raw(file, blit_page_no)?;
 
             // This is a bit of a hack. If the blit page is old (it is associated with an earlier
             // page) then discard it.
@@ -346,7 +326,7 @@ fn scan_blocks<F: DTFile>(file: &mut F, header_fields: &StorageHeaderFields) -> 
 }
 
 impl<F: DTFile> StorageEngine<F> {
-    pub fn open<P: AsRef<Path>, FS: DTFilesystem<File=F>>(path: P, filesystem: FS) -> Result<Self, SEError> {
+    pub fn open<P: AsRef<Path>, FS: DTFilesystem<File=F>>(path: P, filesystem: &mut FS) -> Result<Self, SEError> {
         let mut file = filesystem.open(path.as_ref())?;
 
         let total_len = file.stream_len()?;
@@ -365,9 +345,6 @@ impl<F: DTFile> StorageEngine<F> {
             HeaderPage::encode_and_bake(&header_fields)
                 .write(&mut file, 0)?;
 
-            // Could probably get away with this flush here, but its basically free and it makes me
-            // feel better.
-            file.sync_all()?;
             Ok(Self {
                 file,
                 header_dirty: false,
@@ -472,7 +449,7 @@ impl<F: DTFile> StorageEngine<F> {
                     println!("Writing back to the page");
                     // fsync here to make sure we don't partially overwrite the current state
                     // before the blit page has been written.
-                    file.sync_data()?;
+                    file.write_barrier()?;
                     Self::write_page(file, state, new_page)?;
                 }
 
@@ -501,13 +478,13 @@ impl<F: DTFile> StorageEngine<F> {
             state.page.set_next_page(state.current_page_no);
             state.page.bake_and_write(file, state.blit_page)?;
             state.write_to_blit_next = false;
-            println!("Wrote blit page {} (next {})", state.blit_page, state.current_page_no);
+            // println!("Wrote blit page {} (next {})", state.blit_page, state.current_page_no);
             Ok(true)
         } else {
             state.page.set_next_page(next_page); // Unassigned.
             state.page.bake_and_write(file, state.current_page_no)?;
             state.write_to_blit_next = true;
-            println!("Wrote normal page {} (next {})", state.current_page_no, next_page);
+            // println!("Wrote normal page {} (next {})", state.current_page_no, next_page);
             Ok(false)
         }
     }
@@ -520,9 +497,9 @@ impl<F: DTFile> StorageEngine<F> {
 
             println!("Writing new header {:?} to page {}", &self.header_fields, self.next_free_page);
             new_head.write(&mut self.file, self.next_free_page)?;
-            // We need a sync here in case the writes are reordered, and the write to page 0 is
+            // We need a barrier here in case the writes are reordered, and the write to page 0 is
             // only partially completed and the write to next_free_page doesn't happen at all.
-            self.file.sync_data()?;
+            self.file.write_barrier()?;
             new_head.write(&mut self.file, 0)?;
 
             sync_needed = true;
@@ -549,11 +526,109 @@ impl<F: DTFile> StorageEngine<F> {
 
         Ok(())
     }
+
+    fn get_data_header_info(&self, kind: DataPageType) -> Option<DataChunkHeaderInfo> {
+        let kind_usize = kind as usize;
+        if kind_usize >= self.header_fields.data_page_info.len() { None }
+        else {
+            self.header_fields.data_page_info[kind_usize]
+        }
+    }
+
+    // TODO: I wish this didn't need to be &mut.
+    fn iter_data_pages(&mut self, kind: DataPageType) -> DataChunkIterator<F> {
+        // TODO: Eventually relax this. For now, the database must be flushed before being read back.
+        self.fsync().unwrap();
+
+        // assert!(!self.header_dirty);
+        // assert!(!self.data_chunks.iter().flatten().any(|d| d.dirty));
+
+        if let Some(info) = self.get_data_header_info(kind) {
+            DataChunkIterator {
+                file: &mut self.file,
+                next_page: info.first_page,
+                blit_page: info.blit_page,
+            }
+        } else {
+            // We don't have any chunks of this type. The easiest answer is to just return a "dud"
+            // iterator which will immediately return None.
+            DataChunkIterator {
+                file: &mut self.file,
+                next_page: 0,
+                blit_page: 0,
+            }
+        }
+    }
 }
 
 impl<F: DTFile> Drop for StorageEngine<F> {
     fn drop(&mut self) {
         self.fsync().unwrap();
+    }
+}
+
+struct DataChunkIterator<'a, F> {
+    // kind: DataPageType,
+    file: &'a mut F,
+    next_page: PageNum,
+    blit_page: PageNum,
+}
+
+impl<'a, F: DTFile> Iterator for DataChunkIterator<'a, F> {
+    type Item = Result<DataPage, SEError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next_page == 0 { return None; }
+
+        // If we get a real read error, pass it up.
+        let page = match DataPage::try_read_raw(self.file, self.next_page) {
+            Ok(p) => { p }
+            Err(e) => {
+                self.next_page = 0;
+                return Some(Err(e));
+            }
+        };
+
+        let this_page_no = self.next_page;
+        if let Some(page) = page {
+            // page.type
+            let next_page = page.get_next_or_associated_page();
+
+            self.next_page = next_page;
+
+            if next_page == 0 {
+                // This is the last page. We need to read the blit page to check if its newer.
+                match DataPage::try_read_raw(self.file, self.blit_page) {
+                    Ok(Some(b)) => {
+                        if b.get_next_or_associated_page() == this_page_no && b.get_blit_status() > page.get_blit_status() {
+                            // Use the blit instead.
+                            return Some(Ok(b));
+                        }
+                    }
+                    Ok(None) => {} // Fall through below.
+                    Err(e) => {
+                        self.next_page = 0;
+                        return Some(Err(e));
+                    }
+                }
+            }
+
+            Some(Ok(page))
+        } else {
+            // We get here if the current page is corrupted or has not yet been written. We'll check
+            // if the blit is valid (and current). If so we can return it, but probably we're done.
+
+            self.next_page = 0; // This is the last page read regardless.
+
+            match DataPage::try_read_raw(self.file, self.blit_page) {
+                Ok(Some(b)) if b.get_next_or_associated_page() == this_page_no => {
+                    // Use the blit.
+                    Some(Ok(b))
+                }
+                Ok(_) => None, // No valid page here at all. We're done.
+                Err(e) => Some(Err(e)),
+            }
+        }
     }
 }
 
@@ -564,10 +639,19 @@ mod test {
 
     #[test]
     fn one() {
-        let mut se = StorageEngine::open("foo.dts", OsFilesystem).unwrap();
+        let mut se = StorageEngine::open("foo.dts", &mut OsFilesystem).unwrap();
 
         for i in 0..4000 {
             se.append_bytes_to(DataPageType::AgentNames, i).unwrap();
+            // se.fsync().unwrap();
+        }
+
+        se.fsync().unwrap();
+
+        for page in se.iter_data_pages(DataPageType::AgentNames) {
+            let mut page = page.unwrap();
+            dbg!(page.read_fields().unwrap());
+            dbg!(page.get_content().len());
         }
 
         // se.make_data(DataPageType::AgentNames).unwrap();
@@ -579,7 +663,13 @@ mod test {
 
     #[test]
     fn two() {
-        let se = StorageEngine::open("foo.dts", OsFilesystem).unwrap();
+        let mut se = StorageEngine::open("foo.dts", &mut OsFilesystem).unwrap();
+
+        for page in se.iter_data_pages(DataPageType::AgentNames) {
+            let mut page = page.unwrap();
+            dbg!(page.read_fields().unwrap());
+            dbg!(page.get_content().len());
+        }
 
         dbg!(&se.data_chunks, &se.header_fields, &se.next_free_page);
     }
