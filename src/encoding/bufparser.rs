@@ -29,7 +29,7 @@ impl<'a> BufParser<'a> {
         self.0.len()
     }
 
-    pub(crate) fn consume(&mut self, num: usize) {
+    fn consume(&mut self, num: usize) {
         self.0 = unsafe { self.0.get_unchecked(num..) };
     }
 
