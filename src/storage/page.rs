@@ -80,7 +80,7 @@ impl<const T: usize> fmt::Debug for Page<T> {
             // .field("cursor_start_pos", &self.cursor_start_pos)
             .field("content_start_pos", &self.content_start_pos)
             .field("content_end_pos", &self.content_end_pos)
-            .field("data", &&self.data[0..self.content_end_pos])
+            // .field("data", &&self.data[0..self.content_end_pos])
             .finish()
     }
 }
@@ -215,7 +215,7 @@ impl<const T: usize> Page<T> {
 
         // Calculate and fill in the checksum. The checksum includes the length to the end of the page.
         let checksum = calc_checksum(&self.data[Self::checksum_offset().end..self.content_end_pos]);
-        println!("Shake and bake {} {}", self.content_end_pos, checksum);
+        println!("Shake and bake {} checksum {:x}", self.content_end_pos, checksum);
         self.set_checksum(checksum);
     }
 
@@ -252,17 +252,12 @@ impl<const T: usize> Page<T> {
         push_usize(&mut InfallibleWritePage(self), num);
     }
 
-    pub(super) fn write(&self, file: &mut File, page_no: PageNum) -> Result<(), SEError> {
-        #[cfg(unix)]
-        file.write_all_at(&self.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
-        #[cfg(not(unix))] {
-            file.seek(SeekFrom::Start(page_no as u64 * DEFAULT_PAGE_SIZE as u64))?;
-            file.write_all(&self.data)?;
-        }
+    pub(super) fn write<F: DTFile>(&self, file: &mut F, page_no: PageNum) -> Result<(), SEError> {
+        file.dt_write_all_at(&self.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
         Ok(())
     }
 
-    pub(super) fn bake_and_write(&mut self, file: &mut File, page_no: PageNum) -> Result<(), SEError> {
+    pub(super) fn bake_and_write<F: DTFile>(&mut self, file: &mut F, page_no: PageNum) -> Result<(), SEError> {
         self.bake_len_and_checksum();
         self.write(file, page_no)
     }
@@ -270,7 +265,7 @@ impl<const T: usize> Page<T> {
     /// This reads a page in a primitive way. It just checks the checksum, but doesn't actually
     /// parse any of the content beyond the length. Further explicit parsing is needed to use the
     /// result.
-    pub(super) fn read_raw(file: &mut File, page_no: PageNum) -> Result<Self, SEError> {
+    pub(super) fn read_raw<F: DTFile>(file: &mut F, page_no: PageNum) -> Result<Self, SEError> {
         let mut page = Self {
             data: [0; DEFAULT_PAGE_SIZE],
             // cursor_start_pos: Self::immutable_data_start_offset(),
@@ -278,12 +273,7 @@ impl<const T: usize> Page<T> {
             content_end_pos: usize::MAX,
         };
 
-        #[cfg(unix)]
-        file.read_exact_at(&mut page.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
-        #[cfg(not(unix))] {
-            file.seek(SeekFrom::Start(page_no as u64 * DEFAULT_PAGE_SIZE as u64))?;
-            file.read_exact(&mut page.data)?;
-        }
+        file.dt_read_all_at(&mut page.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
 
         // I hate doing this here, but its the right place - since checking magic is cheaper than
         // reading the checksum.
@@ -349,7 +339,7 @@ impl HeaderPage {
         u16::from_le_bytes(buf)
     }
 
-    pub(super) fn read(file: &mut File, page_no: PageNum) -> Result<StorageHeaderFields, SEError> {
+    pub(super) fn read<F: DTFile>(file: &mut F, page_no: PageNum) -> Result<StorageHeaderFields, SEError> {
         let page = Self::read_raw(file, page_no)?;
         // At this point the magic bytes have already been checked by read_raw.
 
