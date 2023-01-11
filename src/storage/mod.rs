@@ -537,9 +537,6 @@ impl<F: DTFile> StorageEngine<F> {
 
     // TODO: I wish this didn't need to be &mut.
     fn iter_data_pages(&mut self, kind: DataPageType) -> DataChunkIterator<F> {
-        // TODO: Eventually relax this. For now, the database must be flushed before being read back.
-        self.fsync().unwrap();
-
         // assert!(!self.header_dirty);
         // assert!(!self.data_chunks.iter().flatten().any(|d| d.dirty));
 
@@ -548,6 +545,7 @@ impl<F: DTFile> StorageEngine<F> {
                 file: &mut self.file,
                 next_page: info.first_page,
                 blit_page: info.blit_page,
+                current_page: self.data_chunks[kind as usize].as_deref(),
             }
         } else {
             // We don't have any chunks of this type. The easiest answer is to just return a "dud"
@@ -556,6 +554,7 @@ impl<F: DTFile> StorageEngine<F> {
                 file: &mut self.file,
                 next_page: 0,
                 blit_page: 0,
+                current_page: None,
             }
         }
     }
@@ -572,6 +571,9 @@ struct DataChunkIterator<'a, F> {
     file: &'a mut F,
     next_page: PageNum,
     blit_page: PageNum,
+    // The current page may not have been flushed to disk yet. We'll take a reference to it here and
+    // just return this data directly.
+    current_page: Option<&'a DataPageState>,
 }
 
 impl<'a, F: DTFile> Iterator for DataChunkIterator<'a, F> {
@@ -579,6 +581,23 @@ impl<'a, F: DTFile> Iterator for DataChunkIterator<'a, F> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.next_page == 0 { return None; }
+
+        if let Some(current_page) = self.current_page {
+            if current_page.current_page_no == self.next_page {
+                self.next_page = 0;
+                // We'll yield the current page to the consumer.
+                //
+                // I'd really like to avoid this memcpy, but I don't think thats practical here
+                // because of ownership. (I guess I could return a Cow-style wrapper struct).
+                //
+                // Also note when the returned page is read, we'll update the start cursor position.
+                // ... so this makes it quite practical to read the page like this.
+                println!("Returning current");
+                let page = current_page.page.clone();
+                // TODO: Do we need to update any offsets or anything here?
+                return Some(Ok(page));
+            }
+        }
 
         // If we get a real read error, pass it up.
         let page = match DataPage::try_read_raw(self.file, self.next_page) {
@@ -596,6 +615,7 @@ impl<'a, F: DTFile> Iterator for DataChunkIterator<'a, F> {
 
             self.next_page = next_page;
 
+            // TODO: Consider removing blit page logic.
             if next_page == 0 {
                 // This is the last page. We need to read the blit page to check if its newer.
                 match DataPage::try_read_raw(self.file, self.blit_page) {
