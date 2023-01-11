@@ -540,4 +540,15 @@ mod test {
         let (bytes, len) = page.finish();
         dbg!(&bytes[0..len]);
     }
+
+    #[test]
+    fn blit_cmp() {
+        assert_eq!(BlitStatus(0), BlitStatus(0));
+        assert_eq!(BlitStatus(1), BlitStatus(1));
+        assert_eq!(BlitStatus(2), BlitStatus(2));
+
+        assert!(BlitStatus(1) > BlitStatus(0));
+        assert!(BlitStatus(2) > BlitStatus(1));
+        assert!(BlitStatus(0) > BlitStatus(2));
+    }
 }
