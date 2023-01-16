@@ -107,53 +107,58 @@ impl DTFile for File {
 // *** Testing filesystem. This is used to make writing tests easier, and enable filesystem error
 // injection.
 
-pub struct TestFilesystem;
+#[cfg(test)]
+pub mod test {
+    use super::*;
 
-impl DTFilesystem for TestFilesystem {
-    type File = TestFile;
+    pub struct TestFilesystem;
 
-    fn open<P: AsRef<Path>>(&mut self, _path: P) -> io::Result<Self::File> {
-        Ok(TestFile::default())
-    }
-}
+    impl DTFilesystem for TestFilesystem {
+        type File = TestFile;
 
-#[derive(Debug, Default, Clone)]
-pub struct TestFile {
-    data: Vec<u8>,
-}
-
-impl DTFile for TestFile {
-    fn stream_len(&mut self) -> io::Result<u64> {
-        Ok(self.data.len() as u64)
-    }
-
-    fn write_all_at(&mut self, data: &[u8], offset: u64) -> io::Result<()> {
-        let offset = offset as usize;
-        let end = offset + data.len();
-        if self.data.len() < end {
-            self.data.resize(end, 0);
+        fn open<P: AsRef<Path>>(&mut self, _path: P) -> io::Result<Self::File> {
+            Ok(TestFile::default())
         }
-        self.data[offset .. end].copy_from_slice(data);
-        Ok(())
     }
 
-    fn read_all_at(&mut self, buffer: &mut [u8], offset: u64) -> io::Result<()> {
-        let start = offset as usize;
-        let end = start + buffer.len();
+    #[derive(Debug, Default, Clone)]
+    pub struct TestFile {
+        data: Vec<u8>,
+    }
 
-        if end > self.data.len() {
-            Err(io::Error::from(ErrorKind::UnexpectedEof))
-        } else {
-            buffer.copy_from_slice(&self.data[start..end]);
+    impl DTFile for TestFile {
+        fn stream_len(&mut self) -> io::Result<u64> {
+            Ok(self.data.len() as u64)
+        }
+
+        fn write_all_at(&mut self, data: &[u8], offset: u64) -> io::Result<()> {
+            let offset = offset as usize;
+            let end = offset + data.len();
+            if self.data.len() < end {
+                self.data.resize(end, 0);
+            }
+            self.data[offset..end].copy_from_slice(data);
             Ok(())
         }
-    }
 
-    fn write_barrier(&self) -> io::Result<()> {
-        Ok(())
-    }
+        fn read_all_at(&mut self, buffer: &mut [u8], offset: u64) -> io::Result<()> {
+            let start = offset as usize;
+            let end = start + buffer.len();
 
-    fn sync_data(&self) -> io::Result<()> {
-        Ok(())
+            if end > self.data.len() {
+                Err(io::Error::from(ErrorKind::UnexpectedEof))
+            } else {
+                buffer.copy_from_slice(&self.data[start..end]);
+                Ok(())
+            }
+        }
+
+        fn write_barrier(&self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn sync_data(&self) -> io::Result<()> {
+            Ok(())
+        }
     }
 }

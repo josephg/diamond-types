@@ -61,8 +61,8 @@ pub(super) struct Page<const T: usize> {
 
     data: [u8; DEFAULT_PAGE_SIZE],
     // cursor_start_pos: usize,
-    content_start_pos: usize,
-    content_end_pos: usize,
+    read_pos: usize,
+    write_pos: usize,
 }
 
 pub(super) const PAGE_TYPE_HEADER: usize = PageType::Header as usize;
@@ -78,8 +78,8 @@ impl<const T: usize> fmt::Debug for Page<T> {
         f.debug_struct("DataPage")
             .field("(page type)", &PageType::try_from(T as u16).unwrap())
             // .field("cursor_start_pos", &self.cursor_start_pos)
-            .field("content_start_pos", &self.content_start_pos)
-            .field("content_end_pos", &self.content_end_pos)
+            .field("content_start_pos", &self.read_pos)
+            .field("content_end_pos", &self.write_pos)
             // .field("data", &&self.data[0..self.content_end_pos])
             .finish()
     }
@@ -133,11 +133,11 @@ impl<const T: usize> ExtendFromSlice for Page<T> {
     type Result = Result<(), SEError>;
 
     fn extend_from_slice(&mut self, slice: &[u8]) -> Result<(), SEError> {
-        if self.content_end_pos + slice.len() > self.data.len() {
+        if self.write_pos + slice.len() > self.data.len() {
             return Err(SEError::PageFull);
         }
-        self.data[self.content_end_pos..self.content_end_pos + slice.len()].copy_from_slice(slice);
-        self.content_end_pos += slice.len();
+        self.data[self.write_pos..self.write_pos + slice.len()].copy_from_slice(slice);
+        self.write_pos += slice.len();
         Ok(())
     }
 }
@@ -147,12 +147,11 @@ impl<'a, const T: usize> ExtendFromSlice for InfallibleWritePage<'a, T> {
     type Result = ();
 
     fn extend_from_slice(&mut self, slice: &[u8]) {
-        assert!(self.0.content_end_pos + slice.len() <= self.0.data.len());
-        self.0.data[self.0.content_end_pos..self.0.content_end_pos + slice.len()].copy_from_slice(slice);
-        self.0.content_end_pos += slice.len();
+        assert!(self.0.write_pos + slice.len() <= self.0.data.len());
+        self.0.data[self.0.write_pos..self.0.write_pos + slice.len()].copy_from_slice(slice);
+        self.0.write_pos += slice.len();
     }
 }
-
 
 impl<const T: usize> Page<T> {
     fn checksum_offset() -> Range<usize> {
@@ -208,13 +207,13 @@ impl<const T: usize> Page<T> {
     }
 
     fn bake_len_and_checksum(&mut self) {
-        assert!(self.content_end_pos <= DEFAULT_PAGE_SIZE);
+        assert!(self.write_pos <= DEFAULT_PAGE_SIZE);
 
         // Fill in the page length and checksum.
-        self.set_len(self.content_end_pos);
+        self.set_len(self.write_pos);
 
         // Calculate and fill in the checksum. The checksum includes the length to the end of the page.
-        let checksum = calc_checksum(&self.data[Self::checksum_offset().end..self.content_end_pos]);
+        let checksum = calc_checksum(&self.data[Self::checksum_offset().end..self.write_pos]);
         // println!("Shake and bake {} checksum {:x}", self.content_end_pos, checksum);
         self.set_checksum(checksum);
     }
@@ -225,7 +224,7 @@ impl<const T: usize> Page<T> {
 
         // file.seek(SeekFrom::Start(page_no as u64 * DEFAULT_PAGE_SIZE as u64))?;
         // file.write_all(&self.data[0..self.pos])?;
-        (self.data, self.content_end_pos)
+        (self.data, self.write_pos)
         // self.data
     }
 
@@ -269,8 +268,8 @@ impl<const T: usize> Page<T> {
         let mut page = Self {
             data: [0; DEFAULT_PAGE_SIZE],
             // cursor_start_pos: Self::immutable_data_start_offset(),
-            content_start_pos: Self::immutable_data_start_offset(),
-            content_end_pos: usize::MAX,
+            read_pos: Self::immutable_data_start_offset(),
+            write_pos: usize::MAX,
         };
 
         file.read_all_at(&mut page.data, page_no as u64 * DEFAULT_PAGE_SIZE as u64)?;
@@ -286,7 +285,7 @@ impl<const T: usize> Page<T> {
             return Err(CorruptPageError::PageLengthInvalid(len as u16).into());
         }
 
-        page.content_end_pos = len;
+        page.write_pos = len;
 
         if page.read_checksum() != page.calc_checksum() {
             return Err(CorruptPageError::InvalidChecksum.into());
@@ -331,12 +330,12 @@ impl<const T: usize> Page<T> {
     }
 
     fn consume(&mut self, num: usize) {
-        self.content_start_pos += num;
-        debug_assert!(self.content_start_pos <= self.content_end_pos);
+        self.read_pos += num;
+        debug_assert!(self.read_pos <= self.write_pos);
     }
 
     pub(crate) fn get_content(&self) -> &[u8] {
-        &self.data[self.content_start_pos..self.content_end_pos]
+        &self.data[self.read_pos..self.write_pos]
     }
 
     pub(crate) fn next_u32(&mut self) -> Result<u32, ParseError> {
@@ -357,6 +356,10 @@ impl<const T: usize> Page<T> {
         self.consume(count);
         Ok(val)
     }
+
+    pub(crate) fn reset_read_pos(&mut self) {
+        self.read_pos = Self::immutable_data_start_offset();
+    }
 }
 
 
@@ -369,8 +372,8 @@ impl HeaderPage {
         let mut page = Self {
             data: [0; DEFAULT_PAGE_SIZE],
             // cursor_start_pos: usize::MAX,
-            content_start_pos: PO_HEADER_START,
-            content_end_pos: PO_HEADER_START,
+            read_pos: PO_HEADER_START,
+            write_pos: PO_HEADER_START,
         };
 
         page.data[PO_HEADER_MAGIC].copy_from_slice(&MAGIC_BYTES);
@@ -445,8 +448,8 @@ impl DataPage {
         let mut page = Self {
             data: [0; DEFAULT_PAGE_SIZE],
             // cursor_start_pos: usize::MAX,
-            content_start_pos: usize::MAX,
-            content_end_pos: PO_DATA_IMMUTABLE_FIELD_START,
+            read_pos: PO_DATA_IMMUTABLE_FIELD_START,
+            write_pos: PO_DATA_IMMUTABLE_FIELD_START,
         };
 
         // Write the immutable bytes. This will write at self.content_start_pos.
@@ -454,8 +457,6 @@ impl DataPage {
         page.push_u32_infallable(fields.prev_page);
         // page.cursor_start_pos = page.content_end_pos;
         // page.extend_from_slice_infallible(cursor_data);
-
-        page.content_start_pos = page.content_end_pos;
 
         page
     }

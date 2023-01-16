@@ -326,7 +326,7 @@ fn scan_blocks<F: DTFile>(file: &mut F, header_fields: &StorageHeaderFields) -> 
 }
 
 impl<F: DTFile> StorageEngine<F> {
-    pub fn open<P: AsRef<Path>, FS: DTFilesystem<File=F>>(path: P, filesystem: &mut FS) -> Result<Self, SEError> {
+    pub fn open<FS: DTFilesystem<File=F>, P: AsRef<Path>>(path: P, filesystem: &mut FS) -> Result<Self, SEError> {
         let mut file = filesystem.open(path.as_ref())?;
 
         let total_len = file.stream_len()?;
@@ -593,8 +593,9 @@ impl<'a, F: DTFile> Iterator for DataChunkIterator<'a, F> {
                 // Also note when the returned page is read, we'll update the start cursor position.
                 // ... so this makes it quite practical to read the page like this.
                 println!("Returning current");
-                let page = current_page.page.clone();
-                // TODO: Do we need to update any offsets or anything here?
+                let mut page = current_page.page.clone();
+                // The page should already have its read position set to the correct place...
+                page.reset_read_pos();
                 return Some(Ok(page));
             }
         }
@@ -656,10 +657,11 @@ impl<'a, F: DTFile> Iterator for DataChunkIterator<'a, F> {
 mod test {
     use crate::storage::{DataPageType, StorageEngine};
     use crate::storage::file::OsFilesystem;
+    use crate::storage::file::test::TestFilesystem;
 
     #[test]
     fn one() {
-        let mut se = StorageEngine::open("foo.dts", &mut OsFilesystem).unwrap();
+        let mut se = StorageEngine::open("foo.dts", &mut TestFilesystem).unwrap();
 
         for i in 0..4000 {
             se.append_bytes_to(DataPageType::AgentNames, i).unwrap();
@@ -683,7 +685,7 @@ mod test {
 
     #[test]
     fn two() {
-        let mut se = StorageEngine::open("foo.dts", &mut OsFilesystem).unwrap();
+        let mut se = StorageEngine::open("foo.dts", &mut TestFilesystem).unwrap();
 
         for page in se.iter_data_pages(DataPageType::AgentNames) {
             let mut page = page.unwrap();
