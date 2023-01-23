@@ -16,7 +16,7 @@ use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use smallvec::{smallvec, SmallVec};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::ExtendFromSlice;
-use crate::storage::file::{DTFile, DTFilesystem, OsFilesystem};
+use crate::storage::file::DTFile;
 use crate::storage::page::{BlitStatus, DataPage, DataPageImmutableFields, HeaderPage, Page};
 
 mod page;
@@ -325,10 +325,21 @@ fn scan_blocks<F: DTFile>(file: &mut F, header_fields: &StorageHeaderFields) -> 
     Ok((next_page, data_chunks))
 }
 
-impl<F: DTFile> StorageEngine<F> {
-    pub fn open<FS: DTFilesystem<File=F>, P: AsRef<Path>>(path: P, filesystem: &mut FS) -> Result<Self, SEError> {
-        let mut file = filesystem.open(path.as_ref())?;
+impl StorageEngine<File> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, SEError> {
+        let file = File::options()
+            .read(true)
+            .create(true)
+            .write(true)
+            .append(false)
+            .open(path.as_ref())?;
 
+        Self::from_file(file)
+    }
+}
+
+impl<F: DTFile> StorageEngine<F> {
+    pub fn from_file(mut file: F) -> Result<Self, SEError> {
         let total_len = file.stream_len()?;
 
         // let (header_fields, next_free_page, data_chunks) = Self::read_or_initialize_header(&mut file, total_len)?;
@@ -656,13 +667,11 @@ impl<'a, F: DTFile> Iterator for DataChunkIterator<'a, F> {
 #[cfg(test)]
 mod test {
     use crate::storage::{DataPageType, StorageEngine};
-    use crate::storage::file::OsFilesystem;
-    use crate::storage::file::test::TestFilesystem;
+    use crate::storage::file::test::TestFile;
 
     #[test]
     fn one() {
-        let mut filesystem = TestFilesystem::default();
-        let mut se = StorageEngine::open("foo.dts", &mut filesystem).unwrap();
+        let mut se = StorageEngine::from_file(TestFile::new()).unwrap();
 
         for i in 0..4000 {
             se.append_bytes_to(DataPageType::AgentNames, i).unwrap();
@@ -686,8 +695,7 @@ mod test {
 
     #[test]
     fn two() {
-        let mut filesystem = TestFilesystem::default();
-        let mut se = StorageEngine::open("foo.dts", &mut filesystem).unwrap();
+        let mut se = StorageEngine::from_file(TestFile::new()).unwrap();
 
         for page in se.iter_data_pages(DataPageType::AgentNames) {
             let mut page = page.unwrap();
