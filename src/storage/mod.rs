@@ -661,7 +661,8 @@ mod test {
 
     #[test]
     fn one() {
-        let mut se = StorageEngine::open("foo.dts", &mut TestFilesystem).unwrap();
+        let mut filesystem = TestFilesystem::default();
+        let mut se = StorageEngine::open("foo.dts", &mut filesystem).unwrap();
 
         for i in 0..4000 {
             se.append_bytes_to(DataPageType::AgentNames, i).unwrap();
@@ -685,7 +686,8 @@ mod test {
 
     #[test]
     fn two() {
-        let mut se = StorageEngine::open("foo.dts", &mut TestFilesystem).unwrap();
+        let mut filesystem = TestFilesystem::default();
+        let mut se = StorageEngine::open("foo.dts", &mut filesystem).unwrap();
 
         for page in se.iter_data_pages(DataPageType::AgentNames) {
             let mut page = page.unwrap();

@@ -109,35 +109,60 @@ impl DTFile for File {
 
 #[cfg(test)]
 pub mod test {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+    use std::rc::Rc;
     use super::*;
 
-    pub struct TestFilesystem;
+    // type FileContent = Vec<u8>;
+
+    /// The testing filesystem here has 2 uses:
+    ///
+    /// 1. Its used to test saving and loading without needing to actually create and destroy files
+    ///    on the real filesystem. This makes the tests guaranteed to be repeatable without needing
+    ///    to remember to delete the created files.
+    /// 2. The testing filesystem can simulate power failures or hardware failure during writing.
+    ///    The FS code should just deal with that, and not lose any uncommitted data.
+    #[derive(Debug, Default)]
+    pub struct TestFilesystem(BTreeMap<PathBuf, TestFile>);
+
+    #[derive(Debug, Default)]
+    struct FileContents {
+        data: Vec<u8>,
+    }
+
+    #[derive(Debug, Clone, Default)]
+    pub struct TestFile(Rc<RefCell<FileContents>>);
 
     impl DTFilesystem for TestFilesystem {
         type File = TestFile;
 
-        fn open<P: AsRef<Path>>(&mut self, _path: P) -> io::Result<Self::File> {
-            Ok(TestFile::default())
+        fn open<P: AsRef<Path>>(&mut self, path: P) -> io::Result<Self::File> {
+            Ok(self.0
+                .entry(path.as_ref().into())
+                .or_insert(Default::default())
+                .clone())
+            // Ok(TestFile(self.0
+            //     .entry(path.as_ref().into())
+            //     .or_insert(Default::default())
+            //     .clone()))
         }
-    }
-
-    #[derive(Debug, Default, Clone)]
-    pub struct TestFile {
-        data: Vec<u8>,
     }
 
     impl DTFile for TestFile {
         fn stream_len(&mut self) -> io::Result<u64> {
-            Ok(self.data.len() as u64)
+            Ok(self.0.borrow().data.len() as u64)
         }
 
-        fn write_all_at(&mut self, data: &[u8], offset: u64) -> io::Result<()> {
+        fn write_all_at(&mut self, write_data: &[u8], offset: u64) -> io::Result<()> {
             let offset = offset as usize;
-            let end = offset + data.len();
-            if self.data.len() < end {
-                self.data.resize(end, 0);
+            let end = offset + write_data.len();
+            let data = &mut self.0.borrow_mut().data;
+            if data.len() < end {
+                data.resize(end, 0);
             }
-            self.data[offset..end].copy_from_slice(data);
+            data[offset..end].copy_from_slice(write_data);
             Ok(())
         }
 
@@ -145,10 +170,10 @@ pub mod test {
             let start = offset as usize;
             let end = start + buffer.len();
 
-            if end > self.data.len() {
+            if end > self.0.borrow().data.len() {
                 Err(io::Error::from(ErrorKind::UnexpectedEof))
             } else {
-                buffer.copy_from_slice(&self.data[start..end]);
+                buffer.copy_from_slice(&self.0.borrow().data[start..end]);
                 Ok(())
             }
         }
@@ -160,5 +185,27 @@ pub mod test {
         fn sync_data(&self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    #[test]
+    fn smoke_test_testing_filesystem() {
+        let mut fs = TestFilesystem::default();
+
+        let mut file = fs.open("yo").unwrap();
+
+        // You should read your own writes even if the contents haven't been flushed.
+        file.write_all_at(&[1,2,3], 0).unwrap();
+
+        let mut buf = [0u8; 3];
+        file.read_all_at(&mut buf, 0).unwrap();
+        assert_eq!(&buf, &[1,2,3]);
+        file.sync_data().unwrap();
+        drop(file);
+
+        // And open it again - we should see the new contents.
+        let mut file = fs.open("yo").unwrap();
+        let mut buf = [0u8; 3];
+        file.read_all_at(&mut buf, 0).unwrap();
+        assert_eq!(&buf, &[1,2,3]);
     }
 }
