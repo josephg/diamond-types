@@ -79,14 +79,14 @@ impl Graph {
         match v1.cmp(&v2) {
             Ordering::Equal => Some(Ordering::Equal),
             Ordering::Less => {
-                if self.version_contains_time(&[v2], v1) {
+                if self.frontier_contains_version(&[v2], v1) {
                     Some(Ordering::Less)
                 } else {
                     None
                 }
             },
             Ordering::Greater => {
-                if self.version_contains_time(&[v1], v2) {
+                if self.frontier_contains_version(&[v1], v2) {
                     Some(Ordering::Greater)
                 } else {
                     None
@@ -96,7 +96,7 @@ impl Graph {
     }
 
     /// Calculates whether the specified version contains (dominates) the specified time.
-    pub(crate) fn version_contains_time(&self, frontier: &[LV], target: LV) -> bool {
+    pub(crate) fn frontier_contains_version(&self, frontier: &[LV], target: LV) -> bool {
         debug_assert_ne!(target, OLD_INVALID_ROOT_TIME);
         if frontier.contains(&target) { return true; }
         if frontier.is_empty() { return false; }
@@ -294,7 +294,7 @@ impl Graph {
 
     // *** Conflicts! ***
 
-    fn find_conflicting_slow<V>(&self, a: FrontierRef, b: FrontierRef, mut visit: V) -> Frontier
+    fn find_conflicting_slow<V>(&self, a: &[LV], b: &[LV], mut visit: V) -> Frontier
     where V: FnMut(DTRange, DiffFlag) {
         // dbg!(a, b);
 
@@ -452,7 +452,7 @@ impl Graph {
     /// a single localtime, but it might be the result of a merge of multiple edits.
     ///
     /// I'm assuming b is a parent of a, but it should all work if thats not the case.
-    pub(crate) fn find_conflicting<V>(&self, a: FrontierRef, b: FrontierRef, mut visit: V) -> Frontier
+    pub(crate) fn find_conflicting<V>(&self, a: &[LV], b: &[LV], mut visit: V) -> Frontier
         where V: FnMut(DTRange, DiffFlag) {
 
         // First some simple short circuit checks to avoid needless work in common cases.
@@ -837,7 +837,7 @@ pub mod test {
             writeln!(f, "{}", serde_json::to_string(&t).unwrap());
         }
 
-        assert_eq!(graph.version_contains_time(frontier, target), expected);
+        assert_eq!(graph.frontier_contains_version(frontier, target), expected);
     }
 
     fn assert_diff_eq(graph: &Graph, a: &[LV], b: &[LV], expect_a: &[DTRange], expect_b: &[DTRange]) {

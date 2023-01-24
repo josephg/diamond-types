@@ -306,7 +306,7 @@ impl Frontier {
                         // turn for each item in branch.
                         debug_assert!(!self.is_root());
                         // TODO: At least check shadow directly.
-                        if !graph.version_contains_time(self.as_ref(), *parent) {
+                        if !graph.frontier_contains_version(self.as_ref(), *parent) {
                             self.insert_nonoverlapping(*parent);
                         }
                     }

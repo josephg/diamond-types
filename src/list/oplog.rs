@@ -406,7 +406,7 @@ impl ListOpLog {
     // Exported for the fuzzer. Not sure if I actually want this exposed.
     pub fn version_contains_time(&self, local_version: &[LV], target: LV) -> bool {
         if local_version.is_empty() { true }
-        else { self.cg.graph.version_contains_time(local_version, target) }
+        else { self.cg.graph.frontier_contains_version(local_version, target) }
     }
 
     // /// Returns all the changes since some (static) point in time.

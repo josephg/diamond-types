@@ -25,14 +25,14 @@ pub(crate) struct ScopedParents {
 impl ScopedParents {
     pub(crate) fn exists_at(&self, graph: &Graph, version: &[LV]) -> bool {
         // If the item has not been created yet, return None.
-        if !graph.version_contains_time(version, self.created_at) {
+        if !graph.frontier_contains_version(version, self.created_at) {
             // Not created yet.
             return false;
         }
 
         // If the item has been deleted, return false.
         for v in self.deleted_at.iter() {
-            if graph.version_contains_time(version, *v) {
+            if graph.frontier_contains_version(version, *v) {
                 // Deleted.
                 return false;
             }
