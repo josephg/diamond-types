@@ -78,6 +78,8 @@ impl ClientData {
     }
 }
 
+pub const MAX_AGENT_NAME_LENGTH: usize = 50;
+
 impl AgentAssignment {
     pub fn new() -> Self { Self::default() }
 
@@ -90,6 +92,8 @@ impl AgentAssignment {
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
         // TODO: -> Result or something so this can be handled.
         if name == "ROOT" { panic!("Agent ID 'ROOT' is reserved"); }
+
+        assert!(name.len() < MAX_AGENT_NAME_LENGTH, "Agent name cannot exceed {MAX_AGENT_NAME_LENGTH} UTF8 bytes");
 
         if let Some(id) = self.get_agent_id(name) {
             id

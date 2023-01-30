@@ -15,7 +15,8 @@ use std::path::Path;
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use smallvec::{smallvec, SmallVec};
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::ExtendFromSlice;
+use crate::encoding::tools::{ExtendFromSlice, push_str};
+use crate::encoding::varint::{push_u32, push_u64, push_usize};
 use crate::storage::file::DTFile;
 use crate::storage::page::{BlitStatus, DataPage, DataPageImmutableFields, HeaderPage, Page};
 
@@ -51,6 +52,8 @@ pub enum SEError {
 
     // InvalidBlit,
     // InvalidData,
+
+    DataTooLarge,
 
     PageFull,
 
@@ -97,7 +100,7 @@ const NUM_DATA_CHUNK_TYPES: usize = 3;
 type PageNum = u32;
 
 #[derive(Debug)]
-struct StorageEngine<F: DTFile> {
+struct StorageEngine<F: DTFile = File> {
     file: F,
 
     header_dirty: bool,
@@ -394,7 +397,9 @@ impl<F: DTFile> StorageEngine<F> {
 
     // This method could return a &mut DataPageState but I can't really use it because of the borrow
     // check rules. (The field needs to be a partial borrow of &self)
-    fn prepare_data_page_type(&mut self, kind: DataPageType) -> (&mut F, &mut PageNum, &mut DataPageState) {
+    fn prepare_data_page_type<C>(&mut self, kind: DataPageType, before_cursor: &C) -> (&mut F, &mut PageNum, &mut DataPageState)
+        where C: StorageItem + ?Sized
+    {
         let kind_usize = kind as usize;
 
         assert!(kind_usize < self.data_chunks.len());
@@ -425,59 +430,27 @@ impl<F: DTFile> StorageEngine<F> {
             // If pages are assigned but not used, it doesn't matter.
             // So it only matters when the content is written to the new blocks.
 
+            let mut page = DataPage::new(DataPageImmutableFields {
+                kind,
+                prev_page: 0,
+            });
+
+            let mut cursor_buf: StackWriteBuf = Default::default();
+            // The default item should always be tiny. I could contort the logic to make this
+            // method return a Result<> for this, but I don't think there's any point.
+            before_cursor.serialize(&mut cursor_buf).unwrap();
+            page.extend_from_slice(cursor_buf.data_slice()).unwrap();
+
             Box::new(DataPageState {
                 current_page_no: first_page,
                 write_to_blit_next: false,
                 blit_page,
-                page: DataPage::new(DataPageImmutableFields {
-                    kind,
-                    prev_page: 0,
-                }),
+                page,
                 dirty: false,
             })
         });
 
         (&mut self.file, &mut self.next_free_page, state)
-    }
-
-    fn append_bytes_to(&mut self, kind: DataPageType, num: usize) -> Result<(), SEError> {
-        let (file, next_free_page, state) = self.prepare_data_page_type(kind);
-
-        state.dirty = true;
-        match state.page.push_usize(num) {
-            Ok(()) => {},
-            Err(SEError::PageFull) => {
-                // If the page is full, finish out the page and assign a new one. We need to write
-                // the new page to register the new page ID.
-                let new_page = *next_free_page;
-                *next_free_page += 1;
-
-                println!("Page full! Assigning new page {}", new_page);
-
-                let is_blit = Self::write_page(file, state, new_page)?;
-
-                if is_blit {
-                    println!("Writing back to the page");
-                    // fsync here to make sure we don't partially overwrite the current state
-                    // before the blit page has been written.
-                    file.write_barrier()?;
-                    Self::write_page(file, state, new_page)?;
-                }
-
-                // Might be an easier way to wipe this.
-                state.current_page_no = new_page;
-                state.write_to_blit_next = false;
-                state.page = DataPage::new(DataPageImmutableFields {
-                    kind,
-                    prev_page: state.current_page_no,
-                });
-
-                state.page.push_usize(num)?;
-            }
-            Err(e) => { return Err(e); }
-        }
-
-        Ok(())
     }
 
     /// returns true if the page written was a blit page.
@@ -527,6 +500,7 @@ impl<F: DTFile> StorageEngine<F> {
             .filter(|chunk| chunk.dirty)
             .map(|s| s.as_mut()) // Not strictly needed, but kinda cleaner.
         {
+            // next_page of 0 means there's no next page. (This is the last known page of this type)
             Self::write_page(&mut self.file, state, 0)?;
             sync_needed = true;
         }
@@ -569,7 +543,172 @@ impl<F: DTFile> StorageEngine<F> {
             }
         }
     }
+
+    fn finalize_and_assign_next_page(kind: DataPageType, file: &mut F, next_free_page: &mut PageNum, state: &mut DataPageState) -> Result<(), SEError> {
+        // We need to write the new page to register the new page ID.
+        let new_page = *next_free_page;
+        *next_free_page += 1;
+
+        println!("Page full! Assigning new page {}", new_page);
+
+        let is_blit = Self::write_page(file, state, new_page)?;
+
+        if is_blit {
+            // We need to finalize the page itself before assigning a new page for the data. And if
+            // the next page is (was) a blit page, we can't write to the page itself until we
+            // write to the blit page without risking losing data.
+            //
+            // So, if we just wrote to the blit page, we'll call write_page again to actually write
+            // to the real page.
+            println!("Writing back to the page");
+            file.write_barrier()?;
+            Self::write_page(file, state, new_page)?;
+        }
+
+        // Might be an easier way to wipe this.
+        state.current_page_no = new_page;
+        state.write_to_blit_next = false;
+        state.page = DataPage::new(DataPageImmutableFields {
+            kind,
+            prev_page: state.current_page_no,
+        });
+        // Not reassigning the dirty bit here or the assigned blit page. Should we mark the new page
+        // as dirty? This seems ok.
+
+        Ok(())
+    }
+
+    fn append_chunk<C, I>(&mut self, kind: DataPageType, before_cursor: &C, item: &I) -> Result<(), SEError>
+        where C: StorageItem + ?Sized,
+              I: StorageItem + ?Sized
+    {
+        let mut item_buf: StackWriteBuf = Default::default();
+        item.serialize(&mut item_buf)
+            .map_err(|_| SEError::DataTooLarge)?;
+
+        let bytes = item_buf.data_slice();
+        if bytes.len() > DataPage::capacity() / 2 {
+            // TODO: Add support for larger blocks.
+            return Err(SEError::DataTooLarge);
+        }
+
+        // dbg!(bytes);
+
+        let (file, next_free_page, state) = self.prepare_data_page_type(kind, before_cursor);
+
+        state.dirty = true;
+        match state.page.extend_from_slice(bytes) {
+            Ok(()) => {},
+            Err(SEError::PageFull) => {
+                // If the page is full, finish out the page and assign a new one.
+                Self::finalize_and_assign_next_page(kind, file, next_free_page, state)?;
+
+                // Each data page starts with cursor information before the data itself.
+                let mut cursor_buf: StackWriteBuf = Default::default();
+
+                // If this errors, we'll be in an unrecoverable error state internally.
+                before_cursor.serialize(&mut cursor_buf)
+                    .map_err(|_| SEError::DataTooLarge)?;
+
+                state.page.extend_from_slice(cursor_buf.data_slice())?;
+                state.page.extend_from_slice(bytes)?;
+            }
+            Err(e) => { return Err(e); }
+        }
+
+        Ok(())
+    }
 }
+
+
+// fn foo<C>(_c: &C) where C: StorageItem + ?Sized {
+//     todo!()
+// }
+// fn bar(_c: &dyn StorageItem) {
+//     todo!()
+// }
+
+
+
+#[derive(Clone)]
+struct StackWriteBuf<const SIZE: usize = 1024> {
+    arr: [u8; SIZE],
+    pos: usize,
+}
+
+impl<const SIZE: usize> Default for StackWriteBuf<SIZE> {
+    fn default() -> Self {
+        Self {
+            arr: [0; SIZE],
+            pos: 0,
+        }
+    }
+}
+
+impl<const SIZE: usize> StackWriteBuf<SIZE> {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn len(&self) -> usize { self.pos }
+    fn is_empty(&self) -> bool { self.pos != 0 }
+
+    fn data_slice(&self) -> &[u8] {
+        &self.arr[..self.pos]
+    }
+}
+
+impl<const SIZE: usize> ExtendFromSlice for StackWriteBuf<SIZE> {
+    type Result = Result<(), ()>; // The only error is that we're out of space!
+
+    fn extend_from_slice(&mut self, slice: &[u8]) -> Self::Result {
+        let end_pos = self.pos + slice.len();
+        if end_pos > self.arr.len() || end_pos < self.pos { // Second condition here simplifies the asm.
+            return Err(());
+        }
+
+        let target = &mut self.arr[self.pos..end_pos];
+        target.copy_from_slice(slice);
+        self.pos = end_pos;
+        Ok(())
+    }
+}
+
+trait StorageItem {
+    // fn serialize<const SIZE: usize>(&self, into: &mut StackWriteBuf<SIZE>) -> Result<(), ()>;
+    fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result;
+}
+
+impl StorageItem for str {
+    fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result {
+        push_str(into, self)
+    }
+}
+
+impl StorageItem for usize {
+    fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result {
+        push_usize(into, *self)
+    }
+}
+
+impl StorageItem for u32 {
+    fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result {
+        push_u32(into, *self)
+    }
+}
+
+impl StorageItem for u64 {
+    fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result {
+        push_u64(into, *self)
+    }
+}
+
+// impl<A, B> StorageItem for (A, B) where A: StorageItem, B: StorageItem {
+//     fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result {
+//         self.0.serialize(into);
+//         self.1.serialize(into)
+//     }
+// }
 
 impl<F: DTFile> Drop for StorageEngine<F> {
     fn drop(&mut self) {
@@ -666,31 +805,36 @@ impl<'a, F: DTFile> Iterator for DataChunkIterator<'a, F> {
 
 #[cfg(test)]
 mod test {
+    use crate::encoding::varint::push_usize;
     use crate::storage::{DataPageType, StorageEngine};
     use crate::storage::file::test::TestFile;
 
     #[test]
     fn one() {
-        let mut se = StorageEngine::from_file(TestFile::new()).unwrap();
+        // let mut se = StorageEngine::from_file(TestFile::new()).unwrap();
+        let mut se = StorageEngine::open("foo.dts").unwrap();
 
-        for i in 0..4000 {
-            se.append_bytes_to(DataPageType::AgentNames, i).unwrap();
+        // for i in 0..4000 {
+        for i in 0..20 {
+            se.append_chunk(DataPageType::AgentNames, "yo dawg", &(i as usize)).unwrap();
+            // push_usize(&mut se.write_to(DataPageType::AgentNames), i).unwrap();
+            // se.append_data_bytes_to(DataPageType::AgentNames, i).unwrap();
             // se.fsync().unwrap();
         }
 
         se.fsync().unwrap();
 
-        for page in se.iter_data_pages(DataPageType::AgentNames) {
-            let mut page = page.unwrap();
-            dbg!(page.read_fields().unwrap());
-            dbg!(page.get_content().len());
-        }
+        // for page in se.iter_data_pages(DataPageType::AgentNames) {
+        //     let mut page = page.unwrap();
+        //     dbg!(page.read_fields().unwrap());
+        //     dbg!(page.get_content().len());
+        // }
 
         // se.make_data(DataPageType::AgentNames).unwrap();
         // se.append_bytes_to(DataPageType::AgentNames).unwrap();
         // se.fsync().unwrap();
         // se.append_bytes_to(DataPageType::AgentNames).unwrap();
-        dbg!(&se);
+        // dbg!(&se);
     }
 
     #[test]

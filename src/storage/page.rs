@@ -154,6 +154,10 @@ impl<'a, const T: usize> ExtendFromSlice for InfallibleWritePage<'a, T> {
 }
 
 impl<const T: usize> Page<T> {
+    pub fn capacity() -> usize {
+        DEFAULT_PAGE_SIZE
+    }
+
     fn checksum_offset() -> Range<usize> {
         match T {
             PAGE_TYPE_HEADER => PO_HEADER_CHECKSUM.clone(),
