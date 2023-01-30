@@ -58,7 +58,7 @@ trace-alloc = { path = "crates/trace-alloc" }
 #json_minimal = "0.1.3"
 
 [features]
-default = ["lz4"]
+default = ["lz4", "storage"]
 #memusage = ["trace-alloc/memusage"]
 inlinerope = []
 lz4 = ["lz4_flex"]
