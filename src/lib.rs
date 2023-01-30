@@ -230,6 +230,7 @@ mod fuzzer;
 mod branch;
 mod textinfo;
 mod oplog;
+#[cfg(feature = "storage")]
 mod storage;
 
 pub type AgentId = u32;
