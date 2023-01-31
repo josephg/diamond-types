@@ -15,8 +15,8 @@ use std::path::Path;
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use smallvec::{smallvec, SmallVec};
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::{ExtendFromSlice, push_str};
-use crate::encoding::varint::{push_u32, push_u64, push_usize};
+use crate::encoding::tools::{DTSerializable, ExtendFromSlice, StackWriteBuf, try_push_str, TryExtendFromSlice};
+use crate::encoding::varint::{try_push_u32, try_push_u64, try_push_usize};
 use crate::storage::file::DTFile;
 use crate::storage::page::{BlitStatus, DataPage, DataPageImmutableFields, HeaderPage, Page};
 
@@ -232,14 +232,33 @@ fn scan_blocks<F: DTFile>(file: &mut F, header_fields: &StorageHeaderFields) -> 
         queue.push(Item(info.blit_page, 0, kind, true));
     }
 
-    dbg!(header_fields);
+    // dbg!(header_fields);
     const HACK_NONE: Option<Box<DataPageState>> = None;
     let mut data_chunks = [HACK_NONE; NUM_DATA_CHUNK_TYPES];
     // let mut blit_flags = [BlitStatus(u8::MAX); NUM_DATA_CHUNK_TYPES];
     // let mut blit_associated_page = [PageNum; NUM_DATA_CHUNK_TYPES];
 
+    // I'll also read all the blit page content here.
+    const HACK_NONE_2: Option<DataPage> = None;
+    let mut blit_pages = [HACK_NONE_2; NUM_DATA_CHUNK_TYPES];
+    let mut blit_assoc = [PageNum::MAX; NUM_DATA_CHUNK_TYPES];
+
+    for (kind, info) in header_fields.data_page_info.iter().enumerate() {
+        if let Some(info) = info {
+            if info.blit_page > 0 {
+                let page = DataPage::try_read_raw(file, info.blit_page)?;
+                if let Some(page) = page {
+                    let associated_page = page.get_next_or_associated_page();
+                    // blit_pages[kind] = Some((page, associated_page));
+                    blit_assoc[kind] = associated_page;
+                    blit_pages[kind] = Some(page);
+                }
+            }
+        }
+    }
+
     let mut next_page = 1;
-    while let Some(Item(page_no, prev_page, kind, is_blit)) = queue.pop() {
+    while let Some(Item(page_no, _prev_page, kind, is_blit)) = queue.pop() {
         dbg!((page_no, kind, is_blit));
         if page_no != next_page {
             panic!("Ermagherd bad {page_no} {next_page}");
@@ -250,79 +269,92 @@ fn scan_blocks<F: DTFile>(file: &mut F, header_fields: &StorageHeaderFields) -> 
 
         // We don't need to read blits just yet. First we'll scan to the last allocated page for
         // all the types of data.
-        if !is_blit {
-            let page = DataPage::try_read_raw(file, page_no)?;
+        if is_blit { continue; }
 
-            // TODO: Check the page type and page prev fields are correct
+        let page = DataPage::try_read_raw(file, page_no)?;
 
-            if let Some(page) = page.as_ref() {
-                let next_page = page.get_next_or_associated_page();
-                println!("Next page {next_page}");
-                if next_page != 0 {
-                    // The page is valid and it has an assigned next page. Onwards!
-                    queue.push(Item(next_page, page_no, kind, false));
-                    continue;
-                }
+        // TODO: Check the page type and page prev fields are correct
+
+        if let Some(page) = page.as_ref() {
+            let next_page = page.get_next_or_associated_page();
+            println!("Next page {next_page}");
+            if next_page != 0 {
+                // The page is valid and it has an assigned next page. Onwards!
+                queue.push(Item(next_page, page_no, kind, false));
+                continue;
             }
+        }
 
-            // We get here if its the last page in the history for this data type. The page might
-            // be None if it hasn't been written to yet, or the last write failed.
+        // We get here if its the last page in the history for this data type. The page might
+        // be None if it hasn't been written to yet, or the last write failed.
 
-            // Check the blit data at this point.
-            let blit_page_no = header_fields.data_page_info[kind as usize].unwrap().blit_page;
-            let mut blit_page = DataPage::try_read_raw(file, blit_page_no)?;
+        // Check the blit data at this point.
+        let blit_page_no = header_fields.data_page_info[kind as usize].unwrap().blit_page;
 
-            // This is a bit of a hack. If the blit page is old (it is associated with an earlier
-            // page) then discard it.
-            if let Some(p) = blit_page.as_ref() {
-                if p.get_next_or_associated_page() != page_no {
-                    blit_page = None;
-                }
-            }
+        let blit_page = if blit_assoc[kind as usize] == page_no {
+            // This will always be Some(_) here because of the logic.
+            blit_pages[kind as usize].take()
+        } else { None };
 
-            dbg!((page.is_some(), blit_page.is_some()));
-            let (write_to_blit_next, page_used) = match (page, blit_page) {
-                (Some(page), Some(blit_page)) => {
-                    // Keep the page which is "furthest along".
-                    dbg!(page.get_blit_status());
-                    dbg!(blit_page.get_blit_status());
-                    match page.get_blit_status().partial_cmp(&blit_page.get_blit_status()) {
-                        // Use the page version.
-                        None => { return Err(SEError::GenericInvalidData); }
-                        Some(Ordering::Greater) | Some(Ordering::Equal) => {
-                            println!("page");
-                            // Use the page version. If the blits are equal it doesn't matter.
-                            (true, page)
-                        }
-                        Some(Ordering::Less) => {
-                            println!("blit");
-                            // Use the blit version.
-                            (false, blit_page)
-                        }
+        // // TODO: This will read the blit page content multiple times. Gross!
+        // let mut blit_page = DataPage::try_read_raw(file, blit_page_no)?;
+
+        // // This is a bit of a hack. If the blit page is old (it is associated with an earlier
+        // // page) then its not relevant here. Discard it.
+        // if let Some(p) = blit_page.as_ref() {
+        //     if p.get_next_or_associated_page() != page_no {
+        //         blit_page = None;
+        //     }
+        // }
+
+        dbg!((page.is_some(), blit_page.is_some()));
+        let (write_to_blit_next, page_used) = match (page, blit_page) {
+            (Some(page), Some(blit_page)) => {
+                // Keep the page which is "furthest along".
+                dbg!(page.get_blit_status());
+                dbg!(blit_page.get_blit_status());
+                match page.get_blit_status().partial_cmp(&blit_page.get_blit_status()) {
+                    // Use the page version.
+                    None => { return Err(SEError::GenericInvalidData); }
+                    Some(Ordering::Greater) | Some(Ordering::Equal) => {
+                        println!("page");
+                        // Use the page version. If the blits are equal it doesn't matter.
+                        (true, page)
+                    }
+                    Some(Ordering::Less) => {
+                        println!("blit");
+                        // Use the blit version.
+                        (false, blit_page)
                     }
                 }
-                (None, Some(blit_page)) => {
-                    (false, blit_page)
-                }
-                (Some(page), None) => {
-                    (true, page)
-                }
-                (None, None) => {
-                    (true, DataPage::new(DataPageImmutableFields {
-                        kind: (kind as u16).try_into().unwrap(),
-                        prev_page,
-                    }))
-                }
-            };
+            }
+            (None, Some(blit_page)) => {
+                (false, blit_page)
+            }
+            (Some(page), None) => {
+                (true, page)
+            }
+            (None, None) => {
+                // This is a tricky one. In this case, the next page was allocated but is either
+                // corrupt or was never written to. We'll just leave the DataPageState in its
+                // current configuration - I think thats correct?
+                continue;
 
-            data_chunks[kind as usize] = Some(Box::new(DataPageState {
-                current_page_no: page_no,
-                write_to_blit_next,
-                blit_page: blit_page_no,
-                page: page_used,
-                dirty: false,
-            }));
-        }
+                // (true, DataPage::new(DataPageImmutableFields {
+                //                         kind: (kind as u16).try_into().unwrap(),
+                //                         prev_page,
+                //                     },
+                // ))
+            }
+        };
+
+        data_chunks[kind as usize] = Some(Box::new(DataPageState {
+            current_page_no: page_no,
+            write_to_blit_next,
+            blit_page: blit_page_no,
+            page: page_used,
+            dirty: false,
+        }));
     }
 
     Ok((next_page, data_chunks))
@@ -398,7 +430,7 @@ impl<F: DTFile> StorageEngine<F> {
     // This method could return a &mut DataPageState but I can't really use it because of the borrow
     // check rules. (The field needs to be a partial borrow of &self)
     fn prepare_data_page_type<C>(&mut self, kind: DataPageType, before_cursor: &C) -> (&mut F, &mut PageNum, &mut DataPageState)
-        where C: StorageItem + ?Sized
+        where C: DTSerializable + ?Sized
     {
         let kind_usize = kind as usize;
 
@@ -430,22 +462,19 @@ impl<F: DTFile> StorageEngine<F> {
             // If pages are assigned but not used, it doesn't matter.
             // So it only matters when the content is written to the new blocks.
 
-            let mut page = DataPage::new(DataPageImmutableFields {
-                kind,
-                prev_page: 0,
-            });
-
-            let mut cursor_buf: StackWriteBuf = Default::default();
-            // The default item should always be tiny. I could contort the logic to make this
-            // method return a Result<> for this, but I don't think there's any point.
-            before_cursor.serialize(&mut cursor_buf).unwrap();
-            page.extend_from_slice(cursor_buf.data_slice()).unwrap();
+            // I could contort the logic to make this method return a Result<> for this, but I don't
+            // think there's any point. Its a logic error for cursors to be larger than the default
+            // stack write buffer.
+            let cursor_buf = before_cursor.to_stack_buf().unwrap();
 
             Box::new(DataPageState {
                 current_page_no: first_page,
                 write_to_blit_next: false,
                 blit_page,
-                page,
+                page: DataPage::new(DataPageImmutableFields {
+                    kind,
+                    prev_page: 0,
+                }, cursor_buf.data_slice()),
                 dirty: false,
             })
         });
@@ -544,25 +573,35 @@ impl<F: DTFile> StorageEngine<F> {
         }
     }
 
-    fn finalize_and_assign_next_page(kind: DataPageType, file: &mut F, next_free_page: &mut PageNum, state: &mut DataPageState) -> Result<(), SEError> {
-        // We need to write the new page to register the new page ID.
-        let new_page = *next_free_page;
-        *next_free_page += 1;
+    fn finalize_and_assign_next_page(kind: DataPageType, file: &mut F, next_free_page: &mut PageNum, state: &mut DataPageState, cursor_data: &[u8]) -> Result<(), SEError> {
+        // The current page needs to be written in order to assign the new page.
 
-        println!("Page full! Assigning new page {}", new_page);
+        // This logic is a bit special. Its possible that the page already has a next page assigned,
+        // but the new page was never written to due to an unexpected shutdown or something.
+        //
+        // In this case, we'll keep the next_page assignment.
+        let mut new_page = state.page.get_next_or_associated_page();
+        if new_page == 0 { // Almost always true.
+            new_page = *next_free_page;
+            println!("Page full! Assigning new page {}", new_page);
+            *next_free_page += 1;
+            state.dirty = true;
+        }
 
-        let is_blit = Self::write_page(file, state, new_page)?;
+        if state.dirty {
+            let is_blit = Self::write_page(file, state, new_page)?;
 
-        if is_blit {
-            // We need to finalize the page itself before assigning a new page for the data. And if
-            // the next page is (was) a blit page, we can't write to the page itself until we
-            // write to the blit page without risking losing data.
-            //
-            // So, if we just wrote to the blit page, we'll call write_page again to actually write
-            // to the real page.
-            println!("Writing back to the page");
-            file.write_barrier()?;
-            Self::write_page(file, state, new_page)?;
+            if is_blit {
+                // We need to finalize the page itself before assigning a new page for the data. And if
+                // the next page is (was) a blit page, we can't write to the page itself until we
+                // write to the blit page without risking losing data.
+                //
+                // So, if we just wrote to the blit page, we'll call write_page again to actually write
+                // to the real page.
+                println!("Writing back to the page");
+                file.write_barrier()?;
+                Self::write_page(file, state, new_page)?;
+            }
         }
 
         // Might be an easier way to wipe this.
@@ -571,19 +610,19 @@ impl<F: DTFile> StorageEngine<F> {
         state.page = DataPage::new(DataPageImmutableFields {
             kind,
             prev_page: state.current_page_no,
-        });
+        }, cursor_data);
         // Not reassigning the dirty bit here or the assigned blit page. Should we mark the new page
-        // as dirty? This seems ok.
+        // as dirty?
 
         Ok(())
     }
 
     fn append_chunk<C, I>(&mut self, kind: DataPageType, before_cursor: &C, item: &I) -> Result<(), SEError>
-        where C: StorageItem + ?Sized,
-              I: StorageItem + ?Sized
+        where C: DTSerializable + ?Sized,
+              I: DTSerializable + ?Sized
     {
         let mut item_buf: StackWriteBuf = Default::default();
-        item.serialize(&mut item_buf)
+        item.try_serialize(&mut item_buf)
             .map_err(|_| SEError::DataTooLarge)?;
 
         let bytes = item_buf.data_slice();
@@ -596,119 +635,29 @@ impl<F: DTFile> StorageEngine<F> {
 
         let (file, next_free_page, state) = self.prepare_data_page_type(kind, before_cursor);
 
-        state.dirty = true;
-        match state.page.extend_from_slice(bytes) {
+        match state.page.try_extend_from_slice(bytes) {
             Ok(()) => {},
-            Err(SEError::PageFull) => {
-                // If the page is full, finish out the page and assign a new one.
-                Self::finalize_and_assign_next_page(kind, file, next_free_page, state)?;
+            Err(()) => {
+                // The page is full. Finish out the page and assign a new one.
 
                 // Each data page starts with cursor information before the data itself.
-                let mut cursor_buf: StackWriteBuf = Default::default();
-
                 // If this errors, we'll be in an unrecoverable error state internally.
-                before_cursor.serialize(&mut cursor_buf)
-                    .map_err(|_| SEError::DataTooLarge)?;
+                // I could return a page-too-large error, but panicking is better here.
+                let cursor_buf = before_cursor.to_stack_buf()
+                    .expect("Cursor object is too large. File a bug - this should never happen.");
 
-                state.page.extend_from_slice(cursor_buf.data_slice())?;
-                state.page.extend_from_slice(bytes)?;
+                Self::finalize_and_assign_next_page(kind, file, next_free_page, state, cursor_buf.data_slice())?;
+
+                // state.page.try_extend_or_se_error(cursor_buf.data_slice())?;
+                state.page.try_extend_or_se_error(bytes)?;
             }
-            Err(e) => { return Err(e); }
         }
+        state.dirty = true;
 
         Ok(())
     }
 }
 
-
-// fn foo<C>(_c: &C) where C: StorageItem + ?Sized {
-//     todo!()
-// }
-// fn bar(_c: &dyn StorageItem) {
-//     todo!()
-// }
-
-
-
-#[derive(Clone)]
-struct StackWriteBuf<const SIZE: usize = 1024> {
-    arr: [u8; SIZE],
-    pos: usize,
-}
-
-impl<const SIZE: usize> Default for StackWriteBuf<SIZE> {
-    fn default() -> Self {
-        Self {
-            arr: [0; SIZE],
-            pos: 0,
-        }
-    }
-}
-
-impl<const SIZE: usize> StackWriteBuf<SIZE> {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn len(&self) -> usize { self.pos }
-    fn is_empty(&self) -> bool { self.pos != 0 }
-
-    fn data_slice(&self) -> &[u8] {
-        &self.arr[..self.pos]
-    }
-}
-
-impl<const SIZE: usize> ExtendFromSlice for StackWriteBuf<SIZE> {
-    type Result = Result<(), ()>; // The only error is that we're out of space!
-
-    fn extend_from_slice(&mut self, slice: &[u8]) -> Self::Result {
-        let end_pos = self.pos + slice.len();
-        if end_pos > self.arr.len() || end_pos < self.pos { // Second condition here simplifies the asm.
-            return Err(());
-        }
-
-        let target = &mut self.arr[self.pos..end_pos];
-        target.copy_from_slice(slice);
-        self.pos = end_pos;
-        Ok(())
-    }
-}
-
-trait StorageItem {
-    // fn serialize<const SIZE: usize>(&self, into: &mut StackWriteBuf<SIZE>) -> Result<(), ()>;
-    fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result;
-}
-
-impl StorageItem for str {
-    fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result {
-        push_str(into, self)
-    }
-}
-
-impl StorageItem for usize {
-    fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result {
-        push_usize(into, *self)
-    }
-}
-
-impl StorageItem for u32 {
-    fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result {
-        push_u32(into, *self)
-    }
-}
-
-impl StorageItem for u64 {
-    fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result {
-        push_u64(into, *self)
-    }
-}
-
-// impl<A, B> StorageItem for (A, B) where A: StorageItem, B: StorageItem {
-//     fn serialize<S: ExtendFromSlice>(&self, into: &mut S) -> S::Result {
-//         self.0.serialize(into);
-//         self.1.serialize(into)
-//     }
-// }
 
 impl<F: DTFile> Drop for StorageEngine<F> {
     fn drop(&mut self) {
@@ -805,7 +754,7 @@ impl<'a, F: DTFile> Iterator for DataChunkIterator<'a, F> {
 
 #[cfg(test)]
 mod test {
-    use crate::encoding::varint::push_usize;
+    use crate::encoding::varint::try_push_usize;
     use crate::storage::{DataPageType, StorageEngine};
     use crate::storage::file::test::TestFile;
 
@@ -814,8 +763,8 @@ mod test {
         // let mut se = StorageEngine::from_file(TestFile::new()).unwrap();
         let mut se = StorageEngine::open("foo.dts").unwrap();
 
-        // for i in 0..4000 {
-        for i in 0..20 {
+        for i in 0..4000 {
+        // for i in 0..20 {
             se.append_chunk(DataPageType::AgentNames, "yo dawg", &(i as usize)).unwrap();
             // push_usize(&mut se.write_to(DataPageType::AgentNames), i).unwrap();
             // se.append_data_bytes_to(DataPageType::AgentNames, i).unwrap();
@@ -839,7 +788,9 @@ mod test {
 
     #[test]
     fn two() {
-        let mut se = StorageEngine::from_file(TestFile::new()).unwrap();
+        // let mut se = StorageEngine::from_file(TestFile::new()).unwrap();
+        let mut se = StorageEngine::open("foo.dts").unwrap();
+
 
         for page in se.iter_data_pages(DataPageType::AgentNames) {
             let mut page = page.unwrap();

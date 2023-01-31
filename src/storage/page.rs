@@ -9,7 +9,7 @@ use std::fs::File;
 use smallvec::smallvec;
 use std::os::unix::fs::FileExt;
 use crate::encoding::bufparser::BufParser;
-use crate::encoding::tools::{calc_checksum, ExtendFromSlice};
+use crate::encoding::tools::{calc_checksum, ExtendFromSlice, TryExtendFromSlice};
 use crate::encoding::varint::*;
 use crate::storage::*;
 
@@ -129,12 +129,10 @@ const PO_HEADER_START: usize = 20;
 
 
 
-impl<const T: usize> ExtendFromSlice for Page<T> {
-    type Result = Result<(), SEError>;
-
-    fn extend_from_slice(&mut self, slice: &[u8]) -> Result<(), SEError> {
+impl<const T: usize> TryExtendFromSlice for Page<T> {
+    fn try_extend_from_slice(&mut self, slice: &[u8]) -> Result<(), ()> {
         if self.write_pos + slice.len() > self.data.len() {
-            return Err(SEError::PageFull);
+            return Err(());
         }
         self.data[self.write_pos..self.write_pos + slice.len()].copy_from_slice(slice);
         self.write_pos += slice.len();
@@ -144,10 +142,8 @@ impl<const T: usize> ExtendFromSlice for Page<T> {
 
 struct InfallibleWritePage<'a, const T: usize>(&'a mut Page<T>);
 impl<'a, const T: usize> ExtendFromSlice for InfallibleWritePage<'a, T> {
-    type Result = ();
-
     fn extend_from_slice(&mut self, slice: &[u8]) {
-        assert!(self.0.write_pos + slice.len() <= self.0.data.len());
+        assert!(self.0.write_pos + slice.len() <= self.0.data.len(), "Data too large for page");
         self.0.data[self.0.write_pos..self.0.write_pos + slice.len()].copy_from_slice(slice);
         self.0.write_pos += slice.len();
     }
@@ -232,26 +228,34 @@ impl<const T: usize> Page<T> {
         // self.data
     }
 
-    pub(crate) fn push_u32(&mut self, num: u32) -> Result<(), SEError> {
-        push_u32(self, num)
-    }
-    pub(crate) fn push_u64(&mut self, num: u64) -> Result<(), SEError> {
-        push_u64(self, num)
-    }
-    pub(crate) fn push_usize(&mut self, num: usize) -> Result<(), SEError> {
-        push_usize(self, num)
+    pub(crate) fn try_extend_or_se_error(&mut self, slice: &[u8]) -> Result<(), SEError> {
+        self.try_extend_from_slice(slice)
+            .map_err(|_| SEError::PageFull)
     }
 
-    fn extend_from_slice_infallible(&mut self, slice: &[u8]) {
+    pub(crate) fn try_push_u32(&mut self, num: u32) -> Result<(), SEError> {
+        try_push_u32(self, num)
+            .map_err(|_| SEError::PageFull)
+    }
+    pub(crate) fn try_push_u64(&mut self, num: u64) -> Result<(), SEError> {
+        try_push_u64(self, num)
+            .map_err(|_| SEError::PageFull)
+    }
+    pub(crate) fn try_push_usize(&mut self, num: usize) -> Result<(), SEError> {
+        try_push_usize(self, num)
+            .map_err(|_| SEError::PageFull)
+    }
+
+    fn extend_from_slice(&mut self, slice: &[u8]) {
         InfallibleWritePage(self).extend_from_slice(slice)
     }
-    fn push_u32_infallable(&mut self, num: u32) {
+    fn push_u32(&mut self, num: u32) {
         push_u32(&mut InfallibleWritePage(self), num);
     }
-    fn push_u64_infallible(&mut self, num: u64) {
+    fn push_u64(&mut self, num: u64) {
         push_u64(&mut InfallibleWritePage(self), num);
     }
-    fn push_usize_infallible(&mut self, num: usize) {
+    fn push_usize(&mut self, num: usize) {
         push_usize(&mut InfallibleWritePage(self), num);
     }
 
@@ -384,14 +388,14 @@ impl HeaderPage {
         page.data[PO_HEADER_FORMAT_VERSION].copy_from_slice(&FORMAT_VERSION.to_le_bytes());
 
         // TODO: Check how all these unwrap() calls affect binary size.
-        page.push_usize_infallible(header_fields.page_size);
+        page.push_usize(header_fields.page_size);
 
         for (kind, c) in header_fields.data_chunk_info_iter() {
-            page.push_u32_infallable(kind + 1);
-            page.push_u32_infallable(c.first_page);
-            page.push_u32_infallable(c.blit_page);
+            page.push_u32(kind + 1);
+            page.push_u32(c.first_page);
+            page.push_u32(c.blit_page);
         }
-        page.push_u32_infallable(0);
+        page.push_u32(0);
         page.bake_len_and_checksum();
 
         page
@@ -448,7 +452,7 @@ impl HeaderPage {
 }
 
 impl DataPage {
-    pub(super) fn new(fields: DataPageImmutableFields) -> Self {
+    pub(super) fn new(fields: DataPageImmutableFields, cursor_data: &[u8]) -> Self {
         let mut page = Self {
             data: [0; DEFAULT_PAGE_SIZE],
             // cursor_start_pos: usize::MAX,
@@ -457,10 +461,13 @@ impl DataPage {
         };
 
         // Write the immutable bytes. This will write at self.content_start_pos.
-        page.push_u32_infallable(fields.kind as u32);
-        page.push_u32_infallable(fields.prev_page);
+        page.push_u32(fields.kind as u32);
+        page.push_u32(fields.prev_page);
         // page.cursor_start_pos = page.content_end_pos;
-        // page.extend_from_slice_infallible(cursor_data);
+
+        // If the cursor is too large, this will panic. But that is a logic error, and I accept it.
+        page.push_usize(cursor_data.len());
+        page.extend_from_slice(cursor_data);
 
         page
     }
@@ -524,18 +531,22 @@ pub fn page_first_byte_offset(is_header: bool) -> usize {
 
 #[cfg(test)]
 mod test {
-    use crate::encoding::tools::ExtendFromSlice;
+    use crate::encoding::tools::{ExtendFromSlice, TryExtendFromSlice};
     use crate::storage::page::{BlitStatus, Page, DataPageImmutableFields, DataPage};
     use crate::storage::{DataPageType, PageType};
 
     #[test]
     fn blah() {
         let mut page = DataPage::new(DataPageImmutableFields {
-            kind: DataPageType::AgentNames,
-            prev_page: 0,
-        });
+                    kind: DataPageType::AgentNames,
+                    prev_page: 0,
+                },
+        &[1,2,3]
+        );
 
-        page.extend_from_slice("hello".as_bytes()).unwrap();
+        assert_eq!(0, page.get_next_or_associated_page());
+
+        page.try_extend_from_slice("hello".as_bytes()).unwrap();
 
         page.set_blit_status(BlitStatus(6));
         page.set_next_page(123);

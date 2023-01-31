@@ -18,7 +18,7 @@
 use std::hint::unreachable_unchecked;
 use std::mem::size_of;
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::ExtendFromSlice;
+use crate::encoding::tools::{ExtendFromSlice, TryExtendFromSlice};
 
 // const ENC_1_U64: u64 = 1u64 << 7;
 // const ENC_2_U64: u64 = (1u64 << 14) + (1u64 << 7);
@@ -452,21 +452,41 @@ pub(crate) fn mix_bit_usize(value: usize, extra: bool) -> usize {
     }
 }
 
-pub(crate) fn push_u32<V: ExtendFromSlice>(into: &mut V, val: u32) -> V::Result {
+pub(crate) fn try_push_u32<V: TryExtendFromSlice>(into: &mut V, val: u32) -> Result<(), ()> {
     let (buf, pos) = encode_prefix_varint_u32(val);
-    into.extend_from_slice(&buf[..pos])
+    into.try_extend_from_slice(&buf[..pos])
 }
 
-pub(crate) fn push_u64<V: ExtendFromSlice>(into: &mut V, val: u64) -> V::Result {
+pub(crate) fn try_push_u64<V: TryExtendFromSlice>(into: &mut V, val: u64) -> Result<(), ()> {
     let (buf, pos) = encode_prefix_varint_u64(val);
-    into.extend_from_slice(&buf[..pos])
+    into.try_extend_from_slice(&buf[..pos])
 }
 
-pub(crate) fn push_usize<V: ExtendFromSlice>(into: &mut V, val: usize) -> V::Result {
+pub(crate) fn try_push_usize<V: TryExtendFromSlice>(into: &mut V, val: usize) -> Result<(), ()> {
     if size_of::<usize>() <= size_of::<u32>() {
-        push_u32(into, val as u32)
+        try_push_u32(into, val as u32)
     } else if size_of::<usize>() == size_of::<u64>() {
-        push_u64(into, val as u64)
+        try_push_u64(into, val as u64)
+    } else {
+        panic!("usize larger than u64 is not supported");
+    }
+}
+
+pub(crate) fn push_u32<V: ExtendFromSlice>(into: &mut V, val: u32) {
+    let (buf, pos) = encode_prefix_varint_u32(val);
+    into.extend_from_slice(&buf[..pos]);
+}
+
+pub(crate) fn push_u64<V: ExtendFromSlice>(into: &mut V, val: u64) {
+    let (buf, pos) = encode_prefix_varint_u64(val);
+    into.extend_from_slice(&buf[..pos]);
+}
+
+pub(crate) fn push_usize<V: ExtendFromSlice>(into: &mut V, val: usize) {
+    if size_of::<usize>() <= size_of::<u32>() {
+        push_u32(into, val as u32);
+    } else if size_of::<usize>() == size_of::<u64>() {
+        push_u64(into, val as u64);
     } else {
         panic!("usize larger than u64 is not supported");
     }

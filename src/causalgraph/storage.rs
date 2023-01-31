@@ -39,7 +39,7 @@ use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::causalgraph::entry::CGEntry;
 use crate::encoding::cg_entry::{read_cg_entry_into_cg_nonoverlapping, write_cg_entry};
 use crate::encoding::map::{ReadMap, WriteMap};
-use crate::encoding::varint::{push_u64, push_usize};
+use crate::encoding::varint::{push_u64, push_usize, try_push_u64, try_push_usize};
 use crate::list::encoding::leb::{decode_leb_usize, encode_leb_usize};
 
 
