@@ -232,6 +232,7 @@ mod textinfo;
 mod oplog;
 #[cfg(feature = "storage")]
 mod storage;
+mod simple_checkout;
 
 pub type AgentId = u32;
 
