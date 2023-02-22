@@ -551,6 +551,8 @@ pub fn num_decode_i64_with_extra_bit(value: u64) -> (i64, bool) {
 
 #[cfg(test)]
 mod test {
+    use std::fs::File;
+    use std::io::BufWriter;
     use super::*;
     use rand::prelude::*;
 
@@ -625,5 +627,34 @@ mod test {
                 check_enc_dec_unsigned(val);
             }
         }
+    }
+
+    #[test]
+    #[ignore]
+    fn generate_test_data() {
+        use std::io::Write;
+
+        let mut rng = SmallRng::seed_from_u64(20);
+        let filename = "varint_tests.txt";
+        let f = File::create(filename).unwrap();
+        let mut w = BufWriter::new(f);
+
+        for _i in 0..100 {
+            let x: u64 = rng.gen();
+
+            for bits in 0..64 {
+                let val = x >> bits;
+                check_zigzag(val as i64);
+                check_zigzag(-(val as i64));
+
+                check_enc_dec_unsigned(val);
+
+                let (result, len) = encode_prefix_varint_u64(val);
+                writeln!(&mut w, "{} {:?}", val, &result[..len]).unwrap();
+            }
+        }
+
+        drop(w);
+        println!("Wrote testing data to {}", filename);
     }
 }
