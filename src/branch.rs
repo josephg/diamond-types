@@ -1,6 +1,6 @@
 use std::collections::{btree_map, BTreeMap, BTreeSet};
 use smallvec::SmallVec;
-use crate::{CRDTKind, DTRange, Branch, OpLog, LV, LVKey, RegisterInfo, RegisterState, RegisterValue, ROOT_CRDT_ID};
+use crate::{CRDTKind, DTRange, Branch, OpLog, LV, LVKey, RegisterInfo, RegisterState, RegisterValue, ROOT_CRDT_ID, Primitive};
 use smartstring::alias::String as SmartString;
 
 pub(crate) fn btree_range_for_crdt<V>(map: &BTreeMap<(LVKey, SmartString), V>, crdt: LVKey) -> btree_map::Range<'_, (LVKey, SmartString), V> {
@@ -37,6 +37,17 @@ impl OpLog {
         todo!()
     }
 
+    /// Get the current value for this register, ignoring any other conflicting values.
+    ///
+    /// TODO: Is it worth keeping this method? Users could just call get_state below and throw out
+    /// the conflicting values...
+    fn value_for_register_nc(&self, info: &RegisterInfo) -> RegisterValue {
+        // We're calculating but not using the conflicting ops. But eh - conflicts are rare.
+        let (active_idx, _) = self.tie_break_mv(info);
+        (&info.ops[active_idx]).into()
+    }
+
+    /// Get this register's state. This includes the current value and any other conflicting values.
     fn get_state_for_register(&self, info: &RegisterInfo) -> RegisterState {
         let (active_idx, other_idxes) = self.tie_break_mv(info);
 
@@ -46,6 +57,36 @@ impl OpLog {
                 iter.map(|idx| (&info.ops[idx]).into()).collect()
             }).unwrap_or_default(),
         }
+    }
+
+
+    fn checkout_map_key_nc(&self, crdt: LVKey, key: &str) -> Option<RegisterValue> {
+        // Just checkout this path item.
+        let info = self.map_keys.get(&(crdt, key.into()))?;
+        Some(self.value_for_register_nc(info))
+    }
+
+    pub fn checkout_at_path_nc(&self, path: &[&str]) -> Option<RegisterValue> {
+        // let mut map_item = ROOT_CRDT_ID;
+        let mut item = RegisterValue::OwnedCRDT(CRDTKind::Map, ROOT_CRDT_ID);
+        for p in path {
+            if let RegisterValue::OwnedCRDT(CRDTKind::Map, key) = item {
+                item = self.checkout_map_key_nc(key, *p)?;
+            } else {
+                // Mmm return an error result here maybe??
+                return None;
+            }
+        }
+        return Some(item)
+    }
+
+    pub fn checkout_register_at_path_nc(&self, path: &[&str], key: &str) -> Option<Primitive> {
+        let val = self.checkout_at_path_nc(path)?;
+        if let RegisterValue::OwnedCRDT(CRDTKind::Map, container) = val {
+            return if let RegisterValue::Primitive(primitive) = self.checkout_map_key_nc(container, key)? {
+                Some(primitive)
+            } else { None }
+        } else { None }
     }
 
     pub fn checkout_tip(&self) -> Branch {
@@ -223,6 +264,24 @@ impl Branch {
         } else { key }
     }
 
+    pub fn register_in_map(&self, path: &[&str], key: &str) -> Option<&RegisterValue> {
+        let (kind, crdt) = self.crdt_at_path(path);
+        if kind != CRDTKind::Map {
+            panic!("Expected a map, found a {:?}", kind);
+        }
+
+        Some(&self.maps.get(&crdt)?.get(key)?.value)
+    }
+
+    // TODO: Probably better to return a Result here.
+    pub fn str_in_map(&self, path: &[&str], key: &str) -> Option<&str> {
+        if let RegisterValue::Primitive(Primitive::Str(s)) = self.register_in_map(path, key)? {
+            Some(s.as_str())
+        } else {
+            None
+        }
+    }
+
     fn dbg_check(&self, _deep: bool) {
         // Every CRDT (except for the root) should be referenced in exactly 1 place.
         let mut owned_map_crdts = BTreeSet::from([ROOT_CRDT_ID]);
@@ -300,7 +359,24 @@ mod tests {
         oplog.remote_map_set(child_obj, a, "yo", CreateValue::Primitive(Primitive::I64(123)));
         oplog.remote_map_set(child_obj, b, "yo", CreateValue::Primitive(Primitive::I64(321)));
 
+        // let b = oplog.checkout_tip();
+        // dbg!(b);
+        // dbg!(b.crdt_at_path(&["title"]));
+        // dbg!(b.register_in_map(&["conflict"], "yo"));
+
         check_oplog_checkouts_match(&oplog);
+    }
+
+    #[test]
+    fn checkout_simple_items() {
+        let mut oplog = OpLog::new();
+
+        let seph = oplog.cg.get_or_create_agent_id("seph");
+        let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "child", CreateValue::NewCRDT(CRDTKind::Map));
+        oplog.local_map_set(seph, child_obj, "a", CreateValue::Primitive(Primitive::I64(222)));
+
+        let result = oplog.checkout_register_at_path_nc(&["child"], "a");
+        assert_eq!(result, Some(Primitive::I64(222)));
     }
 
     #[test]
