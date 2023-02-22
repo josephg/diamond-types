@@ -276,8 +276,7 @@ pub mod test {
         }
 
         fn sync_data(&mut self) -> io::Result<()> {
-            self.sync_safe();
-            Ok(())
+            self.sync_and_maybe_crash()
         }
     }
 

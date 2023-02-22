@@ -1,5 +1,5 @@
 use rle::Searchable;
-use crate::encoding::tools::{ExtendFromSlice, push_str};
+use crate::encoding::tools::{ExtendFromSlice, push_str, try_push_str};
 use crate::encoding::varint::*;
 use crate::{Frontier, LV};
 // use bumpalo::collections::vec::Vec as BumpVec;
