@@ -301,6 +301,8 @@ mod tests {
         oplog.remote_map_set(child_obj, b, "yo", CreateValue::Primitive(Primitive::I64(321)));
 
         check_oplog_checkouts_match(&oplog);
+
+        // dbg!(oplog.checkout_tip().simple_val());
     }
 
     #[test]

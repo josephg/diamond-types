@@ -1,6 +1,6 @@
 use rle::{AppendRle, HasLength, RleRun};
 use crate::encoding::Merger;
-use crate::encoding::varint::num_encode_zigzag_isize;
+use crate::list::encoding::leb::num_encode_zigzag_isize_old;
 use crate::list::encoding::encode_tools::{push_leb_usize, write_leb_bit_run};
 use crate::list::ListOpLog;
 use crate::listmerge::merge::TransformedResult;
@@ -59,7 +59,7 @@ impl ListOpLog {
             match e.val {
                 XFState::Cancelled => {}
                 XFState::XFBy(dist) => {
-                    let n = num_encode_zigzag_isize(dist);
+                    let n = num_encode_zigzag_isize_old(dist);
                     push_leb_usize(&mut buf, n);
                     push_leb_usize(&mut buf, e.len);
                 }

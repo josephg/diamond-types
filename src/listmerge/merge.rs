@@ -13,7 +13,7 @@ use rle::intersect::rle_intersect_rev;
 use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::dtrange::DTRange;
+use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::{AgentId, CausalGraph, Frontier, LV};
 use crate::causalgraph::agent_assignment::AgentAssignment;
@@ -188,6 +188,7 @@ impl M2Tracker {
                         let my_name = aa.get_agent_name(agent);
                         let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
                         let other_name = aa.get_agent_name(other_agent);
+                        // eprintln!("concurrent insert at the same place {} ({}) vs {} ({})", item.id.start, my_name, other_lv, other_name);
 
                         // Its possible for a user to conflict with themself if they commit to
                         // multiple branches. In this case, sort by seq number.

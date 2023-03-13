@@ -23,7 +23,7 @@ pub(super) fn deleted_n_state(n: u32) -> YjsSpanState {
 
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
 pub struct YjsSpan {
-    /// The local times for this entry
+    /// The local version of the corresponding insert operation
     pub id: DTRange,
 
     /**

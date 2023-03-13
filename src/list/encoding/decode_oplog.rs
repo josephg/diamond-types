@@ -18,6 +18,7 @@ use crate::causalgraph::agent_span::AgentSpan;
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::calc_checksum;
+use crate::list::encoding::leb::num_decode_zigzag_isize_old;
 
 // If this is set to false, the compiler can optimize out the verbose printing code. This makes the
 // compiled output slightly smaller.
@@ -305,7 +306,7 @@ impl<'a> ReadPatchesIter<'a> {
             (n, diff, fwd)
         } else {
             // n encodes diff.
-            let diff = num_decode_zigzag_isize(n);
+            let diff = num_decode_zigzag_isize_old(n);
             (1, diff, true)
         };
 

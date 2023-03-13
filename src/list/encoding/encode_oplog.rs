@@ -12,7 +12,7 @@ use crate::list::operation::ListOpKind;
 use crate::dtrange::DTRange;
 use crate::encoding::tools::calc_checksum;
 use crate::list::encoding::encode_tools::{Merger, push_leb_chunk, push_leb_str, push_leb_u32, push_leb_usize, push_u32_le, write_leb_bit_run};
-use crate::list::encoding::leb::{encode_leb_u32, encode_leb_usize};
+use crate::list::encoding::leb::{encode_leb_u32, encode_leb_usize, num_encode_zigzag_isize_old};
 
 const ALLOW_VERBOSE: bool = false;
 
@@ -71,7 +71,7 @@ fn write_op(dest: &mut Vec<u8>, op: &ListOpMetrics, cursor: &mut usize) {
         if op.kind == Del { n = mix_bit_usize(n, fwd) };
         n
     } else if cursor_diff != 0 {
-        num_encode_zigzag_isize(cursor_diff)
+        num_encode_zigzag_isize_old(cursor_diff)
     } else {
         0
     };
@@ -82,7 +82,7 @@ fn write_op(dest: &mut Vec<u8>, op: &ListOpMetrics, cursor: &mut usize) {
     pos += encode_leb_usize(n, &mut buf[pos..]);
 
     if len != 1 && cursor_diff != 0 {
-        let n2 = num_encode_zigzag_isize(cursor_diff);
+        let n2 = num_encode_zigzag_isize_old(cursor_diff);
         pos += encode_leb_usize(n2, &mut buf[pos..]);
     }
 
@@ -182,7 +182,7 @@ fn write_assignment_run(dest: &mut Vec<u8>, run: AgentAssignmentRun) {
     pos += encode_leb_usize(run.len, &mut buf[pos..]);
 
     if has_jump {
-        pos += encode_leb_usize(num_encode_zigzag_isize(run.delta), &mut buf[pos..]);
+        pos += encode_leb_usize(num_encode_zigzag_isize_old(run.delta), &mut buf[pos..]);
     }
 
     dest.extend_from_slice(&buf[..pos]);

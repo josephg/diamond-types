@@ -15,7 +15,6 @@
 //!
 //! ... And so on.
 
-use std::hint::unreachable_unchecked;
 use std::mem::size_of;
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::{ExtendFromSlice, TryExtendFromSlice};
@@ -37,10 +36,13 @@ const ENC_6_U64: u64 = (1u64 << 42) + ENC_5_U64;
 const ENC_7_U64: u64 = (1u64 << 49) + ENC_6_U64;
 const ENC_8_U64: u64 = (1u64 << 54) + ENC_7_U64;
 
+pub type U32VarintArr = [u8; 5];
+pub type U64VarintArr = [u8; 9];
+
 /// Encode u32 as a length-prefixed varint.
 ///
 /// Returns the number of bytes which have been consumed in the provided buffer.
-pub fn encode_prefix_varint_u32(mut value: u32) -> ([u8; 5], usize) {
+pub fn encode_prefix_varint_u32(mut value: u32) -> (U32VarintArr, usize) {
     let mut buf = [0u8; 5];
     if value < ENC_1_U32 {
         buf[0] = value as u8;
@@ -83,7 +85,7 @@ pub fn encode_prefix_varint_u32(mut value: u32) -> ([u8; 5], usize) {
 /// Encode a u64 as a length-prefixed varint.
 ///
 /// Returns the number of bytes which have been consumed in the provided buffer.
-pub fn encode_prefix_varint_u64(mut value: u64) -> ([u8; 9], usize) {
+pub fn encode_prefix_varint_u64(mut value: u64) -> (U64VarintArr, usize) {
     let mut buf = [0u8; 9];
 
     let bytes_used = if value < ENC_1_U64 {
@@ -326,7 +328,7 @@ pub fn decode_prefix_varint_u64_unroll(buf: &[u8]) -> Result<(u64, usize), Parse
 }
 
 #[inline]
-pub(crate) fn decode_prefix_varint_u64_unroll_flat(buf: &[u8; 9]) -> (u64, usize) {
+pub(crate) fn decode_prefix_varint_u64_unroll_flat(buf: &U64VarintArr) -> (u64, usize) {
     // println!("{:b} {:#04x} {:#04x} {:#04x} {:#04x} {:#04x}", buf[0], buf[0], buf[1], buf[2], buf[3], buf[4]);
     // assert!(buf.len() >= 5);
     let b0 = buf[0];
@@ -409,24 +411,6 @@ pub fn decode_prefix_varint_usize(buf: &[u8]) -> Result<(usize, usize), ParseErr
 }
 
 
-pub fn num_encode_zigzag_i64(val: i64) -> u64 {
-    val.unsigned_abs() * 2 + val.is_negative() as u64
-}
-
-pub fn num_encode_zigzag_i32(val: i32) -> u32 {
-    val.unsigned_abs() * 2 + val.is_negative() as u32
-}
-
-pub fn num_encode_zigzag_isize(val: isize) -> usize {
-    // TODO: Figure out a way to write this that gives compiler errors instead of runtime errors.
-    if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {
-        num_encode_zigzag_i32(val as i32) as usize
-    } else if cfg!(target_pointer_width = "64") {
-        num_encode_zigzag_i64(val as i64) as usize
-    } else {
-        panic!("Unsupported target pointer width")
-    }
-}
 
 #[inline]
 pub(crate) fn mix_bit_u64(value: u64, extra: bool) -> u64 {
@@ -525,13 +509,14 @@ pub(crate) fn strip_bit_usize_2(value: &mut usize) -> bool {
 }
 
 pub fn num_decode_zigzag_i32(val: u32) -> i32 {
-    // dbg!(val);
-    (val >> 1) as i32 * (if val & 1 == 1 { -1 } else { 1 })
+    let n = (val >> 1) as i32;
+    if val & 1 == 1 { -n - 1 }
+    else { n }
 }
-
 pub fn num_decode_zigzag_i64(val: u64) -> i64 {
-    // dbg!(val);
-    (val >> 1) as i64 * (if val & 1 == 1 { -1 } else { 1 })
+    let n = (val >> 1) as i64;
+    if val & 1 == 1 { -n - 1 }
+    else { n }
 }
 
 pub fn num_decode_zigzag_isize(val: usize) -> isize {
@@ -544,10 +529,32 @@ pub fn num_decode_zigzag_isize(val: usize) -> isize {
     }
 }
 
-pub fn num_decode_i64_with_extra_bit(value: u64) -> (i64, bool) {
-    let bit = (value & 1) != 0;
-    (num_decode_zigzag_i64(value >> 1), bit)
+
+pub fn num_encode_zigzag_i64(val: i64) -> u64 {
+    // There's various other ways to construct this, but most of them don't correctly support
+    // i64::MIN, because there's no equivalent i64::MAX.
+    //
+    // Apparently this is also correct, using C semantics:
+    // (n + n) ^ -(n < 0) - (n < 0)
+
+    ((val << 1) ^ (val >> 63)) as u64
 }
+
+pub fn num_encode_zigzag_i32(val: i32) -> u32 {
+    ((val << 1) ^ (val >> 31)) as u32
+}
+
+pub fn num_encode_zigzag_isize(val: isize) -> usize {
+    // TODO: Figure out a way to write this that gives compiler errors instead of runtime errors.
+    if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {
+        num_encode_zigzag_i32(val as i32) as usize
+    } else if cfg!(target_pointer_width = "64") {
+        num_encode_zigzag_i64(val as i64) as usize
+    } else {
+        panic!("Unsupported target pointer width")
+    }
+}
+
 
 #[cfg(test)]
 mod test {
@@ -555,22 +562,36 @@ mod test {
     use std::io::BufWriter;
     use super::*;
     use rand::prelude::*;
+    use crate::list::encoding::leb::{num_decode_zigzag_i32_old, num_decode_zigzag_i64_old, num_encode_zigzag_i32_old, num_encode_zigzag_i64_old};
 
-    fn check_zigzag(val: i64) {
-        let zz = num_encode_zigzag_i64(val);
-        let actual = num_decode_zigzag_i64(zz);
+    fn check_zigzag_old(val: i64) {
+        let zz = num_encode_zigzag_i64_old(val);
+        let actual = num_decode_zigzag_i64_old(zz);
         assert_eq!(val, actual);
-
-        // if val.abs() < i64::MAX / 2 {
-        //     let zz_true = num_encode_i64_with_extra_bit(val, true);
-        //     assert_eq!((val, true), num_decode_i64_with_extra_bit(zz_true));
-        //     let zz_false = num_encode_i64_with_extra_bit(val, false);
-        //     assert_eq!((val, false), num_decode_i64_with_extra_bit(zz_false));
-        // }
 
         if val.abs() <= i32::MAX as i64 {
             let val = val as i32;
+            let zz = num_encode_zigzag_i32_old(val);
+            let actual = num_decode_zigzag_i32_old(zz);
+            assert_eq!(val, actual);
+        }
+    }
+
+    fn check_zigzag(val: i64, expected_zz: Option<u64>) {
+        let zz = num_encode_zigzag_i64(val);
+        if let Some(expected_zz) = expected_zz {
+            assert_eq!(expected_zz, zz);
+        }
+        let actual = num_decode_zigzag_i64(zz);
+        // dbg!(val, zz, actual, expected_zz);
+        assert_eq!(val, actual);
+
+        if val >= i32::MIN as i64 && val <= i32::MAX as i64 {
+            let val = val as i32;
             let zz = num_encode_zigzag_i32(val);
+            if let Some(expected_zz) = expected_zz {
+                assert_eq!(expected_zz as u32, zz);
+            }
             let actual = num_decode_zigzag_i32(zz);
             assert_eq!(val, actual);
         }
@@ -601,6 +622,22 @@ mod test {
     }
 
     #[test]
+    fn zigzag_matches_protobuf() {
+        check_zigzag(0, Some(0));
+        check_zigzag(-1, Some(1));
+        check_zigzag(1, Some(2));
+        check_zigzag(-2, Some(3));
+        check_zigzag(2147483647, Some(4294967294));
+        check_zigzag(-2147483648, Some(4294967295));
+
+        check_zigzag(i64::MAX, None);
+        check_zigzag(i64::MIN, None);
+
+        check_zigzag(i32::MAX as i64, None);
+        check_zigzag(i32::MIN as i64, None);
+    }
+
+    #[test]
     fn simple_enc_dec() {
         check_enc_dec_unsigned(0);
         check_enc_dec_unsigned(1);
@@ -610,6 +647,15 @@ mod test {
         check_enc_dec_unsigned(0xffffffff);
         check_enc_dec_unsigned(158933560); // from testing.
         check_enc_dec_unsigned(15779779462787834424); // from testing.
+        check_enc_dec_unsigned(u64::MAX); // from testing.
+    }
+
+    #[test]
+    fn foo() {
+        let (bytes, used) = encode_prefix_varint_u64(u64::MAX);
+        dbg!(&bytes[..used]);
+        let (bytes, used) = encode_prefix_varint_u32(u32::MAX);
+        dbg!(&bytes[..used]);
     }
 
     #[test]
@@ -621,8 +667,8 @@ mod test {
 
             for bits in 0..64 {
                 let val = x >> bits;
-                check_zigzag(val as i64);
-                check_zigzag(-(val as i64));
+                check_zigzag(val as i64, None);
+                check_zigzag(-(val as i64), None);
 
                 check_enc_dec_unsigned(val);
             }
@@ -644,8 +690,8 @@ mod test {
 
             for bits in 0..64 {
                 let val = x >> bits;
-                check_zigzag(val as i64);
-                check_zigzag(-(val as i64));
+                check_zigzag(val as i64, None);
+                check_zigzag(-(val as i64), None);
 
                 check_enc_dec_unsigned(val);
 
