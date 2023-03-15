@@ -12,9 +12,9 @@ use smallvec::{smallvec, SmallVec};
 use rle::{HasLength, SplitableSpan};
 use crate::list::ListOpLog;
 use crate::dtrange::DTRange;
+use crate::{CausalGraph, Frontier, LV};
+use crate::causalgraph::graph::{Graph, GraphEntrySimple};
 use crate::rle::KVPair;
-use crate::{Parents, LV, Frontier};
-use crate::causalgraph::parents::ParentsEntrySimple;
 
 pub fn name_of(time: LV) -> String {
     if time == LV::MAX { panic!("Should not see ROOT_TIME here"); }
@@ -39,18 +39,18 @@ impl ToString for DotColor {
     }
 }
 
-impl Parents {
+impl Graph {
     /// This is a helper method to iterate through the time DAG, but such that there's nothing in
     /// the time DAG which splits the returned range via its parents.
     ///
     /// This method could be made more public - but right now its only used in this one place.
-    fn iter_atomic_chunks(&self) -> impl Iterator<Item = ParentsEntrySimple> + '_ {
-        self.entries.iter().flat_map(|e| {
+    fn iter_atomic_chunks(&self) -> impl Iterator<Item = GraphEntrySimple> + '_ {
+        self.0.iter().flat_map(|e| {
             let mut split_points: SmallVec<[usize; 4]> = smallvec![e.span.last()];
 
             // let mut children = e.child_indexes.clone();
             for &child_idx in &e.child_indexes {
-                let child = &self.entries[child_idx];
+                let child = &self.0.0[child_idx];
                 for &p in child.parents.as_ref() {
                     if e.span.contains(p) {
                         split_points.push(p);
@@ -80,11 +80,11 @@ impl Parents {
 
                 start = next;
 
-                Some(ParentsEntrySimple {
+                Some(GraphEntrySimple {
                     span,
                     parents
                 })
-            }).collect::<SmallVec<[ParentsEntrySimple; 4]>>()
+            }).collect::<SmallVec<[GraphEntrySimple; 4]>>()
         })
     }
 }
@@ -222,11 +222,11 @@ impl ListOpLog {
 
                 // This is horribly inefficient but I don't care.
                 let (KVPair(_, op), offset) = self.operations.find_packed_with_offset(time);
-                let mut op = op.to_operation(self);
+                let mut op = op.to_operation(&self.operation_ctx);
                 op.truncate_keeping_right(offset);
                 op.truncate(1);
 
-                let txn = self.cg.graph.entries.find_packed(time);
+                let txn = self.cg.graph.0.find_packed(time);
 
                 // let label = if op.tag == Ins {
                 // let label = if op.content_known {
@@ -280,8 +280,8 @@ impl ListOpLog {
 #[cfg(test)]
 mod test {
     use std::fs;
-    use crate::list::merge::dot::DotColor::*;
     use crate::list::ListOpLog;
+    use crate::listmerge::dot::DotColor::*;
 
     #[test]
     #[ignore]

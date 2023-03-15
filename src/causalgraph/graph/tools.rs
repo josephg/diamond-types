@@ -120,7 +120,7 @@ impl Graph {
         // Honestly any approach should be obnoxiously fast in any real editing session anyway.
 
         // TODO: Consider moving queue into a threadlocal variable so we don't need to reallocate it
-        // with each call to branch_contains_order.
+        // with each call.
         let mut queue = BinaryHeap::new();
 
         // This code could be written to use parent_indexes but its a bit tricky, as an index isn't
