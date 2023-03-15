@@ -13,7 +13,7 @@ use crate::rle::RleVec;
 use crate::dtrange::DTRange;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 
 /// This type stores metadata for a run of transactions created by the users.
 ///
@@ -33,6 +33,11 @@ pub(crate) struct GraphEntryInternal {
     /// - Two or more items when concurrent changes have happened, and the first item in this range
     ///   is a merge operation.
     pub parents: Frontier,
+
+    /// This is a cached list of all the other indexes of items in history which name this item as
+    /// a parent. Its very useful in a few specific situations - and I've gone back and forth on
+    /// whether its worth keeping this field.
+    pub child_indexes: SmallVec<[usize; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -86,21 +91,30 @@ impl Graph {
             shadow = self.entries.find(shadow - 1).unwrap().shadow;
         }
 
-        let will_merge = if let Some(last) = self.entries.last_entry() {
-            // TODO: Is this shadow check necessary?
-            // This code is from TxnSpan splitablespan impl. Copying it here is a bit ugly but
-            // its the least ugly way I could think to implement this.
-            txn_parents.len() == 1 && txn_parents[0] == last.last_time() && shadow == last.shadow
-        } else { false };
+        // Because of the fast path above, we're guaranteed that this item won't RLE-merge.
+        // We need to go through the parents and wire up children.
+        let new_idx = self.entries.0.len();
+
+        if txn_parents.is_empty() {
+            self.root_child_indexes.push(new_idx);
+        } else {
+            for &p in txn_parents {
+                let parent_idx = self.entries.find_index(p).unwrap();
+                let parent_children = &mut self.entries.0[parent_idx].child_indexes;
+                debug_assert!(!parent_children.contains(&new_idx));
+                parent_children.push(new_idx); // This will maintain order.
+            }
+        }
 
         let txn = GraphEntryInternal {
             span: range,
             shadow,
             parents: txn_parents.into(),
+            child_indexes: smallvec![], // New entry has no children.
         };
 
         let did_merge = self.entries.push(txn);
-        debug_assert_eq!(will_merge, did_merge);
+        debug_assert_eq!(did_merge, false);
     }
 }
 
@@ -183,10 +197,12 @@ impl MergableSpan for GraphEntryInternal {
     }
 
     fn append(&mut self, other: Self) {
+        debug_assert!(other.child_indexes.is_empty());
         self.span.append(other.span);
     }
 
     fn prepend(&mut self, other: Self) {
+        debug_assert!(other.child_indexes.is_empty());
         self.span.prepend(other.span);
         self.parents = other.parents;
         debug_assert_eq!(self.shadow, other.shadow);
@@ -378,10 +394,12 @@ mod tests {
         let mut txn_a = GraphEntryInternal {
             span: (1000..1010).into(), shadow: 500,
             parents: Frontier::new_1(999),
+            child_indexes: smallvec![],
         };
         let txn_b = GraphEntryInternal {
             span: (1010..1015).into(), shadow: 500,
             parents: Frontier::new_1(1009),
+            child_indexes: smallvec![],
         };
 
         assert!(txn_a.can_append(&txn_b));
@@ -390,6 +408,7 @@ mod tests {
         assert_eq!(txn_a, GraphEntryInternal {
             span: (1000..1015).into(), shadow: 500,
             parents: Frontier::new_1(999),
+            child_indexes: smallvec![],
         })
     }
 

@@ -57,17 +57,16 @@ impl Graph {
         }
 
         let mut result_rev = Vec::<GraphEntryInternal>::new();
-        let root_child_indexes = smallvec![];
         let mut queue: BinaryHeap<QueueEntry> = parents.iter().map(|p| {
             QueueEntry {
                 target_parent: *p,
-                child_indexes: smallvec![usize::MAX]
+                child_indexes: smallvec![usize::MAX],
             }
         }).collect();
         let mut filtered_frontier = Frontier::default();
 
-        fn push_children(result_rev: &mut [GraphEntryInternal], frontier: &mut Frontier, children: &[LV], p: LV) {
-            for idx in children {
+        fn push_children(result_rev: &mut [GraphEntryInternal], frontier: &mut Frontier, child_indexes: &[usize], p: LV) {
+            for idx in child_indexes {
                 push_light_dedup(if *idx == usize::MAX {
                     frontier
                 } else {
@@ -91,6 +90,7 @@ impl Graph {
                     // The txn (or the remainder of the txn) is not included by the filter.
                     break;
                 }
+                // dbg!(&filter);
 
                 // We know at this point that the filter includes the target_parent.
                 debug_assert!(txn.span.start < filter.end);
@@ -100,11 +100,15 @@ impl Graph {
                 // Case 1. We'll add a new parents entry this loop iteration.
 
                 let p = entry.target_parent.min(filter.end - 1);
-                let idx_here = result_rev.len();
 
                 push_children(&mut result_rev, &mut filtered_frontier, &entry.child_indexes, p);
 
                 let base = filter.start.max(txn.span.start);
+                let mut child_indexes: SmallVec<[usize; 2]> = entry.child_indexes
+                    .iter().copied()
+                    .filter(|idx| *idx != usize::MAX)
+                    .collect();
+
                 // For simplicity, pull out anything that is within this txn *and* this filter.
                 while let Some(peeked_entry) = queue.peek() {
                     if peeked_entry.target_parent < base { break; }
@@ -113,13 +117,22 @@ impl Graph {
                     push_children(&mut result_rev, &mut filtered_frontier, &peeked_entry.child_indexes, peeked_target);
                     // iterations += 1;
 
+                    for i in peeked_entry.child_indexes.iter() {
+                        if *i != usize::MAX && !child_indexes.contains(i) {
+                            child_indexes.push(*i);
+                        }
+                    }
+
                     queue.pop();
                 }
 
+                let idx_here = result_rev.len();
                 result_rev.push(GraphEntryInternal {
                     span: (base..p + 1).into(),
                     shadow: txn.shadow, // This is pessimistic.
                     parents: Frontier::default(), // Parents current unknown!
+                    // child_indexes: smallvec![],
+                    child_indexes,
                 });
 
                 if filter.start > txn.span.start {
@@ -167,7 +180,10 @@ impl Graph {
 
             if txn.parents.0.len() == 1 {
                 // A silly little optimization to avoid an unnecessary clone() below.
-                queue.push(QueueEntry { target_parent: txn.parents.0[0], child_indexes: child_idxs })
+                queue.push(QueueEntry {
+                    target_parent: txn.parents.0[0],
+                    child_indexes: child_idxs
+                })
             } else {
                 for p in txn.parents.iter() {
                     queue.push(QueueEntry {
@@ -189,8 +205,20 @@ impl Graph {
             }
         }
 
-        for e in result_rev.iter_mut() {
+        // I'm collecting the root child indexes here instead of in the loop above because that lets
+        // us break early in the above loop when the filter runs dry. And its pretty cheap to
+        // collect the root_child_indexes here anyway, since we need to scan them in any case.
+        let mut root_child_indexes = smallvec![];
+        let list_last = result_rev.len();
+
+        for (idx, e) in result_rev.iter_mut().enumerate() {
             clean_frontier(self, &mut e.parents);
+            for idx in e.child_indexes.iter_mut() {
+                *idx = list_last - *idx - 1;
+            }
+            if e.parents.is_empty() {
+                root_child_indexes.push(idx);
+            }
         }
         clean_frontier(self, &mut filtered_frontier);
 
@@ -287,7 +315,7 @@ mod test {
     fn check_subgraph(g: &Graph, filter: &[Range<usize>], frontier: &[LV], expect_parents: &[&[LV]], expect_frontier: &[LV]) {
         let filter: Vec<DTRange> = filter.iter().map(|r| r.clone().into()).collect();
         let (subgraph, ff) = g.subgraph(&filter, frontier);
-        // dbg!(&subgraph);
+        dbg!(&subgraph);
 
         assert_eq!(ff.as_ref(), expect_frontier);
 

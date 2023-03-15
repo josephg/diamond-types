@@ -30,6 +30,9 @@ impl CausalGraph {
 
     /// Get the number of operations. This method is only valid when the history and assignment
     /// lengths are the same.
+    ///
+    /// TODO: Consider calling this something other than len(). We're essentially returning the next
+    /// local version.
     pub fn len(&self) -> usize {
         let len = self.len_assignment();
         debug_assert_eq!(len, self.len_history());

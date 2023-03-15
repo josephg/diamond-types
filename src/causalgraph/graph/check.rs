@@ -27,8 +27,19 @@ impl Graph {
         // And check the list is properly RLE compacted
         self.entries.check_fully_merged();
 
+        let expect_root_children = self.entries
+            .iter()
+            .enumerate()
+            .filter_map(|(i, entry)| {
+                if entry.parents.is_root() {
+                    Some(i)
+                } else { None }
+            });
+
+        assert!(expect_root_children.eq(self.root_child_indexes.iter().copied()));
+
         let mut next_change = 0;
-        for hist in self.entries.iter() {
+        for (idx, hist) in self.entries.iter().enumerate() {
             assert!(hist.span.end > hist.span.start);
 
             hist.parents.debug_check_sorted();
@@ -38,6 +49,12 @@ impl Graph {
             let parents = &hist.parents;
             let mut expect_shadow = next_change;//hist.span.start;
             next_change = hist.span.end;
+
+            // Check our child_indexes all contain this item in their parents list.
+            for child_idx in &hist.child_indexes {
+                let child = &self.entries.0[*child_idx];
+                assert!(child.parents.iter().any(|p| hist.contains(*p)));
+            }
 
             if !parents.is_empty() {
                 // By induction, we can assume the previous shadows are correct.
@@ -51,6 +68,9 @@ impl Graph {
                     // Note parent_order could point in the middle of a txn run.
                     let parent_idx = self.entries.find_index(p).unwrap();
                     let parent_txn = &self.entries.0[parent_idx];
+
+                    // Check the parent txn names this txn in its child_indexes
+                    assert!(parent_txn.child_indexes.contains(&idx));
 
                     // Shift it if the expected shadow points to the last item in the txn run.
                     // if p + 1 == parent_txn.span.end && expect_shadow == self.0.0[parent_idx + 1].span.start {
