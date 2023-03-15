@@ -192,9 +192,9 @@ impl Frontier {
     /// Advance a frontier by the set of time spans in range
     pub fn advance(&mut self, graph: &Graph, mut range: DTRange) {
         // This is a little crass. Might be nicer to use a &T iterator in RLEVec.
-        let txn_idx = graph.0.find_index(range.start).unwrap();
+        let txn_idx = graph.entries.find_index(range.start).unwrap();
 
-        for txn in &graph.0[txn_idx..] {
+        for txn in &graph.entries[txn_idx..] {
             debug_assert!(txn.contains(range.start));
 
             let end = txn.span.end.min(range.end);
@@ -221,8 +221,8 @@ impl Frontier {
     }
 
     pub fn advance_sparse(&mut self, graph: &Graph, range: DTRange) {
-        let txn_idx = graph.0.find_index(range.start).unwrap();
-        let first_txn = &graph.0[txn_idx];
+        let txn_idx = graph.entries.find_index(range.start).unwrap();
+        let first_txn = &graph.entries[txn_idx];
         if first_txn.span.end >= range.end {
             // Fast path.
             first_txn.with_parents(range.start, |parents| {
@@ -277,12 +277,12 @@ impl Frontier {
 
         self.debug_check_sorted();
 
-        let mut txn_idx = graph.0.find_index(range.last()).unwrap();
+        let mut txn_idx = graph.entries.find_index(range.last()).unwrap();
         loop {
             let last_order = range.last();
-            let txn = &graph.0[txn_idx];
+            let txn = &graph.entries[txn_idx];
             // debug_assert_eq!(txn_idx, history.0.find_index(range.last()).unwrap());
-            debug_assert_eq!(txn, graph.0.find(last_order).unwrap());
+            debug_assert_eq!(txn, graph.entries.find(last_order).unwrap());
             // let mut idx = frontier.iter().position(|&e| e == last_order).unwrap();
 
             if self.len() == 1 {

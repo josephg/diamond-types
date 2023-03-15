@@ -7,7 +7,7 @@ impl Graph {
         // TODO: Actually thats a useful function!
 
         let mut b = Frontier::root();
-        for txn in self.0.iter() {
+        for txn in self.entries.iter() {
             b.advance_by_known_run(txn.parents.as_ref(), txn.span);
         }
         b
@@ -21,14 +21,14 @@ impl Graph {
         // all previous txns have valid shadows while we advance.
 
         if !sparse {
-            self.0.check_packed_from_0();
+            self.entries.check_packed_from_0();
         }
 
         // And check the list is properly RLE compacted
-        self.0.check_fully_merged();
+        self.entries.check_fully_merged();
 
         let mut next_change = 0;
-        for hist in self.0.iter() {
+        for hist in self.entries.iter() {
             assert!(hist.span.end > hist.span.start);
 
             hist.parents.debug_check_sorted();
@@ -45,18 +45,18 @@ impl Graph {
                     assert!(p < hist.span.start);
 
                     if sparse {
-                        assert!(self.0.contains_needle(p));
+                        assert!(self.entries.contains_needle(p));
                     }
 
                     // Note parent_order could point in the middle of a txn run.
-                    let parent_idx = self.0.find_index(p).unwrap();
-                    let parent_txn = &self.0.0[parent_idx];
+                    let parent_idx = self.entries.find_index(p).unwrap();
+                    let parent_txn = &self.entries.0[parent_idx];
 
                     // Shift it if the expected shadow points to the last item in the txn run.
                     // if p + 1 == parent_txn.span.end && expect_shadow == self.0.0[parent_idx + 1].span.start {
                     //     expect_shadow = parent_txn.shadow;
                     // }
-                    if p + 1 == expect_shadow || (sparse && expect_shadow == self.0.0[parent_idx+1].span.start) {
+                    if p + 1 == expect_shadow || (sparse && expect_shadow == self.entries.0[parent_idx+1].span.start) {
                         expect_shadow = parent_txn.shadow;
                     }
                 }

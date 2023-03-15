@@ -124,10 +124,10 @@ impl<'a> SpanningTreeWalker<'a> {
         for mut span_remaining in rev_spans.iter().rev().copied() {
             debug_assert!(!span_remaining.is_empty());
 
-            let mut i = graph.0.find_index(span_remaining.start).unwrap();
+            let mut i = graph.entries.find_index(span_remaining.start).unwrap();
             // let mut offset = history.entries[i].
             while !span_remaining.is_empty() {
-                let txn = &graph.0[i];
+                let txn = &graph.entries[i];
                 debug_assert!(span_remaining.start >= txn.span.start && span_remaining.start < txn.span.end);
 
                 let offset = LV::min(span_remaining.len(), txn.span.end - span_remaining.start);
@@ -345,7 +345,7 @@ impl Graph {
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use crate::causalgraph::graph::{GraphEntryInternal, GraphEntrySimple};
+    use crate::causalgraph::graph::GraphEntrySimple;
     use crate::causalgraph::graph::tools::ConflictZone;
     use super::*;
 

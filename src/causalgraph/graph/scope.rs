@@ -130,7 +130,7 @@ impl Graph {
 
             // Ok, we need to expand the item based on its parents. The tricky thing here is what
             // we can skip safely.
-            let containing_txn = self.0.find_packed(time);
+            let containing_txn = self.entries.find_packed(time);
 
             let min_safe_base = if flag == Shared {
                 0

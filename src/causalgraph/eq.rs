@@ -122,7 +122,7 @@ impl PartialEq<Self> for CausalGraph {
                 let len_here = usize::min(crdt_id.len(), other_id.len());
 
                 // Ok, and we also need to check the txns match.
-                let (other_txn_entry, offset) = other.graph.0.find_packed_with_offset(other_time);
+                let (other_txn_entry, offset) = other.graph.entries.find_packed_with_offset(other_time);
                 let mut other_txn: GraphEntrySimple = other_txn_entry.clone().into();
                 if offset > 0 { other_txn.truncate_keeping_right(offset); }
                 if other_txn.len() > len_here {

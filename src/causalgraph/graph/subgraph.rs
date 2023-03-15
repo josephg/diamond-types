@@ -43,20 +43,27 @@ impl Graph {
 
     // The filter iterator must be reverse-sorted.
     pub(crate) fn subgraph_raw<I: Iterator<Item=DTRange>>(&self, rev_filter_iter: I, parents: &[LV]) -> (Graph, Frontier) {
+        // This algorithm iterates backwards through the causal graph looking for regions which
+        // overlap the passed rev_filter_iter.
+
+        // The traversal is similar to other graph traversal methods in graph/tools.rs. We walk the
+        // graph with a priority queue of pending items which are in the subtree under the passed
+        // parents object.
+
         #[derive(PartialOrd, Ord, Eq, PartialEq, Clone, Debug)]
         struct QueueEntry {
             target_parent: LV,
-            children: SmallVec<[usize; 2]>,
+            child_indexes: SmallVec<[usize; 2]>,
         }
 
-        let mut queue: BinaryHeap<QueueEntry> = BinaryHeap::new();
         let mut result_rev = Vec::<GraphEntryInternal>::new();
-        for p in parents {
-            queue.push(QueueEntry {
+        let root_child_indexes = smallvec![];
+        let mut queue: BinaryHeap<QueueEntry> = parents.iter().map(|p| {
+            QueueEntry {
                 target_parent: *p,
-                children: smallvec![usize::MAX]
-            });
-        }
+                child_indexes: smallvec![usize::MAX]
+            }
+        }).collect();
         let mut filtered_frontier = Frontier::default();
 
         fn push_children(result_rev: &mut [GraphEntryInternal], frontier: &mut Frontier, children: &[LV], p: LV) {
@@ -77,18 +84,15 @@ impl Graph {
             //    is allowed by the filter.
             // 2. The filter doesn't allow the txn the entry is inside.
 
-            let txn = self.0.find_packed(entry.target_parent);
+            let txn = self.entries.find_packed(entry.target_parent);
 
             while let Some(filter) = filter_iter.scan_until_start_below(entry.target_parent) {
-                // while filter.start > entry.target_parent {
-                //     if let Some(f) = rev_filter_iter.next() { filter = f; }
-                //     else { break 'txn_loop; }
-                // }
-
                 if filter.end <= txn.span.start {
+                    // The txn (or the remainder of the txn) is not included by the filter.
                     break;
                 }
 
+                // We know at this point that the filter includes the target_parent.
                 debug_assert!(txn.span.start < filter.end);
                 debug_assert!(entry.target_parent >= filter.start);
                 debug_assert!(entry.target_parent >= txn.span.start);
@@ -98,7 +102,7 @@ impl Graph {
                 let p = entry.target_parent.min(filter.end - 1);
                 let idx_here = result_rev.len();
 
-                push_children(&mut result_rev, &mut filtered_frontier, &entry.children, p);
+                push_children(&mut result_rev, &mut filtered_frontier, &entry.child_indexes, p);
 
                 let base = filter.start.max(txn.span.start);
                 // For simplicity, pull out anything that is within this txn *and* this filter.
@@ -106,7 +110,7 @@ impl Graph {
                     if peeked_entry.target_parent < base { break; }
 
                     let peeked_target = peeked_entry.target_parent.min(filter.end - 1);
-                    push_children(&mut result_rev, &mut filtered_frontier, &peeked_entry.children, peeked_target);
+                    push_children(&mut result_rev, &mut filtered_frontier, &peeked_entry.child_indexes, peeked_target);
                     // iterations += 1;
 
                     queue.pop();
@@ -125,15 +129,16 @@ impl Graph {
                     // items are added.
                     entry = QueueEntry {
                         target_parent: filter.start - 1,
-                        children: smallvec![idx_here],
+                        child_indexes: smallvec![idx_here],
                     };
-                } else {
-                    // filter.start <= txn.span.start. We're done with this txn.
+                } else { // filter.start <= txn.span.start.
+                    // The rest of this txn is included in the filter. Copy it all in, push the
+                    // parents and continue the outer loop.
                     if !txn.parents.is_empty() {
                         for p in txn.parents.iter() {
                             queue.push(QueueEntry {
                                 target_parent: *p,
-                                children: smallvec![idx_here],
+                                child_indexes: smallvec![idx_here],
                             })
                         }
                     }
@@ -147,12 +152,12 @@ impl Graph {
             // Case 2. The remainder of this txn is filtered out.
             //
             // We'll create new queue entries for all of this txn's parents.
-            let mut child_idxs = entry.children;
+            let mut child_idxs = entry.child_indexes;
 
             while let Some(peeked_entry) = queue.peek() {
                 if peeked_entry.target_parent < txn.span.start { break; } // Next item is out of this txn.
 
-                for i in peeked_entry.children.iter() {
+                for i in peeked_entry.child_indexes.iter() {
                     if !child_idxs.contains(i) { child_idxs.push(*i); }
                 }
                 // iterations += 1;
@@ -162,12 +167,12 @@ impl Graph {
 
             if txn.parents.0.len() == 1 {
                 // A silly little optimization to avoid an unnecessary clone() below.
-                queue.push(QueueEntry { target_parent: txn.parents.0[0], children: child_idxs })
+                queue.push(QueueEntry { target_parent: txn.parents.0[0], child_indexes: child_idxs })
             } else {
                 for p in txn.parents.iter() {
                     queue.push(QueueEntry {
                         target_parent: *p,
-                        children: child_idxs.clone()
+                        child_indexes: child_idxs.clone()
                     })
                 }
             }
@@ -189,7 +194,10 @@ impl Graph {
         }
         clean_frontier(self, &mut filtered_frontier);
 
-        (Graph(RleVec(result_rev)), filtered_frontier)
+        (Graph {
+            entries: RleVec(result_rev),
+            root_child_indexes,
+        }, filtered_frontier)
     }
 
     pub(crate) fn project_onto_subgraph(&self, filter: &[DTRange], frontier: &[LV]) -> Frontier {
@@ -222,7 +230,7 @@ impl Graph {
             let (mut mark_active, v) = dec(vv);
             if mark_active { num_active_entries -= 1; }
 
-            let txn = self.0.find_packed(v);
+            let txn = self.entries.find_packed(v);
 
             let Some(filter) = filter_iter.scan_until_start_below(v) else { break; };
 
@@ -271,7 +279,7 @@ mod test {
     use smallvec::smallvec;
     use rle::intersect::{rle_intersect, rle_intersect_first};
     use rle::MergeableIterator;
-    use crate::causalgraph::graph::{Graph, GraphEntryInternal};
+    use crate::causalgraph::graph::Graph;
     use crate::{DTRange, Frontier, LV};
     use crate::causalgraph::graph::tools::test::fancy_graph;
     use crate::rle::RleVec;
@@ -291,7 +299,7 @@ mod test {
         let expected_items = rle_intersect_first(diff.iter().copied(), filter.iter().copied())
             .collect::<Vec<_>>();
 
-        let actual_items = subgraph.0.iter()
+        let actual_items = subgraph.entries.iter()
             .map(|e| e.span)
             .merge_spans()
             .collect::<Vec<_>>();
@@ -299,7 +307,7 @@ mod test {
         // dbg!(&expected_items, &actual_items);
         assert_eq!(expected_items, actual_items);
 
-        for (entry, expect_parents) in subgraph.0.iter().zip(expect_parents.iter()) {
+        for (entry, expect_parents) in subgraph.entries.iter().zip(expect_parents.iter()) {
             assert_eq!(entry.parents.as_ref(), *expect_parents);
         }
 

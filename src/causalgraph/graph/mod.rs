@@ -13,6 +13,7 @@ use crate::rle::RleVec;
 use crate::dtrange::DTRange;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 
 /// This type stores metadata for a run of transactions created by the users.
 ///
@@ -35,11 +36,16 @@ pub(crate) struct GraphEntryInternal {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Graph(pub(crate) RleVec<GraphEntryInternal>);
+pub struct Graph {
+    pub(crate) entries: RleVec<GraphEntryInternal>,
+
+    // The index of all items with ROOT as a direct parent.
+    pub(crate) root_child_indexes: SmallVec<[usize; 2]>,
+}
 
 impl Graph {
     pub fn parents_at_time(&self, time: LV) -> Frontier {
-        let entry = self.0.find_packed(time);
+        let entry = self.entries.find_packed(time);
         entry.with_parents(time, |p| p.into())
     }
 
@@ -50,12 +56,12 @@ impl Graph {
 
     #[allow(unused)]
     pub fn num_entries(&self) -> usize {
-        self.0.num_entries()
+        self.entries.num_entries()
     }
 
     #[allow(unused)]
     pub fn get_next_time(&self) -> usize {
-        self.0.end()
+        self.entries.end()
     }
 
     /// Insert a new history entry for the specified range of versions, and the named parents.
@@ -64,7 +70,7 @@ impl Graph {
     pub(crate) fn push(&mut self, txn_parents: &[LV], range: DTRange) {
         // dbg!(txn_parents, range, &self.history.entries);
         // Fast path. The code below is weirdly slow, but most txns just append.
-        if let Some(last) = self.0.0.last_mut() {
+        if let Some(last) = self.entries.0.last_mut() {
             if txn_parents.len() == 1
                 && txn_parents[0] == last.last_time()
                 && last.span.can_append(&range)
@@ -77,10 +83,10 @@ impl Graph {
         // let parents = replace(&mut self.frontier, txn_parents);
         let mut shadow = range.start;
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
-            shadow = self.0.find(shadow - 1).unwrap().shadow;
+            shadow = self.entries.find(shadow - 1).unwrap().shadow;
         }
 
-        let will_merge = if let Some(last) = self.0.last_entry() {
+        let will_merge = if let Some(last) = self.entries.last_entry() {
             // TODO: Is this shadow check necessary?
             // This code is from TxnSpan splitablespan impl. Copying it here is a bit ugly but
             // its the least ugly way I could think to implement this.
@@ -93,7 +99,7 @@ impl Graph {
             parents: txn_parents.into(),
         };
 
-        let did_merge = self.0.push(txn);
+        let did_merge = self.entries.push(txn);
         debug_assert_eq!(will_merge, did_merge);
     }
 }
@@ -333,19 +339,19 @@ impl<'a, I: Iterator<Item = &'a GraphEntrySimple>> From<I> for Graph {
 // }
 impl Graph {
     pub(crate) fn iter_range(&self, range: DTRange) -> impl Iterator<Item =GraphEntrySimple> + '_ {
-        self.0.iter_range_map(range, |e| e.into())
+        self.entries.iter_range_map(range, |e| e.into())
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item =GraphEntrySimple> + '_ {
-        self.0.iter().map(|e| e.into())
+        self.entries.iter().map(|e| e.into())
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.0.end()
+        self.entries.end()
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.entries.is_empty()
     }
 }
 

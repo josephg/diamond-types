@@ -15,7 +15,7 @@ fn insert_history_local(oplog: &mut ListOpLog, frontier: &mut Frontier, range: D
     // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
     if let Some(f0) = frontier.try_get_single_entry_mut() {
         if *f0 == range.start.wrapping_sub(1) {
-            if let Some(last) = oplog.cg.graph.0.0.last_mut() {
+            if let Some(last) = oplog.cg.graph.entries.0.last_mut() {
                 last.span.end = range.end;
                 *f0 = range.last();
                 return;

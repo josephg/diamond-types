@@ -45,12 +45,12 @@ impl Graph {
     ///
     /// This method could be made more public - but right now its only used in this one place.
     fn iter_atomic_chunks(&self) -> impl Iterator<Item = GraphEntrySimple> + '_ {
-        self.0.iter().flat_map(|e| {
+        self.entries.iter().flat_map(|e| {
             let mut split_points: SmallVec<[usize; 4]> = smallvec![e.span.last()];
 
             // let mut children = e.child_indexes.clone();
             for &child_idx in &e.child_indexes {
-                let child = &self.0.0[child_idx];
+                let child = &self.entries.0[child_idx];
                 for &p in child.parents.as_ref() {
                     if e.span.contains(p) {
                         split_points.push(p);
@@ -226,7 +226,7 @@ impl ListOpLog {
                 op.truncate_keeping_right(offset);
                 op.truncate(1);
 
-                let txn = self.cg.graph.0.find_packed(time);
+                let txn = self.cg.graph.entries.find_packed(time);
 
                 // let label = if op.tag == Ins {
                 // let label = if op.content_known {

@@ -30,7 +30,7 @@ const OLD_INVALID_ROOT_TIME: usize = usize::MAX;
 impl Graph {
     fn shadow_of(&self, time: LV) -> LV {
         debug_assert_ne!(time, OLD_INVALID_ROOT_TIME);
-        self.0.find(time).unwrap().shadow
+        self.entries.find(time).unwrap().shadow
     }
 
     /// Does the frontier `[a]` contain `[b]` as a direct ancestor according to its shadow?
@@ -63,7 +63,7 @@ impl Graph {
         debug_assert_ne!(b, OLD_INVALID_ROOT_TIME);
         // This is a bit more strict than we technically need, but its fast for short circuit
         // evaluation.
-        a == b || (a > b && self.0.find(a).unwrap().contains(b))
+        a == b || (a > b && self.entries.find(a).unwrap().contains(b))
         // a == b
         //     || (b == ROOT_TIME && self.txn_shadow_contains(a, ROOT_TIME))
         //     || (a != ROOT_TIME && a > b && self.0.find(a).unwrap().contains(b))
@@ -106,7 +106,7 @@ impl Graph {
         // avoids the allocation from BinaryHeap.
         for &o in frontier {
             if o > target {
-                let txn = self.0.find(o).unwrap();
+                let txn = self.entries.find(o).unwrap();
                 if txn.shadow_contains(target) { return true; }
             }
         }
@@ -135,7 +135,7 @@ impl Graph {
             // dbg!((order, &queue));
 
             // TODO: Skip these calls to find() using parent_index.
-            let entry = self.0.find_packed(order);
+            let entry = self.entries.find_packed(order);
             if entry.shadow_contains(target) { return true; }
 
             while let Some(&next_time) = queue.peek() {
@@ -253,7 +253,7 @@ impl Graph {
             // Grab the txn containing ord. This will usually be at prev_txn_idx - 1.
             // TODO: Remove usually redundant binary search
 
-            let containing_txn = self.0.find_packed(ord);
+            let containing_txn = self.entries.find_packed(ord);
 
             // There's essentially 2 cases here:
             // 1. This item and the first item in the queue are part of the same txn. Mark down to
@@ -388,7 +388,7 @@ impl Graph {
                 }
             }
 
-            let containing_txn = self.0.find_packed(t);
+            let containing_txn = self.entries.find_packed(t);
 
             // I want an inclusive iterator :p
             let mut range = DTRange { start: containing_txn.span.start, end: t + 1 };
@@ -518,7 +518,7 @@ impl Graph {
         let first_v = versions[0];
         let last_v = versions[versions.len() - 1];
 
-        let last_entry = self.0.find_packed(last_v);
+        let last_entry = self.entries.find_packed(last_v);
 
         // Nothing else in the list matters because its all under the shadow of this item.
         // This is the most common case.
@@ -616,7 +616,7 @@ impl Graph {
                 inputs_remaining -= 1;
             }
 
-            let e = self.0.find_packed(v);
+            let e = self.entries.find_packed(v);
 
             if stop_at_shadow != usize::MAX && e.shadow <= stop_at_shadow {
                 break;
@@ -908,11 +908,11 @@ pub mod test {
             GraphEntrySimple { span: (9..11).into(), parents: Frontier::from_sorted(&[2, 8]) },
         ]);
 
-        assert_eq!(g.0.0.len(), 4);
-        assert_eq!(g.0[0].shadow, 0);
-        assert_eq!(g.0[1].shadow, 3);
-        assert_eq!(g.0[2].shadow, 6);
-        assert_eq!(g.0[3].shadow, 6);
+        assert_eq!(g.entries.0.len(), 4);
+        assert_eq!(g.entries[0].shadow, 0);
+        assert_eq!(g.entries[1].shadow, 3);
+        assert_eq!(g.entries[2].shadow, 6);
+        assert_eq!(g.entries[3].shadow, 6);
 
         g.dbg_check(true);
         g
