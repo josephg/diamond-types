@@ -36,10 +36,10 @@ struct VisitEntry {
     span: DTRange,
     txn_idx: usize,
     // entry: &'a HistoryEntry,
-    visited: bool,
     parents: Frontier,
     parent_idxs: SmallVec<[usize; 4]>,
     child_idxs: SmallVec<[usize; 4]>,
+    visited: bool,
 }
 
 

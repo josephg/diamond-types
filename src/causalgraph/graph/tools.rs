@@ -21,22 +21,13 @@ use serde::Serialize;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) enum DiffFlag { OnlyA, OnlyB, Shared }
 
-/// The code has changed to make ROOT_TIME no longer a thing. Guards against using this are here
-/// during testing, but will eventually be removed.
-///
-/// TODO: Remove this entirely.
-const OLD_INVALID_ROOT_TIME: usize = usize::MAX;
-
 impl Graph {
     fn shadow_of(&self, time: LV) -> LV {
-        debug_assert_ne!(time, OLD_INVALID_ROOT_TIME);
         self.entries.find(time).unwrap().shadow
     }
 
     /// Does the frontier `[a]` contain `[b]` as a direct ancestor according to its shadow?
     fn txn_shadow_contains(&self, a: LV, b: LV) -> bool {
-        debug_assert_ne!(a, OLD_INVALID_ROOT_TIME);
-        debug_assert_ne!(b, OLD_INVALID_ROOT_TIME);
 
         // wrapping_add(1) so we compute ROOT correctly.
         a == b || (a > b && self.shadow_of(a) <= b)
@@ -59,8 +50,6 @@ impl Graph {
     ///
     /// See `diff_shadow_bubble` test below for an example.
     pub(crate) fn is_direct_descendant_coarse(&self, a: LV, b: LV) -> bool {
-        debug_assert_ne!(a, OLD_INVALID_ROOT_TIME);
-        debug_assert_ne!(b, OLD_INVALID_ROOT_TIME);
         // This is a bit more strict than we technically need, but its fast for short circuit
         // evaluation.
         a == b || (a > b && self.entries.find(a).unwrap().contains(b))
@@ -97,7 +86,6 @@ impl Graph {
 
     /// Calculates whether the specified version contains (dominates) the specified time.
     pub(crate) fn frontier_contains_version(&self, frontier: &[LV], target: LV) -> bool {
-        debug_assert_ne!(target, OLD_INVALID_ROOT_TIME);
         if frontier.contains(&target) { return true; }
         if frontier.is_empty() { return false; }
 
