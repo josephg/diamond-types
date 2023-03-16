@@ -220,6 +220,7 @@ impl Graph {
             for idx in e.child_indexes.iter_mut() {
                 *idx = list_last - *idx - 1;
             }
+            e.child_indexes.reverse();
             if e.parents.is_empty() {
                 root_child_indexes.push(idx);
             }

@@ -1,5 +1,6 @@
 use crate::causalgraph::graph::Graph;
 use crate::Frontier;
+use crate::frontier::is_sorted_slice;
 
 impl Graph {
     pub(crate) fn dbg_get_frontier_inefficiently(&self) -> Frontier {
@@ -55,6 +56,7 @@ impl Graph {
                 let child = &self.entries.0[*child_idx];
                 assert!(child.parents.iter().any(|p| hist.contains(*p)));
             }
+            assert!(is_sorted_slice::<true, _>(&hist.child_indexes));
 
             if !parents.is_empty() {
                 // By induction, we can assume the previous shadows are correct.
