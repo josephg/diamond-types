@@ -259,7 +259,7 @@ fn scan_blocks<F: DTFile>(file: &mut F, header_fields: &StorageHeaderFields) -> 
 
     let mut next_page = 1;
     while let Some(Item(page_no, _prev_page, kind, is_blit)) = queue.pop() {
-        dbg!((page_no, kind, is_blit));
+        // dbg!((page_no, kind, is_blit));
         if page_no != next_page {
             panic!("Ermagherd bad {page_no} {next_page}");
             // return Err(SEError::GenericInvalidData);

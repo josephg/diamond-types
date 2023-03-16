@@ -54,24 +54,25 @@ impl Graph {
         struct QueueEntry {
             target_parent: LV,
             child_indexes: SmallVec<[usize; 2]>,
+            entry_in_frontier: bool,
         }
 
         let mut result_rev = Vec::<GraphEntryInternal>::new();
         let mut queue: BinaryHeap<QueueEntry> = parents.iter().map(|p| {
             QueueEntry {
                 target_parent: *p,
-                child_indexes: smallvec![usize::MAX],
+                child_indexes: smallvec![],
+                entry_in_frontier: true,
             }
         }).collect();
         let mut filtered_frontier = Frontier::default();
 
-        fn push_children(result_rev: &mut [GraphEntryInternal], frontier: &mut Frontier, child_indexes: &[usize], p: LV) {
-            for idx in child_indexes {
-                push_light_dedup(if *idx == usize::MAX {
-                    frontier
-                } else {
-                    &mut result_rev[*idx].parents
-                }, p);
+        fn update_parents(result_rev: &mut [GraphEntryInternal], frontier: &mut Frontier, entry: &QueueEntry, p: LV) {
+            if entry.entry_in_frontier {
+                push_light_dedup(frontier, p);
+            }
+            for idx in &entry.child_indexes {
+                push_light_dedup(&mut result_rev[*idx].parents, p);
             }
         }
 
@@ -101,24 +102,21 @@ impl Graph {
 
                 let p = entry.target_parent.min(filter.end - 1);
 
-                push_children(&mut result_rev, &mut filtered_frontier, &entry.child_indexes, p);
+                update_parents(&mut result_rev, &mut filtered_frontier, &entry, p);
 
                 let base = filter.start.max(txn.span.start);
-                let mut child_indexes: SmallVec<[usize; 2]> = entry.child_indexes
-                    .iter().copied()
-                    .filter(|idx| *idx != usize::MAX)
-                    .collect();
+                let mut child_indexes: SmallVec<[usize; 2]> = entry.child_indexes.clone();
 
                 // For simplicity, pull out anything that is within this txn *and* this filter.
                 while let Some(peeked_entry) = queue.peek() {
                     if peeked_entry.target_parent < base { break; }
 
                     let peeked_target = peeked_entry.target_parent.min(filter.end - 1);
-                    push_children(&mut result_rev, &mut filtered_frontier, &peeked_entry.child_indexes, peeked_target);
+                    update_parents(&mut result_rev, &mut filtered_frontier, &peeked_entry, peeked_target);
                     // iterations += 1;
 
                     for i in peeked_entry.child_indexes.iter() {
-                        if *i != usize::MAX && !child_indexes.contains(i) {
+                        if !child_indexes.contains(i) {
                             child_indexes.push(*i);
                         }
                     }
@@ -143,6 +141,7 @@ impl Graph {
                     entry = QueueEntry {
                         target_parent: filter.start - 1,
                         child_indexes: smallvec![idx_here],
+                        entry_in_frontier: false,
                     };
                 } else { // filter.start <= txn.span.start.
                     // The rest of this txn is included in the filter. Copy it all in, push the
@@ -152,6 +151,7 @@ impl Graph {
                             queue.push(QueueEntry {
                                 target_parent: *p,
                                 child_indexes: smallvec![idx_here],
+                                entry_in_frontier: false,
                             })
                         }
                     }
@@ -166,6 +166,7 @@ impl Graph {
             //
             // We'll create new queue entries for all of this txn's parents.
             let mut child_idxs = entry.child_indexes;
+            let mut in_frontier = entry.entry_in_frontier;
 
             while let Some(peeked_entry) = queue.peek() {
                 if peeked_entry.target_parent < txn.span.start { break; } // Next item is out of this txn.
@@ -173,6 +174,7 @@ impl Graph {
                 for i in peeked_entry.child_indexes.iter() {
                     if !child_idxs.contains(i) { child_idxs.push(*i); }
                 }
+                in_frontier |= peeked_entry.entry_in_frontier;
                 // iterations += 1;
 
                 queue.pop();
@@ -182,13 +184,15 @@ impl Graph {
                 // A silly little optimization to avoid an unnecessary clone() below.
                 queue.push(QueueEntry {
                     target_parent: txn.parents.0[0],
-                    child_indexes: child_idxs
+                    child_indexes: child_idxs,
+                    entry_in_frontier: in_frontier,
                 })
             } else {
                 for p in txn.parents.iter() {
                     queue.push(QueueEntry {
                         target_parent: *p,
-                        child_indexes: child_idxs.clone()
+                        child_indexes: child_idxs.clone(),
+                        entry_in_frontier: in_frontier,
                     })
                 }
             }
