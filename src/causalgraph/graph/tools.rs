@@ -289,7 +289,8 @@ impl Graph {
         // Sorted highest to lowest (so we get the highest item first).
         #[derive(Debug, PartialEq, Eq, Clone)]
         struct TimePoint {
-            // For merges this is the highest time.
+            // For merges this is the highest time. usize::MAX for ROOT time. Ord implementation
+            // below makes sure ROOT gets sorted last.
             last: LV,
             // TODO: Compare performance here with actually using a vec.
             merged_with: SmallVec<[LV; 1]>, // Always sorted. Usually empty.
@@ -301,7 +302,7 @@ impl Graph {
                 // wrapping_add(1) converts ROOT into 0 for proper comparisons.
                 // TODO: Consider pulling this out
                 self.last.wrapping_add(1).cmp(&other.last.wrapping_add(1))
-                    .then_with(|| other.merged_with.is_empty().cmp(&self.merged_with.is_empty()))
+                    .then_with(|| other.merged_with.len().cmp(&self.merged_with.len()))
             }
         }
 
@@ -313,7 +314,7 @@ impl Graph {
 
         impl From<LV> for TimePoint {
             fn from(time: LV) -> Self {
-                Self { last: time, merged_with: Default::default() }
+                Self { last: time, merged_with: smallvec![] }
             }
         }
 
@@ -350,7 +351,6 @@ impl Graph {
 
             // I could write this with an inner loop and a match statement, but this is shorter and
             // more readable. The optimizer has to earn its keep somehow.
-            // while queue.peek() == Some(&time) { queue.pop(); }
             while let Some((peek_time, peek_flag)) = queue.peek() {
                 if *peek_time == time {
                     // Logic adapted from diff().
@@ -365,6 +365,7 @@ impl Graph {
                 // branch.extend(time.merged_with.into_iter());
                 frontier.0.push(t);
                 frontier.debug_check_sorted();
+                debug_assert_eq!(flag, Shared);
                 break frontier;
             }
 
@@ -402,17 +403,16 @@ impl Graph {
                         }
                         // result.push_reversed_rle(rem);
 
-                        if next_flag != flag { flag = Shared; }
-
                         if !time.merged_with.is_empty() {
                             // We've run into a merged item which uses part of this entry.
                             // We've already pushed the necessary span to the result. Do the
                             // normal merge & shatter logic with this item next.
-                            // let time = queue.pop().unwrap();
                             for t in time.merged_with {
                                 queue.push((t.into(), next_flag));
                             }
                         }
+
+                        if next_flag != flag { flag = Shared; }
                     } else {
                         // Emit the remainder of this txn.
                         visit(range, flag);

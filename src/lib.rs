@@ -233,6 +233,7 @@ mod oplog;
 #[cfg(feature = "storage")]
 mod storage;
 mod simple_checkout;
+mod listmerge2;
 
 pub type AgentId = u32;
 
