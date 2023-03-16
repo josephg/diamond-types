@@ -1,3 +1,5 @@
+mod action_plan;
+
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use smallvec::{SmallVec, smallvec};
