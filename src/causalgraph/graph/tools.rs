@@ -789,7 +789,7 @@ pub mod test {
                 hist: graph.iter().collect(), a, b, expect_spans, expect_common
             };
 
-            let p: Vec<_> = graph.iter().collect();
+            let _p: Vec<_> = graph.iter().collect();
             use std::io::Write;
             let mut f = std::fs::File::options()
                 .write(true)
@@ -815,14 +815,14 @@ pub mod test {
                 hist: graph.iter().collect(), frontier, target: target as _, expected
             };
 
-            let p: Vec<_> = graph.iter().collect();
+            let _p: Vec<_> = graph.iter().collect();
             use std::io::Write;
             let mut f = std::fs::File::options()
                 .write(true)
                 .append(true)
                 .create(true)
                 .open("test_data/causal_graph/version_contains.json").unwrap();
-            writeln!(f, "{}", serde_json::to_string(&t).unwrap());
+            writeln!(f, "{}", serde_json::to_string(&t).unwrap()).unwrap();
         }
 
         assert_eq!(graph.frontier_contains_version(frontier, target), expected);
@@ -848,14 +848,14 @@ pub mod test {
                 expect_b
             };
 
-            let p: Vec<_> = graph.iter().collect();
+            let _p: Vec<_> = graph.iter().collect();
             use std::io::Write;
             let mut f = std::fs::File::options()
                 .write(true)
                 .append(true)
                 .create(true)
                 .open("test_data/causal_graph/diff.json").unwrap();
-            writeln!(f, "{}", serde_json::to_string(&t).unwrap());
+            writeln!(f, "{}", serde_json::to_string(&t).unwrap()).unwrap();
         }
 
         let slow_result = graph.diff_slow(a, b);
