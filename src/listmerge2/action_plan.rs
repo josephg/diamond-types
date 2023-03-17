@@ -235,10 +235,6 @@ fn make_plan(subgraph: &mut ConflictSubgraph) {
                     }
 
                     // And go down, since we're done here.
-                    // let Some(next) = stack.pop() else { break; };
-                    // current = next;
-                    // assert_eq!(current, *child);
-                    // Down(primary_index)
                     Down(primary_index)
                 }
             }
