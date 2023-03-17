@@ -20,35 +20,30 @@ enum MergePlanAction {
 }
 
 #[derive(Debug, Clone, Default)]
-struct SplitState {
-    parent_visited: bool,
-    // next_child: usize,
-    children_visited: usize,
-    // next_child_idx: usize, // Index into the split's children.
-    // fwd_index: Index, // Unset at first.
-    backup_index: Option<Index>,
-}
-
-#[derive(Debug, Clone, Default)]
 struct MergeState {
     primary_index: Option<Index>,
     // path_complete: SmallVec<[bool; 8]>
     next_parent_idx: usize,
 }
 
+#[derive(Debug, Clone, Default)]
+struct ForkState {
+    parent_visited: bool,
+    children_visited: usize,
+    backup_index: Option<Index>,
+}
+
 #[derive(Debug, Clone)]
 enum GraphEntry {
     Merge {
-        parents: SmallVec<[usize; 2]>, // Could have 0 or 1 items.
-        span: DTRange,
-        // child: usize,
+        parents: SmallVec<[usize; 2]>, // 2+ items.
         state: MergeState,
     },
-    Split {
+    Ops {
         parent: usize,
-        // children: SmallVec<[usize; 2]>,
+        span: DTRange,
         num_children: usize,
-        state: SplitState,
+        state: ForkState,
     },
 }
 
@@ -99,6 +94,7 @@ fn make_plan(subgraph: &mut ConflictSubgraph) {
     let root_index = 0;
     // let mut current_index = None;
     let mut next_index = 1;
+    let mut free_index_stack: SmallVec<[Index; 8]> = smallvec![];
 
     loop {
         // Work around an intellij bug.
@@ -115,10 +111,12 @@ fn make_plan(subgraph: &mut ConflictSubgraph) {
         // be nice, but I don't want to make it vulnerable to stack smashing attacks.
 
         let next_direction = match &mut g[current] {
-            GraphEntry::Split { parent, num_children, state } => 'block: {
+            GraphEntry::Ops { parent, span, num_children, state } => 'block: {
                 // Split nodes always visit their children in the order that the split node itself
                 // is visited. They're like a mirror.
 
+                // The span here should be emitted the first time we go down.
+                let mut emit_span_now = true;
 
                 // The way the index should work is this:
                 // 1. The split node gets visited for the first time
@@ -134,10 +132,11 @@ fn make_plan(subgraph: &mut ConflictSubgraph) {
 
                     state.parent_visited = true;
 
+                    // TODO: This logic would be simpler if I actually went up to the root and back
+                    // down again.
                     if *parent == usize::MAX {
                         // If the parent is usize::MAX, we're at the root of the tree. Just use
                         // root_index as the index.
-
                         root_index
                     } else {
                         // The first time we're visited, ignore all of this and just head up to the
@@ -148,18 +147,32 @@ fn make_plan(subgraph: &mut ConflictSubgraph) {
                     if let Down(index) = last_direction {
                         index
                     } else {
+                        emit_span_now = false;
                         state.backup_index.take().unwrap()
                     }
                 };
 
+                if emit_span_now && !span.is_empty() {
+                    emit(MergePlanAction::Apply(ApplyAction {
+                        span: *span,
+                        measured_in: index,
+                        updating_other_indexes: index_stack.iter().copied().collect(),
+                    }));
+                }
+
                 // We're going to travel down to one of our children, to whichever child called us.
-                assert!(state.children_visited < *num_children);
+                assert!(*num_children == 0 || state.children_visited < *num_children);
                 assert!(state.backup_index.is_none());
 
                 // If we'll be visited again, backup the index.
                 if state.children_visited + 1 < *num_children {
-                    let backup_index = next_index;
-                    next_index += 1;
+                    // let backup_index = next_index;
+                    // next_index += 1;
+                    let backup_index = free_index_stack.pop().unwrap_or_else(|| {
+                        let index = next_index;
+                        next_index += 1;
+                        index
+                    });
 
                     state.backup_index = Some(backup_index);
                     emit(MergePlanAction::ForkIndex(index, backup_index));
@@ -170,13 +183,14 @@ fn make_plan(subgraph: &mut ConflictSubgraph) {
                 Down(index)
             }
 
-            GraphEntry::Merge { parents, span, state } => {
+            GraphEntry::Merge { parents, state } => {
                 // A merge node only has 1 child. We'll get an Up event exactly once, and 1 down
                 // event for every item in parents - but only after we go up to those nodes.
 
                 // A merge node decides on the order it traverses its children, but for simplicity
                 // we do it in parents[0..] order.
-                assert!(parents.is_empty() || state.next_parent_idx < parents.len());
+                debug_assert!(parents.len() >= 2);
+                assert!(state.next_parent_idx < parents.len());
 
                 if let Down(index) = last_direction {
                     // Mark the direction we came in from as complete.
@@ -187,6 +201,7 @@ fn make_plan(subgraph: &mut ConflictSubgraph) {
                             // When we're done we'll use primary_index. Everything else can be
                             // dropped.
                             emit(MergePlanAction::DropIndex(index));
+                            free_index_stack.push(index);
                         }
                     } else {
                         // The first index we encounter going down *is* our primary index.
@@ -199,7 +214,7 @@ fn make_plan(subgraph: &mut ConflictSubgraph) {
                         }
                     }
                 } else {
-                    // We came from below.
+                    // We came from below. This happens the first time this node is visited.
                     assert!(state.primary_index.is_none());
                     assert_eq!(state.next_parent_idx, 0);
                     // state.primary_index = Some(current_index);
@@ -210,28 +225,12 @@ fn make_plan(subgraph: &mut ConflictSubgraph) {
                     Up(parents[state.next_parent_idx])
                 } else {
                     // We've merged all our parents into primary_index. Continue down!
-                    let primary_index = if parents.is_empty() {
-                        // We've hit the root. The primary index is 0 and just go down, ok?
-                        // Gross? Maybe. Probably. Mmmm.
-                        root_index
-                    } else {
-                        let primary_index = state.primary_index.unwrap();
+                    let primary_index = state.primary_index.unwrap();
 
-                        // Remove the index from the index_stack.
-                        if parents.len() >= 2 {
-                            let s = index_stack.pop();
-                            assert_eq!(Some(primary_index), s);
-                        }
-
-                        primary_index
-                    };
-
-                    if !span.is_empty() {
-                        emit(MergePlanAction::Apply(ApplyAction {
-                            span: *span,
-                            measured_in: primary_index,
-                            updating_other_indexes: index_stack.iter().copied().collect(),
-                        }));
+                    // Remove the index from the index_stack.
+                    if parents.len() >= 2 {
+                        let s = index_stack.pop();
+                        assert_eq!(Some(primary_index), s);
                     }
 
                     // And go down, since we're done here.
@@ -268,9 +267,11 @@ mod test {
     fn test_trivial_graph() {
         let mut g = ConflictSubgraph {
             ops: vec![
-                GraphEntry::Merge {
-                    parents: smallvec![],
+                GraphEntry::Ops {
+                    // parents: smallvec![],
+                    parent: usize::MAX,
                     span: (0..1).into(),
+                    num_children: 0,
                     state: Default::default(),
                 },
             ],
@@ -285,24 +286,26 @@ mod test {
     fn test_simple_graph() {
         let mut g = ConflictSubgraph {
             ops: vec![
-                GraphEntry::Split {
+                GraphEntry::Ops {
                     parent: usize::MAX,
+                    span: (0..1).into(),
                     num_children: 2,
                     state: Default::default(),
                 },
-                GraphEntry::Merge {
-                    parents: smallvec![0],
-                    span: (0..1).into(),
+                GraphEntry::Ops {
+                    parent: 0,
+                    span: (1..2).into(),
+                    num_children: 1,
                     state: Default::default(),
                 },
-                GraphEntry::Merge {
-                    parents: smallvec![0],
-                    span: (1..2).into(),
+                GraphEntry::Ops {
+                    parent: 0,
+                    span: (2..3).into(),
+                    num_children: 1,
                     state: Default::default(),
                 },
                 GraphEntry::Merge {
                     parents: smallvec![1, 2],
-                    span: (0..0).into(),
                     state: Default::default(),
                 }
             ],
@@ -317,48 +320,102 @@ mod test {
     fn diamonds() {
         let mut g = ConflictSubgraph {
             ops: vec![
-                GraphEntry::Split { // 0 (x)
+                GraphEntry::Ops { // 0 X
                     parent: usize::MAX,
+                    span: Default::default(),
                     num_children: 2,
                     state: Default::default(),
                 },
-                GraphEntry::Merge { // 1 (XA)
-                    parents: smallvec![0],
+                GraphEntry::Ops { // 1 XA -> A
+                    parent: 0,
                     span: (0..1).into(),
-                    state: Default::default(),
-                },
-                GraphEntry::Merge { // 2 (XBD)
-                    parents: smallvec![0],
-                    span: (1..2).into(),
-                    state: Default::default(),
-                },
-                GraphEntry::Split { // 3 (A)
-                    parent: 1,
                     num_children: 2,
                     state: Default::default(),
                 },
-                GraphEntry::Merge { // 4 (ACY)
-                    parents: smallvec![3],
+                GraphEntry::Ops { // 2 XBD
+                    parent: 0,
+                    span: (1..2).into(),
+                    num_children: 1,
+                    state: Default::default(),
+                },
+                GraphEntry::Ops { // 3 AD
+                    parent: 1,
                     span: (2..3).into(),
+                    num_children: 1,
                     state: Default::default(),
                 },
-                GraphEntry::Merge { // 5 (AD)
-                    parents: smallvec![3],
+                GraphEntry::Merge { // 4 D
+                    parents: smallvec![2, 3],
+                    state: Default::default(),
+                },
+                GraphEntry::Ops { // 5 ACY
+                    parent: 1,
                     span: (3..4).into(),
+                    num_children: 1,
                     state: Default::default(),
                 },
-                GraphEntry::Merge { // 6 (D)
-                    parents: smallvec![2, 5],
-                    span: (4..5).into(), // DY
+                GraphEntry::Ops { // 6 DY
+                    parent: 4,
+                    span: (4..5).into(),
+                    num_children: 1,
                     state: Default::default(),
                 },
-                GraphEntry::Merge { // 7 (Y)
-                    parents: smallvec![4, 6],
-                    span: (5..6).into(),
+                GraphEntry::Merge { // 7 Y
+                    parents: smallvec![5, 6],
                     state: Default::default(),
                 },
             ],
             last: 7,
+        };
+
+        make_plan(&mut g);
+    }
+
+    #[test]
+    fn order_matters() {
+        // This graph has some bad traversals, which won't actually work properly if the order
+        // isn't carefully figured out.
+        let mut g = ConflictSubgraph {
+            ops: vec![
+                GraphEntry::Ops { // 0 A
+                    parent: usize::MAX,
+                    span: Default::default(),
+                    num_children: 3,
+                    state: Default::default(),
+                },
+                GraphEntry::Ops { // 1 ABD
+                    parent: 0,
+                    span: (0..1).into(),
+                    num_children: 1,
+                    state: Default::default(),
+                },
+                GraphEntry::Ops { // 2 AXE
+                    parent: 0,
+                    span: (1..2).into(),
+                    num_children: 1,
+                    state: Default::default(),
+                },
+                GraphEntry::Ops { // 3 AC
+                    parent: 0,
+                    span: (2..3).into(),
+                    num_children: 2,
+                    state: Default::default(),
+                },
+
+                GraphEntry::Merge { // 4 D
+                    parents: smallvec![1,3],
+                    state: Default::default(),
+                },
+                GraphEntry::Merge { // 5 E
+                    parents: smallvec![2,3],
+                    state: Default::default(),
+                },
+                GraphEntry::Merge { // 6 F
+                    parents: smallvec![4,5],
+                    state: Default::default(),
+                },
+            ],
+            last: 6,
         };
 
         make_plan(&mut g);

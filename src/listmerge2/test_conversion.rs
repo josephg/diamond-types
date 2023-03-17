@@ -214,7 +214,7 @@ enum GraphEntry3 {
     Merge {
         parents: SmallVec<[usize; 2]>, // Could have 0 or 1 items.
     },
-    Split {
+    Ops {
         parent: usize,
         span: DTRange,
         num_children: usize,
@@ -228,10 +228,10 @@ impl From<&GraphEntry1> for GraphEntry3 {
                 GraphEntry3::Merge { parents: parents.clone() }
             }
             Split { parent, num_children } => {
-                GraphEntry3::Split { parent: *parent, span: Default::default(), num_children: *num_children }
+                GraphEntry3::Ops { parent: *parent, span: Default::default(), num_children: *num_children }
             }
             Ops { parent, span } => {
-                GraphEntry3::Split {
+                GraphEntry3::Ops {
                     parent: *parent,
                     span: *span,
                     num_children: 1,
@@ -253,7 +253,7 @@ fn ge1_to_ge3(input: &Vec<GraphEntry1>) -> Vec<GraphEntry3> {
             (None, Some(e)) => { last = Some(e); }
 
             (Some(Ops { parent, span }), Some(Split { parent: _, num_children })) => {
-                result.push(GraphEntry3::Split {
+                result.push(GraphEntry3::Ops {
                     parent: *parent,
                     span: *span,
                     num_children: *num_children,
