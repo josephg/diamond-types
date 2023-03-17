@@ -170,7 +170,7 @@ impl ConflictSubgraph {
                     // 2. We visit the parent, and we get visited again coming *down* with an index.
                     //    (Or the parent is ROOT and we just use root_index).
                     // 3. If we'll be visited again, the index is backed up and used next time.
-                    let index = if !state.parent_visited {
+                    if !state.parent_visited {
                         // This is a bit of a hack. The first time the split entry is visited will be
                         // from below, and we need to make sure we visit the split's parent on the way
                         // up.
@@ -182,22 +182,26 @@ impl ConflictSubgraph {
                         // The first time we're visited, ignore all of this and just head up to the
                         // parent.
                         break 'block Up(*parent);
-                    } else {
-                        if let Down(index) = last_direction {
-                            // First time traversing down.
-                            if !span.is_empty() {
-                                emit(MergePlanAction::Apply(ApplyAction {
-                                    span: *span,
-                                    measured_in: index,
-                                    updating_other_indexes: index_stack.iter().copied().collect(),
-                                    insert_items: concurrency > 1,
-                                }));
-                            }
+                    }
 
-                            index
-                        } else {
-                            state.backup_index.take().unwrap()
+                    let index = if let Down(index) = last_direction {
+                        // First time traversing down.
+                        if !span.is_empty() {
+                            emit(MergePlanAction::Apply(ApplyAction {
+                                span: *span,
+                                measured_in: index,
+                                updating_other_indexes: index_stack.iter().copied().collect(),
+                                insert_items: concurrency > 1,
+                            }));
                         }
+
+                        // This logic feels wrong..
+                        if *num_children > 0 { concurrency += *num_children - 1; }
+
+                        index
+                    } else {
+                        concurrency -= 1;
+                        state.backup_index.take().unwrap()
                     };
 
                     // We're going to travel down to one of our children, to whichever child called us.
@@ -253,13 +257,12 @@ impl ConflictSubgraph {
                                 index_stack.push(index);
                             }
                         }
-                        concurrency -= 1;
+                        // concurrency -= 1;
                     } else {
                         // We came from below. This happens the first time this node is visited.
                         assert!(state.primary_index.is_none());
                         assert_eq!(state.next_parent_idx, 0);
-                        concurrency += parents.len() - 1;
-                        // state.primary_index = Some(current_index);
+                        // concurrency += parents.len() - 1;
                     }
 
                     if state.next_parent_idx < parents.len() {
@@ -275,7 +278,7 @@ impl ConflictSubgraph {
                             assert_eq!(Some(primary_index), s);
                         }
 
-                        concurrency += 1;
+                        // concurrency += 1;
 
                         // And go down, since we're done here.
                         Down(primary_index)
