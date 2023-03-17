@@ -8,7 +8,7 @@ use crate::listmerge2::Index;
 use crate::rle::{KVPair, RleVec};
 
 #[derive(Debug, Clone)]
-enum GraphEntry1 {
+enum TestGraphEntry1 {
     Merge {
         parents: SmallVec<[usize; 2]>, // Could have 0 or 1 items.
         // child: usize,
@@ -26,10 +26,11 @@ enum GraphEntry1 {
     },
 }
 
-use GraphEntry1::*;
+use TestGraphEntry1::*;
+use crate::listmerge2::action_plan::ActionGraphEntry;
 
 impl Graph {
-    fn to_entry_list(&self) -> Vec<GraphEntry1> {
+    fn to_entry_list(&self) -> Vec<TestGraphEntry1> {
         let mut result = vec![];
 
         // Map of (base version, result index) tuples
@@ -61,7 +62,7 @@ impl Graph {
 
 
 
-            let mut add_to_result = |result: &mut Vec<GraphEntry1>, start: LV, last: LV, parents: &[LV], num_children: usize| {
+            let mut add_to_result = |result: &mut Vec<TestGraphEntry1>, start: LV, last: LV, parents: &[LV], num_children: usize| {
                 let end = last + 1;
                 // println!("{start} .. {last} / end: {end} count {num_children} parents {:?}", parents);
 
@@ -146,7 +147,7 @@ impl Graph {
 
 
 #[derive(Debug, Clone)]
-enum GraphEntry2 {
+enum TestGraphEntry2 {
     Merge {
         parents: SmallVec<[usize; 2]>, // Could have 0 or 1 items.
         span: DTRange,
@@ -158,20 +159,20 @@ enum GraphEntry2 {
     },
 }
 
-impl From<&GraphEntry1> for GraphEntry2 {
-    fn from(value: &GraphEntry1) -> Self {
+impl From<&TestGraphEntry1> for TestGraphEntry2 {
+    fn from(value: &TestGraphEntry1) -> Self {
         match value {
             Merge { parents } => {
-                GraphEntry2::Merge {
+                TestGraphEntry2::Merge {
                     parents: parents.clone(),
                     span: (0..0).into(),
                 }
             }
             Split { parent, num_children } => {
-                GraphEntry2::Split { parent: *parent, num_children: *num_children }
+                TestGraphEntry2::Split { parent: *parent, num_children: *num_children }
             }
             Ops { parent, span } => {
-                GraphEntry2::Merge {
+                TestGraphEntry2::Merge {
                     parents: smallvec![*parent],
                     span: *span,
                 }
@@ -180,11 +181,11 @@ impl From<&GraphEntry1> for GraphEntry2 {
     }
 }
 
-fn ge1_to_ge2(input: &Vec<GraphEntry1>) -> Vec<GraphEntry2> {
+fn ge1_to_ge2(input: &Vec<TestGraphEntry1>) -> Vec<TestGraphEntry2> {
     let mut result = vec![];
 
     let mut iter = input.iter();
-    let mut last: Option<&GraphEntry1> = None;
+    let mut last: Option<&TestGraphEntry1> = None;
     loop {
         let next = iter.next();
         match (last, next) {
@@ -192,7 +193,7 @@ fn ge1_to_ge2(input: &Vec<GraphEntry1>) -> Vec<GraphEntry2> {
             (None, Some(e)) => { last = Some(e); }
 
             (Some(Merge { parents }), Some(Ops { parent: _, span })) => {
-                result.push(GraphEntry2::Merge {
+                result.push(TestGraphEntry2::Merge {
                     parents: parents.clone(),
                     span: *span,
                 });
@@ -210,7 +211,7 @@ fn ge1_to_ge2(input: &Vec<GraphEntry1>) -> Vec<GraphEntry2> {
 }
 
 #[derive(Debug, Clone)]
-enum GraphEntry3 {
+enum TestGraphEntry3 {
     Merge {
         parents: SmallVec<[usize; 2]>, // Could have 0 or 1 items.
     },
@@ -221,17 +222,17 @@ enum GraphEntry3 {
     },
 }
 
-impl From<&GraphEntry1> for GraphEntry3 {
-    fn from(value: &GraphEntry1) -> Self {
+impl From<&TestGraphEntry1> for TestGraphEntry3 {
+    fn from(value: &TestGraphEntry1) -> Self {
         match value {
             Merge { parents } => {
-                GraphEntry3::Merge { parents: parents.clone() }
+                TestGraphEntry3::Merge { parents: parents.clone() }
             }
             Split { parent, num_children } => {
-                GraphEntry3::Ops { parent: *parent, span: Default::default(), num_children: *num_children }
+                TestGraphEntry3::Ops { parent: *parent, span: Default::default(), num_children: *num_children }
             }
             Ops { parent, span } => {
-                GraphEntry3::Ops {
+                TestGraphEntry3::Ops {
                     parent: *parent,
                     span: *span,
                     num_children: 1,
@@ -241,11 +242,11 @@ impl From<&GraphEntry1> for GraphEntry3 {
     }
 }
 
-fn ge1_to_ge3(input: &Vec<GraphEntry1>) -> Vec<GraphEntry3> {
+fn ge1_to_ge3(input: &Vec<TestGraphEntry1>) -> Vec<TestGraphEntry3> {
     let mut result = vec![];
 
     let mut iter = input.iter();
-    let mut last: Option<&GraphEntry1> = None;
+    let mut last: Option<&TestGraphEntry1> = None;
     loop {
         let next = iter.next();
         match (last, next) {
@@ -253,7 +254,7 @@ fn ge1_to_ge3(input: &Vec<GraphEntry1>) -> Vec<GraphEntry3> {
             (None, Some(e)) => { last = Some(e); }
 
             (Some(Ops { parent, span }), Some(Split { parent: _, num_children })) => {
-                result.push(GraphEntry3::Ops {
+                result.push(TestGraphEntry3::Ops {
                     parent: *parent,
                     span: *span,
                     num_children: *num_children,
@@ -270,13 +271,32 @@ fn ge1_to_ge3(input: &Vec<GraphEntry1>) -> Vec<GraphEntry3> {
     result
 }
 
+impl From<TestGraphEntry3> for ActionGraphEntry {
+    fn from(value: TestGraphEntry3) -> Self {
+        match value {
+            TestGraphEntry3::Merge { parents } => {
+                ActionGraphEntry::Merge {
+                    parents,
+                    state: Default::default(),
+                }
+            }
+            TestGraphEntry3::Ops { parent, span, num_children } => {
+                ActionGraphEntry::Ops {
+                    parent, span, num_children,
+                    state: Default::default()
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::fs::File;
     use std::io::Read;
     use crate::causalgraph::graph::tools::test::fancy_graph;
     use crate::list::ListOpLog;
-    use crate::listmerge2::test_conversion::{ge1_to_ge2, ge1_to_ge3, GraphEntry1, GraphEntry2, GraphEntry3};
+    use crate::listmerge2::test_conversion::{ge1_to_ge2, ge1_to_ge3, TestGraphEntry1, TestGraphEntry2, TestGraphEntry3};
 
     #[test]
     fn foo() {
@@ -286,6 +306,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn node_cc() {
         let mut bytes = vec![];
         // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
@@ -296,19 +317,18 @@ mod test {
         let result = cg.graph.to_entry_list();
         // dbg!(result);
 
-        let size_1 = std::mem::size_of::<GraphEntry1>();
+        let size_1 = std::mem::size_of::<TestGraphEntry1>();
         println!("1. num: {}, size of each {}, total size {}", result.len(), size_1, result.len() * size_1);
 
         let ge2 = ge1_to_ge2(&result);
-        let size_2 = std::mem::size_of::<GraphEntry2>();
+        let size_2 = std::mem::size_of::<TestGraphEntry2>();
         println!("2. num: {}, size of each {}, total size {}", ge2.len(), size_2, ge2.len() * size_2);
 
         let ge3 = ge1_to_ge3(&result);
-        let size_3 = std::mem::size_of::<GraphEntry3>();
+        let size_3 = std::mem::size_of::<TestGraphEntry3>();
         println!("3. num: {}, size of each {}, total size {}", ge3.len(), size_3, ge3.len() * size_3);
 
     }
-
 }
 
 
