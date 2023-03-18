@@ -5,7 +5,7 @@ use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::listmerge2::Index;
-use crate::rle::{KVPair, RleVec};
+use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 
 #[derive(Debug, Clone)]
 enum TestGraphEntry1 {
@@ -27,10 +27,10 @@ enum TestGraphEntry1 {
 }
 
 use TestGraphEntry1::*;
-use crate::listmerge2::action_plan::ActionGraphEntry;
+use crate::listmerge2::action_plan::{ActionGraphEntry, ConflictSubgraph};
 
 impl Graph {
-    fn to_entry_list(&self) -> Vec<TestGraphEntry1> {
+    fn to_test_entry_list_1(&self) -> Vec<TestGraphEntry1> {
         let mut result = vec![];
 
         // Map of (base version, result index) tuples
@@ -142,6 +142,142 @@ impl Graph {
         }
 
         result
+    }
+
+    fn to_test_entry_list(&self) -> ConflictSubgraph {
+        let mut result: Vec<ActionGraphEntry> = vec![];
+
+        let mut childless_entries = vec![];
+
+        // Map of (last version, result index) tuples
+        let mut version_map = HashMap::<LV, usize>::new();
+
+        let root_idx = if self.root_child_indexes.len() > 1 {
+            result.push(ActionGraphEntry {
+                parents: smallvec![],
+                span: Default::default(),
+                num_children: self.root_child_indexes.len(),
+                state: Default::default(),
+            });
+            // version_map.insert(usize::MAX, 0); // ROOT entry.
+            Some(0)
+        } else { None };
+
+        // version_map.insert(vec![], usize::MAX); // ROOT entry.
+
+        for e in self.entries.iter() {
+            let mut split_points: SmallVec<[usize; 4]> = smallvec![];
+            // let mut split_points: SmallVec<[usize; 4]> = smallvec![e.span.last()];
+
+            // let mut children = e.child_indexes.clone();
+            for &child_idx in &e.child_indexes {
+                if child_idx >= self.entries.0.len() { continue; } // HACK HACK HACK (so I can truncate input).
+                let child = &self.entries.0[child_idx];
+                for &p in child.parents.as_ref() {
+                    if e.span.contains(p) {
+                        split_points.push(p);
+                    }
+                }
+            }
+
+            split_points.sort_unstable();
+
+            // dbg!(&split_points);
+
+            let mut start = e.span.start;
+            let mut iter = split_points.into_iter();
+
+            let mut last_split_point = None;
+            let mut num_children = 0;
+
+            let mut add_to_result = |result: &mut Vec<ActionGraphEntry>, start: LV, last: LV, parents: &[LV], num_children: usize| {
+                let end = last + 1;
+                // println!("{start} .. {last} / end: {end} count {num_children} parents {:?}", parents);
+
+                let parents: SmallVec<[usize; 2]> = if parents.len() == 0 {
+                    root_idx.iter().copied().collect()
+                } else {
+                    parents.iter().map(|p| {
+                        *version_map.get(p).unwrap()
+                    }).collect()
+                };
+
+                assert_ne!(start, end);
+                let ops_idx = result.len();
+                result.push(ActionGraphEntry {
+                    parents,
+                    span: (start..end).into(),
+                    num_children,
+                    state: Default::default(),
+                });
+
+                version_map.insert(last, ops_idx);
+                if num_children == 0 {
+                    childless_entries.push(ops_idx);
+                }
+            };
+
+            loop {
+                let next_split_point = iter.next();
+                // dbg!(last_split_point, next_split_point);
+                match (last_split_point, next_split_point) {
+                    (None, Some(p)) => {
+                        last_split_point = next_split_point;
+                        num_children = if p < e.last() { 2 } else { 1 };
+                    },
+
+                    (Some(p1), Some(p2)) if p1 == p2 => {
+                        num_children += 1;
+                    },
+                    (Some(p1), Some(p2)) => {
+                        e.with_parents(start, |parents| {
+                            add_to_result(&mut result, start, p1, parents, num_children);
+                        });
+                        start = p1 + 1;
+                        last_split_point = Some(p2);
+                        num_children = if p2 < e.last() { 2 } else { 1 };
+                    },
+
+                    (Some(p), None) => {
+                        e.with_parents(start, |parents| {
+                            add_to_result(&mut result, start, p, parents, num_children);
+                        });
+                        start = p + 1;
+                        last_split_point = None;
+                    },
+
+                    (None, None) => {
+                        // Emit everything else.
+                        if start != e.span.end() {
+                            e.with_parents(start, |parents| {
+                                add_to_result(&mut result, start, e.span.last(), parents, 0);
+                            });
+                        }
+                        break;
+                    },
+                }
+            }
+        }
+
+        let last = match childless_entries.len() {
+            0 => usize::MAX,
+            1 => childless_entries[0],
+            _ => {
+                let idx = result.len();
+                // Push a dummy entry at the end merging everything.
+                result.push(ActionGraphEntry {
+                    parents: childless_entries.iter().copied().collect(),
+                    span: Default::default(),
+                    num_children: 0,
+                    state: Default::default(),
+                });
+                idx
+            }
+        };
+        ConflictSubgraph {
+            ops: result,
+            last,
+        }
     }
 }
 
@@ -271,24 +407,24 @@ fn ge1_to_ge3(input: &Vec<TestGraphEntry1>) -> Vec<TestGraphEntry3> {
     result
 }
 
-impl From<TestGraphEntry3> for ActionGraphEntry {
-    fn from(value: TestGraphEntry3) -> Self {
-        match value {
-            TestGraphEntry3::Merge { parents } => {
-                ActionGraphEntry::Merge {
-                    parents,
-                    state: Default::default(),
-                }
-            }
-            TestGraphEntry3::Ops { parent, span, num_children } => {
-                ActionGraphEntry::Ops {
-                    parent, span, num_children,
-                    state: Default::default()
-                }
-            }
-        }
-    }
-}
+// impl From<TestGraphEntry3> for ActionGraphEntry {
+//     fn from(value: TestGraphEntry3) -> Self {
+//         match value {
+//             TestGraphEntry3::Merge { parents } => {
+//                 ActionGraphEntry::Merge {
+//                     parents,
+//                     state: Default::default(),
+//                 }
+//             }
+//             TestGraphEntry3::Ops { parent, span, num_children } => {
+//                 ActionGraphEntry::Ops {
+//                     parent, span, num_children,
+//                     state: Default::default()
+//                 }
+//             }
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod test {
@@ -296,12 +432,13 @@ mod test {
     use std::io::Read;
     use crate::causalgraph::graph::tools::test::fancy_graph;
     use crate::list::ListOpLog;
+    use crate::listmerge2::action_plan::{ActionGraphEntry, EntryState};
     use crate::listmerge2::test_conversion::{ge1_to_ge2, ge1_to_ge3, TestGraphEntry1, TestGraphEntry2, TestGraphEntry3};
 
     #[test]
     fn foo() {
         let cg = fancy_graph();
-        let result = cg.to_entry_list();
+        let result = cg.to_test_entry_list_1();
         dbg!(result);
     }
 
@@ -309,12 +446,12 @@ mod test {
     #[ignore]
     fn node_cc() {
         let mut bytes = vec![];
-        // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
         let cg = o.cg;
 
-        let result = cg.graph.to_entry_list();
+        let result = cg.graph.to_test_entry_list_1();
         // dbg!(result);
 
         let size_1 = std::mem::size_of::<TestGraphEntry1>();
@@ -328,6 +465,30 @@ mod test {
         let size_3 = std::mem::size_of::<TestGraphEntry3>();
         println!("3. num: {}, size of each {}, total size {}", ge3.len(), size_3, ge3.len() * size_3);
 
+        let merged = cg.graph.to_test_entry_list();
+        let size_4 = std::mem::size_of::<ActionGraphEntry>() - std::mem::size_of::<EntryState>();
+        let total_size_4 = std::mem::size_of::<ActionGraphEntry>();
+        println!("4. num: {}, size of each {}, total size {} (with state: {})", merged.ops.len(), size_4, merged.ops.len() * size_4, merged.ops.len() * total_size_4);
+
+    }
+
+    #[test]
+    #[ignore]
+    fn make_plan() {
+        let mut bytes = vec![];
+        // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
+        let mut cg = o.cg;
+
+        // dbg!(&cg.graph.entries.0[0..3]);
+
+        cg.graph.entries.0.truncate(5);
+        let mut conflict_subgraph = cg.graph.to_test_entry_list();
+        // dbg!(&conflict_subgraph.ops[0..3]);
+
+        conflict_subgraph.dbg_check();
+        conflict_subgraph.make_plan();
     }
 }
 
@@ -336,8 +497,11 @@ mod test {
 // 1. num: 2612, size of each 32, total size 83584
 // 2. num: 1846, size of each 48, total size 88608
 // 3. num: 1981, size of each 40, total size 79240
+// 4. num: 1216, size of each 48, total size 58368 (with state: 97280)
 
 // node_nodecc:
 // 1. num: 183, size of each 32, total size 5856
 // 2. num: 137, size of each 48, total size 6576
 // 3. num: 147, size of each 40, total size 5880
+// 4. num: 101, size of each 48, total size 4848 (with state: 8080)
+
