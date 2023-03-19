@@ -20,8 +20,8 @@ pub(crate) enum MergePlanAction {
 }
 
 pub(crate) struct MergePlan {
-    actions: Vec<MergePlanAction>,
-    indexes_used: usize,
+    pub actions: Vec<MergePlanAction>,
+    pub indexes_used: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -274,43 +274,53 @@ impl ConflictSubgraph {
 
 
 pub(crate) fn count_redundant_copies(plan: &MergePlan) {
-    #[derive(Debug, Clone, Copy)]
+    if plan.actions.is_empty() { return; }
+
+    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     enum IndexState {
         Free,
-        InUse(bool),
+        InUse {
+            used: bool,
+            forked_at: usize,
+        },
     }
 
     let mut index_state = vec![IndexState::Free; plan.indexes_used];
-    index_state[0] = IndexState::InUse(false);
+    index_state[0] = IndexState::InUse { used: false, forked_at: usize::MAX };
 
-    for action in plan.actions.iter() {
+    for (i, action) in plan.actions.iter().enumerate() {
         // dbg!(&action);
         match action {
             MergePlanAction::ForkIndex(_, new_index) => {
-                index_state[*new_index] = IndexState::InUse(false);
+                index_state[*new_index] = IndexState::InUse { used: false, forked_at: i };
             }
-            MergePlanAction::DropIndex(index) => {
-                match index_state[*index] {
-                    IndexState::Free => { panic!("Invalid plan: Dropping freed index"); }
-                    IndexState::InUse(used) => {
-                        if !used {
-                            println!("Redundant fork! {index}");
-                        }
-                    }
-                }
-                index_state[*index] = IndexState::Free;
-            }
+
             MergePlanAction::Apply(apply_action) => {
                 match &mut index_state[apply_action.index] {
                     IndexState::Free => { panic!("Invalid plan: Using dropped index"); }
-                    IndexState::InUse(used) => {
+                    IndexState::InUse { used, .. } => {
                         *used = true;
                     }
                 }
             }
+
+            MergePlanAction::DropIndex(index) => {
+                match index_state[*index] {
+                    IndexState::Free => { panic!("Invalid plan: Dropping freed index"); }
+                    IndexState::InUse { used: false, forked_at } => {
+                        println!("Redundant fork! {index} forked at {forked_at} / dropped at {i}");
+                    },
+                    _ => {}
+                }
+                index_state[*index] = IndexState::Free;
+            }
             _ => {}
         }
     }
+
+    let (first, rest) = index_state.split_first().unwrap();
+    assert_ne!(first, &IndexState::Free);
+    assert!(rest.iter().all(|s| s == &IndexState::Free));
 }
 
 #[cfg(test)]

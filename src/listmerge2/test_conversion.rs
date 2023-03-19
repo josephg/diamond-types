@@ -500,6 +500,17 @@ mod test {
 
         conflict_subgraph.dbg_check();
         let plan = conflict_subgraph.make_plan();
+
+        println!("Plan with {} steps, using {} indexes", plan.actions.len(), plan.indexes_used);
         count_redundant_copies(&plan);
+
+        for (i, action) in plan.actions[220..230].iter().enumerate() {
+            println!("{i}: {:?}", action);
+        }
     }
 }
+
+
+// Redundant fork! 43 forked at 84 / dropped at 87
+// Redundant fork! 43 forked at 89 / dropped at 92
+// Redundant fork! 42 forked at 82 / dropped at 96
