@@ -432,7 +432,7 @@ mod test {
     use std::io::Read;
     use crate::causalgraph::graph::tools::test::fancy_graph;
     use crate::list::ListOpLog;
-    use crate::listmerge2::action_plan::{ActionGraphEntry, EntryState};
+    use crate::listmerge2::action_plan::{ActionGraphEntry, count_redundant_copies, EntryState};
     use crate::listmerge2::test_conversion::{ge1_to_ge2, ge1_to_ge3, TestGraphEntry1, TestGraphEntry2, TestGraphEntry3};
 
     #[test]
@@ -446,8 +446,8 @@ mod test {
     #[ignore]
     fn node_cc() {
         let mut bytes = vec![];
-        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
         let cg = o.cg;
 
@@ -470,38 +470,36 @@ mod test {
         let total_size_4 = std::mem::size_of::<ActionGraphEntry>();
         println!("4. num: {}, size of each {}, total size {} (with state: {})", merged.ops.len(), size_4, merged.ops.len() * size_4, merged.ops.len() * total_size_4);
 
+        // git_makefile:
+        // 1. num: 2612, size of each 32, total size 83584
+        // 2. num: 1846, size of each 48, total size 88608
+        // 3. num: 1981, size of each 40, total size 79240
+        // 4. num: 1216, size of each 48, total size 58368 (with state: 87552)
+
+        // node_nodecc:
+        // 1. num: 183, size of each 32, total size 5856
+        // 2. num: 137, size of each 48, total size 6576
+        // 3. num: 147, size of each 40, total size 5880
+        // 4. num: 101, size of each 48, total size 4848 (with state: 7272)
     }
 
     #[test]
     #[ignore]
     fn make_plan() {
         let mut bytes = vec![];
-        // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
-        let mut cg = o.cg;
+        let cg = o.cg;
 
         // dbg!(&cg.graph.entries.0[0..3]);
 
-        cg.graph.entries.0.truncate(5);
+        // cg.graph.entries.0.truncate(50);
         let mut conflict_subgraph = cg.graph.to_test_entry_list();
         // dbg!(&conflict_subgraph.ops[0..3]);
 
         conflict_subgraph.dbg_check();
-        conflict_subgraph.make_plan();
+        let plan = conflict_subgraph.make_plan();
+        count_redundant_copies(&plan);
     }
 }
-
-
-// git_makefile:
-// 1. num: 2612, size of each 32, total size 83584
-// 2. num: 1846, size of each 48, total size 88608
-// 3. num: 1981, size of each 40, total size 79240
-// 4. num: 1216, size of each 48, total size 58368 (with state: 97280)
-
-// node_nodecc:
-// 1. num: 183, size of each 32, total size 5856
-// 2. num: 137, size of each 48, total size 6576
-// 3. num: 147, size of each 40, total size 5880
-// 4. num: 101, size of each 48, total size 4848 (with state: 8080)
-

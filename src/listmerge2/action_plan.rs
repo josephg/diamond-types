@@ -4,26 +4,30 @@ use crate::causalgraph::graph::tools::DiffFlag;
 use crate::listmerge2::Index;
 
 #[derive(Debug, Clone)]
-struct ApplyAction {
+pub(crate) struct ApplyAction {
     span: DTRange,
-    measured_in: Index,
-    updating_other_indexes: SmallVec<[Index; 2]>,
+    index: Index,
+    update_other_indexes: SmallVec<[Index; 2]>,
     insert_items: bool,
 }
 
 #[derive(Debug, Clone)]
-enum MergePlanAction {
+pub(crate) enum MergePlanAction {
     Apply(ApplyAction),
     DiscardInserts(DTRange),
     ForkIndex(Index, Index),
     DropIndex(Index),
 }
 
+pub(crate) struct MergePlan {
+    actions: Vec<MergePlanAction>,
+    indexes_used: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(super) struct EntryState {
     index: Option<Index>, // Primary index / backup index.
-    next_parent_idx: usize,
-    next_child: usize,
+    next: usize, // Starts at 0. 0..parents.len() is where we scan parents, then we scan children.
 }
 
 #[derive(Debug, Clone)]
@@ -41,10 +45,10 @@ pub(super) struct ConflictSubgraph {
 }
 
 
-fn emit(action: MergePlanAction) {
-    // dbg!(action);
-    println!("Action {:?}", action)
-}
+// fn emit(action: MergePlanAction) {
+//     // dbg!(action);
+//     println!("Action {:?}", action)
+// }
 
 impl ConflictSubgraph {
     pub(crate) fn dbg_check(&self) {
@@ -52,6 +56,12 @@ impl ConflictSubgraph {
         // - ROOT is referenced exactly once
         // - The last item is the only one without children
         // - num_children is correct
+
+        if self.ops.is_empty() {
+            // This is a bit arbitrary.
+            assert_eq!(self.last, usize::MAX);
+            return;
+        }
 
         // Check root is referenced once
         let root_nodes = self.ops.iter()
@@ -85,26 +95,31 @@ impl ConflictSubgraph {
     /// - Starts from the root (or some shared point in time)
     /// - Visits all operations at least once
     /// - Tracks a set of indexes
-    pub(super) fn make_plan(&mut self) {
-        if self.ops.is_empty() { return; }
+    pub(super) fn make_plan(&mut self) -> MergePlan {
+        if self.ops.is_empty() {
+            return MergePlan { actions: vec![], indexes_used: 0 };
+        }
+
+        let mut actions = vec![];
 
         let mut stack = vec![];
-        let mut index_stack = vec![];
+        let mut index_stack: Vec<Index> = vec![];
 
         let g = &mut self.ops;
 
         // Up from some child, or down with an index.
         #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-        enum Direction { Up(usize), Down(Index) }
+        enum Direction { Up(usize, bool), Down(Option<Index>) }
         use Direction::*;
 
         let mut current = self.last;
-        let mut last_direction = Up(usize::MAX);
+        let mut index_wanted = true;
+        let mut last_direction = Up(usize::MAX, false);
 
         impl Direction {
             fn is_up(&self) -> bool {
                 match self {
-                    Up(_) => true,
+                    Up(_, _) => true,
                     Down(_) => false,
                 }
             }
@@ -119,6 +134,7 @@ impl ConflictSubgraph {
         loop {
             let e = &mut g[current];
 
+            // println!("Last {:?} / current {}", last_direction, e.span.start);
             // dbg!(&last_direction, &e);
 
             // The entry is essentially in one of 4 different states:
@@ -130,29 +146,36 @@ impl ConflictSubgraph {
             let next_direction = 'block: {
                 let parents_len = e.parents.len();
 
-                let index = if parents_len == 0 && e.state.next_child == 0 {
+                let index = if parents_len == 0 && e.state.next == 0 {
                     root_index
-                } else if e.state.next_parent_idx < parents_len {
+                } else if e.state.next < parents_len {
                     // Visit the next parent.
                     if let Down(down_index) = last_direction {
-                        e.state.next_parent_idx += 1;
+                        let down_index = down_index;
+                        // While processing the parents, we increment next when the parent is
+                        // *complete*. This is unlike the children, where we increment next when
+                        // the command is issued to descend to that child.
+                        e.state.next += 1;
 
                         if parents_len >= 2 {
                             if e.state.index.is_none() {
                                 // Store the primary index
+                                let down_index = down_index.unwrap();
                                 e.state.index = Some(down_index);
                                 debug_assert_eq!(false, index_stack.contains(&down_index));
                                 index_stack.push(down_index);
                             } else {
                                 // We've just come from one of the parents.
-                                emit(MergePlanAction::DropIndex(down_index));
-                                free_index_stack.push(down_index);
+                                if let Some(down_index) = down_index {
+                                    actions.push(MergePlanAction::DropIndex(down_index));
+                                    free_index_stack.push(down_index);
+                                }
                             }
                         }
 
-                        if e.state.next_parent_idx < parents_len {
-                            // Visit the next parent.
-                            break 'block Up(e.parents[e.state.next_parent_idx]);
+                        if e.state.next < parents_len {
+                            // Visit the next parent. Mark that we don't care about its index.
+                            break 'block Up(e.parents[e.state.next], false);
                         } else {
                             // We've visited all the parents. Continue down using this index.
                             if let Some(primary_index) = e.state.index {
@@ -160,13 +183,13 @@ impl ConflictSubgraph {
                                 assert_eq!(Some(primary_index), s);
                                 primary_index
                             } else {
-                                down_index
+                                down_index.unwrap()
                             }
                         }
                     } else { // We came up. Hit the first parent.
-                        assert_eq!(e.state.next_parent_idx, 0);
+                        assert_eq!(e.state.next, 0);
                         // We can't be at the root because parents_len > next_parent_idx.
-                        break 'block Up(e.parents[0]);
+                        break 'block Up(e.parents[0], true);
                     }
                 } else { // e.state.next_parent_idx == parents_len
                     // To hit this state, we must not have visited all the children yet. (Or there
@@ -177,13 +200,14 @@ impl ConflictSubgraph {
                 };
 
                 // Go down to the next child.
+                let next_child = e.state.next - parents_len;
 
-                if e.state.next_child == 0 {
+                if next_child == 0 {
                     if !e.span.is_empty() {
-                        emit(MergePlanAction::Apply(ApplyAction {
+                        actions.push(MergePlanAction::Apply(ApplyAction {
                             span: e.span,
-                            measured_in: index,
-                            updating_other_indexes: index_stack.iter().copied().collect(),
+                            index,
+                            update_other_indexes: index_stack.iter().copied().collect(),
                             insert_items: concurrency > 1,
                         }));
                     }
@@ -194,49 +218,100 @@ impl ConflictSubgraph {
                     concurrency -= 1;
                 }
 
-                debug_assert!(e.num_children == 0 || e.state.next_child < e.num_children);
+                debug_assert!(e.num_children == 0 || next_child < e.num_children);
 
-                // If we'll be visited again, backup the index.
-                if e.state.next_child + 1 < e.num_children {
-                    // let backup_index = next_index;
-                    // next_index += 1;
-                    let backup_index = free_index_stack.pop().unwrap_or_else(|| {
-                        let index = next_index;
-                        next_index += 1;
-                        index
-                    });
+                e.state.next += 1;
 
-                    e.state.index = Some(backup_index);
-                    emit(MergePlanAction::ForkIndex(index, backup_index));
+                if next_child + 1 < e.num_children {
+                    // We'll be visited again, so backup the index.
+                    if !index_wanted {
+                        // Our next child doesn't care about this index anyway. As an optimization,
+                        // backup the current index and we'll send nothing below.
+                        e.state.index = Some(index);
+                        break 'block Down(None);
+                    } else {
+                        let backup_index = free_index_stack.pop().unwrap_or_else(|| {
+                            let index = next_index;
+                            next_index += 1;
+                            index
+                        });
+                        e.state.index = Some(backup_index);
+                        actions.push(MergePlanAction::ForkIndex(index, backup_index));
+                    };
                 }
 
-                e.state.next_child += 1;
-                break 'block Down(index);
+                Down(Some(index))
             };
 
             // dbg!(&next_step);
 
             last_direction = next_direction;
             match next_direction {
-                Up(next) => {
-                    stack.push(current);
+                Up(next, next_index_wanted) => {
+                    stack.push((current, index_wanted));
                     current = next;
+                    index_wanted = next_index_wanted;
                 }
                 Down(_index) => {
-                    if let Some(next) = stack.pop() {
+                    if let Some((next, next_index_wanted)) = stack.pop() {
                         current = next;
+                        index_wanted = next_index_wanted;
                     } else { break; };
                 }
             }
         }
 
         assert_eq!(concurrency, 1);
-        assert_eq!(last_direction, Down(0));
+        assert_eq!(last_direction, Down(Some(0)));
 
-        println!("Done {:?}", last_direction);
+        // println!("Done {:?}", last_direction);
+        MergePlan {
+            actions,
+            indexes_used: next_index,
+        }
     }
 }
 
+
+pub(crate) fn count_redundant_copies(plan: &MergePlan) {
+    #[derive(Debug, Clone, Copy)]
+    enum IndexState {
+        Free,
+        InUse(bool),
+    }
+
+    let mut index_state = vec![IndexState::Free; plan.indexes_used];
+    index_state[0] = IndexState::InUse(false);
+
+    for action in plan.actions.iter() {
+        // dbg!(&action);
+        match action {
+            MergePlanAction::ForkIndex(_, new_index) => {
+                index_state[*new_index] = IndexState::InUse(false);
+            }
+            MergePlanAction::DropIndex(index) => {
+                match index_state[*index] {
+                    IndexState::Free => { panic!("Invalid plan: Dropping freed index"); }
+                    IndexState::InUse(used) => {
+                        if !used {
+                            println!("Redundant fork! {index}");
+                        }
+                    }
+                }
+                index_state[*index] = IndexState::Free;
+            }
+            MergePlanAction::Apply(apply_action) => {
+                match &mut index_state[apply_action.index] {
+                    IndexState::Free => { panic!("Invalid plan: Using dropped index"); }
+                    IndexState::InUse(used) => {
+                        *used = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -244,7 +319,17 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_trivial_graph() {
+    fn test_trivial_graphs() {
+        let mut g = ConflictSubgraph {
+            ops: vec![],
+            last: usize::MAX,
+        };
+
+        g.dbg_check();
+        let plan = g.make_plan();
+        assert!(plan.actions.is_empty());
+
+
         let mut g = ConflictSubgraph {
             ops: vec![
                 ActionGraphEntry {
@@ -348,7 +433,8 @@ mod test {
         };
 
         g.dbg_check();
-        g.make_plan();
+        let plan = g.make_plan();
+        count_redundant_copies(&plan);
     }
     //
     // #[test]
