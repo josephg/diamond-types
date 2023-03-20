@@ -1,9 +1,10 @@
 use smallvec::{SmallVec, smallvec};
+use rle::MergableSpan;
 use crate::{DTRange, Frontier};
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::listmerge2::Index;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct ApplyAction {
     span: DTRange,
     index: Index,
@@ -18,7 +19,10 @@ pub(crate) enum MergePlanAction {
     ForkIndex(Index, Index),
     DropIndex(Index),
 }
+use MergePlanAction::*;
 
+
+#[derive(Debug, Clone)]
 pub(crate) struct MergePlan {
     pub actions: Vec<MergePlanAction>,
     pub indexes_used: usize,
@@ -28,6 +32,8 @@ pub(crate) struct MergePlan {
 pub(super) struct EntryState {
     index: Option<Index>, // Primary index / backup index.
     next: usize, // Starts at 0. 0..parents.len() is where we scan parents, then we scan children.
+    // emitted_this_span: bool,
+    children_needing_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +85,9 @@ impl ConflictSubgraph {
                 .filter(|e| e.parents.contains(&idx));
             assert_eq!(contain_me.count(), e.num_children);
 
+            // Each entry should either have non-zero parents or have operations.
+            assert!(!e.span.is_empty() || e.parents.len() != 1);
+
             if e.num_children == 0 {
                 assert_eq!(idx, self.last);
             }
@@ -87,6 +96,19 @@ impl ConflictSubgraph {
         assert_eq!(self.ops[self.last].num_children, 0);
     }
 
+    pub(crate) fn calc_children_needing_index(&mut self) {
+        // Iterating with an explicit index to keep the borrowck happy.
+        for i in 0..self.ops.len() {
+            let entry = &self.ops[i];
+            if let Some(&first_parent) = entry.parents.first() {
+                self.ops[first_parent].state.children_needing_index += 1;
+            }
+        }
+
+        if self.last != usize::MAX {
+            self.ops[self.last].state.children_needing_index += 1;
+        }
+    }
 
     /// The merge execution plan is essentially a fancy traversal of the causal graph.
     ///
@@ -100,6 +122,8 @@ impl ConflictSubgraph {
             return MergePlan { actions: vec![], indexes_used: 0 };
         }
 
+        self.calc_children_needing_index();
+
         let mut actions = vec![];
 
         let mut stack = vec![];
@@ -109,24 +133,32 @@ impl ConflictSubgraph {
 
         // Up from some child, or down with an index.
         #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-        enum Direction { Up(usize, bool), Down(Option<Index>) }
-        use Direction::*;
+        enum Movement {
+            Up {
+                next: usize,
+                needs_index: bool
+            },
+            Down(Option<Index>)
+        }
+        use Movement::*;
 
         let mut current = self.last;
         let mut index_wanted = true;
-        let mut last_direction = Up(usize::MAX, false);
+        let mut last_direction = Up {
+            next: usize::MAX,
+            needs_index: false
+        };
 
-        impl Direction {
+        impl Movement {
             fn is_up(&self) -> bool {
                 match self {
-                    Up(_, _) => true,
+                    Up { next: _, needs_index: _ } => true,
                     Down(_) => false,
                 }
             }
         }
 
         let root_index = 0;
-        // let mut current_index = None;
         let mut next_index = 1;
         let mut free_index_stack: SmallVec<[Index; 8]> = smallvec![];
         let mut concurrency: usize = 1;
@@ -134,7 +166,7 @@ impl ConflictSubgraph {
         loop {
             let e = &mut g[current];
 
-            // println!("Last {:?} / current {}", last_direction, e.span.start);
+            // println!("Last {:?} / current {} idx {current}", last_direction, e.span.start);
             // dbg!(&last_direction, &e);
 
             // The entry is essentially in one of 4 different states:
@@ -144,67 +176,91 @@ impl ConflictSubgraph {
             // 4. We're totally done.
 
             let next_direction = 'block: {
+
+                // *** Deal with the entry's parents and merging logic ***
                 let parents_len = e.parents.len();
 
                 let index = if parents_len == 0 && e.state.next == 0 {
                     root_index
                 } else if e.state.next < parents_len {
                     // Visit the next parent.
-                    if let Down(down_index) = last_direction {
-                        let down_index = down_index;
-                        // While processing the parents, we increment next when the parent is
-                        // *complete*. This is unlike the children, where we increment next when
-                        // the command is issued to descend to that child.
-                        e.state.next += 1;
+                    match last_direction {
+                        Up { .. } => { // We came up. Keep going up to our first parent.
+                            assert_eq!(e.state.next, 0);
+                            // We can't be at the root because parents_len > 0.
+                            break 'block Up {
+                                next: e.parents[0],
+                                needs_index: true
+                            };
+                        }
 
-                        if parents_len >= 2 {
-                            if e.state.index.is_none() {
-                                // Store the primary index
-                                let down_index = down_index.unwrap();
-                                e.state.index = Some(down_index);
-                                debug_assert_eq!(false, index_stack.contains(&down_index));
-                                index_stack.push(down_index);
+                        Down(down_index) => {
+                            if parents_len >= 2 {
+                                if e.state.next == 0 { // First time down.
+                                    assert!(e.state.index.is_none());
+
+                                    // Store the merger's primary index
+                                    let down_index = down_index.unwrap();
+                                    e.state.index = Some(down_index);
+                                    // println!("Pushing index {down_index}");
+                                    debug_assert_eq!(false, index_stack.contains(&down_index));
+                                    index_stack.push(down_index);
+
+                                    // We are guaranteed to go up to another parent now.
+                                } else {
+                                    // We've just come from one of the parents.
+                                    assert!(e.state.index.is_some());
+                                    assert!(down_index.is_none());
+                                }
+                            }
+
+                            // While processing the parents, we increment next when the parent is
+                            // *complete*. This is unlike the children, where we increment next when
+                            // the command is issued to descend to that child.
+                            e.state.next += 1;
+
+                            if e.state.next < parents_len {
+                                // Visit the next parent. Mark that we don't care about its index.
+                                break 'block Up {
+                                    next: e.parents[e.state.next],
+                                    needs_index: false
+                                };
                             } else {
-                                // We've just come from one of the parents.
-                                if let Some(down_index) = down_index {
-                                    actions.push(MergePlanAction::DropIndex(down_index));
-                                    free_index_stack.push(down_index);
+                                // We've visited all the parents. Flow the logic down.
+                                if let Some(primary_index) = e.state.index.take() { // parents_len >= 2.
+                                    // println!("Popping index {primary_index}");
+                                    let s = index_stack.pop();
+                                    assert_eq!(Some(primary_index), s);
+                                    primary_index
+                                } else { // parents_len == 1.
+                                    down_index.unwrap()
                                 }
                             }
                         }
-
-                        if e.state.next < parents_len {
-                            // Visit the next parent. Mark that we don't care about its index.
-                            break 'block Up(e.parents[e.state.next], false);
-                        } else {
-                            // We've visited all the parents. Continue down using this index.
-                            if let Some(primary_index) = e.state.index {
-                                let s = index_stack.pop();
-                                assert_eq!(Some(primary_index), s);
-                                primary_index
-                            } else {
-                                down_index.unwrap()
-                            }
-                        }
-                    } else { // We came up. Hit the first parent.
-                        assert_eq!(e.state.next, 0);
-                        // We can't be at the root because parents_len > next_parent_idx.
-                        break 'block Up(e.parents[0], true);
                     }
-                } else { // e.state.next_parent_idx == parents_len
-                    // To hit this state, we must not have visited all the children yet. (Or there
-                    // are no children).
+                } else { // e.state.next > parents_len.
+                    // We visit the first child by hitting the above case and the logic flows down.
+                    // Subsequent children hit *this* case.
+                    assert!(e.state.next > parents_len); // We've scanned this span.
 
                     // The index stores a backup index. Take it.
-                    e.state.index.take().unwrap()
+                    let Some(backup_index) = e.state.index.take() else {
+                        // If we have no backup, index_wanted must be false. This is a hack - I want
+                        // to flow the logic down.
+                        assert_eq!(index_wanted, false);
+                        concurrency -= 1;
+                        e.state.next += 1;
+                        break 'block Down(None);
+                    };
+                    backup_index
                 };
 
                 // Go down to the next child.
                 let next_child = e.state.next - parents_len;
 
-                if next_child == 0 {
+                if next_child == 0 { // First time going down here.
                     if !e.span.is_empty() {
-                        actions.push(MergePlanAction::Apply(ApplyAction {
+                        actions.push(Apply(ApplyAction {
                             span: e.span,
                             index,
                             update_other_indexes: index_stack.iter().copied().collect(),
@@ -213,7 +269,7 @@ impl ConflictSubgraph {
                     }
 
                     // This logic feels wrong..
-                    if e.num_children > 0 { concurrency += e.num_children - 1; }
+                    if e.num_children >= 2 { concurrency += e.num_children - 1; }
                 } else {
                     concurrency -= 1;
                 }
@@ -222,35 +278,48 @@ impl ConflictSubgraph {
 
                 e.state.next += 1;
 
-                if next_child + 1 < e.num_children {
-                    // We'll be visited again, so backup the index.
+                if e.state.children_needing_index == 0 {
+                    assert_eq!(index_wanted, false);
+                    // TODO: Maybe drop the index here and go down None instead?
+                    actions.push(DropIndex(index));
+                    free_index_stack.push(index);
+                    // println!("Drop index {index}");
+
+                    Down(None)
+                } else {
                     if !index_wanted {
                         // Our next child doesn't care about this index anyway. As an optimization,
                         // backup the current index and we'll send nothing below.
                         e.state.index = Some(index);
                         break 'block Down(None);
                     } else {
-                        let backup_index = free_index_stack.pop().unwrap_or_else(|| {
-                            let index = next_index;
-                            next_index += 1;
-                            index
-                        });
-                        e.state.index = Some(backup_index);
-                        actions.push(MergePlanAction::ForkIndex(index, backup_index));
-                    };
-                }
+                        e.state.children_needing_index -= 1;
 
-                Down(Some(index))
+                        if e.state.children_needing_index > 0 {
+                            // More children need an index after this. Back it up.
+                            let backup_index = free_index_stack.pop().unwrap_or_else(|| {
+                                let index = next_index;
+                                next_index += 1;
+                                index
+                            });
+                            // println!("Forking {index} -> {backup_index}");
+                            e.state.index = Some(backup_index);
+                            actions.push(ForkIndex(index, backup_index));
+                        }
+
+                        Down(Some(index))
+                    }
+                }
             };
 
             // dbg!(&next_step);
 
             last_direction = next_direction;
             match next_direction {
-                Up(next, next_index_wanted) => {
+                Up { next, needs_index } => {
                     stack.push((current, index_wanted));
                     current = next;
-                    index_wanted = next_index_wanted;
+                    index_wanted = needs_index;
                 }
                 Down(_index) => {
                     if let Some((next, next_index_wanted)) = stack.pop() {
@@ -264,10 +333,23 @@ impl ConflictSubgraph {
         assert_eq!(concurrency, 1);
         assert_eq!(last_direction, Down(Some(0)));
 
+        for op in self.ops.iter() {
+            assert_eq!(op.state.children_needing_index, 0);
+        }
+
         // println!("Done {:?}", last_direction);
         MergePlan {
             actions,
             indexes_used: next_index,
+        }
+    }
+}
+
+impl MergePlan {
+    pub(crate) fn print_plan(&self) {
+        println!("Plan with {} steps, using {} indexes", self.actions.len(), self.indexes_used);
+        for (i, action) in self.actions.iter().enumerate() {
+            println!("{i}: {:?}", action);
         }
     }
 }
@@ -353,7 +435,8 @@ mod test {
         };
 
         g.dbg_check();
-        g.make_plan();
+        let plan = g.make_plan();
+        plan.print_plan();
     }
 
     #[test]
@@ -389,7 +472,8 @@ mod test {
         };
 
         g.dbg_check();
-        g.make_plan();
+        let plan = g.make_plan();
+        plan.print_plan();
     }
 
     #[test]
@@ -445,6 +529,7 @@ mod test {
         g.dbg_check();
         let plan = g.make_plan();
         count_redundant_copies(&plan);
+        plan.print_plan();
     }
     //
     // #[test]

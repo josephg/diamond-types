@@ -207,7 +207,7 @@ impl Graph {
                 result.push(ActionGraphEntry {
                     parents,
                     span: (start..end).into(),
-                    num_children,
+                    num_children: num_children,
                     state: Default::default(),
                 });
 
@@ -496,17 +496,18 @@ mod test {
 
         // cg.graph.entries.0.truncate(50);
         let mut conflict_subgraph = cg.graph.to_test_entry_list();
-        // dbg!(&conflict_subgraph.ops[0..3]);
+        // dbg!(&conflict_subgraph.ops[29]);
 
         conflict_subgraph.dbg_check();
         let plan = conflict_subgraph.make_plan();
 
-        println!("Plan with {} steps, using {} indexes", plan.actions.len(), plan.indexes_used);
         count_redundant_copies(&plan);
 
-        for (i, action) in plan.actions[220..230].iter().enumerate() {
-            println!("{i}: {:?}", action);
-        }
+        // println!("Plan with {} steps, using {} indexes", plan.actions.len(), plan.indexes_used);
+        plan.print_plan();
+        // for (i, action) in plan.actions[220..230].iter().enumerate() {
+        //     println!("{i}: {:?}", action);
+        // }
     }
 }
 
