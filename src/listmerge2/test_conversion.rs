@@ -432,7 +432,7 @@ mod test {
     use std::io::Read;
     use crate::causalgraph::graph::tools::test::fancy_graph;
     use crate::list::ListOpLog;
-    use crate::listmerge2::action_plan::{ActionGraphEntry, count_redundant_copies, EntryState};
+    use crate::listmerge2::action_plan::{ActionGraphEntry, EntryState};
     use crate::listmerge2::test_conversion::{ge1_to_ge2, ge1_to_ge3, TestGraphEntry1, TestGraphEntry2, TestGraphEntry3};
 
     #[test]
@@ -501,7 +501,7 @@ mod test {
         conflict_subgraph.dbg_check();
         let plan = conflict_subgraph.make_plan();
 
-        count_redundant_copies(&plan);
+        plan.dbg_check(true);
 
         // println!("Plan with {} steps, using {} indexes", plan.actions.len(), plan.indexes_used);
         plan.print_plan();
