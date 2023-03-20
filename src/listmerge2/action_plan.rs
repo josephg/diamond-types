@@ -183,9 +183,17 @@ impl ConflictSubgraph {
                 // *** Deal with the entry's parents and merging logic ***
                 let parents_len = e.parents.len();
 
-                let (index, first_child) = if parents_len == 0 && e.state.next == 0 {
+                // #[derive(PartialEq, Eq, Clone, Copy)]
+                // enum State {
+                //     FirstChild(Index),
+                //     LaterChild(Option<Index>)
+                // }
+                // use State::*;
+
+                let (index, first) = if parents_len == 0 && e.state.next == 0 {
                     e.state.next = 1; // Needed so if the first item has multiple children, we don't try to use the root with all of them.
                     (root_index, true)
+                    // FirstChild(root_index)
                 } else if e.state.next < parents_len {
                     // Visit the next parent.
                     match last_direction {
@@ -207,6 +215,7 @@ impl ConflictSubgraph {
                             if parents_len == 1 {
                                 // No merge. Just use the index from our parent and continue to
                                 // children.
+                                // FirstChild(down_index.unwrap())
                                 (down_index.unwrap(), true)
                             } else {
                                 // parents_len >= 2. Iterate through all children and merge.
@@ -239,6 +248,7 @@ impl ConflictSubgraph {
                                     // println!("Popping index {primary_index}");
                                     let s = index_stack.pop();
                                     assert_eq!(Some(primary_index), s);
+                                    // FirstChild(primary_index)
                                     (primary_index, true)
                                 }
                             }
@@ -252,19 +262,21 @@ impl ConflictSubgraph {
                     // Subsequent children hit *this* case.
 
                     // The index stores a backup index. Take it.
-                    let Some(backup_index) = e.state.index.take() else {
-                        // If we have no backup, index_wanted must be false. This is a hack - I want
-                        // to flow the logic down.
-                        assert_eq!(index_wanted, false);
-                        concurrency -= 1;
+                    concurrency -= 1;
+                    if index_wanted {
+                        (e.state.index.take().unwrap(), false)
+                    } else {
+                        // I didn't even want your stupid index anyway.
+                        //
+                        // This happens when we've already been visited, and a merge's non-primary
+                        // arm visits this node.
                         break 'block Down(None);
-                    };
-                    (backup_index, false)
+                    }
                 };
 
-                // We're done dealing with the parents. Process the children.
-
-                if first_child { // First time going down here.
+                // We're done dealing with the parents. Process the span if this is the first time
+                // continuing to the children.
+                if first {
                     if !e.span.is_empty() {
                         actions.push(Apply(ApplyAction {
                             span: e.span,
@@ -276,42 +288,40 @@ impl ConflictSubgraph {
 
                     // This logic feels wrong..
                     if e.num_children >= 2 { concurrency += e.num_children - 1; }
-                } else {
-                    concurrency -= 1;
-                }
 
-                if e.state.children_needing_index == 0 {
-                    assert_eq!(index_wanted, false);
-                    // TODO: Maybe drop the index here and go down None instead?
-                    actions.push(DropIndex(index));
-                    free_index_stack.push(index);
-                    // println!("Drop index {index}");
-
-                    Down(None)
-                } else {
                     if !index_wanted {
-                        // Our next child doesn't care about this index anyway. As an optimization,
-                        // backup the current index and we'll send nothing below.
-                        e.state.index = Some(index);
-                        break 'block Down(None);
-                    } else {
-                        e.state.children_needing_index -= 1;
+                        if e.state.children_needing_index == 0 {
+                            assert_eq!(index_wanted, false);
+                            // TODO: Maybe drop the index here and go down None instead?
 
-                        if e.state.children_needing_index > 0 {
-                            // More children need an index after this. Back it up.
-                            let backup_index = free_index_stack.pop().unwrap_or_else(|| {
-                                let index = next_index;
-                                next_index += 1;
-                                index
-                            });
-                            // println!("Forking {index} -> {backup_index}");
-                            e.state.index = Some(backup_index);
-                            actions.push(ForkIndex(index, backup_index));
+                            actions.push(DropIndex(index));
+                            free_index_stack.push(index);
+                            // println!("Drop index {index}");
+                        } else {
+                            // Our next child doesn't care about this index anyway. As an optimization,
+                            // backup the current index and we'll send nothing below.
+                            e.state.index = Some(index);
                         }
-
-                        Down(Some(index))
+                        break 'block Down(None);
                     }
                 }
+
+                debug_assert_eq!(index_wanted, true);
+                e.state.children_needing_index -= 1;
+
+                if e.state.children_needing_index > 0 {
+                    // More children need an index after this. Back it up.
+                    let backup_index = free_index_stack.pop().unwrap_or_else(|| {
+                        let index = next_index;
+                        next_index += 1;
+                        index
+                    });
+                    // println!("Forking {index} -> {backup_index}");
+                    e.state.index = Some(backup_index);
+                    actions.push(ForkIndex(index, backup_index));
+                }
+
+                Down(Some(index))
             };
 
             // dbg!(&next_step);
