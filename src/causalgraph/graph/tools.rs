@@ -352,7 +352,7 @@ impl Graph {
             // I could write this with an inner loop and a match statement, but this is shorter and
             // more readable. The optimizer has to earn its keep somehow.
             while let Some((peek_time, peek_flag)) = queue.peek() {
-                if *peek_time == time {
+                if *peek_time == time { // NOTE: This compares the whole frontier!
                     // Logic adapted from diff().
                     if *peek_flag != flag { flag = Shared; }
                     queue.pop();

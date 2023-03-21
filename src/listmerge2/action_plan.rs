@@ -2,7 +2,7 @@ use smallvec::{SmallVec, smallvec};
 use rle::MergableSpan;
 use crate::{DTRange, Frontier};
 use crate::causalgraph::graph::tools::DiffFlag;
-use crate::listmerge2::Index;
+use crate::listmerge2::{ConflictSubgraph, Index};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct ApplyAction {
@@ -34,20 +34,6 @@ pub(super) struct EntryState {
     next: usize, // Starts at 0. 0..parents.len() is where we scan parents, then we scan children.
     // emitted_this_span: bool,
     children_needing_index: usize,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct ActionGraphEntry {
-    pub parents: SmallVec<[usize; 2]>, // 2+ items.
-    pub span: DTRange,
-    pub num_children: usize,
-    pub state: EntryState,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct ConflictSubgraph {
-    pub ops: Vec<ActionGraphEntry>,
-    pub last: usize,
 }
 
 
@@ -153,6 +139,7 @@ impl ConflictSubgraph {
         // Concurrency tracks the number of extra, unexplored concurrent paths to this one as we
         // go down.
         let mut concurrency: usize = 0;
+        let mut list_contains_content = false;
 
         loop {
             let e = &mut g[current];
@@ -233,13 +220,22 @@ impl ConflictSubgraph {
                                         // println!("Popping index {primary_index}");
                                         let s = index_stack.pop();
                                         assert_eq!(Some(primary_index), s);
-                                        // FirstChild(primary_index)
+
+                                        // Once a merge has happened, we can sometimes just clear
+                                        // the list completely of all content - since nothing that
+                                        // happens next can possibly be relevant.
+                                        if list_contains_content && index_stack.is_empty() && concurrency == 0 {
+                                            actions.push(ClearInsertedItems);
+                                            list_contains_content = false;
+                                        }
+
                                         primary_index
                                     }
                                 }
                             }
                         }
                     };
+
 
                     // We reach here if any/all merges are complete for the first time. Since this
                     // is the first time coming through here, process the span if we need to.
@@ -250,6 +246,7 @@ impl ConflictSubgraph {
                             update_other_indexes: index_stack.iter().copied().collect(),
                             insert_items: concurrency > 0,
                         }));
+                        list_contains_content = true;
                     }
 
                     // This logic feels wrong, but I think its right.
@@ -402,6 +399,7 @@ impl MergePlan {
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
+    use crate::listmerge2::ActionGraphEntry;
     use super::*;
 
     #[test]
@@ -439,19 +437,19 @@ mod test {
             ops: vec![
                 ActionGraphEntry {
                     parents: smallvec![],
-                    span: (0..1).into(),
+                    span: 0.into(),
                     num_children: 2,
                     state: Default::default(),
                 },
                 ActionGraphEntry {
                     parents: smallvec![0],
-                    span: (1..2).into(),
+                    span: 1.into(),
                     num_children: 1,
                     state: Default::default(),
                 },
                 ActionGraphEntry {
                     parents: smallvec![0],
-                    span: (2..3).into(),
+                    span: 2.into(),
                     num_children: 1,
                     state: Default::default(),
                 },
@@ -482,31 +480,31 @@ mod test {
                 },
                 ActionGraphEntry { // 1 XA -> A
                     parents: smallvec![0],
-                    span: (0..1).into(),
+                    span: 0.into(),
                     num_children: 2,
                     state: Default::default(),
                 },
                 ActionGraphEntry { // 2 XBD
                     parents: smallvec![0],
-                    span: (1..2).into(),
+                    span: 1.into(),
                     num_children: 1,
                     state: Default::default(),
                 },
                 ActionGraphEntry { // 3 AD
                     parents: smallvec![1],
-                    span: (2..3).into(),
+                    span: 2.into(),
                     num_children: 1,
                     state: Default::default(),
                 },
                 ActionGraphEntry { // 4 D, DY
                     parents: smallvec![2, 3],
-                    span: (4..5).into(),
+                    span: 3.into(),
                     num_children: 1,
                     state: Default::default(),
                 },
                 ActionGraphEntry { // 5 ACY
                     parents: smallvec![1],
-                    span: (3..4).into(),
+                    span: 4.into(),
                     num_children: 1,
                     state: Default::default(),
                 },

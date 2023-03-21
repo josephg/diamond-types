@@ -9,37 +9,28 @@ use crate::causalgraph::graph::{Graph, GraphEntrySimple};
 use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::frontier::FrontierRef;
+use crate::listmerge2::action_plan::EntryState;
 
 type Index = usize;
 
-struct ApplyAction {
-    span: DTRange,
-    insert_items: bool,
-    measured_in: Index,
-    updating_other_indexes: SmallVec<[Index; 2]>,
-}
-
-enum MergePlanAction {
-    Apply(ApplyAction),
-    DiscardInserts(DTRange),
-    ForkIndex(Index, Index),
-    DropIndex(Index),
-}
-
 
 #[derive(Debug, Clone)]
-struct GraphNoodle {
-    span: DTRange,
-    // txn_idx: usize,
-    parents: Frontier,
-    children: SmallVec<[LV; 2]>,
-    flag: DiffFlag,
-    // Idx of siblings in this list.
-    // parent_idxs: SmallVec<[usize; 4]>,
-    // child_idxs: SmallVec<[usize; 4]>,
+struct ActionGraphEntry {
+    pub parents: SmallVec<[usize; 2]>, // 2+ items.
+    pub span: DTRange,
+    pub num_children: usize,
+    pub state: EntryState,
+    // flag: DiffFlag,
 }
 
-// Sorted highest to lowest (so we sort by the highest item first).
+#[derive(Debug, Clone)]
+pub(super) struct ConflictSubgraph {
+    ops: Vec<ActionGraphEntry>,
+    last: usize,
+}
+
+
+// Sorted highest to lowest (so we compare the highest first).
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct RevSortFrontier(Frontier);
 
@@ -68,218 +59,209 @@ impl From<&[LV]> for RevSortFrontier {
     }
 }
 
+#[derive(Debug, Clone)]
+struct QueueEntry {
+    version: LV,
+    flag: DiffFlag,
+    // These are indexes into the output for child items that need their parents updated when
+    // they get inserted.
+    // child_indexes: SmallVec<[usize; 2]>,
+    child_index: usize,
+}
+
+impl PartialEq<Self> for QueueEntry {
+    fn eq(&self, other: &Self) -> bool {
+        // self.frontier == other.frontier
+        self.version == other.version
+    }
+}
+impl Eq for QueueEntry {}
+
+impl PartialOrd<Self> for QueueEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+}
+
+impl Ord for QueueEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // TODO: Could ditch RevSortFrontier above and just do the special sorting here.
+        // self.frontier.cmp(&other.frontier)
+        self.version.cmp(&other.version)
+    }
+}
+
+fn peek_when_matches<T: Ord, F: FnOnce(&T) -> bool>(heap: &BinaryHeap<T>, pred: F) -> Option<&T> {
+    if let Some(peeked) = heap.peek() {
+        if pred(peeked) {
+            return Some(peeked);
+        }
+    }
+    None
+}
+
+// fn if_let_and<T>(opt: Option<T>, pred: bool) -> Option<T> {
+//     if pred { opt } else { None }
+// }
+
 
 impl Graph {
-    fn find_conflicting_2(&self, a: &[LV], b: &[LV]) -> (Frontier, Vec<GraphNoodle>) {
+    fn find_conflicting_2(&self, a: &[LV], b: &[LV]) -> ConflictSubgraph {
         // TODO: Short circuits.
-
-        let mut result = vec![];
-
-        #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
-        struct QueueEntry {
-            f: RevSortFrontier,
-            flag: DiffFlag,
-            // TODO: Eq, PartialEq, Ord, PartialOrd should ignore children.
-            children: SmallVec<[LV; 2]>,
+        if a == b {
+            // Nothing to do here.
+            return ConflictSubgraph { ops: vec![], last: usize::MAX };
         }
+
+        // let mut result: Vec<ActionGraphEntry> = vec![];
+        let mut result: Vec<ActionGraphEntry> = vec![];
 
         // The heap is sorted such that we pull the highest items first.
         let mut queue: BinaryHeap<QueueEntry> = BinaryHeap::new();
-        queue.push(QueueEntry {
-            f: a.into(),
-            flag: DiffFlag::OnlyA,
-            children: smallvec![],
-        });
-        queue.push(QueueEntry {
-            f: b.into(),
-            flag: DiffFlag::OnlyB,
-            children: smallvec![],
-        });
+        for &version in a {
+            queue.push(QueueEntry { version, flag: DiffFlag::OnlyA, child_index: usize::MAX });
+        }
+        for &version in b {
+            queue.push(QueueEntry { version, flag: DiffFlag::OnlyB, child_index: usize::MAX });
+        }
 
-        // Loop until we've collapsed the graph down to a single element.
-        let frontier: Frontier = loop {
-            let QueueEntry {
-                f: frontier,
-                mut flag,
-                mut children
-            } = queue.pop().unwrap();
-            // dbg!((&time, flag));
+        let mut first_a: Option<usize> = None;
+        let mut first_b: Option<usize> = None;
 
-            let Some((&v, merged_with)) = frontier.0.0.split_last() else {
-                debug_assert!(frontier.0.is_root());
-                break frontier.0;
-            };
+        #[derive(Clone, Copy)]
+        enum RootEntry {
+            Unknown, OneRoot(usize), MergedRoot(usize)
+        }
 
-            // Gather identical entries.
-            // I could write this with an inner loop and a match statement, but this is shorter and
-            // more readable. The optimizer has to earn its keep somehow.
-            while let Some(peek_entry) = queue.peek() {
-                if peek_entry.f == frontier {
-                    // Logic adapted from diff().
-                    if peek_entry.flag != flag { flag = DiffFlag::Shared; }
+        let mut root_entry = RootEntry::Unknown;
 
-                    for i in peek_entry.children.iter() {
-                        if !children.contains(i) {
-                            children.push(*i);
-                        }
-                    }
-
-                    queue.pop();
-                } else { break; }
-            }
-
-            if queue.is_empty() {
-                debug_assert_eq!(flag, DiffFlag::Shared);
-                break frontier.0;
-            }
-
-            // If this node is a merger, shatter it.
-            // We'll deal with v directly this loop iteration.
-            for &t in merged_with {
-                queue.push(QueueEntry {
-                    f: t.into(),
-                    flag,
-                    children: children.clone(),
-                });
-            }
-
-            let containing_txn = self.entries.find_packed(v);
-
-            let mut last = v;
-
-            // Consume all other changes within this txn.
-            loop {
-                if let Some(peek_entry) = queue.peek() {
-                    // println!("peek {:?}", &peek_time);
-                    // Might be simpler to use containing_txn.contains(peek_time.last).
-
-                    // A bit gross, but the best I can come up with for this logic.
-
-                    let Some(&peek_v) = peek_entry.f.0.0.last() else { break; };
-                    if peek_v < containing_txn.span.start { break; }
-
-                    // The next item is within this txn. Consume it.
-                    // dbg!((&peek_time, peek_flag));
-                    let peek_entry = queue.pop().unwrap();
-
-                    // We've run into a merged item which uses part of this entry.
-                    // We've already pushed the necessary span to the result. Do the
-                    // normal merge & shatter logic with this item next.
-                    if peek_entry.f.0.len() >= 2 {
-                        let Some((_, merged_with)) = peek_entry.f.0.0.split_last() else {
-                            unreachable!();
-                        };
-
-                        for t in merged_with {
-                            queue.push(QueueEntry {
-                                f: (*t).into(),
-                                flag: peek_entry.flag,
-                                children: peek_entry.children.clone(),
-                            });
-                        }
-                    }
-
-                    // Only emit inner items when they aren't duplicates.
-                    if peek_v == last {
-                        // Don't emit, but merge children.
-                        for i in peek_entry.children.iter() {
-                            if !children.contains(i) {
-                                children.push(*i);
-                            }
-                        }
-                    } else if peek_v < last {
-                        result.push(GraphNoodle {
-                            span: (peek_v + 1..last + 1).into(),
-                            parents: Frontier::new_1(peek_v),
-                            children,
-                            flag,
-                        });
-                        children = peek_entry.children;
-                        children.push(peek_v + 1);
-                        last = peek_v;
-                    } else { unreachable!() }
-
-                    if peek_entry.flag != flag { flag = DiffFlag::Shared; }
-                } else {
-                    break;
-                }
-            }
-
-            // Emit the remainder of this txn.
-            result.push(GraphNoodle {
-                span: (containing_txn.span.start..last + 1).into(),
-                parents: containing_txn.parents.clone(),
-                children,
-                flag,
-            });
-
-            // If this entry has multiple parents, we'll end up pushing a merge here
-            // then immediately popping it. This is so we stop at the merge point.
-            queue.push(QueueEntry {
-                f: containing_txn.parents.as_ref().into(),
-                flag,
-                children: smallvec![containing_txn.span.start],
-            });
-
-            if queue.is_empty() {
-                break Frontier::new_1(last);
+        let mut insert_parent = |result: &mut Vec<ActionGraphEntry>, child_index: usize, new_index: usize, flag: DiffFlag| {
+            if child_index == usize::MAX {
+                let first = if flag == DiffFlag::OnlyA { &mut first_a } else { &mut first_b };
+                if first.is_none() { *first = Some(new_index) };
+            } else {
+                result[child_index].parents.push(new_index);
             }
         };
 
-        result.reverse();
-        (frontier, result)
+        // Loop until we've collapsed the graph down to a single element.
+        while let Some(entry) = queue.pop() { // TODO: Replace with a while let Some() = pop() ?
+            dbg!(&entry);
+            let mut flag = entry.flag;
+
+            let mut new_index = result.len();
+            let mut num_children = 0;
+            insert_parent(&mut result, entry.child_index, new_index, flag);
+
+            // Ok, now we're going to prepare all the items which exist within the txn containing v.
+            let containing_txn = self.entries.find_packed(entry.version);
+            let mut last = entry.version;
+
+            // Consume all other changes within this txn.
+            while let Some(peek_entry) = queue.peek() {
+                println!("peek {:?}", &peek_entry);
+                // Might be simpler to use containing_txn.contains(peek_time.last).
+
+                // A bit gross, but the best I can come up with for this logic.
+                let peek_v = peek_entry.version;
+                // let Some((&peek_v, peek_merge)) = peek_entry.frontier.0.0.split_last() else { break; };
+                if peek_v < containing_txn.span.start { break; }
+
+                // The next item is within this txn. Consume it.
+                let peek_entry = queue.pop().unwrap();
+
+                if peek_v == last {
+                    // Just add to new_item.
+                    num_children += 1;
+                    insert_parent(&mut result, peek_entry.child_index, new_index, flag);
+                } else {
+                    debug_assert!(peek_v < last);
+
+                    result.push(ActionGraphEntry {
+                        parents: smallvec![new_index + 1],
+                        span: (peek_v+1 .. last+1).into(),
+                        num_children,
+                        state: Default::default(),
+                    });
+
+                    new_index += 1;
+                    num_children = 1;
+                    last = peek_v
+                }
+
+                if peek_entry.flag != flag { flag = DiffFlag::Shared; }
+            }
+
+            // Emit the remainder of this txn.
+            debug_assert_eq!(result.len(), new_index);
+            result.push(ActionGraphEntry {
+                parents: smallvec![],
+                span: (containing_txn.span.start..last+1).into(),
+                num_children,
+                state: Default::default(),
+            });
+
+            if containing_txn.parents.is_root() {
+                // This is annoying. The graph needs to be in a format where exactly one node has
+                // the root as "parents". This way the standard multiple-children logic can run at
+                // the root of the graph.
+                //
+                // We'll detect and set that up here.
+                match root_entry {
+                    RootEntry::Unknown => { root_entry = RootEntry::OneRoot(new_index); }
+                    RootEntry::OneRoot(index) => {
+                        // Make a new merged root pointing at index and new_index.
+                        let merged_index = result.len();
+                        result.push(ActionGraphEntry {
+                            parents: smallvec![],
+                            span: (containing_txn.span.start..last+1).into(),
+                            num_children: 2,
+                            state: Default::default(),
+                        });
+                        result[index].parents.push(merged_index);
+                        result[new_index].parents.push(merged_index);
+                        root_entry = RootEntry::MergedRoot(merged_index);
+                    }
+                    RootEntry::MergedRoot(merged_index) => {
+                        result[merged_index].num_children += 1;
+                        result[new_index].parents.push(merged_index);
+                    }
+                }
+            } else {
+                for &p in containing_txn.parents.iter() {
+                    queue.push(QueueEntry {
+                        version: p,
+                        flag,
+                        child_index: new_index,
+                    });
+                }
+            }
+        };
+
+        dbg!(first_a, first_b);
+        let last = match (first_a, first_b) {
+            (None, None) => usize::MAX,
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            (Some(a), Some(b)) => {
+                let last = result.len();
+                result.push(ActionGraphEntry {
+                    parents: smallvec![a, b],
+                    span: Default::default(),
+                    num_children: 0,
+                    state: Default::default(),
+                });
+                result[a].num_children += 1;
+                result[b].num_children += 1;
+                last
+            }
+        };
+
+        ConflictSubgraph {
+            ops: result,
+            last,
+        }
     }
 }
 
-impl Graph {
-    fn make_execution_plan(&self, from_frontier: &[LV], merging_frontier: &[LV]) -> Vec<MergePlanAction> {
-        // This code is modeled off the find_conflicting logic. The broad goal here is to:
-        // - Find all the spans which we need to scan & merge
-        // - Then make an execution plan to merge them all
-
-        // Before anything else, some simple short circuits for common / simple cases.
-        if merging_frontier.is_empty() || from_frontier == merging_frontier { return vec![]; }
-        if from_frontier.len() == 1 && merging_frontier.len() == 1 {
-            // Check if either operation naively dominates the other. We could do this for more
-            // cases, but we may as well use the code below instead.
-            let a = from_frontier[0];
-            let b = merging_frontier[0];
-
-            if self.is_direct_descendant_coarse(b, a) {
-                // b >= a. Just directly apply the new items.
-                return vec![MergePlanAction::Apply(ApplyAction {
-                    span: (a..b).into(),
-                    insert_items: false,
-                    measured_in: 0,
-                    updating_other_indexes: smallvec![],
-                })];
-            }
-            if self.is_direct_descendant_coarse(a, b) {
-                // a >= b. We're already merged. Nothing to do!
-                return vec![];
-            }
-        }
-
-        // Alright; now
-
-        // This is a min-heap
-        #[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
-        struct QueueEntry {
-            idx: usize,
-            start: LV,
-        }
-        // let mut queue = BinaryHeap::<QueueEntry>::new();
-
-        // TODO: Move me into a .collect()
-        // for idx in graph.root_child_indexes.iter() {
-        //     queue.push(QueueEntry {
-        //         idx: *idx,
-        //         start: graph.entries[*idx].span.start,
-        //     });
-        // }
-        todo!();
-    }
-}
 
 #[cfg(test)]
 mod test {
@@ -288,7 +270,59 @@ mod test {
     #[test]
     fn foo() {
         let graph = fancy_graph();
-        let result = graph.find_conflicting_2(&[8], &[6]);
-        dbg!(result);
+        // let result = graph.find_conflicting_2(&[1], &[2]);
+        let result = graph.find_conflicting_2(&[0], &[3]);
+        dbg!(&result);
+        result.dbg_check();
     }
 }
+
+
+
+/*
+
+
+            // Gather identical entries.
+            //
+            // The logic here is a bit awful. The problem is that if two items in the CG have
+            // identical parents, we want to merge them both into a single output item with no spans
+            // so that the action plan ends up simpler.
+            if !merged_with.is_empty() {
+                if let Some(peek_entry) = peek_when_matches(&queue, |e| e.frontier == frontier) {
+                    // Identical merges detected. new_item above will contain all the parents and no
+                    // span.
+                    let mut merge_special = new_item;
+                    let merge_special_index = new_index;
+
+                    merge_special.parents.push(merge_special_index + 1);
+                    while let Some(peek_entry) = peek_when_matches(&queue, |e| e.frontier == frontier) {
+                        queue.pop().unwrap();
+                        if peek_entry.flag != flag { flag = DiffFlag::Shared; }
+                        result[peek_entry.child_index].parents.push(merge_special_index);
+                        merge_special.num_children += 1;
+                    }
+
+                    result.push(merge_special);
+
+                    for &t in merged_with { // TODO: Refactor to merge this with below.
+                        queue.push(QueueEntry { frontier: t.into(), flag, child_index: merge_special_index });
+                    }
+
+                    // And we'll add another entry past this with only 1 child again (the merge special).
+                    new_index += 1;
+                    new_item = ActionGraphEntry {
+                        parents: smallvec![],
+                        span: Default::default(),
+                        num_children: 1,
+                        state: Default::default(),
+                    };
+                } else {
+                    // Shatter the other merged_with items. We'll deal with v directly this loop
+                    // iteration.
+                    for &t in merged_with {
+                        queue.push(QueueEntry { frontier: t.into(), flag, child_index });
+                    }
+                }
+            }
+
+ */

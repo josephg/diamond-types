@@ -4,7 +4,7 @@ use rle::{MergableSpan, RleRun};
 use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
-use crate::listmerge2::Index;
+use crate::listmerge2::{ActionGraphEntry, ConflictSubgraph, Index};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 
 #[derive(Debug, Clone)]
@@ -27,7 +27,6 @@ enum TestGraphEntry1 {
 }
 
 use TestGraphEntry1::*;
-use crate::listmerge2::action_plan::{ActionGraphEntry, ConflictSubgraph};
 
 impl Graph {
     fn to_test_entry_list_1(&self) -> Vec<TestGraphEntry1> {
@@ -432,7 +431,8 @@ mod test {
     use std::io::Read;
     use crate::causalgraph::graph::tools::test::fancy_graph;
     use crate::list::ListOpLog;
-    use crate::listmerge2::action_plan::{ActionGraphEntry, EntryState};
+    use crate::listmerge2::action_plan::EntryState;
+    use crate::listmerge2::ActionGraphEntry;
     use crate::listmerge2::test_conversion::{ge1_to_ge2, ge1_to_ge3, TestGraphEntry1, TestGraphEntry2, TestGraphEntry3};
 
     #[test]
@@ -487,16 +487,12 @@ mod test {
     #[ignore]
     fn make_plan() {
         let mut bytes = vec![];
-        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
         let cg = o.cg;
 
-        // dbg!(&cg.graph.entries.0[0..3]);
-
-        // cg.graph.entries.0.truncate(50);
         let mut conflict_subgraph = cg.graph.to_test_entry_list();
-        // dbg!(&conflict_subgraph.ops[29]);
 
         conflict_subgraph.dbg_check();
         let plan = conflict_subgraph.make_plan();

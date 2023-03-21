@@ -210,6 +210,25 @@ impl<'a> SpanningTreeWalker<'a> {
             }
         }
     }
+
+    pub(crate) fn dbg_print(self) {
+        let mut i = 0;
+        for mut walk in self {
+            if !walk.retreat.is_empty() {
+                println!("{i}: --- deactivate {:?}", walk.retreat);
+                i += 1;
+            }
+            if !walk.advance_rev.is_empty() {
+                walk.advance_rev.reverse();
+                println!("{i}: +++ reactivate {:?}", walk.advance_rev);
+                i += 1;
+            }
+            if !walk.consume.is_empty() {
+                println!("{i}: Add {:?}", walk.consume);
+                i += 1;
+            }
+        }
+    }
 }
 
 impl<'a> Iterator for SpanningTreeWalker<'a> {
@@ -344,9 +363,12 @@ impl Graph {
 
 #[cfg(test)]
 mod test {
+    use std::fs::File;
+    use std::io::Read;
     use smallvec::smallvec;
     use crate::causalgraph::graph::GraphEntrySimple;
     use crate::causalgraph::graph::tools::ConflictZone;
+    use crate::list::ListOpLog;
     use super::*;
 
     #[test]
@@ -493,5 +515,33 @@ mod test {
                 consume: (6..7).into(),
             }
         ])));
+    }
+
+
+    #[test]
+    #[ignore]
+    fn print_simple_plan() {
+        let g = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..1).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (1..2).into(), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: (2..3).into(), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: (3..4).into(), parents: Frontier::from_sorted(&[1, 2]) },
+        ]);
+
+        let iter = SpanningTreeWalker::new_all(&g);
+        iter.dbg_print();
+    }
+
+    #[test]
+    #[ignore]
+    fn print_file_plan() {
+        let mut bytes = vec![];
+        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
+        let cg = o.cg;
+
+        let iter = SpanningTreeWalker::new_all(&cg.graph);
+        iter.dbg_print();
     }
 }
