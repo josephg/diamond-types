@@ -134,7 +134,7 @@ impl<'a> SpanningTreeWalker<'a> {
                 let span = span_remaining.truncate_keeping_right(offset);
 
                 // dbg!(span_remaining.start);
-                let parents: Frontier = txn.clone_parents_at_time(span.start);
+                let parents: Frontier = txn.clone_parents_at_version(span.start);
 
                 // We don't care about any parents outside of the input spans.
                 let parent_idxs: SmallVec<[usize; 4]> = parents.iter()
@@ -536,8 +536,8 @@ mod test {
     #[ignore]
     fn print_file_plan() {
         let mut bytes = vec![];
-        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
         let cg = o.cg;
 

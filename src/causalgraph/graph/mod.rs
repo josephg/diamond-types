@@ -49,9 +49,15 @@ pub struct Graph {
 }
 
 impl Graph {
-    pub fn parents_at_time(&self, time: LV) -> Frontier {
-        let entry = self.entries.find_packed(time);
-        entry.with_parents(time, |p| p.into())
+    pub fn parents_at_time(&self, v: LV) -> Frontier {
+        let entry = self.entries.find_packed(v);
+        // entry.with_parents(time, |p| p.into())
+        entry.clone_parents_at_version(v)
+    }
+
+    pub fn with_parents<F: FnOnce(&[LV]) -> G, G>(&self, v: LV, f: F) -> G {
+        let entry = self.entries.find_packed(v);
+        entry.with_parents(v, f)
     }
 
     #[allow(unused)]
@@ -125,23 +131,23 @@ impl GraphEntryInternal {
     //     } else { None } // look at .parents field.
     // }
 
-    pub fn parent_at_time(&self, time: usize) -> Option<usize> {
-        if time > self.span.start {
-            Some(time - 1)
+    pub fn parent_at_version(&self, v: LV) -> Option<usize> {
+        if v > self.span.start {
+            Some(v - 1)
         } else { None } // look at .parents field.
     }
 
-    pub fn with_parents<F: FnOnce(&[LV]) -> G, G>(&self, time: usize, f: F) -> G {
-        if time > self.span.start {
-            f(&[time - 1])
+    pub fn with_parents<F: FnOnce(&[LV]) -> G, G>(&self, v: LV, f: F) -> G {
+        if v > self.span.start {
+            f(&[v - 1])
         } else {
             f(self.parents.as_ref())
         }
     }
 
-    pub fn clone_parents_at_time(&self, time: usize) -> Frontier {
-        if time > self.span.start {
-            Frontier::new_1(time - 1)
+    pub fn clone_parents_at_version(&self, v: LV) -> Frontier {
+        if v > self.span.start {
+            Frontier::new_1(v - 1)
         } else {
             self.parents.clone()
         }

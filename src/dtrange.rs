@@ -231,7 +231,7 @@ impl Debug for DTRange {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "v ")?;
         debug_time_raw(self.start, |v| v.fmt(f) )?;
-        if self.end > self.start + 1 {
+        if self.end != self.start + 1 {
             // write!(f, "-")?;
             // debug_time_raw(self.end - 1, |v| v.fmt(f))?;
             write!(f, "..")?;

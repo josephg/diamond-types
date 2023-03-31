@@ -44,6 +44,12 @@ impl From<SmallVec<[LV; 2]>> for Frontier {
     }
 }
 
+impl From<LV> for Frontier {
+    fn from(v: LV) -> Self {
+        Frontier::new_1(v)
+    }
+}
+
 impl Default for Frontier {
     fn default() -> Self {
         Self::root()
@@ -269,6 +275,15 @@ impl Frontier {
             // me).
             // TODO: Check if its faster to try and append it to the end first.
             self.insert_nonoverlapping(span.last());
+        }
+    }
+
+    pub fn merge_union(&mut self, other: &[LV], graph: &Graph) {
+        if !other.is_empty()
+            && other != self.as_ref()
+            && (other.len() != 1 || !graph.frontier_contains_version(self.as_ref(), other[0]))
+        {
+            *self = graph.version_union(self.as_ref(), other);
         }
     }
 

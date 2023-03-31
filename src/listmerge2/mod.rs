@@ -1,12 +1,15 @@
 mod action_plan;
 mod test_conversion;
 
+// #[cfg(feature = "dot_export")]
+mod dot;
+
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use smallvec::{SmallVec, smallvec};
 use rle::SplitableSpan;
 use crate::causalgraph::graph::{Graph, GraphEntrySimple};
-use crate::{DTRange, Frontier, LV};
+use crate::{CausalGraph, DTRange, Frontier, LV};
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::frontier::FrontierRef;
 use crate::listmerge2::action_plan::EntryState;
@@ -16,7 +19,7 @@ type Index = usize;
 
 #[derive(Debug, Clone)]
 struct ActionGraphEntry {
-    pub parents: SmallVec<[usize; 2]>, // 2+ items.
+    pub parents: SmallVec<[usize; 2]>, // 2+ items. These are indexes to sibling items, not LVs.
     pub span: DTRange,
     pub num_children: usize,
     pub state: EntryState,
@@ -26,13 +29,13 @@ struct ActionGraphEntry {
 #[derive(Debug, Clone)]
 pub(super) struct ConflictSubgraph {
     ops: Vec<ActionGraphEntry>,
-    last: usize,
+    // last: usize,
 }
 
 
 // Sorted highest to lowest (so we compare the highest first).
 #[derive(Debug, PartialEq, Eq, Clone)]
-struct RevSortFrontier(Frontier);
+struct RevSortFrontier(SmallVec<[LV; 2]>);
 
 impl Ord for RevSortFrontier {
     #[inline(always)]
@@ -48,13 +51,11 @@ impl PartialOrd for RevSortFrontier {
 }
 
 impl From<LV> for RevSortFrontier {
-    fn from(v: LV) -> Self {
-        Self(Frontier::new_1(v))
-    }
+    fn from(v: LV) -> Self { Self(smallvec![v]) }
 }
 
 impl From<&[LV]> for RevSortFrontier {
-    fn from(f: FrontierRef) -> Self {
+    fn from(f: &[LV]) -> Self {
         RevSortFrontier(f.into())
     }
 }
@@ -62,6 +63,7 @@ impl From<&[LV]> for RevSortFrontier {
 #[derive(Debug, Clone)]
 struct QueueEntry {
     version: LV,
+    // merged_with: RevSortFrontier,
     flag: DiffFlag,
     // These are indexes into the output for child items that need their parents updated when
     // they get inserted.
@@ -102,54 +104,73 @@ fn peek_when_matches<T: Ord, F: FnOnce(&T) -> bool>(heap: &BinaryHeap<T>, pred: 
 //     if pred { opt } else { None }
 // }
 
-
+impl CausalGraph {
+    fn find_conflicting_all(&self) -> ConflictSubgraph {
+        self.graph.find_conflicting_2(&[], self.version.as_ref())
+    }
+}
 impl Graph {
     fn find_conflicting_2(&self, a: &[LV], b: &[LV]) -> ConflictSubgraph {
         // TODO: Short circuits.
         if a == b {
             // Nothing to do here.
-            return ConflictSubgraph { ops: vec![], last: usize::MAX };
+            return ConflictSubgraph { ops: vec![] };
         }
 
         // let mut result: Vec<ActionGraphEntry> = vec![];
         let mut result: Vec<ActionGraphEntry> = vec![];
 
+        // The "final" state needs to be in a single entry, and that entry needs to be at the start
+        // of the resulting graph.
+        //
+        // We're merging b into a. There's essentially 2 cases here:
+        //
+        // 1. b is a direct descendant of a. The "last" (first) item will be b.
+        // 2. a and b have concurrent operations. The last item will be a merge with multiple
+        // parents.
+
+        result.push(ActionGraphEntry {
+            parents: Default::default(),
+            span: Default::default(),
+            num_children: 0,
+            state: Default::default(),
+        });
+
         // The heap is sorted such that we pull the highest items first.
         let mut queue: BinaryHeap<QueueEntry> = BinaryHeap::new();
         for &version in a {
-            queue.push(QueueEntry { version, flag: DiffFlag::OnlyA, child_index: usize::MAX });
+            queue.push(QueueEntry { version, flag: DiffFlag::OnlyA, child_index: 0 });
         }
         for &version in b {
-            queue.push(QueueEntry { version, flag: DiffFlag::OnlyB, child_index: usize::MAX });
+            queue.push(QueueEntry { version, flag: DiffFlag::OnlyB, child_index: 0 });
         }
 
-        let mut first_a: Option<usize> = None;
-        let mut first_b: Option<usize> = None;
+        // let mut end_a: SmallVec<[usize; 2]> = SmallVec::with_capacity(a.len());
+        // let mut end_b: SmallVec<[usize; 2]> = SmallVec::with_capacity(b.len());
 
-        #[derive(Clone, Copy)]
-        enum RootEntry {
-            Unknown, OneRoot(usize), MergedRoot(usize)
-        }
+        let mut root_children: SmallVec<[usize; 2]> = smallvec![];
 
-        let mut root_entry = RootEntry::Unknown;
-
-        let mut insert_parent = |result: &mut Vec<ActionGraphEntry>, child_index: usize, new_index: usize, flag: DiffFlag| {
-            if child_index == usize::MAX {
-                let first = if flag == DiffFlag::OnlyA { &mut first_a } else { &mut first_b };
-                if first.is_none() { *first = Some(new_index) };
-            } else {
-                result[child_index].parents.push(new_index);
-            }
+        let insert_parent = |result: &mut Vec<ActionGraphEntry>, child_index: usize, new_index: usize, _flag: DiffFlag| -> usize {
+            // if child_index == usize::MAX {
+            //     let first = if flag == DiffFlag::OnlyA { &mut end_a } else { &mut end_b };
+            //     first.push(new_index);
+            //     0
+            // } else {
+            //     result[child_index].parents.push(new_index);
+            //     1
+            // }
+            result[child_index].parents.push(new_index);
+            // if child_index == 0 { 0 } else { 1 }
+            1
         };
 
         // Loop until we've collapsed the graph down to a single element.
         while let Some(entry) = queue.pop() { // TODO: Replace with a while let Some() = pop() ?
-            dbg!(&entry);
+            // println!("pop {:?}", &entry);
             let mut flag = entry.flag;
 
             let mut new_index = result.len();
-            let mut num_children = 0;
-            insert_parent(&mut result, entry.child_index, new_index, flag);
+            let mut num_children = insert_parent(&mut result, entry.child_index, new_index, flag);
 
             // Ok, now we're going to prepare all the items which exist within the txn containing v.
             let containing_txn = self.entries.find_packed(entry.version);
@@ -157,7 +178,7 @@ impl Graph {
 
             // Consume all other changes within this txn.
             while let Some(peek_entry) = queue.peek() {
-                println!("peek {:?}", &peek_entry);
+                // println!("peek {:?}", &peek_entry);
                 // Might be simpler to use containing_txn.contains(peek_time.last).
 
                 // A bit gross, but the best I can come up with for this logic.
@@ -170,8 +191,7 @@ impl Graph {
 
                 if peek_v == last {
                     // Just add to new_item.
-                    num_children += 1;
-                    insert_parent(&mut result, peek_entry.child_index, new_index, flag);
+                    num_children += insert_parent(&mut result, peek_entry.child_index, new_index, flag);
                 } else {
                     debug_assert!(peek_v < last);
 
@@ -183,7 +203,7 @@ impl Graph {
                     });
 
                     new_index += 1;
-                    num_children = 1;
+                    num_children = 1 + insert_parent(&mut result, peek_entry.child_index, new_index, flag);
                     last = peek_v
                 }
 
@@ -201,30 +221,9 @@ impl Graph {
 
             if containing_txn.parents.is_root() {
                 // This is annoying. The graph needs to be in a format where exactly one node has
-                // the root as "parents". This way the standard multiple-children logic can run at
-                // the root of the graph.
-                //
-                // We'll detect and set that up here.
-                match root_entry {
-                    RootEntry::Unknown => { root_entry = RootEntry::OneRoot(new_index); }
-                    RootEntry::OneRoot(index) => {
-                        // Make a new merged root pointing at index and new_index.
-                        let merged_index = result.len();
-                        result.push(ActionGraphEntry {
-                            parents: smallvec![],
-                            span: (containing_txn.span.start..last+1).into(),
-                            num_children: 2,
-                            state: Default::default(),
-                        });
-                        result[index].parents.push(merged_index);
-                        result[new_index].parents.push(merged_index);
-                        root_entry = RootEntry::MergedRoot(merged_index);
-                    }
-                    RootEntry::MergedRoot(merged_index) => {
-                        result[merged_index].num_children += 1;
-                        result[new_index].parents.push(merged_index);
-                    }
-                }
+                // the root as "parents". I'm going to insert an explicit parents entry at the end
+                // of the operation log. Just mark that this node has root as a parent.
+                root_children.push(new_index);
             } else {
                 for &p in containing_txn.parents.iter() {
                     queue.push(QueueEntry {
@@ -236,28 +235,21 @@ impl Graph {
             }
         };
 
-        dbg!(first_a, first_b);
-        let last = match (first_a, first_b) {
-            (None, None) => usize::MAX,
-            (Some(a), None) => a,
-            (None, Some(b)) => b,
-            (Some(a), Some(b)) => {
-                let last = result.len();
-                result.push(ActionGraphEntry {
-                    parents: smallvec![a, b],
-                    span: Default::default(),
-                    num_children: 0,
-                    state: Default::default(),
-                });
-                result[a].num_children += 1;
-                result[b].num_children += 1;
-                last
+        if !root_children.is_empty() && root_children.as_ref() != &[result.len() - 1] {
+            let root_index = result.len();
+            result.push(ActionGraphEntry {
+                parents: smallvec![],
+                span: Default::default(),
+                num_children: root_children.len(),
+                state: Default::default(),
+            });
+            for r in root_children {
+                result[r].parents.push(root_index);
             }
-        };
+        }
 
         ConflictSubgraph {
             ops: result,
-            last,
         }
     }
 }
@@ -265,15 +257,95 @@ impl Graph {
 
 #[cfg(test)]
 mod test {
+    use std::fs::File;
+    use std::io::Read;
+    use crate::causalgraph::graph::{Graph, GraphEntrySimple};
     use crate::causalgraph::graph::tools::test::fancy_graph;
+    use crate::{Frontier, LV};
+    use crate::list::ListOpLog;
+
+    fn check(graph: &Graph, a: &[LV], b: &[LV]) {
+        // dbg!(a, b);
+        let mut result = graph.find_conflicting_2(a, b);
+        // dbg!(&result);
+        result.dbg_check();
+
+        let plan = result.make_plan(&graph);
+        plan.simulate_plan(&graph, &[]);
+    }
 
     #[test]
-    fn foo() {
+    fn test_from_fancy_graph() {
         let graph = fancy_graph();
+        check(&graph, &[], &[]);
+        check(&graph, &[0], &[]);
+        check(&graph, &[0], &[3]);
+        check(&graph, &[0], &[6]);
+        check(&graph, &[], &[0, 6]);
+        check(&graph, &[], &[0, 3]);
+        check(&graph, &[10], &[5]);
+        check(&graph, &[], &[5, 10]);
         // let result = graph.find_conflicting_2(&[1], &[2]);
-        let result = graph.find_conflicting_2(&[0], &[3]);
-        dbg!(&result);
+        // let result = graph.find_conflicting_2(&[5], &[9]);
+    }
+
+    #[test]
+    fn combined_merge() {
+        // let graph = Graph::from_simple_items(&[
+        //     GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
+        //     GraphEntrySimple { span: 1.into(), parents: Frontier::root() },
+        //     GraphEntrySimple { span: 2.into(), parents: Frontier::from(0) },
+        //     GraphEntrySimple { span: 3.into(), parents: Frontier::from(1) },
+        //     GraphEntrySimple { span: 4.into(), parents: Frontier::from(0) },
+        //     GraphEntrySimple { span: 5.into(), parents: Frontier::from(1) },
+        //
+        //
+        //     GraphEntrySimple { span: 4.into(), parents: Frontier::from_sorted(&[2, 3]) },
+        //     GraphEntrySimple { span: 5.into(), parents: Frontier::from_sorted(&[4, 5]) },
+        // ]);
+
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
+            GraphEntrySimple { span: 1.into(), parents: Frontier::root() },
+
+            GraphEntrySimple { span: 2.into(), parents: Frontier::from_sorted(&[0, 1]) },
+            GraphEntrySimple { span: 3.into(), parents: Frontier::from_sorted(&[0, 1]) },
+        ]);
+
+        let mut result = graph.find_conflicting_2(&[2], &[3]);
+        // let mut result = graph.find_conflicting_2(&[4], &[5]);
+        // dbg!(&result);
         result.dbg_check();
+        let plan = result.make_plan(&graph);
+        plan.dbg_check(true);
+        plan.dbg_print();
+        plan.simulate_plan(&graph, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn make_plan() {
+        let mut bytes = vec![];
+        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
+        let cg = o.cg;
+
+        // let mut conflict_subgraph = cg.graph.to_test_entry_list();
+        let mut conflict_subgraph = cg.graph.find_conflicting_2(&[], cg.version.as_ref());
+
+        conflict_subgraph.dbg_check();
+        let plan = conflict_subgraph.make_plan(&cg.graph);
+
+        plan.dbg_check(true);
+
+        // println!("Plan with {} steps, using {} indexes", plan.actions.len(), plan.indexes_used);
+        plan.dbg_print();
+
+        plan.simulate_plan(&cg.graph, &[]);
+        // for (i, action) in plan.actions[220..230].iter().enumerate() {
+        //     println!("{i}: {:?}", action);
+        // }
     }
 }
 

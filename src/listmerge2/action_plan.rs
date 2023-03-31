@@ -1,6 +1,9 @@
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+use bumpalo::Bump;
 use smallvec::{SmallVec, smallvec};
 use rle::MergableSpan;
-use crate::{DTRange, Frontier};
+use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::listmerge2::{ConflictSubgraph, Index};
 
@@ -18,8 +21,11 @@ pub(crate) enum MergePlanAction {
     ClearInsertedItems,
     ForkIndex(Index, Index),
     DropIndex(Index),
+    // MaxIndex(Index, SmallVec<[Index; 2]>),
+    MaxIndex(Index, Index),
 }
 use MergePlanAction::*;
+use crate::causalgraph::graph::Graph;
 
 
 #[derive(Debug, Clone)]
@@ -30,12 +36,27 @@ pub(crate) struct MergePlan {
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct EntryState {
-    index: Option<Index>, // Primary index / backup index.
+    index: Option<Index>, // Primary index for merges / backup index for forks.
     next: usize, // Starts at 0. 0..parents.len() is where we scan parents, then we scan children.
     // emitted_this_span: bool,
-    children_needing_index: usize,
+    children_needing_index: usize, // For forks
+
+    visited: bool,
+    merge_max_with: SmallVec<[usize; 2]>,
 }
 
+
+// fn borrow_2<T>(slice: &mut [T], a_idx: usize, b_idx: usize) -> (&mut T, &mut T) {
+//     // Utterly awful.
+//     assert_ne!(a_idx, b_idx);
+//     let (a_idx, b_idx) = if a_idx < b_idx { (a_idx, b_idx) } else { (b_idx, a_idx) };
+//     // a<b.
+//     let (start, end) = slice.split_at_mut(b_idx);
+//     let a = &mut start[a_idx];
+//     let b = &mut end[0];
+//
+//     return (a, b);
+// }
 
 // fn emit(action: MergePlanAction) {
 //     // dbg!(action);
@@ -51,9 +72,11 @@ impl ConflictSubgraph {
 
         if self.ops.is_empty() {
             // This is a bit arbitrary.
-            assert_eq!(self.last, usize::MAX);
+            // assert_eq!(self.last, usize::MAX);
             return;
         }
+
+        assert_eq!(self.ops[0].num_children, 0, "Item 0 (last) should have no children");
 
         // Check root is referenced once
         let root_nodes = self.ops.iter()
@@ -67,19 +90,93 @@ impl ConflictSubgraph {
             //     .collect::<Vec<_>>());
 
             // Check num_children is correct.
-            let contain_me = self.ops.iter()
-                .filter(|e| e.parents.contains(&idx));
-            assert_eq!(contain_me.count(), e.num_children);
+            let actual_num_children = self.ops.iter()
+                .filter(|e| e.parents.contains(&idx))
+                .count();
+
+            assert_eq!(actual_num_children, e.num_children,
+                       "num_children is incorrect at index {idx}. Actual {actual_num_children} != claimed {}", e.num_children);
 
             // Each entry should either have non-zero parents or have operations.
-            assert!(!e.span.is_empty() || e.parents.len() != 1);
+            // assert!(!e.span.is_empty() || e.parents.len() != 1);
+            assert!(!e.span.is_empty() || e.parents.len() != 1 || idx == 0);
 
-            if e.num_children == 0 {
-                assert_eq!(idx, self.last);
+            assert!(idx == 0 || e.num_children > 0, "The only item with no children should be item 0. idx {idx} has no children.");
+
+            // The list is sorted in reverse time order. (Last stuff at the start). This property is
+            // depended on by the diff code below.
+            for p in e.parents.iter() {
+                if *p <= idx {
+                    dbg!(idx, e, self.ops.len(), &self.ops[*p]);
+                }
+                assert!(*p > idx);
             }
         }
+    }
 
-        assert_eq!(self.ops[self.last].num_children, 0);
+
+    // This method is adapted from the equivalent method in the causal graph code.
+    fn diff_trace<F: FnMut(usize)>(&self, idx: usize, mut visit: F) {
+        assert!(self.ops[idx].parents.len() >= 2);
+
+        use DiffFlag::*;
+        // Sorted highest to lowest.
+        let mut queue: BinaryHeap<Reverse<(usize, DiffFlag)>> = self.ops[idx].parents
+            .iter().enumerate()
+            .map(|(idx, e)| {
+                Reverse((*e, if idx == 0 { OnlyA } else { OnlyB }))
+            })
+            .collect();
+
+        // dbg!(&queue);
+
+        // let (first, rest) = self.ops[idx].parents.split_first().unwrap();
+        // queue.push(Reverse((*first, OnlyA)));
+        // for b_ord in rest {
+        //     queue.push(Reverse((*b_ord, OnlyB)));
+        // }
+
+        let mut num_shared_entries = 0;
+
+        while let Some(Reverse((idx, mut flag))) = queue.pop() {
+            if flag == Shared { num_shared_entries -= 1; }
+
+            // dbg!((ord, flag));
+            while let Some(Reverse((peek_idx, peek_flag))) = queue.peek() {
+                if *peek_idx != idx { break; } // Normal case.
+                else {
+                    // 3 cases if peek_flag != flag. We set flag = Shared in all cases.
+                    if *peek_flag != flag { flag = Shared; }
+                    if *peek_flag == Shared { num_shared_entries -= 1; }
+                    queue.pop();
+                }
+            }
+
+            // let entry = &self.ops[idx];
+            // if flag == OnlyA && *peek_flag == OnlyB && entry.state.visited {
+            //     println!("Need to MAX!");
+            //     visit(idx);
+            //     // entry.state.children_needing_index += 1;
+            //     // self.ops[a].state.merge_max_with.push(idx);
+            // }
+
+            let entry = &self.ops[idx];
+            if flag == OnlyB && entry.state.visited {
+                // Oops!
+                // println!("Need to MAX!");
+                visit(idx);
+                flag = Shared;
+            }
+
+            // mark_run(containing_txn.span.start, idx, flag);
+            for p_idx in entry.parents.iter() {
+                queue.push(Reverse((*p_idx, flag)));
+                if flag == Shared { num_shared_entries += 1; }
+            }
+
+            // If there's only shared entries left, abort.
+            if queue.len() == num_shared_entries { break; }
+        }
     }
 
     pub(crate) fn calc_children_needing_index(&mut self) {
@@ -91,8 +188,127 @@ impl ConflictSubgraph {
             }
         }
 
-        if self.last != usize::MAX {
-            self.ops[self.last].state.children_needing_index += 1;
+        if !self.ops.is_empty() {
+            self.ops[0].state.children_needing_index += 1;
+        }
+    }
+
+    fn plan_first_pass(&mut self, b: &Bump) {
+        use bumpalo::collections::Vec as BumpVec;
+
+        if self.ops.is_empty() { return; }
+        let mut stack = vec![];
+        let mut current_idx = 0;
+
+        #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+        enum Movement {
+            Up(usize),
+            Down
+        }
+        use Movement::*;
+        let mut last_direction = Up(usize::MAX);
+
+        // let mut maxes: BumpVec<(usize, BumpVec<usize>)> = bumpalo::vec![in b];
+        let mut maxes: BumpVec<(usize, SmallVec<[usize; 2]>)> = bumpalo::vec![in b];
+
+        loop {
+            // println!("Visiting idx {current_idx} from {:?}", last_direction);
+            let mut e = &mut self.ops[current_idx];
+
+            let next_direction = 'block: {
+                // *** Deal with the entry's parents and merging logic ***
+                let parents_len = e.parents.len();
+
+                if e.state.next == 0 || e.state.next < parents_len {
+                    assert_eq!(e.state.visited, false);
+                    if parents_len == 0 {
+                        // Hack. Needed so if the root item has multiple children, we don't try to
+                        // use the root index with all of them.
+                        e.state.next = 1;
+                    } else {
+                        // Visit the next parent.
+                        match last_direction {
+                            Up(_) => { // We came up. Keep going up to our first parent.
+                                assert_eq!(e.state.next, 0);
+                                // We can't be at the root because parents_len > 0.
+                                break 'block Up(e.parents[0]);
+                            }
+
+                            Down => {
+                                if e.state.next == 0 && parents_len >= 2 {
+                                    // println!("CHECK! {current_idx}");
+
+                                    // We've come down to a merge from the first branch. Ideally,
+                                    // at this point the algorithm below would add the current index
+                                    // to the active index set and keep going. But for this merge,
+                                    // we need to check that that will actually work.
+                                    self.diff_trace(current_idx, |i| {
+                                        println!("{current_idx} -> {i}");
+
+                                        if let Some(v) = maxes.last_mut()
+                                            .and_then(|(idx, v)| if *idx == current_idx { Some(v) } else { None })
+                                        {
+                                            v.push(i);
+                                        } else {
+                                            // maxes.push((current_idx, bumpalo::vec![in b; i]));
+                                            maxes.push((current_idx, smallvec![i]));
+                                        }
+                                    });
+                                    e = &mut self.ops[current_idx];
+                                }
+
+                                // While processing the parents, we increment next when the parent is
+                                // *complete*. This is unlike the children, where we increment next when
+                                // the command is issued to descend to that child.
+                                e.state.next += 1;
+
+                                if e.state.next < parents_len { // Not the last.
+                                    // Visit the next parent.
+                                    break 'block Up(e.parents[e.state.next]);
+                                }
+                                // Otherwise flow down.
+                            }
+                        }
+                    };
+
+                    // We reach here, we've visited all of this node's parents for the first time.
+                    // println!("Visited idx {current_idx}");
+                    e.state.visited = true;
+                }
+
+                Down
+            };
+
+            last_direction = next_direction;
+            match next_direction {
+                Up(next) => {
+                    // Save current and index_wanted for this node. We need to restore both later
+                    // when we go back down the tree (since we descend based on the ascent).
+                    stack.push(current_idx);
+                    current_idx = next;
+                }
+                Down => {
+                    if let Some(next) = stack.pop() {
+                        current_idx = next;
+                    } else { break; };
+                }
+            }
+        }
+
+        assert_eq!(last_direction, Down);
+
+        for op in self.ops.iter_mut() {
+            assert!(op.state.visited);
+            op.state.visited = false;
+            op.state.next = 0;
+        }
+
+        dbg!(&maxes.len());
+        for (i, v) in maxes {
+            for vv in v.iter() {
+                self.ops[*vv].state.children_needing_index += 1;
+            }
+            self.ops[i].state.merge_max_with = v;
         }
     }
 
@@ -103,17 +319,22 @@ impl ConflictSubgraph {
     /// - Starts from the root (or some shared point in time)
     /// - Visits all operations at least once
     /// - Tracks a set of indexes
-    pub(super) fn make_plan(&mut self) -> MergePlan {
+    pub(super) fn make_plan(&mut self, graph: &Graph) -> MergePlan {
+        let bump = Bump::new();
+
         if self.ops.is_empty() {
             return MergePlan { actions: vec![], indexes_used: 0 };
         }
 
+        self.plan_first_pass(&bump);
         self.calc_children_needing_index();
 
+        // TODO: Use a bump alo for all of these vectors.
         let mut actions = vec![];
 
         let mut stack = vec![];
         let mut index_stack: Vec<Index> = vec![];
+        let mut indexes_state: Vec<Option<Frontier>> = vec![Some(Frontier::root())];
 
         let g = &mut self.ops;
 
@@ -125,7 +346,7 @@ impl ConflictSubgraph {
         }
         use Movement::*;
 
-        let mut current = self.last;
+        let mut current_idx = 0;
         let mut index_wanted = true;
         let mut last_direction = Up {
             next: usize::MAX,
@@ -142,9 +363,9 @@ impl ConflictSubgraph {
         let mut list_contains_content = false;
 
         loop {
-            let e = &mut g[current];
+            let e = &mut g[current_idx];
 
-            // println!("Last {:?} / current {} idx {current}", last_direction, e.span.start);
+            println!("idx {current_idx} / Last {:?} / span here {}", last_direction, e.span.start);
             // dbg!(&last_direction, &e);
 
             // The entry is essentially in one of 4 different states:
@@ -240,6 +461,54 @@ impl ConflictSubgraph {
                     // We reach here if any/all merges are complete for the first time. Since this
                     // is the first time coming through here, process the span if we need to.
                     if !e.span.is_empty() {
+                        println!("Emit {:?}", Apply(ApplyAction {
+                            span: e.span,
+                            index,
+                            update_other_indexes: index_stack.iter().copied().collect(),
+                            insert_items: concurrency > 0,
+                        }));
+
+                        // Emit max events for the other indexes, and update them too.
+                        // let mut max: SmallVec<[Index; 2]> = smallvec![];
+                        graph.with_parents(e.span.start, |parents| {
+                            // TODO: This is a bit ugly.
+                            for i in index_stack.iter().copied() {
+                                let f = indexes_state[i].as_mut().unwrap();
+                                dbg!(graph.frontier_contains_frontier(f.as_ref(), parents));
+                                if !graph.frontier_contains_frontier(f.as_ref(), parents) {
+                                    // max.push(i);
+                                    println!("Emit {:?}", MaxIndex(i, index));
+                                    actions.push(MaxIndex(i, index));
+
+                                    // And mark the updated index as updated.
+                                }
+
+                                // This is strictly advancing. Almost certainly a better way to do
+                                // this.
+                                let mut f = indexes_state[i].take().unwrap();
+                                println!("i {i} f {:?}", f.as_ref());
+                                // f.merge_union(indexes_state[index].as_ref().unwrap().as_ref(), graph);
+                                f.merge_union(&[e.span.last()], graph);
+                                println!("i {i} -> f {:?}", f.as_ref());
+                                indexes_state[i] = Some(f);
+                            }
+                        });
+                        // if !max.is_empty() {
+                        //     actions.push(MaxIndex()
+                        // }
+
+                        // The index thats being updated must exactly match parents. Check and
+                        // update.
+                        let index_state = indexes_state[index].as_mut().unwrap();
+                        if cfg!(debug_assertions) {
+                            println!("index {index} at {:?}", index_state);
+                            graph.with_parents(e.span.start, |parents| {
+                                assert_eq!(parents, index_state.as_ref());
+                            });
+                        }
+                        index_state.replace_with_1(e.span.last());
+                        dbg!(&indexes_state);
+
                         actions.push(Apply(ApplyAction {
                             span: e.span,
                             index,
@@ -257,8 +526,11 @@ impl ConflictSubgraph {
                     } else {
                         if e.state.children_needing_index == 0 {
                             assert_eq!(index_wanted, false);
+                            println!("Emit {:?}", DropIndex(index));
                             actions.push(DropIndex(index));
+                            indexes_state[index].take().unwrap();
                             free_index_stack.push(index);
+                            // dbg!(&indexes_state);
                             // println!("Drop index {index}");
                         } else {
                             // Our next child doesn't care about this index anyway. As an optimization,
@@ -287,6 +559,7 @@ impl ConflictSubgraph {
                 };
 
                 debug_assert_eq!(index_wanted, true);
+                debug_assert!(e.state.children_needing_index > 0);
                 e.state.children_needing_index -= 1;
 
                 // Check if we need to backup the index for subsequent children
@@ -298,7 +571,14 @@ impl ConflictSubgraph {
                         index
                     });
                     e.state.index = Some(backup_index);
+                    println!("Emit {:?}", ForkIndex(index, backup_index));
                     actions.push(ForkIndex(index, backup_index));
+                    // dbg!(&indexes_state);
+                    if indexes_state.len() == backup_index {
+                        indexes_state.resize(backup_index + 1, None);
+                    }
+                    assert!(indexes_state[backup_index].is_none());
+                    indexes_state[backup_index] = indexes_state[index].clone();
                 }
 
                 Down(Some(index))
@@ -309,13 +589,13 @@ impl ConflictSubgraph {
                 Up { next, needs_index } => {
                     // Save current and index_wanted for this node. We need to restore both later
                     // when we go back down the tree (since we descend based on the ascent).
-                    stack.push((current, index_wanted));
-                    current = next;
+                    stack.push((current_idx, index_wanted));
+                    current_idx = next;
                     index_wanted = needs_index;
                 }
                 Down(_index) => {
                     if let Some((next, next_index_wanted)) = stack.pop() {
-                        current = next;
+                        current_idx = next;
                         index_wanted = next_index_wanted;
                     } else { break; };
                 }
@@ -338,7 +618,7 @@ impl ConflictSubgraph {
 }
 
 impl MergePlan {
-    pub(crate) fn print_plan(&self) {
+    pub(crate) fn dbg_print(&self) {
         println!("Plan with {} steps, using {} indexes", self.actions.len(), self.indexes_used);
         for (i, action) in self.actions.iter().enumerate() {
             println!("{i}: {:?}", action);
@@ -394,11 +674,65 @@ impl MergePlan {
         assert_ne!(first, &IndexState::Free);
         assert!(rest.iter().all(|s| s == &IndexState::Free));
     }
+
+    pub(crate) fn simulate_plan(&self, graph: &Graph, start_frontier: &[LV]) {
+        if self.indexes_used == 0 {
+            assert!(self.actions.is_empty());
+            return;
+        }
+
+        let mut index_state = vec![None; self.indexes_used];
+        index_state[0] = Some(Frontier::from(start_frontier));
+
+        for action in self.actions.iter() {
+            match action {
+                Apply(ApplyAction { span, index, update_other_indexes, insert_items: _ }) => {
+                    if !span.is_empty() {
+                        let actual_parents = graph.parents_at_time(span.start);
+
+                        // The designated index must exactly match the parents of the span we're applying.
+                        assert_eq!(index_state[*index].as_ref(), Some(&actual_parents), "Parents of {} do not match index", span.start);
+                        index_state[*index] = Some(Frontier::new_1(span.last()));
+
+                        for idx in update_other_indexes.iter() {
+                            let frontier = index_state[*idx].as_mut().unwrap();
+
+                            for p in actual_parents.iter() {
+                                assert!(graph.frontier_contains_version(frontier.as_ref(), *p));
+                            }
+                            frontier.advance_by_known_run(actual_parents.as_ref(), *span);
+                        }
+                    }
+
+                    // TODO: Check insert_items.
+                }
+                ForkIndex(i1, i2) => {
+                    let state = index_state[*i1].clone();
+                    assert!(state.is_some());
+                    assert!(index_state[*i2].is_none());
+                    index_state[*i2] = state;
+                }
+                DropIndex(index) => {
+                    let state = index_state[*index].take();
+                    assert!(state.is_some());
+                }
+                ClearInsertedItems => {} // TODO!
+                MaxIndex(dest, src) => {
+                    assert_ne!(dest, src);
+
+                    let mut new_f = index_state[*dest].take().unwrap();
+                    new_f.merge_union(index_state[*src].as_ref().unwrap().as_ref(), graph);
+                    index_state[*dest] = Some(new_f);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
+    use crate::causalgraph::graph::GraphEntrySimple;
     use crate::listmerge2::ActionGraphEntry;
     use super::*;
 
@@ -406,13 +740,16 @@ mod test {
     fn test_trivial_graphs() {
         let mut g = ConflictSubgraph {
             ops: vec![],
-            last: usize::MAX,
+            // last: usize::MAX,
         };
 
         g.dbg_check();
-        let plan = g.make_plan();
+        let plan = g.make_plan(&Graph::new());
         assert!(plan.actions.is_empty());
 
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: 0.into(), parents: Frontier::root() }
+        ]);
 
         let mut g = ConflictSubgraph {
             ops: vec![
@@ -423,105 +760,108 @@ mod test {
                     state: Default::default(),
                 },
             ],
-            last: 0,
         };
 
         g.dbg_check();
-        let plan = g.make_plan();
-        plan.print_plan();
+        let plan = g.make_plan(&graph);
+        plan.dbg_print();
     }
 
     #[test]
     fn test_simple_graph() {
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
+            GraphEntrySimple { span: 1.into(), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: 2.into(), parents: Frontier::new_1(0) },
+        ]);
+
         let mut g = ConflictSubgraph {
             ops: vec![
+                ActionGraphEntry {
+                    parents: smallvec![1, 2],
+                    span: (0..0).into(),
+                    num_children: 0,
+                    state: Default::default(),
+                },
+                ActionGraphEntry {
+                    parents: smallvec![3],
+                    span: 2.into(),
+                    num_children: 1,
+                    state: Default::default(),
+                },
+                ActionGraphEntry {
+                    parents: smallvec![3],
+                    span: 1.into(),
+                    num_children: 1,
+                    state: Default::default(),
+                },
                 ActionGraphEntry {
                     parents: smallvec![],
                     span: 0.into(),
                     num_children: 2,
                     state: Default::default(),
                 },
-                ActionGraphEntry {
-                    parents: smallvec![0],
-                    span: 1.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ActionGraphEntry {
-                    parents: smallvec![0],
-                    span: 2.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ActionGraphEntry {
-                    parents: smallvec![1, 2],
-                    span: (0..0).into(),
-                    num_children: 0,
-                    state: Default::default(),
-                }
             ],
-            last: 3,
         };
 
         g.dbg_check();
-        let plan = g.make_plan();
-        plan.print_plan();
+        let plan = g.make_plan(&graph);
+        plan.dbg_print();
     }
 
     #[test]
     fn diamonds() {
         let mut g = ConflictSubgraph {
             ops: vec![
-                ActionGraphEntry { // 0 X
+                ActionGraphEntry { // 0 Y
+                    parents: smallvec![1, 2],
+                    span: Default::default(),
+                    num_children: 0,
+                    state: Default::default(),
+                },
+                ActionGraphEntry { // 1 ACY
+                    parents: smallvec![5],
+                    span: 4.into(),
+                    num_children: 1,
+                    state: Default::default(),
+                },
+                ActionGraphEntry { // 2 D, DY
+                    parents: smallvec![3, 4],
+                    span: 3.into(),
+                    num_children: 1,
+                    state: Default::default(),
+                },
+                ActionGraphEntry { // 3 AD
+                    parents: smallvec![5],
+                    span: 2.into(),
+                    num_children: 1,
+                    state: Default::default(),
+                },
+                ActionGraphEntry { // 4 XBD
+                    parents: smallvec![6],
+                    span: 1.into(),
+                    num_children: 1,
+                    state: Default::default(),
+                },
+                ActionGraphEntry { // 5 XA -> A
+                    parents: smallvec![6],
+                    span: 0.into(),
+                    num_children: 2,
+                    state: Default::default(),
+                },
+                ActionGraphEntry { // 6 X
                     parents: smallvec![],
                     span: Default::default(),
                     num_children: 2,
                     state: Default::default(),
                 },
-                ActionGraphEntry { // 1 XA -> A
-                    parents: smallvec![0],
-                    span: 0.into(),
-                    num_children: 2,
-                    state: Default::default(),
-                },
-                ActionGraphEntry { // 2 XBD
-                    parents: smallvec![0],
-                    span: 1.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ActionGraphEntry { // 3 AD
-                    parents: smallvec![1],
-                    span: 2.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ActionGraphEntry { // 4 D, DY
-                    parents: smallvec![2, 3],
-                    span: 3.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ActionGraphEntry { // 5 ACY
-                    parents: smallvec![1],
-                    span: 4.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ActionGraphEntry { // 6 Y
-                    parents: smallvec![4, 5],
-                    span: Default::default(),
-                    num_children: 0,
-                    state: Default::default(),
-                },
             ],
-            last: 6,
         };
 
         g.dbg_check();
-        let plan = g.make_plan();
-        plan.dbg_check(true);
-        plan.print_plan();
+        // let plan = g.make_plan();
+        // plan.dbg_check(true);
+        // plan.dbg_print();
     }
     //
     // #[test]

@@ -144,6 +144,17 @@ impl Graph {
 
         false
     }
+
+    /// Does frontier *a* contain (dominate) frontier *b*? Note, if this method returns false, there
+    /// are a few different cases. This is not reflexive.
+    pub(crate) fn frontier_contains_frontier(&self, a: &[LV], b: &[LV]) -> bool {
+        if a == b { return true; } // Might be a pointless optimization.
+
+        for bb in b {
+            if !self.frontier_contains_version(a, *bb) { return false; }
+        }
+        true
+    }
 }
 
 pub(crate) type DiffResult = (SmallVec<[DTRange; 4]>, SmallVec<[DTRange; 4]>);
