@@ -496,7 +496,7 @@ mod test {
         let mut conflict_subgraph = cg.graph.find_conflicting_2(&[], cg.version.as_ref());
 
         conflict_subgraph.dbg_check();
-        let plan = conflict_subgraph.make_plan(&cg.graph);
+        let plan = conflict_subgraph.make_plan();
 
         plan.dbg_check(true);
 

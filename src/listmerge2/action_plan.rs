@@ -245,7 +245,7 @@ impl ConflictSubgraph {
                                     // to the active index set and keep going. But for this merge,
                                     // we need to check that that will actually work.
                                     self.diff_trace(current_idx, |i| {
-                                        println!("{current_idx} -> {i}");
+                                        // println!("{current_idx} -> {i}");
 
                                         if let Some(v) = maxes.last_mut()
                                             .and_then(|(idx, v)| if *idx == current_idx { Some(v) } else { None })
@@ -305,7 +305,7 @@ impl ConflictSubgraph {
             op.state.next = 0;
         }
 
-        dbg!(&maxes.len());
+        // dbg!(&maxes.len());
         for (i, v) in maxes {
             for vv in v.iter() {
                 self.ops[*vv].state.children_needing_index += 1;
@@ -321,7 +321,7 @@ impl ConflictSubgraph {
     /// - Starts from the root (or some shared point in time)
     /// - Visits all operations at least once
     /// - Tracks a set of indexes
-    pub(super) fn make_plan(&mut self, graph: &Graph) -> MergePlan {
+    pub(super) fn make_plan(&mut self) -> MergePlan {
         let bump = Bump::new();
 
         if self.ops.is_empty() {
@@ -439,11 +439,11 @@ impl ConflictSubgraph {
                                                 }
                                             }
                                             e = &mut g[current_idx]; // needed for borrowck.
-                                            println!("Emit {:?}", MaxIndex(down_index, merge_with_indexes.clone()));
+                                            // println!("Emit {:?}", MaxIndex(down_index, merge_with_indexes.clone()));
                                             actions.push(MaxIndex(down_index, merge_with_indexes));
 
                                             for i in drop {
-                                                println!("Emit {:?}", DropIndex(i));
+                                                // println!("Emit {:?}", DropIndex(i));
                                                 actions.push(DropIndex(i));
                                                 free_index_stack.push(i);
                                             }
@@ -488,12 +488,12 @@ impl ConflictSubgraph {
                     // We reach here if any/all merges are complete for the first time. Since this
                     // is the first time coming through here, process the span if we need to.
                     if !e.span.is_empty() {
-                        println!("Emit {:?}", Apply(ApplyAction {
-                            span: e.span,
-                            index,
-                            update_other_indexes: index_stack.iter().copied().collect(),
-                            insert_items: concurrency > 0,
-                        }));
+                        // println!("Emit {:?}", Apply(ApplyAction {
+                        //     span: e.span,
+                        //     index,
+                        //     update_other_indexes: index_stack.iter().copied().collect(),
+                        //     insert_items: concurrency > 0,
+                        // }));
 
                         actions.push(Apply(ApplyAction {
                             span: e.span,
@@ -512,7 +512,7 @@ impl ConflictSubgraph {
                     } else {
                         if e.state.children_needing_index == 0 {
                             assert_eq!(index_wanted, false);
-                            println!("Emit {:?}", DropIndex(index));
+                            // println!("Emit {:?}", DropIndex(index));
                             actions.push(DropIndex(index));
                             // indexes_state[index].take().unwrap();
                             free_index_stack.push(index);
@@ -557,7 +557,7 @@ impl ConflictSubgraph {
                         index
                     });
                     e.state.index = Some(backup_index);
-                    println!("Emit {:?}", ForkIndex(index, backup_index));
+                    // println!("Emit {:?}", ForkIndex(index, backup_index));
                     actions.push(ForkIndex(index, backup_index));
                     // dbg!(&indexes_state);
                     // if indexes_state.len() == backup_index {
@@ -661,7 +661,7 @@ impl MergePlan {
                     for f in from {
                         match &mut index_state[*f] {
                             IndexState::Free => { panic!("Invalid plan: MaxIndex using an unused index"); }
-                            IndexState::InUse { used, forked_at } => {
+                            IndexState::InUse { used, .. } => {
                                 *used = true;
                             },
                         }
@@ -723,7 +723,9 @@ impl MergePlan {
 
                     let mut new_f = index_state[*dest].take().unwrap();
                     for s in src {
-                        new_f.merge_union(index_state[*s].as_ref().unwrap().as_ref(), graph);
+                        let other_f = index_state[*s].as_ref().unwrap().as_ref();
+                        assert_ne!(new_f.as_ref(), other_f);
+                        new_f.merge_union(other_f, graph);
                     }
                     index_state[*dest] = Some(new_f);
                 }
@@ -742,6 +744,7 @@ impl MergePlan {
                     // cost += apply.span.len() * (1 + apply.update_other_indexes.len())
                     // cost += apply.span.len();// * (1 + apply.update_other_indexes.len())
                     cost += estimate_fn(apply.span);
+                    // cost += estimate_fn(apply.span) * (1 + apply.update_other_indexes.len());
                 }
                 ForkIndex(_, _) => { forks += 1; }
                 MaxIndex(_, with) => { maxes += with.len(); }
@@ -768,10 +771,10 @@ mod test {
         };
 
         g.dbg_check();
-        let plan = g.make_plan(&Graph::new());
+        let plan = g.make_plan();
         assert!(plan.actions.is_empty());
 
-        let graph = Graph::from_simple_items(&[
+        let _graph = Graph::from_simple_items(&[
             GraphEntrySimple { span: 0.into(), parents: Frontier::root() }
         ]);
 
@@ -787,13 +790,13 @@ mod test {
         };
 
         g.dbg_check();
-        let plan = g.make_plan(&graph);
+        let plan = g.make_plan();
         plan.dbg_print();
     }
 
     #[test]
     fn test_simple_graph() {
-        let graph = Graph::from_simple_items(&[
+        let _graph = Graph::from_simple_items(&[
             GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
             GraphEntrySimple { span: 1.into(), parents: Frontier::new_1(0) },
             GraphEntrySimple { span: 2.into(), parents: Frontier::new_1(0) },
@@ -829,13 +832,13 @@ mod test {
         };
 
         g.dbg_check();
-        let plan = g.make_plan(&graph);
+        let plan = g.make_plan();
         plan.dbg_print();
     }
 
     #[test]
     fn diamonds() {
-        let mut g = ConflictSubgraph {
+        let g = ConflictSubgraph {
             ops: vec![
                 ActionGraphEntry { // 0 Y
                     parents: smallvec![1, 2],
