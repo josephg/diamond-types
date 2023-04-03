@@ -539,9 +539,23 @@ mod test {
         // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
         File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
-        let cg = o.cg;
+        let cg = &o.cg;
 
         let iter = SpanningTreeWalker::new_all(&cg.graph);
         iter.dbg_print();
+
+        let iter = SpanningTreeWalker::new_all(&cg.graph);
+        let mut cost_estimate = 0;
+        for i in iter {
+            // cost_estimate += i.consume.len();
+            // cost_estimate += i.retreat.iter().map(|range| range.len()).sum::<usize>();
+            // cost_estimate += i.advance_rev.iter().map(|range| range.len()).sum::<usize>();
+            cost_estimate += o.estimate_cost(i.consume);
+            cost_estimate += i.retreat.iter().map(|range| o.estimate_cost(*range)).sum::<usize>();
+            cost_estimate += i.advance_rev.iter().map(|range| o.estimate_cost(*range)).sum::<usize>();
+        }
+        println!("Cost estimate {cost_estimate}");
+        // node_nodecc Cost estimate 1103811 / 63696
+        // git-makefile Cost estimate 1128743 / 50680
     }
 }

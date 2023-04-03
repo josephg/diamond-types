@@ -432,4 +432,11 @@ impl ListOpLog {
     pub fn parents_at_time(&self, time: LV) -> Frontier {
         self.cg.graph.parents_at_time(time)
     }
+
+    pub(crate) fn estimate_cost(&self, op_range: DTRange) -> usize {
+        let start_idx = self.operations.find_index(op_range.start).unwrap();
+        let end_idx = self.operations.find_index(op_range.last()).unwrap();
+
+        end_idx - start_idx + 1
+    }
 }

@@ -326,10 +326,10 @@ mod test {
     #[ignore]
     fn make_plan() {
         let mut bytes = vec![];
-        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
-        let cg = o.cg;
+        let cg = &o.cg;
 
         // let mut conflict_subgraph = cg.graph.to_test_entry_list();
         let mut conflict_subgraph = cg.graph.find_conflicting_2(&[], cg.version.as_ref());
@@ -343,12 +343,16 @@ mod test {
         plan.dbg_print();
 
         plan.simulate_plan(&cg.graph, &[]);
-        // for (i, action) in plan.actions[220..230].iter().enumerate() {
-        //     println!("{i}: {:?}", action);
-        // }
+
+        plan.cost_estimate(|range| { o.estimate_cost(range) });
     }
 }
 
+// git-makefile:
+// spans: 1808985, forks: 668 maxes 1043 / 15950
+
+// node_nodecc:
+// spans: 1907491, forks: 45 maxes 1 / 53622
 
 
 /*

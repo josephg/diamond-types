@@ -1,8 +1,9 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::mem::take;
 use bumpalo::Bump;
 use smallvec::{SmallVec, smallvec};
-use rle::MergableSpan;
+use rle::{HasLength, MergableSpan};
 use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::listmerge2::{ConflictSubgraph, Index};
@@ -22,7 +23,7 @@ pub(crate) enum MergePlanAction {
     ForkIndex(Index, Index),
     DropIndex(Index),
     // MaxIndex(Index, SmallVec<[Index; 2]>),
-    MaxIndex(Index, Index),
+    MaxIndex(Index, SmallVec<[Index; 2]>),
 }
 use MergePlanAction::*;
 use crate::causalgraph::graph::Graph;
@@ -180,6 +181,7 @@ impl ConflictSubgraph {
     }
 
     pub(crate) fn calc_children_needing_index(&mut self) {
+        // TODO: Merge this with plan_first_pass.
         // Iterating with an explicit index to keep the borrowck happy.
         for i in 0..self.ops.len() {
             let entry = &self.ops[i];
@@ -334,7 +336,7 @@ impl ConflictSubgraph {
 
         let mut stack = vec![];
         let mut index_stack: Vec<Index> = vec![];
-        let mut indexes_state: Vec<Option<Frontier>> = vec![Some(Frontier::root())];
+        // let mut indexes_state: Vec<Option<Frontier>> = vec![Some(Frontier::root())];
 
         let g = &mut self.ops;
 
@@ -363,9 +365,9 @@ impl ConflictSubgraph {
         let mut list_contains_content = false;
 
         loop {
-            let e = &mut g[current_idx];
+            let mut e = &mut g[current_idx];
 
-            println!("idx {current_idx} / Last {:?} / span here {}", last_direction, e.span.start);
+            // println!("idx {current_idx} / Last {:?} / span here {}", last_direction, e.span.start);
             // dbg!(&last_direction, &e);
 
             // The entry is essentially in one of 4 different states:
@@ -422,6 +424,31 @@ impl ConflictSubgraph {
                                         debug_assert_eq!(false, index_stack.contains(&down_index));
                                         index_stack.push(down_index);
 
+                                        if !e.state.merge_max_with.is_empty() {
+                                            // println!("MERGE WITH {:?}", e.state.merge_max_with);
+                                            let mut merge_with_indexes: SmallVec<[usize; 2]> = smallvec![];
+                                            let mut drop: SmallVec<[usize; 2]> = smallvec![];
+
+                                            for i in take(&mut e.state.merge_max_with) {
+                                                let e2 = &mut g[i];
+                                                let index = e2.state.index.unwrap();
+                                                merge_with_indexes.push(index);
+                                                e2.state.children_needing_index -= 1;
+                                                if e2.state.children_needing_index == 0 {
+                                                    drop.push(index);
+                                                }
+                                            }
+                                            e = &mut g[current_idx]; // needed for borrowck.
+                                            println!("Emit {:?}", MaxIndex(down_index, merge_with_indexes.clone()));
+                                            actions.push(MaxIndex(down_index, merge_with_indexes));
+
+                                            for i in drop {
+                                                println!("Emit {:?}", DropIndex(i));
+                                                actions.push(DropIndex(i));
+                                                free_index_stack.push(i);
+                                            }
+                                        }
+
                                         // We are guaranteed to go up to another parent now.
                                     } else { // Not the first.
                                         // We've just come from one of the parents.
@@ -468,47 +495,6 @@ impl ConflictSubgraph {
                             insert_items: concurrency > 0,
                         }));
 
-                        // Emit max events for the other indexes, and update them too.
-                        // let mut max: SmallVec<[Index; 2]> = smallvec![];
-                        graph.with_parents(e.span.start, |parents| {
-                            // TODO: This is a bit ugly.
-                            for i in index_stack.iter().copied() {
-                                let f = indexes_state[i].as_mut().unwrap();
-                                dbg!(graph.frontier_contains_frontier(f.as_ref(), parents));
-                                if !graph.frontier_contains_frontier(f.as_ref(), parents) {
-                                    // max.push(i);
-                                    println!("Emit {:?}", MaxIndex(i, index));
-                                    actions.push(MaxIndex(i, index));
-
-                                    // And mark the updated index as updated.
-                                }
-
-                                // This is strictly advancing. Almost certainly a better way to do
-                                // this.
-                                let mut f = indexes_state[i].take().unwrap();
-                                println!("i {i} f {:?}", f.as_ref());
-                                // f.merge_union(indexes_state[index].as_ref().unwrap().as_ref(), graph);
-                                f.merge_union(&[e.span.last()], graph);
-                                println!("i {i} -> f {:?}", f.as_ref());
-                                indexes_state[i] = Some(f);
-                            }
-                        });
-                        // if !max.is_empty() {
-                        //     actions.push(MaxIndex()
-                        // }
-
-                        // The index thats being updated must exactly match parents. Check and
-                        // update.
-                        let index_state = indexes_state[index].as_mut().unwrap();
-                        if cfg!(debug_assertions) {
-                            println!("index {index} at {:?}", index_state);
-                            graph.with_parents(e.span.start, |parents| {
-                                assert_eq!(parents, index_state.as_ref());
-                            });
-                        }
-                        index_state.replace_with_1(e.span.last());
-                        dbg!(&indexes_state);
-
                         actions.push(Apply(ApplyAction {
                             span: e.span,
                             index,
@@ -528,7 +514,7 @@ impl ConflictSubgraph {
                             assert_eq!(index_wanted, false);
                             println!("Emit {:?}", DropIndex(index));
                             actions.push(DropIndex(index));
-                            indexes_state[index].take().unwrap();
+                            // indexes_state[index].take().unwrap();
                             free_index_stack.push(index);
                             // dbg!(&indexes_state);
                             // println!("Drop index {index}");
@@ -574,11 +560,11 @@ impl ConflictSubgraph {
                     println!("Emit {:?}", ForkIndex(index, backup_index));
                     actions.push(ForkIndex(index, backup_index));
                     // dbg!(&indexes_state);
-                    if indexes_state.len() == backup_index {
-                        indexes_state.resize(backup_index + 1, None);
-                    }
-                    assert!(indexes_state[backup_index].is_none());
-                    indexes_state[backup_index] = indexes_state[index].clone();
+                    // if indexes_state.len() == backup_index {
+                    //     indexes_state.resize(backup_index + 1, None);
+                    // }
+                    // assert!(indexes_state[backup_index].is_none());
+                    // indexes_state[backup_index] = indexes_state[index].clone();
                 }
 
                 Down(Some(index))
@@ -666,6 +652,21 @@ impl MergePlan {
                     }
                     index_state[*index] = IndexState::Free;
                 }
+                MaxIndex(into, from) => {
+                    match &mut index_state[*into] {
+                        IndexState::Free => { panic!("Invalid plan: MaxIndex into an unused index"); }
+                        _ => {},
+                    }
+
+                    for f in from {
+                        match &mut index_state[*f] {
+                            IndexState::Free => { panic!("Invalid plan: MaxIndex using an unused index"); }
+                            IndexState::InUse { used, forked_at } => {
+                                *used = true;
+                            },
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -718,14 +719,37 @@ impl MergePlan {
                 }
                 ClearInsertedItems => {} // TODO!
                 MaxIndex(dest, src) => {
-                    assert_ne!(dest, src);
+                    assert!(!src.contains(dest));
 
                     let mut new_f = index_state[*dest].take().unwrap();
-                    new_f.merge_union(index_state[*src].as_ref().unwrap().as_ref(), graph);
+                    for s in src {
+                        new_f.merge_union(index_state[*s].as_ref().unwrap().as_ref(), graph);
+                    }
                     index_state[*dest] = Some(new_f);
                 }
             }
         }
+    }
+
+    pub(crate) fn cost_estimate<F: Fn(DTRange) -> usize>(&self, estimate_fn: F) {
+        let mut cost = 0;
+        let mut forks = 0;
+        let mut maxes = 0;
+
+        for action in self.actions.iter() {
+            match action {
+                Apply(apply) => {
+                    // cost += apply.span.len() * (1 + apply.update_other_indexes.len())
+                    // cost += apply.span.len();// * (1 + apply.update_other_indexes.len())
+                    cost += estimate_fn(apply.span);
+                }
+                ForkIndex(_, _) => { forks += 1; }
+                MaxIndex(_, with) => { maxes += with.len(); }
+                ClearInsertedItems => {}
+                DropIndex(_) => {}
+            }
+        }
+        println!("spans: {cost}, forks: {forks} maxes {maxes}");
     }
 }
 
