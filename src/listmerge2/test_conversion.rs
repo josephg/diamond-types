@@ -493,7 +493,7 @@ mod test {
         let cg = o.cg;
 
         // let mut conflict_subgraph = cg.graph.to_test_entry_list();
-        let mut conflict_subgraph = cg.graph.find_conflicting_2(&[], cg.version.as_ref());
+        let mut conflict_subgraph = cg.graph.make_conflict_graph_between(&[], cg.version.as_ref());
 
         conflict_subgraph.dbg_check();
         let plan = conflict_subgraph.make_plan();
