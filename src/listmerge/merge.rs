@@ -597,6 +597,13 @@ pub(crate) struct TransformedOpsIter<'a> {
 }
 
 impl<'a> TransformedOpsIter<'a> {
+    #[allow(unused)]
+    pub(crate) fn count_range_tracker_size(&self) -> usize {
+        self.phase2.as_ref()
+            .map(|(tracker, _)| { tracker.range_tree.count_entries() })
+            .unwrap_or_default()
+    }
+
     pub(crate) fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>, from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
@@ -1066,10 +1073,12 @@ impl TextInfo {
 
 #[cfg(test)]
 mod test {
+    use std::fs::File;
+    use std::io::Read;
     use std::ops::Range;
     use rle::{MergeableIterator, SplitableSpan};
     use crate::dtrange::UNDERWATER_START;
-    use crate::list::ListCRDT;
+    use crate::list::{ListCRDT, ListOpLog};
     use crate::listmerge::simple_oplog::SimpleOpLog;
     use crate::listmerge::yjsspan::{deleted_n_state, DELETED_ONCE, YjsSpanState};
     use crate::unicount::count_chars;
@@ -1291,5 +1300,19 @@ mod test {
         list.add_insert("seph", 0, "a");
 
         assert_eq!(list.to_string(), "abc");
+    }
+
+
+    #[test]
+    #[ignore]
+    fn print_stats() {
+        // node_nodecc: 72135
+        // git-makefile: 23166
+        let mut bytes = vec![];
+        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
+
+        o.checkout_tip();
     }
 }

@@ -10,23 +10,24 @@ use crate::listmerge2::{ConflictSubgraph, Index};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct ApplyAction {
-    span: DTRange,
-    index: Index,
-    update_other_indexes: SmallVec<[Index; 2]>,
-    insert_items: bool,
+    pub span: DTRange,
+    pub index: Index,
+    pub update_other_indexes: SmallVec<[Index; 2]>,
+    pub insert_items: bool,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum MergePlanAction {
     Apply(ApplyAction),
     ClearInsertedItems,
-    ForkIndex(Index, Index),
+    ForkIndex { src: Index, dest: Index },
     DropIndex(Index),
     // MaxIndex(Index, SmallVec<[Index; 2]>),
     MaxIndex(Index, SmallVec<[Index; 2]>),
 }
 use MergePlanAction::*;
 use crate::causalgraph::graph::Graph;
+use crate::frontier::is_sorted_slice;
 
 
 #[derive(Debug, Clone)]
@@ -495,10 +496,13 @@ impl ConflictSubgraph {
                         //     insert_items: concurrency > 0,
                         // }));
 
+                        let mut update_other_indexes: SmallVec<[Index; 2]> = index_stack.iter().copied().collect();
+                        update_other_indexes.sort_unstable();
+
                         actions.push(Apply(ApplyAction {
                             span: e.span,
                             index,
-                            update_other_indexes: index_stack.iter().copied().collect(),
+                            update_other_indexes,
                             insert_items: concurrency > 0,
                         }));
                         list_contains_content = true;
@@ -558,7 +562,10 @@ impl ConflictSubgraph {
                     });
                     e.state.index = Some(backup_index);
                     // println!("Emit {:?}", ForkIndex(index, backup_index));
-                    actions.push(ForkIndex(index, backup_index));
+                    actions.push(ForkIndex {
+                        src: index,
+                        dest: backup_index
+                    });
                     // dbg!(&indexes_state);
                     // if indexes_state.len() == backup_index {
                     //     indexes_state.resize(backup_index + 1, None);
@@ -629,7 +636,7 @@ impl MergePlan {
         for (i, action) in self.actions.iter().enumerate() {
             // dbg!(&action);
             match action {
-                ForkIndex(_, new_index) => {
+                ForkIndex { src: _, dest: new_index } => {
                     index_state[*new_index] = IndexState::InUse { used: false, forked_at: i };
                 }
 
@@ -640,6 +647,9 @@ impl MergePlan {
                             *used = true;
                         }
                     }
+
+                    // The other indexes slice must be sorted.
+                    assert!(is_sorted_slice::<true, _>(apply_action.update_other_indexes.as_slice()));
                 }
 
                 DropIndex(index) => {
@@ -707,7 +717,7 @@ impl MergePlan {
 
                     // TODO: Check insert_items.
                 }
-                ForkIndex(i1, i2) => {
+                ForkIndex { src: i1, dest: i2 } => {
                     let state = index_state[*i1].clone();
                     assert!(state.is_some());
                     assert!(index_state[*i2].is_none());
@@ -746,7 +756,7 @@ impl MergePlan {
                     cost += estimate_fn(apply.span);
                     // cost += estimate_fn(apply.span) * (1 + apply.update_other_indexes.len());
                 }
-                ForkIndex(_, _) => { forks += 1; }
+                ForkIndex { src: _, dest: _ } => { forks += 1; }
                 MaxIndex(_, with) => { maxes += with.len(); }
                 ClearInsertedItems => {}
                 DropIndex(_) => {}

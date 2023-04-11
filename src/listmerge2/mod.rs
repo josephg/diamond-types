@@ -3,6 +3,8 @@ mod test_conversion;
 
 // #[cfg(feature = "dot_export")]
 mod dot;
+mod index_gap_buffer;
+mod yjsspan;
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
