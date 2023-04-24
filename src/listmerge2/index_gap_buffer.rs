@@ -200,8 +200,21 @@ impl IndexGapBuffer {
         self.gap_end_idx - self.gap_start_idx
     }
 
+    fn all_indexes_insert(&self, i: usize) -> bool {
+        for (index, info) in self.index_info.iter().enumerate() {
+            if !info.active { continue; }
+            if self.states[self.state_idx_at(index, i)] != SpanState::Inserted { return false; }
+        }
+        true
+    }
+
+    fn insert(&mut self, new_item: YjsSpan, pos: usize, update_index: Index, other_indexes: &[Index]) {
+        let (i, offset) = self.find(update_index, pos, true);
+        self.insert_internal(new_item, i, offset, update_index, other_indexes);
+    }
+
     // State for the new item is implicitly Inserted.
-    fn insert(&mut self, new_item: YjsSpan, mut i: usize, mut offset: usize, update_index: Index, other_indexes: &[Index]) {
+    fn insert_internal(&mut self, new_item: YjsSpan, mut i: usize, mut offset: usize, update_index: Index, other_indexes: &[Index]) {
         // Indexes must be sorted.
         debug_assert!(is_sorted_slice::<true, _>(other_indexes));
         debug_assert!(!other_indexes.contains(&update_index));
@@ -213,19 +226,19 @@ impl IndexGapBuffer {
         assert!(i < self.items.len());
         assert!(i < self.gap_start_idx || i >= self.gap_end_idx);
 
-        let all_inserts = |i: usize| -> bool {
-            for (index, info) in self.index_info.iter().enumerate() {
-                if !info.active { continue; }
-                if self.states[self.state_idx_at(index, i)] != SpanState::Inserted { return false; }
-            }
-            true
-        };
+        // let all_inserts = |i: usize| -> bool {
+        //     for (index, info) in self.index_info.iter().enumerate() {
+        //         if !info.active { continue; }
+        //         if self.states[self.state_idx_at(index, i)] != SpanState::Inserted { return false; }
+        //     }
+        //     true
+        // };
 
         let new_item_len = new_item.len();
 
         let item = &self.items[i];
 
-        if new_item.is_undiff() && item.is_undiff() && all_inserts(i) {
+        if new_item.is_undiff() && item.is_undiff() && self.all_indexes_insert(i) {
             // No sweat.
             self.items[i].append(new_item);
             self.add_to_gap_len(i, update_index, other_indexes, new_item_len);
@@ -234,7 +247,7 @@ impl IndexGapBuffer {
 
         if offset == item.len() {
             // Try to simply append the new item to the end of the existing item.
-            if item.can_append(&new_item) && all_inserts(i) {
+            if item.can_append(&new_item) && self.all_indexes_insert(i) {
                 // Easy case. Just append the item to the end of the existing item here. Don't even
                 // sweat dawg.
                 self.items[i].append(new_item);
@@ -254,7 +267,7 @@ impl IndexGapBuffer {
             // in chronological order. Check and if I'm right, remove this code entirely.
             let next_item_idx = if i == self.gap_start_idx { self.gap_end_idx } else { i };
 
-            if next_item_idx < self.items.len() && new_item.can_append(&self.items[next_item_idx]) && all_inserts(next_item_idx) {
+            if next_item_idx < self.items.len() && new_item.can_append(&self.items[next_item_idx]) && self.all_indexes_insert(next_item_idx) {
                 self.items[next_item_idx].prepend(new_item);
                 self.add_to_gap_len(i, update_index, other_indexes, new_item_len);
                 return;
@@ -333,6 +346,86 @@ impl IndexGapBuffer {
         }
     }
 
+    // fn mark_deleted(&mut self, mut i: usize, offset: usize, del_count: usize, index: Index, other_indexes: &[Index]) {
+    //     // To mark a run as deleted, there's a good chance we'll need to split the first & last item
+    //     // in the run.
+    //
+    //     // To make things easier, I'm going to do this as 2 passes. First pass is a scan, and the
+    //     // second pass we'll actually modify the elements.
+    //
+    //     let mut start_offset = offset;
+    //     let mut end_offset = usize::MAX;
+    //
+    //     let mut gap_needed = 0;
+    //     let mut del_remaining = del_count;
+    //     let mut start_i = i;
+    //
+    //     let base = self.start_state_idx(index);
+    //     if offset > 0 {
+    //         // The passed index and offset should always be "rolled forward". So, they should never
+    //         // point past the end of the specified item.
+    //         debug_assert_eq!(self.states[base + i], SpanState::Inserted);
+    //
+    //         let len = self.items[i].len();
+    //         debug_assert!(len > offset, "First deleted index not rolled forward");
+    //
+    //         let del_here = del_remaining.min(len - offset);
+    //         del_remaining -= del_here;
+    //
+    //         if self.items[i].is_undiff() && self.all_indexes_insert(i) {
+    //             // Rather than splitting the undifferentiated item, we can just shrink it
+    //             // in-place.
+    //             self.items[i].id.end -= del_here;
+    //             self.sub_from_gap_len(i, index, other_indexes, del_here);
+    //
+    //             // Roll forward and start deleting from the next item.
+    //             if del_remaining == 0 {
+    //                 // We're done.
+    //                 return;
+    //             }
+    //
+    //             i += 1;
+    //             start_i += 1;
+    //             start_offset = 0;
+    //         } else {
+    //             // We'll split this item into multiple parts.
+    //             gap_needed += 1;
+    //             if del_remaining == 0 {
+    //                 // This item contains the entire deleted span. This is probably quite
+    //                 // common.
+    //                 if del_here < len { gap_needed += 1; }
+    //
+    //                 let grew_by = if self.gap_size() < gap_needed { self.grow() } else { 0 };
+    //                 todo!();
+    //             } else {
+    //                 // Scan from the next item.
+    //                 i += 1;
+    //             }
+    //         }
+    //     }
+    //
+    //     let end_i = i;
+    //
+    //     while del_remaining > 0 {
+    //         assert!(end_i < self.items.len(), "Cannot delete past the end of the buffer");
+    //         if self.states[base + end_i] != SpanState::Inserted { continue; }
+    //
+    //         let len = self.items[end_i].len();
+    //
+    //         if len > del_remaining {
+    //             // We also need to split the last element.
+    //             end_offset = del_remaining;
+    //             gap_needed += 1;
+    //             break;
+    //         }
+    //
+    //         del_remaining -= len;
+    //         end_i += 1;
+    //     }
+    //
+    //
+    // }
+
     fn copy_item_state(&mut self, from_i: usize, to_i: usize) {
         for index in 0..self.index_info.len() {
             let base = self.start_state_idx(index);
@@ -345,6 +438,17 @@ impl IndexGapBuffer {
             self.index_info[update_index].before_gap_len += item_len;
             for &index in other_indexes {
                 self.index_info[index].before_gap_len += item_len;
+            }
+        }
+    }
+
+    fn sub_from_gap_len(&mut self, i: usize, update_index: Index, other_indexes: &[Index], item_len: usize) {
+        if i < self.gap_start_idx {
+            self.index_info[update_index].before_gap_len -= item_len;
+            for &index in other_indexes {
+                if self.states[self.state_idx_at(index, i)] == SpanState::Inserted {
+                    self.index_info[index].before_gap_len -= item_len;
+                }
             }
         }
     }
@@ -619,18 +723,18 @@ mod tests {
         let mut g = IndexGapBuffer::new_with_num_indexes(1);
         g.dbg_check();
         g.insert(YjsSpan {
-            id: (1..10).into(),
+            id: (0..10).into(),
             origin_left: 0,
             origin_right: 0,
-        }, 0, 0, 0, &[]);
+        }, 0, 0, &[]);
         g.dbg_check();
         g.insert(YjsSpan {
             id: (10..20).into(),
             origin_left: 0,
             origin_right: 0,
-        }, 3, 1, 0, &[]);
+        }, 5, 0, &[]);
         // }, 0, 20, 0, &[]);
-        // dbg!(&g);
+        dbg!(&g);
         g.dbg_check();
     }
 
@@ -642,8 +746,8 @@ mod tests {
         // g.dbg_check();
 
         let mut g = IndexGapBuffer::new_internal(1, 2);
-        g.insert(YjsSpan { id: 1.into(), origin_left: 0, origin_right: 0 }, 0, 0, 0, &[]);
-        g.insert(YjsSpan { id: 2.into(), origin_left: 0, origin_right: 0 }, 0, 0, 0, &[]);
+        g.insert_internal(YjsSpan { id: 1.into(), origin_left: 0, origin_right: 0 }, 0, 0, 0, &[]);
+        g.insert_internal(YjsSpan { id: 2.into(), origin_left: 0, origin_right: 0 }, 0, 0, 0, &[]);
         g.dbg_check();
         g.print_states();
         dbg!(&g);
@@ -652,7 +756,7 @@ mod tests {
     #[test]
     fn merge_undiff() {
         let mut g = IndexGapBuffer::new_internal(1, 4);
-        g.insert(YjsSpan::new_undiff(1), 0, 1, 0, &[]);
+        g.insert_internal(YjsSpan::new_undiff(1), 0, 1, 0, &[]);
         // g.insert(YjsSpan { id: 2.into(), origin_left: 0, origin_right: 0 }, 0, 0, 0, &[]);
         g.dbg_check();
         // g.print_states();
@@ -665,7 +769,7 @@ mod tests {
     #[test]
     fn simple_insert_with_other_indexes() {
         let mut g = IndexGapBuffer::new_internal(2, 4);
-        g.insert(YjsSpan { id: 1.into(), origin_left: 0, origin_right: 0 }, 0, 0, 0, &[1]);
+        g.insert_internal(YjsSpan { id: 1.into(), origin_left: 0, origin_right: 0 }, 0, 0, 0, &[1]);
         g.print_states();
         g.dbg_check();
         // dbg!(&g);
