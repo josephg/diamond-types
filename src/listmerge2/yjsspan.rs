@@ -107,6 +107,7 @@ impl HasLength for YjsSpan {
 impl SplitableSpanHelpers for YjsSpan {
     fn truncate_h(&mut self, offset: usize) -> Self {
         debug_assert!(offset > 0);
+        debug_assert!(offset < self.len());
 
         // Could make this behave differently for undifferentiated items, but I don't think it
         // matters.
@@ -151,6 +152,19 @@ impl MergableSpan for YjsSpan {
             self.id.prepend(other.id);
             self.origin_left = other.origin_left;
         }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub(crate) struct YjsSpanWithState(pub YjsSpan, pub SpanState);
+
+impl MergableSpan for YjsSpanWithState {
+    fn can_append(&self, other: &Self) -> bool {
+        self.1 == other.1 && self.0.can_append(&other.0)
+    }
+
+    fn append(&mut self, other: Self) {
+        self.0.append(other.0)
     }
 }
 

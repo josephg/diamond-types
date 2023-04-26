@@ -5,7 +5,7 @@ use smallvec::smallvec;
 use crate::*;
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::causalgraph::graph::tools::DiffFlag::{OnlyA, OnlyB, Shared};
-use crate::frontier::debug_assert_frontier_sorted;
+use crate::frontier::debug_assert_sorted;
 
 /// A scope is a part of history attached to a specific CRDT
 
@@ -51,7 +51,7 @@ impl Graph {
 
         // If v == creation time, its a bit hacky but I still consider that a valid version, because
         // the CRDT has a value then (the default value for the CRDT).
-        debug_assert_frontier_sorted(version);
+        debug_assert_sorted(version);
 
         let Some(&highest_time) = version.last() else {
             // The root item has a creation time at the root time. But nothing else exists then.
@@ -166,7 +166,7 @@ impl Graph {
         }
 
         result.reverse();
-        debug_assert_frontier_sorted(&result);
+        debug_assert_sorted(&result);
         Some(Frontier(result))
     }
 

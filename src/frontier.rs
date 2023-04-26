@@ -39,7 +39,7 @@ impl<'a> From<FrontierRef<'a>> for Frontier {
 
 impl From<SmallVec<[LV; 2]>> for Frontier {
     fn from(f: SmallVec<[LV; 2]>) -> Self {
-        debug_assert_frontier_sorted(f.as_slice());
+        debug_assert_sorted(f.as_slice());
         Frontier(f)
     }
 }
@@ -107,7 +107,7 @@ pub(crate) fn frontier_is_sorted(f: FrontierRef) -> bool {
     is_sorted_slice::<true, _>(f)
 }
 
-pub(crate) fn debug_assert_frontier_sorted(frontier: FrontierRef) {
+pub(crate) fn debug_assert_sorted(frontier: FrontierRef) {
     debug_assert!(frontier_is_sorted(frontier));
 }
 
@@ -154,7 +154,7 @@ impl Frontier {
     }
 
     pub fn from_sorted(data: &[LV]) -> Self {
-        debug_assert_frontier_sorted(data);
+        debug_assert_sorted(data);
         Self(data.into())
     }
 
@@ -191,7 +191,7 @@ impl Frontier {
     }
 
     pub fn debug_check_sorted(&self) {
-        debug_assert_frontier_sorted(self.0.borrow());
+        debug_assert_sorted(self.0.borrow());
     }
 
 
@@ -265,7 +265,7 @@ impl Frontier {
             self.replace_with_1(span.last());
         } else {
             assert!(!self.0.contains(&span.start)); // Remove this when branch_contains_version works.
-            debug_assert_frontier_sorted(self.0.as_slice());
+            debug_assert_sorted(self.0.as_slice());
 
             self.0.retain(|o| !parents.contains(o)); // Usually removes all elements.
 
@@ -392,8 +392,8 @@ impl Frontier {
 
 pub fn local_frontier_eq<A: AsRef<[LV]> + ?Sized, B: AsRef<[LV]> + ?Sized>(a: &A, b: &B) -> bool {
     // Almost all branches only have one element in them.
-    debug_assert_frontier_sorted(a.as_ref());
-    debug_assert_frontier_sorted(b.as_ref());
+    debug_assert_sorted(a.as_ref());
+    debug_assert_sorted(b.as_ref());
     a.as_ref() == b.as_ref()
 }
 

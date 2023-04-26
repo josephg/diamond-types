@@ -6,7 +6,7 @@ use std::collections::BinaryHeap;
 use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
-use crate::frontier::{debug_assert_frontier_sorted, FrontierRef};
+use crate::frontier::{debug_assert_sorted, FrontierRef};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag::*;
 use crate::dtrange::DTRange;
@@ -512,7 +512,7 @@ impl Graph {
     pub fn find_dominators_wide_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
         if versions.len() <= 1 { return versions.into(); }
 
-        debug_assert_frontier_sorted(versions);
+        debug_assert_sorted(versions);
 
         let first_v = versions[0];
         let last_v = versions[versions.len() - 1];
@@ -713,7 +713,7 @@ pub mod test {
     use crate::dtrange::DTRange;
     use crate::rle::RleVec;
     use crate::{Frontier, LV};
-    use crate::frontier::debug_assert_frontier_sorted;
+    use crate::frontier::debug_assert_sorted;
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).
@@ -990,11 +990,11 @@ pub mod test {
     }
 
     fn check_dominators(graph: &Graph, input: &[LV], expected_yes: &[LV]) {
-        debug_assert_frontier_sorted(input);
-        debug_assert_frontier_sorted(expected_yes);
+        debug_assert_sorted(input);
+        debug_assert_sorted(expected_yes);
 
         let expected_no: Vec<_> = input.iter().filter(|v| !expected_yes.contains(v)).copied().collect();
-        debug_assert_frontier_sorted(expected_no.as_slice());
+        debug_assert_sorted(expected_no.as_slice());
         assert_eq!(input.len(), expected_yes.len() + expected_no.len());
 
         assert_eq!(graph.find_dominators(input).as_ref(), expected_yes);
