@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
+use std::fmt::Debug;
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::listmerge2::{ActionGraphEntry, ConflictSubgraph};
@@ -252,6 +253,57 @@ impl Graph {
 
         ConflictSubgraph {
             ops: result,
+        }
+    }
+}
+
+impl<S: Default + Debug> ConflictSubgraph<S> {
+    pub(crate) fn dbg_check(&self) {
+        // Things that should be true:
+        // - ROOT is referenced exactly once
+        // - The last item is the only one without children
+        // - num_children is correct
+
+        if self.ops.is_empty() {
+            // This is a bit arbitrary.
+            // assert_eq!(self.last, usize::MAX);
+            return;
+        }
+
+        assert_eq!(self.ops[0].num_children, 0, "Item 0 (last) should have no children");
+
+        for (idx, e) in self.ops.iter().enumerate() {
+            println!("{idx}: {:?}", e);
+            // println!("contained by {:#?}", self.ops.iter()
+            //     .filter(|e| e.parents.contains(&idx))
+            //     .collect::<Vec<_>>());
+
+            // Check num_children is correct.
+            let actual_num_children = self.ops.iter()
+                .filter(|e| e.parents.contains(&idx))
+                .count();
+
+            assert_eq!(actual_num_children, e.num_children,
+                       "num_children is incorrect at index {idx}. Actual {actual_num_children} != claimed {}", e.num_children);
+
+            if e.parents.is_empty() {
+                assert_eq!(idx, self.ops.len() - 1, "The only entry pointing to ROOT should be the last entry");
+            }
+
+            // Each entry should either have non-zero parents or have operations.
+            assert!(!e.span.is_empty() || e.parents.len() != 1 || idx == 0, "Operation is a noop");
+            assert!(e.span.is_empty() || e.parents.len() <= 1, "Operation cannot both merge and have content");
+
+            assert!(idx == 0 || e.num_children > 0, "The only item with no children should be item 0. idx {idx} has no children.");
+
+            // The list is sorted in reverse time order. (Last stuff at the start). This property is
+            // depended on by the diff code below.
+            for p in e.parents.iter() {
+                // if *p <= idx {
+                //     dbg!(idx, e, self.ops.len(), &self.ops[*p]);
+                // }
+                assert!(*p > idx);
+            }
         }
     }
 }
