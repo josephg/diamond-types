@@ -7,7 +7,7 @@ impl Graph {
     /// This method returns the graph, but split up so parents always refer to the last entry of an
     /// item. This is useful for debugging, exporting the causal graph and for printing the causal
     /// graph using DOT.
-    fn make_simple_graph(&self, frontier: &[LV]) -> Vec<GraphEntrySimple> {
+    pub(crate) fn make_simple_graph(&self, frontier: &[LV]) -> Vec<GraphEntrySimple> {
         let mut result = vec![];
 
         let mut queue = frontier.iter().copied().collect::<BinaryHeap<LV>>();
@@ -21,20 +21,22 @@ impl Graph {
             // let mut last = v;
 
             while let Some(&peek_v) = queue.peek() {
-                // println!("- Peeked {peek_v}");
                 if peek_v < span_remaining.start { break; }
 
                 queue.pop();
-                if peek_v == span_remaining.end { continue; } // Ignore duplicates.
+                if peek_v == span_remaining.last() { continue; } // Ignore duplicates.
+                // println!("- Peeked {peek_v}");
 
                 // Emit peek_v+1..=v.
                 let emit_here = span_remaining.truncate_from(peek_v + 1);
+                debug_assert!(!emit_here.is_empty());
                 result.push(GraphEntrySimple {
                     span: emit_here,
                     parents: Frontier::new_1(peek_v),
                 });
             }
 
+            debug_assert!(!span_remaining.is_empty());
             result.push(GraphEntrySimple {
                 span: span_remaining,
                 parents: e.parents.clone(),
@@ -57,10 +59,12 @@ mod test {
     use crate::LV;
 
     fn check_simple_graph(g: &[GraphEntrySimple]) {
-        let mut last = 0;
+        let mut last = usize::MAX;
         for e in g {
-            assert!(e.span.start >= last);
-            last = e.span.end;
+            assert!(last == usize::MAX || e.span.start > last);
+            last = e.span.last();
+
+            assert!(!e.span.is_empty());
 
             for &p in e.parents.iter() {
                 assert!(p < e.span.start);

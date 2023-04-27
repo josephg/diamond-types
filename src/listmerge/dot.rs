@@ -39,56 +39,6 @@ impl ToString for DotColor {
     }
 }
 
-impl Graph {
-    /// This is a helper method to iterate through the time DAG, but such that there's nothing in
-    /// the time DAG which splits the returned range via its parents.
-    ///
-    /// This method could be made more public - but right now its only used in this one place.
-    fn iter_atomic_chunks(&self) -> impl Iterator<Item = GraphEntrySimple> + '_ {
-        self.entries.iter().flat_map(|e| {
-            let mut split_points: SmallVec<[usize; 4]> = smallvec![e.span.last()];
-
-            // let mut children = e.child_indexes.clone();
-            for &child_idx in &e.child_indexes {
-                let child = &self.entries.0[child_idx];
-                for &p in child.parents.as_ref() {
-                    if e.span.contains(p) {
-                        split_points.push(p);
-                    }
-                }
-            }
-
-            split_points.sort_unstable();
-
-            // let mut last = None;
-            let mut start = e.span.start;
-            split_points.iter().flat_map(|&s| {
-                // Filter duplicates.
-                if s < start { return None; }
-
-                let next = s + 1;
-                let span = DTRange::from(start..next);
-
-                assert!(!span.is_empty());
-                assert!(next <= e.span.end);
-
-                let parents = if start == e.span.start {
-                    e.parents.clone()
-                } else {
-                    Frontier::new_1(start - 1)
-                };
-
-                start = next;
-
-                Some(GraphEntrySimple {
-                    span,
-                    parents
-                })
-            }).collect::<SmallVec<[GraphEntrySimple; 4]>>()
-        })
-    }
-}
-
 impl ListOpLog {
     pub fn make_time_dag_graph(&self, filename: &str) {
         // for e in self.history.iter_atomic_chunks() {
@@ -104,7 +54,7 @@ impl ListOpLog {
         out.push_str("\tedge [color=\"#333333\" dir=none]\n");
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.cg.graph.iter_atomic_chunks() {
+        for txn in self.cg.graph.make_simple_graph(self.cg.version.as_ref()) {
             // dbg!(txn);
             let range = txn.span;
 
@@ -161,7 +111,7 @@ impl ListOpLog {
         out.push_str("\tedge [color=\"#333333\" dir=none]\n");
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.cg.graph.iter_atomic_chunks() {
+        for txn in self.cg.graph.make_simple_graph(self.cg.version.as_ref()) {
             // dbg!(txn);
             let range = txn.span;
 
@@ -313,11 +263,11 @@ mod test {
     #[test]
     #[ignore]
     fn dot_of_node_cc() {
-        let name = "node_nodecc.dt";
+        let name = "benchmark_data/node_nodecc.dt";
         let contents = fs::read(name).unwrap();
         let oplog = ListOpLog::load_from(&contents).unwrap();
 
-        oplog.make_time_dag_graph("node_graph.svg");
+        oplog.make_time_dag_graph_with_merge_bubbles("node_graph.svg");
         println!("Graph written to node_graph.svg");
     }
 }
