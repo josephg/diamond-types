@@ -1,13 +1,16 @@
 use std::collections::BinaryHeap;
 use crate::causalgraph::graph::{Graph, GraphEntrySimple};
 use crate::{DTRange, Frontier, LV};
-use crate::rle::RleKeyedAndSplitable;
+use crate::rle::{RleKeyedAndSplitable, RleVec};
 
 impl Graph {
     /// This method returns the graph, but split up so parents always refer to the last entry of an
     /// item. This is useful for debugging, exporting the causal graph and for printing the causal
     /// graph using DOT.
-    pub(crate) fn make_simple_graph(&self, frontier: &[LV]) -> Vec<GraphEntrySimple> {
+    ///
+    /// I'm using RleVec here because the list is packed and sorted, but the entries aren't actually
+    /// fully merged.
+    pub(crate) fn make_simple_graph(&self, frontier: &[LV]) -> RleVec<GraphEntrySimple> {
         let mut result = vec![];
 
         let mut queue = frontier.iter().copied().collect::<BinaryHeap<LV>>();
@@ -48,7 +51,7 @@ impl Graph {
         }
 
         result.reverse();
-        result
+        RleVec(result)
     }
 }
 
@@ -86,7 +89,7 @@ mod test {
 
         let check = |f: &[LV]| {
             let simple_graph = g.make_simple_graph(f);
-            check_simple_graph(&simple_graph);
+            check_simple_graph(&simple_graph.0);
         };
 
         check(&[]);

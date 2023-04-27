@@ -7,7 +7,7 @@ use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteFro
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::graph::GraphEntrySimple;
 use crate::causalgraph::agent_span::AgentSpan;
-use crate::rle::RleSpanHelpers;
+use crate::rle::{RleSpanHelpers, RleVec};
 
 impl CausalGraph {
     pub fn new() -> Self {
@@ -215,6 +215,10 @@ impl CausalGraph {
                 span
             }
         })
+    }
+
+    pub fn make_simple_graph(&self) -> RleVec<GraphEntrySimple> {
+        self.graph.make_simple_graph(self.version.as_ref())
     }
 
     pub fn remote_frontier(&self) -> RemoteFrontier {

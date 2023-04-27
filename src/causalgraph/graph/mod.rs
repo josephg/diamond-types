@@ -254,6 +254,10 @@ impl HasLength for GraphEntrySimple {
     fn len(&self) -> usize { self.span.len() }
 }
 
+impl HasRleKey for GraphEntrySimple {
+    fn rle_key(&self) -> usize { self.span.start }
+}
+
 impl SplitableSpanHelpers for GraphEntrySimple {
     fn truncate_h(&mut self, at: usize) -> Self {
         debug_assert!(at >= 1);

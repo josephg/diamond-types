@@ -1,11 +1,11 @@
-use std::fmt::{Display, Formatter};
-use std::ops::Range;
 /// Positional updates are a kind of operation (patch) which is larger than traversals but
 /// retains temporal information. So, we know when each change happened relative to all other
 /// changes.
 ///
 /// Updates are made up of a series of insert / delete components, each at some position.
 
+use std::fmt::{Display, Formatter};
+use std::ops::Range;
 use smartstring::alias::{String as SmartString};
 use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 use ListOpKind::*;

@@ -1,5 +1,9 @@
 use smallvec::SmallVec;
 use rle::{HasLength, SplitableSpanCtx};
+use rle::zip::{rle_zip, rle_zip3};
+use crate::causalgraph::agent_span::AgentSpan;
+use crate::causalgraph::entry::CGEntry;
+use crate::causalgraph::graph::GraphEntrySimple;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::ListOpLog;
 use crate::list::operation::TextOperation;
@@ -173,7 +177,51 @@ impl ListOpLog {
     pub fn iter(&self) -> impl Iterator<Item = TextOperation> + '_ {
         self.iter_fast().map(|pair| (pair.0.1, pair.1).into())
     }
+    
+    pub fn iter_full<'a>(&'a self, simple_graph: &'a RleVec<GraphEntrySimple>) -> impl Iterator<Item = (GraphEntrySimple, AgentSpan, TextOperation)> + 'a {
+        self.iter_fast().flat_map(|(pair, content)| {
+            let range = pair.range();
+            let simple_splits = simple_graph.iter_range(range);
+            let aa = self.cg.agent_assignment.client_with_localtime.iter_range(range)
+                .map(|KVPair(_, data)| data);
+
+            let op: TextOperation = (pair.1, content).into();
+
+            rle_zip3(simple_splits, aa, std::iter::once(op))
+            // rle_zip().map(|(entry, span)| {
+            //     debug_assert_eq!(parents.len(), span.len());
+            //
+            //     CGEntry {
+            //         start: entry.span.start,
+            //         parents: entry.parents,
+            //         span
+            //     }
+            // })
+            //
+            // let cg_entry = self.cg.iter_range(pair.range());
+            //
+            // rle_zip(cg_entry, std::iter::once(op))
+            // for (entry, op) in rle_zip(cg_entry, std::iter::once(op)) {
+            //     println!("entry {:?} / op {:?}", entry, op);
+            // }
+        })
+    }
 }
+
+// struct FullIter {
+//     simple_graph: RleVec<GraphEntrySimple>,
+//     next: Option<(ListOpMetrics, TextOperation)>,
+// }
+//
+// impl Iterator for FullIter {
+//     type Item = (GraphEntrySimple, AgentSpan, TextOperation);
+//
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if let Some(n) = self.next {
+//
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod test {

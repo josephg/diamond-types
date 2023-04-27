@@ -2,7 +2,8 @@ mod export;
 
 use std::ffi::OsString;
 use std::fs;
-use std::io::{ErrorKind, Read, Write};
+use std::fs::File;
+use std::io::{BufWriter, ErrorKind, Read, Write};
 use std::str::FromStr;
 use clap::{Parser, Subcommand};
 use rand::distributions::Alphanumeric;
@@ -12,6 +13,7 @@ use similar::utils::TextDiffRemapper;
 use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionOwned;
 use diamond_types::list::{ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
+use crate::export::export_to_json;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -168,6 +170,13 @@ enum Commands {
         /// File to edit
         dt_filename: OsString,
 
+        /// Output the result to the specified filename. If missing, output is printed to stdout.
+        #[arg(short, long)]
+        output: Option<OsString>,
+
+        /// Use pretty JSON output
+        #[arg(short, long)]
+        pretty: bool,
     }
 }
 
@@ -246,8 +255,7 @@ fn main() -> Result<(), anyhow::Error> {
                         println!("{:?}", hist);
                     }
                 }
-            } else {
-                if transformed {
+            } else if transformed {
                     for (_, op) in oplog.iter_xf_operations() {
                         if let Some(op) = op {
                             if json {
@@ -258,15 +266,14 @@ fn main() -> Result<(), anyhow::Error> {
                             }
                         }
                     }
-                } else {
-                    for op in oplog.iter() {
-                        // println!("{} len {}", op.tag, op.len());
-                        if json {
-                            let s = serde_json::to_string(&op).unwrap();
-                            println!("{s}");
-                        } else {
-                            println!("{:?}", op);
-                        }
+            } else {
+                for op in oplog.iter() {
+                    // println!("{} len {}", op.tag, op.len());
+                    if json {
+                        let s = serde_json::to_string(&op).unwrap();
+                        println!("{s}");
+                    } else {
+                        println!("{:?}", op);
                     }
                 }
             }
@@ -382,8 +389,37 @@ fn main() -> Result<(), anyhow::Error> {
                     .unwrap_or("(invalid)"));
             }
         }
-        Commands::Export { .. } => {
-            todo!()
+
+        Commands::Export { dt_filename, mut output, pretty } => {
+            let data = fs::read(&dt_filename)?;
+            let oplog = ListOpLog::load_from(&data)?;
+
+            let result = export_to_json(&oplog);
+
+            // This repetition is gross, but I'm not sure a better way to do it given the type of
+            // stdout and File are different. Halp!
+
+            // Bit gross. Handle -o- even though its unnecessary.
+            if let Some(path) = &output {
+                if path == "-" { output = None; }
+            }
+
+            if let Some(path) = output {
+                let writer = BufWriter::new(File::create(path)?);
+                if pretty {
+                    serde_json::to_writer_pretty(writer, &result)?;
+                } else {
+                    serde_json::to_writer(writer, &result)?;
+                }
+            } else {
+                let writer = BufWriter::new(std::io::stdout());
+                if pretty {
+                    serde_json::to_writer_pretty(writer, &result)?;
+                } else {
+                    serde_json::to_writer(writer, &result)?;
+                }
+            }
+            // serde_json::to_writer()
         }
     }
     // dbg!(&cli);

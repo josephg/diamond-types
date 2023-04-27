@@ -54,7 +54,7 @@ impl ListOpLog {
         out.push_str("\tedge [color=\"#333333\" dir=none]\n");
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.cg.graph.make_simple_graph(self.cg.version.as_ref()) {
+        for txn in self.cg.make_simple_graph() {
             // dbg!(txn);
             let range = txn.span;
 
@@ -111,7 +111,7 @@ impl ListOpLog {
         out.push_str("\tedge [color=\"#333333\" dir=none]\n");
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.cg.graph.make_simple_graph(self.cg.version.as_ref()) {
+        for txn in self.cg.make_simple_graph() {
             // dbg!(txn);
             let range = txn.span;
 

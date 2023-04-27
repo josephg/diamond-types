@@ -17,9 +17,9 @@ description = "The world's fastest text CRDT"
 members = ["crates/*"]
 
 [dependencies]
-smartstring = "1.0.0"
+smartstring = "1.0.1"
 str_indices = "0.4.0"
-smallvec = { version = "1.8.0", features = ["union", "const_generics"] }
+smallvec = { version = "1.10.0", features = ["union", "const_generics"] }
 lazy_static = "1.4.0"
 
 # Used by wasm module, CLI.
