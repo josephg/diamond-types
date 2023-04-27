@@ -1,6 +1,9 @@
+mod export;
+
 use std::ffi::OsString;
 use std::fs;
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, Read, Write};
+use std::str::FromStr;
 use clap::{Parser, Subcommand};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
@@ -21,7 +24,7 @@ struct Cli {
 enum Commands {
     /// Create a new diamond types file on disk
     Create {
-        #[clap(parse(from_os_str))]
+        #[clap(value_parser)]
         filename: OsString,
 
         /// Initialize the DT file with contents from here.
@@ -44,25 +47,25 @@ enum Commands {
     /// Dump (cat) the contents of a diamond-types file to stdout or to a file
     Cat {
         /// Diamond types file to read
-        #[clap(name = "filename", parse(try_from_str = parse_dt_oplog))]
+        #[clap(name = "filename", value_parser = parse_dt_oplog)]
         oplog: ListOpLog,
 
         /// Output contents to the named file instead of stdout
-        #[clap(short, long, parse(from_os_str))]
+        #[clap(short, long, value_parser)]
         output: Option<OsString>,
 
         /// Checkout at the specified (requested) version
         ///
         /// If not specified, the version defaults to the latest version, printing the result of
         /// merging all changes.
-        #[clap(short, long, parse(try_from_str = serde_json::from_str))]
-        version: Option<Box<[RemoteVersionOwned]>>,
+        #[clap(short, long, value_parser)]
+        version: Option<Version>,
     },
 
     /// Print the operations contained within a diamond types file
     Log {
         /// Diamond types file to read
-        #[clap(name = "filename", parse(try_from_str = parse_dt_oplog))]
+        #[clap(name = "filename", value_parser = parse_dt_oplog)]
         oplog: ListOpLog,
 
         /// Output the changes in a form where they can be applied directly (in order)
@@ -81,25 +84,25 @@ enum Commands {
     /// Get (print) the current version of a DT file
     Version {
         /// Diamond types file to read
-        #[clap(name = "filename", parse(try_from_str = parse_dt_oplog))]
+        #[clap(name = "filename", value_parser = parse_dt_oplog)]
         oplog: ListOpLog,
     },
 
     /// Set the contents of a DT file by applying a diff
     Set {
         /// Diamond types file to modify
-        #[clap(parse(from_os_str))]
+        #[clap(value_parser)]
         dt_filename: OsString,
 
         /// The file containing the new content
-        #[clap(parse(from_os_str))]
+        #[clap(value_parser)]
         target_content_file: OsString,
 
         /// Set the new content with this version as the named parent.
         ///
         /// If not specified, the version defaults to the latest version (including all changes)
-        #[clap(short, long, parse(try_from_str = serde_json::from_str))]
-        version: Option<Box<[RemoteVersionOwned]>>,
+        #[clap(short, long, value_parser)]
+        version: Option<Version>,
 
         /// Suppress output to stdout
         #[clap(short, long)]
@@ -120,12 +123,12 @@ enum Commands {
     /// - Remove inserted / deleted content
     Repack {
         /// File to edit
-        #[clap(parse(from_os_str))]
+        #[clap(value_parser)]
         dt_filename: OsString,
 
         /// Save the resulting content to this file. If not specified, the original file will be
         /// overwritten.
-        #[clap(short, long, parse(from_os_str))]
+        #[clap(short, long, value_parser)]
         output: Option<OsString>,
 
         /// Force overwrite the file which exists with the same name.
@@ -137,8 +140,8 @@ enum Commands {
         uncompressed: bool,
 
         /// Trim the file to only contain changes from the specified point in time onwards.
-        #[clap(short, long, parse(try_from_str = serde_json::from_str))]
-        version: Option<Box<[RemoteVersionOwned]>>,
+        #[clap(short, long, value_parser)]
+        version: Option<Version>,
 
         /// Save a patch. Patch files do not contain the base snapshot state. They must be merged
         /// with an existing DT file.
@@ -161,6 +164,26 @@ enum Commands {
         /// Suppress all output to stdout
         #[clap(short, long)]
         quiet: bool,
+    },
+
+    /// Export a diamond types file to raw JSON. This produces an editing log which can be processed
+    /// by other compatible CRDT libraries for benchmarking and testing.
+    Export {
+        /// File to edit
+        #[clap(value_parser)]
+        dt_filename: OsString,
+
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Version(Box<[RemoteVersionOwned]>);
+
+impl FromStr for Version {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Version(serde_json::from_str(s)?))
     }
 }
 
@@ -205,7 +228,7 @@ fn main() -> Result<(), anyhow::Error> {
             // let oplog = OpLog::load_from(&data).unwrap();
 
             // let branch = checkout_version_or_tip(oplog, version.map(|v| &v));
-            let branch = checkout_version_or_tip(&oplog, version);
+            let branch = checkout_version_or_tip(&oplog, version.map(|v| v.0));
             let content = branch.content();
 
             // There's probably some fancy way to switch and share code here - either write to a
@@ -261,14 +284,21 @@ fn main() -> Result<(), anyhow::Error> {
 
         Commands::Set { dt_filename, target_content_file, version, quiet, agent } => {
             let data = fs::read(&dt_filename)?;
-            let new = fs::read_to_string(target_content_file)?;
+
+            let new = if target_content_file == "-" {
+                let mut s = String::new();
+                std::io::stdin().read_to_string(&mut s)?;
+                s
+            } else {
+                fs::read_to_string(target_content_file)?
+            };
 
             let mut oplog = ListOpLog::load_from(&data)?;
 
             if !quiet {
                 let v_json = if let Some(v) = version.as_ref() {
                     // println!("Editing from requested version {}",
-                    serde_json::to_string(v)
+                    serde_json::to_string(&v.0)
                 } else {
                     // println!("Editing from tip version {:?}", oplog.remote_version());
                     serde_json::to_string(&oplog.remote_frontier())
@@ -276,7 +306,7 @@ fn main() -> Result<(), anyhow::Error> {
                 println!("Editing from version {v_json}");
             }
 
-            let mut branch = checkout_version_or_tip(&oplog, version);
+            let mut branch = checkout_version_or_tip(&oplog, version.map(|v| v.0));
 
             let old = branch.content().to_string();
             let diff = TextDiff::from_chars(&old, &new);
@@ -321,7 +351,7 @@ fn main() -> Result<(), anyhow::Error> {
             let oplog = ListOpLog::load_from(&data)?;
 
             let from_version = match &version {
-                Some(v) => v.as_ref(),
+                Some(v) => v.0.as_ref(),
                 None => &[],
             };
             let from_version = oplog.cg.agent_assignment.remote_to_local_frontier(from_version.iter());
@@ -356,6 +386,9 @@ fn main() -> Result<(), anyhow::Error> {
                     .to_str()
                     .unwrap_or("(invalid)"));
             }
+        }
+        Commands::Export { .. } => {
+            todo!()
         }
     }
     // dbg!(&cli);
