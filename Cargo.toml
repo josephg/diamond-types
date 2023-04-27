@@ -90,9 +90,9 @@ opt-level = 2
 #debugging = true
 
 [profile.release.package.dt-cli]
-opt-level = "z"
+opt-level = "s"
 #lto = false
-#strip = true
+strip = true
 
 [profile.release.package.run_on_old]
 debug = true

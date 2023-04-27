@@ -14,7 +14,7 @@ use diamond_types::list::{ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about)]
+#[command(author, version, about)]
 struct Cli {
     #[clap(subcommand)]
     command: Commands,
@@ -24,95 +24,92 @@ struct Cli {
 enum Commands {
     /// Create a new diamond types file on disk
     Create {
-        #[clap(value_parser)]
         filename: OsString,
 
         /// Initialize the DT file with contents from here.
         ///
         /// Equivalent to calling create followed by set.
-        #[clap(short)]
+        #[arg(short)]
         input: Option<String>,
 
         /// Agent name for edits. If not specified, a random name is chosen.
         ///
         /// This is only relevant when content is provided. Empty files need no agent ID.
-        #[clap(short, long)]
+        #[arg(short, long)]
         agent: Option<String>,
 
         /// Create a new file, even if a file already exists with the given name
-        #[clap(short, long)]
+        #[arg(short, long)]
         force: bool,
     },
 
     /// Dump (cat) the contents of a diamond-types file to stdout or to a file
     Cat {
         /// Diamond types file to read
-        #[clap(name = "filename", value_parser = parse_dt_oplog)]
+        #[arg(value_name = "filename", value_parser = parse_dt_oplog)]
         oplog: ListOpLog,
 
         /// Output contents to the named file instead of stdout
-        #[clap(short, long, value_parser)]
+        #[arg(short, long)]
         output: Option<OsString>,
 
         /// Checkout at the specified (requested) version
         ///
         /// If not specified, the version defaults to the latest version, printing the result of
         /// merging all changes.
-        #[clap(short, long, value_parser)]
+        #[arg(short, long)]
         version: Option<Version>,
     },
 
     /// Print the operations contained within a diamond types file
     Log {
         /// Diamond types file to read
-        #[clap(name = "filename", value_parser = parse_dt_oplog)]
+        #[arg(value_name = "filename", value_parser = parse_dt_oplog)]
         oplog: ListOpLog,
 
         /// Output the changes in a form where they can be applied directly (in order)
-        #[clap(short, long)]
+        #[arg(short, long)]
         transformed: bool,
 
         /// Output the changes in JSON format
-        #[clap(short, long)]
+        #[arg(short, long)]
         json: bool,
 
         /// Output the history instead (time DAG)
-        #[clap(long)]
+        #[arg(long)]
         history: bool,
     },
 
     /// Get (print) the current version of a DT file
     Version {
         /// Diamond types file to read
-        #[clap(name = "filename", value_parser = parse_dt_oplog)]
+        #[arg(value_name = "filename", value_parser = parse_dt_oplog)]
         oplog: ListOpLog,
     },
 
     /// Set the contents of a DT file by applying a diff
     Set {
         /// Diamond types file to modify
-        #[clap(value_parser)]
         dt_filename: OsString,
 
         /// The file containing the new content
-        #[clap(value_parser)]
         target_content_file: OsString,
 
         /// Set the new content with this version as the named parent.
         ///
         /// If not specified, the version defaults to the latest version (including all changes)
-        #[clap(short, long, value_parser)]
+        #[arg(short, long)]
         version: Option<Version>,
 
         /// Suppress output to stdout
-        #[clap(short, long)]
+        #[arg(short, long)]
         quiet: bool,
 
         /// Agent name for edits. If not specified, a random name is chosen.
         ///
         /// Be very careful overriding the default random agent name. If an (agent, seq) is ever
         /// reused to describe two *different* edits, weird & bad things happen.
-        #[clap(short, long)]
+        #[arg(short, long)]
         agent: Option<String>,
     },
 
@@ -123,46 +120,45 @@ enum Commands {
     /// - Remove inserted / deleted content
     Repack {
         /// File to edit
-        #[clap(value_parser)]
         dt_filename: OsString,
 
         /// Save the resulting content to this file. If not specified, the original file will be
         /// overwritten.
-        #[clap(short, long, value_parser)]
+        #[arg(short, long)]
         output: Option<OsString>,
 
         /// Force overwrite the file which exists with the same name.
-        #[clap(short, long)]
+        #[arg(short, long)]
         force: bool,
 
         /// Disable internal LZ4 compression on the file when saving.
-        #[clap(long)]
+        #[arg(long)]
         uncompressed: bool,
 
         /// Trim the file to only contain changes from the specified point in time onwards.
-        #[clap(short, long, value_parser)]
+        #[arg(short, long)]
         version: Option<Version>,
 
         /// Save a patch. Patch files do not contain the base snapshot state. They must be merged
         /// with an existing DT file.
-        #[clap(short, long)]
+        #[arg(short, long)]
         patch: bool,
 
         /// Do not store inserted content. This prevents the editing trace being replayed, but an
         /// oplog with no inserted content can still have changes merged into it.
         ///
         /// Note: Support for this in Diamond types is still a work in progress.
-        #[clap(long)]
+        #[arg(long)]
         no_inserted_content: bool,
 
         /// Do not store deleted content. Deleted content can (usually) be reconstructed from the
         /// inserted content anyway, but its helpful if you want to skim back and forth through the
         /// file's history.
-        #[clap(long)]
+        #[arg(long)]
         no_deleted_content: bool,
 
         /// Suppress all output to stdout
-        #[clap(short, long)]
+        #[arg(short, long)]
         quiet: bool,
     },
 
@@ -170,7 +166,6 @@ enum Commands {
     /// by other compatible CRDT libraries for benchmarking and testing.
     Export {
         /// File to edit
-        #[clap(value_parser)]
         dt_filename: OsString,
 
     }
