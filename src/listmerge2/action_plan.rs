@@ -65,7 +65,7 @@ pub(super) struct EntryState {
 //     println!("Action {:?}", action)
 // }
 
-impl ConflictSubgraph {
+impl ConflictSubgraph<EntryState> {
     pub(crate) fn dbg_check(&self) {
         // Things that should be true:
         // - ROOT is referenced exactly once
@@ -79,11 +79,6 @@ impl ConflictSubgraph {
         }
 
         assert_eq!(self.ops[0].num_children, 0, "Item 0 (last) should have no children");
-
-        // Check root is referenced once
-        let root_nodes = self.ops.iter()
-            .filter(|e| e.parents.is_empty());
-        assert_eq!(root_nodes.count(), 1);
 
         for (idx, e) in self.ops.iter().enumerate() {
             // println!("{idx}: {:?}", e);
@@ -99,9 +94,13 @@ impl ConflictSubgraph {
             assert_eq!(actual_num_children, e.num_children,
                        "num_children is incorrect at index {idx}. Actual {actual_num_children} != claimed {}", e.num_children);
 
+            if e.parents.is_empty() {
+                assert_eq!(idx, self.ops.len() - 1, "The only entry pointing to ROOT should be the last entry");
+            }
+
             // Each entry should either have non-zero parents or have operations.
-            // assert!(!e.span.is_empty() || e.parents.len() != 1);
-            assert!(!e.span.is_empty() || e.parents.len() != 1 || idx == 0);
+            assert!(!e.span.is_empty() || e.parents.len() != 1 || idx == 0, "Operation is a noop");
+            assert!(e.span.is_empty() || e.parents.len() <= 1, "Operation cannot both merge and have content");
 
             assert!(idx == 0 || e.num_children > 0, "The only item with no children should be item 0. idx {idx} has no children.");
 
