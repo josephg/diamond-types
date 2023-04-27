@@ -5,6 +5,7 @@ pub(crate) mod tools;
 mod scope;
 mod check;
 mod subgraph;
+mod simple;
 
 use rle::{HasLength, HasRleKey, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::{Frontier, LV};
