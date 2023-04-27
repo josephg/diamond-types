@@ -99,3 +99,8 @@ debug = true
 
 [profile.release.package.bench]
 codegen-units = 1
+
+# Use with cargo build --profile profiling
+[profile.profiling]
+inherits = "release"
+debug = true
