@@ -1,5 +1,5 @@
 use smallvec::SmallVec;
-use rle::{HasLength, SplitableSpanCtx};
+use rle::{HasLength, SplitableSpan, SplitableSpanCtx};
 use rle::zip::{rle_zip, rle_zip3};
 use crate::causalgraph::agent_span::AgentSpan;
 use crate::causalgraph::entry::CGEntry;
@@ -8,8 +8,8 @@ use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::ListOpLog;
 use crate::list::operation::TextOperation;
 use crate::dtrange::DTRange;
-use crate::rle::{KVPair, RleVec};
-use crate::LV;
+use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
+use crate::{AgentId, Frontier, LV};
 
 #[derive(Debug)]
 pub(crate) struct OpMetricsIter<'a> {
@@ -163,7 +163,7 @@ impl ListOpLog {
         OpMetricsWithContent::new(self, range)
     }
 
-    pub fn iter_range_since(&self, local_version: &[LV]) -> impl Iterator<Item = TextOperation> + '_ {
+    pub fn iter_range_since(&self, local_version: &[LV]) -> impl Iterator<Item=TextOperation> + '_ {
         let only_b = self.cg.diff_since_rev(local_version);
 
         OpIterRanges::new(self, only_b)
@@ -174,10 +174,45 @@ impl ListOpLog {
         OpMetricsWithContent::new(self, (0..self.len()).into())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = TextOperation> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item=TextOperation> + '_ {
         self.iter_fast().map(|pair| (pair.0.1, pair.1).into())
     }
-    
+}
+
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct FullEntry {
+    pub span: DTRange,
+    pub parents: Frontier,
+    pub agent_id: AgentId,
+    pub ops: SmallVec<[TextOperation; 2]>,
+}
+
+impl ListOpLog {
+    pub fn iter_full_2<'a>(&'a self) -> Vec<FullEntry> {
+        let mut result = vec![];
+        let simple_graph = self.cg.make_simple_graph();
+
+        for mut entry in simple_graph.0.into_iter() {
+            for agent_kv in self.cg.agent_assignment.client_with_localtime.iter_range(entry.span) {
+                let entry_here = entry.truncate_keeping_right_from(agent_kv.end());
+
+                assert_eq!(agent_kv.range(), entry_here.span);
+
+                result.push(FullEntry {
+                    agent_id: agent_kv.1.agent,
+                    span: entry_here.span,
+                    parents: entry_here.parents,
+                    ops: self.iter_range_simple(entry_here.span)
+                        .map(|pair| (pair.0.1, pair.1).into())
+                        .collect(),
+                });
+            }
+        }
+
+        result
+    }
+
     pub fn iter_full<'a>(&'a self, simple_graph: &'a RleVec<GraphEntrySimple>) -> impl Iterator<Item = (GraphEntrySimple, AgentSpan, TextOperation)> + 'a {
         self.iter_fast().flat_map(|(pair, content)| {
             let range = pair.range();
@@ -188,40 +223,11 @@ impl ListOpLog {
             let op: TextOperation = (pair.1, content).into();
 
             rle_zip3(simple_splits, aa, std::iter::once(op))
-            // rle_zip().map(|(entry, span)| {
-            //     debug_assert_eq!(parents.len(), span.len());
-            //
-            //     CGEntry {
-            //         start: entry.span.start,
-            //         parents: entry.parents,
-            //         span
-            //     }
-            // })
-            //
-            // let cg_entry = self.cg.iter_range(pair.range());
-            //
-            // rle_zip(cg_entry, std::iter::once(op))
-            // for (entry, op) in rle_zip(cg_entry, std::iter::once(op)) {
-            //     println!("entry {:?} / op {:?}", entry, op);
-            // }
         })
     }
-}
 
-// struct FullIter {
-//     simple_graph: RleVec<GraphEntrySimple>,
-//     next: Option<(ListOpMetrics, TextOperation)>,
-// }
-//
-// impl Iterator for FullIter {
-//     type Item = (GraphEntrySimple, AgentSpan, TextOperation);
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if let Some(n) = self.next {
-//
-//         }
-//     }
-// }
+
+}
 
 #[cfg(test)]
 mod test {

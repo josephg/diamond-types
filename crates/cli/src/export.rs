@@ -9,62 +9,70 @@ use diamond_types::HasLength;
 // Note this discards the fwd/backwards direction of the changes. This shouldn't matter in
 // practice given the whole operation is unitary.
 #[derive(Clone, Debug, Serialize)]
-#[serde(tag = "type")]
-pub enum SimpleTextOp {
-    Ins { pos: usize, content: SmartString },
-    Del { start: usize, len: usize },
-}
+pub struct SimpleTextOp(usize, usize, SmartString); // pos, del_len, ins_content.
 
 impl From<TextOperation> for SimpleTextOp {
     fn from(op: TextOperation) -> Self {
         match op.kind {
-            ListOpKind::Ins => SimpleTextOp::Ins {
-                pos: op.start(),
-                content: op.content.unwrap()
+            ListOpKind::Ins => {
+                if !op.loc.fwd {
+                    // If inserts are reversed, we should emit a series of operations for each
+                    // (reversed) keystroke.
+                    todo!("Not reversing op");
+                }
+                SimpleTextOp(op.start(), 0, op.content.unwrap())
             },
-            ListOpKind::Del => SimpleTextOp::Del { start: op.start(), len: op.len() },
+            ListOpKind::Del => SimpleTextOp(op.start(), op.len(), SmartString::new()),
         }
     }
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportedEditHistory {
+    start_content: SmartString,
+    end_content: String,
+
+    txns: Vec<ExportEntry>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExportEntry {
     id: usize,
     parents: SmallVec<[usize; 2]>,
+    num_children: usize,
     agent: String,
     // op: TextOperation,
-    op: SimpleTextOp,
+    ops: SmallVec<[SimpleTextOp; 2]>,
 }
 
-pub fn export_to_json(oplog: &ListOpLog) -> Vec<ExportEntry> {
+pub fn export_to_json(oplog: &ListOpLog) -> ExportedEditHistory {
+    let mut txns = vec![];
+
     // TODO: A hashmap is overkill here. A vec + binary search would be fine. Eh.
-    let mut names = HashMap::new();
-    let mut next_name = 0usize;
+    // Each chunk of operations has an ID so other ops can refer to it.
+    let mut idx_for_v = HashMap::new();
 
-    let simple_graph = oplog.cg.make_simple_graph();
+    for entry in oplog.iter_full_2() {
+        let agent_name = oplog.cg.agent_assignment.get_agent_name(entry.agent_id);
 
-    let mut result = vec![];
+        let id = txns.len();
 
-    for (entry, agent_span, op) in oplog.iter_full(&simple_graph) {
-        let agent_name = oplog.cg.agent_assignment.get_agent_name(agent_span.agent);
-
-        let id = next_name;
-        next_name += 1;
-
-        result.push(ExportEntry {
+        txns.push(ExportEntry {
             id,
-            parents: entry.parents.iter().map(|v| *names.get(v).unwrap()).collect(),
+            parents: entry.parents.iter().map(|v| *idx_for_v.get(v).unwrap()).collect(),
+            num_children: 0,
             agent: agent_name.into(),
-            op: op.into(),
+            ops: entry.ops.into_iter().map(|op| op.into()).collect(),
         });
 
-        // println!("agent '{agent_name}' entry {:?} op {:?}", entry, op);
-
-        for &p in entry.parents.iter() {
-            assert!(names.contains_key(&p));
+        for p in entry.parents.iter() {
+            let parent_idx = *idx_for_v.get(p).unwrap();
+            txns[parent_idx].num_children += 1;
         }
 
-        let old_entry = names.insert(entry.span.last(), id);
+        let old_entry = idx_for_v.insert(entry.span.last(), id);
         assert!(old_entry.is_none());
     }
 
@@ -73,5 +81,50 @@ pub fn export_to_json(oplog: &ListOpLog) -> Vec<ExportEntry> {
     //     println!("{:?}", serde_json::to_string(&r).unwrap());
     // }
 
-    result
+    let end_content = oplog.checkout_tip().into_inner().to_string();
+    ExportedEditHistory {
+        start_content: Default::default(),
+        end_content,
+        txns,
+    }
 }
+// pub fn export_to_json(oplog: &ListOpLog) -> Vec<ExportEntry> {
+//     let mut result = vec![];
+//
+//     // TODO: A hashmap is overkill here. A vec + binary search would be fine. Eh.
+//     // Each chunk of operations has an ID so other ops can refer to it.
+//     let mut id_for_v = HashMap::new();
+//     let mut next_id = 0usize;
+//
+//     let simple_graph = oplog.cg.make_simple_graph();
+//
+//     for (entry, agent_span, op) in oplog.iter_full(&simple_graph) {
+//         let agent_name = oplog.cg.agent_assignment.get_agent_name(agent_span.agent);
+//
+//         let id = next_id;
+//         next_id += 1;
+//
+//         result.push(ExportEntry {
+//             id,
+//             parents: entry.parents.iter().map(|v| *id_for_v.get(v).unwrap()).collect(),
+//             agent: agent_name.into(),
+//             op: op.into(),
+//         });
+//
+//         // println!("agent '{agent_name}' entry {:?} op {:?}", entry, op);
+//
+//         for &p in entry.parents.iter() {
+//             assert!(id_for_v.contains_key(&p));
+//         }
+//
+//         let old_entry = id_for_v.insert(entry.span.last(), id);
+//         assert!(old_entry.is_none());
+//     }
+//
+//     // for r in result {
+//     //     // println!("{:?}", r);
+//     //     println!("{:?}", serde_json::to_string(&r).unwrap());
+//     // }
+//
+//     result
+// }

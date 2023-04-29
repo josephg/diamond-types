@@ -167,6 +167,11 @@ impl M2Tracker {
             // Almost always true. Could move this short circuit earlier?
             if other_lv == item.origin_right { break; }
 
+            // When preparing example data, its important that the data can merge the same
+            // regardless of editing trace (so the output isn't dependent on the algorithm used to
+            // merge).
+            // panic!("Oh no! {:?}", item.id);
+
             // This code could be better optimized, but its already O(n * log n), and its extremely
             // rare that you actually get concurrent inserts at the same location in the document
             // anyway.
