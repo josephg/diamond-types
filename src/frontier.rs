@@ -95,7 +95,7 @@ pub(crate) fn is_sorted_slice<const EXPECT_UNIQ: bool, V: Ord + Eq + Debug + Cop
             if EXPECT_UNIQ {
                 debug_assert!(*t != last);
             }
-            if last >= *t { return false; }
+            if last > *t || (EXPECT_UNIQ && last == *t) { return false; }
             last = *t;
         }
     }
