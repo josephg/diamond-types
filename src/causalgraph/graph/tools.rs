@@ -512,20 +512,21 @@ impl Graph {
     pub fn find_dominators_wide_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
         if versions.len() <= 1 { return versions.into(); }
 
-        debug_assert_sorted(versions);
+        let mut min_v = versions[0];
+        let mut max_v = versions[0];
+        for &v in &versions[1..] {
+            min_v = min_v.min(v);
+            max_v = max_v.max(v);
+        }
 
-        let first_v = versions[0];
-        let last_v = versions[versions.len() - 1];
-
-        let last_entry = self.entries.find_packed(last_v);
-
+        let last_entry = self.entries.find_packed(max_v);
         // Nothing else in the list matters because its all under the shadow of this item.
         // This is the most common case.
-        if last_entry.shadow <= first_v { return smallvec![last_v]; }
+        if last_entry.shadow <= min_v { return smallvec![max_v]; }
 
         let mut result_rev = smallvec![];
 
-        self.find_dominators_full_internal(versions.iter().copied(), first_v, |v, dom| {
+        self.find_dominators_full_internal(versions.iter().copied(), min_v, |v, dom| {
             if dom {
                 result_rev.push(v);
             }
@@ -540,7 +541,7 @@ impl Graph {
         Frontier(result)
     }
 
-    /// This method assumes v_1 and v_2 are already trimmed.
+    /// This method assumes v_1 and v_2 are already dominators.
     pub fn find_dominators_2(&self, v_1: &[LV], v_2: &[LV]) -> Frontier {
         if v_1.is_empty() { return v_2.into(); }
         if v_2.is_empty() { return v_1.into(); }
@@ -660,27 +661,27 @@ impl Graph {
         self.find_dominators_full_internal(versions_iter, usize::MAX, visit);
     }
 
-    /// Find dominators on an unsorted set of versions
-    pub fn find_dominators_unsorted_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
-        if versions.len() <= 1 {
-            return versions.into();
-        }
-
-        let mut result = smallvec![];
-        self.find_dominators_full(versions.iter().copied(), |v, is_input| {
-            if is_input {
-                result.push(v);
-            }
-        });
-
-        result
-    }
-
-    pub fn find_dominators_unsorted(&self, versions: &[LV]) -> Frontier {
-        let mut result = self.find_dominators_unsorted_rev(versions);
-        result.reverse();
-        Frontier(result)
-    }
+    // /// Find dominators on an unsorted set of versions
+    // pub fn find_dominators_unsorted_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
+    //     if versions.len() <= 1 {
+    //         return versions.into();
+    //     }
+    //
+    //     let mut result = smallvec![];
+    //     self.find_dominators_full(versions.iter().copied(), |v, is_input| {
+    //         if is_input {
+    //             result.push(v);
+    //         }
+    //     });
+    //
+    //     result
+    // }
+    //
+    // pub fn find_dominators_unsorted(&self, versions: &[LV]) -> Frontier {
+    //     let mut result = self.find_dominators_unsorted_rev(versions);
+    //     result.reverse();
+    //     Frontier(result)
+    // }
 
     /// Given 2 versions, return a version which contains all the operations in both.
     ///
@@ -1052,7 +1053,7 @@ pub mod test {
     #[test]
     fn dominator_duplicates() {
         let parents = fancy_graph();
-        assert_eq!(parents.find_dominators_unsorted(&[1,1,1]).as_ref(), &[1]);
+        assert_eq!(parents.find_dominators(&[1,1,1]).as_ref(), &[1]);
         assert_eq!(parents.version_union(&[1], &[1]).as_ref(), &[1]);
 
         let mut seen_1 = false;

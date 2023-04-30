@@ -226,7 +226,7 @@ impl CausalGraph {
         });
 
         (
-            self.graph.find_dominators_unsorted(&versions),
+            self.graph.find_dominators(&versions),
             remainder
         )
     }
@@ -258,7 +258,7 @@ impl CausalGraph {
         });
 
         (
-            self.graph.find_dominators_unsorted(&versions),
+            self.graph.find_dominators(&versions),
             remainder
         )
     }
