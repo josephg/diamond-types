@@ -11,6 +11,7 @@ diamond-types = { path = "../.." }
 #diamond-types = { path = "../..", features = ["dot_export"] }
 similar = "2.1.0"
 smallvec = "1.8.0"
+indicatif = "0.17.3"
 
 #[features]
 #dot_export = []

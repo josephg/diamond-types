@@ -1,4 +1,6 @@
-use std::collections::{HashMap, HashSet};
+// #![allow(unused_imports)]
+
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
 use git2::{BranchType, Commit, Oid, Repository};
@@ -6,7 +8,7 @@ use git2::ObjectType::Blob;
 use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
 use smallvec::{SmallVec, smallvec};
-use diamond_types::{Frontier, LV};
+use indicatif::ProgressBar;
 
 use diamond_types::list::*;
 use diamond_types::list::encoding::ENCODE_FULL;
@@ -26,6 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // let repo = Repository::open("/home/seph/3rdparty/git")?;
     // let file = "Makefile";
+    // let branch = "master";
 
     // let repo = Repository::open("/home/seph/3rdparty/yjs")?;
     // let file = "package.json";
@@ -92,92 +95,100 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let scan_commits_time = std::time::SystemTime::now();
 
-    println!("Scanning operations...");
+    println!("Scanning commits...");
     let mut oplog = ListOpLog::new();
     // let empty_branch = Branch::new();
-    // let mut branch_at_oid = HashMap::<Oid, (ListBranch, usize)>::new();
-    let mut branch_at_oid = HashMap::<Oid, ListBranch>::new();
+    let mut branch_at_oid = HashMap::<Oid, (ListBranch, usize)>::new();
+    // let mut branch_at_oid = HashMap::<Oid, ListBranch>::new();
 
-    // This time through I'm taking each item *out* of the commits hashset when we process it.
-    // let mut commits_not_processed = commits_seen;
-    let mut commits_not_processed = commit_parents.keys().cloned().collect::<HashSet<_>>();
+    let take = |branch_at_oid: &mut HashMap<Oid, (ListBranch, usize)>, p_id: Oid| -> ListBranch {
+        let (branch_here, num_children) = branch_at_oid.get_mut(&p_id).unwrap();
 
-    // let mut branch_vec = Vec::new();
+        debug_assert!(*num_children >= 1);
+        if *num_children == 1 {
+            let (branch, _) = branch_at_oid.remove(&p_id).unwrap();
+            branch
+        } else {
+            *num_children -= 1;
+            branch_here.clone()
+        }
+    };
 
-    // let take_branch = |b: &mut HashMap<Oid, (ListBranch, usize)>, commit: &Commit| -> ListBranch {
-    //     if commit.parent_count() == 0 {
-    //         // The branch is fresh at ROOT.
-    //         ListBranch::new()
-    //     } else {
-    //         for id in commit.parent_ids() {
-    //             // We want to have handled all the parents
-    //             if commits_not_processed.contains(&id) { panic!("Parent not processed!") }
-    //         }
-    //
-    //         // So we need 2 things:
-    //         // - A starting branch
-    //         // - The desired version (which is the commit version, converted to a DT frontier).
-    //
-    //         let mut branch = None;
-    //         let mut frontier: SmallVec<[LV; 2]> = smallvec![];
-    //         for p_id in commit.parent_ids() {
-    //             let (branch_here, num_children) = &mut branch_at_oid[&p_id];
-    //
-    //             frontier.extend_from_slice(branch_here.local_frontier_ref());
-    //
-    //             debug_assert!(*num_children > 0);
-    //             if *num_children == 1 {
-    //                 let (branch_here, _) = branch_at_oid.remove(&p_id).unwrap();
-    //                 if branch.is_none() {
-    //                     branch = Some(branch_here);
-    //                 }
-    //             } else {
-    //                 *num_children -= 1;
-    //             }
-    //         }
-    //
-    //         // The frontier might contain repeated elements. Simplify!
-    //         let merge_frontier = oplog.cg.graph.find_dominators(&frontier);
-    //
-    //         let mut branch = branch.unwrap_or_else(|| {
-    //             // We might not have found any branch with no parents.
-    //             let p_id = commit.parent_id(0).unwrap();
-    //             branch_at_oid[&p_id].0.clone()
-    //         });
-    //
-    //         branch.merge(&oplog, merge_frontier.as_ref());
-    //         branch
-    //     }
-    // };
+    let take_branch = |branch_at_oid: &mut HashMap<Oid, (ListBranch, usize)>, oplog: &ListOpLog, commit: &Commit| -> ListBranch {
+        if commit.parent_count() == 0 {
+            // The branch is fresh at ROOT.
+            ListBranch::new()
+        } else {
+            // So we need 2 things:
+            // - A starting branch
+            // - The desired version (which is the commit version, converted to a DT frontier).
 
+            // TODO: This code (alternately) takes the first branch which has no other children, but
+            // it ends up slower in practice because cloning a branch is cheap, but scanning git
+            // commits is expensive. Go figure!
+
+            // let mut branch = None;
+            // let mut frontier: SmallVec<[LV; 2]> = smallvec![];
+            // for p_id in commit.parent_ids() {
+            //     let (branch_here, num_children) = branch_at_oid.get_mut(&p_id).unwrap();
+            //
+            //     frontier.extend_from_slice(branch_here.local_frontier_ref());
+            //
+            //     debug_assert!(*num_children > 0);
+            //     if *num_children == 1 {
+            //         let (branch_here, _) = branch_at_oid.remove(&p_id).unwrap();
+            //         if branch.is_none() {
+            //             branch = Some(branch_here);
+            //         }
+            //     } else {
+            //         *num_children -= 1;
+            //     }
+            // }
+            //
+            // // The frontier might contain repeated elements. Simplify!
+            // frontier.sort_unstable();
+            // let merge_frontier = oplog.cg.graph.find_dominators(&frontier);
+            //
+            // let mut branch = branch.unwrap_or_else(|| {
+            //     // We might not have found any branch with no parents.
+            //     let p_id = commit.parent_id(0).unwrap();
+            //     branch_at_oid[&p_id].0.clone()
+            // });
+            //
+            // branch.merge(&oplog, merge_frontier.as_ref());
+            // branch
+
+            // Go through again and make a branch here.
+            let mut iter = commit.parent_ids();
+            let first_parent = iter.next().unwrap();
+            let mut branch = take(branch_at_oid, first_parent);
+
+            for p in iter {
+                let child_branch = take(branch_at_oid, p);
+                let frontier = child_branch.local_frontier_ref();
+                branch.merge(&oplog, frontier);
+            }
+
+            branch
+        }
+    };
+
+    // let mut log = std::io::BufWriter::new(std::fs::File::create("git-reader.log").unwrap());
+
+    let bar = ProgressBar::new(commit_parents.len() as _);
+    // let mut i = 0;
     while let Some(commit_id) = fwd_frontier.pop() {
+        bar.inc(1);
+        // if i % 1000 == 0 { println!("{i}..."); }
+        // i += 1;
+
+        // write!(log, "Pop {:?}. ({} remaining)\n", commit_id, fwd_frontier.len()).unwrap();
         // println!("Pop {:?}. ({} remaining) (bao: {})", commit_id, fwd_frontier.len(), branch_at_oid.len());
 
         // For something to enter fwd_frontier we must have processed all of its parents.
         let commit = repo.find_commit(commit_id)?;
 
-        let mut branch = if commit.parent_count() == 0 {
-            // The branch is fresh at ROOT.
-            ListBranch::new()
-        } else {
-            for p in commit.parents() {
-                // We want to have handled all the parents
-                let id = p.id();
-                if commits_not_processed.contains(&id) { panic!("Parent not processed!") }
-            }
-
-            // Go through again and make a branch here.
-            let mut iter = commit.parents();
-            let first_parent = iter.next().unwrap();
-            let mut branch = branch_at_oid[&first_parent.id()].clone();
-
-            for p in iter {
-                let frontier = branch_at_oid[&p.id()].local_frontier_ref();
-                branch.merge(&oplog, frontier);
-            }
-
-            branch
-        };
+        let mut branch = take_branch(&mut branch_at_oid, &oplog, &commit);
 
         let tree = commit.tree()?;
 
@@ -240,16 +251,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
         let children = commit_children.get(&commit_id).unwrap();
-        // branch_at_oid.insert(commit_id, (branch, children.len()));
-        branch_at_oid.insert(commit_id, branch);
-        commits_not_processed.remove(&commit_id);
+        branch_at_oid.insert(commit_id, (branch, children.len()));
 
         // Go through all the children. Add any child which has all its dependencies met to the
         // frontier set.
         for c in children {
-            if commits_not_processed.contains(c) {
+            if !branch_at_oid.contains_key(c) {
                 let processed_all = commit_parents.get(c).unwrap().iter()
-                    .all(|p_id| !commits_not_processed.contains(p_id));
+                    .all(|p_id| branch_at_oid.contains_key(p_id));
                 if processed_all {
                     // println!("Adding {:?} to children", c);
                     fwd_frontier.push(*c);
@@ -257,6 +266,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
+    bar.finish();
 
     let end_time = std::time::SystemTime::now();
 
@@ -277,10 +287,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // oplog.make_time_dag_graph("git-makefile.svg");
 
-    let scan_commits_dur = scan_commits_time.duration_since(start).unwrap();
-    let scan_ops_dur = end_time.duration_since(scan_commits_time).unwrap();
+    let pass_1_dur = scan_commits_time.duration_since(start).unwrap();
+    let pass_2_dur = end_time.duration_since(scan_commits_time).unwrap();
     let total_dur = end_time.duration_since(start).unwrap();
-    println!("scan commits time: {:?} / scan ops time: {:?} / total: {:?}", scan_commits_dur, scan_ops_dur, total_dur);
+    println!("Time for first pass: {:?} / scan commits: {:?} / total: {:?}", pass_1_dur, pass_2_dur, total_dur);
 
     Ok(())
 }
