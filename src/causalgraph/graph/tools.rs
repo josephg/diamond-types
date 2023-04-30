@@ -6,7 +6,7 @@ use std::collections::BinaryHeap;
 use smallvec::{smallvec, SmallVec};
 use rle::{AppendRle, SplitableSpan};
 
-use crate::frontier::{debug_assert_frontier_sorted, FrontierRef};
+use crate::frontier::{debug_assert_sorted, FrontierRef};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag::*;
 use crate::dtrange::DTRange;
@@ -21,22 +21,13 @@ use serde::Serialize;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) enum DiffFlag { OnlyA, OnlyB, Shared }
 
-/// The code has changed to make ROOT_TIME no longer a thing. Guards against using this are here
-/// during testing, but will eventually be removed.
-///
-/// TODO: Remove this entirely.
-const OLD_INVALID_ROOT_TIME: usize = usize::MAX;
-
 impl Graph {
     fn shadow_of(&self, time: LV) -> LV {
-        debug_assert_ne!(time, OLD_INVALID_ROOT_TIME);
-        self.0.find(time).unwrap().shadow
+        self.entries.find(time).unwrap().shadow
     }
 
     /// Does the frontier `[a]` contain `[b]` as a direct ancestor according to its shadow?
     fn txn_shadow_contains(&self, a: LV, b: LV) -> bool {
-        debug_assert_ne!(a, OLD_INVALID_ROOT_TIME);
-        debug_assert_ne!(b, OLD_INVALID_ROOT_TIME);
 
         // wrapping_add(1) so we compute ROOT correctly.
         a == b || (a > b && self.shadow_of(a) <= b)
@@ -59,11 +50,9 @@ impl Graph {
     ///
     /// See `diff_shadow_bubble` test below for an example.
     pub(crate) fn is_direct_descendant_coarse(&self, a: LV, b: LV) -> bool {
-        debug_assert_ne!(a, OLD_INVALID_ROOT_TIME);
-        debug_assert_ne!(b, OLD_INVALID_ROOT_TIME);
         // This is a bit more strict than we technically need, but its fast for short circuit
         // evaluation.
-        a == b || (a > b && self.0.find(a).unwrap().contains(b))
+        a == b || (a > b && self.entries.find(a).unwrap().contains(b))
         // a == b
         //     || (b == ROOT_TIME && self.txn_shadow_contains(a, ROOT_TIME))
         //     || (a != ROOT_TIME && a > b && self.0.find(a).unwrap().contains(b))
@@ -97,7 +86,6 @@ impl Graph {
 
     /// Calculates whether the specified version contains (dominates) the specified time.
     pub(crate) fn frontier_contains_version(&self, frontier: &[LV], target: LV) -> bool {
-        debug_assert_ne!(target, OLD_INVALID_ROOT_TIME);
         if frontier.contains(&target) { return true; }
         if frontier.is_empty() { return false; }
 
@@ -106,7 +94,7 @@ impl Graph {
         // avoids the allocation from BinaryHeap.
         for &o in frontier {
             if o > target {
-                let txn = self.0.find(o).unwrap();
+                let txn = self.entries.find(o).unwrap();
                 if txn.shadow_contains(target) { return true; }
             }
         }
@@ -120,7 +108,7 @@ impl Graph {
         // Honestly any approach should be obnoxiously fast in any real editing session anyway.
 
         // TODO: Consider moving queue into a threadlocal variable so we don't need to reallocate it
-        // with each call to branch_contains_order.
+        // with each call.
         let mut queue = BinaryHeap::new();
 
         // This code could be written to use parent_indexes but its a bit tricky, as an index isn't
@@ -135,7 +123,7 @@ impl Graph {
             // dbg!((order, &queue));
 
             // TODO: Skip these calls to find() using parent_index.
-            let entry = self.0.find_packed(order);
+            let entry = self.entries.find_packed(order);
             if entry.shadow_contains(target) { return true; }
 
             while let Some(&next_time) = queue.peek() {
@@ -155,6 +143,17 @@ impl Graph {
         }
 
         false
+    }
+
+    /// Does frontier *a* contain (dominate) frontier *b*? Note, if this method returns false, there
+    /// are a few different cases. This is not reflexive.
+    pub(crate) fn frontier_contains_frontier(&self, a: &[LV], b: &[LV]) -> bool {
+        if a == b { return true; } // Might be a pointless optimization.
+
+        for bb in b {
+            if !self.frontier_contains_version(a, *bb) { return false; }
+        }
+        true
     }
 }
 
@@ -253,7 +252,7 @@ impl Graph {
             // Grab the txn containing ord. This will usually be at prev_txn_idx - 1.
             // TODO: Remove usually redundant binary search
 
-            let containing_txn = self.0.find_packed(ord);
+            let containing_txn = self.entries.find_packed(ord);
 
             // There's essentially 2 cases here:
             // 1. This item and the first item in the queue are part of the same txn. Mark down to
@@ -301,7 +300,8 @@ impl Graph {
         // Sorted highest to lowest (so we get the highest item first).
         #[derive(Debug, PartialEq, Eq, Clone)]
         struct TimePoint {
-            // For merges this is the highest time.
+            // For merges this is the highest time. usize::MAX for ROOT time. Ord implementation
+            // below makes sure ROOT gets sorted last.
             last: LV,
             // TODO: Compare performance here with actually using a vec.
             merged_with: SmallVec<[LV; 1]>, // Always sorted. Usually empty.
@@ -313,7 +313,7 @@ impl Graph {
                 // wrapping_add(1) converts ROOT into 0 for proper comparisons.
                 // TODO: Consider pulling this out
                 self.last.wrapping_add(1).cmp(&other.last.wrapping_add(1))
-                    .then_with(|| other.merged_with.is_empty().cmp(&self.merged_with.is_empty()))
+                    .then_with(|| other.merged_with.len().cmp(&self.merged_with.len()))
             }
         }
 
@@ -325,7 +325,7 @@ impl Graph {
 
         impl From<LV> for TimePoint {
             fn from(time: LV) -> Self {
-                Self { last: time, merged_with: Default::default() }
+                Self { last: time, merged_with: smallvec![] }
             }
         }
 
@@ -362,9 +362,8 @@ impl Graph {
 
             // I could write this with an inner loop and a match statement, but this is shorter and
             // more readable. The optimizer has to earn its keep somehow.
-            // while queue.peek() == Some(&time) { queue.pop(); }
             while let Some((peek_time, peek_flag)) = queue.peek() {
-                if *peek_time == time {
+                if *peek_time == time { // NOTE: This compares the whole frontier!
                     // Logic adapted from diff().
                     if *peek_flag != flag { flag = Shared; }
                     queue.pop();
@@ -377,6 +376,7 @@ impl Graph {
                 // branch.extend(time.merged_with.into_iter());
                 frontier.0.push(t);
                 frontier.debug_check_sorted();
+                debug_assert_eq!(flag, Shared);
                 break frontier;
             }
 
@@ -388,7 +388,7 @@ impl Graph {
                 }
             }
 
-            let containing_txn = self.0.find_packed(t);
+            let containing_txn = self.entries.find_packed(t);
 
             // I want an inclusive iterator :p
             let mut range = DTRange { start: containing_txn.span.start, end: t + 1 };
@@ -414,17 +414,16 @@ impl Graph {
                         }
                         // result.push_reversed_rle(rem);
 
-                        if next_flag != flag { flag = Shared; }
-
                         if !time.merged_with.is_empty() {
                             // We've run into a merged item which uses part of this entry.
                             // We've already pushed the necessary span to the result. Do the
                             // normal merge & shatter logic with this item next.
-                            // let time = queue.pop().unwrap();
                             for t in time.merged_with {
                                 queue.push((t.into(), next_flag));
                             }
                         }
+
+                        if next_flag != flag { flag = Shared; }
                     } else {
                         // Emit the remainder of this txn.
                         visit(range, flag);
@@ -513,20 +512,21 @@ impl Graph {
     pub fn find_dominators_wide_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
         if versions.len() <= 1 { return versions.into(); }
 
-        debug_assert_frontier_sorted(versions);
+        let mut min_v = versions[0];
+        let mut max_v = versions[0];
+        for &v in &versions[1..] {
+            min_v = min_v.min(v);
+            max_v = max_v.max(v);
+        }
 
-        let first_v = versions[0];
-        let last_v = versions[versions.len() - 1];
-
-        let last_entry = self.0.find_packed(last_v);
-
+        let last_entry = self.entries.find_packed(max_v);
         // Nothing else in the list matters because its all under the shadow of this item.
         // This is the most common case.
-        if last_entry.shadow <= first_v { return smallvec![last_v]; }
+        if last_entry.shadow <= min_v { return smallvec![max_v]; }
 
         let mut result_rev = smallvec![];
 
-        self.find_dominators_full_internal(versions.iter().copied(), first_v, |v, dom| {
+        self.find_dominators_full_internal(versions.iter().copied(), min_v, |v, dom| {
             if dom {
                 result_rev.push(v);
             }
@@ -541,7 +541,7 @@ impl Graph {
         Frontier(result)
     }
 
-    /// This method assumes v_1 and v_2 are already trimmed.
+    /// This method assumes v_1 and v_2 are already dominators.
     pub fn find_dominators_2(&self, v_1: &[LV], v_2: &[LV]) -> Frontier {
         if v_1.is_empty() { return v_2.into(); }
         if v_2.is_empty() { return v_1.into(); }
@@ -616,7 +616,7 @@ impl Graph {
                 inputs_remaining -= 1;
             }
 
-            let e = self.0.find_packed(v);
+            let e = self.entries.find_packed(v);
 
             if stop_at_shadow != usize::MAX && e.shadow <= stop_at_shadow {
                 break;
@@ -661,27 +661,27 @@ impl Graph {
         self.find_dominators_full_internal(versions_iter, usize::MAX, visit);
     }
 
-    /// Find dominators on an unsorted set of versions
-    pub fn find_dominators_unsorted_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
-        if versions.len() <= 1 {
-            return versions.into();
-        }
-
-        let mut result = smallvec![];
-        self.find_dominators_full(versions.iter().copied(), |v, is_input| {
-            if is_input {
-                result.push(v);
-            }
-        });
-
-        result
-    }
-
-    pub fn find_dominators_unsorted(&self, versions: &[LV]) -> Frontier {
-        let mut result = self.find_dominators_unsorted_rev(versions);
-        result.reverse();
-        Frontier(result)
-    }
+    // /// Find dominators on an unsorted set of versions
+    // pub fn find_dominators_unsorted_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
+    //     if versions.len() <= 1 {
+    //         return versions.into();
+    //     }
+    //
+    //     let mut result = smallvec![];
+    //     self.find_dominators_full(versions.iter().copied(), |v, is_input| {
+    //         if is_input {
+    //             result.push(v);
+    //         }
+    //     });
+    //
+    //     result
+    // }
+    //
+    // pub fn find_dominators_unsorted(&self, versions: &[LV]) -> Frontier {
+    //     let mut result = self.find_dominators_unsorted_rev(versions);
+    //     result.reverse();
+    //     Frontier(result)
+    // }
 
     /// Given 2 versions, return a version which contains all the operations in both.
     ///
@@ -714,7 +714,7 @@ pub mod test {
     use crate::dtrange::DTRange;
     use crate::rle::RleVec;
     use crate::{Frontier, LV};
-    use crate::frontier::debug_assert_frontier_sorted;
+    use crate::frontier::debug_assert_sorted;
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).
@@ -801,7 +801,7 @@ pub mod test {
                 hist: graph.iter().collect(), a, b, expect_spans, expect_common
             };
 
-            let p: Vec<_> = graph.iter().collect();
+            let _p: Vec<_> = graph.iter().collect();
             use std::io::Write;
             let mut f = std::fs::File::options()
                 .write(true)
@@ -827,14 +827,14 @@ pub mod test {
                 hist: graph.iter().collect(), frontier, target: target as _, expected
             };
 
-            let p: Vec<_> = graph.iter().collect();
+            let _p: Vec<_> = graph.iter().collect();
             use std::io::Write;
             let mut f = std::fs::File::options()
                 .write(true)
                 .append(true)
                 .create(true)
                 .open("test_data/causal_graph/version_contains.json").unwrap();
-            writeln!(f, "{}", serde_json::to_string(&t).unwrap());
+            writeln!(f, "{}", serde_json::to_string(&t).unwrap()).unwrap();
         }
 
         assert_eq!(graph.frontier_contains_version(frontier, target), expected);
@@ -860,14 +860,14 @@ pub mod test {
                 expect_b
             };
 
-            let p: Vec<_> = graph.iter().collect();
+            let _p: Vec<_> = graph.iter().collect();
             use std::io::Write;
             let mut f = std::fs::File::options()
                 .write(true)
                 .append(true)
                 .create(true)
                 .open("test_data/causal_graph/diff.json").unwrap();
-            writeln!(f, "{}", serde_json::to_string(&t).unwrap());
+            writeln!(f, "{}", serde_json::to_string(&t).unwrap()).unwrap();
         }
 
         let slow_result = graph.diff_slow(a, b);
@@ -908,11 +908,11 @@ pub mod test {
             GraphEntrySimple { span: (9..11).into(), parents: Frontier::from_sorted(&[2, 8]) },
         ]);
 
-        assert_eq!(g.0.0.len(), 4);
-        assert_eq!(g.0[0].shadow, 0);
-        assert_eq!(g.0[1].shadow, 3);
-        assert_eq!(g.0[2].shadow, 6);
-        assert_eq!(g.0[3].shadow, 6);
+        assert_eq!(g.entries.0.len(), 4);
+        assert_eq!(g.entries[0].shadow, 0);
+        assert_eq!(g.entries[1].shadow, 3);
+        assert_eq!(g.entries[2].shadow, 6);
+        assert_eq!(g.entries[3].shadow, 6);
 
         g.dbg_check(true);
         g
@@ -991,11 +991,11 @@ pub mod test {
     }
 
     fn check_dominators(graph: &Graph, input: &[LV], expected_yes: &[LV]) {
-        debug_assert_frontier_sorted(input);
-        debug_assert_frontier_sorted(expected_yes);
+        debug_assert_sorted(input);
+        debug_assert_sorted(expected_yes);
 
         let expected_no: Vec<_> = input.iter().filter(|v| !expected_yes.contains(v)).copied().collect();
-        debug_assert_frontier_sorted(expected_no.as_slice());
+        debug_assert_sorted(expected_no.as_slice());
         assert_eq!(input.len(), expected_yes.len() + expected_no.len());
 
         assert_eq!(graph.find_dominators(input).as_ref(), expected_yes);
@@ -1053,7 +1053,7 @@ pub mod test {
     #[test]
     fn dominator_duplicates() {
         let parents = fancy_graph();
-        assert_eq!(parents.find_dominators_unsorted(&[1,1,1]).as_ref(), &[1]);
+        assert_eq!(parents.find_dominators(&[1,1,1]).as_ref(), &[1]);
         assert_eq!(parents.version_union(&[1], &[1]).as_ref(), &[1]);
 
         let mut seen_1 = false;

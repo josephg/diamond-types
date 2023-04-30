@@ -113,8 +113,8 @@ fn get_txns(name: &str) -> Vec<RemoteTxn> {
 }
 
 fn bench_process(c: &mut Criterion) {
-    // let name = "benchmark_data/node_nodecc.dt";
-    let name = "benchmark_data/git-makefile.dt";
+    let name = "benchmark_data/node_nodecc.dt";
+    // let name = "benchmark_data/git-makefile.dt";
     // let name = "benchmark_data/data.dt";
 
     let txns = get_txns(name);

@@ -36,10 +36,10 @@ struct VisitEntry {
     span: DTRange,
     txn_idx: usize,
     // entry: &'a HistoryEntry,
-    visited: bool,
     parents: Frontier,
     parent_idxs: SmallVec<[usize; 4]>,
     child_idxs: SmallVec<[usize; 4]>,
+    visited: bool,
 }
 
 
@@ -124,17 +124,17 @@ impl<'a> SpanningTreeWalker<'a> {
         for mut span_remaining in rev_spans.iter().rev().copied() {
             debug_assert!(!span_remaining.is_empty());
 
-            let mut i = graph.0.find_index(span_remaining.start).unwrap();
+            let mut i = graph.entries.find_index(span_remaining.start).unwrap();
             // let mut offset = history.entries[i].
             while !span_remaining.is_empty() {
-                let txn = &graph.0[i];
+                let txn = &graph.entries[i];
                 debug_assert!(span_remaining.start >= txn.span.start && span_remaining.start < txn.span.end);
 
                 let offset = LV::min(span_remaining.len(), txn.span.end - span_remaining.start);
                 let span = span_remaining.truncate_keeping_right(offset);
 
                 // dbg!(span_remaining.start);
-                let parents: Frontier = txn.clone_parents_at_time(span.start);
+                let parents: Frontier = txn.clone_parents_at_version(span.start);
 
                 // We don't care about any parents outside of the input spans.
                 let parent_idxs: SmallVec<[usize; 4]> = parents.iter()
@@ -207,6 +207,25 @@ impl<'a> SpanningTreeWalker<'a> {
                         assert_ne!(self.to_process[i], self.to_process[j]);
                     }
                 }
+            }
+        }
+    }
+
+    pub(crate) fn dbg_print(self) {
+        let mut i = 0;
+        for mut walk in self {
+            if !walk.retreat.is_empty() {
+                println!("{i}: --- deactivate {:?}", walk.retreat);
+                i += 1;
+            }
+            if !walk.advance_rev.is_empty() {
+                walk.advance_rev.reverse();
+                println!("{i}: +++ reactivate {:?}", walk.advance_rev);
+                i += 1;
+            }
+            if !walk.consume.is_empty() {
+                println!("{i}: Add {:?}", walk.consume);
+                i += 1;
             }
         }
     }
@@ -344,9 +363,12 @@ impl Graph {
 
 #[cfg(test)]
 mod test {
+    use std::fs::File;
+    use std::io::Read;
     use smallvec::smallvec;
-    use crate::causalgraph::graph::{GraphEntryInternal, GraphEntrySimple};
+    use crate::causalgraph::graph::GraphEntrySimple;
     use crate::causalgraph::graph::tools::ConflictZone;
+    use crate::list::ListOpLog;
     use super::*;
 
     #[test]
@@ -493,5 +515,47 @@ mod test {
                 consume: (6..7).into(),
             }
         ])));
+    }
+
+
+    #[test]
+    #[ignore]
+    fn print_simple_plan() {
+        let g = Graph::from_simple_items(&[
+            GraphEntrySimple { span: (0..1).into(), parents: Frontier::root() },
+            GraphEntrySimple { span: (1..2).into(), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: (2..3).into(), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: (3..4).into(), parents: Frontier::from_sorted(&[1, 2]) },
+        ]);
+
+        let iter = SpanningTreeWalker::new_all(&g);
+        iter.dbg_print();
+    }
+
+    #[test]
+    #[ignore]
+    fn print_file_plan() {
+        let mut bytes = vec![];
+        // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
+        let cg = &o.cg;
+
+        let iter = SpanningTreeWalker::new_all(&cg.graph);
+        iter.dbg_print();
+
+        let iter = SpanningTreeWalker::new_all(&cg.graph);
+        let mut cost_estimate = 0;
+        for i in iter {
+            // cost_estimate += i.consume.len();
+            // cost_estimate += i.retreat.iter().map(|range| range.len()).sum::<usize>();
+            // cost_estimate += i.advance_rev.iter().map(|range| range.len()).sum::<usize>();
+            cost_estimate += o.estimate_cost(i.consume);
+            cost_estimate += i.retreat.iter().map(|range| o.estimate_cost(*range)).sum::<usize>();
+            cost_estimate += i.advance_rev.iter().map(|range| o.estimate_cost(*range)).sum::<usize>();
+        }
+        println!("Cost estimate {cost_estimate}");
+        // node_nodecc Cost estimate 1103811 / 63696
+        // git-makefile Cost estimate 1128743 / 50680
     }
 }

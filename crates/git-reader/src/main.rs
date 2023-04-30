@@ -1,27 +1,34 @@
-use std::collections::{HashMap, HashSet};
+// #![allow(unused_imports)]
+
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
-use git2::{Oid, Repository};
+use git2::{BranchType, Commit, Oid, Repository};
 use git2::ObjectType::Blob;
 use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
+use indicatif::ProgressBar;
 
 use diamond_types::list::*;
 use diamond_types::list::encoding::ENCODE_FULL;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // TODO: Just take this as a program argument.
-    // let repo = Repository::open("/Users/seph/src/diamond-types")?;
-    // let file = "src/range_tree/mutations.rs";
-    // let file = "Makefile";
+    // let repo = Repository::open("/home/seph/src/diamond-types")?;
+    // let file = "crates/git-reader/src/main.rs";
+    // let branch = "master";
 
-    // let repo = Repository::open("/home/seph/3rdparty/node")?;
-    // let file = "src/node.cc";
+    let repo = Repository::open("/home/seph/3rdparty/node")?;
+    let file = "src/node.cc";
+    let branch = "master";
+
     // let repo = Repository::open("/home/seph/3rdparty/linux")?;
     // let file = "drivers/gpu/drm/i915/intel_display.c";
-    let repo = Repository::open("/home/seph/3rdparty/git")?;
-    let file = "Makefile";
+
+    // let repo = Repository::open("/home/seph/3rdparty/git")?;
+    // let file = "Makefile";
+    // let branch = "master";
 
     // let repo = Repository::open("/home/seph/3rdparty/yjs")?;
     // let file = "package.json";
@@ -34,34 +41,36 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Loading {:?} from {:?}", path, repo.path());
 
-    let head = repo.head().unwrap();
+    // let head = repo.head().unwrap();
+    let head = repo.find_branch(branch, BranchType::Local).unwrap().into_reference();
+
     // let y = head.resolve().unwrap();
     // dbg!(&head.name(), head.target());
 
-    let c = head.peel_to_commit().unwrap();
-    // dbg!(c.id());
-    // let c_t = c.tree().unwrap();
-
-    let mut commits_seen = HashSet::new();
-
-    // The commits in reverse order
-    let mut commits_rev = Vec::new();
 
     let mut scan_frontier = Vec::new();
     let mut fwd_frontier = Vec::new();
 
     // Could wrap this stuff up in a struct or something, but its not a big deal.
+    // let mut commits_seen = HashSet::new();
     let mut commit_children = HashMap::<Oid, SmallVec<[Oid; 3]>>::new();
     let mut commit_parents = HashMap::<Oid, SmallVec<[Oid; 3]>>::new();
 
+    // (parents, children).
+    // let mut commit_info = HashMap::<Oid, (SmallVec<[Oid; 3]>, SmallVec<[Oid; 3]>)>::new();
+
+    let c = head.peel_to_commit().unwrap();
+    // dbg!(c.id());
     scan_frontier.push(c.id());
-    commit_children.insert(c.id(), c.parents().map(|p| p.id()).collect());
+    // Mark the final change as having no children.
+    commit_children.insert(c.id(), smallvec![]);
+
+    let start = std::time::SystemTime::now();
 
     println!("Scanning frontier...");
     while let Some(c_id) = scan_frontier.pop() {
-        if commits_seen.contains(&c_id) { continue; }
-        commits_seen.insert(c_id);
-        commits_rev.push(c_id);
+        // println!("cc: {} / cp: {} / sf {} / ff {}", commit_children.len(), commit_parents.len(), scan_frontier.len(), fwd_frontier.len());
+        if commit_parents.contains_key(&c_id) { continue; }
 
         // println!("Scanning {:?}", c);
 
@@ -84,43 +93,102 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     drop(scan_frontier);
 
-    println!("Scanning operations...");
+    let scan_commits_time = std::time::SystemTime::now();
+
+    println!("Scanning commits...");
     let mut oplog = ListOpLog::new();
     // let empty_branch = Branch::new();
-    let mut branch_at_oid = HashMap::<Oid, ListBranch>::new();
+    let mut branch_at_oid = HashMap::<Oid, (ListBranch, usize)>::new();
+    // let mut branch_at_oid = HashMap::<Oid, ListBranch>::new();
 
-    // This time through I'm taking each item *out* of the commits hashset when we process it.
-    let mut commits_not_processed = commits_seen;
+    let take = |branch_at_oid: &mut HashMap<Oid, (ListBranch, usize)>, p_id: Oid| -> ListBranch {
+        let (branch_here, num_children) = branch_at_oid.get_mut(&p_id).unwrap();
 
-    // let mut branch_vec = Vec::new();
+        debug_assert!(*num_children >= 1);
+        if *num_children == 1 {
+            let (branch, _) = branch_at_oid.remove(&p_id).unwrap();
+            branch
+        } else {
+            *num_children -= 1;
+            branch_here.clone()
+        }
+    };
 
-    while let Some(commit_id) = fwd_frontier.pop() {
-        // println!("Pop {:?}. ({} remaining)", commit_id, fwd_frontier.len());
-        // For something to enter fwd_frontier we must have processed all of its parents.
-        let commit = repo.find_commit(commit_id)?;
-
-        let mut branch = if commit.parent_count() == 0 {
+    let take_branch = |branch_at_oid: &mut HashMap<Oid, (ListBranch, usize)>, oplog: &ListOpLog, commit: &Commit| -> ListBranch {
+        if commit.parent_count() == 0 {
             // The branch is fresh at ROOT.
             ListBranch::new()
         } else {
-            for p in commit.parents() {
-                // We want to have handled all the parents
-                let id = p.id();
-                if commits_not_processed.contains(&id) { panic!("Parent not processed!") }
-            }
+            // So we need 2 things:
+            // - A starting branch
+            // - The desired version (which is the commit version, converted to a DT frontier).
+
+            // TODO: This code (alternately) takes the first branch which has no other children, but
+            // it ends up slower in practice because cloning a branch is cheap, but scanning git
+            // commits is expensive. Go figure!
+
+            // let mut branch = None;
+            // let mut frontier: SmallVec<[LV; 2]> = smallvec![];
+            // for p_id in commit.parent_ids() {
+            //     let (branch_here, num_children) = branch_at_oid.get_mut(&p_id).unwrap();
+            //
+            //     frontier.extend_from_slice(branch_here.local_frontier_ref());
+            //
+            //     debug_assert!(*num_children > 0);
+            //     if *num_children == 1 {
+            //         let (branch_here, _) = branch_at_oid.remove(&p_id).unwrap();
+            //         if branch.is_none() {
+            //             branch = Some(branch_here);
+            //         }
+            //     } else {
+            //         *num_children -= 1;
+            //     }
+            // }
+            //
+            // // The frontier might contain repeated elements. Simplify!
+            // frontier.sort_unstable();
+            // let merge_frontier = oplog.cg.graph.find_dominators(&frontier);
+            //
+            // let mut branch = branch.unwrap_or_else(|| {
+            //     // We might not have found any branch with no parents.
+            //     let p_id = commit.parent_id(0).unwrap();
+            //     branch_at_oid[&p_id].0.clone()
+            // });
+            //
+            // branch.merge(&oplog, merge_frontier.as_ref());
+            // branch
 
             // Go through again and make a branch here.
-            let mut iter = commit.parents();
+            let mut iter = commit.parent_ids();
             let first_parent = iter.next().unwrap();
-            let mut branch = branch_at_oid[&first_parent.id()].clone();
+            let mut branch = take(branch_at_oid, first_parent);
 
             for p in iter {
-                let frontier = branch_at_oid[&p.id()].local_frontier_ref();
+                let child_branch = take(branch_at_oid, p);
+                let frontier = child_branch.local_frontier_ref();
                 branch.merge(&oplog, frontier);
             }
 
             branch
-        };
+        }
+    };
+
+    // let mut log = std::io::BufWriter::new(std::fs::File::create("git-reader.log").unwrap());
+
+    let bar = ProgressBar::new(commit_parents.len() as _);
+    // let mut i = 0;
+    while let Some(commit_id) = fwd_frontier.pop() {
+        bar.inc(1);
+        // if i % 1000 == 0 { println!("{i}..."); }
+        // i += 1;
+
+        // write!(log, "Pop {:?}. ({} remaining)\n", commit_id, fwd_frontier.len()).unwrap();
+        // println!("Pop {:?}. ({} remaining) (bao: {})", commit_id, fwd_frontier.len(), branch_at_oid.len());
+
+        // For something to enter fwd_frontier we must have processed all of its parents.
+        let commit = repo.find_commit(commit_id)?;
+
+        let mut branch = take_branch(&mut branch_at_oid, &oplog, &commit);
 
         let tree = commit.tree()?;
 
@@ -181,16 +249,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        branch_at_oid.insert(commit_id, branch);
-        commits_not_processed.remove(&commit_id);
+
+        let children = commit_children.get(&commit_id).unwrap();
+        branch_at_oid.insert(commit_id, (branch, children.len()));
 
         // Go through all the children. Add any child which has all its dependencies met to the
         // frontier set.
-        let children = commit_children.get(&commit_id).unwrap();
         for c in children {
-            if commits_not_processed.contains(c) {
+            if !branch_at_oid.contains_key(c) {
                 let processed_all = commit_parents.get(c).unwrap().iter()
-                    .all(|p_id| !commits_not_processed.contains(p_id));
+                    .all(|p_id| branch_at_oid.contains_key(p_id));
                 if processed_all {
                     // println!("Adding {:?} to children", c);
                     fwd_frontier.push(*c);
@@ -198,6 +266,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
+    bar.finish();
+
+    let end_time = std::time::SystemTime::now();
 
     // dbg!(&oplog);
     let branch = ListBranch::new_at_tip(&oplog);
@@ -215,6 +286,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     // println!("(vs {} bytes)", data_old.len());
 
     // oplog.make_time_dag_graph("git-makefile.svg");
+
+    let pass_1_dur = scan_commits_time.duration_since(start).unwrap();
+    let pass_2_dur = end_time.duration_since(scan_commits_time).unwrap();
+    let total_dur = end_time.duration_since(start).unwrap();
+    println!("Time for first pass: {:?} / scan commits: {:?} / total: {:?}", pass_1_dur, pass_2_dur, total_dur);
 
     Ok(())
 }

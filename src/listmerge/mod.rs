@@ -43,7 +43,7 @@ struct M2Tracker {
 
     /// The index is used for 2 things:
     ///
-    /// - For inserts, this contains a pointer to the node in range_tree which contains this time.
+    /// - For inserts, this contains a pointer to the node in range_tree which contains this version
     /// - For deletes, this names the time at which the delete happened.
     index: SpaceIndex,
 

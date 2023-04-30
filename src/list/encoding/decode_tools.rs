@@ -1,6 +1,6 @@
 use std::mem::size_of;
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::varint::num_decode_zigzag_isize;
+use crate::list::encoding::leb::num_decode_zigzag_isize_old;
 use crate::list::encoding::{DataType, ListChunkType, MAGIC_BYTES};
 use crate::list::encoding::leb::{decode_leb_u32, decode_leb_u64, decode_leb_usize};
 
@@ -85,7 +85,7 @@ impl<'a> BufReader<'a> {
 
     pub(super) fn next_zigzag_isize(&mut self) -> Result<isize, ParseError> {
         let n = self.next_usize()?;
-        Ok(num_decode_zigzag_isize(n))
+        Ok(num_decode_zigzag_isize_old(n))
     }
 
     pub(super) fn next_n_bytes(&mut self, num_bytes: usize) -> Result<&'a [u8], ParseError> {

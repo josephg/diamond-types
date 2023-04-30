@@ -2,7 +2,7 @@ use rle::HasLength;
 use crate::causalgraph::graph::Graph;
 use crate::dtrange::DTRange;
 use crate::frontier::Frontier;
-use crate::list::op_iter::{OpIterFast, OpMetricsIter};
+use crate::list::op_iter::{OpMetricsWithContent, OpMetricsIter};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::TextOperation;
 use crate::LV;
@@ -24,7 +24,7 @@ impl TextInfo {
         OpMetricsIter::new(&self.ops, &self.ctx, (0..self.ops.end()).into())
     }
 
-    pub fn iter_fast(&self) -> OpIterFast {
+    pub fn iter_fast(&self) -> OpMetricsWithContent {
         self.iter_metrics().into()
     }
 

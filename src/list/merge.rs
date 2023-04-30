@@ -81,6 +81,7 @@ impl ListBranch {
             }
         }
 
+        // dbg!(iter.count_range_tracker_size());
         self.version = iter.into_frontier();
     }
 

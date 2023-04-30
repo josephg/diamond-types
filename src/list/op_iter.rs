@@ -1,28 +1,43 @@
 use smallvec::SmallVec;
-use rle::{HasLength, SplitableSpanCtx};
+use rle::{HasLength, SplitableSpan, SplitableSpanCtx};
+use rle::zip::{rle_zip, rle_zip3};
+use crate::causalgraph::agent_span::AgentSpan;
+use crate::causalgraph::entry::CGEntry;
+use crate::causalgraph::graph::GraphEntrySimple;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::ListOpLog;
 use crate::list::operation::TextOperation;
 use crate::dtrange::DTRange;
-use crate::rle::{KVPair, RleVec};
-use crate::LV;
+use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
+use crate::{AgentId, Frontier, LV};
 
 #[derive(Debug)]
 pub(crate) struct OpMetricsIter<'a> {
     list: &'a RleVec<KVPair<ListOpMetrics>>,
+
+    // I'd really like to take the ctx out of this structure. Right now this is very text-specific!
+    //
+    // To use this code with non-text, we need to remove this. But thats not so easy! I could make
+    // it a generic parameter, but we'd end up monomorphizing a huge amount of code if this
+    // structure became generic on the list type.
+    //
+    // This is needed here because we need to reference the op context to split operations, since
+    // the operation metrics contain character (byte) offsets.
     pub(crate) ctx: &'a ListOperationCtx,
 
-    idx: usize,
+    /// The input span we're processing.
     range: DTRange,
+    /// Current index
+    idx: usize,
 }
 
 /// Wrapper around OpMetricsIter which yields (metrics, content) instead of just metrics.
 #[derive(Debug)]
-pub(crate) struct OpIterFast<'a>(OpMetricsIter<'a>);
+pub(crate) struct OpMetricsWithContent<'a>(OpMetricsIter<'a>);
 
-impl<'a> From<OpMetricsIter<'a>> for OpIterFast<'a> {
+impl<'a> From<OpMetricsIter<'a>> for OpMetricsWithContent<'a> {
     fn from(inner: OpMetricsIter<'a>) -> Self {
-        OpIterFast(inner)
+        OpMetricsWithContent(inner)
     }
 }
 
@@ -50,7 +65,7 @@ impl<'a> Iterator for OpMetricsIter<'a> {
     }
 }
 
-impl<'a> Iterator for OpIterFast<'a> {
+impl<'a> Iterator for OpMetricsWithContent<'a> {
     type Item = (KVPair<ListOpMetrics>, Option<&'a str>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -89,18 +104,18 @@ impl<'a> OpMetricsIter<'a> {
     }
 }
 
-impl<'a> OpIterFast<'a> {
+impl<'a> OpMetricsWithContent<'a> {
     fn new(oplog: &'a ListOpLog, range: DTRange) -> Self {
         Self(OpMetricsIter::new(&oplog.operations, &oplog.operation_ctx, range))
     }
 }
 
-/// This is a variant on OpIterFast which returns operations since some (complex) point in time in
-/// a document.
+/// This is a variant on OpMetricsWithContent which yields operations since some (complex) point in
+/// time in a document.
 #[derive(Debug)]
 struct OpIterRanges<'a> {
     ranges_rev: SmallVec<[DTRange; 4]>, // We own this. This is in descending order.
-    current: OpIterFast<'a>
+    current: OpMetricsWithContent<'a>
 }
 
 impl<'a> OpIterRanges<'a> {
@@ -108,7 +123,7 @@ impl<'a> OpIterRanges<'a> {
         let last = ranges_rev.pop().unwrap_or_else(|| (0..0).into());
         Self {
             ranges_rev,
-            current: OpIterFast::new(oplog, last)
+            current: OpMetricsWithContent::new(oplog, last)
         }
     }
 }
@@ -144,24 +159,74 @@ impl ListOpLog {
         self.iter_metrics_range((0..self.len()).into())
     }
 
-    pub(crate) fn iter_range_simple(&self, range: DTRange) -> OpIterFast {
-        OpIterFast::new(self, range)
+    pub(crate) fn iter_range_simple(&self, range: DTRange) -> OpMetricsWithContent {
+        OpMetricsWithContent::new(self, range)
     }
 
-    pub fn iter_range_since(&self, local_version: &[LV]) -> impl Iterator<Item = TextOperation> + '_ {
+    pub fn iter_range_since(&self, local_version: &[LV]) -> impl Iterator<Item=TextOperation> + '_ {
         let only_b = self.cg.diff_since_rev(local_version);
 
         OpIterRanges::new(self, only_b)
             .map(|pair| (pair.0.1, pair.1).into())
     }
 
-    pub(crate) fn iter_fast(&self) -> OpIterFast {
-        OpIterFast::new(self, (0..self.len()).into())
+    pub(crate) fn iter_fast(&self) -> OpMetricsWithContent {
+        OpMetricsWithContent::new(self, (0..self.len()).into())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = TextOperation> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item=TextOperation> + '_ {
         self.iter_fast().map(|pair| (pair.0.1, pair.1).into())
     }
+}
+
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct FullEntry {
+    pub span: DTRange,
+    pub parents: Frontier,
+    pub agent_id: AgentId,
+    pub ops: SmallVec<[TextOperation; 2]>,
+}
+
+impl ListOpLog {
+    pub fn iter_full_2<'a>(&'a self) -> Vec<FullEntry> {
+        let mut result = vec![];
+        let simple_graph = self.cg.make_simple_graph();
+
+        for mut entry in simple_graph.0.into_iter() {
+            for agent_kv in self.cg.agent_assignment.client_with_localtime.iter_range(entry.span) {
+                let entry_here = entry.truncate_keeping_right_from(agent_kv.end());
+
+                assert_eq!(agent_kv.range(), entry_here.span);
+
+                result.push(FullEntry {
+                    agent_id: agent_kv.1.agent,
+                    span: entry_here.span,
+                    parents: entry_here.parents,
+                    ops: self.iter_range_simple(entry_here.span)
+                        .map(|pair| (pair.0.1, pair.1).into())
+                        .collect(),
+                });
+            }
+        }
+
+        result
+    }
+
+    pub fn iter_full<'a>(&'a self, simple_graph: &'a RleVec<GraphEntrySimple>) -> impl Iterator<Item = (GraphEntrySimple, AgentSpan, TextOperation)> + 'a {
+        self.iter_fast().flat_map(|(pair, content)| {
+            let range = pair.range();
+            let simple_splits = simple_graph.iter_range(range);
+            let aa = self.cg.agent_assignment.client_with_localtime.iter_range(range)
+                .map(|KVPair(_, data)| data);
+
+            let op: TextOperation = (pair.1, content).into();
+
+            rle_zip3(simple_splits, aa, std::iter::once(op))
+        })
+    }
+
+
 }
 
 #[cfg(test)]

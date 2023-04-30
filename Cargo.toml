@@ -17,9 +17,9 @@ description = "The world's fastest text CRDT"
 members = ["crates/*"]
 
 [dependencies]
-smartstring = "1.0.0"
+smartstring = "1.0.1"
 str_indices = "0.4.0"
-smallvec = { version = "1.8.0", features = ["union", "const_generics"] }
+smallvec = { version = "1.10.0", features = ["union", "const_generics"] }
 lazy_static = "1.4.0"
 
 # Used by wasm module, CLI.
@@ -45,6 +45,8 @@ num_enum = "0.5.6"
 #crc32c = "0.6"
 crc = "3.0.0"
 lz4_flex = { version = "0.9.2", optional = true }
+
+#bitvec = "1.0.1"
 
 # Needed for macos F_BARRIERFSYNC.
 libc = "0.2.139"
@@ -88,12 +90,17 @@ opt-level = 2
 #debugging = true
 
 [profile.release.package.dt-cli]
-opt-level = "z"
+opt-level = "s"
 #lto = false
-#strip = true
+strip = true
 
 [profile.release.package.run_on_old]
 debug = true
 
 [profile.release.package.bench]
 codegen-units = 1
+
+# Use with cargo build --profile profiling
+[profile.profiling]
+inherits = "release"
+debug = true

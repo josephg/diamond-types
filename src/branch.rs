@@ -365,6 +365,8 @@ mod tests {
         // dbg!(b.register_in_map(&["conflict"], "yo"));
 
         check_oplog_checkouts_match(&oplog);
+
+        // dbg!(oplog.checkout_tip().simple_val());
     }
 
     #[test]

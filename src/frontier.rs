@@ -39,8 +39,14 @@ impl<'a> From<FrontierRef<'a>> for Frontier {
 
 impl From<SmallVec<[LV; 2]>> for Frontier {
     fn from(f: SmallVec<[LV; 2]>) -> Self {
-        debug_assert_frontier_sorted(f.as_slice());
+        debug_assert_sorted(f.as_slice());
         Frontier(f)
+    }
+}
+
+impl From<LV> for Frontier {
+    fn from(v: LV) -> Self {
+        Frontier::new_1(v)
     }
 }
 
@@ -89,7 +95,7 @@ pub(crate) fn is_sorted_slice<const EXPECT_UNIQ: bool, V: Ord + Eq + Debug + Cop
             if EXPECT_UNIQ {
                 debug_assert!(*t != last);
             }
-            if last >= *t { return false; }
+            if last > *t || (EXPECT_UNIQ && last == *t) { return false; }
             last = *t;
         }
     }
@@ -101,7 +107,7 @@ pub(crate) fn frontier_is_sorted(f: FrontierRef) -> bool {
     is_sorted_slice::<true, _>(f)
 }
 
-pub(crate) fn debug_assert_frontier_sorted(frontier: FrontierRef) {
+pub(crate) fn debug_assert_sorted(frontier: FrontierRef) {
     debug_assert!(frontier_is_sorted(frontier));
 }
 
@@ -148,7 +154,7 @@ impl Frontier {
     }
 
     pub fn from_sorted(data: &[LV]) -> Self {
-        debug_assert_frontier_sorted(data);
+        debug_assert_sorted(data);
         Self(data.into())
     }
 
@@ -185,16 +191,16 @@ impl Frontier {
     }
 
     pub fn debug_check_sorted(&self) {
-        debug_assert_frontier_sorted(self.0.borrow());
+        debug_assert_sorted(self.0.borrow());
     }
 
 
     /// Advance a frontier by the set of time spans in range
     pub fn advance(&mut self, graph: &Graph, mut range: DTRange) {
         // This is a little crass. Might be nicer to use a &T iterator in RLEVec.
-        let txn_idx = graph.0.find_index(range.start).unwrap();
+        let txn_idx = graph.entries.find_index(range.start).unwrap();
 
-        for txn in &graph.0[txn_idx..] {
+        for txn in &graph.entries[txn_idx..] {
             debug_assert!(txn.contains(range.start));
 
             let end = txn.span.end.min(range.end);
@@ -221,8 +227,8 @@ impl Frontier {
     }
 
     pub fn advance_sparse(&mut self, graph: &Graph, range: DTRange) {
-        let txn_idx = graph.0.find_index(range.start).unwrap();
-        let first_txn = &graph.0[txn_idx];
+        let txn_idx = graph.entries.find_index(range.start).unwrap();
+        let first_txn = &graph.entries[txn_idx];
         if first_txn.span.end >= range.end {
             // Fast path.
             first_txn.with_parents(range.start, |parents| {
@@ -259,7 +265,7 @@ impl Frontier {
             self.replace_with_1(span.last());
         } else {
             assert!(!self.0.contains(&span.start)); // Remove this when branch_contains_version works.
-            debug_assert_frontier_sorted(self.0.as_slice());
+            debug_assert_sorted(self.0.as_slice());
 
             self.0.retain(|o| !parents.contains(o)); // Usually removes all elements.
 
@@ -272,17 +278,26 @@ impl Frontier {
         }
     }
 
+    pub fn merge_union(&mut self, other: &[LV], graph: &Graph) {
+        if !other.is_empty()
+            && other != self.as_ref()
+            && (other.len() != 1 || !graph.frontier_contains_version(self.as_ref(), other[0]))
+        {
+            *self = graph.version_union(self.as_ref(), other);
+        }
+    }
+
     pub fn retreat(&mut self, graph: &Graph, mut range: DTRange) {
         if range.is_empty() { return; }
 
         self.debug_check_sorted();
 
-        let mut txn_idx = graph.0.find_index(range.last()).unwrap();
+        let mut txn_idx = graph.entries.find_index(range.last()).unwrap();
         loop {
             let last_order = range.last();
-            let txn = &graph.0[txn_idx];
+            let txn = &graph.entries[txn_idx];
             // debug_assert_eq!(txn_idx, history.0.find_index(range.last()).unwrap());
-            debug_assert_eq!(txn, graph.0.find(last_order).unwrap());
+            debug_assert_eq!(txn, graph.entries.find(last_order).unwrap());
             // let mut idx = frontier.iter().position(|&e| e == last_order).unwrap();
 
             if self.len() == 1 {
@@ -377,8 +392,8 @@ impl Frontier {
 
 pub fn local_frontier_eq<A: AsRef<[LV]> + ?Sized, B: AsRef<[LV]> + ?Sized>(a: &A, b: &B) -> bool {
     // Almost all branches only have one element in them.
-    debug_assert_frontier_sorted(a.as_ref());
-    debug_assert_frontier_sorted(b.as_ref());
+    debug_assert_sorted(a.as_ref());
+    debug_assert_sorted(b.as_ref());
     a.as_ref() == b.as_ref()
 }
 

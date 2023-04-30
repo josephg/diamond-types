@@ -229,10 +229,14 @@ impl Debug for Underwater {
 
 impl Debug for DTRange {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "T ")?;
+        write!(f, "v ")?;
         debug_time_raw(self.start, |v| v.fmt(f) )?;
-        write!(f, "..")?;
-        debug_time_raw(self.end, |v| v.fmt(f) )?;
+        if self.end != self.start + 1 {
+            // write!(f, "-")?;
+            // debug_time_raw(self.end - 1, |v| v.fmt(f))?;
+            write!(f, "..")?;
+            debug_time_raw(self.end, |v| v.fmt(f))?;
+        }
         Ok(())
     }
 }

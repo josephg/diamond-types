@@ -13,7 +13,7 @@ use rle::intersect::rle_intersect_rev;
 use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::dtrange::DTRange;
+use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::{AgentId, CausalGraph, Frontier, LV};
 use crate::causalgraph::agent_assignment::AgentAssignment;
@@ -167,6 +167,11 @@ impl M2Tracker {
             // Almost always true. Could move this short circuit earlier?
             if other_lv == item.origin_right { break; }
 
+            // When preparing example data, its important that the data can merge the same
+            // regardless of editing trace (so the output isn't dependent on the algorithm used to
+            // merge).
+            // panic!("Oh no! {:?}", item.id);
+
             // This code could be better optimized, but its already O(n * log n), and its extremely
             // rare that you actually get concurrent inserts at the same location in the document
             // anyway.
@@ -188,6 +193,7 @@ impl M2Tracker {
                         let my_name = aa.get_agent_name(agent);
                         let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
                         let other_name = aa.get_agent_name(other_agent);
+                        // eprintln!("concurrent insert at the same place {} ({}) vs {} ({})", item.id.start, my_name, other_lv, other_name);
 
                         // Its possible for a user to conflict with themself if they commit to
                         // multiple branches. In this case, sort by seq number.
@@ -596,6 +602,13 @@ pub(crate) struct TransformedOpsIter<'a> {
 }
 
 impl<'a> TransformedOpsIter<'a> {
+    #[allow(unused)]
+    pub(crate) fn count_range_tracker_size(&self) -> usize {
+        self.phase2.as_ref()
+            .map(|(tracker, _)| { tracker.range_tree.count_entries() })
+            .unwrap_or_default()
+    }
+
     pub(crate) fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>, from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
         // The strategy here looks like this:
         // We have some set of new changes to merge with a unified set of parents.
@@ -782,7 +795,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             debug_assert!(!self.new_ops.is_empty());
 
             let span = self.new_ops.last().unwrap();
-            let txn = self.subgraph.0.find_packed(span.start);
+            let txn = self.subgraph.entries.find_packed(span.start);
             let can_ff = txn.with_parents(span.start, |parents: &[LV]| {
                 local_frontier_eq(&self.next_frontier, parents)
             });
@@ -1065,10 +1078,12 @@ impl TextInfo {
 
 #[cfg(test)]
 mod test {
+    use std::fs::File;
+    use std::io::Read;
     use std::ops::Range;
     use rle::{MergeableIterator, SplitableSpan};
     use crate::dtrange::UNDERWATER_START;
-    use crate::list::ListCRDT;
+    use crate::list::{ListCRDT, ListOpLog};
     use crate::listmerge::simple_oplog::SimpleOpLog;
     use crate::listmerge::yjsspan::{deleted_n_state, DELETED_ONCE, YjsSpanState};
     use crate::unicount::count_chars;
@@ -1290,5 +1305,19 @@ mod test {
         list.add_insert("seph", 0, "a");
 
         assert_eq!(list.to_string(), "abc");
+    }
+
+
+    #[test]
+    #[ignore]
+    fn print_stats() {
+        // node_nodecc: 72135
+        // git-makefile: 23166
+        let mut bytes = vec![];
+        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
+
+        o.checkout_tip();
     }
 }

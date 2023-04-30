@@ -119,6 +119,21 @@ fn print_stats_for_file(name: &str) {
     // oplog.make_time_dag_graph_with_merge_bubbles(&format!("{name}.svg"));
 
     // print_merge_stats();
+
+
+    #[cfg(feature = "memusage")]
+    let start_bytes = get_thread_memory_usage();
+    #[cfg(feature = "memusage")]
+    let start_count = get_thread_num_allocations();
+
+    let state = oplog.checkout_tip().into_inner();
+
+    #[cfg(feature = "memusage")]
+    println!("allocated {} bytes in {} blocks",
+        format_size((get_thread_memory_usage() - start_bytes) as usize, DECIMAL),
+        get_thread_num_allocations() - start_count);
+
+    println!("Resulting document size {} characters", state.len_chars());
 }
 
 // This is a dirty addition for profiling.
@@ -141,11 +156,11 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    print_stats_for_testdata("automerge-paper");
-    print_stats_for_testdata("rustcode");
-    print_stats_for_testdata("sveltecomponent");
-    print_stats_for_testdata("seph-blog1");
-
-    print_stats_for_file("benchmark_data/node_nodecc.dt");
+    // print_stats_for_testdata("automerge-paper");
+    // print_stats_for_testdata("rustcode");
+    // print_stats_for_testdata("sveltecomponent");
+    // print_stats_for_testdata("seph-blog1");
+    //
+    // print_stats_for_file("benchmark_data/node_nodecc.dt");
     print_stats_for_file("benchmark_data/git-makefile.dt");
 }

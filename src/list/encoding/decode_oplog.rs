@@ -18,6 +18,7 @@ use crate::causalgraph::agent_span::AgentSpan;
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::tools::calc_checksum;
+use crate::list::encoding::leb::num_decode_zigzag_isize_old;
 
 // If this is set to false, the compiler can optimize out the verbose printing code. This makes the
 // compiled output slightly smaller.
@@ -305,7 +306,7 @@ impl<'a> ReadPatchesIter<'a> {
             (n, diff, fwd)
         } else {
             // n encodes diff.
-            let diff = num_decode_zigzag_isize(n);
+            let diff = num_decode_zigzag_isize_old(n);
             (1, diff, true)
         };
 
@@ -479,7 +480,7 @@ impl ListOpLog {
         // The merge_data method is append-only, so really we just need to trim back all the data
         // that has been (partially) added.
 
-        // Number of operations before merging happens
+        // Total (unmerged) number of operations before this data is merged in.
         let len = self.len();
 
         // We could regenerate the frontier, but this is much lazier.
@@ -520,7 +521,7 @@ impl ListOpLog {
             }
 
             // Trim history
-            let hist_entries = &mut self.cg.graph.0;
+            let hist_entries = &mut self.cg.graph.entries;
             let history_length = hist_entries.end();
             if history_length > len {
                 // We can't use entries.remove because HistoryEntry doesn't support SplitableSpan.
@@ -538,7 +539,35 @@ impl ListOpLog {
                     first_idx
                 };
 
-                self.cg.graph.0.0.truncate(first_truncated_idx);
+                let mut idx = first_truncated_idx;
+
+                // Go through and unwind from idx.
+                while idx < hist_entries.num_entries() {
+                    // Cloning here is an ugly and kinda slow hack to work around the borrow
+                    // checker. But this whole case is rare anyway, so idk.
+                    let parents = hist_entries.0[idx].parents.clone();
+
+                    for p in parents {
+                        if p < len { // If p >= len, the target will be discarded anyway.
+                            let parent_entry = hist_entries.find_mut(p).unwrap().0;
+                            while let Some(&c_idx) = parent_entry.child_indexes.last() {
+                                if c_idx >= first_truncated_idx {
+                                    parent_entry.child_indexes.pop();
+                                } else { break; }
+                            }
+                        }
+                    }
+
+                    idx += 1;
+                }
+
+                self.cg.graph.entries.0.truncate(first_truncated_idx);
+
+                while let Some(&last_idx) = self.cg.graph.root_child_indexes.last() {
+                    if last_idx >= self.cg.graph.entries.num_entries() {
+                        self.cg.graph.root_child_indexes.pop();
+                    } else { break; }
+                }
             }
 
             // Remove excess agents

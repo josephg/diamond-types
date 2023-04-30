@@ -392,7 +392,7 @@ impl ListOpLog {
         println!("Delete content length {}", self.operation_ctx.del_content.len());
 
         self.cg.agent_assignment.client_with_localtime.print_stats("Client localtime map", detailed);
-        self.cg.graph.0.print_stats("History", detailed);
+        self.cg.graph.entries.print_stats("History", detailed);
 
         let num_merges: usize = self.cg.graph
             .iter()
@@ -431,5 +431,12 @@ impl ListOpLog {
 
     pub fn parents_at_time(&self, time: LV) -> Frontier {
         self.cg.graph.parents_at_time(time)
+    }
+
+    pub(crate) fn estimate_cost(&self, op_range: DTRange) -> usize {
+        let start_idx = self.operations.find_index(op_range.start).unwrap();
+        let end_idx = self.operations.find_index(op_range.last()).unwrap();
+
+        end_idx - start_idx + 1
     }
 }

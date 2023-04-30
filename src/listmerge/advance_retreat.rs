@@ -149,6 +149,6 @@ impl M2Tracker {
             }
         }
 
-        self.check_index();
+        // self.check_index();
     }
 }

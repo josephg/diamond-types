@@ -5,6 +5,7 @@ pub(crate) mod tools;
 mod scope;
 mod check;
 mod subgraph;
+mod simple;
 
 use rle::{HasLength, HasRleKey, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::{Frontier, LV};
@@ -13,6 +14,7 @@ use crate::rle::RleVec;
 use crate::dtrange::DTRange;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use smallvec::{SmallVec, smallvec};
 
 /// This type stores metadata for a run of transactions created by the users.
 ///
@@ -32,15 +34,31 @@ pub(crate) struct GraphEntryInternal {
     /// - Two or more items when concurrent changes have happened, and the first item in this range
     ///   is a merge operation.
     pub parents: Frontier,
+
+    /// This is a cached list of all the other indexes of items in history which name this item as
+    /// a parent. Its very useful in a few specific situations - and I've gone back and forth on
+    /// whether its worth keeping this field.
+    pub child_indexes: SmallVec<[usize; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Graph(pub(crate) RleVec<GraphEntryInternal>);
+pub struct Graph {
+    pub(crate) entries: RleVec<GraphEntryInternal>,
+
+    // The index of all items with ROOT as a direct parent.
+    pub(crate) root_child_indexes: SmallVec<[usize; 2]>,
+}
 
 impl Graph {
-    pub fn parents_at_time(&self, time: LV) -> Frontier {
-        let entry = self.0.find_packed(time);
-        entry.with_parents(time, |p| p.into())
+    pub fn parents_at_time(&self, v: LV) -> Frontier {
+        let entry = self.entries.find_packed(v);
+        // entry.with_parents(time, |p| p.into())
+        entry.clone_parents_at_version(v)
+    }
+
+    pub fn with_parents<F: FnOnce(&[LV]) -> G, G>(&self, v: LV, f: F) -> G {
+        let entry = self.entries.find_packed(v);
+        entry.with_parents(v, f)
     }
 
     #[allow(unused)]
@@ -50,12 +68,12 @@ impl Graph {
 
     #[allow(unused)]
     pub fn num_entries(&self) -> usize {
-        self.0.num_entries()
+        self.entries.num_entries()
     }
 
     #[allow(unused)]
     pub fn get_next_time(&self) -> usize {
-        self.0.end()
+        self.entries.end()
     }
 
     /// Insert a new history entry for the specified range of versions, and the named parents.
@@ -64,7 +82,7 @@ impl Graph {
     pub(crate) fn push(&mut self, txn_parents: &[LV], range: DTRange) {
         // dbg!(txn_parents, range, &self.history.entries);
         // Fast path. The code below is weirdly slow, but most txns just append.
-        if let Some(last) = self.0.0.last_mut() {
+        if let Some(last) = self.entries.0.last_mut() {
             if txn_parents.len() == 1
                 && txn_parents[0] == last.last_time()
                 && last.span.can_append(&range)
@@ -77,24 +95,33 @@ impl Graph {
         // let parents = replace(&mut self.frontier, txn_parents);
         let mut shadow = range.start;
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
-            shadow = self.0.find(shadow - 1).unwrap().shadow;
+            shadow = self.entries.find(shadow - 1).unwrap().shadow;
         }
 
-        let will_merge = if let Some(last) = self.0.last_entry() {
-            // TODO: Is this shadow check necessary?
-            // This code is from TxnSpan splitablespan impl. Copying it here is a bit ugly but
-            // its the least ugly way I could think to implement this.
-            txn_parents.len() == 1 && txn_parents[0] == last.last_time() && shadow == last.shadow
-        } else { false };
+        // Because of the fast path above, we're guaranteed that this item won't RLE-merge.
+        // We need to go through the parents and wire up children.
+        let new_idx = self.entries.0.len();
+
+        if txn_parents.is_empty() {
+            self.root_child_indexes.push(new_idx);
+        } else {
+            for &p in txn_parents {
+                let parent_idx = self.entries.find_index(p).unwrap();
+                let parent_children = &mut self.entries.0[parent_idx].child_indexes;
+                debug_assert!(!parent_children.contains(&new_idx));
+                parent_children.push(new_idx); // This will maintain order.
+            }
+        }
 
         let txn = GraphEntryInternal {
             span: range,
             shadow,
             parents: txn_parents.into(),
+            child_indexes: smallvec![], // New entry has no children.
         };
 
-        let did_merge = self.0.push(txn);
-        debug_assert_eq!(will_merge, did_merge);
+        let did_merge = self.entries.push(txn);
+        debug_assert_eq!(did_merge, false);
     }
 }
 
@@ -105,23 +132,23 @@ impl GraphEntryInternal {
     //     } else { None } // look at .parents field.
     // }
 
-    pub fn parent_at_time(&self, time: usize) -> Option<usize> {
-        if time > self.span.start {
-            Some(time - 1)
+    pub fn parent_at_version(&self, v: LV) -> Option<usize> {
+        if v > self.span.start {
+            Some(v - 1)
         } else { None } // look at .parents field.
     }
 
-    pub fn with_parents<F: FnOnce(&[LV]) -> G, G>(&self, time: usize, f: F) -> G {
-        if time > self.span.start {
-            f(&[time - 1])
+    pub fn with_parents<F: FnOnce(&[LV]) -> G, G>(&self, v: LV, f: F) -> G {
+        if v > self.span.start {
+            f(&[v - 1])
         } else {
             f(self.parents.as_ref())
         }
     }
 
-    pub fn clone_parents_at_time(&self, time: usize) -> Frontier {
-        if time > self.span.start {
-            Frontier::new_1(time - 1)
+    pub fn clone_parents_at_version(&self, v: LV) -> Frontier {
+        if v > self.span.start {
+            Frontier::new_1(v - 1)
         } else {
             self.parents.clone()
         }
@@ -177,10 +204,12 @@ impl MergableSpan for GraphEntryInternal {
     }
 
     fn append(&mut self, other: Self) {
+        debug_assert!(other.child_indexes.is_empty());
         self.span.append(other.span);
     }
 
     fn prepend(&mut self, other: Self) {
+        debug_assert!(other.child_indexes.is_empty());
         self.span.prepend(other.span);
         self.parents = other.parents;
         debug_assert_eq!(self.shadow, other.shadow);
@@ -223,6 +252,10 @@ impl MergableSpan for GraphEntrySimple {
 
 impl HasLength for GraphEntrySimple {
     fn len(&self) -> usize { self.span.len() }
+}
+
+impl HasRleKey for GraphEntrySimple {
+    fn rle_key(&self) -> usize { self.span.start }
 }
 
 impl SplitableSpanHelpers for GraphEntrySimple {
@@ -333,19 +366,19 @@ impl<'a, I: Iterator<Item = &'a GraphEntrySimple>> From<I> for Graph {
 // }
 impl Graph {
     pub(crate) fn iter_range(&self, range: DTRange) -> impl Iterator<Item =GraphEntrySimple> + '_ {
-        self.0.iter_range_map(range, |e| e.into())
+        self.entries.iter_range_map(range, |e| e.into())
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item =GraphEntrySimple> + '_ {
-        self.0.iter().map(|e| e.into())
+        self.entries.iter().map(|e| e.into())
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.0.end()
+        self.entries.end()
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.entries.is_empty()
     }
 }
 
@@ -372,10 +405,12 @@ mod tests {
         let mut txn_a = GraphEntryInternal {
             span: (1000..1010).into(), shadow: 500,
             parents: Frontier::new_1(999),
+            child_indexes: smallvec![],
         };
         let txn_b = GraphEntryInternal {
             span: (1010..1015).into(), shadow: 500,
             parents: Frontier::new_1(1009),
+            child_indexes: smallvec![],
         };
 
         assert!(txn_a.can_append(&txn_b));
@@ -384,6 +419,7 @@ mod tests {
         assert_eq!(txn_a, GraphEntryInternal {
             span: (1000..1015).into(), shadow: 500,
             parents: Frontier::new_1(999),
+            child_indexes: smallvec![],
         })
     }
 

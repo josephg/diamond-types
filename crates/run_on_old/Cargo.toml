@@ -10,4 +10,4 @@ diamond-types = {path = "../..", features = ["ops_to_old"]}
 diamond-types-old = {path = "../diamond-types-old"}
 smallvec = "1.9.0"
 rle = {path = "../rle"}
-criterion = "0.4.0"
+criterion = { version = "0.4.0", features = ["html_reports"] }

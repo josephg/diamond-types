@@ -281,3 +281,43 @@ mod test {
 //         panic!("usize larger than u64 is not supported");
 //     }
 // }
+
+
+pub fn num_encode_zigzag_i64_old(val: i64) -> u64 {
+    val.unsigned_abs() * 2 + val.is_negative() as u64
+}
+
+pub fn num_encode_zigzag_i32_old(val: i32) -> u32 {
+    val.unsigned_abs() * 2 + val.is_negative() as u32
+}
+
+pub fn num_encode_zigzag_isize_old(val: isize) -> usize {
+    // TODO: Figure out a way to write this that gives compiler errors instead of runtime errors.
+    if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {
+        num_encode_zigzag_i32_old(val as i32) as usize
+    } else if cfg!(target_pointer_width = "64") {
+        num_encode_zigzag_i64_old(val as i64) as usize
+    } else {
+        panic!("Unsupported target pointer width")
+    }
+}
+
+pub fn num_decode_zigzag_i32_old(val: u32) -> i32 {
+    // dbg!(val);
+    (val >> 1) as i32 * (if val & 1 == 1 { -1 } else { 1 })
+}
+
+pub fn num_decode_zigzag_i64_old(val: u64) -> i64 {
+    // dbg!(val);
+    (val >> 1) as i64 * (if val & 1 == 1 { -1 } else { 1 })
+}
+
+pub fn num_decode_zigzag_isize_old(val: usize) -> isize {
+    if cfg!(target_pointer_width = "16") || cfg!(target_pointer_width = "32") {
+        num_decode_zigzag_i32_old(val as u32) as isize
+    } else if cfg!(target_pointer_width = "64") {
+        num_decode_zigzag_i64_old(val as u64) as isize
+    } else {
+        panic!("Unsupported target pointer width")
+    }
+}
