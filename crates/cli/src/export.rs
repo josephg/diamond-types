@@ -1,3 +1,15 @@
+/// TODO:
+///
+/// This export script works to export data sets to something cross-compatible with other CRDTs.
+///
+/// But if we want *identical* DT documents, this isn't valid for 2 reasons:
+///
+/// 1. The exported data is missing user agents. (Or should be missing user agents)
+/// 2. The exported data is missing `fwd: bool` for operations.
+///
+/// Write a second export script which outputs the data to some dt-json style format (making this a
+/// non-issue). Or just add these fields in and demand people ignore them.
+
 use std::collections::HashMap;
 use serde::Serialize;
 use smallvec::SmallVec;
@@ -41,8 +53,8 @@ pub struct ExportedEditHistory {
 pub struct ExportEntry {
     id: usize,
     parents: SmallVec<[usize; 2]>,
-    num_children: usize,
-    agent: String,
+    num_children: usize, // TODO: Consider taking this out.
+    agent: String, // TODO: Take this out.
     // op: TextOperation,
     ops: SmallVec<[SimpleTextOp; 2]>,
 }
