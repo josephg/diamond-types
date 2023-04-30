@@ -147,7 +147,7 @@ impl Graph {
 
     /// Does frontier *a* contain (dominate) frontier *b*? Note, if this method returns false, there
     /// are a few different cases. This is not reflexive.
-    pub(crate) fn frontier_contains_frontier(&self, a: &[LV], b: &[LV]) -> bool {
+    pub fn frontier_contains_frontier(&self, a: &[LV], b: &[LV]) -> bool {
         if a == b { return true; } // Might be a pointless optimization.
 
         for bb in b {

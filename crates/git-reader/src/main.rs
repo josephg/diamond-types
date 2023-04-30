@@ -127,7 +127,7 @@ fn main() -> anyhow::Result<()> {
 
         let commit = repo.find_commit(c_id)?;
 
-        commit_parents.insert(c_id, commit.parent_ids().collect());
+        commit_parents.insert(c_id, UniqParentIds::new(&commit).collect());
         for p_id in UniqParentIds::new(&commit) {
             scan_frontier.push(p_id);
 
@@ -147,28 +147,30 @@ fn main() -> anyhow::Result<()> {
     println!("Scanning commits... (This will be slow for large repositories!)");
     let mut oplog = ListOpLog::new();
     // let empty_branch = Branch::new();
-    let mut branch_at_oid = HashMap::<Oid, (ListBranch, usize)>::new();
+
+    // (DT branch, Oid of the file in git its current state, number of remaining children.)
+    let mut branch_at_oid = HashMap::<Oid, (ListBranch, Oid, usize)>::new();
     // let mut branch_at_oid = HashMap::<Oid, ListBranch>::new();
 
-    let take = |branch_at_oid: &mut HashMap<Oid, (ListBranch, usize)>, p_id: Oid| -> ListBranch {
-        let (branch_here, num_children) = branch_at_oid.get_mut(&p_id)
+    let take = |branch_at_oid: &mut HashMap::<Oid, (ListBranch, Oid, usize)>, p_id: Oid| -> (ListBranch, Oid) {
+        let (branch_here, oid, num_children) = branch_at_oid.get_mut(&p_id)
             .with_context(|| format!("When looking up OID {}", p_id))
             .unwrap();
 
         debug_assert!(*num_children >= 1);
         if *num_children == 1 {
-            let (branch, _) = branch_at_oid.remove(&p_id).unwrap();
-            branch
+            let (branch, oid, _) = branch_at_oid.remove(&p_id).unwrap();
+            (branch, oid)
         } else {
             *num_children -= 1;
-            branch_here.clone()
+            (branch_here.clone(), *oid)
         }
     };
 
-    let take_branch = |branch_at_oid: &mut HashMap<Oid, (ListBranch, usize)>, oplog: &ListOpLog, commit: &Commit| -> ListBranch {
+    let take_branch = |branch_at_oid: &mut HashMap::<Oid, (ListBranch, Oid, usize)>, oplog: &ListOpLog, commit: &Commit| -> (ListBranch, Option<Oid>) {
         if commit.parent_count() == 0 {
             // The branch is fresh at ROOT.
-            ListBranch::new()
+            (ListBranch::new(), None)
         } else {
             // So we need 2 things:
             // - A starting branch
@@ -210,17 +212,29 @@ fn main() -> anyhow::Result<()> {
             // branch
 
             // Go through again and make a branch here.
-            let mut iter = UniqParentIds::new(commit);
+            let mut iter = commit_parents[&commit.id()].iter().copied();
+            // let mut iter = UniqParentIds::new(commit);
             let first_parent = iter.next().unwrap();
-            let mut branch = take(branch_at_oid, first_parent);
+            let (mut branch, oid) = take(branch_at_oid, first_parent);
+            let mut oid = Some(oid);
 
             for p in iter {
-                let child_branch = take(branch_at_oid, p);
-                let frontier = child_branch.local_frontier_ref();
-                branch.merge(&oplog, frontier);
+                let (child_branch, child_oid) = take(branch_at_oid, p);
+                let child_frontier = child_branch.local_frontier_ref();
+
+                // This is a microoptimization. It makes some traces a little faster.
+                if oplog.cg.graph.frontier_contains_frontier(child_frontier, branch.local_frontier_ref()) {
+                    // Well, just use the child branch then.
+                    branch = child_branch;
+                    oid = Some(child_oid);
+                } else if !oplog.cg.graph.frontier_contains_frontier(branch.local_frontier_ref(), child_frontier) {
+                    // They're concurrent.
+                    branch.merge(&oplog, child_frontier);
+                    oid = None;
+                }
             }
 
-            branch
+            (branch, oid)
         }
     };
 
@@ -240,14 +254,15 @@ fn main() -> anyhow::Result<()> {
         // For something to enter fwd_frontier we must have processed all of its parents.
         let commit = repo.find_commit(commit_id)?;
 
-        let mut branch = take_branch(&mut branch_at_oid, &oplog, &commit);
+        let (mut branch, stored_oid) = take_branch(&mut branch_at_oid, &oplog, &commit);
 
         let tree = commit.tree()?;
 
         // if let Some(entry) = tree.get_name(file) {
-        if let Ok(entry) = tree.get_path(path) {
+        let oid_here = if let Ok(entry) = tree.get_path(path) {
+            let oid_here = entry.id();
             // dbg!(&entry.name(), entry.kind());
-            if entry.kind() == Some(Blob) {
+            if stored_oid != Some(oid_here) && entry.kind() == Some(Blob) {
                 // println!("Processing {:?} at frontier {:?}", commit_id, &branch.frontier);
                 let obj = entry.to_object(&repo)?;
                 let blob = obj.as_blob().unwrap();
@@ -307,17 +322,17 @@ fn main() -> anyhow::Result<()> {
                     // println!("branch '{}' -> '{}'", old, branch.content);
                 }
             }
-        }
-
+            oid_here
+        } else { stored_oid.unwrap_or(commit_id) }; // the commit ID here is pointless but eh.
 
         let children = commit_children.get(&commit_id).unwrap();
-        branch_at_oid.insert(commit_id, (branch, children.len()));
+        branch_at_oid.insert(commit_id, (branch, oid_here, children.len()));
 
         // Go through all the children. Add any child which has all its dependencies met to the
         // frontier set.
         for c in children {
             if !branch_at_oid.contains_key(c) {
-                let processed_all = commit_parents.get(c).unwrap().iter()
+                let processed_all = commit_parents[c].iter()
                     .all(|p_id| branch_at_oid.contains_key(p_id));
                 if processed_all {
                     // println!("Adding {:?} to children", c);
