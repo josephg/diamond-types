@@ -4,6 +4,7 @@
 // #![allow(unused_imports)]
 
 use std::collections::HashMap;
+use std::fs::File;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use anyhow::Context;
@@ -13,6 +14,7 @@ use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
 use smallvec::{SmallVec, smallvec};
 use indicatif::ProgressBar;
+use std::io::{BufWriter, Write};
 
 use diamond_types::list::*;
 
@@ -57,7 +59,7 @@ impl<'commit> UniqParentIds<'commit> {
     }
 }
 
-pub fn extract_from_git(mut input_path: PathBuf, branch: Option<String>, quiet: bool) -> anyhow::Result<ListOpLog> {
+pub fn extract_from_git(mut input_path: PathBuf, branch: Option<String>, quiet: bool, map_out: Option<PathBuf>) -> anyhow::Result<ListOpLog> {
     // let mut args: Args = argh::from_env();
 
     if input_path.is_relative() {
@@ -139,6 +141,9 @@ pub fn extract_from_git(mut input_path: PathBuf, branch: Option<String>, quiet: 
     // (DT branch, Oid of the file in git its current state, number of remaining children.)
     let mut branch_at_oid = HashMap::<Oid, (ListBranch, Oid, usize)>::new();
     // let mut branch_at_oid = HashMap::<Oid, ListBranch>::new();
+
+    // Unwrap is lazy here, but kinda fine.
+    let mut map_file = map_out.map(|map_path| BufWriter::new(File::create(map_path).unwrap()));
 
     let take = |branch_at_oid: &mut HashMap::<Oid, (ListBranch, Oid, usize)>, p_id: Oid| -> (ListBranch, Oid) {
         let (branch_here, oid, num_children) = branch_at_oid.get_mut(&p_id)
@@ -313,6 +318,15 @@ pub fn extract_from_git(mut input_path: PathBuf, branch: Option<String>, quiet: 
 
                     assert_eq!(branch.content(), &new);
                     // println!("branch '{}' -> '{}'", old, branch.content);
+
+                    if let Some(map_file) = map_file.as_mut() {
+                        let frontier = branch.local_frontier_ref();
+                        let rv = oplog.cg.agent_assignment.local_to_remote_frontier(frontier);
+                        writeln!(map_file, "{},{}",
+                            commit.id(),
+                            serde_json::to_string(&rv).unwrap()
+                        )?;
+                    }
                 }
             }
             oid_here

@@ -223,6 +223,9 @@ enum Commands {
         /// Output filename
         #[arg(short, long)]
         out: Option<PathBuf>,
+
+        #[arg(short, long)]
+        map_out: Option<PathBuf>,
     }
 }
 
@@ -498,8 +501,8 @@ fn main() -> Result<(), anyhow::Error> {
             }
         }
 
-        Commands::GitImport { path, branch, quiet, out } => {
-            let oplog = extract_from_git(path.clone(), branch, quiet)?;
+        Commands::GitImport { path, branch, quiet, out, map_out } => {
+            let oplog = extract_from_git(path.clone(), branch, quiet, map_out)?;
 
             let out_filename = out.unwrap_or_else(|| {
                 let stem = path.file_stem().expect("Invalid path");
