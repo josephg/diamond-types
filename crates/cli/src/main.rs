@@ -1,5 +1,6 @@
 mod export;
 mod dot;
+mod git;
 
 use std::ffi::OsString;
 use std::fs;
@@ -17,6 +18,7 @@ use diamond_types::list::{ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
 use crate::dot::{generate_svg_with_dot, make_time_dag_graph};
 use crate::export::export_to_json;
+use crate::git::extract_from_git;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -204,6 +206,24 @@ enum Commands {
         #[arg(long)]
         dot_path: Option<OsString>,
     },
+
+    /// Import & convert the editing history for a file from git to diamond types.
+    GitImport {
+        /// Path to the file being read. Must be inside a git repository.
+        path: PathBuf,
+
+        /// branch to be read. Defaults to 'master'.
+        #[arg(short, long)]
+        branch: Option<String>,
+
+        /// Quiet mode
+        #[arg(short, long)]
+        quiet: bool,
+
+        /// Output filename
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -475,6 +495,23 @@ fn main() -> Result<(), anyhow::Error> {
                 } else {
                     println!("{dot_input}");
                 }
+            }
+        }
+
+        Commands::GitImport { path, branch, quiet, out } => {
+            let oplog = extract_from_git(path.clone(), branch, quiet)?;
+
+            let out_filename = out.unwrap_or_else(|| {
+                let stem = path.file_stem().expect("Invalid path");
+                let mut path = PathBuf::from(stem);
+                path.set_extension("dt");
+                path
+            });
+
+            let data = oplog.encode(ENCODE_FULL);
+            fs::write(&out_filename, &data).unwrap();
+            if !quiet {
+                println!("{} bytes written to {}", data.len(), out_filename.display());
             }
         }
     }
