@@ -1,9 +1,11 @@
 mod export;
+mod dot;
 
 use std::ffi::OsString;
 use std::fs;
 use std::fs::File;
 use std::io::{BufWriter, ErrorKind, Read, Write};
+use std::path::PathBuf;
 use std::str::FromStr;
 use clap::{Parser, Subcommand};
 use rand::distributions::Alphanumeric;
@@ -13,6 +15,7 @@ use similar::utils::TextDiffRemapper;
 use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionOwned;
 use diamond_types::list::{ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
+use crate::dot::{generate_svg_with_dot, make_time_dag_graph};
 use crate::export::export_to_json;
 
 #[derive(Parser, Debug)]
@@ -177,7 +180,30 @@ enum Commands {
         /// Use pretty JSON output
         #[arg(short, long)]
         pretty: bool,
-    }
+    },
+
+    /// Generate a diagram of the causal graph contained in a diamond types' file. This depends on
+    /// having the `dot` tool from [graphviz](https://graphviz.org/download/) installed on your
+    /// computer. By default, we will execute `dot` in the system path to render graphs. But this
+    /// can be overridden using `--dot-path="xxx/dot"`.
+    Dot {
+        /// File to edit
+        dt_filename: PathBuf,
+
+        #[arg(short, long)]
+        no_render: bool,
+
+        /// Output the result to the specified filename. If missing, output is saved to
+        /// (dt file).svg / .dot.
+        ///
+        /// Use -o- to output to stdout instead.
+        #[arg(short, long)]
+        output: Option<OsString>,
+
+        /// Path to `dot` command
+        #[arg(long)]
+        dot_path: Option<OsString>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -421,9 +447,52 @@ fn main() -> Result<(), anyhow::Error> {
             }
             // serde_json::to_writer()
         }
+
+        Commands::Dot { dt_filename, no_render, output, dot_path } => {
+            let data = fs::read(&dt_filename)?;
+            let oplog = ListOpLog::load_from(&data)?;
+
+            let dot_input = make_time_dag_graph(&oplog.cg);
+            // println!("{dot_input}");
+
+            let render = !no_render;
+
+            if render {
+                let svg_contents = generate_svg_with_dot(dot_input, dot_path)
+                    .expect("Error running DOT");
+                let out_filename = get_filename_from(&dt_filename, output, "svg");
+                if let Some(out_filename) = out_filename {
+                    fs::write(&out_filename, svg_contents)?;
+                    println!("Wrote SVG to {}", out_filename.to_string_lossy());
+                } else {
+                    println!("{svg_contents}");
+                }
+            } else {
+                let out_filename = get_filename_from(&dt_filename, output, "dot");
+                if let Some(out_filename) = out_filename {
+                    fs::write(&out_filename, dot_input)?;
+                    println!("Wrote dot to {}", out_filename.to_string_lossy());
+                } else {
+                    println!("{dot_input}");
+                }
+            }
+        }
     }
     // dbg!(&cli);
     Ok(())
+}
+
+fn get_filename_from(dt_filename: &PathBuf, output: Option<OsString>, extension: &str) -> Option<PathBuf> {
+    if let Some(output) = output {
+        if output == "-" {
+            // Output to stdout.
+            None
+        } else {
+            Some(PathBuf::from(output))
+        }
+    } else {
+        Some(dt_filename.with_extension(extension))
+    }
 }
 
 fn maybe_overwrite(output: &OsString, new_data: &Vec<u8>, force: bool) -> Result<(), anyhow::Error> {

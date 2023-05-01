@@ -41,59 +41,6 @@ impl ToString for DotColor {
 
 impl ListOpLog {
     pub fn make_time_dag_graph(&self, filename: &str) {
-        // for e in self.history.iter_atomic_chunks() {
-        //     dbg!(e);
-        // }
-
-        let mut out = String::new();
-        out.push_str("strict digraph {\n");
-        out.push_str("\trankdir=\"BT\"\n");
-        // out.write_fmt(format_args!("\tlabel=<Starting string:<b>'{}'</b>>\n", starting_content));
-        out.push_str("\tlabelloc=\"t\"\n");
-        out.push_str("\tnode [shape=box style=filled]\n");
-        out.push_str("\tedge [color=\"#333333\" dir=none]\n");
-
-        write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.cg.make_simple_graph() {
-            // dbg!(txn);
-            let range = txn.span;
-
-            write!(&mut out, "\t{} [label=<{} (Len {})>]\n", range.last(), range.start, range.len()).unwrap();
-
-            if txn.parents.is_root() {
-                write!(&mut out, "\t{} -> ROOT\n", range.last()).unwrap();
-            } else {
-                for &p in txn.parents.iter() {
-                    // let parent_entry = self.history.entries.find_packed(*p);
-                    // write!(&mut out, "\t{} -> {} [headlabel={}]\n", txn.span.last(), parent_entry.span.start, *p);
-
-                    write!(&mut out, "\t{} -> {} [taillabel={}]\n", range.last(), p, p).unwrap();
-                }
-            }
-        }
-
-        out.push_str("}\n");
-
-        let mut f = File::create("out.dot").unwrap();
-        f.write_all(out.as_bytes()).unwrap();
-        f.flush().unwrap();
-        drop(f);
-
-        let out = Command::new("dot")
-            // .arg("-Tpng")
-            .arg("-Tsvg")
-            .stdin(File::open("out.dot").unwrap())
-            .output().unwrap();
-
-        // dbg!(out.status);
-        // stdout().write_all(&out.stdout);
-        // stderr().write_all(&out.stderr);
-
-        let mut f = File::create(filename).unwrap();
-        f.write_all(&out.stdout).unwrap();
-    }
-
-    pub fn make_time_dag_graph_with_merge_bubbles(&self, filename: &str) {
         // Same as above, but each merge creates a new dot item.
         let mut merges_touched = HashSet::new();
 
@@ -111,7 +58,7 @@ impl ListOpLog {
         out.push_str("\tedge [color=\"#333333\" dir=none]\n");
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.cg.make_simple_graph() {
+        for txn in self.cg.make_simple_graph().iter() {
             // dbg!(txn);
             let range = txn.span;
 
@@ -257,7 +204,7 @@ mod test {
         ops.add_delete_at(0, &[1, b], 0..2);
         // dbg!(&ops);
 
-        ops.make_time_dag_graph_with_merge_bubbles("dag.svg");
+        ops.make_time_dag_graph("dag.svg");
     }
 
     #[test]
@@ -267,7 +214,7 @@ mod test {
         let contents = fs::read(name).unwrap();
         let oplog = ListOpLog::load_from(&contents).unwrap();
 
-        oplog.make_time_dag_graph_with_merge_bubbles("node_graph.svg");
+        oplog.make_time_dag_graph("node_graph.svg");
         println!("Graph written to node_graph.svg");
     }
 }
