@@ -184,10 +184,13 @@ enum Commands {
         pretty: bool,
     },
 
-    /// Generate a diagram of the causal graph contained in a diamond types' file. This depends on
-    /// having the `dot` tool from [graphviz](https://graphviz.org/download/) installed on your
-    /// computer. By default, we will execute `dot` in the system path to render graphs. But this
-    /// can be overridden using `--dot-path="xxx/dot"`.
+    /// Generate a diagram of the causal graph contained in a diamond types' file.
+    ///
+    /// This depends on having the `dot` tool from [graphviz](https://graphviz.org/download/)
+    /// installed on your computer.
+    ///
+    /// By default, we will execute `dot` in the system path to render graphs. But this can be
+    /// overridden using `--dot-path="xxx/dot"`.
     Dot {
         /// File to edit
         dt_filename: PathBuf,
@@ -224,6 +227,7 @@ enum Commands {
         #[arg(short, long)]
         out: Option<PathBuf>,
 
+        /// Output an extra file containing mapping from git commits <-> DT versions.
         #[arg(short, long)]
         map_out: Option<PathBuf>,
     }

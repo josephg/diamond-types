@@ -145,6 +145,8 @@ pub fn extract_from_git(mut input_path: PathBuf, branch: Option<String>, quiet: 
     // Unwrap is lazy here, but kinda fine.
     let mut map_file = map_out.map(|map_path| BufWriter::new(File::create(map_path).unwrap()));
 
+    let mut git_bytes_read = 0;
+
     let take = |branch_at_oid: &mut HashMap::<Oid, (ListBranch, Oid, usize)>, p_id: Oid| -> (ListBranch, Oid) {
         let (branch_here, oid, num_children) = branch_at_oid.get_mut(&p_id)
             .with_context(|| format!("When looking up OID {}", p_id))
@@ -268,7 +270,7 @@ pub fn extract_from_git(mut input_path: PathBuf, branch: Option<String>, quiet: 
                 let new = String::from_utf8_lossy(blob.content());
 
                 if branch.content() != &new {
-                    // branch.to_owned();
+                    git_bytes_read += new.len();
                     let sig = commit.author();
                     let mut author = sig.name().unwrap_or("unknown");
 
@@ -374,6 +376,8 @@ pub fn extract_from_git(mut input_path: PathBuf, branch: Option<String>, quiet: 
         let pass_2_dur = end_time.duration_since(scan_commits_time).unwrap();
         let total_dur = end_time.duration_since(start).unwrap();
         println!("Time for first pass: {:?} / scan commits: {:?} / total: {:?}", pass_1_dur, pass_2_dur, total_dur);
+
+        println!("Read {} bytes of content from git commits", git_bytes_read);
     }
 
     Ok(oplog)
