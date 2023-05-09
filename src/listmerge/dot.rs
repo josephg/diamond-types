@@ -7,12 +7,14 @@ use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::fs::File;
 use std::io::{stderr, stdout, Write as _};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use smallvec::{smallvec, SmallVec};
 use rle::{HasLength, SplitableSpan};
 use crate::list::ListOpLog;
 use crate::dtrange::DTRange;
 use crate::{CausalGraph, Frontier, LV};
+use crate::causalgraph::dot::render_dot_string;
 use crate::causalgraph::graph::{Graph, GraphEntrySimple};
 use crate::rle::KVPair;
 
@@ -40,71 +42,7 @@ impl ToString for DotColor {
 }
 
 impl ListOpLog {
-    pub fn make_time_dag_graph(&self, filename: &str) {
-        // Same as above, but each merge creates a new dot item.
-        let mut merges_touched = HashSet::new();
-
-        fn key_for_parents(p: &[LV]) -> String {
-            p.iter().map(|t| format!("{t}"))
-                .collect::<Vec<_>>().join("0")
-        }
-
-        let mut out = String::new();
-        out.push_str("strict digraph {\n");
-        out.push_str("\trankdir=\"BT\"\n");
-        // out.write_fmt(format_args!("\tlabel=<Starting string:<b>'{}'</b>>\n", starting_content));
-        out.push_str("\tlabelloc=\"t\"\n");
-        out.push_str("\tnode [shape=box style=filled]\n");
-        out.push_str("\tedge [color=\"#333333\" dir=none]\n");
-
-        write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.cg.make_simple_graph().iter() {
-            // dbg!(txn);
-            let range = txn.span;
-
-            let parent_item = match txn.parents.len() {
-                0 => "ROOT".to_string(),
-                1 => format!("{}", txn.parents[0]),
-                _ => {
-                    let key = key_for_parents(txn.parents.as_ref());
-                    if merges_touched.insert(key.clone()) {
-                        // Emit the merge item.
-                        write!(&mut out, "\t{key} [fillcolor={} label=\"\" shape=point]\n", DotColor::Blue.to_string()).unwrap();
-                        for &p in txn.parents.iter() {
-                            write!(&mut out, "\t{key} -> {} [label={} color={}]\n", p, p, DotColor::Blue.to_string()).unwrap();
-                        }
-                    }
-
-                    key
-                }
-            };
-
-            write!(&mut out, "\t{} [label=<{} (Len {})>]\n", range.last(), range.start, range.len()).unwrap();
-            write!(&mut out, "\t{} -> {}\n", range.last(), parent_item).unwrap();
-        }
-
-        out.push_str("}\n");
-
-        let mut f = File::create("out.dot").unwrap();
-        f.write_all(out.as_bytes()).unwrap();
-        f.flush().unwrap();
-        drop(f);
-
-        let out = Command::new("dot")
-            // .arg("-Tpng")
-            .arg("-Tsvg")
-            .stdin(File::open("out.dot").unwrap())
-            .output().unwrap();
-
-        // dbg!(out.status);
-        // stdout().write_all(&out.stdout);
-        // stderr().write_all(&out.stderr);
-
-        let mut f = File::create(filename).unwrap();
-        f.write_all(&out.stdout).unwrap();
-    }
-
-    pub fn make_merge_graph<I: Iterator<Item=(DTRange, DotColor)>>(&self, filename: &str, _starting_content: &str, iter: I) {
+    pub fn make_merge_graph<I: Iterator<Item=(DTRange, DotColor)>>(&self, filename: &Path, _starting_content: &str, iter: I) {
         let mut out = String::new();
         out.push_str("strict digraph {\n");
         out.push_str("\trankdir=\"BT\"\n");
@@ -155,28 +93,14 @@ impl ListOpLog {
 
         out.push_str("}\n");
 
-        let mut f = File::create("out.dot").unwrap();
-        f.write_all(out.as_bytes()).unwrap();
-        f.flush().unwrap();
-        drop(f);
-
-        let out = Command::new("dot")
-            .arg("-Tsvg")
-            .stdin(File::open("out.dot").unwrap())
-            .output().unwrap();
-
-        // dbg!(out.status);
-        // stdout().write_all(&out.stdout);
-        // stderr().write_all(&out.stderr);
-
-        let mut f = File::create(filename).unwrap();
-        f.write_all(&out.stdout).unwrap();
+        render_dot_string(out, filename);
     }
 }
 
 #[cfg(test)]
 mod test {
     use std::fs;
+    use std::path::Path;
     use crate::list::ListOpLog;
     use crate::listmerge::dot::DotColor::*;
 
@@ -190,7 +114,7 @@ mod test {
         ops.add_insert_at(1, &[], 0, "b");
         ops.add_delete_at(0, &[0, 1], 0..2);
 
-        ops.make_merge_graph("test.svg", "asdf", [((0..ops.len()).into(), Red)].iter().copied());
+        ops.make_merge_graph(Path::new("test.svg"), "asdf", [((0..ops.len()).into(), Red)].iter().copied());
     }
 
     #[test]
@@ -204,7 +128,7 @@ mod test {
         ops.add_delete_at(0, &[1, b], 0..2);
         // dbg!(&ops);
 
-        ops.make_time_dag_graph("dag.svg");
+        ops.cg.generate_dot_svg(Path::new("dag.svg"));
     }
 
     #[test]
@@ -214,7 +138,7 @@ mod test {
         let contents = fs::read(name).unwrap();
         let oplog = ListOpLog::load_from(&contents).unwrap();
 
-        oplog.make_time_dag_graph("node_graph.svg");
+        oplog.cg.generate_dot_svg(Path::new("node_graph.svg"));
         println!("Graph written to node_graph.svg");
     }
 }

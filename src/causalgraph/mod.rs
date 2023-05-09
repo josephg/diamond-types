@@ -15,6 +15,8 @@ pub mod agent_assignment;
 
 #[cfg(test)]
 mod enc_fuzzer;
+#[cfg(feature = "dot_export")]
+pub mod dot;
 
 #[derive(Clone, Debug, Default)]
 pub struct CausalGraph {

@@ -1,3 +1,5 @@
+// TODO: Deprecate this file.
+
 use std::collections::HashSet;
 /// This file contains some helper code to create SVG images from time DAGs to show whats going on
 /// in a document.
@@ -40,7 +42,7 @@ impl ToString for DotColor {
 }
 
 impl CausalGraph {
-    pub fn make_time_dag_graph(&self, filename: &str) {
+    pub fn make_time_dag_graph_2(&self, filename: &str) {
         // Same as above, but each merge creates a new dot item.
         let mut merges_touched = HashSet::new();
 
@@ -142,7 +144,7 @@ mod test {
         ops.add_delete_at(0, &[1, b], 0..2);
         // dbg!(&ops);
 
-        ops.cg.make_time_dag_graph("dag.svg");
+        ops.cg.make_time_dag_graph_2("dag.svg");
     }
 
     #[test]
@@ -153,7 +155,7 @@ mod test {
         let contents = fs::read(name).unwrap();
         let oplog = ListOpLog::load_from(&contents).unwrap();
 
-        oplog.cg.make_time_dag_graph("node_graph.svg");
+        oplog.cg.make_time_dag_graph_2("node_graph.svg");
         println!("Graph written to node_graph.svg");
     }
 }

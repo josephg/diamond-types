@@ -294,7 +294,7 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
             assert!(!e.span.is_empty() || e.parents.len() != 1 || idx == 0, "Operation is a noop");
             assert!(e.span.is_empty() || e.parents.len() <= 1, "Operation cannot both merge and have content");
 
-            assert!(idx == 0 || e.num_children > 0, "The only item with no children should be item 0. idx {idx} has no children.");
+            assert_ne!(idx == 0, e.num_children > 0, "The only item with no children should be item 0. idx {idx} has no children.");
 
             // The list is sorted in reverse time order. (Last stuff at the start). This property is
             // depended on by the diff code below.

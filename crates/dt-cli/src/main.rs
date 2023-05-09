@@ -16,7 +16,7 @@ use similar::utils::TextDiffRemapper;
 use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionOwned;
 use diamond_types::list::{ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
-use crate::dot::{generate_svg_with_dot, make_time_dag_graph};
+use crate::dot::{generate_svg_with_dot};
 use crate::export::export_to_json;
 use crate::git::extract_from_git;
 
@@ -479,7 +479,7 @@ fn main() -> Result<(), anyhow::Error> {
             let data = fs::read(&dt_filename)?;
             let oplog = ListOpLog::load_from(&data)?;
 
-            let dot_input = make_time_dag_graph(&oplog.cg);
+            let dot_input = oplog.cg.to_dot_graph();
             // println!("{dot_input}");
 
             let render = !no_render;
