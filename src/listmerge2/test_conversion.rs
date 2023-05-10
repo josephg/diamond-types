@@ -4,7 +4,7 @@ use rle::{MergableSpan, RleRun};
 use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
-use crate::listmerge2::{ActionGraphEntry, ConflictSubgraph, Index};
+use crate::listmerge2::{ConflictGraphEntry, ConflictSubgraph, Index};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 
 #[derive(Debug, Clone)]
@@ -144,7 +144,7 @@ impl Graph {
     }
 
     fn to_test_entry_list(&self) -> ConflictSubgraph {
-        let mut result: Vec<ActionGraphEntry> = vec![];
+        let mut result: Vec<ConflictGraphEntry> = vec![];
 
         let mut childless_entries = vec![];
 
@@ -152,7 +152,7 @@ impl Graph {
         let mut version_map = HashMap::<LV, usize>::new();
 
         let root_idx = if self.root_child_indexes.len() > 1 {
-            result.push(ActionGraphEntry {
+            result.push(ConflictGraphEntry {
                 parents: smallvec![],
                 span: Default::default(),
                 num_children: self.root_child_indexes.len(),
@@ -189,7 +189,7 @@ impl Graph {
             let mut last_split_point = None;
             let mut num_children = 0;
 
-            let mut add_to_result = |result: &mut Vec<ActionGraphEntry>, start: LV, last: LV, parents: &[LV], num_children: usize| {
+            let mut add_to_result = |result: &mut Vec<ConflictGraphEntry>, start: LV, last: LV, parents: &[LV], num_children: usize| {
                 let end = last + 1;
                 // println!("{start} .. {last} / end: {end} count {num_children} parents {:?}", parents);
 
@@ -203,7 +203,7 @@ impl Graph {
 
                 assert_ne!(start, end);
                 let ops_idx = result.len();
-                result.push(ActionGraphEntry {
+                result.push(ConflictGraphEntry {
                     parents,
                     span: (start..end).into(),
                     num_children: num_children,
@@ -264,7 +264,7 @@ impl Graph {
             _ => {
                 let idx = result.len();
                 // Push a dummy entry at the end merging everything.
-                result.push(ActionGraphEntry {
+                result.push(ConflictGraphEntry {
                     parents: childless_entries.iter().copied().collect(),
                     span: Default::default(),
                     num_children: 0,
@@ -432,7 +432,7 @@ mod test {
     use crate::causalgraph::graph::tools::test::fancy_graph;
     use crate::list::ListOpLog;
     use crate::listmerge2::action_plan::EntryState;
-    use crate::listmerge2::ActionGraphEntry;
+    use crate::listmerge2::ConflictGraphEntry;
     use crate::listmerge2::test_conversion::{ge1_to_ge2, ge1_to_ge3, TestGraphEntry1, TestGraphEntry2, TestGraphEntry3};
 
     #[test]
@@ -466,8 +466,8 @@ mod test {
         println!("3. num: {}, size of each {}, total size {}", ge3.len(), size_3, ge3.len() * size_3);
 
         let merged = cg.graph.to_test_entry_list();
-        let size_4 = std::mem::size_of::<ActionGraphEntry>() - std::mem::size_of::<EntryState>();
-        let total_size_4 = std::mem::size_of::<ActionGraphEntry>();
+        let size_4 = std::mem::size_of::<ConflictGraphEntry>() - std::mem::size_of::<EntryState>();
+        let total_size_4 = std::mem::size_of::<ConflictGraphEntry>();
         println!("4. num: {}, size of each {}, total size {} (with state: {})", merged.ops.len(), size_4, merged.ops.len() * size_4, merged.ops.len() * total_size_4);
 
         // git_makefile:

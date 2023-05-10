@@ -719,7 +719,7 @@ impl MergePlan {
 mod test {
     use smallvec::smallvec;
     use crate::causalgraph::graph::GraphEntrySimple;
-    use crate::listmerge2::ActionGraphEntry;
+    use crate::listmerge2::ConflictGraphEntry;
     use super::*;
 
     #[test]
@@ -739,7 +739,7 @@ mod test {
 
         let mut g = ConflictSubgraph {
             ops: vec![
-                ActionGraphEntry {
+                ConflictGraphEntry {
                     parents: smallvec![],
                     span: (0..1).into(),
                     num_children: 0,
@@ -763,25 +763,25 @@ mod test {
 
         let mut g = ConflictSubgraph {
             ops: vec![
-                ActionGraphEntry {
+                ConflictGraphEntry {
                     parents: smallvec![1, 2],
                     span: (0..0).into(),
                     num_children: 0,
                     state: Default::default(),
                 },
-                ActionGraphEntry {
+                ConflictGraphEntry {
                     parents: smallvec![3],
                     span: 2.into(),
                     num_children: 1,
                     state: Default::default(),
                 },
-                ActionGraphEntry {
+                ConflictGraphEntry {
                     parents: smallvec![3],
                     span: 1.into(),
                     num_children: 1,
                     state: Default::default(),
                 },
-                ActionGraphEntry {
+                ConflictGraphEntry {
                     parents: smallvec![],
                     span: 0.into(),
                     num_children: 2,
@@ -799,49 +799,49 @@ mod test {
     fn diamonds() {
         let mut g: ConflictSubgraph<EntryState> = ConflictSubgraph {
             ops: vec![
-                ActionGraphEntry { // 0 Y
+                ConflictGraphEntry { // 0 Y
                     parents: smallvec![1, 2],
                     span: Default::default(),
                     num_children: 0,
                     state: Default::default(),
                 },
-                ActionGraphEntry { // 1 ACY
+                ConflictGraphEntry { // 1 ACY
                     parents: smallvec![6],
                     span: 4.into(),
                     num_children: 1,
                     state: Default::default(),
                 },
-                ActionGraphEntry { // 2 D
+                ConflictGraphEntry { // 2 D
                     parents: smallvec![3],
                     span: 3.into(),
                     num_children: 1,
                     state: Default::default(),
                 },
-                ActionGraphEntry { // 3 DY
+                ConflictGraphEntry { // 3 DY
                     parents: smallvec![4, 5],
                     span: Default::default(),
                     num_children: 1,
                     state: Default::default(),
                 },
-                ActionGraphEntry { // 4 AD
+                ConflictGraphEntry { // 4 AD
                     parents: smallvec![6],
                     span: 2.into(),
                     num_children: 1,
                     state: Default::default(),
                 },
-                ActionGraphEntry { // 5 XBD
+                ConflictGraphEntry { // 5 XBD
                     parents: smallvec![7],
                     span: 1.into(),
                     num_children: 1,
                     state: Default::default(),
                 },
-                ActionGraphEntry { // 6 XA -> A
+                ConflictGraphEntry { // 6 XA -> A
                     parents: smallvec![7],
                     span: 0.into(),
                     num_children: 2,
                     state: Default::default(),
                 },
-                ActionGraphEntry { // 7 X
+                ConflictGraphEntry { // 7 X
                     parents: smallvec![],
                     span: Default::default(),
                     num_children: 2,

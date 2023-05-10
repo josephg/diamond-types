@@ -4,7 +4,7 @@ use std::collections::BinaryHeap;
 use std::fmt::Debug;
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
-use crate::listmerge2::{ActionGraphEntry, ConflictSubgraph};
+use crate::listmerge2::{ConflictGraphEntry, ConflictSubgraph};
 use crate::{CausalGraph, LV};
 
 
@@ -66,6 +66,22 @@ impl Ord for QueueEntry {
 }
 
 impl Graph {
+    /// This function generates a special "conflict graph" between two versions that we're merging
+    /// together. The conflict graph contains mostly the same data as the causal graph, but its a
+    /// bit different:
+    ///
+    /// - Items are not split by parents. Each item only has children after the last element in the
+    ///   span.
+    /// - It has ancillary data associated with each item.
+    /// - We track the number of children each item contains
+    /// - If the same items are independently merged multiple times in the graph, we only merge
+    ///   them once here and the merged result is shared.
+    ///
+    /// This method also contains the complexity of:
+    ///
+    /// - diff / find_conflicting. The resulting conflict subgraph only contains items which
+    ///   are in the difference between parameter frontiers `a` and `b`.
+    /// - (soon) subgraph.
     pub(crate) fn make_conflict_graph_between<S: Default>(&self, a: &[LV], b: &[LV]) -> ConflictSubgraph<S> {
         // TODO: Short circuits.
         if a == b {
@@ -74,7 +90,7 @@ impl Graph {
         }
 
         // let mut result: Vec<ActionGraphEntry> = vec![];
-        let mut result: Vec<ActionGraphEntry<S>> = vec![];
+        let mut result: Vec<ConflictGraphEntry<S>> = vec![];
 
         // The "final" state needs to be in a single entry, and that entry needs to be at the start
         // of the resulting graph.
@@ -85,7 +101,7 @@ impl Graph {
         // 2. a and b have concurrent operations. The last item will be a merge with multiple
         // parents.
 
-        result.push(ActionGraphEntry {
+        result.push(ConflictGraphEntry {
             parents: Default::default(),
             span: Default::default(),
             num_children: 0,
@@ -143,7 +159,7 @@ impl Graph {
                     queue.push(QueueEntry { version: (*m).into(), flag, child_index: new_index });
                 }
 
-                result.push(ActionGraphEntry { // Push the merge entry.
+                result.push(ConflictGraphEntry { // Push the merge entry.
                     parents: if process_here { smallvec![new_index + 1] } else { smallvec![] },
                     span: Default::default(),
                     num_children,
@@ -181,7 +197,7 @@ impl Graph {
                     // There's a merge in the pipe. Push the range from peek_v+1..=last.
 
                     // Push the range from peek_entry.v to v.
-                    result.push(ActionGraphEntry {
+                    result.push(ConflictGraphEntry {
                         parents: smallvec![],
                         span: (peek_v+1 .. last+1).into(),
                         num_children,
@@ -205,7 +221,7 @@ impl Graph {
                 } else {
                     debug_assert!(peek_v < last);
                     // Push the range from peek_entry.v to v.
-                    result.push(ActionGraphEntry {
+                    result.push(ConflictGraphEntry {
                         parents: smallvec![new_index + 1],
                         span: (peek_v+1 .. last+1).into(),
                         num_children,
@@ -223,7 +239,7 @@ impl Graph {
 
             // Emit the remainder of this txn.
             debug_assert_eq!(result.len(), new_index);
-            result.push(ActionGraphEntry {
+            result.push(ConflictGraphEntry {
                 parents: smallvec![],
                 span: (containing_txn.span.start..last+1).into(),
                 num_children,
@@ -240,7 +256,7 @@ impl Graph {
         assert!(!root_children.is_empty());
         if root_children.as_ref() != &[result.len() - 1] {
             let root_index = result.len();
-            result.push(ActionGraphEntry {
+            result.push(ConflictGraphEntry {
                 parents: smallvec![],
                 span: Default::default(),
                 num_children: root_children.len(),
@@ -273,7 +289,7 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
         assert_eq!(self.ops[0].num_children, 0, "Item 0 (last) should have no children");
 
         for (idx, e) in self.ops.iter().enumerate() {
-            println!("{idx}: {:?}", e);
+            // println!("{idx}: {:?}", e);
             // println!("contained by {:#?}", self.ops.iter()
             //     .filter(|e| e.parents.contains(&idx))
             //     .collect::<Vec<_>>());
@@ -322,7 +338,8 @@ mod test {
     use rle::HasLength;
     use crate::causalgraph::graph::{Graph, GraphEntrySimple};
     use crate::causalgraph::graph::tools::test::fancy_graph;
-    use crate::{Frontier, LV};
+    use crate::{CausalGraph, Frontier, LV};
+    use crate::causalgraph::graph::random_graphs::with_random_cgs;
     use crate::list::ListOpLog;
 
     fn check(graph: &Graph, a: &[LV], b: &[LV]) {
@@ -407,6 +424,38 @@ mod test {
 
         plan.cost_estimate(|range| { o.estimate_cost(range) });
         plan.cost_estimate(|range| { range.len() });
+    }
+
+    #[test]
+    fn fuzz_conflict_subgraph() {
+        with_random_cgs(123, (1, 100), |_i, cg, frontiers| {
+            let subgraph = cg.graph.make_conflict_graph_between::<()>(&[], cg.version.as_ref());
+            subgraph.dbg_check();
+
+            for fs in frontiers.windows(2) {
+                let subgraph = cg.graph.make_conflict_graph_between::<()>(fs[0].as_ref(), fs[1].as_ref());
+                subgraph.dbg_check();
+            }
+        });
+    }
+
+    #[test]
+    fn fuzz_action_plans() {
+        with_random_cgs(123, (1, 100), |_i, cg, frontiers| {
+            let mut subgraph = cg.graph.make_conflict_graph_between(&[], cg.version.as_ref());
+            let plan = subgraph.make_plan();
+            plan.simulate_plan(&cg.graph, &[]);
+
+            for fs in frontiers.windows(2) {
+                let start = fs[0].as_ref();
+                let merge_in = fs[1].as_ref();
+                let mut subgraph = cg.graph.make_conflict_graph_between(start, merge_in);
+                let plan = subgraph.make_plan();
+
+                // let base = cg.graph.
+                plan.simulate_plan(&cg.graph, start);
+            }
+        });
     }
 }
 

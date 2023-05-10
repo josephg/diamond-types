@@ -944,6 +944,9 @@ impl TextInfo {
         let final_frontier = cg.graph.find_dominators_2(from, merge_frontier);
         // if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
 
+        // This looks inefficient - since after all, we only care about the operations in the
+        // conflict zone. But because we scan the intersection of these operations and the conflict,
+        // and scan them backwards, it works out to be efficient in practice.
         let op_spans = self.ops.iter().map(|e| e.span())
             .rev()
             .merge_spans_rev();
@@ -953,7 +956,7 @@ impl TextInfo {
         // - The conflict zone between from -> merge_frontier
         // - The operations on this text document
         let iter = rle_intersect_rev(op_spans, conflict.rev_spans.iter().copied())
-            .map(|(a, _)| a);
+            .map(|pair| pair.0);
 
         let (subgraph, _ff) = cg.graph.subgraph_raw(iter.clone(), final_frontier.as_ref());
 

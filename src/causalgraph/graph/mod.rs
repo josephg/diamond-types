@@ -8,7 +8,7 @@ mod subgraph;
 mod simple;
 
 #[cfg(test)]
-mod random_graphs;
+pub mod random_graphs;
 
 use rle::{HasLength, HasRleKey, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::{Frontier, LV};

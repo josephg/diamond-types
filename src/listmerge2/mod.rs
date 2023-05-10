@@ -17,7 +17,7 @@ type Index = usize;
 
 
 #[derive(Debug, Clone)]
-struct ActionGraphEntry<S: Default = ()> {
+struct ConflictGraphEntry<S: Default = ()> {
     pub parents: SmallVec<[usize; 2]>, // 2+ items. These are indexes to sibling items, not LVs.
     pub span: DTRange,
     pub num_children: usize,
@@ -27,7 +27,7 @@ struct ActionGraphEntry<S: Default = ()> {
 
 #[derive(Debug, Clone)]
 pub(super) struct ConflictSubgraph<S: Default = ()> {
-    ops: Vec<ActionGraphEntry<S>>,
+    ops: Vec<ConflictGraphEntry<S>>,
     // last: usize,
 }
 
