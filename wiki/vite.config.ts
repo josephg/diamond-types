@@ -20,6 +20,6 @@ export default defineConfig({
     sourcemap: true,
     outDir: 'dist-client',
     target: 'esnext',
-    polyfillDynamicImport: false,
+    // polyfillDynamicImport: false,
   },
 });
