@@ -802,15 +802,15 @@ destroy@1.2.0:
   resolved "https://registry.yarnpkg.com/destroy/-/destroy-1.2.0.tgz#4803735509ad8be552934c67df614f94e66fa015"
   integrity sha512-2sJGJTaXIIaR1w4iJSNoN0hnMY7Gpc/n8D4qSCJw8QqFWXf7cuAgnEHxBpweaVcPevC2l3KpjYCx3NypQQgaJg==
 
-diamond-types-node@^0.1.0:
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/diamond-types-node/-/diamond-types-node-0.1.0.tgz#548812ec9646c4df5b9f5e4c5fc9257f62d6dccf"
-  integrity sha512-STKNhFu6DCbmZVHsje4tVqKWPPcFz2clj7IHZFLB8SHsbKzO7YWpqZYBfXbxIBUqwKggFtqOaUQQuE78FNACow==
+diamond-types-node@^1.0.1:
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/diamond-types-node/-/diamond-types-node-1.0.1.tgz#3427c92454cea10aec0a30b5093b165603e86ca7"
+  integrity sha512-TBzXNz5Jkkpffuu8qY6vLw/wx48wVU83Lj4X2d6M2/TD4Bsfmh4R1JoYWlWEYOR8NVboCEZ0eeB7iGruwx7+4g==
 
-diamond-types-web@^0.1.0:
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/diamond-types-web/-/diamond-types-web-0.1.0.tgz#27342eb33334fb38009451cbbbc6dcaa934c14e6"
-  integrity sha512-26hWNKfsnMqte73cjjFwdlZSgQuu7LN9j9Y22BughFxtYrTBPmglWqkailpR9OtIg5PIwzG1VqGj9Z8QIcrp/A==
+diamond-types-web@^1.0.1:
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/diamond-types-web/-/diamond-types-web-1.0.1.tgz#12dc1b8babf37b17a2b7a077085ef41a95729540"
+  integrity sha512-0cS0bLcjB4CdlaKJ/uLwXTNlUx5ipJb4E33djdHpcqtGZ1Ac7eSygPCPiNmKO+fR2F2XXto1FohWqzlnPHsAew==
 
 diff@^4.0.1:
   version "4.0.2"

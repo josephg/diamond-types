@@ -26,8 +26,8 @@ sed -i.old 's/"name": "dt-wasm"/"name": "diamond-types-node"/' pkg-node/package.
 sed -i.old 's/"files": \[/"files": \[\n    "dt_bg.wasm.br",/' pkg-web/package.json
 perl -wlpi -e 'print "  \"type\": \"module\"," if $. == 2' pkg-web/package.json
 
-sed -i.old 's/"0.1.0"/"1.0.0"/' pkg-web/package.json
-sed -i.old 's/"0.1.0"/"1.0.0"/' pkg-node/package.json
+sed -i.old 's/"0.1.0"/"1.0.1"/' pkg-web/package.json
+sed -i.old 's/"0.1.0"/"1.0.1"/' pkg-node/package.json
 
 rm pkg-*/package.json.old
 
