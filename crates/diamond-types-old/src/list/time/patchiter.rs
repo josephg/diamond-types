@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::list::{ListCRDT, Time};
+use crate::list::{ListCRDT, LV};
 use crate::rangeextra::OrderRange;
 use crate::rle::{RleSpanHelpers, RleVec, KVPair};
 use std::cell::Cell;
@@ -9,20 +9,20 @@ use crate::list::positional::{InsDelTag, InsDelTag::*};
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub(crate) struct ListPatchItem {
-    pub range: Range<Time>,
+    pub range: Range<LV>,
     pub op_type: InsDelTag,
 
     // This is mostly a matter of convenience, since I'm not pulling out information about inserts.
     // But we find out the del_target to be able to find out if the range is a delete anyway.
-    pub target_start: Time,
+    pub target_start: LV,
 }
 
 impl ListPatchItem {
-    pub(crate) fn target_range(&self) -> Range<Time> {
+    pub(crate) fn target_range(&self) -> Range<LV> {
         self.target_start .. self.target_start + self.range.order_len()
     }
 
-    pub(super) fn consume(&mut self, len: Time) {
+    pub(super) fn consume(&mut self, len: LV) {
         debug_assert!(len <= self.range.order_len());
         self.range.start += len;
         self.target_start += len;
@@ -38,12 +38,12 @@ impl ListPatchItem {
 #[derive(Debug)]
 pub(crate) struct ListPatchIter<'a, const FWD: bool> {
     deletes: &'a RleVec<KVPair<TimeSpan>>,
-    range: Range<Time>,
+    range: Range<LV>,
     del_idx: Cell<usize>,
 }
 
 impl<'a, const FWD: bool> ListPatchIter<'a, FWD> {
-    fn new(deletes: &'a RleVec<KVPair<TimeSpan>>, range: Range<Time>) -> Self {
+    fn new(deletes: &'a RleVec<KVPair<TimeSpan>>, range: Range<LV>) -> Self {
         let del_idx = if FWD {
             if range.start == 0 { 0 }
             else {
@@ -159,7 +159,7 @@ impl ListCRDT {
         ListPatchIter::new(&self.deletes, 0..self.get_next_time())
     }
 
-    pub(crate) fn patch_iter_in_range(&self, range: Range<Time>) -> ListPatchIter<true> {
+    pub(crate) fn patch_iter_in_range(&self, range: Range<LV>) -> ListPatchIter<true> {
         ListPatchIter::new(&self.deletes, range)
     }
 
@@ -167,7 +167,7 @@ impl ListCRDT {
         ListPatchIter::new(&self.deletes, 0..self.get_next_time())
     }
 
-    pub(crate) fn patch_iter_in_range_rev(&self, range: Range<Time>) -> ListPatchIter<false> {
+    pub(crate) fn patch_iter_in_range_rev(&self, range: Range<LV>) -> ListPatchIter<false> {
         ListPatchIter::new(&self.deletes, range)
     }
 }
@@ -177,7 +177,7 @@ impl ListCRDT {
 mod test {
     use super::*;
 
-    fn assert_doc_patches_match(doc: &ListCRDT, range: Range<Time>, expect: &[ListPatchItem]) {
+    fn assert_doc_patches_match(doc: &ListCRDT, range: Range<LV>, expect: &[ListPatchItem]) {
         let forward = doc.patch_iter_in_range(range.clone());
         assert_eq!(forward.collect::<Vec<_>>(), expect);
 

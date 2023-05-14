@@ -18,15 +18,15 @@ use smartstring::alias::{String as SmartString};
 use smallvec::{SmallVec, smallvec};
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use TraversalComponent::*;
-use crate::list::Time;
+use crate::list::LV;
 use crate::list::positional::{PositionalOp, PositionalComponent, InsDelTag};
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use rle::AppendRle;
 use crate::unicount::count_chars;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TraversalComponent {
     // Note: I tried making len an i32 and using the sign bit to store content_known, like YjsSpan.
     // The result had no change in memory usage - this enum is already has 8 bytes (because of the
@@ -39,14 +39,14 @@ pub enum TraversalComponent {
 
 /// A traversal is a walk over the document which inserts and deletes items.
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TraversalOp {
     pub traversal: SmallVec<[TraversalComponent; 2]>,
     pub content: SmartString,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TraversalOpSequence {
     pub components: SmallVec<[SmallVec<[TraversalComponent; 2]>; 2]>,
     pub content: SmartString,
@@ -163,14 +163,14 @@ impl From<PositionalOp> for TraversalOpSequence {
 }
 
 impl TraversalComponent {
-    pub(super) fn pre_len(&self) -> Time {
+    pub(super) fn pre_len(&self) -> LV {
         match self {
             Retain(len) | Del(len) => *len,
             Ins{..} => 0,
         }
     }
 
-    pub(super) fn post_len(&self) -> Time {
+    pub(super) fn post_len(&self) -> LV {
         match self {
             Retain(len) => *len,
             Del(_) => 0,
@@ -207,19 +207,19 @@ impl SplitableSpanHelpers for TraversalComponent {
         match self {
             Ins { len, content_known } => {
                 let remainder = Ins {
-                    len: *len - at as Time,
+                    len: *len - at as LV,
                     content_known: *content_known,
                 };
-                *len = at as Time;
+                *len = at as LV;
                 remainder
             }
             Del(len) => {
-                let remainder = Del(*len - at as Time);
-                *len = at as Time;
+                let remainder = Del(*len - at as LV);
+                *len = at as LV;
                 remainder
             }
             Retain(len) => {
-                let remainder = Retain(*len - at as Time);
+                let remainder = Retain(*len - at as LV);
                 *len = at as _;
                 remainder
             }

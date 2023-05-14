@@ -10,7 +10,7 @@ use diamond_core_old::CRDTId;
 use rle::{HasLength, MergableSpan, MergeableIterator, SplitableSpan, SplitableSpanHelpers, SplitAndJoinSpan};
 
 use crate::crdtspan::CRDTSpan;
-use crate::list::{ListCRDT, Time};
+use crate::list::{ListCRDT, LV};
 use crate::list::encoding::varint::*;
 use crate::list::span::YjsSpan;
 use crate::order::TimeSpan;
@@ -162,18 +162,18 @@ impl<const INC: bool> MergableSpan for Run2<INC> {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-struct DiffVal(Time);
+struct DiffVal(LV);
 
 impl DiffVal {
     fn new() -> Self { Self(0) }
 
-    fn next(&mut self, new_val: Time) -> i32 {
+    fn next(&mut self, new_val: LV) -> i32 {
         let diff = new_val.wrapping_sub(self.0) as i32;
         self.0 = new_val;
         diff
     }
 
-    fn next_run<const INC: bool>(&mut self, new_val: Time, len: u32) -> Run2<INC> {
+    fn next_run<const INC: bool>(&mut self, new_val: LV, len: u32) -> Run2<INC> {
         let diff = new_val.wrapping_sub(self.0) as i32 as isize;
         self.0 = new_val + len - 1;
         Run2 { diff, len: len as usize }
@@ -672,7 +672,7 @@ impl ListCRDT {
         //     r.next_u32_run()
         // });
 
-        let mut order: Time = 0;
+        let mut order: LV = 0;
         while let Some(Run { val: agent, len }) = agent_data.next_u32_run() {
             // TODO: Consider calling assign_order_to_client instead.
             let client_data = &mut result.client_data[agent as usize];
@@ -690,7 +690,7 @@ impl ListCRDT {
                 len: len as _
             }));
 
-            order += len as Time;
+            order += len as LV;
         }
 
         // This one is easy.
@@ -745,8 +745,8 @@ impl ListCRDT {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct Parents {
-    order: Range<Time>,
-    parents: SmallVec<[Time; 2]>,
+    order: Range<LV>,
+    parents: SmallVec<[LV; 2]>,
 }
 
 impl HasLength for Parents {

@@ -5,7 +5,7 @@ use smallvec::{SmallVec, smallvec};
 
 use rle::AppendRle;
 
-use crate::list::{ListCRDT, Time, ROOT_TIME};
+use crate::list::{ListCRDT, LV, ROOT_LV};
 use crate::list::txn::TxnSpan;
 use crate::order::TimeSpan;
 use crate::rle::RleVec;
@@ -13,16 +13,16 @@ use crate::rle::RleVec;
 // use smartstring::alias::{String as SmartString};
 
 impl RleVec<TxnSpan> {
-    fn shadow_of(&self, order: Time) -> Time {
-        if order == ROOT_TIME {
-            ROOT_TIME
+    fn shadow_of(&self, order: LV) -> LV {
+        if order == ROOT_LV {
+            ROOT_LV
         } else {
             self.find(order).unwrap().shadow
         }
     }
 
     /// Does the frontier `[a]` contain `[b]` as a direct ancestor according to its shadow?
-    fn txn_shadow_contains(&self, a: Time, b: Time) -> bool {
+    fn txn_shadow_contains(&self, a: LV, b: LV) -> bool {
         let a_1 = a.wrapping_add(1);
         let b_1 = b.wrapping_add(1);
         a_1 == b_1 || (a_1 > b_1 && self.shadow_of(a).wrapping_add(1) <= b_1)
@@ -30,18 +30,18 @@ impl RleVec<TxnSpan> {
 
     // This is similar to txn_shadow_contains, but it also checks that a doesn't have any other
     // ancestors which aren't included in b's history.
-    fn is_direct_descendant(&self, a: Time, b: Time) -> bool {
+    fn is_direct_descendant(&self, a: LV, b: LV) -> bool {
         // This is a bit more strict than we technically need, but its fast for short circuit
         // evaluation.
         a == b
-            || (b == ROOT_TIME && self.txn_shadow_contains(a, ROOT_TIME))
-            || (a != ROOT_TIME && a > b && self.find(a).unwrap().contains(b))
+            || (b == ROOT_LV && self.txn_shadow_contains(a, ROOT_LV))
+            || (a != ROOT_LV && a > b && self.find(a).unwrap().contains(b))
     }
 
-    pub(crate) fn branch_contains_order(&self, branch: &[Time], target: Time) -> bool {
+    pub(crate) fn branch_contains_order(&self, branch: &[LV], target: LV) -> bool {
         assert!(!branch.is_empty());
-        if target == ROOT_TIME || branch.contains(&target) { return true; }
-        if branch == [ROOT_TIME] { return false; }
+        if target == ROOT_LV || branch.contains(&target) { return true; }
+        if branch == [ROOT_LV] { return false; }
 
         // Fast path. This causes extra calls to find_packed(), but you usually have a branch with
         // a shadow less than target. Usually the root document. And in that case this codepath
@@ -90,7 +90,7 @@ impl RleVec<TxnSpan> {
             // dbg!(order);
             for &p in &txn.parents {
                 if p == target { return true; }
-                else if p != ROOT_TIME && p > target { queue.push(p); }
+                else if p != ROOT_LV && p > target { queue.push(p); }
             }
         }
 
@@ -98,7 +98,7 @@ impl RleVec<TxnSpan> {
     }
 
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
-    pub(crate) fn diff(&self, a: &[Time], b: &[Time]) -> (SmallVec<[Range<Time>; 4]>, SmallVec<[Range<Time>; 4]>) {
+    pub(crate) fn diff(&self, a: &[LV], b: &[LV]) -> (SmallVec<[Range<LV>; 4]>, SmallVec<[Range<LV>; 4]>) {
         assert!(!a.is_empty());
         assert!(!b.is_empty());
 
@@ -127,19 +127,19 @@ impl RleVec<TxnSpan> {
     }
 
     // Split out for testing.
-    fn diff_slow(&self, a: &[Time], b: &[Time]) -> (SmallVec<[Range<Time>; 4]>, SmallVec<[Range<Time>; 4]>) {
+    fn diff_slow(&self, a: &[LV], b: &[LV]) -> (SmallVec<[Range<LV>; 4]>, SmallVec<[Range<LV>; 4]>) {
         // We need to tag each entry in the queue based on whether its part of a's history or b's
         // history or both, and do so without changing the sort order for the heap.
         #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
         enum Flag { OnlyA, OnlyB, Shared }
 
         // Sorted highest to lowest.
-        let mut queue: BinaryHeap<(Time, Flag)> = BinaryHeap::new();
+        let mut queue: BinaryHeap<(LV, Flag)> = BinaryHeap::new();
         for a_ord in a {
-            if *a_ord != ROOT_TIME { queue.push((*a_ord, Flag::OnlyA)); }
+            if *a_ord != ROOT_LV { queue.push((*a_ord, Flag::OnlyA)); }
         }
         for b_ord in b {
-            if *b_ord != ROOT_TIME { queue.push((*b_ord, Flag::OnlyB)); }
+            if *b_ord != ROOT_LV { queue.push((*b_ord, Flag::OnlyB)); }
         }
 
         let mut num_shared_entries = 0;
@@ -204,7 +204,7 @@ impl RleVec<TxnSpan> {
             mark_run(containing_txn.time, ord, flag);
 
             for p in containing_txn.parents.iter() {
-                if *p != ROOT_TIME {
+                if *p != ROOT_LV {
                     queue.push((*p, flag));
                     if flag == Flag::Shared { num_shared_entries += 1; }
                 }
@@ -224,11 +224,11 @@ impl RleVec<TxnSpan> {
 /// about branches, find diffs and move between branches.
 impl ListCRDT {
     // Exported for the fuzzer. Not sure if I actually want this exposed.
-    pub fn branch_contains_order(&self, branch: &[Time], target: Time) -> bool {
+    pub fn branch_contains_order(&self, branch: &[LV], target: LV) -> bool {
         self.txns.branch_contains_order(branch, target)
     }
 
-    pub fn linear_changes_since(&self, order: Time) -> TimeSpan {
+    pub fn linear_changes_since(&self, order: LV) -> TimeSpan {
         TimeSpan {
             start: order,
             len: self.get_next_time() - order
@@ -242,13 +242,13 @@ pub mod test {
 
     use smallvec::smallvec;
 
-    use crate::list::{ListCRDT, Time, ROOT_TIME};
+    use crate::list::{ListCRDT, LV, ROOT_LV};
     use crate::list::external_txn::{RemoteCRDTOp, RemoteId, RemoteTxn};
     use crate::list::txn::TxnSpan;
     use crate::rangeextra::OrderRange;
     use crate::rle::RleVec;
 
-    fn assert_diff_eq(txns: &RleVec<TxnSpan>, a: &[Time], b: &[Time], expect_a: &[Range<Time>], expect_b: &[Range<Time>]) {
+    fn assert_diff_eq(txns: &RleVec<TxnSpan>, a: &[LV], b: &[LV], expect_a: &[Range<LV>], expect_b: &[Range<LV>]) {
         let slow_result = txns.diff_slow(a, b);
         let fast_result = txns.diff(a, b);
         dbg!(&slow_result, &fast_result);
@@ -285,12 +285,12 @@ pub mod test {
         let txns = RleVec(vec![
             TxnSpan { // 0-2
                 time: 0, len: 3, shadow: 0,
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![ROOT_LV],
                 parent_indexes: smallvec![], child_indexes: smallvec![2, 3],
             },
             TxnSpan { // 3-5
                 time: 3, len: 3, shadow: 3,
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![ROOT_LV],
                 parent_indexes: smallvec![], child_indexes: smallvec![2],
             },
             TxnSpan { // 6-8
@@ -299,15 +299,15 @@ pub mod test {
                 parent_indexes: smallvec![0, 1], child_indexes: smallvec![3],
             },
             TxnSpan { // 9
-                time: 9, len: 1, shadow: ROOT_TIME,
+                time: 9, len: 1, shadow: ROOT_LV,
                 parents: smallvec![8, 2],
                 parent_indexes: smallvec![2, 0], child_indexes: smallvec![],
             },
         ]);
 
-        assert!(txns.branch_contains_order(&[ROOT_TIME], ROOT_TIME));
+        assert!(txns.branch_contains_order(&[ROOT_LV], ROOT_LV));
         assert!(txns.branch_contains_order(&[0], 0));
-        assert!(txns.branch_contains_order(&[0], ROOT_TIME));
+        assert!(txns.branch_contains_order(&[0], ROOT_LV));
 
         assert!(txns.branch_contains_order(&[2], 0));
         assert!(txns.branch_contains_order(&[2], 1));
@@ -348,7 +348,7 @@ pub mod test {
         let b1 = doc1.frontier.clone();
 
         assert_diff_eq(&doc1.txns, &b1, &b1, &[], &[]);
-        assert_diff_eq(&doc1.txns, &[ROOT_TIME], &[ROOT_TIME], &[], &[]);
+        assert_diff_eq(&doc1.txns, &[ROOT_LV], &[ROOT_LV], &[], &[]);
         // dbg!(&doc1.frontier);
 
         // There are 4 items in doc1 - "Saaa".
@@ -383,7 +383,7 @@ pub mod test {
         doc.get_or_create_agent_id("a");
         doc.get_or_create_agent_id("b");
 
-        assert_eq!(doc.frontier.as_slice(), &[ROOT_TIME]);
+        assert_eq!(doc.frontier.as_slice(), &[ROOT_LV]);
 
         doc.local_insert(0, 0, "aaa".into());
 
@@ -434,9 +434,9 @@ pub mod test {
         // dbg!(doc.diff(&smallvec![6], &smallvec![ROOT_ORDER]));
         // dbg!(&doc);
 
-        assert_diff_eq(&doc.txns, &[6], &[ROOT_TIME], &[5..7, 0..3], &[]);
+        assert_diff_eq(&doc.txns, &[6], &[ROOT_LV], &[5..7, 0..3], &[]);
         assert_diff_eq(&doc.txns, &[6], &[4], &[5..7, 0..3], &[3..5]);
-        assert_diff_eq(&doc.txns, &[4, 6], &[ROOT_TIME], &[0..7], &[]);
+        assert_diff_eq(&doc.txns, &[4, 6], &[ROOT_LV], &[0..7], &[]);
     }
 
     #[test]
@@ -444,13 +444,13 @@ pub mod test {
         // Regression.
         let history = RleVec(vec![
             TxnSpan {
-                time: 0, len: 1, shadow: ROOT_TIME,
-                parents: smallvec![ROOT_TIME],
+                time: 0, len: 1, shadow: ROOT_LV,
+                parents: smallvec![ROOT_LV],
                 parent_indexes: smallvec![], child_indexes: smallvec![2]
             },
             TxnSpan {
-                time: 1, len: 1, shadow: ROOT_TIME,
-                parents: smallvec![ROOT_TIME],
+                time: 1, len: 1, shadow: ROOT_LV,
+                parents: smallvec![ROOT_LV],
                 parent_indexes: smallvec![], child_indexes: smallvec![3]
             },
             TxnSpan {
@@ -460,7 +460,7 @@ pub mod test {
             },
         ]);
 
-        assert_diff_eq(&history, &[2], &[ROOT_TIME], &[2..3, 0..1], &[]);
+        assert_diff_eq(&history, &[2], &[ROOT_LV], &[2..3, 0..1], &[]);
     }
 
     #[test]
@@ -470,28 +470,28 @@ pub mod test {
             TxnSpan {
                 time: 0,
                 len: 1,
-                shadow: ROOT_TIME,
-                parents: smallvec![ROOT_TIME],
+                shadow: ROOT_LV,
+                parents: smallvec![ROOT_LV],
                 parent_indexes: smallvec![], child_indexes: smallvec![],
             },
             TxnSpan {
                 time: 1,
                 len: 1,
                 shadow: 1,
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![ROOT_LV],
                 parent_indexes: smallvec![], child_indexes: smallvec![],
             },
             TxnSpan {
                 time: 2,
                 len: 1,
                 shadow: 2,
-                parents: smallvec![ROOT_TIME],
+                parents: smallvec![ROOT_LV],
                 parent_indexes: smallvec![], child_indexes: smallvec![],
             },
         ]);
 
-        assert_diff_eq(&history, &[0], &[ROOT_TIME], &[0..1], &[]);
-        assert_diff_eq(&history, &[ROOT_TIME], &[0], &[], &[0..1]);
+        assert_diff_eq(&history, &[0], &[ROOT_LV], &[0..1], &[]);
+        assert_diff_eq(&history, &[ROOT_LV], &[0], &[], &[0..1]);
     }
 
     #[test]
@@ -501,8 +501,8 @@ pub mod test {
             TxnSpan {
                 time: 0,
                 len: 3,
-                shadow: Time::MAX,
-                parents: smallvec![Time::MAX],
+                shadow: LV::MAX,
+                parents: smallvec![LV::MAX],
                 parent_indexes: smallvec![],
                 child_indexes: smallvec![2],
             },
@@ -510,21 +510,21 @@ pub mod test {
                 time: 3,
                 len: 2,
                 shadow: 3,
-                parents: smallvec![Time::MAX],
+                parents: smallvec![LV::MAX],
                 parent_indexes: smallvec![],
                 child_indexes: smallvec![2],
             },
             TxnSpan {
                 time: 5,
                 len: 1,
-                shadow: Time::MAX,
+                shadow: LV::MAX,
                 parents: smallvec![2,4],
                 parent_indexes: smallvec![0,1],
                 child_indexes: smallvec![],
             },
         ]);
 
-        assert_diff_eq(&history, &[4], &[ROOT_TIME], &[3..5], &[]);
+        assert_diff_eq(&history, &[4], &[ROOT_LV], &[3..5], &[]);
         assert_diff_eq(&history, &[4], &[5], &[], &[5..6, 0..3]);
     }
 }

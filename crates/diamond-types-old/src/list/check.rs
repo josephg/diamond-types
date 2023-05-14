@@ -1,5 +1,5 @@
 use jumprope::JumpRope;
-use crate::list::{ListCRDT, ROOT_TIME};
+use crate::list::{ListCRDT, ROOT_LV};
 use rle::HasLength;
 use smallvec::{SmallVec, smallvec};
 
@@ -37,8 +37,8 @@ impl ListCRDT {
 
             if let Some(e) = cursor.next() { // Iterating manually for the borrow checker.
                 // Each item's ID should come after its origin left and right
-                assert!(e.origin_left == ROOT_TIME || e.time > e.origin_left);
-                assert!(e.origin_right == ROOT_TIME || e.time > e.origin_right);
+                assert!(e.origin_left == ROOT_LV || e.time > e.origin_left);
+                assert!(e.origin_right == ROOT_LV || e.time > e.origin_right);
                 assert_ne!(e.len, 0);
 
                 if deep {
@@ -91,11 +91,11 @@ impl ListCRDT {
                 assert!(child.parents.iter().any(|p| txn.contains(*p)));
             }
 
-            if parents[0] == ROOT_TIME {
+            if parents[0] == ROOT_LV {
                 // The root order will be sorted out of order, but it doesn't matter because
                 // if it shows up at all it should be the only item in parents.
                 debug_assert_eq!(parents.len(), 1);
-                if txn.time == 0 { expect_shadow = ROOT_TIME; }
+                if txn.time == 0 { expect_shadow = ROOT_LV; }
                 assert!(txn.parent_indexes.is_empty());
             } else {
                 parents.sort_by(|a, b| b.cmp(a)); // descending order

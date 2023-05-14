@@ -13,7 +13,7 @@ use rle::AppendRle;
 use TraversalComponent::*;
 
 use crate::crdtspan::CRDTSpan;
-use crate::list::{DoubleDeleteList, ListCRDT, Time};
+use crate::list::{DoubleDeleteList, ListCRDT, LV};
 use crate::list::double_delete::DoubleDelete;
 use crate::list::external_txn::RemoteIdSpan;
 use crate::list::positional::{InsDelTag, PositionalComponent, PositionalOp};
@@ -98,7 +98,7 @@ impl DoubleDeleteVisitor {
     }
 
     /// Find the safe range from last_order backwards.
-    fn mark_range(&mut self, double_deletes: &DoubleDeleteList, last_order: Time, min_base: u32) -> (bool, u32) {
+    fn mark_range(&mut self, double_deletes: &DoubleDeleteList, last_order: LV, min_base: u32) -> (bool, u32) {
         match double_deletes.find_sparse(last_order).0 {
             // Most likely case. Indicates there's no double-delete to deal with in this span.
             Err(base) => (true, base.max(min_base)),
@@ -151,17 +151,17 @@ struct MultiPositionalChangesIter<'a, I: Iterator<Item=TimeSpan>> { // TODO: Cha
 }
 
 impl ListCRDT {
-    pub fn positional_changes_since(&self, order: Time) -> PositionalOp {
+    pub fn positional_changes_since(&self, order: LV) -> PositionalOp {
         let walker = PatchIter::new_since_order(self, order);
         walker.into_positional_op()
     }
 
-    pub fn attributed_positional_changes_since(&self, order: Time) -> (PositionalOp, SmallVec<[CRDTSpan; 1]>) {
+    pub fn attributed_positional_changes_since(&self, order: LV) -> (PositionalOp, SmallVec<[CRDTSpan; 1]>) {
         let walker = PatchWithAuthorIter::new_since_order(self, order);
         walker.into_attributed_positional_op()
     }
 
-    pub fn positional_changes_since_branch(&self, branch: &[Time]) -> PositionalOp {
+    pub fn positional_changes_since_branch(&self, branch: &[LV]) -> PositionalOp {
         let (a, b) = self.txns.diff(branch, &self.frontier);
         assert_eq!(a.len(), 0);
 
@@ -172,26 +172,26 @@ impl ListCRDT {
         walker.into_positional_op()
     }
 
-    pub fn traversal_changes_since(&self, order: Time) -> TraversalOpSequence {
+    pub fn traversal_changes_since(&self, order: LV) -> TraversalOpSequence {
         self.positional_changes_since(order).into()
     }
 
-    pub fn flat_traversal_since(&self, order: Time) -> TraversalOp {
+    pub fn flat_traversal_since(&self, order: LV) -> TraversalOp {
         let walker = PatchIter::new_since_order(self, order);
         walker.into_traversal(self.text_content.as_ref().unwrap())
     }
 
-    pub fn attributed_traversal_changes_since(&self, order: Time) -> (TraversalOpSequence, SmallVec<[CRDTSpan; 1]>) {
+    pub fn attributed_traversal_changes_since(&self, order: LV) -> (TraversalOpSequence, SmallVec<[CRDTSpan; 1]>) {
         let (op, attr) = self.attributed_positional_changes_since(order);
         (op.into(), attr)
     }
 
-    pub fn remote_attr_patches_since(&self, order: Time) -> (TraversalOpSequence, SmallVec<[RemoteIdSpan; 1]>) {
+    pub fn remote_attr_patches_since(&self, order: LV) -> (TraversalOpSequence, SmallVec<[RemoteIdSpan; 1]>) {
         let (op, attr) = self.attributed_traversal_changes_since(order);
         (op, attr.iter().map(|span| self.crdt_span_to_remote(*span)).collect())
     }
 
-    pub fn traversal_changes_since_branch(&self, branch: &[Time]) -> TraversalOpSequence {
+    pub fn traversal_changes_since_branch(&self, branch: &[LV]) -> TraversalOpSequence {
         self.positional_changes_since_branch(branch).into()
     }
 }
@@ -368,7 +368,7 @@ impl<'a> PatchIter<'a> {
         iter
     }
 
-    fn new_since_order(doc: &'a ListCRDT, base_order: Time) -> Self {
+    fn new_since_order(doc: &'a ListCRDT, base_order: LV) -> Self {
         Self::new(doc, doc.linear_changes_since(base_order))
     }
 
@@ -396,7 +396,7 @@ impl<'a> PatchIter<'a> {
 /// This is an iterator which wraps PatchIter and yields information about patches, as well as
 /// authorship of those patches.
 struct PatchWithAuthorIter<'a> {
-    actual_base: Time,
+    actual_base: LV,
     state: PatchIter<'a>,
     client_order_idx: usize,
     crdt_loc: CRDTId,
@@ -462,7 +462,7 @@ impl<'a> PatchWithAuthorIter<'a> {
         }
     }
 
-    fn new_since_order(doc: &'a ListCRDT, base_order: Time) -> Self {
+    fn new_since_order(doc: &'a ListCRDT, base_order: LV) -> Self {
         Self::new(doc, doc.linear_changes_since(base_order))
     }
 
@@ -567,7 +567,7 @@ mod test {
 
     use rle::AppendRle;
 
-    use crate::list::{ListCRDT, ROOT_TIME};
+    use crate::list::{ListCRDT, ROOT_LV};
     use crate::list::positional::*;
     use crate::list::ot::positionmap::*;
     use crate::list::ot::traversal::*;
@@ -785,7 +785,7 @@ mod test {
         // Ok, now there's a bunch of interesting diffs to generate here. Frontier is [4,6] but
         // we have two branches - with orders [0-2, 5-6] and [3-4]
 
-        let full_history = doc.positional_changes_since_branch(&[ROOT_TIME]);
+        let full_history = doc.positional_changes_since_branch(&[ROOT_LV]);
         use InsDelTag::*;
         assert_eq!(full_history, PositionalOp {
             components: smallvec![

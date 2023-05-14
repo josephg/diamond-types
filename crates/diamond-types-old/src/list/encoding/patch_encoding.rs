@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::list::{encoding, ListCRDT, Time, ROOT_TIME};
+use crate::list::{encoding, ListCRDT, LV, ROOT_LV};
 use crate::list::encoding::{Chunk, Parents, Run, SpanWriter};
 use crate::list::positional::InsDelTag;
 use crate::rangeextra::OrderRange;
@@ -122,8 +122,8 @@ impl ListCRDT {
         // another b-tree here for this, but I don't think the extra code size & overhead is worth
         // it for nearly any normal use cases. (The reordering should be stable - once a document
         // has been reordered and saved, next time its loaded there will be no further reordering.)
-        let mut inner_to_outer_map: RleVec<KVPair<Range<Time>>> = RleVec::new();
-        let mut outer_to_inner_map: RleVec<KVPair<Range<Time>>> = RleVec::new();
+        let mut inner_to_outer_map: RleVec<KVPair<Range<LV>>> = RleVec::new();
+        let mut outer_to_inner_map: RleVec<KVPair<Range<LV>>> = RleVec::new();
 
         let mut next_output_order = 0;
         let mut last_edit_pos: u32 = 0;
@@ -152,9 +152,9 @@ impl ListCRDT {
         // dbg!(&outer_to_inner_map);
         // dbg!(&inner_to_outer_map);
 
-        let local_to_remote_order = |order: Time| -> Time {
-            if order == ROOT_TIME {
-                ROOT_TIME
+        let local_to_remote_order = |order: LV| -> LV {
+            if order == ROOT_LV {
+                ROOT_LV
             } else if let Some((val, offset)) = inner_to_outer_map.find_with_offset(order) {
                 val.1.start + offset
             } else { order }

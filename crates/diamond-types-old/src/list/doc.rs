@@ -27,7 +27,7 @@ impl ClientData {
         } else { 0 }
     }
 
-    pub fn seq_to_order(&self, seq: u32) -> Time {
+    pub fn seq_to_order(&self, seq: u32) -> LV {
         let (entry, offset) = self.item_localtime.find_with_offset(seq).unwrap();
         entry.1.start + offset
     }
@@ -68,7 +68,7 @@ impl ListCRDT {
     pub fn new() -> Self {
         ListCRDT {
             client_with_time: RleVec::new(),
-            frontier: smallvec![ROOT_TIME],
+            frontier: smallvec![ROOT_LV],
             client_data: vec![],
 
             range_tree: ContentTreeRaw::new(),
@@ -123,16 +123,16 @@ impl ListCRDT {
         self.client_data[agent as usize].get_next_seq()
     }
 
-    pub(crate) fn get_crdt_location(&self, order: Time) -> CRDTId {
-        if order == ROOT_TIME { CRDT_DOC_ROOT }
+    pub(crate) fn get_crdt_location(&self, order: LV) -> CRDTId {
+        if order == ROOT_LV { CRDT_DOC_ROOT }
         else {
             let (loc, offset) = self.client_with_time.find_with_offset(order).unwrap();
             loc.1.at_offset(offset as usize)
         }
     }
 
-    pub(crate) fn get_crdt_span(&self, order: Time, max_size: u32) -> CRDTSpan {
-        if order == ROOT_TIME { CRDTSpan { loc: CRDT_DOC_ROOT, len: 0 } }
+    pub(crate) fn get_crdt_span(&self, order: LV, max_size: u32) -> CRDTSpan {
+        if order == ROOT_LV { CRDTSpan { loc: CRDT_DOC_ROOT, len: 0 } }
         else {
             let (loc, offset) = self.client_with_time.find_with_offset(order).unwrap();
             CRDTSpan {
@@ -145,8 +145,8 @@ impl ListCRDT {
         }
     }
 
-    pub(crate) fn crdt_to_localtime(&self, loc: CRDTId) -> Time {
-        if loc.agent == ROOT_AGENT { ROOT_TIME }
+    pub(crate) fn crdt_to_localtime(&self, loc: CRDTId) -> LV {
+        if loc.agent == ROOT_AGENT { ROOT_LV }
         else { self.client_data[loc.agent as usize].seq_to_order(loc.seq) }
     }
 
@@ -155,18 +155,18 @@ impl ListCRDT {
         self.client_data[loc.agent as usize].seq_to_order_span(loc.seq, max_len)
     }
 
-    pub fn get_next_time(&self) -> Time {
+    pub fn get_next_time(&self) -> LV {
         if let Some(KVPair(base, entry)) = self.client_with_time.last() {
             base + entry.len as u32
         } else { 0 }
     }
 
     /// Get the frontier as an internal order list
-    pub fn get_frontier_as_localtime(&self) -> &[Time] {
+    pub fn get_frontier_as_localtime(&self) -> &[LV] {
         &self.frontier
     }
 
-    pub(super) fn marker_at(&self, time: Time) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>> {
+    pub(super) fn marker_at(&self, time: LV) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>> {
         let cursor = self.index.cursor_at_offset_pos(time as usize, false);
         // Gross.
         cursor.get_item().unwrap().unwrap()
@@ -174,8 +174,8 @@ impl ListCRDT {
         // self.index.entry_at(order as usize).unwrap_ptr()
     }
 
-    pub(crate) fn get_unsafe_cursor_before(&self, time: Time) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        if time == ROOT_TIME {
+    pub(crate) fn get_unsafe_cursor_before(&self, time: LV) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+        if time == ROOT_LV {
             // Or maybe we should just abort?
             self.range_tree.unsafe_cursor_at_end()
         } else {
@@ -187,18 +187,18 @@ impl ListCRDT {
     }
 
     #[inline(always)]
-    pub(crate) fn get_cursor_before(&self, time: Time) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+    pub(crate) fn get_cursor_before(&self, time: LV) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_before(time)) }
     }
     #[inline(always)]
-    pub(crate) fn get_mut_cursor_before(&mut self, time: Time) -> MutCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+    pub(crate) fn get_mut_cursor_before(&mut self, time: LV) -> MutCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         let unsafe_cursor = self.get_unsafe_cursor_before(time);
         unsafe { MutCursor::unchecked_from_raw(&mut self.range_tree, unsafe_cursor) }
     }
 
     // This does not stick_end to the found item.
-    pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        if time == ROOT_TIME {
+    pub(super) fn get_unsafe_cursor_after(&self, time: LV, stick_end: bool) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+        if time == ROOT_LV {
             self.range_tree.unsafe_cursor_at_start()
         } else {
             let marker = self.marker_at(time);
@@ -217,11 +217,11 @@ impl ListCRDT {
 
     // TODO: Can I remove the stick_end field here?
     #[inline(always)]
-    pub(crate) fn get_cursor_after(&self, time: Time, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+    pub(crate) fn get_cursor_after(&self, time: LV, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
         unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_after(time, stick_end)) }
     }
 
-    pub(super) fn assign_time_to_client(&mut self, loc: CRDTId, time: Time, len: usize) {
+    pub(super) fn assign_time_to_client(&mut self, loc: CRDTId, time: LV, len: usize) {
         self.client_with_time.push(KVPair(time, CRDTSpan {
             loc,
             len: len as _
@@ -233,7 +233,7 @@ impl ListCRDT {
         }));
     }
 
-    pub(crate) fn max_span_length(&self, time: Time) -> u32 {
+    pub(crate) fn max_span_length(&self, time: LV) -> u32 {
         let (span, span_offset) = self.client_with_time.find_with_offset(time).unwrap();
         span.1.len - span_offset
     }
@@ -384,7 +384,7 @@ impl ListCRDT {
     }
 
     // For local changes, where we just take the frontier as the new parents list.
-    fn insert_txn_local(&mut self, range: Range<Time>) {
+    fn insert_txn_local(&mut self, range: Range<LV>) {
         // Fast path for local edits. For some reason the code below is remarkably non-performant.
         if self.frontier.len() == 1 && self.frontier[0] == range.start.wrapping_sub(1) {
             if let Some(last) = self.txns.0.last_mut() {
@@ -400,12 +400,12 @@ impl ListCRDT {
         self.insert_txn_internal(&txn_parents, range);
     }
 
-    pub(crate) fn insert_txn_full(&mut self, txn_parents: &[Time], range: Range<Time>) {
+    pub(crate) fn insert_txn_full(&mut self, txn_parents: &[LV], range: Range<LV>) {
         advance_branch_by_known(&mut self.frontier, &txn_parents, range.clone());
         self.insert_txn_internal(txn_parents, range);
     }
 
-    fn insert_txn_internal(&mut self, txn_parents: &[Time], range: Range<Time>) {
+    fn insert_txn_internal(&mut self, txn_parents: &[LV], range: Range<LV>) {
         // Fast path. The code below is weirdly slow, but most txns just append.
         // My kingdom for https://rust-lang.github.io/rfcs/2497-if-let-chains.html
         if let Some(last) = self.txns.0.last_mut() {
@@ -423,7 +423,7 @@ impl ListCRDT {
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
             shadow = self.txns.find(shadow - 1).unwrap().shadow;
         }
-        if shadow == 0 { shadow = ROOT_TIME; }
+        if shadow == 0 { shadow = ROOT_LV; }
 
         let will_merge = if let Some(last) = self.txns.last() {
             // TODO: Is this shadow check necessary?
@@ -438,7 +438,7 @@ impl ListCRDT {
             let new_idx = self.txns.0.len();
 
             for &p in txn_parents {
-                if p == ROOT_TIME { continue; }
+                if p == ROOT_LV { continue; }
                 let parent_idx = self.txns.find_index(p).unwrap();
                 // Interestingly the parent_idx array will always end up the same length as parents
                 // because it would be invalid for multiple parents to point to the same entry in
@@ -478,14 +478,14 @@ impl ListCRDT {
         assert_eq!(will_merge, did_merge);
     }
 
-    pub(super) fn internal_mark_deleted(&mut self, id: Time, target: Time, max_len: u32, update_content: bool) -> Time {
+    pub(super) fn internal_mark_deleted(&mut self, id: LV, target: LV, max_len: u32, update_content: bool) -> LV {
         // TODO: Make this use mut_cursor instead. The problem is notify_for mutably borrows
         // self.index, and the cursor is borrowing self (rather than self.range_tree).
         let mut cursor = self.get_unsafe_cursor_before(target);
         self.internal_mark_deleted_at(&mut cursor, id, max_len, update_content)
     }
 
-    pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut <&RangeTree as Cursors>::UnsafeCursor, id: Time, max_len: u32, update_content: bool) -> Time {
+    pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut <&RangeTree as Cursors>::UnsafeCursor, id: LV, max_len: u32, update_content: bool) -> LV {
         let target = unsafe { cursor.unsafe_get_item().unwrap() };
 
         let (deleted_here, succeeded) = unsafe {
@@ -672,7 +672,7 @@ impl ListCRDT {
 
                     // Find the preceding item and successor
                     let (origin_left, cursor) = if pos == 0 {
-                        (ROOT_TIME, self.range_tree.unsafe_cursor_at_start())
+                        (ROOT_LV, self.range_tree.unsafe_cursor_at_start())
                     } else {
                         let mut cursor = self.range_tree.unsafe_cursor_at_content_pos((pos - 1) as usize, false);
                         let origin_left = unsafe { cursor.unsafe_get_item() }.unwrap();
@@ -683,7 +683,7 @@ impl ListCRDT {
                     // There's an open question of whether this should skip past deleted items.
                     // It would be *correct* both ways, though you get slightly different merging
                     // & pruning behaviour in each case.
-                    let origin_right = unsafe { cursor.unsafe_get_item() }.unwrap_or(ROOT_TIME);
+                    let origin_right = unsafe { cursor.unsafe_get_item() }.unwrap_or(ROOT_LV);
 
                     let item = YjsSpan {
                         time,
@@ -755,7 +755,7 @@ impl ListCRDT {
     }
 
     // TODO: Consider refactoring me to use positional operations instead of traversal operations
-    pub fn apply_txn_at_ot_order(&mut self, agent: AgentId, op: &TraversalOp, order: Time, is_left: bool) {
+    pub fn apply_txn_at_ot_order(&mut self, agent: AgentId, op: &TraversalOp, order: LV, is_left: bool) {
         let now = self.get_next_time();
         if order < now {
             let historical_patches = self.traversal_changes_since(order);
@@ -779,10 +779,10 @@ impl ListCRDT {
         }
     }
 
-    pub fn insert_at_ot_order(&mut self, agent: AgentId, pos: usize, ins_content: &str, order: Time, is_left: bool) {
+    pub fn insert_at_ot_order(&mut self, agent: AgentId, pos: usize, ins_content: &str, order: LV, is_left: bool) {
         self.apply_txn_at_ot_order(agent, &TraversalOp::new_insert(pos as u32, ins_content), order, is_left);
     }
-    pub fn delete_at_ot_order(&mut self, agent: AgentId, pos: usize, del_span: usize, order: Time, is_left: bool) {
+    pub fn delete_at_ot_order(&mut self, agent: AgentId, pos: usize, del_span: usize, order: LV, is_left: bool) {
         self.apply_txn_at_ot_order(agent, &TraversalOp::new_delete(pos as u32, del_span as u32), order, is_left);
     }
 
@@ -974,7 +974,7 @@ mod tests {
     fn remote_txns_fork() {
         // Two users concurrently type into an empty document
         let mut doc = ListCRDT::new();
-        assert_eq!(doc.frontier.as_slice(), &[ROOT_TIME]);
+        assert_eq!(doc.frontier.as_slice(), &[ROOT_LV]);
 
         doc.apply_remote_txn(&RemoteTxn {
             id: RemoteId {

@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use std::iter::FromIterator;
 
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
 
@@ -12,7 +12,7 @@ use diamond_core_old::{AgentId, CRDT_DOC_ROOT, CRDTId};
 use rle::{AppendRle, HasLength};
 
 use crate::crdtspan::CRDTSpan;
-use crate::list::{Branch, ListCRDT, Time, ROOT_TIME};
+use crate::list::{Branch, ListCRDT, LV, ROOT_LV};
 use crate::list::external_txn::RemoteCRDTOp::{Del, Ins};
 use crate::list::txn::TxnSpan;
 use crate::order::TimeSpan;
@@ -22,7 +22,7 @@ use crate::rle::{KVPair, RleSpanHelpers};
 
 /// External equivalent of CRDTLocation
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteId {
     pub agent: SmartString,
     pub seq: u32,
@@ -30,7 +30,7 @@ pub struct RemoteId {
 
 /// External equivalent of CRDTSpan
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteIdSpan {
     // This flattens the structure, but for some reason then it uses a JS map instead of an object
     // :/
@@ -40,7 +40,7 @@ pub struct RemoteIdSpan {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum RemoteCRDTOp {
     Ins {
         origin_left: RemoteId,
@@ -64,7 +64,7 @@ pub enum RemoteCRDTOp {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteTxn {
     pub id: RemoteId,
     pub parents: SmallVec<[RemoteId; 2]>, // usually 1 entry
@@ -172,11 +172,11 @@ impl<'a> Iterator for RemoteTxnsIter<'a> {
 pub type VectorClock = Vec<RemoteId>;
 
 impl ListCRDT {
-    pub fn remote_id_to_order(&self, id: &RemoteId) -> Time {
+    pub fn remote_id_to_order(&self, id: &RemoteId) -> LV {
         // dbg!(id.agent.as_str());
         // dbg!(self.get_agent_id(id.agent.as_str()));
         let agent = self.get_agent_id(id.agent.as_str()).unwrap();
-        if agent == AgentId::MAX { ROOT_TIME }
+        if agent == AgentId::MAX { ROOT_LV }
         else { self.client_data[agent as usize].seq_to_order(id.seq) }
     }
 
@@ -204,12 +204,12 @@ impl ListCRDT {
         }
     }
 
-    pub(crate) fn order_to_remote_id(&self, order: Time) -> RemoteId {
+    pub(crate) fn order_to_remote_id(&self, order: LV) -> RemoteId {
         let crdt_loc = self.get_crdt_location(order);
         self.crdt_id_to_remote(crdt_loc)
     }
 
-    pub(crate) fn order_to_remote_id_span(&self, order: Time, max_size: u32) -> RemoteIdSpan {
+    pub(crate) fn order_to_remote_id_span(&self, order: LV, max_size: u32) -> RemoteIdSpan {
         let crdt_span = self.get_crdt_span(order, max_size);
         RemoteIdSpan {
             id: self.crdt_id_to_remote(crdt_span.loc),
@@ -253,7 +253,7 @@ impl ListCRDT {
         #[derive(Clone, Copy, Debug, Eq)]
         struct OpSpan {
             agent_id: usize,
-            next_order: Time,
+            next_order: LV,
             idx: usize,
         }
 

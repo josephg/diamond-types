@@ -1,6 +1,6 @@
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::rle::{RleVec, KVPair, RleSpanHelpers};
-use crate::list::Time;
+use crate::list::LV;
 use crate::order::TimeSpan;
 
 /// Sometimes the same item is removed by multiple peers. This is really rare, but necessary to
@@ -45,7 +45,7 @@ impl RleVec<KVPair<DoubleDelete>> {
     /// Returns the number of items modified.
     ///
     /// Idx must be the index where the target item should be, as is returned by search.
-    pub(crate) fn modify_delete_range_idx(&mut self, base: Time, len: u32, mut idx: usize, update_by: i32, max_value: u32) -> u32 {
+    pub(crate) fn modify_delete_range_idx(&mut self, base: LV, len: u32, mut idx: usize, update_by: i32, max_value: u32) -> u32 {
         debug_assert!(len > 0);
         debug_assert_ne!(update_by, 0);
         debug_assert_eq!(update_by.abs(), 1);
@@ -141,26 +141,26 @@ impl RleVec<KVPair<DoubleDelete>> {
         modified
     }
 
-    pub(crate) fn modify_delete_range(&mut self, base: Time, len: u32, update_by: i32, max_value: u32) -> u32 {
+    pub(crate) fn modify_delete_range(&mut self, base: LV, len: u32, update_by: i32, max_value: u32) -> u32 {
         let start = self.find_index(base);
         let idx = start.unwrap_or_else(|idx| idx);
         self.modify_delete_range_idx(base, len, idx, update_by, max_value)
     }
 
-    pub fn increment_delete_range(&mut self, base: Time, len: u32) {
+    pub fn increment_delete_range(&mut self, base: LV, len: u32) {
         self.modify_delete_range(base, len, 1, u32::MAX);
     }
 
-    pub fn increment_delete_range_to(&mut self, base: Time, max_len: u32, max_value: u32) -> u32 {
+    pub fn increment_delete_range_to(&mut self, base: LV, max_len: u32, max_value: u32) -> u32 {
         self.modify_delete_range(base, max_len, 1, max_value)
     }
 
-    pub fn decrement_delete_range(&mut self, base: Time, max_len: u32) -> u32 {
+    pub fn decrement_delete_range(&mut self, base: LV, max_len: u32) -> u32 {
         self.modify_delete_range(base, max_len, -1, u32::MAX)
     }
 
     /// Find the range of items which have (implied or explicit) 0 double deletes
-    pub(crate) fn find_zero_range(&self, base: Time, max_len: u32) -> u32 {
+    pub(crate) fn find_zero_range(&self, base: LV, max_len: u32) -> u32 {
         // let mut span = OrderSpan { order: base, len: max_len };
 
         for idx in self.find_index(base).unwrap_or_else(|idx| idx)..self.0.len() {

@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 use smartstring::alias::{String as SmartString};
 use rle::AppendRle;
 
-use crate::list::{ListCRDT, Time};
+use crate::list::{ListCRDT, LV};
 use crate::list::positional::PositionalComponent;
 use crate::list::time::patchiter::{ListPatchItem, ListPatchIter};
 use crate::list::time::txn_trace::OptimizedTxnsIter;
@@ -15,7 +15,7 @@ use crate::list::time::positionmap::PositionMap;
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct PositionalOpWalk {
     pub components: SmallVec<[PositionalComponent; 1]>,
-    pub origin_order: SmallVec<[Range<Time>; 2]>,
+    pub origin_order: SmallVec<[Range<LV>; 2]>,
     pub content: SmartString,
 }
 
@@ -102,7 +102,7 @@ impl<'a> OrigPatchesIter<'a> {
         Some(())
     }
 
-    pub(crate) fn next_patch_with_content(&mut self) -> Option<(Range<Time>, PositionalComponent, Option<SmartString>)> {
+    pub(crate) fn next_patch_with_content(&mut self) -> Option<(Range<LV>, PositionalComponent, Option<SmartString>)> {
         self.fill_current_item()?;
 
         let consumed_start = self.current_item.range.start;
@@ -125,7 +125,7 @@ impl<'a> OrigPatchesIter<'a> {
 }
 
 impl<'a> Iterator for OrigPatchesIter<'a> {
-    type Item = (Range<Time>, PositionalComponent);
+    type Item = (Range<LV>, PositionalComponent);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.fill_current_item()?;
@@ -145,7 +145,7 @@ impl<'a> From<OrigPatchesIter<'a>> for PositionalOpWalk {
 #[cfg(test)]
 mod test {
     use std::ops::Range;
-    use crate::list::{ListCRDT, Time, PositionalComponent};
+    use crate::list::{ListCRDT, LV, PositionalComponent};
     use smallvec::{smallvec, SmallVec};
     use rle::{AppendRle, MergeableIterator};
     use crate::list::external_txn::{RemoteCRDTOp, RemoteId, RemoteTxn};
@@ -163,7 +163,7 @@ mod test {
             c
         }).merge_spans();
 
-        let mut from: SmallVec<[Range<Time>; 1]> = smallvec![];
+        let mut from: SmallVec<[Range<LV>; 1]> = smallvec![];
         let actual_c = doc.iter_original_patches().map(|(origin, c)| {
             from.push_rle(origin);
             c

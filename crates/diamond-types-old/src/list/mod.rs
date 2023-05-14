@@ -45,8 +45,8 @@ mod positional_fuzzer;
 // #[cfg(test)]
 // mod tests;
 
-pub type Time = u32;
-pub const ROOT_TIME: Time = Time::MAX;
+pub type LV = u32;
+pub const ROOT_LV: LV = LV::MAX;
 pub const ROOT_AGENT: AgentId = AgentId::MAX;
 
 #[derive(Clone, Debug)]
@@ -80,7 +80,7 @@ type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry<YjsSpan, DocRangeIndex>, Ra
 
 pub type DoubleDeleteList = RleVec<KVPair<DoubleDelete>>;
 
-pub type Branch = SmallVec<[Time; 4]>;
+pub type Branch = SmallVec<[LV; 4]>;
 
 #[derive(Debug)]
 pub struct ListCRDT {
@@ -135,4 +135,13 @@ pub struct ListCRDT {
     text_content: Option<JumpRopeBuf>,
     /// This is a big ol' string containing everything that's been deleted (self.deletes) in order.
     deleted_content: Option<String>,
+}
+
+// This is quite inefficient, but good enough for testing.
+impl Clone for ListCRDT {
+    fn clone(&self) -> Self {
+        let mut result = ListCRDT::new();
+        self.replicate_into(&mut result);
+        result
+    }
 }

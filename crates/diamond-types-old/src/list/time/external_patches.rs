@@ -3,7 +3,7 @@
 /// we're leaning on is correct.
 
 use smallvec::{SmallVec, smallvec};
-use crate::list::{ListCRDT, Time, PositionalComponent};
+use crate::list::{ListCRDT, LV, PositionalComponent};
 use smartstring::alias::{String as SmartString};
 use rle::{AppendRle, HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::list::external_txn::{RemoteId, RemoteIdSpan};
@@ -12,17 +12,17 @@ use crate::list::txn::TxnSpan;
 use crate::rangeextra::OrderRange;
 
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteParentRun {
     pub id: RemoteIdSpan,
     pub parents: SmallVec<[RemoteId; 2]>, // usually 1 entry
 }
 
 impl RemoteParentRun {
-    pub fn from_txn(txn: &TxnSpan, offset: Time, max_len: Time, doc: &ListCRDT) -> Self {
+    pub fn from_txn(txn: &TxnSpan, offset: LV, max_len: LV, doc: &ListCRDT) -> Self {
         let max_len = max_len.min(txn.len - offset);
 
         debug_assert!(offset < txn.len);
@@ -73,7 +73,7 @@ impl MergableSpan for RemoteParentRun {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemotePositionalPatches { // TODO: Rename me.
     pub id_and_parents: SmallVec<[RemoteParentRun; 1]>,
     pub components: SmallVec<[PositionalComponent; 1]>,

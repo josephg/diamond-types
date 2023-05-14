@@ -1,7 +1,7 @@
 /// This file implements equality checking for ListCRDT objects. This implementation is reasonably
 /// inefficient. Its mostly just to aid in unit testing & support for fuzzing.
 
-use crate::list::{ListCRDT, Time, ROOT_AGENT, Branch};
+use crate::list::{ListCRDT, LV, ROOT_AGENT, Branch};
 use crate::rle::RleVec;
 use crate::list::span::YjsSpan;
 use rle::{HasLength, SplitableSpan};
@@ -33,7 +33,7 @@ fn map_crdt_location(map: AgentMapRef, loc: CRDTId) -> CRDTId {
     }
 }
 
-fn set_eq(a: &[Time], b: &[Time]) -> bool {
+fn set_eq(a: &[LV], b: &[LV]) -> bool {
     if a.len() != b.len() { return false; }
     for aa in a.iter() {
         if !b.contains(aa) { return false; }
@@ -60,13 +60,13 @@ impl PartialEq for ListCRDT {
         // 1. Frontiers should match. The frontier property is a set, so order is not guaranteed.
         if self.frontier.len() != other.frontier.len() { return false; }
 
-        let a_to_b_order = |order: Time| {
+        let a_to_b_order = |order: LV| {
             let a_loc = self.get_crdt_location(order);
             let b_loc = map_crdt_location(&agent_a_to_b, a_loc);
             other.crdt_to_localtime(b_loc)
         };
 
-        let a_to_b_span = |order: Time, max: u32| {
+        let a_to_b_span = |order: LV, max: u32| {
             let a_span = self.get_crdt_span(order, max);
             let b_loc = map_crdt_location(&agent_a_to_b, a_span.loc);
             other.crdt_span_to_localtime(b_loc, a_span.len)

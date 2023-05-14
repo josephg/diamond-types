@@ -1,5 +1,5 @@
 use diamond_core_old::{AgentId, CRDTId};
-use crate::list::{InsDelTag, ListCRDT, ROOT_TIME, Time};
+use crate::list::{InsDelTag, ListCRDT, ROOT_LV, LV};
 use crate::list::branch::branch_eq;
 use crate::list::positional::PositionalOpRef;
 use crate::list::span::YjsSpan;
@@ -9,7 +9,7 @@ use InsDelTag::*;
 use crate::list::external_txn::RemoteId;
 
 impl ListCRDT {
-    pub fn apply_patch_at_version(&mut self, agent: AgentId, op: PositionalOpRef, branch: &[Time]) {
+    pub fn apply_patch_at_version(&mut self, agent: AgentId, op: PositionalOpRef, branch: &[LV]) {
         if branch_eq(branch, self.frontier.as_slice()) {
             self.apply_local_txn(agent, op);
         } else {
@@ -29,7 +29,7 @@ impl ListCRDT {
         self.apply_patch_at_version(agent, op, parents.as_slice());
     }
 
-    pub(crate) fn apply_patch_at_map(&mut self, map: &mut PositionMap, agent: AgentId, mut op: PositionalOpRef, branch: &[Time]) {
+    pub(crate) fn apply_patch_at_map(&mut self, map: &mut PositionMap, agent: AgentId, mut op: PositionalOpRef, branch: &[LV]) {
         // local_ops: &[PositionalComponent], mut content: &str
         // TODO: Merge this with apply_local_txn
         let first_time = self.get_next_time();
@@ -54,7 +54,7 @@ impl ListCRDT {
 
                     // Find the preceding item and successor
                     let (origin_left, cursor) = if orig_pos == 0 {
-                        (ROOT_TIME, self.range_tree.cursor_at_start())
+                        (ROOT_LV, self.range_tree.cursor_at_start())
                     } else {
                         let mut cursor = map.list_cursor_at_content_pos(self, orig_pos - 1).0;
                         let origin_left = cursor.get_item().unwrap();

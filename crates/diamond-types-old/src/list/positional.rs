@@ -12,17 +12,17 @@ use InsDelTag::*;
 use crate::unicount::{chars_to_bytes, count_chars};
 use rle::AppendRle;
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use crate::list::ot::traversal::TraversalOp;
 use crate::list::TraversalComponent;
 
 /// So I might use this more broadly, for all edits. If so, move this out of OT.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum InsDelTag { Ins, Del }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PositionalComponent {
     pub pos: u32,
     pub len: u32,
@@ -31,7 +31,7 @@ pub struct PositionalComponent {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PositionalOp {
     pub components: SmallVec<[PositionalComponent; 1]>,
     pub content: SmartString,

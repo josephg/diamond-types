@@ -2,7 +2,7 @@ use smallvec::SmallVec;
 
 use rle::{HasLength, MergableSpan};
 
-use crate::list::{Time, ROOT_TIME};
+use crate::list::{LV, ROOT_LV};
 use crate::rle::RleKeyed;
 use crate::order::TimeSpan;
 use std::ops::Range;
@@ -12,17 +12,17 @@ use std::ops::Range;
 /// Both individual inserts and deletes will use up txn numbers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TxnSpan {
-    pub time: Time,
+    pub time: LV,
     pub len: u32, // Length of the span
 
     /// All txns in this span are direct descendants of all operations from order down to shadow.
     /// This is derived from other fields and used as an optimization for some calculations.
-    pub shadow: Time,
+    pub shadow: LV,
 
     /// The parents vector of the first txn in this span. Must contain at least 1 entry (and will
     /// almost always contain exactly 1 entry - the only exception being in the case of concurrent
     /// changes).
-    pub parents: SmallVec<[Time; 2]>,
+    pub parents: SmallVec<[LV; 2]>,
 
     /// This is a list of the index of other txns which have a parent within this transaction.
     /// TODO: Consider constraining this to not include the next child. Complexity vs memory.
@@ -31,29 +31,29 @@ pub struct TxnSpan {
 }
 
 impl TxnSpan {
-    pub fn parent_at_offset(&self, at: usize) -> Option<Time> {
+    pub fn parent_at_offset(&self, at: usize) -> Option<LV> {
         if at > 0 {
             Some(self.time + at as u32 - 1)
         } else { None } // look at .parents field.
     }
 
-    pub fn parent_at_time(&self, time: Time) -> Option<Time> {
+    pub fn parent_at_time(&self, time: LV) -> Option<LV> {
         if time > self.time {
             Some(time - 1)
         } else { None } // look at .parents field.
     }
 
-    pub fn contains(&self, time: Time) -> bool {
+    pub fn contains(&self, time: LV) -> bool {
         time >= self.time && time < self.time + self.len
     }
 
-    pub fn last_time(&self) -> Time {
+    pub fn last_time(&self) -> LV {
         self.time + self.len - 1
     }
 
-    pub fn shadow_contains(&self, time: Time) -> bool {
+    pub fn shadow_contains(&self, time: LV) -> bool {
         debug_assert!(time <= self.last_time());
-        self.shadow == ROOT_TIME || time >= self.shadow
+        self.shadow == ROOT_LV || time >= self.shadow
     }
 
     // Old. TODO: Remove this.
@@ -61,7 +61,7 @@ impl TxnSpan {
         TimeSpan { start: self.time, len: self.len }
     }
 
-    pub fn as_order_range(&self) -> Range<Time> {
+    pub fn as_order_range(&self) -> Range<LV> {
         self.time.. self.time + self.len
     }
 

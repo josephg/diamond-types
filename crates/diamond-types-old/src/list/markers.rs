@@ -92,14 +92,14 @@ impl<E: ContentTraits, I: TreeMetrics<E>> Searchable for MarkerEntry<E, I> {
 #[cfg(test)]
 mod tests {
     use std::ptr::NonNull;
-    use crate::list::Time;
+    use crate::list::LV;
 
     #[test]
     fn test_sizes() {
         #[derive(Copy, Clone, Eq, PartialEq, Debug)]
         pub enum MarkerOp {
             Ins(NonNull<usize>),
-            Del(Time),
+            Del(LV),
         }
 
         #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -114,7 +114,7 @@ mod tests {
         #[derive(Copy, Clone, Eq, PartialEq, Debug)]
         pub enum MarkerEntry2 {
             Ins(u32, NonNull<usize>),
-            Del(u32, Time, bool),
+            Del(u32, LV, bool),
         }
         dbg!(std::mem::size_of::<MarkerEntry2>());
 

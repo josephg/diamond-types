@@ -6,7 +6,7 @@ use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use smartstring::alias::{String as SmartString};
 use crate::list::time::positionmap::MapTag::*;
 use std::pin::Pin;
-use crate::list::{DoubleDeleteList, ListCRDT, Time, RangeTree, ROOT_TIME};
+use crate::list::{DoubleDeleteList, ListCRDT, LV, RangeTree, ROOT_LV};
 use crate::list::positional::{InsDelTag, PositionalComponent};
 use std::ops::Range;
 use crate::rangeextra::OrderRange;
@@ -191,10 +191,10 @@ impl PositionMap {
         }
     }
 
-    fn new_at_version_from_start(list: &ListCRDT, branch: &[Time]) -> Self {
+    fn new_at_version_from_start(list: &ListCRDT, branch: &[LV]) -> Self {
         let mut result = Self::new_void(list);
-        if branch != &[ROOT_TIME] {
-            let changes = list.txns.diff(&[ROOT_TIME], branch).1;
+        if branch != &[ROOT_LV] {
+            let changes = list.txns.diff(&[ROOT_LV], branch).1;
 
             for range in changes.iter().rev() {
                 let patches = list.patch_iter_in_range(range.clone());
@@ -207,7 +207,7 @@ impl PositionMap {
         result
     }
 
-    fn new_at_version_from_end(list: &ListCRDT, branch: &[Time]) -> Self {
+    fn new_at_version_from_end(list: &ListCRDT, branch: &[LV]) -> Self {
         let mut result = Self::new_upstream(list);
 
         if !branch_eq(branch, list.frontier.as_slice()) {
@@ -225,14 +225,14 @@ impl PositionMap {
         result
     }
 
-    pub(crate) fn new_at_version(list: &ListCRDT, branch: &[Time]) -> Self {
+    pub(crate) fn new_at_version(list: &ListCRDT, branch: &[LV]) -> Self {
         // There's two strategies here: We could start at the start of time and walk forward, or we
         // could start at the current version and walk backward. Walking backward will be much more
         // common in practice, but either approach will generate an identical result.
 
         if branch_is_root(branch) { return Self::new_void(list); }
 
-        let sum: Time = branch.iter().sum();
+        let sum: LV = branch.iter().sum();
 
         let start_work = sum;
         let end_work = (list.get_next_time() - 1) * branch.len() as u32 - sum;
@@ -252,7 +252,7 @@ impl PositionMap {
                 list.check(true);
                 dbg!(&list.txns);
                 dbg!(&branch, &list.frontier);
-                dbg!(list.txns.diff(&branch, &[ROOT_TIME]));
+                dbg!(list.txns.diff(&branch, &[ROOT_LV]));
                 dbg!(list.txns.diff(&branch, &list.frontier));
                 list.debug_print_segments();
                 dbg!(&a.map);
@@ -269,24 +269,24 @@ impl PositionMap {
         else { Self::new_at_version_from_end(list, branch) }
     }
 
-    pub(super) fn order_to_raw(&self, list: &ListCRDT, order: Time) -> (InsDelTag, Range<Time>) {
+    pub(super) fn order_to_raw(&self, list: &ListCRDT, order: LV) -> (InsDelTag, Range<LV>) {
         let cursor = list.get_cursor_before(order);
-        let base = cursor.count_offset_pos() as Time;
+        let base = cursor.count_offset_pos() as LV;
 
         let e = cursor.get_raw_entry();
         let tag = if e.is_activated() { InsDelTag::Ins } else { InsDelTag::Del };
-        (tag, base..(base + e.order_len() - cursor.offset as Time))
+        (tag, base..(base + e.order_len() - cursor.offset as LV))
     }
 
-    pub(super) fn order_to_raw_and_content_len(&self, list: &ListCRDT, order: Time) -> (InsDelTag, Range<Time>, Option<Time>) {
+    pub(super) fn order_to_raw_and_content_len(&self, list: &ListCRDT, order: LV) -> (InsDelTag, Range<LV>, Option<LV>) {
         // This is a modified version of order_to_raw, above. I'm not just reusing the same code
         // because of expected perf, but TODO: Reuse code more! :p
         let cursor = list.get_cursor_before(order);
         let Pair(base, content_pos) = unsafe { cursor.count_pos() };
-        debug_assert_eq!(base, cursor.count_offset_pos() as Time);
+        debug_assert_eq!(base, cursor.count_offset_pos() as LV);
 
         let e = cursor.get_raw_entry();
-        let range = base..(base + e.order_len() - cursor.offset as Time);
+        let range = base..(base + e.order_len() - cursor.offset as LV);
 
         if e.is_activated() {
             (InsDelTag::Ins, range, Some(content_pos))
@@ -304,7 +304,7 @@ impl PositionMap {
         self.map_to_list_cursor(map_cursor, list, false)
     }
 
-    pub(crate) fn right_origin_at(&self, list: &ListCRDT, pos: usize) -> Time {
+    pub(crate) fn right_origin_at(&self, list: &ListCRDT, pos: usize) -> LV {
         // The behaviour of the right_origin marker is unfortunately complicated here. We want to
         // mark as right origin:
         // - The next item after pos
@@ -351,7 +351,7 @@ impl PositionMap {
                     let c2 = list.range_tree.cursor_at_content_pos(doc_content_pos, true);
 
                     if c1 != c2 {
-                        return unsafe { c2.unsafe_get_item() }.unwrap_or(ROOT_TIME)
+                        return unsafe { c2.unsafe_get_item() }.unwrap_or(ROOT_LV)
                         // map_cursor.offset = e.content_len;
                         // break;
                     } // Otherwise, if they're equal. Roll next.
@@ -360,15 +360,15 @@ impl PositionMap {
                 // This replicates cursor.roll_to_next().
                 if map_cursor.next_entry() {
                     continue;
-                } else { return ROOT_TIME; }
+                } else { return ROOT_LV; }
             } else {
                 // The cursor is at the end of the map. Origin right will be ROOT.
-                return ROOT_TIME;
+                return ROOT_LV;
             }
         }
 
         let list_cursor = self.map_to_list_cursor(map_cursor, list, true).0;
-        unsafe { list_cursor.unsafe_get_item() }.unwrap_or(ROOT_TIME)
+        unsafe { list_cursor.unsafe_get_item() }.unwrap_or(ROOT_LV)
     }
 
     fn map_to_list_cursor<'a>(&self, mut map_cursor: Cursor<PositionRun, FullMetricsU32, DEFAULT_IE, DEFAULT_LE>, list: &'a ListCRDT, stick_end: bool) -> (<&'a RangeTree as Cursors>::Cursor, usize) {
@@ -433,13 +433,13 @@ impl PositionMap {
         }
     }
 
-    pub(super) fn retreat_first_by_range(&mut self, list: &ListCRDT, target: Range<Time>, op_type: InsDelTag) -> Time {
+    pub(super) fn retreat_first_by_range(&mut self, list: &ListCRDT, target: Range<LV>, op_type: InsDelTag) -> LV {
         // dbg!(&target, self.map.iter().collect::<Vec<_>>());
         // This variant is only actually used in one place - which makes things easier.
 
         let (final_tag, raw_range) = self.order_to_raw(list, target.start);
         let raw_start = raw_range.start;
-        let mut len = Time::min(raw_range.order_len(), target.order_len());
+        let mut len = LV::min(raw_range.order_len(), target.order_len());
 
         let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
         if op_type == InsDelTag::Del {
@@ -563,12 +563,12 @@ impl PositionMap {
         } else { (c, None) }
     }
 
-    fn advance_first_by_range_internal(&mut self, raw_range: Range<Time>, final_tag: InsDelTag, patch: &mut ListPatchItem, handle_dd: bool) -> Option<PositionalComponent> {
+    fn advance_first_by_range_internal(&mut self, raw_range: Range<LV>, final_tag: InsDelTag, patch: &mut ListPatchItem, handle_dd: bool) -> Option<PositionalComponent> {
         let target = patch.target_range();
         let op_type = patch.op_type;
 
         let raw_start = raw_range.start;
-        let mut len = Time::min(raw_range.order_len(), target.order_len());
+        let mut len = LV::min(raw_range.order_len(), target.order_len());
 
         let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
 

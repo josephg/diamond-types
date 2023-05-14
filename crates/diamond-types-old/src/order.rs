@@ -2,7 +2,7 @@ use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpe
 
 use crate::rle::{RleKey, RleKeyed};
 use std::ops::Range;
-use crate::list::Time;
+use crate::list::LV;
 use crate::rangeextra::OrderRange;
 
 /// An OrderMarker defines a span of item orders, with a base and length.
@@ -43,8 +43,8 @@ impl Default for TimeSpan {
     }
 }
 
-impl From<Range<Time>> for TimeSpan {
-    fn from(range: Range<Time>) -> Self {
+impl From<Range<LV>> for TimeSpan {
+    fn from(range: Range<LV>) -> Self {
         Self {
             start: range.start,
             len: range.order_len(),

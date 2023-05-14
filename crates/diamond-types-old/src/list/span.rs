@@ -3,35 +3,35 @@ use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpe
 
 use content_tree::ContentLength;
 use content_tree::Toggleable;
-use crate::list::{ROOT_TIME, Time};
+use crate::list::{ROOT_LV, LV};
 
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// This is exposed for diamond-wasm's vis output. The internal fields here should not be considered
 /// part of the public API and are not to be relied on.
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(crate="serde_crate"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct YjsSpan {
     /// The ID of this entry. Well, the ID of the first entry in this span.
-    pub time: Time,
+    pub time: LV,
 
     /**
      * The origin_left is only for the first item in the span. Each subsequent item has an
      * origin_left of order+offset
      */
-    pub origin_left: Time,
+    pub origin_left: LV,
 
     /**
      * Each item in the span has the same origin_right.
      */
-    pub origin_right: Time,
+    pub origin_right: LV,
 
     pub len: i32, // negative if deleted.
 }
 
 impl YjsSpan {
-    pub fn origin_left_at_offset(&self, at: u32) -> Time {
+    pub fn origin_left_at_offset(&self, at: u32) -> LV {
         if at == 0 { self.origin_left }
         else { self.time + at - 1 }
     }
@@ -41,7 +41,7 @@ impl YjsSpan {
         self
     }
 
-    pub fn order_len(&self) -> Time {
+    pub fn order_len(&self) -> LV {
         self.len.abs() as _
     }
 
@@ -61,7 +61,7 @@ impl SplitableSpanHelpers for YjsSpan {
         debug_assert!(at > 0);
         let at_signed = at as i32 * self.len.signum();
         let other = YjsSpan {
-            time: self.time + at as Time,
+            time: self.time + at as LV,
             origin_left: self.time + at as u32 - 1,
             origin_right: self.origin_right,
             len: self.len - at_signed
@@ -100,7 +100,7 @@ impl MergableSpan for YjsSpan {
 }
 
 impl Searchable for YjsSpan {
-    type Item = Time;
+    type Item = LV;
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
         if (loc >= self.time) && (loc < self.time + self.len.abs() as u32) {
@@ -111,7 +111,7 @@ impl Searchable for YjsSpan {
     }
 
     fn at_offset(&self, offset: usize) -> Self::Item {
-        self.time + offset as Time
+        self.time + offset as LV
     }
 }
 
@@ -149,9 +149,9 @@ impl Toggleable for YjsSpan {
 #[derive(Debug)]
 struct RootTime;
 
-pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: Time) {
+pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: LV) {
     match val {
-        ROOT_TIME => {
+        ROOT_LV => {
             fmt.field(name, &RootTime);
         },
         start => {

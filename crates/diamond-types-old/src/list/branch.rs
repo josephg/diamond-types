@@ -1,13 +1,13 @@
 use std::ops::Range;
 
-use crate::list::{Branch, Time, ROOT_TIME};
+use crate::list::{Branch, LV, ROOT_LV};
 use crate::list::txn::TxnSpan;
 use crate::rangeextra::OrderRange;
 use crate::rle::RleVec;
 
 /// Advance branch frontier by a transaction. This is written creating a new branch, which is
 /// somewhat inefficient (especially if the frontier is spilled).
-pub(crate) fn advance_branch_by_known(branch: &mut Branch, txn_parents: &[Time], range: Range<Time>) {
+pub(crate) fn advance_branch_by_known(branch: &mut Branch, txn_parents: &[LV], range: Range<LV>) {
     // TODO: Check the branch contains everything in txn_parents, but not txn_id:
     // Check the operation fits. The operation should not be in the branch, but
     // all the operation's parents should be.
@@ -23,7 +23,7 @@ pub(crate) fn advance_branch_by_known(branch: &mut Branch, txn_parents: &[Time],
     branch.push(range.last_order());
 }
 
-pub(crate) fn advance_branch(branch: &mut Branch, history: &RleVec<TxnSpan>, range: Range<Time>) {
+pub(crate) fn advance_branch(branch: &mut Branch, history: &RleVec<TxnSpan>, range: Range<LV>) {
     let txn = history.find(range.start).unwrap();
     if let Some(parent) = txn.parent_at_time(range.start) {
         advance_branch_by_known(branch, &[parent], range);
@@ -33,12 +33,12 @@ pub(crate) fn advance_branch(branch: &mut Branch, history: &RleVec<TxnSpan>, ran
 }
 
 // TODO: Change this to take a range instead of first_order / len pair.
-pub(crate) fn retreat_branch_by(branch: &mut Branch, history: &RleVec<TxnSpan>, range: Range<Time>) {
+pub(crate) fn retreat_branch_by(branch: &mut Branch, history: &RleVec<TxnSpan>, range: Range<LV>) {
     let txn = history.find(range.start).unwrap();
     retreat_branch_known_txn(branch, history, txn, range);
 }
 
-pub(crate) fn retreat_branch_known_txn(branch: &mut Branch, history: &RleVec<TxnSpan>, txn: &TxnSpan, range: Range<Time>) {
+pub(crate) fn retreat_branch_known_txn(branch: &mut Branch, history: &RleVec<TxnSpan>, txn: &TxnSpan, range: Range<LV>) {
     let last_order = range.last_order();
     let idx = branch.iter().position(|&e| e == last_order).unwrap();
 
@@ -63,7 +63,7 @@ pub(crate) fn retreat_branch_known_txn(branch: &mut Branch, history: &RleVec<Txn
     }
 }
 
-pub fn branch_eq(a: &[Time], b: &[Time]) -> bool {
+pub fn branch_eq(a: &[LV], b: &[LV]) -> bool {
     // Almost all branches only have one element in them. But it would be cleaner to keep branches
     // sorted.
     a.len() == b.len() && ((a.len() == 1 && a[0] == b[0]) || {
@@ -71,28 +71,28 @@ pub fn branch_eq(a: &[Time], b: &[Time]) -> bool {
     })
 }
 
-pub fn branch_is_root(branch: &[Time]) -> bool {
-    branch.len() == 1 && branch[0] == ROOT_TIME
+pub fn branch_is_root(branch: &[LV]) -> bool {
+    branch.len() == 1 && branch[0] == ROOT_LV
 }
 
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
 
-    use crate::list::{Branch, ROOT_TIME};
+    use crate::list::{Branch, ROOT_LV};
 
     use super::*;
 
     #[test]
     fn branch_movement_smoke_tests() {
-        let mut branch: Branch = smallvec![ROOT_TIME];
-        advance_branch_by_known(&mut branch, &[ROOT_TIME], 0..10);
+        let mut branch: Branch = smallvec![ROOT_LV];
+        advance_branch_by_known(&mut branch, &[ROOT_LV], 0..10);
         assert_eq!(branch.as_slice(), &[9]);
 
         let txns = RleVec(vec![
             TxnSpan {
-                time: 0, len: 10, shadow: ROOT_TIME,
-                parents: smallvec![ROOT_TIME],
+                time: 0, len: 10, shadow: ROOT_LV,
+                parents: smallvec![ROOT_LV],
                 parent_indexes: smallvec![], child_indexes: smallvec![]
             }
         ]);
@@ -101,6 +101,6 @@ mod test {
         assert_eq!(branch.as_slice(), &[4]);
 
         retreat_branch_by(&mut branch, &txns, 0..5);
-        assert_eq!(branch.as_slice(), &[ROOT_TIME]);
+        assert_eq!(branch.as_slice(), &[ROOT_LV]);
     }
 }
