@@ -37,7 +37,7 @@ bumpalo = { version = "3.10.0", features = ["collections"] }
 # Its tempting to disable default-features in jumprope because it means we don't need to hook in crypto random, which
 # saves some size in the wasm output size. But I think its better to default to having this feature enabled.
 #jumprope = { path = "../jumprope-rs", version = "1.1.0" }
-jumprope = "1.1.0"
+jumprope = "1.1.2"
 humansize = "2.0.0"
 num_enum = "0.5.6"
 
