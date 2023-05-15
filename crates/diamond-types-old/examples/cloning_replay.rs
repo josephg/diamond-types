@@ -1,5 +1,9 @@
 //! This file implements a simple routine to replay complex positional editing histories using
 //! deep cloning.
+//!
+//! Build / run with:
+//! cargo build -p diamond-types-old --example cloning_replay --features=serde,serde_json --release
+
 #![allow(unused_imports)]
 
 use std::collections::HashMap;
@@ -12,6 +16,7 @@ use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 use diamond_core_old::AgentId;
 use diamond_types_old::list::ListCRDT;
+use std::fmt::Write;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,7 +79,9 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
             let mut doc = parent_doc.clone();
 
             let agent = if need_agent {
-                doc.get_or_create_agent_id(&format!("{idx}-{retains}"))
+                let mut agent_name = SmartString::new();
+                write!(agent_name, "{idx}-{retains}").unwrap();
+                doc.get_or_create_agent_id(agent_name.as_str())
             } else { 0 };
             *retains -= 1;
             (doc, agent)
