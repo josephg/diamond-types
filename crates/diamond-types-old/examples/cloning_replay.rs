@@ -10,6 +10,7 @@ use criterion::{black_box, Criterion};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
+use diamond_core_old::AgentId;
 use diamond_types_old::list::ListCRDT;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -37,7 +38,7 @@ pub struct HistoryEntry {
 
 
 fn gen_main() -> Result<(), Box<dyn Error>> {
-    let doc = ListCRDT::new();
+    let mut doc = ListCRDT::new();
 
     // let filename = "example_trace.json";
     let filename = "node_nodecc.json";
@@ -57,17 +58,26 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
     let num_final = history.txns.iter().filter(|e| e.num_children == 0).count();
     assert_eq!(num_final, 1);
 
-    let mut doc_at_idx: HashMap<usize, (ListCRDT, usize)> = HashMap::new();
-    doc_at_idx.insert(usize::MAX, (doc, num_roots));
+    let mut doc_at_idx: HashMap<usize, (ListCRDT, AgentId, usize)> = HashMap::new();
 
-    fn take_doc(doc_at_idx: &mut HashMap<usize, (ListCRDT, usize)>, idx: usize) -> ListCRDT {
-        let (parent_doc, retains) = doc_at_idx.get_mut(&idx).unwrap();
+    let agent = doc.get_or_create_agent_id("origin");
+    doc_at_idx.insert(usize::MAX, (doc, agent, num_roots));
+
+    fn take_doc(doc_at_idx: &mut HashMap<usize, (ListCRDT, AgentId, usize)>, idx: usize, need_agent: bool) -> (ListCRDT, AgentId) {
+        let (parent_doc, agent, retains) = doc_at_idx.get_mut(&idx).unwrap();
         if *retains == 1 {
             // We'll just take the document.
-            doc_at_idx.remove(&idx).unwrap().0
+            let agent = *agent;
+            (doc_at_idx.remove(&idx).unwrap().0, agent)
         } else {
             // Fork it and take the fork.
-            parent_doc.clone()
+            let mut doc = parent_doc.clone();
+
+            let agent = if need_agent {
+                doc.get_or_create_agent_id(&format!("{idx}-{retains}"))
+            } else { 0 };
+            *retains -= 1;
+            (doc, agent)
         }
     }
 
@@ -82,11 +92,11 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
         // First we need to get the doc we're editing.
         let (&first_p, rest_p) = entry.parents.split_first().unwrap_or((&usize::MAX, &[]));
 
-        let mut doc = take_doc(&mut doc_at_idx, first_p);
+        let (mut doc, agent) = take_doc(&mut doc_at_idx, first_p, true);
 
         // If there's any more parents, merge them together.
         for p in rest_p {
-            let doc2 = take_doc(&mut doc_at_idx, *p);
+            let (doc2, _) = take_doc(&mut doc_at_idx, *p, false);
             doc2.replicate_into(&mut doc);
         }
 
@@ -99,8 +109,8 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
         // let actor = ActorId::from(actor_bytes);
         // doc.set_actor(actor);
 
-        let a = format!("{_i}");
-        let agent = doc.get_or_create_agent_id(&a);
+        // let a = format!("{_i}");
+        // let agent = doc.get_or_create_agent_id(&a);
         // let agent = doc.get_or_create_agent_id(&entry.agent);
 
         // Ok, now modify the document.
@@ -120,7 +130,7 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
 
         // And deposit the result back into doc_at_idx.
         if entry.num_children > 0 {
-            doc_at_idx.insert(entry.id, (doc, entry.num_children));
+            doc_at_idx.insert(entry.id, (doc, agent, entry.num_children));
         } else {
             println!("done!");
 
