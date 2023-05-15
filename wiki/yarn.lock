@@ -733,9 +733,9 @@ call-bind@^1.0.0:
     get-intrinsic "^1.0.2"
 
 caniuse-lite@^1.0.30001449:
-  version "1.0.30001486"
-  resolved "https://registry.yarnpkg.com/caniuse-lite/-/caniuse-lite-1.0.30001486.tgz#56a08885228edf62cbe1ac8980f2b5dae159997e"
-  integrity sha512-uv7/gXuHi10Whlj0pp5q/tsK/32J2QSqVRKQhs2j8VsDCjgyruAh/eEXHF822VqO9yT6iZKw3nRwZRSPBE9OQg==
+  version "1.0.30001487"
+  resolved "https://registry.npmjs.org/caniuse-lite/-/caniuse-lite-1.0.30001487.tgz"
+  integrity sha512-83564Z3yWGqXsh2vaH/mhXfEM0wX+NlBCm1jYHOb97TrTWJEmPTccZgeLTPBUUb0PNVo+oomb7wkimZBIERClA==
 
 chalk@^2.0.0:
   version "2.4.2"
@@ -802,15 +802,15 @@ destroy@1.2.0:
   resolved "https://registry.yarnpkg.com/destroy/-/destroy-1.2.0.tgz#4803735509ad8be552934c67df614f94e66fa015"
   integrity sha512-2sJGJTaXIIaR1w4iJSNoN0hnMY7Gpc/n8D4qSCJw8QqFWXf7cuAgnEHxBpweaVcPevC2l3KpjYCx3NypQQgaJg==
 
-diamond-types-node@^1.0.1:
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/diamond-types-node/-/diamond-types-node-1.0.1.tgz#3427c92454cea10aec0a30b5093b165603e86ca7"
-  integrity sha512-TBzXNz5Jkkpffuu8qY6vLw/wx48wVU83Lj4X2d6M2/TD4Bsfmh4R1JoYWlWEYOR8NVboCEZ0eeB7iGruwx7+4g==
+diamond-types-node@^1.0.2:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/diamond-types-node/-/diamond-types-node-1.0.2.tgz#6bfb413b1a1a0f6840ecdebf1fd99dd8d4b4b3f5"
+  integrity sha512-TWVZpHp32gvVqZc4A0NB/bTpRSwN71iwjlfZF2V7Kb+kp+YFAckxzEmpOedkDDnevPCz5iDe/ju1ln3bxCsqfA==
 
-diamond-types-web@^1.0.1:
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/diamond-types-web/-/diamond-types-web-1.0.1.tgz#12dc1b8babf37b17a2b7a077085ef41a95729540"
-  integrity sha512-0cS0bLcjB4CdlaKJ/uLwXTNlUx5ipJb4E33djdHpcqtGZ1Ac7eSygPCPiNmKO+fR2F2XXto1FohWqzlnPHsAew==
+diamond-types-web@^1.0.2:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/diamond-types-web/-/diamond-types-web-1.0.2.tgz#170f3b5b0a3c2b3c60f1f2476a2f8515339c62fa"
+  integrity sha512-oXR/1q95bU7GTNOE2FaZ6UgQ4wK5VhrD2FtBvh1Xgx8V8sSmLl0XWThdztmKXnkiUwYSxx0sLXQJWuZcf9isTQ==
 
 diff@^4.0.1:
   version "4.0.2"

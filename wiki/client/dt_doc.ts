@@ -106,7 +106,7 @@ ${JSON.stringify(doc.localToRemoteVersion(server_version))}`)
 
     let new_value = doc.get()
 
-    let {selectionStart, selectionEnd} = elem
+    let {selectionStart, selectionEnd, selectionDirection} = elem
 
     // For optimization reasons this should be using doc.charsToWchars, but we
     // need to call that before the new content is merged in to doc. TODO!
@@ -125,7 +125,8 @@ ${JSON.stringify(doc.localToRemoteVersion(server_version))}`)
 
     elem.setSelectionRange(
       doc.charsToWchars(selectionStart),
-      doc.charsToWchars(selectionEnd)
+      doc.charsToWchars(selectionEnd),
+      selectionDirection
     )
 
     assert(vEq(doc.getLocalVersion(), last_version))
