@@ -370,7 +370,7 @@ pub(crate) struct RegisterInfo {
     // history of values this register has ever held.
     ops: Vec<ValPair>,
 
-    // Indexes into ops.
+    /// Cached version(s) which together store the current HEAD for this register.
     supremum: SmallVec<[usize; 2]>,
 }
 
@@ -392,7 +392,9 @@ pub struct OpLog {
     // Information about whether the map still exists!
     // maps: BTreeMap<LVKey, MapInfo>,
 
+    /// (CRDT ID, key) -> MVRegister.
     map_keys: BTreeMap<(LVKey, SmartString), RegisterInfo>,
+    /// CRDT ID -> Text CRDT.
     texts: BTreeMap<LVKey, TextInfo>,
 
     // These are always inserted at the end, but items in the middle are removed. There's probably
