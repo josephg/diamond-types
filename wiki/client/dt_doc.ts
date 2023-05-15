@@ -112,6 +112,7 @@ ${JSON.stringify(doc.localToRemoteVersion(server_version))}`)
     // need to call that before the new content is merged in to doc. TODO!
     selectionStart = strPosToUni(last_value, selectionStart)
     selectionEnd = strPosToUni(last_value, selectionEnd)
+    // console.log('selection', selectionStart, selectionEnd)
 
     for (const op of doc.xfSince(last_version)) {
       selectionStart = transformPosition(selectionStart, op, true)

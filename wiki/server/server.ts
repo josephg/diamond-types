@@ -8,7 +8,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import rateLimit from '../common/ratelimit.js'
-import { vEq } from '../common/utils.js'
+import {vEq, wait} from '../common/utils.js'
 
 // process.on('unhandledRejection', (err: Error) => {
 //   console.log(err.stack)
@@ -17,12 +17,12 @@ import { vEq } from '../common/utils.js'
 
 const {raw} = bodyParser
 
-const assets = sirv('public', {
-  // maxAge: 31536000, // 1Y
-  // immutable: true,
-  brotli: true,
-  dev: process.env.NODE_ENV !== 'production',
-});
+// const assets = sirv('public', {
+//   // maxAge: 31536000, // 1Y
+//   // immutable: true,
+//   brotli: true,
+//   dev: process.env.NODE_ENV !== 'production',
+// });
 const clientCode = sirv('dist-client', {
   // maxAge: 31536000, // 1Y
   // immutable: true,
@@ -31,7 +31,8 @@ const clientCode = sirv('dist-client', {
   single: true,
 });
 
-const app = polka().use(assets)
+const app = polka()
+    // .use(assets)
 
 type DocStuff = {
   oplog: OpLog,
