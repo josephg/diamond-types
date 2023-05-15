@@ -329,7 +329,7 @@ impl ListCRDT {
             Some(TimeSpan {
                 start: 0,
                 // This is correct but it feels somewhat brittle.
-                len: self.get_next_time()
+                len: self.get_next_lv()
             })
         }
     }

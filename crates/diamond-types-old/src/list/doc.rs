@@ -183,7 +183,7 @@ impl ListCRDT {
         self.client_data[loc.agent as usize].seq_to_order_span(loc.seq, max_len)
     }
 
-    pub fn get_next_time(&self) -> LV {
+    pub fn get_next_lv(&self) -> LV {
         if let Some(KVPair(base, entry)) = self.client_with_time.last() {
             base + entry.len as u32
         } else { 0 }
@@ -249,7 +249,7 @@ impl ListCRDT {
         unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_after(time, stick_end)) }
     }
 
-    pub(super) fn assign_time_to_client(&mut self, loc: CRDTId, time: LV, len: usize) {
+    pub(super) fn assign_lv_to_client(&mut self, loc: CRDTId, time: LV, len: usize) {
         self.client_with_time.push(KVPair(time, CRDTSpan {
             loc,
             len: len as _
@@ -547,7 +547,7 @@ impl ListCRDT {
         // Check that the txn hasn't already been applied.
         assert!(client.item_localtime.find(txn.id.seq).is_none());
 
-        let first_time = self.get_next_time();
+        let first_time = self.get_next_lv();
         let mut next_time = first_time;
 
         // Figure out the order range for this txn and assign
@@ -573,7 +573,7 @@ impl ListCRDT {
         let mut content = txn.ins_content.as_str();
 
         // TODO: This may be premature - we may be left in an invalid state if the txn is invalid.
-        self.assign_time_to_client(CRDTId {
+        self.assign_lv_to_client(CRDTId {
             agent,
             seq: txn.id.seq,
         }, first_time, txn_len);
@@ -677,12 +677,12 @@ impl ListCRDT {
 
     pub fn apply_local_txn(&mut self, agent: AgentId, mut op: PositionalOpRef) {
         // local_ops: &[PositionalComponent], mut content: &str
-        let first_time = self.get_next_time();
+        let first_time = self.get_next_lv();
         let mut next_time = first_time;
 
         let txn_len = op.components.iter().map(|c| c.len).sum::<u32>() as usize;
 
-        self.assign_time_to_client(CRDTId {
+        self.assign_lv_to_client(CRDTId {
             agent,
             seq: self.client_data[agent as usize].get_next_seq()
         }, first_time, txn_len);
@@ -758,7 +758,7 @@ impl ListCRDT {
         }
 
         self.insert_txn_local(first_time..next_time);
-        debug_assert_eq!(next_time, self.get_next_time());
+        debug_assert_eq!(next_time, self.get_next_lv());
     }
 
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
@@ -784,7 +784,7 @@ impl ListCRDT {
 
     // TODO: Consider refactoring me to use positional operations instead of traversal operations
     pub fn apply_txn_at_ot_order(&mut self, agent: AgentId, op: &TraversalOp, order: LV, is_left: bool) {
-        let now = self.get_next_time();
+        let now = self.get_next_lv();
         if order < now {
             let historical_patches = self.traversal_changes_since(order);
             let mut local_ops = op.traversal.clone();

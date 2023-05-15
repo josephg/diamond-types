@@ -235,7 +235,7 @@ impl PositionMap {
         let sum: LV = branch.iter().sum();
 
         let start_work = sum;
-        let end_work = (list.get_next_time() - 1) * branch.len() as u32 - sum;
+        let end_work = (list.get_next_lv() - 1) * branch.len() as u32 - sum;
 
         if PARANOID_CHECKING {
             // We should end up with identical results regardless of whether we start from the start

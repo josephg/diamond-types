@@ -231,7 +231,7 @@ impl ListCRDT {
     pub fn linear_changes_since(&self, order: LV) -> TimeSpan {
         TimeSpan {
             start: order,
-            len: self.get_next_time() - order
+            len: self.get_next_lv() - order
         }
     }
 }

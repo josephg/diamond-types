@@ -32,11 +32,11 @@ impl ListCRDT {
     pub(crate) fn apply_patch_at_map(&mut self, map: &mut PositionMap, agent: AgentId, mut op: PositionalOpRef, branch: &[LV]) {
         // local_ops: &[PositionalComponent], mut content: &str
         // TODO: Merge this with apply_local_txn
-        let first_time = self.get_next_time();
+        let first_time = self.get_next_lv();
         let mut next_time = first_time;
         let txn_len = op.components.iter().map(|c| c.len).sum::<u32>() as usize;
 
-        self.assign_time_to_client(CRDTId {
+        self.assign_lv_to_client(CRDTId {
             agent,
             seq: self.client_data[agent as usize].get_next_seq()
         }, first_time, txn_len);
@@ -148,7 +148,7 @@ impl ListCRDT {
 
         // self.insert_txn_local(first_order..next_order);
         self.insert_txn_full(branch, first_time..next_time);
-        debug_assert_eq!(next_time, self.get_next_time());
+        debug_assert_eq!(next_time, self.get_next_lv());
     }
 }
 

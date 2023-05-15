@@ -538,7 +538,7 @@ impl ListCRDT {
             del_spans.push(target);
         }
 
-        let doc_next_order = self.get_next_time();
+        let doc_next_order = self.get_next_lv();
         if next_order < doc_next_order {
             // There's an insert after the last delete. Include it in ins_del_runs.
             ins_del_runs.push(PosNegRun((doc_next_order - next_order) as i32));

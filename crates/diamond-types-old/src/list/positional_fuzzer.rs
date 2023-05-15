@@ -27,7 +27,7 @@ impl ListWithHistory {
                 ops.1.check();
                 assert_eq!(offset, 0);
 
-                let time = dest_doc.get_next_time();
+                let time = dest_doc.get_next_lv();
                 // println!("Op merging at time {}", time);
                 dest_ops.push(KVPair(time, ops.1.clone()));
 
@@ -116,7 +116,7 @@ fn run_fuzzer_iteration(seed: u64) {
             // Agent ID 0 on each doc is what we want.
             // let seq = doc.client_data[0].get_next_seq();
             // let time = doc.get_frontier::<Vec<RemoteId>>();
-            let time = doc.get_next_time();
+            let time = doc.get_next_lv();
             let op = make_random_change(doc, None, 0, &mut rng);
             op.check();
 

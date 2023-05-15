@@ -680,7 +680,7 @@ mod test {
             make_random_change(&mut doc, None, agent_0, rng);
         }
 
-        let midpoint_order = doc.get_next_time();
+        let midpoint_order = doc.get_next_lv();
         let midpoint_content = if doc.has_content() { Some(doc.to_string()) } else { None };
 
         let mut expect_author = vec![];

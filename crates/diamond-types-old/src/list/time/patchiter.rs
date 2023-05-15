@@ -156,7 +156,7 @@ impl<'a> Iterator for ListPatchIter<'a, false> {
 
 impl ListCRDT {
     pub(crate) fn patch_iter(&self) -> ListPatchIter<true> {
-        ListPatchIter::new(&self.deletes, 0..self.get_next_time())
+        ListPatchIter::new(&self.deletes, 0..self.get_next_lv())
     }
 
     pub(crate) fn patch_iter_in_range(&self, range: Range<LV>) -> ListPatchIter<true> {
@@ -164,7 +164,7 @@ impl ListCRDT {
     }
 
     pub(crate) fn patch_iter_rev(&self) -> ListPatchIter<false> {
-        ListPatchIter::new(&self.deletes, 0..self.get_next_time())
+        ListPatchIter::new(&self.deletes, 0..self.get_next_lv())
     }
 
     pub(crate) fn patch_iter_in_range_rev(&self, range: Range<LV>) -> ListPatchIter<false> {
@@ -194,7 +194,7 @@ mod test {
         doc.local_insert(0, 0, "hi there");
         doc.local_delete(0, 2, 6);
 
-        assert_doc_patches_match(&doc, 0..doc.get_next_time(), &[
+        assert_doc_patches_match(&doc, 0..doc.get_next_lv(), &[
             ListPatchItem { range: 0..8, op_type: Ins, target_start: 0 },
             ListPatchItem { range: 8..14, op_type: Del, target_start: 2 }
         ]);
