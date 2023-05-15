@@ -63,6 +63,34 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<
     }
 }
 
+impl Clone for ListCRDT {
+    fn clone(&self) -> Self {
+        // Clone is complex because we need to walk the b-tree. Cloning the b-tree could probably
+        // be done in a more efficient way, but this is honestly fine.
+        let mut range_tree = ContentTreeRaw::new();
+        let mut index = ContentTreeRaw::new();
+
+        let mut cursor = range_tree.mut_cursor_at_start();
+        for e in self.range_tree.iter() {
+            cursor.insert_notify(e, notify_for(&mut index));
+        }
+
+        let result = ListCRDT {
+            frontier: self.frontier.clone(),
+            client_with_time: self.client_with_time.clone(),
+            client_data: self.client_data.clone(),
+            range_tree,
+            index,
+            deletes: self.deletes.clone(),
+            double_deletes: self.double_deletes.clone(),
+            txns: self.txns.clone(),
+            text_content: self.text_content.clone(),
+            deleted_content: self.deleted_content.clone(),
+        };
+
+        result
+    }
+}
 
 impl ListCRDT {
     pub fn new() -> Self {
@@ -967,6 +995,7 @@ mod tests {
         assert_eq!(doc_remote, doc_local);
         assert_eq!(doc_remote.deletes, doc_local.deletes); // Not currently checked by Eq.
 
+        assert_eq!(doc_remote, doc_remote.clone());
         // dbg!(doc_remote.get_version_vector());
     }
 
@@ -1039,6 +1068,8 @@ mod tests {
             start: 7,
             len: 1
         }]);
+
+        assert_eq!(doc, doc.clone());
     }
 
     #[test]
@@ -1060,5 +1091,7 @@ mod tests {
         if let Some(text) = doc.text_content.as_ref() {
             assert_eq!(text, "ccaabb");
         }
+
+        assert_eq!(doc, doc.clone());
     }
 }

@@ -136,12 +136,3 @@ pub struct ListCRDT {
     /// This is a big ol' string containing everything that's been deleted (self.deletes) in order.
     deleted_content: Option<String>,
 }
-
-// This is quite inefficient, but good enough for testing.
-impl Clone for ListCRDT {
-    fn clone(&self) -> Self {
-        let mut result = ListCRDT::new();
-        self.replicate_into(&mut result);
-        result
-    }
-}

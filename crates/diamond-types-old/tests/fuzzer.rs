@@ -172,6 +172,8 @@ fn run_fuzzer_iteration(seed: u64) {
 
         for doc in &docs {
             doc.check(false);
+
+            // assert_eq!(doc, &doc.clone());
         }
     }
 
