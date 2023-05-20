@@ -15,7 +15,7 @@ fn testing_data(name: &str) -> TestData {
 }
 
 const LINEAR_DATASETS: &[&str] = &["automerge-paper", "rustcode", "sveltecomponent", "seph-blog1"];
-const COMPLEX_DATASETS: &[&str] = &["node_nodecc", "git-makefile"];
+const COMPLEX_DATASETS: &[&str] = &["node_nodecc", "git-makefile", "friendsforever"];
 
 fn local_benchmarks(c: &mut Criterion) {
     for name in LINEAR_DATASETS {
@@ -112,6 +112,7 @@ fn local_benchmarks(c: &mut Criterion) {
 fn encoding_nodecc_benchmarks(c: &mut Criterion) {
     for name in COMPLEX_DATASETS {
         let mut group = c.benchmark_group("complex");
+        // println!("benchmark_data/{name}.dt");
         let bytes = std::fs::read(format!("benchmark_data/{name}.dt")).unwrap();
         let oplog = ListOpLog::load_from(&bytes).unwrap();
         // group.throughput(Throughput::Bytes(bytes.len() as _));
