@@ -184,35 +184,11 @@ impl ListOpLog {
 pub struct FullEntry {
     pub span: DTRange,
     pub parents: Frontier,
-    pub agent_id: AgentId,
+    pub agent_span: AgentSpan,
     pub ops: SmallVec<[TextOperation; 2]>,
 }
 
 impl ListOpLog {
-    pub fn iter_full_2<'a>(&'a self) -> Vec<FullEntry> {
-        let mut result = vec![];
-        let simple_graph = self.cg.make_simple_graph();
-
-        for mut entry in simple_graph.0.into_iter() {
-            for agent_kv in self.cg.agent_assignment.client_with_localtime.iter_range(entry.span) {
-                let entry_here = entry.truncate_keeping_right_from(agent_kv.end());
-
-                assert_eq!(agent_kv.range(), entry_here.span);
-
-                result.push(FullEntry {
-                    agent_id: agent_kv.1.agent,
-                    span: entry_here.span,
-                    parents: entry_here.parents,
-                    ops: self.iter_range_simple(entry_here.span)
-                        .map(|pair| (pair.0.1, pair.1).into())
-                        .collect(),
-                });
-            }
-        }
-
-        result
-    }
-
     pub fn iter_full<'a>(&'a self, simple_graph: &'a RleVec<GraphEntrySimple>) -> impl Iterator<Item = (GraphEntrySimple, AgentSpan, TextOperation)> + 'a {
         self.iter_fast().flat_map(|(pair, content)| {
             let range = pair.range();
@@ -226,7 +202,33 @@ impl ListOpLog {
         })
     }
 
+    /// This is a variant on iter_full, but where we also group together operations which are
+    /// consecutive (from the same agent, and consecutive in time).
+    ///
+    /// TODO: Convert this to return an iterator.
+    pub fn as_chunked_operation_vec(&self) -> Vec<FullEntry> {
+        let mut result = vec![];
+        let simple_graph = self.cg.make_simple_graph();
 
+        for mut entry in simple_graph.0.into_iter() {
+            for agent_kv in self.cg.agent_assignment.client_with_localtime.iter_range(entry.span) {
+                let entry_here = entry.truncate_keeping_right_from(agent_kv.end());
+
+                assert_eq!(agent_kv.range(), entry_here.span);
+
+                result.push(FullEntry {
+                    agent_span: agent_kv.1,
+                    span: entry_here.span,
+                    parents: entry_here.parents,
+                    ops: self.iter_range_simple(entry_here.span)
+                        .map(|pair| (pair.0.1, pair.1).into())
+                        .collect(),
+                });
+            }
+        }
+
+        result
+    }
 }
 
 #[cfg(test)]
@@ -277,4 +279,40 @@ mod test {
             }),
         ]);
     }
+
+    // #[test]
+    // #[ignore]
+    // fn test_file() {
+    //     use crate::list::encoding::{ENCODE_FULL, EncodeOptions};
+    //     let data = std::fs::read("friendsforever.dt").unwrap();
+    //     let oplog = ListOpLog::load_from(&data).unwrap();
+    //     // oplog.checkout_tip();
+    //
+    //     let mut chunks = oplog.as_chunked_operation_vec();
+    //     for (i, c) in chunks[..10].iter().enumerate() {
+    //         println!("{i}: {:?}", c);
+    //     }
+    //
+    //     chunks[5].parents.replace_with_1(56);
+    //     chunks[6].parents.replace_with_1(119);
+    //
+    //     // Now form it back into an oplog.
+    //
+    //     let mut result = ListOpLog::new();
+    //     for c in chunks {
+    //         let agent_name = oplog.get_agent_name(c.agent_span.agent);
+    //         let a = result.get_or_create_agent_id(agent_name);
+    //
+    //         result.add_operations_at(a, c.parents.as_ref(), &c.ops);
+    //     }
+    //
+    //     let r1 = oplog.checkout_tip();
+    //     let r2 = result.checkout_tip();
+    //     assert_eq!(r1.content, r2.content);
+    //
+    //     dbg!(oplog.encode(ENCODE_FULL).len());
+    //     dbg!(result.encode(ENCODE_FULL).len());
+    //     let result_data = result.encode(ENCODE_FULL);
+    //     std::fs::write("ff2.dt", &result_data).unwrap();
+    // }
 }

@@ -170,7 +170,7 @@ impl M2Tracker {
             // When preparing example data, its important that the data can merge the same
             // regardless of editing trace (so the output isn't dependent on the algorithm used to
             // merge).
-            // panic!("Oh no! {:?}", item.id);
+            // println!("Concurrent changes {:?} vs {:?}", item.id, other_entry.id);
 
             // This code could be better optimized, but its already O(n * log n), and its extremely
             // rare that you actually get concurrent inserts at the same location in the document

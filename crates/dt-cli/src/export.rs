@@ -66,8 +66,8 @@ pub fn export_to_json(oplog: &ListOpLog) -> ExportedEditHistory {
     // Each chunk of operations has an ID so other ops can refer to it.
     let mut idx_for_v = HashMap::new();
 
-    for entry in oplog.iter_full_2() {
-        let agent_name = oplog.cg.agent_assignment.get_agent_name(entry.agent_id);
+    for entry in oplog.as_chunked_operation_vec() {
+        let agent_name = oplog.cg.agent_assignment.get_agent_name(entry.agent_span.agent);
 
         let id = txns.len();
 
