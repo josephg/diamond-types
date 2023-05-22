@@ -46,6 +46,15 @@ impl ListOpLog {
     pub fn iter_xf_operations(&self) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
         self.iter_xf_operations_from(&[], self.cg.version.as_ref())
     }
+
+    #[cfg(feature = "merge_conflict_checks")]
+    pub fn has_conflicts_when_merging(&self) -> bool {
+        let mut iter = TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
+                                               &self.operation_ctx, &self.operations,
+                                               &[], self.cg.version.as_ref());
+        for _ in &mut iter {}
+        iter.concurrent_inserts_collided()
+    }
 }
 
 

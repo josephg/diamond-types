@@ -36,6 +36,7 @@ use crate::list::op_iter::OpMetricsIter;
 use crate::causalgraph::graph::Graph;
 use crate::textinfo::TextInfo;
 use crate::frontier::local_frontier_eq;
+use crate::list::ListOpLog;
 #[cfg(feature = "ops_to_old")]
 use crate::listmerge::to_old::OldCRDTOpInternal;
 use crate::unicount::consume_chars;
@@ -96,6 +97,8 @@ impl M2Tracker {
         Self {
             range_tree,
             index,
+            #[cfg(feature = "merge_conflict_checks")]
+            concurrent_inserts_collide: false,
             #[cfg(feature = "ops_to_old")]
             dbg_ops: vec![]
         }
@@ -170,7 +173,10 @@ impl M2Tracker {
             // When preparing example data, its important that the data can merge the same
             // regardless of editing trace (so the output isn't dependent on the algorithm used to
             // merge).
-            // println!("Concurrent changes {:?} vs {:?}", item.id, other_entry.id);
+            #[cfg(feature = "merge_conflict_checks")] {
+                //println!("Concurrent changes {:?} vs {:?}", item.id, other_entry.id);
+                self.concurrent_inserts_collide = true;
+            }
 
             // This code could be better optimized, but its already O(n * log n), and its extremely
             // rare that you actually get concurrent inserts at the same location in the document
@@ -663,6 +669,14 @@ impl<'a> TransformedOpsIter<'a> {
 
     pub(crate) fn into_frontier(self) -> Frontier {
         self.next_frontier
+    }
+
+    /// Returns if concurrent inserts ever collided at the same location while traversing.
+    #[cfg(feature = "merge_conflict_checks")]
+    pub(crate) fn concurrent_inserts_collided(&self) -> bool {
+        self.phase2.as_ref().map_or(false, |(tracker, _)| {
+            tracker.concurrent_inserts_collide
+        })
     }
 }
 

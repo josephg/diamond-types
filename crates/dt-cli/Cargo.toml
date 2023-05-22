@@ -11,7 +11,7 @@ name = "dt"
 path = "src/main.rs"
 
 [dependencies]
-diamond-types = { path = "../..", features = ["serde", "dot_export"] }
+diamond-types = { path = "../..", features = ["serde", "dot_export", "merge_conflict_checks"] }
 clap = { version = "4.2.4", features = ["derive"] }
 similar = "2.1.0"
 rand = "0.8.5"
@@ -20,6 +20,7 @@ serde_json = "1.0.79"
 anyhow = "1.0.71"
 smallvec = "1.10.0"
 smartstring = "1.0.1"
+chrono = { version = "0.4.24", default-features = false, features = ["alloc", "std"] }
 
 git2 = { version = "0.17.1", optional = true }
 indicatif = { version = "0.17.3", optional = true }

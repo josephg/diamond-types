@@ -47,7 +47,8 @@ struct M2Tracker {
     /// - For deletes, this names the time at which the delete happened.
     index: SpaceIndex,
 
-    // concurrent_inserts_collide: bool,
+    #[cfg(feature = "merge_conflict_checks")]
+    concurrent_inserts_collide: bool,
 
     #[cfg(feature = "ops_to_old")]
     dbg_ops: Vec<to_old::OldCRDTOpInternal>,

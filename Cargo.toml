@@ -68,6 +68,7 @@ serde = ["dep:serde", "smallvec/serde", "smartstring/serde"]
 dot_export = []
 wchar_conversion = ["jumprope/wchar_conversion"]
 ops_to_old = []
+merge_conflict_checks = []
 storage = []
 
 # This is internal only for generating JSON testing data. To generate, run test suite with

@@ -8,16 +8,19 @@ use std::fs::File;
 use std::io::{BufWriter, ErrorKind, Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
+use anyhow::Error;
+use chrono::{DateTime, SecondsFormat, Timelike, Utc};
 use clap::{Parser, Subcommand};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
+use serde::Serialize;
 use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
 use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionOwned;
 use diamond_types::list::{ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
 use crate::dot::{generate_svg_with_dot};
-use crate::export::export_to_json;
+use crate::export::{export_full_to_json, export_trace_to_json, export_transformed};
 use crate::git::extract_from_git;
 
 #[derive(Parser, Debug)]
@@ -169,9 +172,44 @@ enum Commands {
         quiet: bool,
     },
 
+    /// Export a diamond types file to raw JSON. This outputs the raw data stored in a diamond types
+    /// file in a simplified JSON format.
+    Export {
+        /// File to export
+        dt_filename: OsString,
+
+        /// Output the result to the specified filename. If missing, output is printed to stdout.
+        #[arg(short, long)]
+        output: Option<OsString>,
+
+        /// Use pretty JSON output
+        #[arg(short, long)]
+        pretty: bool,
+    },
+
     /// Export a diamond types file to raw JSON. This produces an editing log which can be processed
     /// by other compatible CRDT libraries for benchmarking and testing.
-    Export {
+    ///
+    /// See https://github.com/josephg/editing-traces for detail.
+    ExportTrace {
+        /// File to export
+        dt_filename: OsString,
+
+        /// Output the result to the specified filename. If missing, output is printed to stdout.
+        #[arg(short, long)]
+        output: Option<OsString>,
+
+        /// Use pretty JSON output
+        #[arg(short, long)]
+        pretty: bool,
+
+        /// Force generation of output even if trace breaks some of the rules for well defined
+        /// shared traces.
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    ExportTraceSimple {
         /// File to edit
         dt_filename: OsString,
 
@@ -443,36 +481,48 @@ fn main() -> Result<(), anyhow::Error> {
             }
         }
 
-        Commands::Export { dt_filename, mut output, pretty } => {
+        Commands::Export { dt_filename, output, pretty } => {
             let data = fs::read(&dt_filename)?;
             let oplog = ListOpLog::load_from(&data)?;
 
-            let result = export_to_json(&oplog);
+            let result = export_full_to_json(&oplog);
+            write_serde_data(output, pretty, &result)?;
+        }
 
-            // This repetition is gross, but I'm not sure a better way to do it given the type of
-            // stdout and File are different. Halp!
+        Commands::ExportTrace { dt_filename, output, pretty, force } => {
+            let data = fs::read(&dt_filename)?;
+            let oplog = ListOpLog::load_from(&data)?;
 
-            // Bit gross. Handle -o- even though its unnecessary.
-            if let Some(path) = &output {
-                if path == "-" { output = None; }
-            }
-
-            if let Some(path) = output {
-                let writer = BufWriter::new(File::create(path)?);
-                if pretty {
-                    serde_json::to_writer_pretty(writer, &result)?;
+            if oplog.has_conflicts_when_merging() {
+                let message = "Oplog has conflicts when merging. This makes it unsuitable for use as an editing trace.";
+                if force {
+                    eprintln!("Warning: {message}");
                 } else {
-                    serde_json::to_writer(writer, &result)?;
-                }
-            } else {
-                let writer = BufWriter::new(std::io::stdout());
-                if pretty {
-                    serde_json::to_writer_pretty(writer, &result)?;
-                } else {
-                    serde_json::to_writer(writer, &result)?;
+                    panic!("{message}");
                 }
             }
-            // serde_json::to_writer()
+
+            let result = export_trace_to_json(&oplog, force);
+            write_serde_data(output, pretty, &result)?;
+        }
+
+        Commands::ExportTraceSimple { dt_filename, output, pretty } => {
+            // In this editing trace format, a timestamp is passed in each transaction. We'll just
+            // construct a single timestamp for the whole file based on the file's mtime and use
+            // that everywhere.
+            let metadata = fs::metadata(&dt_filename)?;
+            let modified_time = metadata.modified()?;
+            let datetime: DateTime<Utc> = modified_time.into();
+            let timestamp = datetime.with_minute(0).unwrap()
+                .with_second(0).unwrap()
+                .to_rfc3339_opts(SecondsFormat::Secs, true);
+            // println!("time {time}");
+
+            let data = fs::read(&dt_filename)?;
+            let oplog = ListOpLog::load_from(&data)?;
+
+            let result = export_transformed(&oplog, timestamp);
+            write_serde_data(output, pretty, &result)?;
         }
 
         Commands::Dot { dt_filename, no_render, output, dot_path } => {
@@ -523,6 +573,34 @@ fn main() -> Result<(), anyhow::Error> {
         }
     }
     // dbg!(&cli);
+    Ok(())
+}
+
+fn write_serde_data<T: Serialize>(mut output: Option<OsString>, pretty: bool, data: &T) -> Result<(), Error> {
+    // This repetition is gross, but I'm not sure a better way to do it given the type of
+    // stdout and File are different. Halp!
+
+    // Bit gross. Handle -o- even though its unnecessary.
+    if let Some(path) = &output {
+        if path == "-" { output = None; }
+    }
+
+    if let Some(path) = output {
+        let writer = BufWriter::new(File::create(path)?);
+        if pretty {
+            serde_json::to_writer_pretty(writer, data)?;
+        } else {
+            serde_json::to_writer(writer, data)?;
+        }
+    } else {
+        let writer = BufWriter::new(std::io::stdout());
+        if pretty {
+            serde_json::to_writer_pretty(writer, data)?;
+        } else {
+            serde_json::to_writer(writer, data)?;
+        }
+    }
+
     Ok(())
 }
 

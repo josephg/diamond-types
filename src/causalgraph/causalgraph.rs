@@ -20,6 +20,10 @@ impl CausalGraph {
         self.agent_assignment.get_or_create_agent_id(name)
     }
 
+    pub fn num_agents(&self) -> usize {
+        self.agent_assignment.client_data.len()
+    }
+
     pub(crate) fn len_assignment(&self) -> usize {
         self.agent_assignment.len()
     }
