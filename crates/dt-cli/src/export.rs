@@ -18,6 +18,8 @@ use diamond_types::list::ListOpLog;
 use diamond_types::list::operation::{ListOpKind, TextOperation};
 use smartstring::alias::{String as SmartString};
 use diamond_types::{DTRange, HasLength};
+use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
+use rle::SplitableSpan;
 
 // Note this discards the fwd/backwards direction of the changes. This shouldn't matter in
 // practice given the whole operation is unitary.
@@ -180,20 +182,52 @@ pub struct TraceSimpleExportData {
 #[serde(rename_all = "camelCase")]
 pub struct TraceSimpleExportTxn {
     time: SmartString,
-    patches: SmallVec<[SimpleTextOp; 2]>,
+    patches: SmallVec<[SimpleTextOp; 4]>,
 }
 
 pub fn export_transformed(oplog: &ListOpLog, timestamp: String) -> TraceSimpleExportData {
+    // The file format stores a set of transactions, and each transaction stores a list of patches.
+    // It would be really simple to just export everything into one big transaction, but thats a bit
+    // lazy.
+    //
+    // Instead, I'm splitting up the transactions along user agent boundaries.
+    //
+    // Note that the order that we traverse the operations here may be different from the order
+    // that we export things in the export function above.
     let mut txns = vec![];
-
     let timestamp: SmartString = timestamp.into();
-    for (_, op) in oplog.iter_xf_operations() {
-        if let Some(op) = op {
-            txns.push(TraceSimpleExportTxn {
-                time: timestamp.clone(),
-                patches: smallvec![op.into()],
-            });
+
+    let mut current_txn = TraceSimpleExportTxn {
+        time: timestamp.clone(),
+        patches: smallvec![],
+    };
+    let mut last_agent: Option<&str> = None;
+
+    for (range, op) in oplog.iter_xf_operations() {
+        if let Some(mut op) = op {
+            for RemoteVersionSpan(agent, seq_range) in oplog.cg.agent_assignment.iter_remote_mappings_range(range) {
+                let can_append = last_agent == Some(agent) || last_agent == None;
+
+                let op_here = op.truncate_keeping_right(seq_range.len());
+
+                if !can_append {
+                    // Flush current_txn to the txns list and clear it.
+                    assert!(!current_txn.patches.is_empty());
+                    txns.push(current_txn);
+                    current_txn = TraceSimpleExportTxn {
+                        time: timestamp.clone(),
+                        patches: smallvec![],
+                    };
+                }
+
+                current_txn.patches.push(op_here.into());
+                last_agent = Some(agent);
+            }
         }
+    }
+
+    if !current_txn.patches.is_empty() {
+        txns.push(current_txn);
     }
 
     let end_content = oplog.checkout_tip().into_inner().to_string();
