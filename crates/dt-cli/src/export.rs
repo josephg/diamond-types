@@ -43,6 +43,7 @@ impl From<TextOperation> for SimpleTextOp {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceExportData {
+    kind: &'static str,
     end_content: String,
     num_agents: usize,
 
@@ -134,6 +135,7 @@ pub fn export_trace_to_json(oplog: &ListOpLog, force: bool) -> TraceExportData {
 
     let end_content = oplog.checkout_tip().into_inner().to_string();
     TraceExportData {
+        kind: "concurrent",
         end_content,
         num_agents,
         txns,

@@ -298,9 +298,17 @@ mod test {
     //
     //     // Now form it back into an oplog.
     //
+    //     let agent_names = [
+    //         "0",
+    //         "1",
+    //         "0",
+    //         "1",
+    //     ];
+    //
     //     let mut result = ListOpLog::new();
     //     for c in chunks {
-    //         let agent_name = oplog.get_agent_name(c.agent_span.agent);
+    //         // let agent_name = oplog.get_agent_name(c.agent_span.agent);
+    //         let agent_name = &agent_names[c.agent_span.agent as usize];
     //         let a = result.get_or_create_agent_id(agent_name);
     //
     //         result.add_operations_at(a, c.parents.as_ref(), &c.ops);
