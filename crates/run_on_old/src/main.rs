@@ -1,4 +1,4 @@
-use criterion::{BenchmarkId, black_box, Criterion, criterion_group, criterion_main};
+use criterion::{black_box, Criterion};
 use smallvec::{smallvec, SmallVec};
 use diamond_types::causalgraph::agent_assignment::remote_ids::{RemoteVersionOwned as NewRemoteVersion};
 use diamond_types::DTRange;
@@ -24,7 +24,7 @@ fn new_to_old_remote_id(new: NewRemoteVersion) -> OldRemoteId {
 }
 
 // NOTE: Not guaranteed to cover incoming span.
-fn time_to_remote_span(range: DTRange, oplog: &ListOpLog) -> OldRemoteIdSpan {
+fn lv_to_remote_span(range: DTRange, oplog: &ListOpLog) -> OldRemoteIdSpan {
     if range.start == usize::MAX {
         panic!("Cannot convert a root timespan");
     } else {
@@ -51,69 +51,87 @@ fn time_to_remote_span(range: DTRange, oplog: &ListOpLog) -> OldRemoteIdSpan {
 //     }
 // }
 
+
 fn get_txns(name: &str) -> Vec<RemoteTxn> {
     let contents = std::fs::read(name).unwrap();
     println!("\n\nLoaded testing data from {} ({} bytes)", name, contents.len());
     let oplog = ListOpLog::load_from(&contents).unwrap();
 
     let items = oplog.dbg_items();
-    dbg!(items.len());
 
-    items.into_iter().map(|item| {
-        // let id = new_to_old_remote_span(item.remote_span(&oplog));
-        let span = item.time_span();
+    let mut result = vec![];
+    for mut item in items {
+        loop {
+            let span = item.lv_span();
+            let id = lv_to_remote_span(span, &oplog);
+            // println!("{i}: id span {:?}", id);
 
-        let id = time_to_remote_span(span, &oplog);
+            // assert_eq!(id.len as usize, item.len(), "Split items is unimplemented!");
 
-        assert_eq!(id.len as usize, item.len(), "Split items is unimplemented!");
-        let id = id.id;
+            let id_len = id.len as usize;
+            let rem = if id_len < item.len() {
+                Some(item.truncate(id_len))
+            } else {
+                assert_eq!(id_len, item.len());
+                None
+            };
 
-        let mut ops = smallvec![];
-        let ins_content = match item {
-            OldCRDTOp::Ins {
-                id, origin_left, origin_right, content
-            } => {
-                ops.push(diamond_types_old::list::external_txn::RemoteCRDTOp::Ins {
-                    origin_left: time_to_remote_id(origin_left, &oplog),
-                    origin_right: time_to_remote_id(origin_right, &oplog),
-                    len: id.len() as _,
-                    content_known: true
-                });
-                content
-            }
-            OldCRDTOp::Del { mut target, .. } => {
-                while !target.is_empty() {
-                    let t_here = time_to_remote_span(target.span, &oplog);
-                    ops.push(diamond_types_old::list::external_txn::RemoteCRDTOp::Del {
-                        id: t_here.id,
-                        len: t_here.len
+            let id = id.id;
+            // println!("id {:?} item {:?}", id, item);
+            let span = item.lv_span();
+
+            let mut ops = smallvec![];
+            let ins_content = match item {
+                OldCRDTOp::Ins {
+                    id, origin_left, origin_right, content
+                } => {
+                    ops.push(diamond_types_old::list::external_txn::RemoteCRDTOp::Ins {
+                        origin_left: time_to_remote_id(origin_left, &oplog),
+                        origin_right: time_to_remote_id(origin_right, &oplog),
+                        len: id.len() as _,
+                        content_known: true
                     });
-                    target.truncate_keeping_right(t_here.len as _);
+                    content
                 }
-                "".into()
+                OldCRDTOp::Del { mut target, .. } => {
+                    while !target.is_empty() {
+                        let t_here = lv_to_remote_span(target.span, &oplog);
+                        ops.push(diamond_types_old::list::external_txn::RemoteCRDTOp::Del {
+                            id: t_here.id,
+                            len: t_here.len
+                        });
+                        target.truncate_keeping_right(t_here.len as _);
+                    }
+                    "".into()
+                }
+            };
+
+            let mut parents: SmallVec<[OldRemoteId; 2]> = oplog.parents_at_version(span.start).iter().map(|p| {
+                time_to_remote_id(*p, &oplog)
+            }).collect();
+            if parents.is_empty() {
+                parents.push(root_id());
             }
-        };
 
-        // oplog.
+            result.push(RemoteTxn {
+                id,
+                parents,
+                ops,
+                ins_content
+            });
 
-        let mut parents: SmallVec<[OldRemoteId; 2]> = oplog.parents_at_time(span.start).iter().map(|p| {
-            time_to_remote_id(*p, &oplog)
-        }).collect();
-        if parents.is_empty() {
-            parents.push(root_id());
+            if let Some(rem) = rem {
+                item = rem;
+            } else { break; }
         }
+    }
 
-        RemoteTxn {
-            id,
-            parents,
-            ops,
-            ins_content
-        }
-    }).collect()
+    result
 }
 
 fn bench_process(c: &mut Criterion) {
-    let name = "benchmark_data/node_nodecc.dt";
+    // let name = "benchmark_data/node_nodecc.dt";
+    let name = "benchmark_data/friendsforever.dt";
     // let name = "benchmark_data/git-makefile.dt";
     // let name = "benchmark_data/data.dt";
 

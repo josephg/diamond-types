@@ -66,7 +66,7 @@ pub enum RemoteCRDTOp {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteTxn {
-    pub id: RemoteId,
+    pub id: RemoteId, // ID of the first change in the txn
     pub parents: SmallVec<[RemoteId; 2]>, // usually 1 entry
     pub ops: SmallVec<[RemoteCRDTOp; 2]>, // usually 1-2 entries.
 

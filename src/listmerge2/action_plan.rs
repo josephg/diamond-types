@@ -648,7 +648,7 @@ impl MergePlan {
             match action {
                 Apply(ApplyAction { span, index, update_other_indexes, insert_items: _ }) => {
                     if !span.is_empty() {
-                        let actual_parents = graph.parents_at_time(span.start);
+                        let actual_parents = graph.parents_at_version(span.start);
 
                         // The designated index must exactly match the parents of the span we're applying.
                         assert_eq!(index_state[*index].as_ref(), Some(&actual_parents), "Parents of {} do not match index", span.start);

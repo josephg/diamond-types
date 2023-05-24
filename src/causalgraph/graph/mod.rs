@@ -53,7 +53,7 @@ pub struct Graph {
 }
 
 impl Graph {
-    pub fn parents_at_time(&self, v: LV) -> Frontier {
+    pub fn parents_at_version(&self, v: LV) -> Frontier {
         let entry = self.entries.find_packed(v);
         // entry.with_parents(time, |p| p.into())
         entry.clone_parents_at_version(v)

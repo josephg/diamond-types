@@ -523,7 +523,7 @@ impl M2Tracker {
 
                 #[cfg(feature = "ops_to_old")] {
                     self.dbg_ops.push_rle(OldCRDTOpInternal::Del {
-                        start_time: lv_start,
+                        start_v: lv_start,
                         target: RangeRev {
                             span: target,
                             fwd

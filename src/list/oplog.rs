@@ -429,8 +429,8 @@ impl ListOpLog {
         self.cg.graph.version_union(a, b)
     }
 
-    pub fn parents_at_time(&self, time: LV) -> Frontier {
-        self.cg.graph.parents_at_time(time)
+    pub fn parents_at_version(&self, lv: LV) -> Frontier {
+        self.cg.graph.parents_at_version(lv)
     }
 
     pub(crate) fn estimate_cost(&self, op_range: DTRange) -> usize {
