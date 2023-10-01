@@ -231,7 +231,7 @@ impl OpLog {
             self.create_child_crdt(v, kind);
         }
 
-        let mut entry = self.map_keys.entry((crdt, key.into()))
+        let entry = self.map_keys.entry((crdt, key.into()))
             .or_default();
 
         let new_idx = entry.ops.len();
@@ -266,7 +266,7 @@ impl OpLog {
             self.create_child_crdt(v, kind);
         }
 
-        let mut entry = self.map_keys.entry((crdt, key.into()))
+        let entry = self.map_keys.entry((crdt, key.into()))
             .or_default();
 
         // If the entry already contains the new op, ignore it.

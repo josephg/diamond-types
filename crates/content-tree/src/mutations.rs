@@ -1063,7 +1063,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Node
                     // with a fresh node, which would be simpler, but doing that would mess up the
                     // cursor (which we don't have access to here). And it would require an
                     // additional allocation - though this is rare anyway.
-                    let mut root = root.as_mut();
+                    let root = root.as_mut();
                     spare_leaf.set_parent(root.to_parent_ptr());
                     // spare_leaf.unwrap_leaf_mut().get_unchecked_mut().num_entries = 0;
                     spare_leaf.unwrap_leaf_mut().get_unchecked_mut().clear_all();

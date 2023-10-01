@@ -234,6 +234,7 @@ impl<'a> SpanningTreeWalker<'a> {
 impl<'a> Iterator for SpanningTreeWalker<'a> {
     type Item = TxnWalkItem;
 
+    //noinspection RsDropRef
     fn next(&mut self) -> Option<Self::Item> {
         self.check();
 
@@ -273,8 +274,7 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
         let child_idxs = take(&mut input_entry.child_idxs);
         let parents = take(&mut input_entry.parents);
         let span = input_entry.span;
-        #[allow(clippy::drop_ref)]
-        drop(input_entry);
+        // input_entry is not used after this point.
 
         // dbg!(&child_idxs);
 
