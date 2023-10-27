@@ -201,7 +201,7 @@ pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &
             // We already know the timespan for merged_span - so I could use that and just query the
             // rest. But eh. This is smaller and should be just as performant.
             let client_data = &cg.agent_assignment.client_data[span.agent as usize];
-            for KVPair(_, time) in client_data.item_times.iter_range(span.seq_range) {
+            for KVPair(_, time) in client_data.lv_for_seq.iter_range(span.seq_range) {
                 read_map.txn_map.push(KVPair(next_file_time, time));
                 next_file_time += time.len();
             }

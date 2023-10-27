@@ -30,7 +30,7 @@ impl ListOpLog {
 
     #[allow(unused)]
     pub(crate) fn check_all_changes_rle_merged(&self) {
-        assert_eq!(self.cg.agent_assignment.client_data[0].item_times.num_entries(), 1);
+        assert_eq!(self.cg.agent_assignment.client_data[0].lv_for_seq.num_entries(), 1);
         // .. And operation log.
         assert_eq!(self.cg.graph.entries.num_entries(), 1);
     }

@@ -118,10 +118,10 @@ mod serde_encoding {
 impl AgentAssignment {
     pub fn summarize_versions(&self) -> VersionSummary {
         VersionSummary(self.client_data.iter().filter_map(|c| {
-            if c.item_times.is_empty() { None } else {
+            if c.lv_for_seq.is_empty() { None } else {
                 Some(VSEntry {
                     name: c.name.clone(),
-                    seq_ranges: c.item_times
+                    seq_ranges: c.lv_for_seq
                         .iter()
                         .map(|e| e.range())
                         .merge_spans()
@@ -133,7 +133,7 @@ impl AgentAssignment {
 
     pub fn summarize_versions_flat(&self) -> VersionSummaryFlat {
         VersionSummaryFlat(self.client_data.iter().filter_map(|c| {
-            if c.item_times.is_empty() { None }
+            if c.lv_for_seq.is_empty() { None }
             else { Some((c.name.clone(), c.get_next_seq())) }
         }).collect())
     }
@@ -146,7 +146,7 @@ impl AgentAssignment {
             let mut next_seq = 0;
 
             if let Some(agent_id) = agent_id {
-                let entries = &self.client_data[agent_id as usize].item_times;
+                let entries = &self.client_data[agent_id as usize].lv_for_seq;
 
                 for e in entries.iter() {
                     let entry_start = e.0;
@@ -182,7 +182,7 @@ impl AgentAssignment {
                 for seq_range in seq_ranges {
                     // entries.iter_range skips missing entries, so we need to manually yield those.
                     let mut expect_next_seq = seq_range.start;
-                    for entry in client_data.item_times.iter_range(*seq_range) {
+                    for entry in client_data.lv_for_seq.iter_range(*seq_range) {
                         let seq_range = entry.range();
 
                         if seq_range.start > expect_next_seq {

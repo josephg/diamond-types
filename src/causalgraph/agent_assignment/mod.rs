@@ -23,7 +23,7 @@ pub(crate) struct ClientData {
     /// might be ordered as (0, 2, 1). This will only happen when changes are concurrent. The order
     /// of time spans must always obey the partial order of changes. But it will not necessarily
     /// agree with the order amongst time spans.
-    pub(crate) item_times: RleVec<KVPair<DTRange>>,
+    pub(crate) lv_for_seq: RleVec<KVPair<DTRange>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -47,16 +47,16 @@ pub struct AgentAssignment {
 
 impl ClientData {
     pub fn get_next_seq(&self) -> usize {
-        self.item_times.end()
+        self.lv_for_seq.end()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.item_times.is_empty()
+        self.lv_for_seq.is_empty()
     }
 
     #[inline]
     pub(crate) fn try_seq_to_lv(&self, seq: usize) -> Option<LV> {
-        let (entry, offset) = self.item_times.find_with_offset(seq)?;
+        let (entry, offset) = self.lv_for_seq.find_with_offset(seq)?;
         Some(entry.1.start + offset)
     }
 
@@ -66,7 +66,7 @@ impl ClientData {
 
     /// Note the returned timespan might be shorter than seq_range.
     pub fn try_seq_to_lv_span(&self, seq_range: DTRange) -> Option<DTRange> {
-        let (KVPair(_, entry), offset) = self.item_times.find_with_offset(seq_range.start)?;
+        let (KVPair(_, entry), offset) = self.lv_for_seq.find_with_offset(seq_range.start)?;
 
         let start = entry.start + offset;
         let end = usize::min(entry.end, start + seq_range.len());
@@ -101,7 +101,7 @@ impl AgentAssignment {
             // Create a new id.
             self.client_data.push(ClientData {
                 name: SmartString::from(name),
-                item_times: RleVec::new()
+                lv_for_seq: RleVec::new()
             });
             (self.client_data.len() - 1) as AgentId
         }
@@ -119,7 +119,7 @@ impl AgentAssignment {
     ///
     /// The items returned will always be in sequence order.
     pub fn iter_lv_map_for_agent(&self, agent: AgentId) -> impl Iterator<Item = (usize, usize, usize)> + '_ {
-        self.client_data[agent as usize].item_times.iter()
+        self.client_data[agent as usize].lv_for_seq.iter()
             .map(|KVPair(seq, lv_range)| { (*seq, lv_range.start, lv_range.len()) })
     }
 
@@ -163,7 +163,7 @@ impl AgentAssignment {
         let client_data = &mut self.client_data[agent as usize];
 
         let next_seq = client_data.get_next_seq();
-        client_data.item_times.push(KVPair(next_seq, span));
+        client_data.lv_for_seq.push(KVPair(next_seq, span));
 
         self.client_with_localtime.push(KVPair(span.start, AgentSpan {
             agent,

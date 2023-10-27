@@ -57,7 +57,7 @@ impl CausalGraph {
 
                 // Find out how many items we can eat
                 let (r, offset) = self.agent_assignment.client_data[self_agent as usize]
-                    .item_times.find_sparse(seq);
+                    .lv_for_seq.find_sparse(seq);
                 if r.is_ok() {
                     // Overlap here. Discard from the queue.
                     break;

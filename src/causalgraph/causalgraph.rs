@@ -102,7 +102,7 @@ impl CausalGraph {
 
         // Make sure the time isn't already assigned. Can I elide this check in release mode?
         // Note I only need to check the start of the seq_range.
-        let (x, _offset) = client_data.item_times.find_sparse(span.seq_range.start);
+        let (x, _offset) = client_data.lv_for_seq.find_sparse(span.seq_range.start);
         if let Err(range) = x {
             assert!(range.end >= span.seq_range.end, "Time range already assigned");
         } else {
@@ -113,7 +113,7 @@ impl CausalGraph {
 
         // Almost always appending to the end but its possible for the same agent ID to be used on
         // two concurrent branches, then transmitted in a different order.
-        client_data.item_times.insert(KVPair(span.seq_range.start, time_span));
+        client_data.lv_for_seq.insert(KVPair(span.seq_range.start, time_span));
         self.agent_assignment.client_with_localtime.push(KVPair(time_start, span));
         self.graph.push(parents, time_span);
         self.version.advance_by_known_run(parents, time_span);
@@ -145,7 +145,7 @@ impl CausalGraph {
         // 3. There's some overlap. The overlap must be at the start of the entry, because all of
         //    each item's parents must be known.
 
-        match client_data.item_times.find_index(span.seq_range.last()) {
+        match client_data.lv_for_seq.find_index(span.seq_range.last()) {
             Ok(_idx) => {
                 // If we know the last ID, the entire entry is known. Case 1 - discard and return.
                 (time_start..time_start).into()
@@ -153,7 +153,7 @@ impl CausalGraph {
             Err(idx) => {
                 // idx is the index where the item could be inserted to maintain order.
                 if idx >= 1 { // if idx == 0, there's no overlap anyway.
-                    let prev_entry = &mut client_data.item_times.0[idx - 1];
+                    let prev_entry = &mut client_data.lv_for_seq.0[idx - 1];
                     let previous_end = prev_entry.end();
 
                     if previous_end >= span.seq_range.start {
@@ -182,7 +182,7 @@ impl CausalGraph {
                         if prev_entry.can_append(&new_entry) {
                             prev_entry.append(new_entry);
                         } else {
-                            client_data.item_times.0.insert(idx, new_entry);
+                            client_data.lv_for_seq.0.insert(idx, new_entry);
                         }
 
                         return time_span;
@@ -191,7 +191,7 @@ impl CausalGraph {
 
                 // We know it can't combine with the previous element.
                 let time_span = (time_start..time_start + span.len()).into();
-                client_data.item_times.0.insert(idx, KVPair(span.seq_range.start, time_span));
+                client_data.lv_for_seq.0.insert(idx, KVPair(span.seq_range.start, time_span));
                 self.agent_assignment.client_with_localtime.push(KVPair(time_start, span));
                 self.graph.push(parents, time_span);
                 self.version.advance_by_known_run(parents, time_span);

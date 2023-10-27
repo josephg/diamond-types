@@ -126,7 +126,7 @@ impl ListOpLog {
         // } else {
         //     client_data.item_times.insert(KVPair(seq_range.start, timespan));
         // }
-        client_data.item_times.insert(KVPair(seq_range.start, timespan));
+        client_data.lv_for_seq.insert(KVPair(seq_range.start, timespan));
 
         self.cg.agent_assignment.client_with_localtime.push(KVPair(start, span));
     }
@@ -139,7 +139,7 @@ impl ListOpLog {
         let client_data = &mut self.cg.agent_assignment.client_data[agent as usize];
 
         let next_seq = client_data.get_next_seq();
-        client_data.item_times.push(KVPair(next_seq, span));
+        client_data.lv_for_seq.push(KVPair(next_seq, span));
 
         self.cg.agent_assignment.client_with_localtime.push(KVPair(span.start, AgentSpan {
             agent,

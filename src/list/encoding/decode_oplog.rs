@@ -511,7 +511,7 @@ impl ListOpLog {
                     };
 
                     let client_data = &mut self.cg.agent_assignment.client_data[removed.agent as usize];
-                    client_data.item_times.remove_ctx(removed.seq_range, &());
+                    client_data.lv_for_seq.remove_ctx(removed.seq_range, &());
                 }
             }
 
@@ -790,7 +790,7 @@ impl ListOpLog {
                     while !crdt_span.seq_range.is_empty() {
                         // dbg!(&crdt_span);
                         let client = &self.cg.agent_assignment.client_data[crdt_span.agent as usize];
-                        let (span, offset) = client.item_times.find_sparse(crdt_span.seq_range.start);
+                        let (span, offset) = client.lv_for_seq.find_sparse(crdt_span.seq_range.start);
                         // dbg!((crdt_span.seq_range, span, offset));
                         let (span_end, overlap_start) = match span {
                             // Skip the entry.
