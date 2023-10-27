@@ -20,7 +20,7 @@ use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionOwned
 use diamond_types::list::{ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
 use crate::dot::{generate_svg_with_dot};
-use crate::export::{export_full_to_json, export_trace_to_json, export_transformed};
+use crate::export::{check_trace_invariants, export_full_to_json, export_trace_to_json, export_transformed};
 use crate::git::extract_from_git;
 
 #[derive(Parser, Debug)]
@@ -203,10 +203,10 @@ enum Commands {
         #[arg(short, long)]
         pretty: bool,
 
-        /// Force generation of output even if trace breaks some of the rules for well defined
-        /// shared traces.
-        #[arg(short, long)]
-        force: bool,
+        // /// Force generation of output even if trace breaks some of the rules for well defined
+        // /// shared traces.
+        // #[arg(short, long)]
+        // force: bool,
     },
 
     ExportTraceSimple {
@@ -489,20 +489,31 @@ fn main() -> Result<(), anyhow::Error> {
             write_serde_data(output, pretty, &result)?;
         }
 
-        Commands::ExportTrace { dt_filename, output, pretty, force } => {
+        Commands::ExportTrace { dt_filename, output, pretty } => {
             let data = fs::read(&dt_filename)?;
             let oplog = ListOpLog::load_from(&data)?;
 
-            if oplog.has_conflicts_when_merging() {
-                let message = "Oplog has conflicts when merging. This makes it unsuitable for use as an editing trace.";
-                if force {
-                    eprintln!("Warning: {message}");
-                } else {
-                    panic!("{message}");
+            let problems = check_trace_invariants(&oplog);
+            if !problems.is_ok() {
+                if problems.has_conflicts {
+                    eprintln!("\
+                        WARNING: Oplog has conflicts when merging.\n\
+                        This means the oplog may have differing merge results based on the sequence CRDT\n\
+                        used to process it.");
                 }
+                if problems.agent_ops_not_fully_ordered {
+                    eprintln!("WARNING: Operations from each agent are not fully ordered.");
+                }
+                if problems.multiple_roots {
+                    eprintln!("WARNING: Operation log has multiple roots.");
+                }
+                eprintln!("\n\
+                    This trace is unsuitable for use as a general purpose editing trace.\n\
+                    Please do not publish it on the editing trace repository.\
+                ");
             }
 
-            let result = export_trace_to_json(&oplog, force);
+            let result = export_trace_to_json(&oplog);
             write_serde_data(output, pretty, &result)?;
         }
 

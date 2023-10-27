@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 /// TODO:
 ///
 /// This export script works to export data sets to something cross-compatible with other CRDTs.
@@ -17,7 +16,7 @@ use smallvec::{SmallVec, smallvec};
 use diamond_types::list::ListOpLog;
 use diamond_types::list::operation::{ListOpKind, TextOperation};
 use smartstring::alias::{String as SmartString};
-use diamond_types::{DTRange, HasLength};
+use diamond_types::{AgentId, DTRange, HasLength};
 use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
 use rle::SplitableSpan;
 
@@ -62,38 +61,88 @@ pub struct TraceExportTxn {
     patches: SmallVec<[SimpleTextOp; 2]>,
 }
 
-pub fn export_trace_to_json(oplog: &ListOpLog, force: bool) -> TraceExportData {
+#[derive(Clone, Debug)]
+pub struct ExportTraceProblems {
+    pub has_conflicts: bool,
+    pub agent_ops_not_fully_ordered: bool,
+    pub multiple_roots: bool,
+}
+impl ExportTraceProblems {
+    pub fn is_ok(&self) -> bool {
+        !self.has_conflicts && !self.agent_ops_not_fully_ordered && !self.multiple_roots
+    }
+}
+
+pub fn check_trace_invariants(oplog: &ListOpLog) -> ExportTraceProblems {
+    let mut agent_ops_not_fully_ordered = false;
+    let mut num_roots = 0;
+
+    for entry in oplog.cg.iter() {
+        if entry.parents.is_root() { num_roots += 1; }
+    }
+
+    for agent in 0..oplog.cg.num_agents() {
+        let mut last_lv = 0;
+        // We expect the lv returned here to be in order.
+        for (_, lv, _) in oplog.cg.agent_assignment.iter_lv_map_for_agent(agent as AgentId) {
+            if lv < last_lv { agent_ops_not_fully_ordered = true; }
+            last_lv = lv;
+        }
+    }
+
+    ExportTraceProblems {
+        has_conflicts: oplog.has_conflicts_when_merging(),
+        agent_ops_not_fully_ordered,
+        multiple_roots: num_roots > 1,
+    }
+}
+
+pub fn export_trace_to_json(oplog: &ListOpLog) -> TraceExportData {
     let mut txns = vec![];
 
     // TODO: A hashmap is overkill here. A vec + binary search would be fine. Eh.
     // Each chunk of operations has an ID so other ops can refer to it.
     let mut idx_for_v = HashMap::new();
     let mut last_version_from_agent = HashMap::new();
-    let mut agent_map = vec![None; oplog.cg.num_agents()];
-    let mut num_agents: usize = 0;
+
+    // Editing traces *should* be non-conflicting, but its still convenient sometimes to export and
+    // use editing traces which contain editing conflicts. In the trace editing format, agents are
+    // referred to by number. Locally we use strings and sort the strings lexicographically to order
+    // concurrent edits.
+    //
+    // Anyway, long and short of it is - we'll map each local agent to a number in agent ID order.
+
+    let num_agents = oplog.cg.num_agents();
+    let mut sorted_agents: Vec<AgentId> = (0..num_agents as AgentId).collect();
+    sorted_agents.sort_by(|a, b| {
+        let a_name = oplog.cg.agent_assignment.get_agent_name(*a);
+        let b_name = oplog.cg.agent_assignment.get_agent_name(*b);
+        a_name.cmp(b_name)
+    });
+
+    // sorted_agents maps from order -> agent_id. We need a map from agent_id -> order, so we'll
+    // make another list and invert sorted_agents.
+    let mut agent_map: Vec<usize> = vec![0; num_agents];
+    for (i, agent) in sorted_agents.iter().enumerate() {
+        agent_map[*agent as usize] = i;
+    }
 
     for (i, entry) in oplog.as_chunked_operation_vec().into_iter().enumerate() {
-        if let Some(last_v) = last_version_from_agent.get(&entry.agent_span.agent) {
-            if !force {
-                assert_eq!(Some(Ordering::Less), oplog.cg.graph.version_cmp(*last_v, entry.span.start), "Operations are not fully ordered from each agent");
-            }
-        }
+        // if let Some(last_v) = last_version_from_agent.get(&entry.agent_span.agent) {
+        //     if !force {
+        //         assert_eq!(Some(Ordering::Less), oplog.cg.graph.version_cmp(*last_v, entry.span.start), "Operations are not fully ordered from each agent");
+        //     }
+        // }
         last_version_from_agent.insert(entry.agent_span.agent, entry.span.last());
 
-        if !force {
-            assert_eq!(i == 0, entry.parents.is_empty(), "Cannot export trace: ROOT entry has multiple children");
-            // I'm not sure how this can happen, but its cheap to check just in case.
-            assert_eq!(entry.ops.is_empty(), false, "Transaction cannot have empty op list");
-        }
+        // if !force {
+        //     assert_eq!(i == 0, entry.parents.is_empty(), "Cannot export trace: ROOT entry has multiple children");
+        // }
 
-        let oplog_agent = entry.agent_span.agent as usize;
-        let agent = if let Some(a) = agent_map[oplog_agent] { a }
-        else {
-            let a = num_agents;
-            agent_map[oplog_agent] = Some(a);
-            num_agents += 1;
-            a
-        };
+        // I'm not sure how this can happen, but its cheap to check just in case.
+        assert_eq!(entry.ops.is_empty(), false, "Transaction cannot have empty op list");
+
+        let agent = agent_map[entry.agent_span.agent as usize];
 
         txns.push(TraceExportTxn {
             parents: entry.parents.iter().map(|v| *idx_for_v.get(v).unwrap()).collect(),
@@ -147,6 +196,7 @@ pub fn export_trace_to_json(oplog: &ListOpLog, force: bool) -> TraceExportData {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DTExportTxn {
+    /// The LV span of the txn. Note the agent seq span is not exported.
     span: DTRange,
     parents: SmallVec<[usize; 2]>,
     agent: SmartString,

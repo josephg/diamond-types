@@ -107,8 +107,20 @@ impl AgentAssignment {
         }
     }
 
+    /// Returns the agent name (as a &str) for a given agent_id. This is fast (O(1)).
     pub fn get_agent_name(&self, agent: AgentId) -> &str {
         self.client_data[agent as usize].name.as_str()
+    }
+
+    /// Iterates over the local version mappings for the specified agent. The iterator returns
+    /// triples of (seq_start, lv_start, length).
+    ///
+    /// So, seq_start..seq_start+len maps to lv_start..lv_start+len
+    ///
+    /// The items returned will always be in sequence order.
+    pub fn iter_lv_map_for_agent(&self, agent: AgentId) -> impl Iterator<Item = (usize, usize, usize)> + '_ {
+        self.client_data[agent as usize].item_times.iter()
+            .map(|KVPair(seq, lv_range)| { (*seq, lv_range.start, lv_range.len()) })
     }
 
     pub fn len(&self) -> usize {
