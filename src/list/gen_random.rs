@@ -50,7 +50,7 @@ pub fn gen_oplog(seed: u64, steps: usize, use_unicode: bool) -> ListOpLog {
                 // oplog.merge_all(branch);
             }
             for w in branches.windows(2) {
-                assert_eq!(w[0].content, w[1].content);
+                debug_assert_eq!(w[0].content, w[1].content);
             }
         }
     }
@@ -62,6 +62,6 @@ pub fn gen_oplog(seed: u64, steps: usize, use_unicode: bool) -> ListOpLog {
 
 #[test]
 fn generates_simple_oplog() {
-    let _oplog = gen_oplog(123, 10);
+    let _oplog = gen_oplog(123, 10, false);
     // dbg!(oplog);
 }
