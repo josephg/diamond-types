@@ -867,8 +867,9 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
 
         // So first we can just call .walk() to setup the tracker "hot".
         let (tracker, walker) = match self.phase2.as_mut() {
-            Some(phase2) => phase2,
             None => {
+                // First time through this code we'll end up here. Walk the conflicting
+                // operations to populate the tracker and walker structures.
                 let mut tracker = M2Tracker::new();
                 // dbg!(&self.conflict_ops);
                 let frontier = tracker.walk(
@@ -884,7 +885,8 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 self.phase2 = Some((tracker, walker));
                 // This is a kinda gross way to do this. TODO: Rewrite without .unwrap() somehow?
                 self.phase2.as_mut().unwrap()
-            }
+            },
+            Some(phase2) => phase2,
         };
 
         let (mut pair, op_iter) = loop {
