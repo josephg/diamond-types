@@ -29,7 +29,7 @@ mod dot;
 
 #[cfg(feature = "ops_to_old")]
 pub mod to_old;
-#[cfg(test)]
+#[cfg(any(test, feature = "gen_test_data"))]
 pub(crate) mod simple_oplog;
 
 type DocRangeIndex = MarkerMetrics;

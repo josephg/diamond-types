@@ -787,7 +787,7 @@ pub mod test {
         assert_eq!(actual.spans, expect);
 
         #[cfg(feature="gen_test_data")] {
-            #[cfg_attr(feature = "serde", derive(Serialize))]
+            #[derive(Serialize)]
             #[derive(Clone)]
             struct Test<'a> {
                 hist: Vec<GraphEntrySimple>,

@@ -22,12 +22,12 @@ const UCHARS: [char; 23] = [
     '𐆐', '𐆔', '𐆘', '𐆚', // Ancient roman symbols (U+10190 – U+101CF)
 ];
 
-pub(crate) fn random_str(len: usize, rng: &mut SmallRng) -> String {
+pub(crate) fn random_str(len: usize, rng: &mut SmallRng, use_unicode: bool) -> String {
     let mut str = String::new();
     let alphabet: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars().collect();
 
     for _ in 0..len {
-        let charset = if USE_UNICODE { &UCHARS[..] } else { &alphabet };
+        let charset = if use_unicode { &UCHARS[..] } else { &alphabet };
         str.push(charset[rng.gen_range(0..charset.len())]);
             // str.push(UCHARS[rng.gen_range(0..UCHARS.len())]);
             // str.push(alphabet[rng.gen_range(0..alphabet.len())]);
@@ -43,7 +43,7 @@ pub(crate) fn make_random_change(oplog: &mut SimpleOpLog, branch: &SimpleBranch,
         // Insert something.
         let pos = rng.gen_range(0..=doc_len);
         let len: usize = rng.gen_range(1..3); // Ideally skew toward smaller inserts.
-        let content = random_str(len as usize, rng);
+        let content = random_str(len as usize, rng, true);
         let fwd = len == 1 || rng.gen_bool(0.5);
         // eprintln!("Inserting '{}' at position {} (fwd: {})", content, pos, fwd);
 

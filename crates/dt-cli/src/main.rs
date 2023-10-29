@@ -12,12 +12,12 @@ use anyhow::Error;
 use chrono::{DateTime, SecondsFormat, Timelike, Utc};
 use clap::{Parser, Subcommand};
 use rand::distributions::Alphanumeric;
-use rand::Rng;
+use rand::{Rng, RngCore};
 use serde::Serialize;
 use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
 use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionOwned;
-use diamond_types::list::{ListBranch, ListOpLog};
+use diamond_types::list::{gen_oplog, ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
 use crate::dot::{generate_svg_with_dot};
 use crate::export::{check_trace_invariants, export_full_to_json, export_trace_to_json, export_transformed};
@@ -216,6 +216,33 @@ enum Commands {
         /// Output the result to the specified filename. If missing, output is printed to stdout.
         #[arg(short, long)]
         output: Option<OsString>,
+
+        /// Use pretty JSON output
+        #[arg(short, long)]
+        pretty: bool,
+    },
+
+    /// Generate and export testing data for multi-implementation conformance testing.
+    GenConformance {
+        /// Output the result to the specified filename. If missing, output is printed to stdout.
+        #[arg(short, long)]
+        output: Option<OsString>,
+
+        /// Number of example test cases to generate
+        #[arg(short, long)]
+        num: Option<usize>,
+
+        /// Number of steps for each example
+        #[arg(short, long)]
+        steps: Option<usize>,
+
+        /// RNG seed for the generated data
+        #[arg(long)]
+        seed: Option<u64>,
+
+        /// Use non-ascii characters
+        #[arg(short, long)]
+        unicode: bool,
 
         /// Use pretty JSON output
         #[arg(short, long)]
@@ -534,6 +561,21 @@ fn main() -> Result<(), anyhow::Error> {
 
             let result = export_transformed(&oplog, timestamp);
             write_serde_data(output, pretty, &result)?;
+        }
+
+        Commands::GenConformance { output, num, steps, seed, pretty, unicode } => {
+            let num = num.unwrap_or(100);
+            let steps = steps.unwrap_or(50);
+            let seed = seed.unwrap_or_else(|| rand::thread_rng().next_u64());
+
+            let mut data = vec![];
+            for i in 0..num {
+                let oplog = gen_oplog(seed + i as u64, steps, unicode);
+                let exported = export_full_to_json(&oplog);
+                data.push(exported);
+                // println!("{data}");
+            }
+            write_serde_data(output, pretty, &data)?;
         }
 
         Commands::Dot { dt_filename, no_render, output, dot_path } => {

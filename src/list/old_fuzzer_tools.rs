@@ -8,14 +8,14 @@ use crate::{AgentId, LV};
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
 use crate::list_fuzzer_tools::random_str;
 
-fn old_make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch, mut rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) -> LV {
+pub(crate) fn old_make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch, mut rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng, use_unicode: bool) -> LV {
     let doc_len = branch.len();
     let insert_weight = if doc_len < 100 { 0.55 } else { 0.45 };
     let v = if doc_len == 0 || rng.gen_bool(insert_weight) {
         // Insert something.
         let pos = rng.gen_range(0..=doc_len);
         let len: usize = rng.gen_range(1..3); // Ideally skew toward smaller inserts.
-        let content = random_str(len as usize, rng);
+        let content = random_str(len, rng, use_unicode);
         let fwd = len == 1 || rng.gen_bool(0.5);
         // eprintln!("Inserting '{}' at position {} (fwd: {})", content, pos, fwd);
 
@@ -75,7 +75,7 @@ fn old_make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBranch, mut ro
 }
 
 pub(crate) fn old_make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) {
-    let v = old_make_random_change_raw(&mut doc.oplog, &doc.branch, rope, agent, rng);
+    let v = old_make_random_change_raw(&mut doc.oplog, &doc.branch, rope, agent, rng, true);
     doc.branch.merge(&doc.oplog, &[v]);
     // doc.check(true);
     // doc.check(false);

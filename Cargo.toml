@@ -23,12 +23,12 @@ smallvec = { version = "1.10.0", features = ["union", "const_generics"] }
 lazy_static = "1.4.0"
 
 # Used by wasm module, CLI.
-serde = { version = "1.0.147", features = ["derive"], optional = true }
+serde = { version = "1.0.183", features = ["derive"], optional = true }
 rle = { version = "0.2.0", path = "crates/rle" }
 content-tree = { version = "0.2.0", path = "crates/content-tree" }
 
 # Only used for generating testing data.
-serde_json = { version = "1.0.85", optional = true }
+serde_json = { version = "1.0.104", optional = true }
 
 bumpalo = { version = "3.10.0", features = ["collections"] }
 
@@ -50,6 +50,9 @@ lz4_flex = { version = "0.10.0", optional = true }
 
 # Needed for macos F_BARRIERFSYNC.
 libc = "0.2.139"
+
+rand = { version = "0.8.5", features = ["small_rng"], optional = true }
+
 
 [dev-dependencies]
 rand = { version = "0.8.5", features = ["small_rng"] }
@@ -73,7 +76,7 @@ storage = []
 
 # This is internal only for generating JSON testing data. To generate, run test suite with
 # rm *_tests.json; cargo test --features gen_test_data causalgraph::parents::tools -- --test-threads 1
-gen_test_data = ["dep:serde", "serde_json"]
+gen_test_data = ["serde", "serde_json", "rand"]
 
 [lib]
 bench = false

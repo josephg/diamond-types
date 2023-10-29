@@ -204,7 +204,14 @@ pub struct DTExportTxn {
     ops: SmallVec<[SimpleTextOp; 2]>,
 }
 
-pub fn export_full_to_json(oplog: &ListOpLog) -> Vec<DTExportTxn> {
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DTExport {
+    txns: Vec<DTExportTxn>,
+    end_content: String,
+}
+
+fn export_oplog_to_json(oplog: &ListOpLog) -> Vec<DTExportTxn> {
     let mut txns = vec![];
 
     for entry in oplog.as_chunked_operation_vec().into_iter() {
@@ -219,6 +226,12 @@ pub fn export_full_to_json(oplog: &ListOpLog) -> Vec<DTExportTxn> {
     txns
 }
 
+pub fn export_full_to_json(oplog: &ListOpLog) -> DTExport {
+    DTExport {
+        txns: export_oplog_to_json(oplog),
+        end_content: oplog.checkout_tip().content().to_string(),
+    }
+}
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
