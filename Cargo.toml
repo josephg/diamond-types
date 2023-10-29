@@ -51,6 +51,9 @@ lz4_flex = { version = "0.10.0", optional = true }
 # Needed for macos F_BARRIERFSYNC.
 libc = "0.2.139"
 
+rand = { version = "0.8.5", features = ["small_rng"], optional = true }
+
+
 [dev-dependencies]
 rand = { version = "0.8.5", features = ["small_rng"] }
 crdt-testdata = { path = "crates/crdt-testdata" }
@@ -73,7 +76,7 @@ storage = []
 
 # This is internal only for generating JSON testing data. To generate, run test suite with
 # rm *_tests.json; cargo test --features gen_test_data causalgraph::parents::tools -- --test-threads 1
-gen_test_data = ["dep:serde", "serde_json"]
+gen_test_data = ["serde", "serde_json", "rand"]
 
 [lib]
 bench = false

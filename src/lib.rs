@@ -223,7 +223,7 @@ pub(crate) mod serde_helpers;
 // TODO: Make me private!
 pub mod listmerge;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "gen_test_data"))]
 mod list_fuzzer_tools;
 #[cfg(test)]
 mod fuzzer;

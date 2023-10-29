@@ -25,7 +25,7 @@ pub mod op_metrics;
 mod eq;
 mod oplog_merge;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "gen_test_data"))]
 mod old_fuzzer_tools;
 #[cfg(test)]
 mod oplog_merge_fuzzer;
@@ -33,6 +33,11 @@ mod oplog_merge_fuzzer;
 pub(crate) mod buffered_iter;
 mod stochastic_summary;
 mod merge;
+
+#[cfg(feature = "gen_test_data")]
+mod gen_random;
+#[cfg(feature = "gen_test_data")]
+pub use gen_random::gen_oplog;
 
 // TODO!
 // trait InlineReplace<T> {

@@ -11,7 +11,7 @@ name = "dt"
 path = "src/main.rs"
 
 [dependencies]
-diamond-types = { path = "../..", features = ["serde", "dot_export", "merge_conflict_checks"] }
+diamond-types = { path = "../..", features = ["serde", "dot_export", "merge_conflict_checks", "gen_test_data"] }
 clap = { version = "4.2.4", features = ["derive"] }
 similar = "2.1.0"
 rand = "0.8.5"
