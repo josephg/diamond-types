@@ -200,6 +200,7 @@ pub struct DTExportTxn {
     span: DTRange,
     parents: SmallVec<[usize; 2]>,
     agent: SmartString,
+    seq_start: usize,
     // op: TextOperation,
     ops: SmallVec<[SimpleTextOp; 2]>,
 }
@@ -219,6 +220,7 @@ fn export_oplog_to_json(oplog: &ListOpLog) -> Vec<DTExportTxn> {
             span: entry.span,
             parents: entry.parents.0.clone(),
             agent: oplog.get_agent_name(entry.agent_span.agent).into(),
+            seq_start: entry.agent_span.seq_range.start,
             ops: entry.ops.into_iter().map(|op| op.into()).collect(),
         });
     }

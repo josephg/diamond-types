@@ -5,28 +5,41 @@ use crate::list::old_fuzzer_tools::old_make_random_change_raw;
 use crate::list_fuzzer_tools::choose_2;
 
 /// This is a simple generator for random test data used for conformance tests.
-pub fn gen_oplog(seed: u64, steps: usize, use_unicode: bool) -> ListOpLog {
+pub fn gen_oplog(seed: u64, steps: usize, use_unicode: bool, interleave_agents: bool) -> ListOpLog {
     let verbose = false;
 
     let mut rng = SmallRng::seed_from_u64(seed);
     let mut oplog = ListOpLog::new();
-    let mut branches = [ListBranch::new(), ListBranch::new(), ListBranch::new()];
+    let mut branches = [
+        ListBranch::new(), ListBranch::new(), ListBranch::new(),
+        // ListBranch::new(), ListBranch::new(), ListBranch::new(),
+    ];
 
     let agents = ["a", "b", "c"];
+    // let agents = ["a", "b", "c", "d", "e", "f"];
     for a in agents {
+        // This makes agent 'a' have agent_id 0, 'b' = 1, 'c' = 2, ...
         oplog.get_or_create_agent_id(a);
     }
 
     for _i in 0..steps {
         if verbose { println!("\n\ni {}", _i); }
         // Generate some operations
-        for _j in 0..2 {
-            // for _j in 0..5 {
+        // for _j in 0..2 {
+        for _j in 0..5 {
             let idx = rng.gen_range(0..branches.len());
             let branch = &mut branches[idx];
 
+            let agent = if interleave_agents {
+                // Pick a random agent to use with the new operation(s).
+                rng.gen_range(0..agents.len())
+            } else {
+                // Just use the agent corresponding to the branch.
+                idx
+            } as AgentId;
+
             // This should + does also work if we set idx=0 and use the same agent for all changes.
-            let v = old_make_random_change_raw(&mut oplog, branch, None, idx as AgentId, &mut rng, use_unicode);
+            let v = old_make_random_change_raw(&mut oplog, branch, None, agent, &mut rng, use_unicode);
             branch.merge(&oplog, &[v]);
             // println!("branch {} content '{}'", idx, &branch.content);
         }
