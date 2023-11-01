@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 diamond-types = { path = "../.." }
 rle = { path = "../rle" }
-criterion = "0.4.0"
+criterion = "0.5.1"
 crdt-testdata = { path = "../crdt-testdata" }
