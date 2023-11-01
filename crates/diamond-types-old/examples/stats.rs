@@ -11,7 +11,7 @@ use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use diamond_types_old::list::*;
 
 #[cfg(feature = "memusage")]
-use diamond_core::alloc::*;
+use diamond_core_old::alloc::*;
 #[cfg(feature = "memusage")]
 use humansize::{FileSize, file_size_opts};
 use diamond_types_old::list::positional::PositionalOpRef;
