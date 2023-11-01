@@ -36,6 +36,7 @@ pub struct YjsSpan {
      * Each item in the span has the same origin_right.
      */
     pub origin_right: LV,
+    pub right_parent: LV,
 
     /// Stores whether the item has been inserted, inserted and deleted, or not inserted yet at the
     /// current moment in time.
@@ -113,6 +114,7 @@ impl YjsSpan {
             id: DTRange::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
             origin_left: usize::MAX,
             origin_right: usize::MAX,
+            right_parent: usize::MAX,
             state: INSERTED, // Underwater items are never in the NotInsertedYet state.
             ever_deleted: false,
         }
@@ -155,6 +157,7 @@ impl SplitableSpanHelpers for YjsSpan {
             id: self.id.truncate(offset),
             origin_left: self.id.start + offset - 1,
             origin_right: self.origin_right,
+            right_parent: usize::MAX, // Only the first item has the chance of having a right_parent.
             state: self.state,
             ever_deleted: self.ever_deleted,
         }
@@ -169,6 +172,7 @@ impl MergableSpan for YjsSpan {
         self.id.can_append(&other.id)
             && other.origin_left == other.id.start - 1
             && other.origin_right == self.origin_right
+            && other.right_parent == usize::MAX
             && other.state == self.state
             && other.ever_deleted == self.ever_deleted
     }
@@ -182,6 +186,7 @@ impl MergableSpan for YjsSpan {
         debug_assert!(other.can_append(self));
         self.id.prepend(other.id);
         self.origin_left = other.origin_left;
+        self.right_parent = other.right_parent;
     }
 }
 
@@ -246,6 +251,7 @@ mod tests {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
+            right_parent: 30,
             state: NOT_INSERTED_YET,
             ever_deleted: false,
         });
@@ -254,6 +260,7 @@ mod tests {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
+            right_parent: 30,
             state: INSERTED,
             ever_deleted: false
         });
@@ -262,7 +269,17 @@ mod tests {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
+            right_parent: 30,
             state: DELETED_ONCE,
+            ever_deleted: false
+        });
+
+        test_splitable_methods_valid(YjsSpan {
+            id: (10..15).into(),
+            origin_left: 20,
+            origin_right: 30,
+            right_parent: usize::MAX,
+            state: INSERTED,
             ever_deleted: false
         });
     }

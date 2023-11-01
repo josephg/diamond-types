@@ -46,6 +46,8 @@ const ALLOW_FF: bool = true;
 #[cfg(feature = "dot_export")]
 const MAKE_GRAPHS: bool = false;
 
+const FUGUE_MODE: bool = false;
+
 fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     // TODO: Use dirty tricks to avoid this for more performance.
     let index_len = index.len();
@@ -194,7 +196,29 @@ impl M2Tracker {
                 Ordering::Less => { break; } // Top row
                 Ordering::Greater => {} // Bottom row. Continue.
                 Ordering::Equal => {
-                    if item.origin_right == other_entry.origin_right {
+                    fn get_cursor_and_right_parent<'a>(tracker: &'a M2Tracker, item: &YjsSpan) -> (Cursor<'a, YjsSpan, DocRangeIndex>, LV) {
+                        if item.origin_right == usize::MAX {
+                            (tracker.range_tree.cursor_at_end(), usize::MAX)
+                        } else {
+                            let cursor = tracker.get_cursor_before(item.origin_right);
+                            let right_left = cursor.get_raw_entry().origin_left_at_offset(cursor.offset);
+                            if FUGUE_MODE && right_left != item.origin_left {
+                                // Right parent is null / the end of the list.
+                                (tracker.range_tree.cursor_at_end(), usize::MAX)
+                            } else {
+                                (cursor, item.origin_right)
+                            }
+                        }
+                    }
+
+                    // // TODO: Consider storing my_right_cursor / right_parent instead of recalculating it each loop iteration.
+                    let (my_right_cursor, right_parent) = get_cursor_and_right_parent(self, &item);
+                    if FUGUE_MODE { assert_eq!(right_parent, item.right_parent); }
+                    let (other_right_cursor, other_right_parent) = get_cursor_and_right_parent(self, &other_entry);
+                    if FUGUE_MODE { assert_eq!(other_right_parent, other_entry.right_parent); }
+
+                    // if item.origin_right == other_entry.origin_right {
+                    if right_parent == other_right_parent {
                         // Origin_right matches. Items are concurrent. Order by agent names.
                         let my_name = aa.get_agent_name(agent);
                         let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
@@ -225,9 +249,6 @@ impl M2Tracker {
                         }
                     } else {
                         // Set scanning based on how the origin_right entries are ordered.
-                        let my_right_cursor = self.get_cursor_before(item.origin_right);
-                        let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
-
                         if other_right_cursor < my_right_cursor {
                             if !scanning {
                                 scanning = true;
@@ -422,6 +443,36 @@ impl M2Tracker {
                     }
                 };
 
+                // 22222
+                let (right_bound, right_parent) = if !cursor.roll_to_next_entry() {
+                    (usize::MAX, usize::MAX)
+                } else {
+                    let mut c2 = cursor.clone();
+                    loop {
+                        let e = c2.try_get_raw_entry();
+                        if let Some(e) = e {
+                            if e.state != NOT_INSERTED_YET {
+                                // We can use this.
+                                let right_bound = e.at_offset(c2.offset);
+
+                                let right_parent = if FUGUE_MODE {
+                                    let left = c2.get_raw_entry().origin_left_at_offset(cursor.offset);
+                                    // If right.left == origin_left then we're a left child with a right_parent of
+                                    // right_bound. Otherwise we're a right child, and right_parent
+                                    // is null. (Our parent is origin_left).
+                                    if left == origin_left { right_bound } else { usize::MAX }
+                                } else { right_bound };
+
+                                break (right_bound, right_parent);
+                            }
+
+                            // if next_entry returns false, we've hit the end of the list.
+                            if !c2.next_entry() { break (usize::MAX, usize::MAX); }
+                        } else { break (usize::MAX, usize::MAX); }
+                    }
+                };
+                assert_eq!(right_bound, origin_right);
+
                 // let origin_right = cursor.get_item().unwrap_or(ROOT_TIME);
 
                 let mut lv_span = op_pair.span();
@@ -431,6 +482,7 @@ impl M2Tracker {
                     id: lv_span,
                     origin_left,
                     origin_right,
+                    right_parent,
                     state: INSERTED,
                     ever_deleted: false,
                 };
