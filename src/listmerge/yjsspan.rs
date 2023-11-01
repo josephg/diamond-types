@@ -21,21 +21,29 @@ pub(super) fn deleted_n_state(n: u32) -> YjsSpanState {
     YjsSpanState(1 + n)
 }
 
+/// This is a span of sync9 / fugue items. (Those two algorithms generate identical merge
+/// behaviour).
+///
+/// The implementation here is based off fugue-list from the fugue paper, but modified to store the
+/// right_parent instead of storing origin_right (and recalculating right_parent as needed).
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
-pub struct YjsSpan {
+pub struct FugueSpan {
     /// The local version of the corresponding insert operation
     pub id: DTRange,
 
-    /**
-     * NOTE: The origin_left is only for the first item in the span. Each subsequent item has an
-     * origin_left of order+offset
-     */
+    /// NOTE: The origin_left is only for the first item in the span. Each subsequent item has an
+    /// origin_left of order+offset.
+    ///
+    /// If you think of the items as a tree (ie, fugue-tree or sync9), origin_left corresponds to
+    /// the parent of the item (on the left side). For items with a right parent, this is the lower
+    /// bound of where the item may be inserted / considered to be concurrent.
     pub origin_left: LV,
 
-    /**
-     * Each item in the span has the same origin_right.
-     */
-    pub origin_right: LV,
+    /// The right parent is part of fugue. This is set to either the ID of the item directly to the
+    /// right when it was generated (if it has a right parent) or usize::MAX.
+    ///
+    /// In a RLE span, this is only the right parent of the first item. Subsequent items always have
+    /// a right_parent of usize::MAX since they'll only have a left parent.
     pub right_parent: LV,
 
     /// Stores whether the item has been inserted, inserted and deleted, or not inserted yet at the
@@ -91,29 +99,28 @@ impl YjsSpanState {
     }
 }
 
-impl Debug for YjsSpan {
+impl Debug for FugueSpan {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("YjsSpan");
         s.field("id", &self.id);
         debug_time(&mut s, "origin_left", self.origin_left);
-        debug_time(&mut s, "origin_right", self.origin_right);
+        debug_time(&mut s, "right_parent", self.right_parent);
         s.field("state", &self.state); // Could probably do better than this.
         s.field("ever_deleted", &self.ever_deleted);
         s.finish()
     }
 }
 
-impl YjsSpan {
+impl FugueSpan {
     pub fn origin_left_at_offset(&self, offset: LV) -> LV {
         if offset == 0 { self.origin_left }
         else { self.id.start + offset - 1 }
     }
 
     pub fn new_underwater() -> Self {
-        YjsSpan {
+        FugueSpan {
             id: DTRange::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
             origin_left: usize::MAX,
-            origin_right: usize::MAX,
             right_parent: usize::MAX,
             state: INSERTED, // Underwater items are never in the NotInsertedYet state.
             ever_deleted: false,
@@ -144,19 +151,18 @@ impl YjsSpan {
 //
 // I could make a custom index for this, but I'm gonna be lazy and say content length = current,
 // and "offset length" = upstream.
-impl HasLength for YjsSpan {
+impl HasLength for FugueSpan {
     #[inline(always)]
     fn len(&self) -> usize { self.id.len() }
 }
 
-impl SplitableSpanHelpers for YjsSpan {
+impl SplitableSpanHelpers for FugueSpan {
     fn truncate_h(&mut self, offset: usize) -> Self {
         debug_assert!(offset > 0);
         // let at_signed = offset as i32 * self.len.signum();
-        YjsSpan {
+        FugueSpan {
             id: self.id.truncate(offset),
             origin_left: self.id.start + offset - 1,
-            origin_right: self.origin_right,
             right_parent: usize::MAX, // Only the first item has the chance of having a right_parent.
             state: self.state,
             ever_deleted: self.ever_deleted,
@@ -164,14 +170,13 @@ impl SplitableSpanHelpers for YjsSpan {
     }
 }
 
-impl MergableSpan for YjsSpan {
+impl MergableSpan for FugueSpan {
     // Could have a custom truncate_keeping_right method here - I once did. But the optimizer
     // does a great job flattening the generic implementation anyway.
 
     fn can_append(&self, other: &Self) -> bool {
         self.id.can_append(&other.id)
             && other.origin_left == other.id.start - 1
-            && other.origin_right == self.origin_right
             && other.right_parent == usize::MAX
             && other.state == self.state
             && other.ever_deleted == self.ever_deleted
@@ -190,7 +195,7 @@ impl MergableSpan for YjsSpan {
     }
 }
 
-impl Searchable for YjsSpan {
+impl Searchable for FugueSpan {
     type Item = LV;
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
@@ -202,7 +207,7 @@ impl Searchable for YjsSpan {
     }
 }
 
-impl ContentLength for YjsSpan {
+impl ContentLength for FugueSpan {
     #[inline(always)]
     fn content_len(&self) -> usize {
         if self.state == INSERTED { self.len() } else { 0 }
@@ -213,7 +218,7 @@ impl ContentLength for YjsSpan {
     }
 }
 
-impl Toggleable for YjsSpan {
+impl Toggleable for FugueSpan {
     fn is_activated(&self) -> bool {
         self.state == INSERTED
         // self.state == Inserted && !self.ever_deleted
@@ -242,42 +247,38 @@ mod tests {
     #[test]
     fn print_span_sizes() {
         // 40 bytes (compared to just 16 bytes in the older implementation).
-        println!("size of YjsSpan {}", size_of::<YjsSpan>());
+        println!("size of YjsSpan {}", size_of::<FugueSpan>());
     }
 
     #[test]
     fn yjsspan_entry_valid() {
-        test_splitable_methods_valid(YjsSpan {
+        test_splitable_methods_valid(FugueSpan {
             id: (10..15).into(),
             origin_left: 20,
-            origin_right: 30,
             right_parent: 30,
             state: NOT_INSERTED_YET,
             ever_deleted: false,
         });
 
-        test_splitable_methods_valid(YjsSpan {
+        test_splitable_methods_valid(FugueSpan {
             id: (10..15).into(),
             origin_left: 20,
-            origin_right: 30,
             right_parent: 30,
             state: INSERTED,
             ever_deleted: false
         });
 
-        test_splitable_methods_valid(YjsSpan {
+        test_splitable_methods_valid(FugueSpan {
             id: (10..15).into(),
             origin_left: 20,
-            origin_right: 30,
             right_parent: 30,
             state: DELETED_ONCE,
             ever_deleted: false
         });
 
-        test_splitable_methods_valid(YjsSpan {
+        test_splitable_methods_valid(FugueSpan {
             id: (10..15).into(),
             origin_left: 20,
-            origin_right: 30,
             right_parent: usize::MAX,
             state: INSERTED,
             ever_deleted: false
@@ -287,6 +288,6 @@ mod tests {
     #[ignore]
     #[test]
     fn print_size() {
-        dbg!(std::mem::size_of::<YjsSpan>());
+        dbg!(std::mem::size_of::<FugueSpan>());
     }
 }

@@ -11,7 +11,7 @@ use content_tree::*;
 use rle::{AppendRle, HasLength, MergeableIterator, Searchable, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
 use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex};
-use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
+use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, FugueSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
@@ -46,8 +46,6 @@ const ALLOW_FF: bool = true;
 #[cfg(feature = "dot_export")]
 const MAKE_GRAPHS: bool = false;
 
-const FUGUE_MODE: bool = true;
-
 fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     // TODO: Use dirty tricks to avoid this for more performance.
     let index_len = index.len();
@@ -60,8 +58,8 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     }
 }
 
-pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
-    move |entry: YjsSpan, leaf| {
+pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(FugueSpan, NonNull<NodeLeaf<FugueSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
+    move |entry: FugueSpan, leaf| {
         debug_assert!(leaf != NonNull::dangling());
         let start = entry.id.start;
         let len = entry.len();
@@ -92,7 +90,7 @@ impl M2Tracker {
     pub(super) fn new() -> Self {
         let mut range_tree = ContentTreeRaw::new();
         let mut index = ContentTreeRaw::new();
-        let underwater = YjsSpan::new_underwater();
+        let underwater = FugueSpan::new_underwater();
         pad_index_to(&mut index, underwater.id.end);
         range_tree.push_notify(underwater, notify_for(&mut index));
 
@@ -106,7 +104,7 @@ impl M2Tracker {
         }
     }
 
-    pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex>> {
+    pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<FugueSpan, DocRangeIndex>> {
         let cursor = self.index.cursor_at_offset_pos(lv, false);
         // Gross.
         cursor.get_item().unwrap().unwrap()
@@ -124,7 +122,7 @@ impl M2Tracker {
         }
     }
 
-    fn get_cursor_before(&self, lv: LV) -> Cursor<YjsSpan, DocRangeIndex> {
+    fn get_cursor_before(&self, lv: LV) -> Cursor<FugueSpan, DocRangeIndex> {
         if lv == usize::MAX {
             // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
             // just panic() here.
@@ -136,7 +134,7 @@ impl M2Tracker {
     }
 
     // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex> {
-    fn get_cursor_after(&self, lv: LV, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex> {
+    fn get_cursor_after(&self, lv: LV, stick_end: bool) -> Cursor<FugueSpan, DocRangeIndex> {
         if lv == usize::MAX {
             self.range_tree.cursor_at_start()
         } else {
@@ -153,7 +151,7 @@ impl M2Tracker {
     }
 
     // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
-    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: YjsSpan, mut cursor: UnsafeCursor<YjsSpan, DocRangeIndex>, right_bound: LV) -> usize {
+    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: FugueSpan, mut cursor: UnsafeCursor<FugueSpan, DocRangeIndex>, right_bound: LV) -> usize {
         assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
@@ -166,7 +164,7 @@ impl M2Tracker {
 
         loop {
             if !cursor.roll_to_next_entry() { break; } // End of the document
-            let other_entry: YjsSpan = *cursor.get_raw_entry();
+            let other_entry: FugueSpan = *cursor.get_raw_entry();
             let other_lv = other_entry.at_offset(cursor.offset);
 
             // Almost always true. Could move this short circuit earlier?
@@ -406,32 +404,29 @@ impl M2Tracker {
 
                 // Origin_right should be the next item which isn't in the NotInsertedYet state.
                 // If we reach the end of the document before that happens, use usize::MAX.
-                let (right_bound, right_parent) = if !cursor.roll_to_next_entry() {
-                    (usize::MAX, usize::MAX)
-                } else {
-                    let mut c2 = cursor.clone();
-                    loop {
-                        let e = c2.try_get_raw_entry();
-                        if let Some(e) = e {
+                let (right_bound, right_parent) = 'block: {
+                    if cursor.roll_to_next_entry() { // Check we aren't already at the end of the list
+                        // loop through c2 until we find the right hand bound.
+                        let mut c2 = cursor.clone();
+                        while let Some(e) = c2.try_get_raw_entry() {
                             if e.state != NOT_INSERTED_YET {
                                 // We can use this.
                                 let right_bound = e.at_offset(c2.offset);
 
-                                let right_parent = if FUGUE_MODE {
-                                    let left = c2.get_raw_entry().origin_left_at_offset(cursor.offset);
-                                    // If right.left == origin_left then we're a left child with a right_parent of
-                                    // right_bound. Otherwise we're a right child, and right_parent
-                                    // is null. (Our parent is origin_left).
-                                    if left == origin_left { right_bound } else { usize::MAX }
-                                } else { right_bound };
-
-                                break (right_bound, right_parent);
+                                let left = c2.get_raw_entry().origin_left_at_offset(cursor.offset);
+                                // If right.left == origin_left then we're a left child with a right_parent of
+                                // right_bound. Otherwise we're a right child, and right_parent
+                                // is null. (Our parent is origin_left).
+                                let right_parent = if left == origin_left { right_bound } else { usize::MAX };
+                                break 'block (right_bound, right_parent);
                             }
 
                             // if next_entry returns false, we've hit the end of the list.
-                            if !c2.next_entry() { break (usize::MAX, usize::MAX); }
-                        } else { break (usize::MAX, usize::MAX); }
+                            if !c2.next_entry() { break; }
+                        }
                     }
+
+                    (usize::MAX, usize::MAX)
                 };
 
                 // let origin_right = cursor.get_item().unwrap_or(ROOT_TIME);
@@ -439,15 +434,13 @@ impl M2Tracker {
                 let mut lv_span = op_pair.span();
                 lv_span.trim(len);
 
-                let item = YjsSpan {
+                let item = FugueSpan {
                     id: lv_span,
                     origin_left,
-                    origin_right: right_bound,
                     right_parent,
                     state: INSERTED,
                     ever_deleted: false,
                 };
-
 
                 #[cfg(feature = "ops_to_old")] {
                     self.dbg_ops.push_rle(OldCRDTOpInternal::Ins {
@@ -1198,7 +1191,7 @@ mod test {
         assert_eq!(list.to_string(), "");
     }
 
-    fn items(tracker: &M2Tracker, filter_underwater: usize) -> Vec<YjsSpan> {
+    fn items(tracker: &M2Tracker, filter_underwater: usize) -> Vec<FugueSpan> {
         let trim_from = UNDERWATER_START + filter_underwater;
 
         tracker.range_tree
