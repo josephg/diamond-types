@@ -151,8 +151,8 @@ impl M2Tracker {
     }
 
     // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
-    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: FugueSpan, mut cursor: UnsafeCursor<FugueSpan, DocRangeIndex>, right_bound: LV) -> usize {
-        assert!(item.len() > 0);
+    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: FugueSpan, mut cursor: UnsafeCursor<FugueSpan, DocRangeIndex>) -> usize {
+        debug_assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
         cursor.roll_to_next_entry();
@@ -165,10 +165,14 @@ impl M2Tracker {
         loop {
             if !cursor.roll_to_next_entry() { break; } // End of the document
             let other_entry: FugueSpan = *cursor.get_raw_entry();
-            let other_lv = other_entry.at_offset(cursor.offset);
 
-            // Almost always true. Could move this short circuit earlier?
-            if other_lv == right_bound { break; }
+            // When concurrent edits happen, the range of insert locations goes from the insert
+            // position itself (passed in through cursor) to the next item which existed at the
+            // time in which the insert occurred.
+            // This test is almost always true. (Ie, we basically always break here).
+            if other_entry.state != NOT_INSERTED_YET { break; }
+
+            debug_assert_eq!(cursor.offset, 0);
 
             // When preparing example data, its important that the data can merge the same
             // regardless of editing trace (so the output isn't dependent on the algorithm used to
@@ -182,10 +186,6 @@ impl M2Tracker {
             // rare that you actually get concurrent inserts at the same location in the document
             // anyway.
 
-            // We can only be concurrent with other items which haven't been inserted yet at this
-            // point in time.
-            debug_assert_eq!(other_entry.state, NOT_INSERTED_YET);
-
             let other_left_lv = other_entry.origin_left_at_offset(cursor.offset);
             let other_left_cursor = self.get_cursor_after(other_left_lv, false);
 
@@ -197,6 +197,12 @@ impl M2Tracker {
                     if item.right_parent == other_entry.right_parent {
                         // Origin_right matches. Items are concurrent. Order by agent names.
                         let my_name = aa.get_agent_name(agent);
+
+                        // It would be "more correct" to take the other entry at the cursor offset,
+                        // but the cursor offset is always 0 when comparing items. So eh.
+                        // let other_lv = other_entry.at_offset(cursor.offset);
+                        let other_lv = other_entry.id.start;
+
                         let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
                         let other_name = aa.get_agent_name(other_agent);
                         // eprintln!("concurrent insert at the same place {} ({}) vs {} ({})", item.id.start, my_name, other_lv, other_name);
@@ -225,6 +231,9 @@ impl M2Tracker {
                         }
                     } else {
                         // Set scanning based on how the origin_right entries are ordered.
+                        // Note that this is only valid because cursor offset is always 0 when this
+                        // code is executed. (We'd need to take usize::MAX for other_right_cursor
+                        // if cursor.offset > 0).
                         let my_right_cursor = self.get_cursor_before(item.right_parent);
                         let other_right_cursor = self.get_cursor_before(other_entry.right_parent);
 
@@ -404,21 +413,24 @@ impl M2Tracker {
 
                 // Origin_right should be the next item which isn't in the NotInsertedYet state.
                 // If we reach the end of the document before that happens, use usize::MAX.
-                let (right_bound, right_parent) = 'block: {
+                //
+                // TODO: _origin_right is only used when converting to old operations. Remove it
+                // from the normal execution path here.
+                let (_origin_right, right_parent) = 'block: {
                     if cursor.roll_to_next_entry() { // Check we aren't already at the end of the list
                         // loop through c2 until we find the right hand bound.
                         let mut c2 = cursor.clone();
                         while let Some(e) = c2.try_get_raw_entry() {
                             if e.state != NOT_INSERTED_YET {
                                 // We can use this.
-                                let right_bound = e.at_offset(c2.offset);
+                                let origin_right = e.at_offset(c2.offset);
 
-                                let left = c2.get_raw_entry().origin_left_at_offset(cursor.offset);
+                                let left = c2.get_raw_entry().origin_left_at_offset(c2.offset);
                                 // If right.left == origin_left then we're a left child with a right_parent of
                                 // right_bound. Otherwise we're a right child, and right_parent
                                 // is null. (Our parent is origin_left).
-                                let right_parent = if left == origin_left { right_bound } else { usize::MAX };
-                                break 'block (right_bound, right_parent);
+                                let right_parent = if left == origin_left { origin_right } else { usize::MAX };
+                                break 'block (origin_right, right_parent);
                             }
 
                             // if next_entry returns false, we've hit the end of the list.
@@ -446,14 +458,14 @@ impl M2Tracker {
                     self.dbg_ops.push_rle(OldCRDTOpInternal::Ins {
                         id: lv_span,
                         origin_left,
-                        origin_right: if right_bound == UNDERWATER_START { usize::MAX } else { right_bound },
+                        origin_right: if _origin_right == UNDERWATER_START { usize::MAX } else { _origin_right },
                         content_pos: op.content_pos.unwrap(),
                     });
                 }
 
                 // This is dirty because the cursor's lifetime is not associated with self.
                 let cursor = cursor.inner;
-                let ins_pos = self.integrate(aa, agent, item, cursor, right_bound);
+                let ins_pos = self.integrate(aa, agent, item, cursor);
                 // self.range_tree.check();
                 // self.check_index();
 
