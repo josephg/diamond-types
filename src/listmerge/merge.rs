@@ -189,7 +189,7 @@ impl M2Tracker {
             let other_left_lv = other_entry.origin_left_at_offset(cursor.offset);
             let other_left_cursor = self.get_cursor_after(other_left_lv, false);
 
-            // YjsMod semantics
+            // YjsMod / Fugue semantics. (The code here is the same for both CRDTs).
             match unsafe { other_left_cursor.unsafe_cmp(&left_cursor) } {
                 Ordering::Less => { break; } // Top row
                 Ordering::Greater => {} // Bottom row. Continue.
