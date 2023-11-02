@@ -886,6 +886,9 @@ impl ListCRDT {
                      id, span.len, left, right, parent, span.time
             );
         }
+
+        // dbg!(&self.deletes);
+        // self.debug_print_del();
     }
 
 
