@@ -256,17 +256,17 @@ pub fn export_full_to_json(oplog: &ListOpLog) -> DTExport {
     }
 }
 
-pub fn run_export(data: &DTExport) {
-    // First make an oplog from the exported data.
-    let mut oplog = ListOpLog::new();
-    for txn in &data.txns {
-        let ops: Vec<TextOperation> = txn.ops.iter().map(|op| op.into()).collect();
-        let agent = oplog.get_or_create_agent_id(txn.agent.as_str());
-        oplog.add_operations_at(agent, txn.parents.as_slice(), &ops);
-    }
-
-    assert_eq!(oplog.checkout_tip().content(), data.end_content);
-}
+// pub fn run_export(data: &DTExport) {
+//     // First make an oplog from the exported data.
+//     let mut oplog = ListOpLog::new();
+//     for txn in &data.txns {
+//         let ops: Vec<TextOperation> = txn.ops.iter().map(|op| op.into()).collect();
+//         let agent = oplog.get_or_create_agent_id(txn.agent.as_str());
+//         oplog.add_operations_at(agent, txn.parents.as_slice(), &ops);
+//     }
+//
+//     assert_eq!(oplog.checkout_tip().content(), data.end_content);
+// }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
