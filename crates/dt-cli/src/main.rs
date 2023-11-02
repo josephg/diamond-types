@@ -258,6 +258,12 @@ enum Commands {
         /// Use pretty JSON output
         #[arg(short, long)]
         pretty: bool,
+
+        /// Generate "simple" operation traces. Simple traces enforce a strict total order over
+        /// all changes coming from each user agent. Diamond types proper doesn't require this
+        /// constraint internally.
+        #[arg(long)]
+        simple: bool,
     },
 
     /// Generate a diagram of the causal graph contained in a diamond types' file.
@@ -605,7 +611,7 @@ fn main() -> Result<(), anyhow::Error> {
             write_serde_data(output, pretty, &result)?;
         }
 
-        Commands::GenConformance { output, num, steps, seed, pretty, unicode } => {
+        Commands::GenConformance { output, num, steps, seed, pretty, unicode, simple } => {
             let num = num.unwrap_or(100);
             let steps = steps.unwrap_or(50);
             let seed = seed.unwrap_or_else(|| rand::thread_rng().next_u64());
@@ -613,7 +619,7 @@ fn main() -> Result<(), anyhow::Error> {
             let mut data = vec![];
             for i in 0..num {
                 // Hardcoded agent interleaving. Might be worth turning that off at some point.
-                let oplog = gen_oplog(seed + i as u64, steps, unicode, true);
+                let oplog = gen_oplog(seed + i as u64, steps, unicode, !simple);
                 let exported = export_full_to_json(&oplog);
                 data.push(exported);
                 // println!("{data}");
