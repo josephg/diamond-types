@@ -266,7 +266,21 @@ impl ListCRDT {
         span.1.len - span_offset
     }
 
-    // fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+    fn get_right_parent(&self, item: &YjsSpan, offset: u32) -> (Cursor<'_, YjsSpan, DocRangeIndex>, LV) {
+        let mut right_cursor = self.get_cursor_before(item.origin_right);
+        let right_parent = if let Some(origin_right) = right_cursor.try_get_raw_entry() {
+            if origin_right.origin_left == item.origin_left_at_offset(offset) {
+                // Right parent is the item's origin_right.
+                item.origin_right
+            } else {
+                // No right parent. Reset the right_cursor to point to the end of the list.
+                right_cursor = self.range_tree.cursor_at_end();
+                ROOT_LV
+            }
+        } else { ROOT_LV };
+        (right_cursor, right_parent)
+    }
+
     pub(super) fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) {
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
@@ -319,8 +333,15 @@ impl ListCRDT {
                 Ordering::Less => { break; } // Top row
                 Ordering::Greater => { } // Bottom row. Continue.
                 Ordering::Equal => {
-                    if item.origin_right == other_entry.origin_right {
-                        // Origin_right matches. Items are concurrent. Order by agent names.
+                    let (my_right_cursor, right_parent) = self.get_right_parent(&item, 0);
+                    // We need to pass the cursor offset in here because the cursor might be
+                    // pointing in the middle of an item, and we need to adjust origin_left
+                    // appropriately in that case.
+                    let (other_right_cursor, other_parent) = self.get_right_parent(&other_entry, cursor.offset as u32);
+
+                    // if item.origin_right == other_entry.origin_right {
+                    if right_parent == other_parent {
+                        // Items are concurrent and "double siblings". Order by agent names.
                         let my_name = self.get_agent_name(agent);
                         let other_loc = self.client_with_time.get(other_order);
                         let other_name = self.get_agent_name(other_loc.agent);
@@ -344,8 +365,8 @@ impl ListCRDT {
                         }
                     } else {
                         // Set scanning based on how the origin_right entries are ordered.
-                        let my_right_cursor = self.get_cursor_before(item.origin_right);
-                        let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
+                        // let my_right_cursor = self.get_cursor_before(item.origin_right);
+                        // let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
 
                         if other_right_cursor < my_right_cursor {
                             if !scanning {
@@ -850,6 +871,23 @@ impl ListCRDT {
             println!("order {} len {} ({}) agent {} / {} <-> {}", entry.time, entry.len(), entry.content_len(), loc.agent, entry.origin_left, entry.origin_right);
         }
     }
+
+    #[allow(unused)]
+    pub fn debug_print_ids(&self) {
+        for span in self.range_tree.iter() {
+            let id = self.get_crdt_location(span.time);
+            let left = self.get_crdt_location(span.origin_left);
+            let right = self.get_crdt_location(span.origin_right);
+
+            let parent_order = self.get_right_parent(&span, 0).1;
+            let parent = self.get_crdt_location(parent_order);
+
+            println!("{:?} (len {}) left {:?} right {:?} right parent {:?}\t(LV: {})",
+                     id, span.len, left, right, parent, span.time
+            );
+        }
+    }
+
 
     #[allow(unused)]
     pub fn debug_print_del(&self) {

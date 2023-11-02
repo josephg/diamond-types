@@ -131,7 +131,7 @@ pub struct ListCRDT {
     /// TODO: Consider renaming this field
     txns: RleVec<TxnSpan>,
 
-    // Temporary. This will be moved out into a reference to another data structure I think.
+    /// The document state.
     text_content: Option<JumpRopeBuf>,
     /// This is a big ol' string containing everything that's been deleted (self.deletes) in order.
     deleted_content: Option<String>,

@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::fmt::{Debug, Formatter};
 
 pub mod alloc;
 
@@ -10,10 +11,24 @@ pub type ItemCount = u32;
 
 pub const CLIENT_INVALID: AgentId = AgentId::MAX;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct CRDTId {
     pub agent: AgentId,
     pub seq: u32,
+}
+
+impl Debug for CRDTId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.agent == CLIENT_INVALID {
+            f.write_str("ROOT")
+        } else {
+            // f.debug_tuple("CRDTId")
+            f.debug_list()
+                .entry(&self.agent)
+                .entry(&self.seq)
+                .finish()
+        }
+    }
 }
 
 impl Default for CRDTId {
