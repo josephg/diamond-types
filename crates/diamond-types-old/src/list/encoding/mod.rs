@@ -7,7 +7,7 @@ use num_enum::TryFromPrimitive;
 use smallvec::SmallVec;
 
 use diamond_core_old::CRDTId;
-use rle::{HasLength, MergableSpan, MergeableIterator, SplitableSpan, SplitableSpanHelpers, SplitAndJoinSpan};
+use rle::{HasLength, MergableSpan, MergeableIterator, SplitableSpanHelpers, SplitAndJoinSpan};
 
 use crate::crdtspan::CRDTSpan;
 use crate::list::{ListCRDT, LV};

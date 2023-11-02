@@ -16,7 +16,7 @@
 
 use smartstring::alias::{String as SmartString};
 use smallvec::{SmallVec, smallvec};
-use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
+use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 use TraversalComponent::*;
 use crate::list::LV;
 use crate::list::positional::{PositionalOp, PositionalComponent, InsDelTag};

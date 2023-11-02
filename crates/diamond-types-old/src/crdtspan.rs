@@ -1,5 +1,5 @@
 use diamond_core_old::CRDTId;
-use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
+use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 
 use content_tree::ContentLength;
 use rle::Searchable;

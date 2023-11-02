@@ -1,7 +1,7 @@
 use std::iter::FromIterator;
 use std::mem::take;
 use content_tree::*;
-use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
+use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 
 use smartstring::alias::{String as SmartString};
 use crate::list::time::positionmap::MapTag::*;

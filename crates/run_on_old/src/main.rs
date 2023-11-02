@@ -26,19 +26,29 @@ fn new_to_old_remote_id(new: NewRemoteVersion) -> OldRemoteId {
     }
 }
 
-// NOTE: Not guaranteed to cover incoming span.
+// // NOTE: Not guaranteed to cover incoming span.
+// fn agent_to_remote_span(span: AgentSpan, oplog: &ListOpLog) -> OldRemoteIdSpan {
+//     // let span = oplog.cg.agent_assignment.agent_span_to_remote(span);
+//     OldRemoteIdSpan {
+//         id: OldRemoteId {
+//             agent: oplog.cg.agent_assignment.get_agent_name(span.agent).into(),
+//             seq: span.seq_range.start as _
+//         },
+//         len: span.seq_range.len() as _
+//     }
+// }
+
 fn lv_to_remote_span(range: DTRange, oplog: &ListOpLog) -> OldRemoteIdSpan {
-    if range.start == usize::MAX {
-        panic!("Cannot convert a root timespan");
-    } else {
-        let span = oplog.cg.agent_assignment.local_to_remote_version_span(range);
-        OldRemoteIdSpan {
-            id: OldRemoteId {
-                agent: span.0.into(),
-                seq: span.1.start as _
-            },
-            len: span.1.len() as _
-        }
+    if range.start == usize::MAX { panic!("Cannot convert a root timespan"); }
+
+    // TODO: Feels gross & redundant having both of these methods.
+    let span = oplog.cg.agent_assignment.local_to_remote_version_span(range);
+    OldRemoteIdSpan {
+        id: OldRemoteId {
+            agent: span.0.into(),
+            seq: span.1.start as _
+        },
+        len: span.1.len() as _
     }
 }
 
@@ -66,26 +76,35 @@ pub fn get_txns_from_file(name: &str) -> Vec<RemoteTxn> {
 pub fn get_txns_from_oplog(oplog: &ListOpLog) -> Vec<RemoteTxn> {
     let items = oplog.dbg_items();
 
+    // dbg!(&items);
+    // for e in oplog.cg.iter() {
+    //     println!("e {:?}", e);
+    // }
+
     let mut result = vec![];
     for mut item in items {
         loop {
-            let span = item.lv_span();
-            let id = lv_to_remote_span(span, &oplog);
-            // println!("{i}: id span {:?}", id);
+            // println!();
+
+            let entry = oplog.cg.simple_entry_at(item.lv_span());
+            // println!("TEMP {:?} -> {:?}", span, id);
 
             // assert_eq!(id.len as usize, item.len(), "Split items is unimplemented!");
 
-            let id_len = id.len as usize;
-            let rem = if id_len < item.len() {
-                Some(item.truncate(id_len))
+            let entry_len = entry.len();
+            let rem = if entry_len < item.len() {
+                Some(item.truncate(entry_len))
             } else {
-                assert_eq!(id_len, item.len());
+                assert_eq!(entry_len, item.len());
                 None
             };
 
-            let id = id.id;
-            // println!("id {:?} item {:?}", id, item);
-            let span = item.lv_span();
+            // println!("{:?} -> {:?}", item.lv_span(), &entry);
+
+            // println!("Item {:?}", &item);
+            // if let Some(r) = rem.as_ref() {
+            //     println!("Rem {:?}", &r);
+            // }
 
             let mut ops = smallvec![];
             let ins_content = match item {
@@ -120,15 +139,17 @@ pub fn get_txns_from_oplog(oplog: &ListOpLog) -> Vec<RemoteTxn> {
                 }
             };
 
-            let mut parents: SmallVec<[OldRemoteId; 2]> = oplog.parents_at_version(span.start).iter().map(|p| {
+            let parents: SmallVec<[OldRemoteId; 2]> = entry.parents.iter().map(|p| {
                 time_to_remote_id(*p, &oplog)
             }).collect();
-            if parents.is_empty() {
-                parents.push(root_id());
-            }
+
+            // println!("Parents {:?} -> {:?}", entry.parents, &parents);
 
             result.push(RemoteTxn {
-                id,
+                id: OldRemoteId {
+                    agent: oplog.cg.agent_assignment.get_agent_name(entry.span.agent).into(),
+                    seq: entry.span.seq_range.start as _
+                },
                 parents,
                 ops,
                 ins_content
@@ -140,6 +161,7 @@ pub fn get_txns_from_oplog(oplog: &ListOpLog) -> Vec<RemoteTxn> {
         }
     }
 
+    // dbg!(&result);
     result
 }
 

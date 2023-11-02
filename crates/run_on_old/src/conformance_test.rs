@@ -58,12 +58,14 @@ fn export_to_oplog(data: &DTExport) -> ListOpLog {
     for txn in &data.txns {
         let ops: Vec<TextOperation> = txn.ops.iter().map(|op| op.into()).collect();
         let agent = oplog.get_or_create_agent_id(txn.agent.as_str());
-        // oplog.a
-        oplog.add_operations_at(agent, txn.parents.as_slice(), &ops);
+        let actual_span = oplog.add_operations_remote(agent, txn.parents.as_slice(), txn.seq_start, &ops);
+
+        // Sanity check. They should all get added entirely and in order.
+        assert_eq!(txn.span, actual_span);
     }
 
+    // More sanity checks.
     debug_assert_eq!(oplog.checkout_tip().content(), data.end_content);
-
     oplog
 }
 
@@ -72,24 +74,31 @@ fn conformance_tests() {
     // Runs in crates/run_on_old.
     // println!("working dir {:?}", std::env::current_dir().unwrap());
 
-    // Generated with:
+    // Generate with:
     // dt gen-conformance -n1000 -s10 --seed 30 -o test_data/conformance.json
+    //
+    // This code
+    // let name = "../../test_data/conformance-simple.json";
     let name = "../../test_data/conformance.json";
     let reader = BufReader::new(File::open(name).unwrap());
     // let contents = std::fs::read(name).unwrap();
     let data: Vec<DTExport> = serde_json::from_reader(reader).unwrap();
     println!("Loaded conformance testing data from {} ({} entries)", name, data.len());
 
-    for (i, d) in data.iter().enumerate() {
-        // println!("i {i}");
+    for (_i, d) in data.iter().enumerate() {
+        // if _i != 246 { continue; }
+        // println!("i {_i}");
         let oplog = export_to_oplog(d);
+
         let old_txns = get_txns_from_oplog(&oplog);
         // dbg!(&old_txns);
 
         let mut old_oplog = diamond_types_old::list::ListCRDT::new();
         for txn in &old_txns {
+            // dbg!(txn);
             old_oplog.apply_remote_txn(txn);
         }
+        old_oplog.check(true);
         let result = old_oplog.to_string();
 
         // old_oplog.debug_print_ids();

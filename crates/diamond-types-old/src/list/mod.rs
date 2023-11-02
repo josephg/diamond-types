@@ -1,5 +1,5 @@
 use std::pin::Pin;
-use jumprope::{JumpRope, JumpRopeBuf};
+use jumprope::JumpRopeBuf;
 
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;

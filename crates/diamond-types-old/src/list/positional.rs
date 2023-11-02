@@ -7,7 +7,7 @@ use jumprope::{JumpRope, JumpRopeBuf};
 
 use smartstring::alias::{String as SmartString};
 use smallvec::{SmallVec, smallvec};
-use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
+use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 use InsDelTag::*;
 use crate::unicount::{chars_to_bytes, count_chars};
 use rle::AppendRle;

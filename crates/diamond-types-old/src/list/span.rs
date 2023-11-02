@@ -1,5 +1,5 @@
 use std::fmt::{Debug, DebugStruct, Formatter};
-use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
+use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
 
 use content_tree::ContentLength;
 use content_tree::Toggleable;

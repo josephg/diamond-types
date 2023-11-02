@@ -1,5 +1,5 @@
 use std::ops::Range;
-use rle::HasLength;
+use rle::{HasLength, SplitableSpan};
 use crate::{AgentId, Frontier, LV};
 use crate::list::{ListBranch, ListOpLog};
 use crate::causalgraph::graph::GraphEntrySimple;
@@ -10,7 +10,7 @@ use crate::dtrange::DTRange;
 use crate::causalgraph::agent_span::*;
 use crate::rev_range::RangeRev;
 use crate::rle::KVPair;
-use crate::unicount::count_chars;
+use crate::unicount::{chars_to_bytes, count_chars};
 
 impl Default for ListOpLog {
     fn default() -> Self {
@@ -194,6 +194,51 @@ impl ListOpLog {
         self.cg.assign_local_op(agent, next_time - first_time);
         // self.assign_internal(agent, parents, DTRange { start: first_time, end: next_time });
         next_time - 1
+    }
+
+    pub fn add_operations_remote(&mut self, agent: AgentId, parents: &[LV], start_seq: usize, ops: &[TextOperation]) -> DTRange {
+        // This is a bit complex because we could locally store some or all of the incoming operations.
+        // First figure out the length of the new operations.
+        let len: usize = ops.iter().map(|op| op.len()).sum();
+
+        let new_lv_range = self.cg.merge_and_assign(parents, AgentSpan {
+            agent,
+            seq_range: (start_seq..start_seq + len).into()
+        });
+
+        // new_lv_range might be shorter than len.
+        if new_lv_range.is_empty() { return new_lv_range; }
+
+        let mut skip = len - new_lv_range.len();
+
+        let mut next_time = new_lv_range.start;
+
+        for op in ops {
+            let len = op.len();
+            if skip >= len {
+                // Skip this item entirely.
+                skip -= len;
+            } else if skip > 0 { // and skip < len.
+                // Skip the first (skip) items from this operation.
+                let mut loc = op.loc;
+                loc.truncate_keeping_right(skip);
+
+                let content = op.content.as_ref().map(|c| {
+                    let s = c.as_str();
+                    &s[chars_to_bytes(s, skip)..]
+                });
+
+                self.push_op_internal(next_time, loc, op.kind, content);
+
+                next_time += len - skip;
+                skip = 0;
+            } else {
+                self.push_op_internal(next_time, op.loc, op.kind, op.content_as_str());
+                next_time += len;
+            }
+        }
+
+        new_lv_range
     }
 
     /// Push new operations to the opset. Operation parents specified by parents parameter.

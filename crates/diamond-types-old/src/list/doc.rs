@@ -351,8 +351,7 @@ impl ListCRDT {
                         let ins_here = match my_name.cmp(other_name) {
                             Ordering::Less => true,
                             Ordering::Equal => {
-                                self.get_crdt_location(item.time).seq < self.get_crdt_location(other_entry.time).seq
-                                // oplog.time_to_crdt_id(item.id.start) < oplog.time_to_crdt_id(other_entry.id.start)
+                                self.get_crdt_location(item.time).seq < other_loc.seq
                             }
                             Ordering::Greater => false,
                         };
@@ -467,6 +466,8 @@ impl ListCRDT {
             }
         }
 
+        // println!("insert_txn_internal {:?} {:?}", txn_parents, range);
+
         // let parents = replace(&mut self.frontier, txn_parents);
         let mut shadow = range.start;
         while shadow >= 1 && txn_parents.contains(&(shadow - 1)) {
@@ -492,6 +493,7 @@ impl ListCRDT {
                 // Interestingly the parent_idx array will always end up the same length as parents
                 // because it would be invalid for multiple parents to point to the same entry in
                 // txns. (That would imply one parent is a descendant of another.)
+
                 debug_assert!(!parent_indexes.contains(&parent_idx));
                 parent_indexes.push(parent_idx);
 
@@ -563,7 +565,7 @@ impl ListCRDT {
     pub fn apply_remote_txn(&mut self, txn: &RemoteTxn) {
         let agent = self.get_or_create_agent_id(txn.id.agent.as_str());
         let client = &self.client_data[agent as usize];
-        let next_seq = client.get_next_seq();
+        // let next_seq = client.get_next_seq();
 
         // Check that the txn hasn't already been applied.
         assert!(client.item_localtime.find(txn.id.seq).is_none());
@@ -882,7 +884,7 @@ impl ListCRDT {
             let parent_order = self.get_right_parent(&span, 0).1;
             let parent = self.get_crdt_location(parent_order);
 
-            println!("{:?} (len {}) left {:?} right {:?} right parent {:?}\t(LV: {})",
+            println!("{:?} (len {}) left {:?} right {:?} right_parent {:?}\t(LV: {})",
                      id, span.len, left, right, parent, span.time
             );
         }

@@ -1,5 +1,5 @@
 use smallvec::SmallVec;
-use rle::{HasLength, MergableSpan};
+use rle::{HasLength, MergableSpan, SplitableSpan};
 use rle::zip::rle_zip;
 use crate::{AgentId, CausalGraph, LV};
 use crate::causalgraph::*;
@@ -68,7 +68,7 @@ impl CausalGraph {
         let start = self.len();
         let span = (start .. start + num).into();
 
-        self.agent_assignment.assign_next_time_to_client_known(agent, span);
+        self.agent_assignment.assign_lv_to_client_next_seq(agent, span);
         self.graph.push(parents, span);
         self.version.advance_by_known_run(parents, span);
         span
@@ -86,7 +86,7 @@ impl CausalGraph {
         let start = self.len();
         let span = (start .. start + num).into();
 
-        self.agent_assignment.assign_next_time_to_client_known(agent, span);
+        self.agent_assignment.assign_lv_to_client_next_seq(agent, span);
         self.graph.push(self.version.as_ref(), span);
         self.version.replace_with_1(span.last());
         span
@@ -203,6 +203,25 @@ impl CausalGraph {
     /// Iterate through history entries
     pub fn iter_parents(&self) -> impl Iterator<Item=GraphEntrySimple> + '_ {
         self.graph.iter()
+    }
+
+    pub fn simple_entry_at(&self, v: DTRange) -> CGEntry {
+        let entry = self.graph.entries.find_packed(v.start);
+        let parents = entry.clone_parents_at_version(v.start);
+
+        let mut av = self.agent_assignment.local_span_to_agent_span(v);
+
+        // The entry needs to be the size of min(av, entry).
+        let usable_entry_len = entry.span.end - v.start;
+        if usable_entry_len < av.len() {
+            av.truncate(usable_entry_len);
+        }
+
+        CGEntry {
+            start: v.start,
+            parents,
+            span: av,
+        }
     }
 
     pub fn iter_range(&self, range: DTRange) -> impl Iterator<Item=CGEntry> + '_ {

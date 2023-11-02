@@ -1,4 +1,4 @@
-use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
+use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
 
 use crate::rle::{RleKey, RleKeyed};
 use std::ops::Range;
