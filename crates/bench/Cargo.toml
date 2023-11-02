@@ -8,5 +8,6 @@ edition = "2021"
 [dependencies]
 diamond-types = { path = "../.." }
 rle = { path = "../rle" }
-criterion = "0.5.1"
+#criterion = { version = "0.5.1", features = ["html_reports"] }
+criterion = { version = "0.5.1", features = [] }
 crdt-testdata = { path = "../crdt-testdata" }
