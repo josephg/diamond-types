@@ -29,7 +29,7 @@ humansize = "1.1"
 num_enum = "0.5"
 
 [dev-dependencies]
-criterion = "^0.3"
+criterion = "0.5.1"
 rand = { version = "^0.8", features = ["small_rng"] }
 crdt-testdata = { path = "../crdt-testdata" }
 
