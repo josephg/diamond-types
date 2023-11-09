@@ -47,8 +47,8 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
     // dt export-trace benchmark_data/friendsforever.dt -o ff.json
 
     // let filename = "example_trace.json";
-    // let filename = "ff.json";
-    let filename = "node_nodecc.json";
+    let filename = "ff.json";
+    // let filename = "node_nodecc.json";
     // let filename = "git_makefile.json";
 
     let file = BufReader::new(File::open(filename)?);
@@ -152,8 +152,8 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
 
             assert_eq!(result, history.end_content);
 
-            let x: Vec<_> = doc.get_all_txns();
-            dbg!(x);
+            // let x: Vec<_> = doc.get_all_txns();
+            // dbg!(x);
         }
     }
 
