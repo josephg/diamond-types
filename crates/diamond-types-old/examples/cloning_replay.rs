@@ -22,7 +22,7 @@ use std::fmt::Write;
 #[serde(rename_all = "camelCase")]
 pub struct EditHistory {
     end_content: String,
-
+    // num_agents: usize, // field exists but not used.
     txns: Vec<HistoryEntry>,
 }
 
@@ -34,11 +34,21 @@ pub struct SimpleTextOp(usize, usize, SmartString); // pos, del_len, ins_content
 pub struct HistoryEntry {
     parents: SmallVec<[usize; 2]>,
     num_children: usize,
-    agent: usize,
-    // op: TextOperation,
+    // agent: usize, // field exists but it is not in use.
     patches: SmallVec<[SimpleTextOp; 2]>,
 }
 
+// A note about agent IDs and sequence numbers:
+//
+// So, the input data specifies agent ids for each transaction. We could use that, but the
+// challenge is that we then need a universal way (across all documents to track what sequence
+// number we're up to for each agent. And then pass that sequence number in to the local_insert /
+// local_del functions - since those functions don't accept a sequence number parameter. (And
+// probably shouldn't for any other use case).
+//
+// Right now this implementation generates new agent IDs in a complex, arbitrary way as we process
+// the operations such that we never accidentally reuse agents. But we could use the agents in the
+// file if we wanted, so long as this problem can be solved.
 
 fn gen_main() -> Result<(), Box<dyn Error>> {
     let mut doc = ListCRDT::new();
@@ -78,6 +88,7 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
             // Fork it and take the fork.
             let mut doc = parent_doc.clone();
 
+            // ** See note above about sequence numbers before changing this code.
             let agent = if need_agent {
                 let mut agent_name = SmartString::new();
                 write!(agent_name, "{idx}-{retains}").unwrap();
