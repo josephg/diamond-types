@@ -1122,7 +1122,7 @@ mod test {
     use crate::dtrange::UNDERWATER_START;
     use crate::list::{ListCRDT, ListOpLog};
     use crate::listmerge::simple_oplog::SimpleOpLog;
-    use crate::listmerge::yjsspan::{deleted_n_state, DELETED_ONCE, YjsSpanState};
+    use crate::listmerge::yjsspan::{deleted_n_state, DELETED_ONCE, FugueSpanState};
     use crate::unicount::count_chars;
     use super::*;
 
@@ -1226,7 +1226,7 @@ mod test {
             .collect()
     }
 
-    fn items_state(tracker: &M2Tracker, filter_underwater: usize) -> Vec<(usize, YjsSpanState)> {
+    fn items_state(tracker: &M2Tracker, filter_underwater: usize) -> Vec<(usize, FugueSpanState)> {
         items(tracker, filter_underwater).iter().map(|i| (i.len(), i.state)).collect()
     }
 

@@ -11,14 +11,14 @@ use crate::dtrange::{debug_time, DTRange, UNDERWATER_START};
 /// Note a u16 (or even a u8) should be fine in practice. Double deletes almost never happen in
 /// reality - unless someone is maliciously generating them.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub struct YjsSpanState(u32);
+pub struct FugueSpanState(u32);
 
-pub const NOT_INSERTED_YET: YjsSpanState = YjsSpanState(0);
-pub const INSERTED: YjsSpanState = YjsSpanState(1);
-pub const DELETED_ONCE: YjsSpanState = YjsSpanState(2);
+pub const NOT_INSERTED_YET: FugueSpanState = FugueSpanState(0);
+pub const INSERTED: FugueSpanState = FugueSpanState(1);
+pub const DELETED_ONCE: FugueSpanState = FugueSpanState(2);
 
-pub(super) fn deleted_n_state(n: u32) -> YjsSpanState {
-    YjsSpanState(1 + n)
+pub(super) fn deleted_n_state(n: u32) -> FugueSpanState {
+    FugueSpanState(1 + n)
 }
 
 /// This is a span of sync9 / fugue items. (Those two algorithms generate identical merge
@@ -48,12 +48,12 @@ pub struct FugueSpan {
 
     /// Stores whether the item has been inserted, inserted and deleted, or not inserted yet at the
     /// current moment in time.
-    pub state: YjsSpanState,
+    pub state: FugueSpanState,
 
     pub ever_deleted: bool,
 }
 
-impl YjsSpanState {
+impl FugueSpanState {
     /// Note this doesn't (can't) set the ever_deleted flag. Use yjsspan.delete() instead.
     fn delete(&mut self) {
         if self.0 == NOT_INSERTED_YET.0 {
