@@ -299,6 +299,10 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
                 .filter(|e| e.parents.contains(&idx))
                 .count();
 
+            if idx > 0 {
+                assert_ne!(actual_num_children, 0, "Graph must only have 1 item with no children");
+            }
+
             assert_eq!(actual_num_children, e.num_children,
                        "num_children is incorrect at index {idx}. Actual {actual_num_children} != claimed {}", e.num_children);
 
