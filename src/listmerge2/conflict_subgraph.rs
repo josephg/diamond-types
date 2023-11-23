@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
 use std::fmt::Debug;
@@ -113,6 +113,26 @@ impl Graph {
             flag: DiffFlag::Shared,
         });
 
+        fn push_result<S: Default>(span: DTRange, flag: DiffFlag, children: &mut SmallVec<[usize; 2]>, result: &mut Vec<ConflictGraphEntry<S>>) -> usize {
+            let new_index = result.len();
+            for &c in children.iter() {
+                result[c].parents.push(new_index);
+            }
+
+            // Not updating one_final_entry because we won't stop here anyway.
+            result.push(ConflictGraphEntry { // Push the merge entry.
+                // parents: if process_here { smallvec![new_index + 1] } else { smallvec![] },
+                parents: smallvec![],
+                span,
+                num_children: children.len(),
+                state: Default::default(),
+                flag,
+            });
+
+            children.clear();
+            new_index
+        }
+
         // The heap is sorted such that we pull the highest items first.
         let mut queue: BinaryHeap<QueueEntry> = BinaryHeap::new();
 
@@ -131,6 +151,7 @@ impl Graph {
             let mut flag = entry.flag;
 
             debug_assert!(children.is_empty());
+            // println!("CP1 {}", entry.child_index);
             children.push(entry.child_index);
 
             // Look for more children of this entry.
@@ -139,12 +160,18 @@ impl Graph {
                     debug_assert_ne!(peek_entry.child_index, entry.child_index);
                     if peek_entry.flag != flag { flag = DiffFlag::Shared; }
                     // num_children += 1;
+                    // println!("CP2 {}", peek_entry.child_index);
                     children.push(peek_entry.child_index);
                     // result[peek_entry.child_index].parents.push(new_index);
                     // num_root_entries += 1;
                     queue.pop();
                 } else { break; }
             }
+
+            // if flag != DiffFlag::Shared {
+            //     println!("CP1 {}", entry.child_index);
+            //     children.push(entry.child_index);
+            // }
 
             let Some((&v, merged_with)) = entry.version.0.split_last() else {
                 // If we hit items with no version, we're at the end of the queue. Burn them out
@@ -178,24 +205,10 @@ impl Graph {
                 }
 
                 // Shatter.
-                let new_index = result.len();
+                let new_index = push_result(Default::default(), flag, &mut children, &mut result);
                 for m in merged_with {
                     queue.push(QueueEntry { version: (*m).into(), flag, child_index: new_index });
                 }
-                for &c in &children {
-                    result[c].parents.push(new_index);
-                }
-
-                // Not updating one_final_entry because we won't stop here anyway.
-                result.push(ConflictGraphEntry { // Push the merge entry.
-                    // parents: if process_here { smallvec![new_index + 1] } else { smallvec![] },
-                    parents: smallvec![],
-                    span: Default::default(),
-                    num_children: children.len(),
-                    state: Default::default(),
-                    flag,
-                });
-                children.clear();
 
                 if !process_here {
                     // Shatter this version too and continue.
@@ -204,6 +217,7 @@ impl Graph {
                 }
 
                 // Otherwise the new item is the child of what we do below.
+                // println!("CP3 {}", new_index);
                 children.push(new_index);
                 // num_children = 1;
 
@@ -231,19 +245,7 @@ impl Graph {
                         // There's a merge in the pipe. Push the range from peek_v+1..=last.
 
                         // Push the range from peek_entry.v to v.
-                        let new_index = result.len();
-                        for &c in &children {
-                            result[c].parents.push(new_index);
-                        }
-
-                        result.push(ConflictGraphEntry {
-                            parents: smallvec![],
-                            span: (peek_v + 1..last + 1).into(),
-                            num_children: children.len(),
-                            state: Default::default(),
-                            flag,
-                        });
-                        children.clear();
+                        let new_index = push_result((peek_v + 1..last + 1).into(), flag, &mut children, &mut result);
 
                         // We'll process the direct parent of this item after the merger we found in
                         // the queue. This is just in case the merger is duplicated - we need to process
@@ -256,28 +258,18 @@ impl Graph {
 
                         if peek_v == last {
                             // Just add it to the item we pushed above.
+                            // println!("CP4 {}", peek_entry.child_index);
                             children.push(peek_entry.child_index);
                             // num_root_entries += 1;
                         } else {
                             debug_assert!(peek_v < last);
                             // Push the range from peek_entry.v to v.
                             // new_index += 1;
-                            let new_index = result.len();
-                            for &c in &children {
-                                result[c].parents.push(new_index);
-                            }
-
-                            result.push(ConflictGraphEntry {
-                                parents: smallvec![],
-                                span: (peek_v + 1..last + 1).into(),
-                                num_children: children.len(),
-                                state: Default::default(),
-                                flag,
-                            });
-
-                            children.clear();
+                            let new_index = push_result((peek_v + 1..last + 1).into(), flag, &mut children, &mut result);
                             children.push(peek_entry.child_index);
                             children.push(new_index);
+                            // println!("CP5 {} {new_index}", peek_entry.child_index);
+
                             last = peek_v;
                         }
 
@@ -293,19 +285,7 @@ impl Graph {
 
             // Emit the remainder of this txn.
             // debug_assert_eq!(result.len(), new_index);
-            let new_index = result.len();
-            for &c in &children {
-                result[c].parents.push(new_index);
-            }
-            result.push(ConflictGraphEntry {
-                parents: smallvec![],
-                span: (containing_txn.span.start..last+1).into(),
-                num_children: children.len(),
-                state: Default::default(),
-                flag,
-            });
-            children.clear();
-
+            let new_index = push_result((containing_txn.span.start..last+1).into(), flag, &mut children, &mut result);
             queue.push(QueueEntry {
                 version: containing_txn.parents.as_ref().into(),
                 flag,
@@ -317,19 +297,17 @@ impl Graph {
         // assert!(!root_children.is_empty());
         if children.len() > 1 {
             // Make a new node just for the root children.
-            let new_index = result.len();
-            result.push(ConflictGraphEntry {
-                parents: smallvec![],
-                span: Default::default(),
-                num_children: children.len(),
-                state: Default::default(),
-                flag: DiffFlag::Shared,
-            });
-            for c in children {
-                result[c].parents.push(new_index);
-            }
-            // for r in root_children {
-            //     result[r].parents.push(root_index);
+            push_result(Default::default(), DiffFlag::Shared, &mut children, &mut result);
+            // let new_index = result.len();
+            // result.push(ConflictGraphEntry {
+            //     parents: smallvec![],
+            //     span: Default::default(),
+            //     num_children: children.len(),
+            //     state: Default::default(),
+            //     flag: DiffFlag::Shared,
+            // });
+            // for c in children {
+            //     result[c].parents.push(new_index);
             // }
         }
 
@@ -375,6 +353,50 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
         assert_eq!(actual_shared, expected_shared);
     }
 
+    // fn check_indexes_concurrent(&self, idxs: &[usize]) {
+    //
+    // }
+
+    pub(crate) fn dbg_print(&self) {
+        for (i, e) in self.entries.iter().enumerate() {
+            println!("{i}: {:?}", e);
+        }
+        println!("(Base version: {:?})", self.base_version);
+    }
+
+    fn check_parents_concurrent(&self, parents: &[usize]) {
+        if parents.len() < 1 { return; }
+
+        let mut queue: BinaryHeap<Reverse<(usize, bool)>> = BinaryHeap::new();
+        for p in parents {
+            queue.push(Reverse((*p, true)));
+        }
+
+        // We'll stop when there's no more parent entries.
+        let mut parent_entries = parents.len();
+
+        while let Some(Reverse((p, is_parent))) = queue.pop() {
+            let e = &self.entries[p];
+            if is_parent { parent_entries -= 1; }
+
+            while let Some(Reverse((peek_p, peek_parent))) = queue.peek() {
+                if *peek_p == p {
+                    if is_parent || *peek_parent {
+                        panic!("Parents are not concurrent! {:?}", parents);
+                    }
+                    // If they're both not parents, its fine.
+                    queue.pop();
+                } else { break; }
+            }
+
+            if parent_entries == 0 { break; }
+
+            for pp in e.parents.iter() {
+                queue.push(Reverse((*pp, false)));
+            }
+        }
+    }
+
     pub(crate) fn dbg_check(&self) {
         // Things that should be true:
         // - ROOT is referenced exactly once
@@ -408,6 +430,9 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
                        "num_children is incorrect at index {idx}. Actual {actual_num_children} != claimed {}", e.num_children);
 
             if e.parents.is_empty() {
+                // if idx != self.entries.len() - 1 {
+                //     self.dbg_print();
+                // }
                 assert_eq!(idx, self.entries.len() - 1, "The only entry pointing to ROOT should be the last entry");
             }
 
@@ -419,6 +444,9 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
 
             // The list is sorted in reverse time order. (Last stuff at the start). This property is
             // depended on by the diff code below.
+
+            // self.check_parents_concurrent(e.parents.as_ref());
+
             for &p in e.parents.iter() {
                 // if *p <= idx {
                 //     dbg!(idx, e, self.ops.len(), &self.ops[*p]);
@@ -542,19 +570,23 @@ mod test {
 
     #[test]
     fn fuzz_conflict_subgraph() {
-        with_random_cgs(123, (100, 10), |(_i, _k), cg, frontiers| {
+        with_random_cgs(200, (100, 10), |(_i, _k), cg, frontiers| {
             // println!("{_i} {_k}");
             let subgraph = cg.graph.make_conflict_graph_between::<()>(&[], cg.version.as_ref());
             subgraph.dbg_check();
             subgraph.dbg_check_conflicting(&cg.graph, &[], cg.version.as_ref());
 
-            for fs in frontiers.windows(2) {
-                // if (_i, _k) == (5, 1) && fs[0].as_ref() == &[0] && fs[1].as_ref() == &[2] {
+            for (_j, fs) in frontiers.windows(2).enumerate() {
+                // println!("{_i} {_k} {_j}");
+
+                // if (_i, _k, _j) == (0, 0, 1) {
                 //     println!("f: {:?}", fs);
                 //     dbg!(&cg.graph);
                 // }
                 let subgraph = cg.graph.make_conflict_graph_between::<()>(fs[0].as_ref(), fs[1].as_ref());
                 // dbg!(&subgraph);
+                // subgraph.dbg_print();
+
                 subgraph.dbg_check();
                 subgraph.dbg_check_conflicting(&cg.graph, fs[0].as_ref(), fs[1].as_ref());
             }
@@ -592,4 +624,3 @@ mod test {
 
 // node_nodecc:
 // spans: 1907491, forks: 45 maxes 1 / 53622
-
