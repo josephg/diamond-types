@@ -6,12 +6,14 @@ mod dot;
 mod index_gap_buffer;
 mod yjsspan;
 mod conflict_subgraph;
+mod merge1plan;
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use smallvec::{SmallVec, smallvec};
 use rle::SplitableSpan;
 use crate::{DTRange, LV};
+use crate::causalgraph::graph::tools::DiffFlag;
 
 type Index = usize;
 
@@ -22,15 +24,11 @@ struct ConflictGraphEntry<S: Default = ()> {
     pub span: DTRange,
     pub num_children: usize,
     pub state: S,
-    // flag: DiffFlag,
+    pub flag: DiffFlag,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ConflictSubgraph<S: Default = ()> {
-    ops: Vec<ConflictGraphEntry<S>>,
-    // last: usize,
-}
-
+pub(super) struct ConflictSubgraph<S: Default = ()>(Vec<ConflictGraphEntry<S>>);
 
 
 // #[test]

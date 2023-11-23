@@ -2,10 +2,11 @@ use std::cmp::Ordering;
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
 use std::fmt::Debug;
+use rle::{AppendRle, ReverseSpan};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::listmerge2::{ConflictGraphEntry, ConflictSubgraph};
-use crate::{CausalGraph, LV};
+use crate::{CausalGraph, DTRange, LV};
 
 
 // Sorted highest to lowest (so we compare the highest first).
@@ -84,9 +85,9 @@ impl Graph {
     /// - (soon) subgraph.
     pub(crate) fn make_conflict_graph_between<S: Default>(&self, a: &[LV], b: &[LV]) -> ConflictSubgraph<S> {
         // TODO: Short circuits.
-        if a == b {
+        if a == b { // if self.frontier_contains_frontier(a, b) {
             // Nothing to do here.
-            return ConflictSubgraph { ops: vec![] };
+            return ConflictSubgraph(vec![]);
         }
 
         // let mut result: Vec<ActionGraphEntry> = vec![];
@@ -106,6 +107,10 @@ impl Graph {
             span: Default::default(),
             num_children: 0,
             state: Default::default(),
+            // The flag for the root element is weird, because it describes the union of A and B.
+            // Shared really means "Its in both A and B", but this sort of in neither - only in the
+            // merge.
+            flag: DiffFlag::Shared,
         });
 
         let mut root_children: SmallVec<[usize; 2]> = smallvec![];
@@ -113,12 +118,14 @@ impl Graph {
         // The heap is sorted such that we pull the highest items first.
         let mut queue: BinaryHeap<QueueEntry> = BinaryHeap::new();
 
-        if !self.frontier_contains_frontier(b, a) {
-            queue.push(QueueEntry { version: a.into(), flag: DiffFlag::OnlyA, child_index: 0 });
-        }
-        if !self.frontier_contains_frontier(a, b) {
-            queue.push(QueueEntry { version: b.into(), flag: DiffFlag::OnlyB, child_index: 0 });
-        }
+        queue.push(QueueEntry { version: a.into(), flag: DiffFlag::OnlyA, child_index: 0 });
+        queue.push(QueueEntry { version: b.into(), flag: DiffFlag::OnlyB, child_index: 0 });
+        // if !self.frontier_contains_frontier(b, a) {
+        //     queue.push(QueueEntry { version: a.into(), flag: DiffFlag::OnlyA, child_index: 0 });
+        // }
+        // if !self.frontier_contains_frontier(a, b) {
+        //     queue.push(QueueEntry { version: b.into(), flag: DiffFlag::OnlyB, child_index: 0 });
+        // }
 
         // Loop until we've collapsed the graph down to a single element.
         'outer: while let Some(entry) = queue.pop() {
@@ -144,6 +151,13 @@ impl Graph {
                 } else { break; }
             }
 
+            // if queue.is_empty() {
+            //     // We've hit a common version. Stop here.
+            //     debug_assert_eq!(flag, DiffFlag::Shared);
+            //     println!("STOP 1");
+            //     break;
+            // }
+
             if !merged_with.is_empty() {
                 // Merge. We'll make an entry just for this merge because it keeps the logic here
                 // more simple.
@@ -164,6 +178,7 @@ impl Graph {
                     span: Default::default(),
                     num_children,
                     state: Default::default(),
+                    flag,
                 });
 
                 if !process_here {
@@ -202,6 +217,7 @@ impl Graph {
                         span: (peek_v+1 .. last+1).into(),
                         num_children,
                         state: Default::default(),
+                        flag,
                     });
 
                     // We'll process the direct parent of this item after the merger we found in
@@ -226,6 +242,7 @@ impl Graph {
                         span: (peek_v+1 .. last+1).into(),
                         num_children,
                         state: Default::default(),
+                        flag,
                     });
 
                     new_index += 1;
@@ -237,6 +254,13 @@ impl Graph {
                 if peek_entry.flag != flag { flag = DiffFlag::Shared; }
             }
 
+            if queue.is_empty() {
+                // If this is the end, stop here.
+                debug_assert_eq!(flag, DiffFlag::Shared);
+                println!("STOP 2");
+                break;
+            }
+
             // Emit the remainder of this txn.
             debug_assert_eq!(result.len(), new_index);
             result.push(ConflictGraphEntry {
@@ -244,6 +268,7 @@ impl Graph {
                 span: (containing_txn.span.start..last+1).into(),
                 num_children,
                 state: Default::default(),
+                flag,
             });
 
             queue.push(QueueEntry {
@@ -251,51 +276,86 @@ impl Graph {
                 flag,
                 child_index: new_index,
             });
-        };
+        }
 
         assert!(!root_children.is_empty());
         if root_children.as_ref() != &[result.len() - 1] {
+            // Make a new node just for the root children.
             let root_index = result.len();
             result.push(ConflictGraphEntry {
                 parents: smallvec![],
                 span: Default::default(),
                 num_children: root_children.len(),
                 state: Default::default(),
+                flag: DiffFlag::Shared,
             });
             for r in root_children {
                 result[r].parents.push(root_index);
             }
         }
 
-        ConflictSubgraph {
-            ops: result,
-        }
+        ConflictSubgraph(result)
     }
 }
 
 impl<S: Default + Debug> ConflictSubgraph<S> {
+    fn dbg_check_conflicting(&self, graph: &Graph, a: &[LV], b: &[LV]) {
+        let mut actual_only_a: SmallVec<[DTRange; 2]> = smallvec![];
+        let mut actual_only_b: SmallVec<[DTRange; 2]> = smallvec![];
+        let mut actual_shared: SmallVec<[DTRange; 2]> = smallvec![];
+
+        for e in self.0.iter().skip(1) { // Ignore the first merge item.
+            if !e.span.is_empty() {
+                let list = match e.flag {
+                    DiffFlag::OnlyA => &mut actual_only_a,
+                    DiffFlag::OnlyB => &mut actual_only_b,
+                    DiffFlag::Shared => &mut actual_shared,
+                };
+                list.push_reversed_rle(e.span);
+            }
+        }
+
+        let mut expected_only_a: SmallVec<[DTRange; 2]> = smallvec![];
+        let mut expected_only_b: SmallVec<[DTRange; 2]> = smallvec![];
+        let mut expected_shared: SmallVec<[DTRange; 2]> = smallvec![];
+        graph.find_conflicting(a, b, |span, flag| {
+            println!("find_conflicting {:?} {:?}", span, flag);
+            let list = match flag {
+                DiffFlag::OnlyA => &mut expected_only_a,
+                DiffFlag::OnlyB => &mut expected_only_b,
+                DiffFlag::Shared => &mut expected_shared,
+            };
+            list.push_reversed_rle(span);
+        });
+
+        // dbg!(&self);
+        assert_eq!(actual_only_a, expected_only_a);
+        assert_eq!(actual_only_b, expected_only_b);
+        assert_eq!(actual_shared, expected_shared);
+    }
+
     pub(crate) fn dbg_check(&self) {
         // Things that should be true:
         // - ROOT is referenced exactly once
         // - The last item is the only one without children
         // - num_children is correct
 
-        if self.ops.is_empty() {
+        if self.0.is_empty() {
             // This is a bit arbitrary.
             // assert_eq!(self.last, usize::MAX);
             return;
         }
 
-        assert_eq!(self.ops[0].num_children, 0, "Item 0 (last) should have no children");
+        assert_eq!(self.0[0].num_children, 0, "Item 0 (last) should have no children");
 
-        for (idx, e) in self.ops.iter().enumerate() {
+        for (idx, e) in self.0.iter().enumerate() {
             // println!("{idx}: {:?}", e);
             // println!("contained by {:#?}", self.ops.iter()
             //     .filter(|e| e.parents.contains(&idx))
             //     .collect::<Vec<_>>());
 
             // Check num_children is correct.
-            let actual_num_children = self.ops.iter()
+            let actual_num_children = self.0.iter()
                 .filter(|e| e.parents.contains(&idx))
                 .count();
 
@@ -307,7 +367,7 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
                        "num_children is incorrect at index {idx}. Actual {actual_num_children} != claimed {}", e.num_children);
 
             if e.parents.is_empty() {
-                assert_eq!(idx, self.ops.len() - 1, "The only entry pointing to ROOT should be the last entry");
+                assert_eq!(idx, self.0.len() - 1, "The only entry pointing to ROOT should be the last entry");
             }
 
             // Each entry should either have non-zero parents or have operations.
@@ -323,8 +383,15 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
                 //     dbg!(idx, e, self.ops.len(), &self.ops[*p]);
                 // }
                 assert!(*p > idx);
+
+                if idx > 0 {
+                    // idx 0 will say OnlyB, but its the merger of OnlyA and OnlyB. So thats special.
+                    let e2 = &self.0[*p];
+                    assert!(e2.flag == e.flag || e2.flag == DiffFlag::Shared);
+                }
             }
         }
+
     }
 }
 
@@ -351,6 +418,7 @@ mod test {
         let mut result = graph.make_conflict_graph_between(a, b);
         println!("a {:?}, b {:?} => result {:#?}", a, b, &result);
         result.dbg_check();
+        result.dbg_check_conflicting(graph, a, b);
 
         let plan = result.make_plan();
         plan.simulate_plan(&graph, &[]);
@@ -432,13 +500,28 @@ mod test {
 
     #[test]
     fn fuzz_conflict_subgraph() {
-        with_random_cgs(123, (1, 100), |_i, cg, frontiers| {
+        with_random_cgs(123, (1000, 3), |(_i, _k), cg, frontiers| {
+            println!("{_i} {_k}");
             let subgraph = cg.graph.make_conflict_graph_between::<()>(&[], cg.version.as_ref());
             subgraph.dbg_check();
+            // subgraph.dbg_check_conflicting(&cg.graph, &[], cg.version.as_ref());
 
             for fs in frontiers.windows(2) {
+                if (_i, _k) == (5, 1) && fs[0].as_ref() == &[0] && fs[1].as_ref() == &[2] {
+                    println!("f: {:?}", fs);
+                    dbg!(&cg.graph);
+                }
                 let subgraph = cg.graph.make_conflict_graph_between::<()>(fs[0].as_ref(), fs[1].as_ref());
+                // dbg!(&subgraph);
                 subgraph.dbg_check();
+
+                // if (_i, _k) == (5, 1) && fs[0].as_ref() == &[0] && fs[1].as_ref() == &[2] {
+                //     dbg!(fs);
+                //     dbg!(&cg.graph);
+                //     dbg!(&subgraph);
+                //
+                // }
+                // subgraph.dbg_check_conflicting(&cg.graph, fs[0].as_ref(), fs[1].as_ref());
             }
         });
     }

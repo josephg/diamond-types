@@ -157,6 +157,7 @@ impl Graph {
                 span: Default::default(),
                 num_children: self.root_child_indexes.len(),
                 state: Default::default(),
+                flag: DiffFlag::OnlyB,
             });
             // version_map.insert(usize::MAX, 0); // ROOT entry.
             Some(0)
@@ -208,6 +209,7 @@ impl Graph {
                     span: (start..end).into(),
                     num_children: num_children,
                     state: Default::default(),
+                    flag: DiffFlag::OnlyB,
                 });
 
                 version_map.insert(last, ops_idx);
@@ -269,14 +271,12 @@ impl Graph {
                     span: Default::default(),
                     num_children: 0,
                     state: Default::default(),
+                    flag: DiffFlag::OnlyB,
                 });
                 idx
             }
         };
-        ConflictSubgraph {
-            ops: result,
-            // last,
-        }
+        ConflictSubgraph(result)
     }
 }
 
@@ -468,7 +468,7 @@ mod test {
         let merged = cg.graph.to_test_entry_list();
         let size_4 = std::mem::size_of::<ConflictGraphEntry>() - std::mem::size_of::<EntryState>();
         let total_size_4 = std::mem::size_of::<ConflictGraphEntry>();
-        println!("4. num: {}, size of each {}, total size {} (with state: {})", merged.ops.len(), size_4, merged.ops.len() * size_4, merged.ops.len() * total_size_4);
+        println!("4. num: {}, size of each {}, total size {} (with state: {})", merged.0.len(), size_4, merged.0.len() * size_4, merged.0.len() * total_size_4);
 
         // git_makefile:
         // 1. num: 2612, size of each 32, total size 83584

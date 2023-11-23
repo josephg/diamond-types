@@ -68,11 +68,11 @@ pub(super) struct EntryState {
 impl ConflictSubgraph<EntryState> {
     // This method is adapted from the equivalent method in the causal graph code.
     fn diff_trace<F: FnMut(usize)>(&self, idx: usize, mut visit: F) {
-        assert!(self.ops[idx].parents.len() >= 2);
+        assert!(self.0[idx].parents.len() >= 2);
 
         use DiffFlag::*;
         // Sorted highest to lowest.
-        let mut queue: BinaryHeap<Reverse<(usize, DiffFlag)>> = self.ops[idx].parents
+        let mut queue: BinaryHeap<Reverse<(usize, DiffFlag)>> = self.0[idx].parents
             .iter().enumerate()
             .map(|(idx, e)| {
                 Reverse((*e, if idx == 0 { OnlyA } else { OnlyB }))
@@ -111,7 +111,7 @@ impl ConflictSubgraph<EntryState> {
             //     // self.ops[a].state.merge_max_with.push(idx);
             // }
 
-            let entry = &self.ops[idx];
+            let entry = &self.0[idx];
             if flag == OnlyB && entry.state.visited {
                 // Oops!
                 // println!("Need to MAX!");
@@ -133,22 +133,22 @@ impl ConflictSubgraph<EntryState> {
     pub(crate) fn calc_children_needing_index(&mut self) {
         // TODO: Merge this with plan_first_pass.
         // Iterating with an explicit index to keep the borrowck happy.
-        for i in 0..self.ops.len() {
-            let entry = &self.ops[i];
+        for i in 0..self.0.len() {
+            let entry = &self.0[i];
             if let Some(&first_parent) = entry.parents.first() {
-                self.ops[first_parent].state.children_needing_index += 1;
+                self.0[first_parent].state.children_needing_index += 1;
             }
         }
 
-        if !self.ops.is_empty() {
-            self.ops[0].state.children_needing_index += 1;
+        if !self.0.is_empty() {
+            self.0[0].state.children_needing_index += 1;
         }
     }
 
     fn plan_first_pass(&mut self, b: &Bump) {
         use bumpalo::collections::Vec as BumpVec;
 
-        if self.ops.is_empty() { return; }
+        if self.0.is_empty() { return; }
         let mut stack = vec![];
         let mut current_idx = 0;
 
@@ -165,7 +165,7 @@ impl ConflictSubgraph<EntryState> {
 
         loop {
             // println!("Visiting idx {current_idx} from {:?}", last_direction);
-            let mut e = &mut self.ops[current_idx];
+            let mut e = &mut self.0[current_idx];
 
             let next_direction = 'block: {
                 // *** Deal with the entry's parents and merging logic ***
@@ -206,7 +206,7 @@ impl ConflictSubgraph<EntryState> {
                                             maxes.push((current_idx, smallvec![i]));
                                         }
                                     });
-                                    e = &mut self.ops[current_idx];
+                                    e = &mut self.0[current_idx];
                                 }
 
                                 // While processing the parents, we increment next when the parent is
@@ -249,7 +249,7 @@ impl ConflictSubgraph<EntryState> {
 
         assert_eq!(last_direction, Down);
 
-        for op in self.ops.iter_mut() {
+        for op in self.0.iter_mut() {
             assert!(op.state.visited);
             op.state.visited = false;
             op.state.next = 0;
@@ -258,9 +258,9 @@ impl ConflictSubgraph<EntryState> {
         // dbg!(&maxes.len());
         for (i, v) in maxes {
             for vv in v.iter() {
-                self.ops[*vv].state.children_needing_index += 1;
+                self.0[*vv].state.children_needing_index += 1;
             }
-            self.ops[i].state.merge_max_with = v;
+            self.0[i].state.merge_max_with = v;
         }
     }
 
@@ -274,7 +274,7 @@ impl ConflictSubgraph<EntryState> {
     pub(super) fn make_plan(&mut self) -> MergePlan {
         let bump = Bump::new();
 
-        if self.ops.is_empty() {
+        if self.0.is_empty() {
             return MergePlan { actions: vec![], indexes_used: 0 };
         }
 
@@ -288,7 +288,7 @@ impl ConflictSubgraph<EntryState> {
         let mut index_stack: Vec<Index> = vec![];
         // let mut indexes_state: Vec<Option<Frontier>> = vec![Some(Frontier::root())];
 
-        let g = &mut self.ops;
+        let g = &mut self.0;
 
         // Up from some child, or down with an index.
         #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -547,7 +547,7 @@ impl ConflictSubgraph<EntryState> {
         assert_eq!(concurrency, 0);
         assert_eq!(last_direction, Down(Some(0)));
 
-        for op in self.ops.iter() {
+        for op in self.0.iter() {
             assert_eq!(op.state.children_needing_index, 0);
         }
 
@@ -724,10 +724,7 @@ mod test {
 
     #[test]
     fn test_trivial_graphs() {
-        let mut g = ConflictSubgraph {
-            ops: vec![],
-            // last: usize::MAX,
-        };
+        let mut g = ConflictSubgraph(vec![]);
 
         g.dbg_check();
         let plan = g.make_plan();
@@ -737,16 +734,15 @@ mod test {
             GraphEntrySimple { span: 0.into(), parents: Frontier::root() }
         ]);
 
-        let mut g = ConflictSubgraph {
-            ops: vec![
-                ConflictGraphEntry {
-                    parents: smallvec![],
-                    span: (0..1).into(),
-                    num_children: 0,
-                    state: Default::default(),
-                },
-            ],
-        };
+        let mut g = ConflictSubgraph(vec![
+            ConflictGraphEntry {
+                parents: smallvec![],
+                span: (0..1).into(),
+                num_children: 0,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+        ]);
 
         g.dbg_check();
         let plan = g.make_plan();
@@ -761,34 +757,36 @@ mod test {
             GraphEntrySimple { span: 2.into(), parents: Frontier::new_1(0) },
         ]);
 
-        let mut g = ConflictSubgraph {
-            ops: vec![
-                ConflictGraphEntry {
-                    parents: smallvec![1, 2],
-                    span: (0..0).into(),
-                    num_children: 0,
-                    state: Default::default(),
-                },
-                ConflictGraphEntry {
-                    parents: smallvec![3],
-                    span: 2.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ConflictGraphEntry {
-                    parents: smallvec![3],
-                    span: 1.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ConflictGraphEntry {
-                    parents: smallvec![],
-                    span: 0.into(),
-                    num_children: 2,
-                    state: Default::default(),
-                },
-            ],
-        };
+        let mut g = ConflictSubgraph(vec![
+            ConflictGraphEntry {
+                parents: smallvec![1, 2],
+                span: (0..0).into(),
+                num_children: 0,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+            ConflictGraphEntry {
+                parents: smallvec![3],
+                span: 2.into(),
+                num_children: 1,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+            ConflictGraphEntry {
+                parents: smallvec![3],
+                span: 1.into(),
+                num_children: 1,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+            ConflictGraphEntry {
+                parents: smallvec![],
+                span: 0.into(),
+                num_children: 2,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+        ]);
 
         g.dbg_check();
         let plan = g.make_plan();
@@ -797,58 +795,64 @@ mod test {
 
     #[test]
     fn diamonds() {
-        let mut g: ConflictSubgraph<EntryState> = ConflictSubgraph {
-            ops: vec![
-                ConflictGraphEntry { // 0 Y
-                    parents: smallvec![1, 2],
-                    span: Default::default(),
-                    num_children: 0,
-                    state: Default::default(),
-                },
-                ConflictGraphEntry { // 1 ACY
-                    parents: smallvec![6],
-                    span: 4.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ConflictGraphEntry { // 2 D
-                    parents: smallvec![3],
-                    span: 3.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ConflictGraphEntry { // 3 DY
-                    parents: smallvec![4, 5],
-                    span: Default::default(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ConflictGraphEntry { // 4 AD
-                    parents: smallvec![6],
-                    span: 2.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ConflictGraphEntry { // 5 XBD
-                    parents: smallvec![7],
-                    span: 1.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                },
-                ConflictGraphEntry { // 6 XA -> A
-                    parents: smallvec![7],
-                    span: 0.into(),
-                    num_children: 2,
-                    state: Default::default(),
-                },
-                ConflictGraphEntry { // 7 X
-                    parents: smallvec![],
-                    span: Default::default(),
-                    num_children: 2,
-                    state: Default::default(),
-                },
-            ],
-        };
+        let mut g: ConflictSubgraph<EntryState> = ConflictSubgraph(vec![
+            ConflictGraphEntry { // 0 Y
+                parents: smallvec![1, 2],
+                span: Default::default(),
+                num_children: 0,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+            ConflictGraphEntry { // 1 ACY
+                parents: smallvec![6],
+                span: 4.into(),
+                num_children: 1,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+            ConflictGraphEntry { // 2 D
+                parents: smallvec![3],
+                span: 3.into(),
+                num_children: 1,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+            ConflictGraphEntry { // 3 DY
+                parents: smallvec![4, 5],
+                span: Default::default(),
+                num_children: 1,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+            ConflictGraphEntry { // 4 AD
+                parents: smallvec![6],
+                span: 2.into(),
+                num_children: 1,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+            ConflictGraphEntry { // 5 XBD
+                parents: smallvec![7],
+                span: 1.into(),
+                num_children: 1,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+            ConflictGraphEntry { // 6 XA -> A
+                parents: smallvec![7],
+                span: 0.into(),
+                num_children: 2,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+            ConflictGraphEntry { // 7 X
+                parents: smallvec![],
+                span: Default::default(),
+                num_children: 2,
+                state: Default::default(),
+                flag: DiffFlag::OnlyB,
+            },
+        ]);
 
         g.dbg_check();
         let plan = g.make_plan();
