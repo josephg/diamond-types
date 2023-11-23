@@ -365,11 +365,10 @@ impl ConflictSubgraph<M1EntryState> {
 }
 
 impl M1Plan {
-    fn dbg_check(&self, a: &[LV], b: &[LV], graph: &Graph) {
-        let common_ancestor = graph.find_conflicting_simple(a, b).common_ancestor;
-
-        let mut current: Frontier = common_ancestor.clone();
-        let mut max: Frontier = common_ancestor.clone();
+    fn dbg_check(&self, common_ancestor: &[LV], a: &[LV], b: &[LV], graph: &Graph) {
+        let mut current: Frontier = common_ancestor.into();
+        let mut max: Frontier = common_ancestor.into();
+        let mut cleared_version: Frontier = common_ancestor.into();
 
         for action in &self.0 {
             match action {
@@ -378,6 +377,9 @@ impl M1Plan {
 
                     // The span must NOT be in the max set.
                     assert!(!graph.frontier_contains_version(max.as_ref(), span.start));
+
+                    // The cleared version must be a parent of this version.
+                    assert!(graph.frontier_contains_frontier(&[span.start], cleared_version.as_ref()));
 
                     graph.with_parents(span.start, |parents| {
                         assert_eq!(parents, current.as_ref()); // Current == the new item's parents.
@@ -390,6 +392,8 @@ impl M1Plan {
                 }
                 M1PlanAction::Retreat(span) => {
                     assert!(!span.is_empty());
+
+                    assert!(graph.frontier_contains_frontier(&[span.start], cleared_version.as_ref()));
 
                     // The span must be in the max set already - because we've visited this span already.
                     assert!(graph.frontier_contains_version(max.as_ref(), span.last()));
@@ -405,6 +409,8 @@ impl M1Plan {
                 M1PlanAction::Advance(span) => {
                     assert!(!span.is_empty());
 
+                    assert!(graph.frontier_contains_frontier(&[span.start], cleared_version.as_ref()));
+
                     // The span must be in the max set already - because we've visited this span already.
                     assert!(graph.frontier_contains_version(max.as_ref(), span.last()));
 
@@ -415,7 +421,9 @@ impl M1Plan {
                         current.advance_by_known_run(parents, *span);
                     });
                 }
-                M1PlanAction::Clear => {}
+                M1PlanAction::Clear => {
+                    cleared_version = max.clone();
+                }
                 // M1PlanAction::FF(_) => {}
             }
         }
@@ -487,8 +495,8 @@ mod test {
 
 
         let plan = g.make_m1_plan();
-        dbg!(&plan);
-        plan.dbg_check(&[], &[1, 2], &_graph);
+        // dbg!(&plan);
+        plan.dbg_check(g.base_version.as_ref(), &[], &[1, 2], &_graph);
 
 
         // g.diff_trace(2, 1, |idx, flag| {
@@ -514,13 +522,13 @@ mod test {
 
             let plan = subgraph.make_m1_plan();
             // println!("plan {:?}", &plan);
-            plan.dbg_check(&[], cg.version.as_ref(), &cg.graph);
+            plan.dbg_check(subgraph.base_version.as_ref(), &[], cg.version.as_ref(), &cg.graph);
 
             for fs in frontiers.windows(2) {
                 let mut subgraph = cg.graph.make_conflict_graph_between(fs[0].as_ref(), fs[1].as_ref());
                 // subgraph.dbg_check();
                 let plan = subgraph.make_m1_plan();
-                plan.dbg_check(fs[0].as_ref(), fs[1].as_ref(), &cg.graph);
+                plan.dbg_check(subgraph.base_version.as_ref(), fs[0].as_ref(), fs[1].as_ref(), &cg.graph);
             }
         });
     }
