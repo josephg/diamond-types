@@ -50,12 +50,12 @@ impl ConflictSubgraph<M1EntryState> {
         if after {
             queue.push(Reverse((from_idx, OnlyA)));
         } else {
-            for p in &self.0[from_idx].parents {
+            for p in &self.entries[from_idx].parents {
                 queue.push(Reverse((*p, OnlyA)));
             }
         }
 
-        for p in &self.0[to_idx].parents {
+        for p in &self.entries[to_idx].parents {
             queue.push(Reverse((*p, OnlyB)));
         }
 
@@ -75,7 +75,7 @@ impl ConflictSubgraph<M1EntryState> {
                 } else { break; }
             }
 
-            let entry = &self.0[idx];
+            let entry = &self.entries[idx];
             if flag != Shared {
                 visit(idx, flag);
             }
@@ -97,14 +97,14 @@ impl ConflictSubgraph<M1EntryState> {
     // fn prepare(&mut self) -> SubgraphChildren {
     fn prepare(&mut self) {
         // if self.0.is_empty() { return SubgraphChildren(vec![]); }
-        if self.0.is_empty() { return; }
+        if self.entries.is_empty() { return; }
 
         // For each item, this calculates whether the item is on the critical path.
         let mut queue: BinaryHeap<Reverse<usize>> = BinaryHeap::new();
         queue.push(Reverse(0));
 
         while let Some(Reverse(idx)) = queue.pop() {
-            let e = &mut self.0[idx];
+            let e = &mut self.entries[idx];
             e.state.critical_path = queue.is_empty();
             queue.extend(e.parents.iter().copied().map(|i| Reverse(i)));
         }
@@ -258,14 +258,14 @@ impl ConflictSubgraph<M1EntryState> {
 
     fn make_m1_plan(&mut self) -> M1Plan {
         let mut actions = vec![];
-        if self.0.is_empty() { return M1Plan(actions); }
+        if self.entries.is_empty() { return M1Plan(actions); }
 
-        let mut nonempty_spans_remaining = self.0.iter()
+        let mut nonempty_spans_remaining = self.entries.iter()
             .filter(|e| !e.span.is_empty())
             .count();
 
         let mut last_processed_after: bool = false;
-        let mut last_processed_idx: usize = self.0.len() - 1; // Might be cleaner to start this at None or something.
+        let mut last_processed_idx: usize = self.entries.len() - 1; // Might be cleaner to start this at None or something.
 
         let mut stack: Vec<usize> = vec![];
         let mut current_idx = 0;
@@ -276,7 +276,7 @@ impl ConflictSubgraph<M1EntryState> {
             // println!("{current_idx} / {:?}", stack);
 
             // Borrowing immutably to please the borrow checker.
-            let e = &self.0[current_idx];
+            let e = &self.entries[current_idx];
             assert_eq!(e.state.visited, false);
 
             // There's two things we could do here:
@@ -288,12 +288,12 @@ impl ConflictSubgraph<M1EntryState> {
             let mut e_next = e.state.next;
             while e_next < parents_len {
                 let p = e.parents[e_next];
-                if self.0[p].state.visited { // But it might have already been visited.
+                if self.entries[p].state.visited { // But it might have already been visited.
                     // g[current_idx].state.next += 1;
                     e_next += 1;
                 } else {
                     // Go up and process this child.
-                    self.0[current_idx].state.next = e_next + 1;
+                    self.entries[current_idx].state.next = e_next + 1;
                     stack.push(current_idx);
                     current_idx = p;
                     continue 'outer;
@@ -301,12 +301,12 @@ impl ConflictSubgraph<M1EntryState> {
             }
 
             // Ok, process this element.
-            let e = &mut self.0[current_idx];
+            let e = &mut self.entries[current_idx];
             e.state.next = e_next;
             // debug_assert_eq!(e.state.next, e.parents.len());
             // println!("Processing {current_idx} {:?}", e.span);
             e.state.visited = true;
-            let e = &self.0[current_idx];
+            let e = &self.entries[current_idx];
 
             if !e.span.is_empty() {
                 let mut advances: SmallVec<[DTRange; 2]> = smallvec![];
@@ -317,7 +317,7 @@ impl ConflictSubgraph<M1EntryState> {
                         DiffFlag::OnlyB => &mut advances,
                         DiffFlag::Shared => { return; }
                     };
-                    let span = self.0[idx].span;
+                    let span = self.entries[idx].span;
                     if !span.is_empty() {
                         list.push(span);
                     }
@@ -442,41 +442,44 @@ mod test {
             GraphEntrySimple { span: 2.into(), parents: Frontier::new_1(0) },
         ]);
 
-        let mut g = ConflictSubgraph(vec![
-            ConflictGraphEntry {
-                parents: smallvec![1, 2],
-                span: (0..0).into(),
-                num_children: 0,
-                state: Default::default(),
-                flag: DiffFlag::Shared,
-            },
-            ConflictGraphEntry {
-                parents: smallvec![3],
-                span: 2.into(),
-                num_children: 1,
-                state: Default::default(),
-                flag: DiffFlag::OnlyB,
-            },
-            ConflictGraphEntry {
-                parents: smallvec![3],
-                span: 1.into(),
-                num_children: 1,
-                state: Default::default(),
-                flag: DiffFlag::OnlyB,
-            },
-            ConflictGraphEntry {
-                parents: smallvec![],
-                span: 0.into(),
-                num_children: 2,
-                state: Default::default(),
-                flag: DiffFlag::OnlyB,
-            },
-        ]);
+        let mut g = ConflictSubgraph {
+            entries: vec![
+                ConflictGraphEntry {
+                    parents: smallvec![1, 2],
+                    span: (0..0).into(),
+                    num_children: 0,
+                    state: Default::default(),
+                    flag: DiffFlag::Shared,
+                },
+                ConflictGraphEntry {
+                    parents: smallvec![3],
+                    span: 2.into(),
+                    num_children: 1,
+                    state: Default::default(),
+                    flag: DiffFlag::OnlyB,
+                },
+                ConflictGraphEntry {
+                    parents: smallvec![3],
+                    span: 1.into(),
+                    num_children: 1,
+                    state: Default::default(),
+                    flag: DiffFlag::OnlyB,
+                },
+                ConflictGraphEntry {
+                    parents: smallvec![],
+                    span: 0.into(),
+                    num_children: 2,
+                    state: Default::default(),
+                    flag: DiffFlag::OnlyB,
+                },
+            ],
+            base_version: Frontier::root()
+        };
 
         g.dbg_check();
         g.prepare();
 
-        let critical_path: Vec<_> = g.0.iter()
+        let critical_path: Vec<_> = g.entries.iter()
             .map(|e| e.state.critical_path)
             .collect();
 

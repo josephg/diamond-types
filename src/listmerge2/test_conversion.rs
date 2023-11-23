@@ -207,7 +207,7 @@ impl Graph {
                 result.push(ConflictGraphEntry {
                     parents,
                     span: (start..end).into(),
-                    num_children: num_children,
+                    num_children,
                     state: Default::default(),
                     flag: DiffFlag::OnlyB,
                 });
@@ -276,7 +276,7 @@ impl Graph {
                 idx
             }
         };
-        ConflictSubgraph(result)
+        ConflictSubgraph { entries: result, base_version: Frontier::root() }
     }
 }
 
@@ -468,7 +468,7 @@ mod test {
         let merged = cg.graph.to_test_entry_list();
         let size_4 = std::mem::size_of::<ConflictGraphEntry>() - std::mem::size_of::<EntryState>();
         let total_size_4 = std::mem::size_of::<ConflictGraphEntry>();
-        println!("4. num: {}, size of each {}, total size {} (with state: {})", merged.0.len(), size_4, merged.0.len() * size_4, merged.0.len() * total_size_4);
+        println!("4. num: {}, size of each {}, total size {} (with state: {})", merged.entries.len(), size_4, merged.entries.len() * size_4, merged.entries.len() * total_size_4);
 
         // git_makefile:
         // 1. num: 2612, size of each 32, total size 83584

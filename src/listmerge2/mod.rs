@@ -12,7 +12,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use smallvec::{SmallVec, smallvec};
 use rle::SplitableSpan;
-use crate::{DTRange, LV};
+use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::graph::tools::DiffFlag;
 
 type Index = usize;
@@ -28,7 +28,10 @@ struct ConflictGraphEntry<S: Default = ()> {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ConflictSubgraph<S: Default = ()>(Vec<ConflictGraphEntry<S>>);
+pub(super) struct ConflictSubgraph<S: Default = ()> {
+    entries: Vec<ConflictGraphEntry<S>>,
+    base_version: Frontier,
+}
 
 
 // #[test]

@@ -61,7 +61,7 @@ impl CausalGraph {
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
         let entries = self.make_conflict_graph::<()>();
-        for (index, entry) in entries.0.into_iter().enumerate() {
+        for (index, entry) in entries.entries.into_iter().enumerate() {
             // dbg!(txn);
             let range = entry.span;
 
