@@ -932,6 +932,7 @@ pub mod test {
         assert_conflicting(&graph, &[1], &[2], &[(2..3, OnlyB)], &[1]);
         assert_conflicting(&graph, &[0], &[2], &[(1..3, OnlyB)], &[0]);
         assert_conflicting(&graph, &[], &[], &[], &[]);
+        assert_conflicting(&graph, &[], &[0], &[(0..1, OnlyB)], &[]);
         assert_conflicting(&graph, &[], &[2], &[(0..3, OnlyB)], &[]);
 
         assert_conflicting(&graph, &[2], &[3], &[(0..3, OnlyA), (3..4, OnlyB)], &[]); // 0,1,2 and 3.
