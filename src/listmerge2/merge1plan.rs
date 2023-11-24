@@ -423,14 +423,14 @@ impl ConflictSubgraph<M1EntryState> {
 }
 
 impl Graph {
-    pub(crate) fn make_m1_plan(&self, a: &[LV], b: &[LV]) -> M1Plan {
+    pub(crate) fn make_m1_plan(&self, a: &[LV], b: &[LV]) -> (M1Plan, Frontier) {
         if self.frontier_contains_frontier(a, b) {
             // Nothing to merge. Do nothing.
-            return M1Plan(vec![]);
+            return (M1Plan(vec![]), Frontier::root());
         }
 
         let mut sg = self.make_conflict_graph_between(a, b);
-        sg.make_m1_plan()
+        (sg.make_m1_plan(), sg.base_version)
     }
 }
 

@@ -37,6 +37,7 @@ use crate::causalgraph::graph::Graph;
 use crate::textinfo::TextInfo;
 use crate::frontier::local_frontier_eq;
 use crate::list::ListOpLog;
+use crate::listmerge2::merge1plan::{M1Plan, M1PlanAction};
 #[cfg(feature = "ops_to_old")]
 use crate::listmerge::to_old::OldCRDTOpInternal;
 use crate::unicount::consume_chars;
@@ -102,6 +103,16 @@ impl M2Tracker {
             #[cfg(feature = "ops_to_old")]
             dbg_ops: vec![]
         }
+    }
+
+    pub(super) fn clear(&mut self) {
+        // TODO: Could make this cleaner with a clear() function in ContentTree.
+        self.range_tree = ContentTreeRaw::new();
+        self.index = ContentTreeRaw::new();
+
+        let underwater = FugueSpan::new_underwater();
+        pad_index_to(&mut self.index, underwater.id.end);
+        self.range_tree.push_notify(underwater, notify_for(&mut self.index));
     }
 
     pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<FugueSpan, DocRangeIndex>> {
@@ -599,6 +610,175 @@ impl M2Tracker {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(crate) enum TransformedResult {
+    BaseMoved(usize),
+    DeleteAlreadyHappened,
+}
+
+type TransformedTriple = (LV, ListOpMetrics, TransformedResult);
+
+impl TransformedResult {
+    fn not_moved(op_pair: KVPair<ListOpMetrics>) -> TransformedTriple {
+        let start = op_pair.1.start();
+        (op_pair.0, op_pair.1, TransformedResult::BaseMoved(start))
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct TransformedOpsIter2<'a> {
+    // oplog: &'a ListOpLog,
+    // cg: &'a CausalGraph,
+    subgraph: &'a Graph,
+    aa: &'a AgentAssignment,
+    op_ctx: &'a ListOperationCtx,
+    ops: &'a RleVec<KVPair<ListOpMetrics>>,
+    op_iter: Option<BufferedIter<OpMetricsIter<'a>>>,
+
+    tracker: M2Tracker,
+    plan: M1Plan,
+
+    plan_idx: usize,
+    applying: bool,
+    // action_offset: usize,
+
+    // op_iter: Option<BufferedIter<OpMetricsIter<'a>>>,
+    // ff_mode: bool,
+    // // ff_idx: usize,
+    // did_ff: bool, // TODO: Do I really need this?
+    //
+    // merge_frontier: Frontier,
+    //
+    // common_ancestor: Frontier,
+    // conflict_ops: SmallVec<[DTRange; 4]>,
+    // new_ops: SmallVec<[DTRange; 4]>,
+    //
+    max_frontier: Frontier,
+    //
+    // // TODO: This tracker allocates - which we don't need to do if we're FF-ing.
+    // phase2: Option<(M2Tracker, SpanningTreeWalker<'a>)>,
+}
+
+impl<'a> TransformedOpsIter2<'a> {
+    pub(crate) fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
+                      ops: &'a RleVec<KVPair<ListOpMetrics>>,
+                      from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
+        let (plan, common) = subgraph.make_m1_plan(from_frontier, merge_frontier);
+
+        Self {
+            subgraph,
+            aa,
+            op_ctx,
+            ops,
+            op_iter: None,
+            tracker: M2Tracker::new(),
+            plan,
+            plan_idx: 0,
+            applying: false,
+            max_frontier: common,
+        }
+    }
+
+    pub(crate) fn into_frontier(self) -> Frontier {
+        self.max_frontier
+    }
+}
+
+impl<'a> Iterator for TransformedOpsIter2<'a> {
+    /// Iterator over transformed operations. The KVPair.0 holds the original time of the operation.
+    type Item = (LV, ListOpMetrics, TransformedResult);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // We're done when we've merged everything in self.new_ops.
+        // todo!()
+        // if self.op_iter.is_none() && self.new_ops.is_empty() { return None; }
+        if self.op_iter.is_none() && self.plan_idx >= self.plan.0.len() { return None; }
+
+        let (mut pair, op_iter) = 'outer: loop {
+            if let Some(op_iter) = self.op_iter.as_mut() {
+                if let Some(pair) = op_iter.next() {
+                    // dbg!(&pair);
+                    break (pair, op_iter);
+                } else { self.op_iter = None; }
+            }
+
+            // Otherwise advance to the next chunk from walker.
+            for action in &self.plan.0[self.plan_idx..] {
+                self.plan_idx += 1;
+                match action {
+                    M1PlanAction::Retreat(span) => {
+                        self.tracker.retreat_by_range(*span);
+                    }
+                    M1PlanAction::Advance(span) => {
+                        self.tracker.advance_by_range(*span);
+                    }
+                    M1PlanAction::Apply(span) => {
+                        // println!("frontier {:?} + span {:?}", self.max_frontier, *span);
+                        // println!("->ontier {:?}", self.max_frontier);
+                        self.max_frontier.advance(self.subgraph, *span);
+
+                        if !self.applying {
+                            // Just apply it directly to the tracker.
+                            self.tracker.apply_range(self.aa, self.op_ctx, self.ops, *span, None);
+                        } else {
+                            self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, *span).into());
+                            continue 'outer;
+                        }
+                    }
+                    M1PlanAction::FF(span) => {
+                        // println!("frontier {:?} FF span {:?} -> {}", self.max_frontier, *span, span.last());
+                        self.max_frontier.replace_with_1(span.last());
+
+                        if !self.applying {
+                            // Just apply it directly to the tracker.
+                            self.tracker.apply_range(self.aa, self.op_ctx, self.ops, *span, None);
+                        } else {
+                            self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, *span).into());
+                            continue 'outer;
+                        }
+                    }
+                    M1PlanAction::Clear => {
+                        self.tracker.clear();
+                    }
+                    M1PlanAction::BeginOutput => {
+                        self.applying = true;
+                    }
+                }
+            }
+
+            // No more plan. Stop!
+            // dbg!(&self.op_iter, self.plan_idx);
+            debug_assert!(self.op_iter.is_none());
+            return None;
+
+            // Only really advancing the frontier so we can consume into it. The resulting frontier
+            // is interesting in lots of places.
+            //
+            // The walker can be unwrapped into its inner frontier, but that won't include
+            // everything. (TODO: Look into fixing that?)
+            // self.next_frontier.advance(self.subgraph, walk.consume);
+            // self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, walk.consume).into());
+        };
+
+        // Ok, try to consume as much as we can from pair.
+        let span = self.aa.local_span_to_agent_span(pair.span());
+        let len = span.len().min(pair.len());
+
+        let (consumed_here, xf_result) = self.tracker.apply(self.aa, span.agent, &pair, len);
+
+        let remainder = pair.trim_ctx(consumed_here, self.op_ctx);
+
+        // (Time, OperationInternal, TransformedResult)
+        let result = (pair.0, pair.1, xf_result);
+
+        if let Some(r) = remainder {
+            op_iter.push_back(r);
+        }
+
+        Some(result)
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct TransformedOpsIter<'a> {
     // oplog: &'a ListOpLog,
@@ -695,107 +875,6 @@ impl<'a> TransformedOpsIter<'a> {
         self.phase2.as_ref().map_or(false, |(tracker, _)| {
             tracker.concurrent_inserts_collide
         })
-    }
-}
-
-// #[derive(Debug)]
-// struct FlattenedOps {
-//     common_ancestor: Frontier,
-//     conflict_ops: SmallVec<[DTRange; 4]>,
-//     new_ops: SmallVec<[DTRange; 4]>,
-//     from_frontier: Frontier,
-//     merge_frontier: Frontier,
-// }
-//
-// impl FlattenedOps {
-//     fn new_from_subgraph(cg: &CausalGraph, from_frontier: &[LV], merge_frontier: &[LV], ops: &RleVec<KVPair<ListOpMetrics>>) -> Result<(Graph, Self), Frontier> {
-//         // This is a big dirty mess for now, but it should be correct at least.
-//         let global_conflict_zone = cg.graph.find_conflicting_simple(from_frontier, merge_frontier);
-//         let earliest = global_conflict_zone.common_ancestor.0.get(0).copied().unwrap_or(0);
-//
-//         let final_frontier_global = cg.graph.find_dominators_2(from_frontier, merge_frontier);
-//         // if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
-//
-//         // We actually only need the ops in intersection b
-//         let op_spans = ops.iter().map(|e| e.span())
-//             .rev()
-//             // .merge_spans_rev()
-//             .take_while(|r| r.end > earliest);
-//         // let iter = rle_intersect_rev_first(op_spans, global_conflict_zone.rev_spans.iter().copied());
-//         let iter = op_spans;
-//
-//         let (subgraph, _ff) = cg.graph.subgraph_raw(iter.clone(), final_frontier_global.as_ref());
-//
-//         // println!("{}", subgraph.0.0.len());
-//         // subgraph.dbg_check_subgraph(true); // For debugging.
-//         // dbg!(&subgraph, ff.as_ref());
-//
-//         let from_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), from_frontier);
-//         let merge_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), merge_frontier);
-//
-//         let mut new_ops: SmallVec<[DTRange; 4]> = smallvec![];
-//         let mut conflict_ops: SmallVec<[DTRange; 4]> = smallvec![];
-//
-//         // Process the conflicting edits again, this time just scanning the subgraph.
-//         let common_ancestor = subgraph.find_conflicting(from_frontier.as_ref(), merge_frontier.as_ref(), |span, flag| {
-//             // Note we'll be visiting these operations in reverse order.
-//             let target = match flag {
-//                 DiffFlag::OnlyB => &mut new_ops,
-//                 _ => &mut conflict_ops
-//             };
-//             target.push_reversed_rle(span);
-//         });
-//         // dbg!(&common_ancestor);
-//
-//         let final_frontier_subgraph = subgraph.find_dominators_2(from_frontier.as_ref(), merge_frontier.as_ref());
-//         if final_frontier_subgraph == from_frontier { return Result::Err(final_frontier_global); } // Nothing to do! Just an optimization... Not sure if its necessary.
-//
-//         // dbg!(ops.iter().map(|e| e.span())
-//         //     .rev()
-//         //     .take_while(|r| r.end > earliest).collect::<Vec<_>>());
-//         // dbg!(&subgraph);
-//         // dbg!(&new_ops);
-//
-//         Result::Ok((subgraph, Self {
-//             from_frontier,
-//             merge_frontier,
-//             common_ancestor,
-//             conflict_ops,
-//             new_ops,
-//         }))
-//     }
-//
-//     fn iter<'a>(self, subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>) -> TransformedOpsIter<'a> {
-//         TransformedOpsIter {
-//             subgraph,
-//             aa,
-//             op_ctx,
-//             ops,
-//             op_iter: None,
-//             ff_mode: true,
-//             did_ff: false,
-//             merge_frontier: self.merge_frontier,
-//             common_ancestor: self.common_ancestor,
-//             conflict_ops: self.conflict_ops,
-//             new_ops: self.new_ops,
-//             next_frontier: self.from_frontier,
-//             phase2: None,
-//         }
-//     }
-// }
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(crate) enum TransformedResult {
-    BaseMoved(usize),
-    DeleteAlreadyHappened,
-}
-
-type TransformedTriple = (LV, ListOpMetrics, TransformedResult);
-
-impl TransformedResult {
-    fn not_moved(op_pair: KVPair<ListOpMetrics>) -> TransformedTriple {
-        let start = op_pair.1.start();
-        (op_pair.0, op_pair.1, TransformedResult::BaseMoved(start))
     }
 }
 
@@ -967,11 +1046,11 @@ pub fn reverse_str(s: &str) -> SmartString {
 }
 
 impl TextInfo {
-    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Graph, aa: &'a AgentAssignment, from: &[LV], merging: &[LV]) -> TransformedOpsIter<'a> {
-        TransformedOpsIter::new(subgraph, aa, &self.ctx, &self.ops, from, merging)
+    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Graph, aa: &'a AgentAssignment, from: &[LV], merging: &[LV]) -> TransformedOpsIter2<'a> {
+        TransformedOpsIter2::new(subgraph, aa, &self.ctx, &self.ops, from, merging)
     }
 
-    pub(crate) fn with_xf_iter<F: FnOnce(TransformedOpsIter, Frontier) -> R, R>(&self, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV], f: F) -> R {
+    pub(crate) fn with_xf_iter<F: FnOnce(TransformedOpsIter2, Frontier) -> R, R>(&self, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV], f: F) -> R {
         // This is a big dirty mess for now, but it should be correct at least.
         let conflict = cg.graph.find_conflicting_simple(from, merge_frontier);
 
@@ -1040,13 +1119,15 @@ impl TextInfo {
 
     /// Add everything in merge_frontier into the set..
     pub fn merge_into(&self, into: &mut JumpRopeBuf, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV]) -> Frontier {
+        println!("merge from {:?} + {:?}", from, merge_frontier);
         self.with_xf_iter(cg, from, merge_frontier, |iter, final_frontier| {
+            iter.plan.dbg_print();
             for (_lv, origin_op, xf) in iter {
                 match (origin_op.kind, xf) {
                     (ListOpKind::Ins, BaseMoved(pos)) => {
-                        // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                         debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
                         let content = origin_op.get_content(&self.ctx).unwrap();
+                        println!("Insert '{}' at {} (len {})", content, pos, origin_op.len());
                         assert!(pos <= into.len_chars());
                         if origin_op.loc.fwd {
                             into.insert(pos, content);
@@ -1055,15 +1136,17 @@ impl TextInfo {
                             let c = reverse_str(content);
                             into.insert(pos, &c);
                         }
+                        println!("-> doc len {}", into.len_chars());
                     }
 
                     (_, DeleteAlreadyHappened) => {}, // Discard.
 
-                    (ListOpKind::Del, BaseMoved(pos)) => {
-                        let del_end = pos + origin_op.len();
+                    (ListOpKind::Del, BaseMoved(del_start)) => {
+                        let del_end = del_start + origin_op.len();
+                        println!("Delete {}..{} (len {}) doc len {}", del_start, del_end, origin_op.len(), into.len_chars());
+                        // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, origin_op.len(), to.content.slice_chars(del_start..del_end).collect::<String>());
                         debug_assert!(into.len_chars() >= del_end);
-                        // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
-                        into.remove(pos..del_end);
+                        into.remove(del_start..del_end);
                     }
                 }
             }
@@ -1358,3 +1441,94 @@ mod test {
         o.checkout_tip();
     }
 }
+
+
+
+
+
+
+// #[derive(Debug)]
+// struct FlattenedOps {
+//     common_ancestor: Frontier,
+//     conflict_ops: SmallVec<[DTRange; 4]>,
+//     new_ops: SmallVec<[DTRange; 4]>,
+//     from_frontier: Frontier,
+//     merge_frontier: Frontier,
+// }
+//
+// impl FlattenedOps {
+//     fn new_from_subgraph(cg: &CausalGraph, from_frontier: &[LV], merge_frontier: &[LV], ops: &RleVec<KVPair<ListOpMetrics>>) -> Result<(Graph, Self), Frontier> {
+//         // This is a big dirty mess for now, but it should be correct at least.
+//         let global_conflict_zone = cg.graph.find_conflicting_simple(from_frontier, merge_frontier);
+//         let earliest = global_conflict_zone.common_ancestor.0.get(0).copied().unwrap_or(0);
+//
+//         let final_frontier_global = cg.graph.find_dominators_2(from_frontier, merge_frontier);
+//         // if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
+//
+//         // We actually only need the ops in intersection b
+//         let op_spans = ops.iter().map(|e| e.span())
+//             .rev()
+//             // .merge_spans_rev()
+//             .take_while(|r| r.end > earliest);
+//         // let iter = rle_intersect_rev_first(op_spans, global_conflict_zone.rev_spans.iter().copied());
+//         let iter = op_spans;
+//
+//         let (subgraph, _ff) = cg.graph.subgraph_raw(iter.clone(), final_frontier_global.as_ref());
+//
+//         // println!("{}", subgraph.0.0.len());
+//         // subgraph.dbg_check_subgraph(true); // For debugging.
+//         // dbg!(&subgraph, ff.as_ref());
+//
+//         let from_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), from_frontier);
+//         let merge_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), merge_frontier);
+//
+//         let mut new_ops: SmallVec<[DTRange; 4]> = smallvec![];
+//         let mut conflict_ops: SmallVec<[DTRange; 4]> = smallvec![];
+//
+//         // Process the conflicting edits again, this time just scanning the subgraph.
+//         let common_ancestor = subgraph.find_conflicting(from_frontier.as_ref(), merge_frontier.as_ref(), |span, flag| {
+//             // Note we'll be visiting these operations in reverse order.
+//             let target = match flag {
+//                 DiffFlag::OnlyB => &mut new_ops,
+//                 _ => &mut conflict_ops
+//             };
+//             target.push_reversed_rle(span);
+//         });
+//         // dbg!(&common_ancestor);
+//
+//         let final_frontier_subgraph = subgraph.find_dominators_2(from_frontier.as_ref(), merge_frontier.as_ref());
+//         if final_frontier_subgraph == from_frontier { return Result::Err(final_frontier_global); } // Nothing to do! Just an optimization... Not sure if its necessary.
+//
+//         // dbg!(ops.iter().map(|e| e.span())
+//         //     .rev()
+//         //     .take_while(|r| r.end > earliest).collect::<Vec<_>>());
+//         // dbg!(&subgraph);
+//         // dbg!(&new_ops);
+//
+//         Result::Ok((subgraph, Self {
+//             from_frontier,
+//             merge_frontier,
+//             common_ancestor,
+//             conflict_ops,
+//             new_ops,
+//         }))
+//     }
+//
+//     fn iter<'a>(self, subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>) -> TransformedOpsIter<'a> {
+//         TransformedOpsIter {
+//             subgraph,
+//             aa,
+//             op_ctx,
+//             ops,
+//             op_iter: None,
+//             ff_mode: true,
+//             did_ff: false,
+//             merge_frontier: self.merge_frontier,
+//             common_ancestor: self.common_ancestor,
+//             conflict_ops: self.conflict_ops,
+//             new_ops: self.new_ops,
+//             next_frontier: self.from_frontier,
+//             phase2: None,
+//         }
+//     }
+// }

@@ -581,13 +581,13 @@ mod test {
 
         // -----
 
-        let plan = cg.graph.make_m1_plan(&[], cg.version.as_ref());
+        let (plan, _) = cg.graph.make_m1_plan(&[], cg.version.as_ref());
 
         let mut cost_estimate = 0;
         let mut clears = 0;
         let mut ff_len = 0;
         let mut apply_len = 0;
-        for a in &plan.0 {
+        for a in plan.0.iter() {
             match a {
                 M1PlanAction::Retreat(span) | M1PlanAction::Advance(span) => {
                     cost_estimate += o.estimate_cost(*span);
@@ -604,7 +604,7 @@ mod test {
                 M1PlanAction::BeginOutput => {}
             }
         }
-        println!("plan length {}", plan.0.len());
+        println!("plan length {} (vs graph len {})", plan.0.len(), cg.graph.entries.0.len());
         println!("New cost estimate {cost_estimate}. Clears: {clears}");
         println!("ff_len {ff_len} / apply_len {apply_len}");
         plan.dbg_print();
