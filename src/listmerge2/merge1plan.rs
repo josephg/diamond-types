@@ -105,17 +105,18 @@ impl ConflictSubgraph<M1EntryState> {
 
         while let Some(Reverse(idx)) = queue.pop() {
             let e = &mut self.entries[idx];
+
+            while let Some(Reverse(peek_idx)) = queue.peek() {
+                // This is needed to avoid items seeming to be concurrent with themselves.
+                if *peek_idx == idx {
+                    queue.pop();
+                } else { break; }
+            }
+            // println!("idx {idx} queue {:?}", queue);
             e.state.critical_path = queue.is_empty();
             queue.extend(e.parents.iter().copied().map(|i| Reverse(i)));
         }
-
-        // let mut children = vec![smallvec![]; self.0.len()];
-        // for (i, e) in self.0.iter().enumerate() {
-        //     for p in &e.parents {
-        //         children[*p].push(i);
-        //     }
-        // }
-        // SubgraphChildren(children)
+        // self.dbg_print();
     }
 
     // fn make_m1_plan(&mut self) -> M1Plan {
@@ -381,14 +382,27 @@ impl M1Plan {
                     // The cleared version must be a parent of this version.
                     assert!(graph.frontier_contains_frontier(&[span.start], cleared_version.as_ref()));
 
-                    graph.with_parents(span.start, |parents| {
-                        assert_eq!(parents, current.as_ref()); // Current == the new item's parents.
-                        // And the span is a child of max.
-                        assert!(graph.frontier_contains_frontier(max.as_ref(), parents));
+                    if let M1PlanAction::FF(_) = action {
+                        graph.with_parents(span.start, |parents| {
+                            assert_eq!(parents, current.as_ref());
+                            assert_eq!(parents, max.as_ref());
+                        });
 
-                        max.advance_by_known_run(parents, *span);
-                        current.advance_by_known_run(parents, *span);
-                    });
+                        // If we're fast forwarding, the cleared version comes too.
+                        cleared_version.replace_with_1(span.last());
+                        // And the current and max versions do too.
+                        max.replace_with_1(span.last());
+                        current.replace_with_1(span.last());
+                    } else {
+                        graph.with_parents(span.start, |parents| {
+                            assert_eq!(parents, current.as_ref()); // Current == the new item's parents.
+                            // And the span is a child of max.
+                            assert!(graph.frontier_contains_frontier(max.as_ref(), parents));
+
+                            max.advance_by_known_run(parents, *span);
+                            current.advance_by_known_run(parents, *span);
+                        });
+                    }
                 }
                 M1PlanAction::Retreat(span) => {
                     assert!(!span.is_empty());
@@ -422,9 +436,11 @@ impl M1Plan {
                     });
                 }
                 M1PlanAction::Clear => {
+                    // The current version is discarded when a clear operation happens, since we
+                    // throw out the internal data structure.
                     cleared_version = max.clone();
+                    current = max.clone();
                 }
-                // M1PlanAction::FF(_) => {}
             }
         }
 
@@ -443,65 +459,54 @@ mod test {
     use crate::listmerge2::{ConflictGraphEntry, ConflictSubgraph};
 
     #[test]
-    fn test_simple_graph() {
-        let _graph = Graph::from_simple_items(&[
+    fn test_merge1_simple_graph() {
+        let graph = Graph::from_simple_items(&[
             GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
             GraphEntrySimple { span: 1.into(), parents: Frontier::new_1(0) },
             GraphEntrySimple { span: 2.into(), parents: Frontier::new_1(0) },
         ]);
 
-        let mut g = ConflictSubgraph {
-            entries: vec![
-                ConflictGraphEntry {
-                    parents: smallvec![1, 2],
-                    span: (0..0).into(),
-                    num_children: 0,
-                    state: Default::default(),
-                    flag: DiffFlag::Shared,
-                },
-                ConflictGraphEntry {
-                    parents: smallvec![3],
-                    span: 2.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                    flag: DiffFlag::OnlyB,
-                },
-                ConflictGraphEntry {
-                    parents: smallvec![3],
-                    span: 1.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                    flag: DiffFlag::OnlyB,
-                },
-                ConflictGraphEntry {
-                    parents: smallvec![],
-                    span: 0.into(),
-                    num_children: 2,
-                    state: Default::default(),
-                    flag: DiffFlag::OnlyB,
-                },
-            ],
-            base_version: Frontier::root()
-        };
+        let mut g = graph.make_conflict_graph_between(&[], &[1, 2]);
+        // g.dbg_print();
+        g.dbg_check();
+
+        g.prepare();
+        let critical_path: Vec<_> = g.entries.iter()
+            .map(|e| e.state.critical_path)
+            .collect();
+        assert_eq!(&critical_path, &[true, false, false, true, true]);
+
+        let plan = g.make_m1_plan();
+        // dbg!(&plan);
+        plan.dbg_check(g.base_version.as_ref(), &[], &[1, 2], &graph);
+    }
+
+    #[test]
+    fn test_simple_graph_2() {
+        // Same as above, but this time with an extra entry after the concurrent zone.
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
+            GraphEntrySimple { span: 1.into(), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: 2.into(), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: 3.into(), parents: Frontier::from_sorted(&[1, 2]) },
+        ]);
+
+        let mut g = graph.make_conflict_graph_between(&[], &[3]);
+        g.dbg_print();
 
         g.dbg_check();
-        g.prepare();
 
+        g.prepare();
         let critical_path: Vec<_> = g.entries.iter()
             .map(|e| e.state.critical_path)
             .collect();
 
-        assert_eq!(&critical_path, &[true, false, false, true]);
-
+        // dbg!(critical_path);
+        assert_eq!(&critical_path, &[true, true, false, false, true, true]);
 
         let plan = g.make_m1_plan();
-        // dbg!(&plan);
-        plan.dbg_check(g.base_version.as_ref(), &[], &[1, 2], &_graph);
-
-
-        // g.diff_trace(2, 1, |idx, flag| {
-        //     dbg!((idx, flag));
-        // });
+        dbg!(&plan);
+        plan.dbg_check(g.base_version.as_ref(), &[], &[3], &graph);
     }
 
     #[test]

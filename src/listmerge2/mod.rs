@@ -31,6 +31,10 @@ struct ConflictGraphEntry<S: Default = ()> {
 pub(super) struct ConflictSubgraph<S: Default = ()> {
     entries: Vec<ConflictGraphEntry<S>>,
     base_version: Frontier,
+
+    // Indexes of A, B in the resulting entries.
+    a_root: usize,
+    b_root: usize,
 }
 
 

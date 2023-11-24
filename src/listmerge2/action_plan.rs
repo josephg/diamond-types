@@ -724,7 +724,7 @@ mod test {
 
     #[test]
     fn test_trivial_graphs() {
-        let mut g = ConflictSubgraph { entries: vec![], base_version: Frontier::root() };
+        let mut g = ConflictSubgraph { entries: vec![], base_version: Frontier::root(), a_root: usize::MAX, b_root: usize::MAX };
 
         g.dbg_check();
         let plan = g.make_plan();
@@ -744,7 +744,7 @@ mod test {
                     flag: DiffFlag::OnlyB,
                 },
             ],
-            base_version: Frontier::root()
+            base_version: Frontier::root(), a_root: usize::MAX, b_root: usize::MAX
         };
 
         g.dbg_check();
@@ -791,7 +791,7 @@ mod test {
                     flag: DiffFlag::OnlyB,
                 },
             ],
-            base_version: Frontier::root()
+            base_version: Frontier::root(), a_root: 3, b_root: 0
         };
 
         g.dbg_check();
@@ -860,7 +860,7 @@ mod test {
                     flag: DiffFlag::OnlyB,
                 },
             ],
-            base_version: Frontier::root()
+            base_version: Frontier::root(), a_root: 7, b_root: 0
         };
 
         g.dbg_check();

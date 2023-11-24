@@ -276,7 +276,7 @@ impl Graph {
                 idx
             }
         };
-        ConflictSubgraph { entries: result, base_version: Frontier::root() }
+        ConflictSubgraph { entries: result, base_version: Frontier::root(), a_root: usize::MAX, b_root: usize::MAX }
     }
 }
 
