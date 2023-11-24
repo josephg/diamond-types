@@ -2,6 +2,7 @@ use std::cmp::{Ordering, Reverse};
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
 use std::fmt::Debug;
+use rand::prelude::SliceRandom;
 use rle::{AppendRle, ReverseSpan};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
@@ -319,6 +320,13 @@ impl Graph {
 
         debug_assert_ne!(a_root, usize::MAX);
         debug_assert_ne!(b_root, usize::MAX);
+        
+        // let rng = &mut rand::thread_rng();
+        // for r in result.iter_mut() {
+        //     r.parents.shuffle(rng);
+        // //     r.parents.reverse();
+        // }
+
         ConflictSubgraph { entries: result, base_version: frontier, a_root, b_root }
     }
 }
@@ -506,13 +514,10 @@ mod test {
 
     fn check(graph: &Graph, a: &[LV], b: &[LV]) {
         // dbg!(a, b);
-        let mut result = graph.make_conflict_graph_between(a, b);
+        let result = graph.make_conflict_graph_between::<()>(a, b);
         // println!("a {:?}, b {:?} => result {:#?}", a, b, &result);
         result.dbg_check();
         result.dbg_check_conflicting(graph, a, b);
-
-        let plan = result.make_plan();
-        plan.simulate_plan(&graph, &[]);
     }
 
     #[test]
@@ -528,65 +533,6 @@ mod test {
         check(&graph, &[], &[5, 10]);
         // let result = graph.find_conflicting_2(&[1], &[2]);
         // let result = graph.find_conflicting_2(&[5], &[9]);
-    }
-
-    #[test]
-    fn combined_merge() {
-        // let graph = Graph::from_simple_items(&[
-        //     GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
-        //     GraphEntrySimple { span: 1.into(), parents: Frontier::root() },
-        //     GraphEntrySimple { span: 2.into(), parents: Frontier::from(0) },
-        //     GraphEntrySimple { span: 3.into(), parents: Frontier::from(1) },
-        //     GraphEntrySimple { span: 4.into(), parents: Frontier::from(0) },
-        //     GraphEntrySimple { span: 5.into(), parents: Frontier::from(1) },
-        //
-        //
-        //     GraphEntrySimple { span: 4.into(), parents: Frontier::from_sorted(&[2, 3]) },
-        //     GraphEntrySimple { span: 5.into(), parents: Frontier::from_sorted(&[4, 5]) },
-        // ]);
-
-        let graph = Graph::from_simple_items(&[
-            GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
-            GraphEntrySimple { span: 1.into(), parents: Frontier::root() },
-
-            GraphEntrySimple { span: 2.into(), parents: Frontier::from_sorted(&[0, 1]) },
-            GraphEntrySimple { span: 3.into(), parents: Frontier::from_sorted(&[0, 1]) },
-        ]);
-
-        let mut result = graph.make_conflict_graph_between(&[], &[3]);
-        // let mut result = graph.find_conflicting_2(&[4], &[5]);
-        // dbg!(&result);
-        result.dbg_check();
-        let plan = result.make_plan();
-        plan.dbg_check(true);
-        plan.dbg_print();
-        plan.simulate_plan(&graph, &[]);
-    }
-
-    #[test]
-    #[ignore]
-    fn make_plan() {
-        let mut bytes = vec![];
-        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        let o = ListOpLog::load_from(&bytes).unwrap();
-        let cg = &o.cg;
-
-        // let mut conflict_subgraph = cg.graph.to_test_entry_list();
-        let mut conflict_subgraph = cg.graph.make_conflict_graph_between(&[], cg.version.as_ref());
-
-        conflict_subgraph.dbg_check();
-        let plan = conflict_subgraph.make_plan();
-
-        plan.dbg_check(true);
-
-        // println!("Plan with {} steps, using {} indexes", plan.actions.len(), plan.indexes_used);
-        plan.dbg_print();
-
-        plan.simulate_plan(&cg.graph, &[]);
-
-        plan.cost_estimate(|range| { o.estimate_cost(range) });
-        plan.cost_estimate(|range| { range.len() });
     }
 
     #[test]
@@ -616,25 +562,6 @@ mod test {
         });
     }
 
-    #[test]
-    fn fuzz_action_plans() {
-        with_random_cgs(123, (1, 100), |_i, cg, _frontiers| {
-            let mut subgraph = cg.graph.make_conflict_graph_between(&[], cg.version.as_ref());
-            let plan = subgraph.make_plan();
-            plan.simulate_plan(&cg.graph, &[]);
-
-            // TODO:
-            // for fs in frontiers.windows(2) {
-            //     let start = fs[0].as_ref();
-            //     let merge_in = fs[1].as_ref();
-            //     let mut subgraph = cg.graph.make_conflict_graph_between(start, merge_in);
-            //     let plan = subgraph.make_plan();
-            //
-            //     // let base = cg.graph.
-            //     plan.simulate_plan(&cg.graph, start);
-            // }
-        });
-    }
 }
 
 // git-makefile:

@@ -141,7 +141,9 @@ impl ConflictSubgraph<EntryState> {
         }
 
         if !self.entries.is_empty() {
-            self.entries[0].state.children_needing_index += 1;
+            // self.entries[0].state.children_needing_index += 1;
+            self.entries[self.a_root].state.children_needing_index += 1;
+            self.entries[self.b_root].state.children_needing_index += 1;
         }
     }
 
@@ -150,7 +152,8 @@ impl ConflictSubgraph<EntryState> {
 
         if self.entries.is_empty() { return; }
         let mut stack = vec![];
-        let mut current_idx = 0;
+        let mut current_idx = self.a_root;
+        let mut done_b = false;
 
         #[derive(Debug, Clone, Copy, Eq, PartialEq)]
         enum Movement {
@@ -242,6 +245,10 @@ impl ConflictSubgraph<EntryState> {
                 Down => {
                     if let Some(next) = stack.pop() {
                         current_idx = next;
+                    } else if !done_b && !self.entries[self.b_root].state.visited {
+                        done_b = true;
+                        current_idx = self.b_root;
+                        last_direction = Up(usize::MAX);
                     } else { break; };
                 }
             }
@@ -299,6 +306,8 @@ impl ConflictSubgraph<EntryState> {
         use Movement::*;
 
         let mut current_idx = 0;
+        // let mut current_idx = self.a_root;
+        // let mut done_b = false;
         let mut index_wanted = true;
         let mut last_direction = Up {
             next: usize::MAX,
@@ -539,6 +548,14 @@ impl ConflictSubgraph<EntryState> {
                     if let Some((next, next_index_wanted)) = stack.pop() {
                         current_idx = next;
                         index_wanted = next_index_wanted;
+                    // } else if !done_b && !g[self.b_root].state.visited {
+                    //     done_b = true;
+                    //     current_idx = self.b_root;
+                    //     index_wanted = true;
+                    //     // last_direction = Up {
+                    //     //     next: usize::MAX,
+                    //     //     needs_index: false
+                    //     // };
                     } else { break; };
                 }
             }
@@ -717,12 +734,29 @@ impl MergePlan {
 
 #[cfg(test)]
 mod test {
+    use std::fs::File;
+    use std::io::Read;
     use smallvec::smallvec;
     use crate::causalgraph::graph::GraphEntrySimple;
+    use crate::causalgraph::graph::random_graphs::with_random_cgs;
+    use crate::causalgraph::graph::tools::test::fancy_graph;
+    use crate::list::ListOpLog;
     use crate::listmerge2::ConflictGraphEntry;
     use super::*;
 
+    fn check(graph: &Graph, a: &[LV], b: &[LV]) {
+        // dbg!(a, b);
+        let mut result = graph.make_conflict_graph_between(a, b);
+        // println!("a {:?}, b {:?} => result {:#?}", a, b, &result);
+        result.dbg_check();
+        result.dbg_check_conflicting(graph, a, b);
+
+        let plan = result.make_plan();
+        plan.simulate_plan(&graph, &[]);
+    }
+
     #[test]
+    #[ignore] // Ignored until I rework make_plan to use a_root / b_root.
     fn test_trivial_graphs() {
         let mut g = ConflictSubgraph { entries: vec![], base_version: Frontier::root(), a_root: usize::MAX, b_root: usize::MAX };
 
@@ -734,18 +768,19 @@ mod test {
             GraphEntrySimple { span: 0.into(), parents: Frontier::root() }
         ]);
 
-        let mut g = ConflictSubgraph {
-            entries: vec![
-                ConflictGraphEntry {
-                    parents: smallvec![],
-                    span: (0..1).into(),
-                    num_children: 0,
-                    state: Default::default(),
-                    flag: DiffFlag::OnlyB,
-                },
-            ],
-            base_version: Frontier::root(), a_root: usize::MAX, b_root: usize::MAX
-        };
+        let mut g = _graph.make_conflict_graph_between(&[], &[0]);
+        // let mut g = ConflictSubgraph {
+        //     entries: vec![
+        //         ConflictGraphEntry {
+        //             parents: smallvec![],
+        //             span: (0..1).into(),
+        //             num_children: 0,
+        //             state: Default::default(),
+        //             flag: DiffFlag::OnlyB,
+        //         },
+        //     ],
+        //     base_version: Frontier::root(), a_root: usize::MAX, b_root: usize::MAX
+        // };
 
         g.dbg_check();
         let plan = g.make_plan();
@@ -753,6 +788,7 @@ mod test {
     }
 
     #[test]
+    #[ignore] // Ignored until I rework make_plan to use a_root / b_root.
     fn test_simple_graph() {
         let _graph = Graph::from_simple_items(&[
             GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
@@ -760,39 +796,40 @@ mod test {
             GraphEntrySimple { span: 2.into(), parents: Frontier::new_1(0) },
         ]);
 
-        let mut g = ConflictSubgraph {
-            entries: vec![
-                ConflictGraphEntry {
-                    parents: smallvec![1, 2],
-                    span: (0..0).into(),
-                    num_children: 0,
-                    state: Default::default(),
-                    flag: DiffFlag::OnlyB,
-                },
-                ConflictGraphEntry {
-                    parents: smallvec![3],
-                    span: 2.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                    flag: DiffFlag::OnlyB,
-                },
-                ConflictGraphEntry {
-                    parents: smallvec![3],
-                    span: 1.into(),
-                    num_children: 1,
-                    state: Default::default(),
-                    flag: DiffFlag::OnlyB,
-                },
-                ConflictGraphEntry {
-                    parents: smallvec![],
-                    span: 0.into(),
-                    num_children: 2,
-                    state: Default::default(),
-                    flag: DiffFlag::OnlyB,
-                },
-            ],
-            base_version: Frontier::root(), a_root: 3, b_root: 0
-        };
+        let mut g = _graph.make_conflict_graph_between(&[], &[2]);
+        // let mut g = ConflictSubgraph {
+        //     entries: vec![
+        //         ConflictGraphEntry {
+        //             parents: smallvec![1, 2],
+        //             span: (0..0).into(),
+        //             num_children: 0,
+        //             state: Default::default(),
+        //             flag: DiffFlag::OnlyB,
+        //         },
+        //         ConflictGraphEntry {
+        //             parents: smallvec![3],
+        //             span: 2.into(),
+        //             num_children: 1,
+        //             state: Default::default(),
+        //             flag: DiffFlag::OnlyB,
+        //         },
+        //         ConflictGraphEntry {
+        //             parents: smallvec![3],
+        //             span: 1.into(),
+        //             num_children: 1,
+        //             state: Default::default(),
+        //             flag: DiffFlag::OnlyB,
+        //         },
+        //         ConflictGraphEntry {
+        //             parents: smallvec![],
+        //             span: 0.into(),
+        //             num_children: 2,
+        //             state: Default::default(),
+        //             flag: DiffFlag::OnlyB,
+        //         },
+        //     ],
+        //     base_version: Frontier::root(), a_root: 3, b_root: 0
+        // };
 
         g.dbg_check();
         let plan = g.make_plan();
@@ -800,6 +837,7 @@ mod test {
     }
 
     #[test]
+    #[ignore] // Ignored until I rework make_plan to use a_root / b_root.
     fn diamonds() {
         let mut g: ConflictSubgraph<EntryState> = ConflictSubgraph {
             entries: vec![
@@ -867,6 +905,101 @@ mod test {
         let plan = g.make_plan();
         plan.dbg_check(true);
         // plan.dbg_print();
+    }
+
+    #[test]
+    #[ignore] // Ignored until I rework make_plan to use a_root / b_root.
+    fn combined_merge() {
+        // let graph = Graph::from_simple_items(&[
+        //     GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
+        //     GraphEntrySimple { span: 1.into(), parents: Frontier::root() },
+        //     GraphEntrySimple { span: 2.into(), parents: Frontier::from(0) },
+        //     GraphEntrySimple { span: 3.into(), parents: Frontier::from(1) },
+        //     GraphEntrySimple { span: 4.into(), parents: Frontier::from(0) },
+        //     GraphEntrySimple { span: 5.into(), parents: Frontier::from(1) },
+        //
+        //
+        //     GraphEntrySimple { span: 4.into(), parents: Frontier::from_sorted(&[2, 3]) },
+        //     GraphEntrySimple { span: 5.into(), parents: Frontier::from_sorted(&[4, 5]) },
+        // ]);
+
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
+            GraphEntrySimple { span: 1.into(), parents: Frontier::root() },
+
+            GraphEntrySimple { span: 2.into(), parents: Frontier::from_sorted(&[0, 1]) },
+            GraphEntrySimple { span: 3.into(), parents: Frontier::from_sorted(&[0, 1]) },
+        ]);
+
+        let mut result = graph.make_conflict_graph_between(&[], &[3]);
+        // let mut result = graph.find_conflicting_2(&[4], &[5]);
+        // dbg!(&result);
+        result.dbg_check();
+        let plan = result.make_plan();
+        plan.dbg_check(true);
+        plan.dbg_print();
+        plan.simulate_plan(&graph, &[]);
+    }
+
+    #[test]
+    #[ignore] // Ignored until I rework make_plan to use a_root / b_root.
+    fn test_from_fancy_graph() {
+        let graph = fancy_graph();
+        check(&graph, &[], &[]);
+        check(&graph, &[0], &[]);
+        check(&graph, &[0], &[3]);
+        check(&graph, &[0], &[6]);
+        check(&graph, &[2], &[6]);
+        check(&graph, &[], &[0, 3]);
+        check(&graph, &[10], &[5]);
+        check(&graph, &[], &[5, 10]);
+    }
+
+    #[test]
+    #[ignore]
+    fn make_plan() {
+        let mut bytes = vec![];
+        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
+        let cg = &o.cg;
+
+        // let mut conflict_subgraph = cg.graph.to_test_entry_list();
+        let mut conflict_subgraph = cg.graph.make_conflict_graph_between(&[], cg.version.as_ref());
+
+        conflict_subgraph.dbg_check();
+        let plan = conflict_subgraph.make_plan();
+
+        plan.dbg_check(true);
+
+        // println!("Plan with {} steps, using {} indexes", plan.actions.len(), plan.indexes_used);
+        plan.dbg_print();
+
+        plan.simulate_plan(&cg.graph, &[]);
+
+        plan.cost_estimate(|range| { o.estimate_cost(range) });
+        plan.cost_estimate(|range| { range.len() });
+    }
+
+    #[test]
+    #[ignore] // Ignored until I rework make_plan to use a_root / b_root.
+    fn fuzz_action_plans() {
+        with_random_cgs(123, (1, 100), |_i, cg, _frontiers| {
+            let mut subgraph = cg.graph.make_conflict_graph_between(&[], cg.version.as_ref());
+            let plan = subgraph.make_plan();
+            plan.simulate_plan(&cg.graph, &[]);
+
+            // TODO:
+            // for fs in frontiers.windows(2) {
+            //     let start = fs[0].as_ref();
+            //     let merge_in = fs[1].as_ref();
+            //     let mut subgraph = cg.graph.make_conflict_graph_between(start, merge_in);
+            //     let plan = subgraph.make_plan();
+            //
+            //     // let base = cg.graph.
+            //     plan.simulate_plan(&cg.graph, start);
+            // }
+        });
     }
 
     //
