@@ -666,6 +666,9 @@ impl<'a> TransformedOpsIter2<'a> {
                       from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
         let (plan, common) = subgraph.make_m1_plan(from_frontier, merge_frontier);
 
+        // println!("From: {:?} / merge: {:?} common {:?}", from_frontier, merge_frontier, common);
+        // plan.dbg_print();
+
         Self {
             subgraph,
             aa,

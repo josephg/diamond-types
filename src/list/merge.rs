@@ -64,8 +64,10 @@ impl ListBranch {
     /// Add everything in merge_frontier into the set..
     pub fn merge(&mut self, oplog: &ListOpLog, merge_frontier: &[LV]) {
         let mut iter = oplog.get_xf_operations_full(self.version.as_ref(), merge_frontier);
+        // println!("merge '{}' at {:?} + {:?}", self.content.to_string(), self.version, merge_frontier);
 
         for (_lv, origin_op, xf) in &mut iter {
+            // dbg!(_lv, &origin_op, &xf);
             match (origin_op.kind, xf) {
                 (ListOpKind::Ins, BaseMoved(pos)) => {
                     // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
@@ -92,8 +94,13 @@ impl ListBranch {
             }
         }
 
+
         // dbg!(iter.count_range_tracker_size());
+
+        // let expect_v = oplog.cg.graph.find_dominators_2(self.version.as_ref(), merge_frontier);
         self.version = iter.into_frontier();
+        // println!("-> '{}' v {:?}", self.content.to_string(), self.version);
+        // assert_eq!(self.version, expect_v);
     }
 
 }

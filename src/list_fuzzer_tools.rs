@@ -16,6 +16,10 @@ const USE_UNICODE: bool = true;
 
 const UCHARS: [char; 23] = [
     'a', 'b', 'c', '1', '2', '3', ' ', '\n', // ASCII
+    // 'd', 'e', 'f',
+    // 'g', 'h', 'i', 'j',
+    // 'k', 'l', 'm', 'n',
+    // 'r', 'q', 'p', 'o',
     '©', '¥', '½', // The Latin-1 suppliment (U+80 - U+ff)
     'Ύ', 'Δ', 'δ', 'Ϡ', // Greek (U+0370 - U+03FF)
     '←', '↯', '↻', '⇈', // Arrows (U+2190 – U+21FF)

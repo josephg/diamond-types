@@ -56,6 +56,7 @@ fn oplog_merge_fuzz(seed: u64, verbose: bool) {
 
         a.branch.merge(&a.oplog, a.oplog.cg.version.as_ref());
         b.branch.merge(&b.oplog, b.oplog.cg.version.as_ref());
+        // assert_eq!(a.branch.content.to_string(), b.branch.content.to_string());
         assert_eq!(a.branch.content, b.branch.content);
     }
 

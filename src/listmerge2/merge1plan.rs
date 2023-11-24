@@ -426,7 +426,7 @@ impl Graph {
     pub(crate) fn make_m1_plan(&self, a: &[LV], b: &[LV]) -> (M1Plan, Frontier) {
         if self.frontier_contains_frontier(a, b) {
             // Nothing to merge. Do nothing.
-            return (M1Plan(vec![]), Frontier::root());
+            return (M1Plan(vec![]), a.into());
         }
 
         let mut sg = self.make_conflict_graph_between(a, b);
