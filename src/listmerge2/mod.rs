@@ -6,7 +6,7 @@ mod dot;
 mod index_gap_buffer;
 mod yjsspan;
 mod conflict_subgraph;
-mod merge1plan;
+pub mod merge1plan;
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;

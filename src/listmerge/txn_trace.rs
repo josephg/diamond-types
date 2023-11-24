@@ -229,6 +229,24 @@ impl<'a> SpanningTreeWalker<'a> {
             }
         }
     }
+
+    pub(crate) fn dbg_print2(self) {
+        let mut i = 0;
+        for walk in self {
+            for span in walk.retreat.iter() {
+                println!("{i}: --- deactivate {:?}", span);
+                i += 1;
+            }
+            for span in walk.advance_rev.iter().rev() {
+                println!("{i}: +++ reactivate {:?}", span);
+                i += 1;
+            }
+            if !walk.consume.is_empty() {
+                println!("{i}: Add {:?}", walk.consume);
+                i += 1;
+            }
+        }
+    }
 }
 
 impl<'a> Iterator for SpanningTreeWalker<'a> {
@@ -369,6 +387,7 @@ mod test {
     use crate::causalgraph::graph::GraphEntrySimple;
     use crate::causalgraph::graph::tools::ConflictZone;
     use crate::list::ListOpLog;
+    use crate::listmerge2::merge1plan::M1PlanAction;
     use super::*;
 
     #[test]
@@ -537,12 +556,14 @@ mod test {
     fn print_file_plan() {
         let mut bytes = vec![];
         // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/clownschool.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/friendsforever.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
         let cg = &o.cg;
 
         let iter = SpanningTreeWalker::new_all(&cg.graph);
-        iter.dbg_print();
+        iter.dbg_print2();
 
         let iter = SpanningTreeWalker::new_all(&cg.graph);
         let mut cost_estimate = 0;
@@ -557,5 +578,34 @@ mod test {
         println!("Cost estimate {cost_estimate}");
         // node_nodecc Cost estimate 1103811 / 63696
         // git-makefile Cost estimate 1128743 / 50680
+
+        // -----
+        let mut sg = cg.graph.make_conflict_graph_between(&[], cg.version.as_ref());
+        let plan = sg.make_m1_plan();
+
+        let mut cost_estimate = 0;
+        let mut clears = 0;
+        let mut ff_len = 0;
+        let mut apply_len = 0;
+        for a in &plan.0 {
+            match a {
+                M1PlanAction::Retreat(span) | M1PlanAction::Advance(span) => {
+                    cost_estimate += o.estimate_cost(*span);
+                }
+                M1PlanAction::Clear => { clears += 1; }
+                M1PlanAction::Apply(span) => {
+                    cost_estimate += o.estimate_cost(*span);
+                    apply_len += o.estimate_cost(*span);
+                }
+                M1PlanAction::FF(span) => {
+                    cost_estimate += o.estimate_cost(*span);
+                    ff_len += o.estimate_cost(*span);
+                }
+                M1PlanAction::BeginOutput => {}
+            }
+        }
+        println!("New cost estimate {cost_estimate}. Clears: {clears}");
+        println!("ff_len {ff_len} / apply_len {apply_len}");
+        plan.dbg_print();
     }
 }

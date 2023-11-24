@@ -4,12 +4,13 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use smallvec::{SmallVec, smallvec};
+use rle::{AppendRle, MergableSpan};
 use crate::{CausalGraph, DTRange, Frontier, LV};
 use crate::causalgraph::graph::Graph;
 use crate::listmerge2::ConflictSubgraph;
 use crate::causalgraph::graph::tools::DiffFlag;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum M1PlanAction {
     Retreat(DTRange),
     Advance(DTRange),
@@ -19,12 +20,36 @@ pub(crate) enum M1PlanAction {
     BeginOutput,
 }
 
+impl MergableSpan for M1PlanAction {
+    fn can_append(&self, other: &Self) -> bool {
+        use M1PlanAction::*;
+        match (self, other) {
+            (Retreat(r1), Retreat(r2)) => r2.can_append(r1),
+            (Advance(r1), Advance(r2))
+                | (FF(r1), FF(r2))
+                | (Apply(r1), Apply(r2)) => r1.can_append(r2),
+            _ => false
+        }
+    }
+
+    fn append(&mut self, other: Self) {
+        use M1PlanAction::*;
+        match (self, other) {
+            (Retreat(r1), Retreat(r2)) => { r1.start = r2.start },
+            (Advance(r1), Advance(r2))
+            | (FF(r1), FF(r2))
+            | (Apply(r1), Apply(r2)) => r1.append(r2),
+            _ => unreachable!()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
-pub(crate) struct M1Plan(Vec<M1PlanAction>);
+pub(crate) struct M1Plan(pub Vec<M1PlanAction>);
 
 
 #[derive(Debug, Clone, Default)]
-pub(super) struct M1EntryState {
+pub(crate) struct M1EntryState {
     // index: Option<Index>, // Primary index for merges / backup index for forks.
     next: usize, // Starts at 0. 0..parents.len() is where we scan parents, then we scan children.
     // // emitted_this_span: bool,
@@ -117,6 +142,11 @@ impl ConflictSubgraph<M1EntryState> {
             e.state.critical_path = queue.is_empty();
             queue.extend(e.parents.iter().copied().map(|i| Reverse(i)));
         }
+
+        // And sort the parents to hit the lowest spans first.
+        // for e in self.entries.iter_mut() {
+        //     e.parents.reverse();
+        // }
         // self.dbg_print();
     }
 
@@ -261,6 +291,7 @@ impl ConflictSubgraph<M1EntryState> {
     pub(crate) fn make_m1_plan(&mut self) -> M1Plan {
         let mut actions = vec![];
         if self.entries.is_empty() { return M1Plan(actions); }
+        self.prepare();
 
         let mut nonempty_spans_remaining = self.entries.iter()
             .filter(|e| !e.span.is_empty())
@@ -269,8 +300,11 @@ impl ConflictSubgraph<M1EntryState> {
         let mut last_processed_after: bool = false;
         let mut last_processed_idx: usize = self.entries.len() - 1; // Might be cleaner to start this at None or something.
 
-        let mut stack: Vec<usize> = vec![self.b_root];
+        // Basically, process a_root then b_root.
         let mut current_idx = self.a_root;
+        let mut stack: Vec<usize> = vec![];
+
+        let mut done_b = false;
 
         let mut dirty = false;
 
@@ -280,7 +314,6 @@ impl ConflictSubgraph<M1EntryState> {
             // Borrowing immutably to please the borrow checker.
             let e = &self.entries[current_idx];
 
-            // if current_idx == self.b_root
             assert_eq!(e.state.visited, false);
 
             // There's two things we could do here:
@@ -300,6 +333,7 @@ impl ConflictSubgraph<M1EntryState> {
                     self.entries[current_idx].state.next = e_next + 1;
                     stack.push(current_idx);
                     current_idx = p;
+                    // println!("Bumping to parent {current_idx}");
                     continue 'outer;
                 }
             }
@@ -339,11 +373,11 @@ impl ConflictSubgraph<M1EntryState> {
                     });
 
                     if !retreats.is_empty() {
-                        actions.extend(retreats.into_iter().map(M1PlanAction::Retreat));
+                        actions.extend_rle(retreats.into_iter().map(M1PlanAction::Retreat));
                     }
                     if !advances.is_empty() {
                         // .rev() here because diff visits everything in reverse order.
-                        actions.extend(advances.into_iter().rev().map(M1PlanAction::Advance));
+                        actions.extend_rle(advances.into_iter().rev().map(M1PlanAction::Advance));
                     }
 
                     dirty = true;
@@ -361,6 +395,11 @@ impl ConflictSubgraph<M1EntryState> {
             // Then go down again.
             if let Some(next_idx) = stack.pop() {
                 current_idx = next_idx;
+            } else if !done_b {
+                // println!("DOING B");
+                current_idx = self.b_root;
+                actions.push_rle(M1PlanAction::BeginOutput);
+                done_b = true;
             } else {
                 panic!("Should have stopped");
                 // break;
@@ -373,6 +412,9 @@ impl ConflictSubgraph<M1EntryState> {
 
 impl M1Plan {
     fn dbg_check(&self, common_ancestor: &[LV], a: &[LV], b: &[LV], graph: &Graph) {
+        // dbg!(self, a, b);
+        assert!(self.0.iter().filter(|&&a| a == M1PlanAction::BeginOutput).count() <= 1);
+
         let mut current: Frontier = common_ancestor.into();
         let mut max: Frontier = common_ancestor.into();
         let mut cleared_version: Frontier = common_ancestor.into();
@@ -380,7 +422,8 @@ impl M1Plan {
         for action in &self.0 {
             match action {
                 M1PlanAction::BeginOutput => {
-                    // ??
+                    // The "current version" at this point must be a.
+                    assert_eq!(max.as_ref(), a);
                 }
                 M1PlanAction::Apply(span) | M1PlanAction::FF(span) => {
                     assert!(!span.is_empty());
@@ -456,6 +499,34 @@ impl M1Plan {
         let final_version = graph.find_dominators_2(a, b);
         assert_eq!(max, final_version);
     }
+
+    pub(crate) fn dbg_print(&self) {
+        let mut i = 0;
+        for a in self.0.iter() {
+            match a {
+                M1PlanAction::Retreat(span) => {
+                    println!("{i}: --- deactivate {:?}", span);
+                    i += 1;
+                }
+                M1PlanAction::Advance(span) => {
+                    println!("{i}: +++ reactivate {:?}", span);
+                    i += 1;
+                }
+                M1PlanAction::Clear => {
+                    println!("-------- CLEAR ---------");
+                }
+                M1PlanAction::Apply(span) => {
+                    println!("{i}: Add {:?}", span);
+                    i += 1;
+                }
+                M1PlanAction::FF(span) => {
+                    println!("{i}: FF {:?}", span);
+                    i += 1;
+                }
+                M1PlanAction::BeginOutput => {}
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -501,7 +572,7 @@ mod test {
         ]);
 
         let mut g = graph.make_conflict_graph_between(&[], &[3]);
-        g.dbg_print();
+        // g.dbg_print();
 
         g.dbg_check();
 
