@@ -10,16 +10,17 @@ use crate::listmerge2::ConflictSubgraph;
 use crate::causalgraph::graph::tools::DiffFlag;
 
 #[derive(Debug, Clone, Copy)]
-enum M1PlanAction {
+pub(crate) enum M1PlanAction {
     Retreat(DTRange),
     Advance(DTRange),
     Clear,
     Apply(DTRange),
     FF(DTRange),
+    BeginOutput,
 }
 
 #[derive(Debug, Clone)]
-struct M1Plan(Vec<M1PlanAction>);
+pub(crate) struct M1Plan(Vec<M1PlanAction>);
 
 
 #[derive(Debug, Clone, Default)]
@@ -257,7 +258,7 @@ impl ConflictSubgraph<M1EntryState> {
     //     M1Plan(actions)
     // }
 
-    fn make_m1_plan(&mut self) -> M1Plan {
+    pub(crate) fn make_m1_plan(&mut self) -> M1Plan {
         let mut actions = vec![];
         if self.entries.is_empty() { return M1Plan(actions); }
 
@@ -268,8 +269,8 @@ impl ConflictSubgraph<M1EntryState> {
         let mut last_processed_after: bool = false;
         let mut last_processed_idx: usize = self.entries.len() - 1; // Might be cleaner to start this at None or something.
 
-        let mut stack: Vec<usize> = vec![];
-        let mut current_idx = 0;
+        let mut stack: Vec<usize> = vec![self.b_root];
+        let mut current_idx = self.a_root;
 
         let mut dirty = false;
 
@@ -278,6 +279,8 @@ impl ConflictSubgraph<M1EntryState> {
 
             // Borrowing immutably to please the borrow checker.
             let e = &self.entries[current_idx];
+
+            // if current_idx == self.b_root
             assert_eq!(e.state.visited, false);
 
             // There's two things we could do here:
@@ -309,29 +312,8 @@ impl ConflictSubgraph<M1EntryState> {
             e.state.visited = true;
             let e = &self.entries[current_idx];
 
+            // Process this span.
             if !e.span.is_empty() {
-                let mut advances: SmallVec<[DTRange; 2]> = smallvec![];
-                let mut retreats: SmallVec<[DTRange; 2]> = smallvec![];
-                self.diff_trace(last_processed_idx, last_processed_after, current_idx, |idx, flag| {
-                    let list = match flag {
-                        DiffFlag::OnlyA => &mut retreats,
-                        DiffFlag::OnlyB => &mut advances,
-                        DiffFlag::Shared => { return; }
-                    };
-                    let span = self.entries[idx].span;
-                    if !span.is_empty() {
-                        list.push(span);
-                    }
-                });
-
-                if !retreats.is_empty() {
-                    actions.extend(retreats.into_iter().map(M1PlanAction::Retreat));
-                }
-                if !advances.is_empty() {
-                    // .rev() here because diff visits everything in reverse order.
-                    actions.extend(advances.into_iter().rev().map(M1PlanAction::Advance));
-                }
-
                 if e.state.critical_path {
                     if dirty {
                         actions.push(M1PlanAction::Clear);
@@ -339,6 +321,31 @@ impl ConflictSubgraph<M1EntryState> {
                     }
                     actions.push(M1PlanAction::FF(e.span));
                 } else {
+                    // Note we only advance & retreat if the item is not on the critical path.
+                    // If we're on the critical path, the clear operation will flush everything
+                    // anyway.
+                    let mut advances: SmallVec<[DTRange; 2]> = smallvec![];
+                    let mut retreats: SmallVec<[DTRange; 2]> = smallvec![];
+                    self.diff_trace(last_processed_idx, last_processed_after, current_idx, |idx, flag| {
+                        let list = match flag {
+                            DiffFlag::OnlyA => &mut retreats,
+                            DiffFlag::OnlyB => &mut advances,
+                            DiffFlag::Shared => { return; }
+                        };
+                        let span = self.entries[idx].span;
+                        if !span.is_empty() {
+                            list.push(span);
+                        }
+                    });
+
+                    if !retreats.is_empty() {
+                        actions.extend(retreats.into_iter().map(M1PlanAction::Retreat));
+                    }
+                    if !advances.is_empty() {
+                        // .rev() here because diff visits everything in reverse order.
+                        actions.extend(advances.into_iter().rev().map(M1PlanAction::Advance));
+                    }
+
                     dirty = true;
                     actions.push(M1PlanAction::Apply(e.span));
                 }
@@ -350,7 +357,6 @@ impl ConflictSubgraph<M1EntryState> {
                 last_processed_after = true;
                 last_processed_idx = current_idx;
             }
-
 
             // Then go down again.
             if let Some(next_idx) = stack.pop() {
@@ -373,6 +379,9 @@ impl M1Plan {
 
         for action in &self.0 {
             match action {
+                M1PlanAction::BeginOutput => {
+                    // ??
+                }
                 M1PlanAction::Apply(span) | M1PlanAction::FF(span) => {
                     assert!(!span.is_empty());
 
@@ -511,29 +520,24 @@ mod test {
 
     #[test]
     fn fuzz_m1_plans() {
-        with_random_cgs(124, (10, 100), |_i, cg, frontiers| {
-            // println!("i {_i}");
+        with_random_cgs(3223, (100, 10), |(_i, _k), cg, frontiers| {
+            // Iterate through the frontiers, and [root -> cg.version].
+            for (_j, fs) in std::iter::once([Frontier::root(), cg.version.clone()].as_slice())
+                .chain(frontiers.windows(2))
+                .enumerate()
+            {
+                // println!("{_i} {_k} {_j}");
 
-            // #[cfg(feature = "dot_export")] {
-            //     cg.generate_dot_svg(std::path::Path::new("cur.svg"));
-            // }
-            let mut subgraph = cg.graph.make_conflict_graph_between(&[], cg.version.as_ref());
-            // subgraph.dbg_check();
-            //
-            // for (i, e) in subgraph.0.iter().enumerate() {
-            //     println!("{i}: {:?}", e);
-            // }
-            // dbg!(&subgraph);
+                let (a, b) = (fs[0].as_ref(), fs[1].as_ref());
 
-            let plan = subgraph.make_m1_plan();
-            // println!("plan {:?}", &plan);
-            plan.dbg_check(subgraph.base_version.as_ref(), &[], cg.version.as_ref(), &cg.graph);
+                let mut subgraph = cg.graph.make_conflict_graph_between(a, b);
+                subgraph.dbg_check();
+                subgraph.dbg_check_conflicting(&cg.graph, a, b);
 
-            for fs in frontiers.windows(2) {
-                let mut subgraph = cg.graph.make_conflict_graph_between(fs[0].as_ref(), fs[1].as_ref());
-                // subgraph.dbg_check();
+                // subgraph.dbg_print();
                 let plan = subgraph.make_m1_plan();
-                plan.dbg_check(subgraph.base_version.as_ref(), fs[0].as_ref(), fs[1].as_ref(), &cg.graph);
+                // dbg!(&plan);
+                plan.dbg_check(subgraph.base_version.as_ref(), a, b, &cg.graph);
             }
         });
     }

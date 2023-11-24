@@ -324,7 +324,7 @@ impl Graph {
 }
 
 impl<S: Default + Debug> ConflictSubgraph<S> {
-    fn dbg_check_conflicting(&self, graph: &Graph, a: &[LV], b: &[LV]) {
+    pub(super) fn dbg_check_conflicting(&self, graph: &Graph, a: &[LV], b: &[LV]) {
         let mut actual_only_a: SmallVec<[DTRange; 2]> = smallvec![];
         let mut actual_only_b: SmallVec<[DTRange; 2]> = smallvec![];
         let mut actual_shared: SmallVec<[DTRange; 2]> = smallvec![];
