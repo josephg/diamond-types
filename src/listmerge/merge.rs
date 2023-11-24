@@ -640,6 +640,7 @@ pub(crate) struct TransformedOpsIter2<'a> {
 
     plan_idx: usize,
     applying: bool,
+    ff: bool,
     // action_offset: usize,
 
     // op_iter: Option<BufferedIter<OpMetricsIter<'a>>>,
@@ -674,6 +675,7 @@ impl<'a> TransformedOpsIter2<'a> {
             tracker: M2Tracker::new(),
             plan,
             plan_idx: 0,
+            ff: false,
             applying: false,
             max_frontier: common,
         }
@@ -716,6 +718,7 @@ impl<'a> Iterator for TransformedOpsIter2<'a> {
                         // println!("frontier {:?} + span {:?}", self.max_frontier, *span);
                         // println!("->ontier {:?}", self.max_frontier);
                         self.max_frontier.advance(self.subgraph, *span);
+                        self.ff = false;
 
                         if !self.applying {
                             // Just apply it directly to the tracker.
@@ -728,11 +731,10 @@ impl<'a> Iterator for TransformedOpsIter2<'a> {
                     M1PlanAction::FF(span) => {
                         // println!("frontier {:?} FF span {:?} -> {}", self.max_frontier, *span, span.last());
                         self.max_frontier.replace_with_1(span.last());
+                        self.ff = true;
 
-                        if !self.applying {
-                            // Just apply it directly to the tracker.
-                            self.tracker.apply_range(self.aa, self.op_ctx, self.ops, *span, None);
-                        } else {
+                        // If we aren't applying the operation, FF-ed actions don't matter.
+                        if self.applying {
                             self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, *span).into());
                             continue 'outer;
                         }
@@ -760,22 +762,26 @@ impl<'a> Iterator for TransformedOpsIter2<'a> {
             // self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, walk.consume).into());
         };
 
-        // Ok, try to consume as much as we can from pair.
-        let span = self.aa.local_span_to_agent_span(pair.span());
-        let len = span.len().min(pair.len());
+        if self.ff {
+            Some(TransformedResult::not_moved(pair))
+        } else {
+            // Ok, try to consume as much as we can from pair.
+            let span = self.aa.local_span_to_agent_span(pair.span());
+            let len = span.len().min(pair.len());
 
-        let (consumed_here, xf_result) = self.tracker.apply(self.aa, span.agent, &pair, len);
+            let (consumed_here, xf_result) = self.tracker.apply(self.aa, span.agent, &pair, len);
 
-        let remainder = pair.trim_ctx(consumed_here, self.op_ctx);
+            let remainder = pair.trim_ctx(consumed_here, self.op_ctx);
 
-        // (Time, OperationInternal, TransformedResult)
-        let result = (pair.0, pair.1, xf_result);
+            // (Time, OperationInternal, TransformedResult)
+            let result = (pair.0, pair.1, xf_result);
 
-        if let Some(r) = remainder {
-            op_iter.push_back(r);
+            if let Some(r) = remainder {
+                op_iter.push_back(r);
+            }
+
+            Some(result)
         }
-
-        Some(result)
     }
 }
 
@@ -1119,15 +1125,15 @@ impl TextInfo {
 
     /// Add everything in merge_frontier into the set..
     pub fn merge_into(&self, into: &mut JumpRopeBuf, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV]) -> Frontier {
-        println!("merge from {:?} + {:?}", from, merge_frontier);
+        // println!("merge from {:?} + {:?}", from, merge_frontier);
         self.with_xf_iter(cg, from, merge_frontier, |iter, final_frontier| {
-            iter.plan.dbg_print();
+            // iter.plan.dbg_print();
             for (_lv, origin_op, xf) in iter {
                 match (origin_op.kind, xf) {
                     (ListOpKind::Ins, BaseMoved(pos)) => {
                         debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
                         let content = origin_op.get_content(&self.ctx).unwrap();
-                        println!("Insert '{}' at {} (len {})", content, pos, origin_op.len());
+                        // println!("Insert '{}' at {} (len {})", content, pos, origin_op.len());
                         assert!(pos <= into.len_chars());
                         if origin_op.loc.fwd {
                             into.insert(pos, content);
@@ -1136,14 +1142,14 @@ impl TextInfo {
                             let c = reverse_str(content);
                             into.insert(pos, &c);
                         }
-                        println!("-> doc len {}", into.len_chars());
+                        // println!("-> doc len {}", into.len_chars());
                     }
 
                     (_, DeleteAlreadyHappened) => {}, // Discard.
 
                     (ListOpKind::Del, BaseMoved(del_start)) => {
                         let del_end = del_start + origin_op.len();
-                        println!("Delete {}..{} (len {}) doc len {}", del_start, del_end, origin_op.len(), into.len_chars());
+                        // println!("Delete {}..{} (len {}) doc len {}", del_start, del_end, origin_op.len(), into.len_chars());
                         // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, origin_op.len(), to.content.slice_chars(del_start..del_end).collect::<String>());
                         debug_assert!(into.len_chars() >= del_end);
                         into.remove(del_start..del_end);
