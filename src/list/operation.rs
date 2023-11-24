@@ -56,7 +56,7 @@ impl Display for ListOpKind {
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct TextOperation {
     /// The range of items in the document being modified by this operation.
-    // For now only backspaces are ever reversed.
+    // For now only backspaces are ever reversed. (constrained by code in op_metrics.rs)
     #[cfg_attr(feature = "serde", serde(flatten))]
     pub loc: RangeRev,
 
@@ -264,6 +264,42 @@ mod test {
         merged2.prepend(a.clone());
         dbg!(&merged2);
         assert_eq!(merged2, expect);
+    }
+
+    #[test]
+    fn test_inserts_merges() {
+        let a = TextOperation {
+            loc: (100..101).into(),
+            kind: Ins,
+            content: Some("a".into()),
+        };
+        let b = TextOperation {
+            loc: (101..102).into(),
+            kind: Ins,
+            content: Some("b".into()),
+        };
+        assert!(a.can_append(&b));
+
+        // And backwards.
+        let a = TextOperation {
+            loc: (100..101).into(),
+            kind: Ins,
+            content: Some("a".into()),
+        };
+        let b = TextOperation {
+            loc: (100..101).into(), // Note we're inserting at the same location.
+            kind: Ins,
+            content: Some("b".into()),
+        };
+        // This should be able to merge. TODO: Change this!
+        assert_eq!(b.can_append(&a), false);
+        // let mut merged = a.clone();
+        // merged.append(b.clone());
+        // assert_eq!(merged, TextOperation {
+        //     loc: RangeRev { span: (100..102).into(), fwd: false },
+        //     kind: Ins,
+        //     content: Some("ab".into()),
+        // });
     }
 
     #[test]

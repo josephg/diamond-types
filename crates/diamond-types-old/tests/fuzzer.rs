@@ -100,6 +100,8 @@ fn random_single_replicate() {
 }
 
 fn run_fuzzer_iteration(seed: u64) {
+    // println!("seed {seed}");
+
     // TODO: Rewrite this to use each_complex_random_doc_pair.
 
     let mut rng = SmallRng::seed_from_u64(seed);
@@ -107,17 +109,26 @@ fn run_fuzzer_iteration(seed: u64) {
 
     // Each document will have a different local agent ID. I'm cheating here - just making agent
     // 0 for all of them.
-    for (i, doc) in docs.iter_mut().enumerate() {
-        doc.get_or_create_agent_id(format!("agent {}", i).as_str());
+    // for (i, doc) in docs.iter_mut().enumerate() {
+    //     doc.get_or_create_agent_id(format!("agent {}", i).as_str());
+    // }
+
+    // To keep things more civilized, we'll use the same agent IDs on all documents
+    let num_docs = docs.len();
+    for doc in docs.iter_mut() {
+        for a in 0..num_docs {
+            doc.get_or_create_agent_id(format!("agent {}", a).as_str());
+        }
     }
 
-    for _i in 0..300 {
+    for _i in 0..100 {
         // Generate some operations
         for _j in 0..5 {
             let doc_idx = rng.gen_range(0..docs.len());
             let doc = &mut docs[doc_idx];
 
-            make_random_change(doc, None, 0, &mut rng);
+            make_random_change(doc, None, doc_idx as AgentId, &mut rng);
+            // make_random_change(doc, None, 0, &mut rng);
         }
 
         // Then merge 2 documents at random
@@ -164,6 +175,9 @@ fn run_fuzzer_iteration(seed: u64) {
 
             if a != b {
                 println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);
+                a.debug_print_ids();
+                println!("---");
+                b.debug_print_ids();
                 // dbg!(&a);
                 // dbg!(&b);
                 panic!("Documents do not match");
@@ -191,8 +205,8 @@ fn fuzz_quick() {
 #[ignore]
 fn fuzz_concurrency_forever() {
     for k in 0u64.. {
-        println!("{}", k);
+        if k % 100 == 0 { println!("{}", k); }
 
-        run_fuzzer_iteration(k as u64);
+        run_fuzzer_iteration(200 + k as u64);
     }
 }

@@ -14,7 +14,7 @@ use std::pin::Pin;
 use content_tree::{ContentTreeRaw, RawPositionMetricsUsize};
 use crate::listmerge::markers::MarkerEntry;
 use crate::listmerge::metrics::MarkerMetrics;
-use crate::listmerge::yjsspan::YjsSpan;
+use crate::listmerge::yjsspan::FugueSpan;
 
 mod yjsspan;
 pub(crate) mod merge;
@@ -33,7 +33,7 @@ pub mod to_old;
 pub(crate) mod simple_oplog;
 
 type DocRangeIndex = MarkerMetrics;
-type CRDTList2 = Pin<Box<ContentTreeRaw<YjsSpan, DocRangeIndex>>>;
+type CRDTList2 = Pin<Box<ContentTreeRaw<FugueSpan, DocRangeIndex>>>;
 
 type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry, RawPositionMetricsUsize>>>;
 

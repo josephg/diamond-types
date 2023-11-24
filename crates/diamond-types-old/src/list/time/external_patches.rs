@@ -5,7 +5,7 @@
 use smallvec::{SmallVec, smallvec};
 use crate::list::{ListCRDT, LV, PositionalComponent};
 use smartstring::alias::{String as SmartString};
-use rle::{AppendRle, HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
+use rle::{AppendRle, HasLength, MergableSpan, SplitableSpanHelpers};
 use crate::list::external_txn::{RemoteId, RemoteIdSpan};
 use crate::list::time::docpatchiter::PositionalOpWalk;
 use crate::list::txn::TxnSpan;

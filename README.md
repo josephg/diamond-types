@@ -18,6 +18,8 @@ This project was initially created as a prototype to see how fast a well optimiz
 
 For detail about how to *use* diamond types, see the [package level documentation at docs.rs](https://docs.rs/diamond-types/latest/diamond_types/).
 
+Note the package published to cargo is quite out of date, both in terms of API and performance.
+
 For much more detail about how this library *works*, see:
 
 - The talk I gave on this library at a recent [braid user meetings](https://braid.org/meeting-14) or

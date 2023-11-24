@@ -337,6 +337,7 @@ impl OpLog {
     }
 
     pub fn remote_text_op(&mut self, crdt: LVKey, v_range: DTRange, op: TextOperation) {
+        // TODO: This doesn't look like it handles discarding existing data...
         debug_assert_eq!(v_range.len(), op.len());
 
         // What should we do here if the item is missing?
@@ -578,6 +579,9 @@ impl OpLog {
         let new_end = self.cg.len();
         let new_range: DTRange = (old_end..new_end).into();
 
+        // The code above will discard any operations we already know about. The new range could be empty, could
+        // contain all of the new changes, or have some subset of them. We need to respect that in the code below
+        // and only append new changes.
         if new_range.is_empty() { return Ok(new_range); }
 
         for (crdt_r_name, rv, key, val) in changes.map_ops {

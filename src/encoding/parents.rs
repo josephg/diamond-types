@@ -176,7 +176,7 @@ mod test {
         let mut write_map = WriteMap::new();
         let mut aa = AgentAssignment::new();
         let seph = aa.get_or_create_agent_id("seph");
-        aa.assign_next_time_to_client_known(seph, (0..10).into());
+        aa.assign_lv_to_client_next_seq(seph, (0..10).into());
         // Item 1: A ROOT item:
         write_parents_raw(&mut result, &[], 0, true, &mut write_map, &aa);
 
@@ -192,7 +192,7 @@ mod test {
 
         let mut aa_out = AgentAssignment::new();
         let george = aa_out.get_or_create_agent_id("george");
-        aa_out.assign_next_time_to_client_known(george, (0..100).into());
+        aa_out.assign_lv_to_client_next_seq(george, (0..100).into());
 
         let mut read_map = ReadMap::new();
 
@@ -204,7 +204,7 @@ mod test {
 
         // 2. Foreign agent
         let seph = aa_out.get_or_create_agent_id("seph");
-        aa_out.assign_next_time_to_client_known(seph, (100..110).into());
+        aa_out.assign_lv_to_client_next_seq(seph, (100..110).into());
         let frontier = read_parents_raw(&mut reader, true, &mut aa_out, 10, &mut read_map).unwrap();
         assert_eq!(frontier.as_ref(), &[105, 106]);
 

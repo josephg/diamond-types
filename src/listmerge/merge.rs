@@ -11,7 +11,7 @@ use content_tree::*;
 use rle::{AppendRle, HasLength, MergeableIterator, Searchable, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
 use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex};
-use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, YjsSpan};
+use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, FugueSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
@@ -37,6 +37,7 @@ use crate::causalgraph::graph::Graph;
 use crate::textinfo::TextInfo;
 use crate::frontier::local_frontier_eq;
 use crate::list::ListOpLog;
+use crate::listmerge2::merge1plan::{M1Plan, M1PlanAction};
 #[cfg(feature = "ops_to_old")]
 use crate::listmerge::to_old::OldCRDTOpInternal;
 use crate::unicount::consume_chars;
@@ -58,8 +59,8 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     }
 }
 
-pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
-    move |entry: YjsSpan, leaf| {
+pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(FugueSpan, NonNull<NodeLeaf<FugueSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
+    move |entry: FugueSpan, leaf| {
         debug_assert!(leaf != NonNull::dangling());
         let start = entry.id.start;
         let len = entry.len();
@@ -90,7 +91,7 @@ impl M2Tracker {
     pub(super) fn new() -> Self {
         let mut range_tree = ContentTreeRaw::new();
         let mut index = ContentTreeRaw::new();
-        let underwater = YjsSpan::new_underwater();
+        let underwater = FugueSpan::new_underwater();
         pad_index_to(&mut index, underwater.id.end);
         range_tree.push_notify(underwater, notify_for(&mut index));
 
@@ -104,7 +105,17 @@ impl M2Tracker {
         }
     }
 
-    pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex>> {
+    pub(super) fn clear(&mut self) {
+        // TODO: Could make this cleaner with a clear() function in ContentTree.
+        self.range_tree = ContentTreeRaw::new();
+        self.index = ContentTreeRaw::new();
+
+        let underwater = FugueSpan::new_underwater();
+        pad_index_to(&mut self.index, underwater.id.end);
+        self.range_tree.push_notify(underwater, notify_for(&mut self.index));
+    }
+
+    pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<FugueSpan, DocRangeIndex>> {
         let cursor = self.index.cursor_at_offset_pos(lv, false);
         // Gross.
         cursor.get_item().unwrap().unwrap()
@@ -122,7 +133,7 @@ impl M2Tracker {
         }
     }
 
-    fn get_cursor_before(&self, lv: LV) -> Cursor<YjsSpan, DocRangeIndex> {
+    fn get_cursor_before(&self, lv: LV) -> Cursor<FugueSpan, DocRangeIndex> {
         if lv == usize::MAX {
             // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
             // just panic() here.
@@ -134,7 +145,7 @@ impl M2Tracker {
     }
 
     // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex> {
-    fn get_cursor_after(&self, lv: LV, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex> {
+    fn get_cursor_after(&self, lv: LV, stick_end: bool) -> Cursor<FugueSpan, DocRangeIndex> {
         if lv == usize::MAX {
             self.range_tree.cursor_at_start()
         } else {
@@ -151,8 +162,8 @@ impl M2Tracker {
     }
 
     // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
-    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: YjsSpan, mut cursor: UnsafeCursor<YjsSpan, DocRangeIndex>) -> usize {
-        assert!(item.len() > 0);
+    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: FugueSpan, mut cursor: UnsafeCursor<FugueSpan, DocRangeIndex>) -> usize {
+        debug_assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
         cursor.roll_to_next_entry();
@@ -164,11 +175,15 @@ impl M2Tracker {
 
         loop {
             if !cursor.roll_to_next_entry() { break; } // End of the document
-            let other_entry: YjsSpan = *cursor.get_raw_entry();
-            let other_lv = other_entry.at_offset(cursor.offset);
+            let other_entry: FugueSpan = *cursor.get_raw_entry();
 
-            // Almost always true. Could move this short circuit earlier?
-            if other_lv == item.origin_right { break; }
+            // When concurrent edits happen, the range of insert locations goes from the insert
+            // position itself (passed in through cursor) to the next item which existed at the
+            // time in which the insert occurred.
+            // This test is almost always true. (Ie, we basically always break here).
+            if other_entry.state != NOT_INSERTED_YET { break; }
+
+            debug_assert_eq!(cursor.offset, 0);
 
             // When preparing example data, its important that the data can merge the same
             // regardless of editing trace (so the output isn't dependent on the algorithm used to
@@ -182,21 +197,23 @@ impl M2Tracker {
             // rare that you actually get concurrent inserts at the same location in the document
             // anyway.
 
-            // We can only be concurrent with other items which haven't been inserted yet at this
-            // point in time.
-            debug_assert_eq!(other_entry.state, NOT_INSERTED_YET);
-
             let other_left_lv = other_entry.origin_left_at_offset(cursor.offset);
             let other_left_cursor = self.get_cursor_after(other_left_lv, false);
 
-            // YjsMod semantics
+            // YjsMod / Fugue semantics. (The code here is the same for both CRDTs).
             match unsafe { other_left_cursor.unsafe_cmp(&left_cursor) } {
                 Ordering::Less => { break; } // Top row
                 Ordering::Greater => {} // Bottom row. Continue.
                 Ordering::Equal => {
-                    if item.origin_right == other_entry.origin_right {
+                    if item.right_parent == other_entry.right_parent {
                         // Origin_right matches. Items are concurrent. Order by agent names.
                         let my_name = aa.get_agent_name(agent);
+
+                        // It would be "more correct" to take the other entry at the cursor offset,
+                        // but the cursor offset is always 0 when comparing items. So eh.
+                        // let other_lv = other_entry.at_offset(cursor.offset);
+                        let other_lv = other_entry.id.start;
+
                         let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
                         let other_name = aa.get_agent_name(other_agent);
                         // eprintln!("concurrent insert at the same place {} ({}) vs {} ({})", item.id.start, my_name, other_lv, other_name);
@@ -225,8 +242,11 @@ impl M2Tracker {
                         }
                     } else {
                         // Set scanning based on how the origin_right entries are ordered.
-                        let my_right_cursor = self.get_cursor_before(item.origin_right);
-                        let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
+                        // Note that this is only valid because cursor offset is always 0 when this
+                        // code is executed. (We'd need to take usize::MAX for other_right_cursor
+                        // if cursor.offset > 0).
+                        let my_right_cursor = self.get_cursor_before(item.right_parent);
+                        let other_right_cursor = self.get_cursor_before(other_entry.right_parent);
 
                         if other_right_cursor < my_right_cursor {
                             if !scanning {
@@ -404,22 +424,32 @@ impl M2Tracker {
 
                 // Origin_right should be the next item which isn't in the NotInsertedYet state.
                 // If we reach the end of the document before that happens, use usize::MAX.
-                let origin_right = if !cursor.roll_to_next_entry() {
-                    usize::MAX
-                } else {
-                    let mut c2 = cursor.clone();
-                    loop {
-                        let e = c2.try_get_raw_entry();
-                        if let Some(e) = e {
-                            if e.state == NOT_INSERTED_YET {
-                                if !c2.next_entry() { break usize::MAX; }
-                                // Otherwise keep looping.
-                            } else {
+                //
+                // TODO: _origin_right is only used when converting to old operations. Remove it
+                // from the normal execution path here.
+                let (_origin_right, right_parent) = 'block: {
+                    if cursor.roll_to_next_entry() { // Check we aren't already at the end of the list
+                        // loop through c2 until we find the right hand bound.
+                        let mut c2 = cursor.clone();
+                        while let Some(e) = c2.try_get_raw_entry() {
+                            if e.state != NOT_INSERTED_YET {
                                 // We can use this.
-                                break e.at_offset(c2.offset);
+                                let origin_right = e.at_offset(c2.offset);
+
+                                let left = c2.get_raw_entry().origin_left_at_offset(c2.offset);
+                                // If right.left == origin_left then we're a left child with a right_parent of
+                                // right_bound. Otherwise we're a right child, and right_parent
+                                // is null. (Our parent is origin_left).
+                                let right_parent = if left == origin_left { origin_right } else { usize::MAX };
+                                break 'block (origin_right, right_parent);
                             }
-                        } else { break usize::MAX; }
+
+                            // if next_entry returns false, we've hit the end of the list.
+                            if !c2.next_entry() { break; }
+                        }
                     }
+
+                    (usize::MAX, usize::MAX)
                 };
 
                 // let origin_right = cursor.get_item().unwrap_or(ROOT_TIME);
@@ -427,20 +457,19 @@ impl M2Tracker {
                 let mut lv_span = op_pair.span();
                 lv_span.trim(len);
 
-                let item = YjsSpan {
+                let item = FugueSpan {
                     id: lv_span,
                     origin_left,
-                    origin_right,
+                    right_parent,
                     state: INSERTED,
                     ever_deleted: false,
                 };
-
 
                 #[cfg(feature = "ops_to_old")] {
                     self.dbg_ops.push_rle(OldCRDTOpInternal::Ins {
                         id: lv_span,
                         origin_left,
-                        origin_right: if origin_right == UNDERWATER_START { usize::MAX } else { origin_right },
+                        origin_right: if _origin_right == UNDERWATER_START { usize::MAX } else { _origin_right },
                         content_pos: op.content_pos.unwrap(),
                     });
                 }
@@ -581,6 +610,181 @@ impl M2Tracker {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(crate) enum TransformedResult {
+    BaseMoved(usize),
+    DeleteAlreadyHappened,
+}
+
+type TransformedTriple = (LV, ListOpMetrics, TransformedResult);
+
+impl TransformedResult {
+    fn not_moved(op_pair: KVPair<ListOpMetrics>) -> TransformedTriple {
+        let start = op_pair.1.start();
+        (op_pair.0, op_pair.1, TransformedResult::BaseMoved(start))
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct TransformedOpsIter2<'a> {
+    // oplog: &'a ListOpLog,
+    // cg: &'a CausalGraph,
+    subgraph: &'a Graph,
+    aa: &'a AgentAssignment,
+    op_ctx: &'a ListOperationCtx,
+    ops: &'a RleVec<KVPair<ListOpMetrics>>,
+    op_iter: Option<BufferedIter<OpMetricsIter<'a>>>,
+
+    tracker: M2Tracker,
+    plan: M1Plan,
+
+    plan_idx: usize,
+    applying: bool,
+    ff: bool,
+    // action_offset: usize,
+
+    // op_iter: Option<BufferedIter<OpMetricsIter<'a>>>,
+    // ff_mode: bool,
+    // // ff_idx: usize,
+    // did_ff: bool, // TODO: Do I really need this?
+    //
+    // merge_frontier: Frontier,
+    //
+    // common_ancestor: Frontier,
+    // conflict_ops: SmallVec<[DTRange; 4]>,
+    // new_ops: SmallVec<[DTRange; 4]>,
+    //
+    max_frontier: Frontier,
+    //
+    // // TODO: This tracker allocates - which we don't need to do if we're FF-ing.
+    // phase2: Option<(M2Tracker, SpanningTreeWalker<'a>)>,
+}
+
+impl<'a> TransformedOpsIter2<'a> {
+    pub(crate) fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
+                      ops: &'a RleVec<KVPair<ListOpMetrics>>,
+                      from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
+        let (plan, common) = subgraph.make_m1_plan(from_frontier, merge_frontier);
+
+        Self {
+            subgraph,
+            aa,
+            op_ctx,
+            ops,
+            op_iter: None,
+            tracker: M2Tracker::new(),
+            plan,
+            plan_idx: 0,
+            ff: false,
+            applying: false,
+            max_frontier: common,
+        }
+    }
+
+    pub(crate) fn into_frontier(self) -> Frontier {
+        self.max_frontier
+    }
+}
+
+impl<'a> Iterator for TransformedOpsIter2<'a> {
+    /// Iterator over transformed operations. The KVPair.0 holds the original time of the operation.
+    type Item = (LV, ListOpMetrics, TransformedResult);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // We're done when we've merged everything in self.new_ops.
+        // todo!()
+        // if self.op_iter.is_none() && self.new_ops.is_empty() { return None; }
+        if self.op_iter.is_none() && self.plan_idx >= self.plan.0.len() { return None; }
+
+        let (mut pair, op_iter) = 'outer: loop {
+            if let Some(op_iter) = self.op_iter.as_mut() {
+                if let Some(pair) = op_iter.next() {
+                    // dbg!(&pair);
+                    break (pair, op_iter);
+                } else { self.op_iter = None; }
+            }
+
+            // Otherwise advance to the next chunk from walker.
+            for action in &self.plan.0[self.plan_idx..] {
+                self.plan_idx += 1;
+                match action {
+                    M1PlanAction::Retreat(span) => {
+                        self.tracker.retreat_by_range(*span);
+                    }
+                    M1PlanAction::Advance(span) => {
+                        self.tracker.advance_by_range(*span);
+                    }
+                    M1PlanAction::Apply(span) => {
+                        // println!("frontier {:?} + span {:?}", self.max_frontier, *span);
+                        // println!("->ontier {:?}", self.max_frontier);
+                        self.max_frontier.advance(self.subgraph, *span);
+                        self.ff = false;
+
+                        if !self.applying {
+                            // Just apply it directly to the tracker.
+                            self.tracker.apply_range(self.aa, self.op_ctx, self.ops, *span, None);
+                        } else {
+                            self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, *span).into());
+                            continue 'outer;
+                        }
+                    }
+                    M1PlanAction::FF(span) => {
+                        // println!("frontier {:?} FF span {:?} -> {}", self.max_frontier, *span, span.last());
+                        self.max_frontier.replace_with_1(span.last());
+                        self.ff = true;
+
+                        // If we aren't applying the operation, FF-ed actions don't matter.
+                        if self.applying {
+                            self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, *span).into());
+                            continue 'outer;
+                        }
+                    }
+                    M1PlanAction::Clear => {
+                        self.tracker.clear();
+                    }
+                    M1PlanAction::BeginOutput => {
+                        self.applying = true;
+                    }
+                }
+            }
+
+            // No more plan. Stop!
+            // dbg!(&self.op_iter, self.plan_idx);
+            debug_assert!(self.op_iter.is_none());
+            return None;
+
+            // Only really advancing the frontier so we can consume into it. The resulting frontier
+            // is interesting in lots of places.
+            //
+            // The walker can be unwrapped into its inner frontier, but that won't include
+            // everything. (TODO: Look into fixing that?)
+            // self.next_frontier.advance(self.subgraph, walk.consume);
+            // self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, walk.consume).into());
+        };
+
+        if self.ff {
+            Some(TransformedResult::not_moved(pair))
+        } else {
+            // Ok, try to consume as much as we can from pair.
+            let span = self.aa.local_span_to_agent_span(pair.span());
+            let len = span.len().min(pair.len());
+
+            let (consumed_here, xf_result) = self.tracker.apply(self.aa, span.agent, &pair, len);
+
+            let remainder = pair.trim_ctx(consumed_here, self.op_ctx);
+
+            // (Time, OperationInternal, TransformedResult)
+            let result = (pair.0, pair.1, xf_result);
+
+            if let Some(r) = remainder {
+                op_iter.push_back(r);
+            }
+
+            Some(result)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct TransformedOpsIter<'a> {
     // oplog: &'a ListOpLog,
@@ -680,107 +884,6 @@ impl<'a> TransformedOpsIter<'a> {
     }
 }
 
-// #[derive(Debug)]
-// struct FlattenedOps {
-//     common_ancestor: Frontier,
-//     conflict_ops: SmallVec<[DTRange; 4]>,
-//     new_ops: SmallVec<[DTRange; 4]>,
-//     from_frontier: Frontier,
-//     merge_frontier: Frontier,
-// }
-//
-// impl FlattenedOps {
-//     fn new_from_subgraph(cg: &CausalGraph, from_frontier: &[LV], merge_frontier: &[LV], ops: &RleVec<KVPair<ListOpMetrics>>) -> Result<(Graph, Self), Frontier> {
-//         // This is a big dirty mess for now, but it should be correct at least.
-//         let global_conflict_zone = cg.graph.find_conflicting_simple(from_frontier, merge_frontier);
-//         let earliest = global_conflict_zone.common_ancestor.0.get(0).copied().unwrap_or(0);
-//
-//         let final_frontier_global = cg.graph.find_dominators_2(from_frontier, merge_frontier);
-//         // if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
-//
-//         // We actually only need the ops in intersection b
-//         let op_spans = ops.iter().map(|e| e.span())
-//             .rev()
-//             // .merge_spans_rev()
-//             .take_while(|r| r.end > earliest);
-//         // let iter = rle_intersect_rev_first(op_spans, global_conflict_zone.rev_spans.iter().copied());
-//         let iter = op_spans;
-//
-//         let (subgraph, _ff) = cg.graph.subgraph_raw(iter.clone(), final_frontier_global.as_ref());
-//
-//         // println!("{}", subgraph.0.0.len());
-//         // subgraph.dbg_check_subgraph(true); // For debugging.
-//         // dbg!(&subgraph, ff.as_ref());
-//
-//         let from_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), from_frontier);
-//         let merge_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), merge_frontier);
-//
-//         let mut new_ops: SmallVec<[DTRange; 4]> = smallvec![];
-//         let mut conflict_ops: SmallVec<[DTRange; 4]> = smallvec![];
-//
-//         // Process the conflicting edits again, this time just scanning the subgraph.
-//         let common_ancestor = subgraph.find_conflicting(from_frontier.as_ref(), merge_frontier.as_ref(), |span, flag| {
-//             // Note we'll be visiting these operations in reverse order.
-//             let target = match flag {
-//                 DiffFlag::OnlyB => &mut new_ops,
-//                 _ => &mut conflict_ops
-//             };
-//             target.push_reversed_rle(span);
-//         });
-//         // dbg!(&common_ancestor);
-//
-//         let final_frontier_subgraph = subgraph.find_dominators_2(from_frontier.as_ref(), merge_frontier.as_ref());
-//         if final_frontier_subgraph == from_frontier { return Result::Err(final_frontier_global); } // Nothing to do! Just an optimization... Not sure if its necessary.
-//
-//         // dbg!(ops.iter().map(|e| e.span())
-//         //     .rev()
-//         //     .take_while(|r| r.end > earliest).collect::<Vec<_>>());
-//         // dbg!(&subgraph);
-//         // dbg!(&new_ops);
-//
-//         Result::Ok((subgraph, Self {
-//             from_frontier,
-//             merge_frontier,
-//             common_ancestor,
-//             conflict_ops,
-//             new_ops,
-//         }))
-//     }
-//
-//     fn iter<'a>(self, subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>) -> TransformedOpsIter<'a> {
-//         TransformedOpsIter {
-//             subgraph,
-//             aa,
-//             op_ctx,
-//             ops,
-//             op_iter: None,
-//             ff_mode: true,
-//             did_ff: false,
-//             merge_frontier: self.merge_frontier,
-//             common_ancestor: self.common_ancestor,
-//             conflict_ops: self.conflict_ops,
-//             new_ops: self.new_ops,
-//             next_frontier: self.from_frontier,
-//             phase2: None,
-//         }
-//     }
-// }
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(crate) enum TransformedResult {
-    BaseMoved(usize),
-    DeleteAlreadyHappened,
-}
-
-type TransformedTriple = (LV, ListOpMetrics, TransformedResult);
-
-impl TransformedResult {
-    fn not_moved(op_pair: KVPair<ListOpMetrics>) -> TransformedTriple {
-        let start = op_pair.1.start();
-        (op_pair.0, op_pair.1, TransformedResult::BaseMoved(start))
-    }
-}
-
 impl<'a> Iterator for TransformedOpsIter<'a> {
     /// Iterator over transformed operations. The KVPair.0 holds the original time of the operation.
     type Item = (LV, ListOpMetrics, TransformedResult);
@@ -867,8 +970,9 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
 
         // So first we can just call .walk() to setup the tracker "hot".
         let (tracker, walker) = match self.phase2.as_mut() {
-            Some(phase2) => phase2,
             None => {
+                // First time through this code we'll end up here. Walk the conflicting
+                // operations to populate the tracker and walker structures.
                 let mut tracker = M2Tracker::new();
                 // dbg!(&self.conflict_ops);
                 let frontier = tracker.walk(
@@ -884,7 +988,8 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 self.phase2 = Some((tracker, walker));
                 // This is a kinda gross way to do this. TODO: Rewrite without .unwrap() somehow?
                 self.phase2.as_mut().unwrap()
-            }
+            },
+            Some(phase2) => phase2,
         };
 
         let (mut pair, op_iter) = loop {
@@ -947,11 +1052,11 @@ pub fn reverse_str(s: &str) -> SmartString {
 }
 
 impl TextInfo {
-    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Graph, aa: &'a AgentAssignment, from: &[LV], merging: &[LV]) -> TransformedOpsIter<'a> {
-        TransformedOpsIter::new(subgraph, aa, &self.ctx, &self.ops, from, merging)
+    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Graph, aa: &'a AgentAssignment, from: &[LV], merging: &[LV]) -> TransformedOpsIter2<'a> {
+        TransformedOpsIter2::new(subgraph, aa, &self.ctx, &self.ops, from, merging)
     }
 
-    pub(crate) fn with_xf_iter<F: FnOnce(TransformedOpsIter, Frontier) -> R, R>(&self, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV], f: F) -> R {
+    pub(crate) fn with_xf_iter<F: FnOnce(TransformedOpsIter2, Frontier) -> R, R>(&self, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV], f: F) -> R {
         // This is a big dirty mess for now, but it should be correct at least.
         let conflict = cg.graph.find_conflicting_simple(from, merge_frontier);
 
@@ -1020,13 +1125,15 @@ impl TextInfo {
 
     /// Add everything in merge_frontier into the set..
     pub fn merge_into(&self, into: &mut JumpRopeBuf, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV]) -> Frontier {
+        // println!("merge from {:?} + {:?}", from, merge_frontier);
         self.with_xf_iter(cg, from, merge_frontier, |iter, final_frontier| {
+            // iter.plan.dbg_print();
             for (_lv, origin_op, xf) in iter {
                 match (origin_op.kind, xf) {
                     (ListOpKind::Ins, BaseMoved(pos)) => {
-                        // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
                         debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
                         let content = origin_op.get_content(&self.ctx).unwrap();
+                        // println!("Insert '{}' at {} (len {})", content, pos, origin_op.len());
                         assert!(pos <= into.len_chars());
                         if origin_op.loc.fwd {
                             into.insert(pos, content);
@@ -1035,15 +1142,17 @@ impl TextInfo {
                             let c = reverse_str(content);
                             into.insert(pos, &c);
                         }
+                        // println!("-> doc len {}", into.len_chars());
                     }
 
                     (_, DeleteAlreadyHappened) => {}, // Discard.
 
-                    (ListOpKind::Del, BaseMoved(pos)) => {
-                        let del_end = pos + origin_op.len();
+                    (ListOpKind::Del, BaseMoved(del_start)) => {
+                        let del_end = del_start + origin_op.len();
+                        // println!("Delete {}..{} (len {}) doc len {}", del_start, del_end, origin_op.len(), into.len_chars());
+                        // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, origin_op.len(), to.content.slice_chars(del_start..del_end).collect::<String>());
                         debug_assert!(into.len_chars() >= del_end);
-                        // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
-                        into.remove(pos..del_end);
+                        into.remove(del_start..del_end);
                     }
                 }
             }
@@ -1102,7 +1211,7 @@ mod test {
     use crate::dtrange::UNDERWATER_START;
     use crate::list::{ListCRDT, ListOpLog};
     use crate::listmerge::simple_oplog::SimpleOpLog;
-    use crate::listmerge::yjsspan::{deleted_n_state, DELETED_ONCE, YjsSpanState};
+    use crate::listmerge::yjsspan::{deleted_n_state, DELETED_ONCE, FugueSpanState};
     use crate::unicount::count_chars;
     use super::*;
 
@@ -1183,7 +1292,7 @@ mod test {
         assert_eq!(list.to_string(), "");
     }
 
-    fn items(tracker: &M2Tracker, filter_underwater: usize) -> Vec<YjsSpan> {
+    fn items(tracker: &M2Tracker, filter_underwater: usize) -> Vec<FugueSpan> {
         let trim_from = UNDERWATER_START + filter_underwater;
 
         tracker.range_tree
@@ -1206,7 +1315,7 @@ mod test {
             .collect()
     }
 
-    fn items_state(tracker: &M2Tracker, filter_underwater: usize) -> Vec<(usize, YjsSpanState)> {
+    fn items_state(tracker: &M2Tracker, filter_underwater: usize) -> Vec<(usize, FugueSpanState)> {
         items(tracker, filter_underwater).iter().map(|i| (i.len(), i.state)).collect()
     }
 
@@ -1338,3 +1447,94 @@ mod test {
         o.checkout_tip();
     }
 }
+
+
+
+
+
+
+// #[derive(Debug)]
+// struct FlattenedOps {
+//     common_ancestor: Frontier,
+//     conflict_ops: SmallVec<[DTRange; 4]>,
+//     new_ops: SmallVec<[DTRange; 4]>,
+//     from_frontier: Frontier,
+//     merge_frontier: Frontier,
+// }
+//
+// impl FlattenedOps {
+//     fn new_from_subgraph(cg: &CausalGraph, from_frontier: &[LV], merge_frontier: &[LV], ops: &RleVec<KVPair<ListOpMetrics>>) -> Result<(Graph, Self), Frontier> {
+//         // This is a big dirty mess for now, but it should be correct at least.
+//         let global_conflict_zone = cg.graph.find_conflicting_simple(from_frontier, merge_frontier);
+//         let earliest = global_conflict_zone.common_ancestor.0.get(0).copied().unwrap_or(0);
+//
+//         let final_frontier_global = cg.graph.find_dominators_2(from_frontier, merge_frontier);
+//         // if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
+//
+//         // We actually only need the ops in intersection b
+//         let op_spans = ops.iter().map(|e| e.span())
+//             .rev()
+//             // .merge_spans_rev()
+//             .take_while(|r| r.end > earliest);
+//         // let iter = rle_intersect_rev_first(op_spans, global_conflict_zone.rev_spans.iter().copied());
+//         let iter = op_spans;
+//
+//         let (subgraph, _ff) = cg.graph.subgraph_raw(iter.clone(), final_frontier_global.as_ref());
+//
+//         // println!("{}", subgraph.0.0.len());
+//         // subgraph.dbg_check_subgraph(true); // For debugging.
+//         // dbg!(&subgraph, ff.as_ref());
+//
+//         let from_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), from_frontier);
+//         let merge_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), merge_frontier);
+//
+//         let mut new_ops: SmallVec<[DTRange; 4]> = smallvec![];
+//         let mut conflict_ops: SmallVec<[DTRange; 4]> = smallvec![];
+//
+//         // Process the conflicting edits again, this time just scanning the subgraph.
+//         let common_ancestor = subgraph.find_conflicting(from_frontier.as_ref(), merge_frontier.as_ref(), |span, flag| {
+//             // Note we'll be visiting these operations in reverse order.
+//             let target = match flag {
+//                 DiffFlag::OnlyB => &mut new_ops,
+//                 _ => &mut conflict_ops
+//             };
+//             target.push_reversed_rle(span);
+//         });
+//         // dbg!(&common_ancestor);
+//
+//         let final_frontier_subgraph = subgraph.find_dominators_2(from_frontier.as_ref(), merge_frontier.as_ref());
+//         if final_frontier_subgraph == from_frontier { return Result::Err(final_frontier_global); } // Nothing to do! Just an optimization... Not sure if its necessary.
+//
+//         // dbg!(ops.iter().map(|e| e.span())
+//         //     .rev()
+//         //     .take_while(|r| r.end > earliest).collect::<Vec<_>>());
+//         // dbg!(&subgraph);
+//         // dbg!(&new_ops);
+//
+//         Result::Ok((subgraph, Self {
+//             from_frontier,
+//             merge_frontier,
+//             common_ancestor,
+//             conflict_ops,
+//             new_ops,
+//         }))
+//     }
+//
+//     fn iter<'a>(self, subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>) -> TransformedOpsIter<'a> {
+//         TransformedOpsIter {
+//             subgraph,
+//             aa,
+//             op_ctx,
+//             ops,
+//             op_iter: None,
+//             ff_mode: true,
+//             did_ff: false,
+//             merge_frontier: self.merge_frontier,
+//             common_ancestor: self.common_ancestor,
+//             conflict_ops: self.conflict_ops,
+//             new_ops: self.new_ops,
+//             next_frontier: self.from_frontier,
+//             phase2: None,
+//         }
+//     }
+// }

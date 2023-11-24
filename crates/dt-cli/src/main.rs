@@ -71,6 +71,17 @@ enum Commands {
         version: Option<Version>,
     },
 
+    // /// Dump the file at a series of versions to test conformance
+    // Splat {
+    //     /// Diamond types file to read
+    //     #[arg(value_name = "filename", value_parser = parse_dt_oplog)]
+    //     oplog: ListOpLog,
+    //
+    //     /// Output contents to the named file instead of stdout
+    //     #[arg(short, long)]
+    //     output: Option<OsString>,
+    // },
+
     /// Print the operations contained within a diamond types file
     Log {
         /// Diamond types file to read
@@ -247,6 +258,12 @@ enum Commands {
         /// Use pretty JSON output
         #[arg(short, long)]
         pretty: bool,
+
+        /// Generate "simple" operation traces. Simple traces enforce a strict total order over
+        /// all changes coming from each user agent. Diamond types proper doesn't require this
+        /// constraint internally.
+        #[arg(long)]
+        simple: bool,
     },
 
     /// Generate a diagram of the causal graph contained in a diamond types' file.
@@ -362,6 +379,37 @@ fn main() -> Result<(), anyhow::Error> {
                 print!("{}", content);
             }
         }
+
+        // Commands::Splat { oplog, output } => {
+        //     #[derive(Debug, Serialize)]
+        //     #[serde(rename_all = "camelCase")]
+        //     struct OutData {
+        //         num_ops: usize,
+        //         f: Vec<usize>,
+        //         r: Vec<RemoteVersionOwned>,
+        //         result: String,
+        //     }
+        //
+        //     let mut result = vec![];
+        //     // for num_ops in (0..oplog.len()).step_by(100) {
+        //     for num_ops in (13130..13140).step_by(1) {
+        //         // This is dirty.
+        //         let all_versions: Vec<usize> = (0..num_ops).collect();
+        //         let f = oplog.cg.graph.find_dominators(&all_versions);
+        //         // let f = Frontier::new_1(v - 1);
+        //
+        //         let branch = oplog.checkout(f.as_ref());
+        //         let r = oplog.cg.agent_assignment.local_to_remote_frontier_owned(f.as_ref()).into_vec();
+        //         result.push(OutData {
+        //             num_ops,
+        //             f: f.0.into_vec(),
+        //             r,
+        //             result: branch.content().to_string()
+        //         });
+        //     }
+        //
+        //     write_serde_data(output, true, &result)?;
+        // },
 
         Commands::Log { oplog, transformed, json, history: history_mode } => {
             if history_mode {
@@ -563,14 +611,15 @@ fn main() -> Result<(), anyhow::Error> {
             write_serde_data(output, pretty, &result)?;
         }
 
-        Commands::GenConformance { output, num, steps, seed, pretty, unicode } => {
+        Commands::GenConformance { output, num, steps, seed, pretty, unicode, simple } => {
             let num = num.unwrap_or(100);
             let steps = steps.unwrap_or(50);
             let seed = seed.unwrap_or_else(|| rand::thread_rng().next_u64());
 
             let mut data = vec![];
             for i in 0..num {
-                let oplog = gen_oplog(seed + i as u64, steps, unicode);
+                // Hardcoded agent interleaving. Might be worth turning that off at some point.
+                let oplog = gen_oplog(seed + i as u64, steps, unicode, !simple);
                 let exported = export_full_to_json(&oplog);
                 data.push(exported);
                 // println!("{data}");

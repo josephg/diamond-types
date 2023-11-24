@@ -87,6 +87,8 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Unsa
         }
     }
 
+    /// Go to the next entry marker
+    /// Returns true if successful, or false if we've reached the end of the document.
     #[inline(always)]
     pub fn next_entry(&mut self) -> bool {
         self.next_entry_marker(None)
@@ -185,10 +187,6 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Unsa
         &mut node.data[self.idx]
     }
 
-    /// This is a terrible name. This method modifies a cursor at the end of an entry
-    /// to be a cursor to the start of the next entry - potentially in the following leaf.
-    ///
-    /// Returns false if the resulting cursor location points past the end of the tree.
     pub(crate) fn roll_to_next_entry_internal<F: FnOnce(&mut Self)>(&mut self, f: F) -> bool {
         unsafe {
             if self.offset == usize::MAX {
@@ -208,6 +206,10 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Unsa
         }
     }
 
+    /// This is a terrible name. This method modifies a cursor at the end of an entry
+    /// to be a cursor to the start of the next entry - potentially in the following leaf.
+    ///
+    /// Returns false if the resulting cursor location points past the end of the tree.
     pub fn roll_to_next_entry(&mut self) -> bool {
         self.roll_to_next_entry_internal(|_| {})
     }

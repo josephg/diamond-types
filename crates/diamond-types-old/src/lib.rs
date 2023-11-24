@@ -1,5 +1,5 @@
 #![allow(dead_code)] // TODO: turn this off and clean up before releasing.
-#![allow(unused)]
+// #![allow(unused)]
 
 use crate::list::external_txn::RemoteId;
 

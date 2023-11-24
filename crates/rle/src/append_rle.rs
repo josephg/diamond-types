@@ -14,6 +14,14 @@ pub trait AppendRle<T: MergableSpan> {
     /// to the front of the previously last item, do so. This is useful for appending to a list
     /// which is sorted in reverse.
     fn push_reversed_rle(&mut self, item: T) -> bool;
+
+    /// Extend the item by RLE-compacting the incoming iterator.
+    fn extend_rle<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        // TODO: Consider only calling push_rle until we can't append any more.
+        for item in iter {
+            self.push_rle(item);
+        }
+    }
 }
 
 // Apparently the cleanest way to do this DRY is using macros.

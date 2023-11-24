@@ -5,7 +5,7 @@ use crate::listmerge::{DocRangeIndex, M2Tracker};
 use crate::listmerge::markers::Marker::{DelTarget, InsPtr};
 use crate::listmerge::merge::notify_for;
 use crate::rev_range::RangeRev;
-use crate::listmerge::yjsspan::YjsSpan;
+use crate::listmerge::yjsspan::FugueSpan;
 use crate::list::operation::ListOpKind;
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::dtrange::DTRange;
@@ -15,7 +15,7 @@ pub(super) struct QueryResult {
     tag: ListOpKind,
     target: RangeRev,
     offset: usize,
-    ptr: Option<NonNull<NodeLeaf<YjsSpan, DocRangeIndex>>>
+    ptr: Option<NonNull<NodeLeaf<FugueSpan, DocRangeIndex>>>
 }
 
 impl M2Tracker {

@@ -91,10 +91,10 @@ impl ListCRDT {
                 assert!(child.parents.iter().any(|p| txn.contains(*p)));
             }
 
-            if parents[0] == ROOT_LV {
+            if parents.is_empty() || parents[0] == ROOT_LV {
                 // The root order will be sorted out of order, but it doesn't matter because
                 // if it shows up at all it should be the only item in parents.
-                debug_assert_eq!(parents.len(), 1);
+                assert!(parents.len() <= 1);
                 if txn.time == 0 { expect_shadow = ROOT_LV; }
                 assert!(txn.parent_indexes.is_empty());
             } else {

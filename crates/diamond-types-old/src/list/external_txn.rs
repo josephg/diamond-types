@@ -9,7 +9,7 @@ use smartstring::alias::String as SmartString;
 
 use content_tree::Toggleable;
 use diamond_core_old::{AgentId, CRDT_DOC_ROOT, CRDTId};
-use rle::{AppendRle, HasLength};
+use rle::{AppendRle, HasLength, MergableSpan};
 
 use crate::crdtspan::CRDTSpan;
 use crate::list::{Branch, ListCRDT, LV, ROOT_LV};
@@ -60,6 +60,46 @@ pub enum RemoteCRDTOp {
         /// The id of the item *being deleted*.
         id: RemoteId,
         len: u32,
+    }
+}
+
+impl MergableSpan for RemoteIdSpan {
+    fn can_append(&self, other: &Self) -> bool {
+        self.id.agent == other.id.agent && self.id.seq + self.len == other.id.seq
+    }
+
+    fn append(&mut self, other: Self) {
+        self.len += other.len
+    }
+}
+
+
+impl MergableSpan for RemoteCRDTOp {
+    fn can_append(&self, other: &Self) -> bool {
+        // We're assuming the IDs are adjacent.
+        match (self, other) {
+            // Can't append inserts because we don't have the ID of the operation, and we would
+            // need to check that other.origin_left == other.id_start - 1.
+            //
+            // We'll just merge deletes.
+            (Del { id, len }, Del { id: other_id, .. }) => {
+                id.agent == other_id.agent
+                    && id.seq + len == other_id.seq
+            }
+            _ => false,
+        }
+    }
+
+    fn append(&mut self, other: Self) {
+        match (self, other) {
+            (Ins { len, .. }, Ins { len: other_len, .. }) => {
+                *len += other_len;
+            },
+            (Del { len, .. }, Del { len: other_len, .. }) => {
+                *len += other_len;
+            },
+            _ => panic!("Cannot append mismatched operations")
+        }
     }
 }
 

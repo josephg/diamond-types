@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::ptr::NonNull;
 
-use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
+use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 
 use content_tree::*;
 use content_tree::ContentTraits;

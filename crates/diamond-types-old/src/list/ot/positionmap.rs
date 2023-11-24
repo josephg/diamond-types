@@ -1,9 +1,8 @@
 // TODO: This file ended up being a kitchen sink for the logic here. Separate this logic out into a
 // few files!
 
-use std::borrow::Borrow;
 use std::pin::Pin;
-use jumprope::{JumpRope, JumpRopeBuf};
+use jumprope::JumpRopeBuf;
 
 use smallvec::SmallVec;
 
@@ -562,6 +561,7 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &JumpRopeBuf) -> Traversal
 
 #[cfg(test)]
 mod test {
+    use jumprope::JumpRope;
     use rand::prelude::*;
     use smallvec::smallvec;
 

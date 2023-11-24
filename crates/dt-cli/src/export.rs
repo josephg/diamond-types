@@ -41,6 +41,27 @@ impl From<TextOperation> for SimpleTextOp {
     }
 }
 
+impl Into<TextOperation> for &SimpleTextOp {
+    fn into(self) -> TextOperation {
+        let SimpleTextOp(pos, del_len, ins_content) = self;
+        assert_ne!((*del_len == 0), !ins_content.is_empty());
+        if *del_len > 0 {
+            TextOperation {
+                kind: ListOpKind::Del,
+                loc: (*pos..*pos + *del_len).into(),
+                content: None,
+            }
+        } else {
+            let content_len = ins_content.chars().count();
+            TextOperation {
+                kind: ListOpKind::Ins,
+                loc: (*pos..*pos + content_len).into(),
+                content: Some(ins_content.clone()),
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceExportData {
@@ -200,6 +221,7 @@ pub struct DTExportTxn {
     span: DTRange,
     parents: SmallVec<[usize; 2]>,
     agent: SmartString,
+    seq_start: usize,
     // op: TextOperation,
     ops: SmallVec<[SimpleTextOp; 2]>,
 }
@@ -219,6 +241,7 @@ fn export_oplog_to_json(oplog: &ListOpLog) -> Vec<DTExportTxn> {
             span: entry.span,
             parents: entry.parents.0.clone(),
             agent: oplog.get_agent_name(entry.agent_span.agent).into(),
+            seq_start: entry.agent_span.seq_range.start,
             ops: entry.ops.into_iter().map(|op| op.into()).collect(),
         });
     }
@@ -232,6 +255,18 @@ pub fn export_full_to_json(oplog: &ListOpLog) -> DTExport {
         end_content: oplog.checkout_tip().content().to_string(),
     }
 }
+
+// pub fn run_export(data: &DTExport) {
+//     // First make an oplog from the exported data.
+//     let mut oplog = ListOpLog::new();
+//     for txn in &data.txns {
+//         let ops: Vec<TextOperation> = txn.ops.iter().map(|op| op.into()).collect();
+//         let agent = oplog.get_or_create_agent_id(txn.agent.as_str());
+//         oplog.add_operations_at(agent, txn.parents.as_slice(), &ops);
+//     }
+//
+//     assert_eq!(oplog.checkout_tip().content(), data.end_content);
+// }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

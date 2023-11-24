@@ -8,9 +8,11 @@ use crate::causalgraph::graph::Graph;
 use crate::{AgentId, CausalGraph, DTRange, Frontier};
 use crate::list_fuzzer_tools::choose_2;
 
-pub(crate) fn with_random_cgs<F: FnMut(usize, &CausalGraph, &[Frontier])>(seed: u64, iterations: (usize, usize), mut f: F) {
+pub(crate) fn with_random_cgs<F: FnMut((usize, usize), &CausalGraph, &[Frontier])>(seed: u64, iterations: (usize, usize), mut f: F) {
     for outer in 0..iterations.0 {
-        let mut rng = SmallRng::seed_from_u64(seed + outer as u64);
+        let seed_here = seed + outer as u64;
+        let mut rng = SmallRng::seed_from_u64(seed_here);
+        // println!("seed {seed_here}");
         let mut frontiers = [Frontier::root(), Frontier::root(), Frontier::root()];
         let mut cg = CausalGraph::new();
 
@@ -40,7 +42,7 @@ pub(crate) fn with_random_cgs<F: FnMut(usize, &CausalGraph, &[Frontier])>(seed: 
                 *a = cg.graph.find_dominators_2(a.as_ref(), b.as_ref());
             }
 
-            f(i, &cg, &frontiers);
+            f((outer, i), &cg, &frontiers);
         }
     }
 }
@@ -50,7 +52,7 @@ pub(crate) fn with_random_cgs<F: FnMut(usize, &CausalGraph, &[Frontier])>(seed: 
 #[ignore]
 #[cfg(feature = "dot_export")]
 fn generate_some_graphs() {
-    with_random_cgs(123, (1, 10), |i, cg, _frontiers| {
+    with_random_cgs(123, (1, 10), |(_, i), cg, _frontiers| {
         // dbg!(&cg.graph);
         cg.generate_dot_svg(Path::new(&format!("graphs/{i}.svg")));
     });

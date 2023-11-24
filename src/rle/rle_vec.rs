@@ -68,11 +68,11 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
         let size = std::mem::size_of::<V>();
         println!("-------- {} RLE --------", name);
         println!("number of {} byte entries: {}", size, self.0.len());
-        println!("size: {}", format_size(
+        println!("allocated size: {}", format_size(
             self.0.capacity() * size,
             DECIMAL
         ));
-        println!("(efficient size: {})", format_size(
+        println!("(used size: {})", format_size(
             self.0.len() * size,
             DECIMAL
         ));

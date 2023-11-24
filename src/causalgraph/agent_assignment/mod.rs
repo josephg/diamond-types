@@ -156,8 +156,8 @@ impl AgentAssignment {
         })
     }
 
-    /// span is the local timespan we're assigning to the named agent.
-    pub(crate) fn assign_next_time_to_client_known(&mut self, agent: AgentId, span: DTRange) {
+    /// span is the local versions we're assigning to the named agent.
+    pub(crate) fn assign_lv_to_client_next_seq(&mut self, agent: AgentId, span: DTRange) {
         debug_assert_eq!(span.start, self.len());
 
         let client_data = &mut self.client_data[agent as usize];
