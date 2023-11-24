@@ -84,10 +84,36 @@ impl Graph {
         }
     }
 
+    /// Compare two frontiers. Equivalent of version_cmp. This function is rarely needed and
+    /// not super well optimized. (There's a bunch of fast paths I haven't implemented).
+    ///
+    /// `a > b` iff `a` is a superset of `b`.
+    ///
+    /// Returns `None` if the versions are concurrent.
+    pub fn frontier_cmp(&self, v1: &[LV], v2: &[LV]) -> Option<Ordering> {
+        // TODO: This method could be sped up by comparing the largest in v1 to the smallest in v2
+        // and vice versa.
+        if v1 == v2 {
+            Some(Ordering::Equal)
+        } else if v1.is_empty() {
+            Some(Ordering::Less) // Fast path.
+        } else if self.frontier_contains_frontier(v1, v2) {
+            Some(Ordering::Greater)
+        } else if self.frontier_contains_frontier(v2, v1) {
+            Some(Ordering::Less)
+        } else {
+            None
+        }
+    }
+
     /// Calculates whether the specified version contains (dominates) the specified time.
     pub(crate) fn frontier_contains_version(&self, frontier: &[LV], target: LV) -> bool {
         if frontier.contains(&target) { return true; }
-        if frontier.is_empty() { return false; }
+
+        debug_assert_sorted(frontier);
+        if let Some(&largest_v) = frontier.last() {
+            if largest_v < target { return false; }
+        } else { return false; }
 
         // Fast path. This causes extra calls to find_packed(), but you usually have a branch with
         // a shadow less than target. Usually the root document. And in that case this codepath
@@ -704,6 +730,7 @@ impl Graph {
 
 #[cfg(test)]
 pub mod test {
+    use std::cmp::Ordering;
     use std::ops::Range;
     use smallvec::smallvec;
     use rle::{AppendRle, MergableSpan};
@@ -812,7 +839,24 @@ pub mod test {
         }
     }
 
-    fn assert_version_contains_time(graph: &Graph, frontier: &[LV], target: LV, expected: bool) {
+    fn assert_frontier_cmp(graph: &Graph, a: &[LV], b: &[LV], expected: Option<Ordering>) {
+        if a == b { assert_eq!(expected, Some(Ordering::Equal)) }
+
+        // println!("a {:?} / b {:?} / expected {:?}", a, b, expected);
+        assert_eq!(graph.frontier_cmp(a, b), expected);
+        match expected {
+            Some(Ordering::Less) => {
+                // Also check the inverse holds.
+                assert_eq!(graph.frontier_cmp(b, a), Some(Ordering::Greater));
+            }
+            Some(Ordering::Greater) => {
+                assert_eq!(graph.frontier_cmp(b, a), Some(Ordering::Less));
+            }
+            _ => {}
+        }
+    }
+
+    fn assert_frontier_contains_version(graph: &Graph, frontier: &[LV], target: LV, expected: bool) {
         #[cfg(feature="gen_test_data")] {
             #[cfg_attr(feature = "serde", derive(Serialize))]
             #[derive(Clone, Debug)]
@@ -838,6 +882,25 @@ pub mod test {
         }
 
         assert_eq!(graph.frontier_contains_version(frontier, target), expected);
+        assert_eq!(graph.frontier_contains_frontier(frontier, &[target]), expected);
+
+        assert_eq!(graph.frontier_cmp(frontier, frontier), Some(Ordering::Equal));
+        // dbg!(frontier, &[target]);
+        if expected {
+            let expected = if frontier == &[target] {
+                Ordering::Equal
+            } else {
+                Ordering::Greater
+            };
+            assert_frontier_cmp(graph, frontier, &[target], Some(expected));
+        } else {
+            let expected = if graph.frontier_contains_frontier(&[target], frontier) {
+                Some(Ordering::Less)
+            } else {
+                None // They're concurrent.
+            };
+            assert_frontier_cmp(graph, frontier, &[target], expected);
+        }
     }
 
     fn assert_diff_eq(graph: &Graph, a: &[LV], b: &[LV], expect_a: &[DTRange], expect_b: &[DTRange]) {
@@ -884,16 +947,16 @@ pub mod test {
 
         for &(branch, spans, other) in &[(a, expect_a, b), (b, expect_b, a)] {
             for o in spans {
-                assert_version_contains_time(graph, branch, o.start, true);
+                assert_frontier_contains_version(graph, branch, o.start, true);
                 if o.len() > 1 {
-                    assert_version_contains_time(graph, branch, o.last(), true);
+                    assert_frontier_contains_version(graph, branch, o.last(), true);
                 }
             }
 
             if branch.len() == 1 {
                 // dbg!(&other, branch[0], &spans);
                 let expect = spans.is_empty();
-                assert_version_contains_time(graph, other, branch[0], expect);
+                assert_frontier_contains_version(graph, other, branch[0], expect);
             }
         }
 
@@ -954,7 +1017,7 @@ pub mod test {
     }
 
     #[test]
-    fn branch_contains_smoke_test() {
+    fn version_contains_version_tests() {
         // let mut doc = ListCRDT::new();
         // assert!(doc.txns.branch_contains_order(&doc.frontier, ROOT_TIME_X));
         //
@@ -964,31 +1027,35 @@ pub mod test {
         // assert!(doc.txns.branch_contains_order(&doc.frontier, 0));
         // assert!(!doc.txns.branch_contains_order(&[ROOT_TIME_X], 0));
 
-        let parents = fancy_graph();
+        let graph = fancy_graph();
 
-        assert_version_contains_time(&parents, &[], 0, false);
-        assert_version_contains_time(&parents, &[0], 0, true);
+        assert_frontier_contains_version(&graph, &[], 0, false);
+        assert_frontier_contains_version(&graph, &[0], 0, true);
 
-        assert_version_contains_time(&parents, &[2], 0, true);
-        assert_version_contains_time(&parents, &[2], 1, true);
-        assert_version_contains_time(&parents, &[2], 2, true);
+        assert_frontier_contains_version(&graph, &[2], 0, true);
+        assert_frontier_contains_version(&graph, &[2], 1, true);
+        assert_frontier_contains_version(&graph, &[2], 2, true);
 
-        assert_version_contains_time(&parents, &[0], 1, false);
-        assert_version_contains_time(&parents, &[1], 2, false);
+        assert_frontier_contains_version(&graph, &[0], 1, false);
+        assert_frontier_contains_version(&graph, &[1], 2, false);
 
-        assert_version_contains_time(&parents, &[8], 0, true);
-        assert_version_contains_time(&parents, &[8], 1, true);
-        assert_version_contains_time(&parents, &[8], 2, false);
-        assert_version_contains_time(&parents, &[8], 5, false);
+        assert_frontier_contains_version(&graph, &[8], 0, true);
+        assert_frontier_contains_version(&graph, &[8], 1, true);
+        assert_frontier_contains_version(&graph, &[8], 2, false);
+        assert_frontier_contains_version(&graph, &[8], 5, false);
 
-        assert_version_contains_time(&parents, &[1,4], 0, true);
-        assert_version_contains_time(&parents, &[1,4], 1, true);
-        assert_version_contains_time(&parents, &[1,4], 2, false);
-        assert_version_contains_time(&parents, &[1,4], 5, false);
+        assert_frontier_contains_version(&graph, &[1,4], 0, true);
+        assert_frontier_contains_version(&graph, &[1,4], 1, true);
+        assert_frontier_contains_version(&graph, &[1,4], 2, false);
+        assert_frontier_contains_version(&graph, &[1,4], 5, false);
 
-        assert_version_contains_time(&parents, &[9], 2, true);
-        assert_version_contains_time(&parents, &[9], 1, true);
-        assert_version_contains_time(&parents, &[9], 0, true);
+        assert_frontier_contains_version(&graph, &[9], 2, true);
+        assert_frontier_contains_version(&graph, &[9], 1, true);
+        assert_frontier_contains_version(&graph, &[9], 0, true);
+
+        assert_frontier_cmp(&graph, &[1,4], &[2, 3], None);
+        assert_frontier_cmp(&graph, &[1,4], &[1], Some(Ordering::Greater));
+        assert_frontier_cmp(&graph, &[1], &[1,4], Some(Ordering::Less));
     }
 
     fn check_dominators(graph: &Graph, input: &[LV], expected_yes: &[LV]) {
@@ -1144,8 +1211,8 @@ pub mod test {
         ]);
         parents.dbg_check(true);
 
-        assert_version_contains_time(&parents, &[2], 3, false);
-        assert_version_contains_time(&parents, &[3], 2, false);
+        assert_frontier_contains_version(&parents, &[2], 3, false);
+        assert_frontier_contains_version(&parents, &[3], 2, false);
         assert_diff_eq(&parents, &[2], &[3], &[(2..3).into()], &[(3..4).into()]);
     }
 
