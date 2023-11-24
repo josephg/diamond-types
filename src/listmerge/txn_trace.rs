@@ -557,8 +557,8 @@ mod test {
         let mut bytes = vec![];
         // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
         // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        // File::open("benchmark_data/clownschool.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        File::open("benchmark_data/friendsforever.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/clownschool.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/friendsforever.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
         let cg = &o.cg;
 
@@ -580,8 +580,8 @@ mod test {
         // git-makefile Cost estimate 1128743 / 50680
 
         // -----
-        let mut sg = cg.graph.make_conflict_graph_between(&[], cg.version.as_ref());
-        let plan = sg.make_m1_plan();
+
+        let plan = cg.graph.make_m1_plan(&[], cg.version.as_ref());
 
         let mut cost_estimate = 0;
         let mut clears = 0;
@@ -604,6 +604,7 @@ mod test {
                 M1PlanAction::BeginOutput => {}
             }
         }
+        println!("plan length {}", plan.0.len());
         println!("New cost estimate {cost_estimate}. Clears: {clears}");
         println!("ff_len {ff_len} / apply_len {apply_len}");
         plan.dbg_print();

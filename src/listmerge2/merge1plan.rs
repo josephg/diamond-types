@@ -127,7 +127,14 @@ impl ConflictSubgraph<M1EntryState> {
 
         // For each item, this calculates whether the item is on the critical path.
         let mut queue: BinaryHeap<Reverse<usize>> = BinaryHeap::new();
-        queue.push(Reverse(0));
+        if self.entries[self.a_root].flag == DiffFlag::OnlyA {
+            queue.push(Reverse(self.a_root));
+        }
+        if self.entries[self.b_root].flag == DiffFlag::OnlyB {
+            queue.push(Reverse(self.b_root));
+        }
+        // queue.push(Reverse(self.a_root));
+        // queue.push(Reverse(self.b_root));
 
         while let Some(Reverse(idx)) = queue.pop() {
             let e = &mut self.entries[idx];
@@ -288,9 +295,14 @@ impl ConflictSubgraph<M1EntryState> {
     //     M1Plan(actions)
     // }
 
-    pub(crate) fn make_m1_plan(&mut self) -> M1Plan {
+    pub(super) fn make_m1_plan(&mut self) -> M1Plan {
         let mut actions = vec![];
-        if self.entries.is_empty() { return M1Plan(actions); }
+
+        // The flag for b_root will only be OnlyB if we're adding something to the graph.
+        // if self.entries.is_empty() || self.entries[self.b_root].flag != DiffFlag::OnlyB {
+        if self.entries.is_empty() {
+            return M1Plan(actions);
+        }
         self.prepare();
 
         let mut nonempty_spans_remaining = self.entries.iter()
@@ -353,7 +365,7 @@ impl ConflictSubgraph<M1EntryState> {
                         actions.push(M1PlanAction::Clear);
                         dirty = false;
                     }
-                    actions.push(M1PlanAction::FF(e.span));
+                    actions.push_rle(M1PlanAction::FF(e.span));
                 } else {
                     // Note we only advance & retreat if the item is not on the critical path.
                     // If we're on the critical path, the clear operation will flush everything
@@ -381,7 +393,7 @@ impl ConflictSubgraph<M1EntryState> {
                     }
 
                     dirty = true;
-                    actions.push(M1PlanAction::Apply(e.span));
+                    actions.push_rle(M1PlanAction::Apply(e.span));
                 }
 
                 // We can stop as soon as we've processed all the spans.
@@ -398,7 +410,7 @@ impl ConflictSubgraph<M1EntryState> {
             } else if !done_b {
                 // println!("DOING B");
                 current_idx = self.b_root;
-                actions.push_rle(M1PlanAction::BeginOutput);
+                actions.push(M1PlanAction::BeginOutput);
                 done_b = true;
             } else {
                 panic!("Should have stopped");
@@ -410,6 +422,18 @@ impl ConflictSubgraph<M1EntryState> {
     }
 }
 
+impl Graph {
+    pub(crate) fn make_m1_plan(&self, a: &[LV], b: &[LV]) -> M1Plan {
+        if self.frontier_contains_frontier(a, b) {
+            // Nothing to merge. Do nothing.
+            return M1Plan(vec![]);
+        }
+
+        let mut sg = self.make_conflict_graph_between(a, b);
+        sg.make_m1_plan()
+    }
+}
+
 impl M1Plan {
     fn dbg_check(&self, common_ancestor: &[LV], a: &[LV], b: &[LV], graph: &Graph) {
         // dbg!(self, a, b);
@@ -418,11 +442,14 @@ impl M1Plan {
         let mut current: Frontier = common_ancestor.into();
         let mut max: Frontier = common_ancestor.into();
         let mut cleared_version: Frontier = common_ancestor.into();
+        let mut seen_begin_output = false;
 
         for action in &self.0 {
             match action {
                 M1PlanAction::BeginOutput => {
                     // The "current version" at this point must be a.
+                    assert_eq!(seen_begin_output, false);
+                    seen_begin_output = true;
                     assert_eq!(max.as_ref(), a);
                 }
                 M1PlanAction::Apply(span) | M1PlanAction::FF(span) => {
@@ -450,10 +477,9 @@ impl M1Plan {
                             assert_eq!(parents, current.as_ref()); // Current == the new item's parents.
                             // And the span is a child of max.
                             assert!(graph.frontier_contains_frontier(max.as_ref(), parents));
-
-                            max.advance_by_known_run(parents, *span);
-                            current.advance_by_known_run(parents, *span);
                         });
+                        max.advance(graph, *span);
+                        current.advance(graph, *span);
                     }
                 }
                 M1PlanAction::Retreat(span) => {
@@ -484,8 +510,8 @@ impl M1Plan {
                     assert!(!graph.frontier_contains_version(current.as_ref(), span.start));
                     graph.with_parents(span.start, |parents| {
                         assert!(graph.frontier_contains_frontier(current.as_ref(), parents));
-                        current.advance_by_known_run(parents, *span);
                     });
+                    current.advance(graph, *span);
                 }
                 M1PlanAction::Clear => {
                     // The current version is discarded when a clear operation happens, since we
@@ -506,25 +532,24 @@ impl M1Plan {
             match a {
                 M1PlanAction::Retreat(span) => {
                     println!("{i}: --- deactivate {:?}", span);
-                    i += 1;
                 }
                 M1PlanAction::Advance(span) => {
                     println!("{i}: +++ reactivate {:?}", span);
-                    i += 1;
                 }
                 M1PlanAction::Clear => {
-                    println!("-------- CLEAR ---------");
+                    println!("{i}: ========== CLEAR =========");
                 }
                 M1PlanAction::Apply(span) => {
                     println!("{i}: Add {:?}", span);
-                    i += 1;
                 }
                 M1PlanAction::FF(span) => {
                     println!("{i}: FF {:?}", span);
-                    i += 1;
                 }
-                M1PlanAction::BeginOutput => {}
+                M1PlanAction::BeginOutput => {
+                    println!("{i}: ========== BEGIN OUTPUT =========");
+                }
             }
+            i += 1;
         }
     }
 }
@@ -585,13 +610,13 @@ mod test {
         assert_eq!(&critical_path, &[true, true, false, false, true, true]);
 
         let plan = g.make_m1_plan();
-        dbg!(&plan);
+        // plan.dbg_print();
         plan.dbg_check(g.base_version.as_ref(), &[], &[3], &graph);
     }
 
     #[test]
     fn fuzz_m1_plans() {
-        with_random_cgs(3223, (100, 10), |(_i, _k), cg, frontiers| {
+        with_random_cgs(3232, (100, 10), |(_i, _k), cg, frontiers| {
             // Iterate through the frontiers, and [root -> cg.version].
             for (_j, fs) in std::iter::once([Frontier::root(), cg.version.clone()].as_slice())
                 .chain(frontiers.windows(2))
@@ -601,12 +626,19 @@ mod test {
 
                 let (a, b) = (fs[0].as_ref(), fs[1].as_ref());
 
+                // println!("\n\n");
+                // dbg!(&cg.graph);
+                // println!("f: {:?} + {:?}", a, b);
+
+                // Alternatively:
+                // let plan = cg.graph.make_m1_plan(a, b);
                 let mut subgraph = cg.graph.make_conflict_graph_between(a, b);
                 subgraph.dbg_check();
                 subgraph.dbg_check_conflicting(&cg.graph, a, b);
 
-                // subgraph.dbg_print();
                 let plan = subgraph.make_m1_plan();
+                // subgraph.dbg_print();
+                // plan.dbg_print();
                 // dbg!(&plan);
                 plan.dbg_check(subgraph.base_version.as_ref(), a, b, &cg.graph);
             }
