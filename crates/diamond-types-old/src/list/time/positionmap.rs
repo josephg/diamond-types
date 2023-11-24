@@ -54,15 +54,15 @@ impl PositionRun {
     //     Self { val, content_len: len, final_len: 0 }
     // }
     pub(crate) fn new_void(len: usize) -> Self {
-        Self { tag: MapTag::NotInsertedYet, final_len: len, content_len: 0 }
+        Self { tag: NotInsertedYet, final_len: len, content_len: 0 }
     }
 
     pub(crate) fn new_ins(len: usize) -> Self {
-        Self { tag: MapTag::Inserted, final_len: len, content_len: len }
+        Self { tag: Inserted, final_len: len, content_len: len }
     }
 
     pub(crate) fn new_upstream(final_len: usize, content_len: usize) -> Self {
-        Self { tag: MapTag::Upstream, final_len, content_len }
+        Self { tag: Upstream, final_len, content_len }
     }
 }
 
@@ -71,7 +71,7 @@ impl HasLength for PositionRun {
 }
 impl SplitableSpanHelpers for PositionRun {
     fn truncate_h(&mut self, at: usize) -> Self {
-        assert_ne!(self.tag, MapTag::Upstream);
+        assert_ne!(self.tag, Upstream);
 
         let remainder = self.final_len - at;
         self.final_len = at;

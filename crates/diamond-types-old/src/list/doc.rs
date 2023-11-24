@@ -614,6 +614,12 @@ impl ListCRDT {
                     let origin_left = self.remote_id_to_order(origin_left);
                     let origin_right = self.remote_id_to_order(origin_right);
 
+                    if cfg!(debug_assertions) {
+                        let left = self.get_cursor_after(origin_left, true);
+                        let right = self.get_cursor_before(origin_right);
+                        assert!(left <= right);
+                    }
+
                     let item = YjsSpan {
                         time: order,
                         origin_left,
@@ -662,7 +668,6 @@ impl ListCRDT {
                         // I could break this into two loops - and here enter an inner loop,
                         // deleting len items. It seems a touch excessive though.
 
-                        // dbg!(target_order);
                         let deleted_here = self.internal_mark_deleted(next_time, target_order, len, true);
 
                         // println!(" -> managed to delete {}", deleted_here);

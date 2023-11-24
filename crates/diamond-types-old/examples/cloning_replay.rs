@@ -21,9 +21,8 @@ use std::fmt::Write;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditHistory {
-    start_content: SmartString,
     end_content: String,
-
+    // num_agents: usize, // field exists but not used.
     txns: Vec<HistoryEntry>,
 }
 
@@ -33,27 +32,38 @@ pub struct SimpleTextOp(usize, usize, SmartString); // pos, del_len, ins_content
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
-    id: usize,
     parents: SmallVec<[usize; 2]>,
     num_children: usize,
-    agent: String,
-    // op: TextOperation,
-    ops: SmallVec<[SimpleTextOp; 2]>,
+    // agent: usize, // field exists but it is not in use.
+    patches: SmallVec<[SimpleTextOp; 2]>,
 }
 
+// A note about agent IDs and sequence numbers:
+//
+// So, the input data specifies agent ids for each transaction. We could use that, but the
+// challenge is that we then need a universal way (across all documents to track what sequence
+// number we're up to for each agent. And then pass that sequence number in to the local_insert /
+// local_del functions - since those functions don't accept a sequence number parameter. (And
+// probably shouldn't for any other use case).
+//
+// Right now this implementation generates new agent IDs in a complex, arbitrary way as we process
+// the operations such that we never accidentally reuse agents. But we could use the agents in the
+// file if we wanted, so long as this problem can be solved.
 
 fn gen_main() -> Result<(), Box<dyn Error>> {
     let mut doc = ListCRDT::new();
 
+    // Make editing trace JSON data sets with this command:
+    // dt export-trace benchmark_data/friendsforever.dt -o ff.json
+
     // let filename = "example_trace.json";
-    let filename = "node_nodecc.json";
+    let filename = "ff.json";
+    // let filename = "node_nodecc.json";
     // let filename = "git_makefile.json";
 
     let file = BufReader::new(File::open(filename)?);
     let history: EditHistory = serde_json::from_reader(file)?;
     // dbg!(data);
-
-    assert!(history.start_content.is_empty()); // 'cos I'm not handling this for now.
 
     // There should be exactly one entry with no parents.
     let num_roots = history.txns.iter().filter(|e| e.parents.is_empty()).count();
@@ -78,6 +88,7 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
             // Fork it and take the fork.
             let mut doc = parent_doc.clone();
 
+            // ** See note above about sequence numbers before changing this code.
             let agent = if need_agent {
                 let mut agent_name = SmartString::new();
                 write!(agent_name, "{idx}-{retains}").unwrap();
@@ -93,7 +104,7 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
     // doc_at_idx.insert(usize::MAX)
 
     // let mut root = Some(doc);
-    for (_i, entry) in history.txns.iter().enumerate() {
+    for (i, entry) in history.txns.iter().enumerate() {
         // println!("Iteration {_i} / {:?}", entry);
 
         // First we need to get the doc we're editing.
@@ -121,7 +132,7 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
         // let agent = doc.get_or_create_agent_id(&entry.agent);
 
         // Ok, now modify the document.
-        for op in &entry.ops {
+        for op in &entry.patches {
             let pos = op.0;
             let del_len = op.1;
             let ins_content = op.2.as_str();
@@ -137,7 +148,7 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
 
         // And deposit the result back into doc_at_idx.
         if entry.num_children > 0 {
-            doc_at_idx.insert(entry.id, (doc, agent, entry.num_children));
+            doc_at_idx.insert(i, (doc, agent, entry.num_children));
         } else {
             println!("done!");
 
@@ -151,6 +162,9 @@ fn gen_main() -> Result<(), Box<dyn Error>> {
             // println!("Saved to {out_filename}");
 
             assert_eq!(result, history.end_content);
+
+            // let x: Vec<_> = doc.get_all_txns();
+            // dbg!(x);
         }
     }
 
