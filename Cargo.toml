@@ -63,7 +63,8 @@ trace-alloc = { path = "crates/trace-alloc" }
 #json_minimal = "0.1.3"
 
 [features]
-default = ["lz4", "storage"]
+default = ["lz4", "storage", "rand"] # rand just for testing.
+#default = ["lz4", "storage"]
 #memusage = ["trace-alloc/memusage"]
 inlinerope = []
 lz4 = ["dep:lz4_flex"]
