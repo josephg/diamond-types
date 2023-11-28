@@ -4,14 +4,17 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use smallvec::{SmallVec, smallvec};
-use rle::{AppendRle, MergableSpan};
+use rle::{AppendRle, HasLength, MergableSpan};
 use crate::{CausalGraph, DTRange, Frontier, LV};
 use crate::causalgraph::graph::Graph;
 use crate::listmerge2::ConflictSubgraph;
 use crate::causalgraph::graph::tools::DiffFlag;
+use crate::list::ListOpLog;
+use crate::list::op_metrics::ListOpMetrics;
+use crate::rle::{KVPair, RleVec};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) enum M1PlanAction {
+pub enum M1PlanAction {
     Retreat(DTRange),
     Advance(DTRange),
     Clear,
@@ -45,8 +48,19 @@ impl MergableSpan for M1PlanAction {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct M1Plan(pub Vec<M1PlanAction>);
+pub struct M1Plan(pub Vec<M1PlanAction>);
 
+type Metrics = RleVec<KVPair<ListOpMetrics>>;
+
+fn estimate_cost(op_range: DTRange, metrics: &Metrics) -> usize {
+    if op_range.is_empty() { return 0; }
+    else {
+        let start_idx = metrics.find_index(op_range.start).unwrap();
+        let end_idx = metrics.find_index(op_range.last()).unwrap();
+
+        end_idx - start_idx + 1
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct M1EntryState {
@@ -61,7 +75,11 @@ pub(crate) struct M1EntryState {
     visited: bool,
     critical_path: bool,
 
+    // DIRTY.
     // children: SmallVec<[usize; 2]>,
+
+    cost_here: usize,
+    cost_to_end: usize,
 }
 
 
@@ -149,6 +167,12 @@ impl ConflictSubgraph<M1EntryState> {
             e.state.critical_path = queue.is_empty();
             queue.extend(e.parents.iter().copied().map(|i| Reverse(i)));
         }
+
+        // for i in 0..self.entries.len() {
+        //     for &j in self.entries[i].parents.iter() {
+        //         self.entries[j].state.children.push(i);
+        //     }
+        // }
 
         // And sort the parents to hit the lowest spans first.
         // for e in self.entries.iter_mut() {
@@ -295,6 +319,230 @@ impl ConflictSubgraph<M1EntryState> {
     //     M1Plan(actions)
     // }
 
+
+    fn calc_costs(&mut self, children: &[SmallVec<[usize; 2]>], oplog: Option<&Metrics>) {
+        // dbg!(children);
+        for (i, e) in self.entries.iter_mut().enumerate() {
+            e.state.cost_here = oplog.map_or_else(|| e.span.len(), |m| estimate_cost(e.span, m));
+
+            if i == self.b_root {
+                e.state.cost_here += usize::MAX / 2;
+            }
+        }
+
+        // Ok, now go through and scan each child.
+
+        for idx in 0..self.entries.len() {
+            // println!("\n\nIDX {idx}");
+            // Pushing the parents instead of just this item. Eh.
+            // We want to go from lowest to highest spans, but the list is reversed
+            // (highest to lowest), so we don't need to double-reverse it.
+            // let mut queue: BinaryHeap<usize> = children[idx].iter().copied().collect();
+            let mut queue: BinaryHeap<usize> = BinaryHeap::new();
+            queue.push(idx);
+
+            let mut aggregate_cost = 0;
+
+            while let Some(i) = queue.pop() {
+                // dbg!(i);
+
+                while let Some(peek_i) = queue.peek() {
+                    // This is needed to avoid items seeming to be concurrent with themselves.
+                    // println!("peek {}", peek_i);
+                    if *peek_i == i {
+                        queue.pop();
+                    } else { break; }
+                }
+                // dbg!(&queue);
+
+                let e2 = &self.entries[i];
+                aggregate_cost += e2.state.cost_here;
+                // println!("cost += idx {i} : cost: {}", e2.state.cost_here);
+                queue.extend(children[i].iter().copied());
+            }
+
+            // println!("Aggregate {aggregate_cost}");
+            self.entries[idx].state.cost_to_end = aggregate_cost;
+        }
+    }
+
+    pub(super) fn m1_plan_2(&mut self, metrics: Option<&Metrics>) -> M1Plan {
+        let mut actions = vec![];
+        if self.entries.is_empty() {
+            return M1Plan(actions);
+        }
+
+        let mut children: Vec<SmallVec<[usize; 2]>> = vec![smallvec![]; self.entries.len()];
+        for (i, e) in self.entries.iter().enumerate() {
+            for &p in e.parents.iter() {
+                children[p].push(i);
+            }
+        }
+
+        self.prepare();
+        self.calc_costs(&children, metrics);
+        for c in children.iter_mut() {
+            // Lowest cost to highest cost.
+            c.sort_unstable_by_key(|&i| self.entries[i].state.cost_to_end);
+            // c.sort_unstable_by(|a, b| {
+            //     // OnlyB comes before everything else.
+            //     let aa = &self.entries[*a];
+            //     let bb = &self.entries[*b];
+            //     (aa.flag == DiffFlag::OnlyB).cmp(&(bb.flag == DiffFlag::OnlyB))
+            //         .then(aa.state.cost_to_end.cmp(&bb.state.cost_to_end))
+            // });
+        }
+
+        let mut nonempty_spans_remaining = self.entries.iter()
+            .filter(|e| !e.span.is_empty())
+            .count();
+
+        let mut a_spans_remaining = self.entries.iter()
+            .filter(|e| !e.span.is_empty() && e.flag != DiffFlag::OnlyB)
+            .count();
+
+        // self.dbg_print();
+        // dbg!(&children);
+
+        let mut activated = false;
+        let mut dirty = false;
+
+        // The last entry is the shared child.
+        let mut current_idx = self.entries.len() - 1;
+        debug_assert_eq!(self.entries[current_idx].flag, DiffFlag::Shared);
+        let mut stack: Vec<usize> = vec![];
+
+        let mut last_processed_after: bool = false;
+        let mut last_processed_idx: usize = self.entries.len() - 1; // Might be cleaner to start this at None or something.
+
+        // We'll dummy-visit the first item.
+        let e = &mut self.entries[current_idx];
+        debug_assert!(e.span.is_empty());
+        debug_assert_eq!(e.state.visited, false);
+        e.state.visited = true;
+        // let e = &self.entries[current_idx];
+        for &c in &children[current_idx] {
+            self.entries[c].state.parents_satisfied += 1;
+        }
+
+        'outer: loop {
+            let e = &mut self.entries[current_idx];
+            // println!("Looping on {current_idx} / stack: {:?}", &stack);
+            // println!("e children {:?}, next {}", &children[current_idx], e.state.next);
+
+            debug_assert_eq!(e.state.visited, true);
+
+            // Try to visit the next child.
+            let c = &mut children[current_idx];
+            // println!("Children: {:?}", c);
+            if e.state.next < c.len() {
+                // Look for a child we can visit.
+                for i in e.state.next..c.len() {
+                    let next_idx = c[i];
+                    let e2 = &self.entries[next_idx];
+                    debug_assert_eq!(e2.state.visited, false);
+                    if e2.state.parents_satisfied == e2.parents.len()
+                        && (e2.flag != DiffFlag::OnlyB || a_spans_remaining == 0)
+                    {
+                        // println!("Going down to visit {next_idx}");
+                        // We went down. Visit this child.
+                        let e = &mut self.entries[current_idx];
+                        c.swap(e.state.next, i);
+                        e.state.next += 1;
+
+                        if e.state.next < c.len() {
+                            stack.push(current_idx);
+                        }
+                        current_idx = next_idx;
+
+                        // println!("Visit {current_idx}");
+                        let e = &mut self.entries[current_idx];
+                        e.state.visited = true;
+                        // And drop &mut.
+                        let e = &self.entries[current_idx];
+
+                        // Process this span.
+                        if !e.span.is_empty() {
+                            if !activated && e.flag == DiffFlag::OnlyB {
+                                activated = true;
+                                actions.push(M1PlanAction::BeginOutput);
+                            }
+
+                            if e.state.critical_path {
+                                if dirty {
+                                    actions.push(M1PlanAction::Clear);
+                                    dirty = false;
+                                }
+                                actions.push_rle(M1PlanAction::FF(e.span));
+                            } else {
+                                // Note we only advance & retreat if the item is not on the critical path.
+                                // If we're on the critical path, the clear operation will flush everything
+                                // anyway.
+                                let mut advances: SmallVec<[DTRange; 2]> = smallvec![];
+                                let mut retreats: SmallVec<[DTRange; 2]> = smallvec![];
+                                self.diff_trace(last_processed_idx, last_processed_after, current_idx, |idx, flag| {
+                                    let list = match flag {
+                                        DiffFlag::OnlyA => &mut retreats,
+                                        DiffFlag::OnlyB => &mut advances,
+                                        DiffFlag::Shared => { return; }
+                                    };
+                                    let span = self.entries[idx].span;
+                                    if !span.is_empty() {
+                                        list.push(span);
+                                    }
+                                });
+
+                                if !retreats.is_empty() {
+                                    actions.extend_rle(retreats.into_iter().map(M1PlanAction::Retreat));
+                                }
+                                if !advances.is_empty() {
+                                    // .rev() here because diff visits everything in reverse order.
+                                    actions.extend_rle(advances.into_iter().rev().map(M1PlanAction::Advance));
+                                }
+
+                                dirty = true;
+                                actions.push_rle(M1PlanAction::Apply(e.span));
+                            }
+
+                            // We can stop as soon as we've processed all the spans.
+                            nonempty_spans_remaining -= 1;
+                            if nonempty_spans_remaining == 0 { break 'outer; } // break;
+
+                            if e.flag != DiffFlag::OnlyB {
+                                a_spans_remaining -= 1;
+                            }
+
+                            last_processed_after = true;
+                            last_processed_idx = current_idx;
+                        }
+
+                        for c in &children[current_idx] {
+                            self.entries[*c].state.parents_satisfied += 1;
+                        }
+
+                        continue 'outer;
+                    }
+                }
+            }
+
+            // println!("No children viable. Going up.");
+
+            // We couldn't go down any more with this item. Go up instead.
+            if let Some(next_idx) = stack.pop() {
+                current_idx = next_idx;
+            } else {
+                println!("spans remaining {}", nonempty_spans_remaining);
+                self.dbg_print();
+                panic!("Should have stopped");
+                // break;
+            }
+
+        }
+
+
+        M1Plan(actions)
+    }
+
     pub(super) fn make_m1_plan(&mut self) -> M1Plan {
         let mut actions = vec![];
 
@@ -431,6 +679,16 @@ impl Graph {
 
         let mut sg = self.make_conflict_graph_between(a, b);
         (sg.make_m1_plan(), sg.base_version)
+    }
+
+    pub(crate) fn make_m1_plan_2(&self, metrics: Option<&Metrics>, a: &[LV], b: &[LV]) -> (M1Plan, Frontier) {
+        if self.frontier_contains_frontier(a, b) {
+            // Nothing to merge. Do nothing.
+            return (M1Plan(vec![]), a.into());
+        }
+
+        let mut sg = self.make_conflict_graph_between(a, b);
+        (sg.m1_plan_2(metrics), sg.base_version)
     }
 }
 
@@ -615,6 +873,22 @@ mod test {
     }
 
     #[test]
+    fn test_simple_graph_2_2() {
+        // Same as above, but this time with an extra entry after the concurrent zone.
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
+            GraphEntrySimple { span: 1.into(), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: (2..4).into(), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: 4.into(), parents: Frontier::from_sorted(&[1, 3]) },
+        ]);
+
+        // let mut g = graph.make_conflict_graph_between(&[], &[3]);
+        let mut g = graph.make_conflict_graph_between(&[1], &[4]);
+        let plan = g.m1_plan_2(None);
+        plan.dbg_print();
+    }
+
+    #[test]
     fn fuzz_m1_plans() {
         with_random_cgs(3232, (100, 10), |(_i, _k), cg, frontiers| {
             // Iterate through the frontiers, and [root -> cg.version].
@@ -645,4 +919,54 @@ mod test {
         });
     }
 
+    #[test]
+    fn fuzz_m1_plans_2() {
+        // with_random_cgs(3232, (100, 10), |(_i, _k), cg, frontiers| {
+        with_random_cgs(2231, (100, 3), |(_i, _k), cg, frontiers| {
+            // Iterate through the frontiers, and [root -> cg.version].
+            for (_j, fs) in std::iter::once([Frontier::root(), cg.version.clone()].as_slice())
+                .chain(frontiers.windows(2))
+                .enumerate()
+            {
+                println!("{_i}, {_k}, {_j}");
+
+                let (a, b) = (fs[0].as_ref(), fs[1].as_ref());
+
+                println!("\n\n");
+                if (_i, _k, _j) == (18, 2, 0) {
+                    println!("\n\n\nOOO");
+
+                    #[cfg(feature = "dot_export")]
+                    cg.generate_dot_svg("dot.svg");
+                }
+                // dbg!(&cg.graph);
+                println!("f: {:?} + {:?}", a, b);
+
+                // Alternatively:
+                // let plan = cg.graph.make_m1_plan(a, b);
+                let mut subgraph = cg.graph.make_conflict_graph_between(a, b);
+                subgraph.dbg_check();
+                subgraph.dbg_check_conflicting(&cg.graph, a, b);
+
+                let plan = subgraph.m1_plan_2(None);
+                subgraph.dbg_print();
+                plan.dbg_print();
+                // dbg!(&plan);
+                plan.dbg_check(subgraph.base_version.as_ref(), a, b, &cg.graph);
+            }
+        });
+    }
+
+}
+
+#[test]
+fn lite_bench() {
+    let bytes = std::fs::read(format!("benchmark_data/git-makefile.dt")).unwrap();
+    let oplog = ListOpLog::load_from(&bytes).unwrap();
+    let (plan, common) = oplog.make_plan_2();
+
+    for _i in 0..100 {
+        // oplog.checkout_tip();
+        oplog.checkout_tip_2(plan.clone(), common.as_ref());
+    }
 }
