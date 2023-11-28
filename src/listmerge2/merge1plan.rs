@@ -8,7 +8,7 @@ use smallvec::{SmallVec, smallvec};
 use rle::{AppendRle, HasLength, MergableSpan};
 use crate::{CausalGraph, DTRange, Frontier, LV};
 use crate::causalgraph::graph::Graph;
-use crate::listmerge2::ConflictSubgraph;
+use crate::listmerge2::{ConflictGraphEntry, ConflictSubgraph};
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::list::ListOpLog;
 use crate::list::op_metrics::ListOpMetrics;
@@ -433,6 +433,30 @@ impl ConflictSubgraph<M1EntryState> {
             // });
         }
 
+        fn teleport(g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, target_idx: usize, last_processed_after: bool, last_processed_idx: usize) {
+            let mut advances: SmallVec<[DTRange; 2]> = smallvec![];
+            let mut retreats: SmallVec<[DTRange; 2]> = smallvec![];
+            g.diff_trace(last_processed_idx, last_processed_after, target_idx, |idx, flag| {
+                let list = match flag {
+                    DiffFlag::OnlyA => &mut retreats,
+                    DiffFlag::OnlyB => &mut advances,
+                    DiffFlag::Shared => { return; }
+                };
+                let span = g.entries[idx].span;
+                if !span.is_empty() {
+                    list.push(span);
+                }
+            });
+
+            if !retreats.is_empty() {
+                actions.extend_rle(retreats.into_iter().map(M1PlanAction::Retreat));
+            }
+            if !advances.is_empty() {
+                // .rev() here because diff visits everything in reverse order.
+                actions.extend_rle(advances.into_iter().rev().map(M1PlanAction::Advance));
+            }
+        }
+
         let mut nonempty_spans_remaining = self.entries.iter()
             .filter(|e| !e.span.is_empty())
             .count();
@@ -465,6 +489,11 @@ impl ConflictSubgraph<M1EntryState> {
             self.entries[c].state.parents_satisfied += 1;
         }
 
+        // Its awkward, but we need to traverse all the items which are marked as common or OnlyA
+        // before we touch any items marked as OnlyB. Every time we see an OnlyB item, we'll push
+        // it to this list. And then in "phase 2", we'll zip straight here and go from here.
+        let mut b_children: SmallVec<[usize; 2]> = smallvec![];
+
         'outer: loop {
             let e = &mut self.entries[current_idx];
             // println!("Looping on {current_idx} / stack: {:?}", &stack);
@@ -481,87 +510,73 @@ impl ConflictSubgraph<M1EntryState> {
                     let next_idx = c[i];
                     let e2 = &self.entries[next_idx];
                     debug_assert_eq!(e2.state.visited, false);
-                    if e2.state.parents_satisfied == e2.parents.len()
-                        && (e2.flag != DiffFlag::OnlyB || a_spans_remaining == 0)
-                    {
-                        // println!("Going down to visit {next_idx}");
-                        // We went down. Visit this child.
-                        let e = &mut self.entries[current_idx];
-                        c.swap(e.state.next, i);
-                        e.state.next += 1;
 
-                        if e.state.next < c.len() {
-                            stack.push(current_idx);
-                        }
-                        current_idx = next_idx;
-
-                        // println!("Visit {current_idx}");
-                        let e = &mut self.entries[current_idx];
-                        e.state.visited = true;
-                        // And drop &mut.
-                        let e = &self.entries[current_idx];
-
-                        // Process this span.
-                        if !e.span.is_empty() {
-                            if !activated && e.flag == DiffFlag::OnlyB {
-                                activated = true;
-                                actions.push(M1PlanAction::BeginOutput);
-                            }
-
-                            if e.state.critical_path {
-                                if dirty {
-                                    actions.push(M1PlanAction::Clear);
-                                    dirty = false;
-                                }
-                                actions.push_rle(M1PlanAction::FF(e.span));
-                            } else {
-                                // Note we only advance & retreat if the item is not on the critical path.
-                                // If we're on the critical path, the clear operation will flush everything
-                                // anyway.
-                                let mut advances: SmallVec<[DTRange; 2]> = smallvec![];
-                                let mut retreats: SmallVec<[DTRange; 2]> = smallvec![];
-                                self.diff_trace(last_processed_idx, last_processed_after, current_idx, |idx, flag| {
-                                    let list = match flag {
-                                        DiffFlag::OnlyA => &mut retreats,
-                                        DiffFlag::OnlyB => &mut advances,
-                                        DiffFlag::Shared => { return; }
-                                    };
-                                    let span = self.entries[idx].span;
-                                    if !span.is_empty() {
-                                        list.push(span);
-                                    }
-                                });
-
-                                if !retreats.is_empty() {
-                                    actions.extend_rle(retreats.into_iter().map(M1PlanAction::Retreat));
-                                }
-                                if !advances.is_empty() {
-                                    // .rev() here because diff visits everything in reverse order.
-                                    actions.extend_rle(advances.into_iter().rev().map(M1PlanAction::Advance));
-                                }
-
-                                dirty = true;
-                                actions.push_rle(M1PlanAction::Apply(e.span));
-                            }
-
-                            // We can stop as soon as we've processed all the spans.
-                            nonempty_spans_remaining -= 1;
-                            if nonempty_spans_remaining == 0 { break 'outer; } // break;
-
-                            if e.flag != DiffFlag::OnlyB {
-                                a_spans_remaining -= 1;
-                            }
-
-                            last_processed_after = true;
-                            last_processed_idx = current_idx;
-                        }
-
-                        for c in &children[current_idx] {
-                            self.entries[*c].state.parents_satisfied += 1;
-                        }
-
-                        continue 'outer;
+                    if a_spans_remaining > 0 && e2.flag == DiffFlag::OnlyB {
+                        // We'll come back
+                        b_children.push(next_idx);
+                        continue;
                     }
+
+                    // This is a merge, but we haven't covered all the merge's parents.
+                    if e2.state.parents_satisfied != e2.parents.len() { continue; }
+
+                    // println!("Going down to visit {next_idx}");
+                    // We went down. Visit this child.
+                    let e = &mut self.entries[current_idx];
+                    c.swap(e.state.next, i);
+                    e.state.next += 1;
+
+                    if e.state.next < c.len() { // We won't come back this way.
+                        stack.push(current_idx);
+                    }
+                    current_idx = next_idx;
+
+                    // println!("Visit {current_idx}");
+                    let e = &mut self.entries[current_idx];
+                    e.state.visited = true;
+                    // And drop &mut.
+                    let e = &self.entries[current_idx];
+
+                    // Process this span.
+                    if !e.span.is_empty() {
+                        if !activated && e.flag == DiffFlag::OnlyB {
+                            activated = true;
+                            actions.push(M1PlanAction::BeginOutput);
+                        }
+
+                        if e.state.critical_path {
+                            if dirty {
+                                actions.push(M1PlanAction::Clear);
+                                dirty = false;
+                                // TODO: Consider also clearing the stack here. We won't be back.
+                            }
+                            actions.push_rle(M1PlanAction::FF(e.span));
+                        } else {
+                            // Note we only advance & retreat if the item is not on the critical path.
+                            // If we're on the critical path, the clear operation will flush everything
+                            // anyway.
+                            teleport(self, &mut actions, current_idx, last_processed_after, last_processed_idx);
+                            actions.push_rle(M1PlanAction::Apply(e.span));
+                            dirty = true;
+                        }
+
+                        // We can stop as soon as we've processed all the spans.
+                        nonempty_spans_remaining -= 1;
+                        if nonempty_spans_remaining == 0 { break 'outer; } // break;
+
+                        if e.flag != DiffFlag::OnlyB {
+                            a_spans_remaining -= 1;
+                        }
+
+                        last_processed_after = true;
+                        last_processed_idx = current_idx;
+                    }
+
+                    for c in &children[current_idx] {
+                        self.entries[*c].state.parents_satisfied += 1;
+                    }
+
+                    continue 'outer;
                 }
             }
 
@@ -570,6 +585,10 @@ impl ConflictSubgraph<M1EntryState> {
             // We couldn't go down any more with this item. Go up instead.
             if let Some(next_idx) = stack.pop() {
                 current_idx = next_idx;
+            // } else if a_spans_remaining == 0 {
+            //     let idx = b_children.pop().unwrap();
+            //
+            //     teleport(self, &mut actions, idx, last_processed_after, last_processed_idx);
             } else {
                 println!("spans remaining {}", nonempty_spans_remaining);
                 self.dbg_print();
@@ -582,6 +601,7 @@ impl ConflictSubgraph<M1EntryState> {
 
         M1Plan(actions)
     }
+
 
     pub(super) fn make_m1_plan(&mut self) -> M1Plan {
         let mut actions = vec![];
