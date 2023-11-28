@@ -3,6 +3,7 @@
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use bumpalo::collections::CollectIn;
 use smallvec::{SmallVec, smallvec};
 use rle::{AppendRle, HasLength, MergableSpan};
 use crate::{CausalGraph, DTRange, Frontier, LV};
@@ -79,7 +80,7 @@ pub(crate) struct M1EntryState {
     // children: SmallVec<[usize; 2]>,
 
     cost_here: usize,
-    cost_to_end: usize,
+    subtree_cost: usize,
 }
 
 
@@ -332,37 +333,76 @@ impl ConflictSubgraph<M1EntryState> {
 
         // Ok, now go through and scan each child.
 
-        for idx in 0..self.entries.len() {
+        // The philosophy here is this:
+        // - When navigating the graph, we want to visit small subtrees before large subtrees. This
+        //   makes navigation faster.
+        // - To do that, we need to calculate the cost of each subtree in the graph. Then we'll sort
+        //   the children indexes in that order, which will mean we iterate through the graph from
+        //   smallest subtree to largest.
+
+        // We want to go from lowest to highest spans, but the list is reversed
+        // (highest to lowest), so we don't need to double-reverse it.
+        // Each item in the queue is (index, uncounted).
+        // Queue is defined here so we can reuse the queue's memory allocation each iteration.
+        let mut queue: BinaryHeap<(usize, bool)> = BinaryHeap::new();
+
+        for idx in 0..self.entries.len() { // From the latest in the graph to the earliest.
             // println!("\n\nIDX {idx}");
             // Pushing the parents instead of just this item. Eh.
-            // We want to go from lowest to highest spans, but the list is reversed
-            // (highest to lowest), so we don't need to double-reverse it.
-            // let mut queue: BinaryHeap<usize> = children[idx].iter().copied().collect();
-            let mut queue: BinaryHeap<usize> = BinaryHeap::new();
-            queue.push(idx);
+            let mut aggregate_cost = self.entries[idx].state.cost_here;
 
-            let mut aggregate_cost = 0;
+            let ch = &children[idx];
+            // dbg!(ch);
+            if ch.len() == 1 {
+                self.entries[idx].state.subtree_cost = self.entries[ch[0]].state.subtree_cost;
+                continue;
+            }
 
-            while let Some(i) = queue.pop() {
-                // dbg!(i);
+            let Some(&max_idx) = ch.iter().max_by_key(|i| self.entries[**i].state.cost_here) else {
+                continue; // The child list is empty. We have nothing to do here!
+            };
 
-                while let Some(peek_i) = queue.peek() {
-                    // This is needed to avoid items seeming to be concurrent with themselves.
-                    // println!("peek {}", peek_i);
+            // let mut queue: BinaryHeap<(usize, bool)> = ch.iter()
+            //     .map(|&i| (i, i != max_idx))
+            //     .collect();
+            debug_assert!(queue.is_empty());
+            queue.extend(ch.iter()
+                .map(|&i| (i, i != max_idx)));
+
+            let mut uncounted_remaining = ch.len() - 1;
+
+            while let Some((i, mut uncounted)) = queue.pop() {
+                // dbg!((i, uncounted, uncounted_remaining));
+                if uncounted { uncounted_remaining -= 1; }
+
+                while let Some((peek_i, peek_uncounted)) = queue.peek() {
                     if *peek_i == i {
+                        if *peek_uncounted { uncounted_remaining -= 1; }
+                        else { uncounted = false; }
                         queue.pop();
                     } else { break; }
                 }
-                // dbg!(&queue);
 
-                let e2 = &self.entries[i];
-                aggregate_cost += e2.state.cost_here;
+                if uncounted {
+                    // Count it!
+                    let e2 = &self.entries[i];
+                    aggregate_cost += e2.state.cost_here;
+                }
+
+                // If we've counted everything, stop here.
+                if uncounted_remaining == 0 { break; }
+
+                let ch = &children[i];
+                if uncounted {
+                    uncounted_remaining += ch.len();
+                }
                 // println!("cost += idx {i} : cost: {}", e2.state.cost_here);
-                queue.extend(children[i].iter().copied());
+                queue.extend(ch.iter().map(|&i| (i, uncounted)));
             }
 
             // println!("Aggregate {aggregate_cost}");
-            self.entries[idx].state.cost_to_end = aggregate_cost;
+            self.entries[idx].state.subtree_cost = aggregate_cost;
+            queue.clear();
         }
     }
 
@@ -383,7 +423,7 @@ impl ConflictSubgraph<M1EntryState> {
         self.calc_costs(&children, metrics);
         for c in children.iter_mut() {
             // Lowest cost to highest cost.
-            c.sort_unstable_by_key(|&i| self.entries[i].state.cost_to_end);
+            c.sort_unstable_by_key(|&i| self.entries[i].state.subtree_cost);
             // c.sort_unstable_by(|a, b| {
             //     // OnlyB comes before everything else.
             //     let aa = &self.entries[*a];
@@ -929,6 +969,7 @@ mod test {
                 .enumerate()
             {
                 println!("{_i}, {_k}, {_j}");
+                if _j != 0 { continue; }
 
                 let (a, b) = (fs[0].as_ref(), fs[1].as_ref());
 
@@ -970,3 +1011,12 @@ fn lite_bench() {
         oplog.checkout_tip_2(plan.clone(), common.as_ref());
     }
 }
+
+// #[test]
+// fn sfad() {
+//     let mut h = BinaryHeap::new();
+//     h.push((1, true));
+//     h.push((1, false));
+//     h.push((2, false));
+//     println!("{:?}", h.into_iter().collect::<Vec<_>>());
+// }
