@@ -75,8 +75,8 @@ impl CausalGraph {
         out
     }
 
-    pub(crate) fn generate_dot_svg(&self, out_filename: &Path) {
-        render_dot_string(self.to_dot_graph(), out_filename);
+    pub(crate) fn generate_dot_svg<P: AsRef<Path>>(&self, out_filename: P) {
+        render_dot_string(self.to_dot_graph(), out_filename.as_ref());
     }
 }
 
