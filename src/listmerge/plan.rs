@@ -7,8 +7,8 @@ use bumpalo::collections::CollectIn;
 use smallvec::{SmallVec, smallvec};
 use rle::{AppendRle, HasLength, HasRleKey, MergableSpan};
 use crate::{CausalGraph, DTRange, Frontier, LV};
+use crate::causalgraph::graph::conflict_subgraph::ConflictSubgraph;
 use crate::causalgraph::graph::Graph;
-use crate::listmerge2::{ConflictGraphEntry, ConflictSubgraph};
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::list::ListOpLog;
 use crate::list::op_metrics::ListOpMetrics;
@@ -276,7 +276,7 @@ impl ConflictSubgraph<M1EntryState> {
         }
     }
 
-    pub(super) fn make_m1_plan(&mut self, metrics: Option<&Metrics>) -> M1Plan {
+    pub(crate) fn make_m1_plan(&mut self, metrics: Option<&Metrics>) -> M1Plan {
         let mut actions = vec![];
         if self.entries.is_empty() {
             return M1Plan(actions);
@@ -648,7 +648,6 @@ mod test {
     use crate::causalgraph::graph::random_graphs::with_random_cgs;
     use crate::causalgraph::graph::tools::DiffFlag;
     use crate::Frontier;
-    use crate::listmerge2::{ConflictGraphEntry, ConflictSubgraph};
 
     #[test]
     fn test_merge1_simple_graph() {

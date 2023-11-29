@@ -31,6 +31,7 @@ mod dot;
 pub mod to_old;
 #[cfg(any(test, feature = "gen_test_data"))]
 pub(crate) mod simple_oplog;
+pub(crate) mod plan;
 
 type DocRangeIndex = MarkerMetrics;
 type CRDTList2 = Pin<Box<ContentTreeRaw<FugueSpan, DocRangeIndex>>>;

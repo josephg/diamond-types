@@ -1,13 +1,42 @@
+/// The conflict graph is a convenient data structure for parts of the code that need to do complex
+/// operations with the causal graph.
+///
+/// It combines functionality from:
+///
+/// - find_conflicts
+/// - SimpleGraph
+/// - (eventually) subgraph
+///
+/// and it allows callers to add extra fields on each returned item.
+
 use std::cmp::{Ordering, Reverse};
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
 use std::fmt::Debug;
-// use rand::prelude::SliceRandom;
 use rle::{AppendRle, ReverseSpan};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
-use crate::listmerge2::{ConflictGraphEntry, ConflictSubgraph};
 use crate::{CausalGraph, DTRange, Frontier, LV};
+
+
+#[derive(Debug, Clone)]
+pub(crate) struct ConflictGraphEntry<S: Default = ()> {
+    pub parents: SmallVec<[usize; 2]>, // 2+ items. These are indexes to sibling items, not LVs.
+    pub span: DTRange,
+    pub num_children: usize,
+    pub state: S,
+    pub flag: DiffFlag,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ConflictSubgraph<S: Default = ()> {
+    pub entries: Vec<ConflictGraphEntry<S>>,
+    pub base_version: Frontier,
+
+    // Indexes of A, B in the resulting entries.
+    pub a_root: usize,
+    pub b_root: usize,
+}
 
 
 // Sorted highest to lowest (so we compare the highest first).
@@ -332,7 +361,7 @@ impl Graph {
 }
 
 impl<S: Default + Debug> ConflictSubgraph<S> {
-    pub(super) fn dbg_check_conflicting(&self, graph: &Graph, a: &[LV], b: &[LV]) {
+    pub(crate) fn dbg_check_conflicting(&self, graph: &Graph, a: &[LV], b: &[LV]) {
         let mut actual_only_a: SmallVec<[DTRange; 2]> = smallvec![];
         let mut actual_only_b: SmallVec<[DTRange; 2]> = smallvec![];
         let mut actual_shared: SmallVec<[DTRange; 2]> = smallvec![];

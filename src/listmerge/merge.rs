@@ -37,7 +37,7 @@ use crate::causalgraph::graph::Graph;
 use crate::textinfo::TextInfo;
 use crate::frontier::local_frontier_eq;
 use crate::list::ListOpLog;
-use crate::listmerge2::merge1plan::{M1Plan, M1PlanAction};
+use crate::listmerge::plan::{M1Plan, M1PlanAction};
 #[cfg(feature = "ops_to_old")]
 use crate::listmerge::to_old::OldCRDTOpInternal;
 use crate::unicount::consume_chars;

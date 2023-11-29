@@ -387,7 +387,7 @@ mod test {
     use crate::causalgraph::graph::GraphEntrySimple;
     use crate::causalgraph::graph::tools::ConflictZone;
     use crate::list::ListOpLog;
-    use crate::listmerge2::merge1plan::M1PlanAction;
+    use crate::listmerge::plan::M1PlanAction;
     use super::*;
 
     #[test]

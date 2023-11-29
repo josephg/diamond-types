@@ -9,6 +9,7 @@ mod simple;
 
 #[cfg(test)]
 pub mod random_graphs;
+pub(crate) mod conflict_subgraph;
 
 use rle::{HasLength, HasRleKey, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 use crate::{Frontier, LV};

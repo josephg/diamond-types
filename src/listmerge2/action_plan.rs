@@ -6,7 +6,8 @@ use smallvec::{SmallVec, smallvec};
 use rle::{HasLength, MergableSpan};
 use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::graph::tools::DiffFlag;
-use crate::listmerge2::{ConflictSubgraph, Index};
+
+type Index = usize;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct ApplyAction {
@@ -26,6 +27,7 @@ pub(crate) enum MergePlanAction {
     MaxIndex(Index, SmallVec<[Index; 2]>),
 }
 use MergePlanAction::*;
+use crate::causalgraph::graph::conflict_subgraph::ConflictSubgraph;
 use crate::causalgraph::graph::Graph;
 use crate::frontier::is_sorted_slice;
 
@@ -737,11 +739,11 @@ mod test {
     use std::fs::File;
     use std::io::Read;
     use smallvec::smallvec;
+    use crate::causalgraph::graph::conflict_subgraph::{ConflictGraphEntry, ConflictSubgraph};
     use crate::causalgraph::graph::GraphEntrySimple;
     use crate::causalgraph::graph::random_graphs::with_random_cgs;
     use crate::causalgraph::graph::tools::test::fancy_graph;
     use crate::list::ListOpLog;
-    use crate::listmerge2::ConflictGraphEntry;
     use super::*;
 
     fn check(graph: &Graph, a: &[LV], b: &[LV]) {

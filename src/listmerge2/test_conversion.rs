@@ -4,7 +4,6 @@ use rle::{MergableSpan, RleRun};
 use crate::{DTRange, Frontier, LV};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
-use crate::listmerge2::{ConflictGraphEntry, ConflictSubgraph, Index};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 
 #[derive(Debug, Clone)]
@@ -27,6 +26,7 @@ enum TestGraphEntry1 {
 }
 
 use TestGraphEntry1::*;
+use crate::causalgraph::graph::conflict_subgraph::{ConflictGraphEntry, ConflictSubgraph};
 
 impl Graph {
     fn to_test_entry_list_1(&self) -> Vec<TestGraphEntry1> {
@@ -429,10 +429,10 @@ fn ge1_to_ge3(input: &Vec<TestGraphEntry1>) -> Vec<TestGraphEntry3> {
 mod test {
     use std::fs::File;
     use std::io::Read;
+    use crate::causalgraph::graph::conflict_subgraph::ConflictGraphEntry;
     use crate::causalgraph::graph::tools::test::fancy_graph;
     use crate::list::ListOpLog;
     use crate::listmerge2::action_plan::EntryState;
-    use crate::listmerge2::ConflictGraphEntry;
     use crate::listmerge2::test_conversion::{ge1_to_ge2, ge1_to_ge3, TestGraphEntry1, TestGraphEntry2, TestGraphEntry3};
 
     #[test]
