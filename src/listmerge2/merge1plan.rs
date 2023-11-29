@@ -13,6 +13,7 @@ use crate::causalgraph::graph::tools::DiffFlag;
 use crate::list::ListOpLog;
 use crate::list::op_metrics::ListOpMetrics;
 use crate::rle::{KVPair, RleVec};
+use rand::prelude::SliceRandom;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum M1PlanAction {
@@ -54,6 +55,7 @@ pub struct M1Plan(pub Vec<M1PlanAction>);
 type Metrics = RleVec<KVPair<ListOpMetrics>>;
 
 fn estimate_cost(op_range: DTRange, metrics: &Metrics) -> usize {
+    // op_range.len()
     if op_range.is_empty() { return 0; }
     else {
         let start_idx = metrics.find_index(op_range.start).unwrap();
@@ -285,9 +287,11 @@ impl ConflictSubgraph<M1EntryState> {
 
         self.prepare();
         self.calc_costs(&children, metrics);
+        // let rng = &mut rand::thread_rng();
         for c in children.iter_mut() {
             // Lowest cost to highest cost.
             c.sort_unstable_by_key(|&i| self.entries[i].state.subtree_cost);
+            // c.shuffle(rng);
         }
 
         fn teleport(g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, target_idx: usize, last_processed_after: bool, last_processed_idx: usize) {
@@ -906,24 +910,15 @@ mod test {
 
 }
 
-#[ignore]
-#[test]
-fn lite_bench() {
-    let bytes = std::fs::read(format!("benchmark_data/git-makefile.dt")).unwrap();
-    let oplog = ListOpLog::load_from(&bytes).unwrap();
-    let (plan, common) = oplog.make_plan_2();
-
-    for _i in 0..100 {
-        // oplog.checkout_tip();
-        oplog.checkout_tip_2(plan.clone(), common.as_ref());
-    }
-}
-
+// #[ignore]
 // #[test]
-// fn sfad() {
-//     let mut h = BinaryHeap::new();
-//     h.push((1, true));
-//     h.push((1, false));
-//     h.push((2, false));
-//     println!("{:?}", h.into_iter().collect::<Vec<_>>());
+// fn lite_bench() {
+//     let bytes = std::fs::read(format!("benchmark_data/git-makefile.dt")).unwrap();
+//     let oplog = ListOpLog::load_from(&bytes).unwrap();
+//     let (plan, common) = oplog.make_plan_2();
+//
+//     for _i in 0..100 {
+//         // oplog.checkout_tip();
+//         oplog.checkout_tip_2(plan.clone(), common.as_ref());
+//     }
 // }
