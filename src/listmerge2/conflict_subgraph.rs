@@ -440,6 +440,15 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
         assert_ne!(self.a_root, usize::MAX);
         assert_ne!(self.b_root, usize::MAX);
 
+
+        let mut next_v = 0;
+        for e in self.entries.iter().rev() {
+            if !e.span.is_empty() {
+                assert!(e.span.start >= next_v);
+                next_v = e.span.end;
+            }
+        }
+
         for (idx, e) in self.entries.iter().enumerate() {
             // println!("{idx}: {:?}", e);
             // println!("contained by {:#?}", self.ops.iter()

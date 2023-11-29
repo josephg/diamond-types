@@ -5,15 +5,14 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use bumpalo::collections::CollectIn;
 use smallvec::{SmallVec, smallvec};
-use rle::{AppendRle, HasLength, MergableSpan};
+use rle::{AppendRle, HasLength, HasRleKey, MergableSpan};
 use crate::{CausalGraph, DTRange, Frontier, LV};
 use crate::causalgraph::graph::Graph;
 use crate::listmerge2::{ConflictGraphEntry, ConflictSubgraph};
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::list::ListOpLog;
 use crate::list::op_metrics::ListOpMetrics;
-use crate::rle::{KVPair, RleVec};
-use rand::prelude::SliceRandom;
+use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum M1PlanAction {
@@ -53,17 +52,6 @@ impl MergableSpan for M1PlanAction {
 pub struct M1Plan(pub Vec<M1PlanAction>);
 
 type Metrics = RleVec<KVPair<ListOpMetrics>>;
-
-fn estimate_cost(op_range: DTRange, metrics: &Metrics) -> usize {
-    // op_range.len()
-    if op_range.is_empty() { return 0; }
-    else {
-        let start_idx = metrics.find_index(op_range.start).unwrap();
-        let end_idx = metrics.find_index(op_range.last()).unwrap();
-
-        end_idx - start_idx + 1
-    }
-}
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct M1EntryState {
@@ -173,12 +161,43 @@ impl ConflictSubgraph<M1EntryState> {
     }
 
     fn calc_costs(&mut self, children: &[SmallVec<[usize; 2]>], metrics: Option<&Metrics>) {
-        // dbg!(children);
-        for (i, e) in self.entries.iter_mut().enumerate() {
-            e.state.cost_here = metrics.map_or_else(|| e.span.len(), |m| estimate_cost(e.span, m));
+        // There's a tradeoff here. We can figure out the cost for each span using the operation
+        // log, which looks up how many actual operations the span crosses. Doing so carries a
+        // small but measurable improvement in merging performance because we can optimize the
+        // children better. But it takes a little longer. Eh.
+        if let Some(metrics) = metrics {
+            let mut idx = self.base_version.0.iter().min().and_then(|&lv| {
+                metrics.find_index(lv).ok()
+            }).unwrap_or(0);
 
-            if i == self.b_root {
-                e.state.cost_here += usize::MAX / 2;
+            for (i, e) in self.entries.iter_mut().enumerate().rev() {
+                if e.span.is_empty() { continue; }
+                while idx < metrics.0.len() && metrics[idx].end() <= e.span.start {
+                    idx += 1;
+                }
+                // idx = metrics.find_index(e.span.start).unwrap();
+
+                let start_idx = idx;
+                let last = e.span.last();
+                // while idx < metrics.0.len() && metrics[idx].end() <= last {
+                //     idx += 1;
+                // }
+                idx = metrics.find_index(last).unwrap();
+
+                e.state.cost_here = idx - start_idx + 1;
+                // assert_eq!(e.state.cost_here, estimate_cost(e.span, metrics));
+
+                if i == self.b_root {
+                    e.state.cost_here += usize::MAX / 2;
+                }
+            }
+        } else {
+            for (i, e) in self.entries.iter_mut().enumerate().rev() {
+                // Just use the span estimate.
+                e.state.cost_here = e.span.len();
+                if i == self.b_root {
+                    e.state.cost_here += usize::MAX / 2;
+                }
             }
         }
 
