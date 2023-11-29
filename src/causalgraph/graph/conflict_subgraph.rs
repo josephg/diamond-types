@@ -23,7 +23,7 @@ use crate::{CausalGraph, DTRange, Frontier, LV};
 pub(crate) struct ConflictGraphEntry<S: Default = ()> {
     pub parents: SmallVec<[usize; 2]>, // 2+ items. These are indexes to sibling items, not LVs.
     pub span: DTRange,
-    pub num_children: usize,
+    // pub num_children: usize,
     pub state: S,
     pub flag: DiffFlag,
 }
@@ -144,12 +144,12 @@ impl Graph {
             let new_index = result.len();
             // println!("push_result {new_index} <- {:?}", children);
 
-            let mut num_children = 0;
+            // let mut num_children = 0;
             for &c in children.iter() {
                 match c {
                     Child::Idx(idx) => {
                         result[idx].parents.push(new_index);
-                        num_children += 1;
+                        // num_children += 1;
                     },
                     Child::ARoot => {
                         // println!("ARoot {new_index}");
@@ -169,7 +169,7 @@ impl Graph {
                 // parents: if process_here { smallvec![new_index + 1] } else { smallvec![] },
                 parents: smallvec![],
                 span,
-                num_children,
+                // num_children,
                 state: Default::default(),
                 flag,
             });
@@ -493,8 +493,8 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
                 assert_ne!(actual_num_children, 0, "Graph must not have any nodes with no children other than roots");
             }
 
-            assert_eq!(actual_num_children, e.num_children,
-                       "num_children is incorrect at index {idx}. Actual {actual_num_children} != claimed {}", e.num_children);
+            // assert_eq!(actual_num_children, e.num_children,
+            //            "num_children is incorrect at index {idx}. Actual {actual_num_children} != claimed {}", e.num_children);
 
             if e.parents.is_empty() {
                 // if idx != self.entries.len() - 1 {

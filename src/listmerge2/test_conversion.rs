@@ -155,7 +155,7 @@ impl Graph {
             result.push(ConflictGraphEntry {
                 parents: smallvec![],
                 span: Default::default(),
-                num_children: self.root_child_indexes.len(),
+                // num_children: self.root_child_indexes.len(),
                 state: Default::default(),
                 flag: DiffFlag::OnlyB,
             });
@@ -207,7 +207,7 @@ impl Graph {
                 result.push(ConflictGraphEntry {
                     parents,
                     span: (start..end).into(),
-                    num_children,
+                    // num_children,
                     state: Default::default(),
                     flag: DiffFlag::OnlyB,
                 });
@@ -269,7 +269,7 @@ impl Graph {
                 result.push(ConflictGraphEntry {
                     parents: childless_entries.iter().copied().collect(),
                     span: Default::default(),
-                    num_children: 0,
+                    // num_children: 0,
                     state: Default::default(),
                     flag: DiffFlag::OnlyB,
                 });

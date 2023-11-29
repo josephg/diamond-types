@@ -43,6 +43,7 @@ pub(super) struct EntryState {
     index: Option<Index>, // Primary index for merges / backup index for forks.
     next: usize, // Starts at 0. 0..parents.len() is where we scan parents, then we scan children.
     // emitted_this_span: bool,
+    num_children: usize,
     children_needing_index: usize, // For forks
 
     visited: bool,
@@ -287,6 +288,14 @@ impl ConflictSubgraph<EntryState> {
             return MergePlan { actions: vec![], indexes_used: 0 };
         }
 
+        // This is so horrible.
+        for i in 0..self.entries.len() {
+            for j in 0..self.entries[i].parents.len() {
+                let p = self.entries[i].parents[j];
+                self.entries[p].state.num_children += 1;
+            }
+        }
+
         self.plan_first_pass(&bump);
         self.calc_children_needing_index();
 
@@ -469,7 +478,7 @@ impl ConflictSubgraph<EntryState> {
                     }
 
                     // This logic feels wrong, but I think its right.
-                    if e.num_children >= 2 { concurrency += e.num_children - 1; }
+                    if e.state.num_children >= 2 { concurrency += e.state.num_children - 1; }
 
                     if index_wanted {
                         index
@@ -846,56 +855,56 @@ mod test {
                 ConflictGraphEntry { // 0 Y
                     parents: smallvec![1, 2],
                     span: Default::default(),
-                    num_children: 0,
+                    // num_children: 0,
                     state: Default::default(),
                     flag: DiffFlag::OnlyB,
                 },
                 ConflictGraphEntry { // 1 ACY
                     parents: smallvec![6],
                     span: 4.into(),
-                    num_children: 1,
+                    // num_children: 1,
                     state: Default::default(),
                     flag: DiffFlag::OnlyB,
                 },
                 ConflictGraphEntry { // 2 D
                     parents: smallvec![3],
                     span: 3.into(),
-                    num_children: 1,
+                    // num_children: 1,
                     state: Default::default(),
                     flag: DiffFlag::OnlyB,
                 },
                 ConflictGraphEntry { // 3 DY
                     parents: smallvec![4, 5],
                     span: Default::default(),
-                    num_children: 1,
+                    // num_children: 1,
                     state: Default::default(),
                     flag: DiffFlag::OnlyB,
                 },
                 ConflictGraphEntry { // 4 AD
                     parents: smallvec![6],
                     span: 2.into(),
-                    num_children: 1,
+                    // num_children: 1,
                     state: Default::default(),
                     flag: DiffFlag::OnlyB,
                 },
                 ConflictGraphEntry { // 5 XBD
                     parents: smallvec![7],
                     span: 1.into(),
-                    num_children: 1,
+                    // num_children: 1,
                     state: Default::default(),
                     flag: DiffFlag::OnlyB,
                 },
                 ConflictGraphEntry { // 6 XA -> A
                     parents: smallvec![7],
                     span: 0.into(),
-                    num_children: 2,
+                    // num_children: 2,
                     state: Default::default(),
                     flag: DiffFlag::OnlyB,
                 },
                 ConflictGraphEntry { // 7 X
                     parents: smallvec![],
                     span: Default::default(),
-                    num_children: 2,
+                    // num_children: 2,
                     state: Default::default(),
                     flag: DiffFlag::OnlyB,
                 },
