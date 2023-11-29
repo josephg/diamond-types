@@ -453,8 +453,8 @@ impl ConflictSubgraph<M1EntryState> {
                 // last_processed_idx = current_idx;
                 // last_processed_after = false;
             } else {
-                println!("spans remaining {}", nonempty_spans_remaining);
-                self.dbg_print();
+                // println!("spans remaining {}", nonempty_spans_remaining);
+                // self.dbg_print();
                 panic!("Should have stopped");
                 // break;
             }
