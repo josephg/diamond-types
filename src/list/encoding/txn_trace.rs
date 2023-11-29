@@ -22,6 +22,9 @@
 /// here, and do a much more efficient traversal. But I want to replace the whole algorithm that
 /// does merging at the moment at some point anyway, so I'd rather do that all in one go and rewrite
 /// this code when I do.
+///
+/// And what do you know! It happened. So this is now only used for optimizing the oplog order when
+/// encoding. TODO: Replace this file entirely with something simpler based off ConflictGraph.
 
 use std::mem::take;
 use smallvec::{SmallVec, smallvec};
@@ -90,8 +93,8 @@ pub(crate) struct SpanningTreeWalker<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TxnWalkItem {
-    pub(crate) retreat: SmallVec<[DTRange; 4]>,
-    pub(crate) advance_rev: SmallVec<[DTRange; 4]>,
+    // pub(crate) retreat: SmallVec<[DTRange; 4]>,
+    // pub(crate) advance_rev: SmallVec<[DTRange; 4]>,
     // txn: &'a TxnSpan,
     pub(crate) parents: Frontier,
     pub(crate) consume: DTRange,
@@ -210,43 +213,6 @@ impl<'a> SpanningTreeWalker<'a> {
             }
         }
     }
-
-    pub(crate) fn dbg_print(self) {
-        let mut i = 0;
-        for mut walk in self {
-            if !walk.retreat.is_empty() {
-                println!("{i}: --- deactivate {:?}", walk.retreat);
-                i += 1;
-            }
-            if !walk.advance_rev.is_empty() {
-                walk.advance_rev.reverse();
-                println!("{i}: +++ reactivate {:?}", walk.advance_rev);
-                i += 1;
-            }
-            if !walk.consume.is_empty() {
-                println!("{i}: Add {:?}", walk.consume);
-                i += 1;
-            }
-        }
-    }
-
-    pub(crate) fn dbg_print2(self) {
-        let mut i = 0;
-        for walk in self {
-            for span in walk.retreat.iter() {
-                println!("{i}: --- deactivate {:?}", span);
-                i += 1;
-            }
-            for span in walk.advance_rev.iter().rev() {
-                println!("{i}: +++ reactivate {:?}", span);
-                i += 1;
-            }
-            if !walk.consume.is_empty() {
-                println!("{i}: Add {:?}", walk.consume);
-                i += 1;
-            }
-        }
-    }
 }
 
 impl<'a> Iterator for SpanningTreeWalker<'a> {
@@ -341,8 +307,8 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
         self.check();
 
         Some(TxnWalkItem {
-            retreat: only_branch,
-            advance_rev: only_txn,
+            // retreat: only_branch,
+            // advance_rev: only_txn,
             // parents: parents.iter().copied().collect(), // TODO: clean this
             parents,
             consume: input_span,
@@ -408,14 +374,14 @@ mod test {
 
         assert_eq!(walk, [
             TxnWalkItem {
-                retreat: smallvec![],
-                advance_rev: smallvec![],
+                // retreat: smallvec![],
+                // advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (0..10).into(),
             },
             TxnWalkItem {
-                retreat: smallvec![(0..10).into()],
-                advance_rev: smallvec![],
+                // retreat: smallvec![(0..10).into()],
+                // advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (10..30).into(),
             },
@@ -434,20 +400,20 @@ mod test {
 
         assert_eq!(walk, [
             TxnWalkItem {
-                retreat: smallvec![],
-                advance_rev: smallvec![],
+                // retreat: smallvec![],
+                // advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (0..10).into(),
             },
             TxnWalkItem {
-                retreat: smallvec![(0..10).into()],
-                advance_rev: smallvec![],
+                // retreat: smallvec![(0..10).into()],
+                // advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (10..30).into(),
             },
             TxnWalkItem {
-                retreat: smallvec![],
-                advance_rev: smallvec![(0..10).into()],
+                // retreat: smallvec![],
+                // advance_rev: smallvec![(0..10).into()],
                 parents: Frontier::from_sorted(&[9, 29]),
                 consume: (30..50).into(),
             },
@@ -477,34 +443,34 @@ mod test {
         let iter = SpanningTreeWalker::new_all(&graph);
         assert!(iter.eq(IntoIterator::into_iter([
             TxnWalkItem {
-                retreat: smallvec![],
-                advance_rev: smallvec![],
+                // retreat: smallvec![],
+                // advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (0..1).into(),
             },
             TxnWalkItem {
-                retreat: smallvec![],
-                advance_rev: smallvec![],
+                // retreat: smallvec![],
+                // advance_rev: smallvec![],
                 parents: Frontier::from_sorted(&[0]),
                 consume: (2..3).into(),
             },
 
             TxnWalkItem {
-                retreat: smallvec![(2..3).into(), (0..1).into()],
-                advance_rev: smallvec![],
+                // retreat: smallvec![(2..3).into(), (0..1).into()],
+                // advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (1..2).into(),
             },
             TxnWalkItem {
-                retreat: smallvec![],
-                advance_rev: smallvec![],
+                // retreat: smallvec![],
+                // advance_rev: smallvec![],
                 parents: Frontier::from_sorted(&[1]),
                 consume: (3..4).into(),
             },
 
             TxnWalkItem {
-                retreat: smallvec![],
-                advance_rev: smallvec![(2..3).into(), (0..1).into()],
+                // retreat: smallvec![],
+                // advance_rev: smallvec![(2..3).into(), (0..1).into()],
                 parents: Frontier::from_sorted(&[2, 3]),
                 consume: (4..5).into(),
             },
@@ -528,8 +494,8 @@ mod test {
 
         assert!(iter.eq(IntoIterator::into_iter([
             TxnWalkItem {
-                retreat: smallvec![],
-                advance_rev: smallvec![],
+                // retreat: smallvec![],
+                // advance_rev: smallvec![],
                 parents: Frontier::from_sorted(&[5]),
                 consume: (6..7).into(),
             }
@@ -537,19 +503,19 @@ mod test {
     }
 
 
-    #[test]
-    #[ignore]
-    fn print_simple_plan() {
-        let g = Graph::from_simple_items(&[
-            GraphEntrySimple { span: (0..1).into(), parents: Frontier::root() },
-            GraphEntrySimple { span: (1..2).into(), parents: Frontier::new_1(0) },
-            GraphEntrySimple { span: (2..3).into(), parents: Frontier::new_1(0) },
-            GraphEntrySimple { span: (3..4).into(), parents: Frontier::from_sorted(&[1, 2]) },
-        ]);
-
-        let iter = SpanningTreeWalker::new_all(&g);
-        iter.dbg_print();
-    }
+    // #[test]
+    // #[ignore]
+    // fn print_simple_plan() {
+    //     let g = Graph::from_simple_items(&[
+    //         GraphEntrySimple { span: (0..1).into(), parents: Frontier::root() },
+    //         GraphEntrySimple { span: (1..2).into(), parents: Frontier::new_1(0) },
+    //         GraphEntrySimple { span: (2..3).into(), parents: Frontier::new_1(0) },
+    //         GraphEntrySimple { span: (3..4).into(), parents: Frontier::from_sorted(&[1, 2]) },
+    //     ]);
+    //
+    //     // let iter = SpanningTreeWalker::new_all(&g);
+    //     // iter.dbg_print();
+    // }
 
     #[test]
     #[ignore]
@@ -562,20 +528,21 @@ mod test {
         let o = ListOpLog::load_from(&bytes).unwrap();
         let cg = &o.cg;
 
-        let iter = SpanningTreeWalker::new_all(&cg.graph);
-        iter.dbg_print2();
-
-        let iter = SpanningTreeWalker::new_all(&cg.graph);
-        let mut cost_estimate = 0;
-        for i in iter {
-            // cost_estimate += i.consume.len();
-            // cost_estimate += i.retreat.iter().map(|range| range.len()).sum::<usize>();
-            // cost_estimate += i.advance_rev.iter().map(|range| range.len()).sum::<usize>();
-            // cost_estimate += o.estimate_cost(i.consume);
-            cost_estimate += i.retreat.iter().map(|range| o.estimate_cost(*range)).sum::<usize>();
-            cost_estimate += i.advance_rev.iter().map(|range| o.estimate_cost(*range)).sum::<usize>();
-        }
-        println!("Cost estimate {cost_estimate}");
+        // let iter = SpanningTreeWalker::new_all(&cg.graph);
+        // iter.dbg_print2();
+        //
+        // let iter = SpanningTreeWalker::new_all(&cg.graph);
+        // let mut cost_estimate = 0;
+        // for i in iter {
+        //     // cost_estimate += i.consume.len();
+        //     // cost_estimate += i.retreat.iter().map(|range| range.len()).sum::<usize>();
+        //     // cost_estimate += i.advance_rev.iter().map(|range| range.len()).sum::<usize>();
+        //     // cost_estimate += o.estimate_cost(i.consume);
+        //
+        //     // cost_estimate += i.retreat.iter().map(|range| o.estimate_cost(*range)).sum::<usize>();
+        //     // cost_estimate += i.advance_rev.iter().map(|range| o.estimate_cost(*range)).sum::<usize>();
+        // }
+        // println!("Cost estimate {cost_estimate}");
         // node_nodecc Cost estimate 1103811 / 63696
         // git-makefile Cost estimate 1128743 / 50680
 

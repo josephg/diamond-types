@@ -67,6 +67,6 @@ The merging algorithm then essentially does the following steps:
 
 The tracker is a b-tree of [`YjsSpan`](yjsspan.rs) items. Its implemented using the b-tree implementation in [`content-tree`](../../../../content-tree), with a custom index found in [`metrics.rs`](metrics.rs).
 
-The code in [`txn_trace.rs`](txn_trace.rs) implements an iterator over all changes in the document. Iteration order is somewhat complicated in order to avoid a few pathological cases.
+The code in [`txn_trace.rs`](../list/encoding/txn_trace.rs) implements an iterator over all changes in the document. Iteration order is somewhat complicated in order to avoid a few pathological cases.
 
 The merging algorithm itself is in [`merge.rs`](merge.rs).

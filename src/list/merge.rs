@@ -2,7 +2,7 @@ use rle::HasLength;
 use crate::frontier::FrontierRef;
 use crate::list::{ListBranch, ListOpLog};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::listmerge::merge::{reverse_str, TransformedOpsIter, TransformedOpsIter2};
+use crate::listmerge::merge::{reverse_str, TransformedOpsIter2};
 use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::{DTRange, LV};
 
@@ -51,7 +51,7 @@ impl ListOpLog {
 
     #[cfg(feature = "merge_conflict_checks")]
     pub fn has_conflicts_when_merging(&self) -> bool {
-        let mut iter = TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
+        let mut iter = TransformedOpsIter2::new(&self.cg.graph, &self.cg.agent_assignment,
                                                &self.operation_ctx, &self.operations,
                                                &[], self.cg.version.as_ref());
         for _ in &mut iter {}

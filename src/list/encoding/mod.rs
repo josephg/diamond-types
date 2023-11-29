@@ -13,6 +13,7 @@ pub mod encode_tools;
 mod decode_tools;
 pub mod save_transformed;
 pub(crate) mod leb;
+mod txn_trace;
 
 use rle::MergableSpan;
 use crate::encoding::varint::*;
