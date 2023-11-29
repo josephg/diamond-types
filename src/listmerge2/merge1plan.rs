@@ -354,13 +354,16 @@ impl ConflictSubgraph<M1EntryState> {
             let ch = &children[idx];
             // dbg!(ch);
             if ch.len() == 1 {
-                self.entries[idx].state.subtree_cost = self.entries[ch[0]].state.subtree_cost;
+                self.entries[idx].state.subtree_cost = aggregate_cost + self.entries[ch[0]].state.subtree_cost;
                 continue;
             }
 
             let Some(&max_idx) = ch.iter().max_by_key(|i| self.entries[**i].state.cost_here) else {
+                self.entries[idx].state.subtree_cost = aggregate_cost;
                 continue; // The child list is empty. We have nothing to do here!
             };
+
+            aggregate_cost += self.entries[max_idx].state.subtree_cost;
 
             // let mut queue: BinaryHeap<(usize, bool)> = ch.iter()
             //     .map(|&i| (i, i != max_idx))
@@ -390,12 +393,11 @@ impl ConflictSubgraph<M1EntryState> {
                 }
 
                 // If we've counted everything, stop here.
-                if uncounted_remaining == 0 { break; }
 
                 let ch = &children[i];
                 if uncounted {
                     uncounted_remaining += ch.len();
-                }
+                } else if uncounted_remaining == 0 { break; }
                 // println!("cost += idx {i} : cost: {}", e2.state.cost_here);
                 queue.extend(ch.iter().map(|&i| (i, uncounted)));
             }
