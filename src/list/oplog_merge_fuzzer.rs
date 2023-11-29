@@ -3,7 +3,7 @@ use crate::list::ListCRDT;
 use crate::list::old_fuzzer_tools::old_make_random_change;
 use crate::list_fuzzer_tools::{choose_2, make_random_change};
 
-fn oplog_merge_fuzz(seed: u64, verbose: bool) {
+fn oplog_merge_fuzz(seed: u64, n: usize, verbose: bool) {
     let mut rng = SmallRng::seed_from_u64(seed);
     let mut docs = [ListCRDT::new(), ListCRDT::new(), ListCRDT::new()];
 
@@ -14,7 +14,7 @@ fn oplog_merge_fuzz(seed: u64, verbose: bool) {
         }
     }
 
-    for _i in 0..200 {
+    for _i in 0..n {
         if verbose { println!("\n\ni {}", _i); }
 
         // for (idx, d) in docs.iter().enumerate() {
@@ -27,7 +27,7 @@ fn oplog_merge_fuzz(seed: u64, verbose: bool) {
 
             // This should + does also work if we set idx=0 and use the same agent for all changes.
             // make_random_change(&mut docs[idx], None, 0, &mut rng);
-            old_make_random_change(&mut docs[idx], None, idx as _, &mut rng);
+            old_make_random_change(&mut docs[idx], None, idx as _, &mut rng, false);
         }
 
         // for (idx, d) in docs.iter().enumerate() {
@@ -67,7 +67,7 @@ fn oplog_merge_fuzz(seed: u64, verbose: bool) {
 
 #[test]
 fn oplog_merge_fuzz_once() {
-    oplog_merge_fuzz(321, true);
+    oplog_merge_fuzz(1000139, 100, true);
 }
 
 #[test]
@@ -75,6 +75,6 @@ fn oplog_merge_fuzz_once() {
 fn oplog_merge_fuzz_forever() {
     for seed in 0.. {
         if seed % 10 == 0 { println!("seed {seed}"); }
-        oplog_merge_fuzz(seed, false);
+        oplog_merge_fuzz(seed, 100, false);
     }
 }

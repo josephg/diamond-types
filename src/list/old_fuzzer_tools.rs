@@ -74,8 +74,8 @@ pub(crate) fn old_make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBra
     v
 }
 
-pub(crate) fn old_make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng) {
-    let v = old_make_random_change_raw(&mut doc.oplog, &doc.branch, rope, agent, rng, true);
+pub(crate) fn old_make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: AgentId, rng: &mut SmallRng, use_unicode: bool) {
+    let v = old_make_random_change_raw(&mut doc.oplog, &doc.branch, rope, agent, rng, use_unicode);
     doc.branch.merge(&doc.oplog, &[v]);
     // doc.check(true);
     // doc.check(false);

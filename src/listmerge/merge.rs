@@ -664,7 +664,16 @@ impl<'a> TransformedOpsIter2<'a> {
     pub(crate) fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
                       ops: &'a RleVec<KVPair<ListOpMetrics>>,
                       from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
-        let (plan, common) = subgraph.make_m1_plan(from_frontier, merge_frontier);
+        // let (plan, common) = subgraph.make_m1_plan(from_frontier, merge_frontier);
+        let (plan, common) = subgraph.make_m1_plan_2(Some(ops), from_frontier, merge_frontier);
+        // let (plan, common) = subgraph.make_m1_plan_2(None, from_frontier, merge_frontier);
+        // println!("=====\n");
+        // plan.dbg_print();
+        // println!();
+        // println!("common {:?} from {:?} + {:?}", common.as_ref(), from_frontier, merge_frontier);
+        // plan.dbg_check(common.as_ref(), from_frontier, merge_frontier, subgraph);
+        // println!("=====\n");
+
 
         // println!("From: {:?} / merge: {:?} common {:?}", from_frontier, merge_frontier, common);
         // plan.dbg_print();

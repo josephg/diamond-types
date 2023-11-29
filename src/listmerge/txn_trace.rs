@@ -571,7 +571,7 @@ mod test {
             // cost_estimate += i.consume.len();
             // cost_estimate += i.retreat.iter().map(|range| range.len()).sum::<usize>();
             // cost_estimate += i.advance_rev.iter().map(|range| range.len()).sum::<usize>();
-            cost_estimate += o.estimate_cost(i.consume);
+            // cost_estimate += o.estimate_cost(i.consume);
             cost_estimate += i.retreat.iter().map(|range| o.estimate_cost(*range)).sum::<usize>();
             cost_estimate += i.advance_rev.iter().map(|range| o.estimate_cost(*range)).sum::<usize>();
         }
@@ -594,11 +594,11 @@ mod test {
                 }
                 M1PlanAction::Clear => { clears += 1; }
                 M1PlanAction::Apply(span) => {
-                    cost_estimate += o.estimate_cost(*span);
+                    // cost_estimate += o.estimate_cost(*span);
                     apply_len += o.estimate_cost(*span);
                 }
                 M1PlanAction::FF(span) => {
-                    cost_estimate += o.estimate_cost(*span);
+                    // cost_estimate += o.estimate_cost(*span);
                     ff_len += o.estimate_cost(*span);
                 }
                 M1PlanAction::BeginOutput => {}

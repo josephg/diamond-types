@@ -19,7 +19,7 @@ fn fuzz_encode_decode_once(seed: u64) {
         // println!("\n\nIteration {i}");
         let agent = rng.gen_range(0..3);
         for _k in 0..rng.gen_range(1..=3) {
-            old_make_random_change(&mut doc, None, agent, &mut rng);
+            old_make_random_change(&mut doc, None, agent, &mut rng, true);
         }
 
         let bytes = doc.oplog.encode(EncodeOptions {
@@ -81,7 +81,7 @@ fn fuzz_encode_decode_multi(seed: u64, verbose: bool) {
             let doc = &mut docs[idx];
 
             // make_random_change(doc, None, idx as AgentId, &mut rng);
-            old_make_random_change(doc, None, 0, &mut rng);
+            old_make_random_change(doc, None, 0, &mut rng, true);
         }
 
         let (a_idx, a, b_idx, b) = choose_2(&mut docs, &mut rng);

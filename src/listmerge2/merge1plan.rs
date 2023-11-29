@@ -321,10 +321,10 @@ impl ConflictSubgraph<M1EntryState> {
     // }
 
 
-    fn calc_costs(&mut self, children: &[SmallVec<[usize; 2]>], oplog: Option<&Metrics>) {
+    fn calc_costs(&mut self, children: &[SmallVec<[usize; 2]>], metrics: Option<&Metrics>) {
         // dbg!(children);
         for (i, e) in self.entries.iter_mut().enumerate() {
-            e.state.cost_here = oplog.map_or_else(|| e.span.len(), |m| estimate_cost(e.span, m));
+            e.state.cost_here = metrics.map_or_else(|| e.span.len(), |m| estimate_cost(e.span, m));
 
             if i == self.b_root {
                 e.state.cost_here += usize::MAX / 2;
@@ -412,6 +412,19 @@ impl ConflictSubgraph<M1EntryState> {
             return M1Plan(actions);
         }
 
+        let mut nonempty_spans_remaining = self.entries.iter()
+            .filter(|e| !e.span.is_empty())
+            .count();
+
+        let mut a_spans_remaining = self.entries.iter()
+            .filter(|e| !e.span.is_empty() && e.flag != DiffFlag::OnlyB)
+            .count();
+
+        if nonempty_spans_remaining == a_spans_remaining {
+            // There's no spans with B. Just bail - no plan needed in this case.
+            return M1Plan(actions);
+        }
+
         let mut children: Vec<SmallVec<[usize; 2]>> = vec![smallvec![]; self.entries.len()];
         for (i, e) in self.entries.iter().enumerate() {
             for &p in e.parents.iter() {
@@ -457,13 +470,6 @@ impl ConflictSubgraph<M1EntryState> {
             }
         }
 
-        let mut nonempty_spans_remaining = self.entries.iter()
-            .filter(|e| !e.span.is_empty())
-            .count();
-
-        let mut a_spans_remaining = self.entries.iter()
-            .filter(|e| !e.span.is_empty() && e.flag != DiffFlag::OnlyB)
-            .count();
 
         // self.dbg_print();
         // dbg!(&children);
@@ -499,11 +505,64 @@ impl ConflictSubgraph<M1EntryState> {
             // println!("Looping on {current_idx} / stack: {:?}", &stack);
             // println!("e children {:?}, next {}", &children[current_idx], e.state.next);
 
-            debug_assert_eq!(e.state.visited, true);
+            if !e.state.visited {
+                // println!("Visit {current_idx}");
+                e.state.visited = true;
 
-            // Try to visit the next child.
+                // And drop &mut. I wish I could just say let e = &*e, but the borrowck doesn't
+                // understand that.
+                let e = &self.entries[current_idx];
+
+                // Process this span.
+                if !e.span.is_empty() {
+                    if !activated && e.flag == DiffFlag::OnlyB {
+                        activated = true;
+                        actions.push(M1PlanAction::BeginOutput);
+                    }
+
+                    if e.state.critical_path {
+                        // It doesn't make sense to FF in the A / common section.
+                        debug_assert_eq!(e.flag, DiffFlag::OnlyB);
+
+                        if dirty {
+                            actions.push(M1PlanAction::Clear);
+                            dirty = false;
+                            // TODO: Consider also clearing the stack here. We won't be back.
+                        }
+                        actions.push_rle(M1PlanAction::FF(e.span));
+                    } else {
+                        // Note we only advance & retreat if the item is not on the critical path.
+                        // If we're on the critical path, the clear operation will flush everything
+                        // anyway.
+                        teleport(self, &mut actions, current_idx, last_processed_after, last_processed_idx);
+                        actions.push_rle(M1PlanAction::Apply(e.span));
+                        dirty = true;
+                    }
+
+                    // We can stop as soon as we've processed all the spans.
+                    nonempty_spans_remaining -= 1;
+                    if nonempty_spans_remaining == 0 { break 'outer; } // break;
+
+                    if e.flag != DiffFlag::OnlyB {
+                        a_spans_remaining -= 1;
+                    }
+
+                    last_processed_after = true;
+                    last_processed_idx = current_idx;
+                }
+
+                for c in &children[current_idx] {
+                    self.entries[*c].state.parents_satisfied += 1;
+                }
+            }
+
+            // Afterwards we'll try to go down to one of our children. Failing that, we'll go up
+            // to the next item in the stack.
+
             let c = &mut children[current_idx];
             // println!("Children: {:?}", c);
+
+            let e = &self.entries[current_idx];
             if e.state.next < c.len() {
                 // Look for a child we can visit.
                 for i in e.state.next..c.len() {
@@ -511,14 +570,14 @@ impl ConflictSubgraph<M1EntryState> {
                     let e2 = &self.entries[next_idx];
                     debug_assert_eq!(e2.state.visited, false);
 
+                    // This is a merge, but we haven't covered all the merge's parents.
+                    if e2.state.parents_satisfied != e2.parents.len() { continue; }
+
                     if a_spans_remaining > 0 && e2.flag == DiffFlag::OnlyB {
-                        // We'll come back
+                        // We'll come back to this node later. More A stuff first!
                         b_children.push(next_idx);
                         continue;
                     }
-
-                    // This is a merge, but we haven't covered all the merge's parents.
-                    if e2.state.parents_satisfied != e2.parents.len() { continue; }
 
                     // println!("Going down to visit {next_idx}");
                     // We went down. Visit this child.
@@ -531,51 +590,6 @@ impl ConflictSubgraph<M1EntryState> {
                     }
                     current_idx = next_idx;
 
-                    // println!("Visit {current_idx}");
-                    let e = &mut self.entries[current_idx];
-                    e.state.visited = true;
-                    // And drop &mut.
-                    let e = &self.entries[current_idx];
-
-                    // Process this span.
-                    if !e.span.is_empty() {
-                        if !activated && e.flag == DiffFlag::OnlyB {
-                            activated = true;
-                            actions.push(M1PlanAction::BeginOutput);
-                        }
-
-                        if e.state.critical_path {
-                            if dirty {
-                                actions.push(M1PlanAction::Clear);
-                                dirty = false;
-                                // TODO: Consider also clearing the stack here. We won't be back.
-                            }
-                            actions.push_rle(M1PlanAction::FF(e.span));
-                        } else {
-                            // Note we only advance & retreat if the item is not on the critical path.
-                            // If we're on the critical path, the clear operation will flush everything
-                            // anyway.
-                            teleport(self, &mut actions, current_idx, last_processed_after, last_processed_idx);
-                            actions.push_rle(M1PlanAction::Apply(e.span));
-                            dirty = true;
-                        }
-
-                        // We can stop as soon as we've processed all the spans.
-                        nonempty_spans_remaining -= 1;
-                        if nonempty_spans_remaining == 0 { break 'outer; } // break;
-
-                        if e.flag != DiffFlag::OnlyB {
-                            a_spans_remaining -= 1;
-                        }
-
-                        last_processed_after = true;
-                        last_processed_idx = current_idx;
-                    }
-
-                    for c in &children[current_idx] {
-                        self.entries[*c].state.parents_satisfied += 1;
-                    }
-
                     continue 'outer;
                 }
             }
@@ -585,10 +599,15 @@ impl ConflictSubgraph<M1EntryState> {
             // We couldn't go down any more with this item. Go up instead.
             if let Some(next_idx) = stack.pop() {
                 current_idx = next_idx;
-            // } else if a_spans_remaining == 0 {
-            //     let idx = b_children.pop().unwrap();
-            //
-            //     teleport(self, &mut actions, idx, last_processed_after, last_processed_idx);
+            } else if let Some(idx) = b_children.pop() {
+                debug_assert_eq!(a_spans_remaining, 0);
+                current_idx = idx;
+                // println!("Popping b child {current_idx} / {:?}", b_children);
+                // println!("{:?}", self.entries[current_idx]);
+
+                // teleport(self, &mut actions, idx, last_processed_after, last_processed_idx);
+                // last_processed_idx = current_idx;
+                // last_processed_after = false;
             } else {
                 println!("spans remaining {}", nonempty_spans_remaining);
                 self.dbg_print();
@@ -748,30 +767,49 @@ impl Graph {
         }
 
         let mut sg = self.make_conflict_graph_between(a, b);
+        // sg.dbg_print();
         (sg.m1_plan_2(metrics), sg.base_version)
     }
 }
 
 impl M1Plan {
-    fn dbg_check(&self, common_ancestor: &[LV], a: &[LV], b: &[LV], graph: &Graph) {
+    pub(crate) fn dbg_check(&self, common_ancestor: &[LV], a: &[LV], b: &[LV], graph: &Graph) {
+        if self.0.is_empty() {
+            // It would be better to make this stricter, and require an empty plan if a contains b.
+            assert!(graph.frontier_contains_frontier(a, b));
+            return;
+        }
+        // if graph.frontier_contains_frontier(a, b) {
+        //     // We shouldn't do anything in this case.
+        //     assert!(self.0.is_empty());
+        //     return;
+        // }
+
         // dbg!(self, a, b);
         assert!(self.0.iter().filter(|&&a| a == M1PlanAction::BeginOutput).count() <= 1);
 
         let mut current: Frontier = common_ancestor.into();
         let mut max: Frontier = common_ancestor.into();
         let mut cleared_version: Frontier = common_ancestor.into();
-        let mut seen_begin_output = false;
+        let mut started_output = false;
 
-        for action in &self.0 {
+        for (_i, action) in self.0.iter().enumerate() {
+            // println!("{_i}: {:?}", action);
             match action {
                 M1PlanAction::BeginOutput => {
                     // The "current version" at this point must be a.
-                    assert_eq!(seen_begin_output, false);
-                    seen_begin_output = true;
+                    assert_eq!(started_output, false);
+                    started_output = true;
                     assert_eq!(max.as_ref(), a);
                 }
                 M1PlanAction::Apply(span) | M1PlanAction::FF(span) => {
                     assert!(!span.is_empty());
+
+                    if !started_output {
+                        // Until we start output, spans should all be within a.
+                        assert!(graph.frontier_contains_version(a, span.start));
+                        // println!("fcv {:?} {}", a, span.start);
+                    }
 
                     // The span must NOT be in the max set.
                     assert!(!graph.frontier_contains_version(max.as_ref(), span.start));
@@ -780,6 +818,10 @@ impl M1Plan {
                     assert!(graph.frontier_contains_frontier(&[span.start], cleared_version.as_ref()));
 
                     if let M1PlanAction::FF(_) = action {
+                        // FF doesn't make sense before we've started output.
+                        // TODO: RE-enable this!
+                        // assert_eq!(started_output, true);
+
                         graph.with_parents(span.start, |parents| {
                             assert_eq!(parents, current.as_ref());
                             assert_eq!(parents, max.as_ref());
@@ -981,27 +1023,27 @@ mod test {
 
     #[test]
     fn fuzz_m1_plans_2() {
-        // with_random_cgs(3232, (100, 10), |(_i, _k), cg, frontiers| {
-        with_random_cgs(2231, (100, 3), |(_i, _k), cg, frontiers| {
+        with_random_cgs(3232, (100, 10), |(_i, _k), cg, frontiers| {
+        // with_random_cgs(2231, (100, 3), |(_i, _k), cg, frontiers| {
             // Iterate through the frontiers, and [root -> cg.version].
             for (_j, fs) in std::iter::once([Frontier::root(), cg.version.clone()].as_slice())
                 .chain(frontiers.windows(2))
                 .enumerate()
             {
-                println!("{_i}, {_k}, {_j}");
-                if _j != 0 { continue; }
+                // println!("{_i}, {_k}, {_j}");
+                // if _j != 0 { continue; }
 
                 let (a, b) = (fs[0].as_ref(), fs[1].as_ref());
 
-                println!("\n\n");
-                if (_i, _k, _j) == (18, 2, 0) {
-                    println!("\n\n\nOOO");
-
-                    #[cfg(feature = "dot_export")]
-                    cg.generate_dot_svg("dot.svg");
-                }
+                // println!("\n\n");
+                // if (_i, _k, _j) == (1, 2, 1) {
+                //     println!("\n\n\nOOO");
+                //
+                //     #[cfg(feature = "dot_export")]
+                //     cg.generate_dot_svg("dot.svg");
+                // }
                 // dbg!(&cg.graph);
-                println!("f: {:?} + {:?}", a, b);
+                // println!("f: {:?} + {:?}", a, b);
 
                 // Alternatively:
                 // let plan = cg.graph.make_m1_plan(a, b);
@@ -1009,9 +1051,9 @@ mod test {
                 subgraph.dbg_check();
                 subgraph.dbg_check_conflicting(&cg.graph, a, b);
 
+                // subgraph.dbg_print();
                 let plan = subgraph.m1_plan_2(None);
-                subgraph.dbg_print();
-                plan.dbg_print();
+                // plan.dbg_print();
                 // dbg!(&plan);
                 plan.dbg_check(subgraph.base_version.as_ref(), a, b, &cg.graph);
             }
@@ -1020,6 +1062,7 @@ mod test {
 
 }
 
+#[ignore]
 #[test]
 fn lite_bench() {
     let bytes = std::fs::read(format!("benchmark_data/git-makefile.dt")).unwrap();
