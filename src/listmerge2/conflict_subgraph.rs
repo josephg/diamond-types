@@ -2,7 +2,7 @@ use std::cmp::{Ordering, Reverse};
 use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
 use std::fmt::Debug;
-use rand::prelude::SliceRandom;
+// use rand::prelude::SliceRandom;
 use rle::{AppendRle, ReverseSpan};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
