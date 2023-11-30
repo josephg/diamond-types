@@ -31,9 +31,9 @@ pub struct CRDTSpan {
     /// NOTE: The origin_left is only for the first item in the span. Each subsequent item has an
     /// origin_left of order+offset.
     ///
-    /// If you think of the items as a tree (ie, fugue-tree or sync9), origin_left corresponds to
-    /// the parent of the item (on the left side). For items with a right parent, this is the lower
-    /// bound of where the item may be inserted / considered to be concurrent.
+    /// If you think of the items as a tree (ie, fugue-tree), origin_left corresponds to the parent
+    /// of the item (on the left side). For items with a right parent, this is the lower bound of
+    /// where the item may be inserted / considered to be concurrent.
     pub origin_left: LV,
 
     /// The item's origin_right is the ID of the item directly to the right when this item was
