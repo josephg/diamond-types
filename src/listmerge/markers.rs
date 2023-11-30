@@ -8,7 +8,7 @@ use rle::Searchable;
 use crate::rev_range::RangeRev;
 use crate::listmerge::DocRangeIndex;
 use crate::listmerge::markers::Marker::{DelTarget, InsPtr};
-use crate::listmerge::yjsspan::FugueSpan;
+use crate::listmerge::yjsspan::CRDTSpan;
 use crate::list::operation::ListOpKind;
 
 // TODO: Consider refactoring this to be a single enum. Put len in InsPtr and use .len(). But this
@@ -19,7 +19,7 @@ pub enum Marker {
     /// For inserts, we store a pointer to the leaf node containing the inserted item. This is only
     /// used for inserts so we don't need to modify multiple entries when the inserted item is
     /// moved.
-    InsPtr(NonNull<NodeLeaf<FugueSpan, DocRangeIndex>>),
+    InsPtr(NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>>),
 
     /// For deletes we name the delete's target. Note this contains redundant information - since
     /// we already have a length field.
@@ -169,7 +169,7 @@ impl Default for MarkerEntry {
 // }
 
 impl Searchable for MarkerEntry {
-    type Item = Option<NonNull<NodeLeaf<FugueSpan, DocRangeIndex>>>;
+    type Item = Option<NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>>>;
 
     fn get_offset(&self, _loc: Self::Item) -> Option<usize> {
         panic!("Should never be used")

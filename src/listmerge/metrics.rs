@@ -1,5 +1,5 @@
 use content_tree::{ContentLength, Cursor, FindContent, Pair, TreeMetrics};
-use crate::listmerge::yjsspan::FugueSpan;
+use crate::listmerge::yjsspan::CRDTSpan;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct MarkerMetrics;
@@ -15,16 +15,16 @@ pub struct MarkerMetrics;
 ///   have been inserted at some point. (This is field 1).
 ///
 /// The current length is tagged as "content length" to make cursor utility methods easier to use.
-impl TreeMetrics<FugueSpan> for MarkerMetrics {
+impl TreeMetrics<CRDTSpan> for MarkerMetrics {
     type Update = Pair<isize>;
     type Value = Pair<usize>;
 
-    fn increment_marker(marker: &mut Self::Update, entry: &FugueSpan) {
+    fn increment_marker(marker: &mut Self::Update, entry: &CRDTSpan) {
         marker.0 += entry.content_len() as isize;
         marker.1 += entry.upstream_len() as isize;
     }
 
-    fn decrement_marker(marker: &mut Self::Update, entry: &FugueSpan) {
+    fn decrement_marker(marker: &mut Self::Update, entry: &CRDTSpan) {
         marker.0 -= entry.content_len() as isize;
         marker.1 -= entry.upstream_len() as isize;
     }
@@ -39,28 +39,28 @@ impl TreeMetrics<FugueSpan> for MarkerMetrics {
         offset.1 = offset.1.wrapping_add(by.1 as usize);
     }
 
-    fn increment_offset(offset: &mut Self::Value, by: &FugueSpan) {
+    fn increment_offset(offset: &mut Self::Value, by: &CRDTSpan) {
         offset.0 += by.content_len();
         offset.1 += by.upstream_len();
     }
 }
 
-impl FindContent<FugueSpan> for MarkerMetrics {
+impl FindContent<CRDTSpan> for MarkerMetrics {
     fn index_to_content(offset: Self::Value) -> usize {
         offset.0
     }
 }
 
 impl MarkerMetrics {
-    pub(super) fn upstream_len(offset: <Self as TreeMetrics<FugueSpan>>::Value) -> usize {
+    pub(super) fn upstream_len(offset: <Self as TreeMetrics<CRDTSpan>>::Value) -> usize {
         offset.1
     }
 }
 
 /// Get the upstream position of a cursor into a MarkerMetrics object. I'm not sure if this is the
 /// best place for this method, but it'll do.
-pub(super) fn upstream_cursor_pos(cursor: &Cursor<FugueSpan, MarkerMetrics>) -> usize {
+pub(super) fn upstream_cursor_pos(cursor: &Cursor<CRDTSpan, MarkerMetrics>) -> usize {
     cursor.count_pos_raw(MarkerMetrics::upstream_len,
-                         FugueSpan::upstream_len,
-                         FugueSpan::upstream_len_at)
+                         CRDTSpan::upstream_len,
+                         CRDTSpan::upstream_len_at)
 }

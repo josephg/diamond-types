@@ -11,7 +11,7 @@ use content_tree::*;
 use rle::{AppendRle, HasLength, MergeableIterator, Searchable, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
 use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex};
-use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, FugueSpan};
+use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, CRDTSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
@@ -58,8 +58,8 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     }
 }
 
-pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(FugueSpan, NonNull<NodeLeaf<FugueSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
-    move |entry: FugueSpan, leaf| {
+pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
+    move |entry: CRDTSpan, leaf| {
         debug_assert!(leaf != NonNull::dangling());
         let start = entry.id.start;
         let len = entry.len();
@@ -90,7 +90,7 @@ impl M2Tracker {
     pub(super) fn new() -> Self {
         let mut range_tree = ContentTreeRaw::new();
         let mut index = ContentTreeRaw::new();
-        let underwater = FugueSpan::new_underwater();
+        let underwater = CRDTSpan::new_underwater();
         pad_index_to(&mut index, underwater.id.end);
         range_tree.push_notify(underwater, notify_for(&mut index));
 
@@ -109,12 +109,12 @@ impl M2Tracker {
         self.range_tree = ContentTreeRaw::new();
         self.index = ContentTreeRaw::new();
 
-        let underwater = FugueSpan::new_underwater();
+        let underwater = CRDTSpan::new_underwater();
         pad_index_to(&mut self.index, underwater.id.end);
         self.range_tree.push_notify(underwater, notify_for(&mut self.index));
     }
 
-    pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<FugueSpan, DocRangeIndex>> {
+    pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
         let cursor = self.index.cursor_at_offset_pos(lv, false);
         // Gross.
         cursor.get_item().unwrap().unwrap()
@@ -132,7 +132,7 @@ impl M2Tracker {
         }
     }
 
-    fn get_cursor_before(&self, lv: LV) -> Cursor<FugueSpan, DocRangeIndex> {
+    fn get_cursor_before(&self, lv: LV) -> Cursor<CRDTSpan, DocRangeIndex> {
         if lv == usize::MAX {
             // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
             // just panic() here.
@@ -144,7 +144,7 @@ impl M2Tracker {
     }
 
     // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex> {
-    fn get_cursor_after(&self, lv: LV, stick_end: bool) -> Cursor<FugueSpan, DocRangeIndex> {
+    fn get_cursor_after(&self, lv: LV, stick_end: bool) -> Cursor<CRDTSpan, DocRangeIndex> {
         if lv == usize::MAX {
             self.range_tree.cursor_at_start()
         } else {
@@ -161,7 +161,7 @@ impl M2Tracker {
     }
 
     // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
-    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: FugueSpan, mut cursor: UnsafeCursor<FugueSpan, DocRangeIndex>) -> usize {
+    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: CRDTSpan, mut cursor: UnsafeCursor<CRDTSpan, DocRangeIndex>) -> usize {
         debug_assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
@@ -178,7 +178,7 @@ impl M2Tracker {
                 break;
             }
 
-            let other_entry: FugueSpan = *cursor.get_raw_entry();
+            let other_entry: CRDTSpan = *cursor.get_raw_entry();
 
             // When concurrent edits happen, the range of insert locations goes from the insert
             // position itself (passed in through cursor) to the next item which existed at the
@@ -441,7 +441,7 @@ impl M2Tracker {
                 let mut lv_span = op_pair.span();
                 lv_span.trim(len);
 
-                let item = FugueSpan {
+                let item = CRDTSpan {
                     id: lv_span,
                     origin_left,
                     origin_right,
@@ -1201,7 +1201,7 @@ mod test {
     use crate::dtrange::UNDERWATER_START;
     use crate::list::{ListCRDT, ListOpLog};
     use crate::listmerge::simple_oplog::SimpleOpLog;
-    use crate::listmerge::yjsspan::{deleted_n_state, DELETED_ONCE, FugueSpanState};
+    use crate::listmerge::yjsspan::{deleted_n_state, DELETED_ONCE, SpanState};
     use crate::unicount::count_chars;
     use super::*;
 
@@ -1282,7 +1282,7 @@ mod test {
         assert_eq!(list.to_string(), "");
     }
 
-    fn items(tracker: &M2Tracker, filter_underwater: usize) -> Vec<FugueSpan> {
+    fn items(tracker: &M2Tracker, filter_underwater: usize) -> Vec<CRDTSpan> {
         let trim_from = UNDERWATER_START + filter_underwater;
 
         tracker.range_tree
@@ -1305,7 +1305,7 @@ mod test {
             .collect()
     }
 
-    fn items_state(tracker: &M2Tracker, filter_underwater: usize) -> Vec<(usize, FugueSpanState)> {
+    fn items_state(tracker: &M2Tracker, filter_underwater: usize) -> Vec<(usize, SpanState)> {
         items(tracker, filter_underwater).iter().map(|i| (i.len(), i.state)).collect()
     }
 

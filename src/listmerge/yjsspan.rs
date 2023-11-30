@@ -11,20 +11,20 @@ use crate::dtrange::{debug_time, DTRange, UNDERWATER_START};
 /// Note a u16 (or even a u8) should be fine in practice. Double deletes almost never happen in
 /// reality - unless someone is maliciously generating them.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub struct FugueSpanState(u32);
+pub struct SpanState(u32);
 
-pub const NOT_INSERTED_YET: FugueSpanState = FugueSpanState(0);
-pub const INSERTED: FugueSpanState = FugueSpanState(1);
-pub const DELETED_ONCE: FugueSpanState = FugueSpanState(2);
+pub const NOT_INSERTED_YET: SpanState = SpanState(0);
+pub const INSERTED: SpanState = SpanState(1);
+pub const DELETED_ONCE: SpanState = SpanState(2);
 
-pub(super) fn deleted_n_state(n: u32) -> FugueSpanState {
-    FugueSpanState(1 + n)
+pub(super) fn deleted_n_state(n: u32) -> SpanState {
+    SpanState(1 + n)
 }
 
 /// This is a span of YjsMod / FugueMax items. (Those two algorithms generate identical merge
 /// behaviour).
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
-pub struct FugueSpan {
+pub struct CRDTSpan {
     /// The local version of the corresponding insert operation
     pub id: DTRange,
 
@@ -44,12 +44,12 @@ pub struct FugueSpan {
 
     /// Stores whether the item has been inserted, inserted and deleted, or not inserted yet at the
     /// current moment in time.
-    pub state: FugueSpanState,
+    pub state: SpanState,
 
     pub ever_deleted: bool,
 }
 
-impl FugueSpanState {
+impl SpanState {
     /// Note this doesn't (can't) set the ever_deleted flag. Use yjsspan.delete() instead.
     fn delete(&mut self) {
         if self.0 == NOT_INSERTED_YET.0 {
@@ -95,7 +95,7 @@ impl FugueSpanState {
     }
 }
 
-impl Debug for FugueSpan {
+impl Debug for CRDTSpan {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("YjsSpan");
         s.field("id", &self.id);
@@ -107,14 +107,14 @@ impl Debug for FugueSpan {
     }
 }
 
-impl FugueSpan {
+impl CRDTSpan {
     pub fn origin_left_at_offset(&self, offset: LV) -> LV {
         if offset == 0 { self.origin_left }
         else { self.id.start + offset - 1 }
     }
 
     pub fn new_underwater() -> Self {
-        FugueSpan {
+        CRDTSpan {
             id: DTRange::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
             origin_left: usize::MAX,
             origin_right: usize::MAX,
@@ -147,16 +147,16 @@ impl FugueSpan {
 //
 // I could make a custom index for this, but I'm gonna be lazy and say content length = current,
 // and "offset length" = upstream.
-impl HasLength for FugueSpan {
+impl HasLength for CRDTSpan {
     #[inline(always)]
     fn len(&self) -> usize { self.id.len() }
 }
 
-impl SplitableSpanHelpers for FugueSpan {
+impl SplitableSpanHelpers for CRDTSpan {
     fn truncate_h(&mut self, offset: usize) -> Self {
         debug_assert!(offset > 0);
         // let at_signed = offset as i32 * self.len.signum();
-        FugueSpan {
+        CRDTSpan {
             id: self.id.truncate(offset),
             origin_left: self.id.start + offset - 1,
             origin_right: self.origin_right,
@@ -166,7 +166,7 @@ impl SplitableSpanHelpers for FugueSpan {
     }
 }
 
-impl MergableSpan for FugueSpan {
+impl MergableSpan for CRDTSpan {
     // Could have a custom truncate_keeping_right method here - I once did. But the optimizer
     // does a great job flattening the generic implementation anyway.
 
@@ -191,7 +191,7 @@ impl MergableSpan for FugueSpan {
     }
 }
 
-impl Searchable for FugueSpan {
+impl Searchable for CRDTSpan {
     type Item = LV;
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
@@ -203,7 +203,7 @@ impl Searchable for FugueSpan {
     }
 }
 
-impl ContentLength for FugueSpan {
+impl ContentLength for CRDTSpan {
     #[inline(always)]
     fn content_len(&self) -> usize {
         if self.state == INSERTED { self.len() } else { 0 }
@@ -214,7 +214,7 @@ impl ContentLength for FugueSpan {
     }
 }
 
-impl Toggleable for FugueSpan {
+impl Toggleable for CRDTSpan {
     fn is_activated(&self) -> bool {
         self.state == INSERTED
         // self.state == Inserted && !self.ever_deleted
@@ -243,12 +243,12 @@ mod tests {
     #[test]
     fn print_span_sizes() {
         // 40 bytes (compared to just 16 bytes in the older implementation).
-        println!("size of YjsSpan {}", size_of::<FugueSpan>());
+        println!("size of YjsSpan {}", size_of::<CRDTSpan>());
     }
 
     #[test]
     fn yjsspan_entry_valid() {
-        test_splitable_methods_valid(FugueSpan {
+        test_splitable_methods_valid(CRDTSpan {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
@@ -256,7 +256,7 @@ mod tests {
             ever_deleted: false,
         });
 
-        test_splitable_methods_valid(FugueSpan {
+        test_splitable_methods_valid(CRDTSpan {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
@@ -264,7 +264,7 @@ mod tests {
             ever_deleted: false
         });
 
-        test_splitable_methods_valid(FugueSpan {
+        test_splitable_methods_valid(CRDTSpan {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
@@ -272,7 +272,7 @@ mod tests {
             ever_deleted: false
         });
 
-        test_splitable_methods_valid(FugueSpan {
+        test_splitable_methods_valid(CRDTSpan {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: usize::MAX,
@@ -284,6 +284,6 @@ mod tests {
     #[ignore]
     #[test]
     fn print_size() {
-        dbg!(std::mem::size_of::<FugueSpan>());
+        dbg!(std::mem::size_of::<CRDTSpan>());
     }
 }
