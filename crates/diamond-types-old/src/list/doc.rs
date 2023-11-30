@@ -266,21 +266,6 @@ impl ListCRDT {
         span.1.len - span_offset
     }
 
-    fn get_right_parent(&self, item: &YjsSpan, offset: u32) -> (Cursor<'_, YjsSpan, DocRangeIndex>, LV) {
-        let mut right_cursor = self.get_cursor_before(item.origin_right);
-        let right_parent = if let Some(origin_right) = right_cursor.try_get_raw_entry() {
-            if origin_right.origin_left == item.origin_left_at_offset(offset) {
-                // Right parent is the item's origin_right.
-                item.origin_right
-            } else {
-                // No right parent. Reset the right_cursor to point to the end of the list.
-                right_cursor = self.range_tree.cursor_at_end();
-                ROOT_LV
-            }
-        } else { ROOT_LV };
-        (right_cursor, right_parent)
-    }
-
     pub(super) fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) {
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
@@ -333,14 +318,7 @@ impl ListCRDT {
                 Ordering::Less => { break; } // Top row
                 Ordering::Greater => { } // Bottom row. Continue.
                 Ordering::Equal => {
-                    let (my_right_cursor, right_parent) = self.get_right_parent(&item, 0);
-                    // We need to pass the cursor offset in here because the cursor might be
-                    // pointing in the middle of an item, and we need to adjust origin_left
-                    // appropriately in that case.
-                    let (other_right_cursor, other_parent) = self.get_right_parent(&other_entry, cursor.offset as u32);
-
-                    // if item.origin_right == other_entry.origin_right {
-                    if right_parent == other_parent {
+                    if item.origin_right == other_entry.origin_right {
                         // Items are concurrent and "double siblings". Order by agent names.
                         let my_name = self.get_agent_name(agent);
                         let other_loc = self.client_with_time.get(other_order);
@@ -364,8 +342,8 @@ impl ListCRDT {
                         }
                     } else {
                         // Set scanning based on how the origin_right entries are ordered.
-                        // let my_right_cursor = self.get_cursor_before(item.origin_right);
-                        // let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
+                        let my_right_cursor = self.get_cursor_before(item.origin_right);
+                        let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
 
                         if other_right_cursor < my_right_cursor {
                             if !scanning {
@@ -886,11 +864,11 @@ impl ListCRDT {
             let left = self.get_crdt_location(span.origin_left);
             let right = self.get_crdt_location(span.origin_right);
 
-            let parent_order = self.get_right_parent(&span, 0).1;
-            let parent = self.get_crdt_location(parent_order);
+            // let parent_order = self.get_right_parent(&span, 0).1;
+            // let parent = self.get_crdt_location(parent_order);
 
-            println!("{:?} (len {}) left {:?} right {:?} right_parent {:?}\t(LV: {})",
-                     id, span.len, left, right, parent, span.time
+            println!("{:?} (len {}) left {:?} right {:?} \t(LV: {})",
+                     id, span.len, left, right, span.time
             );
         }
 

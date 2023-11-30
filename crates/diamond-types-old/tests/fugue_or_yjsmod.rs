@@ -32,7 +32,7 @@ fn merge(a: &mut Doc, b: &mut Doc) {
 }
 
 #[test]
-fn check_algorithm_implements_fugue() {
+fn check_algorithm_implements_fugue_max() {
     let mut a = Doc::new("A");
     let mut b = Doc::new("B");
     let mut c = Doc::new("C");
@@ -45,9 +45,9 @@ fn check_algorithm_implements_fugue() {
     b.insert(1, "d");
     merge(&mut b, &mut c);
 
-    // Fugue will generate "abedc", and yjsmod will generate "abdec".
-    let _yjsmod_result = "acdb";
-    let fugue_result = "adcb";
+    // Fugue will generate "abedc", and yjsmod/fuguemax will generate "abdec".
+    let fugue_max_result = "acdb";
+    let _fugue_result = "adcb";
     let actual_result = c.crdt.to_string();
-    assert_eq!(actual_result, fugue_result);
+    assert_eq!(actual_result, fugue_max_result);
 }
