@@ -255,7 +255,7 @@ enum Commands {
         #[arg(short, long)]
         unicode: bool,
 
-        /// Use pretty JSON output
+        /// Use pretty JSON output. Note: Steps must be 1.
         #[arg(short, long)]
         pretty: bool,
 
@@ -613,18 +613,18 @@ fn main() -> Result<(), anyhow::Error> {
 
         Commands::GenConformance { output, num, steps, seed, pretty, unicode, simple } => {
             let num = num.unwrap_or(100);
-            let steps = steps.unwrap_or(50);
+            let steps = steps.unwrap_or(if pretty { 1 } else { 50 });
             let seed = seed.unwrap_or_else(|| rand::thread_rng().next_u64());
 
-            let mut data = vec![];
-            for i in 0..num {
+            if pretty && steps != 1 && output.is_some() {
+                panic!("Cannot pretty-print more than 1 step to a file, because the output is in line-delimited JSON and that isn't readable!");
+            }
+
+            write_serde_data_iter(output, pretty, (0..num).into_iter().map(|i| {
                 // Hardcoded agent interleaving. Might be worth turning that off at some point.
                 let oplog = gen_oplog(seed + i as u64, steps, unicode, !simple);
-                let exported = export_full_to_json(&oplog);
-                data.push(exported);
-                // println!("{data}");
-            }
-            write_serde_data(output, pretty, &data)?;
+                export_full_to_json(&oplog)
+            }))?;
         }
 
         Commands::Dot { dt_filename, no_render, output, dot_path } => {
@@ -678,7 +678,11 @@ fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn write_serde_data<T: Serialize>(mut output: Option<OsString>, pretty: bool, data: &T) -> Result<(), Error> {
+fn write_serde_data<T: Serialize>(output: Option<OsString>, pretty: bool, val: T) -> Result<(), Error> {
+    write_serde_data_iter(output, pretty, std::iter::once(val))
+}
+
+fn write_serde_data_iter<T: Serialize, I: Iterator<Item = T>>(mut output: Option<OsString>, pretty: bool, iter: I) -> Result<(), Error> {
     // This repetition is gross, but I'm not sure a better way to do it given the type of
     // stdout and File are different. Halp!
 
@@ -688,18 +692,26 @@ fn write_serde_data<T: Serialize>(mut output: Option<OsString>, pretty: bool, da
     }
 
     if let Some(path) = output {
-        let writer = BufWriter::new(File::create(path)?);
-        if pretty {
-            serde_json::to_writer_pretty(writer, data)?;
-        } else {
-            serde_json::to_writer(writer, data)?;
+        // I can't treat std::io::stdout as a file, so this code is repeated unnecessarily.
+        // Could instead box and use Box<dyn Writer>. Bleh.
+        let mut writer = BufWriter::new(File::create(path)?);
+        for data in iter {
+            if pretty {
+                serde_json::to_writer_pretty(&mut writer, &data)?;
+            } else {
+                serde_json::to_writer(&mut writer, &data)?;
+            }
+            writer.write_all("\n".as_bytes())?;
         }
     } else {
-        let writer = BufWriter::new(std::io::stdout());
-        if pretty {
-            serde_json::to_writer_pretty(writer, data)?;
-        } else {
-            serde_json::to_writer(writer, data)?;
+        let mut writer = BufWriter::new(std::io::stdout());
+        for data in iter {
+            if pretty {
+                serde_json::to_writer_pretty(&mut writer, &data)?;
+            } else {
+                serde_json::to_writer(&mut writer, &data)?;
+            }
+            writer.write_all("\n".as_bytes())?;
         }
     }
 

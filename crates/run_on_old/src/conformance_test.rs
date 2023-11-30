@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader};
 use serde::Deserialize;
 use smallvec::SmallVec;
 use diamond_types::DTRange;
@@ -82,13 +82,15 @@ fn conformance_tests() {
     let name = "../../test_data/conformance.json";
     let reader = BufReader::new(File::open(name).unwrap());
     // let contents = std::fs::read(name).unwrap();
-    let data: Vec<DTExport> = serde_json::from_reader(reader).unwrap();
-    println!("Loaded conformance testing data from {} ({} entries)", name, data.len());
 
-    for (_i, d) in data.iter().enumerate() {
+    println!("Loaded conformance testing data from {}", name);
+    for (_i, line) in reader.lines().enumerate() {
+        let line = line.unwrap();
+        let d: DTExport = serde_json::from_str(line.as_str()).unwrap();
+
         // if _i != 246 { continue; }
         // println!("i {_i}");
-        let oplog = export_to_oplog(d);
+        let oplog = export_to_oplog(&d);
 
         let old_txns = get_txns_from_oplog(&oplog);
         // dbg!(&old_txns);
