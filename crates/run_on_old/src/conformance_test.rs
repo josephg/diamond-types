@@ -79,9 +79,13 @@ fn conformance_tests() {
     //
     // This code
     // let name = "../../test_data/conformance-simple.json";
-    let name = "../../test_data/conformance.json";
+    let name = "../../test_data/conformance.json.br";
+    // let name = "../../test_data/conformance.json";
+
     let reader = BufReader::new(File::open(name).unwrap());
-    // let contents = std::fs::read(name).unwrap();
+
+    // Comment this out if you aren't loading .br data!
+    let reader = BufReader::new(brotli_decompressor::Decompressor::new(reader, 4096));
 
     println!("Loaded conformance testing data from {}", name);
     for (_i, line) in reader.lines().enumerate() {
