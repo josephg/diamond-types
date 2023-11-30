@@ -173,16 +173,22 @@ impl M2Tracker {
         let mut scanning = false;
 
         loop {
-            if !cursor.roll_to_next_entry() { break; } // End of the document
+            if cursor.offset > 0 // If cursor > 0, the item we're on now is INSERTED.
+                || !cursor.roll_to_next_entry() { // End of the document
+                break;
+            }
+
             let other_entry: FugueSpan = *cursor.get_raw_entry();
 
             // When concurrent edits happen, the range of insert locations goes from the insert
             // position itself (passed in through cursor) to the next item which existed at the
             // time in which the insert occurred.
+            let other_lv = other_entry.id.start;
             // This test is almost always true. (Ie, we basically always break here).
-            if other_entry.state != NOT_INSERTED_YET { break; }
+            if other_lv == item.origin_right { break; }
 
-            debug_assert_eq!(cursor.offset, 0);
+            debug_assert_eq!(other_entry.state, NOT_INSERTED_YET);
+            // if other_entry.state != NOT_INSERTED_YET { break; }
 
             // When preparing example data, its important that the data can merge the same
             // regardless of editing trace (so the output isn't dependent on the algorithm used to
@@ -204,14 +210,9 @@ impl M2Tracker {
                 Ordering::Less => { break; } // Top row
                 Ordering::Greater => {} // Bottom row. Continue.
                 Ordering::Equal => {
-                    if item.right_parent == other_entry.right_parent {
+                    if item.origin_right == other_entry.origin_right {
                         // Origin_right matches. Items are concurrent. Order by agent names.
                         let my_name = aa.get_agent_name(agent);
-
-                        // It would be "more correct" to take the other entry at the cursor offset,
-                        // but the cursor offset is always 0 when comparing items. So eh.
-                        // let other_lv = other_entry.at_offset(cursor.offset);
-                        let other_lv = other_entry.id.start;
 
                         let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
                         let other_name = aa.get_agent_name(other_agent);
@@ -241,11 +242,8 @@ impl M2Tracker {
                         }
                     } else {
                         // Set scanning based on how the origin_right entries are ordered.
-                        // Note that this is only valid because cursor offset is always 0 when this
-                        // code is executed. (We'd need to take usize::MAX for other_right_cursor
-                        // if cursor.offset > 0).
-                        let my_right_cursor = self.get_cursor_before(item.right_parent);
-                        let other_right_cursor = self.get_cursor_before(other_entry.right_parent);
+                        let my_right_cursor = self.get_cursor_before(item.origin_right);
+                        let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
 
                         if other_right_cursor < my_right_cursor {
                             if !scanning {
@@ -423,35 +421,22 @@ impl M2Tracker {
 
                 // Origin_right should be the next item which isn't in the NotInsertedYet state.
                 // If we reach the end of the document before that happens, use usize::MAX.
-                //
-                // TODO: _origin_right is only used when converting to old operations. Remove it
-                // from the normal execution path here.
-                let (_origin_right, right_parent) = 'block: {
-                    if cursor.roll_to_next_entry() { // Check we aren't already at the end of the list
-                        // loop through c2 until we find the right hand bound.
-                        let mut c2 = cursor.clone();
-                        while let Some(e) = c2.try_get_raw_entry() {
-                            if e.state != NOT_INSERTED_YET {
-                                // We can use this.
-                                let origin_right = e.at_offset(c2.offset);
 
-                                let left = c2.get_raw_entry().origin_left_at_offset(c2.offset);
-                                // If right.left == origin_left then we're a left child with a right_parent of
-                                // right_bound. Otherwise we're a right child, and right_parent
-                                // is null. (Our parent is origin_left).
-                                let right_parent = if left == origin_left { origin_right } else { usize::MAX };
-                                break 'block (origin_right, right_parent);
-                            }
+                let origin_right = if !cursor.roll_to_next_entry() {
+                    usize::MAX
+                } else {
+                    let mut c2 = cursor.clone();
+                    loop {
+                        let Some(e) = c2.try_get_raw_entry() else { break usize::MAX; };
 
-                            // if next_entry returns false, we've hit the end of the list.
-                            if !c2.next_entry() { break; }
+                        if e.state != NOT_INSERTED_YET {
+                            break e.at_offset(c2.offset);
+                        } else {
+                            if !c2.next_entry() { break usize::MAX; } // End of the list.
+                            // Otherwise keep looping.
                         }
                     }
-
-                    (usize::MAX, usize::MAX)
                 };
-
-                // let origin_right = cursor.get_item().unwrap_or(ROOT_TIME);
 
                 let mut lv_span = op_pair.span();
                 lv_span.trim(len);
@@ -459,7 +444,7 @@ impl M2Tracker {
                 let item = FugueSpan {
                     id: lv_span,
                     origin_left,
-                    right_parent,
+                    origin_right,
                     state: INSERTED,
                     ever_deleted: false,
                 };
@@ -468,7 +453,7 @@ impl M2Tracker {
                     self.dbg_ops.push_rle(OldCRDTOpInternal::Ins {
                         id: lv_span,
                         origin_left,
-                        origin_right: if _origin_right == UNDERWATER_START { usize::MAX } else { _origin_right },
+                        origin_right: if origin_right == UNDERWATER_START { usize::MAX } else { origin_right },
                         content_pos: op.content_pos.unwrap(),
                     });
                 }

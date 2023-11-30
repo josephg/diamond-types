@@ -21,11 +21,8 @@ pub(super) fn deleted_n_state(n: u32) -> FugueSpanState {
     FugueSpanState(1 + n)
 }
 
-/// This is a span of sync9 / fugue items. (Those two algorithms generate identical merge
+/// This is a span of YjsMod / FugueMax items. (Those two algorithms generate identical merge
 /// behaviour).
-///
-/// The implementation here is based off fugue-list from the fugue paper, but modified to store the
-/// right_parent instead of storing origin_right (and recalculating right_parent as needed).
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
 pub struct FugueSpan {
     /// The local version of the corresponding insert operation
@@ -39,12 +36,11 @@ pub struct FugueSpan {
     /// bound of where the item may be inserted / considered to be concurrent.
     pub origin_left: LV,
 
-    /// The right parent is part of fugue. This is set to either the ID of the item directly to the
-    /// right when it was generated (if it has a right parent) or usize::MAX.
+    /// The item's origin_right is the ID of the item directly to the right when this item was
+    /// generated.
     ///
-    /// In a RLE span, this is only the right parent of the first item. Subsequent items always have
-    /// a right_parent of usize::MAX since they'll only have a left parent.
-    pub right_parent: LV,
+    /// In a RLE span, this is the right parent of the entire span of items.
+    pub origin_right: LV,
 
     /// Stores whether the item has been inserted, inserted and deleted, or not inserted yet at the
     /// current moment in time.
@@ -104,7 +100,7 @@ impl Debug for FugueSpan {
         let mut s = f.debug_struct("YjsSpan");
         s.field("id", &self.id);
         debug_time(&mut s, "origin_left", self.origin_left);
-        debug_time(&mut s, "right_parent", self.right_parent);
+        debug_time(&mut s, "origin_right", self.origin_right);
         s.field("state", &self.state); // Could probably do better than this.
         s.field("ever_deleted", &self.ever_deleted);
         s.finish()
@@ -121,7 +117,7 @@ impl FugueSpan {
         FugueSpan {
             id: DTRange::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
             origin_left: usize::MAX,
-            right_parent: usize::MAX,
+            origin_right: usize::MAX,
             state: INSERTED, // Underwater items are never in the NotInsertedYet state.
             ever_deleted: false,
         }
@@ -163,7 +159,7 @@ impl SplitableSpanHelpers for FugueSpan {
         FugueSpan {
             id: self.id.truncate(offset),
             origin_left: self.id.start + offset - 1,
-            right_parent: usize::MAX, // Only the first item has the chance of having a right_parent.
+            origin_right: self.origin_right,
             state: self.state,
             ever_deleted: self.ever_deleted,
         }
@@ -177,7 +173,7 @@ impl MergableSpan for FugueSpan {
     fn can_append(&self, other: &Self) -> bool {
         self.id.can_append(&other.id)
             && other.origin_left == other.id.start - 1
-            && other.right_parent == usize::MAX
+            && other.origin_right == self.origin_right
             && other.state == self.state
             && other.ever_deleted == self.ever_deleted
     }
@@ -191,7 +187,7 @@ impl MergableSpan for FugueSpan {
         debug_assert!(other.can_append(self));
         self.id.prepend(other.id);
         self.origin_left = other.origin_left;
-        self.right_parent = other.right_parent;
+        self.origin_right = other.origin_right;
     }
 }
 
@@ -255,7 +251,7 @@ mod tests {
         test_splitable_methods_valid(FugueSpan {
             id: (10..15).into(),
             origin_left: 20,
-            right_parent: 30,
+            origin_right: 30,
             state: NOT_INSERTED_YET,
             ever_deleted: false,
         });
@@ -263,7 +259,7 @@ mod tests {
         test_splitable_methods_valid(FugueSpan {
             id: (10..15).into(),
             origin_left: 20,
-            right_parent: 30,
+            origin_right: 30,
             state: INSERTED,
             ever_deleted: false
         });
@@ -271,7 +267,7 @@ mod tests {
         test_splitable_methods_valid(FugueSpan {
             id: (10..15).into(),
             origin_left: 20,
-            right_parent: 30,
+            origin_right: 30,
             state: DELETED_ONCE,
             ever_deleted: false
         });
@@ -279,7 +275,7 @@ mod tests {
         test_splitable_methods_valid(FugueSpan {
             id: (10..15).into(),
             origin_left: 20,
-            right_parent: usize::MAX,
+            origin_right: usize::MAX,
             state: INSERTED,
             ever_deleted: false
         });
