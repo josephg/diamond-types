@@ -214,6 +214,10 @@ enum Commands {
         #[arg(short, long)]
         pretty: bool,
 
+        /// The file containing timestamps to merge
+        #[arg(short)]
+        timestamp_filename: Option<OsString>,
+
         // /// Force generation of output even if trace breaks some of the rules for well defined
         // /// shared traces.
         // #[arg(short, long)]
@@ -564,7 +568,7 @@ fn main() -> Result<(), anyhow::Error> {
             write_serde_data(output, pretty, &result)?;
         }
 
-        Commands::ExportTrace { dt_filename, output, pretty } => {
+        Commands::ExportTrace { dt_filename, output, pretty, timestamp_filename } => {
             let data = fs::read(&dt_filename)?;
             let oplog = ListOpLog::load_from(&data)?;
 
@@ -588,7 +592,7 @@ fn main() -> Result<(), anyhow::Error> {
                 ");
             }
 
-            let result = export_trace_to_json(&oplog);
+            let result = export_trace_to_json(&oplog, timestamp_filename);
             write_serde_data(output, pretty, &result)?;
         }
 

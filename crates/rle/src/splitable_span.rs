@@ -206,6 +206,27 @@ pub trait Trim: SplitableSpan + HasLength {
 impl<T: SplitableSpan + HasLength> Trim for T {}
 
 
+/// TODO: This could almost always be written to just take a T rather than needing Option.
+pub struct Shatter<T>(Option<T>);
+
+impl<T: SplitableSpan + HasLength> Iterator for Shatter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Some(val) = self.0.as_mut() else { return None; };
+
+        if val.len() > 1 {
+            Some(val.truncate_keeping_right(1))
+        } else {
+            self.0.take()
+        }
+    }
+}
+
+/// Iterate over the individual elements of a given item.
+pub fn shatter<T: SplitableSpan + HasLength>(item: T) -> Shatter<T> {
+    Shatter(Some(item))
+}
 
 pub trait MergableSpan: Clone {
     /// See if the other item can be appended to self. `can_append` will always be called

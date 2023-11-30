@@ -11,19 +11,60 @@
 /// non-issue). Or just add these fields in and demand people ignore them.
 
 use std::collections::HashMap;
-use serde::Serialize;
+use std::default::Default;
+use std::ffi::OsString;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use chrono::{DateTime, FixedOffset, SubsecRound};
+use serde::{Deserialize, Serialize, Serializer};
+use serde::ser::SerializeTupleStruct;
 use smallvec::{SmallVec, smallvec};
 use diamond_types::list::ListOpLog;
 use diamond_types::list::operation::{ListOpKind, TextOperation};
 use smartstring::alias::{String as SmartString};
 use diamond_types::{AgentId, DTRange, HasLength};
 use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
-use rle::SplitableSpan;
+use rle::{MergableSpan, MergeableIterator, shatter, SplitableSpan};
 
 // Note this discards the fwd/backwards direction of the changes. This shouldn't matter in
 // practice given the whole operation is unitary.
-#[derive(Clone, Debug, Serialize)]
-pub struct SimpleTextOp(usize, usize, SmartString); // pos, del_len, ins_content.
+#[derive(Clone, Debug)]
+pub struct SimpleTextOp {
+    pos: usize,
+    del_len: usize,
+    ins_content: SmartString,
+    timestamp: DateTime<FixedOffset>,
+}
+
+impl MergableSpan for SimpleTextOp {
+    fn can_append(&self, other: &Self) -> bool {
+        // Don't concatenate inserts and deletes.
+        (if self.del_len > 0 {
+            self.pos == other.pos
+                && other.ins_content.is_empty()
+        } else {
+            self.pos + self.ins_content.chars().count() == other.pos
+                && other.del_len == 0
+        }) && self.timestamp == other.timestamp
+    }
+
+    fn append(&mut self, other: Self) {
+        self.del_len += other.del_len;
+        self.ins_content.push_str(other.ins_content.as_str());
+    }
+}
+
+impl Serialize for SimpleTextOp {
+    // This is an accident of history. SimpleTextOp is serialized as a tuple of [pos, del_len, ins_content, timestamp].
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer, {
+        let mut state = Serializer::serialize_tuple_struct(serializer, "SimpleTextOp", 4)?;
+        SerializeTupleStruct::serialize_field(&mut state, &self.pos)?;
+        SerializeTupleStruct::serialize_field(&mut state, &self.del_len)?;
+        SerializeTupleStruct::serialize_field(&mut state, &self.ins_content)?;
+        SerializeTupleStruct::serialize_field(&mut state, &self.timestamp)?;
+        SerializeTupleStruct::end(state)
+    }
+}
 
 impl From<TextOperation> for SimpleTextOp {
     fn from(op: TextOperation) -> Self {
@@ -34,16 +75,26 @@ impl From<TextOperation> for SimpleTextOp {
                     // (reversed) keystroke.
                     todo!("Not reversing op");
                 }
-                SimpleTextOp(op.start(), 0, op.content.unwrap())
+                SimpleTextOp {
+                    pos: op.start(),
+                    del_len: 0,
+                    ins_content: op.content.unwrap(),
+                    timestamp: Default::default()
+                }
             },
-            ListOpKind::Del => SimpleTextOp(op.start(), op.len(), SmartString::new()),
+            ListOpKind::Del => SimpleTextOp {
+                pos: op.start(),
+                del_len: op.len(),
+                ins_content: SmartString::new(),
+                timestamp: Default::default(),
+            },
         }
     }
 }
 
 impl Into<TextOperation> for &SimpleTextOp {
     fn into(self) -> TextOperation {
-        let SimpleTextOp(pos, del_len, ins_content) = self;
+        let SimpleTextOp { pos, del_len, ins_content, .. } = self;
         assert_ne!((*del_len == 0), !ins_content.is_empty());
         if *del_len > 0 {
             TextOperation {
@@ -118,8 +169,49 @@ pub fn check_trace_invariants(oplog: &ListOpLog) -> ExportTraceProblems {
     }
 }
 
-pub fn export_trace_to_json(oplog: &ListOpLog) -> TraceExportData {
-    let mut txns = vec![];
+
+// For timestamps I could use a vec of (seq_start, timestamp) and then use binary_search to find the
+// nearest timestamp for any given seq. But this is fine in practice - its just for generating
+// testing data.
+type Timestamps = HashMap<SmartString, Vec<DateTime<FixedOffset>>>;
+
+// Agent, seq, timestamp.
+#[derive(Debug, Clone, Deserialize)]
+struct TimestampEntry(SmartString, usize, SmartString);
+
+fn read_timestamps(filename: OsString) -> Timestamps {
+    let mut result = HashMap::new();
+
+    let file = BufReader::new(File::open(&filename).unwrap());
+
+    for e in file.lines() {
+        let e = e.unwrap();
+        let TimestampEntry(agent, seq, timestamp) = serde_json::from_str(e.as_str()).unwrap();
+        let ts = DateTime::parse_from_rfc3339(timestamp.as_str()).unwrap();
+        let ts = ts.trunc_subsecs(0);
+        // dbg!(ts);
+
+        let entry: &mut Vec<_> = result.entry(agent).or_default();
+        if entry.len() < seq {
+            // Just lazily extend out the timestamp field.
+            let last = entry.last().copied().unwrap_or_default();
+            entry.resize_with(seq, || last);
+        }
+
+        entry.push(ts);
+    }
+
+    result
+}
+
+fn get_timestamp(ts: &Timestamps, agent: &str, seq: usize) -> DateTime<FixedOffset> {
+    ts.get(agent).and_then(|t| {
+        t.get(seq).or(t.last()).copied()
+    }).unwrap_or_default()
+}
+
+pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsString>) -> TraceExportData {
+    let timestamps = timestamp_filename.map(read_timestamps);
 
     // TODO: A hashmap is overkill here. A vec + binary search would be fine. Eh.
     // Each chunk of operations has an ID so other ops can refer to it.
@@ -148,6 +240,8 @@ pub fn export_trace_to_json(oplog: &ListOpLog) -> TraceExportData {
         agent_map[*agent as usize] = i;
     }
 
+    let mut txns = vec![];
+
     for (i, entry) in oplog.as_chunked_operation_vec().into_iter().enumerate() {
         // if let Some(last_v) = last_version_from_agent.get(&entry.agent_span.agent) {
         //     if !force {
@@ -165,11 +259,31 @@ pub fn export_trace_to_json(oplog: &ListOpLog) -> TraceExportData {
 
         let agent = agent_map[entry.agent_span.agent as usize];
 
+        let start_lv = entry.span.start;
+        let patches: SmallVec<[SimpleTextOp; 2]> = if let Some(ts) = timestamps.as_ref() {
+            // This is kind of awkward. Because timestamps might split our precious patch at any
+            // point, I'm going to shatter the operations and recombine them with merge_spans.
+            //
+            // A more efficient implementation would RLE encode timestamps and all that, but eh.
+            entry.ops.into_iter().flat_map(|op| shatter(op))
+                .enumerate()
+                .map(|(i, op)| {
+                    let mut text_op: SimpleTextOp = op.into();
+                    let lv = start_lv + i;
+                    let av = oplog.cg.agent_assignment.local_to_agent_version(lv);
+                    text_op.timestamp = get_timestamp(ts, oplog.cg.agent_assignment.get_agent_name(av.0), av.1);
+                    text_op
+                })
+                .merge_spans().collect()
+        } else {
+            entry.ops.into_iter().map(|op| op.into()).merge_spans().collect()
+        };
+
         txns.push(TraceExportTxn {
             parents: entry.parents.iter().map(|v| *idx_for_v.get(v).unwrap()).collect(),
             num_children: 0,
             agent,
-            patches: entry.ops.into_iter().map(|op| op.into()).collect(),
+            patches
         });
 
         for p in entry.parents.iter() {
