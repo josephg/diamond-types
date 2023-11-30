@@ -4,6 +4,7 @@ use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
 use crate::list::ListOpLog;
 use crate::list::operation::ListOpKind;
 use crate::listmerge::M2Tracker;
+use crate::listmerge::merge::TransformedOpsIter2;
 use crate::rev_range::RangeRev;
 use crate::unicount::{chars_to_bytes, split_at_char};
 
@@ -170,11 +171,14 @@ impl MergableSpan for OldCRDTOpInternal {
 impl ListOpLog {
     #[cfg(feature = "ops_to_old")]
     pub fn dbg_items(&self) -> Vec<OldCRDTOp> {
-        self.cg.version.debug_check_sorted();
-        let mut tracker = M2Tracker::new();
-        tracker.walk(&self.cg.graph, &self.cg.agent_assignment, &self.operation_ctx, &self.operations,
-                     Frontier::root(), &[(0..self.len()).into()], None);
-        tracker.dbg_ops.into_iter().merge_spans().map(|op_i| {
+        let items = TransformedOpsIter2::get_crdt_items(&self.cg.graph, &self.cg.agent_assignment,
+                                            &self.operation_ctx, &self.operations,
+                                            &[], self.cg.version.as_ref());
+
+        // dbg!(&items);
+
+        // The items come back with only operationctx position spans. Convert to Strings.
+        items.into_iter().merge_spans().map(|op_i| {
             match op_i {
                 OldCRDTOpInternal::Ins { id, origin_left, origin_right, content_pos } => {
                     OldCRDTOp::Ins {
@@ -184,8 +188,8 @@ impl ListOpLog {
                         content: self.operation_ctx.get_str(ListOpKind::Ins, content_pos).into()
                     }
                 }
-                OldCRDTOpInternal::Del { start_v: start_time, target } => {
-                    OldCRDTOp::Del { start_v: start_time, target }
+                OldCRDTOpInternal::Del { start_v, target } => {
+                    OldCRDTOp::Del { start_v, target }
                 }
             }
         }).collect()

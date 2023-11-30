@@ -276,10 +276,10 @@ impl ConflictSubgraph<M1EntryState> {
         }
     }
 
-    pub(crate) fn make_m1_plan(&mut self, metrics: Option<&Metrics>) -> M1Plan {
+    pub(crate) fn make_m1_plan(mut self, metrics: Option<&Metrics>, allow_ff: bool) -> (M1Plan, Frontier) {
         let mut actions = vec![];
         if self.entries.is_empty() {
-            return M1Plan(actions);
+            return (M1Plan(actions), self.base_version);
         }
 
         let mut nonempty_spans_remaining = self.entries.iter()
@@ -292,7 +292,7 @@ impl ConflictSubgraph<M1EntryState> {
 
         if nonempty_spans_remaining == a_spans_remaining {
             // There's no spans with B. Just bail - no plan needed in this case.
-            return M1Plan(actions);
+            return (M1Plan(actions), self.base_version);
         }
 
         let mut children: Vec<SmallVec<[usize; 2]>> = vec![smallvec![]; self.entries.len()];
@@ -385,7 +385,7 @@ impl ConflictSubgraph<M1EntryState> {
                         actions.push(M1PlanAction::BeginOutput);
                     }
 
-                    if e.state.critical_path {
+                    if e.state.critical_path && allow_ff {
                         // It doesn't make sense to FF in the A / common section.
                         debug_assert_eq!(e.flag, DiffFlag::OnlyB);
 
@@ -399,7 +399,7 @@ impl ConflictSubgraph<M1EntryState> {
                         // Note we only advance & retreat if the item is not on the critical path.
                         // If we're on the critical path, the clear operation will flush everything
                         // anyway.
-                        teleport(self, &mut actions, current_idx, last_processed_after, last_processed_idx);
+                        teleport(&self, &mut actions, current_idx, last_processed_after, last_processed_idx);
                         actions.push_rle(M1PlanAction::Apply(e.span));
                         dirty = true;
                     }
@@ -482,20 +482,20 @@ impl ConflictSubgraph<M1EntryState> {
 
         }
 
-        M1Plan(actions)
+        (M1Plan(actions), self.base_version)
     }
 }
 
 impl Graph {
-    pub(crate) fn make_m1_plan(&self, metrics: Option<&Metrics>, a: &[LV], b: &[LV]) -> (M1Plan, Frontier) {
+    pub(crate) fn make_m1_plan(&self, metrics: Option<&Metrics>, a: &[LV], b: &[LV], allow_ff: bool) -> (M1Plan, Frontier) {
         if self.frontier_contains_frontier(a, b) {
             // Nothing to merge. Do nothing.
             return (M1Plan(vec![]), a.into());
         }
 
-        let mut sg = self.make_conflict_graph_between(a, b);
+        let sg = self.make_conflict_graph_between(a, b);
         // sg.dbg_print();
-        (sg.make_m1_plan(metrics), sg.base_version)
+        sg.make_m1_plan(metrics, allow_ff)
     }
 }
 
@@ -657,13 +657,13 @@ mod test {
             GraphEntrySimple { span: 2.into(), parents: Frontier::new_1(0) },
         ]);
 
-        let mut g = graph.make_conflict_graph_between(&[], &[1, 2]);
+        let g = graph.make_conflict_graph_between(&[], &[1, 2]);
         // g.dbg_print();
         g.dbg_check();
 
-        let plan = g.make_m1_plan(None);
+        let (plan, base_version) = g.make_m1_plan(None, true);
         // dbg!(&plan);
-        plan.dbg_check(g.base_version.as_ref(), &[], &[1, 2], &graph);
+        plan.dbg_check(base_version.as_ref(), &[], &[1, 2], &graph);
     }
 
     #[test]
@@ -676,13 +676,13 @@ mod test {
             GraphEntrySimple { span: 3.into(), parents: Frontier::from_sorted(&[1, 2]) },
         ]);
 
-        let mut g = graph.make_conflict_graph_between(&[], &[3]);
+        let g = graph.make_conflict_graph_between(&[], &[3]);
         // g.dbg_print();
         g.dbg_check();
 
-        let plan = g.make_m1_plan(None);
+        let (plan, base_version) = g.make_m1_plan(None, true);
         // plan.dbg_print();
-        plan.dbg_check(g.base_version.as_ref(), &[], &[3], &graph);
+        plan.dbg_check(base_version.as_ref(), &[], &[3], &graph);
     }
 
     #[test]
@@ -711,15 +711,20 @@ mod test {
 
                 // Alternatively:
                 // let plan = cg.graph.make_m1_plan(a, b);
-                let mut subgraph = cg.graph.make_conflict_graph_between(a, b);
+                let subgraph = cg.graph.make_conflict_graph_between(a, b);
                 subgraph.dbg_check();
                 subgraph.dbg_check_conflicting(&cg.graph, a, b);
 
                 // subgraph.dbg_print();
-                let plan = subgraph.make_m1_plan(None);
+                let (plan, base_version) = subgraph.make_m1_plan(None, true);
                 // plan.dbg_print();
                 // dbg!(&plan);
-                plan.dbg_check(subgraph.base_version.as_ref(), a, b, &cg.graph);
+                plan.dbg_check(base_version.as_ref(), a, b, &cg.graph);
+
+                // And check that if we don't allow fast-forwarding the plan still works.
+                let subgraph = cg.graph.make_conflict_graph_between(a, b);
+                let (plan2, base_version) = subgraph.make_m1_plan(None, false);
+                plan2.dbg_check(base_version.as_ref(), a, b, &cg.graph);
             }
         });
     }

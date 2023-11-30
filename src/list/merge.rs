@@ -8,9 +8,6 @@ use crate::{DTRange, LV};
 
 impl ListOpLog {
     pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter2 {
-        // TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
-        //                         &self.operation_ctx, &self.operations,
-        //                         from, merging)
         TransformedOpsIter2::new(&self.cg.graph, &self.cg.agent_assignment,
                                 &self.operation_ctx, &self.operations,
                                 from, merging)

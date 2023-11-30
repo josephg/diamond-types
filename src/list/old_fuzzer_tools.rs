@@ -16,6 +16,7 @@ pub(crate) fn old_make_random_change_raw(oplog: &mut ListOpLog, branch: &ListBra
         let pos = rng.gen_range(0..=doc_len);
         let len: usize = rng.gen_range(1..3); // Ideally skew toward smaller inserts.
         let content = random_str(len, rng, use_unicode);
+        debug_assert_eq!(content.chars().count(), len);
         let fwd = len == 1 || rng.gen_bool(0.5);
         // eprintln!("Inserting '{}' at position {} (fwd: {})", content, pos, fwd);
 

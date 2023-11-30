@@ -548,7 +548,7 @@ mod test {
 
         // -----
 
-        let (plan, _) = cg.graph.make_m1_plan(Some(&o.operations), &[], cg.version.as_ref());
+        let (plan, _) = cg.graph.make_m1_plan(Some(&o.operations), &[], cg.version.as_ref(), true);
 
         let mut cost_estimate = 0;
         let mut clears = 0;
