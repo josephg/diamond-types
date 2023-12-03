@@ -162,5 +162,7 @@ fn main() {
     // print_stats_for_testdata("seph-blog1");
     //
     // print_stats_for_file("benchmark_data/node_nodecc.dt");
-    print_stats_for_file("benchmark_data/git-makefile.dt");
+    // print_stats_for_file("benchmark_data/git-makefile.dt");
+    print_stats_for_file("benchmark_data/friendsforever.dt");
+    print_stats_for_file("benchmark_data/clownschool.dt");
 }

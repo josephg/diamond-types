@@ -24,7 +24,7 @@ use diamond_types::list::operation::{ListOpKind, TextOperation};
 use smartstring::alias::{String as SmartString};
 use diamond_types::{AgentId, DTRange, HasLength};
 use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
-use rle::{MergableSpan, MergeableIterator, shatter, SplitableSpan};
+use rle::{AppendRle, MergableSpan, MergeableIterator, shatter, SplitableSpan};
 
 // Note this discards the fwd/backwards direction of the changes. This shouldn't matter in
 // practice given the whole operation is unitary.
@@ -393,11 +393,11 @@ pub struct TraceSimpleExportData {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceSimpleExportTxn {
-    time: SmartString,
+    // time: SmartString,
     patches: SmallVec<[SimpleTextOp; 4]>,
 }
 
-pub fn export_transformed(oplog: &ListOpLog, timestamp: String) -> TraceSimpleExportData {
+pub fn export_transformed(oplog: &ListOpLog, timestamp_filename: Option<OsString>) -> TraceSimpleExportData {
     // The file format stores a set of transactions, and each transaction stores a list of patches.
     // It would be really simple to just export everything into one big transaction, but thats a bit
     // lazy.
@@ -406,11 +406,13 @@ pub fn export_transformed(oplog: &ListOpLog, timestamp: String) -> TraceSimpleEx
     //
     // Note that the order that we traverse the operations here may be different from the order
     // that we export things in the export function above.
+    let timestamps = timestamp_filename.map(read_timestamps);
+
     let mut txns = vec![];
-    let timestamp: SmartString = timestamp.into();
+    // let timestamp: SmartString = timestamp.into();
 
     let mut current_txn = TraceSimpleExportTxn {
-        time: timestamp.clone(),
+        // time: timestamp.clone(),
         patches: smallvec![],
     };
     let mut last_agent: Option<&str> = None;
@@ -427,12 +429,22 @@ pub fn export_transformed(oplog: &ListOpLog, timestamp: String) -> TraceSimpleEx
                     assert!(!current_txn.patches.is_empty());
                     txns.push(current_txn);
                     current_txn = TraceSimpleExportTxn {
-                        time: timestamp.clone(),
+                        // time: timestamp.clone(),
                         patches: smallvec![],
                     };
                 }
 
-                current_txn.patches.push(op_here.into());
+                if let Some(ts) = timestamps.as_ref() {
+                    // let start_lv = range.start;
+                    for (i, o) in shatter(op_here).enumerate() {
+                        let mut text_op: SimpleTextOp = o.into();
+                        text_op.timestamp = get_timestamp(ts, agent, seq_range.start + i);
+                        current_txn.patches.push_rle(text_op);
+                    }
+                } else {
+                    current_txn.patches.push_rle(op_here.into());
+                }
+
                 last_agent = Some(agent);
             }
         }

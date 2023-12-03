@@ -9,7 +9,6 @@ use std::io::{BufWriter, ErrorKind, Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use anyhow::Error;
-use chrono::{DateTime, SecondsFormat, Timelike, Utc};
 use clap::{Parser, Subcommand};
 use rand::distributions::Alphanumeric;
 use rand::{Rng, RngCore};
@@ -235,6 +234,10 @@ enum Commands {
         /// Use pretty JSON output
         #[arg(short, long)]
         pretty: bool,
+
+        /// The file containing timestamps to merge
+        #[arg(short)]
+        timestamp_filename: Option<OsString>,
     },
 
     /// Generate and export testing data for multi-implementation conformance testing.
@@ -596,22 +599,24 @@ fn main() -> Result<(), anyhow::Error> {
             write_serde_data(output, pretty, &result)?;
         }
 
-        Commands::ExportTraceSimple { dt_filename, output, pretty } => {
+        Commands::ExportTraceSimple { dt_filename, output, pretty, timestamp_filename } => {
             // In this editing trace format, a timestamp is passed in each transaction. We'll just
             // construct a single timestamp for the whole file based on the file's mtime and use
             // that everywhere.
-            let metadata = fs::metadata(&dt_filename)?;
-            let modified_time = metadata.modified()?;
-            let datetime: DateTime<Utc> = modified_time.into();
-            let timestamp = datetime.with_minute(0).unwrap()
-                .with_second(0).unwrap()
-                .to_rfc3339_opts(SecondsFormat::Secs, true);
+
+            // let metadata = fs::metadata(&dt_filename)?;
+            // let modified_time = metadata.modified()?;
+            // let datetime: DateTime<Utc> = modified_time.into();
+            // let timestamp = datetime.with_minute(0).unwrap()
+            //     .with_second(0).unwrap()
+            //     .to_rfc3339_opts(SecondsFormat::Secs, true);
+
             // println!("time {time}");
 
             let data = fs::read(&dt_filename)?;
             let oplog = ListOpLog::load_from(&data)?;
 
-            let result = export_transformed(&oplog, timestamp);
+            let result = export_transformed(&oplog, timestamp_filename);
             write_serde_data(output, pretty, &result)?;
         }
 
