@@ -1,5 +1,5 @@
 use smallvec::SmallVec;
-use rle::{HasLength, SplitableSpan, SplitableSpanCtx};
+use rle::{AppendRle, HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx, SplitableSpanHelpers};
 use rle::zip::{rle_zip, rle_zip3};
 use crate::causalgraph::agent_span::AgentSpan;
 use crate::causalgraph::entry::CGEntry;
@@ -188,6 +188,59 @@ pub struct FullEntry {
     pub ops: SmallVec<[TextOperation; 2]>,
 }
 
+impl SplitableSpanHelpers for FullEntry {
+    fn truncate_h(&mut self, at: usize) -> Self {
+        debug_assert!(at > 0 && at < self.span.len());
+
+        let mut result = Self {
+            span: self.span.truncate_h(at),
+            parents: Frontier::new_1(self.span.start + at - 1),
+            agent_span: self.agent_span.truncate_h(at),
+            ops: Default::default(),
+        };
+
+        'outer: {
+            let mut rem = at;
+            for (i, op) in self.ops.iter_mut().enumerate() {
+                if op.len() > rem {
+                    let from = if rem > 0 {
+                        result.ops.push(op.truncate(rem));
+                        i + 1
+                    } else { i };
+
+                    result.ops.extend(self.ops.drain(from..));
+                    break 'outer;
+                    // break (i, if rem > 0 { Some(op.truncate(rem)) } else { None });
+                }
+                rem -= op.len();
+            }
+            panic!("Invalid ops in entry - op length smaller than expected");
+        }
+
+        result
+    }
+}
+
+impl MergableSpan for FullEntry {
+    fn can_append(&self, other: &Self) -> bool {
+        self.span.can_append(&other.span)
+            && other.parents.as_ref() == &[self.span.last()]
+            && self.agent_span.can_append(&other.agent_span)
+    }
+
+    fn append(&mut self, other: Self) {
+        self.span.append(other.span);
+        self.agent_span.append(other.agent_span);
+        self.ops.extend_rle(other.ops.into_iter());
+    }
+}
+
+impl HasLength for FullEntry {
+    fn len(&self) -> usize {
+        self.span.len()
+    }
+}
+
 impl ListOpLog {
     pub fn iter_full<'a>(&'a self, simple_graph: &'a RleVec<GraphEntrySimple>) -> impl Iterator<Item = (GraphEntrySimple, AgentSpan, TextOperation)> + 'a {
         self.iter_fast().flat_map(|(pair, content)| {
@@ -233,10 +286,13 @@ impl ListOpLog {
 
 #[cfg(test)]
 mod test {
+    use smallvec::smallvec;
+    use smartstring::SmartString;
     use super::*;
     use crate::list::operation::ListOpKind;
     use crate::rle::{KVPair, RleVec};
     use ListOpKind::*;
+    use rle::test_splitable_methods_valid;
 
     #[test]
     fn iter_smoke() {
@@ -323,4 +379,19 @@ mod test {
     //     let result_data = result.encode(ENCODE_FULL);
     //     std::fs::write("ff2.dt", &result_data).unwrap();
     // }
+
+    #[test]
+    fn split_fullentry() {
+        let fe = FullEntry {
+            span: (10..20).into(),
+            parents: Frontier::from_sorted(&[1, 2]),
+            agent_span: AgentSpan { agent: 0, seq_range: (0..10).into() },
+            ops: smallvec![
+                TextOperation { loc: (0..5).into(), kind: Ins, content: Some("abcde".into()) },
+                TextOperation { loc: (100..105).into(), kind: Del, content: None },
+            ],
+        };
+
+        test_splitable_methods_valid(fe);
+    }
 }
