@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 diamond-types = {path = "../..", features = ["ops_to_old"]}
-diamond-types-old = {path = "../diamond-types-old"}
+diamond-types-crdt = {path = "../diamond-types-crdt"}
 smallvec = "1.9.0"
 rle = {path = "../rle"}
 criterion = { version = "0.5.1", features = ["html_reports"] }

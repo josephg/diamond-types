@@ -1,5 +1,5 @@
 [package]
-name = "diamond-types-old"
+name = "diamond-types-crdt"
 version = "0.1.0"
 authors = ["Seph Gentle <me@josephg.com>"]
 edition = "2021"

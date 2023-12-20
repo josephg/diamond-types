@@ -12,7 +12,7 @@ use jumprope::JumpRope;
 /// RUST_BACKTRACE=1 cargo test fuzz_concurrency_forever -- --nocapture --ignored
 
 use rand::prelude::*;
-use diamond_types_old::list::ListCRDT;
+use diamond_types_crdt::list::ListCRDT;
 use diamond_core_old::AgentId;
 
 pub fn random_str(len: usize, rng: &mut SmallRng) -> String {

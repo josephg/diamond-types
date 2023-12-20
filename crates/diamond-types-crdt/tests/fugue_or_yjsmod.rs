@@ -1,5 +1,5 @@
 
-use diamond_types_old::list::ListCRDT;
+use diamond_types_crdt::list::ListCRDT;
 use diamond_core_old::AgentId;
 
 // Tiny "document" wrapper.

@@ -99,7 +99,7 @@ fn conformance_tests() {
         let old_txns = get_txns_from_oplog(&oplog);
         // dbg!(&old_txns);
 
-        let mut old_oplog = diamond_types_old::list::ListCRDT::new();
+        let mut old_oplog = diamond_types_crdt::list::ListCRDT::new();
         for txn in &old_txns {
             // dbg!(txn);
             old_oplog.apply_remote_txn(txn);

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 use diamond_core_old::AgentId;
-use diamond_types_old::list::ListCRDT;
+use diamond_types_crdt::list::ListCRDT;
 use std::fmt::Write;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

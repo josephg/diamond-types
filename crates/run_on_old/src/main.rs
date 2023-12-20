@@ -7,8 +7,8 @@ use diamond_types::causalgraph::agent_assignment::remote_ids::{RemoteVersionOwne
 use diamond_types::DTRange;
 use diamond_types::list::ListOpLog;
 use diamond_types::listmerge::to_old::OldCRDTOp;
-use diamond_types_old::list::external_txn::{RemoteId as OldRemoteId, RemoteIdSpan as OldRemoteIdSpan, RemoteTxn};
-use diamond_types_old::root_id;
+use diamond_types_crdt::list::external_txn::{RemoteId as OldRemoteId, RemoteIdSpan as OldRemoteIdSpan, RemoteTxn};
+use diamond_types_crdt::root_id;
 use rle::{AppendRle, HasLength, SplitableSpan};
 
 fn time_to_remote_id(time: usize, oplog: &ListOpLog) -> OldRemoteId {
@@ -111,7 +111,7 @@ pub fn get_txns_from_oplog(oplog: &ListOpLog) -> Vec<RemoteTxn> {
                 OldCRDTOp::Ins {
                     id, origin_left, origin_right, content
                 } => {
-                    ops.push_rle(diamond_types_old::list::external_txn::RemoteCRDTOp::Ins {
+                    ops.push_rle(diamond_types_crdt::list::external_txn::RemoteCRDTOp::Ins {
                         origin_left: time_to_remote_id(origin_left, &oplog),
                         origin_right: time_to_remote_id(origin_right, &oplog),
                         len: id.len() as _,
@@ -130,7 +130,7 @@ pub fn get_txns_from_oplog(oplog: &ListOpLog) -> Vec<RemoteTxn> {
                         let first_item = target.truncate_keeping_right(1);
                         let t_here = lv_to_remote_span(first_item.span, &oplog);
 
-                        ops.push_rle(diamond_types_old::list::external_txn::RemoteCRDTOp::Del {
+                        ops.push_rle(diamond_types_crdt::list::external_txn::RemoteCRDTOp::Del {
                             id: t_here.id,
                             len: t_here.len // always 1.
                         });
@@ -178,7 +178,7 @@ fn bench_process(c: &mut Criterion) {
         // let new_str = oplog.checkout_tip().content().to_string();
         // assert_eq!(old_str, new_str);
         b.iter(|| {
-            let mut old_oplog = diamond_types_old::list::ListCRDT::new();
+            let mut old_oplog = diamond_types_crdt::list::ListCRDT::new();
             for txn in txns.iter() {
                 old_oplog.apply_remote_txn(txn);
             }
@@ -188,7 +188,7 @@ fn bench_process(c: &mut Criterion) {
 
     // DIRTY!!!
 
-    let mut old_oplog = diamond_types_old::list::ListCRDT::new();
+    let mut old_oplog = diamond_types_crdt::list::ListCRDT::new();
     for txn in txns.iter() {
         old_oplog.apply_remote_txn(txn);
     }
@@ -211,7 +211,7 @@ fn main() {
 //
 //     let txns = get_txns(name);
 //     println!("Applying changes to oplog");
-//     let mut old_oplog = diamond_types_old::list::ListCRDT::new();
+//     let mut old_oplog = diamond_types_crdt::list::ListCRDT::new();
 //     for (_i, txn) in txns.iter().enumerate() {
 //         old_oplog.apply_remote_txn(txn);
 //     }

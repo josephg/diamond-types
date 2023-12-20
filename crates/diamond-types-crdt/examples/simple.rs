@@ -1,6 +1,6 @@
 use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
-use diamond_types_old::list::ListCRDT;
+use diamond_types_crdt::list::ListCRDT;
 
 fn random_str(len: usize, rng: &mut SmallRng) -> String {
     let mut str = String::new();

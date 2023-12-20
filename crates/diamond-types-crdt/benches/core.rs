@@ -6,7 +6,7 @@ mod utils;
 
 use criterion::{criterion_group, criterion_main, black_box, Criterion, BenchmarkId, Throughput};
 use crdt_testdata::{load_testing_data, TestData};
-use diamond_types_old::list::*;
+use diamond_types_crdt::list::*;
 use utils::apply_edits;
 
 fn testing_data(name: &str) -> TestData {

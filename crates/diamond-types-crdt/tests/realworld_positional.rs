@@ -1,10 +1,10 @@
 use crdt_testdata::nonlinear::{load_nl_testing_data, NLId};
-use diamond_types_old::list::external_txn::RemoteId;
-use diamond_types_old::list::{InsDelTag, ListCRDT, PositionalComponent};
+use diamond_types_crdt::list::external_txn::RemoteId;
+use diamond_types_crdt::list::{InsDelTag, ListCRDT, PositionalComponent};
 // use smartstring::alias::String as SmartString;
 use crdt_testdata::TestPatch;
-use diamond_types_old::list::positional::PositionalOpRef;
-use diamond_types_old::root_id;
+use diamond_types_crdt::list::positional::PositionalOpRef;
+use diamond_types_crdt::root_id;
 
 // #[test]
 // fn foo() {
