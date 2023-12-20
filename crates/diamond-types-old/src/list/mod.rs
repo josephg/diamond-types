@@ -74,7 +74,7 @@ pub(crate) const DOC_LE: usize = DEFAULT_LE;
 type DocRangeIndex = FullMetricsU32;
 
 pub(crate) type RangeTree = Pin<Box<ContentTreeRaw<YjsSpan, DocRangeIndex>>>;
-pub(crate) type RangeTreeLeaf = NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>;
+// pub(crate) type RangeTreeLeaf = NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>;
 
 type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionMetricsU32>>>;
 
