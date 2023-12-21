@@ -73,6 +73,16 @@ impl DTRange {
         else { Ordering::Equal }
     }
 
+    pub fn take_first(&mut self) -> Option<usize> {
+        if self.is_empty() {
+            None
+        } else {
+            let next = self.start;
+            self.start += 1;
+            Some(next)
+        }
+    }
+
     pub fn iter(&self) -> impl Iterator<Item=usize> {
         Range::<usize>::from(self)
     }
@@ -196,6 +206,20 @@ impl HasRleKey for DTRange {
         self.start
     }
 }
+
+// impl Iterator for DTRange {
+//     type Item = usize;
+//
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if self.is_empty() {
+//             None
+//         } else {
+//             let next = self.start;
+//             self.start += 1;
+//             Some(next)
+//         }
+//     }
+// }
 
 pub(crate) const UNDERWATER_START: usize = usize::MAX / 4;
 
