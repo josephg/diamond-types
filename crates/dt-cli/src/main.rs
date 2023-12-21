@@ -221,6 +221,11 @@ enum Commands {
         // /// shared traces.
         // #[arg(short, long)]
         // force: bool,
+
+        /// When there is no timestamp file, shatter the trace such that every keystroke gets its
+        /// own transaction
+        #[arg(short, long)]
+        shatter: bool
     },
 
     ExportTraceSimple {
@@ -238,6 +243,11 @@ enum Commands {
         /// The file containing timestamps to merge
         #[arg(short)]
         timestamp_filename: Option<OsString>,
+
+        /// When there is no timestamp file, shatter the trace such that every keystroke gets its
+        /// own transaction
+        #[arg(short, long)]
+        shatter: bool
     },
 
     /// Generate and export testing data for multi-implementation conformance testing.
@@ -571,7 +581,7 @@ fn main() -> Result<(), anyhow::Error> {
             write_serde_data(output, pretty, &result)?;
         }
 
-        Commands::ExportTrace { dt_filename, output, pretty, timestamp_filename } => {
+        Commands::ExportTrace { dt_filename, output, pretty, timestamp_filename, shatter } => {
             let data = fs::read(&dt_filename)?;
             let oplog = ListOpLog::load_from(&data)?;
 
@@ -595,11 +605,11 @@ fn main() -> Result<(), anyhow::Error> {
                 ");
             }
 
-            let result = export_trace_to_json(&oplog, timestamp_filename);
+            let result = export_trace_to_json(&oplog, timestamp_filename, shatter);
             write_serde_data(output, pretty, &result)?;
         }
 
-        Commands::ExportTraceSimple { dt_filename, output, pretty, timestamp_filename } => {
+        Commands::ExportTraceSimple { dt_filename, output, pretty, timestamp_filename, shatter } => {
             // In this editing trace format, a timestamp is passed in each transaction. We'll just
             // construct a single timestamp for the whole file based on the file's mtime and use
             // that everywhere.
@@ -616,7 +626,7 @@ fn main() -> Result<(), anyhow::Error> {
             let data = fs::read(&dt_filename)?;
             let oplog = ListOpLog::load_from(&data)?;
 
-            let result = export_transformed(&oplog, timestamp_filename);
+            let result = export_transformed(&oplog, timestamp_filename, shatter);
             write_serde_data(output, pretty, &result)?;
         }
 

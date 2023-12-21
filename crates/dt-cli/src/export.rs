@@ -245,7 +245,7 @@ impl Timestamps {
     }
 }
 
-pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsString>) -> TraceExportData {
+pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsString>, shatter: bool) -> TraceExportData {
     let timestamps = timestamp_filename.map(Timestamps::from_file);
 
     // TODO: A hashmap is overkill here. A vec + binary search would be fine. Eh.
@@ -289,7 +289,7 @@ pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsStri
             //
             // When there is no timestamp information, I'm splitting each patch into its own
             // transaction because thats more accurate than doing the opposite.
-            (Default::default(), iter.next(1).unwrap())
+            (Default::default(), iter.next(if shatter { 1 } else { usize::MAX }).unwrap())
         };
 
         // if let Some(last_v) = last_version_from_agent.get(&entry.agent_span.agent) {
@@ -435,7 +435,7 @@ pub struct TraceSimpleExportTxn {
     patches: SmallVec<[SimpleTextOp; 4]>,
 }
 
-pub fn export_transformed(oplog: &ListOpLog, timestamp_filename: Option<OsString>) -> TraceSimpleExportData {
+pub fn export_transformed(oplog: &ListOpLog, timestamp_filename: Option<OsString>, shatter: bool) -> TraceSimpleExportData {
     // The file format stores a set of transactions, and each transaction stores a list of patches.
     // It would be really simple to just export everything into one big transaction, but thats a bit
     // lazy.
@@ -445,7 +445,6 @@ pub fn export_transformed(oplog: &ListOpLog, timestamp_filename: Option<OsString
     // Note that the order that we traverse the operations here may be different from the order
     // that we export things in the export function above.
     let timestamps = timestamp_filename.map(Timestamps::from_file);
-    let shatter_when_no_timestamps = true;
 
     let mut txns = vec![];
     // let timestamp: SmartString = timestamp.into();
@@ -472,14 +471,14 @@ pub fn export_transformed(oplog: &ListOpLog, timestamp_filename: Option<OsString
                 let (ts, ts_len) = ts.get_rv_range(iter.peek().unwrap().clone());
                 (ts, iter.next(ts_len).unwrap())
             } else {
-                (Default::default(), iter.next(if shatter_when_no_timestamps { 1 } else { usize::MAX }).unwrap())
+                (Default::default(), iter.next(if shatter { 1 } else { usize::MAX }).unwrap())
             };
 
             if current_txn.time == DateTime::<FixedOffset>::default() {
                 current_txn.time = timestamp;
             }
 
-            let can_append = (current_txn.patches.is_empty() || timestamps.is_some() || !shatter_when_no_timestamps)
+            let can_append = (current_txn.patches.is_empty() || timestamps.is_some() || !shatter)
                 && (last_agent == Some(agent) || last_agent == None)
                 && current_txn.time == timestamp;
 
