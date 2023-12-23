@@ -372,7 +372,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
 
     #[allow(unused)]
     pub fn count_entries(&self) -> usize {
-        self.raw_iter().fold(0, |a, _| a + 1)
+        self.raw_iter().count()
     }
 
     // Passing (num internal nodes, num leaf nodes).
