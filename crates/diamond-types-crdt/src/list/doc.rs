@@ -93,7 +93,8 @@ impl Clone for ListCRDT {
 }
 
 impl ListCRDT {
-    pub fn new() -> Self {
+    /// Make a CRDT object which does not store or update the resulting document state
+    pub fn new_pure_oplog() -> Self {
         ListCRDT {
             client_with_time: RleVec::new(),
             frontier: smallvec![ROOT_LV],
@@ -108,10 +109,17 @@ impl ListCRDT {
 
             txns: RleVec::new(),
 
-            text_content: Some(JumpRopeBuf::new()),
+            text_content: None,
             // text_content: None,
             deleted_content: None,
         }
+    }
+
+    #[inline]
+    pub fn new() -> Self {
+        let mut doc = Self::new_pure_oplog();
+        doc.text_content = Some(JumpRopeBuf::new());
+        doc
     }
 
     pub fn has_content(&self) -> bool {
