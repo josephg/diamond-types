@@ -617,7 +617,7 @@ impl TransformedResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct TransformedOpsIter2<'a> {
+pub(crate) struct TransformedOpsIter<'a> {
     subgraph: &'a Graph,
     aa: &'a AgentAssignment,
     op_ctx: &'a ListOperationCtx,
@@ -639,7 +639,7 @@ pub(crate) struct TransformedOpsIter2<'a> {
     max_frontier: Frontier,
 }
 
-impl<'a> TransformedOpsIter2<'a> {
+impl<'a> TransformedOpsIter<'a> {
     pub(crate) fn from_plan(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
                       ops: &'a RleVec<KVPair<ListOpMetrics>>,
                       plan: M1Plan, common: Frontier) -> Self {
@@ -686,9 +686,13 @@ impl<'a> TransformedOpsIter2<'a> {
         self.tracker.concurrent_inserts_collide
     }
 
+    pub(crate) fn tracker_count(&self) -> usize {
+        // self.tracker.range_tree.count_total_memory()
+        self.tracker.range_tree.count_entries()
+    }
 }
 
-impl<'a> Iterator for TransformedOpsIter2<'a> {
+impl<'a> Iterator for TransformedOpsIter<'a> {
     /// Iterator over transformed operations. The KVPair.0 holds the original time of the operation.
     type Item = (LV, ListOpMetrics, TransformedResult);
 
@@ -796,11 +800,11 @@ pub fn reverse_str(s: &str) -> SmartString {
 }
 
 impl TextInfo {
-    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Graph, aa: &'a AgentAssignment, from: &[LV], merging: &[LV]) -> TransformedOpsIter2<'a> {
-        TransformedOpsIter2::new(subgraph, aa, &self.ctx, &self.ops, from, merging)
+    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Graph, aa: &'a AgentAssignment, from: &[LV], merging: &[LV]) -> TransformedOpsIter<'a> {
+        TransformedOpsIter::new(subgraph, aa, &self.ctx, &self.ops, from, merging)
     }
 
-    pub(crate) fn with_xf_iter<F: FnOnce(TransformedOpsIter2, Frontier) -> R, R>(&self, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV], f: F) -> R {
+    pub(crate) fn with_xf_iter<F: FnOnce(TransformedOpsIter, Frontier) -> R, R>(&self, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV], f: F) -> R {
         // This is a big dirty mess for now, but it should be correct at least.
         let conflict = cg.graph.find_conflicting_simple(from, merge_frontier);
 

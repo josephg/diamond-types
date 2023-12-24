@@ -2,13 +2,14 @@ use rle::HasLength;
 use crate::frontier::FrontierRef;
 use crate::list::{ListBranch, ListOpLog};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::listmerge::merge::{reverse_str, TransformedOpsIter2};
+use crate::listmerge::merge::{reverse_str, TransformedOpsIter};
 use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::{DTRange, LV};
+use crate::listmerge::plan::M1PlanAction;
 
 impl ListOpLog {
-    pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter2 {
-        TransformedOpsIter2::new(&self.cg.graph, &self.cg.agent_assignment,
+    pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter {
+        TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
                                 &self.operation_ctx, &self.operations,
                                 from, merging)
     }
@@ -48,11 +49,85 @@ impl ListOpLog {
 
     #[cfg(feature = "merge_conflict_checks")]
     pub fn has_conflicts_when_merging(&self) -> bool {
-        let mut iter = TransformedOpsIter2::new(&self.cg.graph, &self.cg.agent_assignment,
+        let mut iter = TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
                                                &self.operation_ctx, &self.operations,
                                                &[], self.cg.version.as_ref());
         for _ in &mut iter {}
         iter.concurrent_inserts_collided()
+    }
+
+    pub fn dbg_iter_xf_operations_no_ff(&self) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
+        // allow_ff: false!
+        let (plan, common) = self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), false);
+        let iter = TransformedOpsIter::from_plan(&self.cg.graph, &self.cg.agent_assignment,
+                                                     &self.operation_ctx, &self.operations,
+                                                     plan, common);
+
+        // Return the data in the same format as iter_xf_operations_from to make benchmarks fair.
+        iter.map(|(lv, mut origin_op, xf)| {
+            let len = origin_op.len();
+            let op: Option<TextOperation> = match xf {
+                BaseMoved(base) => {
+                    origin_op.loc.span = (base..base+len).into();
+                    let content = origin_op.get_content(&self.operation_ctx);
+                    Some((origin_op, content).into())
+                }
+                DeleteAlreadyHappened => None,
+            };
+            ((lv..lv +len).into(), op)
+        })
+    }
+
+    pub fn get_ff_stats(&self) -> (usize, usize, usize) {
+        let (plan, _common) = self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), true);
+
+        let mut normal_advances = 0;
+        let mut clears = 0;
+        let mut ff = 0;
+
+        for a in &plan.0 {
+            match a {
+                M1PlanAction::Apply(span) => { normal_advances += span.len(); }
+                M1PlanAction::Clear => { clears += 1; }
+                M1PlanAction::FF(span) => { ff += span.len(); }
+                _ => {}
+            }
+        }
+
+        (clears, normal_advances, ff)
+    }
+    pub fn get_size_stats_during_xf(&self, samples: usize, allow_ff: bool) -> Vec<(LV, usize)> {
+        let every = usize::max(self.cg.len() / samples, 1);
+
+        let (plan, common) = self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), allow_ff);
+        let mut iter = TransformedOpsIter::from_plan(&self.cg.graph, &self.cg.agent_assignment,
+                                               &self.operation_ctx, &self.operations,
+                                               plan, common);
+
+        let mut result = vec![];
+
+        let mut emit_next = 0; // Absolute LV.
+        while let Some((lv, _origin_op, _xf)) = iter.next() {
+            while emit_next <= lv {
+                result.push((emit_next, iter.tracker_count()));
+                emit_next += every;
+            }
+        }
+        // let mut emit_next: isize = 0;
+        // while let Some((lv, origin_op, _xf)) = iter.next() {
+        //     let len_here = origin_op.len();
+        //     // println!("op {}", len_here);
+        //
+        //     emit_next -= len_here as isize;
+        //
+        //     while emit_next < 0 {
+        //         // emit the size now
+        //         result.push((lv, iter.tracker_count()));
+        //         emit_next += every as isize;
+        //     }
+        // }
+
+        result
     }
 }
 

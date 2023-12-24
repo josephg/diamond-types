@@ -120,7 +120,6 @@ fn print_stats_for_file(name: &str) {
 
     // print_merge_stats();
 
-
     #[cfg(feature = "memusage")]
     let start_bytes = get_thread_memory_usage();
     #[cfg(feature = "memusage")]
@@ -163,6 +162,6 @@ fn main() {
     //
     // print_stats_for_file("benchmark_data/node_nodecc.dt");
     // print_stats_for_file("benchmark_data/git-makefile.dt");
-    print_stats_for_file("benchmark_data/friendsforever.dt");
-    print_stats_for_file("benchmark_data/clownschool.dt");
+    // print_stats_for_file("benchmark_data/friendsforever.dt");
+    // print_stats_for_file("benchmark_data/clownschool.dt");
 }
