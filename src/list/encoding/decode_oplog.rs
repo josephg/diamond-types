@@ -498,14 +498,14 @@ impl ListOpLog {
             // support iterating backwards.
             self.doc_id = doc_id;
 
-            while let Some(last) = self.cg.agent_assignment.client_with_localtime.0.last_mut() {
+            while let Some(last) = self.cg.agent_assignment.client_with_lv.0.last_mut() {
                 debug_assert!(len <= last.end());
                 if len == last.end() { break; }
                 else {
                     // Truncate!
                     let KVPair(_, removed) = if len <= last.0 {
                         // Drop entire entry
-                        self.cg.agent_assignment.client_with_localtime.0.pop().unwrap()
+                        self.cg.agent_assignment.client_with_lv.0.pop().unwrap()
                     } else {
                         last.truncate(len - last.0)
                     };

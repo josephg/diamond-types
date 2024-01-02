@@ -35,7 +35,7 @@ pub struct AgentAssignment {
     /// This is used to map Local time -> External CRDT locations.
     ///
     /// List is packed.
-    pub(crate) client_with_localtime: RleVec<KVPair<AgentSpan>>,
+    pub(crate) client_with_lv: RleVec<KVPair<AgentSpan>>,
 
     /// For each client, we store some data (above). This is indexed by AgentId.
     ///
@@ -124,22 +124,22 @@ impl AgentAssignment {
     }
 
     pub fn len(&self) -> usize {
-        self.client_with_localtime.end()
+        self.client_with_lv.end()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.client_with_localtime.is_empty()
+        self.client_with_lv.is_empty()
     }
 
     pub fn local_to_agent_version(&self, version: LV) -> AgentVersion {
         debug_assert_ne!(version, usize::MAX);
-        self.client_with_localtime.get(version)
+        self.client_with_lv.get(version)
     }
 
     pub(crate) fn local_span_to_agent_span(&self, version: DTRange) -> AgentSpan {
         debug_assert_ne!(version.start, usize::MAX);
 
-        let (loc, offset) = self.client_with_localtime.find_packed_with_offset(version.start);
+        let (loc, offset) = self.client_with_lv.find_packed_with_offset(version.start);
         let start = loc.1.seq_range.start + offset;
         let end = usize::min(loc.1.seq_range.end, start + version.len());
         AgentSpan {
@@ -165,7 +165,7 @@ impl AgentAssignment {
         let next_seq = client_data.get_next_seq();
         client_data.lv_for_seq.push(KVPair(next_seq, span));
 
-        self.client_with_localtime.push(KVPair(span.start, AgentSpan {
+        self.client_with_lv.push(KVPair(span.start, AgentSpan {
             agent,
             seq_range: DTRange { start: next_seq, end: next_seq + span.len() },
         }));

@@ -114,7 +114,7 @@ impl CausalGraph {
         // Almost always appending to the end but its possible for the same agent ID to be used on
         // two concurrent branches, then transmitted in a different order.
         client_data.lv_for_seq.insert(KVPair(span.seq_range.start, time_span));
-        self.agent_assignment.client_with_localtime.push(KVPair(time_start, span));
+        self.agent_assignment.client_with_lv.push(KVPair(time_start, span));
         self.graph.push(parents, time_span);
         self.version.advance_by_known_run(parents, time_span);
         time_span
@@ -163,7 +163,7 @@ impl CausalGraph {
                         let time_span: DTRange = (time_start..time_start + actual_len).into();
                         let new_entry = KVPair(previous_end, time_span);
 
-                        self.agent_assignment.client_with_localtime.push(KVPair(time_start, AgentSpan {
+                        self.agent_assignment.client_with_lv.push(KVPair(time_start, AgentSpan {
                             agent: span.agent,
                             seq_range: (prev_entry.end()..span.seq_range.end).into()
                         }));
@@ -192,7 +192,7 @@ impl CausalGraph {
                 // We know it can't combine with the previous element.
                 let time_span = (time_start..time_start + span.len()).into();
                 client_data.lv_for_seq.0.insert(idx, KVPair(span.seq_range.start, time_span));
-                self.agent_assignment.client_with_localtime.push(KVPair(time_start, span));
+                self.agent_assignment.client_with_lv.push(KVPair(time_start, span));
                 self.graph.push(parents, time_span);
                 self.version.advance_by_known_run(parents, time_span);
                 time_span
@@ -226,7 +226,7 @@ impl CausalGraph {
 
     pub fn iter_range(&self, range: DTRange) -> impl Iterator<Item=CGEntry> + '_ {
         let parents = self.graph.iter_range(range);
-        let aa = self.agent_assignment.client_with_localtime.iter_range(range)
+        let aa = self.agent_assignment.client_with_lv.iter_range(range)
             .map(|KVPair(_, data)| data);
 
         rle_zip(parents, aa).map(|(parents, span): (GraphEntrySimple, AgentSpan)| {

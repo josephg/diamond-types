@@ -726,6 +726,86 @@ impl Graph {
         result.reverse();
         Frontier(result)
     }
+
+    /// Estimate the concurrency of the graph. We do a BFS and measure the width of the BFS during
+    /// traversal.
+    ///
+    /// This method is just for testing and getting stats from data sets. Its output should not be
+    /// considered stable.
+    ///
+    /// The frontier must be "reduced".
+    // #[cfg(feature = "gen_test_data")]
+    pub(crate) fn estimate_concurrency(&self, frontier: &[LV]) -> f32 {
+        // let mut queue: BinaryHeap<LV> = frontier.iter().copied().collect();
+
+        // Not using a binaryheap because the set needs to stay "reduced". The other way to do this
+        // would be to use a binaryheap anyway, but call find_dominators every time we evaluate
+        // the concurrency. Eh. Optimization here doesn't matter. I just can't help myself.
+
+        // let mut queue: Frontier = frontier.iter().copied().collect();
+        let mut queue = self.find_dominators(frontier);
+
+        let mut sum = 0;
+        let mut count = 0;
+
+        while let Some(mut lv) = queue.0.pop() {
+            let entry = self.entries.find_packed(lv);
+            let concurrency_here = queue.len();
+
+            while let Some(&next_lv) = queue.0.last() {
+                if next_lv >= entry.span.start {
+                    count += lv - next_lv;
+                    sum += concurrency_here * (lv - next_lv);
+                    lv = next_lv;
+
+                    queue.0.pop();
+                } else { break; }
+            }
+
+            count += lv - entry.span.start + 1;
+            sum += concurrency_here * (lv - entry.span.start + 1);
+
+            // This is slow.
+            queue = self.find_dominators_2(queue.as_ref(), entry.parents.as_ref());
+            // let f = queue.clone().into_sorted_vec();
+            // // self.find_dominators_full()
+            // // queue.extend(entry.parents.iter());
+            // for &p in entry.parents.iter() {
+            //     if !self.frontier_contains_version(&f, p) {
+            //         queue.push(p);
+            //     }
+            // }
+        }
+
+        (sum as f32) / (count as f32)
+    }
+
+    /// Like above, this gives an estimate of the CG complexity for testing.
+    pub(crate) fn count_all_graph_entries(&self, frontier: &[LV]) -> usize {
+        let mut queue: BinaryHeap<LV> = frontier.iter().copied().collect();
+        let mut num_entries = 0;
+
+        while let Some(mut lv) = queue.pop() {
+            let entry = self.entries.find_packed(lv);
+
+            while let Some(&next_lv) = queue.peek() {
+                if next_lv >= entry.span.start {
+                    if next_lv < lv {
+                        num_entries += 1;
+                        lv = next_lv;
+                    }
+
+                    queue.pop();
+                } else { break; }
+            }
+
+            num_entries += 1;
+
+            queue.extend(entry.parents.iter());
+        }
+
+        num_entries
+    }
 }
 
 #[cfg(test)]

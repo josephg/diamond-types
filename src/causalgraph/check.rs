@@ -5,9 +5,9 @@ impl AgentAssignment {
     #[allow(unused)]
     pub fn dbg_check(&self, deep: bool) {
         // The client_with_localtime should match with the corresponding items in client_data
-        self.client_with_localtime.check_packed();
+        self.client_with_lv.check_packed();
 
-        for pair in self.client_with_localtime.iter() {
+        for pair in self.client_with_lv.iter() {
             let expected_range = pair.range();
 
             let span = pair.1;
@@ -21,7 +21,7 @@ impl AgentAssignment {
             // Also check the other way around.
             for (agent, client) in self.client_data.iter().enumerate() {
                 for range in client.lv_for_seq.iter() {
-                    let actual = self.client_with_localtime.find_packed_and_split(range.1);
+                    let actual = self.client_with_lv.find_packed_and_split(range.1);
                     assert_eq!(actual.1.agent as usize, agent);
                 }
             }

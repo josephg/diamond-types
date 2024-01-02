@@ -246,7 +246,7 @@ impl ListOpLog {
         self.iter_fast().flat_map(|(pair, content)| {
             let range = pair.range();
             let simple_splits = simple_graph.iter_range(range);
-            let aa = self.cg.agent_assignment.client_with_localtime.iter_range(range)
+            let aa = self.cg.agent_assignment.client_with_lv.iter_range(range)
                 .map(|KVPair(_, data)| data);
 
             let op: TextOperation = (pair.1, content).into();
@@ -264,7 +264,7 @@ impl ListOpLog {
         let simple_graph = self.cg.make_simple_graph();
 
         for mut entry in simple_graph.0.into_iter() {
-            for agent_kv in self.cg.agent_assignment.client_with_localtime.iter_range(entry.span) {
+            for agent_kv in self.cg.agent_assignment.client_with_lv.iter_range(entry.span) {
                 let entry_here = entry.truncate_keeping_right_from(agent_kv.end());
 
                 assert_eq!(agent_kv.range(), entry_here.span);

@@ -96,7 +96,7 @@ impl ListOpLog {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.cg.agent_assignment.client_with_localtime.is_empty()
+        self.cg.agent_assignment.client_with_lv.is_empty()
     }
 
     // Unused for now, but it should work.
@@ -128,7 +128,7 @@ impl ListOpLog {
         // }
         client_data.lv_for_seq.insert(KVPair(seq_range.start, timespan));
 
-        self.cg.agent_assignment.client_with_localtime.push(KVPair(start, span));
+        self.cg.agent_assignment.client_with_lv.push(KVPair(start, span));
     }
 
     /// span is the local timespan we're assigning to the named agent.
@@ -141,7 +141,7 @@ impl ListOpLog {
         let next_seq = client_data.get_next_seq();
         client_data.lv_for_seq.push(KVPair(next_seq, span));
 
-        self.cg.agent_assignment.client_with_localtime.push(KVPair(span.start, AgentSpan {
+        self.cg.agent_assignment.client_with_lv.push(KVPair(span.start, AgentSpan {
             agent,
             seq_range: DTRange { start: next_seq, end: next_seq + span.len() },
         }));
@@ -372,25 +372,25 @@ impl ListOpLog {
 
     // TODO: Probably move these inside agent_assignment.
     pub(crate) fn iter_agent_mappings(&self) -> impl Iterator<Item = AgentSpan> + '_ {
-        self.cg.agent_assignment.client_with_localtime
+        self.cg.agent_assignment.client_with_lv
             .iter()
             .map(|item| item.1)
     }
 
     pub fn iter_remote_mappings(&self) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
-        self.cg.agent_assignment.client_with_localtime
+        self.cg.agent_assignment.client_with_lv
             .iter()
             .map(|item| self.cg.agent_assignment.agent_span_to_remote(item.1))
     }
 
     pub(crate) fn iter_agent_mappings_range(&self, range: DTRange) -> impl Iterator<Item = AgentSpan> + '_ {
-        self.cg.agent_assignment.client_with_localtime
+        self.cg.agent_assignment.client_with_lv
             .iter_range(range)
             .map(|item| item.1)
     }
 
     pub fn iter_remote_mappings_range(&self, range: DTRange) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
-        self.cg.agent_assignment.client_with_localtime
+        self.cg.agent_assignment.client_with_lv
             .iter_range(range)
             .map(|item| self.cg.agent_assignment.agent_span_to_remote(item.1))
     }
@@ -436,8 +436,10 @@ impl ListOpLog {
         println!("Insert content length {}", self.operation_ctx.ins_content.len());
         println!("Delete content length {}", self.operation_ctx.del_content.len());
 
-        self.cg.agent_assignment.client_with_localtime.print_stats("Client localtime map", detailed);
+        self.cg.agent_assignment.client_with_lv.print_stats("Client LV map", detailed);
+        println!("number of agents: {}", self.cg.agent_assignment.client_data.len());
         self.cg.graph.entries.print_stats("History", detailed);
+        println!("Graph entries: {}", self.cg.graph.count_all_graph_entries(self.cg.version.as_ref()));
 
         let num_merges: usize = self.cg.graph
             .iter()
@@ -445,6 +447,11 @@ impl ListOpLog {
             .sum();
 
         println!("Num merges: {num_merges}");
+
+        let concurrency = self.cg.graph.estimate_concurrency(self.cg.version.as_ref());
+        println!("Concurrency estimate: {concurrency}");
+
+
     }
 
     /// Check if the specified version contains the specified point in time.

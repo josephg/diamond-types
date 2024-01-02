@@ -199,13 +199,13 @@ impl AgentAssignment {
     }
 
     pub fn iter_remote_mappings(&self) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
-        self.client_with_localtime
+        self.client_with_lv
             .iter()
             .map(|item| self.agent_span_to_remote(item.1))
     }
 
     pub fn iter_remote_mappings_range(&self, range: DTRange) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
-        self.client_with_localtime
+        self.client_with_lv
             .iter_range(range)
             .map(|item| self.agent_span_to_remote(item.1))
     }
