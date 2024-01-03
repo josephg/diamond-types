@@ -165,34 +165,39 @@ pub fn get_txns_from_oplog(oplog: &ListOpLog) -> Vec<RemoteTxn> {
     result
 }
 
+const DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "friendsforever", "clownschool", "node_nodecc", "git-makefile"];
+
 fn bench_process(c: &mut Criterion) {
     // let name = "benchmark_data/node_nodecc.dt";
-    let name = "benchmark_data/friendsforever.dt";
+    // let name = "benchmark_data/friendsforever.dt";
     // let name = "benchmark_data/git-makefile.dt";
     // let name = "benchmark_data/data.dt";
 
-    let txns = get_txns_from_file(name);
+    for &name in DATASETS {
+        let txns = get_txns_from_file(&format!("benchmark_data/{}.dt", name));
 
-    c.bench_function(&format!("process_remote_edits/{name}"), |b| {
-        // let old_str = old_oplog.to_string();
-        // let new_str = oplog.checkout_tip().content().to_string();
-        // assert_eq!(old_str, new_str);
-        b.iter(|| {
-            let mut old_oplog = diamond_types_crdt::list::ListCRDT::new();
-            for txn in txns.iter() {
-                old_oplog.apply_remote_txn(txn);
-            }
-            black_box(old_oplog.to_string());
-        })
-    });
+        c.bench_function(&format!("process_remote_edits/{name}"), |b| {
+            // let old_str = old_oplog.to_string();
+            // let new_str = oplog.checkout_tip().content().to_string();
+            // assert_eq!(old_str, new_str);
+            b.iter(|| {
+                let mut old_oplog = diamond_types_crdt::list::ListCRDT::new();
+                for txn in txns.iter() {
+                    old_oplog.apply_remote_txn(txn);
+                }
+                black_box(old_oplog.to_string());
+            })
+        });
 
-    // DIRTY!!!
+        // DIRTY!!!
 
-    let mut old_oplog = diamond_types_crdt::list::ListCRDT::new();
-    for txn in txns.iter() {
-        old_oplog.apply_remote_txn(txn);
+        // let mut old_oplog = diamond_types_crdt::list::ListCRDT::new();
+        // for txn in txns.iter() {
+        //     old_oplog.apply_remote_txn(txn);
+        // }
+        // old_oplog.encode_small(true);
+
     }
-    old_oplog.encode_small(true);
 }
 
 fn main() {

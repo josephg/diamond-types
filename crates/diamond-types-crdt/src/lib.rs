@@ -11,6 +11,7 @@ mod rle;
 mod unicount;
 mod crdtspan;
 mod rangeextra;
+mod dtrange;
 
 // TODO: Move this somewhere else.
 pub fn root_id() -> RemoteId {

@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 use crate::list::{encoding, ListCRDT, LV, ROOT_LV};
 use crate::list::encoding::{Chunk, Parents, Run, SpanWriter};
 use crate::list::positional::InsDelTag;
@@ -8,6 +6,7 @@ use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::list::encoding::varint::{num_encode_i64_with_extra_bit, mix_bit_u64, encode_u64, encode_u32};
 use smallvec::smallvec;
 use rle::{HasLength, MergableSpan};
+use crate::dtrange::DTRange;
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub struct EditRun {
@@ -122,8 +121,8 @@ impl ListCRDT {
         // another b-tree here for this, but I don't think the extra code size & overhead is worth
         // it for nearly any normal use cases. (The reordering should be stable - once a document
         // has been reordered and saved, next time its loaded there will be no further reordering.)
-        let mut inner_to_outer_map: RleVec<KVPair<Range<LV>>> = RleVec::new();
-        let mut outer_to_inner_map: RleVec<KVPair<Range<LV>>> = RleVec::new();
+        let mut inner_to_outer_map: RleVec<KVPair<DTRange>> = RleVec::new();
+        let mut outer_to_inner_map: RleVec<KVPair<DTRange>> = RleVec::new();
 
         let mut next_output_order = 0;
         let mut last_edit_pos: usize = 0;
@@ -142,8 +141,8 @@ impl ListCRDT {
             if range.start != next_output_order {
                 // To cut down on allocations and copying, these maps are both lazy. They only
                 // contain entries where the output orders don't match the current document orders.
-                outer_to_inner_map.push(KVPair(next_output_order, range.clone()));
-                inner_to_outer_map.insert(KVPair(range.start, range.transpose(next_output_order)));
+                outer_to_inner_map.push(KVPair(next_output_order, range.clone().into()));
+                inner_to_outer_map.insert(KVPair(range.start, range.transpose(next_output_order).into()));
             }
 
             next_output_order += range.order_len();
@@ -181,7 +180,7 @@ impl ListCRDT {
         outer_to_inner_map.for_each_sparse(next_output_order, |item| {
             let range = match item {
                 Ok(KVPair(_, mapped_range)) => mapped_range.clone(),
-                Err(range) => range,
+                Err(range) => range.into(),
             };
 
             // *** Parents ***

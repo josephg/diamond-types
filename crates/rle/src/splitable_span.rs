@@ -440,9 +440,9 @@ impl<V> SplitableSpanHelpers for Option<V> where V: SplitableSpan {
 impl HasLength for Range<u32> {
     fn len(&self) -> usize { (self.end - self.start) as _ }
 }
-impl HasLength for Range<usize> {
-    fn len(&self) -> usize { (self.end - self.start) as _ }
-}
+// impl HasLength for Range<usize> {
+//     fn len(&self) -> usize { (self.end - self.start) as _ }
+// }
 
 impl SplitableSpanHelpers for Range<u32> {
     // This is a valid impl because truncate can never be called for single items.
