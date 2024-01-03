@@ -10,7 +10,8 @@ use diamond_types_crdt::list::*;
 use utils::apply_edits;
 
 fn testing_data(name: &str) -> TestData {
-    let filename = format!("benchmark_data/{}.json.gz", name);
+    // println!("{}", name);
+    let filename = format!("../../benchmark_data/{}.json.gz", name);
     load_testing_data(&filename)
 }
 

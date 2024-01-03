@@ -15,7 +15,7 @@ fn testing_data(name: &str) -> TestData {
 }
 
 const LINEAR_DATASETS: &[&str] = &["automerge-paper", "rustcode", "sveltecomponent", "seph-blog1", "friendsforever_flat"];
-const COMPLEX_DATASETS: &[&str] = &["node_nodecc", "git-makefile", "friendsforever", "clownschool"];
+const COMPLEX_DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "node_nodecc", "git-makefile", "friendsforever", "clownschool"];
 
 fn local_benchmarks(c: &mut Criterion) {
     for name in LINEAR_DATASETS {
