@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod conformance_test;
 
-use criterion::{black_box, Criterion};
+use criterion::{BenchmarkId, black_box, Criterion};
 use smallvec::{smallvec, SmallVec};
 use diamond_types::causalgraph::agent_assignment::remote_ids::{RemoteVersionOwned as NewRemoteVersion};
 use diamond_types::DTRange;
@@ -176,7 +176,8 @@ fn bench_process(c: &mut Criterion) {
     for &name in DATASETS {
         let txns = get_txns_from_file(&format!("benchmark_data/{}.dt", name));
 
-        c.bench_function(&format!("process_remote_edits/{name}"), |b| {
+        let mut group = c.benchmark_group("dt-crdt");
+        group.bench_function(BenchmarkId::new("process_remote_edits", name), |b| {
             // let old_str = old_oplog.to_string();
             // let new_str = oplog.checkout_tip().content().to_string();
             // assert_eq!(old_str, new_str);

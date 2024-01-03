@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 // This benchmark interacts with the automerge-perf data set from here:
 // https://github.com/automerge/automerge-perf/
 // mod testdata;
@@ -23,16 +25,16 @@ fn list_with_data(test_data: &TestData) -> ListCRDT {
     doc
 }
 
-const DATASETS: &[&str] = &["automerge-paper", "seph-blog1"];
+const LOCAL_DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "clownschool_flat", "friendsforever_flat"];
 // const DATASETS: &[&str] = &["automerge-paper", "rustcode", "sveltecomponent", "seph-blog1"];
 
 fn local_benchmarks(c: &mut Criterion) {
-    for name in DATASETS {
-        let mut group = c.benchmark_group("old/local");
+    for name in LOCAL_DATASETS {
+        let mut group = c.benchmark_group("dt-crdt");
         let test_data = testing_data(name);
         group.throughput(Throughput::Elements(test_data.len() as u64));
 
-        group.bench_function(BenchmarkId::new("yjs", name), |b| {
+        group.bench_function(BenchmarkId::new("local", name), |b| {
             b.iter(|| {
                 let doc = list_with_data(&test_data);
                 assert_eq!(doc.len(), test_data.end_content.len());
@@ -58,22 +60,23 @@ fn local_benchmarks(c: &mut Criterion) {
 }
 
 fn remote_benchmarks(c: &mut Criterion) {
-    for name in DATASETS {
-        let mut group = c.benchmark_group("old/remote");
+    for name in LOCAL_DATASETS {
+        let mut group = c.benchmark_group("dt-crdt");
         let test_data = testing_data(name);
         let src_doc = list_with_data(&test_data);
 
         group.throughput(Throughput::Elements(test_data.len() as u64));
 
-        group.bench_function(BenchmarkId::new( "generate", name), |b| {
-            b.iter(|| {
-                let remote_edits: Vec<_> = src_doc.get_all_txns();
-                black_box(remote_edits);
-            })
-        });
+        // Commented out because this is uninteresting.
+        // group.bench_function(BenchmarkId::new( "generate_remote", name), |b| {
+        //     b.iter(|| {
+        //         let remote_edits: Vec<_> = src_doc.get_all_txns();
+        //         black_box(remote_edits);
+        //     })
+        // });
 
         let remote_edits: Vec<_> = src_doc.get_all_txns();
-        group.bench_function(BenchmarkId::new( "apply", name), |b| {
+        group.bench_function(BenchmarkId::new( "remote", name), |b| {
             b.iter(|| {
                 let mut doc = ListCRDT::new();
                 for txn in remote_edits.iter() {
@@ -89,7 +92,7 @@ fn remote_benchmarks(c: &mut Criterion) {
 }
 
 fn ot_benchmarks(c: &mut Criterion) {
-    for name in DATASETS {
+    for name in LOCAL_DATASETS {
         let mut group = c.benchmark_group("old/ot");
         let test_data = testing_data(name);
         let doc = list_with_data(&test_data);
@@ -105,7 +108,7 @@ fn ot_benchmarks(c: &mut Criterion) {
 }
 
 fn encoding_benchmarks(c: &mut Criterion) {
-    for name in DATASETS {
+    for name in LOCAL_DATASETS {
         let mut group = c.benchmark_group("old/encoding");
         let test_data = testing_data(name);
         let doc = list_with_data(&test_data);
@@ -138,7 +141,7 @@ fn encoding_benchmarks(c: &mut Criterion) {
 criterion_group!(benches,
     local_benchmarks,
     remote_benchmarks,
-    ot_benchmarks,
-    encoding_benchmarks,
+    // ot_benchmarks,
+    // encoding_benchmarks,
 );
 criterion_main!(benches);
