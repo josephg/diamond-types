@@ -9,25 +9,25 @@ use crate::rangeextra::OrderRange;
 /// If the length is negative, the span has been deleted in the document.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct TimeSpan {
-    pub start: u32,
-    pub len: u32,
+    pub start: LV,
+    pub len: LV,
 }
 
 impl TimeSpan {
-    pub fn new(start: u32, len: u32) -> TimeSpan {
+    pub fn new(start: usize, len: usize) -> TimeSpan {
         TimeSpan { start, len }
     }
 
-    pub fn consume_start(&mut self, amt: u32) {
+    pub fn consume_start(&mut self, amt: LV) {
         self.start += amt;
         self.len -= amt;
     }
 
-    pub fn end(&self) -> u32 {
+    pub fn end(&self) -> LV {
         self.start + self.len
     }
 
-    pub fn last(&self) -> u32 { self.start + self.len - 1 }
+    pub fn last(&self) -> LV { self.start + self.len - 1 }
 
     pub fn is_empty(&self) -> bool { self.len == 0 }
 }
@@ -36,7 +36,7 @@ impl Default for TimeSpan {
     fn default() -> Self {
         TimeSpan {
             // Super invalid.
-            start: u32::MAX,
+            start: LV::MAX,
             len: 0,
             // parent: usize
         }
@@ -59,7 +59,7 @@ impl HasLength for TimeSpan {
 }
 impl SplitableSpanHelpers for TimeSpan {
     fn truncate_h(&mut self, at: usize) -> Self {
-        let at = at as u32;
+        // let at = at as u32;
 
         let other = TimeSpan {
             start: self.start + at,
@@ -72,7 +72,7 @@ impl SplitableSpanHelpers for TimeSpan {
 
     #[inline]
     fn truncate_keeping_right_h(&mut self, at: usize) -> Self {
-        let at = at as u32;
+        // let at = at as u32;
         let other = TimeSpan {
             start: self.start,
             len: at
@@ -104,7 +104,7 @@ impl Searchable for TimeSpan {
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
         // debug_assert!(loc < self.len());
-        let loc = loc as u32;
+        // let loc = loc as u32;
         if (loc >= self.start) && (loc < self.start + self.len) {
             Some((loc - self.start) as usize)
         } else {

@@ -25,7 +25,7 @@ use crate::rle::{KVPair, RleSpanHelpers};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteId {
     pub agent: SmartString,
-    pub seq: u32,
+    pub seq: usize,
 }
 
 /// External equivalent of CRDTSpan
@@ -36,7 +36,7 @@ pub struct RemoteIdSpan {
     // :/
     // #[cfg_attr(feature = "serde", serde(flatten))]
     pub id: RemoteId,
-    pub len: u32,
+    pub len: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46,7 +46,7 @@ pub enum RemoteCRDTOp {
         origin_left: RemoteId,
         origin_right: RemoteId,
         // ins_content: SmartString, // ?? Or just length?
-        len: u32,
+        len: usize,
 
         // If the content has been deleted in a subsequent change, we might not know what it says.
         // I'm not too happy with this, but I'm not sure what a better solution would look like.
@@ -59,7 +59,7 @@ pub enum RemoteCRDTOp {
     Del {
         /// The id of the item *being deleted*.
         id: RemoteId,
-        len: u32,
+        len: usize,
     }
 }
 
@@ -130,7 +130,7 @@ impl RemoteIdSpan {
 }
 
 impl RemoteCRDTOp {
-    fn len(&self) -> u32 {
+    fn len(&self) -> usize {
         match self {
             Ins { len, .. } => { *len }
             Del { len, .. } => { *len }
@@ -141,7 +141,7 @@ impl RemoteCRDTOp {
     // their own agent, and that's needed to infer internal origin_left values.
     //
     // The agent and base_seq provided are the RemoteID of other.
-    fn can_append(&self, other: &Self, agent: &SmartString, other_seq: u32) -> bool {
+    fn can_append(&self, other: &Self, agent: &SmartString, other_seq: usize) -> bool {
         match (self, other) {
             (Ins {
                 origin_right: or1,
@@ -249,7 +249,7 @@ impl ListCRDT {
         self.crdt_id_to_remote(crdt_loc)
     }
 
-    pub(crate) fn order_to_remote_id_span(&self, order: LV, max_size: u32) -> RemoteIdSpan {
+    pub(crate) fn order_to_remote_id_span(&self, order: LV, max_size: usize) -> RemoteIdSpan {
         let crdt_span = self.get_crdt_span(order, max_size);
         RemoteIdSpan {
             id: self.crdt_id_to_remote(crdt_span.loc),
@@ -374,7 +374,7 @@ impl ListCRDT {
         }
     }
 
-    pub(super) fn remote_parents_at_txn(&self, txn: &TxnSpan, offset: u32) -> SmallVec<[RemoteId; 2]> {
+    pub(super) fn remote_parents_at_txn(&self, txn: &TxnSpan, offset: usize) -> SmallVec<[RemoteId; 2]> {
         if let Some(order) = txn.parent_at_offset(offset as _) {
             smallvec![self.order_to_remote_id(order)]
         } else {
@@ -393,7 +393,7 @@ impl ListCRDT {
         let (txn, offset) = self.txns.find_with_offset(span.start).unwrap();
 
         // Limit by #1 and #2
-        let txn_len = u32::min(span.len, txn.len - offset);
+        let txn_len = usize::min(span.len, txn.len - offset);
         assert!(txn_len > 0);
 
         // Limit by #3
@@ -405,7 +405,7 @@ impl ListCRDT {
 
     /// This function is used to build an iterator for converting internal txns to remote
     /// transactions.
-    fn next_remote_txn_from_order(&self, span: TimeSpan) -> (RemoteTxn, u32) {
+    fn next_remote_txn_from_order(&self, span: TimeSpan) -> (RemoteTxn, usize) {
         // Each entry we return has its length limited by 5 different things (!)
         // 1. the requested span length (span.len)
         // 2. The length of this txn entry (the number of items we know about in a run)
@@ -436,7 +436,7 @@ impl ListCRDT {
                 // Its a delete.
 
                 // Limit by #4
-                let len_limit_2 = u32::min(d.1.len - offset, len_remaining);
+                let len_limit_2 = usize::min(d.1.len - offset, len_remaining);
                 // Limit by #5
                 let RemoteIdSpan { id, len } = self.order_to_remote_id_span(d.1.start + offset, len_limit_2);
                 // dbg!((&id, len));
@@ -446,7 +446,7 @@ impl ListCRDT {
                 let cursor = self.get_unsafe_cursor_before(order);
                 let entry = cursor.get_raw_entry();
                 // Limit by #4
-                let len = u32::min((entry.len() - cursor.offset) as u32, len_remaining);
+                let len = usize::min(entry.len() - cursor.offset, len_remaining);
 
                 // I'm not fishing out the deleted content at the moment, for any reason.
                 // This might be simpler if I just make up content for deleted items O_o
@@ -465,7 +465,7 @@ impl ListCRDT {
                 // that. I thought we did, but it works without that test.
 
                 (RemoteCRDTOp::Ins {
-                    origin_left: self.order_to_remote_id(entry.origin_left_at_offset(cursor.offset as u32)),
+                    origin_left: self.order_to_remote_id(entry.origin_left_at_offset(cursor.offset)),
                     origin_right: self.order_to_remote_id(entry.origin_right),
                     len,
                     content_known,

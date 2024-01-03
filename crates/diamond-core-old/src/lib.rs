@@ -6,15 +6,14 @@ pub mod alloc;
 pub type AgentId = u16;
 // pub type ClientSeq = u32;
 
-// More common/correct to use usize here but this will be fine in practice and faster.
-pub type ItemCount = u32;
+pub type ItemCount = usize;
 
 pub const CLIENT_INVALID: AgentId = AgentId::MAX;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct CRDTId {
     pub agent: AgentId,
-    pub seq: u32,
+    pub seq: usize,
 }
 
 impl Debug for CRDTId {
@@ -35,7 +34,7 @@ impl Default for CRDTId {
     fn default() -> Self {
         CRDTId {
             agent: CLIENT_INVALID,
-            seq: u32::MAX
+            seq: usize::MAX
         }
     }
 }

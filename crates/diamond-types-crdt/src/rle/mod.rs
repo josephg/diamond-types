@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 pub use simple_rle::RleVec;
 
-pub type RleKey = u32;
+pub type RleKey = usize;
 
 pub mod simple_rle;
 
@@ -12,8 +12,8 @@ pub trait RleKeyed {
 }
 
 pub trait RleSpanHelpers: RleKeyed + HasLength {
-    fn end(&self) -> u32 {
-        self.get_rle_key() + self.len() as u32
+    fn end(&self) -> usize {
+        self.get_rle_key() + self.len()
     }
 }
 
@@ -23,7 +23,7 @@ impl<V: RleKeyed + HasLength> RleSpanHelpers for V {}
 pub struct KVPair<V>(pub RleKey, pub V);
 
 impl<V> RleKeyed for KVPair<V> {
-    fn get_rle_key(&self) -> u32 {
+    fn get_rle_key(&self) -> usize {
         self.0
     }
 }
@@ -37,12 +37,12 @@ impl<V: HasLength + SplitableSpan> SplitableSpanHelpers for KVPair<V> {
         debug_assert!(at < self.1.len());
 
         let remainder = self.1.truncate(at);
-        KVPair(self.0 + at as u32, remainder)
+        KVPair(self.0 + at, remainder)
     }
 
     fn truncate_keeping_right_h(&mut self, at: usize) -> Self {
         let old_key = self.0;
-        self.0 += at as u32;
+        self.0 += at;
         let trimmed = self.1.truncate_keeping_right(at);
         KVPair(old_key, trimmed)
     }

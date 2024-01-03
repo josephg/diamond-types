@@ -45,7 +45,7 @@ mod positional_fuzzer;
 // #[cfg(test)]
 // mod tests;
 
-pub type LV = u32;
+pub type LV = usize;
 pub const ROOT_LV: LV = LV::MAX;
 pub const ROOT_AGENT: AgentId = AgentId::MAX;
 
@@ -71,12 +71,13 @@ pub(crate) const DOC_LE: usize = DEFAULT_LE;
 // const DOC_LE: usize = 32;
 
 // type DocRangeIndex = ContentIndex;
-type DocRangeIndex = FullMetricsU32;
+// type DocRangeIndex = FullMetricsU32;
+type DocRangeIndex = FullMetricsUsize;
 
 pub(crate) type RangeTree = Pin<Box<ContentTreeRaw<YjsSpan, DocRangeIndex>>>;
 // pub(crate) type RangeTreeLeaf = NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>;
 
-type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionMetricsU32>>>;
+type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionMetricsUsize>>>;
 
 pub type DoubleDeleteList = RleVec<KVPair<DoubleDelete>>;
 

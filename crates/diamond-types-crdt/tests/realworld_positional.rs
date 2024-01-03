@@ -33,12 +33,12 @@ fn test_xml_trace_data() {
     // Sooooo the sequence numbers in the file don't line up with the way I use sequence numbers in
     // DT. In the file they're linear from 1-n. Here they count from 0 and go up by the size of the
     // change.
-    let mut seq_map: Vec<Vec<u32>> = vec![];
+    let mut seq_map: Vec<Vec<usize>> = vec![];
 
-    let convert_id = |id: &NLId, seq_map: &mut Vec<Vec<u32>>| -> RemoteId {
+    let convert_id = |id: &NLId, seq_map: &mut Vec<Vec<usize>>| -> RemoteId {
         RemoteId {
             agent: id.agent.to_string().into(),
-            seq: seq_map[id.agent as usize][id.seq as usize - 1]
+            seq: seq_map[id.agent as usize][id.seq - 1]
         }
     };
 
@@ -57,7 +57,7 @@ fn test_xml_trace_data() {
             seq_map.push(vec![]);
         }
         assert_eq!(seq_map[op.id.agent as usize].len(), op.id.seq as usize - 1);
-        let op_len = (op.patch.1 + op.patch.2.chars().count()) as u32;
+        let op_len = op.patch.1 + op.patch.2.chars().count();
         seq_map[op.id.agent as usize].push(id.seq + op_len - 1);
 
         // dbg!(&id);
@@ -75,8 +75,8 @@ fn test_xml_trace_data() {
         let TestPatch(pos, del_span, ins_content) = op.patch;
         if del_span > 0 {
             positional.push(PositionalComponent {
-                pos: pos as u32,
-                len: del_span as u32,
+                pos,
+                len: del_span,
                 content_known: false,
                 tag: InsDelTag::Del
             });
@@ -84,8 +84,8 @@ fn test_xml_trace_data() {
 
         if !ins_content.is_empty() {
             positional.push(PositionalComponent {
-                pos: pos as u32,
-                len: ins_content.chars().count() as u32,
+                pos,
+                len: ins_content.chars().count(),
                 content_known: true,
                 tag: InsDelTag::Ins
             });

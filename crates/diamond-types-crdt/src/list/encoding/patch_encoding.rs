@@ -11,8 +11,8 @@ use rle::{HasLength, MergableSpan};
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub struct EditRun {
-    diff: i32, // From previous item
-    len: u32,
+    diff: isize, // From previous item
+    len: usize,
     is_delete: bool,
     backspace_mode: bool,
 }
@@ -71,7 +71,7 @@ fn write_editrun(into: &mut Vec<u8>, val: EditRun) {
     n = mix_bit_u64(n, val.is_delete);
     pos += encode_u64(n, &mut dest[..]);
     if val.len != 1 {
-        pos += encode_u32(val.len, &mut dest[pos..]);
+        pos += encode_u32(val.len as u32, &mut dest[pos..]);
     }
 
     into.extend_from_slice(&dest[..pos]);
@@ -126,12 +126,12 @@ impl ListCRDT {
         let mut outer_to_inner_map: RleVec<KVPair<Range<LV>>> = RleVec::new();
 
         let mut next_output_order = 0;
-        let mut last_edit_pos: u32 = 0;
+        let mut last_edit_pos: usize = 0;
 
         for (range, patch) in self.iter_original_patches() {
             // dbg!(&range);
             w.push(EditRun {
-                diff: i32::wrapping_sub(patch.pos as i32,last_edit_pos as i32),
+                diff: isize::wrapping_sub(patch.pos as isize,last_edit_pos as isize),
                 len: patch.len,
                 is_delete: patch.tag == InsDelTag::Del,
                 backspace_mode: false, // Filled in by the appending code (above).
@@ -165,7 +165,7 @@ impl ListCRDT {
         let mut frontier_data = vec!();
         for v in self.frontier.iter() {
             // dbg!(v, local_to_remote_order(*v));
-            encoding::push_u32(&mut frontier_data, local_to_remote_order(*v));
+            encoding::push_usize(&mut frontier_data, local_to_remote_order(*v));
         }
         encoding::push_chunk(&mut result, Chunk::Frontier, &frontier_data);
 

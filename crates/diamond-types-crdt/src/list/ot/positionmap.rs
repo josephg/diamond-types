@@ -25,27 +25,27 @@ pub(super) struct PrePostIndex;
 
 // TODO: Remove this and replace it with FullIndex, which has identical semantics.
 impl TreeMetrics<TraversalComponent> for PrePostIndex {
-    type Update = Pair<i32>;
-    type Value = Pair<u32>;
+    type Update = Pair<isize>;
+    type Value = Pair<usize>;
 
     fn increment_marker(marker: &mut Self::Update, entry: &TraversalComponent) {
-        marker.0 += entry.pre_len() as i32;
-        marker.1 += entry.post_len() as i32;
+        marker.0 += entry.pre_len() as isize;
+        marker.1 += entry.post_len() as isize;
     }
 
     fn decrement_marker(marker: &mut Self::Update, entry: &TraversalComponent) {
-        marker.0 -= entry.pre_len() as i32;
-        marker.1 -= entry.post_len() as i32;
+        marker.0 -= entry.pre_len() as isize;
+        marker.1 -= entry.post_len() as isize;
     }
 
     fn decrement_marker_by_val(marker: &mut Self::Update, val: &Self::Value) {
-        marker.0 -= val.0 as i32;
-        marker.1 -= val.1 as i32;
+        marker.0 -= val.0 as isize;
+        marker.1 -= val.1 as isize;
     }
 
     fn update_offset_by_marker(offset: &mut Self::Value, by: &Self::Update) {
-        offset.0 = offset.0.wrapping_add(by.0 as u32);
-        offset.1 = offset.1.wrapping_add(by.1 as u32);
+        offset.0 = offset.0.wrapping_add(by.0 as usize);
+        offset.1 = offset.1.wrapping_add(by.1 as usize);
     }
 
     fn increment_offset(offset: &mut Self::Value, by: &TraversalComponent) {
@@ -62,11 +62,11 @@ pub(super) fn positionmap_mut_cursor_at_post(map: &mut PositionMap, pos: usize, 
                                 |e| e.post_len() as usize)
 }
 
-fn count_cursor_pre_len(cursor: &Cursor<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>) -> u32 {
+fn count_cursor_pre_len(cursor: &Cursor<TraversalComponent, PrePostIndex, DEFAULT_IE, DEFAULT_LE>) -> usize {
     cursor.count_pos_raw(
         |p| p.0,
         |c| c.pre_len(),
-        |c, offset| (c.pre_len()).clamp(0, offset as u32)
+        |c, offset| (c.pre_len()).clamp(0, offset)
     )
 }
 
@@ -97,7 +97,7 @@ impl DoubleDeleteVisitor {
     }
 
     /// Find the safe range from last_order backwards.
-    fn mark_range(&mut self, double_deletes: &DoubleDeleteList, last_order: LV, min_base: u32) -> (bool, u32) {
+    fn mark_range(&mut self, double_deletes: &DoubleDeleteList, last_order: LV, min_base: usize) -> (bool, usize) {
         match double_deletes.find_sparse(last_order).0 {
             // Most likely case. Indicates there's no double-delete to deal with in this span.
             Err(base) => (true, base.max(min_base)),
@@ -226,9 +226,9 @@ impl ListCRDT {
 // contained, and the complexity here allows other systems to work "naturally". But its not perfect.
 impl<'a> Iterator for PatchIter<'a> {
     // (post_pos, what happened)
-    type Item = (u32, PositionalComponent);
+    type Item = (usize, PositionalComponent);
 
-    fn next(&mut self) -> Option<(u32, PositionalComponent)> {
+    fn next(&mut self) -> Option<(usize, PositionalComponent)> {
         // We go back through history in reverse order. We need to go in reverse order for a few
         // reasons:
         //
@@ -248,7 +248,7 @@ impl<'a> Iterator for PatchIter<'a> {
             if let Ok(d) = self.doc.deletes.search_scanning_backwards_sparse(span_last_order, &mut self.deletes_idx) {
                 // Its a delete. We need to try to undelete the item, unless the item was deleted
                 // multiple times (in which case, it stays deleted for now).
-                let base = u32::max(self.span.start, d.0);
+                let base = usize::max(self.span.start, d.0);
                 let del_span_size = span_last_order + 1 - base; // TODO: Clean me up
                 debug_assert!(del_span_size > 0);
 
@@ -269,7 +269,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 // Cap the number of items to undelete each iteration based on the span in content_tree.
                 let entry = rt_cursor.get_raw_entry();
                 debug_assert!(entry.is_deactivated());
-                let first_del_target = u32::max(entry.time, last_del_target + 1 - del_span_size);
+                let first_del_target = usize::max(entry.time, last_del_target + 1 - del_span_size);
 
                 let (allowed, first_del_target) = self.marked_deletes.mark_range(&self.doc.double_deletes, last_del_target, first_del_target);
                 let len_here = last_del_target + 1 - first_del_target;
@@ -293,7 +293,7 @@ impl<'a> Iterator for PatchIter<'a> {
                         content_known: false,
                         tag: InsDelTag::Del,
                     };
-                    return Some((post_pos as u32, entry));
+                    return Some((post_pos, entry));
                 } // else continue.
             } else {
                 // println!("Insert at {:?} (last order: {})", span, span_last_order);
@@ -301,7 +301,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 let mut rt_cursor = self.doc.get_unsafe_cursor_after(span_last_order, true);
 
                 // Check how much we can tag in one go.
-                let len_here = u32::min(self.span.len, rt_cursor.offset as _); // usize? u32? blehh
+                let len_here = usize::min(self.span.len, rt_cursor.offset); // usize? u32? blehh
                 debug_assert_ne!(len_here, 0);
                 // let base = span_last_order + 1 - len_here; // not needed.
                 // let base = u32::max(span.order, span_last_order + 1 - cursor.offset);
@@ -320,7 +320,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 let entry = if content_known {
                     // post_pos + 1 is a hack. cursor_at_offset_pos returns the first cursor
                     // location which has the right position.
-                    let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos as usize + 1, true);
+                    let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos + 1, true);
                     map_cursor.inner.offset -= 1;
                     let pre_pos = count_cursor_pre_len(&map_cursor);
                     map_cursor.replace_range(Ins { len: len_here, content_known });
@@ -331,7 +331,7 @@ impl<'a> Iterator for PatchIter<'a> {
                         tag: InsDelTag::Ins
                     }
                 } else {
-                    let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos as usize, true);
+                    let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos, true);
                     map_cursor.inner.roll_to_next_entry();
                     map_cursor.delete(len_here as usize);
                     PositionalComponent {
@@ -345,7 +345,7 @@ impl<'a> Iterator for PatchIter<'a> {
                 // The content might have later been deleted.
 
                 self.span.len -= len_here;
-                return Some((post_pos as u32, entry));
+                return Some((post_pos, entry));
             }
         }
         None
@@ -381,7 +381,7 @@ impl<'a> PatchIter<'a> {
     }
 
     fn into_positional_op(mut self) -> PositionalOp {
-        let mut changes: SmallVec<[(u32, PositionalComponent); 10]> = (&mut self).collect();
+        let mut changes: SmallVec<[(usize, PositionalComponent); 10]> = (&mut self).collect();
         changes.reverse();
         PositionalOp::from_components(changes, self.doc.text_content.as_ref())
     }
@@ -406,7 +406,7 @@ struct PatchWithAuthorIter<'a> {
 // PatchIter. And note the way this is written, this can't be used with the multi positional
 // changes stuff.
 impl<'a> Iterator for PatchWithAuthorIter<'a> {
-    type Item = (u32, PositionalComponent, CRDTId);
+    type Item = (usize, PositionalComponent, CRDTId);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.state.span.len == 0 {
@@ -466,7 +466,7 @@ impl<'a> PatchWithAuthorIter<'a> {
     }
 
     fn into_attributed_positional_op(mut self) -> (PositionalOp, SmallVec<[CRDTSpan; 1]>) {
-        let mut changes = SmallVec::<[(u32, PositionalComponent); 10]>::new();
+        let mut changes = SmallVec::<[(usize, PositionalComponent); 10]>::new();
         let mut attribution = SmallVec::<[CRDTSpan; 1]>::new();
 
         for (post_pos, c, loc) in &mut self {
@@ -488,7 +488,7 @@ impl<'a> PatchWithAuthorIter<'a> {
 // This code - while correct - is in danger of being removed because it might not be usable due to
 // weaknesses in using OT across multiple servers.
 impl<'a, I: Iterator<Item=TimeSpan>> Iterator for MultiPositionalChangesIter<'a, I> {
-    type Item = (u32, PositionalComponent);
+    type Item = (usize, PositionalComponent);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.state.span.len == 0 {
@@ -523,7 +523,7 @@ impl<'a, I: Iterator<Item=TimeSpan>> MultiPositionalChangesIter<'a, I> {
     }
 
     fn into_positional_op(mut self) -> PositionalOp {
-        let mut changes: SmallVec<[(u32, PositionalComponent); 10]> = (&mut self).collect();
+        let mut changes: SmallVec<[(usize, PositionalComponent); 10]> = (&mut self).collect();
         changes.reverse();
         PositionalOp::from_components(changes, self.state.doc.text_content.as_ref())
     }
@@ -539,11 +539,11 @@ fn map_to_traversal(map: &PositionMap, resulting_doc: &JumpRopeBuf) -> Traversal
 
     let mut op = TraversalOp::new();
     // TODO: Could use doc.chars() for this, but I think it'll be slower. Benchmark!
-    let mut post_len: u32 = 0;
+    let mut post_len: usize = 0;
     for entry in map.raw_iter() {
         match entry {
             Ins { len, content_known: true } => {
-                let range = post_len as usize..(post_len+len) as usize;
+                let range = post_len..(post_len+len);
                 op.content.extend(resulting_doc.borrow().slice_chars(range));
                 post_len += len;
             }
@@ -691,7 +691,7 @@ mod test {
         for _i in 0..num_ops {
             // Most changes from agent 0 to keep things frothy.
             let agent = if rng.gen_bool(0.9) { agent_0 } else { agent_1 };
-            let op_len = make_random_change(&mut doc, None, agent, rng).len() as u32;
+            let op_len = make_random_change(&mut doc, None, agent, rng).len();
 
             let next_seq = if agent == agent_0 { &mut next_seq_0 } else { &mut next_seq_1 };
             expect_author.push_rle(CRDTSpan {

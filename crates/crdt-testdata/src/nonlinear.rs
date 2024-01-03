@@ -8,7 +8,7 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Deserialize)]
 pub struct NLId {
     pub agent: u32,
-    pub seq: u32,
+    pub seq: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]

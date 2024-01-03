@@ -58,7 +58,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
         self.0.binary_search_by(|entry| {
             let key = entry.get_rle_key();
             if needle < key { Greater }
-            else if needle >= key + entry.len() as u32 { Less }
+            else if needle >= key + entry.len() { Less }
             else { Equal }
         })
     }
@@ -156,7 +156,7 @@ impl<V: HasLength + MergableSpan + RleKeyed + Clone + Sized> RleVec<V> {
 
         if idx < self.0.len() {
             let next = &mut self.0[idx];
-            debug_assert!(val.get_rle_key() + val.len() as u32 <= next.get_rle_key(), "Items overlap");
+            debug_assert!(val.get_rle_key() + val.len() <= next.get_rle_key(), "Items overlap");
 
             if val.can_append(next) {
                 next.prepend(val);

@@ -21,18 +21,18 @@ use crate::rangeextra::OrderRange;
 use crate::list::positional::{PositionalComponent, PositionalOpRef};
 
 impl ClientData {
-    pub fn get_next_seq(&self) -> u32 {
+    pub fn get_next_seq(&self) -> usize {
         if let Some(KVPair(loc, range)) = self.item_localtime.last() {
-            loc + range.len as u32
+            loc + range.len
         } else { 0 }
     }
 
-    pub fn seq_to_order(&self, seq: u32) -> LV {
+    pub fn seq_to_order(&self, seq: usize) -> LV {
         let (entry, offset) = self.item_localtime.find_with_offset(seq).unwrap();
         entry.1.start + offset
     }
 
-    pub fn seq_to_order_span(&self, seq: u32, max_len: u32) -> TimeSpan {
+    pub fn seq_to_order_span(&self, seq: usize, max_len: usize) -> TimeSpan {
         let (entry, offset) = self.item_localtime.find_with_offset(seq).unwrap();
         TimeSpan {
             start: entry.1.start + offset,
@@ -43,7 +43,8 @@ impl ClientData {
 
 pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) + '_ {
     move |entry: YjsSpan, leaf| {
-        let mut len = entry.len() as u32;
+        // let mut len = entry.len() as u32;
+        let mut len = entry.len();
         let mut order = entry.time;
 
         let index_len = index.len();
@@ -155,7 +156,7 @@ impl ListCRDT {
         self.client_data[agent as usize].name.as_str()
     }
 
-    pub fn get_next_agent_seq(&self, agent: AgentId) -> u32 {
+    pub fn get_next_agent_seq(&self, agent: AgentId) -> usize {
         self.client_data[agent as usize].get_next_seq()
     }
 
@@ -167,7 +168,7 @@ impl ListCRDT {
         }
     }
 
-    pub(crate) fn get_crdt_span(&self, order: LV, max_size: u32) -> CRDTSpan {
+    pub(crate) fn get_crdt_span(&self, order: LV, max_size: usize) -> CRDTSpan {
         if order == ROOT_LV { CRDTSpan { loc: CRDT_DOC_ROOT, len: 0 } }
         else {
             let (loc, offset) = self.client_with_time.find_with_offset(order).unwrap();
@@ -176,7 +177,7 @@ impl ListCRDT {
                     agent: loc.1.loc.agent,
                     seq: loc.1.loc.seq + offset,
                 },
-                len: u32::min(loc.1.len - offset, max_size)
+                len: usize::min(loc.1.len - offset, max_size)
             }
         }
     }
@@ -186,14 +187,14 @@ impl ListCRDT {
         else { self.client_data[loc.agent as usize].seq_to_order(loc.seq) }
     }
 
-    pub(crate) fn crdt_span_to_localtime(&self, loc: CRDTId, max_len: u32) -> TimeSpan {
+    pub(crate) fn crdt_span_to_localtime(&self, loc: CRDTId, max_len: usize) -> TimeSpan {
         assert_ne!(loc.agent, ROOT_AGENT);
         self.client_data[loc.agent as usize].seq_to_order_span(loc.seq, max_len)
     }
 
     pub fn get_next_lv(&self) -> LV {
         if let Some(KVPair(base, entry)) = self.client_with_time.last() {
-            base + entry.len as u32
+            base + entry.len
         } else { 0 }
     }
 
@@ -269,7 +270,7 @@ impl ListCRDT {
         }));
     }
 
-    pub(crate) fn max_span_length(&self, time: LV) -> u32 {
+    pub(crate) fn max_span_length(&self, time: LV) -> usize {
         let (span, span_offset) = self.client_with_time.find_with_offset(time).unwrap();
         span.1.len - span_offset
     }
@@ -318,7 +319,7 @@ impl ListCRDT {
             let other_entry = *cursor.get_raw_entry();
             // let other_order = other_entry.order + cursor.offset as u32;
 
-            let other_left_order = other_entry.origin_left_at_offset(cursor.offset as u32);
+            let other_left_order = other_entry.origin_left_at_offset(cursor.offset);
             let other_left_cursor = self.get_unsafe_cursor_after(other_left_order, false);
 
             // YjsMod semantics
@@ -515,20 +516,20 @@ impl ListCRDT {
         assert_eq!(will_merge, did_merge);
     }
 
-    pub(super) fn internal_mark_deleted(&mut self, id: LV, target: LV, max_len: u32, update_content: bool) -> LV {
+    pub(super) fn internal_mark_deleted(&mut self, id: LV, target: LV, max_len: usize, update_content: bool) -> LV {
         // TODO: Make this use mut_cursor instead. The problem is notify_for mutably borrows
         // self.index, and the cursor is borrowing self (rather than self.range_tree).
         let mut cursor = self.get_unsafe_cursor_before(target);
         self.internal_mark_deleted_at(&mut cursor, id, max_len, update_content)
     }
 
-    pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut <&RangeTree as Cursors>::UnsafeCursor, id: LV, max_len: u32, update_content: bool) -> LV {
+    pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut <&RangeTree as Cursors>::UnsafeCursor, id: LV, max_len: usize, update_content: bool) -> LV {
         let target = unsafe { cursor.unsafe_get_item().unwrap() };
 
         let (deleted_here, succeeded) = unsafe {
             ContentTreeRaw::unsafe_remote_deactivate_notify(cursor, max_len as _, notify_for(&mut self.index))
         };
-        let deleted_here = deleted_here as u32;
+        // let deleted_here = deleted_here as u32;
 
         self.deletes.push(KVPair(id, TimeSpan {
             start: target,
@@ -610,7 +611,7 @@ impl ListCRDT {
                         time: order,
                         origin_left,
                         origin_right,
-                        len: *len as i32,
+                        len: *len as isize,
                     };
 
                     let ins_content = if *content_known {
@@ -684,7 +685,7 @@ impl ListCRDT {
 
         assert!(content.is_empty());
 
-        debug_assert_eq!(next_time, first_time + txn_len as u32);
+        debug_assert_eq!(next_time, first_time + txn_len);
         let parents = self.remote_ids_to_branch(&txn.parents);
         self.insert_txn_full(&parents, first_time..next_time);
     }
@@ -694,7 +695,7 @@ impl ListCRDT {
         let first_time = self.get_next_lv();
         let mut next_time = first_time;
 
-        let txn_len = op.components.iter().map(|c| c.len).sum::<u32>() as usize;
+        let txn_len = op.components.iter().map(|c| c.len).sum::<usize>() as usize;
 
         self.assign_lv_to_client(CRDTId {
             agent,
@@ -731,7 +732,7 @@ impl ListCRDT {
                         time,
                         origin_left,
                         origin_right,
-                        len: len as i32
+                        len: len as isize
                     };
                     // dbg!(item);
 
@@ -750,10 +751,10 @@ impl ListCRDT {
                     for item in deleted_items {
                         self.deletes.push(KVPair(next_time, TimeSpan {
                             start: item.time,
-                            len: item.len as u32
+                            len: item.len as usize
                         }));
                         deleted_length += item.len as usize;
-                        next_time += item.len as u32;
+                        next_time += item.len as usize;
                     }
                     // I might be able to relax this, but we'd need to change del_span above.
                     assert_eq!(deleted_length, len);
@@ -778,8 +779,8 @@ impl ListCRDT {
     pub fn local_insert(&mut self, agent: AgentId, pos: usize, ins_content: &str) {
         self.apply_local_txn(agent, PositionalOpRef {
             components: &[PositionalComponent {
-                pos: pos as u32,
-                len: count_chars(ins_content) as u32,
+                pos,
+                len: count_chars(ins_content),
                 content_known: true,
                 tag: Ins
             }],
@@ -790,7 +791,7 @@ impl ListCRDT {
     pub fn local_delete(&mut self, agent: AgentId, pos: usize, del_span: usize) {
         self.apply_local_txn(agent, PositionalOpRef {
             components: &[PositionalComponent {
-                pos: pos as u32, len: del_span as u32, content_known: true, tag: Del
+                pos, len: del_span, content_known: true, tag: Del
             }],
             content: ""
         });
@@ -822,10 +823,10 @@ impl ListCRDT {
     }
 
     pub fn insert_at_ot_order(&mut self, agent: AgentId, pos: usize, ins_content: &str, order: LV, is_left: bool) {
-        self.apply_txn_at_ot_order(agent, &TraversalOp::new_insert(pos as u32, ins_content), order, is_left);
+        self.apply_txn_at_ot_order(agent, &TraversalOp::new_insert(pos, ins_content), order, is_left);
     }
     pub fn delete_at_ot_order(&mut self, agent: AgentId, pos: usize, del_span: usize, order: LV, is_left: bool) {
-        self.apply_txn_at_ot_order(agent, &TraversalOp::new_delete(pos as u32, del_span as u32), order, is_left);
+        self.apply_txn_at_ot_order(agent, &TraversalOp::new_delete(pos, del_span), order, is_left);
     }
 
     pub fn len(&self) -> usize {

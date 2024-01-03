@@ -173,8 +173,8 @@ impl DiffVal {
         diff
     }
 
-    fn next_run<const INC: bool>(&mut self, new_val: LV, len: u32) -> Run2<INC> {
-        let diff = new_val.wrapping_sub(self.0) as i32 as isize;
+    fn next_run<const INC: bool>(&mut self, new_val: LV, len: usize) -> Run2<INC> {
+        let diff = new_val.wrapping_sub(self.0) as isize;
         self.0 = new_val + len - 1;
         Run2 { diff, len: len as usize }
     }
@@ -600,7 +600,7 @@ impl ListCRDT {
 
         let mut frontier_data = vec!();
         for v in self.frontier.iter() {
-            push_u32(&mut frontier_data, *v);
+            push_usize(&mut frontier_data, *v);
         }
 
         push_chunk(&mut result, Chunk::AgentAssignment, agent_data.as_slice());
@@ -695,7 +695,7 @@ impl ListCRDT {
 
         // This one is easy.
         let frontier_data = reader.expect_chunk(Chunk::Frontier);
-        result.frontier = frontier_data.map(|o| o as u32).collect();
+        result.frontier = frontier_data.map(|o| o as LV).collect();
 
         let ins_del_flags = reader.expect_chunk(Chunk::InsOrDelFlags);
         let del_data = reader.expect_chunk(Chunk::DelData);
@@ -770,12 +770,12 @@ fn write_parents(into: &mut Vec<u8>, val: Parents) {
     while let Some(&p) = iter.next() {
         let is_last = iter.peek().is_none();
         let mut diff = val.order.start.wrapping_sub(p);
-        diff = mix_bit_u32(diff, is_last);
+        diff = mix_bit_usize(diff, is_last);
         // dbg!(diff);
-        push_u32(into, diff);
+        push_usize(into, diff);
     }
 
-    push_u32(into, val.order.order_len());
+    push_usize(into, val.order.order_len());
 }
 
 #[cfg(test)]

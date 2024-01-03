@@ -34,7 +34,7 @@ impl ListWithHistory {
                 dest_doc.apply_remote_patch_at_version(&remote_span.id, &parents, (&ops.1).into());
                 // dest_doc.apply_patch_at_version(dest_agent, (&ops.1).into(), dest_parents.as_slice());
 
-                pos += ops.1.len() as u32;
+                pos += ops.1.len();
             }
             assert!(pos <= span.len);
         }

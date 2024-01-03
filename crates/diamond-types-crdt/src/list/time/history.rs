@@ -374,7 +374,7 @@ pub mod test {
     fn root_id() -> RemoteId {
         RemoteId {
             agent: "ROOT".into(),
-            seq: u32::MAX
+            seq: usize::MAX
         }
     }
 

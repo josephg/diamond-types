@@ -9,8 +9,8 @@ use crate::order::TimeSpan;
 /// "Double" delete entries can track any number of duplicate deletes to the same entry.
 #[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub struct DoubleDelete {
-    pub len: u32,
-    pub excess_deletes: u32, // u16 would do but it doesn't matter - we'll pad out anyway.
+    pub len: usize,
+    pub excess_deletes: usize, // u16 would do but it doesn't matter - we'll pad out anyway.
 }
 
 impl HasLength for DoubleDelete {
@@ -22,10 +22,10 @@ impl SplitableSpanHelpers for DoubleDelete {
     fn truncate_h(&mut self, at: usize) -> Self {
         let trimmed = DoubleDelete {
             // order: self.order + at as _,
-            len: self.len - at as u32,
+            len: self.len - at,
             excess_deletes: self.excess_deletes
         };
-        self.len = at as u32;
+        self.len = at;
         trimmed
     }
 }
@@ -45,7 +45,7 @@ impl RleVec<KVPair<DoubleDelete>> {
     /// Returns the number of items modified.
     ///
     /// Idx must be the index where the target item should be, as is returned by search.
-    pub(crate) fn modify_delete_range_idx(&mut self, base: LV, len: u32, mut idx: usize, update_by: i32, max_value: u32) -> u32 {
+    pub(crate) fn modify_delete_range_idx(&mut self, base: LV, len: usize, mut idx: usize, update_by: isize, max_value: usize) -> usize {
         debug_assert!(len > 0);
         debug_assert_ne!(update_by, 0);
         debug_assert_eq!(update_by.abs(), 1);
@@ -71,13 +71,13 @@ impl RleVec<KVPair<DoubleDelete>> {
                     let this_span = next_span.truncate_keeping_right((self.0[idx].0 - next_span.start) as usize);
                     (false, KVPair(this_span.start, DoubleDelete {
                         len: this_span.len,
-                        excess_deletes: update_by as u32
+                        excess_deletes: update_by as usize
                     }))
                 } else {
                     // Plenty of room.
                     (true, KVPair(next_span.start, DoubleDelete {
                         len: next_span.len,
-                        excess_deletes: update_by as u32
+                        excess_deletes: update_by as usize
                     }))
                 };
 
@@ -97,7 +97,7 @@ impl RleVec<KVPair<DoubleDelete>> {
             // Ok we still have stuff to increment, and we're inside an entry now.
             let entry = &mut self.0[idx];
             debug_assert!(entry.0 <= next_span.start);
-            debug_assert!(next_span.start < entry.end() as u32);
+            debug_assert!(next_span.start < entry.end());
 
             if entry.0 < next_span.start {
                 // Split into 2 entries. This approach will result in more memcpys but it shouldn't
@@ -122,7 +122,7 @@ impl RleVec<KVPair<DoubleDelete>> {
             }
 
             if entry.len() <= next_span.len() {
-                entry.1.excess_deletes = entry.1.excess_deletes.wrapping_add(update_by as u32);
+                entry.1.excess_deletes = entry.1.excess_deletes.wrapping_add(update_by as usize);
                 next_span.truncate_keeping_right(entry.1.len as usize);
                 modified += entry.1.len;
                 if next_span.len == 0 { break; }
@@ -131,7 +131,7 @@ impl RleVec<KVPair<DoubleDelete>> {
                 // entry.len > next_entry.len. Split entry into 2 parts, increment excess_deletes
                 // and we're done.
                 let remainder = entry.truncate(next_span.len());
-                entry.1.excess_deletes = entry.1.excess_deletes.wrapping_add(update_by as u32);
+                entry.1.excess_deletes = entry.1.excess_deletes.wrapping_add(update_by as usize);
                 modified += entry.1.len;
                 self.0.insert(idx + 1, remainder);
                 break;
@@ -141,26 +141,26 @@ impl RleVec<KVPair<DoubleDelete>> {
         modified
     }
 
-    pub(crate) fn modify_delete_range(&mut self, base: LV, len: u32, update_by: i32, max_value: u32) -> u32 {
+    pub(crate) fn modify_delete_range(&mut self, base: LV, len: usize, update_by: isize, max_value: usize) -> usize {
         let start = self.find_index(base);
         let idx = start.unwrap_or_else(|idx| idx);
         self.modify_delete_range_idx(base, len, idx, update_by, max_value)
     }
 
-    pub fn increment_delete_range(&mut self, base: LV, len: u32) {
-        self.modify_delete_range(base, len, 1, u32::MAX);
+    pub fn increment_delete_range(&mut self, base: LV, len: usize) {
+        self.modify_delete_range(base, len, 1, usize::MAX);
     }
 
-    pub fn increment_delete_range_to(&mut self, base: LV, max_len: u32, max_value: u32) -> u32 {
+    pub fn increment_delete_range_to(&mut self, base: LV, max_len: usize, max_value: usize) -> usize {
         self.modify_delete_range(base, max_len, 1, max_value)
     }
 
-    pub fn decrement_delete_range(&mut self, base: LV, max_len: u32) -> u32 {
-        self.modify_delete_range(base, max_len, -1, u32::MAX)
+    pub fn decrement_delete_range(&mut self, base: LV, max_len: usize) -> usize {
+        self.modify_delete_range(base, max_len, -1, usize::MAX)
     }
 
     /// Find the range of items which have (implied or explicit) 0 double deletes
-    pub(crate) fn find_zero_range(&self, base: LV, max_len: u32) -> u32 {
+    pub(crate) fn find_zero_range(&self, base: LV, max_len: usize) -> usize {
         // let mut span = OrderSpan { order: base, len: max_len };
 
         for idx in self.find_index(base).unwrap_or_else(|idx| idx)..self.0.len() {

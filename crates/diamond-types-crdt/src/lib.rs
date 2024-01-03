@@ -16,7 +16,7 @@ mod rangeextra;
 pub fn root_id() -> RemoteId {
     RemoteId {
         agent: "ROOT".into(),
-        seq: u32::MAX
+        seq: usize::MAX
     }
 }
 
@@ -66,7 +66,7 @@ pub mod test_helpers {
                 rope.insert(pos, content.as_str());
             }
 
-            PositionalOp::new_insert(pos as u32, content)
+            PositionalOp::new_insert(pos, content)
             // doc.local_insert(agent, pos, content.as_str());
             // len as usize
         } else {
@@ -81,7 +81,7 @@ pub mod test_helpers {
             }
             // doc.local_delete(agent, pos, span);
             // span
-            PositionalOp::new_delete(pos as u32, span as u32)
+            PositionalOp::new_delete(pos, span)
         };
 
         doc.apply_local_txn(agent, (&op).into());

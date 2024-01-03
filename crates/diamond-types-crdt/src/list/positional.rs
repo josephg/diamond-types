@@ -24,8 +24,8 @@ pub enum InsDelTag { Ins, Del }
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PositionalComponent {
-    pub pos: u32,
-    pub len: u32,
+    pub pos: usize,
+    pub len: usize,
     pub content_known: bool,
     pub tag: InsDelTag,
 }
@@ -53,8 +53,8 @@ const XS: &str = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 impl PositionalOp {
     pub fn new() -> Self { Self::default() }
 
-    pub fn new_insert<S: Into<SmartString> + AsRef<str>>(pos: u32, content: S) -> Self {
-        let len = count_chars(&content.as_ref()) as u32;
+    pub fn new_insert<S: Into<SmartString> + AsRef<str>>(pos: usize, content: S) -> Self {
+        let len = count_chars(&content.as_ref());
         Self {
             components: smallvec![
                 PositionalComponent { pos, len, content_known: true, tag: Ins }
@@ -62,7 +62,7 @@ impl PositionalOp {
             content: content.into()
         }
     }
-    pub fn new_delete(pos: u32, len: u32) -> Self {
+    pub fn new_delete(pos: usize, len: usize) -> Self {
         Self {
             components: smallvec![
                 PositionalComponent { pos, len, content_known: true, tag: Del }
@@ -72,7 +72,7 @@ impl PositionalOp {
     }
 
     pub fn len(&self) -> usize {
-        self.components.iter().map(|c| c.len).sum::<u32>() as usize
+        self.components.iter().map(|c| c.len).sum::<usize>()
     }
 
     pub fn apply_to_rope(&self, rope: &mut JumpRope) {
@@ -103,13 +103,13 @@ impl PositionalOp {
         }
     }
 
-    pub fn from_components(components: SmallVec<[(u32, PositionalComponent); 10]>, content: Option<&JumpRopeBuf>) -> Self {
+    pub fn from_components(components: SmallVec<[(usize, PositionalComponent); 10]>, content: Option<&JumpRopeBuf>) -> Self {
         let mut result = Self::new();
         for (post_pos, mut c) in components {
             if c.content_known {
                 if let Some(content) = content {
                     let borrow = content.borrow();
-                    let chars = borrow.slice_chars(post_pos as usize .. (post_pos + c.len) as usize);
+                    let chars = borrow.slice_chars(post_pos..(post_pos + c.len));
                     result.content.extend(chars);
                 } else {
                     c.content_known = false;
@@ -124,7 +124,7 @@ impl PositionalOp {
     pub(crate) fn check(&self) {
         let content_len = self.components.iter().map(|c| {
             if c.content_known && c.tag == Ins { c.len } else { 0 }
-        }).sum::<u32>() as usize;
+        }).sum::<usize>();
 
         assert_eq!(content_len, count_chars(&self.content));
     }
@@ -187,7 +187,7 @@ impl Default for PositionalComponent {
 
 impl HasLength for PositionalOp {
     fn len(&self) -> usize {
-        self.components.iter().map(|c| c.len).sum::<u32>() as usize
+        self.components.iter().map(|c| c.len).sum::<usize>()
     }
 }
 
@@ -203,12 +203,12 @@ impl MergableSpan for PositionalOp {
 
 impl HasLength for PositionalComponent {
     fn len(&self) -> usize {
-        self.len as usize
+        self.len
     }
 }
 impl SplitableSpanHelpers for PositionalComponent {
     fn truncate_h(&mut self, at: usize) -> Self {
-        let at = at as u32;
+        // let at = at as u32;
         let remainder = PositionalComponent {
             pos: if self.tag == Ins { self.pos + at } else { self.pos },
             len: self.len - at,

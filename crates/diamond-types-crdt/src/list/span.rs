@@ -27,11 +27,11 @@ pub struct YjsSpan {
      */
     pub origin_right: LV,
 
-    pub len: i32, // negative if deleted.
+    pub len: isize, // negative if deleted.
 }
 
 impl YjsSpan {
-    pub fn origin_left_at_offset(&self, at: u32) -> LV {
+    pub fn origin_left_at_offset(&self, at: usize) -> LV {
         if at == 0 { self.origin_left }
         else { self.time + at - 1 }
     }
@@ -45,8 +45,8 @@ impl YjsSpan {
         self.len.abs() as _
     }
 
-    pub fn contains(&self, time: u32) -> bool {
-        self.time <= time && time < self.time + self.len.abs() as u32
+    pub fn contains(&self, time: LV) -> bool {
+        self.time <= time && time < self.time + self.len.abs() as LV
     }
 }
 
@@ -59,10 +59,10 @@ impl SplitableSpanHelpers for YjsSpan {
 
     fn truncate_h(&mut self, at: usize) -> Self {
         debug_assert!(at > 0);
-        let at_signed = at as i32 * self.len.signum();
+        let at_signed = at as isize * self.len.signum();
         let other = YjsSpan {
-            time: self.time + at as LV,
-            origin_left: self.time + at as u32 - 1,
+            time: self.time + at,
+            origin_left: self.time + at - 1,
             origin_right: self.origin_right,
             len: self.len - at_signed
         };
@@ -79,7 +79,7 @@ impl MergableSpan for YjsSpan {
     // This method gets inlined all over the place.
     // TODO: Might be worth tagging it with inline(never) and seeing what happens.
     fn can_append(&self, other: &Self) -> bool {
-        let len = self.len.abs() as u32;
+        let len = self.len.abs() as LV;
         (self.len > 0) == (other.len > 0)
             && other.time == self.time + len
             && other.origin_left == other.time - 1
@@ -103,7 +103,7 @@ impl Searchable for YjsSpan {
     type Item = LV;
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
-        if (loc >= self.time) && (loc < self.time + self.len.abs() as u32) {
+        if (loc >= self.time) && (loc < self.time + self.len.abs() as LV) {
             Some((loc - self.time) as usize)
         } else {
             None
@@ -125,7 +125,7 @@ impl ContentLength for YjsSpan {
         // let mut e = *self;
         // e.truncate(offset);
         // e.content_len()
-        self.len.clamp(0, offset as i32) as usize
+        self.len.clamp(0, offset as isize) as usize
     }
 }
 

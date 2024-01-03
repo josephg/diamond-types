@@ -440,6 +440,10 @@ impl<V> SplitableSpanHelpers for Option<V> where V: SplitableSpan {
 impl HasLength for Range<u32> {
     fn len(&self) -> usize { (self.end - self.start) as _ }
 }
+impl HasLength for Range<usize> {
+    fn len(&self) -> usize { (self.end - self.start) as _ }
+}
+
 impl SplitableSpanHelpers for Range<u32> {
     // This is a valid impl because truncate can never be called for single items.
     fn truncate_h(&mut self, at: usize) -> Self {
@@ -449,6 +453,24 @@ impl SplitableSpanHelpers for Range<u32> {
     }
 }
 impl MergableSpan for Range<u32> {
+    fn can_append(&self, other: &Self) -> bool {
+        self.end == other.start
+    }
+
+    fn append(&mut self, other: Self) {
+        self.end = other.end;
+    }
+}
+
+impl SplitableSpanHelpers for Range<usize> {
+    // This is a valid impl because truncate can never be called for single items.
+    fn truncate_h(&mut self, at: usize) -> Self {
+        let old_end = self.end;
+        self.end = self.start + at;
+        Self { start: self.end, end: old_end }
+    }
+}
+impl MergableSpan for Range<usize> {
     fn can_append(&self, other: &Self) -> bool {
         self.end == other.start
     }

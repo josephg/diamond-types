@@ -8,7 +8,7 @@ use rle::Searchable;
 pub struct CRDTSpan {
     // TODO: Consider changing to agent / range of sequences.
     pub loc: CRDTId,
-    pub len: u32,
+    pub len: usize,
 }
 
 impl Searchable for CRDTSpan {
@@ -28,7 +28,7 @@ impl Searchable for CRDTSpan {
         assert!(offset < self.len());
         CRDTId {
             agent: self.loc.agent,
-            seq: self.loc.seq + offset as u32
+            seq: self.loc.seq + offset
         }
     }
 }
@@ -52,7 +52,7 @@ impl HasLength for CRDTSpan {
 }
 impl SplitableSpanHelpers for CRDTSpan {
     fn truncate_h(&mut self, at: usize) -> Self {
-        let at = at as u32;
+        // let at = at as u32;
         debug_assert!(at < self.len);
 
         let other = CRDTSpan {
@@ -69,7 +69,7 @@ impl SplitableSpanHelpers for CRDTSpan {
     }
 
     fn truncate_keeping_right_h(&mut self, at: usize) -> Self {
-        let at = at as u32;
+        // let at = at as u32;
         let other = CRDTSpan {
             loc: self.loc,
             len: at

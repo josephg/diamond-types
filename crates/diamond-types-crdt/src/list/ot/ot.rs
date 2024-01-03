@@ -17,7 +17,7 @@ impl TraversalComponent {
     pub fn is_noop(&self) -> bool { self.len() == 0 }
 
     // TODO: Replace calls with truncate().
-    pub fn slice(&self, offset: u32, len: u32) -> TraversalComponent {
+    pub fn slice(&self, offset: usize, len: usize) -> TraversalComponent {
         debug_assert!(self.len() >= offset + len);
         match *self {
             Retain(_) => Retain(len),
@@ -65,7 +65,7 @@ enum Context { Pre, Post }
 impl TraversalComponent {
     // How much space this element takes up in the string before the op
     // component is applied
-    fn ctx_len(&self, ctx: Context) -> u32 {
+    fn ctx_len(&self, ctx: Context) -> usize {
         match ctx {
             Context::Pre => self.pre_len(),
             Context::Post => self.post_len(),
@@ -78,13 +78,13 @@ struct TextOpIterator<'a> {
 
     ctx: Context,
     idx: usize,
-    offset: u32,
+    offset: usize,
 }
 
 // I'd love to use a normal rust iterator here, but we need to pass in a limit
 // parameter each time we poll the iterator.
 impl <'a>TextOpIterator<'a> {
-    fn next(&mut self, max_size: u32) -> TraversalComponent {
+    fn next(&mut self, max_size: usize) -> TraversalComponent {
         // The op has an infinite skip at the end.
         if self.idx == self.op.len() { return Retain(max_size); }
 
@@ -130,17 +130,17 @@ fn traversal_iter(traversal: &[TraversalComponent], ctx: Context) -> TextOpItera
 
 fn append_remainder_component(traversal: &mut SmallVec<[TraversalComponent; 2]>, mut iter: TextOpIterator) {
     loop {
-        let chunk = iter.next(u32::MAX);
-        if chunk == Retain(u32::MAX) { break; }
+        let chunk = iter.next(usize::MAX);
+        if chunk == Retain(usize::MAX) { break; }
         traversal.push_rle(chunk);
     }
 }
 
 fn append_remainder(op: &mut TraversalOp, mut iter: TextOpIterator, mut content: &str) {
     loop {
-        let chunk = iter.next(u32::MAX);
+        let chunk = iter.next(usize::MAX);
         match chunk {
-            Retain(u32::MAX) => { break; }
+            Retain(usize::MAX) => { break; }
             Ins { len, content_known: true } => {
                 op.content.push_str(take_first_chars(&mut content, len as usize));
             }
@@ -359,17 +359,17 @@ mod tests {
         let mut result = TraversalOp::new();
         for m in arr {
             result.traversal.push_rle(match m {
-                Json::NUMBER(n) => Retain(*n as u32),
+                Json::NUMBER(n) => Retain(*n as usize),
                 Json::STRING(s) => {
                     result.content.push_str(s);
                     Ins {
-                        len: s.chars().count() as u32,
+                        len: s.chars().count(),
                         content_known: true
                     }
                 }
                 Json::JSON(_) => {
                     let d = unwrap_obj_value(m.get("d").unwrap());
-                    Del(unwrap_number(d) as u32)
+                    Del(unwrap_number(d) as usize)
                 }
                 _ => panic!("Invalid data {:?}", m)
             });

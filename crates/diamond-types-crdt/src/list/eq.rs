@@ -66,7 +66,7 @@ impl PartialEq for ListCRDT {
             other.crdt_to_localtime(b_loc)
         };
 
-        let a_to_b_span = |order: LV, max: u32| {
+        let a_to_b_span = |order: LV, max: usize| {
             let a_span = self.get_crdt_span(order, max);
             let b_loc = map_crdt_location(&agent_a_to_b, a_span.loc);
             other.crdt_span_to_localtime(b_loc, a_span.len)
@@ -95,16 +95,16 @@ impl PartialEq for ListCRDT {
             loop {
                 let TimeSpan {
                     start: order, len
-                } = a_to_b_span(entry.time, entry.len() as u32);
+                } = a_to_b_span(entry.time, entry.len());
 
                 a_items.push(YjsSpan {
                     time: order,
                     origin_left: a_to_b_order(entry.origin_left),
                     origin_right: a_to_b_order(entry.origin_right),
-                    len: len as i32 * entry.len.signum()
+                    len: len as isize * entry.len.signum()
                 });
 
-                if len == entry.len() as u32 {
+                if len == entry.len() {
                     break;
                 } else {
                     // Trim from entry and iterate

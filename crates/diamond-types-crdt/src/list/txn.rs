@@ -13,7 +13,7 @@ use std::ops::Range;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TxnSpan {
     pub time: LV,
-    pub len: u32, // Length of the span
+    pub len: LV, // Length of the span
 
     /// All txns in this span are direct descendants of all operations from order down to shadow.
     /// This is derived from other fields and used as an optimization for some calculations.
@@ -33,7 +33,7 @@ pub struct TxnSpan {
 impl TxnSpan {
     pub fn parent_at_offset(&self, at: usize) -> Option<LV> {
         if at > 0 {
-            Some(self.time + at as u32 - 1)
+            Some(self.time + at - 1)
         } else { None } // look at .parents field.
     }
 
@@ -117,7 +117,7 @@ impl MergableSpan for TxnSpan {
 }
 
 impl RleKeyed for TxnSpan {
-    fn get_rle_key(&self) -> u32 {
+    fn get_rle_key(&self) -> usize {
         self.time
     }
 }

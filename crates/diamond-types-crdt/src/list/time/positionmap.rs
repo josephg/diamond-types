@@ -235,7 +235,7 @@ impl PositionMap {
         let sum: LV = branch.iter().sum();
 
         let start_work = sum;
-        let end_work = (list.get_next_lv() - 1) * branch.len() as u32 - sum;
+        let end_work = (list.get_next_lv() - 1) * branch.len() - sum;
 
         if PARANOID_CHECKING {
             // We should end up with identical results regardless of whether we start from the start
@@ -444,7 +444,7 @@ impl PositionMap {
         let mut cursor = self.map.mut_cursor_at_offset_pos(raw_start as usize, false);
         if op_type == InsDelTag::Del {
             let e = cursor.get_raw_entry();
-            len = len.min((e.final_len - cursor.offset) as u32);
+            len = len.min(e.final_len - cursor.offset);
             debug_assert!(len > 0);
 
             // Usually there's no double-deletes, but we need to check just in case.
@@ -579,7 +579,7 @@ impl PositionMap {
 
             if handle_dd {
                 // Handling double-deletes is only an issue while consuming. Never advancing.
-                len = len.min((e.final_len - cursor.offset) as u32);
+                len = len.min(e.final_len - cursor.offset);
                 debug_assert!(len > 0);
                 if e.tag == Upstream { // This can never happen while consuming. Only while advancing.
                     self.double_deletes.increment_delete_range(target.start, len);
@@ -593,7 +593,7 @@ impl PositionMap {
             }
         }
 
-        let content_pos = cursor.count_content_pos() as u32;
+        let content_pos = cursor.count_content_pos();
         // Life could be so simple...
         // cursor.replace_range(PositionRun::new(op_type.into(), len as _));
 

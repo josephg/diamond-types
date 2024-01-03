@@ -14,7 +14,7 @@ use super::{DOC_IE, DOC_LE};
 pub struct MarkerEntry<E: ContentTraits, I: TreeMetrics<E>> {
     // This is cleaner as a separate enum and struct, but doing it that way
     // bumps it from 16 to 24 bytes per entry because of alignment.
-    pub len: u32,
+    pub len: usize,
     pub ptr: Option<NonNull<NodeLeaf<E, I, DOC_IE, DOC_LE>>>,
 }
 
@@ -25,8 +25,8 @@ impl<E: ContentTraits, I: TreeMetrics<E>> HasLength for MarkerEntry<E, I> {
 }
 impl<E: ContentTraits, I: TreeMetrics<E>> SplitableSpanHelpers for MarkerEntry<E, I> {
     fn truncate_h(&mut self, at: usize) -> Self {
-        let remainder_len = self.len - at as u32;
-        self.len = at as u32;
+        let remainder_len = self.len - at;
+        self.len = at;
         MarkerEntry {
             len: remainder_len,
             ptr: self.ptr
@@ -38,7 +38,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>> SplitableSpanHelpers for MarkerEntry<E
             len: at as _,
             ptr: self.ptr
         };
-        self.len -= at as u32;
+        self.len -= at;
         left
     }
 }
@@ -105,7 +105,7 @@ mod tests {
         #[derive(Copy, Clone, Eq, PartialEq, Debug)]
         pub struct MarkerEntry1 {
             // The order / seq is implicit from the location in the list.
-            pub len: u32,
+            pub len: usize,
             pub op: MarkerOp
         }
 
@@ -113,8 +113,8 @@ mod tests {
 
         #[derive(Copy, Clone, Eq, PartialEq, Debug)]
         pub enum MarkerEntry2 {
-            Ins(u32, NonNull<usize>),
-            Del(u32, LV, bool),
+            Ins(usize, NonNull<usize>),
+            Del(usize, LV, bool),
         }
         dbg!(std::mem::size_of::<MarkerEntry2>());
 

@@ -15,8 +15,8 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
 
             if *del_span > 0 {
                 positional.push(PositionalComponent {
-                    pos: *pos as u32,
-                    len: *del_span as u32,
+                    pos: *pos,
+                    len: *del_span,
                     content_known: false,
                     tag: InsDelTag::Del
                 });
@@ -24,8 +24,8 @@ pub fn apply_edits(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
 
             if !ins_content.is_empty() {
                 positional.push(PositionalComponent {
-                    pos: *pos as u32,
-                    len: ins_content.chars().count() as u32,
+                    pos: *pos,
+                    len: ins_content.chars().count(),
                     content_known: true,
                     tag: InsDelTag::Ins
                 });

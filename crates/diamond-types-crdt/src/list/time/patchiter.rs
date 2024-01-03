@@ -74,7 +74,7 @@ impl<'a> ListPatchIter<'a, true> {
                     let offset = self.range.start - d.0;
                     let target_start = d.1.start + offset;
 
-                    let end = u32::min(self.range.end, d.end());
+                    let end = usize::min(self.range.end, d.end());
                     Some(ListPatchItem {
                         range: self.range.start..end,
                         op_type: Del,
@@ -83,7 +83,7 @@ impl<'a> ListPatchIter<'a, true> {
                 },
                 Err(next_del) => {
                     // Its an insert.
-                    let end = u32::min(self.range.end, next_del);
+                    let end = usize::min(self.range.end, next_del);
                     Some(ListPatchItem {
                         range: self.range.start..end,
                         op_type: Ins,
@@ -107,7 +107,7 @@ impl<'a> ListPatchIter<'a, false> {
                 Ok(d) => {
                     // Its a delete.
                     debug_assert!(d.0 <= last_order && last_order < d.end());
-                    let start = u32::max(self.range.start, d.0);
+                    let start = usize::max(self.range.start, d.0);
                     debug_assert!(start < self.range.end);
                     let offset = start - d.0;
                     let target_start = d.1.start + offset;
@@ -120,7 +120,7 @@ impl<'a> ListPatchIter<'a, false> {
                 },
                 Err(last_del) => {
                     // Its an insert.
-                    let start = u32::max(self.range.start, last_del);
+                    let start = usize::max(self.range.start, last_del);
 
                     Some(ListPatchItem {
                         range: start..self.range.end,

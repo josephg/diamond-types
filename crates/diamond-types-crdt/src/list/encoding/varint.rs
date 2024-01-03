@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 /// We're using protobuf's encoding system for variable sized integers. Most numbers we store here
 /// follow a Parato distribution, so this ends up being a space savings overall.
 ///
@@ -91,6 +93,16 @@ pub fn encode_u32(mut value: u32, buf: &mut [u8]) -> usize {
     };
     buf[4] = value as u8;
     5
+}
+
+pub fn encode_usize(value: usize, buf: &mut [u8]) -> usize {
+    if size_of::<usize>() <= size_of::<u32>() {
+        encode_u32(value as u32, buf)
+    } else if size_of::<usize>() == size_of::<u64>() {
+        encode_u64(value as u64, buf)
+    } else {
+        panic!("usize larger than u64 not supported");
+    }
 }
 
 // TODO: Make this return a Result<> of some sort.
@@ -204,6 +216,11 @@ pub(crate) fn mix_bit_u64(value: u64, extra: bool) -> u64 {
 pub(crate) fn mix_bit_u32(value: u32, extra: bool) -> u32 {
     debug_assert!(value < u32::MAX / 2);
     value * 2 + extra as u32
+}
+
+pub(crate) fn mix_bit_usize(value: usize, extra: bool) -> usize {
+    debug_assert!(value < usize::MAX / 2);
+    value * 2 + extra as usize
 }
 
 // TODO: Remove this method. Callers should just use mix_bit.

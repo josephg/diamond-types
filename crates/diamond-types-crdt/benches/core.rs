@@ -23,6 +23,7 @@ fn list_with_data(test_data: &TestData) -> ListCRDT {
     doc
 }
 
+// const DATASETS: &[&str] = &["automerge-paper", "seph-blog1"];
 const DATASETS: &[&str] = &["automerge-paper", "rustcode", "sveltecomponent", "seph-blog1"];
 
 fn local_benchmarks(c: &mut Criterion) {

@@ -32,9 +32,9 @@ pub enum TraversalComponent {
     // The result had no change in memory usage - this enum is already has 8 bytes (because of the
     // enum field and padding). Tucking this bool only really served to drop performance by 1-5% on
     // some benchmarks. The code isn't much different in either case.
-    Ins { len: u32, content_known: bool },
-    Del(u32), // TODO: Add content_known for del for consistency
-    Retain(u32)
+    Ins { len: usize, content_known: bool },
+    Del(usize), // TODO: Add content_known for del for consistency
+    Retain(usize)
 }
 
 /// A traversal is a walk over the document which inserts and deletes items.
@@ -57,8 +57,8 @@ impl TraversalOp {
         Self::default()
     }
 
-    pub fn new_insert(pos: u32, content: &str) -> Self {
-        let len = count_chars(content) as u32;
+    pub fn new_insert(pos: usize, content: &str) -> Self {
+        let len = count_chars(content);
         TraversalOp {
             traversal: if pos == 0 {
                 smallvec![Ins { len, content_known: true }]
@@ -69,7 +69,7 @@ impl TraversalOp {
         }
     }
 
-    pub fn new_delete(pos: u32, del_len: u32) -> Self {
+    pub fn new_delete(pos: usize, del_len: usize) -> Self {
         TraversalOp {
             traversal: if pos == 0 {
                 smallvec![Del(del_len)]
@@ -179,7 +179,7 @@ impl TraversalComponent {
     }
 
     // TODO: This function is pretty useless. Consider replacing it with is_empty().
-    pub fn len(&self) -> u32 {
+    pub fn len(&self) -> usize {
         match self {
             Retain(len) | Del(len) => *len,
             Ins { len, .. } => *len,
@@ -190,7 +190,7 @@ impl TraversalComponent {
 impl Default for TraversalComponent {
     fn default() -> Self {
         // For range tree
-        Retain(u32::MAX)
+        Retain(usize::MAX)
     }
 }
 

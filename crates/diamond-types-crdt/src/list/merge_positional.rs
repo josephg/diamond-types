@@ -34,7 +34,7 @@ impl ListCRDT {
         // TODO: Merge this with apply_local_txn
         let first_time = self.get_next_lv();
         let mut next_time = first_time;
-        let txn_len = op.components.iter().map(|c| c.len).sum::<u32>() as usize;
+        let txn_len = op.components.iter().map(|c| c.len).sum::<usize>();
 
         self.assign_lv_to_client(CRDTId {
             agent,
@@ -43,8 +43,8 @@ impl ListCRDT {
 
         // for LocalOp { pos, ins_content, del_span } in local_ops {
         for c in op.components {
-            let orig_pos = c.pos as usize;
-            let len = c.len as usize;
+            let orig_pos = c.pos;
+            let len = c.len;
 
             match c.tag {
                 Ins => {
@@ -78,7 +78,7 @@ impl ListCRDT {
                         time: order,
                         origin_left,
                         origin_right,
-                        len: len as i32
+                        len: len as isize
                     };
                     // dbg!(item);
 
