@@ -8,12 +8,22 @@ use humansize::{DECIMAL, format_size};
 use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, MergeIter, SplitableSpan, SplitableSpanCtx};
 use rle::Searchable;
 use crate::dtrange::DTRange;
-
 use crate::rle::{HasRleKey, RleKeyedAndSplitable, RleSpanHelpers};
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 // Each entry has a key (which we search by), a span and a value at that key.
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct RleVec<V: HasLength + MergableSpan + Sized>(pub Vec<V>);
+
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct RleStats {
+    entry_byte_size: usize,
+    len: usize,
+    capacity: usize,
+}
 
 impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
     pub fn new() -> Self { Self(Vec::new()) }
@@ -63,6 +73,14 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
     pub fn iter_from_idx(&self, idx: usize) -> std::slice::Iter<V> { self.0[idx..].iter() }
 
     pub fn iter_merged(&self) -> MergeIter<Cloned<std::slice::Iter<V>>> { self.0.iter().cloned().merge_spans() }
+
+    pub fn get_stats(&self) -> RleStats {
+        RleStats {
+            entry_byte_size: std::mem::size_of::<V>(),
+            len: self.0.len(),
+            capacity: self.0.capacity(),
+        }
+    }
 
     pub fn print_stats(&self, name: &str, _detailed: bool) {
         let size = std::mem::size_of::<V>();

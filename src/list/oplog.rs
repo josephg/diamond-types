@@ -12,6 +12,10 @@ use crate::rev_range::RangeRev;
 use crate::rle::KVPair;
 use crate::unicount::{chars_to_bytes, count_chars};
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+use crate::rle::rle_vec::RleStats;
+
 impl Default for ListOpLog {
     fn default() -> Self {
         Self::new()
@@ -395,6 +399,65 @@ impl ListOpLog {
             .map(|item| self.cg.agent_assignment.agent_span_to_remote(item.1))
     }
 
+    /// Check if the specified version contains the specified point in time.
+    // Exported for the fuzzer. Not sure if I actually want this exposed.
+    pub fn version_contains_lv(&self, local_version: &[LV], target: LV) -> bool {
+        if local_version.is_empty() { true }
+        else { self.cg.graph.frontier_contains_version(local_version, target) }
+    }
+
+    // /// Returns all the changes since some (static) point in time.
+    // pub fn linear_changes_since(&self, start: Time) -> TimeSpan {
+    //     TimeSpan::new(start, self.len())
+    // }
+
+    /// Take the union of two versions.
+    ///
+    /// One way to think of a version is the name of some subset of operations in the operation log.
+    /// But a local time array only explicitly names versions at the "tip" of the time DAG. For
+    /// example, if we have 3 operations: A, B, C with ROOT <- A <- B <- C, then the local version
+    /// will only name `{C}`, since A and B are implicit.
+    ///
+    /// version_union takes two versions and figures out the set union for all the contained
+    /// changes, and returns the version name for that union. `version_union(a, b)` will often
+    /// simply return `a` or `b`. This happens when one of the versions is a strict subset of the
+    /// other.
+    pub fn version_union(&self, a: &[LV], b: &[LV]) -> Frontier {
+        self.cg.graph.version_union(a, b)
+    }
+
+    pub fn parents_at_version(&self, lv: LV) -> Frontier {
+        self.cg.graph.parents_at_version(lv)
+    }
+
+    pub(crate) fn estimate_cost(&self, op_range: DTRange) -> usize {
+        if op_range.is_empty() { return 0; }
+        else {
+            let start_idx = self.operations.find_index(op_range.start).unwrap();
+            let end_idx = self.operations.find_index(op_range.last()).unwrap();
+
+            end_idx - start_idx + 1
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ListOpLogStats {
+    op_stats: RleStats,
+    graph_stats: RleStats,
+    aa_stats: RleStats,
+
+    num_insert_keystrokes: usize,
+    num_delete_keystrokes: usize,
+    total_keystrokes: usize,
+    concurrency_estimate: f32,
+    graph_rle_size: usize,
+    num_agents: usize,
+}
+
+impl ListOpLog {
+
     pub fn print_stats(&self, detailed: bool) {
         self.operations.print_stats("Operations", detailed);
 
@@ -450,48 +513,31 @@ impl ListOpLog {
 
         let concurrency = self.cg.graph.estimate_concurrency(self.cg.version.as_ref());
         println!("Concurrency estimate: {concurrency}");
-
-
     }
 
-    /// Check if the specified version contains the specified point in time.
-    // Exported for the fuzzer. Not sure if I actually want this exposed.
-    pub fn version_contains_time(&self, local_version: &[LV], target: LV) -> bool {
-        if local_version.is_empty() { true }
-        else { self.cg.graph.frontier_contains_version(local_version, target) }
-    }
+    pub fn get_stats(&self) -> ListOpLogStats {
+        let mut i_k = 0;
+        let mut d_k = 0;
 
-    // /// Returns all the changes since some (static) point in time.
-    // pub fn linear_changes_since(&self, start: Time) -> TimeSpan {
-    //     TimeSpan::new(start, self.len())
-    // }
+        for op in self.operations.iter_merged() {
+            match op.1.kind {
+                ListOpKind::Ins => i_k += op.len(),
+                ListOpKind::Del => d_k += op.len(),
+            }
+        }
 
-    /// Take the union of two versions.
-    ///
-    /// One way to think of a version is the name of some subset of operations in the operation log.
-    /// But a local time array only explicitly names versions at the "tip" of the time DAG. For
-    /// example, if we have 3 operations: A, B, C with ROOT <- A <- B <- C, then the local version
-    /// will only name `{C}`, since A and B are implicit.
-    ///
-    /// version_union takes two versions and figures out the set union for all the contained
-    /// changes, and returns the version name for that union. `version_union(a, b)` will often
-    /// simply return `a` or `b`. This happens when one of the versions is a strict subset of the
-    /// other.
-    pub fn version_union(&self, a: &[LV], b: &[LV]) -> Frontier {
-        self.cg.graph.version_union(a, b)
-    }
+        ListOpLogStats {
+            op_stats: self.operations.get_stats(),
+            graph_stats: self.cg.graph.entries.get_stats(),
+            aa_stats: self.cg.agent_assignment.client_with_lv.get_stats(),
 
-    pub fn parents_at_version(&self, lv: LV) -> Frontier {
-        self.cg.graph.parents_at_version(lv)
-    }
-
-    pub(crate) fn estimate_cost(&self, op_range: DTRange) -> usize {
-        if op_range.is_empty() { return 0; }
-        else {
-            let start_idx = self.operations.find_index(op_range.start).unwrap();
-            let end_idx = self.operations.find_index(op_range.last()).unwrap();
-
-            end_idx - start_idx + 1
+            num_insert_keystrokes: i_k,
+            num_delete_keystrokes: d_k,
+            total_keystrokes: i_k + d_k,
+            num_agents: self.cg.agent_assignment.client_data.len(),
+            concurrency_estimate: self.cg.graph.estimate_concurrency(self.cg.version.as_ref()),
+            graph_rle_size: self.cg.graph.count_all_graph_entries(self.cg.version.as_ref()),
         }
     }
+
 }

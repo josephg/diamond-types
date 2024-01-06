@@ -32,6 +32,16 @@ pub fn apply_edits_direct(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
     }
 }
 
+// cargo run --example posstats --release --features gen_test_data
+fn write_stats(name: &str, oplog: &ListOpLog) {
+    if cfg!(feature = "gen_test_data") {
+        let stats = oplog.get_stats();
+        let data = serde_json::to_string_pretty(&stats).unwrap();
+        let stats_file = format!("stats_{}.json", name);
+        std::fs::write(&stats_file, data).unwrap();
+        println!("Wrote stats to {stats_file}");
+    }
+}
 
 #[allow(unused)]
 fn print_stats_for_testdata(name: &str) {
@@ -82,11 +92,13 @@ fn print_stats_for_testdata(name: &str) {
     println!("Regular file size {} bytes", data.len());
     std::fs::write(out_file.clone(), data.as_slice()).unwrap();
     println!("Saved to {}", out_file);
+
+    write_stats(name, &doc.oplog);
 }
 
 #[allow(unused)]
 fn print_stats_for_file(name: &str) {
-    let contents = std::fs::read(name).unwrap();
+    let contents = std::fs::read(&format!("benchmark_data/{name}.dt")).unwrap();
     println!("\n\nLoaded testing data from {} ({} bytes)", name, contents.len());
 
     #[cfg(feature = "memusage")]
@@ -133,6 +145,8 @@ fn print_stats_for_file(name: &str) {
         get_thread_num_allocations() - start_count);
 
     println!("Resulting document size {} characters", state.len_chars());
+
+    write_stats(name, &oplog);
 }
 
 // This is a dirty addition for profiling.
@@ -160,9 +174,9 @@ fn main() {
     // print_stats_for_testdata("sveltecomponent");
     print_stats_for_testdata("seph-blog1");
 
-    print_stats_for_file("benchmark_data/node_nodecc.dt");
-    print_stats_for_file("benchmark_data/git-makefile.dt");
+    print_stats_for_file("node_nodecc");
+    print_stats_for_file("git-makefile");
 
-    print_stats_for_file("benchmark_data/friendsforever.dt");
-    print_stats_for_file("benchmark_data/clownschool.dt");
+    print_stats_for_file("friendsforever");
+    print_stats_for_file("clownschool");
 }
