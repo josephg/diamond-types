@@ -33,14 +33,13 @@ pub fn apply_edits_direct(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
 }
 
 // cargo run --example posstats --release --features gen_test_data
+#[cfg(feature = "gen_test_data")]
 fn write_stats(name: &str, oplog: &ListOpLog) {
-    if cfg!(feature = "gen_test_data") {
-        let stats = oplog.get_stats();
-        let data = serde_json::to_string_pretty(&stats).unwrap();
-        let stats_file = format!("stats_{}.json", name);
-        std::fs::write(&stats_file, data).unwrap();
-        println!("Wrote stats to {stats_file}");
-    }
+    let stats = oplog.get_stats();
+    let data = serde_json::to_string_pretty(&stats).unwrap();
+    let stats_file = format!("stats_{}.json", name);
+    std::fs::write(&stats_file, data).unwrap();
+    println!("Wrote stats to {stats_file}");
 }
 
 #[allow(unused)]
@@ -93,6 +92,7 @@ fn print_stats_for_testdata(name: &str) {
     std::fs::write(out_file.clone(), data.as_slice()).unwrap();
     println!("Saved to {}", out_file);
 
+    #[cfg(feature = "gen_test_data")]
     write_stats(name, &doc.oplog);
 }
 
@@ -146,6 +146,7 @@ fn print_stats_for_file(name: &str) {
 
     println!("Resulting document size {} characters", state.len_chars());
 
+    #[cfg(feature = "gen_test_data")]
     write_stats(name, &oplog);
 }
 
