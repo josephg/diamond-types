@@ -48,7 +48,8 @@ fn print_stats_for_testdata(name: &str) {
     let test_data = load_testing_data(&filename);
     assert_eq!(test_data.start_content.len(), 0);
     println!("\n\nLoaded testing data from {}\n ({} patches in {} txns -> docsize {} chars)",
-        filename,
+        // filename,
+        name,
         test_data.len(),
         test_data.txns.len(),
         test_data.end_content.chars().count()
@@ -78,8 +79,51 @@ fn print_stats_for_testdata(name: &str) {
     println!("Branch size {}", doc.len());
     // println!("---\nEncoded size {} (?? What do we include here?)", as_bytes.len());
 
-    let out_file = format!("{}.dt", name);
-    let data = doc.oplog.encode(EncodeOptions {
+    // let out_file = format!("{}.dt", name);
+    // let data = doc.oplog.encode(EncodeOptions {
+    //     user_data: None,
+    //     store_start_branch_content: false,
+    //     experimentally_store_end_branch_content: false,
+    //     store_inserted_content: true,
+    //     store_deleted_content: false,
+    //     compress_content: true,
+    //     verbose: true
+    // });
+    // println!("Regular file size {} bytes", data.len());
+    // std::fs::write(out_file.clone(), data.as_slice()).unwrap();
+    // println!("Saved to {}", out_file);
+
+    // #[cfg(feature = "gen_test_data")]
+    // write_stats(name, &doc.oplog);
+
+    print_stats_for_oplog(name, &doc.oplog);
+}
+
+#[allow(unused)]
+fn print_stats_for_file(name: &str) {
+    let contents = std::fs::read(&format!("benchmark_data/{name}.dt")).unwrap();
+    println!("\n\nLoaded testing data from {} ({} bytes)", name, contents.len());
+
+    #[cfg(feature = "memusage")]
+        let start_bytes = get_thread_memory_usage();
+    #[cfg(feature = "memusage")]
+        let start_count = get_thread_num_allocations();
+
+    let oplog = ListOpLog::load_from(&contents).unwrap();
+    #[cfg(feature = "memusage")]
+    println!("allocated {} bytes in {} blocks",
+             format_size((get_thread_memory_usage() - start_bytes) as usize, DECIMAL),
+             get_thread_num_allocations() - start_count);
+
+    oplog.print_stats(false);
+    print_stats_for_oplog(name, &oplog);
+}
+
+fn print_stats_for_oplog(name: &str, oplog: &ListOpLog) {
+    // oplog.make_time_dag_graph("node_cc.svg");
+
+    println!("---- Saving normally ----");
+    let data = oplog.encode(EncodeOptions {
         user_data: None,
         store_start_branch_content: false,
         experimentally_store_end_branch_content: false,
@@ -89,32 +133,9 @@ fn print_stats_for_testdata(name: &str) {
         verbose: true
     });
     println!("Regular file size {} bytes", data.len());
-    std::fs::write(out_file.clone(), data.as_slice()).unwrap();
-    println!("Saved to {}", out_file);
 
-    #[cfg(feature = "gen_test_data")]
-    write_stats(name, &doc.oplog);
-}
 
-#[allow(unused)]
-fn print_stats_for_file(name: &str) {
-    let contents = std::fs::read(&format!("benchmark_data/{name}.dt")).unwrap();
-    println!("\n\nLoaded testing data from {} ({} bytes)", name, contents.len());
-
-    #[cfg(feature = "memusage")]
-    let start_bytes = get_thread_memory_usage();
-    #[cfg(feature = "memusage")]
-    let start_count = get_thread_num_allocations();
-
-    let oplog = ListOpLog::load_from(&contents).unwrap();
-    #[cfg(feature = "memusage")]
-    println!("allocated {} bytes in {} blocks",
-             format_size((get_thread_memory_usage() - start_bytes) as usize, DECIMAL),
-             get_thread_num_allocations() - start_count);
-
-    oplog.print_stats(false);
-    // oplog.make_time_dag_graph("node_cc.svg");
-
+    println!("---- Saving smol mode ----");
     let data_smol = oplog.encode(EncodeOptions {
         user_data: None,
         store_start_branch_content: false,
@@ -125,6 +146,30 @@ fn print_stats_for_file(name: &str) {
         verbose: true
     });
     println!("Smol size {}", data_smol.len());
+
+    println!("---- Saving uncompressed ----");
+    let data_uncompressed = oplog.encode(EncodeOptions {
+        user_data: None,
+        store_start_branch_content: false,
+        experimentally_store_end_branch_content: false,
+        store_inserted_content: true,
+        store_deleted_content: false,
+        compress_content: false,
+        verbose: true
+    });
+    println!("Uncompressed size {}", data_uncompressed.len());
+
+    println!("---- Saving smol uncompressed ----");
+    let data_uncompressed = oplog.encode(EncodeOptions {
+        user_data: None,
+        store_start_branch_content: false,
+        experimentally_store_end_branch_content: true,
+        store_inserted_content: false,
+        store_deleted_content: false,
+        compress_content: false,
+        verbose: true
+    });
+    println!("Uncompressed size {}", data_uncompressed.len());
 
     oplog.bench_writing_xf_since(&[]);
 

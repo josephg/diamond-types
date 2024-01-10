@@ -15,7 +15,7 @@ use crate::list::encoding::encode_tools::{Merger, push_leb_chunk, push_leb_str, 
 use crate::list::encoding::leb::{encode_leb_u32, encode_leb_usize, num_encode_zigzag_isize_old};
 use crate::listmerge::plan::M1PlanAction;
 
-const ALLOW_VERBOSE: bool = false;
+const ALLOW_VERBOSE: bool = true;
 
 /// Write an operation to the passed writer.
 fn write_op(dest: &mut Vec<u8>, op: &ListOpMetrics, cursor: &mut usize) {
@@ -622,6 +622,9 @@ impl ListOpLog {
             write_local_version(&mut end_branch, self.cg.version.as_ref(), &mut agent_mapping, self);
 
             let branch_here = ListBranch::new_at_tip(self);
+            if verbose {
+                println!("End content length (uncompressed) {}", branch_here.content.len_bytes());
+            }
             write_content_rope(&mut end_branch, &branch_here.content.borrow(), compress_bytes.as_mut());
 
             Some(end_branch)
@@ -653,7 +656,7 @@ impl ListOpLog {
         // chunk goes first in the file, so if we compress anything, it needs to be filled up.
         let inserted_content = inserted_content.and_then(|inserted_content| {
             if verbose {
-                println!("Inserted text length {}", inserted_content.content.len());
+                println!("Inserted text length (uncompressed) {}", inserted_content.content.len());
             }
 
             inserted_content.flush(compress_bytes.as_mut())
