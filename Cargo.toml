@@ -87,7 +87,7 @@ bench = false
 lto = true
 codegen-units = 1
 #opt-level = "s"
-#panic = "abort"
+panic = "abort"
 
 [profile.release.package.dt-wasm]
 opt-level = 2
