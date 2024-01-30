@@ -20,4 +20,4 @@ jobs:
           override: true
 
       - run: cargo test
-      - run: cargo test -p dt-cli -p diamond-types-old -p rle -p content-tree -p dt-wasm -p dt-swift
+      - run: cargo test -p dt-cli -p diamond-types-crdt -p rle -p content-tree -p dt-wasm -p dt-swift
