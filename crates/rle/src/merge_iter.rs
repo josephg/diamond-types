@@ -90,10 +90,10 @@ mod test {
         let one = vec![RleRun { val: 5, len: 1 }];
         assert_eq!(merge_items(one.into_iter()).collect::<Vec<_>>(), vec![RleRun { val: 5, len: 1 }]);
 
-        let two_split = vec![2..3, 5..10];
+        let two_split = vec![2u32..3, 5..10];
         assert_eq!(merge_items(two_split.iter().cloned()).collect::<Vec<_>>(), two_split);
 
-        let two_merged = vec![2..5, 5..10];
+        let two_merged = vec![2u32..5, 5..10];
         assert_eq!(merge_items(two_merged.iter().cloned()).collect::<Vec<_>>(), vec![2..10]);
     }
 
@@ -104,12 +104,12 @@ mod test {
         assert_eq!(merge_items_rev(empty.into_iter()).collect::<Vec<_>>(), vec![]);
 
         let one = vec![5..6];
-        assert_eq!(merge_items_rev(one.into_iter()).collect::<Vec<_>>(), vec![5..6]);
+        assert_eq!(merge_items_rev(one.into_iter()).collect::<Vec<_>>(), vec![5u32..6]);
 
-        let two_split = vec![5..10, 2..3];
+        let two_split = vec![5u32..10, 2..3];
         assert_eq!(merge_items_rev(two_split.iter().cloned()).collect::<Vec<_>>(), two_split);
 
-        let two_merged = vec![5..10, 2..5];
+        let two_merged = vec![5u32..10, 2..5];
         assert_eq!(merge_items_rev(two_merged.iter().cloned()).collect::<Vec<_>>(), vec![2..10]);
     }
 }
