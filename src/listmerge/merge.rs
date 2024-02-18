@@ -218,7 +218,7 @@ impl M2Tracker {
                         let other_name = aa.get_agent_name(other_agent);
                         // eprintln!("concurrent insert at the same place {} ({}) vs {} ({})", item.id.start, my_name, other_lv, other_name);
 
-                        // Its possible for a user to conflict with themself if they commit to
+                        // It's possible for a user to conflict with themselves if they commit to
                         // multiple branches. In this case, sort by seq number.
                         let ins_here = match my_name.cmp(other_name) {
                             Ordering::Less => true,
@@ -263,7 +263,7 @@ impl M2Tracker {
             // Q: Is it possible that we get different behaviour if we don't separate out each
             // internal run within the entry and visit each one separately?
             //
-            // The fuzzer says no, we don't need to do that. I assume its because internal entries
+            // The fuzzer says no, we don't need to do that. I assume it's because internal entries
             // have higher origin_left, and thus they can't be peers with the newly inserted item
             // (which has a lower origin_left).
             if !cursor.next_entry() {
@@ -376,7 +376,7 @@ impl M2Tracker {
     ///    to the tracker object, and should only be done exactly once for each operation in the set
     ///    we care about
     /// 2. Figure out where the operation will land in the resulting document (if anywhere).
-    ///    The resulting operation could happen never (if its a double delete), once (inserts)
+    ///    The resulting operation could happen never (if it's a double delete), once (inserts)
     ///    or generate many individual edits (eg if a delete is split). This method should be called
     ///    in a loop.
     ///
@@ -520,7 +520,7 @@ impl M2Tracker {
 
                 let (len2, target) = unsafe {
                     // It would be tempting - and *nearly* correct to just use local_delete inside the
-                    // range tree. Its hard to bake that logic in here though.
+                    // range tree. It's hard to bake that logic in here though.
 
                     // TODO(perf): Reuse cursor. After mutate_single_entry we'll often be at another
                     // entry that we can delete in a run.
