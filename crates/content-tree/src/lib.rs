@@ -160,7 +160,9 @@ pub(crate) enum ParentPtr<E: ContentTraits, I: TreeMetrics<E>, const IE: usize =
 /// mutability and lifetime of the implicitly referenced content tree. Use Cursor and MutCursor.
 #[derive(Clone, Debug)]
 pub struct UnsafeCursor<E: ContentTraits, I: TreeMetrics<E>, const IE: usize = DEFAULT_IE, const LE: usize = DEFAULT_LE> {
+    /// Pointer to the node containing this cursor
     node: NonNull<NodeLeaf<E, I, IE, LE>>,
+    /// The index of the item pointed to by the cursor
     idx: usize,
     pub offset: usize, // This doesn't need to be usize, but the memory size of Cursor doesn't matter.
 }

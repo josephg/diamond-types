@@ -41,7 +41,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Node
     //     (raw_pos, None)
     // }
 
-    /// Find a given text offset within the node.
+    /// Find a given offset within the node.
     ///
     /// Returns (index, offset within entry)
     ///

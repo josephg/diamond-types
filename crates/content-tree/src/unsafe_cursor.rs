@@ -452,7 +452,7 @@ mod tests {
         let c2 = tree.unsafe_cursor_at_end();
         assert_eq!(unsafe { c1.unsafe_cmp(&c2) }, Ordering::Less);
 
-        // Ok now lets add a bunch of junk to make sure the tree has a bunch of internal nodes
+        // Ok now let's add a bunch of junk to make sure the tree has a bunch of internal nodes
         for i in 0..1000 {
             tree.insert_at_start_notify(TestRange { id: i, len: 1, is_activated: true }, null_notify);
         }
