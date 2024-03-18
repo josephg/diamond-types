@@ -81,7 +81,7 @@ impl M2Tracker {
                 let mut cursor = self.range_tree.mut_cursor_before_item(target_range.start, ptr);
                 target_range.start += cursor.mutate_single_entry_notify(
                     target_range.len(),
-                    notify_for(&mut self.index),
+                    notify_for(&mut self.index, &mut self.index_cursor),
                     |e| {
                         if tag == ListOpKind::Ins {
                             e.current_state.mark_inserted();
@@ -137,7 +137,7 @@ impl M2Tracker {
 
                 target_range.start += cursor.mutate_single_entry_notify(
                     target_range.len(),
-                    notify_for(&mut self.index),
+                    notify_for(&mut self.index, &mut self.index_cursor),
                     |e| {
                         if tag == ListOpKind::Ins {
                             e.current_state.mark_not_inserted_yet();

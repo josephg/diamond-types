@@ -10,7 +10,7 @@ use smartstring::alias::String as SmartString;
 use content_tree::*;
 use rle::{AppendRle, HasLength, MergeableIterator, Searchable, SplitableSpanCtx, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
-use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex};
+use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex, SpaceIndexCursor};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, CRDTSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::{DTRange, UNDERWATER_START};
@@ -58,24 +58,33 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     }
 }
 
-pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + '_ {
+pub(super) fn notify_for<'a>(index: &'a mut SpaceIndex, idx_cursor: &'a mut Option<(LV, SpaceIndexCursor)>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
     move |entry: CRDTSpan, leaf| {
         debug_assert!(leaf != NonNull::dangling());
-        let start = entry.id.start;
-        let len = entry.len();
 
         // Note we can only mutate_entries when we have something to mutate. The list is started
         // with a big placeholder "underwater" entry which will be split up as needed.
 
-        let mut cursor = index.unsafe_cursor_at_offset_pos(start, false);
+        let start = entry.id.start;
+        let mut cursor = match idx_cursor.take() {
+            Some((cursor_start, mut cursor)) if cursor_start == start => {
+                cursor.roll_to_next_entry();
+                cursor
+            },
+            _ => index.unsafe_cursor_at_offset_pos(start, false)
+        };
+
+        // let mut cursor = index.unsafe_cursor_at_offset_pos(entry.id.start, false);
         unsafe {
             ContentTreeRaw::unsafe_mutate_entries_notify(|marker| {
                 // The item should already be an insert entry.
                 debug_assert_eq!(marker.inner.tag(), ListOpKind::Ins);
 
                 marker.inner = InsPtr(leaf);
-            }, &mut cursor, len, null_notify);
+            }, &mut cursor, entry.len(), null_notify);
         }
+
+        *idx_cursor = Some((entry.id.end, cursor));
     }
 }
 
@@ -88,20 +97,22 @@ fn take_content<'a>(x: Option<&mut &'a str>, len: usize) -> Option<&'a str> {
 
 impl M2Tracker {
     pub(super) fn new() -> Self {
-        let mut range_tree = ContentTreeRaw::new();
         let mut index = ContentTreeRaw::new();
         let underwater = CRDTSpan::new_underwater();
         pad_index_to(&mut index, underwater.id.end);
-        range_tree.push_notify(underwater, notify_for(&mut index));
 
-        Self {
-            range_tree,
+        let mut result = Self {
+            range_tree: ContentTreeRaw::new(),
             index,
+            index_cursor: None,
             #[cfg(feature = "merge_conflict_checks")]
             concurrent_inserts_collide: false,
             #[cfg(feature = "ops_to_old")]
             dbg_ops: vec![]
-        }
+        };
+
+        result.range_tree.push_notify(underwater, notify_for(&mut result.index, &mut result.index_cursor));
+        result
     }
 
     pub(super) fn clear(&mut self) {
@@ -111,7 +122,7 @@ impl M2Tracker {
 
         let underwater = CRDTSpan::new_underwater();
         pad_index_to(&mut self.index, underwater.id.end);
-        self.range_tree.push_notify(underwater, notify_for(&mut self.index));
+        self.range_tree.push_notify(underwater, notify_for(&mut self.index, &mut self.index_cursor));
     }
 
     pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
@@ -289,7 +300,7 @@ impl M2Tracker {
         // (Safe variant):
         // cursor.insert_notify(item, notify_for(&mut self.index));
 
-        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
+        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index, &mut self.index_cursor)); }
         // self.check_index();
         content_pos
     }
@@ -529,7 +540,7 @@ impl M2Tracker {
                         // This will set the state to deleted, and mark ever_deleted in the entry.
                         e.delete();
                         e.id
-                    }, &mut cursor.inner, len, notify_for(&mut self.index))
+                    }, &mut cursor.inner, len, notify_for(&mut self.index, &mut self.index_cursor))
                 };
 
                 // ContentTree should come to the same length conclusion as us.
@@ -563,6 +574,10 @@ impl M2Tracker {
                         fwd
                     })
                 });
+                // This is unfortunately needed because we *might* have moved the index_cursor.
+                // It would be better to tighten the bound here and only clear the cursor sometimes,
+                // but doing so sounds hard and doesn't seem to make a performance difference.
+                self.index_cursor.take();
 
                 // if cfg!(debug_assertions) {
                 //     self.check_index();
