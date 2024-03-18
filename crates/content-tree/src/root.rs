@@ -1,6 +1,6 @@
 #![allow(clippy::needless_lifetimes)] // Clippy doesn't understand the need for some lifetimes below
 
-use std::mem::size_of;
+use std::mem::{align_of, size_of};
 
 use humansize::{file_size_opts, FileSize};
 use smallvec::SmallVec;
@@ -350,11 +350,11 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
 
         if detailed {
             println!("Entry distribution {:?}", size_counts);
-            println!("Internal node size {}", std::mem::size_of::<NodeInternal<E, I, IE, LE>>());
+            println!("Internal node size {}", size_of::<NodeInternal<E, I, IE, LE>>());
             println!("Node entry size {} alignment {}",
-                     std::mem::size_of::<Option<Node<E, I, IE, LE>>>(),
-                     std::mem::align_of::<Option<Node<E, I, IE, LE>>>());
-            println!("Leaf size {}", std::mem::size_of::<NodeLeaf<E, I, IE, LE>>());
+                     size_of::<Option<Node<E, I, IE, LE>>>(),
+                     align_of::<Option<Node<E, I, IE, LE>>>());
+            println!("Leaf size {}", size_of::<NodeLeaf<E, I, IE, LE>>());
         }
     }
 

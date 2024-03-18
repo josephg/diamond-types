@@ -46,4 +46,6 @@ fn main() {
     // profile_merge("clownschool", 500);
     // profile_merge("git-makefile", 200);
     profile_merge("git-makefile", 1);
+    // profile_merge("node_nodecc", 1);
+    // profile_merge("clownschool", 1);
 }
