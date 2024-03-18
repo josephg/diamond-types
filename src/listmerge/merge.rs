@@ -53,7 +53,7 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     if index_len < desired_len {
         index.push(MarkerEntry {
             len: desired_len - index_len,
-            inner: InsPtr(std::ptr::NonNull::dangling()),
+            inner: InsPtr(NonNull::dangling()),
         });
     }
 }
