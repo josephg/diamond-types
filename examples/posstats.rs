@@ -7,7 +7,7 @@
 // Run with:
 // $ cargo run --release --features memusage --example stats
 
-use std::fs::File;
+// use std::fs::File;
 use std::hint::black_box;
 use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use diamond_types::list::*;
@@ -121,7 +121,7 @@ fn print_stats_for_file(name: &str) {
     print_stats_for_oplog(name, &oplog);
 }
 
-fn print_stats_for_oplog(name: &str, oplog: &ListOpLog) {
+fn print_stats_for_oplog(_name: &str, oplog: &ListOpLog) {
     // oplog.make_time_dag_graph("node_cc.svg");
 
     println!("---- Saving normally ----");
@@ -194,7 +194,7 @@ fn print_stats_for_oplog(name: &str, oplog: &ListOpLog) {
     println!("Resulting document size {} characters", state.len_chars());
 
     #[cfg(feature = "gen_test_data")]
-    write_stats(name, &oplog);
+    write_stats(_name, &oplog);
 }
 
 // This is a dirty addition for profiling.

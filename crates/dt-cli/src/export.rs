@@ -262,7 +262,7 @@ pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsStri
 
     let num_agents = oplog.cg.num_agents();
     let mut sorted_agents: Vec<AgentId> = (0..num_agents as AgentId).collect();
-    sorted_agents.sort_by(|a, b| {
+    sorted_agents.sort_unstable_by(|a, b| {
         let a_name = oplog.cg.agent_assignment.get_agent_name(*a);
         let b_name = oplog.cg.agent_assignment.get_agent_name(*b);
         a_name.cmp(b_name)

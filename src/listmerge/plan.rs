@@ -303,12 +303,17 @@ impl ConflictSubgraph<M1EntryState> {
         }
 
         self.prepare();
-        self.calc_costs(&children, metrics);
-        // let rng = &mut rand::thread_rng();
-        for c in children.iter_mut() {
-            // Lowest cost to highest cost.
-            c.sort_unstable_by_key(|&i| self.entries[i].state.subtree_cost);
-            // c.shuffle(rng);
+
+        const OPTIMIZE_PATHS: bool = true;
+
+        if OPTIMIZE_PATHS {
+            self.calc_costs(&children, metrics);
+            // let rng = &mut rand::thread_rng();
+            for c in children.iter_mut() {
+                // Lowest cost to highest cost.
+                c.sort_unstable_by_key(|&i| self.entries[i].state.subtree_cost);
+                // c.shuffle(rng);
+            }
         }
 
         fn teleport(g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, target_idx: usize, last_processed_after: bool, last_processed_idx: usize) {

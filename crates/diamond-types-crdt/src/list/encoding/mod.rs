@@ -545,7 +545,7 @@ impl ListCRDT {
         }
 
         let mut entries = self.range_tree.raw_iter().collect::<Vec<YjsSpan>>();
-        entries.sort_by_key(|e| e.time);
+        entries.sort_unstable_by_key(|e| e.time);
 
         let mut fancy_runs = Vec::new();
         let mut prev_ol = 0;

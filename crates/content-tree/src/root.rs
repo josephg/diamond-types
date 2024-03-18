@@ -262,35 +262,35 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
         assert_eq!(self.count, expected_size, "tree.count is incorrect");
     }
 
-    fn print_node_tree(node: &Node<E, I, IE, LE>, depth: usize) {
-        for _ in 0..depth { eprint!("  "); }
-        match node {
-            Node::Internal(n) => {
-                let n = n.as_ref().get_ref();
-                eprintln!("Internal {:?} (parent: {:?})", n as *const _, n.parent);
-                let mut unused = 0;
-                for e in &n.children[..] {
-                    if let Some(e) = e {
-                        Self::print_node_tree(e, depth + 1);
-                    } else { unused += 1; }
-                }
-
-                if unused > 0 {
-                    for _ in 0..=depth { eprint!("  "); }
-                    eprintln!("({} empty places)", unused);
-                }
-            },
-            Node::Leaf(n) => {
-                eprintln!("Leaf {:?} (parent: {:?}) - {} filled", n as *const _, n.parent, n.len_entries());
-            }
-        }
-    }
-
-    #[allow(unused)]
-    pub fn print_ptr_tree(&self) {
-        eprintln!("Tree count {:?} ptr {:?}", self.count, self as *const _);
-        Self::print_node_tree(&self.root, 1);
-    }
+    // fn print_node_tree(node: &Node<E, I, IE, LE>, depth: usize) {
+    //     for _ in 0..depth { eprint!("  "); }
+    //     match node {
+    //         Node::Internal(n) => {
+    //             let n = n.as_ref().get_ref();
+    //             eprintln!("Internal {:?} (parent: {:?})", n as *const _, n.parent);
+    //             let mut unused = 0;
+    //             for e in &n.children[..] {
+    //                 if let Some(e) = e {
+    //                     Self::print_node_tree(e, depth + 1);
+    //                 } else { unused += 1; }
+    //             }
+    //
+    //             if unused > 0 {
+    //                 for _ in 0..=depth { eprint!("  "); }
+    //                 eprintln!("({} empty places)", unused);
+    //             }
+    //         },
+    //         Node::Leaf(n) => {
+    //             eprintln!("Leaf {:?} (parent: {:?}) - {} filled", n as *const _, n.parent, n.len_entries());
+    //         }
+    //     }
+    // }
+    //
+    // #[allow(unused)]
+    // pub fn print_ptr_tree(&self) {
+    //     eprintln!("Tree count {:?} ptr {:?}", self.count, self as *const _);
+    //     Self::print_node_tree(&self.root, 1);
+    // }
 
     #[allow(unused)]
     pub fn print_stats(&self, name: &str, detailed: bool) {
@@ -413,6 +413,44 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
         let mut size = size_of::<ContentTreeRaw<E, I, IE, LE>>();
         Self::count_memory_internal(&self.root, &mut size);
         size
+    }
+}
+
+impl<E: ContentTraits + Debug, I: TreeMetrics<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
+
+    fn print_node_tree(node: &Node<E, I, IE, LE>, depth: usize) {
+        for _ in 0..depth { eprint!("  "); }
+        match node {
+            Node::Internal(n) => {
+                let n = n.as_ref().get_ref();
+                eprintln!("Internal {:p} (parent: {:?})", n, n.parent);
+                let mut unused = 0;
+                for (e, m) in n.children.iter().zip(n.metrics.iter()) {
+                    if let Some(e) = e {
+                        eprintln!("m {:?}", m);
+                        Self::print_node_tree(e, depth + 1);
+                    } else { unused += 1; }
+                }
+
+                if unused > 0 {
+                    for _ in 0..=depth { eprint!("  "); }
+                    eprintln!("({} empty places)", unused);
+                }
+            },
+            Node::Leaf(n) => {
+                eprintln!("Leaf {:p} (parent: {:?}) - {} filled", (*n).as_ref(), n.parent, n.len_entries());
+                for i in 0..n.num_entries as usize {
+                    for _ in 0..=depth { eprint!("  "); }
+                    eprintln!("{:?}", &n.data[i]);
+                }
+            }
+        }
+    }
+
+    #[allow(unused)]
+    pub fn print_ptr_tree(&self) {
+        eprintln!("Tree count {:?} ptr {:?}", self.count, self as *const _);
+        Self::print_node_tree(&self.root, 1);
     }
 }
 

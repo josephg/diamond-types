@@ -32,15 +32,18 @@ fn profile_direct_editing() {
 }
 
 #[allow(unused)]
-fn profile_merge(name: &str) {
+fn profile_merge(name: &str, n: usize) {
     let contents = std::fs::read(&format!("benchmark_data/{name}.dt")).unwrap();
     let oplog = ListOpLog::load_from(&contents).unwrap();
 
-    for _i in 0..500 {
+    for _i in 0..n {
         black_box(oplog.checkout_tip());
     }
 }
 
+// RUSTFLAGS="-Cforce-frame-pointers=yes" cargo build --profile profiling --example profile
 fn main() {
-    profile_merge("clownschool");
+    // profile_merge("clownschool", 500);
+    // profile_merge("git-makefile", 200);
+    profile_merge("git-makefile", 1);
 }

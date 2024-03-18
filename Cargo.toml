@@ -109,3 +109,4 @@ codegen-units = 1
 [profile.profiling]
 inherits = "release"
 debug = true
+#opt-level = 0
