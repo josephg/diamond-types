@@ -84,7 +84,7 @@ impl M2Tracker {
                     notify_for(&mut self.index),
                     |e| {
                         if tag == ListOpKind::Ins {
-                            e.state.mark_inserted();
+                            e.current_state.mark_inserted();
                         } else {
                             e.delete();
                         }
@@ -140,9 +140,9 @@ impl M2Tracker {
                     notify_for(&mut self.index),
                     |e| {
                         if tag == ListOpKind::Ins {
-                            e.state.mark_not_inserted_yet();
+                            e.current_state.mark_not_inserted_yet();
                         } else {
-                            e.state.undelete();
+                            e.current_state.undelete();
                         }
                     }
                 ).0;

@@ -17,8 +17,8 @@ fn testing_data(name: &str) -> TestData {
 }
 
 // const LINEAR_DATASETS: &[&str] = &["automerge-paper", "rustcode", "sveltecomponent", "seph-blog1", "friendsforever_flat"];
-const LINEAR_DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "clownschool_flat", "friendsforever_flat"];
-const COMPLEX_DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "node_nodecc", "git-makefile", "friendsforever", "clownschool"];
+const LINEAR_DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "clownschool_flat", "friendsforever_flat", "egwalker"];
+const COMPLEX_DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "egwalker", "node_nodecc", "git-makefile", "friendsforever", "clownschool"];
 
 fn local_benchmarks(c: &mut Criterion) {
     for name in LINEAR_DATASETS {
@@ -33,7 +33,7 @@ fn local_benchmarks(c: &mut Criterion) {
             b.iter(|| {
                 let mut doc = ListCRDT::new();
                 apply_edits_direct(&mut doc, &test_data.txns);
-                assert_eq!(doc.len(), test_data.end_content.len());
+                debug_assert_eq!(doc.len(), test_data.end_content.chars().count());
                 black_box(doc.len());
             })
         });

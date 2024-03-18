@@ -44,9 +44,9 @@ pub struct CRDTSpan {
 
     /// Stores whether the item has been inserted, inserted and deleted, or not inserted yet at the
     /// current moment in time.
-    pub state: SpanState,
+    pub current_state: SpanState,
 
-    pub ever_deleted: bool,
+    pub end_state_ever_deleted: bool,
 }
 
 impl SpanState {
@@ -101,8 +101,8 @@ impl Debug for CRDTSpan {
         s.field("id", &self.id);
         debug_time(&mut s, "origin_left", self.origin_left);
         debug_time(&mut s, "origin_right", self.origin_right);
-        s.field("state", &self.state); // Could probably do better than this.
-        s.field("ever_deleted", &self.ever_deleted);
+        s.field("state", &self.current_state); // Could probably do better than this.
+        s.field("ever_deleted", &self.end_state_ever_deleted);
         s.finish()
     }
 }
@@ -118,8 +118,8 @@ impl CRDTSpan {
             id: DTRange::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
             origin_left: usize::MAX,
             origin_right: usize::MAX,
-            state: INSERTED, // Underwater items are never in the NotInsertedYet state.
-            ever_deleted: false,
+            current_state: INSERTED, // Underwater items are never in the NotInsertedYet state.
+            end_state_ever_deleted: false,
         }
     }
 
@@ -129,16 +129,16 @@ impl CRDTSpan {
     }
 
     pub(crate) fn delete(&mut self) {
-        self.state.delete();
-        self.ever_deleted = true;
+        self.current_state.delete();
+        self.end_state_ever_deleted = true;
     }
 
-    pub fn upstream_len(&self) -> usize {
-        if self.ever_deleted { 0 } else { self.id.len() }
+    pub fn end_state_len(&self) -> usize {
+        if self.end_state_ever_deleted { 0 } else { self.id.len() }
     }
 
-    pub fn upstream_len_at(&self, offset: usize) -> usize {
-        if self.ever_deleted { 0 } else { offset }
+    pub fn end_state_len_at(&self, offset: usize) -> usize {
+        if self.end_state_ever_deleted { 0 } else { offset }
     }
 }
 
@@ -160,8 +160,8 @@ impl SplitableSpanHelpers for CRDTSpan {
             id: self.id.truncate(offset),
             origin_left: self.id.start + offset - 1,
             origin_right: self.origin_right,
-            state: self.state,
-            ever_deleted: self.ever_deleted,
+            current_state: self.current_state,
+            end_state_ever_deleted: self.end_state_ever_deleted,
         }
     }
 }
@@ -174,8 +174,8 @@ impl MergableSpan for CRDTSpan {
         self.id.can_append(&other.id)
             && other.origin_left == other.id.start - 1
             && other.origin_right == self.origin_right
-            && other.state == self.state
-            && other.ever_deleted == self.ever_deleted
+            && other.current_state == self.current_state
+            && other.end_state_ever_deleted == self.end_state_ever_deleted
     }
 
     #[inline(always)]
@@ -203,20 +203,21 @@ impl Searchable for CRDTSpan {
     }
 }
 
+/// Content length corresponds to the current length (the length at the current state).
 impl ContentLength for CRDTSpan {
     #[inline(always)]
     fn content_len(&self) -> usize {
-        if self.state == INSERTED { self.len() } else { 0 }
+        if self.current_state == INSERTED { self.len() } else { 0 }
     }
 
     fn content_len_at_offset(&self, offset: usize) -> usize {
-        if self.state == INSERTED { offset } else { 0 }
+        if self.current_state == INSERTED { offset } else { 0 }
     }
 }
 
 impl Toggleable for CRDTSpan {
     fn is_activated(&self) -> bool {
-        self.state == INSERTED
+        self.current_state == INSERTED
         // self.state == Inserted && !self.ever_deleted
     }
 
@@ -252,32 +253,32 @@ mod tests {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
-            state: NOT_INSERTED_YET,
-            ever_deleted: false,
+            current_state: NOT_INSERTED_YET,
+            end_state_ever_deleted: false,
         });
 
         test_splitable_methods_valid(CRDTSpan {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
-            state: INSERTED,
-            ever_deleted: false
+            current_state: INSERTED,
+            end_state_ever_deleted: false
         });
 
         test_splitable_methods_valid(CRDTSpan {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: 30,
-            state: DELETED_ONCE,
-            ever_deleted: false
+            current_state: DELETED_ONCE,
+            end_state_ever_deleted: false
         });
 
         test_splitable_methods_valid(CRDTSpan {
             id: (10..15).into(),
             origin_left: 20,
             origin_right: usize::MAX,
-            state: INSERTED,
-            ever_deleted: false
+            current_state: INSERTED,
+            end_state_ever_deleted: false
         });
     }
 

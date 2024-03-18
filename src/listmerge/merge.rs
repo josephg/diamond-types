@@ -187,7 +187,7 @@ impl M2Tracker {
             // This test is almost always true. (Ie, we basically always break here).
             if other_lv == item.origin_right { break; }
 
-            debug_assert_eq!(other_entry.state, NOT_INSERTED_YET);
+            debug_assert_eq!(other_entry.current_state, NOT_INSERTED_YET);
             // if other_entry.state != NOT_INSERTED_YET { break; }
 
             // When preparing example data, its important that the data can merge the same
@@ -429,7 +429,7 @@ impl M2Tracker {
                     loop {
                         let Some(e) = c2.try_get_raw_entry() else { break usize::MAX; };
 
-                        if e.state != NOT_INSERTED_YET {
+                        if e.current_state != NOT_INSERTED_YET {
                             break e.at_offset(c2.offset);
                         } else {
                             if !c2.next_entry() { break usize::MAX; } // End of the list.
@@ -445,8 +445,8 @@ impl M2Tracker {
                     id: lv_span,
                     origin_left,
                     origin_right,
-                    state: INSERTED,
-                    ever_deleted: false,
+                    current_state: INSERTED,
+                    end_state_ever_deleted: false,
                 };
 
                 #[cfg(feature = "ops_to_old")] {
@@ -506,10 +506,10 @@ impl M2Tracker {
 
                 let e = cursor.get_raw_entry();
 
-                assert_eq!(e.state, INSERTED);
+                assert_eq!(e.current_state, INSERTED);
 
                 // If we've never been deleted locally, we'll need to do that.
-                let ever_deleted = e.ever_deleted;
+                let ever_deleted = e.end_state_ever_deleted;
 
                 // TODO(perf): Reuse cursor. After mutate_single_entry we'll often be at another
                 // entry that we can delete in a run.
@@ -1048,12 +1048,12 @@ mod test {
             .filter_map(|mut i| {
                 // dbg!((i.id.end, trim_from, i.id.start));
                 if i.id.start >= trim_from {
-                    assert_eq!(i.state, INSERTED);
+                    assert_eq!(i.current_state, INSERTED);
                     return None;
                 }
 
                 if i.id.end > trim_from {
-                    assert_eq!(i.state, INSERTED);
+                    assert_eq!(i.current_state, INSERTED);
                     i.truncate(i.id.end - trim_from);
                 }
 
@@ -1064,7 +1064,7 @@ mod test {
     }
 
     fn items_state(tracker: &M2Tracker, filter_underwater: usize) -> Vec<(usize, SpanState)> {
-        items(tracker, filter_underwater).iter().map(|i| (i.len(), i.state)).collect()
+        items(tracker, filter_underwater).iter().map(|i| (i.len(), i.current_state)).collect()
     }
 
     #[test]
@@ -1080,7 +1080,7 @@ mod test {
         t.retreat_by_range((0..3).into());
         t.apply_range(&list.cg.agent_assignment, &list.info.ctx, &list.info.ops, (3..6).into(), Some(&mut content));
 
-        let i: Vec<_> = items(&t, 0).iter().map(|i| (i.id, i.state)).collect();
+        let i: Vec<_> = items(&t, 0).iter().map(|i| (i.id, i.current_state)).collect();
         assert_eq!(i, &[
             ((0..3).into(), NOT_INSERTED_YET),
             ((3..6).into(), INSERTED),

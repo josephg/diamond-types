@@ -165,7 +165,7 @@ pub fn get_txns_from_oplog(oplog: &ListOpLog) -> Vec<RemoteTxn> {
     result
 }
 
-const DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "friendsforever", "clownschool", "node_nodecc", "git-makefile"];
+const DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "friendsforever", "clownschool", "node_nodecc", "git-makefile", "egwalker"];
 
 fn bench_process(c: &mut Criterion) {
     // let name = "benchmark_data/node_nodecc.dt";

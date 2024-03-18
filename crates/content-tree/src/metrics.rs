@@ -277,7 +277,7 @@ pub trait ContentLength {
     /// User specific content length. Used by content-tree for character counts.
     fn content_len(&self) -> usize;
     fn content_len_at_offset(&self, offset: usize) -> usize;
-    fn offset_len_at_content(&self, content: usize) -> usize { content }
+    // fn offset_len_at_current_len(&self, content: usize) -> usize { content }
 }
 
 /// This trait marks items as being able to toggle on and off. The motivation for this is CRDT

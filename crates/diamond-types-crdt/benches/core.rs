@@ -25,19 +25,20 @@ fn list_with_data(test_data: &TestData) -> ListCRDT {
     doc
 }
 
-const LOCAL_DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "clownschool_flat", "friendsforever_flat"];
+const LOCAL_DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "clownschool_flat", "friendsforever_flat", "egwalker"];
 // const DATASETS: &[&str] = &["automerge-paper", "rustcode", "sveltecomponent", "seph-blog1"];
 
 fn local_benchmarks(c: &mut Criterion) {
     for name in LOCAL_DATASETS {
         let mut group = c.benchmark_group("dt-crdt");
         let test_data = testing_data(name);
+        let expected_len = test_data.end_content.chars().count();
         group.throughput(Throughput::Elements(test_data.len() as u64));
 
         group.bench_function(BenchmarkId::new("local", name), |b| {
             b.iter(|| {
                 let doc = list_with_data(&test_data);
-                assert_eq!(doc.len(), test_data.end_content.len());
+                assert_eq!(doc.len(), expected_len);
                 black_box(doc.len());
             })
         });

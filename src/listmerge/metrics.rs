@@ -19,14 +19,15 @@ impl TreeMetrics<CRDTSpan> for MarkerMetrics {
     type Update = Pair<isize>;
     type Value = Pair<usize>;
 
+    // This is horrible. I'm sure there's a nicer way to do this.
     fn increment_marker(marker: &mut Self::Update, entry: &CRDTSpan) {
         marker.0 += entry.content_len() as isize;
-        marker.1 += entry.upstream_len() as isize;
+        marker.1 += entry.end_state_len() as isize;
     }
 
     fn decrement_marker(marker: &mut Self::Update, entry: &CRDTSpan) {
         marker.0 -= entry.content_len() as isize;
-        marker.1 -= entry.upstream_len() as isize;
+        marker.1 -= entry.end_state_len() as isize;
     }
 
     fn decrement_marker_by_val(marker: &mut Self::Update, val: &Self::Value) {
@@ -41,7 +42,7 @@ impl TreeMetrics<CRDTSpan> for MarkerMetrics {
 
     fn increment_offset(offset: &mut Self::Value, by: &CRDTSpan) {
         offset.0 += by.content_len();
-        offset.1 += by.upstream_len();
+        offset.1 += by.end_state_len();
     }
 }
 
@@ -61,6 +62,6 @@ impl MarkerMetrics {
 /// best place for this method, but it'll do.
 pub(super) fn upstream_cursor_pos(cursor: &Cursor<CRDTSpan, MarkerMetrics>) -> usize {
     cursor.count_pos_raw(MarkerMetrics::upstream_len,
-                         CRDTSpan::upstream_len,
-                         CRDTSpan::upstream_len_at)
+                         CRDTSpan::end_state_len,
+                         CRDTSpan::end_state_len_at)
 }
