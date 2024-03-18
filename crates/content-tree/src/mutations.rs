@@ -386,7 +386,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
                 node.data[cursor.idx] = entry;
                 cursor.offset = replaced_here;
                 I::increment_marker(flush_marker, &entry);
-                notify(entry, cursor.node);
+                //notify(entry, cursor.node);
             }
         }
 
