@@ -4,6 +4,8 @@ use rle::HasLength;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::ost::{LEAF_CHILDREN, LeafIdx, LenPair, NODE_CHILDREN, NodeIdx};
 
+// const LEAF_CHILDREN: usize = LEAF_SIZE - 1;
+
 #[derive(Debug)]
 pub(super) struct ContentTree {
     // The order of these vectors is arbitrary. I'm using Vec essentially as a simple memory pool.

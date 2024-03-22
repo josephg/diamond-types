@@ -17,9 +17,9 @@ use crate::listmerge::metrics::MarkerMetrics;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::LV;
 
-mod yjsspan;
+pub(crate) mod yjsspan;
 pub(crate) mod merge;
-mod markers;
+pub(crate) mod markers;
 mod advance_retreat;
 // pub(crate) mod txn_trace;
 mod metrics;

@@ -15,6 +15,9 @@ struct LeafIdx(usize);
 impl Default for LeafIdx {
     fn default() -> Self { Self(usize::MAX) }
 }
+impl LeafIdx {
+    fn exists(&self) -> bool { self.0 != usize::MAX }
+}
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct NodeIdx(usize);
@@ -84,8 +87,10 @@ const LEAF_CHILDREN: usize = 4;
 #[cfg(not(debug_assertions))]
 const NODE_CHILDREN: usize = 16;
 #[cfg(not(debug_assertions))]
-const LEAF_CHILDREN: usize = 32;
+const LEAF_SIZE: usize = 32;
 
+
+// type LeafData = crate::listmerge::markers::Marker;
 #[derive(Debug, Default)]
 struct OrderStatisticTree {
     content: ContentTree,

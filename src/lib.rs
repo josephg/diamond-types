@@ -216,6 +216,7 @@ mod check;
 mod encoding;
 pub mod causalgraph;
 mod wal;
+mod ost;
 
 #[cfg(feature = "serde")]
 pub(crate) mod serde_helpers;
