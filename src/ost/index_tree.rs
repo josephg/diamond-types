@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::mem::swap;
 use std::ops::{Index, IndexMut};
 use std::ptr::NonNull;
+use rle::RleDRun;
 use crate::{DTRange, LV};
 use crate::ost::{NODE_CHILDREN, LeafIdx, NodeIdx, LEAF_CHILDREN};
 use crate::ost::content_tree::{ContentLeaf, ContentNode, ContentTree};
@@ -208,7 +209,7 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
         new_root.children[1] = (split_point, child_b);
 
         let new_idx = self.nodes.len();
-        println!("Setting root to {new_idx}");
+        // println!("Setting root to {new_idx}");
         self.root = new_idx;
         self.nodes.push(new_root);
         NodeIdx(new_idx)
@@ -282,7 +283,7 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
             .unwrap() + 1;
 
         // dbg!(&node);
-        println!("insert_into_node n={:?} after_child {after_child} pos {insert_pos}, new_child {:?}", node_idx, new_child);
+        // println!("insert_into_node n={:?} after_child {after_child} pos {insert_pos}, new_child {:?}", node_idx, new_child);
 
         if node.is_full() {
             let new_node = self.split_node(node_idx, children_are_leaves);
@@ -336,28 +337,14 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
             // debug_assert_eq!(old_leaf.parent, NodeIdx(0)); // Ok because its the default.
             // old_leaf.parent = NodeIdx(0); // Could just default nodes to have a parent of 0.
 
-            if old_leaf.parent.0 != usize::MAX {
-                assert!(self.nodes[old_leaf.parent.0].children.iter().find(|(_lv, idx)| *idx == old_idx.0).is_some());
-            }
             NodeIdx(0)
         } else {
             let mut parent = old_leaf.parent;
             // The parent may change by calling insert_into_node - since the node we're inserting
             // into may split off.
 
-            if old_leaf.parent.0 != usize::MAX {
-                assert!(self.nodes[old_leaf.parent.0].children.iter().find(|(_lv, idx)| *idx == old_idx.0).is_some());
-
-                // dbg!(old_idx, old_leaf.parent, &self.nodes[old_leaf.parent.0].children);
-            }
-
             parent = self.insert_into_node(parent, (split_lv, new_leaf_idx), old_idx.0, true);
             old_leaf = &mut self.leaves[old_idx.0]; // borrowck.
-
-            if old_leaf.parent.0 != usize::MAX {
-                // dbg!(old_idx, old_leaf.parent, &self.nodes[old_leaf.parent.0].children);
-                assert!(self.nodes[old_leaf.parent.0].children.iter().find(|(_lv, idx)| *idx == old_idx.0).is_some());
-            }
             parent
         };
 
@@ -405,11 +392,6 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
                 // We're inserting into the newly created node.
                 leaf_idx = new_node;
                 elem_idx -= NODE_SPLIT_POINT;
-            }
-
-            let leaf = &mut self.leaves[leaf_idx.0];
-            if leaf.parent.0 != usize::MAX {
-                assert!(self.nodes[leaf.parent.0].children.iter().find(|(_lv, idx)| *idx == leaf_idx.0).is_some());
             }
         }
 
@@ -534,21 +516,12 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
         let IndexCursor { mut leaf_idx, mut elem_idx } = cursor;
 
         let mut leaf = &mut self.leaves[leaf_idx.0];
+        // if leaf.is_last() {
+        //     leaf.upper_bound = leaf.upper_bound.max(range.end);
+        // } else {
+        //
+        // }
         debug_assert!(leaf.is_last() || range.start < leaf.upper_bound);
-
-        if elem_idx >= LEAF_CHILDREN {
-            panic!();
-            // This happens when we're inserting at the end of the last element, and the last
-            // element is full. I hate all this special casing btw.
-            debug_assert!(leaf.is_last());
-            leaf_idx = self.split_leaf(leaf_idx);
-            let new_leaf = &mut self.leaves[leaf_idx.0];
-
-            new_leaf.children[LEAF_SPLIT_POINT] = data;
-            new_leaf.bounds[LEAF_SPLIT_POINT] = range.start;
-            new_leaf.upper_bound = range.end;
-            return;
-        }
 
         assert!(elem_idx < LEAF_CHILDREN);
 
@@ -557,9 +530,6 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
             // The only way this should happen is if we're inserting into the end of the tree,
             // after the last element.
             debug_assert!(leaf.is_last());
-
-            // (leaf_idx, elem_idx) = self.make_space_in_leaf_for::<1>(leaf_idx, elem_idx);
-            // let leaf = &mut self.leaves[leaf_idx.0];
 
             // This will implicitly extend the previous item to range.start, but thats ok here.
             leaf.bounds[elem_idx] = range.start;
@@ -653,19 +623,7 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
             // Trim the current element.
             elem_idx += 1;
 
-            if elem_idx < LEAF_CHILDREN {
-                // if leaf.bounds[elem_idx] == usize::MAX {
-                //     debug_assert!(range.end > leaf.upper_bound);
-                //     leaf.bounds[elem_idx] = range.start;
-                //     leaf.children[elem_idx] = data;
-                //     range.start = leaf.upper_bound;
-                //
-                //     // Roll to next.
-                //     leaf_idx = leaf.next_leaf;
-                //     leaf = &mut self.leaves[leaf_idx.0];
-                //     elem_idx = 0;
-                // }
-            } else {
+            if elem_idx >= LEAF_CHILDREN {
                 // This is the end of the leaf node.
                 leaf.upper_bound = range.start;
 
@@ -695,33 +653,44 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
         loop { // Usually just once.
             debug_assert!(elem_idx < LEAF_CHILDREN);
             debug_assert!(range.start <= leaf.bounds[elem_idx]);
-            if leaf.parent.0 != usize::MAX {
-                assert!(self.nodes[leaf.parent.0].children.iter().find(|(_lv, idx)| *idx == leaf_idx.0).is_some());
-            }
+            debug_assert!(leaf.is_last() || range.start < leaf.upper_bound);
+            // debug_assert_ne!(leaf.bounds[elem_idx], usize::MAX);
+
             // but the item we're looking at may be unused.
 
             let mut deleted_items = 0;
-            for i in elem_idx..LEAF_CHILDREN {
-                // This is too fancy by half. Should be able to simplify this logic.
-                let elem_end = leaf.bound_for_idx(i);
 
-                if elem_end <= range.end {
+            for i in elem_idx + 1..LEAF_CHILDREN {
+                let mut bound = leaf.bounds[i];
+                if bound == usize::MAX { bound = leaf.upper_bound; }
+
+                if bound <= range.end {
                     deleted_items += 1;
                 } else {
-                    // elem_end > range.end
-                    leaf.bounds[i] = range.end;
-                    // ... And leave this item alone.
+                    // bound > range.end. Keep this item.
+                    leaf.bounds[i - 1] = range.end;
                     break;
                 }
             }
+
+            // for i in elem_idx..LEAF_CHILDREN {
+            //     // This is too fancy by half. Should be able to simplify this logic.
+            //     let elem_end = leaf.bound_for_idx(i);
+            //
+            //     if elem_end <= range.end {
+            //         deleted_items += 1;
+            //     } else {
+            //         // elem_end > range.end
+            //         // leaf.bounds[i] = range.end;
+            //         // ... And leave this item alone.
+            //         break;
+            //     }
+            // }
 
             if deleted_items == 0 {
                 // Insert here, pushing subsequent elements back.
                 (leaf_idx, elem_idx) = self.make_space_in_leaf_for::<1>(leaf_idx, elem_idx);
                 leaf = &mut self.leaves[leaf_idx.0];
-                if leaf.parent.0 != usize::MAX {
-                    assert!(self.nodes[leaf.parent.0].children.iter().find(|(_lv, idx)| *idx == leaf_idx.0).is_some());
-                }
             } else if deleted_items > 1 {
                 // Slide subsequent items.
                 leaf.bounds.copy_within(elem_idx + deleted_items..LEAF_CHILDREN, elem_idx + 1);
@@ -733,9 +702,6 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
             leaf.children[elem_idx] = data;
 
             if elem_idx == 0 {
-                if leaf.parent.0 != usize::MAX {
-                    assert!(self.nodes[leaf.parent.0].children.iter().find(|(_lv, idx)| *idx == leaf_idx.0).is_some());
-                }
                 Self::recursively_update_nodes(&mut self.nodes, leaf.parent, leaf_idx.0, range.start);
             }
 
@@ -789,7 +755,7 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
         }
     }
 
-    pub fn to_vec(&self) -> Vec<(DTRange, V)> {
+    pub fn to_vec(&self) -> Vec<RleDRun<V>> {
         self.iter().collect::<Vec<_>>()
     }
 
@@ -877,12 +843,12 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
                 prev = b;
             }
 
-            leaf_idx = leaf.next_leaf;
-            if !leaf_idx.exists() { break; }
+            if leaf.is_last() { break; }
             else {
-                let next_leaf = &self[leaf_idx];
+                let next_leaf = &self[leaf.next_leaf];
                 assert_eq!(leaf.upper_bound, next_leaf.bounds[0]);
             }
+            leaf_idx = leaf.next_leaf;
         }
         assert_eq!(leaves_visited, self.leaves.len());
 
@@ -907,7 +873,8 @@ pub struct IndexTreeIter<'a, V> {
 }
 
 impl<'a, V: Clone> Iterator for IndexTreeIter<'a, V> {
-    type Item = (DTRange, V);
+    // type Item = (DTRange, V);
+    type Item = RleDRun<V>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.leaf_idx.0 == usize::MAX {
@@ -934,7 +901,8 @@ impl<'a, V: Clone> Iterator for IndexTreeIter<'a, V> {
         let data = &leaf.children[self.elem_idx];
 
         self.elem_idx += 1;
-        Some((DTRange { start, end }, data.clone()))
+        Some(RleDRun::new(start..end, data.clone()))
+        // Some((DTRange { start, end }, data.clone()))
     }
 }
 
@@ -947,6 +915,32 @@ mod test {
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
     enum Foo { A, B, C }
     use Foo::*;
+    use crate::list_fuzzer_tools::fuzz_multithreaded;
+
+    fn expect_eq<T: Default + Copy + Debug + Eq + PartialEq>(tree: &IndexTree<T>, vals: &[RleDRun<T>]) {
+        tree.dbg_check();
+
+        let mut tree_iter = tree.iter();
+        let mut vals_iter = vals.iter();
+
+        while let Some(next_val) = vals_iter.next() {
+            let RleDRun { mut start, end, val } = next_val;
+
+            loop {
+                let actual_next = tree_iter.next().expect("Tree missing item");
+                // Skip anything before start.
+                if actual_next.end <= start {
+                    continue;
+                }
+                assert_eq!(val, &actual_next.val);
+                if start < actual_next.start {
+                    panic!("Missing element");
+                }
+                if actual_next.end >= *end { break; }
+                start = actual_next.end;
+            }
+        }
+    }
 
     #[test]
     fn empty_tree_is_empty() {
@@ -961,17 +955,19 @@ mod test {
         let mut tree = IndexTree::new();
 
         tree.set_range((5..10).into(), Some(A), true);
-        assert_eq!(tree.to_vec(), &[((5..10).into(), Some(A))]);
+        expect_eq(&tree, &[RleDRun::new(5..10, Some(A))]);
+        // assert_eq!(tree.to_vec(), &[((5..10).into(), Some(A))]);
         tree.dbg_check();
         tree.set_range((5..11).into(), Some(B), true);
-        assert_eq!(tree.to_vec(), &[((5..11).into(), Some(B))]);
+        expect_eq(&tree, &[RleDRun::new(5..11, Some(B))]);
         tree.dbg_check();
 
         tree.set_range((5..10).into(), Some(A), true);
-        assert_eq!(tree.to_vec(), &[
-            ((5..10).into(), Some(A)),
-            ((10..11).into(), Some(B)),
+        expect_eq(&tree, &[
+            RleDRun::new(5..10, Some(A)),
+            RleDRun::new(10..11, Some(B)),
         ]);
+
         tree.dbg_check();
     }
 
@@ -981,10 +977,10 @@ mod test {
         tree.set_range((10..20).into(), Some(A), true);
         tree.set_range((12..15).into(), Some(B), true);
         tree.dbg_check();
-        assert_eq!(tree.to_vec(), &[
-            ((10..12).into(), Some(A)),
-            ((12..15).into(), Some(B)),
-            ((15..20).into(), Some(A)),
+        expect_eq(&tree, &[
+            RleDRun::new(10..12, Some(A)),
+            RleDRun::new(12..15, Some(B)),
+            RleDRun::new(15..20, Some(A)),
         ]);
     }
 
@@ -993,20 +989,20 @@ mod test {
         let mut tree = IndexTree::new();
 
         tree.set_range((5..10).into(), Some(A), true);
-        assert_eq!(tree.to_vec(), &[((5..10).into(), Some(A))]);
+        expect_eq(&tree, &[RleDRun::new(5..10, Some(A))]);
         tree.dbg_check();
 
         tree.set_range((5..10).into(), Some(B), true);
-        assert_eq!(tree.to_vec(), &[((5..10).into(), Some(B))]);
+        expect_eq(&tree, &[RleDRun::new(5..10, Some(B))]);
         tree.dbg_check();
 
         // dbg!(&tree);
         tree.set_range((15..20).into(), Some(C), true);
-        assert_eq!(tree.to_vec(), &[
-            ((5..15).into(), Some(B)),
+        expect_eq(&tree, &[
+            RleDRun::new(5..15, Some(B)),
             // ((5..10).into(), Some(B)),
             // ((10..15).into(), None),
-            ((15..20).into(), Some(C)),
+            RleDRun::new(15..20, Some(C)),
         ]);
         tree.dbg_check();
 
@@ -1021,16 +1017,17 @@ mod test {
         tree.set_range((1..5).into(), Some(B), true);
         // dbg!(&tree);
         // tree.dbg_check();
-        assert_eq!(tree.to_vec(), &[
-            ((1..5).into(), Some(B)),
-            ((5..10).into(), Some(A)),
+        expect_eq(&tree, &[
+            RleDRun::new(1..5, Some(B)),
+            RleDRun::new(5..10, Some(A)),
         ]);
 
         tree.set_range((3..8).into(), Some(C), true);
-        assert_eq!(tree.to_vec(), &[
-            ((1..3).into(), Some(B)),
-            ((3..8).into(), Some(C)),
-            ((8..10).into(), Some(A)),
+        dbg!(&tree);
+        expect_eq(&tree, &[
+            RleDRun::new(1..3, Some(B)),
+            RleDRun::new(3..8, Some(C)),
+            RleDRun::new(8..10, Some(A)),
         ]);
         tree.dbg_check();
 
@@ -1054,23 +1051,30 @@ mod test {
         // dbg!(&tree);
         // dbg!(tree.iter().collect::<Vec<_>>());
 
+        expect_eq(&tree, &[
+            RleDRun::new(1..2, Some(A)),
+            RleDRun::new(2..3, Some(B)),
+            RleDRun::new(3..4, Some(A)),
+            RleDRun::new(4..5, Some(B)),
+            RleDRun::new(5..6, Some(A)),
+        ]);
     }
 
-    fn fuzz(seed: u64) {
+    fn fuzz(seed: u64, verbose: bool) {
         let mut rng = SmallRng::seed_from_u64(seed);
         let mut tree = IndexTree::new();
 
         for _i in 0..1000 {
-            println!("i: {}", _i);
+            if verbose { println!("i: {}", _i); }
             // This will generate some overlapping ranges sometimes but not too many.
             let val = rng.gen_range(0..10) + 100;
             let start = rng.gen_range(0..100);
             let len = rng.gen_range(0..100);
 
             // dbg!(&tree, start, len, val);
-            // if _i == 5 {
-            //     println!("blerp");
-            // }
+            if _i == 13 {
+                println!("blerp");
+            }
             tree.set_range((start..start+len).into(), val, true);
             // dbg!(&tree);
             tree.dbg_check();
@@ -1079,6 +1083,17 @@ mod test {
 
     #[test]
     fn fuzz_once() {
-        fuzz(14);
+        fuzz(1152921504606846000, true);
+    }
+
+    #[test]
+    #[ignore]
+    fn fuzz_forever() {
+        fuzz_multithreaded(u64::MAX, |seed| {
+            if seed % 100 == 0 {
+                println!("Iteration {}", seed);
+            }
+            fuzz(seed, false);
+        })
     }
 }
