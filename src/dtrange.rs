@@ -49,8 +49,12 @@ impl DTRange {
         self.start <= item && item < self.end
     }
 
+    pub fn is_valid(&self) -> bool {
+        self.start <= self.end
+    }
+
     pub fn is_empty(&self) -> bool {
-        debug_assert!(self.start <= self.end);
+        // debug_assert!(self.start <= self.end);
         self.start == self.end
     }
 
@@ -256,7 +260,9 @@ impl Debug for Underwater {
 
 impl Debug for DTRange {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.is_empty() {
+        if !self.is_valid() {
+            write!(f, "INVALID: {}..{}", self.start, self.end)?;
+        } else if self.is_empty() {
             write!(f, "(EMPTY)")?;
         } else {
             write!(f, "v ")?;
