@@ -191,7 +191,7 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
         }
     }
 
-    pub(super) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.leaves.clear();
         self.nodes.clear();
         self.height = 0;
@@ -502,11 +502,12 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
 
     // pub fn get_entry(&mut self, lv: LV, hint_fwd: bool) -> (V, LV) {
     /// Returns (value, upper bound)
-    pub fn get_entry(&mut self, lv: LV) -> (V, usize) {
+    pub fn get_entry_mut(&mut self, lv: LV) -> RleDRun<V> {
         let cursor = self.cursor_at(lv);
         self.cursor = cursor;
         let leaf = &self.leaves[cursor.leaf_idx.0];
         let val = leaf.children[cursor.elem_idx];
+        let lower_bound = leaf.bounds[cursor.elem_idx];
 
         let next_elem = cursor.elem_idx + 1;
         let upper_bound = if next_elem >= LEAF_CHILDREN {
@@ -515,7 +516,32 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
             leaf.bounds[next_elem]
         };
 
-        (val, upper_bound)
+        RleDRun {
+            start: lower_bound,
+            end: upper_bound,
+            val
+        }
+    }
+
+    pub fn get_entry(&self, lv: LV) -> RleDRun<V> {
+        let cursor = self.cursor_at(lv);
+        let leaf = &self.leaves[cursor.leaf_idx.0];
+        let val = leaf.children[cursor.elem_idx];
+        let lower_bound = leaf.bounds[cursor.elem_idx];
+
+        let next_elem = cursor.elem_idx + 1;
+        let upper_bound = if next_elem >= LEAF_CHILDREN {
+            self.upper_bound(leaf)
+        } else {
+            leaf.bounds[next_elem]
+        };
+        debug_assert!(lv >= lower_bound && lv < upper_bound);
+
+        RleDRun {
+            start: lower_bound,
+            end: upper_bound,
+            val
+        }
     }
 
     /// After the first item in a leaf has been modified, we need to walk up the node tree to update
