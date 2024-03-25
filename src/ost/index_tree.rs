@@ -478,38 +478,7 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
                     elem_idx: 0, // Has to be.
                 };
             }
-            // match rel {
-            //     Ordering::Less => {
-            //         // Use this node.
-            //         return IndexCursor {
-            //             leaf_idx: self.cursor.leaf_idx,
-            //             elem_idx: Self::find_in_leaf(leaf, lv),
-            //         }
-            //     }
-            //     Ordering::Equal => {
-            //         // Use the start of the next node.
-            //         return IndexCursor {
-            //             leaf_idx: leaf.next_leaf,
-            //             elem_idx: 0, // Has to be.
-            //         }
-            //     }
-            //     _ => {} // Continue!
-            // }
         }
-        // if lv >= leaf.bounds[0] && (leaf.is_last() || lv < self[leaf.next_leaf].bounds[0]) {
-        //     // Ok! This is the node to use.
-        //     // TODO: Take advantage of elem_idx in the cursor.
-        //     return IndexCursor {
-        //         leaf_idx: self.cursor.leaf_idx,
-        //         elem_idx: Self::find_in_leaf(leaf, lv),
-        //     }
-        // } else if lv == leaf.upper_bound {
-        //     // Use the next node.
-        //     return IndexCursor {
-        //         leaf_idx: leaf.next_leaf,
-        //         elem_idx: 0, // Has to be.
-        //     }
-        // }
 
         // if self.root == 1 {
         //     println!("asdf");
@@ -529,6 +498,24 @@ impl<V: Default + Copy + Debug + Eq + PartialEq> IndexTree<V> {
             leaf_idx: LeafIdx(idx),
             elem_idx: Self::find_in_leaf(&self.leaves[idx], lv),
         }
+    }
+
+    // pub fn get_entry(&mut self, lv: LV, hint_fwd: bool) -> (V, LV) {
+    /// Returns (value, upper bound)
+    pub fn get_entry(&mut self, lv: LV) -> (V, usize) {
+        let cursor = self.cursor_at(lv);
+        self.cursor = cursor;
+        let leaf = &self.leaves[cursor.leaf_idx.0];
+        let val = leaf.children[cursor.elem_idx];
+
+        let next_elem = cursor.elem_idx + 1;
+        let upper_bound = if next_elem >= LEAF_CHILDREN {
+            self.upper_bound(leaf)
+        } else {
+            leaf.bounds[next_elem]
+        };
+
+        (val, upper_bound)
     }
 
     /// After the first item in a leaf has been modified, we need to walk up the node tree to update
