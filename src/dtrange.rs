@@ -135,6 +135,7 @@ impl RangeBounds<usize> for DTRange {
 }
 
 impl HasLength for DTRange {
+    #[inline]
     fn len(&self) -> usize {
         self.end - self.start
     }
