@@ -1,16 +1,18 @@
 use std::ptr::NonNull;
 use content_tree::NodeLeaf;
-use rle::{HasLength, SplitableSpan};
+use rle::{HasLength, RleDRun, SplitableSpan};
 use crate::listmerge::{DocRangeIndex, M2Tracker};
 use crate::listmerge::markers::Marker::{DelTarget, InsPtr};
-use crate::listmerge::merge::notify_for;
+use crate::listmerge::merge::{notify_for, notify_for2};
 use crate::rev_range::RangeRev;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::list::operation::ListOpKind;
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::dtrange::DTRange;
+use crate::listmerge::markers::Marker2;
+use crate::LV;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(super) struct QueryResult {
     tag: ListOpKind,
     target: RangeRev,
@@ -25,34 +27,73 @@ impl M2Tracker {
     /// This should only be used with times we have advanced through.
     ///
     /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
-    fn index_query(&self, time: usize) -> QueryResult {
-        assert_ne!(time, usize::MAX);
+    fn index_query(&self, lv: LV) -> QueryResult {
+        debug_assert_ne!(lv, usize::MAX);
 
-        let index_len = self.index.offset_len();
-        if time >= index_len {
-            panic!("Index query past the end");
-            // (Ins, (index_len..usize::MAX).into(), time - index_len, self.range_tree.unsafe_cursor_at_end())
-        } else {
-            let cursor = self.index.cursor_at_offset_pos(time, false);
-            let entry = cursor.get_raw_entry();
+        let a = {
+            let RleDRun {
+                start, end, val: marker
+            } = self.index.index2.get_entry(lv);
 
-            match entry.inner {
-                InsPtr(ptr) => {
+            let offset = lv - start;
+            let len = end - start;
+
+            match marker {
+                Marker2::InsPtr(ptr) => {
                     debug_assert!(ptr != NonNull::dangling());
                     // For inserts, the target is simply the range of the item.
-                    let start = time - cursor.offset;
+                    // let start = lv - cursor.offset;
                     QueryResult {
                         tag: Ins,
-                        target: (start..start+entry.len).into(),
-                        offset: cursor.offset,
+                        target: (start..end).into(),
+                        offset,
                         ptr: Some(ptr)
                     }
                 }
-                DelTarget(target) => {
-                    QueryResult { tag: Del, target, offset: cursor.offset, ptr: None }
+                Marker2::Del(target) => {
+                    let rr = RangeRev {
+                        span: if target.fwd {
+                            (target.target..target.target + len).into()
+                        } else {
+                            (target.target - len..target.target).into()
+                        },
+                        fwd: target.fwd,
+                    };
+                    QueryResult { tag: Del, target: rr, offset, ptr: None }
                 }
             }
-        }
+        };
+
+        let b = {
+            let index_len = self.index.index_old.offset_len();
+            if lv >= index_len {
+                panic!("Index query past the end");
+                // (Ins, (index_len..usize::MAX).into(), time - index_len, self.range_tree.unsafe_cursor_at_end())
+            } else {
+                let cursor = self.index.index_old.cursor_at_offset_pos(lv, false);
+                let entry = cursor.get_raw_entry();
+
+                match entry.inner {
+                    InsPtr(ptr) => {
+                        debug_assert!(ptr != NonNull::dangling());
+                        // For inserts, the target is simply the range of the item.
+                        let start = lv - cursor.offset;
+                        QueryResult {
+                            tag: Ins,
+                            target: (start..start + entry.len).into(),
+                            offset: cursor.offset,
+                            ptr: Some(ptr)
+                        }
+                    }
+                    DelTarget(target) => {
+                        QueryResult { tag: Del, target, offset: cursor.offset, ptr: None }
+                    }
+                }
+            }
+        };
+
+        assert_eq!(a, b, "v={lv}");
+        a
     }
 
     pub(crate) fn advance_by_range(&mut self, mut range: DTRange) {
@@ -81,7 +122,7 @@ impl M2Tracker {
                 let mut cursor = self.range_tree.mut_cursor_before_item(target_range.start, ptr);
                 target_range.start += cursor.mutate_single_entry_notify(
                     target_range.len(),
-                    notify_for(&mut self.index, &mut self.index_cursor),
+                    notify_for(&mut self.index),
                     |e| {
                         if tag == ListOpKind::Ins {
                             e.current_state.mark_inserted();
@@ -137,7 +178,7 @@ impl M2Tracker {
 
                 target_range.start += cursor.mutate_single_entry_notify(
                     target_range.len(),
-                    notify_for(&mut self.index, &mut self.index_cursor),
+                    notify_for(&mut self.index),
                     |e| {
                         if tag == ListOpKind::Ins {
                             e.current_state.mark_not_inserted_yet();

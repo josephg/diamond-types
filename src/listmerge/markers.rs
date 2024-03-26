@@ -10,6 +10,8 @@ use crate::listmerge::DocRangeIndex;
 use crate::listmerge::markers::Marker::{DelTarget, InsPtr};
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::list::operation::ListOpKind;
+use crate::{DTRange, LV};
+use crate::ost::IndexContent;
 
 // TODO: Consider refactoring this to be a single enum. Put len in InsPtr and use .len(). But this
 // might make the code way slower.
@@ -54,6 +56,12 @@ impl Marker {
         }
     }
 }
+
+// impl Default for Marker {
+//     fn default() -> Self {
+//         InsPtr(NonNull::dangling())
+//     }
+// }
 
 impl HasLength for MarkerEntry {
     fn len(&self) -> usize {
@@ -183,6 +191,138 @@ impl Searchable for MarkerEntry {
         }
     }
 }
+
+
+/// Its kind of upsetting that I need this.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct DelRange {
+    /// This is the first LV that the range targets. If fwd, it is the lowest. Otherwise, it is
+    /// the "end" of the range - which is 1 past the deleted range.
+    pub target: LV,
+    pub fwd: bool,
+}
+
+impl DelRange {
+    pub fn new(target: LV, fwd: bool) -> Self {
+        Self { target, fwd }
+    }
+
+    /// Get the relative range from start + offset_start to start + offset_end.
+    ///
+    /// The returned range is always "forwards".
+    pub fn range(&self, offset_start: usize, offset_end: usize) -> DTRange {
+        debug_assert!(offset_start <= offset_end);
+
+        if self.fwd {
+            // Simple case.
+            DTRange {
+                start: self.target + offset_start,
+                end: self.target + offset_end
+            }
+        } else {
+            DTRange {
+                start: self.target - offset_end,
+                end: self.target - offset_start
+            }
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Marker2 {
+    /// For inserts, we store a pointer to the leaf node containing the inserted item. This is only
+    /// used for inserts, so we don't need to modify multiple entries when the inserted item is
+    /// moved.
+    InsPtr(NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>>),
+
+    /// For deletes we name the delete's target. Note this contains redundant information - since
+    /// we already have a length field.
+    Del(DelRange),
+}
+
+impl From<Marker> for Marker2 {
+    fn from(marker: Marker) -> Self {
+        match marker {
+            InsPtr(ptr) => Marker2::InsPtr(ptr),
+            DelTarget(RangeRev { span, fwd }) => {
+                Marker2::Del(DelRange {
+                    target: if fwd { span.start } else { span.end },
+                    fwd,
+                })
+            }
+        }
+    }
+}
+
+impl Default for Marker2 {
+    fn default() -> Self {
+        Marker2::InsPtr(NonNull::dangling())
+    }
+}
+
+impl IndexContent for Marker2 {
+    fn try_append(&mut self, offset: usize, other: &Self, other_len: usize) -> bool {
+        debug_assert!(offset > 0);
+
+        match (self, other) {
+            (Marker2::InsPtr(_), Marker2::InsPtr(_)) => true,
+            (Marker2::Del(a), Marker2::Del(b)) => {
+                // let offs_1 = offset == 1;
+                // let other_len_1 = other_len == 1;
+
+                // Can we append forwards?
+                if a.fwd && b.fwd && a.target + offset == b.target { return true; }
+
+                // Can we append backwards? This is horrible. If we're going to, first figure out
+                // the expected resulting a.target value. IF we can append backward, they will
+                // match.
+                let a_start = if !a.fwd {
+                    Some(a.target)
+                } else if offset == 1 {
+                    Some(a.target + 1)
+                } else { None };
+
+                let b_start = if !b.fwd {
+                    Some(b.target + offset)
+                } else if other_len == 1 {
+                    Some(b.target + 1 + offset)
+                } else { None };
+
+                if let (Some(a_start), Some(b_start)) = (a_start, b_start) {
+                    if a_start == b_start {
+                        a.target = b_start;
+                        a.fwd = false;
+                        return true;
+                    }
+                }
+
+                return false;
+            },
+            _ => false,
+        }
+    }
+
+    fn at_offset(&self, offset: usize) -> Self {
+        match self {
+            Marker2::InsPtr(_) => *self,
+            Marker2::Del(DelRange {target: lv, fwd: true}) => Marker2::Del(DelRange::new(*lv + offset, true)),
+            Marker2::Del(DelRange {target: lv, fwd: false}) => Marker2::Del(DelRange::new(*lv - offset, false)),
+        }
+    }
+
+    // fn append_at(&mut self, offset: usize, other: Self) {
+    //     debug_assert!(self.can_append(offset, &other));
+    //
+    //     match (self, other) {
+    //         (Marker2::Del(a), Marker2::Del(b)) => {
+    //             a.fwd = b.target >= a.target;
+    //         },
+    //         _ => {}
+    //     }
+    // }
+}
+
+
 
 #[cfg(test)]
 mod tests {

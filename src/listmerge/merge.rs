@@ -10,7 +10,7 @@ use smartstring::alias::String as SmartString;
 use content_tree::*;
 use rle::{AppendRle, HasLength, MergeableIterator, Searchable, SplitableSpanCtx, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
-use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex, SpaceIndexCursor};
+use crate::listmerge::{DocRangeIndex, Index, M2Tracker, SpaceIndex, SpaceIndexCursor};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, CRDTSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::{DTRange, UNDERWATER_START};
@@ -28,7 +28,7 @@ use crate::listmerge::dot::{DotColor, name_of};
 use crate::listmerge::dot::DotColor::*;
 
 use crate::listmerge::markers::Marker::{DelTarget, InsPtr};
-use crate::listmerge::markers::MarkerEntry;
+use crate::listmerge::markers::{Marker, Marker2, MarkerEntry};
 use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::listmerge::metrics::upstream_cursor_pos;
 use crate::list::op_iter::OpMetricsIter;
@@ -39,6 +39,7 @@ use crate::list::ListOpLog;
 use crate::listmerge::plan::{M1Plan, M1PlanAction};
 #[cfg(feature = "ops_to_old")]
 use crate::listmerge::to_old::OldCRDTOpInternal;
+use crate::ost::IndexTree;
 use crate::unicount::consume_chars;
 
 const ALLOW_FF: bool = true;
@@ -58,7 +59,17 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     }
 }
 
-pub(super) fn notify_for<'a>(index: &'a mut SpaceIndex, idx_cursor: &'a mut Option<(LV, SpaceIndexCursor)>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
+
+pub(super) fn notify_for<'a>(index: &'a mut Index) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
+    let mut a = notify_for_old(&mut index.index_old, &mut index.index_cursor);
+    let mut b = notify_for2(&mut index.index2);
+
+    move |entry: CRDTSpan, leaf| {
+        a(entry, leaf);
+        b(entry, leaf);
+    }
+}
+pub(super) fn notify_for_old<'a>(index: &'a mut SpaceIndex, idx_cursor: &'a mut Option<(LV, SpaceIndexCursor)>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
     move |entry: CRDTSpan, leaf| {
         debug_assert!(leaf != NonNull::dangling());
 
@@ -88,6 +99,39 @@ pub(super) fn notify_for<'a>(index: &'a mut SpaceIndex, idx_cursor: &'a mut Opti
     }
 }
 
+pub(super) fn notify_for2<'a>(index: &'a mut IndexTree<Marker2>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
+    move |entry: CRDTSpan, leaf| {
+        debug_assert!(leaf != NonNull::dangling());
+
+        // Note we can only mutate_entries when we have something to mutate. The list is started
+        // with a big placeholder "underwater" entry which will be split up as needed.
+
+        println!("SET RANGE {:?} -> {:?}", entry.id, InsPtr(leaf));
+        index.set_range(entry.id, Marker2::InsPtr(leaf), true);
+
+        // let start = entry.id.start;
+        // let mut cursor = match idx_cursor.take() {
+        //     Some((cursor_start, mut cursor)) if cursor_start == start => {
+        //         cursor.roll_to_next_entry();
+        //         cursor
+        //     },
+        //     _ => index.unsafe_cursor_at_offset_pos(start, false)
+        // };
+        //
+        // // let mut cursor = index.unsafe_cursor_at_offset_pos(entry.id.start, false);
+        // unsafe {
+        //     ContentTreeRaw::unsafe_mutate_entries_notify(|marker| {
+        //         // The item should already be an insert entry.
+        //         debug_assert_eq!(marker.inner.tag(), ListOpKind::Ins);
+        //
+        //         marker.inner = InsPtr(leaf);
+        //     }, &mut cursor, entry.len(), null_notify);
+        // }
+        //
+        // *idx_cursor = Some((entry.id.end, cursor));
+    }
+}
+
 #[allow(unused)]
 fn take_content<'a>(x: Option<&mut &'a str>, len: usize) -> Option<&'a str> {
     if let Some(s) = x {
@@ -97,38 +141,60 @@ fn take_content<'a>(x: Option<&mut &'a str>, len: usize) -> Option<&'a str> {
 
 impl M2Tracker {
     pub(super) fn new() -> Self {
-        let mut index = ContentTreeRaw::new();
+        let mut old_index = ContentTreeRaw::new();
         let underwater = CRDTSpan::new_underwater();
-        pad_index_to(&mut index, underwater.id.end);
+        pad_index_to(&mut old_index, underwater.id.end);
 
         let mut result = Self {
             range_tree: ContentTreeRaw::new(),
-            index,
-            index_cursor: None,
+            index: Index {
+                index_old: old_index,
+                index_cursor: None,
+                index2: IndexTree::new(),
+            },
+            // index,
+            // index_cursor: None,
+            // index2: IndexTree::new(),
             #[cfg(feature = "merge_conflict_checks")]
             concurrent_inserts_collide: false,
             #[cfg(feature = "ops_to_old")]
             dbg_ops: vec![]
         };
 
-        result.range_tree.push_notify(underwater, notify_for(&mut result.index, &mut result.index_cursor));
+        // result.range_tree.push_notify(underwater, notify_for(&mut result.index, &mut result.index_cursor));
+        result.range_tree.push_notify(underwater, notify_for(&mut result.index));
         result
     }
 
     pub(super) fn clear(&mut self) {
         // TODO: Could make this cleaner with a clear() function in ContentTree.
         self.range_tree = ContentTreeRaw::new();
-        self.index = ContentTreeRaw::new();
+
+        self.index.index_old = ContentTreeRaw::new();
+        self.index.index2.clear();
+        // self.index = ContentTreeRaw::new();
 
         let underwater = CRDTSpan::new_underwater();
-        pad_index_to(&mut self.index, underwater.id.end);
-        self.range_tree.push_notify(underwater, notify_for(&mut self.index, &mut self.index_cursor));
+        pad_index_to(&mut self.index.index_old, underwater.id.end);
+        // self.range_tree.push_notify(underwater, notify_for(&mut self.index, &mut self.index_cursor));
+        self.range_tree.push_notify(underwater, notify_for(&mut self.index));
     }
 
     pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
-        let cursor = self.index.cursor_at_offset_pos(lv, false);
-        // Gross.
-        cursor.get_item().unwrap().unwrap()
+        let result_1 = {
+            let marker = self.index.index2.get_entry(lv).val;
+            let Marker2::InsPtr(ptr) = marker else { panic!("No marker at lv") };
+            ptr
+        };
+
+        let result_2 = {
+            let cursor = self.index.index_old.cursor_at_offset_pos(lv, false);
+            // Gross.
+            cursor.get_item().unwrap().unwrap()
+        };
+
+        assert_eq!(result_1, result_2);
+        result_1
     }
 
     #[allow(unused)]
@@ -300,7 +366,7 @@ impl M2Tracker {
         // (Safe variant):
         // cursor.insert_notify(item, notify_for(&mut self.index));
 
-        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index, &mut self.index_cursor)); }
+        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
         // self.check_index();
         content_pos
     }
@@ -540,7 +606,7 @@ impl M2Tracker {
                         // This will set the state to deleted, and mark ever_deleted in the entry.
                         e.delete();
                         e.id
-                    }, &mut cursor.inner, len, notify_for(&mut self.index, &mut self.index_cursor))
+                    }, &mut cursor.inner, len, notify_for(&mut self.index))
                 };
 
                 // ContentTree should come to the same length conclusion as us.
@@ -567,7 +633,16 @@ impl M2Tracker {
                 //     debug_assert!(cg.parents.version_contains_time(&[lv_start], target.start));
                 // }
 
-                self.index.replace_range_at_offset(lv_start, MarkerEntry {
+                println!("SET RANGE {:?} -> {:?}", (lv_start..lv_start+len), Marker::DelTarget(RangeRev {
+                    span: target,
+                    fwd
+                }));
+                self.index.index2.set_range((lv_start..lv_start+len).into(), Marker::DelTarget(RangeRev {
+                    span: target,
+                    fwd
+                }).into(), fwd);
+
+                self.index.index_old.replace_range_at_offset(lv_start, MarkerEntry {
                     len,
                     inner: DelTarget(RangeRev {
                         span: target,
@@ -577,7 +652,7 @@ impl M2Tracker {
                 // This is unfortunately needed because we *might* have moved the index_cursor.
                 // It would be better to tighten the bound here and only clear the cursor sometimes,
                 // but doing so sounds hard and doesn't seem to make a performance difference.
-                self.index_cursor.take();
+                self.index.index_cursor.take();
 
                 // if cfg!(debug_assertions) {
                 //     self.check_index();

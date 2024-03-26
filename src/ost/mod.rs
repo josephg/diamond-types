@@ -1,12 +1,13 @@
 mod index_tree;
 mod content_tree;
 
+pub(crate) use index_tree::{IndexTree, IndexContent};
+
 use std::ops::{AddAssign, Index, IndexMut, SubAssign};
 use ::content_tree::ContentLength;
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::ost::content_tree::ContentTree;
-use crate::ost::index_tree::IndexTree;
 // Some utility types.
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -91,35 +92,35 @@ const LEAF_SIZE: usize = 32;
 
 
 // type LeafData = crate::listmerge::markers::Marker;
-#[derive(Debug, Default)]
-struct OrderStatisticTree {
-    content: ContentTree,
-    index: IndexTree<()>,
-}
-
-impl OrderStatisticTree {
-    pub fn new() -> Self {
-        Self {
-            content: ContentTree::new(),
-            index: IndexTree::new(),
-        }
-    }
-
-    // fn insert(&mut self,
-
-    pub fn clear(&mut self) {
-        self.index.clear();
-        self.content.clear();
-    }
-
-    #[allow(unused)]
-    fn dbg_check(&self) {
-        self.content.dbg_check();
-        self.index.dbg_check();
-
-        // Invariants:
-        // - All index markers point to the node which contains the specified item.
-    }
-}
+// #[derive(Debug, Default)]
+// struct OrderStatisticTree {
+//     content: ContentTree,
+//     index: IndexTree<()>,
+// }
+//
+// impl OrderStatisticTree {
+//     pub fn new() -> Self {
+//         Self {
+//             content: ContentTree::new(),
+//             index: IndexTree::new(),
+//         }
+//     }
+//
+//     // fn insert(&mut self,
+//
+//     pub fn clear(&mut self) {
+//         self.index.clear();
+//         self.content.clear();
+//     }
+//
+//     #[allow(unused)]
+//     fn dbg_check(&self) {
+//         self.content.dbg_check();
+//         self.index.dbg_check();
+//
+//         // Invariants:
+//         // - All index markers point to the node which contains the specified item.
+//     }
+// }
 
 
