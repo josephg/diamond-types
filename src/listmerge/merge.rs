@@ -8,7 +8,7 @@ use jumprope::JumpRopeBuf;
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
 use content_tree::*;
-use rle::{AppendRle, HasLength, MergeableIterator, Searchable, SplitableSpanCtx, Trim, TrimCtx};
+use rle::{AppendRle, HasLength, MergeableIterator, RleDRun, Searchable, SplitableSpanCtx, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
 use crate::listmerge::{DocRangeIndex, Index, M2Tracker, SpaceIndex, SpaceIndexCursor};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, CRDTSpan};
@@ -59,7 +59,6 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     }
 }
 
-
 pub(super) fn notify_for<'a>(index: &'a mut Index) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
     let mut a = notify_for_old(&mut index.index_old, &mut index.index_cursor);
     let mut b = notify_for2(&mut index.index2);
@@ -69,6 +68,7 @@ pub(super) fn notify_for<'a>(index: &'a mut Index) -> impl FnMut(CRDTSpan, NonNu
         b(entry, leaf);
     }
 }
+
 pub(super) fn notify_for_old<'a>(index: &'a mut SpaceIndex, idx_cursor: &'a mut Option<(LV, SpaceIndexCursor)>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
     move |entry: CRDTSpan, leaf| {
         debug_assert!(leaf != NonNull::dangling());
@@ -107,7 +107,18 @@ pub(super) fn notify_for2<'a>(index: &'a mut IndexTree<Marker2>) -> impl FnMut(C
         // with a big placeholder "underwater" entry which will be split up as needed.
 
         println!("SET RANGE {:?} -> {:?}", entry.id, InsPtr(leaf));
+
+        if entry.id.start == UNDERWATER_START + 1 && entry.id.end == UNDERWATER_START + 3 {
+            println!("HERE");
+        }
+
         index.set_range(entry.id, Marker2::InsPtr(leaf), true);
+        index.dbg_check();
+
+        if entry.id.start == UNDERWATER_START + 1 && entry.id.end == UNDERWATER_START + 3 {
+            println!("->>r");
+            dbg!(&index);
+        }
 
         // let start = entry.id.start;
         // let mut cursor = match idx_cursor.take() {
@@ -163,6 +174,8 @@ impl M2Tracker {
 
         // result.range_tree.push_notify(underwater, notify_for(&mut result.index, &mut result.index_cursor));
         result.range_tree.push_notify(underwater, notify_for(&mut result.index));
+
+        result.check_index();
         result
     }
 
@@ -178,6 +191,8 @@ impl M2Tracker {
         pad_index_to(&mut self.index.index_old, underwater.id.end);
         // self.range_tree.push_notify(underwater, notify_for(&mut self.index, &mut self.index_cursor));
         self.range_tree.push_notify(underwater, notify_for(&mut self.index));
+
+        self.check_index();
     }
 
     pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
@@ -193,8 +208,9 @@ impl M2Tracker {
             cursor.get_item().unwrap().unwrap()
         };
 
-        assert_eq!(result_1, result_2);
-        result_1
+        // assert_eq!(result_1, result_2);
+        // result_1
+        result_2
     }
 
     #[allow(unused)]
@@ -205,8 +221,19 @@ impl M2Tracker {
         for entry in self.range_tree.raw_iter() {
             let marker = self.marker_at(entry.id.start);
             debug_assert!(marker != NonNull::dangling());
-            unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
+            let val = unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
+            assert_eq!(unsafe { val.unsafe_get_item() }, Some(entry.id.start));
         }
+
+        // Check both indexes entirely match.
+        self.index.index2.dbg_check_eq_2(self.index.index_old.iter_with_pos().filter_map(|(pos, r)| {
+            // if r.start >= crate::ost::index_tree::test::START_JUNK { return None; }
+            // Some(RleDRun::new(pos..pos+r.len(), crate::ost::index_tree::test::X(r.start)))
+            // Some(RleDRun::new(pos..pos+r.len(), crate::ost::index_tree::test::X(r.start)))
+
+            // let m2: Marker2 = r.inner.into();
+            Some(RleDRun::new(pos..pos+r.len(), r.inner.into()))
+        }));
     }
 
     fn get_cursor_before(&self, lv: LV) -> Cursor<CRDTSpan, DocRangeIndex> {
@@ -633,10 +660,14 @@ impl M2Tracker {
                 //     debug_assert!(cg.parents.version_contains_time(&[lv_start], target.start));
                 // }
 
-                println!("SET RANGE {:?} -> {:?}", (lv_start..lv_start+len), Marker::DelTarget(RangeRev {
+                let m2: Marker2 = From::from(Marker::DelTarget(RangeRev {
                     span: target,
                     fwd
                 }));
+                println!("DEL RANGE {:?} -> {:?} ({:?})", (lv_start..lv_start+len), Marker::DelTarget(RangeRev {
+                    span: target,
+                    fwd
+                }), m2);
                 self.index.index2.set_range((lv_start..lv_start+len).into(), Marker::DelTarget(RangeRev {
                     span: target,
                     fwd
@@ -792,6 +823,11 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
         // if self.op_iter.is_none() && self.new_ops.is_empty() { return None; }
         if self.op_iter.is_none() && self.plan_idx >= self.plan.0.len() { return None; }
 
+
+        if cfg!(debug_assertions) {
+            self.tracker.check_index();
+        }
+
         let (mut pair, op_iter) = 'outer: loop {
             if let Some(op_iter) = self.op_iter.as_mut() {
                 if let Some(pair) = op_iter.next() {
@@ -844,7 +880,12 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                         self.applying = true;
                     }
                 }
+
+                if cfg!(debug_assertions) {
+                    self.tracker.check_index();
+                }
             }
+
 
             // No more plan. Stop!
             // dbg!(&self.op_iter, self.plan_idx);
@@ -860,6 +901,10 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             // self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, walk.consume).into());
         };
 
+        if cfg!(debug_assertions) {
+            self.tracker.check_index();
+        }
+
         if self.ff_current {
             Some(TransformedResult::not_moved(pair))
         } else {
@@ -867,7 +912,16 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             let span = self.aa.local_span_to_agent_span(pair.span());
             let len = span.len().min(pair.len());
 
+            if cfg!(debug_assertions) {
+                self.tracker.check_index();
+                println!("AAA");
+            }
             let (consumed_here, xf_result) = self.tracker.apply(self.aa, self.op_ctx, &pair, len, span.agent);
+
+            if cfg!(debug_assertions) {
+                self.tracker.check_index();
+                println!("BBB");
+            }
 
             let remainder = pair.trim_ctx(consumed_here, self.op_ctx);
 

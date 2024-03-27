@@ -414,6 +414,18 @@ impl<T: Clone + Eq> MergableSpan for RleDRun<T> {
     }
 }
 
+// impl<T: Copy + std::fmt::Debug> Searchable for RleDRun<T> {
+//     type Item = T;
+//
+//     fn get_offset(&self, _loc: Self::Item) -> Option<usize> {
+//         unimplemented!()
+//     }
+//
+//     fn at_offset(&self, offset: usize) -> Self::Item {
+//         Some(
+//     }
+// }
+
 
 // impl<T, E> SplitableSpan for Result<T, E> where T: SplitableSpan + Clone, E: Clone {
 //     fn truncate(&mut self, at: usize) -> Self {

@@ -228,7 +228,7 @@ impl DelRange {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Marker2 {
     /// For inserts, we store a pointer to the leaf node containing the inserted item. This is only
     /// used for inserts, so we don't need to modify multiple entries when the inserted item is
@@ -254,6 +254,19 @@ impl From<Marker> for Marker2 {
     }
 }
 
+// impl PartialEq for Marker2 {
+//     fn eq(&self, other: &Self) -> bool {
+//         match (self, other) {
+//             (Marker2::InsPtr(p1), Marker2::InsPtr(p2)) => p1 == p2,
+//             (Marker2::Del(a), Marker2::Del(b)) => {
+//                 todo!()
+//                 // a == b ||
+//             },
+//             _ => false,
+//         }
+//     }
+// }
+
 impl Default for Marker2 {
     fn default() -> Self {
         Marker2::InsPtr(NonNull::dangling())
@@ -265,7 +278,7 @@ impl IndexContent for Marker2 {
         debug_assert!(offset > 0);
 
         match (self, other) {
-            (Marker2::InsPtr(_), Marker2::InsPtr(_)) => true,
+            (Marker2::InsPtr(p1), Marker2::InsPtr(p2)) => p1 == p2,
             (Marker2::Del(a), Marker2::Del(b)) => {
                 // let offs_1 = offset == 1;
                 // let other_len_1 = other_len == 1;
@@ -308,6 +321,19 @@ impl IndexContent for Marker2 {
             Marker2::Del(DelRange {target: lv, fwd: true}) => Marker2::Del(DelRange::new(*lv + offset, true)),
             Marker2::Del(DelRange {target: lv, fwd: false}) => Marker2::Del(DelRange::new(*lv - offset, false)),
         }
+    }
+
+    fn eq(&self, other: &Self, upto_len: usize) -> bool {
+        debug_assert!(upto_len >= 1);
+
+        self == other || if let (Marker2::Del(a), Marker2::Del(b)) = (self, other) {
+            // We can only save equality if upto_len == 1, one of them is reversed, and the target is off by 1.
+            upto_len == 1 && (
+                a.fwd && !b.fwd && a.target + 1 == b.target
+            ) || (
+                !a.fwd && b.fwd && a.target == b.target + 1
+            )
+        } else { false }
     }
 
     // fn append_at(&mut self, offset: usize, other: Self) {

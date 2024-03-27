@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 
 use rle::{HasRleKey, HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanCtx};
 pub use rle_vec::RleVec;
-use crate::dtrange::{debug_time_raw, DTRange};
+use crate::dtrange::{debug_lv_raw, DTRange};
 
 pub mod rle_vec;
 
@@ -53,7 +53,7 @@ pub struct KVPair<V>(pub usize, pub V);
 impl<V: Debug> Debug for KVPair<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_tuple("KVPair");
-        debug_time_raw(self.0, |v| { s.field(v); });
+        debug_lv_raw(self.0, |v| { s.field(v); });
         s.field(&self.1);
         s.finish()
     }

@@ -71,9 +71,10 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             println!();
         }
 
-        // if _i == 253 {
-        //     dbg!(&opset.client_with_localtime);
-        // }
+        if _i == 27 {
+            println!();
+            // dbg!(&opset.client_with_localtime);
+        }
 
         // dbg!(&opset);
 

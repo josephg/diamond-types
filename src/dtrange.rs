@@ -228,8 +228,8 @@ impl HasRleKey for DTRange {
 
 pub(crate) const UNDERWATER_START: usize = usize::MAX / 4;
 
-pub(crate) fn is_underwater(time: LV) -> bool {
-    time >= UNDERWATER_START
+pub(crate) fn is_underwater(lv: LV) -> bool {
+    lv >= UNDERWATER_START
 }
 
 // #[derive(Debug)]
@@ -241,13 +241,13 @@ pub(crate) fn is_underwater(time: LV) -> bool {
 //     }
 // }
 
-pub(crate) fn debug_time_raw<F: FnOnce(&dyn Debug) -> R, R>(val: LV, f: F) -> R {
+pub(crate) fn debug_lv_raw<F: FnOnce(&dyn Debug) -> R, R>(val: LV, f: F) -> R {
     if val >= UNDERWATER_START { f(&Underwater(val - UNDERWATER_START)) }
     else { f(&val) }
 }
 
-pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: LV) {
-    debug_time_raw(val, |v| { fmt.field(name, v); });
+pub(crate) fn debug_lv(fmt: &mut DebugStruct, name: &str, val: LV) {
+    debug_lv_raw(val, |v| { fmt.field(name, v); });
 }
 
 // #[derive(Debug)]
@@ -267,12 +267,12 @@ impl Debug for DTRange {
             write!(f, "(EMPTY)")?;
         } else {
             write!(f, "v ")?;
-            debug_time_raw(self.start, |v| v.fmt(f))?;
+            debug_lv_raw(self.start, |v| v.fmt(f))?;
             if self.end != self.start + 1 {
                 // write!(f, "-")?;
                 // debug_time_raw(self.end - 1, |v| v.fmt(f))?;
                 write!(f, "..")?;
-                debug_time_raw(self.end, |v| v.fmt(f))?;
+                debug_lv_raw(self.end, |v| v.fmt(f))?;
             }
         }
         Ok(())
