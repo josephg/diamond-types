@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::mem;
@@ -16,8 +17,8 @@ pub(crate) struct IndexTree<V> {
     // upper_bound: LV,
     height: usize,
     root: usize,
-    // cursor: Option<IndexCursor>,
-    cursor: IndexCursor,
+    // cursor: IndexCursor,
+    cursor: Cell<IndexCursor>,
 
     // Linked lists.
     free_leaf_pool_head: LeafIdx,
@@ -241,7 +242,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
             // upper_bound: 0,
             height: 0,
             root: 0,
-            cursor: IndexCursor::default(),
+            cursor: Default::default(),
             free_leaf_pool_head: LeafIdx(usize::MAX),
             free_node_pool_head: NodeIdx(usize::MAX),
         }
@@ -252,7 +253,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
         self.nodes.clear();
         self.height = 0;
         self.root = 0;
-        self.cursor = IndexCursor::default();
+        self.cursor = Default::default();
         self.leaves.push(initial_root_leaf());
     }
 
@@ -511,7 +512,8 @@ impl<V: Default + IndexContent> IndexTree<V> {
     /// Generate a cursor which points at the specified LV.
     fn cursor_at(&self, lv: LV) -> IndexCursor {
         debug_assert!(lv < usize::MAX);
-        let leaf = &self[self.cursor.leaf_idx];
+        let cursor = self.cursor.get();
+        let leaf = &self[cursor.leaf_idx];
         // TODO: Consider caching the upper bound of the subsequent element in the cursor.
 
         if lv >= leaf.bounds[0] {
@@ -525,7 +527,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
             // let rel = self.upper_bound(leaf).map(|bound| lv.cmp(&bound)).unwrap_or(Ordering::Less);
             if lv < upper_bound {
                 return IndexCursor {
-                    leaf_idx: self.cursor.leaf_idx,
+                    leaf_idx: cursor.leaf_idx,
                     elem_idx: Self::find_in_leaf(leaf, lv),
                 };
             } else if lv == upper_bound {
@@ -556,31 +558,32 @@ impl<V: Default + IndexContent> IndexTree<V> {
         }
     }
 
-    // pub fn get_entry(&mut self, lv: LV, hint_fwd: bool) -> (V, LV) {
-    /// Returns (value, upper bound)
-    pub fn get_entry_mut(&mut self, lv: LV) -> RleDRun<V> {
-        let cursor = self.cursor_at(lv);
-        self.cursor = cursor;
-        let leaf = &self.leaves[cursor.leaf_idx.0];
-        let val = leaf.children[cursor.elem_idx];
-        let lower_bound = leaf.bounds[cursor.elem_idx];
-
-        let next_elem = cursor.elem_idx + 1;
-        let upper_bound = if next_elem >= LEAF_CHILDREN {
-            self.leaf_upper_bound(leaf)
-        } else {
-            leaf.bounds[next_elem]
-        };
-
-        RleDRun {
-            start: lower_bound,
-            end: upper_bound,
-            val
-        }
-    }
+    // // pub fn get_entry(&mut self, lv: LV, hint_fwd: bool) -> (V, LV) {
+    // /// Returns (value, upper bound)
+    // pub fn get_entry_mut(&mut self, lv: LV) -> RleDRun<V> {
+    //     let cursor = self.cursor_at(lv);
+    //     self.cursor.set(cursor);
+    //     let leaf = &self.leaves[cursor.leaf_idx.0];
+    //     let val = leaf.children[cursor.elem_idx];
+    //     let lower_bound = leaf.bounds[cursor.elem_idx];
+    //
+    //     let next_elem = cursor.elem_idx + 1;
+    //     let upper_bound = if next_elem >= LEAF_CHILDREN {
+    //         self.leaf_upper_bound(leaf)
+    //     } else {
+    //         leaf.bounds[next_elem]
+    //     };
+    //
+    //     RleDRun {
+    //         start: lower_bound,
+    //         end: upper_bound,
+    //         val
+    //     }
+    // }
 
     pub fn get_entry(&self, lv: LV) -> RleDRun<V> {
         let cursor = self.cursor_at(lv);
+        self.cursor.set(cursor);
         let leaf = &self.leaves[cursor.leaf_idx.0];
         let val = leaf.children[cursor.elem_idx];
         let lower_bound = leaf.bounds[cursor.elem_idx];
@@ -976,12 +979,12 @@ impl<V: Default + IndexContent> IndexTree<V> {
     pub fn set_range(&mut self, range: DTRange, data: V, hint_fwd: bool) {
         if range.is_empty() { return; }
         let cursor = self.cursor_at(range.start);
-        self.cursor = cursor;
+        self.cursor.set(cursor);
         // The cursor may move.
         let cursor = self.set_range_internal(cursor, range, data);
 
         if hint_fwd {
-            self.cursor = cursor;
+            self.cursor.set(cursor);
         }
     }
 

@@ -107,8 +107,8 @@ impl M2Tracker {
 
     #[allow(unused)]
     pub(super) fn check_index(&self) {
-        // dbg!(&self.index);
-        // dbg!(&self.range_tree);
+        self.index.dbg_check();
+
         // Go through each entry in the range tree and make sure we can find it using the index.
         for entry in self.range_tree.raw_iter() {
             let marker = self.marker_at(entry.id.start);
@@ -116,16 +116,6 @@ impl M2Tracker {
             let val = unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
             assert_eq!(unsafe { val.unsafe_get_item() }, Some(entry.id.start));
         }
-
-        // Check both indexes entirely match.
-        // self.index.index2.dbg_check_eq_2(self.index.index_old.iter_with_pos().filter_map(|(pos, r)| {
-        //     // if r.start >= crate::ost::index_tree::test::START_JUNK { return None; }
-        //     // Some(RleDRun::new(pos..pos+r.len(), crate::ost::index_tree::test::X(r.start)))
-        //     // Some(RleDRun::new(pos..pos+r.len(), crate::ost::index_tree::test::X(r.start)))
-        //
-        //     // let m2: Marker2 = r.inner.into();
-        //     Some(RleDRun::new(pos..pos+r.len(), r.inner.into()))
-        // }));
     }
 
     fn get_cursor_before(&self, lv: LV) -> Cursor<CRDTSpan, DocRangeIndex> {
