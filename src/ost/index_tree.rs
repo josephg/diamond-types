@@ -1036,6 +1036,18 @@ impl<V: Default + IndexContent> IndexTree<V> {
 
         let mut cur_start = leaf.bounds[elem_idx];
 
+        if cur_start == start && elem_idx > 0 {
+            // Try and append it to the previous item. This is unnecessary, but should help with
+            // perf.
+            let prev_idx = elem_idx - 1;
+            let prev_start = leaf.bounds[prev_idx];
+            if leaf.children[prev_idx].try_append(cur_start - prev_start, &data, end - start) {
+                // Ok!
+                self.extend_upper_range(leaf_idx, elem_idx, end);
+                return cursor;
+            }
+        }
+
         // TODO: Probably worth a short-circuit check here to see if the value even changed.
 
         let mut cur_end = if elem_idx >= LEAF_CHILDREN - 1 {
