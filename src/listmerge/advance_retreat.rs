@@ -2,14 +2,13 @@ use std::ptr::NonNull;
 use content_tree::NodeLeaf;
 use rle::{HasLength, RleDRun, SplitableSpan};
 use crate::listmerge::{DocRangeIndex, M2Tracker};
-use crate::listmerge::markers::Marker::{DelTarget, InsPtr};
 use crate::listmerge::merge::notify_for;
 use crate::rev_range::RangeRev;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::list::operation::ListOpKind;
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::dtrange::DTRange;
-use crate::listmerge::markers::Marker2;
+use crate::listmerge::markers::Marker;
 use crate::LV;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -41,7 +40,7 @@ impl M2Tracker {
         let len = end - start;
 
         match marker {
-            Marker2::InsPtr(ptr) => {
+            Marker::InsPtr(ptr) => {
                 debug_assert!(ptr != NonNull::dangling());
                 // For inserts, the target is simply the range of the item.
                 // let start = lv - cursor.offset;
@@ -52,7 +51,7 @@ impl M2Tracker {
                     ptr: Some(ptr)
                 }
             }
-            Marker2::Del(target) => {
+            Marker::Del(target) => {
                 let rr = RangeRev {
                     span: if target.fwd {
                         (target.target..target.target + len).into()

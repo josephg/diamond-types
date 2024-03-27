@@ -43,14 +43,6 @@ impl Default for IndexCursor {
     }
 }
 
-// #[derive(Debug, Clone)]
-// struct CachedIndexCursor {
-//     leaf: LeafIdx,
-//     leaf_range: DTRange,
-//
-//     // & last index?
-// }
-
 // #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 // enum IdxMarker {
 //     None,
@@ -62,7 +54,6 @@ impl Default for IndexCursor {
 //     DelFwd(LV),
 //     DelBack(LV),
 // }
-
 
 // const EMPTY_LEAF_DATA: (LV, LeafData) = (usize::MAX, LeafData::InsPtr(NonNull::dangling()));
 
@@ -101,14 +92,6 @@ fn initial_root_leaf<V: Default + Copy>() -> IndexLeaf<V> {
         parent: NodeIdx(usize::MAX), // This node won't exist yet - but thats ok.
     }
 }
-
-// const INITIAL_ROOT_LEAF: IndexLeaf = IndexLeaf {
-//     data: [(usize::MAX, V::default()); LEAF_CHILDREN],
-//     upper_bound: usize::MAX, // The bounds of the last item is (functionally) infinity.
-//     next_leaf: LeafIdx(usize::MAX),
-//     parent: NodeIdx(0), // This node won't exist yet - but thats ok.
-// };
-
 
 /// A node child specifies the LV of the (recursive) first element and an index in the data
 /// structure.
@@ -225,14 +208,6 @@ pub trait IndexContent: Debug + Copy {
     // }
 
     fn at_offset(&self, offset: usize) -> Self;
-
-    // #[inline(always)]
-    // fn prepend(&mut self, other: Self) {
-    //     *self = other;
-    // }
-    //
-    // // #[inline(always)]
-    // fn append_at(&mut self, _offset: usize, _other: Self) {}
 
     fn eq(&self, other: &Self, upto_len: usize) -> bool;
 }

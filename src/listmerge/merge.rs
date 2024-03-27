@@ -10,7 +10,7 @@ use smartstring::alias::String as SmartString;
 use content_tree::*;
 use rle::{AppendRle, HasLength, MergeableIterator, RleDRun, Searchable, SplitableSpanCtx, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
-use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex};
+use crate::listmerge::{DocRangeIndex, M2Tracker};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, CRDTSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::{DTRange, UNDERWATER_START};
@@ -27,8 +27,7 @@ use crate::listmerge::dot::{DotColor, name_of};
 #[cfg(feature = "dot_export")]
 use crate::listmerge::dot::DotColor::*;
 
-use crate::listmerge::markers::Marker::{DelTarget, InsPtr};
-use crate::listmerge::markers::{Marker, Marker2, MarkerEntry};
+use crate::listmerge::markers::{Marker, DelRange};
 use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::listmerge::metrics::upstream_cursor_pos;
 use crate::list::op_iter::OpMetricsIter;
@@ -47,20 +46,7 @@ const ALLOW_FF: bool = true;
 #[cfg(feature = "dot_export")]
 const MAKE_GRAPHS: bool = false;
 
-fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
-    // TODO: Use dirty tricks to avoid this for more performance.
-    let index_len = index.len();
-
-    if index_len < desired_len {
-        index.push(MarkerEntry {
-            len: desired_len - index_len,
-            inner: InsPtr(NonNull::dangling()),
-        });
-    }
-}
-
-
-pub(super) fn notify_for<'a>(index: &'a mut IndexTree<Marker2>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
+pub(super) fn notify_for<'a>(index: &'a mut IndexTree<Marker>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
     move |entry: CRDTSpan, leaf| {
         debug_assert!(leaf != NonNull::dangling());
 
@@ -69,7 +55,7 @@ pub(super) fn notify_for<'a>(index: &'a mut IndexTree<Marker2>) -> impl FnMut(CR
 
         // println!("SET RANGE {:?} -> {:?}", entry.id, InsPtr(leaf));
 
-        index.set_range(entry.id, Marker2::InsPtr(leaf), true);
+        index.set_range(entry.id, Marker::InsPtr(leaf), true);
         // index.dbg_check();
     }
 }
@@ -83,9 +69,7 @@ fn take_content<'a>(x: Option<&mut &'a str>, len: usize) -> Option<&'a str> {
 
 impl M2Tracker {
     pub(super) fn new() -> Self {
-        let mut old_index = ContentTreeRaw::new();
         let underwater = CRDTSpan::new_underwater();
-        pad_index_to(&mut old_index, underwater.id.end);
 
         let mut result = Self {
             range_tree: ContentTreeRaw::new(),
@@ -117,7 +101,7 @@ impl M2Tracker {
 
     pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
         let marker = self.index.get_entry(lv).val;
-        let Marker2::InsPtr(ptr) = marker else { panic!("No marker at lv") };
+        let Marker::InsPtr(ptr) = marker else { panic!("No marker at lv") };
         ptr
     }
 
@@ -577,10 +561,14 @@ impl M2Tracker {
                 //     fwd
                 // }), m2);
 
-                self.index.set_range((lv_start..lv_start+len).into(), Marker::DelTarget(RangeRev {
-                    span: target,
+                self.index.set_range((lv_start..lv_start+len).into(), Marker::Del(DelRange {
+                    target: if fwd { target.start } else { target.end },
                     fwd
                 }).into(), fwd);
+                // self.index.set_range((lv_start..lv_start+len).into(), MarkerOld::DelTarget(RangeRev {
+                //     span: target,
+                //     fwd
+                // }).into(), fwd);
 
                 // if cfg!(debug_assertions) {
                 //     self.check_index();
@@ -766,10 +754,6 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                         }
                     }
                     M1PlanAction::Clear => {
-                        // let i2_count = self.tracker.index.index2.count_items();
-                        // let old_count = self.tracker.index.index_old.count_entries();
-                        // println!("CLEAR! old {old_count} / new {i2_count}");
-
                         self.tracker.clear();
                     }
                     M1PlanAction::BeginOutput => {
@@ -777,11 +761,6 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                     }
                 }
             }
-
-            // println!("XXXX");
-            // let i2_count = self.tracker.index.index2.count_items();
-            // let old_count = self.tracker.index.index_old.count_entries();
-            // println!("old {old_count} / new {i2_count}");
 
             // No more plan. Stop!
             // dbg!(&self.op_iter, self.plan_idx);

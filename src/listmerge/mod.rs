@@ -12,7 +12,7 @@
 
 use std::pin::Pin;
 use content_tree::{ContentTreeRaw, MutCursor, RawPositionMetricsUsize, UnsafeCursor};
-use crate::listmerge::markers::{Marker, Marker2, MarkerEntry};
+use crate::listmerge::markers::Marker;
 use crate::listmerge::metrics::MarkerMetrics;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::LV;
@@ -38,7 +38,7 @@ pub(crate) mod plan;
 type DocRangeIndex = MarkerMetrics;
 type CRDTList2 = Pin<Box<ContentTreeRaw<CRDTSpan, DocRangeIndex>>>;
 
-type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry, RawPositionMetricsUsize>>>;
+// type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry, RawPositionMetricsUsize>>>;
 // type SpaceIndexCursor = UnsafeCursor<MarkerEntry, RawPositionMetricsUsize>;
 
 
@@ -57,7 +57,7 @@ struct M2Tracker {
     ///
     /// - For inserts, this contains a pointer to the node in range_tree which contains this version
     /// - For deletes, this names the time at which the delete happened.
-    index: IndexTree<Marker2>,
+    index: IndexTree<Marker>,
 
     #[cfg(feature = "merge_conflict_checks")]
     concurrent_inserts_collide: bool,
