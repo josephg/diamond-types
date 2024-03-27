@@ -255,6 +255,8 @@ impl<V: Default + IndexContent> IndexTree<V> {
         self.root = 0;
         self.cursor = Default::default();
         self.leaves.push(initial_root_leaf());
+        self.free_leaf_pool_head = LeafIdx(usize::MAX);
+        self.free_node_pool_head = NodeIdx(usize::MAX);
     }
 
     fn create_new_root_node(&mut self, lower_bound: usize, child_a: usize, split_point: LV, child_b: usize) -> NodeIdx {
