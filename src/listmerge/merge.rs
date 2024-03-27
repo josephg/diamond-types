@@ -10,7 +10,7 @@ use smartstring::alias::String as SmartString;
 use content_tree::*;
 use rle::{AppendRle, HasLength, MergeableIterator, RleDRun, Searchable, SplitableSpanCtx, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
-use crate::listmerge::{DocRangeIndex, Index, M2Tracker, SpaceIndex, SpaceIndexCursor};
+use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, CRDTSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::{DTRange, UNDERWATER_START};
@@ -59,47 +59,8 @@ fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
     }
 }
 
-pub(super) fn notify_for<'a>(index: &'a mut Index) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
-    let mut a = notify_for_old(&mut index.index_old, &mut index.index_cursor);
-    let mut b = notify_for2(&mut index.index2);
 
-    move |entry: CRDTSpan, leaf| {
-        a(entry, leaf);
-        b(entry, leaf);
-    }
-}
-
-pub(super) fn notify_for_old<'a>(index: &'a mut SpaceIndex, idx_cursor: &'a mut Option<(LV, SpaceIndexCursor)>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
-    move |entry: CRDTSpan, leaf| {
-        debug_assert!(leaf != NonNull::dangling());
-
-        // Note we can only mutate_entries when we have something to mutate. The list is started
-        // with a big placeholder "underwater" entry which will be split up as needed.
-
-        let start = entry.id.start;
-        let mut cursor = match idx_cursor.take() {
-            Some((cursor_start, mut cursor)) if cursor_start == start => {
-                cursor.roll_to_next_entry();
-                cursor
-            },
-            _ => index.unsafe_cursor_at_offset_pos(start, false)
-        };
-
-        // let mut cursor = index.unsafe_cursor_at_offset_pos(entry.id.start, false);
-        unsafe {
-            ContentTreeRaw::unsafe_mutate_entries_notify(|marker| {
-                // The item should already be an insert entry.
-                debug_assert_eq!(marker.inner.tag(), ListOpKind::Ins);
-
-                marker.inner = InsPtr(leaf);
-            }, &mut cursor, entry.len(), null_notify);
-        }
-
-        *idx_cursor = Some((entry.id.end, cursor));
-    }
-}
-
-pub(super) fn notify_for2<'a>(index: &'a mut IndexTree<Marker2>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
+pub(super) fn notify_for<'a>(index: &'a mut IndexTree<Marker2>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
     move |entry: CRDTSpan, leaf| {
         debug_assert!(leaf != NonNull::dangling());
 
@@ -110,27 +71,6 @@ pub(super) fn notify_for2<'a>(index: &'a mut IndexTree<Marker2>) -> impl FnMut(C
 
         index.set_range(entry.id, Marker2::InsPtr(leaf), true);
         // index.dbg_check();
-
-        // let start = entry.id.start;
-        // let mut cursor = match idx_cursor.take() {
-        //     Some((cursor_start, mut cursor)) if cursor_start == start => {
-        //         cursor.roll_to_next_entry();
-        //         cursor
-        //     },
-        //     _ => index.unsafe_cursor_at_offset_pos(start, false)
-        // };
-        //
-        // // let mut cursor = index.unsafe_cursor_at_offset_pos(entry.id.start, false);
-        // unsafe {
-        //     ContentTreeRaw::unsafe_mutate_entries_notify(|marker| {
-        //         // The item should already be an insert entry.
-        //         debug_assert_eq!(marker.inner.tag(), ListOpKind::Ins);
-        //
-        //         marker.inner = InsPtr(leaf);
-        //     }, &mut cursor, entry.len(), null_notify);
-        // }
-        //
-        // *idx_cursor = Some((entry.id.end, cursor));
     }
 }
 
@@ -149,21 +89,13 @@ impl M2Tracker {
 
         let mut result = Self {
             range_tree: ContentTreeRaw::new(),
-            index: Index {
-                index_old: old_index,
-                index_cursor: None,
-                index2: IndexTree::new(),
-            },
-            // index,
-            // index_cursor: None,
-            // index2: IndexTree::new(),
+            index: IndexTree::new(),
             #[cfg(feature = "merge_conflict_checks")]
             concurrent_inserts_collide: false,
             #[cfg(feature = "ops_to_old")]
             dbg_ops: vec![]
         };
 
-        // result.range_tree.push_notify(underwater, notify_for(&mut result.index, &mut result.index_cursor));
         result.range_tree.push_notify(underwater, notify_for(&mut result.index));
 
         // result.check_index();
@@ -174,34 +106,19 @@ impl M2Tracker {
         // TODO: Could make this cleaner with a clear() function in ContentTree.
         self.range_tree = ContentTreeRaw::new();
 
-        self.index.index_old = ContentTreeRaw::new();
-        self.index.index2.clear();
-        // self.index = ContentTreeRaw::new();
+        self.index.clear();
 
         let underwater = CRDTSpan::new_underwater();
-        pad_index_to(&mut self.index.index_old, underwater.id.end);
-        // self.range_tree.push_notify(underwater, notify_for(&mut self.index, &mut self.index_cursor));
+        // pad_index_to(&mut self.index.index_old, underwater.id.end);
         self.range_tree.push_notify(underwater, notify_for(&mut self.index));
 
         // self.check_index();
     }
 
     pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
-        let result_1 = {
-            let marker = self.index.index2.get_entry(lv).val;
-            let Marker2::InsPtr(ptr) = marker else { panic!("No marker at lv") };
-            ptr
-        };
-
-        let result_2 = {
-            let cursor = self.index.index_old.cursor_at_offset_pos(lv, false);
-            // Gross.
-            cursor.get_item().unwrap().unwrap()
-        };
-
-        assert_eq!(result_1, result_2);
-        result_1
-        // result_2
+        let marker = self.index.get_entry(lv).val;
+        let Marker2::InsPtr(ptr) = marker else { panic!("No marker at lv") };
+        ptr
     }
 
     #[allow(unused)]
@@ -217,14 +134,14 @@ impl M2Tracker {
         }
 
         // Check both indexes entirely match.
-        self.index.index2.dbg_check_eq_2(self.index.index_old.iter_with_pos().filter_map(|(pos, r)| {
-            // if r.start >= crate::ost::index_tree::test::START_JUNK { return None; }
-            // Some(RleDRun::new(pos..pos+r.len(), crate::ost::index_tree::test::X(r.start)))
-            // Some(RleDRun::new(pos..pos+r.len(), crate::ost::index_tree::test::X(r.start)))
-
-            // let m2: Marker2 = r.inner.into();
-            Some(RleDRun::new(pos..pos+r.len(), r.inner.into()))
-        }));
+        // self.index.index2.dbg_check_eq_2(self.index.index_old.iter_with_pos().filter_map(|(pos, r)| {
+        //     // if r.start >= crate::ost::index_tree::test::START_JUNK { return None; }
+        //     // Some(RleDRun::new(pos..pos+r.len(), crate::ost::index_tree::test::X(r.start)))
+        //     // Some(RleDRun::new(pos..pos+r.len(), crate::ost::index_tree::test::X(r.start)))
+        //
+        //     // let m2: Marker2 = r.inner.into();
+        //     Some(RleDRun::new(pos..pos+r.len(), r.inner.into()))
+        // }));
     }
 
     fn get_cursor_before(&self, lv: LV) -> Cursor<CRDTSpan, DocRangeIndex> {
@@ -659,22 +576,11 @@ impl M2Tracker {
                 //     span: target,
                 //     fwd
                 // }), m2);
-                self.index.index2.set_range((lv_start..lv_start+len).into(), Marker::DelTarget(RangeRev {
+
+                self.index.set_range((lv_start..lv_start+len).into(), Marker::DelTarget(RangeRev {
                     span: target,
                     fwd
                 }).into(), fwd);
-
-                self.index.index_old.replace_range_at_offset(lv_start, MarkerEntry {
-                    len,
-                    inner: DelTarget(RangeRev {
-                        span: target,
-                        fwd
-                    })
-                });
-                // This is unfortunately needed because we *might* have moved the index_cursor.
-                // It would be better to tighten the bound here and only clear the cursor sometimes,
-                // but doing so sounds hard and doesn't seem to make a performance difference.
-                self.index.index_cursor.take();
 
                 // if cfg!(debug_assertions) {
                 //     self.check_index();
@@ -860,6 +766,10 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                         }
                     }
                     M1PlanAction::Clear => {
+                        // let i2_count = self.tracker.index.index2.count_items();
+                        // let old_count = self.tracker.index.index_old.count_entries();
+                        // println!("CLEAR! old {old_count} / new {i2_count}");
+
                         self.tracker.clear();
                     }
                     M1PlanAction::BeginOutput => {
@@ -868,6 +778,10 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 }
             }
 
+            // println!("XXXX");
+            // let i2_count = self.tracker.index.index2.count_items();
+            // let old_count = self.tracker.index.index_old.count_entries();
+            // println!("old {old_count} / new {i2_count}");
 
             // No more plan. Stop!
             // dbg!(&self.op_iter, self.plan_idx);

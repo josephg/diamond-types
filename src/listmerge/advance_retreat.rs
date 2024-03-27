@@ -3,7 +3,7 @@ use content_tree::NodeLeaf;
 use rle::{HasLength, RleDRun, SplitableSpan};
 use crate::listmerge::{DocRangeIndex, M2Tracker};
 use crate::listmerge::markers::Marker::{DelTarget, InsPtr};
-use crate::listmerge::merge::{notify_for, notify_for2};
+use crate::listmerge::merge::notify_for;
 use crate::rev_range::RangeRev;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::list::operation::ListOpKind;
@@ -30,88 +30,40 @@ impl M2Tracker {
     fn index_query(&self, lv: LV) -> QueryResult {
         debug_assert_ne!(lv, usize::MAX);
 
-        // println!("GET {lv}");
+        let RleDRun {
+            start, end, val: marker
+        } = self.index.get_entry(lv);
 
-        let b = {
-            let index_len = self.index.index_old.offset_len();
-            if lv >= index_len {
-                panic!("Index query past the end");
-                // (Ins, (index_len..usize::MAX).into(), time - index_len, self.range_tree.unsafe_cursor_at_end())
-            } else {
-                let cursor = self.index.index_old.cursor_at_offset_pos(lv, false);
-                let entry = cursor.get_raw_entry();
+        // println!("{:?}", marker);
+        // dbg!(&self.index.index2);
 
-                match entry.inner {
-                    InsPtr(ptr) => {
-                        debug_assert!(ptr != NonNull::dangling());
-                        // For inserts, the target is simply the range of the item.
-                        let start = lv - cursor.offset;
-                        QueryResult {
-                            tag: Ins,
-                            target: (start..start + entry.len).into(),
-                            offset: cursor.offset,
-                            ptr: Some(ptr)
-                        }
-                    }
-                    DelTarget(target) => {
-                        QueryResult { tag: Del, target, offset: cursor.offset, ptr: None }
-                    }
+        let offset = lv - start;
+        let len = end - start;
+
+        match marker {
+            Marker2::InsPtr(ptr) => {
+                debug_assert!(ptr != NonNull::dangling());
+                // For inserts, the target is simply the range of the item.
+                // let start = lv - cursor.offset;
+                QueryResult {
+                    tag: Ins,
+                    target: (start..end).into(),
+                    offset,
+                    ptr: Some(ptr)
                 }
             }
-        };
-
-        let a = {
-            let RleDRun {
-                start, end, val: marker
-            } = self.index.index2.get_entry(lv);
-
-            // println!("{:?}", marker);
-            // dbg!(&self.index.index2);
-
-            let offset = lv - start;
-            let len = end - start;
-
-            match marker {
-                Marker2::InsPtr(ptr) => {
-                    debug_assert!(ptr != NonNull::dangling());
-                    // For inserts, the target is simply the range of the item.
-                    // let start = lv - cursor.offset;
-                    QueryResult {
-                        tag: Ins,
-                        target: (start..end).into(),
-                        offset,
-                        ptr: Some(ptr)
-                    }
-                }
-                Marker2::Del(target) => {
-                    let rr = RangeRev {
-                        span: if target.fwd {
-                            (target.target..target.target + len).into()
-                        } else {
-                            (target.target - len..target.target).into()
-                        },
-                        fwd: target.fwd,
-                    };
-                    QueryResult { tag: Del, target: rr, offset, ptr: None }
-                }
+            Marker2::Del(target) => {
+                let rr = RangeRev {
+                    span: if target.fwd {
+                        (target.target..target.target + len).into()
+                    } else {
+                        (target.target - len..target.target).into()
+                    },
+                    fwd: target.fwd,
+                };
+                QueryResult { tag: Del, target: rr, offset, ptr: None }
             }
-        };
-
-
-        if cfg!(debug_assertions) {
-            assert_eq!(a.tag, b.tag);
-            assert_eq!(a.ptr, b.ptr);
-            assert_eq!(a.target.lv_at_offset(a.offset), b.target.lv_at_offset(b.offset));
-
-            // assert_eq!(a, b, "v={lv}");
         }
-
-        // if a.tag == Ins || !a.target.fwd {
-        //     return a;
-        // } else {
-        //     return b;
-        // }
-        a
     }
 
     pub(crate) fn advance_by_range(&mut self, mut range: DTRange) {
