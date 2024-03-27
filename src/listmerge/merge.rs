@@ -542,23 +542,10 @@ impl M2Tracker {
                 //     debug_assert!(cg.parents.version_contains_time(&[lv_start], target.start));
                 // }
 
-                // let m2: Marker2 = From::from(Marker::DelTarget(RangeRev {
-                //     span: target,
-                //     fwd
-                // }));
-                // println!("DEL RANGE {:?} -> {:?} ({:?})", (lv_start..lv_start+len), Marker::DelTarget(RangeRev {
-                //     span: target,
-                //     fwd
-                // }), m2);
-
                 self.index.set_range((lv_start..lv_start+len).into(), Marker::Del(DelRange {
                     target: if fwd { target.start } else { target.end },
                     fwd
                 }).into(), fwd);
-                // self.index.set_range((lv_start..lv_start+len).into(), MarkerOld::DelTarget(RangeRev {
-                //     span: target,
-                //     fwd
-                // }).into(), fwd);
 
                 // if cfg!(debug_assertions) {
                 //     self.check_index();
@@ -751,6 +738,8 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                     }
                 }
             }
+
+            // println!("{:?}", self.tracker.index.count_obj_pool());
 
             // No more plan. Stop!
             // dbg!(&self.op_iter, self.plan_idx);
@@ -1184,10 +1173,15 @@ mod test {
         // node_nodecc: 72135
         // git-makefile: 23166
         let mut bytes = vec![];
+
         // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // let o = ListOpLog::load_from(&bytes).unwrap();
+        // o.checkout_tip();
+
+        println!("----");
+        bytes.clear();
         File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
-
         o.checkout_tip();
     }
 }

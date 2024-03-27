@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::mem;
-use std::mem::swap;
+use std::mem::replace;
 use std::ops::{Index, IndexMut, Range};
 use std::ptr::NonNull;
 use rle::{HasLength, MergableSpan, RleDRun, SplitableSpan, SplitableSpanHelpers};
@@ -11,7 +11,7 @@ use crate::ost::{NODE_CHILDREN, LeafIdx, NodeIdx, LEAF_CHILDREN};
 use crate::ost::content_tree::{ContentLeaf, ContentNode, ContentTree};
 
 #[derive(Debug, Clone)]
-pub(crate) struct IndexTree<V> {
+pub(crate) struct IndexTree<V: Copy> {
     leaves: Vec<IndexLeaf<V>>,
     nodes: Vec<IndexNode>,
     // upper_bound: LV,
@@ -166,26 +166,26 @@ impl<V: Default + IndexContent> Default for IndexTree<V> {
     }
 }
 
-impl<V> Index<LeafIdx> for IndexTree<V> {
+impl<V: Copy> Index<LeafIdx> for IndexTree<V> {
     type Output = IndexLeaf<V>;
 
     fn index(&self, index: LeafIdx) -> &Self::Output {
         &self.leaves[index.0]
     }
 }
-impl<V> IndexMut<LeafIdx> for IndexTree<V> {
+impl<V: Copy> IndexMut<LeafIdx> for IndexTree<V> {
     fn index_mut(&mut self, index: LeafIdx) -> &mut Self::Output {
         &mut self.leaves[index.0]
     }
 }
-impl<V> Index<NodeIdx> for IndexTree<V> {
+impl<V: Copy> Index<NodeIdx> for IndexTree<V> {
     type Output = IndexNode;
 
     fn index(&self, index: NodeIdx) -> &Self::Output {
         &self.nodes[index.0]
     }
 }
-impl<V> IndexMut<NodeIdx> for IndexTree<V> {
+impl<V: Copy> IndexMut<NodeIdx> for IndexTree<V> {
     fn index_mut(&mut self, index: NodeIdx) -> &mut Self::Output {
         &mut self.nodes[index.0]
     }
@@ -1279,6 +1279,25 @@ impl<V: Default + IndexContent> IndexTree<V> {
         count
     }
 
+    /// returns number of internal nodes, leaves.
+    pub fn count_obj_pool(&self) -> (usize, usize) {
+        let mut nodes = 0;
+        let mut leaves = 0;
+
+        let mut idx = self.free_node_pool_head;
+        while idx.0 != usize::MAX {
+            nodes += 1;
+            idx = self.nodes[idx.0].parent;
+        }
+        let mut idx = self.free_leaf_pool_head;
+        while idx.0 != usize::MAX {
+            leaves += 1;
+            idx = self.leaves[idx.0].next_leaf;
+        }
+
+        (nodes, leaves)
+    }
+
     /// Iterate over the contents of the index. Note the index tree may contain extra entries
     /// for items within the range, with a value of V::default.
     pub fn iter(&self) -> IndexTreeIter<V> {
@@ -1470,14 +1489,14 @@ impl<V: Default + IndexContent> IndexTree<V> {
 }
 
 #[derive(Debug)]
-pub struct IndexTreeIter<'a, V> {
+pub struct IndexTreeIter<'a, V: Copy> {
     tree: &'a IndexTree<V>,
     leaf_idx: LeafIdx,
     // leaf: &'a IndexLeaf<V>,
     elem_idx: usize,
 }
 
-impl<'a, V: Clone> Iterator for IndexTreeIter<'a, V> {
+impl<'a, V: Copy> Iterator for IndexTreeIter<'a, V> {
     // type Item = (DTRange, V);
     type Item = RleDRun<V>;
 
@@ -1647,25 +1666,26 @@ mod test {
     #[test]
     fn split_leaf() {
         let mut tree = IndexTree::new();
-        tree.set_range((1..2).into(), X(100), true);
+        // Using 10, 20, ... so they don't merge.
+        tree.set_range(10.into(), X(100), true);
         tree.dbg_check();
-        tree.set_range((2..3).into(), X(200), true);
-        tree.set_range((3..4).into(), X(100), true);
-        tree.set_range((4..5).into(), X(200), true);
+        tree.set_range(20.into(), X(200), true);
+        tree.set_range(30.into(), X(100), true);
+        tree.set_range(40.into(), X(200), true);
         tree.dbg_check();
         // dbg!(&tree);
-        tree.set_range((5..6).into(), X(100), true);
+        tree.set_range(50.into(), X(100), true);
         tree.dbg_check();
 
         // dbg!(&tree);
         // dbg!(tree.iter().collect::<Vec<_>>());
 
         tree.dbg_check_eq(&[
-            RleDRun::new(1..2, X(100)),
-            RleDRun::new(2..3, X(200)),
-            RleDRun::new(3..4, X(100)),
-            RleDRun::new(4..5, X(200)),
-            RleDRun::new(5..6, X(100)),
+            RleDRun::new(10..11, X(100)),
+            RleDRun::new(20..21, X(200)),
+            RleDRun::new(30..31, X(100)),
+            RleDRun::new(40..41, X(200)),
+            RleDRun::new(50..51, X(100)),
         ]);
     }
 

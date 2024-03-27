@@ -376,7 +376,7 @@ impl<T: Clone + Eq> MergableSpan for RleRun<T> {
 
 /// Distinct RLE run. Each distinct run expresses some value between each (start, end) pair.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq, Default)]
-pub struct RleDRun<T: Clone> {
+pub struct RleDRun<T> {
     pub start: usize,
     pub end: usize,
     pub val: T,
