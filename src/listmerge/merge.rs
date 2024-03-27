@@ -106,19 +106,10 @@ pub(super) fn notify_for2<'a>(index: &'a mut IndexTree<Marker2>) -> impl FnMut(C
         // Note we can only mutate_entries when we have something to mutate. The list is started
         // with a big placeholder "underwater" entry which will be split up as needed.
 
-        println!("SET RANGE {:?} -> {:?}", entry.id, InsPtr(leaf));
-
-        if entry.id.start == UNDERWATER_START + 1 && entry.id.end == UNDERWATER_START + 3 {
-            println!("HERE");
-        }
+        // println!("SET RANGE {:?} -> {:?}", entry.id, InsPtr(leaf));
 
         index.set_range(entry.id, Marker2::InsPtr(leaf), true);
-        index.dbg_check();
-
-        if entry.id.start == UNDERWATER_START + 1 && entry.id.end == UNDERWATER_START + 3 {
-            println!("->>r");
-            dbg!(&index);
-        }
+        // index.dbg_check();
 
         // let start = entry.id.start;
         // let mut cursor = match idx_cursor.take() {
@@ -175,7 +166,7 @@ impl M2Tracker {
         // result.range_tree.push_notify(underwater, notify_for(&mut result.index, &mut result.index_cursor));
         result.range_tree.push_notify(underwater, notify_for(&mut result.index));
 
-        result.check_index();
+        // result.check_index();
         result
     }
 
@@ -192,7 +183,7 @@ impl M2Tracker {
         // self.range_tree.push_notify(underwater, notify_for(&mut self.index, &mut self.index_cursor));
         self.range_tree.push_notify(underwater, notify_for(&mut self.index));
 
-        self.check_index();
+        // self.check_index();
     }
 
     pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
@@ -660,14 +651,14 @@ impl M2Tracker {
                 //     debug_assert!(cg.parents.version_contains_time(&[lv_start], target.start));
                 // }
 
-                let m2: Marker2 = From::from(Marker::DelTarget(RangeRev {
-                    span: target,
-                    fwd
-                }));
-                println!("DEL RANGE {:?} -> {:?} ({:?})", (lv_start..lv_start+len), Marker::DelTarget(RangeRev {
-                    span: target,
-                    fwd
-                }), m2);
+                // let m2: Marker2 = From::from(Marker::DelTarget(RangeRev {
+                //     span: target,
+                //     fwd
+                // }));
+                // println!("DEL RANGE {:?} -> {:?} ({:?})", (lv_start..lv_start+len), Marker::DelTarget(RangeRev {
+                //     span: target,
+                //     fwd
+                // }), m2);
                 self.index.index2.set_range((lv_start..lv_start+len).into(), Marker::DelTarget(RangeRev {
                     span: target,
                     fwd
@@ -823,11 +814,6 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
         // if self.op_iter.is_none() && self.new_ops.is_empty() { return None; }
         if self.op_iter.is_none() && self.plan_idx >= self.plan.0.len() { return None; }
 
-
-        if cfg!(debug_assertions) {
-            self.tracker.check_index();
-        }
-
         let (mut pair, op_iter) = 'outer: loop {
             if let Some(op_iter) = self.op_iter.as_mut() {
                 if let Some(pair) = op_iter.next() {
@@ -880,10 +866,6 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                         self.applying = true;
                     }
                 }
-
-                if cfg!(debug_assertions) {
-                    self.tracker.check_index();
-                }
             }
 
 
@@ -901,10 +883,6 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             // self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, walk.consume).into());
         };
 
-        if cfg!(debug_assertions) {
-            self.tracker.check_index();
-        }
-
         if self.ff_current {
             Some(TransformedResult::not_moved(pair))
         } else {
@@ -912,16 +890,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             let span = self.aa.local_span_to_agent_span(pair.span());
             let len = span.len().min(pair.len());
 
-            if cfg!(debug_assertions) {
-                self.tracker.check_index();
-                println!("AAA");
-            }
             let (consumed_here, xf_result) = self.tracker.apply(self.aa, self.op_ctx, &pair, len, span.agent);
-
-            if cfg!(debug_assertions) {
-                self.tracker.check_index();
-                println!("BBB");
-            }
 
             let remainder = pair.trim_ctx(consumed_here, self.op_ctx);
 
@@ -1332,8 +1301,8 @@ mod test {
         // node_nodecc: 72135
         // git-makefile: 23166
         let mut bytes = vec![];
-        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
 
         o.checkout_tip();

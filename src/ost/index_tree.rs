@@ -473,7 +473,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
             if elem_idx >= LEAF_SPLIT_POINT {
                 // We're inserting into the newly created node.
                 leaf_idx = new_node;
-                elem_idx -= NODE_SPLIT_POINT;
+                elem_idx -= LEAF_SPLIT_POINT;
             }
         }
 
@@ -662,7 +662,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
         if cfg!(debug_assertions) {
             // Check the bounds
             let mut prev = leaf.bounds[0];
-            for &b in &leaf.bounds[1..=elem_idx] {
+            for &b in &leaf.bounds[1..elem_idx] {
                 if b != usize::MAX {
                     assert!(b > prev, "Bounds does not monotonically increase b={:?}", &leaf.bounds);
                 }
@@ -998,19 +998,23 @@ impl<V: Default + IndexContent> IndexTree<V> {
         self.leaves[leaf_idx.0].next_leaf = new_next_leaf;
     }
 
-    pub fn set_range(&mut self, range: DTRange, mut data: V, hint_fwd: bool) {
+    pub fn set_range(&mut self, range: DTRange, data: V, hint_fwd: bool) {
         if range.is_empty() { return; }
-
         let cursor = self.cursor_at(range.start);
+        self.cursor = cursor;
+        // The cursor may move.
+        let cursor = self.set_range_internal(cursor, range, data);
 
+        if hint_fwd {
+            self.cursor = cursor;
+        }
+    }
+
+    fn set_range_internal(&mut self, cursor: IndexCursor, range: DTRange, mut data: V) -> IndexCursor {
         // Setting a range can involve deleting some number of data items, and inserting an item.
         //
         // For now, I'm never going to leave a leaf empty just so I can avoid needing to deal with
         // ever deleting nodes.
-
-        // if !hint_fwd {
-        self.cursor = cursor;
-        // }
 
         let IndexCursor { mut leaf_idx, mut elem_idx } = cursor;
         let DTRange { mut start, mut end } = range;
@@ -1103,7 +1107,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
                     //     Self::recursively_update_nodes(&mut self.nodes, leaf.parent, leaf_idx.0, start);
                     // }
                 }
-                return;
+                return IndexCursor { leaf_idx, elem_idx };
             }
         }
 
@@ -1130,7 +1134,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
                 leaf.bounds[elem_idx + 1] = start;
                 // We didn't modify [0], so no parent update.
             }
-            return;
+            return IndexCursor { leaf_idx, elem_idx };
         }
 
         // This element overlaps with some other elements.
@@ -1152,14 +1156,14 @@ impl<V: Default + IndexContent> IndexTree<V> {
 
                 if leaf.is_last() {
                     panic!("I don't think this can happen");
-                    // Split the last element and insert.
-                    leaf_idx = self.split_leaf(leaf_idx);
-                    let new_leaf = &mut self.leaves[leaf_idx.0];
-
-                    new_leaf.children[LEAF_SPLIT_POINT] = data;
-                    new_leaf.bounds[LEAF_SPLIT_POINT] = start;
-                    // new_leaf.upper_bound = range.end;
-                    return;
+                    // // Split the last element and insert.
+                    // leaf_idx = self.split_leaf(leaf_idx);
+                    // let new_leaf = &mut self.leaves[leaf_idx.0];
+                    //
+                    // new_leaf.children[LEAF_SPLIT_POINT] = data;
+                    // new_leaf.bounds[LEAF_SPLIT_POINT] = start;
+                    // // new_leaf.upper_bound = range.end;
+                    // return;
                 } else {
                     // We've trimmed this leaf node. Roll the cursor to the next item.
                     leaf_idx = leaf.next_leaf;
@@ -1214,11 +1218,11 @@ impl<V: Default + IndexContent> IndexTree<V> {
                     leaf.bounds[elem_idx + 1] = end;
                     leaf.children[elem_idx + 1] = leaf.children[elem_idx + 1].at_offset(end - cur_start);
                 }
-                return;
+                return IndexCursor { leaf_idx, elem_idx };
             } else if end == cur_end {
                 // This item fits perfectly.
                 leaf.children[elem_idx] = data;
-                return;
+                return IndexCursor { leaf_idx, elem_idx };
             }
 
             cur_start = start; // Since we've pushed down the item bounds.
@@ -1246,12 +1250,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
         // // let _l = leaf.clone();
         // self.extend_upper_range(leaf_idx, elem_idx, end);
 
-        if hint_fwd {
-            self.cursor = IndexCursor {
-                leaf_idx,
-                elem_idx,
-            };
-        }
+        IndexCursor { leaf_idx, elem_idx }
     }
 
     fn first_leaf(&self) -> LeafIdx {
@@ -1269,6 +1268,23 @@ impl<V: Default + IndexContent> IndexTree<V> {
     pub fn is_empty(&self) -> bool {
         let first_leaf = &self.leaves[self.first_leaf().0];
         first_leaf.bounds[0] == usize::MAX
+    }
+
+    pub fn count_items(&self) -> usize {
+        let mut count = 0;
+        let mut leaf = &self[self.first_leaf()];
+        loop {
+            // SIMD should make this fast.
+            count += leaf.bounds.iter().filter(|b| **b != usize::MAX).count();
+
+            // There is always at least one leaf.
+            if leaf.is_last() { break; }
+            else {
+                leaf = &self[leaf.next_leaf];
+            }
+        }
+
+        count
     }
 
     /// Iterate over the contents of the index. Note the index tree may contain extra entries
@@ -1698,9 +1714,10 @@ mod test {
         for _i in 0..1000 {
             if verbose { println!("i: {}", _i); }
             // This will generate some overlapping ranges sometimes but not too many.
-            let val = rng.gen_range(0..10) + 100;
-            let start = rng.gen_range(0..3);
-            let len = rng.gen_range(0..3) + 1;
+            let val = rng.gen_range(0..100) + 100;
+            // let start = rng.gen_range(0..3);
+            let start = rng.gen_range(0..1000);
+            let len = rng.gen_range(0..100) + 1;
             // let start = rng.gen_range(0..100);
             // let len = rng.gen_range(0..100) + 1;
 
@@ -1739,7 +1756,7 @@ mod test {
 
     #[test]
     fn fuzz_once() {
-        fuzz(123, true);
+        fuzz(22, true);
     }
 
     #[test]
