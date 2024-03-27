@@ -88,7 +88,7 @@ const LEAF_CHILDREN: usize = 4;
 #[cfg(not(debug_assertions))]
 const NODE_CHILDREN: usize = 16;
 #[cfg(not(debug_assertions))]
-const LEAF_SIZE: usize = 32;
+const LEAF_CHILDREN: usize = 32;
 
 
 // type LeafData = crate::listmerge::markers::Marker;

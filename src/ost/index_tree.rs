@@ -611,7 +611,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
         let lower_bound = leaf.bounds[cursor.elem_idx];
 
         let next_elem = cursor.elem_idx + 1;
-        let upper_bound = if next_elem >= LEAF_CHILDREN {
+        let upper_bound = if next_elem >= LEAF_CHILDREN || leaf.bounds[next_elem] == usize::MAX {
             self.leaf_upper_bound(leaf)
         } else {
             leaf.bounds[next_elem]
@@ -745,7 +745,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
             let trimmed_items = del_to - elem_idx;
 
             if trimmed_items >= 1 {
-                println!("trim {elem_idx} <- {del_to}..");
+                // println!("trim {elem_idx} <- {del_to}..");
 
                 // Hold onto your hats, its time to delete some items.
                 leaf.remove_children(elem_idx..del_to);
@@ -901,7 +901,19 @@ impl<V: Default + IndexContent> IndexTree<V> {
 
         let del_start = idx + 1;
 
-        debug_assert!(del_start >= NODE_CHILDREN || end >= node.children[del_start].0);
+        if cfg!(debug_assertions) {
+            let child_idx = node.children[idx].1;
+            let up = self.upper_bound_scan(child_idx, height - 1);
+            assert!(end > up);
+            node = &mut self.nodes[node_idx.0];
+            if del_start < NODE_CHILDREN && node.children[del_start].1 != usize::MAX {
+                // assert_eq!(node.children[del_start].0, up);
+                assert!(end > up);
+            }
+        }
+        // debug_assert!(del_start >= NODE_CHILDREN || end >= node.children[del_start].0,
+        //     "del_start: {del_start} / end: {end}"
+        // );
 
         for i in del_start..NODE_CHILDREN {
             let (_lower_bound, child_idx) = node.children[i];
@@ -1042,7 +1054,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
 
         if end < cur_end {
             // Try to append the end of the current element.
-            if data.try_append(end - start, &leaf.children[elem_idx].at_offset(end), cur_end - end) {
+            if data.try_append(end - start, &leaf.children[elem_idx].at_offset(end - cur_start), cur_end - end) {
                 // Nice. We'll handle this in the special case below.
                 end = cur_end;
             } else {
@@ -1697,7 +1709,7 @@ mod test {
             //     println!("blerp");
             // }
 
-            // if _i == 8 {
+            // if _i == 14 {
             //     dbg!(val, start, len);
             //     dbg!(tree.iter().collect::<Vec<_>>());
             // }
@@ -1709,7 +1721,7 @@ mod test {
 
             check_tree.replace_range_at_offset(start, (val..val+len).into());
 
-            // if _i == 8 {
+            // if _i == 14 {
             //     dbg!(tree.iter().collect::<Vec<_>>());
             //     dbg!(check_tree.iter_with_pos().filter_map(|(pos, r)| {
             //         if r.start >= START_JUNK { return None; }
@@ -1732,7 +1744,7 @@ mod test {
 
     #[test]
     #[ignore]
-    fn fuzz_forever() {
+    fn tree_fuzz_forever() {
         fuzz_multithreaded(u64::MAX, |seed| {
             if seed % 100 == 0 {
                 println!("Iteration {}", seed);

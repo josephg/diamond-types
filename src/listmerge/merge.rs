@@ -208,9 +208,9 @@ impl M2Tracker {
             cursor.get_item().unwrap().unwrap()
         };
 
-        // assert_eq!(result_1, result_2);
-        // result_1
-        result_2
+        assert_eq!(result_1, result_2);
+        result_1
+        // result_2
     }
 
     #[allow(unused)]
