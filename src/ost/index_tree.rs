@@ -18,7 +18,7 @@ pub(crate) struct IndexTree<V: Copy> {
     height: usize,
     root: usize,
     // cursor: IndexCursor,
-    cursor: Cell<IndexCursor>,
+    cursor: Cell<(LV, IndexCursor)>,
 
     // Linked lists.
     free_leaf_pool_head: LeafIdx,
@@ -497,24 +497,90 @@ impl<V: Default + IndexContent> IndexTree<V> {
         // There are much faster ways to write this using SIMD.
         leaf.bounds[1..].iter()
             // We're looking for the first item past the needle.
-            // .position(|lv| needle <= *lv)
             .position(|bound| *bound == usize::MAX || needle < *bound)
             .unwrap_or(LEAF_CHILDREN - 1)
     }
 
+    // /// returns (index, at_end);
+    // fn find_in_leaf_2(&self, leaf: &IndexLeaf<V>, needle: LV, end_ok: bool) -> (usize, bool) {
+    //     for i in 1..LEAF_CHILDREN {
+    //         let b = leaf.bounds[i];
+    //         if b == usize::MAX {
+    //             let upper_bound = self.leaf_upper_bound(leaf);
+    //             debug_assert!(upper_bound >= needle);
+    //             return (i - 1, needle == upper_bound);
+    //         } else if needle < b {
+    //             return (i - 1, false);
+    //         } else if needle == b {
+    //             return if end_ok { (i - 1, true) } else { (i, false) };
+    //         }
+    //     }
+    //
+    //     let upper_bound = self.leaf_upper_bound(leaf);
+    //     debug_assert!(upper_bound >= needle);
+    //     return (LEAF_CHILDREN - 1, needle == upper_bound);
+    // }
+
     #[inline]
     fn leaf_upper_bound(&self, leaf: &IndexLeaf<V>) -> LV {
+        Self::leaf_upper_bound_2(&self.leaves, leaf)
+    }
+
+    #[inline]
+    fn leaf_upper_bound_2(leaves: &Vec<IndexLeaf<V>>, leaf: &IndexLeaf<V>) -> LV {
         if leaf.is_last() {
             usize::MAX
         } else {
-            self[leaf.next_leaf].bounds[0]
+            leaves[leaf.next_leaf.0].bounds[0]
+        }
+    }
+
+    fn check_cursor_at(&self, cursor: IndexCursor, lv: LV, at_end: bool) {
+        assert!(cfg!(debug_assertions));
+        let leaf = &self.leaves[cursor.leaf_idx.0];
+        let lower_bound = leaf.bounds[cursor.elem_idx];
+
+        let next = cursor.elem_idx + 1;
+        let upper_bound = if next < LEAF_CHILDREN && leaf.bounds[next] != usize::MAX {
+            leaf.bounds[next]
+        } else {
+            self.leaf_upper_bound(leaf)
+        };
+        assert!(lv >= lower_bound);
+
+        if at_end {
+            assert_eq!(lv, upper_bound);
+        } else {
+            assert!(lv < upper_bound, "Cursor is not within expected bound. Expect {lv} / upper_bound {upper_bound}");
+        }
+    }
+
+    fn cursor_to_next(&self, cursor: &mut IndexCursor) {
+        let leaf = &self.leaves[cursor.leaf_idx.0];
+        let next_idx = cursor.elem_idx + 1;
+        if next_idx >= LEAF_CHILDREN || leaf.bounds[next_idx] == usize::MAX {
+            cursor.elem_idx = 0;
+            cursor.leaf_idx = leaf.next_leaf;
+        } else {
+            cursor.elem_idx += 1;
         }
     }
 
     /// Generate a cursor which points at the specified LV.
     fn cursor_at(&self, lv: LV) -> IndexCursor {
         debug_assert!(lv < usize::MAX);
-        let cursor = self.cursor.get();
+
+        let (cursor_lv, cursor) = self.cursor.get();
+        if cursor_lv == lv {
+            // println!("1");
+            // println!("HIT");
+            if cfg!(debug_assertions) {
+                self.check_cursor_at(cursor, lv, false);
+            }
+
+            return cursor;
+        }
+
         let leaf = &self[cursor.leaf_idx];
         // TODO: Consider caching the upper bound of the subsequent element in the cursor.
 
@@ -527,12 +593,17 @@ impl<V: Default + IndexContent> IndexTree<V> {
             // TODO: Take advantage of elem_idx in the cursor.
             let upper_bound = self.leaf_upper_bound(leaf);
             // let rel = self.upper_bound(leaf).map(|bound| lv.cmp(&bound)).unwrap_or(Ordering::Less);
-            if lv < upper_bound {
+
+            if lv < upper_bound { // || end_ok && lv == upper_bound
+                // println!("2");
+                // println!("...");
                 return IndexCursor {
                     leaf_idx: cursor.leaf_idx,
                     elem_idx: Self::find_in_leaf(leaf, lv),
                 };
             } else if lv == upper_bound {
+                // println!("3");
+                // println!("...");
                 return IndexCursor {
                     leaf_idx: leaf.next_leaf,
                     elem_idx: 0, // Has to be.
@@ -540,9 +611,8 @@ impl<V: Default + IndexContent> IndexTree<V> {
             }
         }
 
-        // if self.root == 1 {
-        //     println!("asdf");
-        // }
+        // println!("MISS");
+
         // Make a cursor by descending from the root.
         let mut idx = self.root;
         for _h in 0..self.height {
@@ -554,6 +624,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
         // dbg!(&self, lv, idx);
 
         // Now idx will point to the leaf node. Search there.
+        // println!("4");
         IndexCursor {
             leaf_idx: LeafIdx(idx),
             elem_idx: Self::find_in_leaf(&self.leaves[idx], lv),
@@ -585,7 +656,13 @@ impl<V: Default + IndexContent> IndexTree<V> {
 
     pub fn get_entry(&self, lv: LV) -> RleDRun<V> {
         let cursor = self.cursor_at(lv);
-        self.cursor.set(cursor);
+
+        if cfg!(debug_assertions) {
+            self.check_cursor_at(cursor, lv, false);
+        }
+
+        self.cursor.set((lv, cursor));
+
         let leaf = &self.leaves[cursor.leaf_idx.0];
         let val = leaf.children[cursor.elem_idx];
         let lower_bound = leaf.bounds[cursor.elem_idx];
@@ -623,10 +700,15 @@ impl<V: Default + IndexContent> IndexTree<V> {
         }
     }
 
+    #[inline]
     fn get_leaf_and_bound(&mut self, idx: LeafIdx) -> (&mut IndexLeaf<V>, LV) {
-        let leaf = &self.leaves[idx.0];
-        let upper_bound = self.leaf_upper_bound(leaf);
-        (&mut self.leaves[idx.0], upper_bound)
+        Self::get_leaf_and_bound_2(&mut self.leaves, idx)
+    }
+
+    fn get_leaf_and_bound_2(leaves: &mut Vec<IndexLeaf<V>>, idx: LeafIdx) -> (&mut IndexLeaf<V>, LV) {
+        let leaf = &leaves[idx.0];
+        let upper_bound = Self::leaf_upper_bound_2(leaves, leaf);
+        (&mut leaves[idx.0], upper_bound)
     }
 
 
@@ -978,19 +1060,35 @@ impl<V: Default + IndexContent> IndexTree<V> {
         self.leaves[leaf_idx.0].next_leaf = new_next_leaf;
     }
 
-    pub fn set_range(&mut self, range: DTRange, data: V, hint_fwd: bool) {
+    pub fn set_range(&mut self, range: DTRange, data: V) {
+        // println!("    SET RANGE {:?} = {:?}", range, data);
         if range.is_empty() { return; }
         let cursor = self.cursor_at(range.start);
-        self.cursor.set(cursor);
-        // The cursor may move.
-        let cursor = self.set_range_internal(cursor, range, data);
-
-        if hint_fwd {
-            self.cursor.set(cursor);
+        if cfg!(debug_assertions) {
+            self.check_cursor_at(cursor, range.start, false);
         }
+
+        self.cursor.set((range.start, cursor));
+        // The cursor may move.
+        let (mut cursor, at_end) = self.set_range_internal(cursor, range, data);
+
+        if cfg!(debug_assertions) {
+            // println!("check cursor {:?} {}, {}", cursor, range.end, at_end);
+            self.check_cursor_at(cursor, range.end, at_end);
+        }
+
+        // if hint_fwd {
+        if at_end {
+            self.cursor_to_next(&mut cursor);
+            if cfg!(debug_assertions) {
+                self.check_cursor_at(cursor, range.end, false);
+            }
+        }
+        self.cursor.set((range.end, cursor));
     }
 
-    fn set_range_internal(&mut self, cursor: IndexCursor, range: DTRange, mut data: V) -> IndexCursor {
+    // returns resulting cursor, whether its at the end of the element.
+    fn set_range_internal(&mut self, cursor: IndexCursor, range: DTRange, mut data: V) -> (IndexCursor, bool) {
         // Setting a range can involve deleting some number of data items, and inserting an item.
         //
         // For now, I'm never going to leave a leaf empty just so I can avoid needing to deal with
@@ -1005,6 +1103,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
         // let mut leaf = &mut self.leaves[leaf_idx.0];
         let (mut leaf, mut leaf_upper_bound) = self.get_leaf_and_bound(leaf_idx);
 
+        debug_assert!(leaf.bounds[elem_idx] != usize::MAX);
         debug_assert!(start >= leaf.bounds[0] || leaf_idx.0 == 0);
         debug_assert!(start < leaf_upper_bound);
         // debug_assert!(elem_idx == LEAF_CHILDREN - 1 || start < leaf.bounds[elem_idx + 1]);
@@ -1024,7 +1123,19 @@ impl<V: Default + IndexContent> IndexTree<V> {
             if leaf.children[prev_idx].try_append(cur_start - prev_start, &data, end - start) {
                 // Ok!
                 self.extend_upper_range(leaf_idx, elem_idx, end);
-                return cursor;
+
+                // Note extend_upper_range might have nuked the current element. Since the stored
+                // cursor always points to the *next* element, we'll roll the cursor forward in this
+                // case here.
+                let leaf = &self.leaves[leaf_idx.0];
+                if leaf.bounds[elem_idx] == usize::MAX {
+                    // println!("A1");
+                    return (IndexCursor { leaf_idx: leaf.next_leaf, elem_idx: 0}, false);
+                } else {
+                    // println!("A2");
+                    // self.check_cursor_at(cursor, range.end, false);
+                    return (cursor, false);
+                }
             }
         }
 
@@ -1038,7 +1149,6 @@ impl<V: Default + IndexContent> IndexTree<V> {
             if b == usize::MAX { leaf_upper_bound } else { b }
         };
 
-
         // If we can append the item to the current item, do that.
         if cur_start < start {
             let mut d = leaf.children[elem_idx];
@@ -1048,11 +1158,14 @@ impl<V: Default + IndexContent> IndexTree<V> {
             }
         }
 
+        let mut end_is_end = true;
+
         if end < cur_end {
             // Try to append the end of the current element.
             if data.try_append(end - start, &leaf.children[elem_idx].at_offset(end - cur_start), cur_end - end) {
                 // Nice. We'll handle this in the special case below.
                 end = cur_end;
+                end_is_end = false;
             } else {
                 // In this case, the item is replacing a prefix of the target slot. We'll just hardcode
                 // these cases, since otherwise we need to deal with remainders below and thats a pain.
@@ -1077,6 +1190,9 @@ impl<V: Default + IndexContent> IndexTree<V> {
                     leaf.children[elem_idx + 2] = leaf.children[elem_idx].at_offset(end - cur_start);
 
                     // We modified elem_idx +1 and +2, so we can't have modified index 0. No parent update.
+                    // println!("b");
+                    // self.check_cursor_at(IndexCursor { leaf_idx, elem_idx: elem_idx + 1 }, range.end, true);
+                    return (IndexCursor { leaf_idx, elem_idx: elem_idx + 1 }, true);
                 } else {
                     // Preserve the end of this item. Eg, x -> yx.
                     debug_assert!(cur_start == start);
@@ -1095,11 +1211,9 @@ impl<V: Default + IndexContent> IndexTree<V> {
                     leaf.children[elem_idx + 1] = leaf.children[elem_idx + 1].at_offset(end - start);
 
                     // Since start == lower bound, the parents won't need updating.
-                    // if elem_idx == 0 {
-                    //     Self::recursively_update_nodes(&mut self.nodes, leaf.parent, leaf_idx.0, start);
-                    // }
+                    // println!("c");
+                    return (IndexCursor { leaf_idx, elem_idx }, true);
                 }
-                return IndexCursor { leaf_idx, elem_idx };
             }
         }
 
@@ -1110,10 +1224,6 @@ impl<V: Default + IndexContent> IndexTree<V> {
                 leaf.children[elem_idx] = data;
 
                 // Since start == lower bound, the parents don't need updating.
-                // if elem_idx == 0 {
-                //     let parent = leaf.parent;
-                //     Self::recursively_update_nodes(&mut self.nodes, parent, leaf_idx.0, start);
-                // }
             } else {
                 // Preserve the start of the item. x -> xy.
                 debug_assert!(start > cur_start);
@@ -1121,12 +1231,14 @@ impl<V: Default + IndexContent> IndexTree<V> {
                 (leaf_idx, elem_idx) = self.make_space_in_leaf_for::<1>(leaf_idx, elem_idx);
                 let leaf = &mut self.leaves[leaf_idx.0];
 
-                assert!(elem_idx + 1 < LEAF_CHILDREN);
-                leaf.children[elem_idx + 1] = data;
-                leaf.bounds[elem_idx + 1] = start;
+                elem_idx += 1;
+                assert!(elem_idx < LEAF_CHILDREN);
+                leaf.children[elem_idx] = data;
+                leaf.bounds[elem_idx] = start;
                 // We didn't modify [0], so no parent update.
             }
-            return IndexCursor { leaf_idx, elem_idx };
+            // println!("d");
+            return (IndexCursor { leaf_idx, elem_idx }, end_is_end);
         }
 
         // This element overlaps with some other elements.
@@ -1159,7 +1271,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
                 } else {
                     // We've trimmed this leaf node. Roll the cursor to the next item.
                     leaf_idx = leaf.next_leaf;
-                    (leaf, leaf_upper_bound) = self.get_leaf_and_bound(leaf_idx);
+                    (leaf, leaf_upper_bound) = Self::get_leaf_and_bound_2(&mut self.leaves, leaf_idx);
                     // leaf = &mut self.leaves[leaf_idx.0];
                     elem_idx = 0;
                     // TODO: Fuzz check, but I think this line isn't necessary.
@@ -1168,7 +1280,6 @@ impl<V: Default + IndexContent> IndexTree<V> {
                     // We're going to replace the leaf's starting item.
                     let parent = leaf.parent;
                     Self::recursively_update_nodes(&mut self.nodes, parent, leaf_idx.0, start);
-                    leaf = &mut self.leaves[leaf_idx.0];
                 }
             }
 
@@ -1203,18 +1314,22 @@ impl<V: Default + IndexContent> IndexTree<V> {
                 if data.try_append(cur_start - start, &leaf.children[elem_idx], cur_end - cur_start) {
                     // Ok!
                     leaf.children[elem_idx] = data;
+                    // println!("e");
+                    return (IndexCursor { leaf_idx, elem_idx }, false);
                 } else {
                     (leaf_idx, elem_idx) = self.make_space_in_leaf_for::<1>(leaf_idx, elem_idx);
                     leaf = &mut self.leaves[leaf_idx.0];
                     leaf.children[elem_idx] = data;
                     leaf.bounds[elem_idx + 1] = end;
                     leaf.children[elem_idx + 1] = leaf.children[elem_idx + 1].at_offset(end - cur_start);
+                    // println!("f");
+                    return (IndexCursor { leaf_idx, elem_idx }, end_is_end);
                 }
-                return IndexCursor { leaf_idx, elem_idx };
             } else if end == cur_end {
                 // This item fits perfectly.
                 leaf.children[elem_idx] = data;
-                return IndexCursor { leaf_idx, elem_idx };
+                // println!("g");
+                return (IndexCursor { leaf_idx, elem_idx }, end_is_end);
             }
 
             cur_start = start; // Since we've pushed down the item bounds.
@@ -1225,24 +1340,11 @@ impl<V: Default + IndexContent> IndexTree<V> {
 
         // We don't care about the current element at all. Just overwrite it and extend
         // the bounds.
-        // (leaf_idx, elem_idx) = self.make_space_in_leaf_for::<1>(leaf_idx, elem_idx);
-        // leaf = &mut self.leaves[leaf_idx.0];
         leaf.children[elem_idx] = data;
-
-        // let _l = leaf.clone();
         self.extend_upper_range(leaf_idx, elem_idx + 1, end);
 
-
-        // // We don't care about the current element at all. Just overwrite it and extend
-        // // the bounds.
-        // (leaf_idx, elem_idx) = self.make_space_in_leaf_for::<1>(leaf_idx, elem_idx);
-        // leaf = &mut self.leaves[leaf_idx.0];
-        // leaf.children[elem_idx] = data;
-        //
-        // // let _l = leaf.clone();
-        // self.extend_upper_range(leaf_idx, elem_idx, end);
-
-        IndexCursor { leaf_idx, elem_idx }
+        // println!("h");
+        (IndexCursor { leaf_idx, elem_idx }, end_is_end)
     }
 
     fn first_leaf(&self) -> LeafIdx {
@@ -1428,6 +1530,9 @@ impl<V: Default + IndexContent> IndexTree<V> {
 
         // And walk the tree structure in the nodes
         self.dbg_check_walk(self.root, self.height, None, NodeIdx(usize::MAX));
+
+        let (lv, cursor) = self.cursor.get();
+        // self.check_cursor_at(cursor, lv, false);
     }
 
     #[allow(unused)]
@@ -1588,20 +1693,20 @@ mod test {
     fn overlapping_sets() {
         let mut tree = IndexTree::new();
 
-        tree.set_range((5..10).into(), X(100), true);
+        tree.set_range((5..10).into(), X(100));
         tree.dbg_check_eq(&[RleDRun::new(5..10, X(100))]);
         // assert_eq!(tree.to_vec(), &[((5..10).into(), Some(A))]);
         // dbg!(&tree.leaves[0]);
-        tree.set_range((5..11).into(), X(200), true);
+        tree.set_range((5..11).into(), X(200));
         tree.dbg_check_eq(&[RleDRun::new(5..11, X(200))]);
 
-        tree.set_range((5..10).into(), X(100), true);
+        tree.set_range((5..10).into(), X(100));
         tree.dbg_check_eq(&[
             RleDRun::new(5..10, X(100)),
             RleDRun::new(10..11, X(205)),
         ]);
 
-        tree.set_range((2..50).into(), X(300), true);
+        tree.set_range((2..50).into(), X(300));
         // dbg!(&tree.leaves);
         tree.dbg_check_eq(&[RleDRun::new(2..50, X(300))]);
 
@@ -1610,8 +1715,8 @@ mod test {
     #[test]
     fn split_values() {
         let mut tree = IndexTree::new();
-        tree.set_range((10..20).into(), X(100), true);
-        tree.set_range((12..15).into(), X(200), true);
+        tree.set_range((10..20).into(), X(100));
+        tree.set_range((12..15).into(), X(200));
         tree.dbg_check_eq(&[
             RleDRun::new(10..12, X(100)),
             RleDRun::new(12..15, X(200)),
@@ -1623,14 +1728,14 @@ mod test {
     fn set_inserts_1() {
         let mut tree = IndexTree::new();
 
-        tree.set_range((5..10).into(), X(100), true);
+        tree.set_range((5..10).into(), X(100));
         tree.dbg_check_eq(&[RleDRun::new(5..10, X(100))]);
 
-        tree.set_range((5..10).into(), X(200), true);
+        tree.set_range((5..10).into(), X(200));
         tree.dbg_check_eq(&[RleDRun::new(5..10, X(200))]);
 
         // dbg!(&tree);
-        tree.set_range((15..20).into(), X(300), true);
+        tree.set_range((15..20).into(), X(300));
         // dbg!(tree.iter().collect::<Vec<_>>());
         tree.dbg_check_eq(&[
             RleDRun::new(5..10, X(200)),
@@ -1644,8 +1749,8 @@ mod test {
     #[test]
     fn set_inserts_2() {
         let mut tree = IndexTree::new();
-        tree.set_range((5..10).into(), X(100), true);
-        tree.set_range((1..5).into(), X(200), true);
+        tree.set_range((5..10).into(), X(100));
+        tree.set_range((1..5).into(), X(200));
         // dbg!(&tree);
         tree.dbg_check_eq(&[
             RleDRun::new(1..5, X(200)),
@@ -1653,7 +1758,7 @@ mod test {
         ]);
         dbg!(&tree.leaves[0]);
 
-        tree.set_range((3..8).into(), X(300), true);
+        tree.set_range((3..8).into(), X(300));
         // dbg!(&tree);
         // dbg!(tree.iter().collect::<Vec<_>>());
         tree.dbg_check_eq(&[
@@ -1667,14 +1772,14 @@ mod test {
     fn split_leaf() {
         let mut tree = IndexTree::new();
         // Using 10, 20, ... so they don't merge.
-        tree.set_range(10.into(), X(100), true);
+        tree.set_range(10.into(), X(100));
         tree.dbg_check();
-        tree.set_range(20.into(), X(200), true);
-        tree.set_range(30.into(), X(100), true);
-        tree.set_range(40.into(), X(200), true);
+        tree.set_range(20.into(), X(200));
+        tree.set_range(30.into(), X(100));
+        tree.set_range(40.into(), X(200));
         tree.dbg_check();
         // dbg!(&tree);
-        tree.set_range(50.into(), X(100), true);
+        tree.set_range(50.into(), X(100));
         tree.dbg_check();
 
         // dbg!(&tree);
@@ -1696,7 +1801,7 @@ mod test {
             eprintln!("i: {i}");
             let mut tree = IndexTree::new();
             for base in 0..i {
-                tree.set_range((base*3..base*3+2).into(), X(base + 100), true);
+                tree.set_range((base*3..base*3+2).into(), X(base + 100));
             }
             // dbg!(tree.iter().collect::<Vec<_>>());
 
@@ -1704,7 +1809,7 @@ mod test {
             // dbg!(ceil);
             // dbg!(&tree);
             tree.dbg_check();
-            tree.set_range((1..ceil).into(), X(99), true);
+            tree.set_range((1..ceil).into(), X(99));
             // dbg!(tree.iter().collect::<Vec<_>>());
 
             tree.dbg_check_eq(&[
@@ -1734,15 +1839,15 @@ mod test {
             // let len = rng.gen_range(0..100) + 1;
 
             // dbg!(&tree, start, len, val);
-            // if _i == 11 {
-            //     println!("blerp");
-            // }
+            if _i == 19 {
+                println!("blerp");
+            }
 
             // if _i == 14 {
             //     dbg!(val, start, len);
             //     dbg!(tree.iter().collect::<Vec<_>>());
             // }
-            tree.set_range((start..start+len).into(), X(val), true);
+            tree.set_range((start..start+len).into(), X(val));
             // dbg!(&tree);
             tree.dbg_check();
 

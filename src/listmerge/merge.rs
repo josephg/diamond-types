@@ -55,7 +55,7 @@ pub(super) fn notify_for<'a>(index: &'a mut IndexTree<Marker>) -> impl FnMut(CRD
 
         // println!("SET RANGE {:?} -> {:?}", entry.id, InsPtr(leaf));
 
-        index.set_range(entry.id, Marker::InsPtr(leaf), true);
+        index.set_range(entry.id, Marker::InsPtr(leaf));
         // index.dbg_check();
     }
 }
@@ -545,7 +545,7 @@ impl M2Tracker {
                 self.index.set_range((lv_start..lv_start+len).into(), Marker::Del(DelRange {
                     target: if fwd { target.start } else { target.end },
                     fwd
-                }).into(), fwd);
+                }).into());
 
                 // if cfg!(debug_assertions) {
                 //     self.check_index();

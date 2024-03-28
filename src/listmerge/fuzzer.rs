@@ -146,7 +146,7 @@ fn fuzz_dirty_benchmark() {
 #[test]
 #[ignore]
 fn fuzz_once() {
-    merge_fuzz(5, true);
+    merge_fuzz(12, true);
 }
 
 #[test]
