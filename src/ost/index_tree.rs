@@ -584,6 +584,19 @@ impl<V: Default + IndexContent> IndexTree<V> {
         let leaf = &self[cursor.leaf_idx];
         // TODO: Consider caching the upper bound of the subsequent element in the cursor.
 
+        // This is correct, but doesn't improve performance.
+        // if lv >= leaf.bounds[cursor.elem_idx] {
+        //     let next_elem = cursor.elem_idx + 1;
+        //     let upper_bound = if next_elem >= LEAF_CHILDREN || leaf.bounds[next_elem] == usize::MAX {
+        //         self.leaf_upper_bound(leaf)
+        //     } else {
+        //         leaf.bounds[next_elem]
+        //     };
+        //     if lv < upper_bound {
+        //         return cursor;
+        //     }
+        // }
+
         if lv >= leaf.bounds[0] {
             // There are 3 cases:
             // - The lv is less than the bound (or this is the last node)
