@@ -129,6 +129,7 @@ impl SplitableSpanCtx for ListOpMetrics {
 
     // Note we can't implement SplitableSpan because we can't adjust content_pos correctly without
     // reference to the contained data.
+    #[inline]
     fn truncate_ctx(&mut self, at: usize, ctx: &Self::Ctx) -> Self {
         debug_assert!(self.loc.span.start + at <= self.loc.span.end);
 

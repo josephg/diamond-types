@@ -376,6 +376,9 @@ impl<V: Default + IndexContent> IndexTree<V> {
         // The result is two nodes - old_leaf with items 0..N/2 and new_leaf with items N/2..N.
 
         let old_height = self.height;
+        // TODO: This doesn't currently use the pool of leaves that we have so carefully prepared.
+        // It would be good to fix this, but it currently never actually happens in any of the
+        // benchmarking data.
         let new_leaf_idx = self.leaves.len(); // Weird instruction order for borrowck.
         let mut old_leaf = &mut self.leaves[old_idx.0];
         // debug_assert!(old_leaf.is_full());
@@ -1852,9 +1855,9 @@ mod test {
             // let len = rng.gen_range(0..100) + 1;
 
             // dbg!(&tree, start, len, val);
-            if _i == 19 {
-                println!("blerp");
-            }
+            // if _i == 19 {
+            //     println!("blerp");
+            // }
 
             // if _i == 14 {
             //     dbg!(val, start, len);
