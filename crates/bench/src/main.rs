@@ -4,11 +4,13 @@
 // https://github.com/automerge/automerge-perf/
 // mod testdata;
 mod utils;
+mod idxtrace;
 
 use criterion::{black_box, Criterion, BenchmarkId, Throughput};
 use crdt_testdata::{load_testing_data, TestData};
 use diamond_types::list::{ListCRDT, ListOpLog};
 use diamond_types::list::encoding::*;
+use crate::idxtrace::idxtrace_benchmarks;
 use crate::utils::*;
 
 fn testing_data(name: &str) -> TestData {
@@ -162,5 +164,6 @@ fn main() {
 
     local_benchmarks(&mut c);
     encoding_nodecc_benchmarks(&mut c);
+    idxtrace_benchmarks(&mut c);
     c.final_summary();
 }

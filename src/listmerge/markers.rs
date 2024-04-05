@@ -12,7 +12,11 @@ use crate::list::operation::ListOpKind;
 use crate::{DTRange, LV};
 use crate::ost::IndexContent;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 /// Its kind of upsetting that I need this.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct DelRange {
     /// This is the first LV that the range targets. If fwd, it is the lowest. Otherwise, it is
@@ -47,6 +51,7 @@ impl DelRange {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(into = "MarkerJSON", from = "MarkerJSON"))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Marker {
     /// For inserts, we store a pointer to the leaf node containing the inserted item. This is only
@@ -58,20 +63,6 @@ pub enum Marker {
     /// we already have a length field.
     Del(DelRange),
 }
-
-// impl From<MarkerOld> for Marker {
-//     fn from(marker: MarkerOld) -> Self {
-//         match marker {
-//             InsPtr(ptr) => Marker::InsPtr(ptr),
-//             DelTarget(RangeRev { span, fwd }) => {
-//                 Marker::Del(DelRange {
-//                     target: if fwd { span.start } else { span.end },
-//                     fwd,
-//                 })
-//             }
-//         }
-//     }
-// }
 
 impl Default for Marker {
     fn default() -> Self {
@@ -154,6 +145,33 @@ impl IndexContent for Marker {
     // }
 }
 
+/// This is used for replaying data in the IndexTree for micro benchmarking.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+enum MarkerJSON {
+    InsPtr(usize),
+    Del(DelRange),
+}
+
+#[cfg(feature = "serde")]
+impl From<Marker> for MarkerJSON {
+    fn from(value: Marker) -> Self {
+        match value {
+            Marker::InsPtr(ptr) => MarkerJSON::InsPtr(ptr.as_ptr() as usize),
+            Marker::Del(range) => MarkerJSON::Del(range)
+        }
+    }
+}
+
+// This is wildly unsafe. Only useful / correct for testing data.
+#[cfg(feature = "serde")]
+impl From<MarkerJSON> for Marker {
+    fn from(value: MarkerJSON) -> Self {
+        match value {
+            MarkerJSON::InsPtr(ptr) => Marker::InsPtr(unsafe { std::mem::transmute(ptr) } ),
+            MarkerJSON::Del(range) => Marker::Del(range),
+        }
+    }
+}
 
 
 #[cfg(test)]

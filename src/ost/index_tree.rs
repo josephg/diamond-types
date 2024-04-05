@@ -1,3 +1,9 @@
+//! This file contains an implementation of [`IndexTree`] - which is a run-length encoded, in-memory
+//! BTree mapping from integers to some value type.
+//!
+//! The merging algorithm uses this type to find the item which stores a specific local version
+//! value.
+
 use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::Debug;
@@ -8,7 +14,6 @@ use std::ptr::NonNull;
 use rle::{HasLength, MergableSpan, RleDRun, SplitableSpan, SplitableSpanHelpers};
 use crate::{DTRange, LV};
 use crate::ost::{NODE_CHILDREN, LeafIdx, NodeIdx, LEAF_CHILDREN};
-use crate::ost::content_tree::{ContentLeaf, ContentNode, ContentTree};
 
 #[derive(Debug, Clone)]
 pub(crate) struct IndexTree<V: Copy> {
@@ -670,6 +675,8 @@ impl<V: Default + IndexContent> IndexTree<V> {
     //     }
     // }
 
+    /// Get the entry at the specified offset. This will return the largest run of values which
+    /// contains the specified index.
     pub fn get_entry(&self, lv: LV) -> RleDRun<V> {
         let cursor = self.cursor_at(lv);
 
@@ -1084,7 +1091,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
             self.check_cursor_at(cursor, range.start, false);
         }
 
-        self.cursor.set((range.start, cursor));
+        // self.cursor.set((range.start, cursor));
         // The cursor may move.
         let (mut cursor, at_end) = self.set_range_internal(cursor, range, data);
 

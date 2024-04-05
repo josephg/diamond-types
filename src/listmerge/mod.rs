@@ -17,6 +17,7 @@ use crate::listmerge::metrics::MarkerMetrics;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::LV;
 use crate::ost::IndexTree;
+use crate::ost::recording_index_tree::RecordingTree;
 
 pub(crate) mod yjsspan;
 pub(crate) mod merge;
@@ -49,6 +50,11 @@ type CRDTList2 = Pin<Box<ContentTreeRaw<CRDTSpan, DocRangeIndex>>>;
 //     index2: IndexTree<Marker2>,
 // }
 
+
+// RecordingTree is necessary if gen_test_data is enabled.
+// type Index = RecordingTree<Marker>;
+type Index = IndexTree<Marker>;
+
 #[derive(Debug)]
 struct M2Tracker {
     range_tree: CRDTList2,
@@ -57,7 +63,7 @@ struct M2Tracker {
     ///
     /// - For inserts, this contains a pointer to the node in range_tree which contains this version
     /// - For deletes, this names the time at which the delete happened.
-    index: IndexTree<Marker>,
+    index: Index,
 
     #[cfg(feature = "merge_conflict_checks")]
     concurrent_inserts_collide: bool,

@@ -778,7 +778,7 @@ mod tests {
 
 
 
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "gen_test_data")]
     #[test]
     fn serde_stuff() {
         // let line = r##"{"type":"DocsDelta","deltas":[[["RUWYEZu",0],{"cg_changes":[1,6,83,67,72,69,77,65,10,1],"map_ops":[[["ROOT",0],["SCHEMA",9],"content",{"NewCRDT":"Text"}],[["ROOT",0],["SCHEMA",0],"title",{"NewCRDT":"Text"}]],"text_ops":[[["SCHEMA",0],["SCHEMA",1],{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}]],"text_context":{"ins_content":[85,110,116,105,116,108,101,100],"del_content":[]}}]]}"##;
@@ -801,6 +801,8 @@ mod tests {
         // let x: SS = serde_json::from_str(&line).unwrap();
         // let line = r#"{"text_ops":[{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}]}"#;
         // let x: SS = serde_json::from_str(&line).unwrap();
+
+
         let line = r#"{"loc":{"start":0,"end":8,"fwd":true},"kind":"Ins","content_pos":[0,8]}"#;
         let _x: ListOpMetrics = serde_json::from_str(&line).unwrap();
 

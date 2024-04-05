@@ -202,6 +202,7 @@ use crate::causalgraph::agent_span::AgentVersion;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use crate::causalgraph::agent_assignment::remote_ids::RemoteVersion;
+use crate::ost::recording_index_tree::IndexTreeReplay;
 use crate::textinfo::TextInfo;
 
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
@@ -223,6 +224,9 @@ pub(crate) mod serde_helpers;
 
 // TODO: Make me private!
 pub mod listmerge;
+
+#[cfg(feature = "expose_benchmarking")]
+pub type IndexTreeTrace = IndexTreeReplay<crate::listmerge::markers::Marker>;
 
 #[cfg(any(test, feature = "gen_test_data"))]
 mod list_fuzzer_tools;

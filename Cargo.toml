@@ -74,6 +74,7 @@ wchar_conversion = ["jumprope/wchar_conversion"]
 ops_to_old = []
 merge_conflict_checks = []
 storage = []
+expose_benchmarking = ["serde", "serde_json"]
 
 # This is internal only for generating JSON testing data. To generate, run test suite with
 # rm *_tests.json; cargo test --features gen_test_data causalgraph::parents::tools -- --test-threads 1

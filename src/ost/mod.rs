@@ -1,5 +1,18 @@
+//! This module exists as a future planned replacement for the content-tree crate. It has a few
+//! advantages:
+//!
+//! - I have two separate data structures, one for the index and one for content. Content-tree uses
+//!   the same b-tree data structure for both
+//! - These btree implementations store data in a Vec<Leaf> / Vec<Node> pair rather than using raw
+//!   pointers. Surprisingly, this turns out to perform better - because the CPU ends up caching
+//!   runs of nodes. It also means this works with no unsafe {} blocks.
+//! - There's less abstraction here. Way less abstraction. I went a bit overboard with content-tree
+//!   and as a result, its much harder to read. However, the code here has more duplication. Eh.
+//! - The resulting wasm size is a little smaller.
+
 mod index_tree;
-mod content_tree;
+pub(crate) mod recording_index_tree;
+// mod content_tree;
 
 pub(crate) use index_tree::{IndexTree, IndexContent};
 
@@ -7,7 +20,7 @@ use std::ops::{AddAssign, Index, IndexMut, SubAssign};
 use ::content_tree::ContentLength;
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::listmerge::yjsspan::CRDTSpan;
-use crate::ost::content_tree::ContentTree;
+// use crate::ost::content_tree::ContentTree;
 // Some utility types.
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -31,10 +44,24 @@ impl NodeIdx {
     fn is_root(&self) -> bool { self.0 == usize::MAX }
 }
 
+// #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+// enum LenType { CURRENT, END }
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 pub struct LenPair {
     pub cur: usize,
     pub end: usize,
+}
+
+impl LenPair {
+    fn get<const IS_CURRENT: bool>(&self) -> usize {
+        if IS_CURRENT { self.cur } else { self.end }
+    }
+
+    fn update_by(&mut self, upd: LenUpdate) {
+        self.cur = self.cur.wrapping_add_signed(upd.cur);
+        self.end = self.end.wrapping_add_signed(upd.end);
+    }
 }
 
 impl AddAssign for LenPair {

@@ -10,7 +10,7 @@ use smartstring::alias::String as SmartString;
 use content_tree::*;
 use rle::{AppendRle, HasLength, MergeableIterator, RleDRun, Searchable, SplitableSpanCtx, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
-use crate::listmerge::{DocRangeIndex, M2Tracker};
+use crate::listmerge::{DocRangeIndex, Index, M2Tracker};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, CRDTSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::{DTRange, UNDERWATER_START};
@@ -39,6 +39,7 @@ use crate::listmerge::plan::{M1Plan, M1PlanAction};
 #[cfg(feature = "ops_to_old")]
 use crate::listmerge::to_old::OldCRDTOpInternal;
 use crate::ost::IndexTree;
+use crate::ost::recording_index_tree::TreeCommand;
 use crate::unicount::consume_chars;
 
 const ALLOW_FF: bool = true;
@@ -46,7 +47,7 @@ const ALLOW_FF: bool = true;
 #[cfg(feature = "dot_export")]
 const MAKE_GRAPHS: bool = false;
 
-pub(super) fn notify_for<'a>(index: &'a mut IndexTree<Marker>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
+pub(super) fn notify_for<'a>(index: &'a mut Index) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
     move |entry: CRDTSpan, leaf| {
         debug_assert!(leaf != NonNull::dangling());
 
@@ -73,7 +74,7 @@ impl M2Tracker {
 
         let mut result = Self {
             range_tree: ContentTreeRaw::new(),
-            index: IndexTree::new(),
+            index: Default::default(),
             #[cfg(feature = "merge_conflict_checks")]
             concurrent_inserts_collide: false,
             #[cfg(feature = "ops_to_old")]
@@ -673,6 +674,25 @@ impl<'a> TransformedOpsIter<'a> {
         // self.tracker.range_tree.count_total_memory()
         self.tracker.range_tree.count_entries()
     }
+
+    #[allow(unused)]
+    fn close_tracker(&mut self) {
+        // dbg!(DEFAULT_IE, DEFAULT_LE);
+
+        // This is used for temporary bookkeeping, record keeping, etc just before the tracker is
+        // discarded.
+
+        // #[cfg(feature = "gen_test_data")] {
+        //     self.tracker.index.stats();
+        //
+        //     let json = self.tracker.index.actions_to_json();
+        //     fs::write("test.json", &json).unwrap();
+        //     println!("wrote index writes to test.json");
+        // }
+
+        // fs::wri
+        // dbg!(self.tracker.index.actions.borrow().len());
+    }
 }
 
 impl<'a> Iterator for TransformedOpsIter<'a> {
@@ -731,6 +751,21 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                         }
                     }
                     M1PlanAction::Clear => {
+                        // dbg!(self.tracker.range_tree.count_nodes());
+                        // dbg!(self.tracker.range_tree.count_occupancy());
+                        // // self.tracker.index.stats();
+                        //
+                        //
+                        // // let set_acts_d = self.tracker.index.actions.borrow().iter()
+                        // //     .filter(|a| if let TreeCommand::SetRange(_, Marker::Del(_)) = a { true } else { false })
+                        // //     .count();
+                        // // dbg!(set_acts_d);
+                        // let set_acts_i = self.tracker.index.actions.borrow().iter()
+                        //     .filter(|a| if let TreeCommand::SetRange(_, Marker::InsPtr(_)) = a { true } else { false })
+                        //     .count();
+                        // dbg!(set_acts_i);
+
+
                         self.tracker.clear();
                     }
                     M1PlanAction::BeginOutput => {
@@ -744,6 +779,8 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             // No more plan. Stop!
             // dbg!(&self.op_iter, self.plan_idx);
             debug_assert!(self.op_iter.is_none());
+
+            self.close_tracker();
             return None;
 
             // Only really advancing the frontier so we can consume into it. The resulting frontier
@@ -1166,6 +1203,20 @@ mod test {
         assert_eq!(list.to_string(), "abc");
     }
 
+    #[cfg(feature = "gen_test_data")]
+    fn dump_index_stats(bench_name: &str) {
+        let mut bytes = vec![];
+        File::open(format!("benchmark_data/{bench_name}.dt")).unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
+
+        let out_file = format!("idxtrace_{bench_name}.json");
+        let mut iter = o.get_xf_operations_full(&[], o.cg.version.as_ref());
+        while let Some(_) = iter.next() {}
+        let json = iter.tracker.index.actions_to_json();
+        std::fs::write(&out_file, &json).unwrap();
+        println!("wrote index writes to {out_file}");
+    }
+
 
     #[test]
     #[ignore]
@@ -1174,15 +1225,37 @@ mod test {
         // git-makefile: 23166
         let mut bytes = vec![];
 
-        // File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        // let o = ListOpLog::load_from(&bytes).unwrap();
-        // o.checkout_tip();
+        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
+        o.checkout_tip();
 
         println!("----");
         bytes.clear();
         File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
         o.checkout_tip();
+
+        // println!("----");
+        // bytes.clear();
+        // File::open("benchmark_data/friendsforever.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // let o = ListOpLog::load_from(&bytes).unwrap();
+        // o.checkout_tip();
+        //
+        // let mut iter = o.get_xf_operations_full(&[], o.cg.version.as_ref());
+        // while let Some(_) = iter.next() {}
+        // let json = iter.tracker.index.actions_to_json();
+        // fs::write("friendsforever.json", &json).unwrap();
+        // println!("wrote index writes to friendsforever.json");
+    }
+
+    // Run me in release mode!
+    // $ cargo test --release --features gen_test_data -- --ignored --nocapture gen_index_traces
+    #[test]
+    #[ignore]
+    fn gen_index_traces() {
+        for name in &["friendsforever", "git-makefile", "node_nodecc", "clownschool"] {
+            dump_index_stats(*name);
+        }
     }
 }
 
