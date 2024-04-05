@@ -375,7 +375,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
         self.raw_iter().count()
     }
 
-    // Passing (num internal nodes, num leaf nodes).
+    /// Returns (num internal nodes, num leaf nodes).
     fn count_nodes_internal(node: &Node<E, I, IE, LE>, num: &mut (usize, usize)) {
         if let Node::Internal(n) = node {
             num.0 += 1;
@@ -386,6 +386,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
         } else { num.1 += 1; }
     }
 
+    /// Returns (num internal nodes, num leaf nodes).
     #[allow(unused)]
     pub fn count_nodes(&self) -> (usize, usize) {
         let mut num = (0, 0);
@@ -406,6 +407,20 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
                 *size += std::mem::size_of::<NodeLeaf<E, I, IE, LE>>();
             }
         }
+    }
+
+    /// Returns total space, used space.
+    #[allow(unused)]
+    pub fn count_occupancy(&self) -> (usize, usize) {
+        let mut total_space = 0;
+        let mut used_space = 0;
+
+        for leaf in self.node_iter() {
+            used_space += leaf.num_entries as usize;
+            total_space += leaf.data.len();
+        }
+
+        (total_space, used_space)
     }
 
     #[allow(unused)]
