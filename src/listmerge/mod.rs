@@ -36,6 +36,8 @@ pub mod to_old;
 pub(crate) mod simple_oplog;
 pub(crate) mod plan;
 
+pub(crate) mod xf_old;
+
 type DocRangeIndex = MarkerMetrics;
 type CRDTList2 = Pin<Box<ContentTreeRaw<CRDTSpan, DocRangeIndex>>>;
 

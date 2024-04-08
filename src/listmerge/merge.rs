@@ -34,6 +34,7 @@ use crate::list::op_iter::OpMetricsIter;
 use crate::causalgraph::graph::Graph;
 use crate::textinfo::TextInfo;
 use crate::frontier::local_frontier_eq;
+use crate::list::encoding::txn_trace::SpanningTreeWalker;
 use crate::list::ListOpLog;
 use crate::listmerge::plan::{M1Plan, M1PlanAction};
 #[cfg(feature = "ops_to_old")]
@@ -376,7 +377,7 @@ impl M2Tracker {
     /// | NotInsYet | Before     | After       |
     /// | Inserted  | After      | Before      |
     /// | Deleted   | Before     | Before      |
-    fn apply(&mut self, aa: &AgentAssignment, _ctx: &ListOperationCtx, op_pair: &KVPair<ListOpMetrics>, max_len: usize, agent: AgentId) -> (usize, TransformedResult) {
+    pub(super) fn apply(&mut self, aa: &AgentAssignment, _ctx: &ListOperationCtx, op_pair: &KVPair<ListOpMetrics>, max_len: usize, agent: AgentId) -> (usize, TransformedResult) {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
         let len = max_len.min(op_pair.len());
@@ -565,24 +566,24 @@ impl M2Tracker {
     // ///
     // /// Returns the tracker's frontier after this has happened; which will be at some pretty
     // /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
-    // pub(super) fn walk(&mut self, graph: &Graph, aa: &AgentAssignment, op_ctx: &ListOperationCtx, ops: &RleVec<KVPair<ListOpMetrics>>, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut JumpRopeBuf>) -> Frontier {
-    //     let mut walker = SpanningTreeWalker::new(graph, rev_spans, start_at);
-    //
-    //     for walk in &mut walker {
-    //         for range in walk.retreat {
-    //             self.retreat_by_range(range);
-    //         }
-    //
-    //         for range in walk.advance_rev.into_iter().rev() {
-    //             self.advance_by_range(range);
-    //         }
-    //
-    //         debug_assert!(!walk.consume.is_empty());
-    //         self.apply_range(aa, op_ctx, ops, walk.consume, apply_to.as_deref_mut());
-    //     }
-    //
-    //     walker.into_frontier()
-    // }
+    pub(super) fn walk(&mut self, graph: &Graph, aa: &AgentAssignment, op_ctx: &ListOperationCtx, ops: &RleVec<KVPair<ListOpMetrics>>, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut JumpRopeBuf>) -> Frontier {
+        let mut walker = SpanningTreeWalker::new(graph, rev_spans, start_at);
+
+        for walk in &mut walker {
+            for range in walk.retreat {
+                self.retreat_by_range(range);
+            }
+
+            for range in walk.advance_rev.into_iter().rev() {
+                self.advance_by_range(range);
+            }
+
+            debug_assert!(!walk.consume.is_empty());
+            self.apply_range(aa, op_ctx, ops, walk.consume, apply_to.as_deref_mut());
+        }
+
+        walker.into_frontier()
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -594,7 +595,7 @@ pub(crate) enum TransformedResult {
 type TransformedTriple = (LV, ListOpMetrics, TransformedResult);
 
 impl TransformedResult {
-    fn not_moved(op_pair: KVPair<ListOpMetrics>) -> TransformedTriple {
+    pub(super) fn not_moved(op_pair: KVPair<ListOpMetrics>) -> TransformedTriple {
         let start = op_pair.1.start();
         (op_pair.0, op_pair.1, TransformedResult::BaseMoved(start))
     }
@@ -1250,6 +1251,7 @@ mod test {
 
     // Run me in release mode!
     // $ cargo test --release --features gen_test_data -- --ignored --nocapture gen_index_traces
+    #[cfg(feature = "gen_test_data")]
     #[test]
     #[ignore]
     fn gen_index_traces() {

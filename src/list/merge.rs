@@ -6,10 +6,17 @@ use crate::listmerge::merge::{reverse_str, TransformedOpsIter};
 use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::{DTRange, LV};
 use crate::listmerge::plan::M1PlanAction;
+use crate::listmerge::xf_old::TransformedOpsIterOld;
 
 impl ListOpLog {
     pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter {
         TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
+                                &self.operation_ctx, &self.operations,
+                                from, merging)
+    }
+
+    pub(crate) fn get_xf_operations_full_old(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIterOld {
+        TransformedOpsIterOld::new(&self.cg.graph, &self.cg.agent_assignment,
                                 &self.operation_ctx, &self.operations,
                                 from, merging)
     }
@@ -136,6 +143,48 @@ impl ListBranch {
     /// Add everything in merge_frontier into the set..
     pub fn merge(&mut self, oplog: &ListOpLog, merge_frontier: &[LV]) {
         let mut iter = oplog.get_xf_operations_full(self.version.as_ref(), merge_frontier);
+        // println!("merge '{}' at {:?} + {:?}", self.content.to_string(), self.version, merge_frontier);
+
+        for (_lv, origin_op, xf) in &mut iter {
+            // dbg!(_lv, &origin_op, &xf);
+            match (origin_op.kind, xf) {
+                (ListOpKind::Ins, BaseMoved(pos)) => {
+                    // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());
+                    debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
+                    let content = origin_op.get_content(&oplog.operation_ctx).unwrap();
+                    assert!(pos <= self.content.len_chars());
+                    if origin_op.loc.fwd {
+                        self.content.insert(pos, content);
+                    } else {
+                        // We need to insert the content in reverse order.
+                        let c = reverse_str(content);
+                        self.content.insert(pos, &c);
+                    }
+                }
+
+                (_, DeleteAlreadyHappened) => {}, // Discard.
+
+                (ListOpKind::Del, BaseMoved(pos)) => {
+                    let del_end = pos + origin_op.len();
+                    debug_assert!(self.content.len_chars() >= del_end);
+                    // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
+                    self.content.remove(pos..del_end);
+                }
+            }
+        }
+
+
+        // dbg!(iter.count_range_tracker_size());
+
+        // let expect_v = oplog.cg.graph.find_dominators_2(self.version.as_ref(), merge_frontier);
+        self.version = iter.into_frontier();
+        // println!("-> '{}' v {:?}", self.content.to_string(), self.version);
+        // assert_eq!(self.version, expect_v);
+    }
+
+    /// Add everything in merge_frontier into the set..
+    pub fn merge_old(&mut self, oplog: &ListOpLog, merge_frontier: &[LV]) {
+        let mut iter = oplog.get_xf_operations_full_old(self.version.as_ref(), merge_frontier);
         // println!("merge '{}' at {:?} + {:?}", self.content.to_string(), self.version, merge_frontier);
 
         for (_lv, origin_op, xf) in &mut iter {
