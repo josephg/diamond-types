@@ -88,18 +88,17 @@ type DiffTraceHeap = BinaryHeap<Reverse<(usize, DiffFlag)>>;
 impl ConflictSubgraph<M1EntryState> {
     // #[inline(never)]
     // This method is adapted from the equivalent method in the causal graph code.
-    fn diff_trace<F: FnMut(DiffFlag, DTRange)>(&self, queue: &mut DiffTraceHeap, from_idx: usize, after: bool, to_idx: usize, mut visit: F) {
+    // fn diff_trace<F: FnMut(DiffFlag, DTRange)>(&self, queue: &mut DiffTraceHeap, from_idx: usize, after: bool, to_idx: usize, mut visit: F) {
+    fn diff_trace<F: FnMut(DiffFlag, DTRange)>(&self, queue: &mut DiffTraceHeap, from_idx: usize, to_idx: usize, mut visit: F) {
         use DiffFlag::*;
+        // println!("T {from_idx}-{to_idx}");
 
         // Sorted highest to lowest.
         // let mut queue: BinaryHeap<Reverse<(usize, DiffFlag)>> = BinaryHeap::new();
-        if after {
+
+        if from_idx != usize::MAX { // from_idx is usize::MAX at first. We start with nothing.
             // println!("{}", self.entries[to_idx].parents.as_ref() == &[from_idx]);
             queue.push(Reverse((from_idx, OnlyA)));
-        } else {
-            for p in &self.entries[from_idx].parents {
-                queue.push(Reverse((*p, OnlyA)));
-            }
         }
 
         for p in &self.entries[to_idx].parents {
@@ -123,18 +122,23 @@ impl ConflictSubgraph<M1EntryState> {
             }
 
             let entry = &self.entries[idx];
-            if flag != Shared {
+            // println!("  {idx} {:?} {:?}", flag, entry.span);
+
+            if flag == Shared {
+                // If there's only shared entries left, abort.
+                // If the flag isn't shared, we're about to add a bunch more non-shared entries to
+                // the queue.
+                if queue.len() == num_shared_entries { break; }
+                num_shared_entries += entry.parents.len();
+            } else {
                 visit(flag, entry.span);
             }
 
             // mark_run(containing_txn.span.start, idx, flag);
             for p_idx in entry.parents.iter() {
                 queue.push(Reverse((*p_idx, flag)));
-                if flag == Shared { num_shared_entries += 1; }
+                // if flag == Shared { num_shared_entries += 1; }
             }
-
-            // If there's only shared entries left, abort.
-            if queue.len() == num_shared_entries { break; }
         }
 
         queue.clear();
@@ -448,16 +452,16 @@ impl ConflictSubgraph<M1EntryState> {
 
         let mut queue = DiffTraceHeap::new();
 
-        fn teleport(queue: &mut DiffTraceHeap, g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, to_idx: usize, last_processed_after: bool, from_idx: usize) {
+        fn teleport(queue: &mut DiffTraceHeap, g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, to_idx: usize, from_idx: usize) {
             // Fast case.
             let to_entry_parents = &g.entries[to_idx].parents;
-            if to_entry_parents.as_ref() == &[from_idx] && last_processed_after { return; }
+            if to_entry_parents.as_ref() == &[from_idx] { return; }
 
             // Retreats must appear first in the action list. We'll cache any advance actions in
             // this vec, and push retreats to the action list immediately.
             let mut advances: SmallVec<[DTRange; 4]> = smallvec![];
 
-            g.diff_trace(queue, from_idx, last_processed_after, to_idx, |flag, span: DTRange| {
+            g.diff_trace(queue, from_idx, to_idx, |flag, span: DTRange| {
                 if !span.is_empty() {
                     match flag {
                         DiffFlag::OnlyA => {
@@ -491,8 +495,9 @@ impl ConflictSubgraph<M1EntryState> {
         debug_assert_eq!(self.entries[current_idx].flag, DiffFlag::Shared);
         let mut stack: Vec<usize> = vec![];
 
-        let mut last_processed_after: bool = false;
-        let mut last_processed_idx: usize = self.entries.len() - 1; // Might be cleaner to start this at None or something.
+        // let mut last_processed_after: bool = false;
+        // let mut last_processed_idx: usize = self.entries.len() - 1; // Might be cleaner to start this at None or something.
+        let mut last_processed_idx = usize::MAX;
 
         // We'll dummy-visit the first item.
         let e = &mut self.entries[current_idx];
@@ -546,7 +551,8 @@ impl ConflictSubgraph<M1EntryState> {
                         // If we're on the critical path, the clear operation will flush everything
                         // anyway.
                         // println!("TELE {last_processed_idx} -> {current_idx}");
-                        teleport(&mut queue, &self, &mut actions, current_idx, last_processed_after, last_processed_idx);
+                        // teleport(&mut queue, &self, &mut actions, current_idx, if last_processed_after { last_processed_idx } else { usize::MAX });
+                        teleport(&mut queue, &self, &mut actions, current_idx, last_processed_idx);
                         actions.push_rle(M1PlanAction::Apply(e.span));
                         dirty = true;
                     }
@@ -559,7 +565,7 @@ impl ConflictSubgraph<M1EntryState> {
                         a_spans_remaining -= 1;
                     }
 
-                    last_processed_after = true;
+                    // last_processed_after = true;
                     last_processed_idx = current_idx;
                 }
 
@@ -888,24 +894,24 @@ mod test {
 
 }
 
-// #[ignore]
-// #[test]
-// fn lite_bench() {
-//     let bytes = std::fs::read(format!("benchmark_data/clownschool.dt")).unwrap();
-//     // let bytes = std::fs::read(format!("benchmark_data/git-makefile.dt")).unwrap();
-//     // let bytes = std::fs::read(format!("benchmark_data/node_nodecc.dt")).unwrap();
-//     // let bytes = std::fs::read(format!("benchmark_data/friendsforever.dt")).unwrap();
-//     let oplog = ListOpLog::load_from(&bytes).unwrap();
-//     let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], oplog.cg.version.as_ref(), true);
-//     // let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], &[113], true);
-//     // let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], &[10000], true);
-//
-//     dbg!(&plan);
-//
-//     // for _i in 0..100 {
-//     //     // oplog.checkout_tip();
-//     //     oplog.checkout_tip_2(plan.clone(), common.as_ref());
-//     // }
-//
-//     dbg!(plan.0.len());
-// }
+#[ignore]
+#[test]
+fn lite_bench() {
+    let bytes = std::fs::read(format!("benchmark_data/clownschool.dt")).unwrap();
+    // let bytes = std::fs::read(format!("benchmark_data/git-makefile.dt")).unwrap();
+    // let bytes = std::fs::read(format!("benchmark_data/node_nodecc.dt")).unwrap();
+    // let bytes = std::fs::read(format!("benchmark_data/friendsforever.dt")).unwrap();
+    let oplog = ListOpLog::load_from(&bytes).unwrap();
+    let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], oplog.cg.version.as_ref(), true);
+    // let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], &[113], true);
+    // let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], &[10000], true);
+
+    // dbg!(&plan);
+
+    // for _i in 0..100 {
+    //     // oplog.checkout_tip();
+    //     oplog.checkout_tip_2(plan.clone(), common.as_ref());
+    // }
+
+    dbg!(plan.0.len());
+}

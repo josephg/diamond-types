@@ -210,7 +210,7 @@ impl Graph {
             // cases, but we may as well use the code below instead.
             let a = a[0];
             let b = b[0];
-            if a == b { return (smallvec![], smallvec![]); }
+            // if a == b { return (smallvec![], smallvec![]); }
 
             if self.is_direct_descendant_coarse(a, b) {
                 // a >= b.
@@ -226,6 +226,39 @@ impl Graph {
 
         // Otherwise fall through to the slow version.
         self.diff_slow(a, b)
+    }
+
+    pub(crate) fn diff_rev_2<F>(&self, a: &[LV], b: &[LV], mut mark_run: F)
+        where F: FnMut(DTRange, DiffFlag)
+    {
+        // First some simple short circuit checks to avoid needless work in common cases.
+        // Note most of the time this method is called, one of these early short circuit cases will
+        // fire.
+        if a == b { return; }
+
+        if a.len() == 1 && b.len() == 1 {
+            // Check if either operation naively dominates the other. We could do this for more
+            // cases, but we may as well use the code below instead.
+            let a = a[0];
+            let b = b[0];
+
+            if self.is_direct_descendant_coarse(a, b) {
+                // a >= b.
+                mark_run((b.wrapping_add(1)..a.wrapping_add(1)).into(), OnlyA);
+                return;
+                // return (smallvec![(b.wrapping_add(1)..a.wrapping_add(1)).into()], smallvec![]);
+            }
+            if self.is_direct_descendant_coarse(b, a) {
+                // b >= a.
+                mark_run((a.wrapping_add(1)..b.wrapping_add(1)).into(), OnlyB);
+                return;
+                // return (smallvec![], smallvec![(a.wrapping_add(1)..b.wrapping_add(1)).into()]);
+            }
+        }
+
+        self.diff_slow_internal(a, b, |start, last, flag| {
+            mark_run((start..last + 1).into(), flag);
+        });
     }
 
     fn diff_slow(&self, a: &[LV], b: &[LV]) -> DiffResult {
