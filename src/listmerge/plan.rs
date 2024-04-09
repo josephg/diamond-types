@@ -86,7 +86,7 @@ pub(crate) struct M1EntryState {
 type DiffTraceHeap = BinaryHeap<Reverse<(usize, DiffFlag)>>;
 
 impl ConflictSubgraph<M1EntryState> {
-    #[inline(never)]
+    // #[inline(never)]
     // This method is adapted from the equivalent method in the causal graph code.
     fn diff_trace<F: FnMut(DiffFlag, DTRange)>(&self, queue: &mut DiffTraceHeap, from_idx: usize, after: bool, to_idx: usize, mut visit: F) {
         use DiffFlag::*;
@@ -140,7 +140,7 @@ impl ConflictSubgraph<M1EntryState> {
         queue.clear();
     }
 
-    #[inline(never)]
+    // #[inline(never)]
     // This function does a BFS through the graph, setting critical_path.
     fn prepare(&mut self) {
         // if self.0.is_empty() { return SubgraphChildren(vec![]); }
@@ -179,7 +179,7 @@ impl ConflictSubgraph<M1EntryState> {
         &mut children[e.state.child_base..e.state.child_end]
     }
 
-    #[inline(never)]
+    // #[inline(never)]
     fn calc_costs_accurately(&mut self, children: &[usize], metrics: Option<&Metrics>) {
         // There's a tradeoff here. We can figure out the cost for each span using the operation
         // log, which looks up how many actual operations the span crosses. Doing so carries a
@@ -300,7 +300,7 @@ impl ConflictSubgraph<M1EntryState> {
         }
     }
 
-    #[inline(never)]
+    // #[inline(never)]
     fn calc_costs_estimate(&mut self, children: &[usize], _metrics: Option<&Metrics>) {
         // There's a tradeoff here. We can figure out the cost for each span using the operation
         // log, which looks up how many actual operations the span crosses. Doing so carries a
@@ -888,12 +888,21 @@ mod test {
 // #[ignore]
 // #[test]
 // fn lite_bench() {
-//     let bytes = std::fs::read(format!("benchmark_data/git-makefile.dt")).unwrap();
+//     let bytes = std::fs::read(format!("benchmark_data/clownschool.dt")).unwrap();
+//     // let bytes = std::fs::read(format!("benchmark_data/git-makefile.dt")).unwrap();
+//     // let bytes = std::fs::read(format!("benchmark_data/node_nodecc.dt")).unwrap();
+//     // let bytes = std::fs::read(format!("benchmark_data/friendsforever.dt")).unwrap();
 //     let oplog = ListOpLog::load_from(&bytes).unwrap();
-//     let (plan, common) = oplog.make_plan_2();
+//     let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], oplog.cg.version.as_ref(), true);
+//     // let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], &[113], true);
+//     // let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], &[10000], true);
 //
-//     for _i in 0..100 {
-//         // oplog.checkout_tip();
-//         oplog.checkout_tip_2(plan.clone(), common.as_ref());
-//     }
+//     dbg!(&plan);
+//
+//     // for _i in 0..100 {
+//     //     // oplog.checkout_tip();
+//     //     oplog.checkout_tip_2(plan.clone(), common.as_ref());
+//     // }
+//
+//     dbg!(plan.0.len());
 // }
