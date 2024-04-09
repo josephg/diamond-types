@@ -76,13 +76,22 @@ pub(crate) struct M1EntryState {
 
 // struct SubgraphChildren(Vec<SmallVec<[usize; 2]>>);
 
+type DiffTraceHeap = BinaryHeap<Reverse<(usize, DiffFlag)>>;
+
 impl ConflictSubgraph<M1EntryState> {
+    #[inline(never)]
     // This method is adapted from the equivalent method in the causal graph code.
-    fn diff_trace<F: FnMut(usize, DiffFlag)>(&self, from_idx: usize, after: bool, to_idx: usize, mut visit: F) {
+    fn diff_trace<F: FnMut(DiffFlag, DTRange)>(&self, queue: &mut DiffTraceHeap, from_idx: usize, after: bool, to_idx: usize, mut visit: F) {
         use DiffFlag::*;
+
         // Sorted highest to lowest.
-        let mut queue: BinaryHeap<Reverse<(usize, DiffFlag)>> = BinaryHeap::new();
+        // let mut queue: BinaryHeap<Reverse<(usize, DiffFlag)>> = BinaryHeap::new();
         if after {
+            // Fast case.
+            let to_entry_parents = &self.entries[to_idx].parents;
+            if to_entry_parents.as_ref() == &[from_idx] { return; }
+
+            // println!("{}", self.entries[to_idx].parents.as_ref() == &[from_idx]);
             queue.push(Reverse((from_idx, OnlyA)));
         } else {
             for p in &self.entries[from_idx].parents {
@@ -112,7 +121,7 @@ impl ConflictSubgraph<M1EntryState> {
 
             let entry = &self.entries[idx];
             if flag != Shared {
-                visit(idx, flag);
+                visit(flag, entry.span);
             }
 
             // mark_run(containing_txn.span.start, idx, flag);
@@ -124,9 +133,11 @@ impl ConflictSubgraph<M1EntryState> {
             // If there's only shared entries left, abort.
             if queue.len() == num_shared_entries { break; }
         }
+
+        queue.clear();
     }
 
-
+    #[inline(never)]
     // This function does a BFS through the graph, setting critical_path.
     fn prepare(&mut self) {
         // if self.0.is_empty() { return SubgraphChildren(vec![]); }
@@ -158,6 +169,7 @@ impl ConflictSubgraph<M1EntryState> {
         }
     }
 
+    #[inline(never)]
     fn calc_costs(&mut self, children: &[SmallVec<[usize; 2]>], metrics: Option<&Metrics>) {
         // There's a tradeoff here. We can figure out the cost for each span using the operation
         // log, which looks up how many actual operations the span crosses. Doing so carries a
@@ -316,27 +328,27 @@ impl ConflictSubgraph<M1EntryState> {
             }
         }
 
-        fn teleport(g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, target_idx: usize, last_processed_after: bool, last_processed_idx: usize) {
-            let mut advances: SmallVec<[DTRange; 2]> = smallvec![];
-            let mut retreats: SmallVec<[DTRange; 2]> = smallvec![];
-            g.diff_trace(last_processed_idx, last_processed_after, target_idx, |idx, flag| {
-                let list = match flag {
-                    DiffFlag::OnlyA => &mut retreats,
-                    DiffFlag::OnlyB => &mut advances,
-                    DiffFlag::Shared => { return; }
-                };
-                let span = g.entries[idx].span;
+        let mut queue = DiffTraceHeap::new();
+
+        fn teleport(queue: &mut DiffTraceHeap, g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, target_idx: usize, last_processed_after: bool, last_processed_idx: usize) {
+            let mut advances: SmallVec<[DTRange; 4]> = smallvec![];
+            let mut retreats: SmallVec<[DTRange; 4]> = smallvec![];
+            g.diff_trace(queue, last_processed_idx, last_processed_after, target_idx, |flag, span: DTRange| {
                 if !span.is_empty() {
-                    list.push(span);
+                    match flag {
+                        DiffFlag::OnlyA => &mut retreats,
+                        DiffFlag::OnlyB => &mut advances,
+                        DiffFlag::Shared => { return; }
+                    }.push_reversed_rle(span);
                 }
             });
 
             if !retreats.is_empty() {
-                actions.extend_rle(retreats.into_iter().map(M1PlanAction::Retreat));
+                actions.extend(retreats.into_iter().map(M1PlanAction::Retreat));
             }
             if !advances.is_empty() {
                 // .rev() here because diff visits everything in reverse order.
-                actions.extend_rle(advances.into_iter().rev().map(M1PlanAction::Advance));
+                actions.extend(advances.into_iter().rev().map(M1PlanAction::Advance));
             }
         }
 
@@ -399,12 +411,14 @@ impl ConflictSubgraph<M1EntryState> {
                             dirty = false;
                             // TODO: Consider also clearing the stack here. We won't be back.
                         }
-                        actions.push_rle(M1PlanAction::FF(e.span));
+                        // push_rle is just as correct here, but the rle merging case seems to never
+                        // happen.
+                        actions.push(M1PlanAction::FF(e.span));
                     } else {
                         // Note we only advance & retreat if the item is not on the critical path.
                         // If we're on the critical path, the clear operation will flush everything
                         // anyway.
-                        teleport(&self, &mut actions, current_idx, last_processed_after, last_processed_idx);
+                        teleport(&mut queue, &self, &mut actions, current_idx, last_processed_after, last_processed_idx);
                         actions.push_rle(M1PlanAction::Apply(e.span));
                         dirty = true;
                     }

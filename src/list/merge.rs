@@ -9,6 +9,10 @@ use crate::listmerge::plan::M1PlanAction;
 use crate::listmerge::xf_old::TransformedOpsIterOld;
 
 impl ListOpLog {
+    pub fn dbg_bench_make_plan(&self) {
+        self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), false);
+    }
+
     pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter {
         TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
                                 &self.operation_ctx, &self.operations,
