@@ -7,7 +7,7 @@ use bumpalo::collections::CollectIn;
 use smallvec::{SmallVec, smallvec};
 use rle::{AppendRle, HasLength, HasRleKey, MergableSpan};
 use crate::{CausalGraph, DTRange, Frontier, LV};
-use crate::causalgraph::graph::conflict_subgraph::ConflictSubgraph;
+use crate::causalgraph::graph::conflict_subgraph::{ConflictGraphEntry, ConflictSubgraph};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::list::ListOpLog;
@@ -71,6 +71,9 @@ pub(crate) struct M1EntryState {
 
     cost_here: usize,
     subtree_cost: usize,
+
+    child_base: usize,
+    child_end: usize,
 }
 
 
@@ -165,8 +168,15 @@ impl ConflictSubgraph<M1EntryState> {
         }
     }
 
+    fn get_children<'a>(children: &'a [usize], e: &ConflictGraphEntry<M1EntryState>) -> &'a [usize] {
+        &children[e.state.child_base..e.state.child_end]
+    }
+    fn get_children_mut<'a, 'b>(children: &'a mut [usize], e: &'b ConflictGraphEntry<M1EntryState>) -> &'a mut [usize] {
+        &mut children[e.state.child_base..e.state.child_end]
+    }
+
     #[inline(never)]
-    fn calc_costs(&mut self, children: &[SmallVec<[usize; 2]>], metrics: Option<&Metrics>) {
+    fn calc_costs(&mut self, children: &[usize], metrics: Option<&Metrics>) {
         // There's a tradeoff here. We can figure out the cost for each span using the operation
         // log, which looks up how many actual operations the span crosses. Doing so carries a
         // small but measurable improvement in merging performance because we can optimize the
@@ -227,7 +237,8 @@ impl ConflictSubgraph<M1EntryState> {
             // Pushing the parents instead of just this item. Eh.
             let mut aggregate_cost = self.entries[idx].state.cost_here;
 
-            let ch = &children[idx];
+            // let ch = &children[idx];
+            let ch = Self::get_children(children, &self.entries[idx]);
             // dbg!(ch);
             if ch.len() == 1 {
                 self.entries[idx].state.subtree_cost = aggregate_cost + self.entries[ch[0]].state.subtree_cost;
@@ -270,7 +281,8 @@ impl ConflictSubgraph<M1EntryState> {
 
                 // If we've counted everything, stop here.
 
-                let ch = &children[i];
+                // let ch = &children[i];
+                let ch = Self::get_children(children, &self.entries[i]);
                 if uncounted {
                     uncounted_remaining += ch.len();
                 } else if uncounted_remaining == 0 { break; }
@@ -303,10 +315,38 @@ impl ConflictSubgraph<M1EntryState> {
             return (M1Plan(actions), self.base_version);
         }
 
-        let mut children: Vec<SmallVec<[usize; 2]>> = vec![smallvec![]; self.entries.len()];
+
+        // This is horrible. Basically, I need to know the children for each entry. The
+        // make_conflict_graph_between code could just calculate this directly, but I'm not using it
+        // to do so because I'm an idiot. So instead, there's this vomit comet of code.
+        //
+        // Previously I used a vec<smallvec<>>, but packing everything into a single big array is
+        // slightly faster.
+        let mut num_children: Vec<usize> = vec![0; self.entries.len()];
+        let mut total_children = 0;
+        for e in self.entries.iter() {
+            for &p in e.parents.iter() {
+                num_children[p] += 1;
+                total_children += 1;
+            }
+        }
+
+        // let mut children: Vec<usize> = Vec::with_capacity(total_children);
+        let mut children: Vec<usize> = vec![0; total_children];
+        let mut n = 0;
+        for (i, e) in self.entries.iter_mut().enumerate() {
+            e.state.child_base = n;
+            n += num_children[i];
+            e.state.child_end = n;
+            num_children[i] = 0;
+        }
         for (i, e) in self.entries.iter().enumerate() {
             for &p in e.parents.iter() {
-                children[p].push(i);
+                // children[p].push(i);
+                let e2 = &self.entries[p];
+                debug_assert!(e2.state.child_base + num_children[p] < e2.state.child_end);
+                children[e2.state.child_base + num_children[p]] = i;
+                num_children[p] += 1;
             }
         }
 
@@ -317,10 +357,10 @@ impl ConflictSubgraph<M1EntryState> {
         if OPTIMIZE_PATHS {
             self.calc_costs(&children, metrics);
             // let rng = &mut rand::thread_rng();
-            for c in children.iter_mut() {
-                // Lowest cost to highest cost.
-                c.sort_unstable_by_key(|&i| self.entries[i].state.subtree_cost);
-                // c.shuffle(rng);
+
+            for e in self.entries.iter() {
+                let ch = Self::get_children_mut(&mut children, e);
+                ch.sort_unstable_by_key(|&i| self.entries[i].state.subtree_cost);
             }
         }
 
@@ -342,7 +382,7 @@ impl ConflictSubgraph<M1EntryState> {
                             // There's so much reversing happening here. We'll visit spans in
                             // reverse order, but ::Retreat's MergeSpan also understands that they
                             // are reversed. It all cancels out and works out ok.
-                            println!("T R {:?}", span);
+                            // println!("T R {:?}", span);
                             actions.push_rle(M1PlanAction::Retreat(span));
                         },
                         DiffFlag::OnlyB => { advances.push_reversed_rle(span); },
@@ -378,7 +418,7 @@ impl ConflictSubgraph<M1EntryState> {
         debug_assert_eq!(e.state.visited, false);
         e.state.visited = true;
         // let e = &self.entries[current_idx];
-        for &c in &children[current_idx] {
+        for &c in Self::get_children(&children, &self.entries[current_idx]) {
             self.entries[c].state.parents_satisfied += 1;
         }
 
@@ -440,15 +480,17 @@ impl ConflictSubgraph<M1EntryState> {
                     last_processed_idx = current_idx;
                 }
 
-                for c in &children[current_idx] {
-                    self.entries[*c].state.parents_satisfied += 1;
+                for &c in Self::get_children(&children, &self.entries[current_idx]) {
+                    self.entries[c].state.parents_satisfied += 1;
                 }
             }
 
+            let e = &self.entries[current_idx];
             // Afterwards we'll try to go down to one of our children. Failing that, we'll go up
             // to the next item in the stack.
 
-            let c = &mut children[current_idx];
+            // let c = &mut children[current_idx];
+            let c = Self::get_children_mut(&mut children, e);
             // println!("Children: {:?}", c);
 
             let e = &self.entries[current_idx];
