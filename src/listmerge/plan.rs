@@ -321,7 +321,6 @@ impl ConflictSubgraph<M1EntryState> {
             // The plan is to have a 128 bit wide bit array where 1 bit is assigned each time any
             // item is visited with something in that slot.
             let w = max_lv - min_lv;
-            // w / 128
             let lv_per_bit = w.div_ceil(127);
             // dbg!(min_lv, max_lv, lv_per_bit);
 
@@ -331,7 +330,11 @@ impl ConflictSubgraph<M1EntryState> {
                     // This is kind of sloppy. What I want is 0b0000111100000 with 1 bits set
                     // between positions 0-127. At least 1 bit should always be set by this if the
                     // span is not empty.
-                    e.state.new_cost_here = (1u128<<(e.span.end / lv_per_bit + 1)) - (1u128 << (e.span.start / lv_per_bit));
+                    let start = ((e.span.start - min_lv) / lv_per_bit) as u32;
+                    let end = ((e.span.end - min_lv + lv_per_bit - 1) / lv_per_bit) as u32; // Basically, ceil.
+
+                    e.state.new_cost_here = 1u128.wrapping_shl(end)
+                        .wrapping_sub(1u128 << start);
 
                     if i == self.b_root {
                         e.state.new_cost_here |= 1u128 << 127;
