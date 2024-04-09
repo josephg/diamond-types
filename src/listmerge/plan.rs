@@ -87,10 +87,6 @@ impl ConflictSubgraph<M1EntryState> {
         // Sorted highest to lowest.
         // let mut queue: BinaryHeap<Reverse<(usize, DiffFlag)>> = BinaryHeap::new();
         if after {
-            // Fast case.
-            let to_entry_parents = &self.entries[to_idx].parents;
-            if to_entry_parents.as_ref() == &[from_idx] { return; }
-
             // println!("{}", self.entries[to_idx].parents.as_ref() == &[from_idx]);
             queue.push(Reverse((from_idx, OnlyA)));
         } else {
@@ -331,21 +327,30 @@ impl ConflictSubgraph<M1EntryState> {
         let mut queue = DiffTraceHeap::new();
 
         fn teleport(queue: &mut DiffTraceHeap, g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, target_idx: usize, last_processed_after: bool, last_processed_idx: usize) {
+            // Fast case.
+            let to_entry_parents = &g.entries[target_idx].parents;
+            if to_entry_parents.as_ref() == &[last_processed_idx] && last_processed_after { return; }
+
+            // Retreats must appear first in the action list. We'll cache any advance actions in
+            // this vec, and push retreats to the action list immediately.
             let mut advances: SmallVec<[DTRange; 4]> = smallvec![];
-            let mut retreats: SmallVec<[DTRange; 4]> = smallvec![];
+
             g.diff_trace(queue, last_processed_idx, last_processed_after, target_idx, |flag, span: DTRange| {
                 if !span.is_empty() {
                     match flag {
-                        DiffFlag::OnlyA => &mut retreats,
-                        DiffFlag::OnlyB => &mut advances,
-                        DiffFlag::Shared => { return; }
-                    }.push_reversed_rle(span);
+                        DiffFlag::OnlyA => {
+                            // There's so much reversing happening here. We'll visit spans in
+                            // reverse order, but ::Retreat's MergeSpan also understands that they
+                            // are reversed. It all cancels out and works out ok.
+                            println!("T R {:?}", span);
+                            actions.push_rle(M1PlanAction::Retreat(span));
+                        },
+                        DiffFlag::OnlyB => { advances.push_reversed_rle(span); },
+                        DiffFlag::Shared => {}
+                    }
                 }
             });
 
-            if !retreats.is_empty() {
-                actions.extend(retreats.into_iter().map(M1PlanAction::Retreat));
-            }
             if !advances.is_empty() {
                 // .rev() here because diff visits everything in reverse order.
                 actions.extend(advances.into_iter().rev().map(M1PlanAction::Advance));
