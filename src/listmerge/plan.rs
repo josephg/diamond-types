@@ -3,6 +3,7 @@
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::ops::Not;
 use bumpalo::collections::CollectIn;
 use smallvec::{SmallVec, smallvec};
 use rle::{AppendRle, HasLength, HasRleKey, MergableSpan};
@@ -74,6 +75,9 @@ pub(crate) struct M1EntryState {
 
     child_base: usize,
     child_end: usize,
+
+    new_cost_here: u128,
+    new_cost_estimate: u32,
 }
 
 
@@ -176,7 +180,7 @@ impl ConflictSubgraph<M1EntryState> {
     }
 
     #[inline(never)]
-    fn calc_costs(&mut self, children: &[usize], metrics: Option<&Metrics>) {
+    fn calc_costs_accurately(&mut self, children: &[usize], metrics: Option<&Metrics>) {
         // There's a tradeoff here. We can figure out the cost for each span using the operation
         // log, which looks up how many actual operations the span crosses. Doing so carries a
         // small but measurable improvement in merging performance because we can optimize the
@@ -296,6 +300,67 @@ impl ConflictSubgraph<M1EntryState> {
         }
     }
 
+    #[inline(never)]
+    fn calc_costs_estimate(&mut self, children: &[usize], _metrics: Option<&Metrics>) {
+        // There's a tradeoff here. We can figure out the cost for each span using the operation
+        // log, which looks up how many actual operations the span crosses. Doing so carries a
+        // small but measurable improvement in merging performance because we can optimize the
+        // children better. But it takes a little longer. Eh.
+        if false { //let Some(metrics) = metrics {
+            // todo!()
+        } else {
+            let min_lv = self.base_version.0.first().copied().unwrap_or(0);
+            let Some(max_lv) = self.entries
+                .iter()
+                .filter_map(|e| {
+                    if e.span.is_empty() { None }
+                    else { Some(e.span.end) }
+                })
+                .max() else { return; };
+
+            // The plan is to have a 128 bit wide bit array where 1 bit is assigned each time any
+            // item is visited with something in that slot.
+            let w = max_lv - min_lv;
+            // w / 128
+            let lv_per_bit = w.div_ceil(127);
+            // dbg!(min_lv, max_lv, lv_per_bit);
+
+            for (i, e) in self.entries.iter_mut().enumerate().rev() {
+                // Just use the span estimate.
+                if !e.span.is_empty() {
+                    // This is kind of sloppy. What I want is 0b0000111100000 with 1 bits set
+                    // between positions 0-127. At least 1 bit should always be set by this if the
+                    // span is not empty.
+                    e.state.new_cost_here = (1u128<<(e.span.end / lv_per_bit + 1)) - (1u128 << (e.span.start / lv_per_bit));
+
+                    if i == self.b_root {
+                        e.state.new_cost_here |= 1u128 << 127;
+                    } else {
+                        e.state.new_cost_here &= (1u128 << 127).not();
+                    }
+                    // println!("{i} span: {:?} root {} cost {:#b}", e.span, i == self.b_root, e.state.new_cost_here);
+                } else { e.state.new_cost_here = 0; }
+            }
+        }
+
+        for i in 0..self.entries.len() { // From the latest in the graph to the earliest.
+            let e = &self.entries[i];
+
+            let mut cost = e.state.new_cost_here;
+            // Include the cost of all children. We do this in order, so its recursive.
+            for &c in Self::get_children(children, e) {
+                cost |= self.entries[c].state.new_cost_here;
+            }
+
+            // println!("cost {i} = {cost:#b}");
+            self.entries[i].state.new_cost_here = cost;
+
+            // If the top bit is set, keep it in the cost estimate.
+            self.entries[i].state.new_cost_estimate = cost.count_ones()
+                + ((cost & (1u128 << 127)) >> (128-32)) as u32;
+        }
+    }
+
     pub(crate) fn make_m1_plan(mut self, metrics: Option<&Metrics>, allow_ff: bool) -> (M1Plan, Frontier) {
         let mut actions = vec![];
         if self.entries.is_empty() {
@@ -352,30 +417,44 @@ impl ConflictSubgraph<M1EntryState> {
 
         self.prepare();
 
-        const OPTIMIZE_PATHS: bool = true;
-
-        if OPTIMIZE_PATHS {
-            self.calc_costs(&children, metrics);
+        // We can scan & reorder the graph here in order to traverse it more efficiently. This
+        // isn't always a win. Sometimes its faster to spend the cycles processing a slightly
+        // inefficient graph, than try and optimise the graph too much first.
+        const OPT_EXACT: bool = false;
+        if OPT_EXACT {
+            // self.calc_costs(&children, None);
+            self.calc_costs_accurately(&children, metrics);
             // let rng = &mut rand::thread_rng();
 
             for e in self.entries.iter() {
-                let ch = Self::get_children_mut(&mut children, e);
-                ch.sort_unstable_by_key(|&i| self.entries[i].state.subtree_cost);
+                Self::get_children_mut(&mut children, e)
+                    .sort_unstable_by_key(|&i| self.entries[i].state.subtree_cost);
+            }
+        }
+
+        // This second algorithm is much faster, but less accurate.
+        const OPT_ESTIMATE: bool = true;
+        if OPT_ESTIMATE {
+            self.calc_costs_estimate(&children, metrics);
+
+            for e in self.entries.iter() {
+                Self::get_children_mut(&mut children, e)
+                    .sort_unstable_by_key(|&i| self.entries[i].state.new_cost_estimate);
             }
         }
 
         let mut queue = DiffTraceHeap::new();
 
-        fn teleport(queue: &mut DiffTraceHeap, g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, target_idx: usize, last_processed_after: bool, last_processed_idx: usize) {
+        fn teleport(queue: &mut DiffTraceHeap, g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, to_idx: usize, last_processed_after: bool, from_idx: usize) {
             // Fast case.
-            let to_entry_parents = &g.entries[target_idx].parents;
-            if to_entry_parents.as_ref() == &[last_processed_idx] && last_processed_after { return; }
+            let to_entry_parents = &g.entries[to_idx].parents;
+            if to_entry_parents.as_ref() == &[from_idx] && last_processed_after { return; }
 
             // Retreats must appear first in the action list. We'll cache any advance actions in
             // this vec, and push retreats to the action list immediately.
             let mut advances: SmallVec<[DTRange; 4]> = smallvec![];
 
-            g.diff_trace(queue, last_processed_idx, last_processed_after, target_idx, |flag, span: DTRange| {
+            g.diff_trace(queue, from_idx, last_processed_after, to_idx, |flag, span: DTRange| {
                 if !span.is_empty() {
                     match flag {
                         DiffFlag::OnlyA => {
@@ -393,10 +472,10 @@ impl ConflictSubgraph<M1EntryState> {
 
             if !advances.is_empty() {
                 // .rev() here because diff visits everything in reverse order.
+                // println!("T A {:?}", advances);
                 actions.extend(advances.into_iter().rev().map(M1PlanAction::Advance));
             }
         }
-
 
         // self.dbg_print();
         // dbg!(&children);
@@ -463,6 +542,7 @@ impl ConflictSubgraph<M1EntryState> {
                         // Note we only advance & retreat if the item is not on the critical path.
                         // If we're on the critical path, the clear operation will flush everything
                         // anyway.
+                        // println!("TELE {last_processed_idx} -> {current_idx}");
                         teleport(&mut queue, &self, &mut actions, current_idx, last_processed_after, last_processed_idx);
                         actions.push_rle(M1PlanAction::Apply(e.span));
                         dirty = true;
@@ -529,6 +609,15 @@ impl ConflictSubgraph<M1EntryState> {
 
             // We couldn't go down any more with this item. Go up instead.
             if let Some(next_idx) = stack.pop() {
+                // let e = &mut self.entries[current_idx];
+                // if e.parents.len() == 1 && last_processed_idx == current_idx {
+                //     println!("UP {current_idx} -> {next_idx} span {:?} p {:?}", e.span, e.parents);
+                //     if current_idx == 3 {
+                //         println!();
+                //     }
+                //     if !e.span.is_empty() { actions.push_rle(M1PlanAction::Retreat(e.span)); }
+                //     last_processed_idx = next_idx;
+                // }
                 current_idx = next_idx;
             } else if let Some(idx) = b_children.pop() {
                 debug_assert_eq!(a_spans_remaining, 0);
@@ -545,7 +634,6 @@ impl ConflictSubgraph<M1EntryState> {
                 panic!("Should have stopped");
                 // break;
             }
-
         }
 
         (M1Plan(actions), self.base_version)

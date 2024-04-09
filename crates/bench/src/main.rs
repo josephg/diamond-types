@@ -175,6 +175,16 @@ fn main() {
     let mut c = Criterion::default()
         .configure_from_args();
 
+    // c.bench_function("count_ones", |b| {
+    //     let mut n: u128 = 0;
+    //     // let mut n: u128 = 0xffffffff_ffffffff_ffffffff_ffffffff;
+    //     // let mut n: u128 = 0xf00ff00f_f00ff00f_f00ff00f_f00ff00f;
+    //     b.iter(|| {
+    //         black_box(n.count_ones());
+    //         n += 1;
+    //     });
+    // });
+
     local_benchmarks(&mut c);
     encoding_nodecc_benchmarks(&mut c);
     idxtrace_benchmarks(&mut c);
