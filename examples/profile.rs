@@ -37,14 +37,25 @@ fn profile_merge(name: &str, n: usize) {
     let oplog = ListOpLog::load_from(&contents).unwrap();
 
     for _i in 0..n {
-        black_box(oplog.checkout_tip());
+        black_box(oplog.checkout_tip_old());
+    }
+}
+
+#[allow(unused)]
+fn profile_make_plan(name: &str, n: usize) {
+    let contents = std::fs::read(&format!("benchmark_data/{name}.dt")).unwrap();
+    let oplog = ListOpLog::load_from(&contents).unwrap();
+
+    for _i in 0..n {
+        oplog.dbg_bench_make_plan();
     }
 }
 
 // RUSTFLAGS="-Cforce-frame-pointers=yes" cargo build --profile profiling --example profile
 fn main() {
     // profile_merge("clownschool", 500);
-    profile_merge("git-makefile", 200);
+    profile_make_plan("clownschool", 1000);
+    // profile_merge("git-makefile", 200);
     // profile_merge("git-makefile", 1);
     // profile_merge("node_nodecc", 1);
     // profile_merge("clownschool", 1);

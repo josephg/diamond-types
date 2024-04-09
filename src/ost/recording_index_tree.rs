@@ -82,7 +82,8 @@ impl<V: IndexContent + Default> RecordingTree<V> {
 #[derive(Debug, Clone)]
 pub struct IndexTreeReplay<V: IndexContent>(Vec<TreeCommand<V>>);
 
-#[cfg(feature = "serde")]
+// #[cfg(feature = "serde")]
+#[cfg(feature = "expose_benchmarking")]
 impl<V: IndexContent + Default + DeserializeOwned> IndexTreeReplay<V> {
     pub fn from_json(json: &[u8]) -> Self {
         Self(serde_json::from_slice(json).unwrap())

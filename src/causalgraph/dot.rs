@@ -27,7 +27,7 @@ impl ToString for DotColor {
 }
 
 impl CausalGraph {
-    pub fn to_dot_graph(&self) -> String {
+    pub fn to_dot_graph(&self, v: Option<&[LV]>) -> String {
         // Same as above, but each merge creates a new dot item.
         let mut merges_touched = HashSet::new();
 
@@ -45,7 +45,9 @@ impl CausalGraph {
         out.push_str("\tedge [color=\"#333333\" dir=none]\n");
 
         write!(&mut out, "\tROOT [fillcolor={} label=<ROOT>]\n", DotColor::Red.to_string()).unwrap();
-        for txn in self.make_simple_graph().iter() {
+        let subgraph = self.graph.make_simple_graph(v.unwrap_or(self.version.as_ref()));
+
+        for txn in subgraph.iter() {
             // dbg!(txn);
             let range = txn.span;
 
@@ -75,8 +77,8 @@ impl CausalGraph {
         out
     }
 
-    pub(crate) fn generate_dot_svg<P: AsRef<Path>>(&self, out_filename: P) {
-        render_dot_string(self.to_dot_graph(), out_filename.as_ref());
+    pub(crate) fn generate_dot_svg<P: AsRef<Path>>(&self, out_filename: P, v: Option<&[LV]>) {
+        render_dot_string(self.to_dot_graph(v), out_filename.as_ref());
     }
 }
 
