@@ -65,7 +65,7 @@ trace-alloc = { path = "crates/trace-alloc" }
 [features]
 default = ["lz4", "storage", "rand"] # rand just for testing.
 #default = ["lz4", "storage"]
-#memusage = ["trace-alloc/memusage"]
+memusage = ["trace-alloc/memusage"]
 inlinerope = []
 lz4 = ["dep:lz4_flex"]
 serde = ["dep:serde", "smallvec/serde", "smartstring/serde"]

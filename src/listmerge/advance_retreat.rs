@@ -25,22 +25,29 @@ impl M2Tracker {
     /// This should only be used with times we have advanced through.
     ///
     /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
-    fn index_query(&self, time: usize) -> QueryResult {
-        assert_ne!(time, usize::MAX);
+    fn index_query(&self, lv: LV) -> QueryResult {
+        assert_ne!(lv, usize::MAX);
 
         let index_len = self.index.offset_len();
-        if time >= index_len {
+        if lv >= index_len {
             panic!("Index query past the end");
             // (Ins, (index_len..usize::MAX).into(), time - index_len, self.range_tree.unsafe_cursor_at_end())
         } else {
-            let cursor = self.index.cursor_at_offset_pos(time, false);
+            let cursor = self.index.cursor_at_offset_pos(lv, false);
             let entry = cursor.get_raw_entry();
+
+            // eprintln!("index_query {}: {} - {} ({})", lv, lv - cursor.offset, lv - cursor.offset + entry.len,
+            //     match entry.inner {
+            //         InsPtr(_) => "ins",
+            //         DelTarget(_) => "del"
+            //     }
+            // );
 
             match entry.inner {
                 InsPtr(ptr) => {
                     debug_assert!(ptr != NonNull::dangling());
                     // For inserts, the target is simply the range of the item.
-                    let start = time - cursor.offset;
+                    let start = lv - cursor.offset;
                     QueryResult {
                         tag: Ins,
                         target: (start..start+entry.len).into(),
@@ -60,7 +67,12 @@ impl M2Tracker {
             // Note the delete could be reversed - but we don't really care here; we just mark the
             // whole range anyway.
             // let (tag, target, mut len) = self.next_action(range.start);
-            let QueryResult { tag, target, offset, mut ptr } = self.index_query(range.start);
+            let QueryResult {
+                tag,
+                target,
+                offset,
+                mut ptr
+            } = self.index_query(range.start);
 
             let len = usize::min(target.len() - offset, range.len());
 
@@ -69,12 +81,6 @@ impl M2Tracker {
 
             // let mut len_remaining = len;
             while !target_range.is_empty() {
-
-                // STATS.with(|s| {
-                //     let mut s = s.borrow_mut();
-                //     s.1 += 1;
-                // });
-
                 // We'll only get a pointer when we're inserting. Note we can't reuse the ptr
                 // across subsequent invocations because we mutate the range_tree.
                 let ptr = ptr.take().unwrap_or_else(|| self.marker_at(target_range.start));
