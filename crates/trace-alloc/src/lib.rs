@@ -28,6 +28,7 @@ pub struct TracingAlloc;
 
 unsafe impl GlobalAlloc for TracingAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // println!("{}", std::backtrace::Backtrace::force_capture());
         let ret = System.alloc(layout);
         if !ret.is_null() {
             // ALLOCATED.fetch_add(layout.size(), Ordering::AcqRel);

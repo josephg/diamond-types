@@ -45,63 +45,6 @@ fn write_stats(name: &str, oplog: &ListOpLog) {
 }
 
 #[allow(unused)]
-fn print_stats_for_testdata(name: &str) {
-    let filename = format!("benchmark_data/{}.json.gz", name);
-    let test_data = load_testing_data(&filename);
-    assert_eq!(test_data.start_content.len(), 0);
-    println!("\n\nLoaded testing data from {}\n ({} patches in {} txns -> docsize {} chars)",
-        // filename,
-        name,
-        test_data.len(),
-        test_data.txns.len(),
-        test_data.end_content.chars().count()
-    );
-
-    #[cfg(feature = "memusage")]
-    let start_bytes = get_thread_memory_usage();
-    #[cfg(feature = "memusage")]
-    let start_count = get_thread_num_allocations();
-
-    let mut doc = ListCRDT::new();
-    apply_edits_direct(&mut doc, &test_data.txns);
-    assert_eq!(doc.len(), test_data.end_content.chars().count());
-
-    #[cfg(feature = "memusage")]
-    println!("allocated {} bytes in {} blocks",
-        format_size((get_thread_memory_usage() - start_bytes) as usize, DECIMAL),
-        get_thread_num_allocations() - start_count);
-
-    doc.print_stats(false);
-
-    // let _as_bytes = doc.ops.encode(true);
-    // let _as_bytes = doc.oplog.encode(EncodeOptions {
-    //     verbose: true,
-    //     ..Default::default()
-    // });
-    println!("Branch size {}", doc.len());
-    // println!("---\nEncoded size {} (?? What do we include here?)", as_bytes.len());
-
-    // let out_file = format!("{}.dt", name);
-    // let data = doc.oplog.encode(EncodeOptions {
-    //     user_data: None,
-    //     store_start_branch_content: false,
-    //     experimentally_store_end_branch_content: false,
-    //     store_inserted_content: true,
-    //     store_deleted_content: false,
-    //     compress_content: true,
-    //     verbose: true
-    // });
-    // println!("Regular file size {} bytes", data.len());
-    // std::fs::write(out_file.clone(), data.as_slice()).unwrap();
-    // println!("Saved to {}", out_file);
-
-    // #[cfg(feature = "gen_test_data")]
-    // write_stats(name, &doc.oplog);
-
-    print_stats_for_oplog(name, &doc.oplog);
-}
-
-#[allow(unused)]
 fn print_stats_for_file(name: &str) {
     let contents = std::fs::read(&format!("benchmark_data/{name}.dt")).unwrap();
     println!("\n\nLoaded testing data from {} ({} bytes)", name, contents.len());
@@ -180,7 +123,7 @@ fn print_stats_for_oplog(_name: &str, oplog: &ListOpLog) {
     // print_merge_stats();
 
     #[cfg(feature = "memusage")]
-    let (start_bytes, start_count) = {
+        let (start_bytes, start_count) = {
         reset_peak_memory_usage();
         (get_thread_memory_usage(), get_thread_num_allocations())
     };
@@ -189,28 +132,15 @@ fn print_stats_for_oplog(_name: &str, oplog: &ListOpLog) {
 
     #[cfg(feature = "memusage")]
     println!("allocated {} bytes in {} blocks, peak usage {}",
-        format_size((get_thread_memory_usage() - start_bytes) as usize, DECIMAL),
-        get_thread_num_allocations() - start_count,
-        get_peak_memory_usage()
+             format_size((get_thread_memory_usage() - start_bytes) as usize, DECIMAL),
+             get_thread_num_allocations() - start_count,
+             get_peak_memory_usage() - start_bytes
     );
 
     println!("Resulting document size {} characters", state.len_chars());
 
     #[cfg(feature = "gen_test_data")]
     write_stats(_name, &oplog);
-}
-
-// This is a dirty addition for profiling.
-#[allow(unused)]
-fn profile_direct_editing() {
-    let filename = "benchmark_data/automerge-paper.json.gz";
-    let test_data = load_testing_data(&filename);
-
-    for _i in 0..300 {
-        let mut doc = ListCRDT::new();
-        apply_edits_direct(&mut doc, &test_data.txns);
-        assert_eq!(doc.len(), test_data.end_content.chars().count());
-    }
 }
 
 #[allow(unused)]
@@ -230,17 +160,35 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    print_stats_for_testdata("egwalker");
-    print_stats_for_testdata("automerge-paper");
-    // print_stats_for_testdata("rustcode");
-    // print_stats_for_testdata("sveltecomponent");
-    print_stats_for_testdata("seph-blog1");
+    // const PAPER_DATASETS: &[&str] = &["S1", "S2", "S3", "C1", "C2", "A1", "A2"];
+    const PAPER_DATASETS: &[&str] = &["C1"];
+    for name in PAPER_DATASETS {
+        let bytes = std::fs::read(format!("paper_benchmark_data/{name}.dt")).unwrap();
 
-    print_stats_for_file("node_nodecc");
-    print_stats_for_file("git-makefile");
+        #[cfg(feature = "memusage")]
+            let (start_bytes, start_count) = {
+            reset_peak_memory_usage();
+            (get_thread_memory_usage(), get_thread_num_allocations())
+        };
 
-    print_stats_for_file("friendsforever");
-    print_stats_for_file("clownschool");
+        let oplog = ListOpLog::load_from(&bytes).unwrap();
+        {
+            let state = oplog.checkout_tip().into_inner();
+        }
+
+        #[cfg(feature = "memusage")]
+        println!("{name}: allocated {} bytes in {} blocks, peak usage {}",
+                 format_size((get_thread_memory_usage() - start_bytes) as usize, DECIMAL),
+                 get_thread_num_allocations() - start_count,
+                 get_peak_memory_usage() - start_bytes
+        );
+    }
+
+    // print_stats_for_file("node_nodecc");
+    // print_stats_for_file("git-makefile");
+    //
+    // print_stats_for_file("friendsforever");
+    // print_stats_for_file("clownschool");
 
     // profile_merge("clownschool");
 }
