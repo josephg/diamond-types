@@ -93,8 +93,10 @@ pub(crate) struct SpanningTreeWalker<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TxnWalkItem {
-    // pub(crate) retreat: SmallVec<[DTRange; 4]>,
-    // pub(crate) advance_rev: SmallVec<[DTRange; 4]>,
+    pub(crate) retreat: SmallVec<[DTRange; 4]>,
+    pub(crate) advance_rev: SmallVec<[DTRange; 4]>,
+
+
     // txn: &'a TxnSpan,
     pub(crate) parents: Frontier,
     pub(crate) consume: DTRange,
@@ -307,8 +309,9 @@ impl<'a> Iterator for SpanningTreeWalker<'a> {
         self.check();
 
         Some(TxnWalkItem {
-            // retreat: only_branch,
-            // advance_rev: only_txn,
+            retreat: only_branch,
+            advance_rev: only_txn,
+
             // parents: parents.iter().copied().collect(), // TODO: clean this
             parents,
             consume: input_span,
@@ -374,14 +377,14 @@ mod test {
 
         assert_eq!(walk, [
             TxnWalkItem {
-                // retreat: smallvec![],
-                // advance_rev: smallvec![],
+                retreat: smallvec![],
+                advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (0..10).into(),
             },
             TxnWalkItem {
-                // retreat: smallvec![(0..10).into()],
-                // advance_rev: smallvec![],
+                retreat: smallvec![(0..10).into()],
+                advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (10..30).into(),
             },
@@ -400,20 +403,20 @@ mod test {
 
         assert_eq!(walk, [
             TxnWalkItem {
-                // retreat: smallvec![],
-                // advance_rev: smallvec![],
+                retreat: smallvec![],
+                advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (0..10).into(),
             },
             TxnWalkItem {
-                // retreat: smallvec![(0..10).into()],
-                // advance_rev: smallvec![],
+                retreat: smallvec![(0..10).into()],
+                advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (10..30).into(),
             },
             TxnWalkItem {
-                // retreat: smallvec![],
-                // advance_rev: smallvec![(0..10).into()],
+                retreat: smallvec![],
+                advance_rev: smallvec![(0..10).into()],
                 parents: Frontier::from_sorted(&[9, 29]),
                 consume: (30..50).into(),
             },
@@ -443,34 +446,34 @@ mod test {
         let iter = SpanningTreeWalker::new_all(&graph);
         assert!(iter.eq(IntoIterator::into_iter([
             TxnWalkItem {
-                // retreat: smallvec![],
-                // advance_rev: smallvec![],
+                retreat: smallvec![],
+                advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (0..1).into(),
             },
             TxnWalkItem {
-                // retreat: smallvec![],
-                // advance_rev: smallvec![],
+                retreat: smallvec![],
+                advance_rev: smallvec![],
                 parents: Frontier::from_sorted(&[0]),
                 consume: (2..3).into(),
             },
 
             TxnWalkItem {
-                // retreat: smallvec![(2..3).into(), (0..1).into()],
-                // advance_rev: smallvec![],
+                retreat: smallvec![(2..3).into(), (0..1).into()],
+                advance_rev: smallvec![],
                 parents: Frontier::root(),
                 consume: (1..2).into(),
             },
             TxnWalkItem {
-                // retreat: smallvec![],
-                // advance_rev: smallvec![],
+                retreat: smallvec![],
+                advance_rev: smallvec![],
                 parents: Frontier::from_sorted(&[1]),
                 consume: (3..4).into(),
             },
 
             TxnWalkItem {
-                // retreat: smallvec![],
-                // advance_rev: smallvec![(2..3).into(), (0..1).into()],
+                retreat: smallvec![],
+                advance_rev: smallvec![(2..3).into(), (0..1).into()],
                 parents: Frontier::from_sorted(&[2, 3]),
                 consume: (4..5).into(),
             },
@@ -494,8 +497,8 @@ mod test {
 
         assert!(iter.eq(IntoIterator::into_iter([
             TxnWalkItem {
-                // retreat: smallvec![],
-                // advance_rev: smallvec![],
+                retreat: smallvec![],
+                advance_rev: smallvec![],
                 parents: Frontier::from_sorted(&[5]),
                 consume: (6..7).into(),
             }

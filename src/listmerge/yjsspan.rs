@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 use content_tree::{ContentLength, Toggleable};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::LV;
-use crate::dtrange::{debug_time, DTRange, UNDERWATER_START};
+use crate::dtrange::{debug_lv, DTRange, UNDERWATER_START};
 
 /// 0 = not inserted yet,
 /// 1 = inserted but not deleted
@@ -99,8 +99,8 @@ impl Debug for CRDTSpan {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("YjsSpan");
         s.field("id", &self.id);
-        debug_time(&mut s, "origin_left", self.origin_left);
-        debug_time(&mut s, "origin_right", self.origin_right);
+        debug_lv(&mut s, "origin_left", self.origin_left);
+        debug_lv(&mut s, "origin_right", self.origin_right);
         s.field("state", &self.current_state); // Could probably do better than this.
         s.field("ever_deleted", &self.end_state_ever_deleted);
         s.finish()

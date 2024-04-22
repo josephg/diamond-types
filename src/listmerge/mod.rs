@@ -12,14 +12,16 @@
 
 use std::pin::Pin;
 use content_tree::{ContentTreeRaw, MutCursor, RawPositionMetricsUsize, UnsafeCursor};
-use crate::listmerge::markers::MarkerEntry;
+use crate::listmerge::markers::Marker;
 use crate::listmerge::metrics::MarkerMetrics;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::LV;
+use crate::ost::IndexTree;
+use crate::ost::recording_index_tree::RecordingTree;
 
-mod yjsspan;
+pub(crate) mod yjsspan;
 pub(crate) mod merge;
-mod markers;
+pub(crate) mod markers;
 mod advance_retreat;
 // pub(crate) mod txn_trace;
 mod metrics;
@@ -34,11 +36,26 @@ pub mod to_old;
 pub(crate) mod simple_oplog;
 pub(crate) mod plan;
 
+pub(crate) mod xf_old;
+
 type DocRangeIndex = MarkerMetrics;
 type CRDTList2 = Pin<Box<ContentTreeRaw<CRDTSpan, DocRangeIndex>>>;
 
-type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry, RawPositionMetricsUsize>>>;
-type SpaceIndexCursor = UnsafeCursor<MarkerEntry, RawPositionMetricsUsize>;
+// type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry, RawPositionMetricsUsize>>>;
+// type SpaceIndexCursor = UnsafeCursor<MarkerEntry, RawPositionMetricsUsize>;
+
+
+// #[derive(Debug)]
+// struct Index {
+//     // index_old: SpaceIndex,
+//     // index_cursor: Option<(LV, SpaceIndexCursor)>,
+//     index2: IndexTree<Marker2>,
+// }
+
+
+// RecordingTree is necessary if gen_test_data is enabled.
+// type Index = RecordingTree<Marker>;
+type Index = IndexTree<Marker>;
 
 #[derive(Debug)]
 struct M2Tracker {
@@ -48,8 +65,7 @@ struct M2Tracker {
     ///
     /// - For inserts, this contains a pointer to the node in range_tree which contains this version
     /// - For deletes, this names the time at which the delete happened.
-    index: SpaceIndex,
-    index_cursor: Option<(LV, SpaceIndexCursor)>,
+    index: Index,
 
     #[cfg(feature = "merge_conflict_checks")]
     concurrent_inserts_collide: bool,

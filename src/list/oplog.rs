@@ -44,6 +44,11 @@ impl ListOpLog {
         branch.merge(self, self.cg.version.as_ref());
         branch
     }
+    pub fn checkout_tip_old(&self) -> ListBranch {
+        let mut branch = ListBranch::new();
+        branch.merge_old(self, self.cg.version.as_ref());
+        branch
+    }
 
     pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
         self.cg.agent_assignment.get_or_create_agent_id(name)

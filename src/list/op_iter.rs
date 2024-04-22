@@ -48,20 +48,20 @@ impl<'a> Iterator for OpMetricsIter<'a> {
         // I bet there's a more efficient way to write this function.
         if self.idx >= self.list.0.len() { return None; }
 
-        let KVPair(mut time, mut c) = self.list[self.idx].clone();
-        if time >= self.range.end { return None; }
+        let KVPair(mut start, mut c) = self.list[self.idx].clone();
+        if start >= self.range.end { return None; }
 
-        if time + c.len() > self.range.end {
-            c.truncate_ctx(self.range.end - time, self.ctx);
+        if start + c.len() > self.range.end {
+            c.truncate_ctx(self.range.end - start, self.ctx);
         }
 
-        if time < self.range.start {
-            c.truncate_keeping_right_ctx(self.range.start - time, self.ctx);
-            time = self.range.start;
+        if start < self.range.start {
+            c.truncate_keeping_right_ctx(self.range.start - start, self.ctx);
+            start = self.range.start;
         }
 
         self.idx += 1;
-        Some(KVPair(time, c))
+        Some(KVPair(start, c))
     }
 }
 

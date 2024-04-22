@@ -4,11 +4,13 @@
 // https://github.com/automerge/automerge-perf/
 // mod testdata;
 mod utils;
+mod idxtrace;
 
 use criterion::{black_box, Criterion, BenchmarkId, Throughput};
 use crdt_testdata::{load_testing_data, TestData};
 use diamond_types::list::{ListCRDT, ListOpLog};
 use diamond_types::list::encoding::*;
+use crate::idxtrace::idxtrace_benchmarks;
 use crate::utils::*;
 
 fn testing_data(name: &str) -> TestData {
@@ -142,6 +144,19 @@ fn encoding_nodecc_benchmarks(c: &mut Criterion) {
                 black_box(branch);
             });
         });
+        
+        group.bench_function(BenchmarkId::new("merge_old", name), |b| {
+            b.iter(|| {
+                let branch = oplog.checkout_tip_old();
+                black_box(branch);
+            });
+        });
+
+        group.bench_function(BenchmarkId::new("make_plan", name), |b| {
+            b.iter(|| {
+                oplog.dbg_bench_make_plan();
+            });
+        });
 
         group.finish();
     }
@@ -160,7 +175,18 @@ fn main() {
     let mut c = Criterion::default()
         .configure_from_args();
 
+    // c.bench_function("count_ones", |b| {
+    //     let mut n: u128 = 0;
+    //     // let mut n: u128 = 0xffffffff_ffffffff_ffffffff_ffffffff;
+    //     // let mut n: u128 = 0xf00ff00f_f00ff00f_f00ff00f_f00ff00f;
+    //     b.iter(|| {
+    //         black_box(n.count_ones());
+    //         n += 1;
+    //     });
+    // });
+
     local_benchmarks(&mut c);
     encoding_nodecc_benchmarks(&mut c);
+    idxtrace_benchmarks(&mut c);
     c.final_summary();
 }

@@ -127,11 +127,17 @@ impl Graph {
             // This is a weird output for the conflict graph. It might make a lot more sense to
             // insert a single dummy entry which a_root and b_root both point to. Then other code
             // wouldn't need to special case this.
-            return ConflictSubgraph { entries: vec![], base_version: a.into(), a_root: usize::MAX, b_root: usize::MAX };
+            return ConflictSubgraph {
+                entries: vec![],
+                base_version: a.into(),
+                a_root: usize::MAX,
+                b_root: usize::MAX,
+            };
         }
 
         // let mut result: Vec<ActionGraphEntry> = vec![];
-        let mut result: Vec<ConflictGraphEntry<S>> = vec![];
+        let mut entries: Vec<ConflictGraphEntry<S>> = vec![];
+        // let mut parents: Vec<usize> = vec![];
 
         // This is a temporary stack to store the child indexes which point to the next item we're
         // going to emit - if any.
@@ -141,14 +147,15 @@ impl Graph {
 
         // fn push_result<S: Default>(span: DTRange, flag: DiffFlag, children: &mut SmallVec<[Child; 2]>, result: &mut Vec<ConflictGraphEntry<S>>) -> usize {
         let mut push_result = |span: DTRange, flag: DiffFlag, children: &mut SmallVec<[Child; 2]>| -> usize {
-            let new_index = result.len();
+            let new_index = entries.len();
             // println!("push_result {new_index} <- {:?}", children);
 
             // let mut num_children = 0;
             for &c in children.iter() {
                 match c {
                     Child::Idx(idx) => {
-                        result[idx].parents.push(new_index);
+                        entries[idx].parents.push(new_index);
+                        // add_child(
                         // num_children += 1;
                     },
                     Child::ARoot => {
@@ -165,8 +172,7 @@ impl Graph {
             }
 
             // Not updating one_final_entry because we won't stop here anyway.
-            result.push(ConflictGraphEntry { // Push the merge entry.
-                // parents: if process_here { smallvec![new_index + 1] } else { smallvec![] },
+            entries.push(ConflictGraphEntry { // Push the merge entry.
                 parents: smallvec![],
                 span,
                 // num_children,
@@ -356,7 +362,9 @@ impl Graph {
         // //     r.parents.reverse();
         // }
 
-        ConflictSubgraph { entries: result, base_version: frontier, a_root, b_root }
+        ConflictSubgraph {
+            entries, base_version: frontier, a_root, b_root,
+        }
     }
 }
 

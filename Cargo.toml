@@ -24,7 +24,7 @@ lazy_static = "1.4.0"
 
 # Used by wasm module, CLI.
 serde = { version = "1.0.183", features = ["derive"], optional = true }
-rle = { version = "0.2.0", path = "crates/rle" }
+rle = { version = "0.2.0", path = "crates/rle", features = ["smallvec"] }
 content-tree = { version = "0.2.0", path = "crates/content-tree" }
 
 # Only used for generating testing data.
@@ -74,6 +74,7 @@ wchar_conversion = ["jumprope/wchar_conversion"]
 ops_to_old = []
 merge_conflict_checks = []
 storage = []
+expose_benchmarking = ["serde", "serde_json"]
 
 # This is internal only for generating JSON testing data. To generate, run test suite with
 # rm *_tests.json; cargo test --features gen_test_data causalgraph::parents::tools -- --test-threads 1

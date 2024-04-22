@@ -39,7 +39,7 @@ impl RangeRev {
     // }
 
     #[allow(unused)]
-    pub fn time_at_offset(&self, offset: usize) -> usize {
+    pub fn lv_at_offset(&self, offset: usize) -> usize {
         if self.fwd {
             self.span.start + offset
         } else {
@@ -122,9 +122,10 @@ impl SplitableSpanHelpers for RangeRev {
 
 impl MergableSpan for RangeRev {
     fn can_append(&self, other: &Self) -> bool {
-        // Can we append forward?
         let self_len_1 = self.len() == 1;
         let other_len_1 = other.len() == 1;
+
+        // Can we append forward?
         if (self_len_1 || self.fwd) && (other_len_1 || other.fwd)
             && other.span.start == self.span.end {
             return true;
@@ -184,6 +185,7 @@ mod test {
             span: (1..4).into(),
             fwd: false
         };
+        assert_eq!(rev.range(0, 3), rev.span);
         assert_eq!(rev.split_h(1), (
             RangeRev {
                 span: (3..4).into(),
@@ -219,8 +221,8 @@ mod test {
 
             for offset in 1..span.len() {
                 let (a, b) = span.split_h(offset);
-                assert_eq!(span.time_at_offset(offset - 1), a.time_at_offset(offset - 1));
-                assert_eq!(span.time_at_offset(offset), b.time_at_offset(0));
+                assert_eq!(span.lv_at_offset(offset - 1), a.lv_at_offset(offset - 1));
+                assert_eq!(span.lv_at_offset(offset), b.lv_at_offset(0));
                 // assert_eq!(span.time_at_offset(offset), a.time_at_offset(0));
                 // assert_eq!(span.offset_at_time())
             }

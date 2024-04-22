@@ -307,6 +307,9 @@ enum Commands {
         /// Path to `dot` command
         #[arg(long)]
         dot_path: Option<OsString>,
+
+        #[arg(short, long)]
+        truncate: Option<usize>
     },
 
     /// Import & convert the editing history for a file from git to diamond types.
@@ -646,11 +649,16 @@ fn main() -> Result<(), anyhow::Error> {
             }))?;
         }
 
-        Commands::Dot { dt_filename, no_render, output, dot_path } => {
+        Commands::Dot { dt_filename, no_render, output, dot_path, truncate } => {
             let data = fs::read(&dt_filename)?;
             let oplog = ListOpLog::load_from(&data)?;
 
-            let dot_input = oplog.cg.to_dot_graph();
+            let dot_input = if let Some(t) = truncate {
+                // There's probably a way to do this using nice rust constructs, but the borrow checker is hard.
+                oplog.cg.to_dot_graph(Some(&[t]))
+            } else {
+                oplog.cg.to_dot_graph(None)
+            };
             // println!("{dot_input}");
 
             let render = !no_render;

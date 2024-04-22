@@ -18,7 +18,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
     ///
     /// The list of items must have a maximum length of 3, so we can always insert all the new items
     /// in half of a leaf node. (This is a somewhat artificial constraint, but its fine here.)
-    unsafe fn insert_internal<F>(mut items: &[E], cursor: &mut UnsafeCursor<E, I, IE, LE>, flush_marker: &mut I::Update, notify: &mut F)
+    unsafe fn insert_internal<F>(mut items: &[E], cursor: &mut UnsafeCursor<E, I, IE, LE>, flush_marker: &mut I::Update, mut notify_here: bool, notify: &mut F)
         where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>)
     {
         if items.is_empty() { return; }
@@ -73,7 +73,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
                 if cur_entry.can_append(&next) {
                     I::increment_marker(flush_marker, &next);
                     // flush_marker += next.content_len() as isize;
-                    notify(next, cursor.node);
+                    if notify_here { notify(next, cursor.node) };
                     cur_entry.append(next);
 
                     cursor.offset = cur_entry.len();
@@ -107,7 +107,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
                     let next = items[end_idx];
                     if next.can_append(cur_entry) {
                         I::increment_marker(flush_marker, &next);
-                        notify(next, cursor.node);
+                        if notify_here { notify(next, cursor.node) };
                         trailing_offset += next.len();
                         cur_entry.prepend(next);
                     } else { break; }
@@ -151,6 +151,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
                 cursor.node = new_node_ptr;
                 cursor.idx = 0;
                 node = &mut *cursor.node.as_ptr();
+                notify_here = true;
                 true
             }
         } else {
@@ -170,7 +171,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
             for e in items {
                 I::increment_marker(flush_marker, e);
                 // flush_marker.0 += e.content_len() as isize;
-                notify(*e, cursor.node);
+                if notify_here { notify(*e, cursor.node) };
             }
             node.data[cursor.idx..cursor.idx + items.len()].copy_from_slice(items);
 
@@ -196,7 +197,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
     pub unsafe fn unsafe_insert_notify<F>(cursor: &mut UnsafeCursor<E, I, IE, LE>, new_entry: E, mut notify: F)
     where F: FnMut(E, NonNull<NodeLeaf<E, I, IE, LE>>) {
         let mut marker = I::Update::default();
-        Self::insert_internal(&[new_entry], cursor, &mut marker, &mut notify);
+        Self::insert_internal(&[new_entry], cursor, &mut marker, true, &mut notify);
 
         cursor.get_node_mut().flush_metric_update(&mut marker);
         // cursor.compress_node();
@@ -290,7 +291,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
             // notify(*entry, cursor.node);
 
             // And insert the rest, if there are any.
-            Self::insert_internal(&items[items_idx + 1..], cursor, flush_marker, notify);
+            Self::insert_internal(&items[items_idx + 1..], cursor, flush_marker, false, notify);
         }
 
         if cfg!(debug_assertions) {
@@ -386,7 +387,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
                 node.data[cursor.idx] = entry;
                 cursor.offset = replaced_here;
                 I::increment_marker(flush_marker, &entry);
-                notify(entry, cursor.node);
+                //notify(entry, cursor.node);
             }
         }
 
@@ -445,7 +446,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
         if cursor.idx >= node.len_entries() {
             // The cursor already points past the end of the entry.
             cursor.roll_to_next_entry();
-            Self::insert_internal(&[new_entry], cursor, flush_marker, &mut notify);
+            Self::insert_internal(&[new_entry], cursor, flush_marker, true, &mut notify);
             return;
         }
 
@@ -477,7 +478,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
             debug_assert_eq!(*flush_marker, I::Update::default());
 
             // We've reached the end of the tree. Can't replace more, so we just insert here.
-            Self::insert_internal(&[new_entry], cursor, flush_marker, &mut notify);
+            Self::insert_internal(&[new_entry], cursor, flush_marker, false, &mut notify);
             return;
         }
 
@@ -510,7 +511,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
 
                 if replaced_len == 0 || !cursor.next_entry_marker(Some(flush_marker)) {
                     // Only inserting remains.
-                    Self::insert_internal(&[new_entry], cursor, flush_marker, &mut notify);
+                    Self::insert_internal(&[new_entry], cursor, flush_marker, false, &mut notify);
                     return;
                 }
 
@@ -670,7 +671,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
                     // self.insert(cursor.clone(), remainder, notify);
 
                     let mut c2 = cursor.clone();
-                    Self::insert_internal(&[remainder], &mut c2, flush_marker, notify);
+                    Self::insert_internal(&[remainder], &mut c2, flush_marker, false, notify);
                     c2.get_node_mut().flush_metric_update(flush_marker);
 
                     return;

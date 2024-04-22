@@ -75,6 +75,6 @@ pub fn gen_oplog(seed: u64, steps: usize, use_unicode: bool, interleave_agents: 
 
 #[test]
 fn generates_simple_oplog() {
-    let _oplog = gen_oplog(123, 10, false);
+    let _oplog = gen_oplog(123, 10, false, false);
     // dbg!(oplog);
 }

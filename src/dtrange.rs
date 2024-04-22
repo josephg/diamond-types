@@ -49,8 +49,12 @@ impl DTRange {
         self.start <= item && item < self.end
     }
 
+    pub fn is_valid(&self) -> bool {
+        self.start <= self.end
+    }
+
     pub fn is_empty(&self) -> bool {
-        debug_assert!(self.start <= self.end);
+        // debug_assert!(self.start <= self.end);
         self.start == self.end
     }
 
@@ -131,6 +135,7 @@ impl RangeBounds<usize> for DTRange {
 }
 
 impl HasLength for DTRange {
+    #[inline]
     fn len(&self) -> usize {
         self.end - self.start
     }
@@ -223,8 +228,8 @@ impl HasRleKey for DTRange {
 
 pub(crate) const UNDERWATER_START: usize = usize::MAX / 4;
 
-pub(crate) fn is_underwater(time: LV) -> bool {
-    time >= UNDERWATER_START
+pub(crate) fn is_underwater(lv: LV) -> bool {
+    lv >= UNDERWATER_START
 }
 
 // #[derive(Debug)]
@@ -236,13 +241,13 @@ pub(crate) fn is_underwater(time: LV) -> bool {
 //     }
 // }
 
-pub(crate) fn debug_time_raw<F: FnOnce(&dyn Debug) -> R, R>(val: LV, f: F) -> R {
+pub(crate) fn debug_lv_raw<F: FnOnce(&dyn Debug) -> R, R>(val: LV, f: F) -> R {
     if val >= UNDERWATER_START { f(&Underwater(val - UNDERWATER_START)) }
     else { f(&val) }
 }
 
-pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: LV) {
-    debug_time_raw(val, |v| { fmt.field(name, v); });
+pub(crate) fn debug_lv(fmt: &mut DebugStruct, name: &str, val: LV) {
+    debug_lv_raw(val, |v| { fmt.field(name, v); });
 }
 
 // #[derive(Debug)]
@@ -256,16 +261,18 @@ impl Debug for Underwater {
 
 impl Debug for DTRange {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.is_empty() {
+        if !self.is_valid() {
+            write!(f, "INVALID: {}..{}", self.start, self.end)?;
+        } else if self.is_empty() {
             write!(f, "(EMPTY)")?;
         } else {
             write!(f, "v ")?;
-            debug_time_raw(self.start, |v| v.fmt(f))?;
+            debug_lv_raw(self.start, |v| v.fmt(f))?;
             if self.end != self.start + 1 {
                 // write!(f, "-")?;
                 // debug_time_raw(self.end - 1, |v| v.fmt(f))?;
                 write!(f, "..")?;
-                debug_time_raw(self.end, |v| v.fmt(f))?;
+                debug_lv_raw(self.end, |v| v.fmt(f))?;
             }
         }
         Ok(())

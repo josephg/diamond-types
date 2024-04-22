@@ -8,9 +8,9 @@ use jumprope::JumpRopeBuf;
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
 use content_tree::*;
-use rle::{AppendRle, HasLength, MergeableIterator, Searchable, SplitableSpanCtx, Trim, TrimCtx};
+use rle::{AppendRle, HasLength, MergeableIterator, RleDRun, Searchable, SplitableSpanCtx, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
-use crate::listmerge::{DocRangeIndex, M2Tracker, SpaceIndex, SpaceIndexCursor};
+use crate::listmerge::{DocRangeIndex, Index, M2Tracker};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, CRDTSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::{DTRange, UNDERWATER_START};
@@ -27,18 +27,20 @@ use crate::listmerge::dot::{DotColor, name_of};
 #[cfg(feature = "dot_export")]
 use crate::listmerge::dot::DotColor::*;
 
-use crate::listmerge::markers::Marker::{DelTarget, InsPtr};
-use crate::listmerge::markers::MarkerEntry;
+use crate::listmerge::markers::{Marker, DelRange};
 use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::listmerge::metrics::upstream_cursor_pos;
 use crate::list::op_iter::OpMetricsIter;
 use crate::causalgraph::graph::Graph;
 use crate::textinfo::TextInfo;
 use crate::frontier::local_frontier_eq;
+use crate::list::encoding::txn_trace::SpanningTreeWalker;
 use crate::list::ListOpLog;
 use crate::listmerge::plan::{M1Plan, M1PlanAction};
 #[cfg(feature = "ops_to_old")]
 use crate::listmerge::to_old::OldCRDTOpInternal;
+use crate::ost::IndexTree;
+use crate::ost::recording_index_tree::TreeCommand;
 use crate::unicount::consume_chars;
 
 const ALLOW_FF: bool = true;
@@ -46,45 +48,17 @@ const ALLOW_FF: bool = true;
 #[cfg(feature = "dot_export")]
 const MAKE_GRAPHS: bool = false;
 
-fn pad_index_to(index: &mut SpaceIndex, desired_len: usize) {
-    // TODO: Use dirty tricks to avoid this for more performance.
-    let index_len = index.len();
-
-    if index_len < desired_len {
-        index.push(MarkerEntry {
-            len: desired_len - index_len,
-            inner: InsPtr(NonNull::dangling()),
-        });
-    }
-}
-
-pub(super) fn notify_for<'a>(index: &'a mut SpaceIndex, idx_cursor: &'a mut Option<(LV, SpaceIndexCursor)>) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
+pub(super) fn notify_for<'a>(index: &'a mut Index) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
     move |entry: CRDTSpan, leaf| {
         debug_assert!(leaf != NonNull::dangling());
 
         // Note we can only mutate_entries when we have something to mutate. The list is started
         // with a big placeholder "underwater" entry which will be split up as needed.
 
-        let start = entry.id.start;
-        let mut cursor = match idx_cursor.take() {
-            Some((cursor_start, mut cursor)) if cursor_start == start => {
-                cursor.roll_to_next_entry();
-                cursor
-            },
-            _ => index.unsafe_cursor_at_offset_pos(start, false)
-        };
+        // println!("SET RANGE {:?} -> {:?}", entry.id, InsPtr(leaf));
 
-        // let mut cursor = index.unsafe_cursor_at_offset_pos(entry.id.start, false);
-        unsafe {
-            ContentTreeRaw::unsafe_mutate_entries_notify(|marker| {
-                // The item should already be an insert entry.
-                debug_assert_eq!(marker.inner.tag(), ListOpKind::Ins);
-
-                marker.inner = InsPtr(leaf);
-            }, &mut cursor, entry.len(), null_notify);
-        }
-
-        *idx_cursor = Some((entry.id.end, cursor));
+        index.set_range(entry.id, Marker::InsPtr(leaf));
+        // index.dbg_check();
     }
 }
 
@@ -97,49 +71,52 @@ fn take_content<'a>(x: Option<&mut &'a str>, len: usize) -> Option<&'a str> {
 
 impl M2Tracker {
     pub(super) fn new() -> Self {
-        let mut index = ContentTreeRaw::new();
         let underwater = CRDTSpan::new_underwater();
-        pad_index_to(&mut index, underwater.id.end);
 
         let mut result = Self {
             range_tree: ContentTreeRaw::new(),
-            index,
-            index_cursor: None,
+            index: Default::default(),
             #[cfg(feature = "merge_conflict_checks")]
             concurrent_inserts_collide: false,
             #[cfg(feature = "ops_to_old")]
             dbg_ops: vec![]
         };
 
-        result.range_tree.push_notify(underwater, notify_for(&mut result.index, &mut result.index_cursor));
+        result.range_tree.push_notify(underwater, notify_for(&mut result.index));
+
+        // result.check_index();
         result
     }
 
     pub(super) fn clear(&mut self) {
         // TODO: Could make this cleaner with a clear() function in ContentTree.
         self.range_tree = ContentTreeRaw::new();
-        self.index = ContentTreeRaw::new();
+
+        self.index.clear();
 
         let underwater = CRDTSpan::new_underwater();
-        pad_index_to(&mut self.index, underwater.id.end);
-        self.range_tree.push_notify(underwater, notify_for(&mut self.index, &mut self.index_cursor));
+        // pad_index_to(&mut self.index.index_old, underwater.id.end);
+        self.range_tree.push_notify(underwater, notify_for(&mut self.index));
+
+        // self.check_index();
     }
 
     pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
-        let cursor = self.index.cursor_at_offset_pos(lv, false);
-        // Gross.
-        cursor.get_item().unwrap().unwrap()
+        let marker = self.index.get_entry(lv).val;
+        let Marker::InsPtr(ptr) = marker else { panic!("No marker at lv") };
+        ptr
     }
 
     #[allow(unused)]
     pub(super) fn check_index(&self) {
-        // dbg!(&self.index);
-        // dbg!(&self.range_tree);
+        self.index.dbg_check();
+
         // Go through each entry in the range tree and make sure we can find it using the index.
         for entry in self.range_tree.raw_iter() {
             let marker = self.marker_at(entry.id.start);
             debug_assert!(marker != NonNull::dangling());
-            unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
+            let val = unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
+            assert_eq!(unsafe { val.unsafe_get_item() }, Some(entry.id.start));
         }
     }
 
@@ -300,7 +277,7 @@ impl M2Tracker {
         // (Safe variant):
         // cursor.insert_notify(item, notify_for(&mut self.index));
 
-        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index, &mut self.index_cursor)); }
+        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
         // self.check_index();
         content_pos
     }
@@ -400,7 +377,7 @@ impl M2Tracker {
     /// | NotInsYet | Before     | After       |
     /// | Inserted  | After      | Before      |
     /// | Deleted   | Before     | Before      |
-    fn apply(&mut self, aa: &AgentAssignment, _ctx: &ListOperationCtx, op_pair: &KVPair<ListOpMetrics>, max_len: usize, agent: AgentId) -> (usize, TransformedResult) {
+    pub(super) fn apply(&mut self, aa: &AgentAssignment, _ctx: &ListOperationCtx, op_pair: &KVPair<ListOpMetrics>, max_len: usize, agent: AgentId) -> (usize, TransformedResult) {
         // self.check_index();
         // The op must have been applied at the branch that the tracker is currently at.
         let len = max_len.min(op_pair.len());
@@ -540,7 +517,7 @@ impl M2Tracker {
                         // This will set the state to deleted, and mark ever_deleted in the entry.
                         e.delete();
                         e.id
-                    }, &mut cursor.inner, len, notify_for(&mut self.index, &mut self.index_cursor))
+                    }, &mut cursor.inner, len, notify_for(&mut self.index))
                 };
 
                 // ContentTree should come to the same length conclusion as us.
@@ -567,17 +544,10 @@ impl M2Tracker {
                 //     debug_assert!(cg.parents.version_contains_time(&[lv_start], target.start));
                 // }
 
-                self.index.replace_range_at_offset(lv_start, MarkerEntry {
-                    len,
-                    inner: DelTarget(RangeRev {
-                        span: target,
-                        fwd
-                    })
-                });
-                // This is unfortunately needed because we *might* have moved the index_cursor.
-                // It would be better to tighten the bound here and only clear the cursor sometimes,
-                // but doing so sounds hard and doesn't seem to make a performance difference.
-                self.index_cursor.take();
+                self.index.set_range((lv_start..lv_start+len).into(), Marker::Del(DelRange {
+                    target: if fwd { target.start } else { target.end },
+                    fwd
+                }).into());
 
                 // if cfg!(debug_assertions) {
                 //     self.check_index();
@@ -596,24 +566,24 @@ impl M2Tracker {
     // ///
     // /// Returns the tracker's frontier after this has happened; which will be at some pretty
     // /// arbitrary point in time based on the traversal. I could save that in a tracker field? Eh.
-    // pub(super) fn walk(&mut self, graph: &Graph, aa: &AgentAssignment, op_ctx: &ListOperationCtx, ops: &RleVec<KVPair<ListOpMetrics>>, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut JumpRopeBuf>) -> Frontier {
-    //     let mut walker = SpanningTreeWalker::new(graph, rev_spans, start_at);
-    //
-    //     for walk in &mut walker {
-    //         for range in walk.retreat {
-    //             self.retreat_by_range(range);
-    //         }
-    //
-    //         for range in walk.advance_rev.into_iter().rev() {
-    //             self.advance_by_range(range);
-    //         }
-    //
-    //         debug_assert!(!walk.consume.is_empty());
-    //         self.apply_range(aa, op_ctx, ops, walk.consume, apply_to.as_deref_mut());
-    //     }
-    //
-    //     walker.into_frontier()
-    // }
+    pub(super) fn walk(&mut self, graph: &Graph, aa: &AgentAssignment, op_ctx: &ListOperationCtx, ops: &RleVec<KVPair<ListOpMetrics>>, start_at: Frontier, rev_spans: &[DTRange], mut apply_to: Option<&mut JumpRopeBuf>) -> Frontier {
+        let mut walker = SpanningTreeWalker::new(graph, rev_spans, start_at);
+
+        for walk in &mut walker {
+            for range in walk.retreat {
+                self.retreat_by_range(range);
+            }
+
+            for range in walk.advance_rev.into_iter().rev() {
+                self.advance_by_range(range);
+            }
+
+            debug_assert!(!walk.consume.is_empty());
+            self.apply_range(aa, op_ctx, ops, walk.consume, apply_to.as_deref_mut());
+        }
+
+        walker.into_frontier()
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -625,7 +595,7 @@ pub(crate) enum TransformedResult {
 type TransformedTriple = (LV, ListOpMetrics, TransformedResult);
 
 impl TransformedResult {
-    fn not_moved(op_pair: KVPair<ListOpMetrics>) -> TransformedTriple {
+    pub(super) fn not_moved(op_pair: KVPair<ListOpMetrics>) -> TransformedTriple {
         let start = op_pair.1.start();
         (op_pair.0, op_pair.1, TransformedResult::BaseMoved(start))
     }
@@ -705,6 +675,25 @@ impl<'a> TransformedOpsIter<'a> {
         // self.tracker.range_tree.count_total_memory()
         self.tracker.range_tree.count_entries()
     }
+
+    #[allow(unused)]
+    fn close_tracker(&mut self) {
+        // dbg!(DEFAULT_IE, DEFAULT_LE);
+
+        // This is used for temporary bookkeeping, record keeping, etc just before the tracker is
+        // discarded.
+
+        // #[cfg(feature = "gen_test_data")] {
+        //     self.tracker.index.stats();
+        //
+        //     let json = self.tracker.index.actions_to_json();
+        //     fs::write("test.json", &json).unwrap();
+        //     println!("wrote index writes to test.json");
+        // }
+
+        // fs::wri
+        // dbg!(self.tracker.index.actions.borrow().len());
+    }
 }
 
 impl<'a> Iterator for TransformedOpsIter<'a> {
@@ -763,6 +752,21 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                         }
                     }
                     M1PlanAction::Clear => {
+                        // dbg!(self.tracker.range_tree.count_nodes());
+                        // dbg!(self.tracker.range_tree.count_occupancy());
+                        // // self.tracker.index.stats();
+                        //
+                        //
+                        // // let set_acts_d = self.tracker.index.actions.borrow().iter()
+                        // //     .filter(|a| if let TreeCommand::SetRange(_, Marker::Del(_)) = a { true } else { false })
+                        // //     .count();
+                        // // dbg!(set_acts_d);
+                        // let set_acts_i = self.tracker.index.actions.borrow().iter()
+                        //     .filter(|a| if let TreeCommand::SetRange(_, Marker::InsPtr(_)) = a { true } else { false })
+                        //     .count();
+                        // dbg!(set_acts_i);
+
+
                         self.tracker.clear();
                     }
                     M1PlanAction::BeginOutput => {
@@ -771,9 +775,13 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 }
             }
 
+            // println!("{:?}", self.tracker.index.count_obj_pool());
+
             // No more plan. Stop!
             // dbg!(&self.op_iter, self.plan_idx);
             debug_assert!(self.op_iter.is_none());
+
+            self.close_tracker();
             return None;
 
             // Only really advancing the frontier so we can consume into it. The resulting frontier
@@ -1196,6 +1204,20 @@ mod test {
         assert_eq!(list.to_string(), "abc");
     }
 
+    #[cfg(feature = "gen_test_data")]
+    fn dump_index_stats(bench_name: &str) {
+        let mut bytes = vec![];
+        File::open(format!("benchmark_data/{bench_name}.dt")).unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
+
+        let out_file = format!("idxtrace_{bench_name}.json");
+        let mut iter = o.get_xf_operations_full(&[], o.cg.version.as_ref());
+        while let Some(_) = iter.next() {}
+        let json = iter.tracker.index.actions_to_json();
+        std::fs::write(&out_file, &json).unwrap();
+        println!("wrote index writes to {out_file}");
+    }
+
 
     #[test]
     #[ignore]
@@ -1203,11 +1225,39 @@ mod test {
         // node_nodecc: 72135
         // git-makefile: 23166
         let mut bytes = vec![];
-        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        // File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
-        let o = ListOpLog::load_from(&bytes).unwrap();
 
+        File::open("benchmark_data/git-makefile.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
         o.checkout_tip();
+
+        println!("----");
+        bytes.clear();
+        File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        let o = ListOpLog::load_from(&bytes).unwrap();
+        o.checkout_tip();
+
+        // println!("----");
+        // bytes.clear();
+        // File::open("benchmark_data/friendsforever.dt").unwrap().read_to_end(&mut bytes).unwrap();
+        // let o = ListOpLog::load_from(&bytes).unwrap();
+        // o.checkout_tip();
+        //
+        // let mut iter = o.get_xf_operations_full(&[], o.cg.version.as_ref());
+        // while let Some(_) = iter.next() {}
+        // let json = iter.tracker.index.actions_to_json();
+        // fs::write("friendsforever.json", &json).unwrap();
+        // println!("wrote index writes to friendsforever.json");
+    }
+
+    // Run me in release mode!
+    // $ cargo test --release --features gen_test_data -- --ignored --nocapture gen_index_traces
+    #[cfg(feature = "gen_test_data")]
+    #[test]
+    #[ignore]
+    fn gen_index_traces() {
+        for name in &["friendsforever", "git-makefile", "node_nodecc", "clownschool"] {
+            dump_index_stats(*name);
+        }
     }
 }
 

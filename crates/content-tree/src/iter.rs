@@ -48,6 +48,20 @@ impl<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> 
     }
 }
 
+#[derive(Debug)]
+pub struct ItemAndPosIter<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize>(I::Value, Cursor<'a, E, I, IE, LE>);
+
+impl<'a, E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Iterator for ItemAndPosIter<'a, E, I, IE, LE> {
+    type Item = (I::Value, E);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let val = self.1.next()?;
+        let pos = self.0;
+        I::increment_offset(&mut self.0, &val);
+        Some((pos, val))
+    }
+}
+
 impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     /// Iterate through all the items "raw" - which is to say, without merging anything.
     ///
@@ -72,6 +86,8 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
         let leaf_ref = self.leaf_at_start();
         NodeIter(if leaf_ref.num_entries > 0 { Some(leaf_ref) } else { None })
     }
+
+    pub fn iter_with_pos(&self) -> ItemAndPosIter<E, I, IE, LE> { ItemAndPosIter(I::Value::default(), self.cursor_at_start()) }
 }
 
 #[cfg(test)]

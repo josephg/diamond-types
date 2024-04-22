@@ -3,11 +3,12 @@
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::ops::Not;
 use bumpalo::collections::CollectIn;
 use smallvec::{SmallVec, smallvec};
 use rle::{AppendRle, HasLength, HasRleKey, MergableSpan};
 use crate::{CausalGraph, DTRange, Frontier, LV};
-use crate::causalgraph::graph::conflict_subgraph::ConflictSubgraph;
+use crate::causalgraph::graph::conflict_subgraph::{ConflictGraphEntry, ConflictSubgraph};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::list::ListOpLog;
@@ -71,18 +72,29 @@ pub(crate) struct M1EntryState {
 
     cost_here: usize,
     subtree_cost: usize,
+
+    child_base: usize,
+    child_end: usize,
+
+    new_cost_here: u128,
+    new_cost_estimate: u32,
 }
 
 
 // struct SubgraphChildren(Vec<SmallVec<[usize; 2]>>);
 
+type DiffTraceHeap = BinaryHeap<Reverse<(usize, DiffFlag)>>;
+
 impl ConflictSubgraph<M1EntryState> {
+    // #[inline(never)]
     // This method is adapted from the equivalent method in the causal graph code.
-    fn diff_trace<F: FnMut(usize, DiffFlag)>(&self, from_idx: usize, after: bool, to_idx: usize, mut visit: F) {
+    fn diff_trace<F: FnMut(DiffFlag, DTRange)>(&self, queue: &mut DiffTraceHeap, from_idx: usize, after: bool, to_idx: usize, mut visit: F) {
         use DiffFlag::*;
+
         // Sorted highest to lowest.
-        let mut queue: BinaryHeap<Reverse<(usize, DiffFlag)>> = BinaryHeap::new();
+        // let mut queue: BinaryHeap<Reverse<(usize, DiffFlag)>> = BinaryHeap::new();
         if after {
+            // println!("{}", self.entries[to_idx].parents.as_ref() == &[from_idx]);
             queue.push(Reverse((from_idx, OnlyA)));
         } else {
             for p in &self.entries[from_idx].parents {
@@ -112,7 +124,7 @@ impl ConflictSubgraph<M1EntryState> {
 
             let entry = &self.entries[idx];
             if flag != Shared {
-                visit(idx, flag);
+                visit(flag, entry.span);
             }
 
             // mark_run(containing_txn.span.start, idx, flag);
@@ -124,9 +136,11 @@ impl ConflictSubgraph<M1EntryState> {
             // If there's only shared entries left, abort.
             if queue.len() == num_shared_entries { break; }
         }
+
+        queue.clear();
     }
 
-
+    // #[inline(never)]
     // This function does a BFS through the graph, setting critical_path.
     fn prepare(&mut self) {
         // if self.0.is_empty() { return SubgraphChildren(vec![]); }
@@ -158,7 +172,15 @@ impl ConflictSubgraph<M1EntryState> {
         }
     }
 
-    fn calc_costs(&mut self, children: &[SmallVec<[usize; 2]>], metrics: Option<&Metrics>) {
+    fn get_children<'a>(children: &'a [usize], e: &ConflictGraphEntry<M1EntryState>) -> &'a [usize] {
+        &children[e.state.child_base..e.state.child_end]
+    }
+    fn get_children_mut<'a, 'b>(children: &'a mut [usize], e: &'b ConflictGraphEntry<M1EntryState>) -> &'a mut [usize] {
+        &mut children[e.state.child_base..e.state.child_end]
+    }
+
+    // #[inline(never)]
+    fn calc_costs_accurately(&mut self, children: &[usize], metrics: Option<&Metrics>) {
         // There's a tradeoff here. We can figure out the cost for each span using the operation
         // log, which looks up how many actual operations the span crosses. Doing so carries a
         // small but measurable improvement in merging performance because we can optimize the
@@ -219,7 +241,8 @@ impl ConflictSubgraph<M1EntryState> {
             // Pushing the parents instead of just this item. Eh.
             let mut aggregate_cost = self.entries[idx].state.cost_here;
 
-            let ch = &children[idx];
+            // let ch = &children[idx];
+            let ch = Self::get_children(children, &self.entries[idx]);
             // dbg!(ch);
             if ch.len() == 1 {
                 self.entries[idx].state.subtree_cost = aggregate_cost + self.entries[ch[0]].state.subtree_cost;
@@ -262,7 +285,8 @@ impl ConflictSubgraph<M1EntryState> {
 
                 // If we've counted everything, stop here.
 
-                let ch = &children[i];
+                // let ch = &children[i];
+                let ch = Self::get_children(children, &self.entries[i]);
                 if uncounted {
                     uncounted_remaining += ch.len();
                 } else if uncounted_remaining == 0 { break; }
@@ -273,6 +297,70 @@ impl ConflictSubgraph<M1EntryState> {
             // println!("Aggregate {aggregate_cost}");
             self.entries[idx].state.subtree_cost = aggregate_cost;
             queue.clear();
+        }
+    }
+
+    // #[inline(never)]
+    fn calc_costs_estimate(&mut self, children: &[usize], _metrics: Option<&Metrics>) {
+        // There's a tradeoff here. We can figure out the cost for each span using the operation
+        // log, which looks up how many actual operations the span crosses. Doing so carries a
+        // small but measurable improvement in merging performance because we can optimize the
+        // children better. But it takes a little longer. Eh.
+        if false { //let Some(metrics) = metrics {
+            // todo!()
+        } else {
+            let min_lv = self.base_version.0.first().copied().unwrap_or(0);
+            let Some(max_lv) = self.entries
+                .iter()
+                .filter_map(|e| {
+                    if e.span.is_empty() { None }
+                    else { Some(e.span.end) }
+                })
+                .max() else { return; };
+
+            // The plan is to have a 128 bit wide bit array where 1 bit is assigned each time any
+            // item is visited with something in that slot.
+            let w = max_lv - min_lv;
+            let lv_per_bit = w.div_ceil(127);
+            // dbg!(min_lv, max_lv, lv_per_bit);
+
+            for (i, e) in self.entries.iter_mut().enumerate().rev() {
+                // Just use the span estimate.
+                if !e.span.is_empty() {
+                    // This is kind of sloppy. What I want is 0b0000111100000 with 1 bits set
+                    // between positions 0-127. At least 1 bit should always be set by this if the
+                    // span is not empty.
+                    let start = ((e.span.start - min_lv) / lv_per_bit) as u32;
+                    let end = ((e.span.end - min_lv + lv_per_bit - 1) / lv_per_bit) as u32; // Basically, ceil.
+
+                    e.state.new_cost_here = 1u128.wrapping_shl(end)
+                        .wrapping_sub(1u128 << start);
+
+                    if i == self.b_root {
+                        e.state.new_cost_here |= 1u128 << 127;
+                    } else {
+                        e.state.new_cost_here &= (1u128 << 127).not();
+                    }
+                    // println!("{i} span: {:?} root {} cost {:#b}", e.span, i == self.b_root, e.state.new_cost_here);
+                } else { e.state.new_cost_here = 0; }
+            }
+        }
+
+        for i in 0..self.entries.len() { // From the latest in the graph to the earliest.
+            let e = &self.entries[i];
+
+            let mut cost = e.state.new_cost_here;
+            // Include the cost of all children. We do this in order, so its recursive.
+            for &c in Self::get_children(children, e) {
+                cost |= self.entries[c].state.new_cost_here;
+            }
+
+            // println!("cost {i} = {cost:#b}");
+            self.entries[i].state.new_cost_here = cost;
+
+            // If the top bit is set, keep it in the cost estimate.
+            self.entries[i].state.new_cost_estimate = cost.count_ones()
+                + ((cost & (1u128 << 127)) >> (128-32)) as u32;
         }
     }
 
@@ -295,51 +383,102 @@ impl ConflictSubgraph<M1EntryState> {
             return (M1Plan(actions), self.base_version);
         }
 
-        let mut children: Vec<SmallVec<[usize; 2]>> = vec![smallvec![]; self.entries.len()];
+
+        // This is horrible. Basically, I need to know the children for each entry. The
+        // make_conflict_graph_between code could just calculate this directly, but I'm not using it
+        // to do so because I'm an idiot. So instead, there's this vomit comet of code.
+        //
+        // Previously I used a vec<smallvec<>>, but packing everything into a single big array is
+        // slightly faster.
+        let mut num_children: Vec<usize> = vec![0; self.entries.len()];
+        let mut total_children = 0;
+        for e in self.entries.iter() {
+            for &p in e.parents.iter() {
+                num_children[p] += 1;
+                total_children += 1;
+            }
+        }
+
+        // let mut children: Vec<usize> = Vec::with_capacity(total_children);
+        let mut children: Vec<usize> = vec![0; total_children];
+        let mut n = 0;
+        for (i, e) in self.entries.iter_mut().enumerate() {
+            e.state.child_base = n;
+            n += num_children[i];
+            e.state.child_end = n;
+            num_children[i] = 0;
+        }
         for (i, e) in self.entries.iter().enumerate() {
             for &p in e.parents.iter() {
-                children[p].push(i);
+                // children[p].push(i);
+                let e2 = &self.entries[p];
+                debug_assert!(e2.state.child_base + num_children[p] < e2.state.child_end);
+                children[e2.state.child_base + num_children[p]] = i;
+                num_children[p] += 1;
             }
         }
 
         self.prepare();
 
-        const OPTIMIZE_PATHS: bool = true;
-
-        if OPTIMIZE_PATHS {
-            self.calc_costs(&children, metrics);
+        // We can scan & reorder the graph here in order to traverse it more efficiently. This
+        // isn't always a win. Sometimes its faster to spend the cycles processing a slightly
+        // inefficient graph, than try and optimise the graph too much first.
+        const OPT_EXACT: bool = false;
+        if OPT_EXACT {
+            // self.calc_costs(&children, None);
+            self.calc_costs_accurately(&children, metrics);
             // let rng = &mut rand::thread_rng();
-            for c in children.iter_mut() {
-                // Lowest cost to highest cost.
-                c.sort_unstable_by_key(|&i| self.entries[i].state.subtree_cost);
-                // c.shuffle(rng);
+
+            for e in self.entries.iter() {
+                Self::get_children_mut(&mut children, e)
+                    .sort_unstable_by_key(|&i| self.entries[i].state.subtree_cost);
             }
         }
 
-        fn teleport(g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, target_idx: usize, last_processed_after: bool, last_processed_idx: usize) {
-            let mut advances: SmallVec<[DTRange; 2]> = smallvec![];
-            let mut retreats: SmallVec<[DTRange; 2]> = smallvec![];
-            g.diff_trace(last_processed_idx, last_processed_after, target_idx, |idx, flag| {
-                let list = match flag {
-                    DiffFlag::OnlyA => &mut retreats,
-                    DiffFlag::OnlyB => &mut advances,
-                    DiffFlag::Shared => { return; }
-                };
-                let span = g.entries[idx].span;
+        // This second algorithm is much faster, but less accurate.
+        const OPT_ESTIMATE: bool = true;
+        if OPT_ESTIMATE {
+            self.calc_costs_estimate(&children, metrics);
+
+            for e in self.entries.iter() {
+                Self::get_children_mut(&mut children, e)
+                    .sort_unstable_by_key(|&i| self.entries[i].state.new_cost_estimate);
+            }
+        }
+
+        let mut queue = DiffTraceHeap::new();
+
+        fn teleport(queue: &mut DiffTraceHeap, g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, to_idx: usize, last_processed_after: bool, from_idx: usize) {
+            // Fast case.
+            let to_entry_parents = &g.entries[to_idx].parents;
+            if to_entry_parents.as_ref() == &[from_idx] && last_processed_after { return; }
+
+            // Retreats must appear first in the action list. We'll cache any advance actions in
+            // this vec, and push retreats to the action list immediately.
+            let mut advances: SmallVec<[DTRange; 4]> = smallvec![];
+
+            g.diff_trace(queue, from_idx, last_processed_after, to_idx, |flag, span: DTRange| {
                 if !span.is_empty() {
-                    list.push(span);
+                    match flag {
+                        DiffFlag::OnlyA => {
+                            // There's so much reversing happening here. We'll visit spans in
+                            // reverse order, but ::Retreat's MergeSpan also understands that they
+                            // are reversed. It all cancels out and works out ok.
+                            // println!("T R {:?}", span);
+                            actions.push_rle(M1PlanAction::Retreat(span));
+                        },
+                        DiffFlag::OnlyB => { advances.push_reversed_rle(span); },
+                        DiffFlag::Shared => {}
+                    }
                 }
             });
 
-            if !retreats.is_empty() {
-                actions.extend_rle(retreats.into_iter().map(M1PlanAction::Retreat));
-            }
             if !advances.is_empty() {
                 // .rev() here because diff visits everything in reverse order.
-                actions.extend_rle(advances.into_iter().rev().map(M1PlanAction::Advance));
+                // println!("T A {:?}", advances);
+                actions.extend(advances.into_iter().rev().map(M1PlanAction::Advance));
             }
         }
-
 
         // self.dbg_print();
         // dbg!(&children);
@@ -361,7 +500,7 @@ impl ConflictSubgraph<M1EntryState> {
         debug_assert_eq!(e.state.visited, false);
         e.state.visited = true;
         // let e = &self.entries[current_idx];
-        for &c in &children[current_idx] {
+        for &c in Self::get_children(&children, &self.entries[current_idx]) {
             self.entries[c].state.parents_satisfied += 1;
         }
 
@@ -399,12 +538,15 @@ impl ConflictSubgraph<M1EntryState> {
                             dirty = false;
                             // TODO: Consider also clearing the stack here. We won't be back.
                         }
-                        actions.push_rle(M1PlanAction::FF(e.span));
+                        // push_rle is just as correct here, but the rle merging case seems to never
+                        // happen.
+                        actions.push(M1PlanAction::FF(e.span));
                     } else {
                         // Note we only advance & retreat if the item is not on the critical path.
                         // If we're on the critical path, the clear operation will flush everything
                         // anyway.
-                        teleport(&self, &mut actions, current_idx, last_processed_after, last_processed_idx);
+                        // println!("TELE {last_processed_idx} -> {current_idx}");
+                        teleport(&mut queue, &self, &mut actions, current_idx, last_processed_after, last_processed_idx);
                         actions.push_rle(M1PlanAction::Apply(e.span));
                         dirty = true;
                     }
@@ -421,15 +563,17 @@ impl ConflictSubgraph<M1EntryState> {
                     last_processed_idx = current_idx;
                 }
 
-                for c in &children[current_idx] {
-                    self.entries[*c].state.parents_satisfied += 1;
+                for &c in Self::get_children(&children, &self.entries[current_idx]) {
+                    self.entries[c].state.parents_satisfied += 1;
                 }
             }
 
+            let e = &self.entries[current_idx];
             // Afterwards we'll try to go down to one of our children. Failing that, we'll go up
             // to the next item in the stack.
 
-            let c = &mut children[current_idx];
+            // let c = &mut children[current_idx];
+            let c = Self::get_children_mut(&mut children, e);
             // println!("Children: {:?}", c);
 
             let e = &self.entries[current_idx];
@@ -468,6 +612,15 @@ impl ConflictSubgraph<M1EntryState> {
 
             // We couldn't go down any more with this item. Go up instead.
             if let Some(next_idx) = stack.pop() {
+                // let e = &mut self.entries[current_idx];
+                // if e.parents.len() == 1 && last_processed_idx == current_idx {
+                //     println!("UP {current_idx} -> {next_idx} span {:?} p {:?}", e.span, e.parents);
+                //     if current_idx == 3 {
+                //         println!();
+                //     }
+                //     if !e.span.is_empty() { actions.push_rle(M1PlanAction::Retreat(e.span)); }
+                //     last_processed_idx = next_idx;
+                // }
                 current_idx = next_idx;
             } else if let Some(idx) = b_children.pop() {
                 debug_assert_eq!(a_spans_remaining, 0);
@@ -484,7 +637,6 @@ impl ConflictSubgraph<M1EntryState> {
                 panic!("Should have stopped");
                 // break;
             }
-
         }
 
         (M1Plan(actions), self.base_version)
@@ -739,12 +891,21 @@ mod test {
 // #[ignore]
 // #[test]
 // fn lite_bench() {
-//     let bytes = std::fs::read(format!("benchmark_data/git-makefile.dt")).unwrap();
+//     let bytes = std::fs::read(format!("benchmark_data/clownschool.dt")).unwrap();
+//     // let bytes = std::fs::read(format!("benchmark_data/git-makefile.dt")).unwrap();
+//     // let bytes = std::fs::read(format!("benchmark_data/node_nodecc.dt")).unwrap();
+//     // let bytes = std::fs::read(format!("benchmark_data/friendsforever.dt")).unwrap();
 //     let oplog = ListOpLog::load_from(&bytes).unwrap();
-//     let (plan, common) = oplog.make_plan_2();
+//     let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], oplog.cg.version.as_ref(), true);
+//     // let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], &[113], true);
+//     // let (plan, _common) = oplog.cg.graph.make_m1_plan(None, &[], &[10000], true);
 //
-//     for _i in 0..100 {
-//         // oplog.checkout_tip();
-//         oplog.checkout_tip_2(plan.clone(), common.as_ref());
-//     }
+//     dbg!(&plan);
+//
+//     // for _i in 0..100 {
+//     //     // oplog.checkout_tip();
+//     //     oplog.checkout_tip_2(plan.clone(), common.as_ref());
+//     // }
+//
+//     dbg!(plan.0.len());
 // }
