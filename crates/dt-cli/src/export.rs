@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 /// TODO:
 ///
 /// This export script works to export data sets to something cross-compatible with other CRDTs.
@@ -26,7 +27,8 @@ use diamond_types::causalgraph::agent_assignment::AgentAssignment;
 use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
 use diamond_types::list::ListOpLog;
 use diamond_types::list::operation::{ListOpKind, TextOperation};
-use rle::{AppendRle, MergableSpan, MergeableIterator, SplitableSpan};
+use diamond_types::rle::{KVPair, RleSpanHelpers, RleVec};
+use rle::{AppendRle, MergableSpan, MergeableIterator, RleRun, SplitableSpan};
 use rle::take_max_iter::TakeMaxFns;
 
 // Note this discards the fwd/backwards direction of the changes. This shouldn't matter in
@@ -133,6 +135,10 @@ pub struct TraceExportTxn {
     time: DateTime<FixedOffset>,
     // op: TextOperation,
     patches: SmallVec<[SimpleTextOp; 2]>,
+
+    // This isn't formally part of the spec, but its useful sometimes.
+    #[serde(rename = "_dt_span")]
+    _dt_span: [usize; 2],
 }
 
 #[derive(Clone, Debug)]
@@ -158,9 +164,13 @@ pub fn check_trace_invariants(oplog: &ListOpLog) -> ExportTraceProblems {
     for agent in 0..oplog.cg.num_agents() {
         let mut last_lv = 0;
         // We expect the lv returned here to be in order.
-        for (_, lv, _) in oplog.cg.agent_assignment.iter_lv_map_for_agent(agent as AgentId) {
-            if lv < last_lv { agent_ops_not_fully_ordered = true; }
-            last_lv = lv;
+        for (_, lv, len) in oplog.cg.agent_assignment.iter_lv_map_for_agent(agent as AgentId) {
+            // Its not enough to compare last_lv < lv because the operations could be concurrent.
+            if lv != 0 && oplog.cg.graph.version_cmp(last_lv, lv) != Some(Ordering::Less) {
+                // println!("Agent {} ({}) ops {} / {} not fully ordered", agent, oplog.cg.agent_assignment.get_agent_name(agent), last_lv, lv);
+                agent_ops_not_fully_ordered = true;
+            }
+            last_lv = lv + len - 1;
         }
     }
 
@@ -245,7 +255,36 @@ impl Timestamps {
     }
 }
 
-pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsString>, shatter: bool) -> TraceExportData {
+/// Returns a map from agent_seq -> slot and the number of used slots.
+fn safe_assignments_needed_for_agent(oplog: &ListOpLog, agent: AgentId) -> (RleVec<KVPair<RleRun<usize>>>, usize) {
+    let mut last_lv = vec![];
+    let mut map = RleVec::new();
+
+    for (seq, lv, len) in oplog.cg.agent_assignment.iter_lv_map_for_agent(agent) {
+        // Find the first item in last_lv which is strictly before lv.
+        let slot = if let Some(slot) = last_lv.iter().position(|other_lv| {
+            oplog.cg.graph.version_cmp(*other_lv, lv) == Some(Ordering::Less)
+        }) {
+            last_lv[slot] = lv + len - 1;
+            slot
+        } else {
+            let slot = last_lv.len();
+            last_lv.push(lv + len - 1);
+            slot
+        };
+
+        // map.push(KVPair(lv, RleRun::new(slot, len)));
+        map.push(KVPair(seq, RleRun::new(slot, len)));
+    }
+
+    // dbg!(map);
+    // todo!()
+
+    (map, last_lv.len())
+}
+
+
+pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsString>, shatter: bool, safe: bool) -> TraceExportData {
     let timestamps = timestamp_filename.map(Timestamps::from_file);
 
     // TODO: A hashmap is overkill here. A vec + binary search would be fine. Eh.
@@ -259,21 +298,44 @@ pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsStri
     // concurrent edits.
     //
     // Anyway, long and short of it is - we'll map each local agent to a number in agent ID order.
-
-    let num_agents = oplog.cg.num_agents();
-    let mut sorted_agents: Vec<AgentId> = (0..num_agents as AgentId).collect();
+    let raw_num_agents = oplog.cg.num_agents();
+    let mut sorted_agents: Vec<AgentId> = (0..raw_num_agents).collect();
     sorted_agents.sort_unstable_by(|a, b| {
         let a_name = oplog.cg.agent_assignment.get_agent_name(*a);
         let b_name = oplog.cg.agent_assignment.get_agent_name(*b);
         a_name.cmp(b_name)
     });
 
-    // sorted_agents maps from order -> agent_id. We need a map from agent_id -> order, so we'll
-    // make another list and invert sorted_agents.
-    let mut agent_map: Vec<usize> = vec![0; num_agents];
-    for (i, agent) in sorted_agents.iter().enumerate() {
-        agent_map[*agent as usize] = i;
-    }
+    // Agent_map maps from local agent_id (int) -> output agent_id (int). If we're in safe mode,
+    // each local agent might map to multiple output agents. In this case, agent_map names the
+    // base (first) slot.
+    let mut agent_map: Vec<usize> = vec![0; raw_num_agents as usize];
+    let (num_agents, mappings) = if !safe {
+        // sorted_agents maps from order -> agent_id. We need a map from agent_id -> order, so we'll
+        // make another list and invert sorted_agents.
+        for (i, agent) in sorted_agents.iter().enumerate() {
+            agent_map[*agent as usize] = i;
+        }
+        (raw_num_agents as usize, None)
+    } else {
+        let mut mappings = vec![];
+        let mut num_agents = 0;
+
+        for agent in 0..oplog.num_agents() {
+            let (map, slots_used) = safe_assignments_needed_for_agent(oplog, agent);
+            assert!(slots_used >= 1);
+            num_agents += slots_used;
+            mappings.push((map, slots_used));
+        }
+
+        let mut next = 0;
+        for &agent in sorted_agents.iter() {
+            agent_map[agent as usize] = next;
+            next += mappings[agent as usize].1;
+        }
+
+        (num_agents, Some(mappings))
+    };
 
     let mut txns = vec![];
 
@@ -306,7 +368,20 @@ pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsStri
         // I'm not sure how this can happen, but its cheap to check just in case.
         assert_eq!(entry.ops.is_empty(), false, "Transaction cannot have empty op list");
 
-        let agent = agent_map[entry.agent_span.agent as usize];
+        // let agent = agent_map[entry.agent_span.agent as usize];
+        let base = agent_map[entry.agent_span.agent as usize];
+        let agent = if let Some(mappings) = mappings.as_ref() {
+            let (m, _) = &mappings[entry.agent_span.agent as usize];
+            let slot_entry = m.find_packed(entry.agent_span.seq_range.start);
+            assert!(slot_entry.end() >= entry.agent_span.seq_range.end);
+            let slot = slot_entry.1.val;
+            // if slot >= 1 {
+            //     dbg!(&slot_entry, &entry.agent_span);
+            // }
+            base + slot
+        } else {
+            base
+        };
 
         let patches: SmallVec<[SimpleTextOp; 2]> = entry.ops.into_iter().map(|op| op.into()).merge_spans().collect();
 
@@ -320,7 +395,8 @@ pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsStri
             num_children: 0,
             agent,
             time: timestamp,
-            patches
+            patches,
+            _dt_span: [entry.span.start, entry.span.end],
         });
 
         for p in entry.parents.iter() {
@@ -343,6 +419,7 @@ pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsStri
                 agent: 0,
                 time: Default::default(),
                 patches: smallvec![],
+                _dt_span: [0, 0],
             };
 
             for (i, r) in rest.iter_mut().enumerate() {

@@ -6,7 +6,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::fs::File;
 use std::io::{BufWriter, ErrorKind, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use anyhow::Error;
 use clap::{Parser, Subcommand};
@@ -16,6 +16,7 @@ use serde::Serialize;
 use similar::{ChangeTag, TextDiff};
 use similar::utils::TextDiffRemapper;
 use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionOwned;
+use diamond_types::Frontier;
 use diamond_types::list::{gen_oplog, ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
 use crate::dot::{generate_svg_with_dot};
@@ -33,7 +34,7 @@ struct Cli {
 enum Commands {
     /// Create a new diamond types file on disk
     Create {
-        filename: OsString,
+        filename: PathBuf,
 
         /// Initialize the DT file with contents from here.
         ///
@@ -68,6 +69,19 @@ enum Commands {
         /// merging all changes.
         #[arg(short, long)]
         version: Option<Version>,
+    },
+
+    Stats {
+        /// Diamond types file to read
+        #[arg(value_name = "filename", value_parser = parse_dt_oplog)]
+        oplog: ListOpLog,
+
+        // #[arg(short, long)]
+        // json: bool,
+
+        /// Output contents to the named file instead of stdout
+        #[arg(short, long)]
+        output: Option<OsString>,
     },
 
     // /// Dump the file at a series of versions to test conformance
@@ -140,12 +154,12 @@ enum Commands {
     /// - Remove inserted / deleted content
     Repack {
         /// File to edit
-        dt_filename: OsString,
+        dt_filename: PathBuf,
 
         /// Save the resulting content to this file. If not specified, the original file will be
         /// overwritten.
         #[arg(short, long)]
-        output: Option<OsString>,
+        output: Option<PathBuf>,
 
         /// Force overwrite the file which exists with the same name.
         #[arg(short, long)]
@@ -158,6 +172,9 @@ enum Commands {
         /// Trim the file to only contain changes from the specified point in time onwards.
         #[arg(short, long)]
         version: Option<Version>,
+
+        #[arg(long)]
+        truncate: Option<usize>,
 
         /// Save a patch. Patch files do not contain the base snapshot state. They must be merged
         /// with an existing DT file.
@@ -225,7 +242,10 @@ enum Commands {
         /// When there is no timestamp file, shatter the trace such that every keystroke gets its
         /// own transaction
         #[arg(short, long)]
-        shatter: bool
+        shatter: bool,
+
+        #[arg(long)]
+        safe: bool,
     },
 
     ExportTraceSimple {
@@ -332,6 +352,28 @@ enum Commands {
         /// Output an extra file containing mapping from git commits <-> DT versions.
         #[arg(short, long)]
         map_out: Option<PathBuf>,
+    },
+
+    /// Duplicate an operation log some integer number of times.
+    BenchDuplicate {
+        /// File
+        path: PathBuf,
+
+        /// Output the result to the specified filename. If missing, output is printed to stdout.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Force overwrite the file which exists with the same name.
+        #[arg(short, long)]
+        force: bool,
+
+        /// The number of times to duplicate it
+        #[arg(short)]
+        number: u32,
+
+        /// Suppress all output to stdout
+        #[arg(short, long)]
+        quiet: bool,
     }
 }
 
@@ -400,6 +442,18 @@ fn main() -> Result<(), anyhow::Error> {
             }
         }
 
+        Commands::Stats { oplog, output } => {
+            let stats = oplog.get_stats();
+            let json = serde_json::to_string_pretty(&stats).unwrap();
+
+            if let Some(output) = output {
+                let mut file = File::create(output)?;
+                write!(&mut file, "{json}")?;
+            } else {
+                print!("{}", json);
+            }
+        }
+
         // Commands::Splat { oplog, output } => {
         //     #[derive(Debug, Serialize)]
         //     #[serde(rename_all = "camelCase")]
@@ -453,7 +507,7 @@ fn main() -> Result<(), anyhow::Error> {
                         }
                     }
             } else {
-                for op in oplog.iter() {
+                for op in oplog.iter_ops() {
                     // println!("{} len {}", op.tag, op.len());
                     if json {
                         let s = serde_json::to_string(&op).unwrap();
@@ -534,9 +588,9 @@ fn main() -> Result<(), anyhow::Error> {
             fs::write(&dt_filename, out_data)?;
         }
 
-        Commands::Repack { dt_filename, output, force, uncompressed, version, patch, no_inserted_content, no_deleted_content, quiet } => {
+        Commands::Repack { dt_filename, output, force, uncompressed, version, truncate, patch, no_inserted_content, no_deleted_content, quiet } => {
             let data = fs::read(&dt_filename)?;
-            let oplog = ListOpLog::load_from(&data)?;
+            let mut oplog = ListOpLog::load_from(&data)?;
 
             let from_version = match &version {
                 Some(v) => v.0.as_ref(),
@@ -544,7 +598,17 @@ fn main() -> Result<(), anyhow::Error> {
             };
             let from_version = oplog.cg.agent_assignment.remote_to_local_frontier(from_version.iter());
 
-            let new_data = oplog.encode_from(EncodeOptions {
+            if let Some(truncate) = truncate {
+                let mut trimmed_oplog = ListOpLog::new();
+                for (op, graph, agent_span) in oplog.iter_full_range((0..truncate).into()) {
+                    // I'm going to ignore the agent span and just let it extend naturally.
+                    let agent = trimmed_oplog.get_or_create_agent_id(agent_span.0);
+                    trimmed_oplog.add_operations_at(agent, graph.parents.as_ref(), &[op]);
+                }
+                oplog = trimmed_oplog;
+            }
+
+            let new_data = oplog.encode_from(&EncodeOptions {
                 user_data: None,
                 store_start_branch_content: !patch,
                 experimentally_store_end_branch_content: false,
@@ -584,7 +648,7 @@ fn main() -> Result<(), anyhow::Error> {
             write_serde_data(output, pretty, &result)?;
         }
 
-        Commands::ExportTrace { dt_filename, output, pretty, timestamp_filename, shatter } => {
+        Commands::ExportTrace { dt_filename, output, pretty, timestamp_filename, shatter, safe } => {
             let data = fs::read(&dt_filename)?;
             let oplog = ListOpLog::load_from(&data)?;
 
@@ -596,8 +660,8 @@ fn main() -> Result<(), anyhow::Error> {
                         This means the oplog may have differing merge results based on the sequence CRDT\n\
                         used to process it.");
                 }
-                if problems.agent_ops_not_fully_ordered {
-                    eprintln!("WARNING: Operations from each agent are not fully ordered.");
+                if problems.agent_ops_not_fully_ordered && !safe {
+                    eprintln!("WARNING: Operations from each agent are not fully ordered. Rerun in safe mode (--safe).");
                 }
                 if problems.multiple_roots {
                     eprintln!("WARNING: Operation log has multiple roots.");
@@ -608,7 +672,7 @@ fn main() -> Result<(), anyhow::Error> {
                 ");
             }
 
-            let result = export_trace_to_json(&oplog, timestamp_filename, shatter);
+            let result = export_trace_to_json(&oplog, timestamp_filename, shatter, safe);
             write_serde_data(output, pretty, &result)?;
         }
 
@@ -694,10 +758,84 @@ fn main() -> Result<(), anyhow::Error> {
                 path
             });
 
-            let data = oplog.encode(ENCODE_FULL);
+            let data = oplog.encode(&ENCODE_FULL);
             fs::write(&out_filename, &data).unwrap();
             if !quiet {
                 println!("{} bytes written to {}", data.len(), out_filename.display());
+            }
+        }
+
+        Commands::BenchDuplicate { path, output, force, number, quiet } => {
+            let data = fs::read(&path)?;
+            let orig_oplog = ListOpLog::load_from(&data)?;
+
+            // I'll copy the agent order directly.
+            let mut new_oplog = ListOpLog::new();
+            for i in 0..orig_oplog.num_agents() {
+                let agent = orig_oplog.get_agent_name(i);
+                let new_id = new_oplog.get_or_create_agent_id(agent);
+                assert_eq!(i, new_id);
+            }
+
+            // This could be implemented in a more efficient way - but this is straightforward and
+            // fine.
+
+            // Each time we iterate, we'll glue the first operations of the graph to the end of
+            // the graph from last time.
+            let mut last_end = Frontier::root();
+            let mut last_len = 0;
+            let mut f_buf = Frontier::root();
+            for _i in 0..number {
+                for (op, graph, agent_span) in orig_oplog.iter_full() {
+                    // dbg!(&graph);
+                    // I'm going to ignore the agent span and just let it extend naturally.
+                    let agent = new_oplog.get_or_create_agent_id(agent_span.0);
+
+                    let parents = if graph.parents.is_root() {
+                        last_end.as_ref()
+                    } else {
+                        f_buf.0.clear();
+                        f_buf.0.extend(graph.parents.iter().map(|p| { p + last_len }));
+                        f_buf.as_ref()
+                        // graph.parents.as_ref()
+                    };
+                    new_oplog.add_operations_at(agent, parents, &[op]);
+                }
+
+                last_end = new_oplog.local_frontier().clone();
+                last_len = new_oplog.len();
+            }
+
+            // let new_data = ENCODE_FULL.clone().verbose(true).encode(&new_oplog);
+            let new_data = ENCODE_FULL.encode(&new_oplog);
+
+            if let Some(output) = output.as_ref() {
+                maybe_overwrite(output, &new_data, force)?;
+            } else {
+                // Overwrite the input file. We've already checked that --force is set or the
+                // change is not lossy.
+
+                let base_path = path.file_stem().expect("Invalid path")
+                    .to_str()
+                    .unwrap();
+
+                let path = format!("{base_path}x{number}.dt");
+
+                // let stem = path.file_stem().expect("Invalid path");
+                //
+                // // Rewrite foo.dt -> foox20.dt.
+                // let mut path = PathBuf::from(stem);
+                // // let x = path.as_mut_os_str(); //(format!("x{number}"));
+                // path.set_extension("dt");
+                // dbg!(&path);
+
+                fs::write(&path, &new_data)?;
+                println!("Wrote result to {:?}", path);
+            }
+
+            if !quiet {
+                println!("Operation length {} -> {}", orig_oplog.len(), new_oplog.len());
+                println!("Resulting file length {} -> {}", data.len(), new_data.len());
             }
         }
     }
@@ -758,7 +896,7 @@ fn get_filename_from(dt_filename: &PathBuf, output: Option<OsString>, extension:
     }
 }
 
-fn maybe_overwrite(output: &OsString, new_data: &Vec<u8>, force: bool) -> Result<(), anyhow::Error> {
+fn maybe_overwrite(output: &Path, new_data: &Vec<u8>, force: bool) -> Result<(), anyhow::Error> {
     let file_result = fs::OpenOptions::new()
         .create_new(!force)
         .create(true)
