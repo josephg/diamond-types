@@ -160,9 +160,8 @@ fn main() {
     #[cfg(debug_assertions)]
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
-    // const PAPER_DATASETS: &[&str] = &["S1", "S2", "S3", "C1", "C2", "A1", "A2"];
-    const PAPER_DATASETS: &[&str] = &["C1"];
-    for name in PAPER_DATASETS {
+    // const PAPER_DATASETS: &[&str] = &["C1"];
+    for name in &["S1", "S2", "S3", "C1", "C2", "A1", "A2"] {
         let bytes = std::fs::read(format!("paper_benchmark_data/{name}.dt")).unwrap();
 
         #[cfg(feature = "memusage")]
@@ -171,9 +170,9 @@ fn main() {
             (get_thread_memory_usage(), get_thread_num_allocations())
         };
 
-        let oplog = ListOpLog::load_from(&bytes).unwrap();
         {
-            let state = oplog.checkout_tip().into_inner();
+            let oplog = ListOpLog::load_from(&bytes).unwrap();
+            let _state = oplog.checkout_tip().into_inner();
         }
 
         #[cfg(feature = "memusage")]
