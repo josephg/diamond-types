@@ -41,6 +41,7 @@ use crate::listmerge::plan::{M1Plan, M1PlanAction};
 use crate::listmerge::to_old::OldCRDTOpInternal;
 use crate::ost::IndexTree;
 use crate::ost::recording_index_tree::TreeCommand;
+use crate::rle::rle_vec::RleVecRangeIter;
 use crate::unicount::consume_chars;
 
 const ALLOW_FF: bool = true;
@@ -603,7 +604,7 @@ impl TransformedResult {
 
 #[derive(Debug)]
 pub(crate) struct TransformedOpsIterRaw<'a> {
-    subgraph: &'a Graph,
+    // subgraph: &'a Graph,
     aa: &'a AgentAssignment,
     op_ctx: &'a ListOperationCtx,
     ops: &'a RleVec<KVPair<ListOpMetrics>>,
@@ -617,8 +618,6 @@ pub(crate) struct TransformedOpsIterRaw<'a> {
 
     /// We're in output mode (and we've already built the starting state)
     applying: bool,
-
-    // max_frontier: Frontier,
 }
 
 
@@ -636,48 +635,43 @@ pub(crate) struct TransformedOpsIterRaw<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TransformedResultRaw {
     FF(DTRange),
-    Apply(ListOpMetrics),
-    // Apply {
-    //     xf_pos: usize,
-    //     metrics: ListOpMetrics,
-    // },
-    DeleteAlreadyHappened,
+    Apply(KVPair<ListOpMetrics>),
+    DeleteAlreadyHappened(DTRange),
 }
 
-impl MergableSpan for TransformedResultRaw {
-    fn can_append(&self, other: &Self) -> bool {
-        use TransformedResultRaw::*;
-        match (self, other) {
-            (Apply(op1), Apply(op2)) => { op1.can_append(op2) },
-            (FF(r1), FF(r2)) => { r1.can_append(r2) },
-            (DeleteAlreadyHappened, DeleteAlreadyHappened) => true,
-            _ => false,
-        }
-    }
-
-    fn append(&mut self, other: Self) {
-        use TransformedResultRaw::*;
-        match (self, other) {
-            (Apply(op1), Apply(op2)) => { op1.append(op2) },
-            (FF(r1), FF(r2)) => { r1.append(r2) },
-            (DeleteAlreadyHappened, DeleteAlreadyHappened) => {},
-            _ => unreachable!()
-        }
-    }
-}
+// impl MergableSpan for TransformedResultRaw {
+//     fn can_append(&self, other: &Self) -> bool {
+//         use TransformedResultRaw::*;
+//         match (self, other) {
+//             (Apply(op1), Apply(op2)) => { op1.can_append(op2) },
+//             (FF(r1), FF(r2)) => { r1.can_append(r2) },
+//             (DeleteAlreadyHappened, DeleteAlreadyHappened) => true,
+//             _ => false,
+//         }
+//     }
+//
+//     fn append(&mut self, other: Self) {
+//         use TransformedResultRaw::*;
+//         match (self, other) {
+//             (Apply(op1), Apply(op2)) => { op1.append(op2) },
+//             (FF(r1), FF(r2)) => { r1.append(r2) },
+//             (DeleteAlreadyHappened, DeleteAlreadyHappened) => {},
+//             _ => unreachable!()
+//         }
+//     }
+// }
 
 impl<'a> TransformedOpsIterRaw<'a> {
-    pub(crate) fn from_plan(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
+    pub(crate) fn from_plan(aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
                             ops: &'a RleVec<KVPair<ListOpMetrics>>,
                             plan: M1Plan) -> Self {
         Self {
-            subgraph,
             aa,
             op_ctx,
             ops,
+            plan,
             op_iter: None,
             tracker: M2Tracker::new(), // NOTE: This allocates, even if we don't need it.
-            plan,
             plan_idx: 0,
             applying: false,
             // max_frontier: common,
@@ -688,11 +682,13 @@ impl<'a> TransformedOpsIterRaw<'a> {
                       ops: &'a RleVec<KVPair<ListOpMetrics>>,
                       from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
         let (plan, _common) = subgraph.make_m1_plan(Some(ops), from_frontier, merge_frontier, true);
-        Self::from_plan(subgraph, aa, op_ctx, ops, plan)
+        Self::from_plan(aa, op_ctx, ops, plan)
     }
 
     // Returns (remainder, item_here);
-    fn next_from(aa: &AgentAssignment, tracker: &mut M2Tracker, op_ctx: &ListOperationCtx, mut pair: KVPair<ListOpMetrics>) -> (Option<KVPair<ListOpMetrics>>, TransformedResultRaw) {
+    fn next_from(aa: &AgentAssignment, tracker: &mut M2Tracker, op_ctx: &ListOperationCtx, mut pair: KVPair<ListOpMetrics>)
+        -> (Option<KVPair<ListOpMetrics>>, TransformedResultRaw)
+    {
         // Ok, try to consume as much as we can from pair.
         let span = aa.local_span_to_agent_span(pair.span());
         let len = span.len().min(pair.len());
@@ -708,9 +704,9 @@ impl<'a> TransformedOpsIterRaw<'a> {
                 let len = pair.1.loc.span.len();
                 pair.1.loc.span.start = xf_pos;
                 pair.1.loc.span.end = xf_pos + len;
-                TransformedResultRaw::Apply(pair.1)
+                TransformedResultRaw::Apply(pair)
             },
-            DeleteAlreadyHappened => TransformedResultRaw::DeleteAlreadyHappened,
+            DeleteAlreadyHappened => TransformedResultRaw::DeleteAlreadyHappened(pair.span()),
         };
 
         (remainder, result)
@@ -781,12 +777,73 @@ impl<'a> Iterator for TransformedOpsIterRaw<'a> {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum TransformedResultX {
+    Apply(KVPair<ListOpMetrics>),
+    DeleteAlreadyHappened(DTRange),
+}
+
+/// This wraps TransformedOpsIterRaw to provide the same API as the older transformed ops iterator.
+pub(crate) struct TransformedOpsIterX<'a> {
+    inner: TransformedOpsIterRaw<'a>,
+    ff_iter: Option<(std::slice::Iter<'a, KVPair<ListOpMetrics>>, usize)>,
+}
+
+impl<'a> From<TransformedOpsIterRaw<'a>> for TransformedOpsIterX<'a> {
+    fn from(inner: TransformedOpsIterRaw<'a>) -> Self {
+        Self { inner, ff_iter: None }
+    }
+}
+
+impl<'a> Iterator for TransformedOpsIterX<'a> {
+    type Item = TransformedResultX;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use TransformedResultX::*;
+
+        if let Some((ff_iter, end)) = self.ff_iter.as_mut() {
+            if let Some(item) = ff_iter.next() {
+                let mut item = item.clone();
+                if item.0 < *end {
+                    let item_end = item.end();
+                    if item_end > *end {
+                        item.truncate_ctx(*end - item.0, self.inner.op_ctx);
+                    }
+                    return Some(Apply(item));
+                }
+            }
+
+            self.ff_iter = None;
+        }
+
+        // Otherwise, take the next item from the internal iterator.
+        match self.inner.next() {
+            None => None,
+            Some(TransformedResultRaw::Apply(op)) => Some(Apply(op)),
+            Some(TransformedResultRaw::FF(range)) => {
+                debug_assert!(!range.is_empty());
+
+                let start_idx = self.inner.ops.find_next_index(range.start);
+                let mut first = self.inner.ops[start_idx].clone();
+                if first.0 < range.start {
+                    first.truncate_keeping_right_ctx(range.start - first.0, self.inner.op_ctx);
+                }
+
+                self.ff_iter = Some((self.inner.ops.0[start_idx+1..].iter(), range.end));
+
+                Some(Apply(first))
+            },
+            Some(TransformedResultRaw::DeleteAlreadyHappened(range)) => Some(DeleteAlreadyHappened(range)),
+        }
+    }
+}
 
 
 
 
-
-
+/// DEPRECATED
+///
+/// This is overcomplicated, and should be replaced by TransformedOpsIterRaw whenever possible.
 #[derive(Debug)]
 pub(crate) struct TransformedOpsIter<'a> {
     subgraph: &'a Graph,
