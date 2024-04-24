@@ -558,14 +558,16 @@ impl ListOpLog {
 
         // If we just iterate in the current order, this code would be way simpler :p
         // let iter = self.cg.history.optimized_txns_between(from_frontier, &self.frontier);
-        // for walk in self.cg.parents.iter() {
-        for walk in self.cg.graph.optimized_txns_between(from_version, self.cg.version.as_ref()) {
+        let (_, new_ranges) = self.cg.graph.diff(from_version, self.cg.version.as_ref());
+        // for walk in self.cg.graph.iter_range() {
+        // for walk in self.cg.graph.optimized_txns_between(from_version, self.cg.version.as_ref()) {
+        for walk in new_ranges.iter().flat_map(|r| self.cg.graph.iter_range(*r)) {
             // We only care about walk.consume and parents.
 
             // We need to update *lots* of stuff in here!!
 
             // 1. Agent names and agent assignment
-            for KVPair(_, span) in self.cg.agent_assignment.client_with_lv.iter_range_ctx(walk.consume, &()) {
+            for KVPair(_, span) in self.cg.agent_assignment.client_with_lv.iter_range_ctx(walk.span, &()) {
                 // Mark the agent as in-use (if we haven't already)
                 let mapped_agent = agent_mapping.map(self, span.agent);
 
@@ -581,7 +583,7 @@ impl ListOpLog {
             }
 
             // 2. Operations!
-            for (op, content) in self.iter_range_simple(walk.consume) {
+            for (op, content) in self.iter_range_simple(walk.span) {
                 let op = op.1;
 
                 // DANGER!! Its super important we pull out the content here rather than in
@@ -607,8 +609,9 @@ impl ListOpLog {
 
             // 3. Parents!
             txns_writer.push2(GraphEntrySimple {
-                span: walk.consume,
+                span: walk.span,
                 parents: walk.parents
+                // parents: walk.parents
             }, &mut agent_mapping);
         }
 
