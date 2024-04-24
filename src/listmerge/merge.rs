@@ -669,7 +669,7 @@ impl MergableSpan for TransformedResultRaw {
 impl<'a> TransformedOpsIterRaw<'a> {
     pub(crate) fn from_plan(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
                             ops: &'a RleVec<KVPair<ListOpMetrics>>,
-                            plan: M1Plan, common: Frontier) -> Self {
+                            plan: M1Plan) -> Self {
         Self {
             subgraph,
             aa,
@@ -687,13 +687,9 @@ impl<'a> TransformedOpsIterRaw<'a> {
     pub(crate) fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
                       ops: &'a RleVec<KVPair<ListOpMetrics>>,
                       from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
-        let (plan, common) = subgraph.make_m1_plan(Some(ops), from_frontier, merge_frontier, true);
-        Self::from_plan(subgraph, aa, op_ctx, ops, plan, common)
+        let (plan, _common) = subgraph.make_m1_plan(Some(ops), from_frontier, merge_frontier, true);
+        Self::from_plan(subgraph, aa, op_ctx, ops, plan)
     }
-
-    // fn get_next_action(&mut self) -> Option<(KVPair<ListOpMetrics>, op_iter: &mut BufferedIter<OpMetricsIter>)> {
-    //
-    // }
 
     // Returns (remainder, item_here);
     fn next_from(aa: &AgentAssignment, tracker: &mut M2Tracker, op_ctx: &ListOperationCtx, mut pair: KVPair<ListOpMetrics>) -> (Option<KVPair<ListOpMetrics>>, TransformedResultRaw) {
@@ -719,10 +715,6 @@ impl<'a> TransformedOpsIterRaw<'a> {
 
         (remainder, result)
     }
-
-    // pub(crate) fn into_frontier(self) -> Frontier {
-    //     self.max_frontier
-    // }
 }
 
 impl<'a> Iterator for TransformedOpsIterRaw<'a> {
