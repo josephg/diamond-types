@@ -62,6 +62,10 @@ impl ListOpLog {
         self.cg.agent_assignment.get_agent_name(agent)
     }
 
+    pub fn num_agents(&self) -> AgentId {
+        self.cg.num_agents()
+    }
+
     pub(crate) fn lv_to_agent_version(&self, lv: LV) -> AgentVersion {
         self.cg.agent_assignment.local_to_agent_version(lv)
     }
@@ -187,7 +191,7 @@ impl ListOpLog {
     ///
     /// Returns the single item version after merging. (The resulting LocalVersion after calling
     /// this method will be `[time]`).
-    fn add_operations_local(&mut self, agent: AgentId, ops: &[TextOperation]) -> LV {
+    pub fn add_operations_local(&mut self, agent: AgentId, ops: &[TextOperation]) -> LV {
         let first_time = self.len();
         let mut next_time = first_time;
 
@@ -348,11 +352,11 @@ impl ListOpLog {
     }
 
     /// Iterate through history entries
-    pub fn iter_history(&self) -> impl Iterator<Item =GraphEntrySimple> + '_ {
+    pub fn iter_history(&self) -> impl Iterator<Item = GraphEntrySimple> + '_ {
         self.cg.graph.iter()
     }
 
-    pub fn iter_history_range(&self, range: DTRange) -> impl Iterator<Item =GraphEntrySimple> + '_ {
+    pub fn iter_history_range(&self, range: DTRange) -> impl Iterator<Item = GraphEntrySimple> + '_ {
         self.cg.graph.iter_range(range)
     }
 
@@ -497,8 +501,8 @@ impl ListOpLog {
         let i_count = i_1 + i_n + i_r;
         let d_count = d_1 + d_n + d_r;
         // These stats might make more sense as percentages.
-        println!("ins: singles {i_1}, fwd {i_n}, rev {i_r}, count {i_count}");
-        println!("del: singles {d_1}, fwd {d_n}, rev {d_r}, count {d_count}");
+        println!("ins: singles {i_1}, fwd {i_n}, rev {i_r}, count {i_count}, keystrokes {i_k}");
+        println!("del: singles {d_1}, fwd {d_n}, rev {d_r}, count {d_count}, keystrokes {d_k}");
         println!("Total keystrokes: {}", i_k + d_k);
 
         println!("Insert content length {}", self.operation_ctx.ins_content.len());

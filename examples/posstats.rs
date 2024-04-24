@@ -125,7 +125,7 @@ fn print_stats_for_oplog(_name: &str, oplog: &ListOpLog) {
     // oplog.make_time_dag_graph("node_cc.svg");
 
     println!("---- Saving normally ----");
-    let data = oplog.encode(EncodeOptions {
+    let data = oplog.encode(&EncodeOptions {
         user_data: None,
         store_start_branch_content: false,
         experimentally_store_end_branch_content: false,
@@ -138,7 +138,7 @@ fn print_stats_for_oplog(_name: &str, oplog: &ListOpLog) {
 
 
     println!("---- Saving smol mode ----");
-    let data_smol = oplog.encode(EncodeOptions {
+    let data_smol = oplog.encode(&EncodeOptions {
         user_data: None,
         store_start_branch_content: false,
         experimentally_store_end_branch_content: true,
@@ -150,7 +150,7 @@ fn print_stats_for_oplog(_name: &str, oplog: &ListOpLog) {
     println!("Smol size {}", data_smol.len());
 
     println!("---- Saving uncompressed ----");
-    let data_uncompressed = oplog.encode(EncodeOptions {
+    let data_uncompressed = oplog.encode(&EncodeOptions {
         user_data: None,
         store_start_branch_content: false,
         experimentally_store_end_branch_content: false,
@@ -162,7 +162,7 @@ fn print_stats_for_oplog(_name: &str, oplog: &ListOpLog) {
     println!("Uncompressed size {}", data_uncompressed.len());
 
     println!("---- Saving smol uncompressed ----");
-    let data_uncompressed = oplog.encode(EncodeOptions {
+    let data_uncompressed = oplog.encode(&EncodeOptions {
         user_data: None,
         store_start_branch_content: false,
         experimentally_store_end_branch_content: true,

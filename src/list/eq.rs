@@ -93,7 +93,7 @@ impl PartialEq<Self> for ListOpLog {
         // Note this should be optimized if its going to be used for more than fuzz testing.
         // But this is pretty neat!
         for (mut op, mut txn, mut crdt_id) in rle_zip3(
-            self.iter(),
+            self.iter_ops(),
             self.iter_history(),
             self.cg.agent_assignment.client_with_lv.iter().map(|pair| pair.1)
         ) {

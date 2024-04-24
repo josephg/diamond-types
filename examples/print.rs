@@ -11,7 +11,7 @@ fn print_stats_for_file(name: &str) {
     let oplog = ListOpLog::load_from(&contents).unwrap();
 
     println!("\nOperations:");
-    for op in oplog.iter() {
+    for op in oplog.iter_ops() {
         println!("{:?}", op);
     }
 
@@ -60,7 +60,7 @@ fn print_stats_for_file(name: &str) {
     // }
 
     println!();
-    oplog.encode(EncodeOptions {
+    oplog.encode(&EncodeOptions {
         user_data: None,
         store_start_branch_content: false,
         experimentally_store_end_branch_content: false,

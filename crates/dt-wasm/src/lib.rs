@@ -37,7 +37,7 @@ pub struct OpLog {
 
 
 pub fn get_ops(oplog: &DTOpLog) -> WasmResult {
-    let ops = oplog.iter().collect::<Vec<_>>();
+    let ops = oplog.iter_ops().collect::<Vec<_>>();
     serde_wasm_bindgen::to_value(&ops)
 }
 
@@ -76,13 +76,13 @@ pub fn oplog_version_to_remote_version(oplog: &DTOpLog) -> WasmResult {
 
 // This method adds 15kb to the wasm bundle, or 4kb to the brotli size. O_o.
 pub fn to_bytes(oplog: &DTOpLog) -> Vec<u8> {
-    let bytes = oplog.encode(ENCODE_FULL);
+    let bytes = oplog.encode(&ENCODE_FULL);
     bytes
 }
 
 pub fn get_patch_since(oplog: &DTOpLog, from_version: &[LV]) -> Vec<u8> {
     // let from_version = map_parents(&version);
-    let bytes = oplog.encode_from(ENCODE_PATCH, from_version);
+    let bytes = oplog.encode_from(&ENCODE_PATCH, from_version);
     bytes
 }
 

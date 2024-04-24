@@ -140,6 +140,21 @@ impl<'a> Default for EncodeOptions<'a> {
     }
 }
 
+impl<'a> EncodeOptions<'a> {
+    pub fn verbose(&mut self, verbose: bool) -> &mut Self {
+        self.verbose = verbose;
+        self
+    }
+
+    pub fn encode(&self, oplog: &ListOpLog) -> Vec<u8> {
+        oplog.encode(self)
+    }
+
+    pub fn encode_from(&self, oplog: &ListOpLog, from_version: &[LV]) -> Vec<u8> {
+        oplog.encode_from(self, from_version)
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 struct AgentAssignmentRun {
     agent: AgentId,
@@ -402,7 +417,7 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
 impl ListOpLog {
     /// Encode the data stored in the OpLog into a (custom) compact binary form suitable for saving
     /// to disk, or sending over the network.
-    pub fn encode_from(&self, opts: EncodeOptions, from_version: &[LV]) -> Vec<u8> {
+    pub fn encode_from(&self, opts: &EncodeOptions, from_version: &[LV]) -> Vec<u8> {
         // if !frontier_is_root(from_frontier) {
         //     unimplemented!("Encoding from a non-root frontier is not implemented");
         // }
@@ -745,7 +760,7 @@ impl ListOpLog {
         result
     }
 
-    pub fn encode(&self, opts: EncodeOptions) -> Vec<u8> {
+    pub fn encode(&self, opts: &EncodeOptions) -> Vec<u8> {
         self.encode_from(opts, &[])
     }
 
@@ -923,7 +938,7 @@ mod tests {
         doc.insert(0, 0, "hi there");
 
         let d1 = doc.oplog.encode_simple(EncodeOptions::default());
-        let d2 = doc.oplog.encode(EncodeOptions::default());
+        let d2 = doc.oplog.encode(&EncodeOptions::default());
         assert_eq!(d1, d2);
         // let data = doc.ops.encode_old(EncodeOptions::default());
         // dbg!(data.len(), data);
@@ -940,7 +955,7 @@ mod tests {
         let _t2 = doc.insert(1, 0, "hi from mike!\n");
 
         // let data = doc.ops.encode_from(EncodeOptions::default(), &[ROOT_TIME]);
-        let data = doc.oplog.encode_from(EncodeOptions::default(), &[_t1]);
+        let data = doc.oplog.encode_from(&EncodeOptions::default(), &[_t1]);
         ops2.decode_and_add(&data).unwrap();
         assert_eq!(ops2, doc.oplog);
         // let data = doc.ops.encode_from(EncodeOptions::default(), &[_t2]);

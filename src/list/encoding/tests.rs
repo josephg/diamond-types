@@ -15,7 +15,7 @@ fn simple_doc() -> ListCRDT {
 }
 
 fn check_encode_decode_matches(oplog: &ListOpLog) {
-    let data = oplog.encode(EncodeOptions {
+    let data = oplog.encode(&EncodeOptions {
         user_data: None,
         store_start_branch_content: true,
         experimentally_store_end_branch_content: false,
@@ -35,7 +35,7 @@ fn check_encode_decode_matches(oplog: &ListOpLog) {
 #[test]
 fn encode_decode_smoke_test() {
     let doc = simple_doc();
-    let data = doc.oplog.encode(EncodeOptions::default());
+    let data = doc.oplog.encode(&EncodeOptions::default());
 
     let result = ListOpLog::load_from(&data).unwrap();
     // dbg!(&result);
@@ -53,14 +53,14 @@ fn decode_in_parts() {
     doc.get_or_create_agent_id("mike");
     doc.insert(0, 0, "hi there");
 
-    let data_1 = doc.oplog.encode(EncodeOptions::default());
+    let data_1 = doc.oplog.encode(&EncodeOptions::default());
     let f1 = doc.oplog.cg.version.clone();
 
     doc.delete_without_content(1, 3..7); // 'hi e'
     doc.insert(0, 3, "m");
     let f2 = doc.oplog.cg.version.clone();
 
-    let data_2 = doc.oplog.encode_from(EncodeOptions::default(), f1.as_ref());
+    let data_2 = doc.oplog.encode_from(&EncodeOptions::default(), f1.as_ref());
 
     let mut d2 = ListOpLog::new();
     let m1 = d2.decode_and_add(&data_1).unwrap();
@@ -78,9 +78,9 @@ fn merge_parts() {
     let mut oplog = ListOpLog::new();
     oplog.get_or_create_agent_id("seph");
     oplog.add_insert(0, 0, "hi");
-    let data_1 = oplog.encode(EncodeOptions::default());
+    let data_1 = oplog.encode(&EncodeOptions::default());
     oplog.add_insert(0, 2, " there");
-    let data_2 = oplog.encode(EncodeOptions::default());
+    let data_2 = oplog.encode(&EncodeOptions::default());
 
     let mut log2 = ListOpLog::load_from(&data_1).unwrap();
     println!("\n------\n");
@@ -93,7 +93,7 @@ fn merge_parts() {
 fn merge_future_patch_errors() {
     let oplog = simple_doc().oplog;
     let v = oplog.cg.version[0];
-    let bytes = oplog.encode_from(ENCODE_FULL, &[v-1]);
+    let bytes = oplog.encode_from(&ENCODE_FULL, &[v-1]);
 
     let err = ListOpLog::load_from(&bytes).unwrap_err();
     assert_eq!(err, ParseError::BaseVersionUnknown);
@@ -109,10 +109,10 @@ fn merge_parts_2() {
     oplog_a.get_or_create_agent_id("b");
 
     let t1 = oplog_a.add_insert(0, 0, "aa");
-    let data_a = oplog_a.encode(EncodeOptions::default());
+    let data_a = oplog_a.encode(&EncodeOptions::default());
 
     oplog_a.add_insert_at(1, &[], 0, "bbb");
-    let data_b = oplog_a.encode_from(EncodeOptions::default(), &[t1]);
+    let data_b = oplog_a.encode_from(&EncodeOptions::default(), &[t1]);
 
     // Now we should be able to merge a then b, or b then a and get the same result.
     let mut a_then_b = ListOpLog::new();
@@ -181,7 +181,7 @@ fn check_unroll_works(dest: &ListOpLog, src: &ListOpLog) {
     // So we're going to decode the oplog with all the different bytes corrupted. The result
     // should always fail if we check the CRC.
 
-    let encoded_proper = src.encode(EncodeOptions {
+    let encoded_proper = src.encode(&EncodeOptions {
         user_data: None,
         store_start_branch_content: true,
         experimentally_store_end_branch_content: false,
@@ -236,7 +236,7 @@ fn error_unrolling() {
 #[test]
 fn save_load_save_load() {
     let oplog1 = simple_doc().oplog;
-    let bytes = oplog1.encode(EncodeOptions {
+    let bytes = oplog1.encode(&EncodeOptions {
         user_data: None,
         store_start_branch_content: true,
         // store_inserted_content: true,
@@ -251,7 +251,7 @@ fn save_load_save_load() {
     let oplog2 = ListOpLog::load_from(&bytes).unwrap();
     // dbg!(&oplog2);
 
-    let bytes2 = oplog2.encode(EncodeOptions {
+    let bytes2 = oplog2.encode(&EncodeOptions {
         user_data: None,
         store_start_branch_content: true,
         experimentally_store_end_branch_content: false,
@@ -270,7 +270,7 @@ fn save_load_save_load() {
 fn doc_id_preserved() {
     let mut oplog = simple_doc().oplog;
     oplog.doc_id = Some("hi".into());
-    let bytes = oplog.encode(ENCODE_FULL);
+    let bytes = oplog.encode(&ENCODE_FULL);
     let result = ListOpLog::load_from(&bytes).unwrap();
 
     // Eq should check correctly.
@@ -287,7 +287,7 @@ fn mismatched_doc_id_errors() {
     let mut oplog2 = simple_doc().oplog;
     oplog2.doc_id = Some("bbb".into());
 
-    let bytes = oplog1.encode(ENCODE_FULL);
+    let bytes = oplog1.encode(&ENCODE_FULL);
     assert_eq!(oplog2.decode_and_add(&bytes).unwrap_err(), ParseError::DocIdMismatch);
     assert_eq!(oplog2.doc_id, Some("bbb".into())); // And the doc ID should be unchanged
 }
@@ -299,7 +299,7 @@ fn doc_id_preserved_when_error_happens() {
     let mut oplog2 = simple_doc().oplog;
     oplog2.doc_id = Some("bbb".into());
 
-    let mut bytes = oplog2.encode(ENCODE_FULL);
+    let mut bytes = oplog2.encode(&ENCODE_FULL);
     let last_byte = bytes.last_mut().unwrap();
     *last_byte = !*last_byte; // Any change should mess up the checksum and fail.
 
@@ -312,7 +312,7 @@ fn doc_id_preserved_when_error_happens() {
 #[test]
 fn merge_returns_root_for_empty_file() {
     let oplog = ListOpLog::new();
-    let bytes = oplog.encode(ENCODE_FULL);
+    let bytes = oplog.encode(&ENCODE_FULL);
 
     let mut result = ListOpLog::new();
     let version = result.decode_and_add(&bytes).unwrap();
@@ -322,7 +322,7 @@ fn merge_returns_root_for_empty_file() {
 #[test]
 fn merge_returns_version_even_with_overlap() {
     let oplog = simple_doc().oplog;
-    let bytes = oplog.encode(ENCODE_FULL);
+    let bytes = oplog.encode(&ENCODE_FULL);
 
     let mut oplog2 = oplog.clone();
     let version = oplog2.decode_and_add(&bytes).unwrap();
@@ -339,7 +339,7 @@ fn merge_patch_returns_correct_version() {
 
     oplog.add_insert(0, 0, "x");
 
-    let bytes = oplog.encode_from(ENCODE_FULL, v.as_ref());
+    let bytes = oplog.encode_from(&ENCODE_FULL, v.as_ref());
 
     let version = oplog2.decode_and_add(&bytes).unwrap();
 
@@ -399,7 +399,7 @@ fn compat_simple_doc() {
     doc.delete_without_content(0, 3..7); // 'hi e'
     doc.insert(0, 3, "m");
 
-    dbg!(&doc.oplog.encode(EncodeOptions {
+    dbg!(&doc.oplog.encode(&EncodeOptions {
         user_data: None,
         store_start_branch_content: false,
         experimentally_store_end_branch_content: false,

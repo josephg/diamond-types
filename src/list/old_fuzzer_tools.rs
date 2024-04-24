@@ -91,7 +91,7 @@ impl ListOpLog {
         for x in rle_zip(
             self.iter_history(),
             // self.operations.iter().map(|p| p.1.clone()) // Only the ops.
-            self.iter()
+            self.iter_ops()
         ) {
             println!("{:?}", x);
         }
@@ -101,7 +101,7 @@ impl ListOpLog {
     pub(crate) fn dbg_print_ops(&self) {
         for (time, op) in rle_zip(
             self.iter_history().map(|h| h.span).merge_spans(),
-            self.iter()
+            self.iter_ops()
         ) {
             println!("{:?} Op: {:?}", time, op);
         }
@@ -112,7 +112,7 @@ impl ListOpLog {
         for (time, map, op) in rle_zip3(
             self.iter_history().map(|h| h.span).merge_spans(),
             self.iter_remote_mappings(),
-            self.iter()
+            self.iter_ops()
         ) {
             println!("{:?} M: {:?} Op: {:?}", time, map, op);
         }
