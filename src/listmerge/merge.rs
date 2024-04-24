@@ -703,8 +703,7 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         // We're done when we've merged everything in self.new_ops.
         // todo!()
-        // if self.op_iter.is_none() && self.new_ops.is_empty() { return None; }
-        if self.op_iter.is_none() && self.plan_idx >= self.plan.0.len() { return None; }
+        // if self.op_iter.is_none() && self.plan_idx >= self.plan.0.len() { return None; }
 
         let (mut pair, op_iter) = 'outer: loop {
             if let Some(op_iter) = self.op_iter.as_mut() {
@@ -715,8 +714,10 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             }
 
             // Otherwise advance to the next chunk from walker.
-            for action in &self.plan.0[self.plan_idx..] {
+            while self.plan_idx < self.plan.0.len() {
+                let action = &self.plan.0[self.plan_idx];
                 self.plan_idx += 1;
+
                 match action {
                     M1PlanAction::Retreat(span) => {
                         self.tracker.retreat_by_range(*span);
@@ -745,11 +746,9 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
 
                         // FF doesn't make sense unless we're applying the operations.
                         debug_assert!(self.applying);
-                        
-                        if self.applying {
-                            self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, *span).into());
-                            continue 'outer;
-                        }
+
+                        self.op_iter = Some(OpMetricsIter::new(self.ops, self.op_ctx, *span).into());
+                        continue 'outer;
                     }
                     M1PlanAction::Clear => {
                         // dbg!(self.tracker.range_tree.count_nodes());

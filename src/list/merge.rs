@@ -166,14 +166,14 @@ impl ListBranch {
                     }
                 }
 
-                (_, DeleteAlreadyHappened) => {}, // Discard.
-
                 (ListOpKind::Del, BaseMoved(pos)) => {
                     let del_end = pos + origin_op.len();
                     debug_assert!(self.content.len_chars() >= del_end);
                     // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, mut_len, to.content.slice_chars(del_start..del_end).collect::<String>());
                     self.content.remove(pos..del_end);
                 }
+
+                (_, DeleteAlreadyHappened) => {}, // Discard.
             }
         }
 
