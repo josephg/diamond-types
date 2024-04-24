@@ -1,15 +1,22 @@
-#[cfg(test)]
-mod conformance_test;
+use std::collections::HashMap;
 
 use criterion::{BenchmarkId, black_box, Criterion};
+#[cfg(feature = "memusage")]
+use serde::Serialize;
 use smallvec::{smallvec, SmallVec};
-use diamond_types::causalgraph::agent_assignment::remote_ids::{RemoteVersionOwned as NewRemoteVersion};
+
+use diamond_types::causalgraph::agent_assignment::remote_ids::RemoteVersionOwned as NewRemoteVersion;
 use diamond_types::DTRange;
 use diamond_types::list::ListOpLog;
 use diamond_types::listmerge::to_old::OldCRDTOp;
 use diamond_types_crdt::list::external_txn::{RemoteId as OldRemoteId, RemoteIdSpan as OldRemoteIdSpan, RemoteTxn};
 use diamond_types_crdt::root_id;
 use rle::{AppendRle, HasLength, SplitableSpan};
+#[cfg(feature = "memusage")]
+use trace_alloc::{get_peak_memory_usage, get_thread_memory_usage, measure_memusage, reset_peak_memory_usage};
+
+#[cfg(test)]
+mod conformance_test;
 
 fn time_to_remote_id(time: usize, oplog: &ListOpLog) -> OldRemoteId {
     if time == usize::MAX {
@@ -165,7 +172,9 @@ pub fn get_txns_from_oplog(oplog: &ListOpLog) -> Vec<RemoteTxn> {
     result
 }
 
-const DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "friendsforever", "clownschool", "node_nodecc", "git-makefile", "egwalker"];
+// const DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "friendsforever", "clownschool", "node_nodecc", "git-makefile", "egwalker"];
+// const DATASETS: &[&str] = &["automerge-paperx3", "seph-blog1x3", "node_nodeccx1", "friendsforeverx25", "clownschoolx25", "egwalkerx1", "git-makefilex2"];
+const DATASETS: &[&str] = & ["S1", "S2", "S3", "C1", "C2", "A1", "A2"];
 
 fn bench_process(c: &mut Criterion) {
     // let name = "benchmark_data/node_nodecc.dt";
@@ -174,7 +183,8 @@ fn bench_process(c: &mut Criterion) {
     // let name = "benchmark_data/data.dt";
 
     for &name in DATASETS {
-        let txns = get_txns_from_file(&format!("benchmark_data/{}.dt", name));
+        let txns = get_txns_from_file(&format!("../reg-paper/datasets/{}.dt", name));
+        // let txns = get_txns_from_file(&format!("benchmark_data/{}.dt", name));
 
         let mut group = c.benchmark_group("dt-crdt");
         group.bench_function(BenchmarkId::new("process_remote_edits", name), |b| {
@@ -201,13 +211,57 @@ fn bench_process(c: &mut Criterion) {
     }
 }
 
-fn main() {
-    // benches();
-    let mut c = Criterion::default()
-        .configure_from_args();
+#[cfg(feature = "memusage")]
+#[derive(Debug, Clone, Copy, Serialize)]
+struct MemUsage {
+    steady_state: usize,
+    peak: usize,
+}
 
-    bench_process(&mut c);
-    c.final_summary();
+// Run with:
+// $ cargo run -p run_on_old --release --features memusage
+#[cfg(feature = "memusage")]
+fn measure_memory() {
+    let mut usage = HashMap::new();
+
+    for &name in DATASETS {
+        print!("{name}...");
+        let txns = get_txns_from_file(&format!("../reg-paper/datasets/{name}.dt"));
+
+        let (peak, steady_state, _) = measure_memusage(|| {
+            let mut old_oplog = diamond_types_crdt::list::ListCRDT::new();
+            for txn in txns.iter() {
+                old_oplog.apply_remote_txn(txn);
+            }
+            // Make sure there's no silly business.
+            black_box(old_oplog.to_string());
+
+            old_oplog
+        });
+
+        println!(" peak memory: {peak} / steady state {steady_state}");
+        usage.insert(name.to_string(), MemUsage { peak, steady_state });
+    }
+
+    let json_out = serde_json::to_vec_pretty(&usage).unwrap();
+    // let filename = "../../results/ot_memusage.json";
+    let filename = "../reg-paper/results/dtcrdt_memusage.json";
+    std::fs::write(filename, json_out).unwrap();
+    println!("JSON written to {filename}");
+}
+
+fn main() {
+    #[cfg(feature = "memusage")]
+    measure_memory();
+
+    #[cfg(feature = "bench")]
+    {
+        let mut c = Criterion::default()
+            .configure_from_args();
+
+        bench_process(&mut c);
+        c.final_summary();
+    }
 }
 
 // fn main() {

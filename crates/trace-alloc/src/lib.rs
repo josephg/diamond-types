@@ -86,6 +86,27 @@ pub fn reset_peak_memory_usage() {
     });
 }
 
+// #[derive(Debug, Clone, Copy, Serialize)]
+// #[derive(Debug, Clone, Copy)]
+// pub struct MemUsage {
+//     steady_state: usize,
+//     peak: usize,
+// }
+
+// Returns (peak memory, resulting memory usage, R).
+pub fn measure_memusage<F: FnOnce() -> R, R>(f: F) -> (usize, usize, R) {
+    let before = get_thread_memory_usage();
+    reset_peak_memory_usage();
+
+    let result = f();
+
+    (
+        get_peak_memory_usage() - before,
+        get_thread_memory_usage() - before,
+        result
+    )
+}
+
 #[cfg(any(test, feature = "memusage"))]
 mod trace_alloc {
     use super::TracingAlloc;

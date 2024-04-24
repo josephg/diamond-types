@@ -11,11 +11,16 @@ diamond-types-crdt = {path = "../diamond-types-crdt"}
 smallvec = "1.9.0"
 rle = {path = "../rle"}
 criterion = { version = "0.5.1", features = ["html_reports"] }
+trace-alloc = { path = "../trace-alloc", optional = true }
+serde = { version = "1.0.136", optional = true }
+serde_json = { version = "1.0.79", optional = true }
 
 [dev-dependencies]
 # This is all for the conformance tests.
 diamond-types = { path = "../..", features = ["serde"] }
-serde = "1.0.136"
-serde_json = "1.0.79"
 smartstring = "1.0.1"
 brotli-decompressor = "2.5.0"
+
+[features]
+memusage = ["trace-alloc", "trace-alloc/memusage", "dep:serde", "dep:serde_json"]
+bench = []
