@@ -18,7 +18,7 @@ mod check;
 pub(crate) mod op_iter;
 
 // pub mod old_merge;
-mod oplog;
+pub mod oplog;
 mod branch;
 pub mod encoding;
 pub mod op_metrics;

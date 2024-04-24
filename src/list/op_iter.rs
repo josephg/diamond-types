@@ -10,6 +10,7 @@ use crate::list::operation::TextOperation;
 use crate::dtrange::DTRange;
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 use crate::{AgentId, Frontier, LV};
+use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
 
 #[derive(Debug)]
 pub(crate) struct OpMetricsIter<'a> {
@@ -174,8 +175,21 @@ impl ListOpLog {
         OpMetricsWithContent::new(self, (0..self.len()).into())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=TextOperation> + '_ {
+    pub fn iter_ops(&self) -> impl Iterator<Item=TextOperation> + '_ {
         self.iter_fast().map(|pair| (pair.0.1, pair.1).into())
+    }
+
+    pub fn iter_ops_range(&self, range: DTRange) -> impl Iterator<Item=TextOperation> + '_ {
+        self.iter_range_simple(range).map(|pair| (pair.0.1, pair.1).into())
+    }
+
+    pub fn iter_full(&self) -> impl Iterator<Item=(TextOperation, GraphEntrySimple, RemoteVersionSpan<'_>)> + '_ {
+        // self.iter_ops()
+        rle_zip3(self.iter_ops(), self.iter_history(), self.iter_remote_mappings())
+    }
+
+    pub fn iter_full_range(&self, range: DTRange) -> impl Iterator<Item=(TextOperation, GraphEntrySimple, RemoteVersionSpan<'_>)> + '_ {
+        rle_zip3(self.iter_ops_range(range), self.iter_history_range(range), self.iter_remote_mappings_range(range))
     }
 }
 
@@ -242,18 +256,18 @@ impl HasLength for FullEntry {
 }
 
 impl ListOpLog {
-    pub fn iter_full<'a>(&'a self, simple_graph: &'a RleVec<GraphEntrySimple>) -> impl Iterator<Item = (GraphEntrySimple, AgentSpan, TextOperation)> + 'a {
-        self.iter_fast().flat_map(|(pair, content)| {
-            let range = pair.range();
-            let simple_splits = simple_graph.iter_range(range);
-            let aa = self.cg.agent_assignment.client_with_lv.iter_range(range)
-                .map(|KVPair(_, data)| data);
-
-            let op: TextOperation = (pair.1, content).into();
-
-            rle_zip3(simple_splits, aa, std::iter::once(op))
-        })
-    }
+    // pub fn iter_full<'a>(&'a self, simple_graph: &'a RleVec<GraphEntrySimple>) -> impl Iterator<Item = (GraphEntrySimple, AgentSpan, TextOperation)> + 'a {
+    //     self.iter_fast().flat_map(|(pair, content)| {
+    //         let range = pair.range();
+    //         let simple_splits = simple_graph.iter_range(range);
+    //         let aa = self.cg.agent_assignment.client_with_lv.iter_range(range)
+    //             .map(|KVPair(_, data)| data);
+    //
+    //         let op: TextOperation = (pair.1, content).into();
+    //
+    //         rle_zip3(simple_splits, aa, std::iter::once(op))
+    //     })
+    // }
 
     /// This is a variant on iter_full, but where we also group together operations which are
     /// consecutive (from the same agent, and consecutive in time).
@@ -342,7 +356,7 @@ mod test {
     //     use crate::list::encoding::{ENCODE_FULL, EncodeOptions};
     //     let data = std::fs::read("friendsforever.dt").unwrap();
     //     let oplog = ListOpLog::load_from(&data).unwrap();
-    //     // oplog.checkout_tip();
+    //     // let old_value = oplog.checkout_tip().content;
     //
     //     let mut chunks = oplog.as_chunked_operation_vec();
     //     for (i, c) in chunks[..10].iter().enumerate() {
@@ -374,9 +388,9 @@ mod test {
     //     let r2 = result.checkout_tip();
     //     assert_eq!(r1.content, r2.content);
     //
-    //     dbg!(oplog.encode(ENCODE_FULL).len());
-    //     dbg!(result.encode(ENCODE_FULL).len());
-    //     let result_data = result.encode(ENCODE_FULL);
+    //     dbg!(oplog.encode(&ENCODE_FULL).len());
+    //     dbg!(result.encode(&ENCODE_FULL).len());
+    //     let result_data = result.encode(&ENCODE_FULL);
     //     std::fs::write("ff2.dt", &result_data).unwrap();
     // }
 

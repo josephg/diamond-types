@@ -37,7 +37,8 @@ fn profile_merge(name: &str, n: usize) {
     let oplog = ListOpLog::load_from(&contents).unwrap();
 
     for _i in 0..n {
-        black_box(oplog.checkout_tip_old());
+        // black_box(oplog.checkout_tip_old());
+        black_box(oplog.checkout_tip());
     }
 }
 

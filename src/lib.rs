@@ -208,7 +208,9 @@ use crate::textinfo::TextInfo;
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
 
 pub mod list;
-mod rle;
+
+#[doc(hidden)]
+pub mod rle;
 mod dtrange;
 mod unicount;
 mod rev_range;
