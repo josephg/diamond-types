@@ -243,9 +243,6 @@ enum Commands {
         /// own transaction
         #[arg(short, long)]
         shatter: bool,
-
-        #[arg(long)]
-        safe: bool,
     },
 
     ExportTraceSimple {
@@ -418,7 +415,7 @@ fn main() -> Result<(), anyhow::Error> {
                 oplog.add_insert(agent, 0, &content);
             }
 
-            let data = oplog.encode(ENCODE_FULL);
+            let data = oplog.encode(&ENCODE_FULL);
 
             maybe_overwrite(&filename, &data, force)?;
         }
@@ -584,7 +581,7 @@ fn main() -> Result<(), anyhow::Error> {
             }
 
             // TODO: Do that atomic rename nonsense instead of just overwriting.
-            let out_data = oplog.encode(EncodeOptions::default());
+            let out_data = oplog.encode(&EncodeOptions::default());
             fs::write(&dt_filename, out_data)?;
         }
 
@@ -648,7 +645,7 @@ fn main() -> Result<(), anyhow::Error> {
             write_serde_data(output, pretty, &result)?;
         }
 
-        Commands::ExportTrace { dt_filename, output, pretty, timestamp_filename, shatter, safe } => {
+        Commands::ExportTrace { dt_filename, output, pretty, timestamp_filename, shatter } => {
             let data = fs::read(&dt_filename)?;
             let oplog = ListOpLog::load_from(&data)?;
 
@@ -660,9 +657,10 @@ fn main() -> Result<(), anyhow::Error> {
                         This means the oplog may have differing merge results based on the sequence CRDT\n\
                         used to process it.");
                 }
-                if problems.agent_ops_not_fully_ordered && !safe {
-                    eprintln!("WARNING: Operations from each agent are not fully ordered. Rerun in safe mode (--safe).");
-                }
+                // Because we always export in "safe mode", this should never be a problem.
+                // if problems.agent_ops_not_fully_ordered && !safe {
+                //     eprintln!("WARNING: Operations from each agent are not fully ordered. Rerun in safe mode (--safe).");
+                // }
                 if problems.multiple_roots {
                     eprintln!("WARNING: Operation log has multiple roots.");
                 }
@@ -672,7 +670,7 @@ fn main() -> Result<(), anyhow::Error> {
                 ");
             }
 
-            let result = export_trace_to_json(&oplog, timestamp_filename, shatter, safe);
+            let result = export_trace_to_json(&oplog, timestamp_filename, shatter);
             write_serde_data(output, pretty, &result)?;
         }
 

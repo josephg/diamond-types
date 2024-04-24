@@ -137,7 +137,7 @@ pub struct TraceExportTxn {
     patches: SmallVec<[SimpleTextOp; 2]>,
 
     // This isn't formally part of the spec, but its useful sometimes.
-    #[serde(rename = "_dt_span")]
+    #[serde(rename = "_dtSpan")]
     _dt_span: [usize; 2],
 }
 
@@ -284,7 +284,7 @@ fn safe_assignments_needed_for_agent(oplog: &ListOpLog, agent: AgentId) -> (RleV
 }
 
 
-pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsString>, shatter: bool, safe: bool) -> TraceExportData {
+pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsString>, shatter: bool) -> TraceExportData {
     let timestamps = timestamp_filename.map(Timestamps::from_file);
 
     // TODO: A hashmap is overkill here. A vec + binary search would be fine. Eh.
@@ -310,32 +310,21 @@ pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsStri
     // each local agent might map to multiple output agents. In this case, agent_map names the
     // base (first) slot.
     let mut agent_map: Vec<usize> = vec![0; raw_num_agents as usize];
-    let (num_agents, mappings) = if !safe {
-        // sorted_agents maps from order -> agent_id. We need a map from agent_id -> order, so we'll
-        // make another list and invert sorted_agents.
-        for (i, agent) in sorted_agents.iter().enumerate() {
-            agent_map[*agent as usize] = i;
-        }
-        (raw_num_agents as usize, None)
-    } else {
-        let mut mappings = vec![];
-        let mut num_agents = 0;
+    let mut mappings = vec![];
+    let mut num_agents = 0;
 
-        for agent in 0..oplog.num_agents() {
-            let (map, slots_used) = safe_assignments_needed_for_agent(oplog, agent);
-            assert!(slots_used >= 1);
-            num_agents += slots_used;
-            mappings.push((map, slots_used));
-        }
+    for agent in 0..oplog.num_agents() {
+        let (map, slots_used) = safe_assignments_needed_for_agent(oplog, agent);
+        assert!(slots_used >= 1);
+        num_agents += slots_used;
+        mappings.push((map, slots_used));
+    }
 
-        let mut next = 0;
-        for &agent in sorted_agents.iter() {
-            agent_map[agent as usize] = next;
-            next += mappings[agent as usize].1;
-        }
-
-        (num_agents, Some(mappings))
-    };
+    let mut next = 0;
+    for &agent in sorted_agents.iter() {
+        agent_map[agent as usize] = next;
+        next += mappings[agent as usize].1;
+    }
 
     let mut txns = vec![];
 
@@ -370,18 +359,15 @@ pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsStri
 
         // let agent = agent_map[entry.agent_span.agent as usize];
         let base = agent_map[entry.agent_span.agent as usize];
-        let agent = if let Some(mappings) = mappings.as_ref() {
-            let (m, _) = &mappings[entry.agent_span.agent as usize];
-            let slot_entry = m.find_packed(entry.agent_span.seq_range.start);
-            assert!(slot_entry.end() >= entry.agent_span.seq_range.end);
-            let slot = slot_entry.1.val;
-            // if slot >= 1 {
-            //     dbg!(&slot_entry, &entry.agent_span);
-            // }
-            base + slot
-        } else {
-            base
-        };
+
+        let (m, _) = &mappings[entry.agent_span.agent as usize];
+        let slot_entry = m.find_packed(entry.agent_span.seq_range.start);
+        assert!(slot_entry.end() >= entry.agent_span.seq_range.end);
+        let slot = slot_entry.1.val;
+        // if slot >= 1 {
+        //     dbg!(&slot_entry, &entry.agent_span);
+        // }
+        let agent = base + slot;
 
         let patches: SmallVec<[SimpleTextOp; 2]> = entry.ops.into_iter().map(|op| op.into()).merge_spans().collect();
 
