@@ -97,6 +97,7 @@ impl ListOperationCtx {
         }
     }
 
+    #[inline]
     pub(crate) fn get_str(&self, kind: ListOpKind, range: DTRange) -> &str {
         unsafe { std::str::from_utf8_unchecked(&self.switch(kind)[range.start..range.end]) }
     }

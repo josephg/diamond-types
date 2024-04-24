@@ -320,7 +320,7 @@ mod test {
     fn check_subgraph(g: &Graph, filter: &[Range<usize>], frontier: &[LV], expect_parents: &[&[LV]], expect_frontier: &[LV]) {
         let filter: Vec<DTRange> = filter.iter().map(|r| r.clone().into()).collect();
         let (subgraph, ff) = g.subgraph(&filter, frontier);
-        dbg!(&subgraph);
+        // dbg!(&subgraph);
 
         assert_eq!(ff.as_ref(), expect_frontier);
 

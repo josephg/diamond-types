@@ -1,5 +1,5 @@
 use rand::prelude::*;
-use crate::list::ListCRDT;
+use crate::list::{ListCRDT, ListOpLog};
 use crate::list::old_fuzzer_tools::old_make_random_change;
 use crate::list_fuzzer_tools::{choose_2, make_random_change};
 

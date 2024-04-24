@@ -8,7 +8,7 @@ use jumprope::JumpRopeBuf;
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
 use content_tree::*;
-use rle::{AppendRle, HasLength, MergeableIterator, RleDRun, Searchable, SplitableSpanCtx, Trim, TrimCtx};
+use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, RleDRun, Searchable, SplitableSpanCtx, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
 use crate::listmerge::{DocRangeIndex, Index, M2Tracker};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, CRDTSpan};
@@ -600,6 +600,200 @@ impl TransformedResult {
         (op_pair.0, op_pair.1, TransformedResult::BaseMoved(start))
     }
 }
+
+#[derive(Debug)]
+pub(crate) struct TransformedOpsIterRaw<'a> {
+    subgraph: &'a Graph,
+    aa: &'a AgentAssignment,
+    op_ctx: &'a ListOperationCtx,
+    ops: &'a RleVec<KVPair<ListOpMetrics>>,
+    op_iter: Option<BufferedIter<OpMetricsIter<'a>>>,
+
+    tracker: M2Tracker,
+    plan: M1Plan,
+
+    /// Where are we up to in the plan?
+    plan_idx: usize,
+
+    /// We're in output mode (and we've already built the starting state)
+    applying: bool,
+
+    // max_frontier: Frontier,
+}
+
+
+// #[derive(Clone, Debug, Eq, PartialEq)]
+// pub(crate) enum TransformedResultRaw {
+//     FF(DTRange),
+//     Apply {
+//         lv: usize,
+//         xf_pos: usize,
+//         metrics: ListOpMetrics,
+//     },
+//     DeleteAlreadyHappened(DTRange),
+// }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum TransformedResultRaw {
+    FF(DTRange),
+    Apply(ListOpMetrics),
+    // Apply {
+    //     xf_pos: usize,
+    //     metrics: ListOpMetrics,
+    // },
+    DeleteAlreadyHappened,
+}
+
+impl MergableSpan for TransformedResultRaw {
+    fn can_append(&self, other: &Self) -> bool {
+        use TransformedResultRaw::*;
+        match (self, other) {
+            (Apply(op1), Apply(op2)) => { op1.can_append(op2) },
+            (FF(r1), FF(r2)) => { r1.can_append(r2) },
+            (DeleteAlreadyHappened, DeleteAlreadyHappened) => true,
+            _ => false,
+        }
+    }
+
+    fn append(&mut self, other: Self) {
+        use TransformedResultRaw::*;
+        match (self, other) {
+            (Apply(op1), Apply(op2)) => { op1.append(op2) },
+            (FF(r1), FF(r2)) => { r1.append(r2) },
+            (DeleteAlreadyHappened, DeleteAlreadyHappened) => {},
+            _ => unreachable!()
+        }
+    }
+}
+
+impl<'a> TransformedOpsIterRaw<'a> {
+    pub(crate) fn from_plan(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
+                            ops: &'a RleVec<KVPair<ListOpMetrics>>,
+                            plan: M1Plan, common: Frontier) -> Self {
+        Self {
+            subgraph,
+            aa,
+            op_ctx,
+            ops,
+            op_iter: None,
+            tracker: M2Tracker::new(), // NOTE: This allocates, even if we don't need it.
+            plan,
+            plan_idx: 0,
+            applying: false,
+            // max_frontier: common,
+        }
+    }
+
+    pub(crate) fn new(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
+                      ops: &'a RleVec<KVPair<ListOpMetrics>>,
+                      from_frontier: &[LV], merge_frontier: &[LV]) -> Self {
+        let (plan, common) = subgraph.make_m1_plan(Some(ops), from_frontier, merge_frontier, true);
+        Self::from_plan(subgraph, aa, op_ctx, ops, plan, common)
+    }
+
+    // fn get_next_action(&mut self) -> Option<(KVPair<ListOpMetrics>, op_iter: &mut BufferedIter<OpMetricsIter>)> {
+    //
+    // }
+
+    // Returns (remainder, item_here);
+    fn next_from(aa: &AgentAssignment, tracker: &mut M2Tracker, op_ctx: &ListOperationCtx, mut pair: KVPair<ListOpMetrics>) -> (Option<KVPair<ListOpMetrics>>, TransformedResultRaw) {
+        // Ok, try to consume as much as we can from pair.
+        let span = aa.local_span_to_agent_span(pair.span());
+        let len = span.len().min(pair.len());
+
+        let (consumed_here, xf_result) = tracker.apply(aa, op_ctx, &pair, len, span.agent);
+
+        let remainder = pair.trim_ctx(consumed_here, op_ctx);
+
+        // (Time, OperationInternal, TransformedResult)
+        // let result = (pair.0, pair.1, xf_result);
+        let result = match xf_result {
+            BaseMoved(xf_pos) => {
+                let len = pair.1.loc.span.len();
+                pair.1.loc.span.start = xf_pos;
+                pair.1.loc.span.end = xf_pos + len;
+                TransformedResultRaw::Apply(pair.1)
+            },
+            DeleteAlreadyHappened => TransformedResultRaw::DeleteAlreadyHappened,
+        };
+
+        (remainder, result)
+    }
+
+    // pub(crate) fn into_frontier(self) -> Frontier {
+    //     self.max_frontier
+    // }
+}
+
+impl<'a> Iterator for TransformedOpsIterRaw<'a> {
+    type Item = TransformedResultRaw;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // if self.plan_idx >= self.plan.0.len() { return None; }
+
+        if let Some(op_iter) = self.op_iter.as_mut() {
+            if let Some(pair) = op_iter.next() {
+                // dbg!(&pair);
+
+                let (remainder, result) = Self::next_from(self.aa, &mut self.tracker, self.op_ctx, pair);
+                if let Some(r) = remainder {
+                    op_iter.push_back(r);
+                }
+                return Some(result);
+            } else { self.op_iter = None; }
+        }
+
+        while self.plan_idx < self.plan.0.len() {
+            let action = &self.plan.0[self.plan_idx];
+            self.plan_idx += 1;
+
+            match action {
+                M1PlanAction::Retreat(span) => {
+                    self.tracker.retreat_by_range(*span);
+                }
+                M1PlanAction::Advance(span) => {
+                    self.tracker.advance_by_range(*span);
+                }
+                M1PlanAction::Apply(span) => {
+                    if !self.applying {
+                        // Just apply it directly to the tracker.
+                        self.tracker.apply_range(self.aa, self.op_ctx, self.ops, *span, None);
+                    } else {
+                        let mut op_iter = BufferedIter::new(OpMetricsIter::new(self.ops, self.op_ctx, *span));
+                        if let Some(pair) = op_iter.next() {
+                            let (remainder, result) = Self::next_from(self.aa, &mut self.tracker, self.op_ctx, pair);
+                            if let Some(r) = remainder {
+                                op_iter.push_back(r);
+                            }
+                            self.op_iter = Some(op_iter);
+                            return Some(result);
+                        }
+                    }
+                }
+                M1PlanAction::FF(span) => {
+                    // FF doesn't make sense unless we're applying the operations.
+                    debug_assert!(self.applying);
+                    return Some(TransformedResultRaw::FF(*span));
+                }
+                M1PlanAction::Clear => {
+                    self.tracker.clear();
+                }
+                M1PlanAction::BeginOutput => {
+                    self.applying = true;
+                }
+            }
+        }
+
+        // self.close_tracker();
+        return None;
+    }
+}
+
+
+
+
+
+
 
 #[derive(Debug)]
 pub(crate) struct TransformedOpsIter<'a> {

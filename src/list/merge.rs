@@ -1,12 +1,14 @@
-use rle::HasLength;
+use rle::{HasLength, MergeableIterator};
 use crate::frontier::FrontierRef;
 use crate::list::{ListBranch, ListOpLog};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::listmerge::merge::{reverse_str, TransformedOpsIter};
+use crate::listmerge::merge::{reverse_str, TransformedOpsIter, TransformedOpsIterRaw, TransformedResultRaw};
 use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
-use crate::{DTRange, LV};
+use crate::{DTRange, LV, OpLog};
+use crate::list::op_metrics::ListOpMetrics;
 use crate::listmerge::plan::M1PlanAction;
 use crate::listmerge::xf_old::TransformedOpsIterOld;
+use crate::rle::KVPair;
 
 impl ListOpLog {
     pub fn dbg_bench_make_plan(&self) {
@@ -15,6 +17,12 @@ impl ListOpLog {
 
     pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter {
         TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
+                                &self.operation_ctx, &self.operations,
+                                from, merging)
+    }
+
+    pub(crate) fn get_xf_operations_full_raw(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIterRaw {
+        TransformedOpsIterRaw::new(&self.cg.graph, &self.cg.agent_assignment,
                                 &self.operation_ctx, &self.operations,
                                 from, merging)
     }
@@ -144,13 +152,74 @@ impl ListOpLog {
 
 
 impl ListBranch {
-    /// Add everything in merge_frontier into the set..
+    #[inline(always)]
+    fn apply_op_at(&mut self, oplog: &ListOpLog, op: ListOpMetrics) {
+        // let xf_pos = op.loc.span.start;
+        match op.kind {
+            ListOpKind::Ins => {
+                let content = oplog.operation_ctx.get_str(ListOpKind::Ins, op.content_pos.unwrap());
+                // assert!(pos <= self.content.len_chars());
+                if op.loc.fwd {
+                    self.content.insert(op.loc.span.start, content);
+                } else {
+                    // We need to insert the content in reverse order.
+                    let c = reverse_str(content);
+                    self.content.insert(op.loc.span.start, &c);
+                }
+            }
+            ListOpKind::Del => {
+                self.content.remove(op.loc.span.into());
+            }
+        }
+    }
+
     pub fn merge(&mut self, oplog: &ListOpLog, merge_frontier: &[LV]) {
+        // let mut iter = oplog.get_xf_operations_full_raw(self.version.as_ref(), merge_frontier).merge_spans();
+        let mut iter = oplog.get_xf_operations_full_raw(self.version.as_ref(), merge_frontier);
+        // println!("merge '{}' at {:?} + {:?}", self.content.to_string(), self.version, merge_frontier);
+
+        for xf in &mut iter {
+            // dbg!(&xf);
+            // dbg!(_lv, &origin_op, &xf);
+            match xf {
+                TransformedResultRaw::Apply(op) => {
+                    // dbg!(&op);
+                    self.apply_op_at(oplog, op);
+                }
+
+                TransformedResultRaw::FF(range) => {
+                    // Activate *SUPER FAST MODE*.
+                    for KVPair(_, op) in oplog.operations.iter_range_ctx(range, &oplog.operation_ctx) {
+                        // dbg!(&op);
+                        self.apply_op_at(oplog, op);
+                    }
+                }
+
+                TransformedResultRaw::DeleteAlreadyHappened => {} // Discard.
+            }
+        }
+
+
+        // dbg!(iter.count_range_tracker_size());
+
+        // let expect_v = oplog.cg.graph.find_dominators_2(self.version.as_ref(), merge_frontier);
+        // self.version = iter.into_inner().into_frontier();
+        // println!("-> '{}' v {:?}", self.content.to_string(), self.version);
+        // assert_eq!(self.version, expect_v);
+        // self.version = iter.into_frontier();
+
+        // let x = iter.into_frontier();
+        // assert_eq!(x, oplog.cg.graph.find_dominators_2(self.version.as_ref(), merge_frontier));
+        self.version = oplog.cg.graph.find_dominators_2(self.version.as_ref(), merge_frontier);
+    }
+
+    /// Add everything in merge_frontier into the set..
+    pub fn merge_(&mut self, oplog: &ListOpLog, merge_frontier: &[LV]) {
         let mut iter = oplog.get_xf_operations_full(self.version.as_ref(), merge_frontier);
         // println!("merge '{}' at {:?} + {:?}", self.content.to_string(), self.version, merge_frontier);
 
         for (_lv, origin_op, xf) in &mut iter {
-            // dbg!(_lv, &origin_op, &xf);
+            // dbg!(&origin_op, &xf);
             match (origin_op.kind, xf) {
                 (ListOpKind::Ins, BaseMoved(pos)) => {
                     // println!("Insert '{}' at {} (len {})", op.content, ins_pos, op.len());

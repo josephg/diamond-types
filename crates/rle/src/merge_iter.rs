@@ -23,6 +23,10 @@ impl<I: Iterator, const FWD: bool> MergeIter<I, FWD> {
             iter
         }
     }
+
+    pub fn into_inner(self) -> I {
+        self.iter
+    }
 }
 
 impl<I, X, const FWD: bool> Iterator for MergeIter<I, FWD>
