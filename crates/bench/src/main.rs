@@ -133,7 +133,7 @@ fn encoding_nodecc_benchmarks(c: &mut Criterion) {
 
         group.bench_function(BenchmarkId::new("encode", name), |b| {
             b.iter(|| {
-                let bytes = oplog.encode(ENCODE_FULL);
+                let bytes = oplog.encode(&ENCODE_FULL);
                 black_box(bytes);
             });
         });
@@ -170,6 +170,26 @@ fn encoding_nodecc_benchmarks(c: &mut Criterion) {
 // criterion_main!(benches);
 
 
+fn paper_benchmarks(c: &mut Criterion) {
+    // const PAPER_DATASETS: &[&str] = &["automerge-paperx3", "seph-blog1x3", "node_nodeccx1", "friendsforeverx25", "clownschoolx25", "egwalkerx1", "git-makefilex2"];
+    const PAPER_DATASETS: &[&str] = &["S1", "S2", "S3", "C1", "C2", "A1", "A2"];
+    for name in PAPER_DATASETS {
+        let mut group = c.benchmark_group("dt");
+        let bytes = std::fs::read(format!("benchmark_data/{name}.dt")).unwrap();
+        let oplog = ListOpLog::load_from(&bytes).unwrap();
+        group.throughput(Throughput::Elements(oplog.len() as _));
+
+        group.bench_function(BenchmarkId::new("merge_norm", name), |b| {
+            b.iter(|| {
+                let branch = oplog.checkout_tip();
+                black_box(branch);
+            });
+        });
+
+        group.finish();
+    }
+}
+
 fn main() {
     // benches();
     let mut c = Criterion::default()
@@ -188,5 +208,6 @@ fn main() {
     local_benchmarks(&mut c);
     encoding_nodecc_benchmarks(&mut c);
     idxtrace_benchmarks(&mut c);
+    paper_benchmarks(&mut c);
     c.final_summary();
 }
