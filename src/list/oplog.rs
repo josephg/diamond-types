@@ -453,16 +453,22 @@ impl ListOpLog {
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ListOpLogStats {
-    op_stats: RleStats,
-    graph_stats: RleStats,
-    aa_stats: RleStats,
+    pub op_stats: RleStats,
+    pub graph_stats: RleStats,
+    pub aa_stats: RleStats,
 
-    num_insert_keystrokes: usize,
-    num_delete_keystrokes: usize,
-    total_keystrokes: usize,
-    concurrency_estimate: f32,
-    graph_rle_size: usize,
-    num_agents: usize,
+    pub num_insert_keystrokes: usize,
+    pub num_delete_keystrokes: usize,
+    pub total_keystrokes: usize,
+    pub ins_content_len_utf8: usize,
+    pub final_doc_len_chars: usize,
+    pub final_doc_len_utf8: usize,
+
+    pub concurrency_estimate: f32,
+    pub graph_rle_size: usize,
+    pub num_agents: usize,
+
+    pub final_document_size: usize,
 }
 
 impl ListOpLog {
@@ -535,6 +541,8 @@ impl ListOpLog {
             }
         }
 
+        let resulting_content = self.checkout_tip().content;
+
         ListOpLogStats {
             op_stats: self.operations.get_stats(),
             graph_stats: self.cg.graph.entries.get_stats(),
@@ -543,9 +551,16 @@ impl ListOpLog {
             num_insert_keystrokes: i_k,
             num_delete_keystrokes: d_k,
             total_keystrokes: i_k + d_k,
+
+            ins_content_len_utf8: self.operation_ctx.ins_content.len(),
+            final_doc_len_chars: resulting_content.len_chars(),
+            final_doc_len_utf8: resulting_content.len_bytes(),
+
             num_agents: self.cg.agent_assignment.client_data.len(),
             concurrency_estimate: self.cg.graph.estimate_concurrency(self.cg.version.as_ref()),
             graph_rle_size: self.cg.graph.count_all_graph_entries(self.cg.version.as_ref()),
+            
+            final_document_size: self.checkout_tip().content.len_chars(),
         }
     }
 

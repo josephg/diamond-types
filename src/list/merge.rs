@@ -89,25 +89,43 @@ impl ListOpLog {
     }
 
     pub fn dbg_iter_xf_operations_no_ff(&self) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
-        // allow_ff: false!
-        let (plan, common) = self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), false);
-        let iter = TransformedOpsIter::from_plan(&self.cg.graph, &self.cg.agent_assignment,
+        let (plan, _common) = self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), false);
+        let iter: TransformedOpsIterX = TransformedOpsIterRaw::from_plan(&self.cg.agent_assignment,
                                                      &self.operation_ctx, &self.operations,
-                                                     plan, common);
+                                                     plan)
+            .into();
 
-        // Return the data in the same format as iter_xf_operations_from to make benchmarks fair.
-        iter.map(|(lv, mut origin_op, xf)| {
-            let len = origin_op.len();
-            let op: Option<TextOperation> = match xf {
-                BaseMoved(base) => {
-                    origin_op.loc.span = (base..base+len).into();
-                    let content = origin_op.get_content(&self.operation_ctx);
-                    Some((origin_op, content).into())
+        iter.map(|result| {
+            match result {
+                TransformedResultX::Apply(KVPair(start, op)) => {
+                    let content = op.get_content(&self.operation_ctx);
+                    let len = op.len();
+                    let text_op: TextOperation = (op, content).into();
+                    ((start..start + len).into(), Some(text_op))
                 }
-                DeleteAlreadyHappened => None,
-            };
-            ((lv..lv +len).into(), op)
+                TransformedResultX::DeleteAlreadyHappened(range) => (range, None)
+            }
         })
+
+        // // allow_ff: false!
+        // let (plan, common) = self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), false);
+        // let iter = TransformedOpsIter::from_plan(&self.cg.graph, &self.cg.agent_assignment,
+        //                                              &self.operation_ctx, &self.operations,
+        //                                              plan, common);
+        //
+        // // Return the data in the same format as iter_xf_operations_from to make benchmarks fair.
+        // iter.map(|(lv, mut origin_op, xf)| {
+        //     let len = origin_op.len();
+        //     let op: Option<TextOperation> = match xf {
+        //         BaseMoved(base) => {
+        //             origin_op.loc.span = (base..base+len).into();
+        //             let content = origin_op.get_content(&self.operation_ctx);
+        //             Some((origin_op, content).into())
+        //         }
+        //         DeleteAlreadyHappened => None,
+        //     };
+        //     ((lv..lv +len).into(), op)
+        // })
     }
 
     pub fn get_ff_stats(&self) -> (usize, usize, usize) {

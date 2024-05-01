@@ -58,6 +58,16 @@ fn oplog_merge_fuzz(seed: u64, n: usize, verbose: bool) {
         b.branch.merge(&b.oplog, b.oplog.cg.version.as_ref());
         // assert_eq!(a.branch.content.to_string(), b.branch.content.to_string());
         assert_eq!(a.branch.content, b.branch.content);
+
+
+        // let mut new_oplog = ListOpLog::new();
+        // for (op, graph, agent_span) in a.oplog.iter_full() {
+        //     // I'm going to ignore the agent span and just let it extend naturally.
+        //     let agent = new_oplog.get_or_create_agent_id(agent_span.0);
+        //     new_oplog.add_operations_at(agent, graph.parents.as_ref(), &[op]);
+        // }
+        //
+        // assert_eq!(new_oplog, a.oplog);
     }
 
     for doc in &docs {

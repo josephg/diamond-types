@@ -186,6 +186,20 @@ fn paper_benchmarks(c: &mut Criterion) {
             });
         });
 
+        group.bench_function(BenchmarkId::new("ff_on", name), |b| {
+            b.iter(|| {
+                oplog.iter_xf_operations()
+                    .for_each(|op| { black_box(op); });
+            })
+        });
+
+        group.bench_function(BenchmarkId::new("ff_off", name), |b| {
+            b.iter(|| {
+                oplog.dbg_iter_xf_operations_no_ff()
+                    .for_each(|op| { black_box(op); });
+            })
+        });
+
         group.finish();
     }
 }
