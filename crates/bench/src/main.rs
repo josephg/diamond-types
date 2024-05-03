@@ -6,7 +6,9 @@
 mod utils;
 mod idxtrace;
 
+use std::env;
 use criterion::{black_box, Criterion, BenchmarkId, Throughput};
+use jumprope::JumpRope;
 use crdt_testdata::{load_testing_data, TestData};
 use diamond_types::list::{ListCRDT, ListOpLog};
 use diamond_types::list::encoding::*;
@@ -21,6 +23,8 @@ fn testing_data(name: &str) -> TestData {
 // const LINEAR_DATASETS: &[&str] = &["automerge-paper", "rustcode", "sveltecomponent", "seph-blog1", "friendsforever_flat"];
 const LINEAR_DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "clownschool_flat", "friendsforever_flat", "egwalker"];
 const COMPLEX_DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "egwalker", "node_nodecc", "git-makefile", "friendsforever", "clownschool"];
+
+const PAPER_DATASETS: &[&str] = &["S1", "S2", "S3", "C1", "C2", "A1", "A2"];
 
 fn local_benchmarks(c: &mut Criterion) {
     for name in LINEAR_DATASETS {
@@ -172,7 +176,6 @@ fn encoding_nodecc_benchmarks(c: &mut Criterion) {
 
 fn paper_benchmarks(c: &mut Criterion) {
     // const PAPER_DATASETS: &[&str] = &["automerge-paperx3", "seph-blog1x3", "node_nodeccx1", "friendsforeverx25", "clownschoolx25", "egwalkerx1", "git-makefilex2"];
-    const PAPER_DATASETS: &[&str] = &["S1", "S2", "S3", "C1", "C2", "A1", "A2"];
     for name in PAPER_DATASETS {
         let mut group = c.benchmark_group("dt");
         let bytes = std::fs::read(format!("benchmark_data/{name}.dt")).unwrap();
@@ -204,6 +207,33 @@ fn paper_benchmarks(c: &mut Criterion) {
     }
 }
 
+fn opt_load_time_benchmark(c: &mut Criterion) {
+    for &name in PAPER_DATASETS {
+        let mut group = c.benchmark_group("dt");
+
+        let bytes = std::fs::read(format!("benchmark_data/{name}.dt")).unwrap();
+        let oplog = ListOpLog::load_from(&bytes).unwrap();
+        let doc_content = oplog.checkout_tip().content().to_string();
+
+        let temp_dir = env::temp_dir();
+        let path = temp_dir.join("content");
+        // Write it.
+        std::fs::write(&path, &doc_content).unwrap();
+
+        // Then benchmark reading it back.
+        group.bench_function(BenchmarkId::new("opt_load", name), |b| {
+            b.iter(|| {
+                let str_content = std::fs::read_to_string(&path).unwrap();
+                let rope = JumpRope::from(&str_content);
+                black_box(rope);
+            });
+        });
+
+        group.finish();
+    }
+
+}
+
 fn main() {
     // benches();
     let mut c = Criterion::default()
@@ -223,5 +253,6 @@ fn main() {
     encoding_nodecc_benchmarks(&mut c);
     idxtrace_benchmarks(&mut c);
     paper_benchmarks(&mut c);
+    opt_load_time_benchmark(&mut c);
     c.final_summary();
 }

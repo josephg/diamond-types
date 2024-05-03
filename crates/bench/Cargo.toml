@@ -12,3 +12,4 @@ rle = { path = "../rle" }
 criterion = { version = "0.5.1", features = [] }
 crdt-testdata = { path = "../crdt-testdata" }
 flate2 = { version = "1.0.22", features = ["zlib-ng-compat"], default-features = false }
+jumprope = "1.1.2"
