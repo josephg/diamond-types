@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct YjsSpan {
     /// The ID of this entry. Well, the ID of the first entry in this span.
-    pub time: LV,
+    pub lv: LV,
 
     /**
      * The origin_left is only for the first item in the span. Each subsequent item has an
@@ -33,7 +33,7 @@ pub struct YjsSpan {
 impl YjsSpan {
     pub fn origin_left_at_offset(&self, at: usize) -> LV {
         if at == 0 { self.origin_left }
-        else { self.time + at - 1 }
+        else { self.lv + at - 1 }
     }
 
     pub fn activated(mut self) -> Self {
@@ -46,7 +46,7 @@ impl YjsSpan {
     }
 
     pub fn contains(&self, time: LV) -> bool {
-        self.time <= time && time < self.time + self.len.abs() as LV
+        self.lv <= time && time < self.lv + self.len.abs() as LV
     }
 }
 
@@ -61,8 +61,8 @@ impl SplitableSpanHelpers for YjsSpan {
         debug_assert!(at > 0);
         let at_signed = at as isize * self.len.signum();
         let other = YjsSpan {
-            time: self.time + at,
-            origin_left: self.time + at - 1,
+            lv: self.lv + at,
+            origin_left: self.lv + at - 1,
             origin_right: self.origin_right,
             len: self.len - at_signed
         };
@@ -81,8 +81,8 @@ impl MergableSpan for YjsSpan {
     fn can_append(&self, other: &Self) -> bool {
         let len = self.len.abs() as LV;
         (self.len > 0) == (other.len > 0)
-            && other.time == self.time + len
-            && other.origin_left == other.time - 1
+            && other.lv == self.lv + len
+            && other.origin_left == other.lv - 1
             && other.origin_right == self.origin_right
     }
 
@@ -93,7 +93,7 @@ impl MergableSpan for YjsSpan {
 
     fn prepend(&mut self, other: Self) {
         debug_assert!(other.can_append(self));
-        self.time = other.time;
+        self.lv = other.lv;
         self.len += other.len;
         self.origin_left = other.origin_left;
     }
@@ -103,15 +103,15 @@ impl Searchable for YjsSpan {
     type Item = LV;
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
-        if (loc >= self.time) && (loc < self.time + self.len.abs() as LV) {
-            Some((loc - self.time) as usize)
+        if (loc >= self.lv) && (loc < self.lv + self.len.abs() as LV) {
+            Some((loc - self.lv) as usize)
         } else {
             None
         }
     }
 
     fn at_offset(&self, offset: usize) -> Self::Item {
-        self.time + offset as LV
+        self.lv + offset as LV
     }
 }
 
@@ -163,7 +163,7 @@ pub(crate) fn debug_time(fmt: &mut DebugStruct, name: &str, val: LV) {
 impl Debug for YjsSpan {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("YjsSpan");
-        s.field("time", &self.time);
+        s.field("time", &self.lv);
         debug_time(&mut s, "origin_left", self.origin_left);
         debug_time(&mut s, "origin_right", self.origin_right);
         s.field("len", &self.len);
@@ -188,14 +188,14 @@ mod tests {
     #[test]
     fn yjsspan_entry_valid() {
         test_splitable_methods_valid(YjsSpan {
-            time: 10,
+            lv: 10,
             origin_left: 20,
             origin_right: 30,
             len: 5
         });
 
         test_splitable_methods_valid(YjsSpan {
-            time: 10,
+            lv: 10,
             origin_left: 20,
             origin_right: 30,
             len: -5

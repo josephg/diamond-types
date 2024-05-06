@@ -1,18 +1,19 @@
 use std::pin::Pin;
-use jumprope::JumpRopeBuf;
+use std::ptr::NonNull;
 
+use jumprope::JumpRopeBuf;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
 use content_tree::*;
 use diamond_core_old::AgentId;
 pub use ot::traversal::TraversalComponent;
-pub use positional::{PositionalComponent, PositionalOp, InsDelTag};
+pub use positional::{InsDelTag, PositionalComponent, PositionalOp};
 
 use crate::common::ClientName;
 use crate::crdtspan::CRDTSpan;
 use crate::list::double_delete::DoubleDelete;
-use crate::list::markers::MarkerEntry;
+use crate::list::index_tree::{IndexContent, IndexTree};
 use crate::list::span::YjsSpan;
 use crate::list::txn::TxnSpan;
 use crate::order::TimeSpan;
@@ -36,6 +37,7 @@ mod merge_positional;
 
 #[cfg(test)]
 mod positional_fuzzer;
+mod index_tree;
 
 // #[cfg(inlinerope)]
 // pub const USE_INNER_ROPE: bool = true;
@@ -77,7 +79,30 @@ type DocRangeIndex = FullMetricsUsize;
 pub(crate) type RangeTree = Pin<Box<ContentTreeRaw<YjsSpan, DocRangeIndex>>>;
 // pub(crate) type RangeTreeLeaf = NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>;
 
-type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionMetricsUsize>>>;
+// type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionMetricsUsize>>>;
+
+#[derive(Copy, Clone, Debug)]
+struct Marker<E: ContentTraits, I: TreeMetrics<E>>(Option<NonNull<NodeLeaf<E, I, DOC_IE, DOC_LE>>>);
+
+impl<E: ContentTraits, I: TreeMetrics<E>> Default for Marker<E, I> {
+    fn default() -> Self { Self(None) }
+}
+impl<E: ContentTraits, I: TreeMetrics<E>> IndexContent for Marker<E, I> {
+    fn try_append(&mut self, _offset: usize, other: &Self, _other_len: usize) -> bool {
+        self.0 == other.0
+    }
+
+    fn at_offset(&self, _offset: usize) -> Self {
+        *self
+    }
+
+    fn eq(&self, other: &Self, _upto_len: usize) -> bool {
+        self.0 == other.0
+    }
+}
+
+
+type SpaceIndex = IndexTree<Marker<YjsSpan, DocRangeIndex>>;
 
 pub type DoubleDeleteList = RleVec<KVPair<DoubleDelete>>;
 

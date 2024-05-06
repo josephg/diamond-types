@@ -75,7 +75,7 @@ impl ListCRDT {
                     // };
 
                     let item = YjsSpan {
-                        time: order,
+                        lv: order,
                         origin_left,
                         origin_right,
                         len: len as isize

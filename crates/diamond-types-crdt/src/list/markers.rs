@@ -1,11 +1,11 @@
 use std::fmt::Debug;
 use std::ptr::NonNull;
 
-use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
-
 use content_tree::*;
 use content_tree::ContentTraits;
+use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 use rle::Searchable;
+
 use super::{DOC_IE, DOC_LE};
 
 // use crate::common::IndexGet;
@@ -20,7 +20,7 @@ pub struct MarkerEntry<E: ContentTraits, I: TreeMetrics<E>> {
 
 impl<E: ContentTraits, I: TreeMetrics<E>> HasLength for MarkerEntry<E, I> {
     fn len(&self) -> usize {
-        self.len as usize
+        self.len
     }
 }
 impl<E: ContentTraits, I: TreeMetrics<E>> SplitableSpanHelpers for MarkerEntry<E, I> {
@@ -92,6 +92,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>> Searchable for MarkerEntry<E, I> {
 #[cfg(test)]
 mod tests {
     use std::ptr::NonNull;
+
     use crate::list::LV;
 
     #[test]

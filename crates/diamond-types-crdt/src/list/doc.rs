@@ -43,23 +43,21 @@ impl ClientData {
 
 pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) + '_ {
     move |entry: YjsSpan, leaf| {
-        // let mut len = entry.len() as u32;
-        let mut len = entry.len();
-        let mut order = entry.time;
+        index.set_range_2(entry.lv..entry.lv + entry.len(), Marker(Some(leaf)));
 
-        let index_len = index.len();
-        if entry.time > index_len {
-            // Insert extra dummy data to cover deletes.
-            len += entry.time - index_len;
-            order = index_len;
-        }
+        // let mut len = entry.len();
+        // let mut lv = entry.lv;
 
-        index.replace_range_at_offset(order as usize, MarkerEntry {
-            ptr: Some(leaf), len
-        });
 
-        // index.replace_range(entry.order as usize, MarkerEntry {
-        //     ptr: Some(leaf), len: entry.len() as u32
+        // let index_len = index.len();
+        // if entry.lv > index_len {
+        //     // Insert extra dummy data to cover deletes.
+        //     len += entry.lv - index_len;
+        //     lv = index_len;
+        // }
+        //
+        // index.replace_range_at_offset(lv as usize, MarkerEntry {
+        //     ptr: Some(leaf), len
         // });
     }
 }
@@ -69,7 +67,7 @@ impl Clone for ListCRDT {
         // Clone is complex because we need to walk the b-tree. Cloning the b-tree could probably
         // be done in a more efficient way, but this is honestly fine.
         let mut range_tree = ContentTreeRaw::new();
-        let mut index = ContentTreeRaw::new();
+        let mut index = IndexTree::new();
 
         let mut cursor = range_tree.mut_cursor_at_start();
         for e in self.range_tree.iter() {
@@ -102,7 +100,7 @@ impl ListCRDT {
             client_data: vec![],
 
             range_tree: ContentTreeRaw::new(),
-            index: ContentTreeRaw::new(),
+            index: IndexTree::new(),
             // index: SplitList::new(),
 
             deletes: RleVec::new(),
@@ -204,11 +202,10 @@ impl ListCRDT {
     }
 
     pub(super) fn marker_at(&self, time: LV) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>> {
-        let cursor = self.index.cursor_at_offset_pos(time as usize, false);
-        // Gross.
-        cursor.get_item().unwrap().unwrap()
-
-        // self.index.entry_at(order as usize).unwrap_ptr()
+        self.index.get_entry(time).val.0.unwrap()
+        // let cursor = self.index.cursor_at_offset_pos(time as usize, false);
+        // // Gross.
+        // cursor.get_item().unwrap().unwrap()
     }
 
     pub(crate) fn get_unsafe_cursor_before(&self, time: LV) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
@@ -338,7 +335,7 @@ impl ListCRDT {
                         let ins_here = match my_name.cmp(other_name) {
                             Ordering::Less => true,
                             Ordering::Equal => {
-                                self.get_crdt_location(item.time).seq < other_loc.seq
+                                self.get_crdt_location(item.lv).seq < other_loc.seq
                             }
                             Ordering::Greater => false,
                         };
@@ -608,7 +605,7 @@ impl ListCRDT {
                     }
 
                     let item = YjsSpan {
-                        time: order,
+                        lv: order,
                         origin_left,
                         origin_right,
                         len: *len as isize,
@@ -729,7 +726,7 @@ impl ListCRDT {
                     let origin_right = unsafe { cursor.unsafe_get_item() }.unwrap_or(ROOT_LV);
 
                     let item = YjsSpan {
-                        time,
+                        lv: time,
                         origin_left,
                         origin_right,
                         len: len as isize
@@ -750,7 +747,7 @@ impl ListCRDT {
                     let mut deleted_length = 0; // To check.
                     for item in deleted_items {
                         self.deletes.push(KVPair(next_time, TimeSpan {
-                            start: item.time,
+                            start: item.lv,
                             len: item.len as usize
                         }));
                         deleted_length += item.len as usize;
@@ -851,7 +848,7 @@ impl ListCRDT {
         }
 
         self.range_tree.print_stats("content", detailed);
-        self.index.print_stats("index", detailed);
+        // self.index.print_stats("index", detailed);
         // self.markers.print_rle_size();
         self.deletes.print_stats("deletes", detailed);
         self.double_deletes.print_stats("double deletes", detailed);
@@ -861,15 +858,15 @@ impl ListCRDT {
     #[allow(unused)]
     pub fn debug_print_segments(&self) {
         for entry in self.range_tree.raw_iter() {
-            let loc = self.get_crdt_location(entry.time);
-            println!("order {} len {} ({}) agent {} / {} <-> {}", entry.time, entry.len(), entry.content_len(), loc.agent, entry.origin_left, entry.origin_right);
+            let loc = self.get_crdt_location(entry.lv);
+            println!("order {} len {} ({}) agent {} / {} <-> {}", entry.lv, entry.len(), entry.content_len(), loc.agent, entry.origin_left, entry.origin_right);
         }
     }
 
     #[allow(unused)]
     pub fn debug_print_ids(&self) {
         for span in self.range_tree.iter() {
-            let id = self.get_crdt_location(span.time);
+            let id = self.get_crdt_location(span.lv);
             let left = self.get_crdt_location(span.origin_left);
             let right = self.get_crdt_location(span.origin_right);
 
@@ -877,7 +874,7 @@ impl ListCRDT {
             // let parent = self.get_crdt_location(parent_order);
 
             println!("{:?} (len {}) left {:?} right {:?} \t(LV: {})",
-                     id, span.len, left, right, span.time
+                     id, span.len, left, right, span.lv
             );
         }
 

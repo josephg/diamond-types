@@ -4,7 +4,7 @@ set -e
 
 start_time=$(date +%s)   # Capture start time in seconds
 
-cargo build --release -p run_on_old
+cargo build --release -p run_on_old --features bench
 
 end_time=$(date +%s)     # Capture end time in seconds
 # Calculate duration
