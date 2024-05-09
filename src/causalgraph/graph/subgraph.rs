@@ -53,7 +53,7 @@ impl Graph {
         #[derive(PartialOrd, Ord, Eq, PartialEq, Clone, Debug)]
         struct QueueEntry {
             target_parent: LV,
-            child_indexes: SmallVec<[usize; 2]>,
+            child_indexes: SmallVec<usize, 2>,
             entry_in_frontier: bool,
         }
 
@@ -105,7 +105,7 @@ impl Graph {
                 update_parents(&mut result_rev, &mut filtered_frontier, &entry, p);
 
                 let base = filter.start.max(txn.span.start);
-                let mut child_indexes: SmallVec<[usize; 2]> = entry.child_indexes.clone();
+                let mut child_indexes: SmallVec<usize, 2> = entry.child_indexes.clone();
 
                 // For simplicity, pull out anything that is within this txn *and* this filter.
                 while let Some(peeked_entry) = queue.peek() {

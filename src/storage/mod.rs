@@ -119,7 +119,7 @@ pub(super) struct StorageHeaderFields {
     // The slot (array index) is the chunk type. We can't actually read any chunk types beyond
     // the ones this code knows about, but when we write a new copy of the file header, we'll
     // preserve any chunk info blocks that are here that we don't recognise.
-    data_page_info: SmallVec<[Option<DataChunkHeaderInfo>; NUM_DATA_CHUNK_TYPES]> // The slot is the chunk type.
+    data_page_info: SmallVec<Option<DataChunkHeaderInfo>, NUM_DATA_CHUNK_TYPES> // The slot is the chunk type.
 }
 
 // For each chunk type we store two structs - one in the header fields and one in the storage engine

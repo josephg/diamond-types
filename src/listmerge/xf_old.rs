@@ -32,8 +32,8 @@ pub(crate) struct TransformedOpsIterOld<'a> {
     merge_frontier: Frontier,
 
     common_ancestor: Frontier,
-    conflict_ops: SmallVec<[DTRange; 4]>,
-    new_ops: SmallVec<[DTRange; 4]>,
+    conflict_ops: SmallVec<DTRange, 4>,
+    new_ops: SmallVec<DTRange, 4>,
 
     next_frontier: Frontier,
 
@@ -65,8 +65,8 @@ impl<'a> TransformedOpsIterOld<'a> {
         // - The conflict set. Ie, stuff we need to build a tracker around.
         //
         // Both of these lists are in reverse time order(!).
-        let mut new_ops: SmallVec<[DTRange; 4]> = smallvec![];
-        let mut conflict_ops: SmallVec<[DTRange; 4]> = smallvec![];
+        let mut new_ops: SmallVec<DTRange, 4> = smallvec![];
+        let mut conflict_ops: SmallVec<DTRange, 4> = smallvec![];
 
         let common_ancestor = subgraph.find_conflicting(from_frontier, merge_frontier, |span, flag| {
             // Note we'll be visiting these operations in reverse order.

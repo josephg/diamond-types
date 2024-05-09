@@ -40,13 +40,13 @@ struct VisitEntry {
     txn_idx: usize,
     // entry: &'a HistoryEntry,
     parents: Frontier,
-    parent_idxs: SmallVec<[usize; 4]>,
-    child_idxs: SmallVec<[usize; 4]>,
+    parent_idxs: SmallVec<usize, 4>,
+    child_idxs: SmallVec<usize, 4>,
     visited: bool,
 }
 
 
-fn find_entry_idx(input: &SmallVec<[VisitEntry; 4]>, time: LV) -> Option<usize> {
+fn find_entry_idx(input: &SmallVec<VisitEntry, 4>, time: LV) -> Option<usize> {
     input.as_slice().binary_search_by(|e| {
         e.span.partial_cmp_time(time).reverse()
     }).ok()
@@ -81,20 +81,20 @@ pub(crate) struct SpanningTreeWalker<'a> {
 
     frontier: Frontier,
 
-    input: SmallVec<[VisitEntry; 4]>,
+    input: SmallVec<VisitEntry, 4>,
 
     /// List of input_idx.
     ///
     /// This is sort of like a call stack of txns we push and pop from as we traverse
-    to_process: SmallVec<[usize; 4]>, // smallvec? This will have an upper bound of the number of txns.
+    to_process: SmallVec<usize, 4>, // smallvec? This will have an upper bound of the number of txns.
 
     num_consumed: usize, // For debugging.
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TxnWalkItem {
-    pub(crate) retreat: SmallVec<[DTRange; 4]>,
-    pub(crate) advance_rev: SmallVec<[DTRange; 4]>,
+    pub(crate) retreat: SmallVec<DTRange, 4>,
+    pub(crate) advance_rev: SmallVec<DTRange, 4>,
 
 
     // txn: &'a TxnSpan,
@@ -105,7 +105,7 @@ pub(crate) struct TxnWalkItem {
 impl<'a> SpanningTreeWalker<'a> {
     #[allow(unused)]
     pub(crate) fn new_all(graph: &'a Graph) -> Self {
-        let mut spans: SmallVec<[DTRange; 4]> = smallvec![];
+        let mut spans: SmallVec<DTRange, 4> = smallvec![];
         if graph.get_next_time() > 0 {
             // Kinda gross. Only add the span if the document isn't empty.
             spans.push((0..graph.get_next_time()).into());
@@ -142,7 +142,7 @@ impl<'a> SpanningTreeWalker<'a> {
                 let parents: Frontier = txn.clone_parents_at_version(span.start);
 
                 // We don't care about any parents outside of the input spans.
-                let parent_idxs: SmallVec<[usize; 4]> = parents.iter()
+                let parent_idxs: SmallVec<usize, 4> = parents.iter()
                     .filter_map(|t| find_entry_idx(&input, *t))
                     .collect();
 

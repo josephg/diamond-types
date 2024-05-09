@@ -96,9 +96,9 @@ impl<'a> MergableSpan for RemoteVersionSpan<'a> {
     }
 }
 
-pub type RemoteFrontier<'a> = SmallVec<[RemoteVersion<'a>; 2]>;
+pub type RemoteFrontier<'a> = SmallVec<RemoteVersion<'a>, 2>;
 
-pub type RemoteFrontierOwned = SmallVec<[RemoteVersionOwned; 2]>;
+pub type RemoteFrontierOwned = SmallVec<RemoteVersionOwned, 2>;
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(Serialize))]

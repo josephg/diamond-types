@@ -104,7 +104,7 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
 
 pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, next_time: LV, read_map: &mut ReadMap) -> Result<Frontier, ParseError> {
     // println!("read parents raw {}", reader.len());
-    let mut parents = SmallVec::<[LV; 2]>::new();
+    let mut parents = SmallVec::<LV, 2>::new();
 
     loop {
         let mut n = reader.next_usize()?;

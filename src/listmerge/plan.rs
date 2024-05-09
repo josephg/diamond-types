@@ -68,7 +68,7 @@ pub(crate) struct M1EntryState {
     critical_path: bool,
 
     // DIRTY.
-    // children: SmallVec<[usize; 2]>,
+    // children: SmallVec<usize, 2>,
 
     cost_here: usize,
     subtree_cost: usize,
@@ -81,7 +81,7 @@ pub(crate) struct M1EntryState {
 }
 
 
-// struct SubgraphChildren(Vec<SmallVec<[usize; 2]>>);
+// struct SubgraphChildren(Vec<SmallVec<usize, 2>>);
 
 type DiffTraceHeap = BinaryHeap<Reverse<(usize, DiffFlag)>>;
 
@@ -459,7 +459,7 @@ impl ConflictSubgraph<M1EntryState> {
 
             // Retreats must appear first in the action list. We'll cache any advance actions in
             // this vec, and push retreats to the action list immediately.
-            let mut advances: SmallVec<[DTRange; 4]> = smallvec![];
+            let mut advances: SmallVec<DTRange, 4> = smallvec![];
 
             g.diff_trace(queue, from_idx, to_idx, |flag, span: DTRange| {
                 if !span.is_empty() {
@@ -512,7 +512,7 @@ impl ConflictSubgraph<M1EntryState> {
         // Its awkward, but we need to traverse all the items which are marked as common or OnlyA
         // before we touch any items marked as OnlyB. Every time we see an OnlyB item, we'll push
         // it to this list. And then in "phase 2", we'll zip straight here and go from here.
-        let mut b_children: SmallVec<[usize; 2]> = smallvec![];
+        let mut b_children: SmallVec<usize, 2> = smallvec![];
 
         'outer: loop {
             let e = &mut self.entries[current_idx];

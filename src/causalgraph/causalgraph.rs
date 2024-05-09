@@ -257,13 +257,13 @@ impl CausalGraph {
         self.iter_range((0..self.len()).into())
     }
 
-    pub fn diff_since(&self, frontier: &[LV]) -> SmallVec<[DTRange; 4]> {
+    pub fn diff_since(&self, frontier: &[LV]) -> SmallVec<DTRange, 4> {
         let mut result = self.diff_since_rev(frontier);
         result.reverse();
         result
     }
 
-    pub fn diff_since_rev(&self, frontier: &[LV]) -> SmallVec<[DTRange; 4]> {
+    pub fn diff_since_rev(&self, frontier: &[LV]) -> SmallVec<DTRange, 4> {
         let (only_a, only_b) = self.graph.diff_rev(frontier, self.version.as_ref());
         debug_assert!(only_a.is_empty());
         only_b

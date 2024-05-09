@@ -354,7 +354,7 @@ pub const ROOT_CRDT_ID_AV: AgentVersion = (AgentId::MAX, 0);
 // }
 
 // /// Guaranteed to always have at least 1 value inside.
-// type MVRegister = SmallVec<[RegisterState; 1]>;
+// type MVRegister = SmallVec<RegisterState, 1>;
 
 // // TODO: Probably should also store a dirty flag for when we flush to disk.
 // #[derive(Debug, Clone, Eq, PartialEq)]
@@ -378,7 +378,7 @@ pub(crate) struct RegisterInfo {
     ops: Vec<ValPair>,
 
     /// Cached version(s) which together store the current HEAD for this register.
-    supremum: SmallVec<[usize; 2]>,
+    supremum: SmallVec<usize, 2>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -426,7 +426,7 @@ pub struct Branch {
     // range.
     //
     // TODO: Replace BTreeMap with something more appropriate later.
-    // registers: BTreeMap<LVKey, SmallVec<[LV; 2]>>, // TODO.
+    // registers: BTreeMap<LVKey, SmallVec<LV, 2>>, // TODO.
     maps: BTreeMap<LVKey, BTreeMap<SmartString, RegisterState>>, // any objects.
     pub texts: BTreeMap<LVKey, JumpRopeBuf>,
 }

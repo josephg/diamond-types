@@ -52,8 +52,8 @@ impl<T: MergableSpan> AppendRle<T> for Vec<T> {
 }
 
 #[cfg(feature = "smallvec")]
-impl<A: smallvec::Array> AppendRle<A::Item> for SmallVec<A> where A::Item: MergableSpan {
-    fn push_rle(&mut self, item: A::Item) -> bool {
+impl<T, const N: usize> AppendRle<T> for SmallVec<T, N> where T: MergableSpan {
+    fn push_rle(&mut self, item: T) -> bool {
         // debug_assert!(item.len() > 0);
 
         if let Some(v) = self.last_mut() {
@@ -67,7 +67,7 @@ impl<A: smallvec::Array> AppendRle<A::Item> for SmallVec<A> where A::Item: Merga
         false
     }
 
-    fn push_reversed_rle(&mut self, item: A::Item) -> bool {
+    fn push_reversed_rle(&mut self, item: T) -> bool {
     // debug_assert!(item.len() > 0);
 
         if let Some(v) = self.last_mut() {

@@ -183,7 +183,7 @@ impl Graph {
     }
 }
 
-pub(crate) type DiffResult = (SmallVec<[DTRange; 4]>, SmallVec<[DTRange; 4]>);
+pub(crate) type DiffResult = (SmallVec<DTRange, 4>, SmallVec<DTRange, 4>);
 
 impl Graph {
     /// Returns (spans only in a, spans only in b). Spans are in natural (ascending) order.
@@ -363,7 +363,7 @@ impl Graph {
             // below makes sure ROOT gets sorted last.
             last: LV,
             // TODO: Compare performance here with actually using a vec.
-            merged_with: SmallVec<[LV; 1]>, // Always sorted. Usually empty.
+            merged_with: SmallVec<LV, 1>, // Always sorted. Usually empty.
         }
 
         impl Ord for TimePoint {
@@ -546,7 +546,7 @@ impl Graph {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ConflictZone {
     pub(crate) common_ancestor: Frontier,
-    pub(crate) rev_spans: SmallVec<[DTRange; 4]>,
+    pub(crate) rev_spans: SmallVec<DTRange, 4>,
 }
 
 impl Graph {
@@ -568,7 +568,7 @@ impl Graph {
     ///
     /// - This doesn't yield the non-dominator items in the set.
     /// - This method requires the input versions to be fully sorted.
-    pub fn find_dominators_wide_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
+    pub fn find_dominators_wide_rev(&self, versions: &[LV]) -> SmallVec<LV, 2> {
         if versions.len() <= 1 { return versions.into(); }
 
         let mut min_v = versions[0];
@@ -721,7 +721,7 @@ impl Graph {
     }
 
     // /// Find dominators on an unsorted set of versions
-    // pub fn find_dominators_unsorted_rev(&self, versions: &[LV]) -> SmallVec<[LV; 2]> {
+    // pub fn find_dominators_unsorted_rev(&self, versions: &[LV]) -> SmallVec<LV, 2> {
     //     if versions.len() <= 1 {
     //         return versions.into();
     //     }

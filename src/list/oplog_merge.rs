@@ -9,7 +9,7 @@ use crate::causalgraph::graph::GraphEntrySimple;
 
 impl CausalGraph {
     /// Find all the items to merge from other into self.
-    fn to_merge(&self, other: &Self, agent_map: &[AgentId]) -> SmallVec<[DTRange; 4]> {
+    fn to_merge(&self, other: &Self, agent_map: &[AgentId]) -> SmallVec<DTRange, 4> {
         // This method is in many ways a baby version of diff_slow, with some changes:
         // - We only look at the frontier. (This is not configurable - but it could be)
         // - It maps spans from other -> self

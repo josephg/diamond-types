@@ -13,7 +13,7 @@ type Index = usize;
 pub(crate) struct ApplyAction {
     pub span: DTRange,
     pub index: Index,
-    pub update_other_indexes: SmallVec<[Index; 2]>,
+    pub update_other_indexes: SmallVec<Index, 2>,
     pub insert_items: bool,
 }
 
@@ -23,8 +23,8 @@ pub(crate) enum MergePlanAction {
     ClearInsertedItems,
     ForkIndex { src: Index, dest: Index },
     DropIndex(Index),
-    // MaxIndex(Index, SmallVec<[Index; 2]>),
-    MaxIndex(Index, SmallVec<[Index; 2]>),
+    // MaxIndex(Index, SmallVec<Index, 2>),
+    MaxIndex(Index, SmallVec<Index, 2>),
 }
 use MergePlanAction::*;
 use crate::causalgraph::graph::conflict_subgraph::ConflictSubgraph;
@@ -47,7 +47,7 @@ pub(super) struct EntryState {
     children_needing_index: usize, // For forks
 
     visited: bool,
-    merge_max_with: SmallVec<[usize; 2]>,
+    merge_max_with: SmallVec<usize, 2>,
 }
 
 
@@ -167,7 +167,7 @@ impl ConflictSubgraph<EntryState> {
         let mut last_direction = Up(usize::MAX);
 
         // let mut maxes: BumpVec<(usize, BumpVec<usize>)> = bumpalo::vec![in b];
-        let mut maxes: BumpVec<(usize, SmallVec<[usize; 2]>)> = bumpalo::vec![in b];
+        let mut maxes: BumpVec<(usize, SmallVec<usize, 2>)> = bumpalo::vec![in b];
 
         loop {
             // println!("Visiting idx {current_idx} from {:?}", last_direction);
@@ -327,7 +327,7 @@ impl ConflictSubgraph<EntryState> {
 
         let root_index = 0;
         let mut next_index = 1;
-        let mut free_index_stack: SmallVec<[Index; 8]> = smallvec![];
+        let mut free_index_stack: SmallVec<Index, 8> = smallvec![];
 
         // Concurrency tracks the number of extra, unexplored concurrent paths to this one as we
         // go down.
@@ -396,8 +396,8 @@ impl ConflictSubgraph<EntryState> {
 
                                         if !e.state.merge_max_with.is_empty() {
                                             // println!("MERGE WITH {:?}", e.state.merge_max_with);
-                                            let mut merge_with_indexes: SmallVec<[usize; 2]> = smallvec![];
-                                            let mut drop: SmallVec<[usize; 2]> = smallvec![];
+                                            let mut merge_with_indexes: SmallVec<usize, 2> = smallvec![];
+                                            let mut drop: SmallVec<usize, 2> = smallvec![];
 
                                             for i in take(&mut e.state.merge_max_with) {
                                                 let e2 = &mut g[i];
@@ -465,7 +465,7 @@ impl ConflictSubgraph<EntryState> {
                         //     insert_items: concurrency > 0,
                         // }));
 
-                        let mut update_other_indexes: SmallVec<[Index; 2]> = index_stack.iter().copied().collect();
+                        let mut update_other_indexes: SmallVec<Index, 2> = index_stack.iter().copied().collect();
                         update_other_indexes.sort_unstable();
 
                         actions.push(Apply(ApplyAction {

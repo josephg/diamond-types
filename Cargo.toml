@@ -19,7 +19,7 @@ members = ["crates/*"]
 [dependencies]
 smartstring = "1.0.1"
 str_indices = "0.4.3"
-smallvec = { version = "1.10.0", features = ["union", "const_generics"] }
+smallvec = "2.0.0-alpha.5"
 lazy_static = "1.4.0"
 
 # Used by wasm module, CLI.

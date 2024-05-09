@@ -182,7 +182,7 @@ impl Branch {
     }
 
     /// Returns the list of version ranges which were merged, in reverse order (!!!)
-    pub fn merge_changes_to_tip(&mut self, oplog: &OpLog) -> SmallVec<[DTRange; 4]> {
+    pub fn merge_changes_to_tip(&mut self, oplog: &OpLog) -> SmallVec<DTRange, 4> {
         // Well, for now nothing can be deleted yet. So that makes things easier.
         let diff_rev = oplog.cg.diff_since_rev(self.frontier.as_ref());
 

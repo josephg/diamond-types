@@ -115,12 +115,12 @@ impl<'a> OpMetricsWithContent<'a> {
 /// time in a document.
 #[derive(Debug)]
 struct OpIterRanges<'a> {
-    ranges_rev: SmallVec<[DTRange; 4]>, // We own this. This is in descending order.
+    ranges_rev: SmallVec<DTRange, 4>, // We own this. This is in descending order.
     current: OpMetricsWithContent<'a>
 }
 
 impl<'a> OpIterRanges<'a> {
-    fn new(oplog: &'a ListOpLog, mut ranges_rev: SmallVec<[DTRange; 4]>) -> Self {
+    fn new(oplog: &'a ListOpLog, mut ranges_rev: SmallVec<DTRange, 4>) -> Self {
         let last = ranges_rev.pop().unwrap_or_else(|| (0..0).into());
         Self {
             ranges_rev,
@@ -199,7 +199,7 @@ pub struct FullEntry {
     pub span: DTRange,
     pub parents: Frontier,
     pub agent_span: AgentSpan,
-    pub ops: SmallVec<[TextOperation; 2]>,
+    pub ops: SmallVec<TextOperation, 2>,
 }
 
 impl SplitableSpanHelpers for FullEntry {

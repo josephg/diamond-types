@@ -21,7 +21,7 @@ use crate::{CausalGraph, DTRange, Frontier, LV};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ConflictGraphEntry<S: Default = ()> {
-    pub parents: SmallVec<[usize; 2]>, // 2+ items. These are indexes to sibling items, not LVs.
+    pub parents: SmallVec<usize, 2>, // 2+ items. These are indexes to sibling items, not LVs.
     pub span: DTRange,
     // pub num_children: usize,
     pub state: S,
@@ -41,7 +41,7 @@ pub(crate) struct ConflictSubgraph<S: Default = ()> {
 
 // Sorted highest to lowest (so we compare the highest first).
 #[derive(Debug, PartialEq, Eq, Clone)]
-struct RevSortFrontier(SmallVec<[LV; 2]>);
+struct RevSortFrontier(SmallVec<LV, 2>);
 
 impl Ord for RevSortFrontier {
     #[inline(always)]
@@ -141,12 +141,12 @@ impl Graph {
 
         // This is a temporary stack to store the child indexes which point to the next item we're
         // going to emit - if any.
-        let mut children: SmallVec<[Child; 2]> = smallvec![];
+        let mut children: SmallVec<Child, 2> = smallvec![];
         let mut a_root = usize::MAX;
         let mut b_root = usize::MAX;
 
-        // fn push_result<S: Default>(span: DTRange, flag: DiffFlag, children: &mut SmallVec<[Child; 2]>, result: &mut Vec<ConflictGraphEntry<S>>) -> usize {
-        let mut push_result = |span: DTRange, flag: DiffFlag, children: &mut SmallVec<[Child; 2]>| -> usize {
+        // fn push_result<S: Default>(span: DTRange, flag: DiffFlag, children: &mut SmallVec<Child, 2>, result: &mut Vec<ConflictGraphEntry<S>>) -> usize {
+        let mut push_result = |span: DTRange, flag: DiffFlag, children: &mut SmallVec<Child, 2>| -> usize {
             let new_index = entries.len();
             // println!("push_result {new_index} <- {:?}", children);
 
@@ -370,9 +370,9 @@ impl Graph {
 
 impl<S: Default + Debug> ConflictSubgraph<S> {
     pub(crate) fn dbg_check_conflicting(&self, graph: &Graph, a: &[LV], b: &[LV]) {
-        let mut actual_only_a: SmallVec<[DTRange; 2]> = smallvec![];
-        let mut actual_only_b: SmallVec<[DTRange; 2]> = smallvec![];
-        let mut actual_shared: SmallVec<[DTRange; 2]> = smallvec![];
+        let mut actual_only_a: SmallVec<DTRange, 2> = smallvec![];
+        let mut actual_only_b: SmallVec<DTRange, 2> = smallvec![];
+        let mut actual_shared: SmallVec<DTRange, 2> = smallvec![];
 
         let dominators = graph.find_dominators_2(a, b);
 
@@ -392,9 +392,9 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
             }
         }
 
-        let mut expected_only_a: SmallVec<[DTRange; 2]> = smallvec![];
-        let mut expected_only_b: SmallVec<[DTRange; 2]> = smallvec![];
-        let mut expected_shared: SmallVec<[DTRange; 2]> = smallvec![];
+        let mut expected_only_a: SmallVec<DTRange, 2> = smallvec![];
+        let mut expected_only_b: SmallVec<DTRange, 2> = smallvec![];
+        let mut expected_shared: SmallVec<DTRange, 2> = smallvec![];
         let common = graph.find_conflicting(a, b, |span, flag| {
             // println!("find_conflicting {:?} {:?}", span, flag);
             let list = match flag {

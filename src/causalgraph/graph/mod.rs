@@ -42,7 +42,7 @@ pub(crate) struct GraphEntryInternal {
     /// This is a cached list of all the other indexes of items in history which name this item as
     /// a parent. Its very useful in a few specific situations - and I've gone back and forth on
     /// whether its worth keeping this field.
-    pub child_indexes: SmallVec<[usize; 2]>,
+    pub child_indexes: SmallVec<usize, 2>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -50,7 +50,7 @@ pub struct Graph {
     pub(crate) entries: RleVec<GraphEntryInternal>,
 
     // The index of all items with ROOT as a direct parent.
-    pub(crate) root_child_indexes: SmallVec<[usize; 2]>,
+    pub(crate) root_child_indexes: SmallVec<usize, 2>,
 }
 
 impl Graph {

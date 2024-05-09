@@ -93,7 +93,7 @@ impl<'a> BufReader<'a> {
     }
 
     fn read_parents(&mut self, oplog: &ListOpLog, next_time: LV, agent_map: &[(AgentId, usize)]) -> Result<Frontier, ParseError> {
-        let mut parents = SmallVec::<[usize; 2]>::new();
+        let mut parents = SmallVec::<usize, 2>::new();
         loop {
             let mut n = self.next_usize()?;
             let is_foreign = strip_bit_usize_2(&mut n);

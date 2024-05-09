@@ -7,7 +7,7 @@ use smallvec::SmallVec;
 use rle::{Searchable, merge_items};
 use super::*;
 
-pub type DeleteResult<E> = SmallVec<[E; 8]>;
+pub type DeleteResult<E> = SmallVec<E, 8>;
 
 impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> ContentTreeRaw<E, I, IE, LE> {
     pub fn new() -> Pin<Box<Self>> {

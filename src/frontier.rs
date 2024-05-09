@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::{Index, IndexMut};
-use smallvec::{Array, SmallVec, smallvec};
+use smallvec::{SmallVec, smallvec};
 use crate::causalgraph::graph::Graph;
 use crate::dtrange::DTRange;
 use crate::LV;
@@ -20,7 +20,7 @@ use crate::causalgraph::graph::tools::DiffFlag;
 /// deserializing via serde!
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(transparent))]
-pub struct Frontier(pub SmallVec<[LV; 2]>);
+pub struct Frontier(pub SmallVec<LV, 2>);
 
 pub type FrontierRef<'a> = &'a [LV];
 
@@ -37,8 +37,8 @@ impl<'a> From<FrontierRef<'a>> for Frontier {
     }
 }
 
-impl From<SmallVec<[LV; 2]>> for Frontier {
-    fn from(f: SmallVec<[LV; 2]>) -> Self {
+impl From<SmallVec<LV, 2>> for Frontier {
+    fn from(f: SmallVec<LV, 2>) -> Self {
         debug_assert_sorted(f.as_slice());
         Frontier(f)
     }
@@ -111,7 +111,7 @@ pub(crate) fn debug_assert_sorted(frontier: FrontierRef) {
     debug_assert!(frontier_is_sorted(frontier));
 }
 
-pub(crate) fn sort_frontier<T: Array<Item=LV>>(v: &mut SmallVec<T>) {
+pub(crate) fn sort_frontier<const N: usize>(v: &mut SmallVec<LV, N>) {
     if !frontier_is_sorted(v.as_slice()) {
         v.sort_unstable();
     }
@@ -119,7 +119,7 @@ pub(crate) fn sort_frontier<T: Array<Item=LV>>(v: &mut SmallVec<T>) {
 
 impl IntoIterator for Frontier {
     type Item = LV;
-    type IntoIter = <SmallVec<[LV; 2]> as IntoIterator>::IntoIter;
+    type IntoIter = <SmallVec<LV, 2> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -142,13 +142,13 @@ impl Frontier {
     }
 
     pub fn from_unsorted(data: &[LV]) -> Self {
-        let mut arr: SmallVec<[LV; 2]> = data.into();
+        let mut arr: SmallVec<LV, 2> = data.into();
         sort_frontier(&mut arr);
         Self(arr)
     }
 
     pub fn from_unsorted_iter<I: Iterator<Item=LV>>(iter: I) -> Self {
-        let mut arr: SmallVec<[LV; 2]> = iter.collect();
+        let mut arr: SmallVec<LV, 2> = iter.collect();
         sort_frontier(&mut arr);
         Self(arr)
     }
@@ -463,7 +463,7 @@ impl<'a> Iterator for FrontierDiff<'a> {
 /// This method clones a version or parents vector. Its slightly faster and smaller than just
 /// calling v.clone() directly.
 #[inline]
-pub fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<[T; LEN]>) -> SmallVec<[T; LEN]> where T: Clone + Copy {
+pub fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<T, LEN>) -> SmallVec<T, LEN> where T: Clone + Copy {
     // This is now smaller again as of rust 1.60. Looks like the problem was fixed.
     v.clone()
 
@@ -477,7 +477,7 @@ pub fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<[T; LEN]>) -> SmallVec<[
     //         // std::ptr::copy_nonoverlapping(v.as_ptr(), arr.as_mut_ptr().cast(), LEN);
     //         // SmallVec::from_buf_and_len_unchecked(arr, v.len())
     //
-    //         let mut result: MaybeUninit<SmallVec<[T; LEN]>> = MaybeUninit::uninit();
+    //         let mut result: MaybeUninit<SmallVec<T, LEN>> = MaybeUninit::uninit();
     //         std::ptr::copy_nonoverlapping(v, result.as_mut_ptr(), 1);
     //         result.assume_init()
     //     }
