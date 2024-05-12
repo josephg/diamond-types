@@ -13,7 +13,7 @@ repository = "https://github.com/josephg/diamond-types"
 rle = { version = "0.2.0", path = "../rle", features = ["smallvec"] }
 # Only used for printing stats. TODO: Move me to dev-dependencies!
 humansize = "1.1.1"
-smallvec = { version = "2.0.0-alpha.5" }
+smallvec = { version = "2.0.0-alpha.6" }
 
 [dev-dependencies]
 rand = { version = "^0.8", features = ["small_rng"] }

@@ -8,4 +8,4 @@ description = "Simple utilities for run-length encoded data"
 repository = "https://github.com/josephg/diamond-types"
 
 [dependencies]
-smallvec = { version = "2.0.0-alpha.5", optional = true }
+smallvec = { version = "2.0.0-alpha.6", optional = true }
