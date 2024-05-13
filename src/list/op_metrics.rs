@@ -62,6 +62,14 @@ impl ListOpMetrics {
         let content = self.get_content(ctx);
         (self, content).into()
     }
+
+    #[inline]
+    pub fn transpose_to(&mut self, xf_pos: usize) {
+        let len = self.loc.len();
+
+        self.loc.span.start = xf_pos;
+        self.loc.span.end = xf_pos + len;
+    }
 }
 
 impl HasLength for ListOpMetrics {

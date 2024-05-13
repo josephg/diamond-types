@@ -13,6 +13,7 @@ use crate::dtrange::DTRange;
 use crate::encoding::tools::calc_checksum;
 use crate::list::encoding::encode_tools::{Merger, push_leb_chunk, push_leb_str, push_leb_u32, push_leb_usize, push_u32_le, write_leb_bit_run};
 use crate::list::encoding::leb::{encode_leb_u32, encode_leb_usize, num_encode_zigzag_isize_old};
+use crate::listmerge::merge::TransformedResultRaw;
 use crate::listmerge::plan::M1PlanAction;
 
 const ALLOW_VERBOSE: bool = true;
@@ -497,25 +498,17 @@ impl ListOpLog {
             }
         });
 
-        // If we just iterate in the current order, this code would be way simpler :p
-        // let iter = self.cg.history.optimized_txns_between(from_frontier, &self.frontier);
-        let (_, new_ranges) = self.cg.graph.diff(from_version, self.cg.version.as_ref());
-        // for walk in self.cg.graph.iter_range() {
-        // for walk in self.cg.graph.optimized_txns_between(from_version, self.cg.version.as_ref()) {
-        for walk in new_ranges.iter().flat_map(|r| self.cg.graph.iter_range(*r)) {
+        let mut process_ops = |graph_entry: GraphEntrySimple| {
             // We only care about walk.consume and parents.
 
             // We need to update *lots* of stuff in here!!
 
             // 1. Agent names and agent assignment
-            for KVPair(_, span) in self.cg.agent_assignment.client_with_lv.iter_range_ctx(walk.span, &()) {
+            for KVPair(_, span) in self.cg.agent_assignment.client_with_lv.iter_range_ctx(graph_entry.span, &()) {
                 // Mark the agent as in-use (if we haven't already)
                 let mapped_agent = agent_mapping.map(self, span.agent);
 
-                // dbg!(&span);
-
                 // agent_assignment is a list of (agent, len) pairs.
-                // dbg!(span);
                 agent_assignment_writer.push(AgentAssignmentRun {
                     agent: mapped_agent,
                     delta: agent_mapping.seq_delta(span.agent, span.seq_range),
@@ -524,7 +517,7 @@ impl ListOpLog {
             }
 
             // 2. Operations!
-            for (op, content) in self.iter_range_simple(walk.span) {
+            for (op, content) in self.iter_range_simple(graph_entry.span) {
                 let op = op.1;
 
                 // DANGER!! Its super important we pull out the content here rather than in
@@ -549,11 +542,81 @@ impl ListOpLog {
             }
 
             // 3. Parents!
-            txns_writer.push2(GraphEntrySimple {
-                span: walk.span,
-                parents: walk.parents
-                // parents: walk.parents
-            }, &mut agent_mapping);
+            txns_writer.push2(graph_entry, &mut agent_mapping);
+        };
+
+        let mut any_cancelled = false;
+        let mut xf_cancelled_chunk = Vec::new();
+        let mut xf_ops_chunk = Vec::new();
+
+        // If we just iterate in the current order, this code would be way simpler :p
+        // let iter = self.cg.history.optimized_txns_between(from_frontier, &self.frontier);
+        if !opts.sort {
+            assert_eq!(opts.store_xf, false);
+            let (_, new_ranges) = self.cg.graph.diff(from_version, self.cg.version.as_ref());
+            // for walk in self.cg.graph.iter_range() {
+            // for walk in self.cg.graph.optimized_txns_between(from_version, self.cg.version.as_ref()) {
+            for ge in new_ranges.iter().flat_map(|r| self.cg.graph.iter_range(*r)) {
+                process_ops(ge);
+            }
+        } else {
+            // This is split into two writers because the cancelled flags take up much less room.
+            let mut xf_cancelled_writer = Merger::new(write_leb_bit_run);
+            let mut xf_moveby_writer = Merger::new(|e: RleRun<isize>, buf: &mut Vec<u8>| {
+                push_leb_usize(buf, num_encode_zigzag_isize(e.val));
+                push_leb_usize(buf, e.len);
+            });
+
+            for r in self.get_xf_operations_full_raw(from_version, self.cg.version.as_ref()) {
+                let range = r.lv_range();
+                self.cg.graph.with_parents(range.start, |parents| {
+                    let ge = GraphEntrySimple {
+                        span: range,
+                        parents: parents.into(),
+                    };
+                    process_ops(ge);
+                });
+
+                if opts.store_xf {
+                    let (cancelled, xf_by, len) = match r {
+                        TransformedResultRaw::FF(range) => {
+                            (false, 0isize, range.len())
+                            // RleRun::new(XFState::XFBy(0), range.len())
+                        },
+                        TransformedResultRaw::Apply { xf_pos, op } => {
+                            (false, xf_pos as isize - op.1.start() as isize, op.len())
+                            // RleRun::new(XFState::XFBy(xf_pos as isize - op.1.start() as isize), op.len())
+                        },
+                        TransformedResultRaw::DeleteAlreadyHappened(range) => {
+                            any_cancelled = true;
+                            (true, 0, range.len())
+                            // RleRun::new(XFState::Cancelled, range.len())
+                        },
+                    };
+
+                    xf_cancelled_writer.push2(RleRun::new(cancelled, len), &mut xf_cancelled_chunk);
+                    if !cancelled {
+                        xf_moveby_writer.push2(RleRun::new(xf_by, len), &mut xf_ops_chunk);
+                    }
+                    // xf_cancelled_writer.push2(RleRun::new(run.val == XFState::Cancelled, run.len), &mut xf_cancelled_chunk);
+                    // xf_moveby_writer.push2(run, &mut xf_ops_chunk);
+                }
+            }
+
+            if opts.store_xf {
+                if any_cancelled {
+                    xf_cancelled_writer.flush2(&mut xf_cancelled_chunk);
+                } else {
+                    debug_assert!(xf_cancelled_chunk.is_empty());
+                    xf_cancelled_writer.last.take(); // Suppress the panic if this is dropped without being flushed.
+                }
+                xf_moveby_writer.flush2(&mut xf_ops_chunk);
+            }
+        }
+
+        if verbose && opts.store_xf {
+            println!("XF chunk size {} + {} = {}", xf_cancelled_chunk.len(), xf_ops_chunk.len(), xf_cancelled_chunk.len() + xf_ops_chunk.len());
+            // self.bench_writing_xf_since(from_version);
         }
 
         agent_assignment_writer.flush();
@@ -685,6 +748,13 @@ impl ListOpLog {
         push_leb_chunk(&mut patches_buf, ListChunkType::OpVersions, &agent_assignment_chunk);
         push_leb_chunk(&mut patches_buf, ListChunkType::OpTypeAndPosition, &ops_chunk);
         push_leb_chunk(&mut patches_buf, ListChunkType::OpParents, &txns_chunk);
+
+        if opts.store_xf {
+            if !xf_cancelled_chunk.is_empty() {
+                push_leb_chunk(&mut patches_buf, ListChunkType::TransformedCancelsOps, &xf_cancelled_chunk);
+            }
+            push_leb_chunk(&mut patches_buf, ListChunkType::TransformedPositions, &xf_ops_chunk);
+        }
 
         write_chunk(ListChunkType::Patches, &mut patches_buf);
 

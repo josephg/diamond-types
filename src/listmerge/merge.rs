@@ -635,9 +635,38 @@ pub(crate) struct TransformedOpsIterRaw<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TransformedResultRaw {
     FF(DTRange),
-    Apply(KVPair<ListOpMetrics>),
+    Apply {
+        xf_pos: usize,
+        op: KVPair<ListOpMetrics>,
+        // lv: usize,
+        // op: ListOpMetrics,
+    },
     DeleteAlreadyHappened(DTRange),
 }
+
+impl HasLength for TransformedResultRaw {
+    fn len(&self) -> usize {
+        match self {
+            TransformedResultRaw::FF(r) => r.len(),
+            TransformedResultRaw::Apply { op, .. } => op.len(),
+            TransformedResultRaw::DeleteAlreadyHappened(r) => r.len(),
+        }
+    }
+}
+
+impl TransformedResultRaw {
+    pub fn lv_range(&self) -> DTRange {
+        match self {
+            TransformedResultRaw::FF(r) | TransformedResultRaw::DeleteAlreadyHappened(r) => *r,
+            TransformedResultRaw::Apply { op, .. } => op.range(),
+        }
+    }
+}
+
+
+
+
+
 
 // impl MergableSpan for TransformedResultRaw {
 //     fn can_append(&self, other: &Self) -> bool {
@@ -701,10 +730,11 @@ impl<'a> TransformedOpsIterRaw<'a> {
         // let result = (pair.0, pair.1, xf_result);
         let result = match xf_result {
             BaseMoved(xf_pos) => {
-                let len = pair.1.loc.span.len();
-                pair.1.loc.span.start = xf_pos;
-                pair.1.loc.span.end = xf_pos + len;
-                TransformedResultRaw::Apply(pair)
+                // let len = pair.1.loc.span.len();
+                // pair.1.loc.span.start = xf_pos;
+                // pair.1.loc.span.end = xf_pos + len;
+                // TransformedResultRaw::Apply(pair)
+                TransformedResultRaw::Apply { xf_pos, op: pair }
             },
             DeleteAlreadyHappened => TransformedResultRaw::DeleteAlreadyHappened(pair.span()),
         };
@@ -778,28 +808,32 @@ impl<'a> Iterator for TransformedOpsIterRaw<'a> {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum TransformedResultX {
+pub(crate) enum TransformedSimpleOp {
     Apply(KVPair<ListOpMetrics>),
     DeleteAlreadyHappened(DTRange),
 }
 
 /// This wraps TransformedOpsIterRaw to provide the same API as the older transformed ops iterator.
-pub(crate) struct TransformedOpsIterX<'a> {
+/// In particular, it iterates over *operations* rather than iterating over how the operation was
+/// transformed.
+///
+/// TODO: Name me.
+pub(crate) struct TransformedSimpleOpsIter<'a> {
     inner: TransformedOpsIterRaw<'a>,
     ff_iter: Option<(std::slice::Iter<'a, KVPair<ListOpMetrics>>, usize)>,
 }
 
-impl<'a> From<TransformedOpsIterRaw<'a>> for TransformedOpsIterX<'a> {
+impl<'a> From<TransformedOpsIterRaw<'a>> for TransformedSimpleOpsIter<'a> {
     fn from(inner: TransformedOpsIterRaw<'a>) -> Self {
         Self { inner, ff_iter: None }
     }
 }
 
-impl<'a> Iterator for TransformedOpsIterX<'a> {
-    type Item = TransformedResultX;
+impl<'a> Iterator for TransformedSimpleOpsIter<'a> {
+    type Item = TransformedSimpleOp;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use TransformedResultX::*;
+        use TransformedSimpleOp::*;
 
         if let Some((ff_iter, end)) = self.ff_iter.as_mut() {
             if let Some(item) = ff_iter.next() {
@@ -819,7 +853,10 @@ impl<'a> Iterator for TransformedOpsIterX<'a> {
         // Otherwise, take the next item from the internal iterator.
         match self.inner.next() {
             None => None,
-            Some(TransformedResultRaw::Apply(op)) => Some(Apply(op)),
+            Some(TransformedResultRaw::Apply { xf_pos, mut op }) => {
+                op.1.transpose_to(xf_pos);
+                Some(Apply(op))
+            },
             Some(TransformedResultRaw::FF(range)) => {
                 debug_assert!(!range.is_empty());
 

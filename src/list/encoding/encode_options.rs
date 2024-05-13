@@ -20,6 +20,9 @@ pub struct EncodeOptions<'a> {
     pub(crate) compress_content: bool,
 
     pub(crate) verbose: bool,
+
+    pub(crate) store_xf: bool,
+    pub(crate) sort: bool,
 }
 
 
@@ -30,7 +33,10 @@ pub const ENCODE_PATCH: EncodeOptions = EncodeOptions {
     store_inserted_content: true,
     store_deleted_content: false,
     compress_content: true,
-    verbose: false
+    verbose: false,
+    // sort_events:
+    store_xf: false,
+    sort: false,
 };
 
 pub const ENCODE_FULL: EncodeOptions = EncodeOptions {
@@ -40,7 +46,9 @@ pub const ENCODE_FULL: EncodeOptions = EncodeOptions {
     store_inserted_content: true,
     store_deleted_content: false, // ?? Not sure about this one!
     compress_content: true,
-    verbose: false
+    verbose: false,
+    store_xf: false,
+    sort: false,
 };
 
 impl<'a> Default for EncodeOptions<'a> {
@@ -95,6 +103,18 @@ impl<'a> EncodeOptions<'a> {
 
     pub fn verbose(mut self, verbose: bool) -> Self {
         self.verbose = verbose;
+        self
+    }
+
+    pub fn sort_operations(mut self, sort: bool) -> Self {
+        self.sort = sort;
+        self
+    }
+    
+    /// Implies sorting
+    pub fn store_xf(mut self, store_xf: bool) -> Self {
+        self.store_xf = store_xf;
+        self.sort = true;
         self
     }
 

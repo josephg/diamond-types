@@ -56,7 +56,10 @@ enum ListChunkType {
     /// ContentKnown is a RLE expressing which ranges of patches have known content
     ContentIsKnown = 25,
 
-    TransformedPositions = 27, // Currently unused
+    /// A chunk specifying which operations are cancelled when the data is transformed
+    TransformedCancelsOps = 27,
+    /// A chunk specifying the position deltas for operations when transformed in the stored order
+    TransformedPositions = 28,
 
     Crc = 100,
 }

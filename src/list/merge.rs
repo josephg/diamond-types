@@ -2,7 +2,7 @@ use rle::{HasLength, MergeableIterator};
 use crate::frontier::FrontierRef;
 use crate::list::{ListBranch, ListOpLog};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::listmerge::merge::{reverse_str, TransformedOpsIter, TransformedOpsIterRaw, TransformedOpsIterX, TransformedResultRaw, TransformedResultX};
+use crate::listmerge::merge::{reverse_str, TransformedOpsIter, TransformedOpsIterRaw, TransformedSimpleOpsIter, TransformedResultRaw, TransformedSimpleOp};
 use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::{DTRange, LV, OpLog};
 use crate::list::op_metrics::ListOpMetrics;
@@ -15,11 +15,11 @@ impl ListOpLog {
         self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), false);
     }
 
-    pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter {
-        TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
-                                &self.operation_ctx, &self.operations,
-                                from, merging)
-    }
+    // pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter {
+    //     TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
+    //                             &self.operation_ctx, &self.operations,
+    //                             from, merging)
+    // }
 
     pub(crate) fn get_xf_operations_full_raw(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIterRaw {
         TransformedOpsIterRaw::new(&self.cg.graph, &self.cg.agent_assignment,
@@ -27,8 +27,8 @@ impl ListOpLog {
                                 from, merging)
     }
 
-    pub(crate) fn get_xf_operations_full_old(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIterOld {
-        TransformedOpsIterOld::new(&self.cg.graph, &self.cg.agent_assignment,
+    pub(crate) fn get_xf_operations_full_old(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIter {
+        TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
                                 &self.operation_ctx, &self.operations,
                                 from, merging)
     }
@@ -41,17 +41,17 @@ impl ListOpLog {
     /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
     /// changes that could be applied linearly to a document to bring it up to date.
     pub fn iter_xf_operations_from(&self, from: FrontierRef, merging: FrontierRef) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
-        let iter: TransformedOpsIterX = self.get_xf_operations_full_raw(from, merging).into();
+        let iter: TransformedSimpleOpsIter = self.get_xf_operations_full_raw(from, merging).into();
 
         iter.map(|result| {
             match result {
-                TransformedResultX::Apply(KVPair(start, op)) => {
+                TransformedSimpleOp::Apply(KVPair(start, op)) => {
                     let content = op.get_content(&self.operation_ctx);
                     let len = op.len();
                     let text_op: TextOperation = (op, content).into();
                     ((start..start + len).into(), Some(text_op))
                 }
-                TransformedResultX::DeleteAlreadyHappened(range) => (range, None)
+                TransformedSimpleOp::DeleteAlreadyHappened(range) => (range, None)
             }
         })
         // self.get_xf_operations_full(from, merging)
@@ -90,20 +90,20 @@ impl ListOpLog {
 
     pub fn dbg_iter_xf_operations_no_ff(&self) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
         let (plan, _common) = self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), false);
-        let iter: TransformedOpsIterX = TransformedOpsIterRaw::from_plan(&self.cg.agent_assignment,
-                                                     &self.operation_ctx, &self.operations,
-                                                     plan)
+        let iter: TransformedSimpleOpsIter = TransformedOpsIterRaw::from_plan(&self.cg.agent_assignment,
+                                                                              &self.operation_ctx, &self.operations,
+                                                                              plan)
             .into();
 
         iter.map(|result| {
             match result {
-                TransformedResultX::Apply(KVPair(start, op)) => {
+                TransformedSimpleOp::Apply(KVPair(start, op)) => {
                     let content = op.get_content(&self.operation_ctx);
                     let len = op.len();
                     let text_op: TextOperation = (op, content).into();
                     ((start..start + len).into(), Some(text_op))
                 }
-                TransformedResultX::DeleteAlreadyHappened(range) => (range, None)
+                TransformedSimpleOp::DeleteAlreadyHappened(range) => (range, None)
             }
         })
 
@@ -151,8 +151,8 @@ impl ListOpLog {
 
         let (plan, common) = self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), allow_ff);
         let mut iter = TransformedOpsIter::from_plan(&self.cg.graph, &self.cg.agent_assignment,
-                                               &self.operation_ctx, &self.operations,
-                                               plan, common);
+                                                     &self.operation_ctx, &self.operations,
+                                                     plan, common);
 
         let mut result = vec![];
 
@@ -213,8 +213,9 @@ impl ListBranch {
             // dbg!(&xf);
             // dbg!(_lv, &origin_op, &xf);
             match xf {
-                TransformedResultRaw::Apply(KVPair(_, op)) => {
+                TransformedResultRaw::Apply { xf_pos, op: KVPair(_, mut op) } => {
                     // dbg!(&op);
+                    op.transpose_to(xf_pos);
                     self.apply_op_at(oplog, op);
                 }
 
@@ -235,7 +236,7 @@ impl ListBranch {
 
     /// Add everything in merge_frontier into the set..
     pub fn merge_(&mut self, oplog: &ListOpLog, merge_frontier: &[LV]) {
-        let mut iter = oplog.get_xf_operations_full(self.version.as_ref(), merge_frontier);
+        let mut iter = oplog.get_xf_operations_full_old(self.version.as_ref(), merge_frontier);
         // println!("merge '{}' at {:?} + {:?}", self.content.to_string(), self.version, merge_frontier);
 
         for (_lv, origin_op, xf) in &mut iter {

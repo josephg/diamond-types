@@ -120,6 +120,10 @@ fn print_stats_for_oplog(_name: &str, oplog: &ListOpLog) {
     let data = oplog.encode(&EncodeOptions::full().verbose(true));
     println!("Regular file size {} bytes", data.len());
 
+    println!("---- Saving sorted ----");
+    let data = oplog.encode(&EncodeOptions::full().sort_operations(true).verbose(true));
+    println!("Sorted file size {} bytes", data.len());
+
 
     println!("---- Saving smol mode ----");
     let data_smol = oplog.encode(&EncodeOptions::full()
@@ -142,7 +146,11 @@ fn print_stats_for_oplog(_name: &str, oplog: &ListOpLog) {
         .verbose(true));
     println!("Uncompressed size {}", data_uncompressed.len());
 
-    oplog.bench_writing_xf_since(&[]);
+
+    println!("---- Saving with XF ----");
+    let data = oplog.encode(&EncodeOptions::full().store_xf(true).verbose(true));
+    println!("XF file size {} bytes", data.len());
+    // oplog.bench_writing_xf_since(&[]);
 
     // oplog.make_time_dag_graph_with_merge_bubbles(&format!("{name}.svg"));
 
@@ -207,9 +215,9 @@ fn main() {
     //
     // print_stats_for_file("node_nodecc");
     // print_stats_for_file("git-makefile");
-    //
-    // print_stats_for_file("friendsforever");
-    // print_stats_for_file("clownschool");
+
+    print_stats_for_file("friendsforever");
+    print_stats_for_file("clownschool");
 
     // profile_merge("clownschool");
 }

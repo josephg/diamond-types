@@ -3,7 +3,7 @@ use crate::encoding::Merger;
 use crate::list::encoding::leb::num_encode_zigzag_isize_old;
 use crate::list::encoding::encode_tools::{push_leb_usize, write_leb_bit_run};
 use crate::list::ListOpLog;
-use crate::listmerge::merge::TransformedResult;
+use crate::listmerge::merge::{TransformedResult, TransformedResultRaw};
 use crate::LV;
 
 /// *** This is EXPERIMENTAL work-in-progress code to save transformed positions ***
@@ -22,7 +22,22 @@ impl ListOpLog {
     pub fn bench_writing_xf_since(&self, from_version: &[LV]) {
         let mut tn_ops: Vec<RleRun<XFState>> = vec![];
 
-        for (_, op, xf) in self.get_xf_operations_full(from_version, self.cg.version.as_ref()) {
+        // for r in self.get_xf_operations_full_raw(from_version, self.cg.version.as_ref()) {
+        //     tn_ops.push_rle(match r {
+        //         TransformedResultRaw::FF(range) => {
+        //             RleRun::new(XFState::XFBy(0), range.len())
+        //         },
+        //         TransformedResultRaw::Apply { xf_pos, op } => {
+        //             RleRun::new(XFState::XFBy(xf_pos as isize - op.1.start() as isize), op.len())
+        //         },
+        //         TransformedResultRaw::DeleteAlreadyHappened(range) => {
+        //             RleRun::new(XFState::Cancelled, range.len())
+        //         },
+        //     });
+        // }
+
+
+        for (_, op, xf) in self.get_xf_operations_full_old(from_version, self.cg.version.as_ref()) {
             let val = match xf {
                 TransformedResult::BaseMoved(xf_pos) => {
                     let origin_pos = op.start() as isize;

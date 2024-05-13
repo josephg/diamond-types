@@ -61,7 +61,7 @@ pub(super) fn write_leb_bit_run(run: RleRun<bool>, into: &mut Vec<u8>) {
 
 #[derive(Clone)]
 pub(super) struct Merger<S: MergableSpan, F: FnMut(S, &mut Ctx), Ctx = ()> {
-    last: Option<S>,
+    pub(super) last: Option<S>,
     f: F,
     _ctx: PhantomData<Ctx> // This is awful.
 }
