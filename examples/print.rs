@@ -60,15 +60,7 @@ fn print_stats_for_file(name: &str) {
     // }
 
     println!();
-    oplog.encode(&EncodeOptions {
-        user_data: None,
-        store_start_branch_content: false,
-        experimentally_store_end_branch_content: false,
-        store_inserted_content: true,
-        store_deleted_content: true,
-        compress_content: true,
-        verbose: true,
-    });
+    oplog.encode(&EncodeOptions::patch().store_deleted_content(true).verbose(true));
 }
 
 

@@ -22,15 +22,7 @@ fn fuzz_encode_decode_once(seed: u64) {
             old_make_random_change(&mut doc, None, agent, &mut rng, true);
         }
 
-        let bytes = doc.oplog.encode(&EncodeOptions {
-            user_data: None,
-            store_start_branch_content: true,
-            experimentally_store_end_branch_content: false,
-            store_inserted_content: true,
-            store_deleted_content: true,
-            compress_content: true,
-            verbose: false
-        });
+        let bytes = doc.oplog.encode(&EncodeOptions::full().store_deleted_content(true));
 
         let decoded = ListOpLog::load_from(&bytes).unwrap();
         if doc.oplog != decoded {
@@ -89,15 +81,7 @@ fn fuzz_encode_decode_multi(seed: u64, verbose: bool) {
         // Merge by applying patches
         // let b_agent = a.get_or_create_agent_id(agent_name(b_idx).as_str());
 
-        let encode_opts = EncodeOptions {
-            user_data: None,
-            store_start_branch_content: false,
-            experimentally_store_end_branch_content: false,
-            store_inserted_content: true,
-            store_deleted_content: true,
-            compress_content: true,
-            verbose: false
-        };
+        let encode_opts = EncodeOptions::full().store_deleted_content(true);
         let a_data = a.oplog.encode(&encode_opts);
         b.merge_data_and_ff(&a_data).unwrap();
 

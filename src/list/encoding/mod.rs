@@ -14,11 +14,12 @@ mod decode_tools;
 pub mod save_transformed;
 pub(crate) mod leb;
 pub(crate) mod txn_trace;
+mod encode_options;
 
 use rle::MergableSpan;
 use crate::encoding::varint::*;
 use num_enum::TryFromPrimitive;
-pub use encode_oplog::{ENCODE_FULL, ENCODE_PATCH, EncodeOptions};
+pub use encode_options::{EncodeOptions, EncodeOptionsBuilder};
 
 const MAGIC_BYTES: [u8; 8] = *b"DMNDTYPS";
 

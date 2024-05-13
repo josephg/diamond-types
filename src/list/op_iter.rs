@@ -6,10 +6,10 @@ use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::graph::GraphEntrySimple;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::ListOpLog;
-use crate::list::operation::TextOperation;
+use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::DTRange;
 use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
-use crate::{AgentId, Frontier, LV};
+use crate::{AgentId, Frontier, list, LV};
 use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
 
 #[derive(Debug)]
@@ -392,6 +392,43 @@ mod test {
     //     dbg!(result.encode(&ENCODE_FULL).len());
     //     let result_data = result.encode(&ENCODE_FULL);
     //     std::fs::write("ff2.dt", &result_data).unwrap();
+    // }
+
+    // #[test]
+    // #[ignore]
+    // fn fix_cs() {
+    //     use crate::list::encoding::{ENCODE_FULL, EncodeOptions};
+    //     let data = std::fs::read("clownschool.dt").unwrap();
+    //     let oplog = ListOpLog::load_from(&data).unwrap();
+    //     // let old_value = oplog.checkout_tip().content;
+    //
+    //     // Now form it back into an oplog.
+    //
+    //     let chunks = oplog.as_chunked_operation_vec();
+    //
+    //     let agent_names = [
+    //         "0",
+    //         "1",
+    //         "1",
+    //     ];
+    //
+    //     let mut result = ListOpLog::new();
+    //     for c in chunks {
+    //         // let agent_name = oplog.get_agent_name(c.agent_span.agent);
+    //         let agent_name = &agent_names[c.agent_span.agent as usize];
+    //         let a = result.get_or_create_agent_id(agent_name);
+    //
+    //         result.add_operations_at(a, c.parents.as_ref(), &c.ops);
+    //     }
+    //
+    //     let r1 = oplog.checkout_tip();
+    //     let r2 = result.checkout_tip();
+    //     assert_eq!(r1.content, r2.content);
+    //
+    //     dbg!(oplog.encode(&ENCODE_FULL).len());
+    //     dbg!(result.encode(&ENCODE_FULL).len());
+    //     let result_data = result.encode(&ENCODE_FULL);
+    //     std::fs::write("cs2.dt", &result_data).unwrap();
     // }
 
     #[test]

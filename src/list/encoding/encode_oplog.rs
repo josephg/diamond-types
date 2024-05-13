@@ -90,70 +90,11 @@ fn write_op(dest: &mut Vec<u8>, op: &ListOpMetrics, cursor: &mut usize) {
     dest.extend_from_slice(&buf[..pos]);
 }
 
-// TODO: Make a builder API for this
-#[derive(Debug, Clone)]
-pub struct EncodeOptions<'a> {
-    pub user_data: Option<&'a [u8]>,
-
-    // NYI.
-    // pub from_version: LocalVersion,
-
-    pub store_start_branch_content: bool,
-
-    pub experimentally_store_end_branch_content: bool,
-
-    pub store_inserted_content: bool,
-    pub store_deleted_content: bool,
-
-    pub compress_content: bool,
-
-    pub verbose: bool,
-}
-
-pub const ENCODE_PATCH: EncodeOptions = EncodeOptions {
-    user_data: None,
-    store_start_branch_content: false,
-    experimentally_store_end_branch_content: false,
-    store_inserted_content: true,
-    store_deleted_content: false,
-    compress_content: true,
-    verbose: false
-};
-
-pub const ENCODE_FULL: EncodeOptions = EncodeOptions {
-    user_data: None,
-    store_start_branch_content: true,
-    experimentally_store_end_branch_content: false,
-    store_inserted_content: true,
-    store_deleted_content: false, // ?? Not sure about this one!
-    compress_content: true,
-    verbose: false
-};
 
 // impl<'a> EncodeOptions<'a> {
 //     pub fn full
 // }
 
-impl<'a> Default for EncodeOptions<'a> {
-    fn default() -> Self {
-        ENCODE_FULL
-    }
-}
-
-impl<'a> EncodeOptions<'a> {
-    pub fn verbose(&mut self, verbose: bool) -> &mut Self {
-        self.verbose = verbose;
-        self
-    }
-
-    pub fn encode(&self, oplog: &ListOpLog) -> Vec<u8> {
-        oplog.encode(self)
-    }
-
-    pub fn encode_from(&self, oplog: &ListOpLog, from_version: &[LV]) -> Vec<u8> {
-        oplog.encode_from(self, from_version)
-    }
-}
 
 #[derive(Debug, Copy, Clone)]
 struct AgentAssignmentRun {
@@ -635,7 +576,7 @@ impl ListOpLog {
             }
         }
 
-        let end_branch = if opts.experimentally_store_end_branch_content {
+        let end_branch = if opts.store_end_branch_content {
             let mut end_branch = Vec::new();
             write_local_version(&mut end_branch, self.cg.version.as_ref(), &mut agent_mapping, self);
 

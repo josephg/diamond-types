@@ -81,19 +81,11 @@ fn print_stats_for_testdata(name: &str) {
     println!("Branch size {}", doc.len());
     // println!("---\nEncoded size {} (?? What do we include here?)", as_bytes.len());
 
-    // let out_file = format!("{}.dt", name);
-    // let data = doc.oplog.encode(EncodeOptions {
-    //     user_data: None,
-    //     store_start_branch_content: false,
-    //     experimentally_store_end_branch_content: false,
-    //     store_inserted_content: true,
-    //     store_deleted_content: false,
-    //     compress_content: true,
-    //     verbose: true
-    // });
-    // println!("Regular file size {} bytes", data.len());
-    // std::fs::write(out_file.clone(), data.as_slice()).unwrap();
-    // println!("Saved to {}", out_file);
+    let out_file = format!("{}.dt", name);
+    let data = doc.oplog.encode(&EncodeOptions::full().verbose(true));
+    println!("Regular file size {} bytes", data.len());
+    std::fs::write(out_file.clone(), data.as_slice()).unwrap();
+    println!("Saved to {}", out_file);
 
     // #[cfg(feature = "gen_test_data")]
     // write_stats(name, &doc.oplog);
@@ -125,52 +117,29 @@ fn print_stats_for_oplog(_name: &str, oplog: &ListOpLog) {
     // oplog.make_time_dag_graph("node_cc.svg");
 
     println!("---- Saving normally ----");
-    let data = oplog.encode(&EncodeOptions {
-        user_data: None,
-        store_start_branch_content: false,
-        experimentally_store_end_branch_content: false,
-        store_inserted_content: true,
-        store_deleted_content: false,
-        compress_content: true,
-        verbose: true
-    });
+    let data = oplog.encode(&EncodeOptions::full().verbose(true));
     println!("Regular file size {} bytes", data.len());
 
 
     println!("---- Saving smol mode ----");
-    let data_smol = oplog.encode(&EncodeOptions {
-        user_data: None,
-        store_start_branch_content: false,
-        experimentally_store_end_branch_content: true,
-        store_inserted_content: false,
-        store_deleted_content: false,
-        compress_content: true,
-        verbose: true
-    });
+    let data_smol = oplog.encode(&EncodeOptions::full()
+        .experimentally_store_end_branch_content(true)
+        .store_inserted_content(false)
+        .verbose(true));
     println!("Smol size {}", data_smol.len());
 
     println!("---- Saving uncompressed ----");
-    let data_uncompressed = oplog.encode(&EncodeOptions {
-        user_data: None,
-        store_start_branch_content: false,
-        experimentally_store_end_branch_content: false,
-        store_inserted_content: true,
-        store_deleted_content: false,
-        compress_content: false,
-        verbose: true
-    });
+    let data_uncompressed = oplog.encode(&EncodeOptions::full()
+        .compress_content(false)
+        .verbose(true));
     println!("Uncompressed size {}", data_uncompressed.len());
 
     println!("---- Saving smol uncompressed ----");
-    let data_uncompressed = oplog.encode(&EncodeOptions {
-        user_data: None,
-        store_start_branch_content: false,
-        experimentally_store_end_branch_content: true,
-        store_inserted_content: false,
-        store_deleted_content: false,
-        compress_content: false,
-        verbose: true
-    });
+    let data_uncompressed = oplog.encode(&EncodeOptions::full()
+        .experimentally_store_end_branch_content(true)
+        .store_inserted_content(false)
+        .compress_content(false)
+        .verbose(true));
     println!("Uncompressed size {}", data_uncompressed.len());
 
     oplog.bench_writing_xf_since(&[]);
@@ -231,16 +200,16 @@ fn main() {
     eprintln!("Running in debugging mode. Memory usage not indicative. Run with --release");
 
     print_stats_for_testdata("egwalker");
-    print_stats_for_testdata("automerge-paper");
-    // print_stats_for_testdata("rustcode");
-    // print_stats_for_testdata("sveltecomponent");
-    print_stats_for_testdata("seph-blog1");
-
-    print_stats_for_file("node_nodecc");
-    print_stats_for_file("git-makefile");
-
-    print_stats_for_file("friendsforever");
-    print_stats_for_file("clownschool");
+    // print_stats_for_testdata("automerge-paper");
+    // // print_stats_for_testdata("rustcode");
+    // // print_stats_for_testdata("sveltecomponent");
+    // print_stats_for_testdata("seph-blog1");
+    //
+    // print_stats_for_file("node_nodecc");
+    // print_stats_for_file("git-makefile");
+    //
+    // print_stats_for_file("friendsforever");
+    // print_stats_for_file("clownschool");
 
     // profile_merge("clownschool");
 }

@@ -1,3 +1,4 @@
+use lz4_flex::compress;
 use crate::encoding::parseerror::ParseError;
 use crate::list::{ListCRDT, ListOpLog};
 use crate::list::encoding::decode_oplog::{dbg_print_chunks_in, DecodeOptions};
@@ -15,15 +16,11 @@ fn simple_doc() -> ListCRDT {
 }
 
 fn check_encode_decode_matches(oplog: &ListOpLog) {
-    let data = oplog.encode(&EncodeOptions {
-        user_data: None,
-        store_start_branch_content: true,
-        experimentally_store_end_branch_content: false,
-        store_inserted_content: true,
-        store_deleted_content: true,
-        compress_content: true,
-        verbose: false,
-    });
+    let data = oplog.encode(&EncodeOptions::full()
+        .store_inserted_content(true)
+        .store_deleted_content(true)
+        .compress_content(true)
+        .verbose(false));
 
     let oplog2 = ListOpLog::load_from(&data).unwrap();
 
@@ -93,7 +90,7 @@ fn merge_parts() {
 fn merge_future_patch_errors() {
     let oplog = simple_doc().oplog;
     let v = oplog.cg.version[0];
-    let bytes = oplog.encode_from(&ENCODE_FULL, &[v-1]);
+    let bytes = oplog.encode_from(&EncodeOptions::full(), &[v-1]);
 
     let err = ListOpLog::load_from(&bytes).unwrap_err();
     assert_eq!(err, ParseError::BaseVersionUnknown);
@@ -181,15 +178,7 @@ fn check_unroll_works(dest: &ListOpLog, src: &ListOpLog) {
     // So we're going to decode the oplog with all the different bytes corrupted. The result
     // should always fail if we check the CRC.
 
-    let encoded_proper = src.encode(&EncodeOptions {
-        user_data: None,
-        store_start_branch_content: true,
-        experimentally_store_end_branch_content: false,
-        store_inserted_content: true,
-        store_deleted_content: true,
-        compress_content: true,
-        verbose: false
-    });
+    let encoded_proper = src.encode(&EncodeOptions::full().store_deleted_content(true));
 
     // dbg!(encoded_proper.len());
     for i in 0..encoded_proper.len() {
@@ -236,30 +225,14 @@ fn error_unrolling() {
 #[test]
 fn save_load_save_load() {
     let oplog1 = simple_doc().oplog;
-    let bytes = oplog1.encode(&EncodeOptions {
-        user_data: None,
-        store_start_branch_content: true,
-        // store_inserted_content: true,
-        // store_deleted_content: true,
-        experimentally_store_end_branch_content: false,
-        store_inserted_content: false,
-        store_deleted_content: false,
-        compress_content: true,
-        verbose: false
-    });
+    let bytes = oplog1.encode(&EncodeOptions::full().store_inserted_content(false));
     dbg_print_chunks_in(&bytes);
     let oplog2 = ListOpLog::load_from(&bytes).unwrap();
     // dbg!(&oplog2);
 
-    let bytes2 = oplog2.encode(&EncodeOptions {
-        user_data: None,
-        store_start_branch_content: true,
-        experimentally_store_end_branch_content: false,
-        store_inserted_content: false, // Need to say false here to avoid an assert for this.
-        store_deleted_content: true,
-        compress_content: true,
-        verbose: false
-    });
+    let bytes2 = oplog2.encode(&EncodeOptions::full()
+        .store_inserted_content(false)  // Need to say false here to avoid an assert for this. (later: wtf?)
+        .store_deleted_content(true));
     let oplog3 = ListOpLog::load_from(&bytes2).unwrap();
 
     // dbg!(oplog3);
@@ -270,7 +243,7 @@ fn save_load_save_load() {
 fn doc_id_preserved() {
     let mut oplog = simple_doc().oplog;
     oplog.doc_id = Some("hi".into());
-    let bytes = oplog.encode(&ENCODE_FULL);
+    let bytes = oplog.encode(&EncodeOptions::full());
     let result = ListOpLog::load_from(&bytes).unwrap();
 
     // Eq should check correctly.
@@ -287,7 +260,7 @@ fn mismatched_doc_id_errors() {
     let mut oplog2 = simple_doc().oplog;
     oplog2.doc_id = Some("bbb".into());
 
-    let bytes = oplog1.encode(&ENCODE_FULL);
+    let bytes = oplog1.encode(&EncodeOptions::full());
     assert_eq!(oplog2.decode_and_add(&bytes).unwrap_err(), ParseError::DocIdMismatch);
     assert_eq!(oplog2.doc_id, Some("bbb".into())); // And the doc ID should be unchanged
 }
@@ -299,7 +272,7 @@ fn doc_id_preserved_when_error_happens() {
     let mut oplog2 = simple_doc().oplog;
     oplog2.doc_id = Some("bbb".into());
 
-    let mut bytes = oplog2.encode(&ENCODE_FULL);
+    let mut bytes = oplog2.encode(&EncodeOptions::full());
     let last_byte = bytes.last_mut().unwrap();
     *last_byte = !*last_byte; // Any change should mess up the checksum and fail.
 
@@ -312,7 +285,7 @@ fn doc_id_preserved_when_error_happens() {
 #[test]
 fn merge_returns_root_for_empty_file() {
     let oplog = ListOpLog::new();
-    let bytes = oplog.encode(&ENCODE_FULL);
+    let bytes = oplog.encode(&EncodeOptions::full());
 
     let mut result = ListOpLog::new();
     let version = result.decode_and_add(&bytes).unwrap();
@@ -322,7 +295,7 @@ fn merge_returns_root_for_empty_file() {
 #[test]
 fn merge_returns_version_even_with_overlap() {
     let oplog = simple_doc().oplog;
-    let bytes = oplog.encode(&ENCODE_FULL);
+    let bytes = oplog.encode(&EncodeOptions::full());
 
     let mut oplog2 = oplog.clone();
     let version = oplog2.decode_and_add(&bytes).unwrap();
@@ -339,7 +312,7 @@ fn merge_patch_returns_correct_version() {
 
     oplog.add_insert(0, 0, "x");
 
-    let bytes = oplog.encode_from(&ENCODE_FULL, v.as_ref());
+    let bytes = oplog.encode_from(&EncodeOptions::full(), v.as_ref());
 
     let version = oplog2.decode_and_add(&bytes).unwrap();
 
@@ -399,15 +372,7 @@ fn compat_simple_doc() {
     doc.delete_without_content(0, 3..7); // 'hi e'
     doc.insert(0, 3, "m");
 
-    dbg!(&doc.oplog.encode(&EncodeOptions {
-        user_data: None,
-        store_start_branch_content: false,
-        experimentally_store_end_branch_content: false,
-        store_inserted_content: true,
-        store_deleted_content: false,
-        compress_content: true,
-        verbose: false
-    }));
+    dbg!(&doc.oplog.encode(&EncodeOptions::full()));
 
     // From commit 5d1d21cd519a2c631aa1fedc59744f30c0787488
     let bytes1 = &[68,77,78,68,84,89,80,83,0,1,7,3,5,4,115,101,112,104,10,7,12,2,0,0,13,1,4,20,32,24,16,0,13,10,4,104,105,32,116,104,101,114,101,109,25,1,19,21,2,2,13,22,4,65,79,11,0,23,2,13,1,100,4,162,205,138,38];
