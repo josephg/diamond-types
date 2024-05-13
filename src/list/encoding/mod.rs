@@ -19,7 +19,7 @@ mod encode_options;
 use rle::MergableSpan;
 use crate::encoding::varint::*;
 use num_enum::TryFromPrimitive;
-pub use encode_options::{EncodeOptions, EncodeOptionsBuilder};
+pub use encode_options::{EncodeOptions, EncodeOptionsBuilder, ENCODE_FULL, ENCODE_PATCH};
 
 const MAGIC_BYTES: [u8; 8] = *b"DMNDTYPS";
 
