@@ -605,15 +605,22 @@ fn main() -> Result<(), anyhow::Error> {
                 oplog = trimmed_oplog;
             }
 
-            let new_data = oplog.encode_from(&EncodeOptions {
-                user_data: None,
-                store_start_branch_content: !patch,
-                experimentally_store_end_branch_content: false,
-                store_inserted_content: !no_inserted_content,
-                store_deleted_content: !no_deleted_content,
-                compress_content: !uncompressed,
-                verbose: false
-            }, from_version.as_ref());
+            // let opts = EncodeOptions {
+            //     user_data: None,
+            //     store_start_branch_content: !patch,
+            //     experimentally_store_end_branch_content: false,
+            //     store_inserted_content: !no_inserted_content,
+            //     store_deleted_content: !no_deleted_content,
+            //     compress_content: !uncompressed,
+            //     verbose: false
+            // }
+            let opts = EncodeOptions::default()
+                .store_start_branch_content(!patch)
+                .store_inserted_content(!no_inserted_content)
+                .store_deleted_content(!no_deleted_content)
+                .compress_content(!uncompressed);
+            
+            let new_data = oplog.encode_from(&opts, from_version.as_ref());
 
             let lossy = no_inserted_content || no_deleted_content || !from_version.is_empty();
             if output.is_none() && !force && lossy {
@@ -805,7 +812,7 @@ fn main() -> Result<(), anyhow::Error> {
             }
 
             // let new_data = ENCODE_FULL.clone().verbose(true).encode(&new_oplog);
-            let new_data = ENCODE_FULL.encode(&new_oplog);
+            let new_data = new_oplog.encode(&ENCODE_FULL);
 
             if let Some(output) = output.as_ref() {
                 maybe_overwrite(output, &new_data, force)?;

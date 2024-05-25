@@ -119,7 +119,9 @@ fn local_benchmarks(c: &mut Criterion) {
 // }
 
 fn encoding_nodecc_benchmarks(c: &mut Criterion) {
-    for name in COMPLEX_DATASETS {
+    for name in PAPER_DATASETS {
+
+        // for name in COMPLEX_DATASETS {
         let mut group = c.benchmark_group("dt");
         // println!("benchmark_data/{name}.dt");
         let bytes = std::fs::read(format!("benchmark_data/{name}.dt")).unwrap();

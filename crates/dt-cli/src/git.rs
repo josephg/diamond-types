@@ -95,8 +95,8 @@ pub fn extract_from_git(mut input_path: PathBuf, branch: Option<String>, quiet: 
 
     // Could wrap this stuff up in a struct or something, but its not a big deal.
     // let mut commits_seen = HashSet::new();
-    let mut commit_children = HashMap::<Oid, SmallVec<[Oid; 3]>>::new();
-    let mut commit_parents = HashMap::<Oid, SmallVec<[Oid; 3]>>::new();
+    let mut commit_children = HashMap::<Oid, SmallVec<Oid, 3>>::new();
+    let mut commit_parents = HashMap::<Oid, SmallVec<Oid, 3>>::new();
 
     // (parents, children).
     // let mut commit_info = HashMap::<Oid, (SmallVec<[Oid; 3]>, SmallVec<[Oid; 3]>)>::new();

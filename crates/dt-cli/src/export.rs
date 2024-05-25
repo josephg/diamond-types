@@ -129,12 +129,12 @@ pub struct TraceExportData {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceExportTxn {
-    parents: SmallVec<[usize; 2]>,
+    parents: SmallVec<usize, 2>,
     num_children: usize, // TODO: Consider taking this out.
     agent: usize,
     time: DateTime<FixedOffset>,
     // op: TextOperation,
-    patches: SmallVec<[SimpleTextOp; 2]>,
+    patches: SmallVec<SimpleTextOp, 2>,
 
     // This isn't formally part of the spec, but its useful sometimes.
     #[serde(rename = "_dtSpan")]
@@ -369,7 +369,7 @@ pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsStri
         // }
         let agent = base + slot;
 
-        let patches: SmallVec<[SimpleTextOp; 2]> = entry.ops.into_iter().map(|op| op.into()).merge_spans().collect();
+        let patches: SmallVec<SimpleTextOp, 2> = entry.ops.into_iter().map(|op| op.into()).merge_spans().collect();
 
         // if patches.iter().map(|p| p.ins_content.len() + p.del_len).sum::<usize>() > 1 {
         //     dbg!(&patches);
@@ -434,11 +434,11 @@ pub fn export_trace_to_json(oplog: &ListOpLog, timestamp_filename: Option<OsStri
 pub struct DTExportTxn {
     /// The LV span of the txn. Note the agent seq span is not exported.
     span: DTRange,
-    parents: SmallVec<[usize; 2]>,
+    parents: SmallVec<usize, 2>,
     agent: SmartString,
     seq_start: usize,
     // op: TextOperation,
-    ops: SmallVec<[SimpleTextOp; 2]>,
+    ops: SmallVec<SimpleTextOp, 2>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -495,7 +495,7 @@ pub struct TraceSimpleExportData {
 #[serde(rename_all = "camelCase")]
 pub struct TraceSimpleExportTxn {
     time: DateTime<FixedOffset>,
-    patches: SmallVec<[SimpleTextOp; 4]>,
+    patches: SmallVec<SimpleTextOp, 4>,
 }
 
 pub fn export_transformed(oplog: &ListOpLog, timestamp_filename: Option<OsString>, shatter: bool) -> TraceSimpleExportData {
