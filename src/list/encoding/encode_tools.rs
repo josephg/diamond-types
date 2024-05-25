@@ -47,7 +47,10 @@ fn push_leb_chunk_header(into: &mut Vec<u8>, chunk_type: ListChunkType, len: usi
     push_leb_usize(into, len);
 }
 
-pub(super) fn push_leb_chunk(into: &mut Vec<u8>, chunk_type: ListChunkType, data: &[u8]) {
+pub(super) fn push_leb_chunk(into: &mut Vec<u8>, chunk_type: ListChunkType, data: &[u8], verbose: bool) {
+    if verbose {
+        println!("Chunk {:?} - size {}", chunk_type, data.len());
+    }
     push_leb_chunk_header(into, chunk_type, data.len());
     into.extend_from_slice(data);
 }

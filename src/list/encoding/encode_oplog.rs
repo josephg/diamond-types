@@ -216,7 +216,7 @@ fn write_local_version(dest: &mut Vec<u8>, version: &[LV], map: &mut AgentMappin
         push_leb_usize(&mut buf, n);
         push_leb_usize(&mut buf, seq);
     }
-    push_leb_chunk(dest, ListChunkType::Version, &buf);
+    push_leb_chunk(dest, ListChunkType::Version, &buf, false);
     // buf.clear();
 }
 
@@ -255,7 +255,7 @@ fn write_content<'a, I: Iterator<Item = &'a [u8]>>(dest: &mut Vec<u8>, kind: Dat
     }
     debug_assert_eq!(actual_len, len);
 
-    push_leb_chunk(dest, chunk_type, &buf);
+    push_leb_chunk(dest, chunk_type, &buf, false);
 }
 
 fn write_content_str(dest: &mut Vec<u8>, s: &str, compressed: Option<&mut Vec<u8>>) {
@@ -272,7 +272,7 @@ fn write_chunk_str(dest: &mut Vec<u8>, s: &str, chunk_type: ListChunkType) {
     let mut buf = Vec::new(); // :(
     push_leb_u32(&mut buf, DataType::PlainText as _);
     buf.extend_from_slice(s.as_bytes());
-    push_leb_chunk(dest, chunk_type, &buf);
+    push_leb_chunk(dest, chunk_type, &buf, false);
 }
 
 /// Returns compressed chunk size
@@ -297,7 +297,7 @@ fn write_compressed_chunk(dest: &mut Vec<u8>, data: &[u8]) -> usize {
     pos += lz4_flex::compress_into(data, &mut compressed[pos..]).unwrap();
     compressed.truncate(pos);
     // write_chunk(ChunkType::CompressedFields, &mut compressed);
-    push_leb_chunk(dest, ListChunkType::CompressedFieldsLZ4, &compressed[..pos]);
+    push_leb_chunk(dest, ListChunkType::CompressedFieldsLZ4, &compressed[..pos], false);
 
     pos
 }
@@ -350,7 +350,7 @@ impl<F: FnMut(RleRun<bool>, &mut Vec<u8>)> ContentChunk<F> {
             // This writes a length-prefixed string, which it really doesn't need to do.
             write_content_str(&mut buf, &self.content, compressed_out);
 
-            push_leb_chunk(&mut buf, ListChunkType::ContentIsKnown, &self.known_out);
+            push_leb_chunk(&mut buf, ListChunkType::ContentIsKnown, &self.known_out, false);
             Some(buf)
         }
     }
@@ -667,11 +667,11 @@ impl ListOpLog {
         }
 
         // agent names
-        push_leb_chunk(&mut fileinfo_buf, ListChunkType::AgentNames, &agent_mapping.consume());
+        push_leb_chunk(&mut fileinfo_buf, ListChunkType::AgentNames, &agent_mapping.consume(), verbose);
 
         // User data
         if let Some(data) = opts.user_data {
-            push_leb_chunk(&mut fileinfo_buf, ListChunkType::UserData, data);
+            push_leb_chunk(&mut fileinfo_buf, ListChunkType::UserData, data, verbose);
         }
 
         // Bake inserted & deleted content. I need to do this here because the CompressedFields
@@ -717,11 +717,11 @@ impl ListOpLog {
         }
 
         let mut write_chunk = |c: ListChunkType, data: &mut Vec<u8>| {
-            if verbose {
-                println!("{:?} length {}", c, data.len());
-            }
+            // if verbose {
+            //     println!("{:?} length {}", c, data.len());
+            // }
             // dbg!(&data);
-            push_leb_chunk(&mut result, c, data.as_slice());
+            push_leb_chunk(&mut result, c, data.as_slice(), verbose);
             data.clear();
         };
 
@@ -739,21 +739,21 @@ impl ListOpLog {
         let mut patches_buf = fileinfo_buf;
 
         if let Some(bytes) = inserted_content {
-            push_leb_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes);
+            push_leb_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes, verbose);
         }
         if let Some(bytes) = deleted_content {
-            push_leb_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes);
+            push_leb_chunk(&mut patches_buf, ListChunkType::PatchContent, &bytes, verbose);
         }
 
-        push_leb_chunk(&mut patches_buf, ListChunkType::OpVersions, &agent_assignment_chunk);
-        push_leb_chunk(&mut patches_buf, ListChunkType::OpTypeAndPosition, &ops_chunk);
-        push_leb_chunk(&mut patches_buf, ListChunkType::OpParents, &txns_chunk);
+        push_leb_chunk(&mut patches_buf, ListChunkType::OpVersions, &agent_assignment_chunk, verbose);
+        push_leb_chunk(&mut patches_buf, ListChunkType::OpTypeAndPosition, &ops_chunk, verbose);
+        push_leb_chunk(&mut patches_buf, ListChunkType::OpParents, &txns_chunk, verbose);
 
         if opts.store_xf {
             if !xf_cancelled_chunk.is_empty() {
-                push_leb_chunk(&mut patches_buf, ListChunkType::TransformedCancelsOps, &xf_cancelled_chunk);
+                push_leb_chunk(&mut patches_buf, ListChunkType::TransformedCancelsOps, &xf_cancelled_chunk, verbose);
             }
-            push_leb_chunk(&mut patches_buf, ListChunkType::TransformedPositions, &xf_ops_chunk);
+            push_leb_chunk(&mut patches_buf, ListChunkType::TransformedPositions, &xf_ops_chunk, verbose);
         }
 
         write_chunk(ListChunkType::Patches, &mut patches_buf);
@@ -763,7 +763,7 @@ impl ListOpLog {
         // println!("checksum {checksum}");
         let checksum = calc_checksum(&result);
         push_u32_le(&mut patches_buf, checksum);
-        push_leb_chunk(&mut result, ListChunkType::Crc, &patches_buf);
+        push_leb_chunk(&mut result, ListChunkType::Crc, &patches_buf, verbose);
         // write_chunk(Chunk::CRC, &mut buf);
         // push_u32(&mut result, checksum);
 
