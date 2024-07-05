@@ -19,7 +19,7 @@ impl ToString for DotColor {
         match self {
             DotColor::Red => "red".into(),
             DotColor::Green => "\"#98ea79\"".into(),
-            DotColor::Blue => "\"#84a7e8\"".into(),
+            DotColor::Blue => "\"#036ffc\"".into(),
             DotColor::Grey => "\"#eeeeee\"".into(),
             DotColor::Black => "black".into(),
         }
