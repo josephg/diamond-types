@@ -64,6 +64,10 @@ impl LenPair {
         self.cur = self.cur.wrapping_add_signed(upd.cur);
         self.end = self.end.wrapping_add_signed(upd.end);
     }
+
+    pub fn new(cur: usize, end: usize) -> Self {
+        LenPair { cur, end }
+    }
 }
 
 impl AddAssign for LenPair {
