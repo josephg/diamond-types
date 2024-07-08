@@ -12,8 +12,8 @@ use std::mem::replace;
 use std::ops::{Index, IndexMut, Range};
 use std::ptr::NonNull;
 use rle::{HasLength, MergableSpan, RleDRun, SplitableSpan, SplitableSpanHelpers};
-use crate::{DTRange, LV};
-use crate::ost::{NODE_CHILDREN, LeafIdx, NodeIdx, LEAF_CHILDREN};
+use crate::{DTRange, LV, ost};
+use crate::ost::{LEAF_CHILDREN, LeafIdx, NODE_CHILDREN, NodeIdx, remove_from_array, remove_from_array_fill};
 
 #[derive(Debug, Clone)]
 pub(crate) struct IndexTree<V: Copy> {
@@ -49,20 +49,6 @@ impl Default for IndexCursor {
     }
 }
 
-// #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-// enum IdxMarker {
-//     None,
-//
-//     /// For inserts, we store an index into the leaf node containing this item.
-//     Ins(LeafIdx),
-//
-//     /// For deletes, we name the delete's target.
-//     DelFwd(LV),
-//     DelBack(LV),
-// }
-
-// const EMPTY_LEAF_DATA: (LV, LeafData) = (usize::MAX, LeafData::InsPtr(NonNull::dangling()));
-
 const NODE_SPLIT_POINT: usize = NODE_CHILDREN / 2;
 // const LEAF_CHILDREN: usize = LEAF_SIZE - 1;
 const LEAF_SPLIT_POINT: usize = LEAF_CHILDREN / 2;
@@ -81,6 +67,16 @@ pub struct IndexLeaf<V> {
     parent: NodeIdx,
 }
 
+#[derive(Debug, Clone)]
+pub struct IndexNode {
+    /// Child entries point to either another node or a leaf. We disambiguate using the height.
+    /// The named LV is the first LV of the child data.
+    ///
+    /// Children are (usize::MAX, usize::MAX) if they are unset.
+    children: [NodeChild; NODE_CHILDREN],
+    parent: NodeIdx,
+}
+
 fn initial_root_leaf<V: Default + Copy>() -> IndexLeaf<V> {
     // The tree is initialized with V::Default covering the entire range. This means we don't need
     // to have any special handling for the size of the tree. Set operations "carve out" their
@@ -91,29 +87,18 @@ fn initial_root_leaf<V: Default + Copy>() -> IndexLeaf<V> {
     IndexLeaf {
         bounds,
         children: [V::default(); LEAF_CHILDREN],
-        // children: [(usize::MAX, V::default()); LEAF_CHILDREN],
         // upper_bound: usize::MAX, // The bounds of the last item is (functionally) infinity.
         next_leaf: LeafIdx(usize::MAX),
-        // parent: NodeIdx(0), // This node won't exist yet - but thats ok.
         parent: NodeIdx(usize::MAX), // This node won't exist yet - but thats ok.
     }
 }
 
 /// A node child specifies the LV of the (recursive) first element and an index in the data
-/// structure.
+/// structure. The index is either an index into the internal nodes or leaf nodes depending on the
+/// height.
 type NodeChild = (LV, usize);
 
 const EMPTY_NODE_CHILD: NodeChild = (usize::MAX, usize::MAX);
-
-#[derive(Debug, Clone)]
-pub struct IndexNode {
-    /// Child entries point to either another node or a leaf. We disambiguate using the height.
-    /// The named LV is the first LV of the child data.
-    ///
-    /// Children are (usize::MAX, usize::MAX) if they are unset.
-    children: [NodeChild; NODE_CHILDREN],
-    parent: NodeIdx,
-}
 
 impl<V: Copy> IndexLeaf<V> {
     fn is_full(&self) -> bool {
@@ -150,8 +135,10 @@ impl<V: Copy> IndexLeaf<V> {
     }
 
     fn remove_children(&mut self, del_range: Range<usize>) {
-        remove_from_array(&mut self.bounds, del_range.clone(), usize::MAX);
-        self.children.copy_within(del_range.end..LEAF_CHILDREN, del_range.start);
+        remove_from_array_fill(&mut self.bounds, del_range.clone(), usize::MAX);
+        remove_from_array(&mut self.children, del_range.clone());
+
+        // self.children.copy_within(del_range.end..LEAF_CHILDREN, del_range.start);
     }
 }
 
@@ -161,7 +148,7 @@ impl IndexNode {
     }
 
     fn remove_children(&mut self, del_range: Range<usize>) {
-        remove_from_array(&mut self.children, del_range.clone(), EMPTY_NODE_CHILD);
+        remove_from_array_fill(&mut self.children, del_range.clone(), EMPTY_NODE_CHILD);
     }
 }
 
@@ -233,12 +220,6 @@ fn split_rle<V: IndexContent>(val: RleDRun<V>, offset: usize) -> (RleDRun<V>, Rl
     })
 }
 
-#[inline(always)]
-fn remove_from_array<T: Sized + Copy, const S: usize>(a: &mut [T; S], del_range: Range<usize>, default: T) {
-    a.copy_within(del_range.end..S, del_range.start);
-    a[S - del_range.len()..S].fill(default);
-}
-
 impl<V: Default + IndexContent> IndexTree<V> {
     pub fn new() -> Self {
         Self {
@@ -259,9 +240,10 @@ impl<V: Default + IndexContent> IndexTree<V> {
         self.height = 0;
         self.root = 0;
         self.cursor = Default::default();
-        self.leaves.push(initial_root_leaf());
         self.free_leaf_pool_head = LeafIdx(usize::MAX);
         self.free_node_pool_head = NodeIdx(usize::MAX);
+
+        self.leaves.push(initial_root_leaf());
     }
 
     fn create_new_root_node(&mut self, lower_bound: usize, child_a: usize, split_point: LV, child_b: usize) -> NodeIdx {
@@ -280,6 +262,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
         NodeIdx(new_idx)
     }
 
+    /// This method always splits a node in the middle. This isn't always optimal, but its simpler.
     fn split_node(&mut self, old_idx: NodeIdx, children_are_leaves: bool) -> NodeIdx {
         // Split a full internal node into 2 nodes.
         let new_node_idx = self.nodes.len();
@@ -1675,11 +1658,10 @@ impl<'a, V: Copy> Iterator for IndexTreeIter<'a, V> {
 
 #[cfg(test)]
 mod test {
-    use std::ops::Range;
     use std::pin::Pin;
     use rand::prelude::SmallRng;
-    use rand::{Rng, SeedableRng, thread_rng};
-    use content_tree::{ContentTreeRaw, null_notify, RawPositionMetricsUsize};
+    use rand::{Rng, SeedableRng};
+    use content_tree::{ContentTreeRaw, RawPositionMetricsUsize};
     use crate::list_fuzzer_tools::fuzz_multithreaded;
     use super::*;
 

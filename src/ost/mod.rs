@@ -11,12 +11,14 @@
 //! - The resulting wasm size is a little smaller.
 
 mod index_tree;
+mod content_tree;
 pub(crate) mod recording_index_tree;
 // mod content_tree;
 
-pub(crate) use index_tree::{IndexTree, IndexContent};
+use std::iter::Sum;
+pub(crate) use index_tree::{IndexContent, IndexTree};
 
-use std::ops::{AddAssign, Index, IndexMut, SubAssign};
+use std::ops::{AddAssign, Index, IndexMut, Range, Sub, SubAssign};
 use ::content_tree::ContentLength;
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::listmerge::yjsspan::CRDTSpan;
@@ -80,6 +82,26 @@ impl SubAssign for LenPair {
     }
 }
 
+impl Sub for LenPair {
+    type Output = LenPair;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            cur: self.cur - rhs.cur,
+            end: self.end - rhs.end,
+        }
+    }
+}
+
+impl Sum for LenPair {
+    fn sum<I: Iterator<Item=Self>>(iter: I) -> Self {
+        let mut aggregate = Self::default();
+        for i in iter { aggregate += i; }
+        aggregate
+    }
+}
+
+
 impl CRDTSpan {
     fn len_pair(&self) -> LenPair {
         LenPair {
@@ -104,6 +126,10 @@ impl LenUpdate {
     fn dec_by(&mut self, e: &CRDTSpan) {
         self.cur -= e.content_len() as isize;
         self.end -= e.end_state_len() as isize;
+    }
+
+    fn is_empty(&self) -> bool {
+        self.cur == 0 && self.end == 0
     }
 }
 
@@ -152,5 +178,23 @@ const LEAF_CHILDREN: usize = 32;
 //         // - All index markers point to the node which contains the specified item.
 //     }
 // }
+
+/// Utility method for tree implementations.
+///
+/// Remove the items in `a[del_range]`, sliding back items later in the array.
+#[inline(always)]
+fn remove_from_array<T: Sized + Copy, const S: usize>(a: &mut [T; S], del_range: Range<usize>) {
+    a.copy_within(del_range.end..S, del_range.start);
+}
+
+/// Utility method for tree implementations.
+///
+/// Remove the items in `a[del_range]`, sliding back items later in the array. The end of the array
+/// is filled with the provided default value.
+#[inline(always)]
+fn remove_from_array_fill<T: Sized + Copy, const S: usize>(a: &mut [T; S], del_range: Range<usize>, default: T) {
+    a.copy_within(del_range.end..S, del_range.start);
+    a[S - del_range.len()..S].fill(default);
+}
 
 

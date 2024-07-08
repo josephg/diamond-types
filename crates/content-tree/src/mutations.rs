@@ -51,7 +51,6 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
                 let entry: &mut E = &mut node.data[cursor.idx];
                 let remainder = entry.truncate(cursor.offset);
                 I::decrement_marker(flush_marker, &remainder);
-                // flush_marker -= (seq_len - cursor.offset) as isize;
                 // We don't need to update cursor since its already where it needs to be.
 
                 Some(remainder)
