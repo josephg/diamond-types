@@ -231,21 +231,6 @@ fn dec_delta_update<V: Content>(delta_len: &mut LenUpdate, e: &V) {
     delta_len.end -= e.content_len_end() as isize;
 }
 
-// fn split_rle<V: Content>(val: RleDRun<V>, offset: usize) -> (RleDRun<V>, RleDRun<V>) {
-//     debug_assert!(offset > 0);
-//     debug_assert!(offset < (val.end - val.start));
-//
-//     (RleDRun {
-//         start: val.start,
-//         end: val.start + offset,
-//         val: val.val,
-//     }, RleDRun {
-//         start: val.start + offset,
-//         end: val.end,
-//         val: val.val.at_offset(offset),
-//     })
-// }
-
 impl<V: Content> ContentTree<V> {
     pub fn new() -> Self {
         debug_assert_eq!(V::none().content_len_pair(), LenPair::default());
@@ -446,6 +431,7 @@ impl<V: Content> ContentTree<V> {
                 // flush_marker += next.content_len() as isize;
                 notify(item, leaf_idx);
                 cur_entry.append(item);
+                cursor.elem_idx = elem_idx;
                 cursor.offset = cur_entry.len();
 
                 if let Some(remainder) = remainder {
@@ -614,8 +600,7 @@ impl<V: Content> ContentTree<V> {
         // The old leaf must be full before we split it.
         debug_assert!(old_node.is_full());
 
-        let split_size: LenPair = old_node.child_width[LEAF_SPLIT_POINT..].iter().copied().sum();
-        // let split_size: LenPair = old_node.child_width[..LEAF_SPLIT_POINT].iter().copied().sum();
+        let split_size: LenPair = old_node.child_width[NODE_SPLIT_POINT..].iter().copied().sum();
 
         // eprintln!("split node {:?} -> {:?} + {:?} (leaves: {children_are_leaves})", old_idx, old_idx, new_node_idx);
         // eprintln!("split start {:?} / {:?}", &old_node.children[..NODE_SPLIT_POINT], &old_node.children[NODE_SPLIT_POINT..]);
@@ -884,18 +869,6 @@ impl<V: Content> ContentTree<V> {
         result
     }
 
-    // #[inline]
-    // fn get_leaf_and_bound(&mut self, idx: LeafIdx) -> (&mut ContentLeaf<V>, LV) {
-    //     Self::get_leaf_and_bound_2(&mut self.leaves, idx)
-    // }
-    //
-    // fn get_leaf_and_bound_2(leaves: &mut Vec<ContentLeaf<V>>, idx: LeafIdx) -> (&mut ContentLeaf<V>, LV) {
-    //     let leaf = &leaves[idx.0];
-    //     let upper_bound = Self::leaf_upper_bound_2(leaves, leaf);
-    //     (&mut leaves[idx.0], upper_bound)
-    // }
-
-
     fn first_leaf(&self) -> LeafIdx {
         if cfg!(debug_assertions) {
             // dbg!(&self);
@@ -1061,63 +1034,6 @@ impl<V: Content> ContentTree<V> {
         // let (lv, cursor) = self.cursor.get();
         // self.check_cursor_at(cursor, lv, false);
     }
-
-    // #[allow(unused)]
-    // pub(crate) fn dbg_check_eq_2(&self, other: impl IntoIterator<Item = RleDRun<V>>) {
-    //     self.dbg_check();
-    //
-    //     let mut tree_iter = self.iter();
-    //     // let mut expect_iter = expect.into_iter();
-    //
-    //     // while let Some(expect_val) = expect_iter.next() {
-    //     let mut actual_remainder = None;
-    //     for mut expect in other.into_iter() {
-    //         loop {
-    //             let mut actual = actual_remainder.take().unwrap_or_else(|| {
-    //                 tree_iter.next().expect("Tree missing item")
-    //             });
-    //
-    //             // Skip anything before start.
-    //             if actual.end <= expect.start {
-    //                 continue;
-    //             }
-    //
-    //             // Trim the start of actual_next
-    //             if actual.start < expect.start {
-    //                 (_, actual) = split_rle(actual, expect.start - actual.start);
-    //             } else if expect.start < actual.start {
-    //                 panic!("Missing element");
-    //             }
-    //
-    //             assert_eq!(actual.start, expect.start);
-    //             let r = DTRange { start: actual.start, end: actual.start + usize::min(actual.len(), expect.len()) };
-    //             assert!(expect.val.eq(&actual.val, usize::min(actual.len(), expect.len())),
-    //                     "at {:?}: expect {:?} != actual {:?} (len={})", r, &expect.val, &actual.val, usize::min(actual.len(), expect.len()));
-    //             // assert_eq!(expect.val, actual.val, "{:?}", &tree_iter);
-    //
-    //             if actual.end > expect.end {
-    //                 // We don't need to split it here because that'll happen on the next iteration anyway.
-    //                 actual_remainder = Some(actual);
-    //                 // actual_remainder = Some(split_rle(actual, expect.end - actual.start).1);
-    //                 break;
-    //             } else if actual.end >= expect.end {
-    //                 break;
-    //             } else {
-    //                 // actual.end < expect.end
-    //                 // Keep the rest of expect for the next iteration.
-    //                 (_, expect) = split_rle(expect, actual.end - expect.start);
-    //                 debug_assert_eq!(expect.start, actual.end);
-    //                 // And continue with this expected item.
-    //             }
-    //         }
-    //     }
-    // }
-
-    // #[allow(unused)]
-    // pub(crate) fn dbg_check_eq<'a>(&self, vals: impl IntoIterator<Item = &'a V>) where V: 'a {
-    //     self.dbg_check_eq_2(vals.into_iter().copied());
-    // }
-
 }
 
 #[derive(Debug)]
@@ -1156,6 +1072,7 @@ impl<'a, V: Content> Iterator for ContentTreeIter<'a, V> {
 #[cfg(test)]
 mod test {
     use std::fmt::Debug;
+    use std::ops::Range;
     use std::pin::Pin;
     use rand::rngs::SmallRng;
     use rand::{Rng, SeedableRng};
@@ -1544,15 +1461,15 @@ mod test {
         });
 
         for _i in 0..1000 {
-            // if verbose { println!("i: {}", _i); }
-            println!("i: {}", _i);
+            if verbose { println!("i: {}", _i); }
+            // println!("i: {}", _i);
 
-            // if _i == 32 {
+            // if _i == 74 {
             //     println!("asdf");
             //     // verbose = true;
             // }
 
-            if true { //tree.is_empty() || rng.gen_bool(0.6) {
+            if tree.is_empty() || rng.gen_bool(0.6) {
 
                 // tree.dbg_check();
                 // Insert something.
@@ -1579,74 +1496,75 @@ mod test {
                     // dbg!(&cursor);
 
                     if verbose { dbg!(&tree); }
-                    tree.dbg_check();
+                    // tree.dbg_check();
 
                     let post_pos = tree.get_cursor_pos(&cursor);
                     // dbg!(pre_pos, item.content_len_pair(), post_pos);
                     assert_eq!(pre_pos + item.content_len_pair(), post_pos);
                 }
             } else {
-                // Modify something.
 
+                let gen_range = |rng: &mut SmallRng, range: Range<usize>| {
+                    if range.is_empty() { range.start }
+                    else { rng.gen_range(range) }
+                };
+
+                // Modify something.
+                let modify_len = gen_range(&mut rng, 1..20.min(tree.total_len.end));
+                // let modify_len = 1;
+                let pos = gen_range(&mut rng, 0..tree.total_len.end - modify_len);
+                let new_is_active = rng.gen_bool(0.5);
+
+                // The chunking of the two tree implementations might differ, so we'll run modify
+                // in a loop.
+                {
+                    let mut len_remaining = modify_len;
+                    let mut cursor = check_tree.mut_cursor_at_offset_pos(pos, false);
+                    while len_remaining > 0 {
+                        let (changed, _) = cursor.mutate_single_entry_notify(len_remaining, content_tree::null_notify, |e| {
+                            e.is_activated = new_is_active;
+                        });
+                        cursor.roll_to_next_entry();
+                        len_remaining -= changed;
+                    }
+                }
+
+                {
+                    let mut len_remaining = modify_len;
+                    let mut cursor = tree.cursor_at_content_pos::<false>(pos);
+
+                    while len_remaining > 0 {
+                        let pre_pos = tree.get_cursor_pos(&cursor);
+                        let (changed, _) = tree.mutate_entry(&mut cursor, len_remaining, &mut null_notify, |e| {
+                            e.is_activated = new_is_active;
+                        });
+                        let post_pos = tree.get_cursor_pos(&cursor);
+                        assert_eq!(pre_pos.end + changed, post_pos.end);
+                        len_remaining -= changed;
+                    }
+                }
             }
 
-            // // This will generate some overlapping ranges sometimes but not too many.
-            // let val = rng.gen_range(0..100) + 100;
-            // // let start = rng.gen_range(0..3);
-            // let start = rng.gen_range(0..1000);
-            // let len = rng.gen_range(0..100) + 1;
-            // // let start = rng.gen_range(0..100);
-            // // let len = rng.gen_range(0..100) + 1;
-            //
-            // // dbg!(&tree, start, len, val);
-            // // if _i == 19 {
-            // //     println!("blerp");
-            // // }
-            //
-            // // if _i == 14 {
-            // //     dbg!(val, start, len);
-            // //     dbg!(tree.iter().collect::<Vec<_>>());
-            // // }
-            // tree.set_range((start..start+len).into(), X(val));
-            // // dbg!(&tree);
-            // tree.dbg_check();
-            //
-            // // dbg!(check_tree.iter().collect::<Vec<_>>());
-            //
-            // check_tree.replace_range_at_offset(start, (val..val+len).into());
-            //
-            // // if _i == 14 {
-            // //     dbg!(tree.iter().collect::<Vec<_>>());
-            // //     dbg!(check_tree.iter_with_pos().filter_map(|(pos, r)| {
-            // //         if r.start >= START_JUNK { return None; }
-            // //         Some(RleDRun::new(pos..pos+r.len(), X(r.start)))
-            // //     }).collect::<Vec<_>>());
-            // // }
-            //
-            // // check_tree.iter
-
+            // Check that both trees have identical content.
             tree.dbg_check();
             assert!(check_tree.iter().filter(|e| e.id < START_JUNK)
                 .eq(tree.iter_rle()));
-
-            // tree.iter_rle().eq(
-
-            // tree.dbg_check_eq_2(check_tree.iter_with_pos().filter_map(|(pos, r)| {
-            //     if r.start >= START_JUNK { return None; }
-            //     Some(RleDRun::new(pos..pos+r.len(), X(r.start)))
-            // }));
         }
     }
 
     #[test]
-    fn fuzz_once() {
+    fn content_tree_fuzz_once() {
         // fuzz(3322, true);
-        fuzz(123, true);
+        // for seed in 8646911284551352000..8646911284551353000 {
+        //
+        //     fuzz(seed, true);
+        // }
+        fuzz(8646911284551352000, true);
     }
 
     #[test]
     #[ignore]
-    fn tree_fuzz_forever() {
+    fn content_tree_fuzz_forever() {
         fuzz_multithreaded(u64::MAX, |seed| {
             if seed % 100 == 0 {
                 println!("Iteration {}", seed);
