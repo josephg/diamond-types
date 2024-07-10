@@ -330,6 +330,15 @@ impl<V: Content> ContentTree<V> {
         // }
     }
 
+    fn total_len(&self) -> LenPair {
+        let mut len = self.total_len;
+        // TODO: Try rewriting this into branch-free code.
+        if let Some((_, cursor)) = self.cursor.as_ref() {
+            len.update_by(cursor.delta);
+        }
+        len
+    }
+
     /// Move a cursor at the end of an item to the next item.
     ///
     /// Returns false if there is no next item.
@@ -936,15 +945,23 @@ impl<V: Content> ContentTree<V> {
     //     ContentCursor::default()
     // }
 
-    fn slide_cursor_to_next_content(&mut self, cursor: &mut MutCursor) {
+    // Returns the end length slid past
+    fn slide_cursor_to_next_content(&mut self, cursor: &mut MutCursor) -> usize {
         let mut leaf = &self.leaves[cursor.leaf_idx.0];
         let e = &leaf.children[cursor.elem_idx];
         // if cursor.offset < e.len()
-        if !e.exists() || (e.takes_up_space::<true>() && cursor.offset < e.len()) { return; }
+        if !e.exists() || (e.takes_up_space::<true>() && cursor.offset < e.len()) { return 0; }
+
+        let mut end_slide_len = if e.takes_up_space::<false>() {
+            e.len() - cursor.offset
+        } else { 0 };
         cursor.elem_idx += 1;
         cursor.offset = 0;
 
+
         loop {
+            // This walks linearly through the nodes. It would be "big-O faster" to walk up and down
+            // the tree in this case, but I think this will usually be faster in practice.
             if cursor.elem_idx >= leaf.children.len() || !leaf.children[cursor.elem_idx].exists() {
                 // Go to next leaf.
                 let next_leaf = leaf.next_leaf;
@@ -959,12 +976,28 @@ impl<V: Content> ContentTree<V> {
                 }
             }
 
-            if leaf.children[cursor.elem_idx].takes_up_space::<true>() {
+            let e = &leaf.children[cursor.elem_idx];
+            if e.takes_up_space::<true>() {
                 break;
             }
 
+            end_slide_len += e.content_len_end();
             cursor.elem_idx += 1;
         }
+
+        end_slide_len
+    }
+
+    /// Modifies the cursor to point to the next item
+    pub(crate) fn cursor_inc_offset(&self, cursor: &mut MutCursor) {
+        if cfg!(debug_assertions) {
+            let leaf = &self[cursor.leaf_idx];
+            let e = &leaf.children[cursor.elem_idx];
+            assert!(e.takes_up_space::<true>());
+            assert!(cursor.offset < e.len());
+        }
+
+        cursor.offset += 1;
     }
 
 
@@ -989,9 +1022,9 @@ impl<V: Content> ContentTree<V> {
     /// We never "stick end" - ie, the cursor is moved to the start of the next item with actual
     /// content.
     fn mut_cursor_before_cur_pos(&mut self, content_pos: usize) -> (usize, MutCursor) {
-        if let Some((pos, mut cursor)) = self.cursor.take() {
+        if let Some((mut pos, mut cursor)) = self.cursor.take() {
             if pos.cur == content_pos {
-                self.slide_cursor_to_next_content(&mut cursor);
+                pos.end += self.slide_cursor_to_next_content(&mut cursor);
                 return (pos.end, cursor);
             }
 
@@ -1665,132 +1698,164 @@ mod test {
         }
     }
 
-    // fn fuzz(seed: u64, mut verbose: bool) {
-    //     verbose = false;
-    //     let mut rng = SmallRng::seed_from_u64(seed);
-    //     let mut tree = ContentTree::<TestRange>::new();
-    //     // let mut check_tree: Pin<Box<ContentTreeRaw<RleDRun<Option<i32>>, RawPositionMetricsUsize>>> = ContentTreeRaw::new();
-    //     let mut check_tree: Pin<Box<ContentTreeRaw<TestRange, FullMetricsUsize>>> = ContentTreeRaw::new();
-    //     const START_JUNK: u32 = 1_000_000;
-    //     check_tree.replace_range_at_offset(0, TestRange {
-    //         id: START_JUNK,
-    //         len: START_JUNK,
-    //         is_activated: false,
-    //         exists: false,
-    //     });
-    //
-    //     for _i in 0..1000 {
-    //         if verbose { println!("i: {}", _i); }
-    //         // println!("i: {}", _i);
-    //
-    //         // if _i == 74 {
-    //         //     println!("asdf");
-    //         //     // verbose = true;
-    //         // }
-    //
-    //         if tree.is_empty() || rng.gen_bool(0.6) {
-    //
-    //             // tree.dbg_check();
-    //             // Insert something.
-    //             let pos = rng.gen_range(0..=tree.total_len.end);
-    //             let item = random_entry(&mut rng);
-    //
-    //             if verbose { println!("inserting {:?} at {}", item, pos); }
-    //
-    //             // Insert into check tree
-    //             {
-    //                 let mut cursor = check_tree.mut_cursor_at_offset_pos(pos, true);
-    //                 cursor.insert(item);
-    //                 assert_eq!(cursor.count_offset_pos(), pos + item.len as usize);
-    //             }
-    //
-    //             // Insert into our tree.
-    //             {
-    //                 if verbose { dbg!(&tree); }
-    //                 let mut cursor = tree.cursor_at_content_pos::<false>(pos);
-    //                 // dbg!(&cursor);
-    //                 let pre_pos = tree.get_cursor_pos(&cursor);
-    //                 assert_eq!(pre_pos.end, pos);
-    //                 tree.insert_notify(item, &mut cursor, &mut null_notify);
-    //                 // dbg!(&cursor);
-    //
-    //                 if verbose { dbg!(&tree); }
-    //                 // tree.dbg_check();
-    //
-    //                 let post_pos = tree.get_cursor_pos(&cursor);
-    //                 // dbg!(pre_pos, item.content_len_pair(), post_pos);
-    //                 assert_eq!(pre_pos + item.content_len_pair(), post_pos);
-    //             }
-    //         } else {
-    //
-    //             let gen_range = |rng: &mut SmallRng, range: Range<usize>| {
-    //                 if range.is_empty() { range.start }
-    //                 else { rng.gen_range(range) }
-    //             };
-    //
-    //             // Modify something.
-    //             let modify_len = gen_range(&mut rng, 1..20.min(tree.total_len.end));
-    //             // let modify_len = 1;
-    //             let pos = gen_range(&mut rng, 0..tree.total_len.end - modify_len);
-    //             let new_is_active = rng.gen_bool(0.5);
-    //
-    //             // The chunking of the two tree implementations might differ, so we'll run modify
-    //             // in a loop.
-    //             {
-    //                 let mut len_remaining = modify_len;
-    //                 let mut cursor = check_tree.mut_cursor_at_offset_pos(pos, false);
-    //                 while len_remaining > 0 {
-    //                     let (changed, _) = cursor.mutate_single_entry_notify(len_remaining, content_tree::null_notify, |e| {
-    //                         e.is_activated = new_is_active;
-    //                     });
-    //                     cursor.roll_to_next_entry();
-    //                     len_remaining -= changed;
-    //                 }
-    //             }
-    //
-    //             {
-    //                 let mut len_remaining = modify_len;
-    //                 let mut cursor = tree.cursor_at_content_pos::<false>(pos);
-    //
-    //                 while len_remaining > 0 {
-    //                     let pre_pos = tree.get_cursor_pos(&cursor);
-    //                     let (changed, _) = tree.mutate_entry(&mut cursor, len_remaining, &mut null_notify, |e| {
-    //                         e.is_activated = new_is_active;
-    //                     });
-    //                     let post_pos = tree.get_cursor_pos(&cursor);
-    //                     assert_eq!(pre_pos.end + changed, post_pos.end);
-    //                     len_remaining -= changed;
-    //                 }
-    //             }
-    //         }
-    //
-    //         // Check that both trees have identical content.
-    //         tree.dbg_check();
-    //         assert!(check_tree.iter().filter(|e| e.id < START_JUNK)
-    //             .eq(tree.iter_rle()));
-    //     }
-    // }
-    //
-    // #[test]
-    // fn content_tree_fuzz_once() {
-    //     // fuzz(3322, true);
-    //     // for seed in 8646911284551352000..8646911284551353000 {
-    //     //
-    //     //     fuzz(seed, true);
-    //     // }
-    //     fuzz(8646911284551352000, true);
-    // }
-    //
-    // #[test]
-    // #[ignore]
-    // fn content_tree_fuzz_forever() {
-    //     fuzz_multithreaded(u64::MAX, |seed| {
-    //         if seed % 100 == 0 {
-    //             println!("Iteration {}", seed);
-    //         }
-    //         fuzz(seed, false);
-    //     })
-    // }
+    fn fuzz(seed: u64, mut verbose: bool) {
+        verbose = verbose; // suppress mut warning.
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let mut tree = ContentTree::<TestRange>::new();
+        // let mut check_tree: Pin<Box<ContentTreeRaw<RleDRun<Option<i32>>, RawPositionMetricsUsize>>> = ContentTreeRaw::new();
+        let mut check_tree: Pin<Box<ContentTreeRaw<TestRange, FullMetricsUsize>>> = ContentTreeRaw::new();
+        const START_JUNK: u32 = 1_000_000;
+        check_tree.replace_range_at_offset(0, TestRange {
+            id: START_JUNK,
+            len: START_JUNK,
+            is_activated: false,
+            exists: false,
+        });
+
+        for _i in 0..1000 {
+            if verbose { println!("i: {}", _i); }
+            // println!("i: {}", _i);
+
+            // if _i == 31 {
+            //     println!("asdf");
+            //     // verbose = true;
+            // }
+
+            if tree.total_len().cur == 0 || rng.gen_bool(0.6) {
+
+                // tree.dbg_check();
+                // Insert something.
+                let cur_pos = rng.gen_range(0..=tree.total_len().cur);
+                let item = random_entry(&mut rng);
+
+                if verbose { println!("inserting {:?} at {}", item, cur_pos); }
+
+                // Insert into check tree
+                {
+                    // check_tree.check();
+                    // check_tree.print_ptr_tree();
+                    let mut cursor = check_tree.mut_cursor_at_content_pos(cur_pos, true);
+                    cursor.insert(item);
+                    assert_eq!(cursor.count_content_pos(), cur_pos + item.content_len_cur());
+                }
+
+                // Insert into our tree.
+                {
+                    // if verbose { dbg!(&tree); }
+
+                    // This code mirrors the equivalent code in merge.rs
+                    let (end_pos, mut cursor) = if cur_pos == 0 {
+                        (0, tree.mut_cursor_at_start())
+                    } else {
+                        // // Equivalent of getting a cursor with stick_end: true.
+                        // let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(cur_pos - 1);
+                        // tree.emplace_cursor((cur_pos - 1, end_pos).into(), cursor);
+                        //
+                        // let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(cur_pos - 1);
+                        // tree.cursor_inc_offset(&mut cursor);
+                        // tree.emplace_cursor((cur_pos, end_pos + 1).into(), cursor);
+
+
+                        let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(cur_pos - 1);
+                        tree.cursor_inc_offset(&mut cursor);
+                        (end_pos + 1, cursor)
+                    };
+                    // let mut cursor = tree.cursor_at_content_pos::<false>(pos);
+                    // dbg!(&cursor);
+                    let pre_pos = LenPair::new(cur_pos, end_pos);
+                    tree.insert_notify(item, &mut cursor, &mut null_notify);
+                    // dbg!(&cursor);
+
+                    // if verbose { dbg!(&tree); }
+                    // tree.dbg_check();
+
+                    // This will check that the position makes sense.
+                    tree.emplace_cursor(pre_pos + item.content_len_pair(), cursor);
+
+                    // let post_pos = tree.get_cursor_pos(&cursor);
+                    // // dbg!(pre_pos, item.content_len_pair(), post_pos);
+                    // assert_eq!(pre_pos + item.content_len_pair(), post_pos);
+                }
+            } else {
+
+                let gen_range = |rng: &mut SmallRng, range: Range<usize>| {
+                    if range.is_empty() { range.start }
+                    else { rng.gen_range(range) }
+                };
+
+                // Modify something.
+                //
+                // Note this has a subtle sort-of flaw: The first item we touch will always be
+                // active. But we might make some later items active again in the range.
+                let modify_len = gen_range(&mut rng, 1..20.min(tree.total_len().cur));
+                // let modify_len = 1;
+                debug_assert!(modify_len <= tree.total_len().cur);
+                let pos = gen_range(&mut rng, 0..tree.total_len().cur - modify_len);
+                let new_is_active = rng.gen_bool(0.5);
+
+                // The chunking of the two tree implementations might differ, so we'll run modify
+                // in a loop.
+                {
+                    let mut len_remaining = modify_len;
+                    let mut cursor = check_tree.mut_cursor_at_content_pos(pos, false);
+                    while len_remaining > 0 {
+                        let (changed, _) = cursor.mutate_single_entry_notify(len_remaining, content_tree::null_notify, |e| {
+                            e.is_activated = new_is_active;
+                        });
+                        cursor.roll_to_next_entry();
+                        len_remaining -= changed;
+                    }
+                }
+
+                {
+                    let mut len_remaining = modify_len;
+                    // let mut cursor = tree.cursor_at_content_pos::<false>(pos);
+                    let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(pos);
+                    let mut cursor_pos = LenPair::new(pos, end_pos);
+
+                    while len_remaining > 0 {
+                        // let pre_pos = tree.get_cursor_pos(&cursor);
+                        let (changed, len_here) = tree.mutate_entry(&mut cursor, len_remaining, &mut null_notify, |e| {
+                            e.is_activated = new_is_active;
+                            e.content_len_pair()
+                        });
+                        cursor_pos += len_here;
+                        // let post_pos = tree.get_cursor_pos(&cursor);
+                        // assert_eq!(pre_pos.end + changed, post_pos.end);
+                        len_remaining -= changed;
+                    }
+
+                    tree.emplace_cursor(cursor_pos, cursor);
+                }
+            }
+
+            // Check that both trees have identical content.
+            tree.dbg_check();
+            assert!(check_tree.iter().filter(|e| e.id < START_JUNK)
+                .eq(tree.iter_rle()));
+        }
+    }
+
+    #[test]
+    fn content_tree_fuzz_once() {
+        // fuzz(3322, true);
+        // for seed in 8646911284551352000..8646911284551353000 {
+        //
+        //     fuzz(seed, true);
+        // }
+        fuzz(0, true);
+    }
+
+    #[test]
+    #[ignore]
+    fn content_tree_fuzz_forever() {
+        fuzz_multithreaded(u64::MAX, |seed| {
+            if seed % 100 == 0 {
+                println!("Iteration {}", seed);
+            }
+            fuzz(seed, false);
+        })
+    }
 }
 
 
