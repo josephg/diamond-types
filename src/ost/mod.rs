@@ -11,14 +11,14 @@
 //! - The resulting wasm size is a little smaller.
 
 mod index_tree;
-mod content_tree;
+pub(crate) mod content_tree;
 pub(crate) mod recording_index_tree;
 // mod content_tree;
 
 use std::iter::Sum;
 pub(crate) use index_tree::{IndexContent, IndexTree};
 
-use std::ops::{AddAssign, Index, IndexMut, Range, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Index, IndexMut, Range, Sub, SubAssign};
 use ::content_tree::ContentLength;
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::listmerge::yjsspan::CRDTSpan;
@@ -26,13 +26,13 @@ use crate::listmerge::yjsspan::CRDTSpan;
 // Some utility types.
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-struct LeafIdx(usize);
+pub struct LeafIdx(pub(crate) usize);
 
 impl Default for LeafIdx {
     fn default() -> Self { Self(usize::MAX) }
 }
 impl LeafIdx {
-    fn exists(&self) -> bool { self.0 != usize::MAX }
+    pub fn exists(&self) -> bool { self.0 != usize::MAX }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -60,6 +60,7 @@ impl LenPair {
         if IS_CURRENT { self.cur } else { self.end }
     }
 
+    #[inline]
     fn update_by(&mut self, upd: LenUpdate) {
         self.cur = self.cur.wrapping_add_signed(upd.cur);
         self.end = self.end.wrapping_add_signed(upd.end);
@@ -67,6 +68,12 @@ impl LenPair {
 
     pub fn new(cur: usize, end: usize) -> Self {
         LenPair { cur, end }
+    }
+}
+
+impl From<(usize, usize)> for LenPair {
+    fn from((cur, end): (usize, usize)) -> Self {
+        Self::new(cur, end)
     }
 }
 
@@ -83,6 +90,17 @@ impl SubAssign for LenPair {
     fn sub_assign(&mut self, rhs: Self) {
         self.cur -= rhs.cur;
         self.end -= rhs.end;
+    }
+}
+
+impl Add for LenPair {
+    type Output = LenPair;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        LenPair {
+            cur: self.cur + rhs.cur,
+            end: self.end + rhs.end,
+        }
     }
 }
 
@@ -139,16 +157,16 @@ impl LenUpdate {
 
 // In debug mode, nodes are kept intentionally small to exercise the node splitting / joining code
 // more.
-#[cfg(debug_assertions)]
+// #[cfg(debug_assertions)]
 const NODE_CHILDREN: usize = 4;
-#[cfg(debug_assertions)]
+// #[cfg(debug_assertions)]
 const LEAF_CHILDREN: usize = 4;
 
-// Figured out with benchmarking.
-#[cfg(not(debug_assertions))]
-const NODE_CHILDREN: usize = 16;
-#[cfg(not(debug_assertions))]
-const LEAF_CHILDREN: usize = 32;
+// // Figured out with benchmarking.
+// #[cfg(not(debug_assertions))]
+// const NODE_CHILDREN: usize = 16;
+// #[cfg(not(debug_assertions))]
+// const LEAF_CHILDREN: usize = 32;
 
 
 // type LeafData = crate::listmerge::markers::Marker;
