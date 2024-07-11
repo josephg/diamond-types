@@ -61,18 +61,16 @@ type NewIndex = IndexTree<Marker2>;
 
 #[derive(Debug)]
 struct M2Tracker {
-    old_range_tree: CRDTList2,
+    // old_range_tree: CRDTList2,
+    // old_index: OldIndex,
 
     /// The index is used for 2 things:
     ///
     /// - For inserts, this contains a pointer to the node in range_tree which contains this version
     /// - For deletes, this names the time at which the delete happened.
-    old_index: OldIndex,
-
-
-    new_range_tree: ContentTree<CRDTSpan>,
     new_index: NewIndex,
-
+    
+    new_range_tree: ContentTree<CRDTSpan>,
 
     #[cfg(feature = "merge_conflict_checks")]
     concurrent_inserts_collide: bool,

@@ -25,6 +25,10 @@ use crate::listmerge::yjsspan::CRDTSpan;
 // use crate::ost::content_tree::ContentTree;
 // Some utility types.
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct LeafIdx(pub(crate) usize);
 

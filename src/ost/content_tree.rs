@@ -1334,6 +1334,17 @@ impl<V: Content> ContentTree<V> {
         self.iter().collect::<Vec<_>>()
     }
 
+    pub fn count_entries(&self) -> usize {
+        let mut count = 0;
+        for (_idx, children) in self.iter_leaves() {
+            for c in children.iter() {
+                if !c.exists() { break; }
+                count += 1;
+            }
+        }
+        count
+    }
+
 
     /// On the walk this returns the size of all children (recursive) and the expected next visited
     /// leaf idx.
@@ -1470,7 +1481,7 @@ impl<V: Content> ContentTree<V> {
         // self.check_cursor_at(cursor, lv, false);
     }
 
-    pub(crate) fn leaf_iter(&self) -> ContentLeafIter<'_, V> {
+    pub(crate) fn iter_leaves(&self) -> ContentLeafIter<'_, V> {
         ContentLeafIter {
             tree: self,
             leaf_idx: self.first_leaf(),

@@ -92,8 +92,8 @@ fn take_content<'a>(x: Option<&mut &'a str>, len: usize) -> Option<&'a str> {
 impl M2Tracker {
     pub(super) fn new() -> Self {
         let mut result = Self {
-            old_range_tree: ContentTreeRaw::new(),
-            old_index: Default::default(),
+            // old_range_tree: ContentTreeRaw::new(),
+            // old_index: Default::default(),
 
             new_range_tree: ContentTree::new(),
             new_index: IndexTree::new(),
@@ -106,7 +106,7 @@ impl M2Tracker {
         };
 
         let underwater = CRDTSpan::new_underwater();
-        result.old_range_tree.push_notify(underwater, old_notify_for(&mut result.old_index));
+        // result.old_range_tree.push_notify(underwater, old_notify_for(&mut result.old_index));
         result.new_range_tree.set_single_item_notify(underwater, new_notify_for(&mut result.new_index));
 
         // result.check_index();
@@ -114,13 +114,13 @@ impl M2Tracker {
     }
 
     pub(super) fn clear(&mut self) {
-        // TODO: Could make this cleaner with a clear() function in ContentTree.
-        self.old_range_tree = ContentTreeRaw::new();
-        self.old_index.clear();
+        // // TODO: Could make this cleaner with a clear() function in ContentTree.
+        // self.old_range_tree = ContentTreeRaw::new();
+        // self.old_index.clear();
 
         let underwater = CRDTSpan::new_underwater();
         // pad_index_to(&mut self.index.index_old, underwater.id.end);
-        self.old_range_tree.push_notify(underwater, old_notify_for(&mut self.old_index));
+        // self.old_range_tree.push_notify(underwater, old_notify_for(&mut self.old_index));
 
 
         self.new_range_tree.clear();
@@ -130,11 +130,11 @@ impl M2Tracker {
         // self.check_index();
     }
 
-    pub(super) fn old_marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
-        let marker = self.old_index.get_entry(lv).val;
-        let Marker::InsPtr(ptr) = marker else { panic!("No marker at lv") };
-        ptr
-    }
+    // pub(super) fn old_marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
+    //     let marker = self.old_index.get_entry(lv).val;
+    //     let Marker::InsPtr(ptr) = marker else { panic!("No marker at lv") };
+    //     ptr
+    // }
 
     pub(super) fn new_marker_at(&self, lv: LV) -> LeafIdx {
         let marker = self.new_index.get_entry(lv).val;
@@ -142,18 +142,9 @@ impl M2Tracker {
         leaf
     }
 
-    #[allow(unused)]
-    pub(super) fn check_old_index(&self) {
-        self.old_index.dbg_check();
-
-        // Go through each entry in the range tree and make sure we can find it using the index.
-        for entry in self.old_range_tree.raw_iter() {
-            let marker = self.old_marker_at(entry.id.start);
-            debug_assert!(marker != NonNull::dangling());
-            let val = unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
-            assert_eq!(unsafe { val.unsafe_get_item() }, Some(entry.id.start));
-        }
-    }
+    // #[allow(u
+    // #[cfg(feature = "serde")]
+    // use serde::{Deserialize, Serialize};
 
     #[allow(unused)]
     pub(super) fn check_new_index(&self) {
@@ -161,7 +152,7 @@ impl M2Tracker {
         self.new_index.dbg_check();
 
         // Go through each entry in the range tree and make sure we can find it using the index.
-        for (leaf_idx, children) in self.new_range_tree.leaf_iter() {
+        for (leaf_idx, children) in self.new_range_tree.iter_leaves() {
             for e in children.iter() {
                 if !e.exists() { break; }
 
@@ -176,16 +167,16 @@ impl M2Tracker {
         }
     }
 
-    fn get_old_cursor_before(&self, lv: LV) -> Cursor<CRDTSpan, DocRangeIndex> {
-        if lv == usize::MAX {
-            // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
-            // just panic() here.
-            self.old_range_tree.cursor_at_end()
-        } else {
-            let marker = self.old_marker_at(lv);
-            self.old_range_tree.cursor_before_item(lv, marker)
-        }
-    }
+    // fn get_old_cursor_before(&self, lv: LV) -> Cursor<CRDTSpan, DocRangeIndex> {
+    //     if lv == usize::MAX {
+    //         // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
+    //         // just panic() here.
+    //         self.old_range_tree.cursor_at_end()
+    //     } else {
+    //         let marker = self.old_marker_at(lv);
+    //         self.old_range_tree.cursor_before_item(lv, marker)
+    //     }
+    // }
 
     fn get_new_cursor_before(&self, lv: LV) -> ContentCursor {
         if lv == usize::MAX {
@@ -199,22 +190,22 @@ impl M2Tracker {
         }
     }
 
-    // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex> {
-    fn get_old_cursor_after(&self, lv: LV, stick_end: bool) -> Cursor<CRDTSpan, DocRangeIndex> {
-        if lv == usize::MAX {
-            self.old_range_tree.cursor_at_start()
-        } else {
-            let marker = self.old_marker_at(lv);
-            // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
-            // self.content_tree.
-            let mut cursor = self.old_range_tree.cursor_before_item(lv, marker);
-            // The cursor points to parent. This is safe because of guarantees provided by
-            // cursor_before_item.
-            cursor.offset += 1;
-            if !stick_end { cursor.roll_to_next_entry(); }
-            cursor
-        }
-    }
+    // // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex> {
+    // fn get_old_cursor_after(&self, lv: LV, stick_end: bool) -> Cursor<CRDTSpan, DocRangeIndex> {
+    //     if lv == usize::MAX {
+    //         self.old_range_tree.cursor_at_start()
+    //     } else {
+    //         let marker = self.old_marker_at(lv);
+    //         // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
+    //         // self.content_tree.
+    //         let mut cursor = self.old_range_tree.cursor_before_item(lv, marker);
+    //         // The cursor points to parent. This is safe because of guarantees provided by
+    //         // cursor_before_item.
+    //         cursor.offset += 1;
+    //         if !stick_end { cursor.roll_to_next_entry(); }
+    //         cursor
+    //     }
+    // }
 
     fn get_new_cursor_after(&self, lv: LV, stick_end: bool) -> ContentCursor {
         if lv == usize::MAX {
@@ -234,138 +225,138 @@ impl M2Tracker {
 
 
 
-    // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
-    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: CRDTSpan, mut cursor: UnsafeCursor<CRDTSpan, DocRangeIndex>) -> usize {
-        debug_assert!(item.len() > 0);
-
-        // Ok now that's out of the way, lets integrate!
-
-        // These are almost never used. Could avoid the clone here... though its pretty cheap.
-        let left_cursor = cursor.clone();
-        let mut scan_start = cursor.clone();
-        let mut scanning = false;
-
-        loop {
-            if cursor.offset > 0 // If cursor > 0, the item we're on now is INSERTED.
-                || !cursor.roll_to_next_entry() { // End of the document
-                break;
-            }
-
-            let other_entry: CRDTSpan = *cursor.get_raw_entry();
-
-            // When concurrent edits happen, the range of insert locations goes from the insert
-            // position itself (passed in through cursor) to the next item which existed at the
-            // time in which the insert occurred.
-            let other_lv = other_entry.id.start;
-            // This test is almost always true. (Ie, we basically always break here).
-            if other_lv == item.origin_right { break; }
-
-            debug_assert_eq!(other_entry.current_state, NOT_INSERTED_YET);
-            // if other_entry.state != NOT_INSERTED_YET { break; }
-
-            // When preparing example data, its important that the data can merge the same
-            // regardless of editing trace (so the output isn't dependent on the algorithm used to
-            // merge).
-            #[cfg(feature = "merge_conflict_checks")] {
-                //println!("Concurrent changes {:?} vs {:?}", item.id, other_entry.id);
-                self.concurrent_inserts_collide = true;
-            }
-
-            // This code could be better optimized, but its already O(n * log n), and its extremely
-            // rare that you actually get concurrent inserts at the same location in the document
-            // anyway.
-
-            let other_left_lv = other_entry.origin_left_at_offset(cursor.offset);
-            let other_left_cursor = self.get_old_cursor_after(other_left_lv, false);
-
-            // YjsMod / Fugue semantics. (The code here is the same for both CRDTs).
-            match unsafe { other_left_cursor.unsafe_cmp(&left_cursor) } {
-                Ordering::Less => { break; } // Top row
-                Ordering::Greater => {} // Bottom row. Continue.
-                Ordering::Equal => {
-                    if item.origin_right == other_entry.origin_right {
-                        // Origin_right matches. Items are concurrent. Order by agent names.
-                        let my_name = aa.get_agent_name(agent);
-
-                        let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
-                        let other_name = aa.get_agent_name(other_agent);
-                        // eprintln!("concurrent insert at the same place {} ({}) vs {} ({})", item.id.start, my_name, other_lv, other_name);
-
-                        // It's possible for a user to conflict with themselves if they commit to
-                        // multiple branches. In this case, sort by seq number.
-                        let ins_here = match my_name.cmp(other_name) {
-                            Ordering::Less => true,
-                            Ordering::Equal => {
-                                // We can't compare versions here because sequence numbers could be
-                                // used out of order, and the relative version ordering isn't
-                                // consistent in that case.
-                                //
-                                // We could cache this but this code doesn't run often anyway.
-                                let item_seq = aa.local_to_agent_version(item.id.start).1;
-                                item_seq < other_seq
-                            }
-                            Ordering::Greater => false,
-                        };
-
-                        if ins_here {
-                            // Insert here.
-                            break;
-                        } else {
-                            scanning = false;
-                        }
-                    } else {
-                        // Set scanning based on how the origin_right entries are ordered.
-                        let my_right_cursor = self.get_old_cursor_before(item.origin_right);
-                        let other_right_cursor = self.get_old_cursor_before(other_entry.origin_right);
-
-                        if other_right_cursor < my_right_cursor {
-                            if !scanning {
-                                scanning = true;
-                                scan_start = cursor.clone();
-                            }
-                        } else {
-                            scanning = false;
-                        }
-                    }
-                }
-            }
-
-            // This looks wrong. The entry in the range tree is a run with:
-            // - Incrementing orders (maybe from different peers)
-            // - With incrementing origin_left.
-            // Q: Is it possible that we get different behaviour if we don't separate out each
-            // internal run within the entry and visit each one separately?
-            //
-            // The fuzzer says no, we don't need to do that. I assume it's because internal entries
-            // have higher origin_left, and thus they can't be peers with the newly inserted item
-            // (which has a lower origin_left).
-            if !cursor.next_entry() {
-                // This is dirty. If the cursor can't move to the next entry, we still need to move
-                // it to the end of the current element or we'll prepend. next_entry() doesn't do
-                // that for some reason. TODO: Clean this up.
-                cursor.offset = other_entry.len();
-                break;
-            }
-        }
-        if scanning { cursor = scan_start; }
-
-        if cfg!(debug_assertions) {
-            let pos = unsafe { cursor.unsafe_count_content_pos() };
-            let len = self.old_range_tree.content_len();
-            assert!(pos <= len);
-        }
-
-        // Now insert here.
-        let mut cursor = unsafe { MutCursor::unchecked_from_raw(&mut self.old_range_tree, cursor) };
-        let content_pos = upstream_cursor_pos(&cursor);
-
-        // (Safe variant):
-        // cursor.insert_notify(item, notify_for(&mut self.index));
-
-        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, old_notify_for(&mut self.old_index)); }
-        // self.check_index();
-        content_pos
-    }
+    // // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
+    // pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: CRDTSpan, mut cursor: UnsafeCursor<CRDTSpan, DocRangeIndex>) -> usize {
+    //     debug_assert!(item.len() > 0);
+    //
+    //     // Ok now that's out of the way, lets integrate!
+    //
+    //     // These are almost never used. Could avoid the clone here... though its pretty cheap.
+    //     let left_cursor = cursor.clone();
+    //     let mut scan_start = cursor.clone();
+    //     let mut scanning = false;
+    //
+    //     loop {
+    //         if cursor.offset > 0 // If cursor > 0, the item we're on now is INSERTED.
+    //             || !cursor.roll_to_next_entry() { // End of the document
+    //             break;
+    //         }
+    //
+    //         let other_entry: CRDTSpan = *cursor.get_raw_entry();
+    //
+    //         // When concurrent edits happen, the range of insert locations goes from the insert
+    //         // position itself (passed in through cursor) to the next item which existed at the
+    //         // time in which the insert occurred.
+    //         let other_lv = other_entry.id.start;
+    //         // This test is almost always true. (Ie, we basically always break here).
+    //         if other_lv == item.origin_right { break; }
+    //
+    //         debug_assert_eq!(other_entry.current_state, NOT_INSERTED_YET);
+    //         // if other_entry.state != NOT_INSERTED_YET { break; }
+    //
+    //         // When preparing example data, its important that the data can merge the same
+    //         // regardless of editing trace (so the output isn't dependent on the algorithm used to
+    //         // merge).
+    //         #[cfg(feature = "merge_conflict_checks")] {
+    //             //println!("Concurrent changes {:?} vs {:?}", item.id, other_entry.id);
+    //             self.concurrent_inserts_collide = true;
+    //         }
+    //
+    //         // This code could be better optimized, but its already O(n * log n), and its extremely
+    //         // rare that you actually get concurrent inserts at the same location in the document
+    //         // anyway.
+    //
+    //         let other_left_lv = other_entry.origin_left_at_offset(cursor.offset);
+    //         let other_left_cursor = self.get_old_cursor_after(other_left_lv, false);
+    //
+    //         // YjsMod / Fugue semantics. (The code here is the same for both CRDTs).
+    //         match unsafe { other_left_cursor.unsafe_cmp(&left_cursor) } {
+    //             Ordering::Less => { break; } // Top row
+    //             Ordering::Greater => {} // Bottom row. Continue.
+    //             Ordering::Equal => {
+    //                 if item.origin_right == other_entry.origin_right {
+    //                     // Origin_right matches. Items are concurrent. Order by agent names.
+    //                     let my_name = aa.get_agent_name(agent);
+    //
+    //                     let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
+    //                     let other_name = aa.get_agent_name(other_agent);
+    //                     // eprintln!("concurrent insert at the same place {} ({}) vs {} ({})", item.id.start, my_name, other_lv, other_name);
+    //
+    //                     // It's possible for a user to conflict with themselves if they commit to
+    //                     // multiple branches. In this case, sort by seq number.
+    //                     let ins_here = match my_name.cmp(other_name) {
+    //                         Ordering::Less => true,
+    //                         Ordering::Equal => {
+    //                             // We can't compare versions here because sequence numbers could be
+    //                             // used out of order, and the relative version ordering isn't
+    //                             // consistent in that case.
+    //                             //
+    //                             // We could cache this but this code doesn't run often anyway.
+    //                             let item_seq = aa.local_to_agent_version(item.id.start).1;
+    //                             item_seq < other_seq
+    //                         }
+    //                         Ordering::Greater => false,
+    //                     };
+    //
+    //                     if ins_here {
+    //                         // Insert here.
+    //                         break;
+    //                     } else {
+    //                         scanning = false;
+    //                     }
+    //                 } else {
+    //                     // Set scanning based on how the origin_right entries are ordered.
+    //                     let my_right_cursor = self.get_old_cursor_before(item.origin_right);
+    //                     let other_right_cursor = self.get_old_cursor_before(other_entry.origin_right);
+    //
+    //                     if other_right_cursor < my_right_cursor {
+    //                         if !scanning {
+    //                             scanning = true;
+    //                             scan_start = cursor.clone();
+    //                         }
+    //                     } else {
+    //                         scanning = false;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //
+    //         // This looks wrong. The entry in the range tree is a run with:
+    //         // - Incrementing orders (maybe from different peers)
+    //         // - With incrementing origin_left.
+    //         // Q: Is it possible that we get different behaviour if we don't separate out each
+    //         // internal run within the entry and visit each one separately?
+    //         //
+    //         // The fuzzer says no, we don't need to do that. I assume it's because internal entries
+    //         // have higher origin_left, and thus they can't be peers with the newly inserted item
+    //         // (which has a lower origin_left).
+    //         if !cursor.next_entry() {
+    //             // This is dirty. If the cursor can't move to the next entry, we still need to move
+    //             // it to the end of the current element or we'll prepend. next_entry() doesn't do
+    //             // that for some reason. TODO: Clean this up.
+    //             cursor.offset = other_entry.len();
+    //             break;
+    //         }
+    //     }
+    //     if scanning { cursor = scan_start; }
+    //
+    //     if cfg!(debug_assertions) {
+    //         let pos = unsafe { cursor.unsafe_count_content_pos() };
+    //         let len = self.old_range_tree.content_len();
+    //         assert!(pos <= len);
+    //     }
+    //
+    //     // Now insert here.
+    //     let mut cursor = unsafe { MutCursor::unchecked_from_raw(&mut self.old_range_tree, cursor) };
+    //     let content_pos = upstream_cursor_pos(&cursor);
+    //
+    //     // (Safe variant):
+    //     // cursor.insert_notify(item, notify_for(&mut self.index));
+    //
+    //     unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, old_notify_for(&mut self.old_index)); }
+    //     // self.check_index();
+    //     content_pos
+    // }
 
     pub(super) fn integrate2(&mut self, aa: &AgentAssignment, agent: AgentId, item: CRDTSpan, mut dc: DeltaCursor, mut cursor_pos: LenPair) -> usize {
         debug_assert_eq!(dc.0.get_pos(&self.new_range_tree), cursor_pos);
@@ -1567,7 +1558,7 @@ impl<'a> TransformedOpsIter<'a> {
 
     pub(crate) fn tracker_count(&self) -> usize {
         // self.tracker.range_tree.count_total_memory()
-        self.tracker.old_range_tree.count_entries()
+        self.tracker.new_range_tree.count_entries()
     }
 
     #[allow(unused)]

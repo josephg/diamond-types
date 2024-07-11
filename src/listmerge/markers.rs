@@ -145,7 +145,7 @@ impl IndexContent for Marker {
     // }
 }
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(into = "MarkerJSON", from = "MarkerJSON"))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Marker2 {
     /// For inserts, we store a pointer to the leaf node containing the inserted item. This is only
