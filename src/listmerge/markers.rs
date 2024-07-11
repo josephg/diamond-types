@@ -134,35 +134,6 @@ impl IndexContent for Marker {
     }
 }
 
-/// This is used for replaying data in the IndexTree for micro benchmarking.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-enum MarkerJSON {
-    InsPtr(usize),
-    Del(DelRange),
-}
-
-#[cfg(feature = "serde")]
-impl From<Marker> for MarkerJSON {
-    fn from(value: Marker) -> Self {
-        match value {
-            Marker::InsPtr(ptr) => MarkerJSON::InsPtr(ptr.as_ptr() as usize),
-            Marker::Del(range) => MarkerJSON::Del(range)
-        }
-    }
-}
-
-// This is wildly unsafe. Only useful / correct for testing data.
-#[cfg(feature = "serde")]
-impl From<MarkerJSON> for Marker {
-    fn from(value: MarkerJSON) -> Self {
-        match value {
-            MarkerJSON::InsPtr(ptr) => Marker::InsPtr(unsafe { std::mem::transmute(ptr) } ),
-            MarkerJSON::Del(range) => Marker::Del(range),
-        }
-    }
-}
-
-
 #[cfg(test)]
 mod tests {
     use std::ptr::NonNull;

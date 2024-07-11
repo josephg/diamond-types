@@ -861,8 +861,8 @@ impl<V: Default + IndexContent> IndexTree<V> {
 
         if cfg!(debug_assertions) {
             // Make sure discarded leaves aren't added multiple times to the discard queue.
-            assert_ne!(leaf.parent, NodeIdx(123));
-            leaf.parent = NodeIdx(123);
+            assert_ne!(leaf.parent, NodeIdx(0xfefe));
+            leaf.parent = NodeIdx(0xfefe);
         }
     }
 
