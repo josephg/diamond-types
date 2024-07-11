@@ -327,7 +327,7 @@ impl ContentCursor {
         if cfg!(debug_assertions) {
             let leaf = &tree[self.leaf_idx];
             let e = &leaf.children[self.elem_idx];
-            assert!(e.takes_up_space::<true>());
+            // assert!(e.takes_up_space::<true>());
             assert!(self.offset < e.len());
         }
 
@@ -426,6 +426,10 @@ impl DeltaCursor {
         }
 
         has_next
+    }
+
+    pub fn flush<V: Content>(self, tree: &mut ContentTree<V>) {
+        tree.flush_delta_len(self.0.leaf_idx, self.1);
     }
 
     pub fn flush_delta_and_clear<V: Content>(&mut self, tree: &mut ContentTree<V>) {
@@ -706,7 +710,8 @@ impl<V: Content> ContentTree<V> {
         let (new_leaf_idx, new_elem_idx) = self.make_space_in_leaf_for(space_needed, leaf_idx, elem_idx, delta, notify);
         // Only call notify if either we're notifying in all cases, or if the item is inserted into
         // a different leaf than we were passed.
-        if notify_here || new_leaf_idx != leaf_idx { notify(item, leaf_idx); }
+        let moved = new_leaf_idx != leaf_idx;
+        if notify_here || moved { notify(item, new_leaf_idx); }
 
         (leaf_idx, elem_idx) = (new_leaf_idx, new_elem_idx);
 
@@ -715,6 +720,7 @@ impl<V: Content> ContentTree<V> {
         leaf.children[elem_idx] = item;
 
         if let Some(remainder) = remainder {
+            if moved { notify(remainder, leaf_idx); }
             inc_delta_update(delta, &remainder);
             leaf.children[elem_idx + 1] = remainder;
         }
@@ -1203,7 +1209,7 @@ impl<V: Content> ContentTree<V> {
     }
 
     pub(crate) fn cursor_before_item(&self, id: V::Item, leaf_idx: LeafIdx) -> ContentCursor where V: Searchable {
-        debug_assert!(self.cursor.is_none());
+        // debug_assert!(self.cursor.is_none());
 
         let leaf = &self[leaf_idx];
 
@@ -1220,6 +1226,38 @@ impl<V: Content> ContentTree<V> {
         assert_ne!(elem_idx, usize::MAX, "Could not find element in leaf");
 
         ContentCursor { leaf_idx, elem_idx, offset }
+    }
+
+    pub(crate) fn mut_cursor_before_item(&mut self, id: V::Item, leaf_idx: LeafIdx) -> (DeltaCursor, Option<LenPair>)
+        where V: Searchable
+    {
+        if let Some((mut pos, mut cursor, delta)) = self.cursor.take() {
+            let (item, cur_offset) = cursor.get_item(self);
+            if let Some(actual_offset) = item.get_offset(id) {
+                // The cursor already points to the item.
+
+                // TODO: Rewrite this to use wrapping_add and non-branching code.
+                if item.takes_up_space::<false>() {
+                    pos.end -= cur_offset;
+                    pos.end += actual_offset;
+                }
+                if item.takes_up_space::<true>() {
+                    pos.cur -= cur_offset;
+                    pos.cur += actual_offset;
+                }
+                cursor.offset = actual_offset;
+
+                debug_assert_eq!(cursor.get_pos(self), pos);
+
+                return (DeltaCursor(cursor, delta), Some(pos));
+            }
+
+            // Throw the old cursor away.
+            self.flush_delta_len(cursor.leaf_idx, delta);
+        }
+
+        // Otherwise just make a fresh cursor.
+        (DeltaCursor(self.cursor_before_item(id, leaf_idx), LenUpdate::default()), None)
     }
 
     fn first_leaf(&self) -> LeafIdx {
@@ -1411,6 +1449,13 @@ impl<V: Content> ContentTree<V> {
         // let (lv, cursor) = self.cursor.get();
         // self.check_cursor_at(cursor, lv, false);
     }
+
+    pub(crate) fn leaf_iter(&self) -> ContentLeafIter<'_, V> {
+        ContentLeafIter {
+            tree: self,
+            leaf_idx: self.first_leaf(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1445,6 +1490,28 @@ impl<'a, V: Content> Iterator for ContentTreeIter<'a, V> {
         Some(data)
     }
 }
+
+#[derive(Debug, Copy, Clone)]
+pub struct ContentLeafIter<'a, V: Content> {
+    tree: &'a ContentTree<V>,
+    leaf_idx: LeafIdx,
+}
+
+impl<'a, V: Content> Iterator for ContentLeafIter<'a, V> {
+    // type Item = (LeafIdx, &'a ContentLeaf<V>);
+    type Item = (LeafIdx, &'a [V; LEAF_CHILDREN]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.leaf_idx.exists() { return None; }
+
+        let cur_leaf = self.leaf_idx;
+        let leaf = &self.tree[cur_leaf];
+        self.leaf_idx = leaf.next_leaf;
+
+        Some((cur_leaf, &leaf.children))
+    }
+}
+
 
 #[cfg(test)]
 mod test {

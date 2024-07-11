@@ -143,7 +143,7 @@ impl M2Tracker {
     }
 
     #[allow(unused)]
-    pub(super) fn check_index(&self) {
+    pub(super) fn check_old_index(&self) {
         self.old_index.dbg_check();
 
         // Go through each entry in the range tree and make sure we can find it using the index.
@@ -152,6 +152,27 @@ impl M2Tracker {
             debug_assert!(marker != NonNull::dangling());
             let val = unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
             assert_eq!(unsafe { val.unsafe_get_item() }, Some(entry.id.start));
+        }
+    }
+
+    #[allow(unused)]
+    pub(super) fn check_new_index(&self) {
+        self.new_range_tree.dbg_check();
+        self.new_index.dbg_check();
+
+        // Go through each entry in the range tree and make sure we can find it using the index.
+        for (leaf_idx, children) in self.new_range_tree.leaf_iter() {
+            for e in children.iter() {
+                if !e.exists() { break; }
+
+                let marker = self.new_marker_at(e.id.start);
+                debug_assert!(marker.exists());
+                assert_eq!(marker, leaf_idx);
+                // let val = self.new_range_tree.cursor_before_item(e.id.start, marker);
+                // let (e2, offset) = val.get_item(&self.new_range_tree);
+                // debug_assert_eq!(offset, 0);
+                // assert_eq!(e.id, e2.id);
+            }
         }
     }
 
@@ -519,7 +540,17 @@ impl M2Tracker {
 
                 let content = iter.get_content(&pair);
 
+                // if cfg!(debug_assertions) {
+                //     // TODO: REMOVE ME!
+                //     self.check_new_index();
+                // }
+
                 self.apply_to(aa, op_ctx, span.agent, &pair, content, to.as_deref_mut());
+
+                // if cfg!(debug_assertions) {
+                //     // TODO: REMOVE ME!
+                //     self.check_new_index();
+                // }
 
                 if let Some(r) = remainder {
                     pair = r;
@@ -635,6 +666,7 @@ impl M2Tracker {
                     (origin_left, cursor, end_pos, new_cursor)
                 };
                 let cursor_pos = LenPair::new(op.start(), end_pos);
+                debug_assert_eq!(new_cursor.0.get_pos(&self.new_range_tree), cursor_pos);
 
                 // Origin_right should be the next item which isn't in the NotInsertedYet state.
                 // If we reach the end of the document before that happens, use usize::MAX.
@@ -708,7 +740,6 @@ impl M2Tracker {
                 let cursor = old_cursor.inner;
                 let ins_pos = self.integrate(aa, agent, item, cursor);
 
-
                 let ins_pos_2 = self.integrate2(aa, agent, item, new_cursor, cursor_pos);
                 if CHECK_TREES { assert_eq!(ins_pos, ins_pos_2); }
 
@@ -727,7 +758,7 @@ impl M2Tracker {
 
                 let fwd = op.loc.fwd;
 
-                let (mut cursor, len) = if fwd {
+                let (mut old_cursor, len) = if fwd {
                     let start_pos = op.start();
                     let cursor = self.old_range_tree.mut_cursor_at_content_pos(start_pos, false);
                     (cursor, len)
@@ -748,72 +779,165 @@ impl M2Tracker {
                     (cursor, len)
                 };
 
-                let e = cursor.get_raw_entry();
+                let (cursor_pos, mut new_cursor, len_new) = if fwd {
+                    let start_pos = op.start();
+                    let (end_pos, cursor) = self.new_range_tree.mut_cursor_before_cur_pos(start_pos);
+                    (LenPair::new(start_pos, end_pos), cursor, len)
+                } else {
+                    // We're moving backwards. We need to delete as many items as we can before the
+                    // end of the op.
+                    let last_pos = op.loc.span.last();
+                    // Find the last entry
+                    let (end_pos, mut cursor) = self.new_range_tree.mut_cursor_before_cur_pos(last_pos);
+                    // let mut cursor_pos = LenPair::new(last_pos, end_pos);
 
-                assert_eq!(e.current_state, INSERTED);
+                    let (e, offset) = cursor.0.get_item(&self.new_range_tree);
+                    let entry_origin_start = last_pos - offset;
+                    // let edit_start = entry_origin_start.max(op.start());
+                    let edit_start = entry_origin_start.max(op.end() - len);
+                    let len = op.end() - edit_start;
 
-                // If we've never been deleted locally, we'll need to do that.
-                let ever_deleted = e.end_state_ever_deleted;
+                    debug_assert!(len <= max_len);
+                    debug_assert!(e.takes_up_space::<true>()); // We can't delete this item otherwise.
 
-                // TODO(perf): Reuse cursor. After mutate_single_entry we'll often be at another
-                // entry that we can delete in a run.
+                    let slide_back_by = len - 1;
+                    cursor.0.offset -= slide_back_by;
 
-                // The transformed position that this delete is at. Only actually needed if we're
-                // modifying
-                let del_start_xf = upstream_cursor_pos(&cursor);
+                    let cursor_pos = LenPair::new(
+                        last_pos - slide_back_by,
+                        end_pos - if e.takes_up_space::<false>() { slide_back_by } else { 0 }
+                    );
 
-                let (len2, target) = unsafe {
-                    // It would be tempting - and *nearly* correct to just use local_delete inside the
-                    // range tree. It's hard to bake that logic in here though.
+                    (cursor_pos, cursor, len)
+                };
+                debug_assert_eq!(new_cursor.0.get_pos(&self.new_range_tree), cursor_pos);
+
+                if CHECK_TREES { assert_eq!(len, len_new); }
+
+                // Old.
+                let result = {
+                    let e = old_cursor.get_raw_entry();
+
+                    assert_eq!(e.current_state, INSERTED);
+
+                    // If we've never been deleted locally, we'll need to do that.
+                    let ever_deleted = e.end_state_ever_deleted;
 
                     // TODO(perf): Reuse cursor. After mutate_single_entry we'll often be at another
                     // entry that we can delete in a run.
-                    ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
-                        // println!("Delete {:?}", e.id);
-                        // This will set the state to deleted, and mark ever_deleted in the entry.
-                        e.delete();
-                        e.id
-                    }, &mut cursor.inner, len, old_notify_for(&mut self.old_index))
+
+                    // The transformed position that this delete is at. Only actually needed if we're
+                    // modifying
+                    let del_start_xf = upstream_cursor_pos(&old_cursor);
+
+                    let (len2, target) = unsafe {
+                        // It would be tempting - and *nearly* correct to just use local_delete inside the
+                        // range tree. It's hard to bake that logic in here though.
+
+                        // TODO(perf): Reuse cursor. After mutate_single_entry we'll often be at another
+                        // entry that we can delete in a run.
+                        ContentTreeRaw::unsafe_mutate_single_entry_notify(|e| {
+                            // println!("Delete {:?}", e.id);
+                            // This will set the state to deleted, and mark ever_deleted in the entry.
+                            e.delete();
+                            e.id
+                        }, &mut old_cursor.inner, len, old_notify_for(&mut self.old_index))
+                    };
+
+                    // ContentTree should come to the same length conclusion as us.
+                    if !fwd { debug_assert_eq!(len2, len); }
+                    let len = len2;
+
+                    debug_assert_eq!(len, target.len());
+                    debug_assert_eq!(del_start_xf, upstream_cursor_pos(&old_cursor));
+
+                    let lv_start = op_pair.0;
+
+                    #[cfg(feature = "ops_to_old")] {
+                        self.dbg_ops.push_rle(OldCRDTOpInternal::Del {
+                            start_v: lv_start,
+                            target: RangeRev {
+                                span: target,
+                                fwd,
+                            },
+                        });
+                    }
+
+                    self.old_index.set_range((lv_start..lv_start + len).into(), Marker::Del(DelRange {
+                        target: if fwd { target.start } else { target.end },
+                        fwd,
+                    }).into());
+
+                    (len, if !ever_deleted {
+                        BaseMoved(del_start_xf)
+                    } else {
+                        DeleteAlreadyHappened
+                    })
                 };
 
-                // ContentTree should come to the same length conclusion as us.
-                if !fwd { debug_assert_eq!(len2, len); }
-                let len = len2;
+                // New
+                let result2 = {
+                    let (e, _offset) = new_cursor.0.get_item(&self.new_range_tree);
+                    assert_eq!(e.current_state, INSERTED);
 
-                debug_assert_eq!(len, target.len());
-                debug_assert_eq!(del_start_xf, upstream_cursor_pos(&cursor));
+                    // If we've never been deleted locally, we'll need to do that.
+                    let ever_deleted = e.end_state_ever_deleted;
 
-                let lv_start = op_pair.0;
+                    // The transformed position that this delete is at. Only actually needed if we're
+                    // modifying
+                    // let del_start_xf = cursor_pos.end;
+                    debug_assert_eq!(new_cursor.0.get_pos(&self.new_range_tree), cursor_pos);
 
-                #[cfg(feature = "ops_to_old")] {
-                    self.dbg_ops.push_rle(OldCRDTOpInternal::Del {
-                        start_v: lv_start,
-                        target: RangeRev {
-                            span: target,
-                            fwd
+                    let (len2, target) = self.new_range_tree.mutate_entry(
+                        &mut new_cursor,
+                        len,
+                        &mut new_notify_for(&mut self.new_index),
+                        |e| {
+                            e.delete();
+                            e.id
                         }
-                    });
-                }
+                    );
 
-                // if !is_underwater(target.start) {
-                //     // Deletes must always dominate the item they're deleting in the time dag.
-                //     debug_assert!(cg.parents.version_contains_time(&[lv_start], target.start));
-                // }
+                    // The cursor shouldn't have moved, since the item we traversed over was
+                    // deleted.
+                    // debug_assert_eq!(new_cursor.0.get_pos(&self.new_range_tree), cursor_pos);
 
-                self.old_index.set_range((lv_start..lv_start+len).into(), Marker::Del(DelRange {
-                    target: if fwd { target.start } else { target.end },
-                    fwd
-                }).into());
+                    self.new_range_tree.emplace_cursor(cursor_pos, new_cursor);
 
-                // if cfg!(debug_assertions) {
-                //     self.check_index();
-                // }
+                    // ContentTree should come to the same length conclusion as us.
+                    if !fwd { debug_assert_eq!(len2, len); }
+                    let len = len2;
 
-                (len, if !ever_deleted {
-                    BaseMoved(del_start_xf)
-                } else {
-                    DeleteAlreadyHappened
-                })
+                    debug_assert_eq!(len, target.len());
+                    // debug_assert_eq!(del_start_xf, upstream_cursor_pos(&old_cursor));
+
+                    let lv_start = op_pair.0;
+
+                    // #[cfg(feature = "ops_to_old")] {
+                    //     self.dbg_ops.push_rle(OldCRDTOpInternal::Del {
+                    //         start_v: lv_start,
+                    //         target: RangeRev {
+                    //             span: target,
+                    //             fwd,
+                    //         },
+                    //     });
+                    // }
+
+                    self.new_index.set_range((lv_start..lv_start + len).into(), Marker2::Del(DelRange {
+                        target: if fwd { target.start } else { target.end },
+                        fwd,
+                    }).into());
+
+                    (len, if !ever_deleted {
+                        BaseMoved(cursor_pos.end)
+                    } else {
+                        DeleteAlreadyHappened
+                    })
+                };
+
+                assert_eq!(result, result2);
+
+                result
             }
         }
     }
@@ -1256,9 +1380,11 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 match action {
                     M1PlanAction::Retreat(span) => {
                         self.tracker.retreat_by_range(*span);
+                        // self.tracker.check_new_index();
                     }
                     M1PlanAction::Advance(span) => {
                         self.tracker.advance_by_range(*span);
+                        // self.tracker.check_new_index();
                     }
                     M1PlanAction::Apply(span) => {
                         // println!("frontier {:?} + span {:?}", self.max_frontier, *span);
@@ -1334,7 +1460,9 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
             let span = self.aa.local_span_to_agent_span(pair.span());
             let len = span.len().min(pair.len());
 
+            // self.tracker.check_new_index();
             let (consumed_here, xf_result) = self.tracker.apply(self.aa, self.op_ctx, &pair, len, span.agent);
+            // self.tracker.check_new_index();
 
             let remainder = pair.trim_ctx(consumed_here, self.op_ctx);
 
