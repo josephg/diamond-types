@@ -11,14 +11,14 @@
 //! time.
 
 use std::pin::Pin;
-use content_tree::{ContentTreeRaw, MutCursor, RawPositionMetricsUsize, UnsafeCursor};
-use crate::listmerge::markers::{Marker, Marker2};
+
+use content_tree::ContentTreeRaw;
+
+use crate::listmerge::markers::Marker;
 use crate::listmerge::metrics::MarkerMetrics;
 use crate::listmerge::yjsspan::CRDTSpan;
-use crate::LV;
 use crate::ost::content_tree::ContentTree;
 use crate::ost::IndexTree;
-use crate::ost::recording_index_tree::RecordingTree;
 
 pub(crate) mod yjsspan;
 pub(crate) mod merge;
@@ -57,7 +57,7 @@ type CRDTList2 = Pin<Box<ContentTreeRaw<CRDTSpan, DocRangeIndex>>>;
 // RecordingTree is necessary if gen_test_data is enabled.
 // type Index = RecordingTree<Marker>;
 type OldIndex = IndexTree<Marker>;
-type NewIndex = IndexTree<Marker2>;
+type NewIndex = IndexTree<Marker>;
 
 #[derive(Debug)]
 struct M2Tracker {
@@ -68,9 +68,9 @@ struct M2Tracker {
     ///
     /// - For inserts, this contains a pointer to the node in range_tree which contains this version
     /// - For deletes, this names the time at which the delete happened.
-    new_index: NewIndex,
+    index: NewIndex,
     
-    new_range_tree: ContentTree<CRDTSpan>,
+    range_tree: ContentTree<CRDTSpan>,
 
     #[cfg(feature = "merge_conflict_checks")]
     concurrent_inserts_collide: bool,
