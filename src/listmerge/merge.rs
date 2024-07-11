@@ -183,7 +183,8 @@ impl M2Tracker {
             // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
             // just panic() here.
             // self.new_range_tree.cursor_at_end()
-            unreachable!();
+            // unreachable!();
+            panic!();
         } else {
             let leaf_idx = self.new_marker_at(lv);
             self.new_range_tree.cursor_before_item(lv, leaf_idx)
@@ -475,11 +476,13 @@ impl M2Tracker {
             cursor_pos.cur += if item.takes_up_space::<true>() { item.len() - offset } else { 0 };
             cursor_pos.end += if item.takes_up_space::<false>() { item.len() - offset } else { 0 };
 
-            if !dc.next_entry(&mut self.new_range_tree) {
+            // Just using the cursor version of next_entry since delta is 0.
+            if !dc.0.next_entry(&self.new_range_tree).0 {
                 // This is dirty. If the cursor can't move to the next entry, we still need to move
                 // it to the end of the current element or we'll prepend. next_entry() doesn't do
                 // that for some reason. TODO: Clean this up.
-                unreachable!();
+                panic!();
+                // unreachable!();
                 // dc.0.offset = other_entry.len();
                 // break;
             }
@@ -665,17 +668,20 @@ impl M2Tracker {
 
                 let origin_right = if !new_cursor.roll_next_item(&mut self.new_range_tree) {
                     // Because the list has underwater elements, this will never happen.
-                    unreachable!()
+                    panic!("xxx");
+                    // unreachable!()
                     // usize::MAX
                 } else {
                     let mut c2 = new_cursor.0.clone();
+
                     loop {
                         let (e, offset) = c2.get_item(&self.new_range_tree);
 
                         if e.current_state != NOT_INSERTED_YET {
                             break e.at_offset(offset);
                         }
-                        debug_assert!(c2.next_entry(&self.new_range_tree).0);
+                        let is_next_entry = c2.next_entry(&self.new_range_tree).0;
+                        debug_assert!(is_next_entry);
                     }
                 };
 

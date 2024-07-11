@@ -551,12 +551,10 @@ impl<V: Content> ContentTree<V> {
             let mut elem_idx2 = scan_start;
             while elem_idx2 < LEAF_CHILDREN {
                 let entry2 = &leaf.children[elem_idx2];
-                if entry2.exists() && entry.can_append(entry2) {
-                    entry.append(*entry2);
-                    elem_idx2 += 1;
-                } else {
-                    break;
-                }
+                if !entry2.exists() || !entry.can_append(entry2) { break; }
+
+                entry.append(*entry2);
+                elem_idx2 += 1;
             }
             if elem_idx2 > scan_start {
                 leaf.children[cursor.elem_idx] = entry;
