@@ -88,7 +88,9 @@ impl<E: ContentTraits, I: TreeMetrics<E>, const IE: usize, const LE: usize> Cont
             cursor.offset = 0;
             cursor.idx += 1; // NOTE: Cursor might point past the end of the node.
 
-            if remainder.is_none() && !items.is_empty() && cursor.idx < node.len_entries() {
+            if remainder.is_none() && cursor.idx < node.len_entries() {
+                debug_assert!(!items.is_empty()); // Or we would have returned above.
+
                 // We'll also try to *prepend* some content on the front of the subsequent element
                 // I'm sure there's a way to do this using iterators, but I'm not sure it would be
                 // cleaner.

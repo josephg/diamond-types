@@ -7,10 +7,10 @@ use std::ptr::NonNull;
 use jumprope::JumpRopeBuf;
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
-use content_tree::*;
+use content_tree::{ContentTreeRaw, NodeLeaf, DEFAULT_IE, DEFAULT_LE, Cursor, UnsafeCursor, MutCursor};
 use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, RleDRun, Searchable, SplitableSpanCtx, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
-use crate::listmerge::{DocRangeIndex, Index, M2Tracker};
+use crate::listmerge::{DocRangeIndex, OldIndex, M2Tracker, NewIndex};
 use crate::listmerge::yjsspan::{INSERTED, NOT_INSERTED_YET, CRDTSpan};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::{DTRange, UNDERWATER_START};
@@ -27,7 +27,7 @@ use crate::listmerge::dot::{DotColor, name_of};
 #[cfg(feature = "dot_export")]
 use crate::listmerge::dot::DotColor::*;
 
-use crate::listmerge::markers::{Marker, DelRange};
+use crate::listmerge::markers::{Marker, DelRange, Marker2};
 use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::listmerge::metrics::upstream_cursor_pos;
 use crate::list::op_iter::OpMetricsIter;
@@ -39,7 +39,8 @@ use crate::list::ListOpLog;
 use crate::listmerge::plan::{M1Plan, M1PlanAction};
 #[cfg(feature = "ops_to_old")]
 use crate::listmerge::to_old::OldCRDTOpInternal;
-use crate::ost::IndexTree;
+use crate::ost::content_tree::{Content, ContentCursor, ContentTree, DeltaCursor};
+use crate::ost::{IndexTree, LeafIdx, LenPair, LenUpdate};
 use crate::ost::recording_index_tree::TreeCommand;
 use crate::rle::rle_vec::RleVecRangeIter;
 use crate::unicount::consume_chars;
@@ -49,7 +50,9 @@ const ALLOW_FF: bool = true;
 #[cfg(feature = "dot_export")]
 const MAKE_GRAPHS: bool = false;
 
-pub(super) fn notify_for<'a>(index: &'a mut Index) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
+const CHECK_TREES: bool = false;
+
+pub(super) fn old_notify_for<'a>(index: &'a mut OldIndex) -> impl FnMut(CRDTSpan, NonNull<NodeLeaf<CRDTSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>>) + 'a {
     move |entry: CRDTSpan, leaf| {
         debug_assert!(leaf != NonNull::dangling());
 
@@ -63,6 +66,22 @@ pub(super) fn notify_for<'a>(index: &'a mut Index) -> impl FnMut(CRDTSpan, NonNu
     }
 }
 
+pub(super) fn new_notify_for<'a>(index: &'a mut NewIndex) -> impl FnMut(CRDTSpan, LeafIdx) + 'a {
+    move |entry: CRDTSpan, leaf| {
+        debug_assert!(leaf.exists());
+
+        // Note we can only mutate_entries when we have something to mutate. The list is started
+        // with a big placeholder "underwater" entry which will be split up as needed.
+
+        // println!("SET RANGE {:?} -> {:?}", entry.id, InsPtr(leaf));
+
+        index.set_range(entry.id, Marker2::InsPtr(leaf));
+
+        // index.dbg_check();
+    }
+}
+
+
 #[allow(unused)]
 fn take_content<'a>(x: Option<&mut &'a str>, len: usize) -> Option<&'a str> {
     if let Some(s) = x {
@@ -72,18 +91,23 @@ fn take_content<'a>(x: Option<&mut &'a str>, len: usize) -> Option<&'a str> {
 
 impl M2Tracker {
     pub(super) fn new() -> Self {
-        let underwater = CRDTSpan::new_underwater();
-
         let mut result = Self {
-            range_tree: ContentTreeRaw::new(),
-            index: Default::default(),
+            old_range_tree: ContentTreeRaw::new(),
+            old_index: Default::default(),
+
+            new_range_tree: ContentTree::new(),
+            new_index: IndexTree::new(),
+
+
             #[cfg(feature = "merge_conflict_checks")]
             concurrent_inserts_collide: false,
             #[cfg(feature = "ops_to_old")]
             dbg_ops: vec![]
         };
 
-        result.range_tree.push_notify(underwater, notify_for(&mut result.index));
+        let underwater = CRDTSpan::new_underwater();
+        result.old_range_tree.push_notify(underwater, old_notify_for(&mut result.old_index));
+        result.new_range_tree.set_single_item_notify(underwater, new_notify_for(&mut result.new_index));
 
         // result.check_index();
         result
@@ -91,56 +115,78 @@ impl M2Tracker {
 
     pub(super) fn clear(&mut self) {
         // TODO: Could make this cleaner with a clear() function in ContentTree.
-        self.range_tree = ContentTreeRaw::new();
-
-        self.index.clear();
+        self.old_range_tree = ContentTreeRaw::new();
+        self.old_index.clear();
 
         let underwater = CRDTSpan::new_underwater();
         // pad_index_to(&mut self.index.index_old, underwater.id.end);
-        self.range_tree.push_notify(underwater, notify_for(&mut self.index));
+        self.old_range_tree.push_notify(underwater, old_notify_for(&mut self.old_index));
+
+
+        self.new_range_tree.clear();
+        self.new_range_tree.set_single_item_notify(underwater, new_notify_for(&mut self.new_index));
+
 
         // self.check_index();
     }
 
-    pub(super) fn marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
-        let marker = self.index.get_entry(lv).val;
+    pub(super) fn old_marker_at(&self, lv: LV) -> NonNull<NodeLeaf<CRDTSpan, DocRangeIndex>> {
+        let marker = self.old_index.get_entry(lv).val;
         let Marker::InsPtr(ptr) = marker else { panic!("No marker at lv") };
         ptr
     }
 
+    pub(super) fn new_marker_at(&self, lv: LV) -> LeafIdx {
+        let marker = self.new_index.get_entry(lv).val;
+        let Marker2::InsPtr(leaf) = marker else { panic!("No marker at lv") };
+        leaf
+    }
+
     #[allow(unused)]
     pub(super) fn check_index(&self) {
-        self.index.dbg_check();
+        self.old_index.dbg_check();
 
         // Go through each entry in the range tree and make sure we can find it using the index.
-        for entry in self.range_tree.raw_iter() {
-            let marker = self.marker_at(entry.id.start);
+        for entry in self.old_range_tree.raw_iter() {
+            let marker = self.old_marker_at(entry.id.start);
             debug_assert!(marker != NonNull::dangling());
             let val = unsafe { marker.as_ref() }.find(entry.id.start).unwrap();
             assert_eq!(unsafe { val.unsafe_get_item() }, Some(entry.id.start));
         }
     }
 
-    fn get_cursor_before(&self, lv: LV) -> Cursor<CRDTSpan, DocRangeIndex> {
+    fn get_old_cursor_before(&self, lv: LV) -> Cursor<CRDTSpan, DocRangeIndex> {
         if lv == usize::MAX {
             // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
             // just panic() here.
-            self.range_tree.cursor_at_end()
+            self.old_range_tree.cursor_at_end()
         } else {
-            let marker = self.marker_at(lv);
-            self.range_tree.cursor_before_item(lv, marker)
+            let marker = self.old_marker_at(lv);
+            self.old_range_tree.cursor_before_item(lv, marker)
+        }
+    }
+
+    fn get_new_cursor_before(&self, lv: LV) -> ContentCursor {
+        if lv == usize::MAX {
+            // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
+            // just panic() here.
+            // self.new_range_tree.cursor_at_end()
+            unreachable!();
+        } else {
+            let leaf_idx = self.new_marker_at(lv);
+            self.new_range_tree.cursor_before_item(lv, leaf_idx)
         }
     }
 
     // pub(super) fn get_unsafe_cursor_after(&self, time: Time, stick_end: bool) -> UnsafeCursor<YjsSpan2, DocRangeIndex> {
-    fn get_cursor_after(&self, lv: LV, stick_end: bool) -> Cursor<CRDTSpan, DocRangeIndex> {
+    fn get_old_cursor_after(&self, lv: LV, stick_end: bool) -> Cursor<CRDTSpan, DocRangeIndex> {
         if lv == usize::MAX {
-            self.range_tree.cursor_at_start()
+            self.old_range_tree.cursor_at_start()
         } else {
-            let marker = self.marker_at(lv);
+            let marker = self.old_marker_at(lv);
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
             // self.content_tree.
-            let mut cursor = self.range_tree.cursor_before_item(lv, marker);
+            let mut cursor = self.old_range_tree.cursor_before_item(lv, marker);
             // The cursor points to parent. This is safe because of guarantees provided by
             // cursor_before_item.
             cursor.offset += 1;
@@ -149,12 +195,29 @@ impl M2Tracker {
         }
     }
 
+    fn get_new_cursor_after(&self, lv: LV, stick_end: bool) -> ContentCursor {
+        if lv == usize::MAX {
+            self.new_range_tree.cursor_at_start_nothing_emplaced()
+        } else {
+            let leaf_idx = self.new_marker_at(lv);
+            // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
+            // self.content_tree.
+            let mut cursor = self.new_range_tree.cursor_before_item(lv, leaf_idx);
+            // The cursor points to parent. This is safe because of guarantees provided by
+            // cursor_before_item.
+            cursor.inc_offset(&self.new_range_tree);
+            if !stick_end { cursor.roll_next_item(&self.new_range_tree); }
+            cursor
+        }
+    }
+
+
+
     // TODO: Rewrite this to take a MutCursor instead of UnsafeCursor argument.
     pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: CRDTSpan, mut cursor: UnsafeCursor<CRDTSpan, DocRangeIndex>) -> usize {
         debug_assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
-        cursor.roll_to_next_entry();
 
         // These are almost never used. Could avoid the clone here... though its pretty cheap.
         let left_cursor = cursor.clone();
@@ -192,7 +255,7 @@ impl M2Tracker {
             // anyway.
 
             let other_left_lv = other_entry.origin_left_at_offset(cursor.offset);
-            let other_left_cursor = self.get_cursor_after(other_left_lv, false);
+            let other_left_cursor = self.get_old_cursor_after(other_left_lv, false);
 
             // YjsMod / Fugue semantics. (The code here is the same for both CRDTs).
             match unsafe { other_left_cursor.unsafe_cmp(&left_cursor) } {
@@ -231,8 +294,8 @@ impl M2Tracker {
                         }
                     } else {
                         // Set scanning based on how the origin_right entries are ordered.
-                        let my_right_cursor = self.get_cursor_before(item.origin_right);
-                        let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
+                        let my_right_cursor = self.get_old_cursor_before(item.origin_right);
+                        let other_right_cursor = self.get_old_cursor_before(other_entry.origin_right);
 
                         if other_right_cursor < my_right_cursor {
                             if !scanning {
@@ -267,20 +330,175 @@ impl M2Tracker {
 
         if cfg!(debug_assertions) {
             let pos = unsafe { cursor.unsafe_count_content_pos() };
-            let len = self.range_tree.content_len();
+            let len = self.old_range_tree.content_len();
             assert!(pos <= len);
         }
 
         // Now insert here.
-        let mut cursor = unsafe { MutCursor::unchecked_from_raw(&mut self.range_tree, cursor) };
+        let mut cursor = unsafe { MutCursor::unchecked_from_raw(&mut self.old_range_tree, cursor) };
         let content_pos = upstream_cursor_pos(&cursor);
 
         // (Safe variant):
         // cursor.insert_notify(item, notify_for(&mut self.index));
 
-        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
+        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, old_notify_for(&mut self.old_index)); }
         // self.check_index();
         content_pos
+    }
+
+    pub(super) fn integrate2(&mut self, aa: &AgentAssignment, agent: AgentId, item: CRDTSpan, mut dc: DeltaCursor, mut cursor_pos: LenPair) -> usize {
+        debug_assert_eq!(dc.0.get_pos(&self.new_range_tree), cursor_pos);
+        // let DeltaCursor(mut cursor, mut delta) = dc;
+        debug_assert!(item.len() > 0);
+    
+        // Ok now that's out of the way, lets integrate!
+    
+        // These are almost never used. Could avoid the clone here... though its pretty cheap.
+        let left_cursor = dc.0.clone();
+        let mut scan_cursor = dc.0.clone();
+        let mut scan_pos = cursor_pos;
+        let mut scanning = false;
+
+        loop {
+            if dc.0.offset > 0 // If cursor > 0, the item we're on now is INSERTED.
+                || !dc.roll_next_item(&mut self.new_range_tree) { // End of the document
+                break;
+            }
+    
+            // let other_entry: CRDTSpan = *cursor.get_raw_entry();
+            let other_entry = *dc.0.get_item(&self.new_range_tree).0;
+
+            // When concurrent edits happen, the range of insert locations goes from the insert
+            // position itself (passed in through cursor) to the next item which existed at the
+            // time in which the insert occurred.
+            let other_lv = other_entry.id.start;
+            // This test is almost always true. (Ie, we basically always break here).
+            if other_lv == item.origin_right { break; }
+
+            // We're now in the rare case there's actually concurrent inserts. To make the logic
+            // simpler, at this point we'll zero out the delta.
+            dc.flush_delta_and_clear(&mut self.new_range_tree);
+            // After this point, dc.1 is always zero.
+
+            debug_assert_eq!(dc.1, LenUpdate::default());
+    
+            debug_assert_eq!(other_entry.current_state, NOT_INSERTED_YET);
+            // if other_entry.state != NOT_INSERTED_YET { break; }
+    
+            // When preparing example data, its important that the data can merge the same
+            // regardless of editing trace (so the output isn't dependent on the algorithm used to
+            // merge).
+            #[cfg(feature = "merge_conflict_checks")] {
+                //println!("Concurrent changes {:?} vs {:?}", item.id, other_entry.id);
+                self.concurrent_inserts_collide = true;
+            }
+    
+            // This code could be better optimized, but its already O(n * log n), and its extremely
+            // rare that you actually get concurrent inserts at the same location in the document
+            // anyway.
+    
+            let other_left_lv = other_entry.origin_left_at_offset(dc.0.offset);
+            let other_left_cursor = self.get_new_cursor_after(other_left_lv, false);
+    
+            // YjsMod / Fugue semantics. (The code here is the same for both CRDTs).
+            match other_left_cursor.cmp(&left_cursor, &self.new_range_tree) {
+                Ordering::Less => { break; } // Top row
+                Ordering::Greater => {} // Bottom row. Continue.
+                Ordering::Equal => {
+                    if item.origin_right == other_entry.origin_right {
+                        // Origin_right matches. Items are concurrent. Order by agent names.
+                        let my_name = aa.get_agent_name(agent);
+    
+                        let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
+                        let other_name = aa.get_agent_name(other_agent);
+                        // eprintln!("concurrent insert at the same place {} ({}) vs {} ({})", item.id.start, my_name, other_lv, other_name);
+    
+                        // It's possible for a user to conflict with themselves if they commit to
+                        // multiple branches. In this case, sort by seq number.
+                        let ins_here = match my_name.cmp(other_name) {
+                            Ordering::Less => true,
+                            Ordering::Equal => {
+                                // We can't compare versions here because sequence numbers could be
+                                // used out of order, and the relative version ordering isn't
+                                // consistent in that case.
+                                //
+                                // We could cache this but this code doesn't run often anyway.
+                                let item_seq = aa.local_to_agent_version(item.id.start).1;
+                                item_seq < other_seq
+                            }
+                            Ordering::Greater => false,
+                        };
+    
+                        // Insert here.
+                        if ins_here { break; }
+                        else { scanning = false; }
+                    } else {
+                        // Set scanning based on how the origin_right entries are ordered.
+                        let my_right_cursor = self.get_new_cursor_before(item.origin_right);
+                        let other_right_cursor = self.get_new_cursor_before(other_entry.origin_right);
+    
+                        if other_right_cursor.cmp(&my_right_cursor, &self.new_range_tree) == Ordering::Less {
+                            if !scanning {
+                                scanning = true;
+                                scan_cursor = dc.0.clone();
+                                scan_pos = cursor_pos;
+                            }
+                        } else {
+                            scanning = false;
+                        }
+                    }
+                }
+            }
+    
+            // This looks wrong. The entry in the range tree is a run with:
+            // - Incrementing orders (maybe from different peers)
+            // - With incrementing origin_left.
+            // Q: Is it possible that we get different behaviour if we don't separate out each
+            // internal run within the entry and visit each one separately?
+            //
+            // The fuzzer says no, we don't need to do that. I assume it's because internal entries
+            // have higher origin_left, and thus they can't be peers with the newly inserted item
+            // (which has a lower origin_left).
+            let (item, offset) = dc.0.get_item(&self.new_range_tree);
+            cursor_pos.cur += if item.takes_up_space::<true>() { item.len() - offset } else { 0 };
+            cursor_pos.end += if item.takes_up_space::<false>() { item.len() - offset } else { 0 };
+
+            if !dc.next_entry(&mut self.new_range_tree) {
+                // This is dirty. If the cursor can't move to the next entry, we still need to move
+                // it to the end of the current element or we'll prepend. next_entry() doesn't do
+                // that for some reason. TODO: Clean this up.
+                unreachable!();
+                // dc.0.offset = other_entry.len();
+                // break;
+            }
+
+            debug_assert_eq!(dc.0.get_pos(&self.new_range_tree), cursor_pos);
+        }
+
+        if scanning {
+            debug_assert_eq!(dc.1, LenUpdate::default());
+            debug_assert_eq!(scan_cursor.get_pos(&self.new_range_tree), scan_pos);
+            dc.0 = scan_cursor;
+            cursor_pos = scan_pos;
+        }
+    
+        // if cfg!(debug_assertions) {
+        //     let pos = unsafe { cursor.unsafe_count_content_pos() };
+        //     let len = self.old_range_tree.content_len();
+        //     assert!(pos <= len);
+        // }
+
+        // Now insert here.
+        let end_pos = cursor_pos.end;
+        // The insert operation moves the cursor to after the inserted item.
+        cursor_pos += item.content_len_pair();
+
+        self.new_range_tree.insert(item, &mut dc, true, &mut new_notify_for(&mut self.new_index));
+
+        self.new_range_tree.emplace_cursor(cursor_pos, dc);
+
+        // We return the resulting end pos of the insert, *before* its been inserted.
+        end_pos
     }
 
     fn apply_range(&mut self, aa: &AgentAssignment, op_ctx: &ListOperationCtx, ops: &RleVec<KVPair<ListOpMetrics>>, range: DTRange, mut to: Option<&mut JumpRopeBuf>) {
@@ -398,34 +616,66 @@ impl M2Tracker {
 
                 // UNDERWATER_START = 4611686018427387903
 
-                let (origin_left, mut cursor) = if op.start() == 0 {
-                    (usize::MAX, self.range_tree.mut_cursor_at_start())
+                let (origin_left, mut old_cursor, end_pos, mut new_cursor) = if op.start() == 0 {
+                    (usize::MAX, self.old_range_tree.mut_cursor_at_start(), 0, self.new_range_tree.mut_cursor_at_start())
                 } else {
-                    let mut cursor = self.range_tree.mut_cursor_at_content_pos(op.start() - 1, false);
+                    let mut cursor = self.old_range_tree.mut_cursor_at_content_pos(op.start() - 1, false);
                     // dbg!(&cursor, cursor.get_raw_entry());
                     let origin_left = cursor.get_item().unwrap();
                     assert!(cursor.next_item());
-                    (origin_left, cursor)
+
+
+                    let (mut end_pos, mut new_cursor) = self.new_range_tree.mut_cursor_before_cur_pos(op.start() - 1);
+                    let (e, offset) = new_cursor.0.get_item(&self.new_range_tree);
+                    let origin_left_2 = e.id.start + offset;
+                    end_pos += e.takes_up_space::<false>() as usize;
+                    if CHECK_TREES { assert_eq!(origin_left, origin_left_2); }
+                    new_cursor.0.inc_offset(&self.new_range_tree);
+
+                    (origin_left, cursor, end_pos, new_cursor)
                 };
+                let cursor_pos = LenPair::new(op.start(), end_pos);
 
                 // Origin_right should be the next item which isn't in the NotInsertedYet state.
                 // If we reach the end of the document before that happens, use usize::MAX.
 
-                let origin_right = if !cursor.roll_to_next_entry() {
-                    usize::MAX
+                let origin_right = if !old_cursor.roll_to_next_entry() {
+                    // Because the list has underwater elements, this will never happen.
+                    unreachable!()
+                    // usize::MAX
                 } else {
-                    let mut c2 = cursor.clone();
+                    let mut c2 = old_cursor.clone();
                     loop {
-                        let Some(e) = c2.try_get_raw_entry() else { break usize::MAX; };
+                        let Some(e) = c2.try_get_raw_entry() else {
+                            unreachable!(); // Same reason as above.
+                            // break usize::MAX;
+                        };
 
                         if e.current_state != NOT_INSERTED_YET {
                             break e.at_offset(c2.offset);
                         } else {
-                            if !c2.next_entry() { break usize::MAX; } // End of the list.
-                            // Otherwise keep looping.
+                            // This should always return true because of underwater elements.
+                            debug_assert!(c2.next_entry());
                         }
                     }
                 };
+
+                let origin_right_new = if !new_cursor.roll_next_item(&mut self.new_range_tree) {
+                    // Because the list has underwater elements, this will never happen.
+                    unreachable!()
+                    // usize::MAX
+                } else {
+                    let mut c2 = new_cursor.0.clone();
+                    loop {
+                        let (e, offset) = c2.get_item(&self.new_range_tree);
+
+                        if e.current_state != NOT_INSERTED_YET {
+                            break e.at_offset(offset);
+                        }
+                        debug_assert!(c2.next_entry(&self.new_range_tree).0);
+                    }
+                };
+                if CHECK_TREES { assert_eq!(origin_right, origin_right_new); }
 
                 let mut lv_span = op_pair.span();
                 lv_span.trim(len);
@@ -455,8 +705,13 @@ impl M2Tracker {
                 }
 
                 // This is dirty because the cursor's lifetime is not associated with self.
-                let cursor = cursor.inner;
+                let cursor = old_cursor.inner;
                 let ins_pos = self.integrate(aa, agent, item, cursor);
+
+
+                let ins_pos_2 = self.integrate2(aa, agent, item, new_cursor, cursor_pos);
+                if CHECK_TREES { assert_eq!(ins_pos, ins_pos_2); }
+
                 // self.range_tree.check();
                 // self.check_index();
 
@@ -474,14 +729,14 @@ impl M2Tracker {
 
                 let (mut cursor, len) = if fwd {
                     let start_pos = op.start();
-                    let cursor = self.range_tree.mut_cursor_at_content_pos(start_pos, false);
+                    let cursor = self.old_range_tree.mut_cursor_at_content_pos(start_pos, false);
                     (cursor, len)
                 } else {
                     // We're moving backwards. We need to delete as many items as we can before the
                     // end of the op.
                     let last_pos = op.loc.span.last();
                     // Find the last entry
-                    let mut cursor = self.range_tree.mut_cursor_at_content_pos(last_pos, false);
+                    let mut cursor = self.old_range_tree.mut_cursor_at_content_pos(last_pos, false);
 
                     let entry_origin_start = last_pos - cursor.offset;
                     // let edit_start = entry_origin_start.max(op.start());
@@ -518,7 +773,7 @@ impl M2Tracker {
                         // This will set the state to deleted, and mark ever_deleted in the entry.
                         e.delete();
                         e.id
-                    }, &mut cursor.inner, len, notify_for(&mut self.index))
+                    }, &mut cursor.inner, len, old_notify_for(&mut self.old_index))
                 };
 
                 // ContentTree should come to the same length conclusion as us.
@@ -545,7 +800,7 @@ impl M2Tracker {
                 //     debug_assert!(cg.parents.version_contains_time(&[lv_start], target.start));
                 // }
 
-                self.index.set_range((lv_start..lv_start+len).into(), Marker::Del(DelRange {
+                self.old_index.set_range((lv_start..lv_start+len).into(), Marker::Del(DelRange {
                     target: if fwd { target.start } else { target.end },
                     fwd
                 }).into());
@@ -953,7 +1208,7 @@ impl<'a> TransformedOpsIter<'a> {
 
     pub(crate) fn tracker_count(&self) -> usize {
         // self.tracker.range_tree.count_total_memory()
-        self.tracker.range_tree.count_entries()
+        self.tracker.old_range_tree.count_entries()
     }
 
     #[allow(unused)]
@@ -1345,7 +1600,7 @@ mod test {
     fn items(tracker: &M2Tracker, filter_underwater: usize) -> Vec<CRDTSpan> {
         let trim_from = UNDERWATER_START + filter_underwater;
 
-        tracker.range_tree
+        tracker.old_range_tree
             .iter()
             .filter_map(|mut i| {
                 // dbg!((i.id.end, trim_from, i.id.start));

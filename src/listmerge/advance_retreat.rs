@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 use content_tree::NodeLeaf;
 use rle::{HasLength, RleDRun, SplitableSpan};
 use crate::listmerge::{DocRangeIndex, M2Tracker};
-use crate::listmerge::merge::notify_for;
+use crate::listmerge::merge::old_notify_for;
 use crate::rev_range::RangeRev;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::list::operation::ListOpKind;
@@ -31,7 +31,7 @@ impl M2Tracker {
 
         let RleDRun {
             start, end, val: marker
-        } = self.index.get_entry(lv);
+        } = self.old_index.get_entry(lv);
 
         // println!("{:?}", marker);
         // dbg!(&self.index.index2);
@@ -86,11 +86,11 @@ impl M2Tracker {
             while !target_range.is_empty() {
                 // We'll only get a pointer when we're inserting. Note we can't reuse the ptr
                 // across subsequent invocations because we mutate the range_tree.
-                let ptr = ptr.take().unwrap_or_else(|| self.marker_at(target_range.start));
-                let mut cursor = self.range_tree.mut_cursor_before_item(target_range.start, ptr);
+                let ptr = ptr.take().unwrap_or_else(|| self.old_marker_at(target_range.start));
+                let mut cursor = self.old_range_tree.mut_cursor_before_item(target_range.start, ptr);
                 target_range.start += cursor.mutate_single_entry_notify(
                     target_range.len(),
-                    notify_for(&mut self.index),
+                    old_notify_for(&mut self.old_index),
                     |e| {
                         if tag == ListOpKind::Ins {
                             e.current_state.mark_inserted();
@@ -141,12 +141,12 @@ impl M2Tracker {
 
                 // We can't reuse the pointer returned by the index_query call because we mutate
                 // each loop iteration.
-                let ptr = ptr.take().unwrap_or_else(|| self.marker_at(target_range.start));
-                let mut cursor = self.range_tree.mut_cursor_before_item(target_range.start, ptr);
+                let ptr = ptr.take().unwrap_or_else(|| self.old_marker_at(target_range.start));
+                let mut cursor = self.old_range_tree.mut_cursor_before_item(target_range.start, ptr);
 
                 target_range.start += cursor.mutate_single_entry_notify(
                     target_range.len(),
-                    notify_for(&mut self.index),
+                    old_notify_for(&mut self.old_index),
                     |e| {
                         if tag == ListOpKind::Ins {
                             e.current_state.mark_not_inserted_yet();

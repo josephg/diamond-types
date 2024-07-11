@@ -46,7 +46,7 @@ impl<'a> TransformedOpsIterOld<'a> {
     #[allow(unused)]
     pub(crate) fn count_range_tracker_size(&self) -> usize {
         self.phase2.as_ref()
-            .map(|(tracker, _)| { tracker.range_tree.count_entries() })
+            .map(|(tracker, _)| { tracker.old_range_tree.count_entries() })
             .unwrap_or_default()
     }
 

@@ -1,8 +1,9 @@
 use std::fmt::{Debug, Formatter};
 use content_tree::{ContentLength, Toggleable};
-use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
+use rle::{HasLength, HasRleKey, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::LV;
 use crate::dtrange::{debug_lv, DTRange, UNDERWATER_START};
+use crate::ost::content_tree::Content;
 
 /// 0 = not inserted yet,
 /// 1 = inserted but not deleted
@@ -231,6 +232,30 @@ impl Toggleable for CRDTSpan {
         // debug_assert!(!self.is_deleted);
         // self.state.delete();
         self.delete();
+    }
+}
+
+// impl HasRleKey for CRDTSpan {
+//     fn rle_key(&self) -> usize {
+//         self.id.start
+//     }
+// }
+
+impl Content for CRDTSpan {
+    fn exists(&self) -> bool {
+        self.id.end > 0
+    }
+
+    fn takes_up_space<const IS_CUR: bool>(&self) -> bool {
+        if IS_CUR {
+            self.current_state == INSERTED
+        } else {
+            self.end_state_ever_deleted == false
+        }
+    }
+
+    fn none() -> Self {
+        Self::default()
     }
 }
 
