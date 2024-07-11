@@ -40,6 +40,7 @@ fn merge_fuzz(seed: u64, verbose: bool) {
 
     for _i in 0..300 {
         if verbose { println!("\n\ni {}", _i); }
+        // println!("i {}", _i);
         // Generate some operations
         for _j in 0..2 {
         // for _j in 0..5 {
@@ -71,7 +72,7 @@ fn merge_fuzz(seed: u64, verbose: bool) {
             println!();
         }
 
-        // if _i == 27 {
+        // if _i == 72 {
         //     println!();
         //     // dbg!(&opset.client_with_localtime);
         // }
@@ -83,6 +84,10 @@ fn merge_fuzz(seed: u64, verbose: bool) {
         if verbose {
             println!("-> a content '{}'\n", a.content);
         }
+
+        // if _i == 11 {
+        //     println!();
+        // }
 
         if verbose { println!("Merge a to b: {:?} -> {:?}", &a.version, &b.version); }
         oplog.merge_to_version(b, a.version.as_ref());
@@ -132,7 +137,7 @@ fn merge_fuzz(seed: u64, verbose: bool) {
 // // Included in standard smoke tests.
 #[test]
 fn fuzz_once_quietly_new() {
-    merge_fuzz(0, false);
+    merge_fuzz(1, true);
 }
 
 #[test]

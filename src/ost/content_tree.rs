@@ -543,6 +543,26 @@ impl<V: Content> ContentTree<V> {
             inc_delta_update(delta, entry);
             // self.flush_delta_len(cursor.leaf_idx, cursor.delta);
             cursor.offset = entry_len;
+            
+            // We'll also do a brief best-effort attempt at merging this modified item with
+            // subsequent items in the leaf.
+            let mut entry = leaf.children[cursor.elem_idx];
+            let scan_start = cursor.elem_idx + 1;
+            let mut elem_idx2 = scan_start;
+            while elem_idx2 < LEAF_CHILDREN {
+                let entry2 = &leaf.children[elem_idx2];
+                if entry2.exists() && entry.can_append(entry2) {
+                    entry.append(*entry2);
+                    elem_idx2 += 1;
+                } else {
+                    break;
+                }
+            }
+            if elem_idx2 > scan_start {
+                leaf.children[cursor.elem_idx] = entry;
+                remove_from_array_fill(&mut leaf.children, scan_start..elem_idx2, V::none());
+            }
+            
             return (entry_len, r);
         }
 
@@ -1183,7 +1203,7 @@ impl<V: Content> ContentTree<V> {
         debug_assert!(
             (content_pos == 0 && self.is_empty())
             || self.leaves[idx].children[elem_idx].takes_up_space::<true>());
-        
+
         (
             end_pos + rel_end_pos,
             DeltaCursor(ContentCursor {

@@ -157,16 +157,16 @@ impl LenUpdate {
 
 // In debug mode, nodes are kept intentionally small to exercise the node splitting / joining code
 // more.
-// #[cfg(debug_assertions)]
+#[cfg(debug_assertions)]
 const NODE_CHILDREN: usize = 4;
-// #[cfg(debug_assertions)]
+#[cfg(debug_assertions)]
 const LEAF_CHILDREN: usize = 4;
 
-// // Figured out with benchmarking.
-// #[cfg(not(debug_assertions))]
-// const NODE_CHILDREN: usize = 16;
-// #[cfg(not(debug_assertions))]
-// const LEAF_CHILDREN: usize = 32;
+// Figured out with benchmarking.
+#[cfg(not(debug_assertions))]
+const NODE_CHILDREN: usize = 16;
+#[cfg(not(debug_assertions))]
+const LEAF_CHILDREN: usize = 32;
 
 
 // type LeafData = crate::listmerge::markers::Marker;

@@ -8,7 +8,7 @@ use crate::rev_range::RangeRev;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::list::operation::ListOpKind;
 use crate::list::operation::ListOpKind::{Del, Ins};
-use crate::dtrange::DTRange;
+use crate::dtrange::{DTRange, UNDERWATER_START};
 use crate::listmerge::markers::{Marker, Marker2};
 use crate::LV;
 use crate::ost::LeafIdx;
@@ -334,11 +334,11 @@ impl M2Tracker {
 
 impl M2Tracker {
     pub(crate) fn advance_by_range(&mut self, range: DTRange) {
-        self.advance_by_range_old(range);
+        // self.advance_by_range_old(range);
         self.advance_by_range_new(range);
     }
     pub(crate) fn retreat_by_range(&mut self, range: DTRange) {
-        self.retreat_by_range_old(range);
+        // self.retreat_by_range_old(range);
         self.retreat_by_range_new(range);
     }
 }
