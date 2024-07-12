@@ -40,7 +40,6 @@ pub(crate) mod plan;
 pub(crate) mod xf_old;
 
 type DocRangeIndex = MarkerMetrics;
-type CRDTList2 = Pin<Box<ContentTreeRaw<CRDTSpan, DocRangeIndex>>>;
 
 // type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry, RawPositionMetricsUsize>>>;
 // type SpaceIndexCursor = UnsafeCursor<MarkerEntry, RawPositionMetricsUsize>;
@@ -56,8 +55,7 @@ type CRDTList2 = Pin<Box<ContentTreeRaw<CRDTSpan, DocRangeIndex>>>;
 
 // RecordingTree is necessary if gen_test_data is enabled.
 // type Index = RecordingTree<Marker>;
-type OldIndex = IndexTree<Marker>;
-type NewIndex = IndexTree<Marker>;
+type Index = IndexTree<Marker>;
 
 #[derive(Debug)]
 struct M2Tracker {
@@ -68,7 +66,7 @@ struct M2Tracker {
     ///
     /// - For inserts, this contains a pointer to the node in range_tree which contains this version
     /// - For deletes, this names the time at which the delete happened.
-    index: NewIndex,
+    index: Index,
     
     range_tree: ContentTree<CRDTSpan>,
 

@@ -22,7 +22,7 @@ use crate::list::ListOpLog;
 use crate::list::op_iter::OpMetricsIter;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::listmerge::{DocRangeIndex, M2Tracker, NewIndex, OldIndex};
+use crate::listmerge::{DocRangeIndex, M2Tracker, Index, OldIndex};
 #[cfg(feature = "dot_export")]
 use crate::listmerge::dot::DotColor::*;
 use crate::listmerge::markers::{DelRange, Marker};
@@ -43,7 +43,7 @@ const ALLOW_FF: bool = true;
 #[cfg(feature = "dot_export")]
 const MAKE_GRAPHS: bool = false;
 
-pub(super) fn notify_for<'a>(index: &'a mut NewIndex) -> impl FnMut(CRDTSpan, LeafIdx) + 'a {
+pub(super) fn notify_for<'a>(index: &'a mut Index) -> impl FnMut(CRDTSpan, LeafIdx) + 'a {
     move |entry: CRDTSpan, leaf| {
         debug_assert!(leaf.exists());
 
@@ -117,7 +117,7 @@ impl M2Tracker {
         }
     }
 
-    fn get_new_cursor_before(&self, lv: LV) -> ContentCursor {
+    fn get_cursor_before(&self, lv: LV) -> ContentCursor {
         if lv == usize::MAX {
             // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
             // just panic() here.
@@ -234,8 +234,8 @@ impl M2Tracker {
                         else { scanning = false; }
                     } else {
                         // Set scanning based on how the origin_right entries are ordered.
-                        let my_right_cursor = self.get_new_cursor_before(item.origin_right);
-                        let other_right_cursor = self.get_new_cursor_before(other_entry.origin_right);
+                        let my_right_cursor = self.get_cursor_before(item.origin_right);
+                        let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
 
                         if other_right_cursor.cmp(&my_right_cursor, &self.range_tree) == Ordering::Less {
                             if !scanning {
