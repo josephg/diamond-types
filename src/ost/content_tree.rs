@@ -79,7 +79,7 @@ pub(crate) struct ContentTree<V: Content> {
     /// There is a cached cursor currently at some content position, with a held delta update.
     // cursor: Cell<Option<(LenPair, LenUpdate, ContentCursor)>>,
     // cursor: Option<(LenPair, MutContentCursor)>,
-    cursor: Option<(LenPair, ContentCursor, LenUpdate)>,
+    cursor: Option<(Option<LenPair>, ContentCursor, LenUpdate)>,
 
     // Linked lists.
     // free_leaf_pool_head: LeafIdx,
@@ -1171,10 +1171,12 @@ impl<V: Content> ContentTree<V> {
     /// We never "stick end" - ie, the cursor is moved to the start of the next item with actual
     /// content.
     pub fn mut_cursor_before_cur_pos(&mut self, content_pos: usize) -> (usize, DeltaCursor) {
-        if let Some((mut pos, mut cursor, mut delta)) = self.cursor.take() {
-            if pos.cur == content_pos {
-                pos.end += self.slide_cursor_to_next_content(&mut cursor, &mut delta);
-                return (pos.end, DeltaCursor(cursor, delta));
+        if let Some((pos, mut cursor, mut delta)) = self.cursor.take() {
+            if let Some(mut pos) = pos {
+                if pos.cur == content_pos {
+                    pos.end += self.slide_cursor_to_next_content(&mut cursor, &mut delta);
+                    return (pos.end, DeltaCursor(cursor, delta));
+                }
             }
 
             // Throw the old cursor away.
@@ -1218,12 +1220,17 @@ impl<V: Content> ContentTree<V> {
 
     pub(crate) fn emplace_cursor(&mut self, pos: LenPair, DeltaCursor(cursor, delta): DeltaCursor) {
         assert!(self.cursor.is_none());
-        self.cursor = Some((pos, cursor, delta));
+        self.cursor = Some((Some(pos), cursor, delta));
 
         if cfg!(debug_assertions) {
             let actual_pos = self.cursor.clone().unwrap().1.get_pos(self);
             assert_eq!(pos, actual_pos);
         }
+    }
+
+    pub(crate) fn emplace_cursor_unknown(&mut self, DeltaCursor(cursor, delta): DeltaCursor) {
+        assert!(self.cursor.is_none());
+        self.cursor = Some((None, cursor, delta));
     }
 
     pub(crate) fn cursor_before_item(&self, id: V::Item, leaf_idx: LeafIdx) -> ContentCursor where V: Searchable {
@@ -1245,6 +1252,55 @@ impl<V: Content> ContentTree<V> {
 
         ContentCursor { leaf_idx, elem_idx, offset }
     }
+    
+    // pub(crate) fn try_find_item(&mut self, id: V::Item) -> Option<DeltaCursor>
+    //     where V: Searchable
+    // {
+    //     if let Some((_pos, cursor, delta)) = self.cursor.as_ref() {
+    //         let leaf = &self[cursor.leaf_idx];
+    //
+    //         for (elem_idx, e) in leaf.children.iter().enumerate() {
+    //             if let Some(offset) = e.get_offset(id) {
+    //                 // Yeeeee we found it!
+    //                 let leaf_idx = cursor.leaf_idx;
+    //                 let delta = *delta;
+    //                 self.cursor = None;
+    //                 return Some(DeltaCursor(
+    //                     ContentCursor { leaf_idx, elem_idx, offset },
+    //                     delta
+    //                 ));
+    //             }
+    //         }
+    //
+    //         // self.flush_delta_len(cursor.leaf_idx, delta);
+    //     }
+    //     None
+    // }
+
+    pub(crate) fn try_find_item(&mut self, id: V::Item) -> Option<DeltaCursor>
+        where V: Searchable
+    {
+        if let Some((_pos, cursor, delta)) = self.cursor.take() {
+            let leaf = &self[cursor.leaf_idx];
+
+            for (elem_idx, e) in leaf.children.iter().enumerate() {
+                if let Some(offset) = e.get_offset(id) {
+                    // Yeeeee we found it!
+                    return Some(DeltaCursor(
+                        ContentCursor {
+                            leaf_idx: cursor.leaf_idx,
+                            elem_idx,
+                            offset,
+                        },
+                        delta
+                    ));
+                }
+            }
+
+            self.flush_delta_len(cursor.leaf_idx, delta);
+        }
+        None
+    }
 
     pub(crate) fn mut_cursor_before_item(&mut self, id: V::Item, leaf_idx: LeafIdx) -> (DeltaCursor, Option<LenPair>)
         where V: Searchable
@@ -1253,21 +1309,25 @@ impl<V: Content> ContentTree<V> {
             let (item, cur_offset) = cursor.get_item(self);
             if let Some(actual_offset) = item.get_offset(id) {
                 // The cursor already points to the item.
-
+            
                 // TODO: Rewrite this to use wrapping_add and non-branching code.
-                if item.takes_up_space::<false>() {
-                    pos.end -= cur_offset;
-                    pos.end += actual_offset;
-                }
-                if item.takes_up_space::<true>() {
-                    pos.cur -= cur_offset;
-                    pos.cur += actual_offset;
+                if let Some(pos) = pos.as_mut() {
+                    if item.takes_up_space::<false>() {
+                        pos.end -= cur_offset;
+                        pos.end += actual_offset;
+                    }
+                    if item.takes_up_space::<true>() {
+                        pos.cur -= cur_offset;
+                        pos.cur += actual_offset;
+                    }
                 }
                 cursor.offset = actual_offset;
-
-                debug_assert_eq!(cursor.get_pos(self), pos);
-
-                return (DeltaCursor(cursor, delta), Some(pos));
+            
+                if let Some(pos) = pos {
+                    debug_assert_eq!(cursor.get_pos(self), pos);
+                }
+            
+                return (DeltaCursor(cursor, delta), pos);
             }
 
             // Throw the old cursor away.
