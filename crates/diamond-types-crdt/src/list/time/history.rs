@@ -98,7 +98,7 @@ impl RleVec<TxnSpan> {
     }
 
     /// Returns (spans only in a, spans only in b). Spans are in reverse (descending) order.
-    pub(crate) fn diff(&self, a: &[LV], b: &[LV]) -> (SmallVec<[Range<LV>; 4]>, SmallVec<[Range<LV>; 4]>) {
+    pub(crate) fn diff(&self, a: &[LV], b: &[LV]) -> (SmallVec<Range<LV>, 4>, SmallVec<Range<LV>, 4>) {
         assert!(!a.is_empty());
         assert!(!b.is_empty());
 
@@ -127,7 +127,7 @@ impl RleVec<TxnSpan> {
     }
 
     // Split out for testing.
-    fn diff_slow(&self, a: &[LV], b: &[LV]) -> (SmallVec<[Range<LV>; 4]>, SmallVec<[Range<LV>; 4]>) {
+    fn diff_slow(&self, a: &[LV], b: &[LV]) -> (SmallVec<Range<LV>, 4>, SmallVec<Range<LV>, 4>) {
         // We need to tag each entry in the queue based on whether its part of a's history or b's
         // history or both, and do so without changing the sort order for the heap.
         #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

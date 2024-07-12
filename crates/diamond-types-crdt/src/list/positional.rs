@@ -33,7 +33,7 @@ pub struct PositionalComponent {
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PositionalOp {
-    pub components: SmallVec<[PositionalComponent; 1]>,
+    pub components: SmallVec<PositionalComponent, 1>,
     pub content: SmartString,
 }
 
@@ -103,7 +103,7 @@ impl PositionalOp {
         }
     }
 
-    pub fn from_components(components: SmallVec<[(usize, PositionalComponent); 10]>, content: Option<&JumpRopeBuf>) -> Self {
+    pub fn from_components(components: SmallVec<(usize, PositionalComponent), 10>, content: Option<&JumpRopeBuf>) -> Self {
         let mut result = Self::new();
         for (post_pos, mut c) in components {
             if c.content_known {
@@ -140,7 +140,7 @@ impl<'a> From<&'a PositionalOp> for PositionalOpRef<'a> {
 }
 
 impl PositionalComponent {
-    pub fn from_traversal_components(traversal: &[TraversalComponent]) -> SmallVec<[PositionalComponent; 1]> {
+    pub fn from_traversal_components(traversal: &[TraversalComponent]) -> SmallVec<PositionalComponent, 1> {
         let mut result = SmallVec::new();
         let mut pos = 0;
         for c in traversal {

@@ -14,8 +14,8 @@ use crate::list::time::positionmap::PositionMap;
 /// document as it is at the corresponding origin_order.
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct PositionalOpWalk {
-    pub components: SmallVec<[PositionalComponent; 1]>,
-    pub origin_order: SmallVec<[Range<LV>; 2]>,
+    pub components: SmallVec<PositionalComponent, 1>,
+    pub origin_order: SmallVec<Range<LV>, 2>,
     pub content: SmartString,
 }
 
@@ -163,7 +163,7 @@ mod test {
             c
         }).merge_spans();
 
-        let mut from: SmallVec<[Range<LV>; 1]> = smallvec![];
+        let mut from: SmallVec<Range<LV>, 1> = smallvec![];
         let actual_c = doc.iter_original_patches().map(|(origin, c)| {
             from.push_rle(origin);
             c

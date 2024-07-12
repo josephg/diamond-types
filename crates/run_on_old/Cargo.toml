@@ -8,8 +8,8 @@ edition = "2021"
 [dependencies]
 diamond-types = {path = "../..", features = ["ops_to_old"]}
 diamond-types-crdt = {path = "../diamond-types-crdt"}
-smallvec = "1.9.0"
-rle = {path = "../rle"}
+smallvec = "2.0.0-alpha.6"
+rle = {path = "../rle", features = ["smallvec"]}
 criterion = { version = "0.5.1", features = ["html_reports"] }
 trace-alloc = { path = "../trace-alloc", optional = true }
 serde = { version = "1.0.136", optional = true }

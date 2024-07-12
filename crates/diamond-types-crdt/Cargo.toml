@@ -14,12 +14,12 @@ diamond-core-old = { path = "../diamond-core-old" }
 smartstring = "1.0.1"
 #ropey = "1"
 str_indices = "0.4.0"
-smallvec = { version = "1", features = ["union"] }
+smallvec = "2.0.0-alpha.6"
 lazy_static = "1.4"
 #serde_crate = { package = "serde", version = "1", features = ["derive"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1.0.96", optional = true }
-rle = { version = "0.2", path = "../rle" }
+rle = { version = "0.2", path = "../rle", features = ["smallvec"] }
 content-tree = { version = "0.2", path = "../content-tree" }
 bitvec = "1.0.1"
 jumprope = { version = "1.1.1" }

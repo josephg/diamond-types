@@ -746,7 +746,7 @@ impl ListCRDT {
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct Parents {
     order: Range<LV>,
-    parents: SmallVec<[LV; 2]>,
+    parents: SmallVec<LV, 2>,
 }
 
 impl HasLength for Parents {

@@ -118,7 +118,7 @@ impl <'a>TextOpIterator<'a> {
 }
 
 // By spec, text operations never end with (useless) trailing skip components.
-fn trim(traversal: &mut SmallVec<[TraversalComponent; 2]>) {
+fn trim(traversal: &mut SmallVec<TraversalComponent, 2>) {
     while let Some(Retain(_)) = traversal.last() {
         traversal.pop();
     }
@@ -128,7 +128,7 @@ fn traversal_iter(traversal: &[TraversalComponent], ctx: Context) -> TextOpItera
     TextOpIterator { op: traversal, ctx, idx: 0, offset: 0 }
 }
 
-fn append_remainder_component(traversal: &mut SmallVec<[TraversalComponent; 2]>, mut iter: TextOpIterator) {
+fn append_remainder_component(traversal: &mut SmallVec<TraversalComponent, 2>, mut iter: TextOpIterator) {
     loop {
         let chunk = iter.next(usize::MAX);
         if chunk == Retain(usize::MAX) { break; }
@@ -155,10 +155,10 @@ fn append_remainder(op: &mut TraversalOp, mut iter: TextOpIterator, mut content:
 /// traversal.
 ///
 /// This operates on lists of TraversalComponents because the inserted content is unaffected.
-pub fn transform(op: &[TraversalComponent], other: &[TraversalComponent], is_left: bool) -> SmallVec<[TraversalComponent; 2]> {
+pub fn transform(op: &[TraversalComponent], other: &[TraversalComponent], is_left: bool) -> SmallVec<TraversalComponent, 2> {
     // debug_assert!(op.is_valid() && other.is_valid());
 
-    let mut result = SmallVec::<[TraversalComponent; 2]>::new();
+    let mut result = SmallVec::<TraversalComponent, 2>::new();
     let mut iter = traversal_iter(op, Context::Pre);
 
     for c in other {

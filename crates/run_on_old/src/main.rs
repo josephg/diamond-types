@@ -1,5 +1,7 @@
+#[cfg(feature = "memusage")]
 use std::collections::HashMap;
 
+#[cfg(feature = "bench")]
 use criterion::{BenchmarkId, black_box, Criterion};
 #[cfg(feature = "memusage")]
 use serde::Serialize;
@@ -13,7 +15,7 @@ use diamond_types_crdt::list::external_txn::{RemoteId as OldRemoteId, RemoteIdSp
 use diamond_types_crdt::root_id;
 use rle::{AppendRle, HasLength, SplitableSpan};
 #[cfg(feature = "memusage")]
-use trace_alloc::{get_peak_memory_usage, get_thread_memory_usage, measure_memusage, reset_peak_memory_usage};
+use trace_alloc::measure_memusage;
 
 #[cfg(test)]
 mod conformance_test;
@@ -146,7 +148,7 @@ pub fn get_txns_from_oplog(oplog: &ListOpLog) -> Vec<RemoteTxn> {
                 }
             };
 
-            let parents: SmallVec<[OldRemoteId; 2]> = entry.parents.iter().map(|p| {
+            let parents: SmallVec<OldRemoteId, 2> = entry.parents.iter().map(|p| {
                 time_to_remote_id(*p, &oplog)
             }).collect();
 
@@ -172,10 +174,13 @@ pub fn get_txns_from_oplog(oplog: &ListOpLog) -> Vec<RemoteTxn> {
     result
 }
 
+
+#[cfg(feature = "bench")]
 // const DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "friendsforever", "clownschool", "node_nodecc", "git-makefile", "egwalker"];
 // const DATASETS: &[&str] = &["automerge-paperx3", "seph-blog1x3", "node_nodeccx1", "friendsforeverx25", "clownschoolx25", "egwalkerx1", "git-makefilex2"];
 const DATASETS: &[&str] = & ["S1", "S2", "S3", "C1", "C2", "A1", "A2"];
 
+#[cfg(feature = "bench")]
 fn bench_process(c: &mut Criterion) {
     // let name = "benchmark_data/node_nodecc.dt";
     // let name = "benchmark_data/friendsforever.dt";

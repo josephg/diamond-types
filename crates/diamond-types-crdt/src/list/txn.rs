@@ -22,12 +22,12 @@ pub struct TxnSpan {
     /// The parents vector of the first txn in this span. Must contain at least 1 entry (and will
     /// almost always contain exactly 1 entry - the only exception being in the case of concurrent
     /// changes).
-    pub parents: SmallVec<[LV; 2]>,
+    pub parents: SmallVec<LV, 2>,
 
     /// This is a list of the index of other txns which have a parent within this transaction.
     /// TODO: Consider constraining this to not include the next child. Complexity vs memory.
-    pub parent_indexes: SmallVec<[usize; 2]>,
-    pub child_indexes: SmallVec<[usize; 2]>,
+    pub parent_indexes: SmallVec<usize, 2>,
+    pub child_indexes: SmallVec<usize, 2>,
 }
 
 impl TxnSpan {
@@ -65,7 +65,7 @@ impl TxnSpan {
         self.time.. self.time + self.len
     }
 
-    // pub fn parents_at_offset(&self, at: usize) -> SmallVec<[Order; 2]> {
+    // pub fn parents_at_offset(&self, at: usize) -> SmallVec<Order, 2> {
     //     if at > 0 {
     //         smallvec![self.order + at as u32 - 1]
     //     } else {

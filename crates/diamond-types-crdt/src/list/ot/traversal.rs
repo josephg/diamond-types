@@ -41,14 +41,14 @@ pub enum TraversalComponent {
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TraversalOp {
-    pub traversal: SmallVec<[TraversalComponent; 2]>,
+    pub traversal: SmallVec<TraversalComponent, 2>,
     pub content: SmartString,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TraversalOpSequence {
-    pub components: SmallVec<[SmallVec<[TraversalComponent; 2]>; 2]>,
+    pub components: SmallVec<SmallVec<TraversalComponent, 2>, 2>,
     pub content: SmartString,
 }
 
@@ -85,7 +85,7 @@ impl TraversalOp {
         self.content.push_str(content);
     }
 
-    fn body_from_positional(positional: PositionalComponent) -> SmallVec<[TraversalComponent; 2]> {
+    fn body_from_positional(positional: PositionalComponent) -> SmallVec<TraversalComponent, 2> {
         let body = match positional.tag {
             InsDelTag::Ins => TraversalComponent::Ins {
                 len: positional.len,

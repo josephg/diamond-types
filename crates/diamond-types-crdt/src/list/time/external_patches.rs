@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteParentRun {
     pub id: RemoteIdSpan,
-    pub parents: SmallVec<[RemoteId; 2]>, // usually 1 entry
+    pub parents: SmallVec<RemoteId, 2>, // usually 1 entry
 }
 
 impl RemoteParentRun {
@@ -75,8 +75,8 @@ impl MergableSpan for RemoteParentRun {
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemotePositionalPatches { // TODO: Rename me.
-    pub id_and_parents: SmallVec<[RemoteParentRun; 1]>,
-    pub components: SmallVec<[PositionalComponent; 1]>,
+    pub id_and_parents: SmallVec<RemoteParentRun, 1>,
+    pub components: SmallVec<PositionalComponent, 1>,
     pub content: SmartString,
 }
 

@@ -107,8 +107,8 @@ impl MergableSpan for RemoteCRDTOp {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteTxn {
     pub id: RemoteId, // ID of the first change in the txn
-    pub parents: SmallVec<[RemoteId; 2]>, // usually 1 entry
-    pub ops: SmallVec<[RemoteCRDTOp; 2]>, // usually 1-2 entries.
+    pub parents: SmallVec<RemoteId, 2>, // usually 1 entry
+    pub ops: SmallVec<RemoteCRDTOp, 2>, // usually 1-2 entries.
 
     pub ins_content: SmartString,
 }
@@ -195,8 +195,8 @@ impl<'a> Iterator for RemoteTxnsIter<'a> {
 // #[derive(Clone, Debug, Eq, PartialEq)]
 // pub struct BraidTxn {
 //     pub id: RemoteId,
-//     pub parents: SmallVec<[RemoteId; 2]>, // usually 1 entry
-//     pub ops: SmallVec<[LocalOp; 2]> // usually 1-2 entries.
+//     pub parents: SmallVec<RemoteId, 2>, // usually 1 entry
+//     pub ops: SmallVec<LocalOp, 2> // usually 1-2 entries.
 // }
 
 // thread_local! {
@@ -374,7 +374,7 @@ impl ListCRDT {
         }
     }
 
-    pub(super) fn remote_parents_at_txn(&self, txn: &TxnSpan, offset: usize) -> SmallVec<[RemoteId; 2]> {
+    pub(super) fn remote_parents_at_txn(&self, txn: &TxnSpan, offset: usize) -> SmallVec<RemoteId, 2> {
         if let Some(order) = txn.parent_at_offset(offset as _) {
             smallvec![self.order_to_remote_id(order)]
         } else {
@@ -384,7 +384,7 @@ impl ListCRDT {
     }
 
     // Get the next contiguous span of remote operations from a single user.
-    pub(super) fn next_remote_id_span(&self, span: TimeSpan) -> (RemoteIdSpan, SmallVec<[RemoteId; 2]>) {
+    pub(super) fn next_remote_id_span(&self, span: TimeSpan) -> (RemoteIdSpan, SmallVec<RemoteId, 2>) {
         // Each entry we return has its length limited by 3 different things:
         // 1. the requested span length (span.len)
         // 2. The length of this txn entry (the number of items we know about in a run)
@@ -398,7 +398,7 @@ impl ListCRDT {
 
         // Limit by #3
         let id_span = self.order_to_remote_id_span(span.start, txn_len);
-        let parents: SmallVec<[RemoteId; 2]> = self.remote_parents_at_txn(txn, offset);
+        let parents: SmallVec<RemoteId, 2> = self.remote_parents_at_txn(txn, offset);
 
         (id_span, parents)
     }
@@ -417,10 +417,10 @@ impl ListCRDT {
         // let (RemoteIdSpan { id, len: txn_len }, txn, offset) = self.next_remote_id_span(span);
         let (RemoteIdSpan { id, len: txn_len }, parents) = self.next_remote_id_span(span);
 
-        // let parents: SmallVec<[RemoteId; 2]> = self.remote_parents_at_txn(txn, offset);
+        // let parents: SmallVec<RemoteId, 2> = self.remote_parents_at_txn(txn, offset);
         let mut ins_content = SmartString::new();
 
-        let mut ops: SmallVec<[RemoteCRDTOp; 2]> = SmallVec::new();
+        let mut ops: SmallVec<RemoteCRDTOp, 2> = SmallVec::new();
         let mut txn_offset = 0; // Offset into the txn.
 
         while txn_offset < txn_len {

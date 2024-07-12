@@ -155,7 +155,7 @@ impl ListCRDT {
         walker.into_positional_op()
     }
 
-    pub fn attributed_positional_changes_since(&self, order: LV) -> (PositionalOp, SmallVec<[CRDTSpan; 1]>) {
+    pub fn attributed_positional_changes_since(&self, order: LV) -> (PositionalOp, SmallVec<CRDTSpan, 1>) {
         let walker = PatchWithAuthorIter::new_since_order(self, order);
         walker.into_attributed_positional_op()
     }
@@ -180,12 +180,12 @@ impl ListCRDT {
         walker.into_traversal(self.text_content.as_ref().unwrap())
     }
 
-    pub fn attributed_traversal_changes_since(&self, order: LV) -> (TraversalOpSequence, SmallVec<[CRDTSpan; 1]>) {
+    pub fn attributed_traversal_changes_since(&self, order: LV) -> (TraversalOpSequence, SmallVec<CRDTSpan, 1>) {
         let (op, attr) = self.attributed_positional_changes_since(order);
         (op.into(), attr)
     }
 
-    pub fn remote_attr_patches_since(&self, order: LV) -> (TraversalOpSequence, SmallVec<[RemoteIdSpan; 1]>) {
+    pub fn remote_attr_patches_since(&self, order: LV) -> (TraversalOpSequence, SmallVec<RemoteIdSpan, 1>) {
         let (op, attr) = self.attributed_traversal_changes_since(order);
         (op, attr.iter().map(|span| self.crdt_span_to_remote(*span)).collect())
     }
@@ -381,7 +381,7 @@ impl<'a> PatchIter<'a> {
     }
 
     fn into_positional_op(mut self) -> PositionalOp {
-        let mut changes: SmallVec<[(usize, PositionalComponent); 10]> = (&mut self).collect();
+        let mut changes: SmallVec<(usize, PositionalComponent), 10> = (&mut self).collect();
         changes.reverse();
         PositionalOp::from_components(changes, self.doc.text_content.as_ref())
     }
@@ -465,9 +465,9 @@ impl<'a> PatchWithAuthorIter<'a> {
         Self::new(doc, doc.linear_changes_since(base_order))
     }
 
-    fn into_attributed_positional_op(mut self) -> (PositionalOp, SmallVec<[CRDTSpan; 1]>) {
-        let mut changes = SmallVec::<[(usize, PositionalComponent); 10]>::new();
-        let mut attribution = SmallVec::<[CRDTSpan; 1]>::new();
+    fn into_attributed_positional_op(mut self) -> (PositionalOp, SmallVec<CRDTSpan, 1>) {
+        let mut changes = SmallVec::<(usize, PositionalComponent), 10>::new();
+        let mut attribution = SmallVec::<CRDTSpan, 1>::new();
 
         for (post_pos, c, loc) in &mut self {
             attribution.push_reversed_rle(CRDTSpan {
@@ -523,7 +523,7 @@ impl<'a, I: Iterator<Item=TimeSpan>> MultiPositionalChangesIter<'a, I> {
     }
 
     fn into_positional_op(mut self) -> PositionalOp {
-        let mut changes: SmallVec<[(usize, PositionalComponent); 10]> = (&mut self).collect();
+        let mut changes: SmallVec<(usize, PositionalComponent), 10> = (&mut self).collect();
         changes.reverse();
         PositionalOp::from_components(changes, self.state.doc.text_content.as_ref())
     }

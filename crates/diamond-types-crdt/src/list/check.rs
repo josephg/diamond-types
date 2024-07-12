@@ -99,7 +99,7 @@ impl ListCRDT {
                 assert!(txn.parent_indexes.is_empty());
             } else {
                 parents.sort_by(|a, b| b.cmp(a)); // descending order
-                let mut expect_parent_idx: SmallVec<[usize; 2]> = smallvec![];
+                let mut expect_parent_idx: SmallVec<usize, 2> = smallvec![];
 
                 // By induction, we can assume the previous shadows are correct.
                 for parent_order in parents {

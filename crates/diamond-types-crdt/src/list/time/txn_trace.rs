@@ -25,7 +25,7 @@ pub(crate) struct OptimizedTxnsIter<'a> {
 
     branch: Branch,
     consumed: BitBox, // Could use markers on txns for this instead?
-    root_children: SmallVec<[usize; 2]>, // Might make sense to cache this on the document
+    root_children: SmallVec<usize, 2>, // Might make sense to cache this on the document
     stack: Vec<usize>, // smallvec? This will have an upper bound of the number of txns.
 
     num_consumed: usize, // For debugging.
@@ -33,10 +33,10 @@ pub(crate) struct OptimizedTxnsIter<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TxnWalkItem {
-    pub(crate) retreat: SmallVec<[Range<LV>; 4]>,
-    pub(crate) advance_rev: SmallVec<[Range<LV>; 4]>,
+    pub(crate) retreat: SmallVec<Range<LV>, 4>,
+    pub(crate) advance_rev: SmallVec<Range<LV>, 4>,
     // txn: &'a TxnSpan,
-    pub(crate) parents: SmallVec<[LV; 2]>,
+    pub(crate) parents: SmallVec<LV, 2>,
     pub(crate) consume: Range<LV>,
 }
 
@@ -47,7 +47,7 @@ impl<'a> OptimizedTxnsIter<'a> {
             if txn.parents.len() == 1 && txn.parents[0] == ROOT_LV {
                 Some(i)
             } else { None }
-        }).collect::<SmallVec<[usize; 2]>>();
+        }).collect::<SmallVec<usize, 2>>();
 
         Self {
             history,

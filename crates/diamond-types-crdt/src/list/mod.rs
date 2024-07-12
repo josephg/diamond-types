@@ -106,7 +106,7 @@ type SpaceIndex = IndexTree<Marker<YjsSpan, DocRangeIndex>>;
 
 pub type DoubleDeleteList = RleVec<KVPair<DoubleDelete>>;
 
-pub type Branch = SmallVec<[LV; 4]>;
+pub type Branch = SmallVec<LV, 4>;
 
 #[derive(Debug)]
 pub struct ListCRDT {
