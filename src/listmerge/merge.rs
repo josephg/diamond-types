@@ -51,9 +51,7 @@ pub(super) fn notify_for<'a>(index: &'a mut Index) -> impl FnMut(CRDTSpan, LeafI
         // with a big placeholder "underwater" entry which will be split up as needed.
 
         // println!("SET RANGE {:?} -> {:?}", entry.id, InsPtr(leaf));
-
         index.set_range(entry.id, Marker::InsPtr(leaf));
-
         // index.dbg_check();
     }
 }
@@ -78,10 +76,11 @@ impl M2Tracker {
             dbg_ops: vec![]
         };
 
+        // The list is initially populated with a dummy "underwater" item, which corresponds to
+        // any characters that might exist in the document before the greatest common version.
         let underwater = CRDTSpan::new_underwater();
         result.range_tree.set_single_item_notify(underwater, notify_for(&mut result.index));
 
-        // result.check_index();
         result
     }
 
@@ -90,8 +89,6 @@ impl M2Tracker {
 
         self.range_tree.clear();
         self.range_tree.set_single_item_notify(underwater, notify_for(&mut self.index));
-
-        // self.check_index();
     }
 
     pub(super) fn marker_at(&self, lv: LV) -> LeafIdx {
@@ -119,11 +116,13 @@ impl M2Tracker {
 
     fn get_cursor_before(&self, lv: LV) -> ContentCursor {
         if lv == usize::MAX {
-            // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
-            // just panic() here.
-            // self.new_range_tree.cursor_at_end()
-            // unreachable!();
-            panic!();
+            // This never happens due to dummy data at the end of the list - which means we always
+            // insert before some actual value. If we did, the right thing to do in this case would
+            // be to return a cursor at the end of the range tree, but I don't have code for that
+            // in content_tree, and it seems silly to add it for a case that never comes up in
+            // practice.
+            // self.range_tree.cursor_at_end()
+            unreachable!();
         } else {
             let leaf_idx = self.marker_at(lv);
             self.range_tree.cursor_before_item(lv, leaf_idx)
@@ -269,11 +268,12 @@ impl M2Tracker {
             if !dc.0.next_entry(&self.range_tree).0 {
                 // This is dirty. If the cursor can't move to the next entry, we still need to move
                 // it to the end of the current element or we'll prepend. next_entry() doesn't do
-                // that for some reason. TODO: Clean this up.
-                panic!();
-                // unreachable!();
-                // dc.0.offset = other_entry.len();
-                // break;
+                // that for some reason.
+                //
+                // Also, this case never actually comes up due to dummy data at the end of the range
+                // tree. It would be equally valid to put an unreachable!(); here and just abort.
+                dc.0.offset = other_entry.len();
+                break;
             }
 
             debug_assert_eq!(dc.0.get_pos(&self.range_tree), cursor_pos);
@@ -333,11 +333,6 @@ impl M2Tracker {
         let mut op_pair = op_pair.clone();
 
         loop {
-            // STATS.with(|s| {
-            //     let mut s = s.borrow_mut();
-            //     s.0 += 1;
-            // });
-
             let (len_here, transformed_pos) = self.apply(aa, ctx, &op_pair, usize::MAX, agent);
 
             let remainder = op_pair.trim_ctx(len_here, ctx);
@@ -442,13 +437,16 @@ impl M2Tracker {
                 // If we reach the end of the document before that happens, use usize::MAX.
 
                 let origin_right = if !new_cursor.roll_next_item(&mut self.range_tree) {
-                    // Because the list has underwater elements, this will never happen.
-                    panic!("xxx");
-                    // unreachable!()
-                    // usize::MAX
+                    // Because the list has underwater elements, this never happens in practice.
+                    // unreachable!() would be equally valid here.
+                    usize::MAX
                 } else {
                     let mut c2 = new_cursor.0.clone();
 
+                    // Just scan forward until we find the next item that exists at this point
+                    // in time. This scan is O(n) but fast in the average case. It might be faster
+                    // in some cases to scan up the tree instead - which would be O(log n) but
+                    // (I think) slower on average.
                     loop {
                         let (e, offset) = c2.get_item(&self.range_tree);
 
@@ -487,16 +485,8 @@ impl M2Tracker {
                     });
                 }
 
-                // This is dirty because the cursor's lifetime is not associated with self.
-                // let cursor = old_cursor.inner;
-                // let ins_pos = self.integrate(aa, agent, item, cursor);
-
-                let ins_pos_2 = self.integrate(aa, agent, item, new_cursor, cursor_pos);
-
-                // self.range_tree.check();
-                // self.check_index();
-
-                (len, BaseMoved(ins_pos_2))
+                let ins_xf_pos = self.integrate(aa, agent, item, new_cursor, cursor_pos);
+                (len, BaseMoved(ins_xf_pos))
             }
 
             ListOpKind::Del => {
@@ -504,7 +494,6 @@ impl M2Tracker {
                 // double deletes and inserts inside the deleted range. This is extra annoying
                 // because we need to move backwards through the deleted items if we're rev.
                 debug_assert!(op.len() > 0);
-                // let mut remaining_len = op.len();
 
                 let fwd = op.loc.fwd;
 
@@ -565,10 +554,7 @@ impl M2Tracker {
 
                 // The cursor shouldn't have moved, since the item we traversed over was
                 // deleted.
-                // debug_assert_eq!(new_cursor.0.get_pos(&self.new_range_tree), cursor_pos);
-
                 self.range_tree.emplace_cursor(cursor_pos, new_cursor);
-                // self.check_new_index();
 
                 // ContentTree should come to the same length conclusion as us.
                 if !fwd { debug_assert_eq!(len2, len); }
@@ -660,26 +646,12 @@ pub(crate) struct TransformedOpsIterRaw<'a> {
     applying: bool,
 }
 
-
-// #[derive(Clone, Debug, Eq, PartialEq)]
-// pub(crate) enum TransformedResultRaw {
-//     FF(DTRange),
-//     Apply {
-//         lv: usize,
-//         xf_pos: usize,
-//         metrics: ListOpMetrics,
-//     },
-//     DeleteAlreadyHappened(DTRange),
-// }
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TransformedResultRaw {
     FF(DTRange),
     Apply {
         xf_pos: usize,
         op: KVPair<ListOpMetrics>,
-        // lv: usize,
-        // op: ListOpMetrics,
     },
     DeleteAlreadyHappened(DTRange),
 }
@@ -703,32 +675,6 @@ impl TransformedResultRaw {
     }
 }
 
-
-
-
-
-
-// impl MergableSpan for TransformedResultRaw {
-//     fn can_append(&self, other: &Self) -> bool {
-//         use TransformedResultRaw::*;
-//         match (self, other) {
-//             (Apply(op1), Apply(op2)) => { op1.can_append(op2) },
-//             (FF(r1), FF(r2)) => { r1.can_append(r2) },
-//             (DeleteAlreadyHappened, DeleteAlreadyHappened) => true,
-//             _ => false,
-//         }
-//     }
-//
-//     fn append(&mut self, other: Self) {
-//         use TransformedResultRaw::*;
-//         match (self, other) {
-//             (Apply(op1), Apply(op2)) => { op1.append(op2) },
-//             (FF(r1), FF(r2)) => { r1.append(r2) },
-//             (DeleteAlreadyHappened, DeleteAlreadyHappened) => {},
-//             _ => unreachable!()
-//         }
-//     }
-// }
 
 impl<'a> TransformedOpsIterRaw<'a> {
     pub(crate) fn from_plan(aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
@@ -767,13 +713,8 @@ impl<'a> TransformedOpsIterRaw<'a> {
         let remainder = pair.trim_ctx(consumed_here, op_ctx);
 
         // (Time, OperationInternal, TransformedResult)
-        // let result = (pair.0, pair.1, xf_result);
         let result = match xf_result {
             BaseMoved(xf_pos) => {
-                // let len = pair.1.loc.span.len();
-                // pair.1.loc.span.start = xf_pos;
-                // pair.1.loc.span.end = xf_pos + len;
-                // TransformedResultRaw::Apply(pair)
                 TransformedResultRaw::Apply { xf_pos, op: pair }
             },
             DeleteAlreadyHappened => TransformedResultRaw::DeleteAlreadyHappened(pair.span()),
@@ -1073,21 +1014,6 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                         continue 'outer;
                     }
                     M1PlanAction::Clear => {
-                        // dbg!(self.tracker.range_tree.count_nodes());
-                        // dbg!(self.tracker.range_tree.count_occupancy());
-                        // // self.tracker.index.stats();
-                        //
-                        //
-                        // // let set_acts_d = self.tracker.index.actions.borrow().iter()
-                        // //     .filter(|a| if let TreeCommand::SetRange(_, Marker::Del(_)) = a { true } else { false })
-                        // //     .count();
-                        // // dbg!(set_acts_d);
-                        // let set_acts_i = self.tracker.index.actions.borrow().iter()
-                        //     .filter(|a| if let TreeCommand::SetRange(_, Marker::InsPtr(_)) = a { true } else { false })
-                        //     .count();
-                        // dbg!(set_acts_i);
-
-
                         self.tracker.clear();
                     }
                     M1PlanAction::BeginOutput => {
