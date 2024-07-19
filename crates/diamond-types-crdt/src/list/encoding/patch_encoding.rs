@@ -1,12 +1,12 @@
+use smallvec::smallvec;
+
+use rle::{HasLength, MergableSpan};
+
+use crate::dtrange::DTRange;
 use crate::list::{encoding, ListCRDT, LV, ROOT_LV};
 use crate::list::encoding::{Chunk, Parents, Run, SpanWriter};
-use crate::list::positional::InsDelTag;
-use crate::rangeextra::OrderRange;
+use crate::list::encoding::varint::{encode_u32, encode_u64, mix_bit_u64, num_encode_i64_with_extra_bit};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
-use crate::list::encoding::varint::{num_encode_i64_with_extra_bit, mix_bit_u64, encode_u64, encode_u32};
-use smallvec::smallvec;
-use rle::{HasLength, MergableSpan};
-use crate::dtrange::DTRange;
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub struct EditRun {
@@ -127,26 +127,27 @@ impl ListCRDT {
         let mut next_output_order = 0;
         let mut last_edit_pos: usize = 0;
 
-        for (range, patch) in self.iter_original_patches() {
-            // dbg!(&range);
-            w.push(EditRun {
-                diff: isize::wrapping_sub(patch.pos as isize,last_edit_pos as isize),
-                len: patch.len,
-                is_delete: patch.tag == InsDelTag::Del,
-                backspace_mode: false, // Filled in by the appending code (above).
-            });
-            last_edit_pos = patch.pos;
-            if patch.tag == InsDelTag::Ins { last_edit_pos += patch.len; }
-
-            if range.start != next_output_order {
-                // To cut down on allocations and copying, these maps are both lazy. They only
-                // contain entries where the output orders don't match the current document orders.
-                outer_to_inner_map.push(KVPair(next_output_order, range.clone().into()));
-                inner_to_outer_map.insert(KVPair(range.start, range.transpose(next_output_order).into()));
-            }
-
-            next_output_order += range.order_len();
-        }
+        todo!();
+        // for (range, patch) in self.iter_original_patches() {
+        //     // dbg!(&range);
+        //     w.push(EditRun {
+        //         diff: isize::wrapping_sub(patch.pos as isize,last_edit_pos as isize),
+        //         len: patch.len,
+        //         is_delete: patch.tag == InsDelTag::Del,
+        //         backspace_mode: false, // Filled in by the appending code (above).
+        //     });
+        //     last_edit_pos = patch.pos;
+        //     if patch.tag == InsDelTag::Ins { last_edit_pos += patch.len; }
+        //
+        //     if range.start != next_output_order {
+        //         // To cut down on allocations and copying, these maps are both lazy. They only
+        //         // contain entries where the output orders don't match the current document orders.
+        //         outer_to_inner_map.push(KVPair(next_output_order, range.clone().into()));
+        //         inner_to_outer_map.insert(KVPair(range.start, range.transpose(next_output_order).into()));
+        //     }
+        //
+        //     next_output_order += range.order_len();
+        // }
         let patch_data = w.flush_into_inner();
         // dbg!(&outer_to_inner_map);
         // dbg!(&inner_to_outer_map);

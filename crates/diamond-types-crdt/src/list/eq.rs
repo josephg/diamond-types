@@ -88,7 +88,7 @@ impl PartialEq for ListCRDT {
         let mut a_items: RleVec<YjsSpan> = RleVec::new();
         let mut b_items: RleVec<YjsSpan> = RleVec::new();
 
-        for mut entry in self.range_tree.raw_iter() {
+        for mut entry in self.range_tree.iter() {
             // dbg!(entry);
             // Map the entry to a. The entry could be a mix from multiple user agents. Split it
             // up if so.
@@ -112,7 +112,7 @@ impl PartialEq for ListCRDT {
                 }
             }
         }
-        for entry in other.range_tree.raw_iter() {
+        for entry in other.range_tree.iter() {
             b_items.push(entry);
         }
         // dbg!(&a_items, &b_items);

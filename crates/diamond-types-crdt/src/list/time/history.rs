@@ -251,7 +251,7 @@ pub mod test {
     fn assert_diff_eq(txns: &RleVec<TxnSpan>, a: &[LV], b: &[LV], expect_a: &[Range<LV>], expect_b: &[Range<LV>]) {
         let slow_result = txns.diff_slow(a, b);
         let fast_result = txns.diff(a, b);
-        dbg!(&slow_result, &fast_result);
+        // dbg!(&slow_result, &fast_result);
         assert_eq!(slow_result, fast_result);
 
         assert_eq!(slow_result.0.as_slice(), expect_a);

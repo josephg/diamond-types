@@ -1,33 +1,29 @@
-use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::Debug;
-use std::mem;
 use std::mem::{replace, take};
-use std::ops::{Index, IndexMut, Range, Sub};
-use std::ptr::NonNull;
-use content_tree::{NodeLeaf, UnsafeCursor};
-use rle::{HasLength, HasRleKey, MergableSpan, MergeableIterator, RleDRun, Searchable, SplitableSpan, SplitableSpanHelpers};
-use crate::{DTRange, LV};
-use crate::ost::{LEAF_CHILDREN, LeafIdx, LenPair, LenUpdate, NODE_CHILDREN, NodeIdx, remove_from_array, remove_from_array_fill};
+use std::ops::{Index, IndexMut, Range};
+use rle::{HasLength, MergableSpan, MergeableIterator, Searchable, SplitableSpan, SplitableSpanHelpers};
+use crate::dtrange::DTRange;
+use crate::list::stats::{cache_hit, cache_miss, marker_a, marker_b, marker_c};
+use crate::ost::{LEAF_CHILDREN, LeafIdx, LenPair, LenUpdate, NODE_CHILDREN, NodeIdx, remove_from_array, remove_from_array_fill, update_by};
 
 pub(crate) trait Content: SplitableSpan + MergableSpan + Copy + HasLength {
     /// The length of the item. If IS_CUR then this is the "current length". Otherwise, this is the
     /// end length of the item.
-    fn content_len<const IS_CUR: bool>(&self) -> usize {
-        if self.takes_up_space::<IS_CUR>() { self.len() } else { 0 }
-    }
-    fn content_len_cur(&self) -> usize { self.content_len::<true>() }
-    fn content_len_end(&self) -> usize { self.content_len::<false>() }
+    fn content_len(&self) -> usize;
+    fn content_len_cur(&self) -> usize { self.content_len() }
+    // fn content_len_end(&self) -> usize { self.content_len::<false>() }
     fn content_len_pair(&self) -> LenPair {
-        LenPair {
-            cur: self.content_len_cur(),
-            end: self.content_len_end(),
-        }
+        self.content_len()
+        // LenPair {
+        //     cur: self.content_len_cur(),
+        //     end: self.content_len_end(),
+        // }
     }
 
     /// The default item must "not exist".
     fn exists(&self) -> bool;
-    fn takes_up_space<const IS_CUR: bool>(&self) -> bool;
+    fn takes_up_space(&self) -> bool;
     // fn current_len(&self) -> usize;
 
     // split_at_current_len() ?
@@ -197,7 +193,7 @@ fn initial_root_leaf<V: Content>() -> ContentLeaf<V> {
 //
 // const EMPTY_NODE_CHILD: ContentNodeChild = (LenPair { cur: 0, end: 0 }, usize::MAX);
 
-const EMPTY_LEN_PAIR: LenPair = LenPair { cur: 0, end: 0 };
+const EMPTY_LEN_PAIR: LenPair = 0;//LenPair { cur: 0, end: 0 };
 
 impl<V: Content> ContentLeaf<V> {
     fn is_full(&self) -> bool {
@@ -280,12 +276,12 @@ impl<V: Content> IndexMut<NodeIdx> for ContentTree<V> {
 #[inline]
 fn inc_delta_update<V: Content>(delta_len: &mut LenUpdate, e: &V) {
     delta_len.cur += e.content_len_cur() as isize;
-    delta_len.end += e.content_len_end() as isize;
+    // delta_len.end += e.content_len_end() as isize;
 }
 #[inline]
 fn dec_delta_update<V: Content>(delta_len: &mut LenUpdate, e: &V) {
     delta_len.cur -= e.content_len_cur() as isize;
-    delta_len.end -= e.content_len_end() as isize;
+    // delta_len.end -= e.content_len_end() as isize;
 }
 
 impl ContentCursor {
@@ -295,6 +291,11 @@ impl ContentCursor {
     /// Returns false if there is no next item.
     pub(crate) fn roll_next_item<V: Content>(&mut self, tree: &ContentTree<V>) -> (bool, Option<LeafIdx>) {
         let leaf = &tree[self.leaf_idx];
+        if !leaf.children[self.elem_idx].exists() {
+            debug_assert!(!leaf.next_leaf.exists());
+            return (false, None);
+        }
+
         if self.offset < leaf.children[self.elem_idx].len() { return (true, None); }
 
         self.next_entry(tree)
@@ -303,22 +304,36 @@ impl ContentCursor {
     pub(crate) fn next_entry<V: Content>(&mut self, tree: &ContentTree<V>) -> (bool, Option<LeafIdx>) {
         let leaf = &tree[self.leaf_idx];
 
-        self.elem_idx += 1;
-        self.offset = 0;
+        if !leaf.children[self.elem_idx].exists() {
+            debug_assert!(!leaf.next_leaf.exists());
+            return (false, None);
+        }
 
-        if self.elem_idx >= leaf.children.len() || !leaf.children[self.elem_idx].exists() {
+        let next_elem_idx = self.elem_idx + 1;
+
+        if next_elem_idx >= leaf.children.len() || !leaf.children[next_elem_idx].exists() {
             // Go to the next node.
             let old_leaf = self.leaf_idx;
             // let old_delta = take(&mut self.delta);
 
+            if !leaf.next_leaf.exists() {
+                return (false, None);
+            }
+
+            // Point to the start of the next leaf.
             self.leaf_idx = leaf.next_leaf;
+            self.offset = 0;
             self.elem_idx = 0;
 
             // flush.flush_and_clear(tree, old_leaf);
             // self.flush_delta_len(old_leaf, old_delta);
 
             (self.leaf_idx.exists(), Some(old_leaf))
-        } else { (true, None) }
+        } else {
+            self.elem_idx = next_elem_idx;
+            self.offset = 0;
+            (true, None)
+        }
     }
 
 
@@ -338,6 +353,15 @@ impl ContentCursor {
         tree.flush_delta_len(self.leaf_idx, delta);
     }
 
+    pub fn try_get_item<'a, V: Content>(&self, tree: &'a ContentTree<V>) -> Option<(&'a V, usize)> {
+        let leaf = &tree[self.leaf_idx];
+        if self.elem_idx >= leaf.children.len() || !leaf.children[self.elem_idx].exists() {
+            None
+        } else {
+           Some((&leaf.children[self.elem_idx], self.offset))
+        }
+    }
+
     pub fn get_item<'a, V: Content>(&self, tree: &'a ContentTree<V>) -> (&'a V, usize) {
         let leaf = &tree[self.leaf_idx];
         (&leaf.children[self.elem_idx], self.offset)
@@ -353,8 +377,8 @@ impl ContentCursor {
 
         let leaf = &tree[self.leaf_idx];
         let e = &leaf.children[self.elem_idx];
-        if e.takes_up_space::<true>() { result.cur += self.offset; }
-        if e.takes_up_space::<false>() { result.end += self.offset; }
+        if e.takes_up_space() { result += self.offset; }
+        // if e.takes_up_space::<false>() { result.end += self.offset; }
 
         for c in leaf.children[0..self.elem_idx].iter() {
             result += c.content_len_pair();
@@ -363,15 +387,38 @@ impl ContentCursor {
         // Then recurse up.
         let mut p = leaf.parent;
         let mut last_child = self.leaf_idx.0;
+
+        let (upd, mut c) = if let Some((_, cached_cursor, upd)) = tree.cursor.as_ref() {
+            let parent = tree[cached_cursor.leaf_idx].parent;
+            (upd.clone(), Some((cached_cursor.leaf_idx.0, parent)))
+        } else {
+            (LenUpdate::default(), None)
+        };
+
+
         while !p.is_root() {
             let node = &tree[p];
 
             for i in 0..node.child_indexes.len() {
                 if node.child_indexes[i] == last_child { break; }
                 result += node.child_width[i];
+
+                if let Some((c_child, c_parent)) = c {
+                    if c_parent == p && c_child == node.child_indexes[i] {
+                        update_by(&mut result, upd.cur);
+                        c = None;
+                    }
+                }
             }
+
+
+            if let Some((_c_child, c_parent)) = c.take() {
+                c = Some((c_parent.0, tree[c_parent].parent));
+            }
+
             last_child = p.0;
             p = node.parent;
+
         }
 
         result
@@ -514,11 +561,11 @@ impl<V: Content> ContentTree<V> {
         // }
     }
 
-    fn total_len(&self) -> LenPair {
+    pub fn total_len(&self) -> LenPair {
         let mut len = self.total_len;
         // TODO: Try rewriting this into branch-free code.
         if let Some((_, _, flush)) = self.cursor.as_ref() {
-            len.update_by(*flush);
+            update_by(&mut len, flush.cur);
         }
         len
     }
@@ -621,6 +668,11 @@ impl<V: Content> ContentTree<V> {
 
         let node = &mut self[leaf_idx];
         debug_assert_ne!(offset, usize::MAX);
+
+        if leaf_idx.0 != 0 || offset != 0 {
+            debug_assert!(node.children[elem_idx].exists());
+            // debug_assert!(node.children[elem_idx].content_len() >= offset);
+        }
 
         let remainder = if offset == 0 && elem_idx > 0 {
             // Roll the cursor back to opportunistically see if we can append.
@@ -756,13 +808,14 @@ impl<V: Content> ContentTree<V> {
             let pos = n.idx_of_child(child);
             debug_assert!(pos < n.child_width.len());
 
-            n.child_width[pos % n.child_width.len()].update_by(delta);
+            // n.child_width[pos % n.child_width.len()].update_by(delta);
+            update_by(&mut n.child_width[pos % n.child_width.len()], delta.cur);
 
             child = idx.0;
             idx = n.parent;
         }
 
-        self.total_len.update_by(delta);
+        update_by(&mut self.total_len, delta.cur);
     }
 
     #[inline]
@@ -983,7 +1036,7 @@ impl<V: Content> ContentTree<V> {
     /// Returns (child index, len_remaining).
     fn find_pos_in_node<const IS_CUR: bool>(node: &ContentNode, mut at_pos: usize) -> (usize, usize) {
         for i in 0..NODE_CHILDREN {
-            let width = node.child_width[i].get::<IS_CUR>();
+            let width = node.child_width[i];
             if at_pos <= width { return (node.child_indexes[i], at_pos); }
             at_pos -= width;
         }
@@ -1008,16 +1061,16 @@ impl<V: Content> ContentTree<V> {
     /// This function blindly assumes the item is definitely in the recursive children.
     ///
     /// Returns (child index, relative end pos of the index, len remaining).
-    fn find_cur_pos_in_node(node: &ContentNode, mut at_cur_pos: usize) -> (usize, usize, usize) {
-        let mut end_pos_offset = 0;
+    fn find_cur_pos_in_node(node: &ContentNode, mut at_cur_pos: usize) -> (usize, usize) {
+        // let mut end_pos_offset = 0;
         for i in 0..NODE_CHILDREN {
             let width = node.child_width[i];
             // if at_cur_pos <= width.cur {
-            if at_cur_pos < width.cur {
-                return (node.child_indexes[i], end_pos_offset, at_cur_pos);
+            if at_cur_pos < width {
+                return (node.child_indexes[i], at_cur_pos);
             }
-            at_cur_pos -= width.cur;
-            end_pos_offset += width.end;
+            at_cur_pos -= width;
+            // end_pos_offset += width.end;
         }
         panic!("Position not in node");
     }
@@ -1025,7 +1078,7 @@ impl<V: Content> ContentTree<V> {
     /// Returns (index, offset).
     fn find_pos_in_leaf<const IS_CUR: bool>(leaf: &ContentLeaf<V>, mut at_pos: usize) -> (usize, usize) {
         for i in 0..LEAF_CHILDREN {
-            let width = leaf.children[i].content_len::<IS_CUR>();
+            let width = leaf.children[i].content_len();
             if at_pos <= width { return (i, at_pos); }
             at_pos -= width;
         }
@@ -1033,18 +1086,15 @@ impl<V: Content> ContentTree<V> {
     }
 
     /// Returns (index, end_pos, offset).
-    fn find_cur_pos_in_leaf(leaf: &ContentLeaf<V>, mut at_cur_pos: usize) -> (usize, usize, usize) {
-        let mut end_pos = 0;
+    fn find_cur_pos_in_leaf(leaf: &ContentLeaf<V>, mut at_cur_pos: usize) -> (usize, usize) {
         for i in 0..LEAF_CHILDREN {
             let width = leaf.children[i].content_len_pair();
             // if at_cur_pos <= width.cur {
-            if at_cur_pos < width.cur {
+            if at_cur_pos < width {
                 // We return the end pos of the offset position, not just the start of this child.
-                end_pos += if leaf.children[i].takes_up_space::<false>() { at_cur_pos } else { 0 };
-                return (i, end_pos, at_cur_pos);
+                return (i, at_cur_pos);
             }
-            at_cur_pos -= width.cur;
-            end_pos += width.end;
+            at_cur_pos -= width;
         }
         panic!("Position not in leaf");
     }
@@ -1097,15 +1147,12 @@ impl<V: Content> ContentTree<V> {
     // }
 
     // Returns the end length slid past
-    fn slide_cursor_to_next_content<F: FlushUpdate>(&mut self, cursor: &mut ContentCursor, flush: &mut F) -> usize {
+    pub fn slide_cursor_to_next_content<F: FlushUpdate>(&mut self, cursor: &mut ContentCursor, flush: &mut F) {
         let mut leaf = &self.leaves[cursor.leaf_idx.0];
         let e = &leaf.children[cursor.elem_idx];
         // if cursor.offset < e.len()
-        if !e.exists() || (e.takes_up_space::<true>() && cursor.offset < e.len()) { return 0; }
+        if !e.exists() || (e.takes_up_space() && cursor.offset < e.len()) { return; }
 
-        let mut end_slide_len = if e.takes_up_space::<false>() {
-            e.len() - cursor.offset
-        } else { 0 };
         cursor.elem_idx += 1;
         cursor.offset = 0;
 
@@ -1128,17 +1175,13 @@ impl<V: Content> ContentTree<V> {
             }
 
             let e = &leaf.children[cursor.elem_idx];
-            if e.takes_up_space::<true>() {
+            if e.takes_up_space() {
                 break;
             }
 
-            end_slide_len += e.content_len_end();
             cursor.elem_idx += 1;
         }
-
-        end_slide_len
     }
-
 
     pub fn cursor_at_start(&mut self) -> ContentCursor {
         // I'm never using the cached cursor here because it may have slid to the next content.
@@ -1150,6 +1193,48 @@ impl<V: Content> ContentTree<V> {
         // This is always valid because there is always at least 1 leaf item, and its always
         // the first item in the tree.
         ContentCursor::default().into()
+    }
+
+    pub fn cursor_at_end(&self) -> ContentCursor {
+        debug_assert!(self.cursor.is_none());
+        // if let Some((_, cursor, delta)) = self.cursor.take() {
+        //     self.flush_delta_len(cursor.leaf_idx, delta);
+        // }
+
+        let mut idx = self.root;
+        for _h in 0..self.height {
+            let node = &self.nodes[idx];
+            // Find the last child.
+            let mut i = 0;
+            for child_idx in node.child_indexes {
+                if child_idx == usize::MAX { break; }
+                else { i = child_idx; }
+            }
+            idx = i;
+        }
+
+        // Make a cursor at the last entry of the leaf.
+        let leaf = &self.leaves[idx];
+        let mut elem_idx = 0;
+        for i in 0..leaf.children.len() {
+            if !leaf.children[i].exists() { break; }
+            elem_idx = i;
+        }
+
+        ContentCursor {
+            leaf_idx: LeafIdx(idx),
+            elem_idx,
+            offset: if leaf.children[elem_idx].exists() { leaf.children[elem_idx].len() } else { 0 },
+        }
+    }
+
+    pub fn mut_cursor_at_end(&mut self) -> DeltaCursor {
+        if let Some((_, cursor, delta)) = self.cursor.take() {
+            self.flush_delta_len(cursor.leaf_idx, delta);
+        }
+
+        let cursor = self.cursor_at_end();
+        DeltaCursor(cursor, LenUpdate::default())
     }
 
     pub fn cursor_at_start_nothing_emplaced(&self) -> ContentCursor {
@@ -1170,14 +1255,16 @@ impl<V: Content> ContentTree<V> {
     ///
     /// We never "stick end" - ie, the cursor is moved to the start of the next item with actual
     /// content.
-    pub fn mut_cursor_before_cur_pos(&mut self, content_pos: usize) -> (usize, DeltaCursor) {
+    pub fn mut_cursor_before_cur_pos(&mut self, content_pos: usize) -> DeltaCursor {
         if let Some((pos, mut cursor, mut delta)) = self.cursor.take() {
             if let Some(mut pos) = pos {
-                if pos.cur == content_pos {
-                    pos.end += self.slide_cursor_to_next_content(&mut cursor, &mut delta);
-                    return (pos.end, DeltaCursor(cursor, delta));
+                if pos == content_pos {
+                    cache_hit();
+                    self.slide_cursor_to_next_content(&mut cursor, &mut delta);
+                    return DeltaCursor(cursor, delta);
                 }
             }
+            cache_miss();
 
             // Throw the old cursor away.
             self.flush_delta_len(cursor.leaf_idx, delta);
@@ -1185,33 +1272,28 @@ impl<V: Content> ContentTree<V> {
 
         // Make a cursor by descending from the root.
         let mut idx = self.root;
-        let mut end_pos = 0;
         let mut content_pos_remaining = content_pos;
 
         for _h in 0..self.height {
             let n = &self.nodes[idx];
 
-            let (child_idx, rel_end_pos, cpr) = Self::find_cur_pos_in_node(n, content_pos_remaining);
-            end_pos += rel_end_pos;
+            let (child_idx, cpr) = Self::find_cur_pos_in_node(n, content_pos_remaining);
             content_pos_remaining = cpr;
             idx = child_idx;
         }
 
         // let (elem_idx, offset) = Self::find_pos_in_leaf::<IS_CUR>(&self.leaves[idx], pos_remaining);
-        let (elem_idx, rel_end_pos, offset) = Self::find_cur_pos_in_leaf(&self.leaves[idx], content_pos_remaining);
+        let (elem_idx, offset) = Self::find_cur_pos_in_leaf(&self.leaves[idx], content_pos_remaining);
         // We're guaranteed that the item under elem_idx has size in CUR. Well, unless the tree is empty.
         debug_assert!(
             (content_pos == 0 && self.is_empty())
-            || self.leaves[idx].children[elem_idx].takes_up_space::<true>());
+            || self.leaves[idx].children[elem_idx].takes_up_space());
 
-        (
-            end_pos + rel_end_pos,
-            DeltaCursor(ContentCursor {
-                leaf_idx: LeafIdx(idx),
-                elem_idx,
-                offset,
-            }, Default::default())
-        )
+        DeltaCursor(ContentCursor {
+            leaf_idx: LeafIdx(idx),
+            elem_idx,
+            offset,
+        }, Default::default())
     }
 
     // fn advance_cursor_by_len(&self, cursor: &mut MutCursor, len: usize) {
@@ -1220,12 +1302,14 @@ impl<V: Content> ContentTree<V> {
 
     pub(crate) fn emplace_cursor(&mut self, pos: LenPair, DeltaCursor(cursor, delta): DeltaCursor) {
         assert!(self.cursor.is_none());
-        self.cursor = Some((Some(pos), cursor, delta));
 
         if cfg!(debug_assertions) {
-            let actual_pos = self.cursor.clone().unwrap().1.get_pos(self);
+            // let actual_pos = cursor.clone().unwrap().1.get_pos(self);
+            let actual_pos = cursor.get_pos(self);
             assert_eq!(pos, actual_pos);
         }
+
+        self.cursor = Some((Some(pos), cursor, delta));
     }
 
     pub(crate) fn emplace_cursor_unknown(&mut self, DeltaCursor(cursor, delta): DeltaCursor) {
@@ -1286,6 +1370,7 @@ impl<V: Content> ContentTree<V> {
             for (elem_idx, e) in leaf.children.iter().enumerate() {
                 if let Some(offset) = e.get_offset(id) {
                     // Yeeeee we found it!
+                    cache_hit();
                     return Some(DeltaCursor(
                         ContentCursor {
                             leaf_idx: cursor.leaf_idx,
@@ -1299,10 +1384,11 @@ impl<V: Content> ContentTree<V> {
 
             self.flush_delta_len(cursor.leaf_idx, delta);
         }
+        cache_miss();
         None
     }
 
-    pub(crate) fn mut_cursor_before_item(&mut self, id: V::Item, leaf_idx: LeafIdx) -> (DeltaCursor, Option<LenPair>)
+    pub(crate) fn mut_cursor_before_item(&mut self, id: V::Item, leaf_idx: LeafIdx) -> DeltaCursor
         where V: Searchable
     {
         if let Some((mut pos, mut cursor, delta)) = self.cursor.take() {
@@ -1312,13 +1398,9 @@ impl<V: Content> ContentTree<V> {
             
                 // TODO: Rewrite this to use wrapping_add and non-branching code.
                 if let Some(pos) = pos.as_mut() {
-                    if item.takes_up_space::<false>() {
-                        pos.end -= cur_offset;
-                        pos.end += actual_offset;
-                    }
-                    if item.takes_up_space::<true>() {
-                        pos.cur -= cur_offset;
-                        pos.cur += actual_offset;
+                    if item.takes_up_space() {
+                        *pos -= cur_offset;
+                        *pos += actual_offset;
                     }
                 }
                 cursor.offset = actual_offset;
@@ -1326,8 +1408,9 @@ impl<V: Content> ContentTree<V> {
                 if let Some(pos) = pos {
                     debug_assert_eq!(cursor.get_pos(self), pos);
                 }
-            
-                return (DeltaCursor(cursor, delta), pos);
+
+                cache_hit();
+                return DeltaCursor(cursor, delta);
             } else if cursor.elem_idx > 0 {
                 // Try the previous item.
                 let leaf = &self.leaves[cursor.leaf_idx.0];
@@ -1335,17 +1418,11 @@ impl<V: Content> ContentTree<V> {
                 if let Some(actual_offset) = prev_elem.get_offset(id) {
                     // Ok.
                     if let Some(pos) = pos.as_mut() {
-                        if item.takes_up_space::<false>() {
-                            pos.end -= cur_offset;
+                        if item.takes_up_space() {
+                            *pos -= cur_offset;
                         }
-                        if item.takes_up_space::<true>() {
-                            pos.cur -= cur_offset;
-                        }
-                        if prev_elem.takes_up_space::<false>() {
-                            pos.end -= prev_elem.len() - actual_offset;
-                        }
-                        if prev_elem.takes_up_space::<true>() {
-                            pos.cur -= prev_elem.len() - actual_offset;
+                        if prev_elem.takes_up_space() {
+                            *pos -= prev_elem.content_len() - actual_offset;
                         }
                     }
 
@@ -1356,17 +1433,22 @@ impl<V: Content> ContentTree<V> {
                         debug_assert_eq!(cursor.get_pos(self), pos);
                     }
 
-                    // cache_hit();
-                    return (DeltaCursor(cursor, delta), pos);
+                    cache_hit();
+                    return DeltaCursor(cursor, delta);
                 }
             }
 
+            // marker_a();
+
             // Throw the old cursor away.
             self.flush_delta_len(cursor.leaf_idx, delta);
+        } else {
+            // marker_b();
         }
 
+        cache_miss();
         // Otherwise just make a fresh cursor.
-        (DeltaCursor(self.cursor_before_item(id, leaf_idx), LenUpdate::default()), None)
+        DeltaCursor(self.cursor_before_item(id, leaf_idx), LenUpdate::default())
     }
 
     fn first_leaf(&self) -> LeafIdx {
@@ -1485,7 +1567,7 @@ impl<V: Content> ContentTree<V> {
                 }
 
                 let mut expect_child_size = node.child_width[i];
-                expect_child_size.update_by(d.unwrap_or_default()); // The stored child width is wrong by d.
+                update_by(&mut expect_child_size, d.unwrap_or_default().cur);
                 assert_eq!(actual_child_size, expect_child_size);
 
                 actual_node_size += expect_child_size;
@@ -1500,7 +1582,7 @@ impl<V: Content> ContentTree<V> {
         let (actual_len, last_next_ptr, delta) = self.dbg_check_walk_internal(self.root, 0, LeafIdx(0), NodeIdx(usize::MAX));
         // dbg!(actual_len, delta, self.total_len);
         let mut total_len = self.total_len;
-        total_len.update_by(delta.unwrap_or_default());
+        update_by(&mut total_len, delta.unwrap_or_default().cur);
         assert_eq!(actual_len, total_len);
 
         assert_eq!(last_next_ptr.0, usize::MAX);
@@ -1642,16 +1724,14 @@ mod test {
     use rand::{Rng, SeedableRng};
     use content_tree::{ContentLength, ContentTreeRaw, FullMetricsUsize};
     use rle::{HasLength, HasRleKey, MergableSpan, SplitableSpan, SplitableSpanHelpers};
-    use crate::list_fuzzer_tools::fuzz_multithreaded;
-    use crate::ost::{LeafIdx, LenPair, LenUpdate};
-    use super::{Content, ContentTree};
+    use super::*;
 
     /// This is a simple span object for testing.
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     struct TestRange {
         id: u32,
         len: u32,
-        is_activated: bool,
+        inserted: bool,
         exists: bool,
     }
 
@@ -1660,7 +1740,7 @@ mod test {
             Self {
                 id: u32::MAX,
                 len: u32::MAX,
-                is_activated: false,
+                inserted: false,
                 exists: false,
             }
         }
@@ -1676,7 +1756,7 @@ mod test {
             let other = Self {
                 id: self.id + at as u32,
                 len: self.len - at as u32,
-                is_activated: self.is_activated,
+                inserted: self.inserted,
                 exists: self.exists,
             };
             self.len = at as u32;
@@ -1692,7 +1772,7 @@ mod test {
     impl MergableSpan for TestRange {
         fn can_append(&self, other: &Self) -> bool {
             assert!(self.exists);
-            other.id == self.id + self.len && other.is_activated == self.is_activated
+            other.id == self.id + self.len && other.inserted == self.inserted
         }
 
         fn append(&mut self, other: Self) {
@@ -1714,14 +1794,17 @@ mod test {
     }
 
     impl Content for TestRange {
+        fn content_len(&self) -> usize {
+            if self.inserted && self.exists { self.len as _ } else { 0 }
+        }
+
         fn exists(&self) -> bool {
             self.exists
         }
 
-        fn takes_up_space<const IS_CUR: bool>(&self) -> bool {
+        fn takes_up_space(&self) -> bool {
             if !self.exists { false }
-            else if IS_CUR { self.is_activated }
-            else { true }
+            else { self.inserted }
         }
 
         fn none() -> Self {
@@ -1748,7 +1831,7 @@ mod test {
         tree.insert_notify(TestRange {
             id: 123,
             len: 10,
-            is_activated: false,
+            inserted: false,
             exists: true,
         }, &mut cursor, &mut debug_notify);
         // tree.dbg_check(); // checking here doesn't work because we have an outstanding cursor.
@@ -1758,10 +1841,11 @@ mod test {
         tree.insert_notify(TestRange {
             id: 321,
             len: 20,
-            is_activated: true,
+            inserted: true,
             exists: true,
         }, &mut cursor, &mut debug_notify);
-        tree.emplace_cursor((20, 2 + 20).into(), cursor);
+        tree.emplace_cursor(20, cursor);
+        // tree.emplace_cursor((20, 2 + 20).into(), cursor);
         // tree.flush_cursor(cursor);
         tree.dbg_check();
 
@@ -1771,9 +1855,9 @@ mod test {
 
         // dbg!(tree.iter().collect::<Vec<_>>());
         assert!(tree.iter().eq([
-            TestRange { id: 123, len: 2, is_activated: false, exists: true },
-            TestRange { id: 321, len: 20, is_activated: true, exists: true },
-            TestRange { id: 125, len: 8, is_activated: false, exists: true },
+            TestRange { id: 123, len: 2, inserted: false, exists: true },
+            TestRange { id: 321, len: 20, inserted: true, exists: true },
+            TestRange { id: 125, len: 8, inserted: false, exists: true },
         ].into_iter()));
     }
 
@@ -1786,206 +1870,60 @@ mod test {
         tree.insert_notify(TestRange {
             id: 123,
             len: 10,
-            is_activated: true,
+            inserted: true,
             exists: true,
         }, &mut cursor, &mut null_notify);
-        tree.emplace_cursor((10, 10).into(), cursor);
+        tree.emplace_cursor(10, cursor);
         tree.dbg_check();
 
-        let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(2);
-        assert_eq!(end_pos, 2);
+        let mut cursor = tree.mut_cursor_before_cur_pos(2);
         // assert_eq!(tree.get_cursor_pos(&cursor), LenPair::new(2, 2));
         // cursor.offset = 2;
         let (len, _r) = tree.mutate_entry(&mut cursor, 5, &mut panic_notify, |e| {
             assert_eq!(e.id, 125);
             assert_eq!(e.len, 5);
-            e.is_activated = false;
+            e.inserted = false;
         });
         assert_eq!(len, 5);
-        tree.emplace_cursor((2, 7).into(), cursor);
+        tree.emplace_cursor(2, cursor);
 
         tree.dbg_check();
 
         // dbg!(tree.get_cursor_pos(&cursor));
         // dbg!(tree.iter().collect::<Vec<_>>());
         assert!(tree.iter().eq([
-            TestRange { id: 123, len: 2, is_activated: true, exists: true },
-            TestRange { id: 125, len: 5, is_activated: false, exists: true },
-            TestRange { id: 130, len: 3, is_activated: true, exists: true },
+            TestRange { id: 123, len: 2, inserted: true, exists: true },
+            TestRange { id: 125, len: 5, inserted: false, exists: true },
+            TestRange { id: 130, len: 3, inserted: true, exists: true },
         ].into_iter()));
 
         // Now re-activate part of the middle item.
         // let (end_pos, mut cursor) = tree.mut_cursor_at_end_pos(5);
         // I can't get a cursor where I want it. This is dirty as anything.
 
-        let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(1);
-        assert_eq!(end_pos, 1);
+        let mut cursor = tree.mut_cursor_before_cur_pos(1);
         cursor.0.elem_idx += 1; cursor.0.offset = 3; // hack hack hack.
         let (len, _r) = tree.mutate_entry(&mut cursor, 5, &mut panic_notify, |e| {
             // dbg!(&e);
-            e.is_activated = true;
+            e.inserted = true;
         });
         assert!(tree.iter().eq([
-            TestRange { id: 123, len: 2, is_activated: true, exists: true },
-            TestRange { id: 125, len: 3, is_activated: false, exists: true },
-            TestRange { id: 128, len: 5, is_activated: true, exists: true },
+            TestRange { id: 123, len: 2, inserted: true, exists: true },
+            TestRange { id: 125, len: 3, inserted: false, exists: true },
+            TestRange { id: 128, len: 5, inserted: true, exists: true },
         ].into_iter()));
         assert_eq!(len, 2);
         // dbg!(tree.iter().collect::<Vec<_>>());
 
-        tree.emplace_cursor((4, 7).into(), cursor);
+        tree.emplace_cursor(4, cursor);
         tree.dbg_check();
     }
-
-
-//     use std::ops::Range;
-//     use std::pin::Pin;
-//     use rand::prelude::SmallRng;
-//     use rand::{Rng, SeedableRng, thread_rng};
-//     use content_tree::{ContentTreeRaw, null_notify, RawPositionMetricsUsize};
-//     use crate::list_fuzzer_tools::fuzz_multithreaded;
-//     use super::*;
-//
-//     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-//     enum Foo { A, B, C }
-//     use Foo::*;
-//
-//     #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
-//     struct X(usize);
-//     impl IndexContent for X {
-//         fn try_append(&mut self, offset: usize, other: &Self, other_len: usize) -> bool {
-//             debug_assert!(offset > 0);
-//             debug_assert!(other_len > 0);
-//             &self.at_offset(offset) == other
-//         }
-//
-//         fn at_offset(&self, offset: usize) -> Self {
-//             X(self.0 + offset)
-//         }
-//
-//         fn eq(&self, other: &Self, _upto_len: usize) -> bool {
-//             self.0 == other.0
-//         }
-//     }
-//
-//     #[test]
-//     fn empty_tree_is_empty() {
-//         let tree = ContentTree::<X>::new();
-//
-//         tree.dbg_check_eq(&[]);
-//     }
-//
-//     #[test]
-//     fn overlapping_sets() {
-//         let mut tree = ContentTree::new();
-//
-//         tree.set_range((5..10).into(), X(100));
-//         tree.dbg_check_eq(&[RleDRun::new(5..10, X(100))]);
-//         // assert_eq!(tree.to_vec(), &[((5..10).into(), Some(A))]);
-//         // dbg!(&tree.leaves[0]);
-//         tree.set_range((5..11).into(), X(200));
-//         tree.dbg_check_eq(&[RleDRun::new(5..11, X(200))]);
-//
-//         tree.set_range((5..10).into(), X(100));
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(5..10, X(100)),
-//             RleDRun::new(10..11, X(205)),
-//         ]);
-//
-//         tree.set_range((2..50).into(), X(300));
-//         // dbg!(&tree.leaves);
-//         tree.dbg_check_eq(&[RleDRun::new(2..50, X(300))]);
-//
-//     }
-//
-//     #[test]
-//     fn split_values() {
-//         let mut tree = ContentTree::new();
-//         tree.set_range((10..20).into(), X(100));
-//         tree.set_range((12..15).into(), X(200));
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(10..12, X(100)),
-//             RleDRun::new(12..15, X(200)),
-//             RleDRun::new(15..20, X(105)),
-//         ]);
-//     }
-//
-//     #[test]
-//     fn set_inserts_1() {
-//         let mut tree = ContentTree::new();
-//
-//         tree.set_range((5..10).into(), X(100));
-//         tree.dbg_check_eq(&[RleDRun::new(5..10, X(100))]);
-//
-//         tree.set_range((5..10).into(), X(200));
-//         tree.dbg_check_eq(&[RleDRun::new(5..10, X(200))]);
-//
-//         // dbg!(&tree);
-//         tree.set_range((15..20).into(), X(300));
-//         // dbg!(tree.iter().collect::<Vec<_>>());
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(5..10, X(200)),
-//             RleDRun::new(15..20, X(300)),
-//         ]);
-//
-//         // dbg!(&tree);
-//         // dbg!(tree.iter().collect::<Vec<_>>());
-//     }
-//
-//     #[test]
-//     fn set_inserts_2() {
-//         let mut tree = ContentTree::new();
-//         tree.set_range((5..10).into(), X(100));
-//         tree.set_range((1..5).into(), X(200));
-//         // dbg!(&tree);
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(1..5, X(200)),
-//             RleDRun::new(5..10, X(100)),
-//         ]);
-//         dbg!(&tree.leaves[0]);
-//
-//         tree.set_range((3..8).into(), X(300));
-//         // dbg!(&tree);
-//         // dbg!(tree.iter().collect::<Vec<_>>());
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(1..3, X(200)),
-//             RleDRun::new(3..8, X(300)),
-//             RleDRun::new(8..10, X(103)),
-//         ]);
-//     }
-//
-//     #[test]
-//     fn split_leaf() {
-//         let mut tree = ContentTree::new();
-//         // Using 10, 20, ... so they don't merge.
-//         tree.set_range(10.into(), X(100));
-//         tree.dbg_check();
-//         tree.set_range(20.into(), X(200));
-//         tree.set_range(30.into(), X(100));
-//         tree.set_range(40.into(), X(200));
-//         tree.dbg_check();
-//         // dbg!(&tree);
-//         tree.set_range(50.into(), X(100));
-//         tree.dbg_check();
-//
-//         // dbg!(&tree);
-//         // dbg!(tree.iter().collect::<Vec<_>>());
-//
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(10..11, X(100)),
-//             RleDRun::new(20..21, X(200)),
-//             RleDRun::new(30..31, X(100)),
-//             RleDRun::new(40..41, X(200)),
-//             RleDRun::new(50..51, X(100)),
-//         ]);
-//     }
-//
 
     impl ContentLength for TestRange {
         fn content_len(&self) -> usize { self.content_len_cur() }
 
         fn content_len_at_offset(&self, offset: usize) -> usize {
-            if self.is_activated { offset } else { 0 }
+            if self.inserted { offset } else { 0 }
         }
     }
 
@@ -1993,7 +1931,7 @@ mod test {
         TestRange {
             id: rng.gen_range(0..10),
             len: rng.gen_range(1..10),
-            is_activated: rng.gen_bool(0.5),
+            inserted: rng.gen_bool(0.5),
             exists: true,
         }
     }
@@ -2008,7 +1946,7 @@ mod test {
         check_tree.replace_range_at_offset(0, TestRange {
             id: START_JUNK,
             len: START_JUNK,
-            is_activated: false,
+            inserted: false,
             exists: false,
         });
 
@@ -2021,11 +1959,11 @@ mod test {
             //     // verbose = true;
             // }
 
-            if tree.total_len().cur == 0 || rng.gen_bool(0.6) {
+            if tree.total_len() == 0 || rng.gen_bool(0.6) {
 
                 // tree.dbg_check();
                 // Insert something.
-                let cur_pos = rng.gen_range(0..=tree.total_len().cur);
+                let cur_pos = rng.gen_range(0..=tree.total_len());
                 let item = random_entry(&mut rng);
 
                 if verbose { println!("inserting {:?} at {}", item, cur_pos); }
@@ -2044,8 +1982,8 @@ mod test {
                     // if verbose { dbg!(&tree); }
 
                     // This code mirrors the equivalent code in merge.rs
-                    let (end_pos, mut cursor) = if cur_pos == 0 {
-                        (0, tree.mut_cursor_at_start())
+                    let mut cursor = if cur_pos == 0 {
+                        tree.mut_cursor_at_start()
                     } else {
                         // // Equivalent of getting a cursor with stick_end: true.
                         // let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(cur_pos - 1);
@@ -2056,13 +1994,13 @@ mod test {
                         // tree.emplace_cursor((cur_pos, end_pos + 1).into(), cursor);
 
 
-                        let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(cur_pos - 1);
+                        let mut cursor = tree.mut_cursor_before_cur_pos(cur_pos - 1);
                         cursor.0.inc_offset(&tree);
-                        (end_pos + 1, cursor)
+                        cursor
                     };
                     // let mut cursor = tree.cursor_at_content_pos::<false>(pos);
                     // dbg!(&cursor);
-                    let pre_pos = LenPair::new(cur_pos, end_pos);
+                    let pre_pos = cur_pos;
                     tree.insert_notify(item, &mut cursor, &mut null_notify);
                     // dbg!(&cursor);
 
@@ -2087,10 +2025,10 @@ mod test {
                 //
                 // Note this has a subtle sort-of flaw: The first item we touch will always be
                 // active. But we might make some later items active again in the range.
-                let modify_len = gen_range(&mut rng, 1..20.min(tree.total_len().cur));
+                let modify_len = gen_range(&mut rng, 1..20.min(tree.total_len()));
                 // let modify_len = 1;
-                debug_assert!(modify_len <= tree.total_len().cur);
-                let pos = gen_range(&mut rng, 0..tree.total_len().cur - modify_len);
+                debug_assert!(modify_len <= tree.total_len());
+                let pos = gen_range(&mut rng, 0..tree.total_len() - modify_len);
                 let new_is_active = rng.gen_bool(0.5);
 
                 // The chunking of the two tree implementations might differ, so we'll run modify
@@ -2100,7 +2038,7 @@ mod test {
                     let mut cursor = check_tree.mut_cursor_at_content_pos(pos, false);
                     while len_remaining > 0 {
                         let (changed, _) = cursor.mutate_single_entry_notify(len_remaining, content_tree::null_notify, |e| {
-                            e.is_activated = new_is_active;
+                            e.inserted = new_is_active;
                         });
                         cursor.roll_to_next_entry();
                         len_remaining -= changed;
@@ -2110,13 +2048,13 @@ mod test {
                 {
                     let mut len_remaining = modify_len;
                     // let mut cursor = tree.cursor_at_content_pos::<false>(pos);
-                    let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(pos);
-                    let mut cursor_pos = LenPair::new(pos, end_pos);
+                    let mut cursor = tree.mut_cursor_before_cur_pos(pos);
+                    let mut cursor_pos = pos;
 
                     while len_remaining > 0 {
                         // let pre_pos = tree.get_cursor_pos(&cursor);
                         let (changed, len_here) = tree.mutate_entry(&mut cursor, len_remaining, &mut null_notify, |e| {
-                            e.is_activated = new_is_active;
+                            e.inserted = new_is_active;
                             e.content_len_pair()
                         });
                         cursor_pos += len_here;
@@ -2146,18 +2084,14 @@ mod test {
         fuzz(0, true);
     }
 
-    #[test]
-    #[ignore]
-    fn content_tree_fuzz_forever() {
-        fuzz_multithreaded(u64::MAX, |seed| {
-            if seed % 100 == 0 {
-                println!("Iteration {}", seed);
-            }
-            fuzz(seed, false);
-        })
-    }
+    // #[test]
+    // #[ignore]
+    // fn content_tree_fuzz_forever() {
+    //     fuzz_multithreaded(u64::MAX, |seed| {
+    //         if seed % 100 == 0 {
+    //             println!("Iteration {}", seed);
+    //         }
+    //         fuzz(seed, false);
+    //     })
+    // }
 }
-
-
-
-

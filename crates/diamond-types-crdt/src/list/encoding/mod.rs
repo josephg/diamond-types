@@ -544,7 +544,7 @@ impl ListCRDT {
             ins_del_runs.push(PosNegRun((doc_next_order - next_order) as i32));
         }
 
-        let mut entries = self.range_tree.raw_iter().collect::<Vec<YjsSpan>>();
+        let mut entries = self.range_tree.iter().collect::<Vec<YjsSpan>>();
         entries.sort_unstable_by_key(|e| e.lv);
 
         let mut fancy_runs = Vec::new();

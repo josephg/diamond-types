@@ -40,6 +40,7 @@ json_minimal = "0.1.3"
 memusage = []
 inlinerope = []
 serde = ["dep:serde", "smallvec/serde", "smartstring/serde"]
+stats = []
 
 [lib]
 bench = false

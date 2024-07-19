@@ -1,8 +1,9 @@
 #[cfg(feature = "memusage")]
 use std::collections::HashMap;
+use std::hint::black_box;
 
 #[cfg(feature = "bench")]
-use criterion::{BenchmarkId, black_box, Criterion};
+use criterion::{BenchmarkId, Criterion};
 #[cfg(feature = "memusage")]
 use serde::Serialize;
 use smallvec::{smallvec, SmallVec};
@@ -174,8 +175,6 @@ pub fn get_txns_from_oplog(oplog: &ListOpLog) -> Vec<RemoteTxn> {
     result
 }
 
-
-#[cfg(feature = "bench")]
 // const DATASETS: &[&str] = &["automerge-paper", "seph-blog1", "friendsforever", "clownschool", "node_nodecc", "git-makefile", "egwalker"];
 // const DATASETS: &[&str] = &["automerge-paperx3", "seph-blog1x3", "node_nodeccx1", "friendsforeverx25", "clownschoolx25", "egwalkerx1", "git-makefilex2"];
 const DATASETS: &[&str] = & ["S1", "S2", "S3", "C1", "C2", "A1", "A2"];
@@ -213,6 +212,31 @@ fn bench_process(c: &mut Criterion) {
         // }
         // old_oplog.encode_small(true);
 
+    }
+}
+
+#[cfg(feature = "stats")]
+fn stats() {
+    // for &name in DATASETS {
+    // for &name in &["S1"] {
+    for &name in &["S1", "S2", "S3"] {
+        let txns = get_txns_from_file(&format!("../reg-paper/datasets/{}.dt", name));
+        // dbg!(txns.len());
+        // dbg!(txns.iter().map(|t| t.ops.len()).sum::<usize>());
+        // dbg!(txns.iter()
+        //     .map(|t| t.ops.iter().map(|o| o.len()).sum::<usize>())
+        //     .sum::<usize>());
+
+        // dbg!(txns.iter().take(10).collect::<Vec<_>>());
+
+        // diamond_types_crdt::take_stats();
+        let mut old_oplog = diamond_types_crdt::list::ListCRDT::new();
+        for txn in txns.iter() {
+            old_oplog.apply_remote_txn(txn);
+        }
+
+        let (hits, misses) = diamond_types_crdt::take_stats();
+        println!("Trace {name}: Hits: {hits} misses {misses} / total {}", hits + misses);
     }
 }
 
@@ -267,6 +291,9 @@ fn main() {
         bench_process(&mut c);
         c.final_summary();
     }
+
+    #[cfg(feature = "stats")]
+    stats();
 }
 
 // fn main() {

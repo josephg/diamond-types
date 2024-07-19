@@ -1,12 +1,11 @@
 use std::fmt::{Debug, DebugStruct, Formatter};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpanHelpers};
 
-use content_tree::ContentLength;
-use content_tree::Toggleable;
 use crate::list::{ROOT_LV, LV};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use crate::ost::content_tree::Content;
 
 /// This is exposed for diamond-wasm's vis output. The internal fields here should not be considered
 /// part of the public API and are not to be relied on.
@@ -47,6 +46,10 @@ impl YjsSpan {
 
     pub fn contains(&self, time: LV) -> bool {
         self.lv <= time && time < self.lv + self.len.abs() as LV
+    }
+    
+    pub fn is_activated(&self) -> bool {
+        self.len > 0
     }
 }
 
@@ -115,36 +118,53 @@ impl Searchable for YjsSpan {
     }
 }
 
-impl ContentLength for YjsSpan {
-    #[inline(always)]
+// impl ContentLength for YjsSpan {
+//     #[inline(always)]
+//     fn content_len(&self) -> usize {
+//         self.len.max(0) as usize
+//     }
+//
+//     fn content_len_at_offset(&self, offset: usize) -> usize {
+//         // let mut e = *self;
+//         // e.truncate(offset);
+//         // e.content_len()
+//         self.len.clamp(0, offset as isize) as usize
+//     }
+// }
+//
+// impl Toggleable for YjsSpan {
+//     fn is_activated(&self) -> bool {
+//         self.len > 0
+//     }
+//
+//     fn mark_activated(&mut self) {
+//         debug_assert!(self.len < 0);
+//         self.len = -self.len;
+//     }
+//
+//     fn mark_deactivated(&mut self) {
+//         debug_assert!(self.len > 0);
+//         self.len = -self.len
+//     }
+// }
+
+impl Content for YjsSpan {
     fn content_len(&self) -> usize {
         self.len.max(0) as usize
     }
 
-    fn content_len_at_offset(&self, offset: usize) -> usize {
-        // let mut e = *self;
-        // e.truncate(offset);
-        // e.content_len()
-        self.len.clamp(0, offset as isize) as usize
+    fn exists(&self) -> bool {
+        self.len != 0
     }
-}
 
-impl Toggleable for YjsSpan {
-    fn is_activated(&self) -> bool {
+    fn takes_up_space(&self) -> bool {
         self.len > 0
     }
 
-    fn mark_activated(&mut self) {
-        debug_assert!(self.len < 0);
-        self.len = -self.len;
-    }
-
-    fn mark_deactivated(&mut self) {
-        debug_assert!(self.len > 0);
-        self.len = -self.len
+    fn none() -> Self {
+        Self::default()
     }
 }
-
 
 #[derive(Debug)]
 struct RootTime;

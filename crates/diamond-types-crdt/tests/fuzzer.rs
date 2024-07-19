@@ -38,7 +38,8 @@ fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: Ag
         if let Some(rope) = rope {
             rope.insert(pos, content.as_str());
         }
-        doc.local_insert(agent, pos, &content)
+        doc.local_insert(agent, pos, &content);
+        doc.check(false);
     } else {
         // Delete something
         let pos = rng.gen_range(0..doc_len);
@@ -49,11 +50,11 @@ fn make_random_change(doc: &mut ListCRDT, rope: Option<&mut JumpRope>, agent: Ag
         if let Some(rope) = rope {
             rope.remove(pos..pos + span);
         }
-        doc.local_delete(agent, pos, span)
+        doc.local_delete(agent, pos, span);
+        doc.check(false);
     }
     // dbg!(&doc.markers);
     // doc.check(true);
-    doc.check(false);
 }
 
 #[test]
@@ -88,6 +89,7 @@ fn random_single_replicate() {
         for _ in 0..100 {
             make_random_change(&mut doc, Some(&mut expected_content), agent, &mut rng);
         }
+        // println!("i {_i}");
         let mut doc_2 = ListCRDT::new();
 
         // dbg!(&doc.content_tree);
@@ -122,6 +124,8 @@ fn run_fuzzer_iteration(seed: u64) {
     }
 
     for _i in 0..100 {
+        println!("i {_i}");
+
         // Generate some operations
         for _j in 0..5 {
             let doc_idx = rng.gen_range(0..docs.len());
@@ -157,8 +161,24 @@ fn run_fuzzer_iteration(seed: u64) {
                 }
             }
 
+            // println!("=======================");
+            // a.debug_print_ids();
+            // println!("---");
+            // b.debug_print_ids();
+
             // println!("{} -> {}", a_idx, b_idx);
             a.replicate_into(b);
+
+
+            // println!("----------");
+            // a.debug_print_ids();
+            // println!("---");
+            // b.debug_print_ids();
+
+            if _i == 1 {
+                println!();
+            }
+
             // println!("{} -> {}", b_idx, a_idx);
             b.replicate_into(a);
 
@@ -175,6 +195,10 @@ fn run_fuzzer_iteration(seed: u64) {
 
             if a != b {
                 println!("Docs {} and {} after {} iterations:", a_idx, b_idx, _i);
+                println!("Content '{:?}' / '{:?}'",
+                         a.text_content.as_ref().map(|b| b.to_string()),
+                         b.text_content.as_ref().map(|b| b.to_string()),
+                );
                 a.debug_print_ids();
                 println!("---");
                 b.debug_print_ids();
@@ -198,7 +222,7 @@ fn run_fuzzer_iteration(seed: u64) {
 
 #[test]
 fn fuzz_quick() {
-    run_fuzzer_iteration(0);
+    run_fuzzer_iteration(22);
 }
 
 #[test]

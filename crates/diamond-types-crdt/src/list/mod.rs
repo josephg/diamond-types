@@ -1,11 +1,7 @@
-use std::pin::Pin;
-use std::ptr::NonNull;
-
 use jumprope::JumpRopeBuf;
 use smallvec::SmallVec;
 use smartstring::alias::String as SmartString;
 
-use content_tree::*;
 use diamond_core_old::AgentId;
 pub use ot::traversal::TraversalComponent;
 pub use positional::{InsDelTag, PositionalComponent, PositionalOp};
@@ -13,10 +9,11 @@ pub use positional::{InsDelTag, PositionalComponent, PositionalOp};
 use crate::common::ClientName;
 use crate::crdtspan::CRDTSpan;
 use crate::list::double_delete::DoubleDelete;
-use crate::list::index_tree::{IndexContent, IndexTree};
+use crate::ost::{IndexContent, IndexTree, LeafIdx};
 use crate::list::span::YjsSpan;
 use crate::list::txn::TxnSpan;
 use crate::order::TimeSpan;
+use crate::ost::content_tree::ContentTree;
 // use crate::list::delete::DeleteEntry;
 use crate::rle::{KVPair, RleVec};
 
@@ -35,9 +32,11 @@ pub mod time;
 pub mod positional;
 mod merge_positional;
 
-#[cfg(test)]
-mod positional_fuzzer;
-mod index_tree;
+pub(crate) mod stats;
+
+// #[cfg(test)]
+// mod positional_fuzzer;
+// mod index_tree;
 
 // #[cfg(inlinerope)]
 // pub const USE_INNER_ROPE: bool = true;
@@ -65,30 +64,43 @@ struct ClientData {
     item_localtime: RleVec<KVPair<TimeSpan>>,
 }
 
-pub(crate) const INDEX_IE: usize = DEFAULT_IE;
-pub(crate) const INDEX_LE: usize = DEFAULT_LE;
-
-pub(crate) const DOC_IE: usize = DEFAULT_IE;
-pub(crate) const DOC_LE: usize = DEFAULT_LE;
+// pub(crate) const INDEX_IE: usize = DEFAULT_IE;
+// pub(crate) const INDEX_LE: usize = DEFAULT_LE;
+// 
+// pub(crate) const DOC_IE: usize = DEFAULT_IE;
+// pub(crate) const DOC_LE: usize = DEFAULT_LE;
 // const DOC_LE: usize = 32;
 
-// type DocRangeIndex = ContentIndex;
-// type DocRangeIndex = FullMetricsU32;
-type DocRangeIndex = FullMetricsUsize;
+// type DocRangeIndex = FullMetricsUsize;
 
-pub(crate) type RangeTree = Pin<Box<ContentTreeRaw<YjsSpan, DocRangeIndex>>>;
-// pub(crate) type RangeTreeLeaf = NodeLeaf<YjsSpan, DocRangeIndex, DEFAULT_IE, DEFAULT_LE>;
+// pub(crate) type OldRangeTree = Pin<Box<ContentTreeRaw<YjsSpan, DocRangeIndex>>>;
+pub(crate) type RangeTree = ContentTree<YjsSpan>;
 
-// type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry<YjsSpan, DocRangeIndex>, RawPositionMetricsUsize>>>;
+// #[derive(Copy, Clone, Debug)]
+// struct Marker<E: ContentTraits, I: TreeMetrics<E>>(Option<NonNull<NodeLeaf<E, I, DOC_IE, DOC_LE>>>);
+//
+// impl<E: ContentTraits, I: TreeMetrics<E>> Default for Marker<E, I> {
+//     fn default() -> Self { Self(None) }
+// }
+// impl<E: ContentTraits, I: TreeMetrics<E>> IndexContent for Marker<E, I> {
+//     fn try_append(&mut self, _offset: usize, other: &Self, _other_len: usize) -> bool {
+//         self.0 == other.0
+//     }
+//
+//     fn at_offset(&self, _offset: usize) -> Self {
+//         *self
+//     }
+//
+//     fn eq(&self, other: &Self, _upto_len: usize) -> bool {
+//         self.0 == other.0
+//     }
+// }
 
-#[derive(Copy, Clone, Debug)]
-struct Marker<E: ContentTraits, I: TreeMetrics<E>>(Option<NonNull<NodeLeaf<E, I, DOC_IE, DOC_LE>>>);
+#[derive(Copy, Clone, Debug, Default)]
+struct Marker(LeafIdx);
 
-impl<E: ContentTraits, I: TreeMetrics<E>> Default for Marker<E, I> {
-    fn default() -> Self { Self(None) }
-}
-impl<E: ContentTraits, I: TreeMetrics<E>> IndexContent for Marker<E, I> {
-    fn try_append(&mut self, _offset: usize, other: &Self, _other_len: usize) -> bool {
+impl IndexContent for Marker {
+    fn try_append(&mut self, offset: usize, other: &Self, other_len: usize) -> bool {
         self.0 == other.0
     }
 
@@ -101,8 +113,7 @@ impl<E: ContentTraits, I: TreeMetrics<E>> IndexContent for Marker<E, I> {
     }
 }
 
-
-type SpaceIndex = IndexTree<Marker<YjsSpan, DocRangeIndex>>;
+type SpaceIndex = IndexTree<Marker>;
 
 pub type DoubleDeleteList = RleVec<KVPair<DoubleDelete>>;
 
@@ -158,7 +169,7 @@ pub struct ListCRDT {
     txns: RleVec<TxnSpan>,
 
     /// The document state.
-    text_content: Option<JumpRopeBuf>,
+    pub text_content: Option<JumpRopeBuf>,
     /// This is a big ol' string containing everything that's been deleted (self.deletes) in order.
     deleted_content: Option<String>,
 }

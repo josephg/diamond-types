@@ -2,6 +2,7 @@ use jumprope::JumpRope;
 use crate::list::{ListCRDT, ROOT_LV};
 use rle::HasLength;
 use smallvec::{SmallVec, smallvec};
+use crate::ost::content_tree::Content;
 
 /// This file contains debugging assertions to validate the document's internal state.
 ///
@@ -21,8 +22,10 @@ impl ListCRDT {
     pub fn check(&self, deep: bool) {
         // self.index.check();
 
+        self.range_tree.dbg_check();
+
         if let Some(text) = self.text_content.as_ref() {
-            assert_eq!(self.range_tree.content_len() as usize, text.len_chars());
+            assert_eq!(self.range_tree.total_len() as usize, text.len_chars());
 
             let num_deleted_items = self.deletes.iter().fold(0, |x, y| x + y.len());
             if let Some(del_content) = self.deleted_content.as_ref() {
@@ -30,27 +33,24 @@ impl ListCRDT {
             }
         }
 
-        let mut cursor = self.range_tree.cursor_at_start();
-        loop {
-            // The call to cursor.next() places the cursor at the next item before returning.
-            let this_cursor = cursor.clone();
+        for e in self.range_tree.iter() {
+            // Each item's ID should come after its origin left and right
+            assert!(e.origin_left == ROOT_LV || e.lv > e.origin_left);
+            if e.origin_left != ROOT_LV || e.origin_right != ROOT_LV {
+                assert_ne!(e.origin_left, e.origin_right);
+            }
+            assert!(e.origin_right == ROOT_LV || e.lv > e.origin_right);
+            assert_ne!(e.len, 0);
 
-            if let Some(e) = cursor.next() { // Iterating manually for the borrow checker.
-                // Each item's ID should come after its origin left and right
-                assert!(e.origin_left == ROOT_LV || e.lv > e.origin_left);
-                assert!(e.origin_right == ROOT_LV || e.lv > e.origin_right);
-                assert_ne!(e.len, 0);
-
-                if deep {
-                    // Also check that the origin left appears before this entry, and origin right
-                    // appears after it.
-                    let left = self.get_cursor_after(e.origin_left, true);
-                    assert!(left <= this_cursor);
-
-                    let right = self.get_cursor_before(e.origin_right);
-                    assert!(this_cursor < right);
-                }
-            } else { break; }
+            // if deep {
+            //     // Also check that the origin left appears before this entry, and origin right
+            //     // appears after it.
+            //     let left = self.get_cursor_after(e.origin_left, true);
+            //     assert!(left <= this_cursor);
+            //
+            //     let right = self.get_cursor_before(e.origin_right);
+            //     assert!(this_cursor < right);
+            // }
         }
 
         if deep {
@@ -61,9 +61,13 @@ impl ListCRDT {
 
     fn check_index(&self) {
         // Go through each entry in the range tree and make sure we can find it using the index.
-        for entry in self.range_tree.raw_iter() {
-            let marker = self.marker_at(entry.lv);
-            unsafe { marker.as_ref() }.find(entry.lv).unwrap();
+        for (leaf_idx, items) in self.range_tree.iter_leaves() {
+            for e in items {
+                if !e.exists() { break; }
+
+                let marker = self.marker_at(e.lv);
+                assert_eq!(marker.0, leaf_idx);
+            }
         }
     }
 

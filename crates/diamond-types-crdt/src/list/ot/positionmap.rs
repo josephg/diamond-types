@@ -2,21 +2,20 @@
 // few files!
 
 use std::pin::Pin;
-use jumprope::JumpRopeBuf;
 
+use jumprope::JumpRopeBuf;
 use smallvec::SmallVec;
 
 use content_tree::*;
 use diamond_core_old::CRDTId;
 use rle::AppendRle;
-use TraversalComponent::*;
 
 use crate::crdtspan::CRDTSpan;
 use crate::list::{DoubleDeleteList, ListCRDT, LV};
 use crate::list::double_delete::DoubleDelete;
 use crate::list::external_txn::RemoteIdSpan;
-use crate::list::positional::{InsDelTag, PositionalComponent, PositionalOp};
 use crate::list::ot::traversal::{TraversalComponent, TraversalOp, TraversalOpSequence};
+use crate::list::positional::{PositionalComponent, PositionalOp};
 use crate::order::TimeSpan;
 use crate::rle::{KVPair, RleKey, RleSpanHelpers};
 
@@ -229,142 +228,144 @@ impl<'a> Iterator for PatchIter<'a> {
     type Item = (usize, PositionalComponent);
 
     fn next(&mut self) -> Option<(usize, PositionalComponent)> {
-        // We go back through history in reverse order. We need to go in reverse order for a few
-        // reasons:
+        // // We go back through history in reverse order. We need to go in reverse order for a few
+        // // reasons:
+        // //
+        // // - Because of duplicate deletes. If an item has been deleted multiple times, we only want
+        // // to visit it the "first" time chronologically based on the OrderSpan passed in here.
+        // // - We need to generate the position map anyway. I
+        // // it for deletion the *first* time it was deleted chronologically according to span.
+        // // Another approach would be to store in double_deletes the order of the first delete for
+        // // each entry, but at some point we might want to generate this map from a different time
+        // // order. This approach uses less memory and generalizes better, at the expense of more
+        // // complex code.
+        // while self.span.len > 0 {
+        //     // So instead of searching for span.offset, we start with span.offset + span.len - 1.
+        //     let span_last_order = self.span.end() - 1;
         //
-        // - Because of duplicate deletes. If an item has been deleted multiple times, we only want
-        // to visit it the "first" time chronologically based on the OrderSpan passed in here.
-        // - We need to generate the position map anyway. I
-        // it for deletion the *first* time it was deleted chronologically according to span.
-        // Another approach would be to store in double_deletes the order of the first delete for
-        // each entry, but at some point we might want to generate this map from a different time
-        // order. This approach uses less memory and generalizes better, at the expense of more
-        // complex code.
-        while self.span.len > 0 {
-            // So instead of searching for span.offset, we start with span.offset + span.len - 1.
-            let span_last_order = self.span.end() - 1;
-
-            // First check if the change was a delete or an insert.
-            if let Ok(d) = self.doc.deletes.search_scanning_backwards_sparse(span_last_order, &mut self.deletes_idx) {
-                // Its a delete. We need to try to undelete the item, unless the item was deleted
-                // multiple times (in which case, it stays deleted for now).
-                let base = usize::max(self.span.start, d.0);
-                let del_span_size = span_last_order + 1 - base; // TODO: Clean me up
-                debug_assert!(del_span_size > 0);
-
-                // d_offset -= span_last_order - base; // equivalent to d_offset -= undelete_here - 1;
-
-                // Ok, undelete here. An earlier version of this code iterated *forwards* amongst
-                // the deleted span. This worked correctly and was slightly simpler, but it was a
-                // confusing API to use and test because delete changes in particular were sometimes
-                // arbitrarily reordered.
-                let last_del_target = d.1.start + (span_last_order - d.0);
-
-                // I'm also going to limit what we visit each iteration by the size of the visited
-                // item in the range tree. For performance I could hold off looking this up until
-                // we've got the go ahead from marked_deletes, but given how rare double deletes
-                // are, this is fine.
-
-                let rt_cursor = self.doc.get_unsafe_cursor_after(last_del_target, true);
-                // Cap the number of items to undelete each iteration based on the span in content_tree.
-                let entry = rt_cursor.get_raw_entry();
-                debug_assert!(entry.is_deactivated());
-                let first_del_target = usize::max(entry.lv, last_del_target + 1 - del_span_size);
-
-                let (allowed, first_del_target) = self.marked_deletes.mark_range(&self.doc.double_deletes, last_del_target, first_del_target);
-                let len_here = last_del_target + 1 - first_del_target;
-                // println!("Delete from {} to {}", first_del_target, last_del_target);
-                self.span.len -= len_here;
-
-                if allowed {
-                    // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
-                    let post_pos = unsafe { rt_cursor.unsafe_count_content_pos() };
-                    let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos as _, true);
-                    // We call insert instead of replace_range here because the delete doesn't
-                    // consume "space".
-
-                    let pre_pos = count_cursor_pre_len(&map_cursor);
-                    map_cursor.insert(Del(len_here));
-
-                    // The content might have later been deleted.
-                    let entry = PositionalComponent {
-                        pos: pre_pos,
-                        len: len_here,
-                        content_known: false,
-                        tag: InsDelTag::Del,
-                    };
-                    return Some((post_pos, entry));
-                } // else continue.
-            } else {
-                // println!("Insert at {:?} (last order: {})", span, span_last_order);
-                // The operation was an insert operation, not a delete operation.
-                let mut rt_cursor = self.doc.get_unsafe_cursor_after(span_last_order, true);
-
-                // Check how much we can tag in one go.
-                let len_here = usize::min(self.span.len, rt_cursor.offset); // usize? u32? blehh
-                debug_assert_ne!(len_here, 0);
-                // let base = span_last_order + 1 - len_here; // not needed.
-                // let base = u32::max(span.order, span_last_order + 1 - cursor.offset);
-                // dbg!(&cursor, len_here);
-                rt_cursor.offset -= len_here as usize;
-
-                // Where in the final document are we?
-                let post_pos = unsafe { rt_cursor.unsafe_count_content_pos() };
-
-                // So this is also dirty. We need to skip any deletes, which have a size of 0.
-                let content_known = rt_cursor.get_raw_entry().is_activated();
-
-
-                // There's two cases here. Either we're inserting something fresh, or we're
-                // cancelling out a delete we found earlier.
-                let entry = if content_known {
-                    // post_pos + 1 is a hack. cursor_at_offset_pos returns the first cursor
-                    // location which has the right position.
-                    let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos + 1, true);
-                    map_cursor.inner.offset -= 1;
-                    let pre_pos = count_cursor_pre_len(&map_cursor);
-                    map_cursor.replace_range(Ins { len: len_here, content_known });
-                    PositionalComponent {
-                        pos: pre_pos,
-                        len: len_here,
-                        content_known: true,
-                        tag: InsDelTag::Ins
-                    }
-                } else {
-                    let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos, true);
-                    map_cursor.inner.roll_to_next_entry();
-                    map_cursor.delete(len_here as usize);
-                    PositionalComponent {
-                        pos: count_cursor_pre_len(&map_cursor),
-                        len: len_here,
-                        content_known: false,
-                        tag: InsDelTag::Ins
-                    }
-                };
-
-                // The content might have later been deleted.
-
-                self.span.len -= len_here;
-                return Some((post_pos, entry));
-            }
-        }
-        None
+        //     // First check if the change was a delete or an insert.
+        //     if let Ok(d) = self.doc.deletes.search_scanning_backwards_sparse(span_last_order, &mut self.deletes_idx) {
+        //         // Its a delete. We need to try to undelete the item, unless the item was deleted
+        //         // multiple times (in which case, it stays deleted for now).
+        //         let base = usize::max(self.span.start, d.0);
+        //         let del_span_size = span_last_order + 1 - base; // TODO: Clean me up
+        //         debug_assert!(del_span_size > 0);
+        //
+        //         // d_offset -= span_last_order - base; // equivalent to d_offset -= undelete_here - 1;
+        //
+        //         // Ok, undelete here. An earlier version of this code iterated *forwards* amongst
+        //         // the deleted span. This worked correctly and was slightly simpler, but it was a
+        //         // confusing API to use and test because delete changes in particular were sometimes
+        //         // arbitrarily reordered.
+        //         let last_del_target = d.1.start + (span_last_order - d.0);
+        //
+        //         // I'm also going to limit what we visit each iteration by the size of the visited
+        //         // item in the range tree. For performance I could hold off looking this up until
+        //         // we've got the go ahead from marked_deletes, but given how rare double deletes
+        //         // are, this is fine.
+        //
+        //         let rt_cursor = self.doc.get_unsafe_cursor_after(last_del_target, true);
+        //         // Cap the number of items to undelete each iteration based on the span in content_tree.
+        //         let entry = rt_cursor.get_raw_entry();
+        //         debug_assert!(entry.is_deactivated());
+        //         let first_del_target = usize::max(entry.lv, last_del_target + 1 - del_span_size);
+        //
+        //         let (allowed, first_del_target) = self.marked_deletes.mark_range(&self.doc.double_deletes, last_del_target, first_del_target);
+        //         let len_here = last_del_target + 1 - first_del_target;
+        //         // println!("Delete from {} to {}", first_del_target, last_del_target);
+        //         self.span.len -= len_here;
+        //
+        //         if allowed {
+        //             // let len_here = len_here.min((-entry.len) as u32 - rt_cursor.offset as u32);
+        //             let post_pos = unsafe { rt_cursor.unsafe_count_content_pos() };
+        //             let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos as _, true);
+        //             // We call insert instead of replace_range here because the delete doesn't
+        //             // consume "space".
+        //
+        //             let pre_pos = count_cursor_pre_len(&map_cursor);
+        //             map_cursor.insert(Del(len_here));
+        //
+        //             // The content might have later been deleted.
+        //             let entry = PositionalComponent {
+        //                 pos: pre_pos,
+        //                 len: len_here,
+        //                 content_known: false,
+        //                 tag: InsDelTag::Del,
+        //             };
+        //             return Some((post_pos, entry));
+        //         } // else continue.
+        //     } else {
+        //         // println!("Insert at {:?} (last order: {})", span, span_last_order);
+        //         // The operation was an insert operation, not a delete operation.
+        //         let mut rt_cursor = self.doc.get_unsafe_cursor_after(span_last_order, true);
+        //
+        //         // Check how much we can tag in one go.
+        //         let len_here = usize::min(self.span.len, rt_cursor.offset); // usize? u32? blehh
+        //         debug_assert_ne!(len_here, 0);
+        //         // let base = span_last_order + 1 - len_here; // not needed.
+        //         // let base = u32::max(span.order, span_last_order + 1 - cursor.offset);
+        //         // dbg!(&cursor, len_here);
+        //         rt_cursor.offset -= len_here as usize;
+        //
+        //         // Where in the final document are we?
+        //         let post_pos = unsafe { rt_cursor.unsafe_count_content_pos() };
+        //
+        //         // So this is also dirty. We need to skip any deletes, which have a size of 0.
+        //         let content_known = rt_cursor.get_raw_entry().is_activated();
+        //
+        //
+        //         // There's two cases here. Either we're inserting something fresh, or we're
+        //         // cancelling out a delete we found earlier.
+        //         let entry = if content_known {
+        //             // post_pos + 1 is a hack. cursor_at_offset_pos returns the first cursor
+        //             // location which has the right position.
+        //             let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos + 1, true);
+        //             map_cursor.inner.offset -= 1;
+        //             let pre_pos = count_cursor_pre_len(&map_cursor);
+        //             map_cursor.replace_range(Ins { len: len_here, content_known });
+        //             PositionalComponent {
+        //                 pos: pre_pos,
+        //                 len: len_here,
+        //                 content_known: true,
+        //                 tag: InsDelTag::Ins
+        //             }
+        //         } else {
+        //             let mut map_cursor = positionmap_mut_cursor_at_post(&mut self.map, post_pos, true);
+        //             map_cursor.inner.roll_to_next_entry();
+        //             map_cursor.delete(len_here as usize);
+        //             PositionalComponent {
+        //                 pos: count_cursor_pre_len(&map_cursor),
+        //                 len: len_here,
+        //                 content_known: false,
+        //                 tag: InsDelTag::Ins
+        //             }
+        //         };
+        //
+        //         // The content might have later been deleted.
+        //
+        //         self.span.len -= len_here;
+        //         return Some((post_pos, entry));
+        //     }
+        // }
+        // None
+        todo!()
     }
 }
 
 impl<'a> PatchIter<'a> {
     // TODO: Consider swapping these two new() functions around as new_since_order is more useful.
     fn new(doc: &'a ListCRDT, span: TimeSpan) -> Self {
-        let mut iter = PatchIter {
-            doc,
-            span,
-            map: ContentTreeRaw::new(),
-            deletes_idx: doc.deletes.len().wrapping_sub(1),
-            marked_deletes: DoubleDeleteVisitor::new(),
-        };
-        iter.map.insert_at_start(Retain(doc.range_tree.content_len() as _));
-
-        iter
+        // let mut iter = PatchIter {
+        //     doc,
+        //     span,
+        //     map: ContentTreeRaw::new(),
+        //     deletes_idx: doc.deletes.len().wrapping_sub(1),
+        //     marked_deletes: DoubleDeleteVisitor::new(),
+        // };
+        // iter.map.insert_at_start(Retain(doc.range_tree.content_len() as _));
+        //
+        // iter
+        todo!()
     }
 
     fn new_since_order(doc: &'a ListCRDT, base_order: LV) -> Self {
@@ -568,9 +569,10 @@ mod test {
     use rle::AppendRle;
 
     use crate::list::{ListCRDT, ROOT_LV};
-    use crate::list::positional::*;
     use crate::list::ot::positionmap::*;
     use crate::list::ot::traversal::*;
+    use crate::list::positional::*;
+    use crate::list::TraversalComponent::*;
     use crate::test_helpers::make_random_change;
 
 // use crate::list::external_txn::{RemoteTxn, RemoteId};

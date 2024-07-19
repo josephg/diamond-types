@@ -1,7 +1,7 @@
+use content_tree::ContentLength;
 use diamond_core_old::CRDTId;
 use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 
-use content_tree::ContentLength;
 use rle::Searchable;
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
@@ -20,7 +20,7 @@ impl Searchable for CRDTSpan {
         if self.loc.agent == loc.agent
             && loc.seq >= self.loc.seq
             && loc.seq < self.loc.seq + self.len {
-            Some((loc.seq - self.loc.seq) as usize)
+            Some(loc.seq - self.loc.seq)
         } else { None }
     }
 

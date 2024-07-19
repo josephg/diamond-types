@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use smallvec::{SmallVec, smallvec};
 use smartstring::alias::String as SmartString;
 
-use content_tree::Toggleable;
 use diamond_core_old::{AgentId, CRDT_DOC_ROOT, CRDTId};
 use rle::{AppendRle, HasLength, MergableSpan};
 
@@ -63,6 +62,15 @@ pub enum RemoteCRDTOp {
     }
 }
 
+impl HasLength for RemoteCRDTOp {
+    fn len(&self) -> usize {
+        match self {
+            Ins { len, .. } => *len,
+            Del { len, .. } => *len,
+        }
+    }
+}
+
 impl MergableSpan for RemoteIdSpan {
     fn can_append(&self, other: &Self) -> bool {
         self.id.agent == other.id.agent && self.id.seq + self.len == other.id.seq
@@ -74,6 +82,8 @@ impl MergableSpan for RemoteIdSpan {
 }
 
 
+const ALLOW_REORDERED_DELETES: bool = true;
+
 impl MergableSpan for RemoteCRDTOp {
     fn can_append(&self, other: &Self) -> bool {
         // We're assuming the IDs are adjacent.
@@ -82,9 +92,10 @@ impl MergableSpan for RemoteCRDTOp {
             // need to check that other.origin_left == other.id_start - 1.
             //
             // We'll just merge deletes.
-            (Del { id, len }, Del { id: other_id, .. }) => {
+            (Del { id, len }, Del { id: other_id, len: other_len }) => {
                 id.agent == other_id.agent
-                    && id.seq + len == other_id.seq
+                    && (id.seq + len == other_id.seq
+                    || (ALLOW_REORDERED_DELETES && other_id.seq + other_len == id.seq))
             }
             _ => false,
         }
@@ -95,8 +106,11 @@ impl MergableSpan for RemoteCRDTOp {
             (Ins { len, .. }, Ins { len: other_len, .. }) => {
                 *len += other_len;
             },
-            (Del { len, .. }, Del { len: other_len, .. }) => {
+            (Del { id, len }, Del { id: other_id, len: other_len }) => {
                 *len += other_len;
+                if ALLOW_REORDERED_DELETES {
+                    id.seq = id.seq.min(other_id.seq);
+                }
             },
             _ => panic!("Cannot append mismatched operations")
         }
@@ -443,16 +457,17 @@ impl ListCRDT {
                 (RemoteCRDTOp::Del { id, len }, len)
             } else {
                 // It must be an insert. Fish information out of the range tree.
-                let cursor = self.get_unsafe_cursor_before(order);
-                let entry = cursor.get_raw_entry();
+                let cursor = self.get_cursor_before(order);
+                let (entry, offset) = cursor.get_item(&self.range_tree);
                 // Limit by #4
-                let len = usize::min(entry.len() - cursor.offset, len_remaining);
+                let len = usize::min(entry.len() - offset, len_remaining);
 
                 // I'm not fishing out the deleted content at the moment, for any reason.
                 // This might be simpler if I just make up content for deleted items O_o
                 let content_known = if entry.is_activated() {
                     if let Some(ref text) = self.text_content {
-                        let pos = unsafe { cursor.unsafe_count_content_pos() };
+                        // let pos = unsafe { cursor.unsafe_count_content_pos() };
+                        let pos = cursor.get_pos(&self.range_tree);
                         // TODO: Could optimize this.
                         let borrow = text.borrow();
                         let content = borrow.slice_chars(pos..pos+len as usize);
@@ -504,6 +519,7 @@ impl ListCRDT {
         let time_ranges = self.get_time_spans_since::<Vec<_>>(&clock);
         for txn in self.iter_remote_txns(time_ranges.iter()) {
             dest.apply_remote_txn(&txn);
+            // self.range_tree.dbg_check();
         }
     }
 

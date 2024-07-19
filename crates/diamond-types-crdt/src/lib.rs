@@ -12,6 +12,10 @@ mod unicount;
 mod crdtspan;
 mod rangeextra;
 mod dtrange;
+mod ost;
+
+#[cfg(feature = "stats")]
+pub use list::stats::take_stats;
 
 // TODO: Move this somewhere else.
 pub fn root_id() -> RemoteId {

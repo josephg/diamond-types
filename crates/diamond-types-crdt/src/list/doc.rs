@@ -1,24 +1,33 @@
-use crate::list::*;
+use std::cmp::Ordering;
+use std::mem::replace;
+use std::ops::Range;
+
+use humansize::{file_size_opts, FileSize};
 // use crate::content_tree::*;
 use smallvec::smallvec;
-use std::ptr::NonNull;
-use rle::{MergeableIterator, HasLength};
-use std::cmp::Ordering;
-use crate::rle::RleVec;
-use std::mem::replace;
-use crate::list::external_txn::{RemoteTxn, RemoteCRDTOp};
-use crate::unicount::{split_at_char, count_chars, consume_chars};
-use crate::list::ot::traversal::TraversalOp;
-use crate::list::ot::transform;
+
 use diamond_core_old::*;
-use crate::crdtspan::CRDTSpan;
+use rle::{HasLength, MergeableIterator, RleRun};
 use rle::Searchable;
+
+use crate::crdtspan::CRDTSpan;
+use crate::list::*;
 use crate::list::branch::advance_branch_by_known;
-use std::ops::Range;
-use humansize::{file_size_opts, FileSize};
-use crate::list::positional::InsDelTag::*;
+use crate::list::external_txn::{RemoteCRDTOp, RemoteTxn};
+use crate::list::InsDelTag::{Del, Ins};
+use crate::list::ot::transform;
+use crate::list::ot::traversal::TraversalOp;
+use crate::list::positional::PositionalOpRef;
+use crate::list::stats::{marker_a, marker_b, marker_c};
+// use crate::list::ot::transform;
+// use crate::list::ot::traversal::TraversalOp;
+// use crate::list::positional::{PositionalComponent, PositionalOpRef};
+// use crate::list::positional::InsDelTag::*;
+use crate::ost::*;
+use crate::ost::content_tree::{Content, ContentCursor, DeltaCursor};
 use crate::rangeextra::OrderRange;
-use crate::list::positional::{PositionalComponent, PositionalOpRef};
+use crate::rle::RleVec;
+use crate::unicount::{consume_chars, count_chars, split_at_char};
 
 impl ClientData {
     pub fn get_next_seq(&self) -> usize {
@@ -41,9 +50,9 @@ impl ClientData {
     }
 }
 
-pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) + '_ {
+pub(super) fn notify_for<'a>(index: &'a mut SpaceIndex) -> impl FnMut(YjsSpan, LeafIdx) + 'a {
     move |entry: YjsSpan, leaf| {
-        index.set_range_2(entry.lv..entry.lv + entry.len(), Marker(Some(leaf)));
+        index.set_range_2(entry.lv..entry.lv + entry.len(), Marker(leaf));
 
         // let mut len = entry.len();
         // let mut lv = entry.lv;
@@ -64,22 +73,14 @@ pub(super) fn notify_for(index: &mut SpaceIndex) -> impl FnMut(YjsSpan, NonNull<
 
 impl Clone for ListCRDT {
     fn clone(&self) -> Self {
-        // Clone is complex because we need to walk the b-tree. Cloning the b-tree could probably
-        // be done in a more efficient way, but this is honestly fine.
-        let mut range_tree = ContentTreeRaw::new();
-        let mut index = IndexTree::new();
-
-        let mut cursor = range_tree.mut_cursor_at_start();
-        for e in self.range_tree.iter() {
-            cursor.insert_notify(e, notify_for(&mut index));
-        }
-
         let result = ListCRDT {
             frontier: self.frontier.clone(),
             client_with_time: self.client_with_time.clone(),
             client_data: self.client_data.clone(),
-            range_tree,
-            index,
+
+            // This is fine.
+            range_tree: self.range_tree.clone(),
+            index: self.index.clone(),
             deletes: self.deletes.clone(),
             double_deletes: self.double_deletes.clone(),
             txns: self.txns.clone(),
@@ -99,7 +100,7 @@ impl ListCRDT {
             frontier: smallvec![ROOT_LV],
             client_data: vec![],
 
-            range_tree: ContentTreeRaw::new(),
+            range_tree: ContentTree::new(),
             index: IndexTree::new(),
             // index: SplitList::new(),
 
@@ -201,59 +202,113 @@ impl ListCRDT {
         &self.frontier
     }
 
-    pub(super) fn marker_at(&self, time: LV) -> NonNull<NodeLeaf<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>> {
-        self.index.get_entry(time).val.0.unwrap()
+    pub(super) fn marker_at(&self, time: LV) -> Marker {
+        self.index.get_entry(time).val
         // let cursor = self.index.cursor_at_offset_pos(time as usize, false);
         // // Gross.
         // cursor.get_item().unwrap().unwrap()
     }
 
-    pub(crate) fn get_unsafe_cursor_before(&self, time: LV) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        if time == ROOT_LV {
-            // Or maybe we should just abort?
-            self.range_tree.unsafe_cursor_at_end()
+    // pub(crate) fn get_unsafe_cursor_before(&self, time: LV) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+    //     if time == ROOT_LV {
+    //         // Or maybe we should just abort?
+    //         self.range_tree.unsafe_cursor_at_end()
+    //     } else {
+    //         let marker = self.marker_at(time);
+    //         unsafe {
+    //             ContentTreeRaw::unsafe_cursor_before_item(time, marker)
+    //         }
+    //     }
+    // }
+
+    #[inline(always)]
+    pub(crate) fn get_cursor_before(&self, lv: LV) -> ContentCursor {
+        if lv == usize::MAX {
+            // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
+            // just panic() here.
+            self.range_tree.cursor_at_end()
+            // panic!()
         } else {
-            let marker = self.marker_at(time);
-            unsafe {
-                ContentTreeRaw::unsafe_cursor_before_item(time, marker)
-            }
+            // self.check(true);
+            let leaf_idx = self.marker_at(lv);
+            self.range_tree.cursor_before_item(lv, leaf_idx.0)
+        }
+        // unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_before(time)) }
+    }
+    
+    #[inline(always)]
+    pub(crate) fn get_mut_cursor_before(&mut self, lv: LV) -> DeltaCursor {
+        if lv == usize::MAX {
+            // This case doesn't seem to ever get hit by the fuzzer. It might be equally correct to
+            // just panic() here.
+            self.range_tree.mut_cursor_at_end()
+            // panic!()
+        } else {
+            let leaf_idx = self.marker_at(lv);
+            // marker_a();
+            self.range_tree.mut_cursor_before_item(lv, leaf_idx.0)
         }
     }
 
-    #[inline(always)]
-    pub(crate) fn get_cursor_before(&self, time: LV) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_before(time)) }
-    }
-    #[inline(always)]
-    pub(crate) fn get_mut_cursor_before(&mut self, time: LV) -> MutCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        let unsafe_cursor = self.get_unsafe_cursor_before(time);
-        unsafe { MutCursor::unchecked_from_raw(&mut self.range_tree, unsafe_cursor) }
-    }
-
-    // This does not stick_end to the found item.
-    pub(super) fn get_unsafe_cursor_after(&self, time: LV, stick_end: bool) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        if time == ROOT_LV {
-            self.range_tree.unsafe_cursor_at_start()
+    fn get_cursor_after(&self, lv: LV, stick_end: bool) -> ContentCursor {
+        if lv == usize::MAX {
+            self.range_tree.cursor_at_start_nothing_emplaced()
         } else {
-            let marker = self.marker_at(time);
+            let leaf_idx = self.marker_at(lv).0;
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
             // self.content_tree.
-            let mut cursor = unsafe {
-                ContentTreeRaw::unsafe_cursor_before_item(time, marker)
-            };
+            let mut cursor = self.range_tree.cursor_before_item(lv, leaf_idx);
             // The cursor points to parent. This is safe because of guarantees provided by
             // cursor_before_item.
-            cursor.offset += 1;
-            if !stick_end { cursor.roll_to_next_entry(); }
+            cursor.inc_offset(&self.range_tree);
+            if !stick_end { cursor.roll_next_item(&self.range_tree); }
+            cursor
+        }
+    }
+    fn get_mut_cursor_after(&mut self, lv: LV, stick_end: bool) -> DeltaCursor {
+        if lv == usize::MAX {
+            self.range_tree.mut_cursor_at_start()
+        } else {
+            let leaf_idx = self.marker_at(lv).0;
+            // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
+            // self.content_tree.
+            // marker_b();
+
+            let mut cursor = self.range_tree.mut_cursor_before_item(lv, leaf_idx);
+            // The cursor points to parent. This is safe because of guarantees provided by
+            // cursor_before_item.
+            cursor.0.inc_offset(&self.range_tree);
+            if !stick_end { cursor.roll_next_item(&mut self.range_tree); }
             cursor
         }
     }
 
-    // TODO: Can I remove the stick_end field here?
-    #[inline(always)]
-    pub(crate) fn get_cursor_after(&self, time: LV, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
-        unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_after(time, stick_end)) }
-    }
+
+
+    // // This does not stick_end to the found item.
+    // pub(super) fn get_unsafe_cursor_after(&self, time: LV, stick_end: bool) -> UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+    //     if time == ROOT_LV {
+    //         self.range_tree.unsafe_cursor_at_start()
+    //     } else {
+    //         let marker = self.marker_at(time);
+    //         // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
+    //         // self.content_tree.
+    //         let mut cursor = unsafe {
+    //             ContentTreeRaw::unsafe_cursor_before_item(time, marker)
+    //         };
+    //         // The cursor points to parent. This is safe because of guarantees provided by
+    //         // cursor_before_item.
+    //         cursor.offset += 1;
+    //         if !stick_end { cursor.roll_to_next_entry(); }
+    //         cursor
+    //     }
+    // }
+
+    // // TODO: Can I remove the stick_end field here?
+    // #[inline(always)]
+    // pub(crate) fn get_cursor_after(&self, time: LV, stick_end: bool) -> Cursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE> {
+    //     unsafe { Cursor::unchecked_from_raw(&self.range_tree, self.get_unsafe_cursor_after(time, stick_end)) }
+    // }
 
     pub(super) fn assign_lv_to_client(&mut self, loc: CRDTId, time: LV, len: usize) {
         self.client_with_time.push(KVPair(time, CRDTSpan {
@@ -272,7 +327,8 @@ impl ListCRDT {
         span.1.len - span_offset
     }
 
-    pub(super) fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) {
+    // pub(super) fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, cursor_hint: Option<UnsafeCursor<YjsSpan, DocRangeIndex, DOC_IE, DOC_LE>>) {
+    pub(super) fn integrate(&mut self, agent: AgentId, item: YjsSpan, ins_content: Option<&str>, mut cursor: DeltaCursor) {
         // if cfg!(debug_assertions) {
         //     let next_order = self.get_next_order();
         //     assert_eq!(item.order, next_order);
@@ -283,51 +339,65 @@ impl ListCRDT {
         // self.assign_order_to_client(loc, item.order, item.len as _);
 
         // Ok now that's out of the way, lets integrate!
-        let mut cursor = cursor_hint.map_or_else(|| {
-            self.get_unsafe_cursor_after(item.origin_left, false)
-        }, |mut c| {
-            // Ideally this wouldn't be necessary.
-            c.roll_to_next_entry();
-            c
-        });
+        // let mut cursor = cursor_hint.map_or_else(|| {
+        //     self.get_unsafe_cursor_after(item.origin_left, false)
+        // }, |mut c| {
+        //     // Ideally this wouldn't be necessary.
+        //     c.roll_to_next_entry();
+        //     c
+        // });
+        cursor.roll_next_item(&mut self.range_tree);
 
         // let mut cursor = cursor_hint.unwrap_or_else(|| {
         //     self.get_unsafe_cursor_after(item.origin_left, false)
         // });
 
         // These are almost never used. Could avoid the clone here... though its pretty cheap.
-        let left_cursor = cursor.clone();
-        let mut scan_start = cursor.clone();
+        let left_cursor = cursor.0.clone();
+        let mut scan_cursor = cursor.0.clone();
         let mut scanning = false;
 
         loop {
-            let other_order = match unsafe { cursor.unsafe_get_item() } {
-                None => { break; } // End of the document
-                Some(o) => { o }
-            };
+            if !cursor.roll_next_item(&mut self.range_tree) { // End of the document
+                break;
+            }
+
+            // let other_order = match unsafe { cursor.unsafe_get_item() } {
+            //     None => { break; } // End of the document
+            //     Some(o) => { o }
+            // };
+
+            let other_entry = *cursor.0.get_item(&self.range_tree).0;
+            let other_lv = other_entry.lv + cursor.0.offset;
 
             // Almost always true. Could move this short circuit earlier?
-            if other_order == item.origin_right { break; }
+            if other_lv == item.origin_right { break; }
+
+            // We're now in the rare case there's actually concurrent inserts. To make the logic
+            // simpler, at this point we'll zero out the delta.
+            cursor.flush_delta_and_clear(&mut self.range_tree);
+
+            debug_assert_eq!(cursor.1, LenUpdate::default());
 
             // This code could be better optimized, but its already O(n * log n), and its extremely
             // rare that you actually get concurrent inserts at the same location in the document
             // anyway.
 
-            let other_entry = *cursor.get_raw_entry();
+            // let other_entry = *cursor.get_raw_entry();
             // let other_order = other_entry.order + cursor.offset as u32;
 
-            let other_left_order = other_entry.origin_left_at_offset(cursor.offset);
-            let other_left_cursor = self.get_unsafe_cursor_after(other_left_order, false);
+            let other_left_order = other_entry.origin_left_at_offset(cursor.0.offset);
+            let other_left_cursor = self.get_cursor_after(other_left_order, false);
 
             // YjsMod semantics
-            match unsafe { other_left_cursor.unsafe_cmp(&left_cursor) } {
+            match other_left_cursor.cmp(&left_cursor, &self.range_tree) {
                 Ordering::Less => { break; } // Top row
                 Ordering::Greater => { } // Bottom row. Continue.
                 Ordering::Equal => {
                     if item.origin_right == other_entry.origin_right {
                         // Items are concurrent and "double siblings". Order by agent names.
                         let my_name = self.get_agent_name(agent);
-                        let other_loc = self.client_with_time.get(other_order);
+                        let other_loc = self.client_with_time.get(other_lv);
                         let other_name = self.get_agent_name(other_loc.agent);
 
                         // Its possible for a user to conflict with themself if they commit to
@@ -340,21 +410,18 @@ impl ListCRDT {
                             Ordering::Greater => false,
                         };
 
-                        if ins_here {
-                            // Insert here.
-                            break;
-                        } else {
-                            scanning = false;
-                        }
+                        // Insert here.
+                        if ins_here { break; }
+                        else { scanning = false; }
                     } else {
                         // Set scanning based on how the origin_right entries are ordered.
                         let my_right_cursor = self.get_cursor_before(item.origin_right);
                         let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
 
-                        if other_right_cursor < my_right_cursor {
+                        if other_right_cursor.cmp(&my_right_cursor, &self.range_tree) == Ordering::Less {
                             if !scanning {
                                 scanning = true;
-                                scan_start = cursor.clone();
+                                scan_cursor = cursor.0.clone();
                             }
                         } else {
                             scanning = false;
@@ -372,24 +439,25 @@ impl ListCRDT {
             // The fuzzer says no, we don't need to do that. I assume its because internal entries
             // have higher origin_left, and thus they can't be peers with the newly inserted item
             // (which has a lower origin_left).
-            if !cursor.next_entry() {
+            if !cursor.0.next_entry(&self.range_tree).0 {
                 // This is dirty. If the cursor can't move to the next entry, we still need to move
                 // it to the end of the current element or we'll prepend. next_entry() doesn't do
                 // that for some reason. TODO: Clean this up.
-                cursor.offset = other_entry.len();
+                cursor.0.offset = other_entry.len();
                 break;
             }
         }
-        if scanning { cursor = scan_start; }
+        if scanning { cursor.0 = scan_cursor; }
 
-        if cfg!(debug_assertions) {
-            let pos = unsafe { cursor.unsafe_count_content_pos() as usize };
-            let len = self.range_tree.content_len() as usize;
-            assert!(pos <= len);
-        }
+        // if cfg!(debug_assertions) {
+        //     let pos = unsafe { cursor.unsafe_count_content_pos() as usize };
+        //     let len = self.range_tree.content_len() as usize;
+        //     assert!(pos <= len);
+        // }
+
+        let mut pos = cursor.0.get_pos(&self.range_tree);
 
         if let Some(text) = self.text_content.as_mut() {
-            let pos = unsafe { cursor.unsafe_count_content_pos() as usize };
             if let Some(ins_content) = ins_content {
                 // debug_assert_eq!(count_chars(&ins_content), item.len as usize);
                 text.insert(pos, ins_content);
@@ -411,7 +479,10 @@ impl ListCRDT {
         }
 
         // Now insert here.
-        unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
+        // unsafe { ContentTreeRaw::unsafe_insert_notify(&mut cursor, item, notify_for(&mut self.index)); }
+        pos += item.content_len();
+        self.range_tree.insert(item, &mut cursor, true, &mut notify_for(&mut self.index));
+        self.range_tree.emplace_cursor(pos, cursor);
         // cursor
     }
 
@@ -516,15 +587,26 @@ impl ListCRDT {
     pub(super) fn internal_mark_deleted(&mut self, id: LV, target: LV, max_len: usize, update_content: bool) -> LV {
         // TODO: Make this use mut_cursor instead. The problem is notify_for mutably borrows
         // self.index, and the cursor is borrowing self (rather than self.range_tree).
-        let mut cursor = self.get_unsafe_cursor_before(target);
-        self.internal_mark_deleted_at(&mut cursor, id, max_len, update_content)
+        // let mut cursor = self.get_unsafe_cursor_before(target);
+        let mut cursor = self.get_mut_cursor_before(target);
+        let result = self.internal_mark_deleted_at(&mut cursor, id, max_len, update_content);
+        self.range_tree.emplace_cursor_unknown(cursor);
+        result
     }
 
-    pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut <&RangeTree as Cursors>::UnsafeCursor, id: LV, max_len: usize, update_content: bool) -> LV {
-        let target = unsafe { cursor.unsafe_get_item().unwrap() };
+    pub(super) fn internal_mark_deleted_at(&mut self, cursor: &mut DeltaCursor, id: LV, max_len: usize, update_content: bool) -> LV {
+        // let target = unsafe { cursor.unsafe_get_item().unwrap() };
+        let (e, offset) = cursor.0.get_item(&self.range_tree);
+        let target = e.lv + offset;
 
         let (deleted_here, succeeded) = unsafe {
-            ContentTreeRaw::unsafe_remote_deactivate_notify(cursor, max_len as _, notify_for(&mut self.index))
+            self.range_tree.mutate_entry(cursor, max_len, &mut notify_for(&mut self.index), |e| {
+                if e.len > 0 {
+                    e.len = -e.len;
+                    true
+                } else { false }
+            })
+            // ContentTreeRaw::unsafe_remote_deactivate_notify(cursor, max_len as _, notify_for(&mut self.index))
         };
         // let deleted_here = deleted_here as u32;
 
@@ -539,20 +621,23 @@ impl ListCRDT {
         } else if let (Some(text), true) = (&mut self.text_content, update_content) {
             // The call to remote_deactivate will have modified the cursor, but the content position
             // will have stayed the same.
-            let pos = unsafe { cursor.unsafe_count_content_pos() as usize };
-            text.remove(pos..pos + deleted_here as usize);
+            let pos = cursor.0.get_pos(&self.range_tree);
+            // let pos = unsafe { cursor.unsafe_count_content_pos() as usize };
+            text.remove(pos..pos + deleted_here);
         }
 
         deleted_here
     }
 
     pub fn apply_remote_txn(&mut self, txn: &RemoteTxn) {
+        // self.range_tree.dbg_check();
+
         let agent = self.get_or_create_agent_id(txn.id.agent.as_str());
         let client = &self.client_data[agent as usize];
         // let next_seq = client.get_next_seq();
 
         // Check that the txn hasn't already been applied.
-        assert!(client.item_localtime.find(txn.id.seq).is_none());
+        debug_assert!(client.item_localtime.find(txn.id.seq).is_none());
 
         let first_time = self.get_next_lv();
         let mut next_time = first_time;
@@ -587,6 +672,8 @@ impl ListCRDT {
 
         // Apply the changes.
         for op in txn.ops.iter() {
+            // self.range_tree.dbg_check();
+
             match op {
                 RemoteCRDTOp::Ins { origin_left, origin_right, len, content_known } => {
                     // let ins_len = ins_content.chars().count();
@@ -598,11 +685,11 @@ impl ListCRDT {
                     let origin_left = self.remote_id_to_order(origin_left);
                     let origin_right = self.remote_id_to_order(origin_right);
 
-                    if cfg!(debug_assertions) {
-                        let left = self.get_cursor_after(origin_left, true);
-                        let right = self.get_cursor_before(origin_right);
-                        assert!(left <= right);
-                    }
+                    // if cfg!(debug_assertions) {
+                    //     let left = self.get_cursor_after(origin_left, true);
+                    //     let right = self.get_cursor_before(origin_right);
+                    //     assert!(left <= right);
+                    // }
 
                     let item = YjsSpan {
                         lv: order,
@@ -619,7 +706,10 @@ impl ListCRDT {
                         None
                     };
 
-                    self.integrate(agent, item, ins_content, None);
+                    let cursor = self.get_mut_cursor_after(origin_left, false);
+                    // cursor.0.inc_offset(&self.range_tree);
+                    self.integrate(agent, item, ins_content, cursor);
+                    // self.range_tree.dbg_check();
                 }
 
                 RemoteCRDTOp::Del { id, len } => {
@@ -676,8 +766,11 @@ impl ListCRDT {
                     //     len: *len, ptr: last_entry.ptr
                     // };
                     // self.index.insert(&mut cursor, entry, null_notify);
+
+                    // self.range_tree.dbg_check();
                 }
             }
+
         }
 
         assert!(content.is_empty());
@@ -701,8 +794,8 @@ impl ListCRDT {
 
         // for LocalOp { pos, ins_content, del_span } in local_ops {
         for c in op.components {
-            let pos = c.pos as usize;
-            let len = c.len as usize;
+            let pos = c.pos;
+            let len = c.len;
 
             match c.tag {
                 Ins => {
@@ -710,20 +803,31 @@ impl ListCRDT {
                     let time = next_time;
                     next_time += c.len;
 
+                    // self.range_tree.dbg_check();
+
                     // Find the preceding item and successor
-                    let (origin_left, cursor) = if pos == 0 {
-                        (ROOT_LV, self.range_tree.unsafe_cursor_at_start())
+                    let (origin_left, mut cursor) = if pos == 0 {
+                        (ROOT_LV, self.range_tree.mut_cursor_at_start())
                     } else {
-                        let mut cursor = self.range_tree.unsafe_cursor_at_content_pos((pos - 1) as usize, false);
-                        let origin_left = unsafe { cursor.unsafe_get_item() }.unwrap();
-                        assert!(cursor.next_item());
+                        let mut cursor = self.range_tree.mut_cursor_before_cur_pos(pos - 1);
+                        let (e, offset) = cursor.0.get_item(&self.range_tree);
+                        let origin_left = e.lv + offset;
+                        // if CHECK_TREES { assert_eq!(origin_left, origin_left_2); }
+                        cursor.0.inc_offset(&self.range_tree);
+
                         (origin_left, cursor)
                     };
 
                     // There's an open question of whether this should skip past deleted items.
                     // It would be *correct* both ways, though you get slightly different merging
                     // & pruning behaviour in each case.
-                    let origin_right = unsafe { cursor.unsafe_get_item() }.unwrap_or(ROOT_LV);
+                    let origin_right = if cursor.roll_next_item(&mut self.range_tree) {
+                        cursor.0.try_get_item(&self.range_tree)
+                            .map(|(span, offset)| span.lv + offset)
+                            .unwrap_or(ROOT_LV)
+                    } else {
+                        ROOT_LV
+                    };
 
                     let item = YjsSpan {
                         lv: time,
@@ -737,24 +841,41 @@ impl ListCRDT {
                         Some(consume_chars(&mut op.content, len))
                     } else { None };
 
-                    self.integrate(agent, item, ins_content, Some(cursor));
+                    self.integrate(agent, item, ins_content, cursor);
                 }
 
                 Del => {
-                    let deleted_items = self.range_tree.local_deactivate_at_content_notify(pos as usize, len, notify_for(&mut self.index));
+                    let mut cursor = self.range_tree.mut_cursor_before_cur_pos(pos);
+                    cursor.roll_next_item(&mut self.range_tree);
+
+                    let mut len_remaining = len;
+
+                    loop {
+                        let del_here = self.range_tree.mutate_entry(&mut cursor, len_remaining, &mut notify_for(&mut self.index), |item| {
+                            debug_assert!(item.len > 0);
+
+                            self.deletes.push(KVPair(next_time, TimeSpan {
+                                start: item.lv,
+                                len: item.len as usize
+                            }));
+
+                            item.len = -item.len;
+                        }).0;
+                        next_time += del_here;
+
+                        len_remaining -= del_here;
+                        if len_remaining == 0 { break; }
+
+                        self.range_tree.slide_cursor_to_next_content(&mut cursor.0, &mut cursor.1);
+                    }
+
+                    self.range_tree.emplace_cursor(pos, cursor);
+                    // let deleted_items = self.range_tree.local_deactivate_at_content_notify(pos, len, notify_for(&mut self.index));
 
                     // dbg!(&deleted_items);
-                    let mut deleted_length = 0; // To check.
-                    for item in deleted_items {
-                        self.deletes.push(KVPair(next_time, TimeSpan {
-                            start: item.lv,
-                            len: item.len as usize
-                        }));
-                        deleted_length += item.len as usize;
-                        next_time += item.len as usize;
-                    }
+
                     // I might be able to relax this, but we'd need to change del_span above.
-                    assert_eq!(deleted_length, len);
+                    // assert_eq!(deleted_length, len);
 
                     if let Some(ref mut text) = self.text_content {
                         if let Some(deleted_content) = self.deleted_content.as_mut() {
@@ -827,18 +948,19 @@ impl ListCRDT {
     }
 
     pub fn len(&self) -> usize {
-        self.range_tree.content_len()
+        self.range_tree.total_len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.range_tree.content_len() != 0
+        // self.range_tree.content_len() != 0
+        self.range_tree.is_empty()
     }
 
     pub fn print_stats(&self, detailed: bool) {
         println!("Document of length {}", self.len());
 
-        let ins_del_count = self.range_tree.raw_iter()
-            .map(|e| RleRun::new(e.is_activated(), e.len()))
+        let ins_del_count = self.range_tree.iter()
+            .map(|e| RleRun::new(e.takes_up_space(), e.len()))
             .merge_spans()
             .count();
         println!("As alternating inserts and deletes: {} items", ins_del_count);
@@ -847,7 +969,8 @@ impl ListCRDT {
             println!("Content memory size: {}", r.borrow().mem_size().file_size(file_size_opts::CONVENTIONAL).unwrap());
         }
 
-        self.range_tree.print_stats("content", detailed);
+        // self.range_tree.print_stats("content", detailed);
+
         // self.index.print_stats("index", detailed);
         // self.markers.print_rle_size();
         self.deletes.print_stats("deletes", detailed);
@@ -857,7 +980,7 @@ impl ListCRDT {
 
     #[allow(unused)]
     pub fn debug_print_segments(&self) {
-        for entry in self.range_tree.raw_iter() {
+        for entry in self.range_tree.iter() {
             let loc = self.get_crdt_location(entry.lv);
             println!("order {} len {} ({}) agent {} / {} <-> {}", entry.lv, entry.len(), entry.content_len(), loc.agent, entry.origin_left, entry.origin_right);
         }
@@ -909,10 +1032,12 @@ impl Default for ListCRDT {
 
 #[cfg(test)]
 mod tests {
-    use crate::list::*;
-    use crate::list::external_txn::{RemoteTxn, RemoteId, RemoteCRDTOp};
     use smallvec::smallvec;
+
+    use crate::list::*;
+    use crate::list::external_txn::{RemoteCRDTOp, RemoteId, RemoteTxn};
     use crate::list::ot::traversal::TraversalOp;
+    // use crate::list::ot::traversal::TraversalOp;
     use crate::root_id;
 
     #[test]

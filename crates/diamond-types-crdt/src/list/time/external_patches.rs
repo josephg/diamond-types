@@ -3,16 +3,18 @@
 /// we're leaning on is correct.
 
 use smallvec::{SmallVec, smallvec};
-use crate::list::{ListCRDT, LV, PositionalComponent};
+// use crate::list::{ListCRDT, LV, PositionalComponent};
 use smartstring::alias::{String as SmartString};
 use rle::{AppendRle, HasLength, MergableSpan, SplitableSpanHelpers};
 use crate::list::external_txn::{RemoteId, RemoteIdSpan};
-use crate::list::time::docpatchiter::PositionalOpWalk;
+// use crate::list::time::docpatchiter::PositionalOpWalk;
 use crate::list::txn::TxnSpan;
 use crate::rangeextra::OrderRange;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use crate::list::{ListCRDT, LV, PositionalComponent};
+use crate::list::time::docpatchiter::PositionalOpWalk;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -103,8 +105,8 @@ impl RemotePositionalPatches {
 }
 
 impl ListCRDT {
-    pub fn as_external_patch(&self) -> RemotePositionalPatches {
-        let int_patch = self.iter_original_patches().into();
-        RemotePositionalPatches::from_internal(int_patch, self)
-    }
+    // pub fn as_external_patch(&self) -> RemotePositionalPatches {
+    //     let int_patch = self.iter_original_patches().into();
+    //     RemotePositionalPatches::from_internal(int_patch, self)
+    // }
 }

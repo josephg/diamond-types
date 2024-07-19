@@ -74,12 +74,12 @@ fn replicate() {
     assert_eq!(local_doc, remote_doc);
 }
 
-#[ignore]
-#[test]
-fn doc_to_position_updates() {
-    // let test_data = load_testing_data("../../benchmark_data/seph-blog1.json.gz");
-    let test_data = load_testing_data("../../benchmark_data/sveltecomponent.json.gz");
-    let local_doc = load_into_doc(test_data);
-    let patches = local_doc.iter_original_patches().collect::<Vec<_>>();
-    dbg!(patches.len());
-}
+// #[ignore]
+// #[test]
+// fn doc_to_position_updates() {
+//     // let test_data = load_testing_data("../../benchmark_data/seph-blog1.json.gz");
+//     let test_data = load_testing_data("../../benchmark_data/sveltecomponent.json.gz");
+//     let local_doc = load_into_doc(test_data);
+//     let patches = local_doc.iter_original_patches().collect::<Vec<_>>();
+//     dbg!(patches.len());
+// }

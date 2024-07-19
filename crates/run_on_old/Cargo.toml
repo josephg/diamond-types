@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 diamond-types = {path = "../..", features = ["ops_to_old"]}
-diamond-types-crdt = {path = "../diamond-types-crdt"}
+diamond-types-crdt = {path = "../diamond-types-crdt", features = []}
 smallvec = "2.0.0-alpha.6"
 rle = {path = "../rle", features = ["smallvec"]}
 criterion = { version = "0.5.1", features = ["html_reports"] }
@@ -24,3 +24,4 @@ brotli-decompressor = "2.5.0"
 [features]
 memusage = ["trace-alloc", "trace-alloc/memusage", "dep:serde", "dep:serde_json"]
 bench = []
+stats = ["diamond-types-crdt/stats"]
