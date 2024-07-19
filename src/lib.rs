@@ -241,6 +241,7 @@ mod oplog;
 mod storage;
 mod simple_checkout;
 mod listmerge2;
+mod stats;
 
 pub type AgentId = u32;
 
