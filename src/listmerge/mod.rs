@@ -41,27 +41,10 @@ pub(crate) mod xf_old;
 
 type DocRangeIndex = MarkerMetrics;
 
-// type SpaceIndex = Pin<Box<ContentTreeRaw<MarkerEntry, RawPositionMetricsUsize>>>;
-// type SpaceIndexCursor = UnsafeCursor<MarkerEntry, RawPositionMetricsUsize>;
-
-
-// #[derive(Debug)]
-// struct Index {
-//     // index_old: SpaceIndex,
-//     // index_cursor: Option<(LV, SpaceIndexCursor)>,
-//     index2: IndexTree<Marker2>,
-// }
-
-
-// RecordingTree is necessary if gen_test_data is enabled.
-// type Index = RecordingTree<Marker>;
 type Index = IndexTree<Marker>;
 
 #[derive(Debug)]
 struct M2Tracker {
-    // old_range_tree: CRDTList2,
-    // old_index: OldIndex,
-
     /// The index is used for 2 things:
     ///
     /// - For inserts, this contains a pointer to the node in range_tree which contains this version

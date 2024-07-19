@@ -22,7 +22,7 @@ use crate::list::ListOpLog;
 use crate::list::op_iter::OpMetricsIter;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::listmerge::{DocRangeIndex, M2Tracker, Index, OldIndex};
+use crate::listmerge::{DocRangeIndex, M2Tracker, Index};
 #[cfg(feature = "dot_export")]
 use crate::listmerge::dot::DotColor::*;
 use crate::listmerge::markers::{DelRange, Marker};
@@ -166,6 +166,8 @@ impl M2Tracker {
             }
 
             // let other_entry: CRDTSpan = *cursor.get_raw_entry();
+            
+            // We don't care about the offset because its 0.
             let other_entry = *dc.0.get_item(&self.range_tree).0;
 
             // When concurrent edits happen, the range of insert locations goes from the insert
@@ -424,14 +426,14 @@ impl M2Tracker {
                 let (origin_left, end_pos, mut new_cursor) = if op.start() == 0 {
                     (usize::MAX, 0, self.range_tree.mut_cursor_at_start())
                 } else {
-                    let (mut end_pos, mut new_cursor) = self.range_tree.mut_cursor_before_cur_pos(op.start() - 1);
-                    let (e, offset) = new_cursor.0.get_item(&self.range_tree);
+                    let (mut end_pos, mut cursor) = self.range_tree.mut_cursor_before_cur_pos(op.start() - 1);
+                    let (e, offset) = cursor.0.get_item(&self.range_tree);
                     let origin_left = e.id.start + offset;
                     end_pos += e.takes_up_space::<false>() as usize;
                     // if CHECK_TREES { assert_eq!(origin_left, origin_left_2); }
-                    new_cursor.0.inc_offset(&self.range_tree);
+                    cursor.0.inc_offset(&self.range_tree);
 
-                    (origin_left, end_pos, new_cursor)
+                    (origin_left, end_pos, cursor)
                 };
                 let cursor_pos = LenPair::new(op.start(), end_pos);
                 debug_assert_eq!(new_cursor.0.get_pos(&self.range_tree), cursor_pos);
