@@ -1,7 +1,7 @@
 // TODO: Consider moving me into agent_assignment/.
 
 use std::ops::Range;
-use content_tree::ContentLength;
+// use content_tree::ContentLength;
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::AgentId;
 use crate::dtrange::DTRange;
@@ -48,16 +48,6 @@ impl Searchable for AgentSpan {
     fn at_offset(&self, offset: usize) -> AgentVersion {
         assert!(offset < self.len());
         (self.agent, self.seq_range.start + offset)
-    }
-}
-
-impl ContentLength for AgentSpan {
-    fn content_len(&self) -> usize {
-        self.seq_range.len()
-    }
-
-    fn content_len_at_offset(&self, offset: usize) -> usize {
-        offset
     }
 }
 

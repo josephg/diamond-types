@@ -12,10 +12,7 @@
 
 use std::pin::Pin;
 
-use content_tree::ContentTreeRaw;
-
 use crate::listmerge::markers::Marker;
-use crate::listmerge::metrics::MarkerMetrics;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::ost::content_tree::ContentTree;
 use crate::ost::IndexTree;
@@ -25,7 +22,6 @@ pub(crate) mod merge;
 pub(crate) mod markers;
 mod advance_retreat;
 // pub(crate) mod txn_trace;
-mod metrics;
 #[cfg(test)]
 pub mod fuzzer;
 #[cfg(feature = "dot_export")]
@@ -38,8 +34,6 @@ pub(crate) mod simple_oplog;
 pub(crate) mod plan;
 
 pub(crate) mod xf_old;
-
-type DocRangeIndex = MarkerMetrics;
 
 type Index = IndexTree<Marker>;
 

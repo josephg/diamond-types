@@ -19,7 +19,6 @@ use std::iter::Sum;
 pub(crate) use index_tree::{IndexContent, IndexTree};
 
 use std::ops::{Add, AddAssign, Index, IndexMut, Range, Sub, SubAssign};
-use ::content_tree::ContentLength;
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use crate::listmerge::yjsspan::CRDTSpan;
 // use crate::ost::content_tree::ContentTree;

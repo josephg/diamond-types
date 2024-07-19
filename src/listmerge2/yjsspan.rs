@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Formatter};
-use content_tree::{ContentLength, Toggleable};
 use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::{DTRange, LV};
 

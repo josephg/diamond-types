@@ -3,10 +3,8 @@ use std::ptr::NonNull;
 
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 
-use content_tree::*;
 use rle::Searchable;
 use crate::rev_range::RangeRev;
-use crate::listmerge::DocRangeIndex;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::list::operation::ListOpKind;
 use crate::{DTRange, LV};

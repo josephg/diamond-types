@@ -8,7 +8,6 @@ use std::ptr::NonNull;
 use jumprope::JumpRopeBuf;
 use smartstring::alias::String as SmartString;
 
-use content_tree::{DEFAULT_IE, DEFAULT_LE, NodeLeaf};
 use rle::{AppendRle, HasLength, MergableSpan, MergeableIterator, Searchable, SplitableSpanCtx, Trim, TrimCtx};
 use rle::intersect::rle_intersect_rev;
 
@@ -22,7 +21,7 @@ use crate::list::ListOpLog;
 use crate::list::op_iter::OpMetricsIter;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::listmerge::{DocRangeIndex, M2Tracker, Index};
+use crate::listmerge::{M2Tracker, Index};
 #[cfg(feature = "dot_export")]
 use crate::listmerge::dot::DotColor::*;
 use crate::listmerge::markers::{DelRange, Marker};

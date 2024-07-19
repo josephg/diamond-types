@@ -25,7 +25,6 @@ lazy_static = "1.4.0"
 # Used by wasm module, CLI.
 serde = { version = "1.0.183", features = ["derive"], optional = true }
 rle = { version = "0.2.0", path = "crates/rle", features = ["smallvec"] }
-content-tree = { version = "0.2.0", path = "crates/content-tree" }
 
 # Only used for generating testing data.
 serde_json = { version = "1.0.104", optional = true }
@@ -58,6 +57,9 @@ rand = { version = "0.8.5", features = ["small_rng"], optional = true }
 rand = { version = "0.8.5", features = ["small_rng"] }
 crdt-testdata = { path = "crates/crdt-testdata" }
 trace-alloc = { path = "crates/trace-alloc" }
+
+# Only used for OST fuzz tests. TODO: Remove this.
+content-tree = { version = "0.2.0", path = "crates/content-tree" }
 
 # For OT fuzz data tests
 #json_minimal = "0.1.3"

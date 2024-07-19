@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Formatter};
-use content_tree::{ContentLength, Toggleable};
 use rle::{HasLength, HasRleKey, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::LV;
 use crate::dtrange::{debug_lv, DTRange, UNDERWATER_START};
@@ -141,6 +140,11 @@ impl CRDTSpan {
     pub fn end_state_len_at(&self, offset: usize) -> usize {
         if self.end_state_ever_deleted { 0 } else { offset }
     }
+
+    #[inline(always)]
+    pub fn content_len(&self) -> usize {
+        if self.current_state == INSERTED { self.len() } else { 0 }
+    }
 }
 
 // So the length is described in two ways - one for the current content position, and the other for
@@ -204,36 +208,36 @@ impl Searchable for CRDTSpan {
     }
 }
 
-/// Content length corresponds to the current length (the length at the current state).
-impl ContentLength for CRDTSpan {
-    #[inline(always)]
-    fn content_len(&self) -> usize {
-        if self.current_state == INSERTED { self.len() } else { 0 }
-    }
-
-    fn content_len_at_offset(&self, offset: usize) -> usize {
-        if self.current_state == INSERTED { offset } else { 0 }
-    }
-}
-
-impl Toggleable for CRDTSpan {
-    fn is_activated(&self) -> bool {
-        self.current_state == INSERTED
-        // self.state == Inserted && !self.ever_deleted
-    }
-
-    fn mark_activated(&mut self) {
-        panic!("Cannot mark activated");
-        // Not entirely sure this logic is right.
-        // self.state.undelete();
-    }
-
-    fn mark_deactivated(&mut self) {
-        // debug_assert!(!self.is_deleted);
-        // self.state.delete();
-        self.delete();
-    }
-}
+// /// Content length corresponds to the current length (the length at the current state).
+// impl ContentLength for CRDTSpan {
+//     #[inline(always)]
+//     fn content_len(&self) -> usize {
+//         if self.current_state == INSERTED { self.len() } else { 0 }
+//     }
+//
+//     fn content_len_at_offset(&self, offset: usize) -> usize {
+//         if self.current_state == INSERTED { offset } else { 0 }
+//     }
+// }
+//
+// impl Toggleable for CRDTSpan {
+//     fn is_activated(&self) -> bool {
+//         self.current_state == INSERTED
+//         // self.state == Inserted && !self.ever_deleted
+//     }
+//
+//     fn mark_activated(&mut self) {
+//         panic!("Cannot mark activated");
+//         // Not entirely sure this logic is right.
+//         // self.state.undelete();
+//     }
+//
+//     fn mark_deactivated(&mut self) {
+//         // debug_assert!(!self.is_deleted);
+//         // self.state.delete();
+//         self.delete();
+//     }
+// }
 
 // impl HasRleKey for CRDTSpan {
 //     fn rle_key(&self) -> usize {
