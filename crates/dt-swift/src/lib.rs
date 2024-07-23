@@ -93,7 +93,7 @@ impl ListCRDT {
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        self.inner.oplog.encode(ENCODE_FULL)
+        self.inner.oplog.encode(&ENCODE_FULL)
     }
 
     pub fn save(&self, path: &str) {
