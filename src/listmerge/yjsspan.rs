@@ -11,7 +11,7 @@ use crate::ost::content_tree::Content;
 /// Note a u16 (or even a u8) should be fine in practice. Double deletes almost never happen in
 /// reality - unless someone is maliciously generating them.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub struct SpanState(u32);
+pub struct SpanState(pub(crate) u32);
 
 pub const NOT_INSERTED_YET: SpanState = SpanState(0);
 pub const INSERTED: SpanState = SpanState(1);
@@ -77,6 +77,14 @@ impl SpanState {
         } else {
             panic!("Invalid undelete target");
         }
+    }
+
+    pub(crate) fn raw_decrement(&mut self) {
+        debug_assert!(self.0 >= 1);
+        self.0 -= 1;
+    }
+    pub(crate) fn raw_increment(&mut self) {
+        self.0 += 1;
     }
 
     pub(crate) fn mark_inserted(&mut self) {
