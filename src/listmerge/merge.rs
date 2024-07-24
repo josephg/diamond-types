@@ -34,6 +34,7 @@ use crate::ost::{IndexTree, LeafIdx, LenPair, LenUpdate};
 use crate::ost::content_tree::{Content, ContentCursor, ContentTree, DeltaCursor};
 use crate::rev_range::RangeRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
+use crate::stats::{marker_a, marker_b};
 use crate::textinfo::TextInfo;
 use crate::unicount::consume_chars;
 
@@ -1232,6 +1233,7 @@ mod test {
     use crate::list::ListOpLog;
     use crate::listmerge::simple_oplog::SimpleOpLog;
     use crate::listmerge::yjsspan::{deleted_n_state, DELETED_ONCE, SpanState};
+    use crate::stats::take_stats;
 
     use super::*;
 
@@ -1479,11 +1481,16 @@ mod test {
         let o = ListOpLog::load_from(&bytes).unwrap();
         o.checkout_tip();
 
+        take_stats();
+
         println!("----");
         bytes.clear();
         File::open("benchmark_data/node_nodecc.dt").unwrap().read_to_end(&mut bytes).unwrap();
         let o = ListOpLog::load_from(&bytes).unwrap();
         o.checkout_tip();
+
+        take_stats();
+
 
         // println!("----");
         // bytes.clear();

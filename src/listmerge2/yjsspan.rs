@@ -8,18 +8,6 @@ pub(crate) enum SpanState {
 }
 use SpanState::*;
 
-impl SpanState {
-    pub(crate) fn max(a: Self, b: Self) -> Self {
-        let result = (a as u8).max(b as u8);
-        match result {
-            0 => NotInsertedYet,
-            1 => Inserted,
-            2 => Deleted,
-            _ => unreachable!(), // The compiler can prove this.
-        }
-    }
-}
-
 impl Default for SpanState {
     fn default() -> Self { NotInsertedYet }
 }
@@ -37,19 +25,6 @@ pub struct YjsSpan {
     /// Each item in the span has the same origin_right.
     pub origin_right: LV,
 }
-
-// impl SpanState {
-//     pub(crate) fn insert(&mut self) {
-//         assert_eq!(*self, NotInsertedYet);
-//         *self = Inserted;
-//     }
-//
-//     /// Note this doesn't (can't) set the ever_deleted flag. Use yjsspan.delete() instead.
-//     pub(crate) fn delete(&mut self) {
-//         assert_eq!(*self, Inserted);
-//         *self = Deleted;
-//     }
-// }
 
 // Some inserts don't have anything concurrent with them. In this case, we don't care about
 // origin_left / origin_right or preserving the ID range. These items will have an ID that starts
@@ -90,10 +65,6 @@ impl YjsSpan {
     pub(crate) fn content_len_with_state(&self, state: SpanState) -> usize {
         if state == Inserted { self.id.len() } else { 0 }
     }
-
-    // pub fn upstream_len_at(&self, offset: usize) -> usize {
-    //     if self.ever_deleted { 0 } else { offset }
-    // }
 }
 
 // So the length is described in two ways - one for the current content position, and the other for
@@ -166,48 +137,6 @@ impl MergableSpan for YjsSpanWithState {
         self.0.append(other.0)
     }
 }
-
-// impl Searchable for YjsSpan {
-//     type Item = LV;
-//
-//     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
-//         self.id.get_offset(loc)
-//     }
-//
-//     fn at_offset(&self, offset: usize) -> Self::Item {
-//         self.id.start + offset
-//     }
-// }
-
-// impl ContentLength for YjsSpan {
-//     #[inline(always)]
-//     fn content_len(&self) -> usize {
-//         if self.state == INSERTED { self.len() } else { 0 }
-//     }
-//
-//     fn content_len_at_offset(&self, offset: usize) -> usize {
-//         if self.state == INSERTED { offset } else { 0 }
-//     }
-// }
-
-// impl Toggleable for YjsSpan {
-//     fn is_activated(&self) -> bool {
-//         self.state == INSERTED
-//         // self.state == Inserted && !self.ever_deleted
-//     }
-//
-//     fn mark_activated(&mut self) {
-//         panic!("Cannot mark activated");
-//         // Not entirely sure this logic is right.
-//         // self.state.undelete();
-//     }
-//
-//     fn mark_deactivated(&mut self) {
-//         // debug_assert!(!self.is_deleted);
-//         // self.state.delete();
-//         self.delete();
-//     }
-// }
 
 #[cfg(test)]
 mod tests {

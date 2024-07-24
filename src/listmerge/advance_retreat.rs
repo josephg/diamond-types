@@ -13,7 +13,7 @@ use crate::ost::LeafIdx;
 use crate::rev_range::RangeRev;
 
 #[derive(Debug, Eq, PartialEq)]
-pub(super) struct QueryResultNew {
+pub(super) struct QueryResult {
     tag: ListOpKind,
     target: RangeRev,
     offset: usize,
@@ -27,7 +27,7 @@ impl M2Tracker {
     /// This should only be used with times we have advanced through.
     ///
     /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
-    fn index_query_new(&self, lv: LV) -> QueryResultNew {
+    fn index_query(&self, lv: LV) -> QueryResult {
         debug_assert_ne!(lv, usize::MAX);
 
         let RleDRun {
@@ -42,7 +42,7 @@ impl M2Tracker {
                 debug_assert!(leaf_idx.exists());
                 // For inserts, the target is simply the range of the item.
                 // let start = lv - cursor.offset;
-                QueryResultNew {
+                QueryResult {
                     tag: Ins,
                     target: (start..end).into(),
                     offset,
@@ -58,7 +58,7 @@ impl M2Tracker {
                     },
                     fwd: target.fwd,
                 };
-                QueryResultNew {
+                QueryResult {
                     tag: Del,
                     target: rr,
                     offset,
@@ -68,17 +68,17 @@ impl M2Tracker {
         }
     }
 
-    pub(crate) fn advance_by_range_new(&mut self, mut range: DTRange) {
+    pub(crate) fn advance_by_range(&mut self, mut range: DTRange) {
         while !range.is_empty() {
             // Note the delete could be reversed - but we don't really care here; we just mark the
             // whole range anyway.
             // let (tag, target, mut len) = self.next_action(range.start);
-            let QueryResultNew {
+            let QueryResult {
                 tag,
                 target,
                 offset,
                 mut leaf_idx,
-            } = self.index_query_new(range.start);
+            } = self.index_query(range.start);
 
             let len = usize::min(target.len() - offset, range.len());
 
@@ -118,7 +118,7 @@ impl M2Tracker {
     }
 
 
-    fn retreat_by_range_new(&mut self, mut range: DTRange) {
+    pub fn retreat_by_range(&mut self, mut range: DTRange) {
         // We need to go through the range in reverse order to make sure if we visit an insert then
         // delete of the same item, we un-delete before un-inserting.
         // TODO: Could probably relax this restriction when I feel more comfortable about overall
@@ -149,7 +149,7 @@ impl M2Tracker {
                 self.range_tree.emplace_cursor_unknown(cursor);
             } else {
                 // Figure it out the "slow" way, by looking up the item in the index.
-                let QueryResultNew { tag, target, offset, mut leaf_idx } = self.index_query_new(last_lv);
+                let QueryResult { tag, target, offset, mut leaf_idx } = self.index_query(last_lv);
 
                 let chunk_start = last_lv - offset;
                 let start = range.start.max(chunk_start);
@@ -204,16 +204,5 @@ impl M2Tracker {
         }
 
         // self.check_index();
-    }
-}
-
-impl M2Tracker {
-    pub(crate) fn advance_by_range(&mut self, range: DTRange) {
-        // self.advance_by_range_old(range);
-        self.advance_by_range_new(range);
-    }
-    pub(crate) fn retreat_by_range(&mut self, range: DTRange) {
-        // self.retreat_by_range_old(range);
-        self.retreat_by_range_new(range);
     }
 }
