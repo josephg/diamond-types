@@ -86,7 +86,7 @@ impl M2Tracker {
         // span state as an integer and just decrement it twice.
         while !range.is_empty() {
             if let Some(mut cursor) = self.range_tree.try_find_item(range.start) {
-                crate::stats::marker_a();
+                // crate::stats::marker_a();
 
 
                 // Try just modifying the item directly.
@@ -110,7 +110,7 @@ impl M2Tracker {
                 self.range_tree.emplace_cursor_unknown(cursor);
 
             } else {
-                crate::stats::marker_b();
+                // crate::stats::marker_b();
 
                 let QueryResult {
                     target,
@@ -155,6 +155,7 @@ impl M2Tracker {
     pub(crate) fn advance_by_range(&mut self, range: DTRange) {
         self.adv_retreat_range(range, 1);
     }
+
     pub(crate) fn retreat_by_range(&mut self, range: DTRange) {
         self.adv_retreat_range(range, -1);
     }
