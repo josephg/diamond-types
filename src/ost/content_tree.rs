@@ -27,11 +27,6 @@ pub(crate) trait Content: SplitableSpan + MergableSpan + Copy + HasLength {
     /// The default item must "not exist".
     fn exists(&self) -> bool;
     fn takes_up_space<const IS_CUR: bool>(&self) -> bool;
-    // fn current_len(&self) -> usize;
-
-    // split_at_current_len() ?
-
-    // fn underwater() -> Self;
 
     fn none() -> Self;
 }
@@ -41,7 +36,6 @@ trait LeafMap {
 }
 
 pub(crate) trait FlushUpdate: Default {
-    // fn flush_delta_len(&mut self, leaf_idx: LeafIdx, delta: LenUpdate) {
     fn flush<V: Content>(&self, tree: &mut ContentTree<V>, leaf_idx: LeafIdx);
 
     #[inline]
@@ -74,15 +68,8 @@ pub(crate) struct ContentTree<V: Content> {
     root: usize,
     total_len: LenPair,
 
-    // cursor: ContentCursor,
     /// There is a cached cursor currently at some content position, with a held delta update.
-    // cursor: Cell<Option<(LenPair, LenUpdate, ContentCursor)>>,
-    // cursor: Option<(LenPair, MutContentCursor)>,
     cursor: Option<(Option<LenPair>, ContentCursor, LenUpdate)>,
-
-    // Linked lists.
-    // free_leaf_pool_head: LeafIdx,
-    // free_node_pool_head: NodeIdx,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -110,41 +97,6 @@ impl Default for ContentCursor {
 
 pub struct DeltaCursor(pub ContentCursor, pub LenUpdate);
 
-// /// Same as a cursor, but with a cached delta object. This delta must be flushed whenever the
-// /// cursor changes leaf node.
-// #[derive(Debug, Clone, Copy)]
-// pub(crate) struct MutContentCursor {
-//     inner: ContentCursor,
-//     delta: LenUpdate,
-// }
-//
-// impl From<ContentCursor> for MutContentCursor {
-//     fn from(inner: ContentCursor) -> Self {
-//         MutContentCursor {
-//             inner,
-//             delta: Default::default(),
-//         }
-//     }
-// }
-//
-// impl MutContentCursor {
-//     pub fn clone_immutable(&self) -> ContentCursor {
-//         self.inner
-//     }
-// }
-
-// impl From<MutCursor> for ContentCursor {
-//     fn from(cursor: MutCursor) -> Self {
-//         ContentCursor {
-//             leaf_idx: cursor.leaf_idx,
-//             elem_idx: cursor.elem_idx,
-//             offset: cursor.offset,
-//         }
-//     }
-// }
-
-// const EMPTY_LEAF_DATA: (LV, LeafData) = (usize::MAX, LeafData::InsPtr(NonNull::dangling()));
-
 const NODE_SPLIT_POINT: usize = NODE_CHILDREN / 2;
 // const LEAF_CHILDREN: usize = LEAF_SIZE - 1;
 const LEAF_SPLIT_POINT: usize = LEAF_CHILDREN / 2;
@@ -156,10 +108,6 @@ pub struct ContentLeaf<V> {
     /// It may turn out to be more efficient to split each field in children into its own sub-array.
     children: [V; LEAF_CHILDREN],
 
-    // /// (start of range, data). Start == usize::MAX for empty entries.
-    // children: [(LV, V); LEAF_CHILDREN],
-
-    // upper_bound: LV,
     next_leaf: LeafIdx,
     parent: NodeIdx,
 }
