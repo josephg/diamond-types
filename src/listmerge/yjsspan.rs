@@ -1,5 +1,5 @@
 use std::fmt::{Debug, Formatter};
-use rle::{HasLength, HasRleKey, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
+use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpers};
 use crate::LV;
 use crate::dtrange::{debug_lv, DTRange, UNDERWATER_START};
 use crate::ost::content_tree::Content;

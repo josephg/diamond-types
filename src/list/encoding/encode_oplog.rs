@@ -14,8 +14,6 @@ use crate::encoding::tools::calc_checksum;
 use crate::list::encoding::encode_tools::{Merger, push_leb_chunk, push_leb_str, push_leb_u32, push_leb_usize, push_u32_le, write_leb_bit_run};
 use crate::list::encoding::leb::{encode_leb_u32, encode_leb_usize, num_encode_zigzag_isize_old};
 use crate::listmerge::merge::TransformedResultRaw;
-use crate::listmerge::plan::M1PlanAction;
-
 const ALLOW_VERBOSE: bool = true;
 
 /// Write an operation to the passed writer.

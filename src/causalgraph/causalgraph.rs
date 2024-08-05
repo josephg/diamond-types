@@ -1,12 +1,14 @@
 use smallvec::SmallVec;
+
 use rle::{HasLength, MergableSpan, SplitableSpan};
 use rle::zip::rle_zip;
+
 use crate::{AgentId, CausalGraph, LV};
 use crate::causalgraph::*;
 use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteFrontierOwned};
+use crate::causalgraph::agent_span::AgentSpan;
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::graph::GraphEntrySimple;
-use crate::causalgraph::agent_span::AgentSpan;
 use crate::rle::{RleSpanHelpers, RleVec};
 
 impl CausalGraph {
@@ -272,7 +274,7 @@ impl CausalGraph {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CausalGraph, DTRange};
+    use crate::CausalGraph;
 
     #[test]
     fn merge_and_assign_updates_version() {

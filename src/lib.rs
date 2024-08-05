@@ -14,7 +14,7 @@
 //!
 //! Branches in diamond types aren't the same as branches in git. They're a lower level construct.
 //! Diamond types doesn't store a list of the active branches in your data set. A branch is much
-//! simplier than that - internally its just a temporary in-memory tuple of
+//! simpler than that - internally its just a temporary in-memory tuple of
 //! (version, document state).
 //!
 //! Branches can change over time by referencing the *Operation Log* (OpLog). The oplog is an
@@ -144,7 +144,7 @@
 //! the document is the same as that operation's ID.
 //!
 //! Sometimes changes are concurrent. This can happen in realtime - for example, two users type in a
-//! collaborative document at the same time. Or it can happen asyncronously - for example, two users
+//! collaborative document at the same time. Or it can happen asynchronously - for example, two users
 //! edit two different branches, and later merge their results. We can describe what happened with
 //! a *time DAG*, where each change is represented by a node in a DAG (Directed Acyclic Graph).
 //! Edges represent the *directly after* relationship. See [INTERNALS.md](INTERNALS.md) in this
@@ -186,23 +186,27 @@ extern crate core;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Formatter};
-use jumprope::{JumpRope, JumpRopeBuf};
-use smallvec::SmallVec;
-use smartstring::alias::String as SmartString;
-pub use crate::causalgraph::CausalGraph;
-pub use crate::dtrange::DTRange;
-use causalgraph::graph::Graph;
-use crate::causalgraph::storage::CGStorage;
-use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
-use crate::rle::{KVPair, RleVec};
-use crate::wal::WriteAheadLog;
-pub use ::rle::HasLength;
-pub use frontier::Frontier;
-use crate::causalgraph::agent_span::AgentVersion;
+
+use jumprope::JumpRopeBuf;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
+use smartstring::alias::String as SmartString;
+
+pub use ::rle::HasLength;
+use causalgraph::graph::Graph;
+pub use frontier::Frontier;
+
 use crate::causalgraph::agent_assignment::remote_ids::RemoteVersion;
+use crate::causalgraph::agent_span::AgentVersion;
+pub use crate::causalgraph::CausalGraph;
+pub use crate::dtrange::DTRange;
+use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
+
+#[cfg(feature = "expose_benchmarking")]
 use crate::ost::recording_index_tree::IndexTreeReplay;
+
+use crate::rle::{KVPair, RleVec};
 use crate::textinfo::TextInfo;
 
 // use crate::list::internal_op::OperationInternal as TextOpInternal;
@@ -228,7 +232,7 @@ pub(crate) mod serde_helpers;
 pub mod listmerge;
 
 #[cfg(feature = "expose_benchmarking")]
-pub type IndexTreeTrace = IndexTreeReplay<crate::listmerge::markers::Marker>;
+pub type IndexTreeTrace = IndexTreeReplay<listmerge::markers::Marker>;
 
 #[cfg(any(test, feature = "gen_test_data"))]
 mod list_fuzzer_tools;
@@ -413,7 +417,7 @@ pub struct OpLog {
     // TODO: Vec -> SmallVec.
     // registers: BTreeMap<LVKey, RegisterInfo>,
 
-    // The set of CRDTs which have been deleted or superceded in the current version. This data is
+    // The set of CRDTs which have been deleted or superseded in the current version. This data is
     // pretty similar to the _index data, in that its mainly just useful for branches doing
     // checkouts.
     deleted_crdts: BTreeSet<LVKey>,

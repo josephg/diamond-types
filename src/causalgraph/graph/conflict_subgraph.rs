@@ -10,14 +10,16 @@
 /// and it allows callers to add extra fields on each returned item.
 
 use std::cmp::{Ordering, Reverse};
-use smallvec::{SmallVec, smallvec};
 use std::collections::BinaryHeap;
 use std::fmt::Debug;
-use rle::{AppendRle, ReverseSpan};
+
+use smallvec::{SmallVec, smallvec};
+
+use rle::AppendRle;
+
+use crate::{CausalGraph, DTRange, Frontier, LV};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
-use crate::{CausalGraph, DTRange, Frontier, LV};
-
 
 #[derive(Debug, Clone)]
 pub(crate) struct ConflictGraphEntry<S: Default = ()> {
@@ -549,14 +551,10 @@ impl CausalGraph {
 
 #[cfg(test)]
 mod test {
-    use std::fs::File;
-    use std::io::Read;
-    use rle::HasLength;
-    use crate::causalgraph::graph::{Graph, GraphEntrySimple};
-    use crate::causalgraph::graph::tools::test::fancy_graph;
-    use crate::{CausalGraph, Frontier, LV};
+    use crate::{Frontier, LV};
+    use crate::causalgraph::graph::Graph;
     use crate::causalgraph::graph::random_graphs::with_random_cgs;
-    use crate::list::ListOpLog;
+    use crate::causalgraph::graph::tools::test::fancy_graph;
 
     fn check(graph: &Graph, a: &[LV], b: &[LV]) {
         // dbg!(a, b);

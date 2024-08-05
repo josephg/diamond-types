@@ -10,8 +10,6 @@
 //! entries as we go). Or we could figure it out by walking the txns forwards and backwards through
 //! time.
 
-use std::pin::Pin;
-
 use crate::listmerge::markers::Marker;
 use crate::listmerge::yjsspan::CRDTSpan;
 use crate::ost::content_tree::ContentTree;

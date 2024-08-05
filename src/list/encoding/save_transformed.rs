@@ -3,7 +3,7 @@ use crate::encoding::Merger;
 use crate::list::encoding::leb::num_encode_zigzag_isize_old;
 use crate::list::encoding::encode_tools::{push_leb_usize, write_leb_bit_run};
 use crate::list::ListOpLog;
-use crate::listmerge::merge::{TransformedResult, TransformedResultRaw};
+use crate::listmerge::merge::TransformedResult;
 use crate::LV;
 
 /// *** This is EXPERIMENTAL work-in-progress code to save transformed positions ***

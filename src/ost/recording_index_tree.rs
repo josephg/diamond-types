@@ -2,7 +2,9 @@
 //! and play back operations made to an index tree.
 
 use std::cell::RefCell;
+#[cfg(feature = "expose_benchmarking")]
 use std::hint::black_box;
+#[cfg(feature = "gen_test_data")]
 use std::ops::Deref;
 use rle::RleDRun;
 use crate::{DTRange, LV};

@@ -1,12 +1,11 @@
-use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::Debug;
-use std::mem;
 use std::mem::{replace, take};
-use std::ops::{Index, IndexMut, Range, Sub};
-use std::ptr::NonNull;
-use rle::{HasLength, HasRleKey, MergableSpan, MergeableIterator, RleDRun, Searchable, SplitableSpan, SplitableSpanHelpers};
-use crate::{DTRange, LV};
+use std::ops::{Index, IndexMut, Range};
+
+use rle::{HasLength, MergableSpan, MergeableIterator, Searchable, SplitableSpan};
+
+use crate::DTRange;
 use crate::ost::{LEAF_CHILDREN, LeafIdx, LenPair, LenUpdate, NODE_CHILDREN, NodeIdx, remove_from_array, remove_from_array_fill};
 
 pub(crate) trait Content: SplitableSpan + MergableSpan + Copy + HasLength {
@@ -1558,12 +1557,16 @@ mod test {
     use std::fmt::Debug;
     use std::ops::Range;
     use std::pin::Pin;
-    use rand::rngs::SmallRng;
+
     use rand::{Rng, SeedableRng};
+    use rand::rngs::SmallRng;
+
     use content_tree::{ContentLength, ContentTreeRaw, FullMetricsUsize};
     use rle::{HasLength, HasRleKey, MergableSpan, SplitableSpan, SplitableSpanHelpers};
+
     use crate::list_fuzzer_tools::fuzz_multithreaded;
-    use crate::ost::{LeafIdx, LenPair, LenUpdate};
+    use crate::ost::{LeafIdx, LenPair};
+
     use super::{Content, ContentTree};
 
     /// This is a simple span object for testing.

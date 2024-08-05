@@ -1,16 +1,17 @@
 use smallvec::SmallVec;
+
 use rle::{AppendRle, HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx, SplitableSpanHelpers};
-use rle::zip::{rle_zip, rle_zip3};
-use crate::causalgraph::agent_span::AgentSpan;
-use crate::causalgraph::entry::CGEntry;
-use crate::causalgraph::graph::GraphEntrySimple;
-use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
-use crate::list::ListOpLog;
-use crate::list::operation::{ListOpKind, TextOperation};
-use crate::dtrange::DTRange;
-use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
-use crate::{AgentId, Frontier, list, LV};
+use rle::zip::rle_zip3;
+
+use crate::{Frontier, LV};
 use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
+use crate::causalgraph::agent_span::AgentSpan;
+use crate::causalgraph::graph::GraphEntrySimple;
+use crate::dtrange::DTRange;
+use crate::list::ListOpLog;
+use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
+use crate::list::operation::{TextOperation};
+use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 
 #[derive(Debug)]
 pub(crate) struct OpMetricsIter<'a> {
@@ -301,12 +302,14 @@ impl ListOpLog {
 #[cfg(test)]
 mod test {
     use smallvec::smallvec;
-    use smartstring::SmartString;
-    use super::*;
-    use crate::list::operation::ListOpKind;
-    use crate::rle::{KVPair, RleVec};
+
     use ListOpKind::*;
     use rle::test_splitable_methods_valid;
+
+    use crate::list::operation::ListOpKind;
+    use crate::rle::{KVPair, RleVec};
+
+    use super::*;
 
     #[test]
     fn iter_smoke() {

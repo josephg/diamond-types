@@ -1,13 +1,15 @@
-use rle::Searchable;
-use crate::encoding::tools::{ExtendFromSlice, push_str, try_push_str};
-use crate::encoding::varint::*;
-use crate::{Frontier, LV};
 // use bumpalo::collections::vec::Vec as BumpVec;
 use smallvec::SmallVec;
+
+use rle::Searchable;
+
+use crate::{Frontier, LV};
 use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::encoding::bufparser::BufParser;
-use crate::encoding::parseerror::ParseError;
 use crate::encoding::map::{ReadMap, WriteMap};
+use crate::encoding::parseerror::ParseError;
+use crate::encoding::tools::{ExtendFromSlice, push_str};
+use crate::encoding::varint::*;
 use crate::frontier::sort_frontier;
 
 pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[LV], next_output_time: LV, persist: bool, write_map: &mut WriteMap, aa: &AgentAssignment) {

@@ -1,17 +1,13 @@
 use std::fmt::Debug;
-use std::ptr::NonNull;
-
-use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
-
-use rle::Searchable;
-use crate::rev_range::RangeRev;
-use crate::listmerge::yjsspan::CRDTSpan;
-use crate::list::operation::ListOpKind;
-use crate::{DTRange, LV};
-use crate::ost::{IndexContent, LeafIdx};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+
+use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanHelpers};
+use rle::Searchable;
+
+use crate::{DTRange, LV};
+use crate::ost::{IndexContent, LeafIdx};
 
 /// Its kind of upsetting that I need this.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -134,11 +130,6 @@ impl IndexContent for Marker {
 
 #[cfg(test)]
 mod tests {
-    use std::ptr::NonNull;
-    use rle::test_splitable_methods_valid;
-    use crate::rev_range::RangeRev;
-    use super::*;
-
     // #[test]
     // fn marker_split_merge() {
     //     test_splitable_methods_valid(MarkerEntry {

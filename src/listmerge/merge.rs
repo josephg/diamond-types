@@ -3,7 +3,6 @@
 #![allow(clippy::needless_option_as_deref)]
 
 use std::cmp::Ordering;
-use std::ptr::NonNull;
 
 use jumprope::JumpRopeBuf;
 use smartstring::alias::String as SmartString;
@@ -21,7 +20,7 @@ use crate::list::ListOpLog;
 use crate::list::op_iter::OpMetricsIter;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::listmerge::{M2Tracker, Index};
+use crate::listmerge::{Index, M2Tracker};
 #[cfg(feature = "dot_export")]
 use crate::listmerge::dot::DotColor::*;
 use crate::listmerge::markers::{DelRange, Marker};
@@ -34,7 +33,6 @@ use crate::ost::{IndexTree, LeafIdx, LenPair, LenUpdate};
 use crate::ost::content_tree::{Content, ContentCursor, ContentTree, DeltaCursor};
 use crate::rev_range::RangeRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
-use crate::stats::{marker_a, marker_b};
 use crate::textinfo::TextInfo;
 use crate::unicount::consume_chars;
 

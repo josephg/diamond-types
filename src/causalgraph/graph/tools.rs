@@ -3,17 +3,18 @@
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-use smallvec::{smallvec, SmallVec};
-use rle::{AppendRle, SplitableSpan};
-
-use crate::frontier::{debug_assert_sorted, FrontierRef};
-use crate::causalgraph::graph::Graph;
-use crate::causalgraph::graph::tools::DiffFlag::*;
-use crate::dtrange::DTRange;
-use crate::{Frontier, LV};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+use smallvec::{smallvec, SmallVec};
+
+use rle::{AppendRle, SplitableSpan};
+
+use crate::{Frontier, LV};
+use crate::causalgraph::graph::Graph;
+use crate::causalgraph::graph::tools::DiffFlag::*;
+use crate::dtrange::DTRange;
+use crate::frontier::{debug_assert_sorted, FrontierRef};
 
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
@@ -845,15 +846,16 @@ impl Graph {
 pub mod test {
     use std::cmp::Ordering;
     use std::ops::Range;
+
     use smallvec::smallvec;
+
     use rle::{AppendRle, MergableSpan};
 
-    use crate::causalgraph::graph::*;
-    use crate::causalgraph::graph::tools::DiffFlag::*;
-    use crate::causalgraph::graph::tools::{DiffFlag, DiffResult};
-    use crate::dtrange::DTRange;
-    use crate::rle::RleVec;
     use crate::{Frontier, LV};
+    use crate::causalgraph::graph::*;
+    use crate::causalgraph::graph::tools::{DiffFlag, DiffResult};
+    use crate::causalgraph::graph::tools::DiffFlag::*;
+    use crate::dtrange::DTRange;
     use crate::frontier::debug_assert_sorted;
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works

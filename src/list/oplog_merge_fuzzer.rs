@@ -1,7 +1,8 @@
 use rand::prelude::*;
-use crate::list::{ListCRDT, ListOpLog};
+
+use crate::list::ListCRDT;
 use crate::list::old_fuzzer_tools::old_make_random_change;
-use crate::list_fuzzer_tools::{choose_2, make_random_change};
+use crate::list_fuzzer_tools::choose_2;
 
 fn oplog_merge_fuzz(seed: u64, n: usize, verbose: bool) {
     let mut rng = SmallRng::seed_from_u64(seed);

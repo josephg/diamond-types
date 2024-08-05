@@ -1,16 +1,17 @@
 use rle::HasLength;
-use crate::{AgentId, CausalGraph, DTRange, KVPair, Frontier, LV};
-use crate::causalgraph::agent_assignment::{AgentAssignment};
-use crate::encoding::parents::{read_parents_raw, write_parents_raw};
-use crate::encoding::tools::{ExtendFromSlice, push_str, try_push_str};
-use crate::encoding::varint::{mix_bit_u32, num_encode_zigzag_i64, try_push_u32, try_push_u64, try_push_usize, strip_bit_usize_2, push_u32, push_usize, push_u64};
+
+use crate::{AgentId, CausalGraph, DTRange, Frontier, KVPair, LV};
+use crate::causalgraph::agent_assignment::AgentAssignment;
+use crate::causalgraph::agent_span::AgentSpan;
 // use bumpalo::collections::vec::Vec as BumpVec;
 use crate::causalgraph::entry::CGEntry;
-use crate::causalgraph::agent_span::AgentSpan;
 use crate::encoding::bufparser::BufParser;
+use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::Merger;
+use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::map::{WriteMap, ReadMap};
+use crate::encoding::tools::{ExtendFromSlice, push_str};
+use crate::encoding::varint::{mix_bit_u32, num_encode_zigzag_i64, push_u32, push_u64, push_usize, strip_bit_usize_2};
 
 pub(crate) fn write_cg_aa<R: ExtendFromSlice>(result: &mut R, write_parents: bool, span: AgentSpan,
                           agent_map: &mut WriteMap, persist: bool, aa: &AgentAssignment) {

@@ -1,13 +1,13 @@
-use rle::{HasLength, MergeableIterator};
+use rle::HasLength;
+
+use crate::{DTRange, LV};
 use crate::frontier::FrontierRef;
 use crate::list::{ListBranch, ListOpLog};
-use crate::list::operation::{ListOpKind, TextOperation};
-use crate::listmerge::merge::{reverse_str, TransformedOpsIter, TransformedOpsIterRaw, TransformedSimpleOpsIter, TransformedResultRaw, TransformedSimpleOp};
-use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
-use crate::{DTRange, LV, OpLog};
 use crate::list::op_metrics::ListOpMetrics;
+use crate::list::operation::{ListOpKind, TextOperation};
+use crate::listmerge::merge::{reverse_str, TransformedOpsIter, TransformedOpsIterRaw, TransformedResultRaw, TransformedSimpleOp, TransformedSimpleOpsIter};
+use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::listmerge::plan::M1PlanAction;
-use crate::listmerge::xf_old::TransformedOpsIterOld;
 use crate::rle::KVPair;
 
 impl ListOpLog {

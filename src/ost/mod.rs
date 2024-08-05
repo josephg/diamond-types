@@ -10,22 +10,21 @@
 //!   and as a result, its much harder to read. However, the code here has more duplication. Eh.
 //! - The resulting wasm size is a little smaller.
 
-mod index_tree;
-pub(crate) mod content_tree;
-pub(crate) mod recording_index_tree;
-// mod content_tree;
-
 use std::iter::Sum;
-pub(crate) use index_tree::{IndexContent, IndexTree};
-
-use std::ops::{Add, AddAssign, Index, IndexMut, Range, Sub, SubAssign};
-use rle::{HasLength, MergableSpan, SplitableSpan};
-use crate::listmerge::yjsspan::CRDTSpan;
-// use crate::ost::content_tree::ContentTree;
-// Some utility types.
+use std::ops::{Add, AddAssign, Range, Sub, SubAssign};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+
+pub(crate) use index_tree::{IndexContent, IndexTree};
+
+use crate::listmerge::yjsspan::CRDTSpan;
+
+mod index_tree;
+pub(crate) mod content_tree;
+pub(crate) mod recording_index_tree;
+
+// Some utility types.
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -171,38 +170,6 @@ const NODE_CHILDREN: usize = 16;
 #[cfg(not(debug_assertions))]
 const LEAF_CHILDREN: usize = 32;
 
-
-// type LeafData = crate::listmerge::markers::Marker;
-// #[derive(Debug, Default)]
-// struct OrderStatisticTree {
-//     content: ContentTree,
-//     index: IndexTree<()>,
-// }
-//
-// impl OrderStatisticTree {
-//     pub fn new() -> Self {
-//         Self {
-//             content: ContentTree::new(),
-//             index: IndexTree::new(),
-//         }
-//     }
-//
-//     // fn insert(&mut self,
-//
-//     pub fn clear(&mut self) {
-//         self.index.clear();
-//         self.content.clear();
-//     }
-//
-//     #[allow(unused)]
-//     fn dbg_check(&self) {
-//         self.content.dbg_check();
-//         self.index.dbg_check();
-//
-//         // Invariants:
-//         // - All index markers point to the node which contains the specified item.
-//     }
-// }
 
 /// Utility method for tree implementations.
 ///

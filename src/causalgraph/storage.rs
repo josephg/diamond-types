@@ -28,20 +28,22 @@ use std::fs::File;
 use std::io;
 use std::io::{BufWriter, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+
 use bumpalo::Bump;
-use rle::{HasLength, MergableSpan};
-use crate::encoding::bufparser::BufParser;
-use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::calc_checksum;
-use crate::{CausalGraph, DTRange, LV};
 use bumpalo::collections::vec::Vec as BumpVec;
+
+use rle::{HasLength, MergableSpan};
+
+use crate::{CausalGraph, DTRange, LV};
 use crate::causalgraph::agent_assignment::AgentAssignment;
 use crate::causalgraph::entry::CGEntry;
+use crate::encoding::bufparser::BufParser;
 use crate::encoding::cg_entry::{read_cg_entry_into_cg_nonoverlapping, write_cg_entry};
 use crate::encoding::map::{ReadMap, WriteMap};
-use crate::encoding::varint::{push_u64, push_usize, try_push_u64, try_push_usize};
+use crate::encoding::parseerror::ParseError;
+use crate::encoding::tools::calc_checksum;
+use crate::encoding::varint::{push_u64, push_usize};
 use crate::list::encoding::leb::{decode_leb_usize, encode_leb_usize};
-
 
 const CG_MAGIC_BYTES: [u8; 8] = *b"DMNDT_CG";
 const CG_VERSION: [u8; 4] = 1u32.to_le_bytes();
@@ -514,7 +516,7 @@ impl CGStorage {
 mod test {
     use std::fs::{File, remove_file};
     use std::io::Read;
-    use std::path::Path;
+
     use crate::causalgraph::storage::CGStorage;
 
     #[test]

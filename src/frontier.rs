@@ -2,13 +2,15 @@ use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::{Index, IndexMut};
-use smallvec::{SmallVec, smallvec};
-use crate::causalgraph::graph::Graph;
-use crate::dtrange::DTRange;
-use crate::LV;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use smallvec::{SmallVec, smallvec};
+
+use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
+use crate::dtrange::DTRange;
+use crate::LV;
 
 /// A `LocalFrontier` is a set of local Time values which point at the set of changes with no
 /// children at this point in time. When there's a single writer this will always just be the last
@@ -486,10 +488,9 @@ pub fn clone_smallvec<T, const LEN: usize>(v: &SmallVec<T, LEN>) -> SmallVec<T, 
 
 #[cfg(test)]
 mod test {
-    use smallvec::smallvec;
     use crate::causalgraph::graph::GraphEntrySimple;
-
     use crate::Frontier;
+
     use super::*;
 
     #[test]

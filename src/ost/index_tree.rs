@@ -8,11 +8,9 @@ use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::mem;
-use std::mem::replace;
 use std::ops::{Index, IndexMut, Range};
-use std::ptr::NonNull;
-use rle::{HasLength, MergableSpan, RleDRun, SplitableSpan, SplitableSpanHelpers};
-use crate::{DTRange, LV, ost};
+use rle::{HasLength, RleDRun};
+use crate::{DTRange, LV};
 use crate::ost::{LEAF_CHILDREN, LeafIdx, NODE_CHILDREN, NodeIdx, remove_from_array, remove_from_array_fill};
 
 #[derive(Debug, Clone)]
