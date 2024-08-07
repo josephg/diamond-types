@@ -26,8 +26,6 @@ use crate::listmerge::dot::DotColor::*;
 use crate::listmerge::markers::{DelRange, Marker};
 use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappened};
 use crate::listmerge::plan::{M1Plan, M1PlanAction};
-#[cfg(feature = "ops_to_old")]
-use crate::listmerge::to_old::OldCRDTOpInternal;
 use crate::listmerge::yjsspan::{CRDTSpan, INSERTED, NOT_INSERTED_YET};
 use crate::ost::{IndexTree, LeafIdx, LenPair, LenUpdate};
 use crate::ost::content_tree::{Content, ContentCursor, ContentTree, DeltaCursor};
@@ -70,8 +68,6 @@ impl M2Tracker {
 
             #[cfg(feature = "merge_conflict_checks")]
             concurrent_inserts_collide: false,
-            #[cfg(feature = "ops_to_old")]
-            dbg_ops: vec![]
         };
 
         // The list is initially populated with a dummy "underwater" item, which corresponds to
@@ -468,22 +464,6 @@ impl M2Tracker {
                     end_state_ever_deleted: false,
                 };
 
-                #[cfg(feature = "ops_to_old")] {
-                    // There's a wriggle here: We can't take op.content_pos directly because we
-                    // might have a max limit set, and op hasn't actually been truncated normally.
-                    //
-                    // Its a bit of a hack doing this here, but eh.
-                    let mut op2 = op.clone();
-                    op2.truncate_ctx(len, _ctx);
-
-                    self.dbg_ops.push_rle(OldCRDTOpInternal::Ins {
-                        id: lv_span,
-                        origin_left,
-                        origin_right: if origin_right == UNDERWATER_START { usize::MAX } else { origin_right },
-                        content_pos: op2.content_pos.unwrap(),
-                    });
-                }
-
                 let ins_xf_pos = self.integrate(aa, agent, item, new_cursor, cursor_pos);
                 (len, BaseMoved(ins_xf_pos))
             }
@@ -563,16 +543,6 @@ impl M2Tracker {
                 // debug_assert_eq!(del_start_xf, upstream_cursor_pos(&old_cursor));
 
                 let lv_start = op_pair.0;
-
-                #[cfg(feature = "ops_to_old")] {
-                    self.dbg_ops.push_rle(OldCRDTOpInternal::Del {
-                        start_v: lv_start,
-                        target: RangeRev {
-                            span: target,
-                            fwd,
-                        },
-                    });
-                }
 
                 self.index.set_range((lv_start..lv_start + len).into(), Marker::Del(DelRange {
                     target: if fwd { target.start } else { target.end },
@@ -726,17 +696,6 @@ impl<'a> TransformedOpsIterRaw<'a> {
     #[cfg(feature = "merge_conflict_checks")]
     pub(crate) fn concurrent_inserts_collided(&self) -> bool {
         self.tracker.concurrent_inserts_collide
-    }
-
-    #[cfg(feature = "ops_to_old")]
-    pub(crate) fn get_crdt_items(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
-                                 ops: &'a RleVec<KVPair<ListOpMetrics>>,
-                                 from_frontier: &[LV], merge_frontier: &[LV]) -> Vec<crate::listmerge::to_old::OldCRDTOpInternal> {
-        // Importantly, we're passing allow_ff: false to make sure we get the actual output!
-        let (plan, _common) = subgraph.make_m1_plan(Some(ops), from_frontier, merge_frontier, false);
-        let mut iter = Self::from_plan(aa, op_ctx, ops, plan);
-        while let Some(_) = iter.next() {} // Consume all actions.
-        iter.tracker.dbg_ops
     }
 }
 

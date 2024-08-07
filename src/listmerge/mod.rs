@@ -25,8 +25,6 @@ pub mod fuzzer;
 #[cfg(feature = "dot_export")]
 mod dot;
 
-#[cfg(feature = "ops_to_old")]
-pub mod to_old;
 #[cfg(any(test, feature = "gen_test_data"))]
 pub(crate) mod simple_oplog;
 pub(crate) mod plan;
@@ -47,7 +45,4 @@ struct M2Tracker {
 
     #[cfg(feature = "merge_conflict_checks")]
     concurrent_inserts_collide: bool,
-
-    #[cfg(feature = "ops_to_old")]
-    dbg_ops: Vec<to_old::OldCRDTOpInternal>,
 }
