@@ -51,10 +51,10 @@ pub fn get_thread_memory_usage() -> isize {
     })
 }
 
-#[cfg(any(test, feature = "memusage"))]
-mod trace_alloc {
-    use super::TracingAlloc;
-
-    #[global_allocator]
-    static A: TracingAlloc = TracingAlloc;
-}
+// #[cfg(any(test, feature = "memusage"))]
+// mod trace_alloc {
+//     use super::TracingAlloc;
+//
+//     #[global_allocator]
+//     static A: TracingAlloc = TracingAlloc;
+// }

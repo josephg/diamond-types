@@ -19,7 +19,7 @@ use crate::rle::{KVPair, RleVec};
 
 mod span;
 mod doc;
-mod markers;
+// mod markers;
 mod txn;
 mod double_delete;
 pub mod external_txn;
