@@ -103,9 +103,6 @@ opt-level = "s"
 #lto = false
 strip = true
 
-[profile.release.package.run_on_old]
-debug = true
-
 [profile.release.package.bench]
 codegen-units = 1
 
