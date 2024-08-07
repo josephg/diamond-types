@@ -565,7 +565,7 @@ impl ListOpLog {
                 push_leb_usize(buf, e.len);
             });
 
-            for r in self.get_xf_operations_full_raw(from_version, self.cg.version.as_ref()) {
+            for r in self.get_xf_operations_full(from_version, self.cg.version.as_ref()) {
                 let range = r.lv_range();
                 self.cg.graph.with_parents(range.start, |parents| {
                     let ge = GraphEntrySimple {

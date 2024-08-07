@@ -151,12 +151,12 @@ fn encoding_nodecc_benchmarks(c: &mut Criterion) {
             });
         });
         
-        group.bench_function(BenchmarkId::new("merge_old", name), |b| {
-            b.iter(|| {
-                let branch = oplog.checkout_tip_old();
-                black_box(branch);
-            });
-        });
+        // group.bench_function(BenchmarkId::new("merge_old", name), |b| {
+        //     b.iter(|| {
+        //         let branch = oplog.checkout_tip_old();
+        //         black_box(branch);
+        //     });
+        // });
 
         group.bench_function(BenchmarkId::new("make_plan", name), |b| {
             b.iter(|| {

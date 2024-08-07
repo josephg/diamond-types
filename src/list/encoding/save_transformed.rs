@@ -37,7 +37,7 @@ impl ListOpLog {
         // }
 
         
-        for op in self.get_xf_operations_full_raw(from_version, self.cg.version.as_ref()) {
+        for op in self.get_xf_operations_full(from_version, self.cg.version.as_ref()) {
             let (val, len) = match op {
                 TransformedResultRaw::FF(range) => {
                     (XFState::XFBy(0), range.len())
