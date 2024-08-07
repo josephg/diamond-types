@@ -154,30 +154,11 @@ impl<V: Content> ContentLeaf<V> {
     }
 
     fn is_last(&self) -> bool { !self.next_leaf.exists() }
-
-    // fn next<'a>(&self, leaves: &'a [ContentLeaf<V>]) -> Option<&'a ContentLeaf<V>> {
-    //     if self.is_last() { None }
-    //     else { Some(&leaves[self.next_leaf.0]) }
-    // }
-
-    // fn next_mut<'a>(&self, leaves: &'a mut [ContentLeaf<V>]) -> Option<&'a mut ContentLeaf<V>> {
-    //     if self.is_last() { None }
-    //     else { Some(&mut leaves[self.next_leaf.0]) }
-    // }
-
-    // fn remove_children(&mut self, del_range: Range<usize>) {
-    //     remove_from_array_fill(&mut self.children, del_range, V::none());
-    // }
 }
 
 impl ContentNode {
     fn is_full(&self) -> bool {
         *self.child_indexes.last().unwrap() != usize::MAX
-    }
-
-    fn remove_children(&mut self, del_range: Range<usize>) {
-        remove_from_array_fill(&mut self.child_indexes, del_range.clone(), usize::MAX);
-        remove_from_array(&mut self.child_width, del_range.clone());
     }
 
     /// Returns the (local) index of the named child. Aborts if the child is not in this node.
@@ -292,6 +273,7 @@ impl ContentCursor {
     /// Note that any outstanding delta is not relevant, as the delta position only affects the pos
     /// of later items. The cursor itself is (just) early enough to be unaffected.
     pub(crate) fn get_pos<V: Content>(&self, tree: &ContentTree<V>) -> LenPair {
+        assert!(cfg!(debug_assertions), "get_pos should never be called in release mode");
         let mut result = LenPair::default();
 
         let leaf = &tree[self.leaf_idx];
@@ -384,19 +366,15 @@ impl DeltaCursor {
 impl<V: Content> ContentTree<V> {
     pub fn new() -> Self {
         debug_assert_eq!(V::none().content_len_pair(), LenPair::default());
-        // debug_assert_eq!(V::none().len(), 0);
         debug_assert_eq!(V::none().exists(), false);
 
         Self {
             leaves: vec![initial_root_leaf()],
             nodes: vec![],
-            // upper_bound: 0,
             height: 0,
             root: 0,
             cursor: Default::default(),
             total_len: Default::default(),
-            // free_leaf_pool_head: LeafIdx(usize::MAX),
-            // free_node_pool_head: NodeIdx(usize::MAX),
         }
     }
 
@@ -407,8 +385,6 @@ impl<V: Content> ContentTree<V> {
         self.root = 0;
         self.cursor = Default::default();
         self.total_len = Default::default();
-        // self.free_leaf_pool_head = LeafIdx(usize::MAX);
-        // self.free_node_pool_head = NodeIdx(usize::MAX);
 
         self.leaves.push(initial_root_leaf());
     }
@@ -448,18 +424,13 @@ impl<V: Content> ContentTree<V> {
     pub fn insert_notify<N>(&mut self, item: V, cursor: &mut DeltaCursor, notify: &mut N)
         where N: FnMut(V, LeafIdx)
     {
-        // let mut delta_len = LenUpdate::default();
         self.insert(item, cursor, true, notify);
-        // self.flush_delta_len(cursor.leaf_idx, delta_len);
-
-        // if cfg!(debug_assertions) {
-        //     self.dbg_check();
-        // }
     }
 
     fn total_len(&self) -> LenPair {
         let mut len = self.total_len;
-        // TODO: Try rewriting this into branch-free code.
+        // Could rewrite this to branch-free code, but currently this is only used by the fuzzer
+        // so it doesn't matter.
         if let Some((_, DeltaCursor(_, flush))) = self.cursor.as_ref() {
             len.update_by(*flush);
         }

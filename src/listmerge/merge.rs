@@ -85,6 +85,7 @@ impl M2Tracker {
     pub(super) fn clear(&mut self) {
         let underwater = CRDTSpan::new_underwater();
 
+        self.index.clear();
         self.range_tree.clear();
         self.range_tree.set_single_item_notify(underwater, notify_for(&mut self.index));
     }
@@ -97,8 +98,8 @@ impl M2Tracker {
 
     #[allow(unused)]
     pub(super) fn check_index(&self) {
-        self.range_tree.dbg_check();
         self.index.dbg_check();
+        self.range_tree.dbg_check();
 
         // Go through each entry in the range tree and make sure we can find it using the index.
         for (leaf_idx, children) in self.range_tree.iter_leaves() {
