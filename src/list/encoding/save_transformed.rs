@@ -3,7 +3,7 @@ use crate::encoding::Merger;
 use crate::list::encoding::leb::num_encode_zigzag_isize_old;
 use crate::list::encoding::encode_tools::{push_leb_usize, write_leb_bit_run};
 use crate::list::ListOpLog;
-use crate::listmerge::merge::TransformedResult;
+use crate::listmerge::merge::{TransformedResult, TransformedResultRaw};
 use crate::LV;
 
 /// *** This is EXPERIMENTAL work-in-progress code to save transformed positions ***
@@ -36,21 +36,38 @@ impl ListOpLog {
         //     });
         // }
 
-
-        for (_, op, xf) in self.get_xf_operations_full_old(from_version, self.cg.version.as_ref()) {
-            let val = match xf {
-                TransformedResult::BaseMoved(xf_pos) => {
-                    let origin_pos = op.start() as isize;
-                    XFState::XFBy(xf_pos as isize - origin_pos)
-                },
-                TransformedResult::DeleteAlreadyHappened => XFState::Cancelled,
+        
+        for op in self.get_xf_operations_full_raw(from_version, self.cg.version.as_ref()) {
+            let (val, len) = match op {
+                TransformedResultRaw::FF(range) => {
+                    (XFState::XFBy(0), range.len())
+                }
+                TransformedResultRaw::Apply { xf_pos, op } => {
+                    let origin_pos = op.1.start() as isize;
+                    (XFState::XFBy(xf_pos as isize - origin_pos), op.len())
+                }
+                TransformedResultRaw::DeleteAlreadyHappened(range) => {
+                    (XFState::Cancelled, range.len())
+                }
             };
-
-            tn_ops.push_rle(RleRun {
-                val,
-                len: op.len()
-            });
+            
+            tn_ops.push_rle(RleRun { val, len });
         }
+
+        // for (_, op, xf) in self.get_xf_operations_full_old(from_version, self.cg.version.as_ref()) {
+        //     let val = match xf {
+        //         TransformedResult::BaseMoved(xf_pos) => {
+        //             let origin_pos = op.start() as isize;
+        //             XFState::XFBy(xf_pos as isize - origin_pos)
+        //         },
+        //         TransformedResult::DeleteAlreadyHappened => XFState::Cancelled,
+        //     };
+        // 
+        //     tn_ops.push_rle(RleRun {
+        //         val,
+        //         len: op.len()
+        //     });
+        // }
 
         dbg!(&tn_ops.len());
 

@@ -12,7 +12,7 @@ use rle::zip::{rle_zip, rle_zip3};
 use crate::{AgentId, LV};
 use crate::listmerge::simple_oplog::*;
 
-const USE_UNICODE: bool = true;
+// const USE_UNICODE: bool = true;
 
 const UCHARS: [char; 23] = [
     'a', 'b', 'c', '1', '2', '3', ' ', '\n', // ASCII

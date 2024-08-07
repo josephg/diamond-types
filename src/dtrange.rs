@@ -228,9 +228,9 @@ impl HasRleKey for DTRange {
 
 pub(crate) const UNDERWATER_START: usize = usize::MAX / 4;
 
-pub(crate) fn is_underwater(lv: LV) -> bool {
-    lv >= UNDERWATER_START
-}
+// pub(crate) fn is_underwater(lv: LV) -> bool {
+//     lv >= UNDERWATER_START
+// }
 
 // #[derive(Debug)]
 // struct RootTime;

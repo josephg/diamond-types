@@ -81,9 +81,12 @@ impl ListOpLog {
 
     #[cfg(feature = "merge_conflict_checks")]
     pub fn has_conflicts_when_merging(&self) -> bool {
-        let mut iter = TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
+        let mut iter = TransformedOpsIterRaw::new(&self.cg.graph, &self.cg.agent_assignment,
                                                &self.operation_ctx, &self.operations,
                                                &[], self.cg.version.as_ref());
+        // let mut iter = TransformedOpsIter::new(&self.cg.graph, &self.cg.agent_assignment,
+        //                                        &self.operation_ctx, &self.operations,
+        //                                        &[], self.cg.version.as_ref());
         for _ in &mut iter {}
         iter.concurrent_inserts_collided()
     }
@@ -146,39 +149,40 @@ impl ListOpLog {
 
         (clears, normal_advances, ff)
     }
-    pub fn get_size_stats_during_xf(&self, samples: usize, allow_ff: bool) -> Vec<(LV, usize)> {
-        let every = usize::max(self.cg.len() / samples, 1);
 
-        let (plan, common) = self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), allow_ff);
-        let mut iter = TransformedOpsIter::from_plan(&self.cg.graph, &self.cg.agent_assignment,
-                                                     &self.operation_ctx, &self.operations,
-                                                     plan, common);
-
-        let mut result = vec![];
-
-        let mut emit_next = 0; // Absolute LV.
-        while let Some((lv, _origin_op, _xf)) = iter.next() {
-            while emit_next <= lv {
-                result.push((emit_next, iter.tracker_count()));
-                emit_next += every;
-            }
-        }
-        // let mut emit_next: isize = 0;
-        // while let Some((lv, origin_op, _xf)) = iter.next() {
-        //     let len_here = origin_op.len();
-        //     // println!("op {}", len_here);
-        //
-        //     emit_next -= len_here as isize;
-        //
-        //     while emit_next < 0 {
-        //         // emit the size now
-        //         result.push((lv, iter.tracker_count()));
-        //         emit_next += every as isize;
-        //     }
-        // }
-
-        result
-    }
+    // pub fn get_size_stats_during_xf(&self, samples: usize, allow_ff: bool) -> Vec<(LV, usize)> {
+    //     let every = usize::max(self.cg.len() / samples, 1);
+    //
+    //     let (plan, common) = self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), allow_ff);
+    //     let mut iter = TransformedOpsIter::from_plan(&self.cg.graph, &self.cg.agent_assignment,
+    //                                                  &self.operation_ctx, &self.operations,
+    //                                                  plan, common);
+    //
+    //     let mut result = vec![];
+    //
+    //     let mut emit_next = 0; // Absolute LV.
+    //     while let Some((lv, _origin_op, _xf)) = iter.next() {
+    //         while emit_next <= lv {
+    //             result.push((emit_next, iter.tracker_count()));
+    //             emit_next += every;
+    //         }
+    //     }
+    //     // let mut emit_next: isize = 0;
+    //     // while let Some((lv, origin_op, _xf)) = iter.next() {
+    //     //     let len_here = origin_op.len();
+    //     //     // println!("op {}", len_here);
+    //     //
+    //     //     emit_next -= len_here as isize;
+    //     //
+    //     //     while emit_next < 0 {
+    //     //         // emit the size now
+    //     //         result.push((lv, iter.tracker_count()));
+    //     //         emit_next += every as isize;
+    //     //     }
+    //     // }
+    //
+    //     result
+    // }
 }
 
 
@@ -206,10 +210,10 @@ impl ListBranch {
 
     pub fn merge(&mut self, oplog: &ListOpLog, merge_frontier: &[LV]) {
         // let mut iter = oplog.get_xf_operations_full_raw(self.version.as_ref(), merge_frontier).merge_spans();
-        let mut iter = oplog.get_xf_operations_full_raw(self.version.as_ref(), merge_frontier);
+        let iter = oplog.get_xf_operations_full_raw(self.version.as_ref(), merge_frontier);
         // println!("merge '{}' at {:?} + {:?}", self.content.to_string(), self.version, merge_frontier);
 
-        for xf in &mut iter {
+        for xf in iter {
             // dbg!(&xf);
             // dbg!(_lv, &origin_op, &xf);
             match xf {

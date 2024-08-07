@@ -36,7 +36,7 @@ use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::textinfo::TextInfo;
 use crate::unicount::consume_chars;
 
-const ALLOW_FF: bool = true;
+// const ALLOW_FF: bool = true;
 
 #[cfg(feature = "dot_export")]
 const MAKE_GRAPHS: bool = false;
@@ -721,6 +721,23 @@ impl<'a> TransformedOpsIterRaw<'a> {
 
         (remainder, result)
     }
+
+    /// Returns if concurrent inserts ever collided at the same location while traversing.
+    #[cfg(feature = "merge_conflict_checks")]
+    pub(crate) fn concurrent_inserts_collided(&self) -> bool {
+        self.tracker.concurrent_inserts_collide
+    }
+    
+    #[cfg(feature = "ops_to_old")]
+    pub(crate) fn get_crdt_items(subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx,
+                                 ops: &'a RleVec<KVPair<ListOpMetrics>>,
+                                 from_frontier: &[LV], merge_frontier: &[LV]) -> Vec<crate::listmerge::to_old::OldCRDTOpInternal> {
+        // Importantly, we're passing allow_ff: false to make sure we get the actual output!
+        let (plan, _common) = subgraph.make_m1_plan(Some(ops), from_frontier, merge_frontier, false);
+        let mut iter = Self::from_plan(aa, op_ctx, ops, plan);
+        while let Some(_) = iter.next() {} // Consume all actions.
+        iter.tracker.dbg_ops
+    }
 }
 
 impl<'a> Iterator for TransformedOpsIterRaw<'a> {
@@ -981,11 +998,9 @@ impl<'a> Iterator for TransformedOpsIter<'a> {
                 match action {
                     M1PlanAction::Retreat(span) => {
                         self.tracker.retreat_by_range(*span);
-                        // self.tracker.check_new_index();
                     }
                     M1PlanAction::Advance(span) => {
                         self.tracker.advance_by_range(*span);
-                        // self.tracker.check_new_index();
                     }
                     M1PlanAction::Apply(span) => {
                         // println!("frontier {:?} + span {:?}", self.max_frontier, *span);
@@ -1071,11 +1086,11 @@ pub fn reverse_str(s: &str) -> SmartString {
 }
 
 impl TextInfo {
-    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Graph, aa: &'a AgentAssignment, from: &[LV], merging: &[LV]) -> TransformedOpsIter<'a> {
-        TransformedOpsIter::new(subgraph, aa, &self.ctx, &self.ops, from, merging)
+    pub(crate) fn get_xf_operations_full<'a>(&'a self, subgraph: &'a Graph, aa: &'a AgentAssignment, from: &[LV], merging: &[LV]) -> TransformedOpsIterRaw<'a> {
+        TransformedOpsIterRaw::new(subgraph, aa, &self.ctx, &self.ops, from, merging)
     }
 
-    pub(crate) fn with_xf_iter<F: FnOnce(TransformedOpsIter, Frontier) -> R, R>(&self, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV], f: F) -> R {
+    pub(crate) fn with_xf_iter<F: FnOnce(TransformedOpsIterRaw, Frontier) -> R, R>(&self, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV], f: F) -> R {
         // This is a big dirty mess for now, but it should be correct at least.
         let conflict = cg.graph.find_conflicting_simple(from, merge_frontier);
 
@@ -1118,18 +1133,17 @@ impl TextInfo {
     /// `get_xf_operations` returns an iterator over the *transformed changes*. That is, the set of
     /// changes that could be applied linearly to a document to bring it up to date.
     pub fn xf_operations_from<'a>(&'a self, cg: &'a CausalGraph, from: &[LV], merging: &[LV]) -> Vec<(DTRange, Option<TextOperation>)> {
-        self.with_xf_iter(cg, from, merging, |iter, _| {
-            iter.map(|(lv, mut origin_op, xf)| {
-                let len = origin_op.len();
-                let op: Option<TextOperation> = match xf {
-                    BaseMoved(base) => {
-                        origin_op.loc.span = (base..base+len).into();
-                        let content = origin_op.get_content(&self.ctx);
-                        Some((origin_op, content).into())
+        self.with_xf_iter(cg, from, merging, |raw_iter, _| {
+            let iter: TransformedSimpleOpsIter = raw_iter.into();
+            iter.map(|op| {
+                match op {
+                    TransformedSimpleOp::Apply(metrics) => {
+                        let span = metrics.span();
+                        let content = metrics.1.get_content(&self.ctx);
+                        (span, Some((metrics.1, content).into()))
                     }
-                    DeleteAlreadyHappened => None,
-                };
-                ((lv..lv + len).into(), op)
+                    TransformedSimpleOp::DeleteAlreadyHappened(r) => (r, None),
+                }
             }).collect()
         })
     }
@@ -1147,36 +1161,26 @@ impl TextInfo {
         // println!("merge from {:?} + {:?}", from, merge_frontier);
         self.with_xf_iter(cg, from, merge_frontier, |iter, final_frontier| {
             // iter.plan.dbg_print();
-            for (_lv, origin_op, xf) in iter {
-                match (origin_op.kind, xf) {
-                    (ListOpKind::Ins, BaseMoved(pos)) => {
-                        debug_assert!(origin_op.content_pos.is_some()); // Ok if this is false - we'll just fill with junk.
-                        let content = origin_op.get_content(&self.ctx).unwrap();
-                        // println!("Insert '{}' at {} (len {})", content, pos, origin_op.len());
-                        assert!(pos <= into.len_chars());
-                        if origin_op.loc.fwd {
-                            into.insert(pos, content);
-                        } else {
-                            // We need to insert the content in reverse order.
-                            let c = reverse_str(content);
-                            into.insert(pos, &c);
+
+            for xf in iter {
+                match xf {
+                    TransformedResultRaw::Apply { xf_pos, op: KVPair(_, mut op) } => {
+                        op.transpose_to(xf_pos);
+                        self.apply_op_to(op, into);
+                    }
+
+                    TransformedResultRaw::FF(range) => {
+                        // Activate *SUPER FAST MODE*.
+                        for KVPair(_, op) in self.ops.iter_range_ctx(range, &self.ctx) {
+                            // dbg!(&op);
+                            self.apply_op_to(op, into);
                         }
-                        // println!("-> doc len {}", into.len_chars());
                     }
 
-                    (_, DeleteAlreadyHappened) => {}, // Discard.
-
-                    (ListOpKind::Del, BaseMoved(del_start)) => {
-                        let del_end = del_start + origin_op.len();
-                        // println!("Delete {}..{} (len {}) doc len {}", del_start, del_end, origin_op.len(), into.len_chars());
-                        // println!("Delete {}..{} (len {}) '{}'", del_start, del_end, origin_op.len(), to.content.slice_chars(del_start..del_end).collect::<String>());
-                        debug_assert!(into.len_chars() >= del_end);
-                        into.remove(del_start..del_end);
-                    }
+                    TransformedResultRaw::DeleteAlreadyHappened(_) => {} // Discard.
                 }
             }
 
-            // iter.into_frontier()
             final_frontier
         })
     }

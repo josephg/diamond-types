@@ -30,9 +30,9 @@ pub(crate) trait Content: SplitableSpan + MergableSpan + Copy + HasLength {
     fn none() -> Self;
 }
 
-trait LeafMap {
-    fn notify(&mut self, range: DTRange, leaf_idx: LeafIdx);
-}
+// trait LeafMap {
+//     fn notify(&mut self, range: DTRange, leaf_idx: LeafIdx);
+// }
 
 pub(crate) trait FlushUpdate: Default {
     fn flush<V: Content>(&self, tree: &mut ContentTree<V>, leaf_idx: LeafIdx);
@@ -144,7 +144,7 @@ fn initial_root_leaf<V: Content>() -> ContentLeaf<V> {
 //
 // const EMPTY_NODE_CHILD: ContentNodeChild = (LenPair { cur: 0, end: 0 }, usize::MAX);
 
-const EMPTY_LEN_PAIR: LenPair = LenPair { cur: 0, end: 0 };
+// const EMPTY_LEN_PAIR: LenPair = LenPair { cur: 0, end: 0 };
 
 impl<V: Content> ContentLeaf<V> {
     #[inline(always)]
@@ -258,9 +258,9 @@ impl ContentCursor {
         self.offset += 1;
     }
 
-    fn flush_delta<V: Content>(&self, tree: &mut ContentTree<V>, delta: LenUpdate) {
-        tree.flush_delta_len(self.leaf_idx, delta);
-    }
+    // fn flush_delta<V: Content>(&self, tree: &mut ContentTree<V>, delta: LenUpdate) {
+    //     tree.flush_delta_len(self.leaf_idx, delta);
+    // }
 
     pub fn get_item<'a, V: Content>(&self, tree: &'a ContentTree<V>) -> (&'a V, usize) {
         let leaf = &tree[self.leaf_idx];
@@ -344,14 +344,14 @@ impl DeltaCursor {
         has_next
     }
 
-    pub(crate) fn next_entry<V: Content>(&mut self, tree: &mut ContentTree<V>) -> bool {
-        let (has_next, flush_leaf) = self.0.next_entry(tree);
-        if let Some(flush_leaf) = flush_leaf {
-            tree.flush_delta_and_clear(flush_leaf, &mut self.1);
-        }
-
-        has_next
-    }
+    // pub(crate) fn next_entry<V: Content>(&mut self, tree: &mut ContentTree<V>) -> bool {
+    //     let (has_next, flush_leaf) = self.0.next_entry(tree);
+    //     if let Some(flush_leaf) = flush_leaf {
+    //         tree.flush_delta_and_clear(flush_leaf, &mut self.1);
+    //     }
+    //
+    //     has_next
+    // }
 
     pub fn flush<V: Content>(self, tree: &mut ContentTree<V>) {
         tree.flush_delta_len(self.0.leaf_idx, self.1);
@@ -892,29 +892,14 @@ impl<V: Content> ContentTree<V> {
         LeafIdx(new_leaf_idx)
     }
 
-    /// This function blindly assumes the item is definitely in the recursive children.
-    ///
-    /// Returns (child index, len_remaining).
-    fn find_pos_in_node<const IS_CUR: bool>(node: &ContentNode, mut at_pos: usize) -> (usize, usize) {
-        for i in 0..NODE_CHILDREN {
-            let width = node.child_width[i].get::<IS_CUR>();
-            if at_pos <= width { return (node.child_indexes[i], at_pos); }
-            at_pos -= width;
-        }
-        panic!("Position not in node");
-    }
-
     // /// This function blindly assumes the item is definitely in the recursive children.
     // ///
-    // /// Returns (child index, relative position, requested len remaining).
-    // fn find_pos_in_node_2<const IS_CUR: bool>(node: &ContentNode, at_pos: usize) -> (usize, LenPair) {
-    //     let mut offset = LenPair::default();
+    // /// Returns (child index, len_remaining).
+    // fn find_pos_in_node<const IS_CUR: bool>(node: &ContentNode, mut at_pos: usize) -> (usize, usize) {
     //     for i in 0..NODE_CHILDREN {
-    //         let width = node.child_width[i];
-    //         if at_pos <= offset.get::<IS_CUR>() + width.get::<IS_CUR>() {
-    //             return (node.child_indexes[i], offset);
-    //         }
-    //         offset += width;
+    //         let width = node.child_width[i].get::<IS_CUR>();
+    //         if at_pos <= width { return (node.child_indexes[i], at_pos); }
+    //         at_pos -= width;
     //     }
     //     panic!("Position not in node");
     // }
@@ -936,15 +921,15 @@ impl<V: Content> ContentTree<V> {
         panic!("Position not in node");
     }
 
-    /// Returns (index, offset).
-    fn find_pos_in_leaf<const IS_CUR: bool>(leaf: &ContentLeaf<V>, mut at_pos: usize) -> (usize, usize) {
-        for i in 0..LEAF_CHILDREN {
-            let width = leaf.children[i].content_len::<IS_CUR>();
-            if at_pos <= width { return (i, at_pos); }
-            at_pos -= width;
-        }
-        panic!("Position not in leaf");
-    }
+    // /// Returns (index, offset).
+    // fn find_pos_in_leaf<const IS_CUR: bool>(leaf: &ContentLeaf<V>, mut at_pos: usize) -> (usize, usize) {
+    //     for i in 0..LEAF_CHILDREN {
+    //         let width = leaf.children[i].content_len::<IS_CUR>();
+    //         if at_pos <= width { return (i, at_pos); }
+    //         at_pos -= width;
+    //     }
+    //     panic!("Position not in leaf");
+    // }
 
     /// Returns (index, end_pos, offset).
     fn find_cur_pos_in_leaf(leaf: &ContentLeaf<V>, mut at_cur_pos: usize) -> (usize, usize, usize) {
@@ -1307,10 +1292,6 @@ impl<V: Content> ContentTree<V> {
 
     pub fn iter_rle(&self) -> impl Iterator<Item = V> + '_ {
         self.iter().merge_spans()
-    }
-
-    pub fn to_vec(&self) -> Vec<V> {
-        self.iter().collect::<Vec<_>>()
     }
 
     pub fn count_entries(&self) -> usize {

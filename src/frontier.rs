@@ -405,62 +405,62 @@ pub fn local_frontier_is_root(branch: &[LV]) -> bool {
 }
 
 
-// This walks both frontiers and finds how the frontier has changed. There's probably a better way
-// to implement this.
-struct FrontierDiff<'a> {
-    a: &'a [LV],
-    b: &'a [LV],
-}
-
-pub(crate) fn diff_frontier_entries<'a>(a: &'a [LV], b: &'a [LV]) -> impl Iterator<Item = (DiffFlag, LV)> + 'a {
-    FrontierDiff { a, b }
-}
-
-
-fn slice_take_first(slice: &mut &[LV]) -> Option<LV> {
-    if let [first, tail @ ..] = slice {
-        *slice = tail;
-        Some(*first)
-    } else { None }
-}
-
-impl<'a> Iterator for FrontierDiff<'a> {
-    type Item = (DiffFlag, LV);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match (self.a.split_first(), self.b.split_first()) {
-            (None, None) => None,
-            (Some((a, rest)), None) => {
-                self.a = rest;
-                Some((DiffFlag::OnlyA, *a))
-            },
-            (None, Some((b, rest))) => {
-                self.b = rest;
-                Some((DiffFlag::OnlyB, *b))
-            },
-            (Some((a, a_rest)), Some((b, b_rest))) => {
-                match a.cmp(b) {
-                    Ordering::Equal => {
-                        // Take from both.
-                        self.a = a_rest;
-                        self.b = b_rest;
-                        Some((DiffFlag::Shared, *a))
-                    }
-                    Ordering::Less => {
-                        // Take from a.
-                        self.a = a_rest;
-                        Some((DiffFlag::OnlyA, *a))
-                    }
-                    Ordering::Greater => {
-                        // Take from b.
-                        self.b = b_rest;
-                        Some((DiffFlag::OnlyB, *a))
-                    }
-                }
-            }
-        }
-    }
-}
+// // This walks both frontiers and finds how the frontier has changed. There's probably a better way
+// // to implement this.
+// struct FrontierDiff<'a> {
+//     a: &'a [LV],
+//     b: &'a [LV],
+// }
+// 
+// pub(crate) fn diff_frontier_entries<'a>(a: &'a [LV], b: &'a [LV]) -> impl Iterator<Item = (DiffFlag, LV)> + 'a {
+//     FrontierDiff { a, b }
+// }
+// 
+// 
+// fn slice_take_first(slice: &mut &[LV]) -> Option<LV> {
+//     if let [first, tail @ ..] = slice {
+//         *slice = tail;
+//         Some(*first)
+//     } else { None }
+// }
+// 
+// impl<'a> Iterator for FrontierDiff<'a> {
+//     type Item = (DiffFlag, LV);
+// 
+//     fn next(&mut self) -> Option<Self::Item> {
+//         match (self.a.split_first(), self.b.split_first()) {
+//             (None, None) => None,
+//             (Some((a, rest)), None) => {
+//                 self.a = rest;
+//                 Some((DiffFlag::OnlyA, *a))
+//             },
+//             (None, Some((b, rest))) => {
+//                 self.b = rest;
+//                 Some((DiffFlag::OnlyB, *b))
+//             },
+//             (Some((a, a_rest)), Some((b, b_rest))) => {
+//                 match a.cmp(b) {
+//                     Ordering::Equal => {
+//                         // Take from both.
+//                         self.a = a_rest;
+//                         self.b = b_rest;
+//                         Some((DiffFlag::Shared, *a))
+//                     }
+//                     Ordering::Less => {
+//                         // Take from a.
+//                         self.a = a_rest;
+//                         Some((DiffFlag::OnlyA, *a))
+//                     }
+//                     Ordering::Greater => {
+//                         // Take from b.
+//                         self.b = b_rest;
+//                         Some((DiffFlag::OnlyB, *a))
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
 
 /// This method clones a version or parents vector. Its slightly faster and smaller than just
 /// calling v.clone() directly.

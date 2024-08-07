@@ -69,7 +69,7 @@ impl M2Tracker {
         }
     }
 
-    fn adv_retreat_range(&mut self, mut range: DTRange, incr: i32) {
+    pub(super) fn adv_retreat_range(&mut self, mut range: DTRange, incr: i32) {
         // This method handles both advancing and retreating. In either case, because of the way
         // SpanState is designed, we need to either increment or decrement the state of every
         // visited item in the LV range.
@@ -152,32 +152,13 @@ impl M2Tracker {
 
     }
 
+    #[inline]
     pub(crate) fn advance_by_range(&mut self, range: DTRange) {
         self.adv_retreat_range(range, 1);
     }
 
+    #[inline]
     pub(crate) fn retreat_by_range(&mut self, range: DTRange) {
         self.adv_retreat_range(range, -1);
     }
-
-    //         // if let Some(mut cursor) = self.range_tree.try_find_item(last_lv) {
-    //         //     // Try just modifying the item directly.
-    //         //     //
-    //         //     // The item will only exist in the range tree at all if it was an insert.
-    //         //     let (e, _offset) = cursor.0.get_item(&self.range_tree);
-    //         //     // let chunk_start = last_lv - offset;
-    //         //     let start = range.start.max(e.id.start);
-    //         //     cursor.0.offset = start - e.id.start;
-    //         //     let max_len = range.end - start;
-    //         //
-    //         //     range.end -= self.range_tree.mutate_entry(
-    //         //         &mut cursor,
-    //         //         max_len,
-    //         //         &mut notify_for(&mut self.index),
-    //         //         |e| {
-    //         //             e.current_state.mark_not_inserted_yet();
-    //         //         }
-    //         //     ).0;
-    //         //     self.range_tree.emplace_cursor_unknown(cursor);
-    //         // } else {
 }

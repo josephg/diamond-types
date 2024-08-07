@@ -4,7 +4,7 @@ use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
 use crate::list::ListOpLog;
 use crate::list::operation::ListOpKind;
 use crate::listmerge::M2Tracker;
-use crate::listmerge::merge::TransformedOpsIter;
+use crate::listmerge::merge::{TransformedOpsIter, TransformedOpsIterRaw};
 use crate::rev_range::RangeRev;
 use crate::unicount::{chars_to_bytes, split_at_char};
 
@@ -171,7 +171,7 @@ impl MergableSpan for OldCRDTOpInternal {
 impl ListOpLog {
     #[cfg(feature = "ops_to_old")]
     pub fn dbg_items(&self) -> Vec<OldCRDTOp> {
-        let items = TransformedOpsIter::get_crdt_items(&self.cg.graph, &self.cg.agent_assignment,
+        let items = TransformedOpsIterRaw::get_crdt_items(&self.cg.graph, &self.cg.agent_assignment,
                                                        &self.operation_ctx, &self.operations,
                                                        &[], self.cg.version.as_ref());
 

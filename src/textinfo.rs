@@ -1,10 +1,13 @@
+use jumprope::JumpRopeBuf;
 use rle::HasLength;
 use crate::causalgraph::graph::Graph;
 use crate::dtrange::DTRange;
 use crate::frontier::Frontier;
+use crate::list::ListOpLog;
 use crate::list::op_iter::{OpMetricsWithContent, OpMetricsIter};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
-use crate::list::operation::TextOperation;
+use crate::list::operation::{ListOpKind, TextOperation};
+use crate::listmerge::merge::reverse_str;
 use crate::LV;
 use crate::rle::KVPair;
 use crate::rle::rle_vec::RleVec;
@@ -66,4 +69,26 @@ impl TextInfo {
         self.push_op_internal(op, v_range);
         self.frontier.replace_with_1(v_range.last());
     }
+
+    #[inline(always)]
+    pub(crate) fn apply_op_to(&self, op: ListOpMetrics, dest: &mut JumpRopeBuf) {
+        // let xf_pos = op.loc.span.start;
+        match op.kind {
+            ListOpKind::Ins => {
+                let content = self.ctx.get_str(ListOpKind::Ins, op.content_pos.unwrap());
+                // assert!(pos <= self.content.len_chars());
+                if op.loc.fwd {
+                    dest.insert(op.loc.span.start, content);
+                } else {
+                    // We need to insert the content in reverse order.
+                    let c = reverse_str(content);
+                    dest.insert(op.loc.span.start, &c);
+                }
+            }
+            ListOpKind::Del => {
+                dest.remove(op.loc.span.into());
+            }
+        }
+    }
+
 }

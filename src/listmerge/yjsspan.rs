@@ -69,38 +69,38 @@ impl SpanState {
         }
     }
 
-    pub(crate) fn undelete(&mut self) {
-        if self.0 >= DELETED_ONCE.0 {
-            // Double delete -> single delete
-            // Deleted -> inserted
-            self.0 -= 1;
-        } else {
-            panic!("Invalid undelete target");
-        }
-    }
+    // pub(crate) fn undelete(&mut self) {
+    //     if self.0 >= DELETED_ONCE.0 {
+    //         // Double delete -> single delete
+    //         // Deleted -> inserted
+    //         self.0 -= 1;
+    //     } else {
+    //         panic!("Invalid undelete target");
+    //     }
+    // }
 
-    pub(crate) fn raw_decrement(&mut self) {
-        debug_assert!(self.0 >= 1);
-        self.0 -= 1;
-    }
-    pub(crate) fn raw_increment(&mut self) {
-        self.0 += 1;
-    }
-
-    pub(crate) fn mark_inserted(&mut self) {
-        if *self != NOT_INSERTED_YET {
-            panic!("Invalid insert target - item already marked as inserted");
-        }
-
-        *self = INSERTED;
-    }
-    pub(crate) fn mark_not_inserted_yet(&mut self) {
-        if *self != INSERTED {
-            panic!("Invalid insert target - item not inserted");
-        }
-
-        *self = NOT_INSERTED_YET;
-    }
+    // pub(crate) fn raw_decrement(&mut self) {
+    //     debug_assert!(self.0 >= 1);
+    //     self.0 -= 1;
+    // }
+    // pub(crate) fn raw_increment(&mut self) {
+    //     self.0 += 1;
+    // }
+    // 
+    // pub(crate) fn mark_inserted(&mut self) {
+    //     if *self != NOT_INSERTED_YET {
+    //         panic!("Invalid insert target - item already marked as inserted");
+    //     }
+    // 
+    //     *self = INSERTED;
+    // }
+    // pub(crate) fn mark_not_inserted_yet(&mut self) {
+    //     if *self != INSERTED {
+    //         panic!("Invalid insert target - item not inserted");
+    //     }
+    // 
+    //     *self = NOT_INSERTED_YET;
+    // }
 }
 
 impl Debug for CRDTSpan {

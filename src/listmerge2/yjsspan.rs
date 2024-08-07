@@ -4,7 +4,12 @@ use crate::{DTRange, LV};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub(crate) enum SpanState {
-    NotInsertedYet = 0, Inserted = 1, Deleted = 2
+    #[allow(unused)]
+    NotInsertedYet = 0,
+    #[allow(unused)]
+    Inserted = 1,
+    #[allow(unused)]
+    Deleted = 2,
 }
 use SpanState::*;
 
@@ -31,9 +36,9 @@ pub struct YjsSpan {
 // at usize::MAX / 4.
 pub(crate) const UNDIFFERENTIATED_START: usize = usize::MAX / 4;
 
-pub(crate) fn is_undiff(time: LV) -> bool {
-    time >= UNDIFFERENTIATED_START
-}
+// pub(crate) fn is_undiff(time: LV) -> bool {
+//     time >= UNDIFFERENTIATED_START
+// }
 
 
 impl YjsSpan {

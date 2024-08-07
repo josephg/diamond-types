@@ -21,10 +21,6 @@ pub(crate) struct IndexTree<V: Copy> {
     height: usize,
     root: usize,
     cursor: Cell<(LV, IndexCursor)>,
-
-    // Linked lists.
-    // free_leaf_pool_head: LeafIdx,
-    // free_node_pool_head: NodeIdx,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -194,8 +190,6 @@ impl<V: Default + IndexContent> IndexTree<V> {
             height: 0,
             root: 0,
             cursor: Default::default(),
-            // free_leaf_pool_head: LeafIdx(usize::MAX),
-            // free_node_pool_head: NodeIdx(usize::MAX),
         }
     }
 
@@ -205,8 +199,6 @@ impl<V: Default + IndexContent> IndexTree<V> {
         self.height = 0;
         self.root = 0;
         self.cursor = Default::default();
-        // self.free_leaf_pool_head = LeafIdx(usize::MAX);
-        // self.free_node_pool_head = NodeIdx(usize::MAX);
 
         self.leaves.push(initial_root_leaf());
     }
@@ -754,62 +746,6 @@ impl<V: Default + IndexContent> IndexTree<V> {
         self.leaf_upper_bound(&self.leaves[idx])
     }
 
-    // fn discard_leaf_internal(leaves: &mut Vec<IndexLeaf<V>>, leaf_pool_head: &mut LeafIdx, leaf_idx: LeafIdx) {
-    //     let leaf = &mut leaves[leaf_idx.0];
-    //     leaf.next_leaf = *leaf_pool_head;
-    //     *leaf_pool_head = leaf_idx;
-    // }
-
-    // fn discard_leaf(&mut self, leaf_idx: LeafIdx) {
-    //     // println!("Discard leaf {:?}", leaf_idx);
-    //
-    //     // Self::discard_leaf_internal(&mut self.leaves, &mut self.free_leaf_pool_head, leaf_idx);
-    //     let leaf = &mut self.leaves[leaf_idx.0];
-    //     leaf.next_leaf = self.free_leaf_pool_head;
-    //     self.free_leaf_pool_head = leaf_idx;
-    //
-    //     if cfg!(debug_assertions) {
-    //         // Make sure discarded leaves aren't added multiple times to the discard queue.
-    //         assert_ne!(leaf.parent, NodeIdx(0xfefe));
-    //         leaf.parent = NodeIdx(0xfefe);
-    //     }
-    // }
-
-    // fn discard_node(&mut self, idx: usize, height: usize) {
-    //     if height == 0 {
-    //         self.discard_leaf(LeafIdx(idx));
-    //     } else {
-    //         // println!("DISCARD NODE {idx}");
-    //         // Move it to the free list.
-    //         let node = &mut self.nodes[idx];
-    //         node.parent = self.free_node_pool_head;
-    //         self.free_node_pool_head = NodeIdx(idx);
-    //
-    //         let old_children = mem::replace(&mut node.children, [EMPTY_NODE_CHILD; NODE_CHILDREN]);
-    //
-    //         for (_, child_idx) in old_children {
-    //             if child_idx == usize::MAX { break; }
-    //             self.discard_node(child_idx, height - 1);
-    //         }
-    //     }
-    // }
-    //
-    // fn remove_and_queue_node_children(&mut self, node_idx: NodeIdx, child_range: Range<usize>, _height: usize) {
-    //     // This is horrible.
-    //     // for i in child_range.clone() {
-    //     //     // TODO: Benchmark this against just copying out the children we care about.
-    //     //     let child_idx = self.nodes[node_idx.0].children[i].1; // boooo.
-    //     //     self.discard_node(child_idx, height - 1);
-    //     // }
-    //
-    //     // Bleh. I want to do this but the borrowck suuucks.
-    //     // for (_, idx) in &node.children[..keep_child_idx] {
-    //     //     self.discard_node(*idx, height - 1);
-    //     // }
-    //
-    //     self.nodes[node_idx.0].remove_children(child_range);
-    // }
-
     fn trim_node_start(&mut self, mut idx: usize, end: LV, mut height: usize) -> LeafIdx {
         while height > 0 {
             let mut node = &mut self.nodes[idx];
@@ -1260,40 +1196,21 @@ impl<V: Default + IndexContent> IndexTree<V> {
         LeafIdx(0)
     }
 
-    pub fn count_items(&self) -> usize {
-        let mut count = 0;
-        let mut leaf = &self[self.first_leaf()];
-        loop {
-            // SIMD should make this fast.
-            count += leaf.bounds.iter().filter(|b| **b != usize::MAX).count();
-
-            // There is always at least one leaf.
-            if leaf.is_last() { break; }
-            else {
-                leaf = &self[leaf.next_leaf];
-            }
-        }
-
-        count
-    }
-
-    // /// returns number of internal nodes, leaves.
-    // pub fn count_obj_pool(&self) -> (usize, usize) {
-    //     let mut nodes = 0;
-    //     let mut leaves = 0;
+    // pub fn count_items(&self) -> usize {
+    //     let mut count = 0;
+    //     let mut leaf = &self[self.first_leaf()];
+    //     loop {
+    //         // SIMD should make this fast.
+    //         count += leaf.bounds.iter().filter(|b| **b != usize::MAX).count();
     //
-    //     let mut idx = self.free_node_pool_head;
-    //     while idx.0 != usize::MAX {
-    //         nodes += 1;
-    //         idx = self.nodes[idx.0].parent;
-    //     }
-    //     let mut idx = self.free_leaf_pool_head;
-    //     while idx.0 != usize::MAX {
-    //         leaves += 1;
-    //         idx = self.leaves[idx.0].next_leaf;
+    //         // There is always at least one leaf.
+    //         if leaf.is_last() { break; }
+    //         else {
+    //             leaf = &self[leaf.next_leaf];
+    //         }
     //     }
     //
-    //     (nodes, leaves)
+    //     count
     // }
 
     /// Iterate over the contents of the index. Note the index tree may contain extra entries
@@ -1305,10 +1222,6 @@ impl<V: Default + IndexContent> IndexTree<V> {
             // leaf: &self.leaves[self.first_leaf()],
             elem_idx: 0,
         }
-    }
-
-    pub fn to_vec(&self) -> Vec<RleDRun<V>> {
-        self.iter().collect::<Vec<_>>()
     }
 
     // Returns the next leaf pointer.
@@ -1560,9 +1473,9 @@ mod test {
     use crate::list_fuzzer_tools::fuzz_multithreaded;
     use super::*;
 
-    #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-    enum Foo { A, B, C }
-    use Foo::*;
+    // #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+    // enum Foo { A, B, C }
+    // use Foo::*;
 
     #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
     struct X(usize);
@@ -1778,7 +1691,7 @@ mod test {
 
     #[test]
     #[ignore]
-    fn tree_fuzz_forever() {
+    fn index_tree_fuzz_forever() {
         fuzz_multithreaded(u64::MAX, |seed| {
             if seed % 100 == 0 {
                 println!("Iteration {}", seed);
