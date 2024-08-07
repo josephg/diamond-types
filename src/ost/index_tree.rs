@@ -156,7 +156,9 @@ impl<V: Copy> IndexMut<NodeIdx> for IndexTree<V> {
 ///
 /// Essentially index content must splitable & mergable be such that .truncate() / .append() are
 /// no-ops. .can_append will also need the base & offset.
-// pub trait IndexContent: Debug + Copy + Eq {
+///
+/// I'm not using [`MergableSpan`] here because try_append needs the other_len parameter - which
+/// isn't stored by markers.
 pub trait IndexContent: Debug + Copy {
     /// Try to append other to self. If possible, self is modified (if necessary) and true is
     /// returned.

@@ -1507,8 +1507,10 @@ impl<'a, V: Content> Iterator for ContentLeafIter<'a, V> {
 #[cfg(test)]
 mod test {
     use std::fmt::Debug;
+    use std::iter::Enumerate;
     use std::ops::Range;
     use std::pin::Pin;
+    use std::slice;
 
     use rand::{Rng, SeedableRng};
     use rand::rngs::SmallRng;
@@ -1519,7 +1521,7 @@ mod test {
     use crate::list_fuzzer_tools::fuzz_multithreaded;
     use crate::ost::{LeafIdx, LenPair};
 
-    use super::{Content, ContentTree};
+    use super::{Content, ContentTree, DeltaCursor};
 
     /// This is a simple span object for testing.
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1873,12 +1875,88 @@ mod test {
         }
     }
 
+
+
+    // This is a reference implementation of the index_tree API for fuzz testing.
+    #[derive(Debug, Clone, Default)]
+    struct RefContentTree<V: Copy>(Vec<V>);
+
+    impl<V: Content + Default> RefContentTree<V> {
+        fn idx_after_content_pos(&self, dest_pos: usize) -> usize {
+            let mut actual_pos = 0;
+            let mut i = 0;
+            while actual_pos < dest_pos {
+                actual_pos += self.0[i].content_len_cur();
+                i += 1;
+            }
+            i
+        }
+
+        fn insert_content_pos(&mut self, dest_pos: usize, mut val: V) {
+            let mut i = self.idx_after_content_pos(dest_pos);
+
+            let old_len = self.0.len();
+            self.0.resize(old_len + val.len(), V::default());
+            self.0.copy_within(i..old_len, i + val.len());
+            while val.len() > 1 {
+                self.0[i] = val.truncate_keeping_right(1);
+                i += 1;
+            }
+            self.0[i] = val;
+        }
+
+        fn mutate_entries_before_content<M>(&mut self, content_pos: usize, n: usize, mut mutate_fn: M) where M: FnMut(&mut V) {
+            // let mut idx = if content_pos == 0 { 0 } else {
+            //     self.idx_after_content_pos(content_pos - 1)
+            // };
+            // while self.0[idx].content_len_cur() == 0 { idx += 1; }
+            // let idx = if content_pos == 0 { 0 } else { self.idx_after_content_pos(content_pos - 1)
+
+            let mut idx = self.idx_after_content_pos(content_pos);
+            while self.0[idx].content_len_cur() == 0 { idx += 1; }
+
+            for i in idx..idx+n {
+                mutate_fn(&mut self.0[i]);
+            }
+        }
+
+        fn iter(&self) -> RefContentTreeIter<'_, V> {
+            RefContentTreeIter(self.0.iter())
+        }
+    }
+
+    struct RefContentTreeIter<'a, V>(slice::Iter<'a, V>);
+
+    impl<'a, V: Content> Iterator for RefContentTreeIter<'a, V> {
+        type Item = V;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let Some(val) = self.0.next() else { return None; };
+            let mut val = val.clone();
+
+            loop {
+                let Some(peek_next) = self.0.clone().next() else { return Some(val); };
+
+                if val.can_append(peek_next) {
+                    // Great! Append and continue.
+                    val.append(self.0.next().unwrap().clone());
+                } else {
+                    // Cannot append here. Stop!
+                    return Some(val)
+                }
+            }
+        }
+    }
+
     fn fuzz(seed: u64, mut verbose: bool) {
         verbose = verbose; // suppress mut warning.
         let mut rng = SmallRng::seed_from_u64(seed);
         let mut tree = ContentTree::<TestRange>::new();
         // let mut check_tree: Pin<Box<ContentTreeRaw<RleDRun<Option<i32>>, RawPositionMetricsUsize>>> = ContentTreeRaw::new();
         let mut check_tree: Pin<Box<ContentTreeRaw<TestRange, FullMetricsUsize>>> = ContentTreeRaw::new();
+
+        let mut check_tree2: RefContentTree<TestRange> = RefContentTree::default();
+
         const START_JUNK: u32 = 1_000_000;
         check_tree.replace_range_at_offset(0, TestRange {
             id: START_JUNK,
@@ -1886,12 +1964,15 @@ mod test {
             is_activated: false,
             exists: false,
         });
+        assert!(check_tree.iter().filter(|e| e.id < START_JUNK)
+            .eq(check_tree2.iter()));
+
 
         for _i in 0..1000 {
             if verbose { println!("i: {}", _i); }
             // println!("i: {}", _i);
 
-            // if _i == 31 {
+            // if _i == 9 {
             //     println!("asdf");
             //     // verbose = true;
             // }
@@ -1914,6 +1995,8 @@ mod test {
                     assert_eq!(cursor.count_content_pos(), cur_pos + item.content_len_cur());
                 }
 
+                check_tree2.insert_content_pos(cur_pos, item);
+
                 // Insert into our tree.
                 {
                     // if verbose { dbg!(&tree); }
@@ -1923,14 +2006,6 @@ mod test {
                         (0, tree.mut_cursor_at_start())
                     } else {
                         // // Equivalent of getting a cursor with stick_end: true.
-                        // let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(cur_pos - 1);
-                        // tree.emplace_cursor((cur_pos - 1, end_pos).into(), cursor);
-                        //
-                        // let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(cur_pos - 1);
-                        // tree.cursor_inc_offset(&mut cursor);
-                        // tree.emplace_cursor((cur_pos, end_pos + 1).into(), cursor);
-
-
                         let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(cur_pos - 1);
                         cursor.0.inc_offset(&tree);
                         (end_pos + 1, cursor)
@@ -1982,6 +2057,10 @@ mod test {
                     }
                 }
 
+                check_tree2.mutate_entries_before_content(pos, modify_len, |e| {
+                    e.is_activated = new_is_active;
+                });
+
                 {
                     let mut len_remaining = modify_len;
                     // let mut cursor = tree.cursor_at_content_pos::<false>(pos);
@@ -2008,6 +2087,8 @@ mod test {
             tree.dbg_check();
             assert!(check_tree.iter().filter(|e| e.id < START_JUNK)
                 .eq(tree.iter_rle()));
+
+            assert!(check_tree2.iter().eq(tree.iter_rle()));
         }
     }
 
