@@ -58,9 +58,6 @@ rand = { version = "0.8.5", features = ["small_rng"] }
 crdt-testdata = { path = "crates/crdt-testdata" }
 trace-alloc = { path = "crates/trace-alloc" }
 
-# Only used for OST fuzz tests. TODO: Remove this.
-content-tree = { version = "0.2.0", path = "crates/content-tree" }
-
 # For OT fuzz data tests
 #json_minimal = "0.1.3"
 
