@@ -17,14 +17,14 @@ use crate::ost::{LEAF_CHILDREN, LeafIdx, NODE_CHILDREN, NodeIdx, remove_from_arr
 pub(crate) struct IndexTree<V: Copy> {
     leaves: Vec<IndexLeaf<V>>,
     nodes: Vec<IndexNode>,
-    // upper_bound: LV,
+
     height: usize,
     root: usize,
     cursor: Cell<(LV, IndexCursor)>,
 
     // Linked lists.
-    free_leaf_pool_head: LeafIdx,
-    free_node_pool_head: NodeIdx,
+    // free_leaf_pool_head: LeafIdx,
+    // free_node_pool_head: NodeIdx,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -191,12 +191,11 @@ impl<V: Default + IndexContent> IndexTree<V> {
         Self {
             leaves: vec![initial_root_leaf()],
             nodes: vec![],
-            // upper_bound: 0,
             height: 0,
             root: 0,
             cursor: Default::default(),
-            free_leaf_pool_head: LeafIdx(usize::MAX),
-            free_node_pool_head: NodeIdx(usize::MAX),
+            // free_leaf_pool_head: LeafIdx(usize::MAX),
+            // free_node_pool_head: NodeIdx(usize::MAX),
         }
     }
 
@@ -206,8 +205,8 @@ impl<V: Default + IndexContent> IndexTree<V> {
         self.height = 0;
         self.root = 0;
         self.cursor = Default::default();
-        self.free_leaf_pool_head = LeafIdx(usize::MAX);
-        self.free_node_pool_head = NodeIdx(usize::MAX);
+        // self.free_leaf_pool_head = LeafIdx(usize::MAX);
+        // self.free_node_pool_head = NodeIdx(usize::MAX);
 
         self.leaves.push(initial_root_leaf());
     }
@@ -761,54 +760,55 @@ impl<V: Default + IndexContent> IndexTree<V> {
     //     *leaf_pool_head = leaf_idx;
     // }
 
-    fn discard_leaf(&mut self, leaf_idx: LeafIdx) {
-        // println!("Discard leaf {:?}", leaf_idx);
+    // fn discard_leaf(&mut self, leaf_idx: LeafIdx) {
+    //     // println!("Discard leaf {:?}", leaf_idx);
+    //
+    //     // Self::discard_leaf_internal(&mut self.leaves, &mut self.free_leaf_pool_head, leaf_idx);
+    //     let leaf = &mut self.leaves[leaf_idx.0];
+    //     leaf.next_leaf = self.free_leaf_pool_head;
+    //     self.free_leaf_pool_head = leaf_idx;
+    //
+    //     if cfg!(debug_assertions) {
+    //         // Make sure discarded leaves aren't added multiple times to the discard queue.
+    //         assert_ne!(leaf.parent, NodeIdx(0xfefe));
+    //         leaf.parent = NodeIdx(0xfefe);
+    //     }
+    // }
 
-        // Self::discard_leaf_internal(&mut self.leaves, &mut self.free_leaf_pool_head, leaf_idx);
-        let leaf = &mut self.leaves[leaf_idx.0];
-        leaf.next_leaf = self.free_leaf_pool_head;
-        self.free_leaf_pool_head = leaf_idx;
-
-        if cfg!(debug_assertions) {
-            // Make sure discarded leaves aren't added multiple times to the discard queue.
-            assert_ne!(leaf.parent, NodeIdx(0xfefe));
-            leaf.parent = NodeIdx(0xfefe);
-        }
-    }
-
-    fn discard_node(&mut self, idx: usize, height: usize) {
-        if height == 0 {
-            self.discard_leaf(LeafIdx(idx));
-        } else {
-            // println!("DISCARD NODE {idx}");
-            // Move it to the free list.
-            let node = &mut self.nodes[idx];
-            node.parent = self.free_node_pool_head;
-            self.free_node_pool_head = NodeIdx(idx);
-
-            let old_children = mem::replace(&mut node.children, [EMPTY_NODE_CHILD; NODE_CHILDREN]);
-
-            for (_, child_idx) in old_children {
-                if child_idx == usize::MAX { break; }
-                self.discard_node(child_idx, height - 1);
-            }
-        }
-    }
-
-    fn remove_and_queue_node_children(&mut self, node_idx: NodeIdx, child_range: Range<usize>, height: usize) {
-        // This is horrible.
-        for i in child_range.clone() {
-            // TODO: Benchmark this against just copying out the children we care about.
-            let child_idx = self.nodes[node_idx.0].children[i].1; // boooo.
-            self.discard_node(child_idx, height - 1);
-        }
-        // Bleh. I want to do this but the borrowck suuucks.
-        // for (_, idx) in &node.children[..keep_child_idx] {
-        //     self.discard_node(*idx, height - 1);
-        // }
-
-        self.nodes[node_idx.0].remove_children(child_range);
-    }
+    // fn discard_node(&mut self, idx: usize, height: usize) {
+    //     if height == 0 {
+    //         self.discard_leaf(LeafIdx(idx));
+    //     } else {
+    //         // println!("DISCARD NODE {idx}");
+    //         // Move it to the free list.
+    //         let node = &mut self.nodes[idx];
+    //         node.parent = self.free_node_pool_head;
+    //         self.free_node_pool_head = NodeIdx(idx);
+    //
+    //         let old_children = mem::replace(&mut node.children, [EMPTY_NODE_CHILD; NODE_CHILDREN]);
+    //
+    //         for (_, child_idx) in old_children {
+    //             if child_idx == usize::MAX { break; }
+    //             self.discard_node(child_idx, height - 1);
+    //         }
+    //     }
+    // }
+    //
+    // fn remove_and_queue_node_children(&mut self, node_idx: NodeIdx, child_range: Range<usize>, _height: usize) {
+    //     // This is horrible.
+    //     // for i in child_range.clone() {
+    //     //     // TODO: Benchmark this against just copying out the children we care about.
+    //     //     let child_idx = self.nodes[node_idx.0].children[i].1; // boooo.
+    //     //     self.discard_node(child_idx, height - 1);
+    //     // }
+    //
+    //     // Bleh. I want to do this but the borrowck suuucks.
+    //     // for (_, idx) in &node.children[..keep_child_idx] {
+    //     //     self.discard_node(*idx, height - 1);
+    //     // }
+    //
+    //     self.nodes[node_idx.0].remove_children(child_range);
+    // }
 
     fn trim_node_start(&mut self, mut idx: usize, end: LV, mut height: usize) -> LeafIdx {
         while height > 0 {
@@ -824,16 +824,8 @@ impl<V: Default + IndexContent> IndexTree<V> {
                 }
 
                 if keep_child_idx >= 1 {
-                    self.remove_and_queue_node_children(NodeIdx(idx), 0..keep_child_idx, height);
-                    // for i in 0..keep_child_idx {
-                    //     // TODO: Benchmark this against just copying out the children we care about.
-                    //     let child_idx = self.nodes[idx].children[i].1; // boooo.
-                    //     self.discard_node(child_idx, height - 1);
-                    // }
-                    // node = &mut self.nodes[idx];
-                    // node.remove_children(0..keep_child_idx);
-
-                    node = &mut self.nodes[idx]; // borrowck.
+                    // Remove children and move the rest to the start of the array.
+                    node.remove_children(0..keep_child_idx);
                 }
 
                 node.children[0].0 = end;
@@ -927,7 +919,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
                 return self.trim_node_start(child_idx, end, height - 1);
             } else {
                 // Remove this child.
-                self.discard_node(child_idx, height - 1);
+                // self.discard_node(child_idx, height - 1);
             }
 
             // Borrowck.
@@ -1285,24 +1277,24 @@ impl<V: Default + IndexContent> IndexTree<V> {
         count
     }
 
-    /// returns number of internal nodes, leaves.
-    pub fn count_obj_pool(&self) -> (usize, usize) {
-        let mut nodes = 0;
-        let mut leaves = 0;
-
-        let mut idx = self.free_node_pool_head;
-        while idx.0 != usize::MAX {
-            nodes += 1;
-            idx = self.nodes[idx.0].parent;
-        }
-        let mut idx = self.free_leaf_pool_head;
-        while idx.0 != usize::MAX {
-            leaves += 1;
-            idx = self.leaves[idx.0].next_leaf;
-        }
-
-        (nodes, leaves)
-    }
+    // /// returns number of internal nodes, leaves.
+    // pub fn count_obj_pool(&self) -> (usize, usize) {
+    //     let mut nodes = 0;
+    //     let mut leaves = 0;
+    //
+    //     let mut idx = self.free_node_pool_head;
+    //     while idx.0 != usize::MAX {
+    //         nodes += 1;
+    //         idx = self.nodes[idx.0].parent;
+    //     }
+    //     let mut idx = self.free_leaf_pool_head;
+    //     while idx.0 != usize::MAX {
+    //         leaves += 1;
+    //         idx = self.leaves[idx.0].next_leaf;
+    //     }
+    //
+    //     (nodes, leaves)
+    // }
 
     /// Iterate over the contents of the index. Note the index tree may contain extra entries
     /// for items within the range, with a value of V::default.
@@ -1422,13 +1414,13 @@ impl<V: Default + IndexContent> IndexTree<V> {
             leaf_idx = leaf.next_leaf;
         }
 
-        let mut leaf_pool_size = 0;
-        let mut i = self.free_leaf_pool_head;
-        while i.0 != usize::MAX {
-            leaf_pool_size += 1;
-            i = self.leaves[i.0].next_leaf;
-        }
-        assert_eq!(leaves_visited + leaf_pool_size, self.leaves.len());
+        // let mut leaf_pool_size = 0;
+        // let mut i = self.free_leaf_pool_head;
+        // while i.0 != usize::MAX {
+        //     leaf_pool_size += 1;
+        //     i = self.leaves[i.0].next_leaf;
+        // }
+        // assert_eq!(leaves_visited + leaf_pool_size, self.leaves.len());
 
         if self.height == 0 {
             assert!(self.root < self.leaves.len());
