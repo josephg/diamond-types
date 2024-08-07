@@ -1466,10 +1466,12 @@ impl<'a, V: Copy> Iterator for IndexTreeIter<'a, V> {
 
 #[cfg(test)]
 mod test {
+    use std::iter::Enumerate;
     use std::pin::Pin;
+    use std::slice;
     use rand::prelude::SmallRng;
     use rand::{Rng, SeedableRng};
-    use content_tree::{ContentTreeRaw, RawPositionMetricsUsize};
+    // use content_tree::{ContentTreeRaw, RawPositionMetricsUsize};
     use crate::list_fuzzer_tools::fuzz_multithreaded;
     use super::*;
 
@@ -1633,13 +1635,76 @@ mod test {
         }
     }
 
+
+    // This is a reference implementation of the index_tree API for fuzz testing.
+    #[derive(Debug, Clone, Default)]
+    struct RefIndexTree<V: Copy>(Vec<V>);
+
+    impl<V: IndexContent + Default> RefIndexTree<V> {
+        fn set_range(&mut self, range: Range<usize>, val: V) {
+            for _i in self.0.len()..range.start {
+                self.0.push(V::default());
+            }
+
+            for i in range.clone() {
+                let v = val.at_offset(i - range.start);
+                if self.0.len() == i {
+                    self.0.push(v);
+                } else {
+                    assert!(i < self.0.len());
+                    self.0[i] = v;
+                }
+            }
+        }
+
+        // fn iter(&self) -> impl Iterator<Item = V> {
+        fn iter(&self) -> RefIndexTreeIter<'_, V> {
+            RefIndexTreeIter(self.0.iter().enumerate())
+        }
+    }
+
+    struct RefIndexTreeIter<'a, V>(Enumerate<slice::Iter<'a, V>>);
+
+    impl<'a, V: IndexContent> Iterator for RefIndexTreeIter<'a, V> {
+        type Item = RleDRun<V>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+
+            let Some((start, val)) = self.0.next() else { return None; };
+
+            let mut val = RleDRun {
+                val: *val,
+                start,
+                end: start + 1,
+            };
+
+            // let Some(mut peek_next) = self.0.clone().next() else { return None; };
+
+            loop {
+                let Some((_, peek_next)) = self.0.clone().next() else { return Some(val); };
+
+                if val.val.try_append(val.end - val.start, peek_next, 1) {
+                    // Great! Consume from the actual iterator and keep going.
+                    self.0.next();
+                } else {
+                    // Cannot append here. Stop!
+                    return Some(val)
+                }
+            }
+        }
+    }
+
+
     fn fuzz(seed: u64, verbose: bool) {
         let mut rng = SmallRng::seed_from_u64(seed);
         let mut tree = IndexTree::new();
-        // let mut check_tree: Pin<Box<ContentTreeRaw<RleDRun<Option<i32>>, RawPositionMetricsUsize>>> = ContentTreeRaw::new();
-        let mut check_tree: Pin<Box<ContentTreeRaw<DTRange, RawPositionMetricsUsize>>> = ContentTreeRaw::new();
-        const START_JUNK: usize = 1_000_000;
-        check_tree.replace_range_at_offset(0, (START_JUNK..START_JUNK *2).into());
+        // let mut check_tree: Pin<Box<ContentTreeRaw<DTRange, RawPositionMetricsUsize>>> = ContentTreeRaw::new();
+        let mut check_tree2 = RefIndexTree::default();
+        // const START_JUNK: usize = 1_000_000;
+        // check_tree.replace_range_at_offset(0, (START_JUNK..START_JUNK * 2).into());
+
+        check_tree2.set_range(0..2000, X(0));
+        tree.dbg_check_eq_2(check_tree2.iter());
 
         for _i in 0..1000 {
             if verbose { println!("i: {}", _i); }
@@ -1666,7 +1731,8 @@ mod test {
 
             // dbg!(check_tree.iter().collect::<Vec<_>>());
 
-            check_tree.replace_range_at_offset(start, (val..val+len).into());
+            check_tree2.set_range(start..start+len, X(val));
+            // check_tree.replace_range_at_offset(start, (val..val+len).into());
 
             // if _i == 14 {
             //     dbg!(tree.iter().collect::<Vec<_>>());
@@ -1677,10 +1743,12 @@ mod test {
             // }
 
             // check_tree.iter
-            tree.dbg_check_eq_2(check_tree.iter_with_pos().filter_map(|(pos, r)| {
-                if r.start >= START_JUNK { return None; }
-                Some(RleDRun::new(pos..pos+r.len(), X(r.start)))
-            }));
+            // tree.dbg_check_eq_2(check_tree.iter_with_pos().filter_map(|(pos, r)| {
+            //     if r.start >= START_JUNK { return None; }
+            //     Some(RleDRun::new(pos..pos+r.len(), X(r.start)))
+            // }));
+
+            tree.dbg_check_eq_2(check_tree2.iter());
         }
     }
 
