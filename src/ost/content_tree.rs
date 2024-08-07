@@ -1515,7 +1515,6 @@ mod test {
     use rand::{Rng, SeedableRng};
     use rand::rngs::SmallRng;
 
-    use content_tree::{ContentLength, ContentTreeRaw, FullMetricsUsize};
     use rle::{HasLength, HasRleKey, MergableSpan, SplitableSpan, SplitableSpanHelpers};
 
     use crate::list_fuzzer_tools::fuzz_multithreaded;
@@ -1714,158 +1713,6 @@ mod test {
         tree.dbg_check();
     }
 
-
-//     use std::ops::Range;
-//     use std::pin::Pin;
-//     use rand::prelude::SmallRng;
-//     use rand::{Rng, SeedableRng, thread_rng};
-//     use content_tree::{ContentTreeRaw, null_notify, RawPositionMetricsUsize};
-//     use crate::list_fuzzer_tools::fuzz_multithreaded;
-//     use super::*;
-//
-//     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-//     enum Foo { A, B, C }
-//     use Foo::*;
-//
-//     #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
-//     struct X(usize);
-//     impl IndexContent for X {
-//         fn try_append(&mut self, offset: usize, other: &Self, other_len: usize) -> bool {
-//             debug_assert!(offset > 0);
-//             debug_assert!(other_len > 0);
-//             &self.at_offset(offset) == other
-//         }
-//
-//         fn at_offset(&self, offset: usize) -> Self {
-//             X(self.0 + offset)
-//         }
-//
-//         fn eq(&self, other: &Self, _upto_len: usize) -> bool {
-//             self.0 == other.0
-//         }
-//     }
-//
-//     #[test]
-//     fn empty_tree_is_empty() {
-//         let tree = ContentTree::<X>::new();
-//
-//         tree.dbg_check_eq(&[]);
-//     }
-//
-//     #[test]
-//     fn overlapping_sets() {
-//         let mut tree = ContentTree::new();
-//
-//         tree.set_range((5..10).into(), X(100));
-//         tree.dbg_check_eq(&[RleDRun::new(5..10, X(100))]);
-//         // assert_eq!(tree.to_vec(), &[((5..10).into(), Some(A))]);
-//         // dbg!(&tree.leaves[0]);
-//         tree.set_range((5..11).into(), X(200));
-//         tree.dbg_check_eq(&[RleDRun::new(5..11, X(200))]);
-//
-//         tree.set_range((5..10).into(), X(100));
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(5..10, X(100)),
-//             RleDRun::new(10..11, X(205)),
-//         ]);
-//
-//         tree.set_range((2..50).into(), X(300));
-//         // dbg!(&tree.leaves);
-//         tree.dbg_check_eq(&[RleDRun::new(2..50, X(300))]);
-//
-//     }
-//
-//     #[test]
-//     fn split_values() {
-//         let mut tree = ContentTree::new();
-//         tree.set_range((10..20).into(), X(100));
-//         tree.set_range((12..15).into(), X(200));
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(10..12, X(100)),
-//             RleDRun::new(12..15, X(200)),
-//             RleDRun::new(15..20, X(105)),
-//         ]);
-//     }
-//
-//     #[test]
-//     fn set_inserts_1() {
-//         let mut tree = ContentTree::new();
-//
-//         tree.set_range((5..10).into(), X(100));
-//         tree.dbg_check_eq(&[RleDRun::new(5..10, X(100))]);
-//
-//         tree.set_range((5..10).into(), X(200));
-//         tree.dbg_check_eq(&[RleDRun::new(5..10, X(200))]);
-//
-//         // dbg!(&tree);
-//         tree.set_range((15..20).into(), X(300));
-//         // dbg!(tree.iter().collect::<Vec<_>>());
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(5..10, X(200)),
-//             RleDRun::new(15..20, X(300)),
-//         ]);
-//
-//         // dbg!(&tree);
-//         // dbg!(tree.iter().collect::<Vec<_>>());
-//     }
-//
-//     #[test]
-//     fn set_inserts_2() {
-//         let mut tree = ContentTree::new();
-//         tree.set_range((5..10).into(), X(100));
-//         tree.set_range((1..5).into(), X(200));
-//         // dbg!(&tree);
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(1..5, X(200)),
-//             RleDRun::new(5..10, X(100)),
-//         ]);
-//         dbg!(&tree.leaves[0]);
-//
-//         tree.set_range((3..8).into(), X(300));
-//         // dbg!(&tree);
-//         // dbg!(tree.iter().collect::<Vec<_>>());
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(1..3, X(200)),
-//             RleDRun::new(3..8, X(300)),
-//             RleDRun::new(8..10, X(103)),
-//         ]);
-//     }
-//
-//     #[test]
-//     fn split_leaf() {
-//         let mut tree = ContentTree::new();
-//         // Using 10, 20, ... so they don't merge.
-//         tree.set_range(10.into(), X(100));
-//         tree.dbg_check();
-//         tree.set_range(20.into(), X(200));
-//         tree.set_range(30.into(), X(100));
-//         tree.set_range(40.into(), X(200));
-//         tree.dbg_check();
-//         // dbg!(&tree);
-//         tree.set_range(50.into(), X(100));
-//         tree.dbg_check();
-//
-//         // dbg!(&tree);
-//         // dbg!(tree.iter().collect::<Vec<_>>());
-//
-//         tree.dbg_check_eq(&[
-//             RleDRun::new(10..11, X(100)),
-//             RleDRun::new(20..21, X(200)),
-//             RleDRun::new(30..31, X(100)),
-//             RleDRun::new(40..41, X(200)),
-//             RleDRun::new(50..51, X(100)),
-//         ]);
-//     }
-//
-
-    impl ContentLength for TestRange {
-        fn content_len(&self) -> usize { self.content_len_cur() }
-
-        fn content_len_at_offset(&self, offset: usize) -> usize {
-            if self.is_activated { offset } else { 0 }
-        }
-    }
-
     fn random_entry(rng: &mut SmallRng) -> TestRange {
         TestRange {
             id: rng.gen_range(0..10),
@@ -1952,21 +1799,8 @@ mod test {
         verbose = verbose; // suppress mut warning.
         let mut rng = SmallRng::seed_from_u64(seed);
         let mut tree = ContentTree::<TestRange>::new();
-        // let mut check_tree: Pin<Box<ContentTreeRaw<RleDRun<Option<i32>>, RawPositionMetricsUsize>>> = ContentTreeRaw::new();
-        let mut check_tree: Pin<Box<ContentTreeRaw<TestRange, FullMetricsUsize>>> = ContentTreeRaw::new();
 
-        let mut check_tree2: RefContentTree<TestRange> = RefContentTree::default();
-
-        const START_JUNK: u32 = 1_000_000;
-        check_tree.replace_range_at_offset(0, TestRange {
-            id: START_JUNK,
-            len: START_JUNK,
-            is_activated: false,
-            exists: false,
-        });
-        assert!(check_tree.iter().filter(|e| e.id < START_JUNK)
-            .eq(check_tree2.iter()));
-
+        let mut check_tree: RefContentTree<TestRange> = RefContentTree::default();
 
         for _i in 0..1000 {
             if verbose { println!("i: {}", _i); }
@@ -1987,15 +1821,7 @@ mod test {
                 if verbose { println!("inserting {:?} at {}", item, cur_pos); }
 
                 // Insert into check tree
-                {
-                    // check_tree.check();
-                    // check_tree.print_ptr_tree();
-                    let mut cursor = check_tree.mut_cursor_at_content_pos(cur_pos, true);
-                    cursor.insert(item);
-                    assert_eq!(cursor.count_content_pos(), cur_pos + item.content_len_cur());
-                }
-
-                check_tree2.insert_content_pos(cur_pos, item);
+                check_tree.insert_content_pos(cur_pos, item);
 
                 // Insert into our tree.
                 {
@@ -2043,24 +1869,12 @@ mod test {
                 let pos = gen_range(&mut rng, 0..tree.total_len().cur - modify_len);
                 let new_is_active = rng.gen_bool(0.5);
 
-                // The chunking of the two tree implementations might differ, so we'll run modify
-                // in a loop.
-                {
-                    let mut len_remaining = modify_len;
-                    let mut cursor = check_tree.mut_cursor_at_content_pos(pos, false);
-                    while len_remaining > 0 {
-                        let (changed, _) = cursor.mutate_single_entry_notify(len_remaining, content_tree::null_notify, |e| {
-                            e.is_activated = new_is_active;
-                        });
-                        cursor.roll_to_next_entry();
-                        len_remaining -= changed;
-                    }
-                }
-
-                check_tree2.mutate_entries_before_content(pos, modify_len, |e| {
+                // Update check tree
+                check_tree.mutate_entries_before_content(pos, modify_len, |e| {
                     e.is_activated = new_is_active;
                 });
 
+                // And update our tree.
                 {
                     let mut len_remaining = modify_len;
                     // let mut cursor = tree.cursor_at_content_pos::<false>(pos);
@@ -2085,10 +1899,7 @@ mod test {
 
             // Check that both trees have identical content.
             tree.dbg_check();
-            assert!(check_tree.iter().filter(|e| e.id < START_JUNK)
-                .eq(tree.iter_rle()));
-
-            assert!(check_tree2.iter().eq(tree.iter_rle()));
+            assert!(check_tree.iter().eq(tree.iter_rle()));
         }
     }
 
