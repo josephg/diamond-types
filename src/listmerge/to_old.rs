@@ -4,7 +4,7 @@ use crate::causalgraph::agent_assignment::remote_ids::RemoteVersionSpan;
 use crate::list::ListOpLog;
 use crate::list::operation::ListOpKind;
 use crate::listmerge::M2Tracker;
-use crate::listmerge::merge::{TransformedOpsIter, TransformedOpsIterRaw};
+use crate::listmerge::merge::TransformedOpsIterRaw;
 use crate::rev_range::RangeRev;
 use crate::unicount::{chars_to_bytes, split_at_char};
 
