@@ -22,7 +22,7 @@ use crate::listmerge::yjsspan::CRDTSpan;
 
 mod index_tree;
 pub(crate) mod content_tree;
-pub(crate) mod recording_index_tree;
+// pub(crate) mod recording_index_tree;
 
 // Some utility types.
 

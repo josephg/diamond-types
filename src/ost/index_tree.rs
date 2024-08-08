@@ -847,17 +847,10 @@ impl<V: Default + IndexContent> IndexTree<V> {
                 let del_end = i;
                 if del_end > del_start {
                     // Delete skipped over elements.
-                    // self.remove_and_queue_node_children(node_idx, del_start..del_end, height);
-                    // node = &mut self.nodes[node_idx.0]; // borrowck.
-
-                    // These items will already have been discarded by discard_node, below.
                     node.remove_children(del_start..del_end);
                 }
 
                 return self.trim_node_start(child_idx, end, height - 1);
-            } else {
-                // Remove this child.
-                // self.discard_node(child_idx, height - 1);
             }
 
             // Borrowck.
@@ -1671,7 +1664,6 @@ mod test {
         type Item = RleDRun<V>;
 
         fn next(&mut self) -> Option<Self::Item> {
-
             let Some((start, val)) = self.0.next() else { return None; };
 
             let mut val = RleDRun {
@@ -1679,8 +1671,6 @@ mod test {
                 start,
                 end: start + 1,
             };
-
-            // let Some(mut peek_next) = self.0.clone().next() else { return None; };
 
             loop {
                 let Some((_, peek_next)) = self.0.clone().next() else { return Some(val); };

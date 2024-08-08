@@ -371,6 +371,7 @@ impl Graph {
 }
 
 impl<S: Default + Debug> ConflictSubgraph<S> {
+    #[allow(unused)]
     pub(crate) fn dbg_check_conflicting(&self, graph: &Graph, a: &[LV], b: &[LV]) {
         let mut actual_only_a: SmallVec<DTRange, 2> = smallvec![];
         let mut actual_only_b: SmallVec<DTRange, 2> = smallvec![];
@@ -419,6 +420,7 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
     //
     // }
 
+    #[allow(unused)]
     pub(crate) fn dbg_print(&self) {
         for (i, e) in self.entries.iter().enumerate() {
             print!("{i}: {:?}", e);
@@ -429,7 +431,8 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
         println!("(Base version: {:?} / a_root {} / b_root {})", self.base_version, self.a_root, self.b_root);
     }
 
-    fn check_parents_concurrent(&self, parents: &[usize]) {
+    #[allow(unused)]
+    fn dbg_check_parents_concurrent(&self, parents: &[usize]) {
         if parents.len() < 1 { return; }
 
         let mut queue: BinaryHeap<Reverse<(usize, bool)>> = BinaryHeap::new();
@@ -462,6 +465,7 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
         }
     }
 
+    #[allow(unused)]
     pub(crate) fn dbg_check(&self) {
         // Things that should be true:
         // - ROOT is referenced exactly once
@@ -522,7 +526,7 @@ impl<S: Default + Debug> ConflictSubgraph<S> {
             // The list is sorted in reverse time order. (Last stuff at the start). This property is
             // depended on by the diff code below.
 
-            self.check_parents_concurrent(e.parents.as_ref());
+            self.dbg_check_parents_concurrent(e.parents.as_ref());
 
             for &p in e.parents.iter() {
                 // if *p <= idx {

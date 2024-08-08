@@ -421,11 +421,11 @@ impl<V: Content> ContentTree<V> {
         NodeIdx(new_idx)
     }
 
-    pub fn insert_notify<N>(&mut self, item: V, cursor: &mut DeltaCursor, notify: &mut N)
-        where N: FnMut(V, LeafIdx)
-    {
-        self.insert(item, cursor, true, notify);
-    }
+    // pub fn insert_notify<N>(&mut self, item: V, cursor: &mut DeltaCursor, notify: &mut N)
+    //     where N: FnMut(V, LeafIdx)
+    // {
+    //     self.insert(item, cursor, true, notify);
+    // }
 
     fn total_len(&self) -> LenPair {
         let mut len = self.total_len;
@@ -1621,22 +1621,22 @@ mod test {
         // let mut cursor = tree.cursor_at_content_pos::<true>(0);
         let mut cursor = tree.mut_cursor_at_start();
 
-        tree.insert_notify(TestRange {
+        tree.insert(TestRange {
             id: 123,
             len: 10,
             is_activated: false,
             exists: true,
-        }, &mut cursor, &mut debug_notify);
+        }, &mut cursor, true, &mut debug_notify);
         // tree.dbg_check(); // checking here doesn't work because we have an outstanding cursor.
         // dbg!(&cursor);
 
         cursor.0.offset = 2;
-        tree.insert_notify(TestRange {
+        tree.insert(TestRange {
             id: 321,
             len: 20,
             is_activated: true,
             exists: true,
-        }, &mut cursor, &mut debug_notify);
+        }, &mut cursor, true, &mut debug_notify);
         tree.emplace_cursor((20, 2 + 20).into(), cursor);
         // tree.flush_cursor(cursor);
         tree.dbg_check();
@@ -1659,12 +1659,12 @@ mod test {
         // let mut cursor = tree.cursor_at_start();
         let mut cursor = tree.mut_cursor_at_start();
 
-        tree.insert_notify(TestRange {
+        tree.insert(TestRange {
             id: 123,
             len: 10,
             is_activated: true,
             exists: true,
-        }, &mut cursor, &mut null_notify);
+        }, &mut cursor, true, &mut null_notify);
         tree.emplace_cursor((10, 10).into(), cursor);
         tree.dbg_check();
 
@@ -1839,7 +1839,7 @@ mod test {
                     // let mut cursor = tree.cursor_at_content_pos::<false>(pos);
                     // dbg!(&cursor);
                     let pre_pos = LenPair::new(cur_pos, end_pos);
-                    tree.insert_notify(item, &mut cursor, &mut null_notify);
+                    tree.insert(item, &mut cursor, true, &mut null_notify);
                     // dbg!(&cursor);
 
                     // if verbose { dbg!(&tree); }
