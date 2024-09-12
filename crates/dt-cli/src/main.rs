@@ -1,5 +1,7 @@
 mod export;
 mod dot;
+
+#[cfg(feature = "git")]
 mod git;
 
 use std::ffi::OsString;
@@ -21,6 +23,8 @@ use diamond_types::list::{gen_oplog, ListBranch, ListOpLog};
 use diamond_types::list::encoding::{ENCODE_FULL, EncodeOptions};
 use crate::dot::{generate_svg_with_dot};
 use crate::export::{check_trace_invariants, export_full_to_json, export_trace_to_json, export_transformed};
+
+#[cfg(feature = "git")]
 use crate::git::extract_from_git;
 
 #[derive(Parser, Debug)]
@@ -330,6 +334,7 @@ enum Commands {
     },
 
     /// Import & convert the editing history for a file from git to diamond types.
+    #[cfg(feature = "git")]
     GitImport {
         /// Path to the file being read. Must be inside a git repository.
         path: PathBuf,
@@ -753,6 +758,7 @@ fn main() -> Result<(), anyhow::Error> {
             }
         }
 
+        #[cfg(feature = "git")]
         Commands::GitImport { path, branch, quiet, out, map_out } => {
             let oplog = extract_from_git(path.clone(), branch, quiet, map_out)?;
 
