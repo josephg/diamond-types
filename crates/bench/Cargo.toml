@@ -11,5 +11,5 @@ rle = { path = "../rle" }
 #criterion = { version = "0.5.1", features = ["html_reports"] }
 criterion = { version = "0.5.1", features = [] }
 crdt-testdata = { path = "../crdt-testdata" }
-flate2 = { version = "1.0.22", features = ["zlib-ng-compat"], default-features = false }
+flate2 = { version = "1.0.33"}
 jumprope = "1.1.2"
