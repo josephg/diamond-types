@@ -114,6 +114,9 @@ struct StorageEngine<F: DTFile = File> {
 
 #[derive(Debug)]
 pub(super) struct StorageHeaderFields {
+    // The optimal page size might differ on different operating systems / computers. For now, its
+    // hardcoded to be 4k but its still explicitly specified, early, in the header to allow this to
+    // change later.
     page_size: usize,
 
     // The slot (array index) is the chunk type. We can't actually read any chunk types beyond

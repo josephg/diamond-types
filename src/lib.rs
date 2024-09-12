@@ -203,9 +203,6 @@ pub use crate::causalgraph::CausalGraph;
 pub use crate::dtrange::DTRange;
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 
-#[cfg(feature = "expose_benchmarking")]
-use crate::ost::recording_index_tree::IndexTreeReplay;
-
 use crate::rle::{KVPair, RleVec};
 use crate::textinfo::TextInfo;
 
@@ -228,11 +225,7 @@ mod ost;
 #[cfg(feature = "serde")]
 pub(crate) mod serde_helpers;
 
-// TODO: Make me private!
-pub mod listmerge;
-
-#[cfg(feature = "expose_benchmarking")]
-pub type IndexTreeTrace = IndexTreeReplay<listmerge::markers::Marker>;
+mod listmerge;
 
 #[cfg(any(test, feature = "gen_test_data"))]
 mod list_fuzzer_tools;
@@ -244,7 +237,7 @@ mod oplog;
 #[cfg(feature = "storage")]
 mod storage;
 mod simple_checkout;
-mod listmerge2;
+// mod listmerge2;
 mod stats;
 
 pub type AgentId = u32;

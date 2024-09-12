@@ -1,4 +1,6 @@
 //! This file contains benchmarks for replaying index traces
+//!
+//! The code this is built on has been removed from diamond-types.
 
 use std::fs::File;
 use std::io::{BufReader, Read};
