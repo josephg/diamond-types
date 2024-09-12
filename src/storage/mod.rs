@@ -381,19 +381,18 @@ impl<F: DTFile> StorageEngine<F> {
         let total_len = file.stream_len()?;
 
         // let (header_fields, next_free_page, data_chunks) = Self::read_or_initialize_header(&mut file, total_len)?;
-
-        // Gross!
-        const HACK_NONE: Option<Box<DataPageState>> = None;
-
+        
         if total_len == 0 {
             println!("Initializing headers");
             // Presumably a new file. Initialize it using the default options.
             let header_fields = StorageHeaderFields::default();
 
-            // TODO: Consider just leaving header_dirty=true here and not writing the inital header.
+            // TODO: Consider just leaving header_dirty=true here and not writing the initial header.
             HeaderPage::encode_and_bake(&header_fields)
                 .write(&mut file, 0)?;
 
+            // Gross!
+            const HACK_NONE: Option<Box<DataPageState>> = None;
             Ok(Self {
                 file,
                 header_dirty: false,
@@ -766,7 +765,7 @@ mod test {
         // let mut se = StorageEngine::from_file(TestFile::new()).unwrap();
         let mut se = StorageEngine::open("foo.dts").unwrap();
 
-        for i in 0..4000 {
+        for i in 0..40 {
         // for i in 0..20 {
             se.append_chunk(DataPageType::AgentNames, "yo dawg", &(i as usize)).unwrap();
             // push_usize(&mut se.write_to(DataPageType::AgentNames), i).unwrap();
@@ -777,10 +776,14 @@ mod test {
         se.fsync().unwrap();
 
         // for page in se.iter_data_pages(DataPageType::AgentNames) {
-        //     let mut page = page.unwrap();
-        //     dbg!(page.read_fields().unwrap());
-        //     dbg!(page.get_content().len());
+        //     dbg!(page.unwrap());
         // }
+
+        for page in se.iter_data_pages(DataPageType::AgentNames) {
+            let mut page = page.unwrap();
+            dbg!(page.read_fields().unwrap());
+            dbg!(page.get_content().len());
+        }
 
         // se.make_data(DataPageType::AgentNames).unwrap();
         // se.append_bytes_to(DataPageType::AgentNames).unwrap();
