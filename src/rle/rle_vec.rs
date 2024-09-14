@@ -20,9 +20,9 @@ pub struct RleVec<V: HasLength + MergableSpan + Sized>(pub Vec<V>);
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RleStats {
-    entry_byte_size: usize,
-    len: usize,
-    capacity: usize,
+    pub entry_byte_size: usize,
+    pub len: usize,
+    pub capacity: usize,
 }
 
 impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
@@ -43,12 +43,6 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
         } else { false }
     }
 
-    // Forward to vec.
-    pub fn last_entry(&self) -> Option<&V> { self.0.last() }
-
-    #[allow(unused)]
-    pub fn num_entries(&self) -> usize { self.0.len() }
-
     /// Returns past the end of the last key.
     pub fn end(&self) -> usize where V: HasRleKey {
         // Equivalent to this. I'm not sure which I prefer...
@@ -63,6 +57,12 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
             0
         }
     }
+
+    // Forward to vec.
+    pub fn last_entry(&self) -> Option<&V> { self.0.last() }
+
+    #[allow(unused)]
+    pub fn num_entries(&self) -> usize { self.0.len() }
 
     #[allow(unused)]
     pub fn is_empty(&self) -> bool { self.0.is_empty() }

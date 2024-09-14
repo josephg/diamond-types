@@ -1462,7 +1462,6 @@ impl<'a, V: Copy> Iterator for IndexTreeIter<'a, V> {
 #[cfg(test)]
 mod test {
     use std::iter::Enumerate;
-    use std::pin::Pin;
     use std::slice;
     use rand::prelude::SmallRng;
     use rand::{Rng, SeedableRng};

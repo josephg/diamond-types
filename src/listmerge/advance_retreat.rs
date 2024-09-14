@@ -11,7 +11,6 @@ use crate::listmerge::merge::notify_for;
 use crate::LV;
 use crate::ost::LeafIdx;
 use crate::rev_range::RangeRev;
-use crate::stats::marker_a;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(super) struct QueryResult {

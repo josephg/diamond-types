@@ -11,8 +11,11 @@ mod append_rle;
 pub mod zip;
 pub mod take_max_iter;
 pub mod intersect;
+pub mod rlerun;
 // mod gapbuffer;
 // pub mod iter_ctx;
+
+pub use rlerun::{RleRun, RleDRun};
 
 pub trait Searchable {
     type Item: Copy + Debug;
