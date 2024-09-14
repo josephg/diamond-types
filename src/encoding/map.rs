@@ -3,12 +3,14 @@ use crate::{AgentId, DTRange, KVPair, RleVec, LV};
 use crate::causalgraph::agent_assignment::ClientData;
 use crate::rle::RleSpanHelpers;
 
+pub(crate) type ReadAgentMap = Vec<(AgentId, usize)>;
+
 /// This struct stores the information we need while reading to map from relative agent info and
 /// edits to the equivalent local times.
 #[derive(Debug, Default)]
 pub struct ReadMap {
     /// Map from file's mapped ID -> internal ID, and the last seq we've seen.
-    pub agent_map: Vec<(AgentId, usize)>,
+    pub agent_map: ReadAgentMap,
 
     /// Map from the file's relative position -> internal operation position. This usually only
     /// contains 1 entry, which maps the entire file directly across.

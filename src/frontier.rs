@@ -199,6 +199,8 @@ impl Frontier {
 
     /// Advance a frontier by the set of time spans in range
     pub fn advance(&mut self, graph: &Graph, mut range: DTRange) {
+        if range.is_empty() { return; }
+
         // This is a little crass. Might be nicer to use a &T iterator in RLEVec.
         let txn_idx = graph.entries.find_index(range.start).unwrap();
 

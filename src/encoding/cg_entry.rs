@@ -6,7 +6,7 @@ use crate::causalgraph::agent_span::AgentSpan;
 // use bumpalo::collections::vec::Vec as BumpVec;
 use crate::causalgraph::entry::CGEntry;
 use crate::encoding::bufparser::BufParser;
-use crate::encoding::map::{ReadMap, WriteMap};
+use crate::encoding::map::{ReadAgentMap, ReadMap, WriteMap};
 use crate::encoding::Merger;
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::parseerror::ParseError;
@@ -89,7 +89,7 @@ pub(crate) fn write_cg_entry<R: ExtendFromSlice>(result: &mut R, data: &CGEntry,
     }
 }
 
-fn read_cg_aa(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, read_map: &mut ReadMap)
+fn read_cg_aa(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, agent_map: &mut ReadAgentMap)
               -> Result<(bool, AgentSpan), ParseError>
 {
     // Bits are:
@@ -110,13 +110,13 @@ fn read_cg_aa(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, r
         if mapped_agent != 0 { return Err(ParseError::GenericInvalidData); }
         let agent_name = reader.next_str()?;
         let agent = aa.get_or_create_agent_id(agent_name);
-        let idx = read_map.agent_map.len();
+        let idx = agent_map.len();
         if persist {
-            read_map.agent_map.push((agent, 0));
+            agent_map.push((agent, 0));
         }
         (agent, 0, idx)
     } else {
-        let entry = read_map.agent_map[mapped_agent];
+        let entry = agent_map[mapped_agent];
         (entry.0, entry.1, mapped_agent)
     };
 
@@ -131,7 +131,7 @@ fn read_cg_aa(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, r
     let end = start + len;
 
     if persist {
-        read_map.agent_map[idx].1 = end;
+        agent_map[idx].1 = end;
     }
 
     Ok((has_parents, AgentSpan {
@@ -150,7 +150,7 @@ fn isize_try_add(x: usize, y: isize) -> Option<usize> {
 /// NOTE: This does not put the returned data into the causal graph, or update read_map's txn_map.
 fn read_raw(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, next_file_time: LV, read_map: &mut ReadMap) -> Result<(Frontier, AgentSpan), ParseError> {
     // First we have agent assignment, then optional parents.
-    let (has_parents, span) = read_cg_aa(reader, persist, aa, read_map)?;
+    let (has_parents, span) = read_cg_aa(reader, persist, aa, &mut read_map.agent_map)?;
 
     let parents = if has_parents {
         read_parents_raw(reader, persist, aa, next_file_time, read_map)?
@@ -221,6 +221,8 @@ pub(crate) fn write_cg_entry_iter<I: Iterator<Item=CGEntry>, R: ExtendFromSlice>
 }
 
 impl CausalGraph {
+    // TODO: Consider making a variant of this function which takes a to_version as well. Currently
+    // this just serializes everything from frontier -> current version.
     pub fn serialize_changes_since(&self, frontier: &[LV]) -> Vec<u8> {
         let mut msg = vec![];
         let mut write_map = WriteMap::with_capacity_from(&self.agent_assignment.client_data);
@@ -242,5 +244,48 @@ impl CausalGraph {
         }
 
         Ok((start..self.len()).into())
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use crate::CausalGraph;
+
+    fn check_merges_into_subset(mut dest: CausalGraph, from_cg: &CausalGraph) {
+        let serialized = from_cg.serialize_changes_since(&[]);
+
+        let range = dest.merge_serialized_changes(serialized.as_slice()).unwrap();
+
+        assert_eq!(from_cg, &dest);
+        assert_eq!(range, (0..from_cg.len()).into());
+
+        // Merging is idempotent.
+        let range = dest.merge_serialized_changes(serialized.as_slice()).unwrap();
+        assert_eq!(from_cg, &dest);
+        assert!(range.is_empty());
+    }
+
+    fn check_round_trips(cg: &CausalGraph) {
+        check_merges_into_subset(CausalGraph::new(), cg);
+    }
+
+    #[test]
+    fn test_cg_roundtrip() {
+        let mut cg = CausalGraph::new();
+        check_round_trips(&cg);
+
+        cg.get_or_create_agent_id("a");
+        cg.get_or_create_agent_id("b");
+        cg.assign_local_op(0, 123);
+        cg.assign_local_op(1, 5);
+        cg.assign_local_op(0, 10);
+        check_round_trips(&cg);
+
+        let mut cg2 = CausalGraph::new();
+        // The agents are swapped.
+        cg2.get_or_create_agent_id("b");
+        cg2.get_or_create_agent_id("a");
+        check_merges_into_subset(cg2, &cg);
     }
 }
