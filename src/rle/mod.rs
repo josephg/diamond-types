@@ -5,7 +5,8 @@ pub use rle_vec::RleVec;
 use crate::dtrange::{debug_lv_raw, DTRange};
 
 pub mod rle_vec;
-pub mod rle_packed_vec;
+// pub mod rle_packed_vec;
+// pub mod rle_packed_vec2;
 
 pub trait RleSpanHelpers: HasRleKey + HasLength {
     fn end(&self) -> usize {
@@ -151,6 +152,20 @@ pub fn trim<V>(val: V, span: DTRange) -> V
 {
     try_trim(val, span).unwrap()
 }
+
+
+// /// This trait shows up in a few places where we need a way to try and merge items which do not
+// /// store their own size.
+// ///
+// /// I'd love a way to unify this with Mergeable but ???.
+// pub trait MergableUnsized {
+//     // /// Try to append other to self. If possible, self is modified (if necessary) and true is
+//     // /// returned.
+//     // fn try_append(&mut self, offset: usize, other: &Self, other_len: usize) -> bool;
+//     fn can_append(&mut self, offset: usize, other: &Self) -> bool;
+//     fn append(&mut self, offset: usize, other: Self);
+// }
+
 
 // pub fn intersect<A, B>(mut a: A, mut b: B) -> Option<(A, B)>
 //     where A: HasKey + HasLength + SplitableSpan,

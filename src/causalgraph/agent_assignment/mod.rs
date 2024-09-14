@@ -29,14 +29,15 @@ pub(crate) struct ClientData {
 #[derive(Debug, Clone, Default)]
 pub struct AgentAssignment {
 
-    /// This is a bunch of ranges of (item order -> CRDT location span).
+    /// This is a bunch of ranges of (local version -> CRDT location span).
     /// The entries always have positive len.
     ///
-    /// This is used to map Local time -> External CRDT locations.
+    /// This is used to map Local versions to remote CRDT IDs.
     ///
     /// List is packed.
     pub(crate) client_with_lv: RleVec<KVPair<AgentSpan>>,
-
+    // pub(crate) client_with_lv: RlePackedVec<>
+    
     /// For each client, we store some data (above). This is indexed by AgentId.
     ///
     /// This is used to map external CRDT locations -> Order numbers.
