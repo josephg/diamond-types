@@ -111,6 +111,15 @@ impl From<Range<usize>> for DTRange {
     }
 }
 
+impl From<&Range<usize>> for DTRange {
+    fn from(range: &Range<usize>) -> Self {
+        DTRange {
+            start: range.start,
+            end: range.end,
+        }
+    }
+}
+
 impl From<DTRange> for Range<usize> {
     fn from(span: DTRange) -> Self {
         span.start..span.end

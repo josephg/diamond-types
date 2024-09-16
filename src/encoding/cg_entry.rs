@@ -183,8 +183,8 @@ pub(crate) fn read_cg_entry_into_cg_nonoverlapping(reader: &mut BufParser, persi
 }
 
 pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<DTRange, ParseError> {
-    let mut next_file_time = read_map.len();
-    let (parents, span) = read_raw(reader, persist, &mut cg.agent_assignment, next_file_time, read_map)?;
+    let mut next_file_lv = read_map.len();
+    let (parents, span) = read_raw(reader, persist, &mut cg.agent_assignment, next_file_lv, read_map)?;
     // dbg!((&parents, span));
 
     // Save it into the causal graph, and update
@@ -193,7 +193,7 @@ pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &
     if persist {
         if merged_span.len() == span.len() {
             // This is the normal case. We read the entire entry.
-            read_map.txn_map.push(KVPair(next_file_time, merged_span));
+            read_map.txn_map.push(KVPair(next_file_lv, merged_span));
         } else {
             // The file contained some data which is already in the causal graph. We need to read
             // the versions back out of CG to populate read_map, so those versions can be referenced
@@ -203,8 +203,8 @@ pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &
             // rest. But eh. This is smaller and should be just as performant.
             let client_data = &cg.agent_assignment.client_data[span.agent as usize];
             for KVPair(_, time) in client_data.lv_for_seq.iter_range(span.seq_range) {
-                read_map.txn_map.push(KVPair(next_file_time, time));
-                next_file_time += time.len();
+                read_map.txn_map.push(KVPair(next_file_lv, time));
+                next_file_lv += time.len();
             }
         }
     }
@@ -235,6 +235,10 @@ impl CausalGraph {
     }
 
     pub fn merge_serialized_changes(&mut self, msg: &[u8]) -> Result<DTRange, ParseError> {
+        self.merge_serialized_changes2(msg).map(|(range, _map)| range)
+    }
+    
+    pub fn merge_serialized_changes2(&mut self, msg: &[u8]) -> Result<(DTRange, ReadMap), ParseError> {
         let mut read_map = ReadMap::new();
         let mut buf = BufParser(msg);
 
@@ -243,7 +247,10 @@ impl CausalGraph {
             read_cg_entry_into_cg(&mut buf, true, self, &mut read_map)?;
         }
 
-        Ok((start..self.len()).into())
+        Ok((
+            (start..self.len()).into(),
+            read_map,
+       ))
     }
 }
 

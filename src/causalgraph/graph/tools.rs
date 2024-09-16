@@ -743,24 +743,6 @@ impl Graph {
     //     Frontier(result)
     // }
 
-    /// Given 2 versions, return a version which contains all the operations in both.
-    ///
-    /// TODO: This needs unit tests.
-    pub fn version_union(&self, a: &[LV], b: &[LV]) -> Frontier {
-        let mut result = smallvec![];
-        // Using find_dominators_full to avoid a sort() here. Not sure if thats worth it though.
-        self.find_dominators_full(
-            a.iter().copied().chain(b.iter().copied()),
-            |v, is_dom| {
-                if is_dom {
-                    result.push(v);
-                }
-            }
-        );
-        result.reverse();
-        Frontier(result)
-    }
-
     /// Estimate the concurrency of the graph. We do a BFS and measure the width of the BFS during
     /// traversal.
     ///
@@ -927,6 +909,12 @@ pub mod test {
         let actual = find_conflicting(graph, a, b);
         assert_eq!(actual.common_branch.as_ref(), expect_common);
         assert_eq!(actual.spans, expect);
+
+        let mut common_union: Frontier = expect_common.into();
+        for (range, _) in expect_spans {
+            common_union.advance(graph, range.into());
+        }
+        assert_eq!(graph.find_dominators_2(a, b), common_union);
 
         #[cfg(feature="gen_test_data")] {
             #[derive(Serialize)]
@@ -1237,7 +1225,7 @@ pub mod test {
     fn dominator_duplicates() {
         let parents = fancy_graph();
         assert_eq!(parents.find_dominators(&[1,1,1]).as_ref(), &[1]);
-        assert_eq!(parents.version_union(&[1], &[1]).as_ref(), &[1]);
+        assert_eq!(parents.find_dominators_2(&[1], &[1]).as_ref(), &[1]);
 
         let mut seen_1 = false;
         parents.find_dominators_full((&[1,1,1]).iter().copied(), |_v, _d| {

@@ -1,6 +1,7 @@
 use rle::HasLength;
-use crate::{AgentId, DTRange, KVPair, RleVec, LV};
+use crate::{AgentId, DTRange, KVPair, RleVec, LV, Frontier, CausalGraph};
 use crate::causalgraph::agent_assignment::ClientData;
+use crate::causalgraph::graph::Graph;
 use crate::rle::RleSpanHelpers;
 
 pub(crate) type ReadAgentMap = Vec<(AgentId, usize)>;
@@ -38,6 +39,17 @@ impl ReadMap {
             .map(|e| e.end())
             .unwrap_or(0)
             // .unwrap_or(4000) // For testing.
+    }
+
+    pub fn frontier(&self, g: &Graph) -> Frontier {
+        // This isn't the most optimal way to write this, but it should be fine.
+        let mut result = Frontier::root();
+
+        for KVPair(_, range) in self.txn_map.iter() {
+            result.advance(g, *range);
+        }
+
+        result
     }
 }
 

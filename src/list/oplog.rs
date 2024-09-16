@@ -427,7 +427,7 @@ impl ListOpLog {
     /// simply return `a` or `b`. This happens when one of the versions is a strict subset of the
     /// other.
     pub fn version_union(&self, a: &[LV], b: &[LV]) -> Frontier {
-        self.cg.graph.version_union(a, b)
+        self.cg.graph.find_dominators_2(a, b)
     }
 
     pub fn parents_at_version(&self, lv: LV) -> Frontier {

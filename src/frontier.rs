@@ -20,9 +20,15 @@ use crate::LV;
 ///
 /// A frontier must always remain sorted (in numerical order). Note: This is not checked when
 /// deserializing via serde!
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(transparent))]
 pub struct Frontier(pub SmallVec<LV, 2>);
+
+impl Clone for Frontier {
+    fn clone(&self) -> Self {
+        Self(SmallVec::from_slice(self.0.as_slice()))
+    }
+}
 
 pub type FrontierRef<'a> = &'a [LV];
 
@@ -157,6 +163,13 @@ impl Frontier {
 
     pub fn from_sorted(data: &[LV]) -> Self {
         debug_assert_sorted(data);
+        // SmallVec apparently generates worse code using From (/Into) vs using a specialized
+        // from_slice() method. However, the code for From is emitted anyway because (I think) its
+        // used any time a vec is .collect-ed.
+        //
+        // As a result, swapping to from_slice here increases code size and it doesn't seem to make
+        // any actual performance difference. It would be better - but I'm leaving it alone for now.
+        // Self(SmallVec::from_slice(data))
         Self(data.into())
     }
 
@@ -196,7 +209,6 @@ impl Frontier {
         debug_assert_sorted(self.0.borrow());
     }
 
-
     /// Advance a frontier by the set of time spans in range
     pub fn advance(&mut self, graph: &Graph, mut range: DTRange) {
         if range.is_empty() { return; }
@@ -226,26 +238,32 @@ impl Frontier {
         } else {
             // We'll probably still replace the version with range.last(), but there's some edge
             // cases for find_dominators to figure out.
-            self.0 = graph.find_dominators_2(self.as_ref(), &[range.last()]).0;
+            self.merge_union(&[range.last()], graph);
+            // self.0 = graph.find_dominators_2(self.as_ref(), &[range.last()]).0;
         }
     }
 
+    /// advance_sparse is used for "sparse" causal graphs, which contain versions for other CRDTs
+    /// and things. In this case, range might not directly follow the current frontier.
+    ///
+    /// I think this function is equivalent to finding the dominators of self + all txns in range.
     pub fn advance_sparse(&mut self, graph: &Graph, range: DTRange) {
         let txn_idx = graph.entries.find_index(range.start).unwrap();
         let first_txn = &graph.entries[txn_idx];
-        if first_txn.span.end >= range.end {
-            // Fast path.
+        if range.end <= first_txn.span.end {
+            // Fast path. There's just one transaction to consider.
             first_txn.with_parents(range.start, |parents| {
                 self.advance_sparse_known_run(graph, parents, range);
             })
         } else {
             // This is a lot more complicated than I'd like, but I think its the fastest approach
-            // here. We'll make a frontier from from the transactions within the range, then merge
-            // that with the current frontier.
+            // here. We'll make a frontier from the transactions within the range, then merge that
+            // with the current frontier.
             let mut f2 = Frontier::root();
             f2.advance(graph, range); // This is a bit cheeky, but the result should be correct.
             // And merge that together. This will usually just return f2.
-            self.0 = graph.find_dominators_2(self.as_ref(), f2.as_ref()).0;
+            self.merge_union(f2.as_ref(), graph);
+            // self.0 = graph.find_dominators_2(self.as_ref(), f2.as_ref()).0;
         }
     }
 
@@ -282,12 +300,13 @@ impl Frontier {
         }
     }
 
+    /// Replaces self with dominators(self, other).
     pub fn merge_union(&mut self, other: &[LV], graph: &Graph) {
         if !other.is_empty()
             && other != self.as_ref()
             && (other.len() != 1 || !graph.frontier_contains_version(self.as_ref(), other[0]))
         {
-            *self = graph.version_union(self.as_ref(), other);
+            self.0 = graph.find_dominators_2(self.as_ref(), other).0;
         }
     }
 
