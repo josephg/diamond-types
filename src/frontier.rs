@@ -20,15 +20,9 @@ use crate::LV;
 ///
 /// A frontier must always remain sorted (in numerical order). Note: This is not checked when
 /// deserializing via serde!
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(transparent))]
 pub struct Frontier(pub SmallVec<LV, 2>);
-
-impl Clone for Frontier {
-    fn clone(&self) -> Self {
-        Self(SmallVec::from_slice(self.0.as_slice()))
-    }
-}
 
 pub type FrontierRef<'a> = &'a [LV];
 
