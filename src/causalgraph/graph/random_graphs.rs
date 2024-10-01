@@ -18,7 +18,7 @@ pub(crate) fn with_random_cgs<F: FnMut((usize, usize), &CausalGraph, &[Frontier]
 
         let agents = ["a", "b", "c"];
         // Agent IDs 0, 1 and 2.
-        for a in agents { cg.get_or_create_agent_id(a); }
+        for a in agents { cg.get_or_create_agent_id_from_str(a); }
 
         // for _i in 0..300 {
         for i in 0..iterations.1 {

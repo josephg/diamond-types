@@ -9,9 +9,9 @@ use crate::listmerge::simple_oplog::{SimpleBranch, SimpleOpLog};
 // it back to make sure the result doesn't change.
 fn fuzz_encode_decode_once(seed: u64) {
     let mut doc = ListCRDT::new();
-    doc.get_or_create_agent_id("a"); // 0
-    doc.get_or_create_agent_id("b"); // 1
-    doc.get_or_create_agent_id("c"); // 2
+    doc.get_or_create_agent_id_from_str("a"); // 0
+    doc.get_or_create_agent_id_from_str("b"); // 1
+    doc.get_or_create_agent_id_from_str("c"); // 2
 
     let mut rng = SmallRng::seed_from_u64(seed);
 
@@ -61,7 +61,7 @@ fn fuzz_encode_decode_multi(seed: u64, verbose: bool) {
         // for a in 0..3 {
         //     docs[i].get_or_create_agent_id(agent_name(a).as_str());
         // }
-        docs[i].get_or_create_agent_id(agent_name(i).as_str());
+        docs[i].get_or_create_agent_id_from_str(agent_name(i).as_str());
     }
 
     for _i in 0..50 {

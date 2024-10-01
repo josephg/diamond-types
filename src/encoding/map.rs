@@ -1,6 +1,7 @@
+use uuid::Uuid;
 use rle::HasLength;
 use crate::{AgentId, DTRange, KVPair, RleVec, LV, Frontier, CausalGraph};
-use crate::causalgraph::agent_assignment::ClientData;
+use crate::causalgraph::agent_assignment::{ClientData, ClientID};
 use crate::causalgraph::graph::Graph;
 use crate::rle::RleSpanHelpers;
 
@@ -121,7 +122,7 @@ impl WriteMap {
         self.txn_map.insert(KVPair(local_range.start, output_range));
     }
 
-    pub(crate) fn map_mut<'c>(&mut self, client_data: &'c [ClientData], agent: AgentId, persist: bool) -> Result<AgentId, &'c str> {
+    pub(crate) fn map_mut(&mut self, client_data: &[ClientData], agent: AgentId, persist: bool) -> Result<AgentId, ClientID> {
         // debug_assert_ne!(agent, ROOT_AGENT);
 
         let agent = agent as usize;
@@ -138,7 +139,7 @@ impl WriteMap {
                 self.next_mapped_agent += 1;
             }
 
-            client_data[agent].name.as_str()
+            client_data[agent].name
         })
     }
 
@@ -146,13 +147,13 @@ impl WriteMap {
     ///
     /// Same as map_no_root_mut except this doesn't take the persist: bool flag and only takes
     /// &self.
-    pub(crate) fn map<'c>(&self, client_data: &'c [ClientData], agent: AgentId) -> Result<AgentId, &'c str> {
+    pub(crate) fn map(&self, client_data: &[ClientData], agent: AgentId) -> Result<AgentId, Uuid> {
         // debug_assert_ne!(agent, ROOT_AGENT);
 
         let agent = agent as usize;
         self.agent_map.get(agent).and_then(|e| e.0).ok_or_else(|| {
             // If its unknown, just return the agent's string name.
-            client_data[agent].name.as_str()
+            client_data[agent].name
         })
     }
 

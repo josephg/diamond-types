@@ -176,7 +176,11 @@ impl AgentMapping {
         self.map[agent].map_or_else(|| {
             let mapped = self.next_mapped_agent;
             self.map[agent] = Some((mapped, 0));
-            push_leb_str(&mut self.output, oplog.cg.agent_assignment.client_data[agent].name.as_str());
+
+            todo!();
+            // push_leb_str(&mut self.output, oplog.cg.agent_assignment.client_data[agent].name.as_str());
+
+
             // println!("Mapped agent {} -> {}", oplog.cg.client_data[agent].name, mapped);
             self.next_mapped_agent += 1;
             mapped
@@ -946,7 +950,7 @@ mod tests {
     #[ignore]
     fn encoding_smoke_test() {
         let mut doc = ListCRDT::new();
-        doc.get_or_create_agent_id("seph");
+        doc.get_or_create_agent_id_from_str("seph");
         doc.insert(0, 0, "hi there");
 
         let d1 = doc.oplog.encode_simple(EncodeOptions::default());
@@ -959,8 +963,8 @@ mod tests {
     #[test]
     fn encode_from_version() {
         let mut doc = ListCRDT::new();
-        doc.get_or_create_agent_id("seph"); // 0
-        doc.get_or_create_agent_id("mike"); // 1
+        doc.get_or_create_agent_id_from_str("seph"); // 0
+        doc.get_or_create_agent_id_from_str("mike"); // 1
         let _t1 = doc.insert(0, 0, "hi from seph!\n");
         let mut ops2 = doc.oplog.clone();
 
@@ -979,7 +983,7 @@ mod tests {
     #[test]
     fn encode_simple() {
         let mut oplog = ListOpLog::new();
-        oplog.get_or_create_agent_id("x"); // 0
+        oplog.get_or_create_agent_id_from_str("x"); // 0
         oplog.add_insert(0, 0, "abc\n");
         // let data = oplog.encode(EncodeOptions::default());
         // let hex_str = data.iter().map(|x| format!("{:02X} ({})", x, std::char::from_u32(*x as u32).unwrap())).collect::<Vec<_>>();

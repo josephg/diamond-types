@@ -86,7 +86,7 @@ mod tests {
         // Should be an empty set
         assert_eq!(oplog.get_stochastic_version(10), &[]);
 
-        oplog.get_or_create_agent_id("seph");
+        oplog.get_or_create_agent_id_from_str("seph");
         oplog.add_insert(0, 0, "a");
         oplog.add_insert(0, 0, "a");
         oplog.add_insert(0, 0, "a");

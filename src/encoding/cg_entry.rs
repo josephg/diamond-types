@@ -10,7 +10,7 @@ use crate::encoding::map::{ReadAgentMap, ReadMap, WriteMap};
 use crate::encoding::Merger;
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::{ExtendFromSlice, push_str};
+use crate::encoding::tools::{ExtendFromSlice, push_str, push_uuid};
 use crate::encoding::varint::{mix_bit_u32, num_encode_zigzag_i64, push_u32, push_u64, push_usize, strip_bit_usize_2};
 
 pub(crate) fn write_cg_aa<R: ExtendFromSlice>(result: &mut R, write_parents: bool, span: AgentSpan,
@@ -45,7 +45,7 @@ pub(crate) fn write_cg_aa<R: ExtendFromSlice>(result: &mut R, write_parents: boo
         }
         Err(name) => {
             write_n(0, false);
-            push_str(result, name);
+            push_uuid(result, name);
         }
     }
 
@@ -108,7 +108,7 @@ fn read_cg_aa(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, a
 
     let (agent, last_seq, idx) = if !is_known {
         if mapped_agent != 0 { return Err(ParseError::GenericInvalidData); }
-        let agent_name = reader.next_str()?;
+        let agent_name = reader.next_uuid()?;
         let agent = aa.get_or_create_agent_id(agent_name);
         let idx = agent_map.len();
         if persist {
@@ -282,8 +282,8 @@ mod test {
         let mut cg = CausalGraph::new();
         check_round_trips(&cg);
 
-        cg.get_or_create_agent_id("a");
-        cg.get_or_create_agent_id("b");
+        cg.get_or_create_agent_id_from_str("a");
+        cg.get_or_create_agent_id_from_str("b");
         cg.assign_local_op(0, 123);
         cg.assign_local_op(1, 5);
         cg.assign_local_op(0, 10);
@@ -291,8 +291,8 @@ mod test {
 
         let mut cg2 = CausalGraph::new();
         // The agents are swapped.
-        cg2.get_or_create_agent_id("b");
-        cg2.get_or_create_agent_id("a");
+        cg2.get_or_create_agent_id_from_str("b");
+        cg2.get_or_create_agent_id_from_str("a");
         check_merges_into_subset(cg2, &cg);
     }
 }

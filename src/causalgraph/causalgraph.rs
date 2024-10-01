@@ -5,7 +5,8 @@ use rle::zip::rle_zip;
 
 use crate::{AgentId, CausalGraph, LV};
 use crate::causalgraph::*;
-use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteFrontierOwned};
+use crate::causalgraph::agent_assignment::ClientID;
+use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier};
 use crate::causalgraph::agent_span::AgentSpan;
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::graph::GraphEntrySimple;
@@ -18,8 +19,11 @@ impl CausalGraph {
 
     // There's a lot of methods in agent_assignment that we could wrap here. This is my one
     // admission to practicality.
-    pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
+    pub fn get_or_create_agent_id(&mut self, name: ClientID) -> AgentId {
         self.agent_assignment.get_or_create_agent_id(name)
+    }
+    pub fn get_or_create_agent_id_from_str(&mut self, name: &str) -> AgentId {
+        self.agent_assignment.get_or_create_agent_id_from_str(name)
     }
 
     pub fn num_agents(&self) -> AgentId {
@@ -250,10 +254,6 @@ impl CausalGraph {
         self.agent_assignment.local_to_remote_frontier(self.version.as_ref())
     }
 
-    pub fn remote_frontier_owned(&self) -> RemoteFrontierOwned {
-        self.agent_assignment.local_to_remote_frontier_owned(self.version.as_ref())
-    }
-
     #[allow(unused)]
     pub fn iter(&self) -> impl Iterator<Item=CGEntry> + '_ {
         self.iter_range((0..self.len()).into())
@@ -281,7 +281,7 @@ mod tests {
         // Regression.
 
         let mut cg = CausalGraph::new();
-        let agent = cg.get_or_create_agent_id("seph");
+        let agent = cg.get_or_create_agent_id_from_str("seph");
         cg.merge_and_assign(&[], (agent, 0..10).into());
         cg.dbg_check(true);
 

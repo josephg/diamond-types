@@ -3,7 +3,7 @@ use crdt_testdata::{load_testing_data, TestPatch, TestTxn};
 use diamond_types::list::{ListCRDT, ListOpLog};
 
 pub fn apply_edits_direct(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
-    let id = doc.get_or_create_agent_id("jeremy");
+    let id = doc.get_or_create_agent_id_from_str("jeremy");
 
     for (_i, txn) in txns.iter().enumerate() {
         for TestPatch(pos, del_span, ins_content) in &txn.patches {

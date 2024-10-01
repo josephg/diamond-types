@@ -14,6 +14,8 @@ use crate::unicount::{chars_to_bytes, count_chars};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+use crate::causalgraph::agent_assignment::{client_id_from_str, ClientID};
 use crate::rle::rle_vec::RleStats;
 
 impl Default for ListOpLog {
@@ -45,15 +47,18 @@ impl ListOpLog {
         branch
     }
 
-    pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
+    pub fn get_or_create_agent_id(&mut self, name: ClientID) -> AgentId {
         self.cg.agent_assignment.get_or_create_agent_id(name)
     }
+    pub fn get_or_create_agent_id_from_str(&mut self, name: &str) -> AgentId {
+        self.cg.agent_assignment.get_or_create_agent_id(client_id_from_str(name).unwrap())
+    }
 
-    pub(crate) fn get_agent_id(&self, name: &str) -> Option<AgentId> {
+    pub(crate) fn get_agent_id(&self, name: ClientID) -> Option<AgentId> {
         self.cg.agent_assignment.get_agent_id(name)
     }
 
-    pub fn get_agent_name(&self, agent: AgentId) -> &str {
+    pub fn get_agent_name(&self, agent: AgentId) -> ClientID {
         self.cg.agent_assignment.get_agent_name(agent)
     }
 
@@ -385,7 +390,7 @@ impl ListOpLog {
             .map(|item| item.1)
     }
 
-    pub fn iter_remote_mappings(&self) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
+    pub fn iter_remote_mappings(&self) -> impl Iterator<Item = RemoteVersionSpan> + '_ {
         self.cg.agent_assignment.client_with_lv
             .iter()
             .map(|item| self.cg.agent_assignment.agent_span_to_remote(item.1))
@@ -397,7 +402,7 @@ impl ListOpLog {
             .map(|item| item.1)
     }
 
-    pub fn iter_remote_mappings_range(&self, range: DTRange) -> impl Iterator<Item = RemoteVersionSpan<'_>> + '_ {
+    pub fn iter_remote_mappings_range(&self, range: DTRange) -> impl Iterator<Item = RemoteVersionSpan> + '_ {
         self.cg.agent_assignment.client_with_lv
             .iter_range(range)
             .map(|item| self.cg.agent_assignment.agent_span_to_remote(item.1))

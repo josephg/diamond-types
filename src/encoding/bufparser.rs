@@ -1,4 +1,5 @@
 use std::mem::size_of;
+use uuid::Uuid;
 use crate::encoding::parseerror::ParseError;
 use crate::encoding::varint::*;
 
@@ -121,6 +122,12 @@ impl<'a> BufParser<'a> {
         let bytes = self.next_n_bytes(len)?;
         // std::str::from_utf8(bytes).map_err(InvalidUTF8)
         std::str::from_utf8(bytes).map_err(|_| ParseError::InvalidUTF8)
+    }
+    
+    pub(crate) fn next_uuid(&mut self) -> Result<Uuid, ParseError> {
+        // Uuids are encoded as 16 raw bytes.
+        let bytes = self.next_n_bytes(16)?;
+        Ok(Uuid::from_slice(bytes).unwrap())
     }
 
     // /// Read the next string thats encoded in this content chunk

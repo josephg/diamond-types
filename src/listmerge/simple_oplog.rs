@@ -31,14 +31,14 @@ impl SimpleOpLog {
     pub(crate) fn goop(&mut self, n: usize) -> LV {
         // Just going to use agent 0 here.
         if self.cg.agent_assignment.client_data.is_empty() {
-            self.cg.get_or_create_agent_id("goopy");
+            self.cg.get_or_create_agent_id_from_str("goopy");
         }
 
         self.cg.assign_local_op(0, n).last()
     }
 
     pub(crate) fn add_operation(&mut self, agent_name: &str, op: TextOperation) -> LV  {
-        let agent = self.cg.get_or_create_agent_id(agent_name);
+        let agent = self.cg.get_or_create_agent_id_from_str(agent_name);
         let len = op.len();
         let range = self.cg.assign_local_op(agent, len);
         self.info.local_push_op(op, range);
@@ -46,7 +46,7 @@ impl SimpleOpLog {
     }
 
     pub(crate) fn add_operation_at(&mut self, agent_name: &str, parents: &[LV], op: TextOperation) -> LV  {
-        let agent = self.cg.get_or_create_agent_id(agent_name);
+        let agent = self.cg.get_or_create_agent_id_from_str(agent_name);
         let len = op.len();
         let range = self.cg.assign_local_op_with_parents(parents, agent, len);
         self.info.remote_push_op(op, range, parents, &self.cg.graph);

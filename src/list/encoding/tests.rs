@@ -7,7 +7,7 @@ use super::*;
 
 fn simple_doc() -> ListCRDT {
     let mut doc = ListCRDT::new();
-    doc.get_or_create_agent_id("seph");
+    doc.get_or_create_agent_id_from_str("seph");
     doc.insert(0, 0, "hi there");
     // TODO: Make another test where we store this stuff...
     doc.delete_without_content(0, 3..7); // 'hi e'
@@ -46,8 +46,8 @@ fn encode_decode_smoke_test() {
 #[test]
 fn decode_in_parts() {
     let mut doc = ListCRDT::new();
-    doc.get_or_create_agent_id("seph");
-    doc.get_or_create_agent_id("mike");
+    doc.get_or_create_agent_id_from_str("seph");
+    doc.get_or_create_agent_id_from_str("mike");
     doc.insert(0, 0, "hi there");
 
     let data_1 = doc.oplog.encode(&EncodeOptions::default());
@@ -73,7 +73,7 @@ fn decode_in_parts() {
 #[test]
 fn merge_parts() {
     let mut oplog = ListOpLog::new();
-    oplog.get_or_create_agent_id("seph");
+    oplog.get_or_create_agent_id_from_str("seph");
     oplog.add_insert(0, 0, "hi");
     let data_1 = oplog.encode(&EncodeOptions::default());
     oplog.add_insert(0, 2, " there");
@@ -102,8 +102,8 @@ fn merge_future_patch_errors() {
 #[ignore]
 fn merge_parts_2() {
     let mut oplog_a = ListOpLog::new();
-    oplog_a.get_or_create_agent_id("a");
-    oplog_a.get_or_create_agent_id("b");
+    oplog_a.get_or_create_agent_id_from_str("a");
+    oplog_a.get_or_create_agent_id_from_str("b");
 
     let t1 = oplog_a.add_insert(0, 0, "aa");
     let data_a = oplog_a.encode(&EncodeOptions::default());
@@ -128,7 +128,7 @@ fn merge_parts_2() {
 #[test]
 fn with_deleted_content() {
     let mut doc = ListCRDT::new();
-    doc.get_or_create_agent_id("seph");
+    doc.get_or_create_agent_id_from_str("seph");
     doc.insert(0, 0, "abcd");
     doc.delete(0, 1..3); // delete "bc"
 
@@ -138,8 +138,8 @@ fn with_deleted_content() {
 #[test]
 fn encode_reordered() {
     let mut oplog = ListOpLog::new();
-    oplog.get_or_create_agent_id("seph");
-    oplog.get_or_create_agent_id("mike");
+    oplog.get_or_create_agent_id_from_str("seph");
+    oplog.get_or_create_agent_id_from_str("mike");
     let a = oplog.add_insert_at(0, &[], 0, "a");
     oplog.add_insert_at(1, &[], 0, "b");
     oplog.add_insert_at(0, &[a], 1, "c");
@@ -152,7 +152,7 @@ fn encode_reordered() {
 fn encode_with_agent_shared_between_branches() {
     // Same as above, but only one agent ID.
     let mut oplog = ListOpLog::new();
-    oplog.get_or_create_agent_id("seph");
+    oplog.get_or_create_agent_id_from_str("seph");
     let a = oplog.add_insert_at(0, &[], 0, "a");
     oplog.add_insert_at(0, &[], 0, "b");
     oplog.add_insert_at(0, &[a], 1, "c");
@@ -367,7 +367,7 @@ fn compat_simple_doc() {
     // This is copy + pasted here (from simple_doc() above) because this test should stay the
     // same even if I goof with the encoding above.
     let mut doc = ListCRDT::new();
-    doc.get_or_create_agent_id("seph");
+    doc.get_or_create_agent_id_from_str("seph");
     doc.insert(0, 0, "hi there");
     doc.delete_without_content(0, 3..7); // 'hi e'
     doc.insert(0, 3, "m");

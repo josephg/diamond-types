@@ -343,12 +343,12 @@ mod tests {
         branch.dbg_check(true);
         assert_eq!(branch, Branch::new());
 
-        let seph = oplog.cg.get_or_create_agent_id("seph");
+        let seph = oplog.cg.get_or_create_agent_id_from_str("seph");
         let text = oplog.local_map_set(seph, ROOT_CRDT_ID, "content", CreateValue::NewCRDT(CRDTKind::Text));
         oplog.local_text_op(seph, text, TextOperation::new_insert(0, "Oh hai!"));
         oplog.local_text_op(seph, text, TextOperation::new_delete(0..3));
 
-        let kaarina = oplog.cg.get_or_create_agent_id("kaarina");
+        let kaarina = oplog.cg.get_or_create_agent_id_from_str("kaarina");
         let title = oplog.local_map_set(kaarina, ROOT_CRDT_ID, "title", CreateValue::NewCRDT(CRDTKind::Text));
         oplog.local_text_op(kaarina, title, TextOperation::new_insert(0, "Please read this cool info"));
 
@@ -373,7 +373,7 @@ mod tests {
     fn checkout_simple_items() {
         let mut oplog = OpLog::new();
 
-        let seph = oplog.cg.get_or_create_agent_id("seph");
+        let seph = oplog.cg.get_or_create_agent_id_from_str("seph");
         let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "child", CreateValue::NewCRDT(CRDTKind::Map));
         oplog.local_map_set(seph, child_obj, "a", CreateValue::Primitive(Primitive::I64(222)));
 
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn overwrite_crdt_works() {
         let mut oplog = OpLog::new();
-        let seph = oplog.cg.get_or_create_agent_id("seph");
+        let seph = oplog.cg.get_or_create_agent_id_from_str("seph");
 
         let mut branch_incremental = Branch::new();
         let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Map));

@@ -211,7 +211,7 @@ impl M2Tracker {
 
                         // It's possible for a user to conflict with themselves if they commit to
                         // multiple branches. In this case, sort by seq number.
-                        let ins_here = match my_name.cmp(other_name) {
+                        let ins_here = match my_name.cmp(&other_name) {
                             Ordering::Less => true,
                             Ordering::Equal => {
                                 // We can't compare versions here because sequence numbers could be

@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use smartstring::alias::String as SmartString;
+use uuid::Uuid;
 use rle::HasLength;
 use crate::causalgraph::agent_span::{AgentSpan, AgentVersion};
 use crate::{AgentId, DTRange, LV};
@@ -7,10 +8,46 @@ use crate::rle::{KVPair, RleVec};
 
 pub mod remote_ids;
 
+pub type ClientID = Uuid;
+
+pub fn root_clientid() -> ClientID {
+    Uuid::nil()
+}
+
+#[derive(Debug, Clone)]
+pub enum ClientIDConversionError {
+    StringNotAscii,
+    StringTooLong,
+}
+
+pub fn client_id_from_str(s: &str) -> Result<ClientID, ClientIDConversionError> {
+    if !s.is_ascii() {
+        return Err(ClientIDConversionError::StringNotAscii);
+    }
+
+    // if s.len()
+
+    // I'm doing this in a pretty simple way: I'm reserving byte 8 and byte 6 for UUID nonsense.
+    // Uuid only uses 6 bits - so I could actually pack 15 ascii values in. (I mean, way more
+    // because I could use a different encoding) but I think this is fine for now.
+
+    // let s = s.as_bytes();
+
+    // Bytes 8 and 6 are reserved. So we use bytes 0..6, 7 and 9..16.
+    let mut bytes = [0u8; 16];
+
+    let mut s = s.bytes().into_iter();
+    for b in bytes.iter_mut() {
+        *b = s.next().unwrap_or(0);
+    }
+
+    Ok(uuid::Builder::from_custom_bytes(bytes).into_uuid())
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ClientData {
     /// Used to map from client's name / hash to its numerical ID.
-    pub(crate) name: SmartString,
+    pub(crate) name: ClientID,
 
     /// This is a packed RLE in-order list of all operations from this client.
     ///
@@ -84,33 +121,37 @@ pub const MAX_AGENT_NAME_LENGTH: usize = 50;
 impl AgentAssignment {
     pub fn new() -> Self { Self::default() }
 
-    pub fn get_agent_id(&self, name: &str) -> Option<AgentId> {
+    pub fn get_agent_id(&self, name: ClientID) -> Option<AgentId> {
         self.client_data.iter()
             .position(|client_data| client_data.name == name)
             .map(|id| id as AgentId)
     }
 
-    pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
+    pub fn get_or_create_agent_id(&mut self, name: ClientID) -> AgentId {
         // TODO: -> Result or something so this can be handled.
-        if name == "ROOT" { panic!("Agent ID 'ROOT' is reserved"); }
+        if name == Uuid::nil() { panic!("Nil agent ID is reserved"); }
 
-        assert!(name.len() < MAX_AGENT_NAME_LENGTH, "Agent name cannot exceed {MAX_AGENT_NAME_LENGTH} UTF8 bytes");
+        // assert!(name.len() < MAX_AGENT_NAME_LENGTH, "Agent name cannot exceed {MAX_AGENT_NAME_LENGTH} UTF8 bytes");
 
         if let Some(id) = self.get_agent_id(name) {
             id
         } else {
             // Create a new id.
             self.client_data.push(ClientData {
-                name: SmartString::from(name),
+                name,
                 lv_for_seq: RleVec::new()
             });
             (self.client_data.len() - 1) as AgentId
         }
     }
 
+    pub fn get_or_create_agent_id_from_str(&mut self, name: &str) -> AgentId {
+        self.get_or_create_agent_id(client_id_from_str(name).unwrap())
+    }
+
     /// Returns the agent name (as a &str) for a given agent_id. This is fast (O(1)).
-    pub fn get_agent_name(&self, agent: AgentId) -> &str {
-        self.client_data[agent as usize].name.as_str()
+    pub fn get_agent_name(&self, agent: AgentId) -> Uuid {
+        self.client_data[agent as usize].name
     }
 
     /// Iterates over the local version mappings for the specified agent. The iterator returns

@@ -36,7 +36,7 @@
 //! use diamond_types::list::*;
 //!
 //! let mut oplog = ListOpLog::new();
-//! let fred = oplog.get_or_create_agent_id("fred");
+//! let fred = oplog.get_or_create_agent_id_from_str("fred");
 //! oplog.add_insert(fred, 0, "abc");
 //! oplog.add_delete_without_content(fred, 1..2); // Delete the 'b'
 //! ```
@@ -63,7 +63,7 @@
 //! let mut oplog = ListOpLog::new();
 //! // ...
 //! let mut branch = ListBranch::new_at_tip(&oplog);
-//! let george = oplog.get_or_create_agent_id("george");
+//! let george = oplog.get_or_create_agent_id_from_str("george");
 //! oplog.add_insert(george, 0, "asdf");
 //! branch.merge(&oplog, oplog.local_frontier_ref());
 //! ```
@@ -92,7 +92,7 @@
 //! ```
 //! use diamond_types::list::*;
 //! let mut oplog = ListOpLog::new();
-//! let fred = oplog.get_or_create_agent_id("fred");
+//! let fred = oplog.get_or_create_agent_id_from_str("fred");
 //! oplog.add_insert(fred, 0, "a");
 //! oplog.add_insert(fred, 1, "b");
 //! oplog.add_insert(fred, 2, "c");
@@ -103,7 +103,7 @@
 //! ```
 //! use diamond_types::list::*;
 //! let mut oplog = ListOpLog::new();
-//! let fred = oplog.get_or_create_agent_id("fred");
+//! let fred = oplog.get_or_create_agent_id_from_str("fred");
 //! oplog.add_insert(fred, 0, "abc");
 //! ```
 //!
@@ -197,7 +197,7 @@ pub use ::rle::HasLength;
 use causalgraph::graph::Graph;
 pub use frontier::Frontier;
 
-use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontierOwned, RemoteVersion, RemoteVersionOwned};
+use crate::causalgraph::agent_assignment::remote_ids::{RemoteVersion};
 use crate::causalgraph::agent_span::AgentVersion;
 pub use crate::causalgraph::CausalGraph;
 pub use crate::dtrange::DTRange;
@@ -444,8 +444,8 @@ pub struct SerializedOps<'a> {
 
     // The version of the op, and the name of the containing CRDT.
     #[cfg_attr(feature = "serde", serde(borrow))]
-    map_ops: Vec<(RemoteVersion<'a>, RemoteVersion<'a>, &'a str, CreateValue)>,
-    text_ops: Vec<(RemoteVersion<'a>, RemoteVersion<'a>, ListOpMetrics)>,
+    map_ops: Vec<(RemoteVersion, RemoteVersion, &'a str, CreateValue)>,
+    text_ops: Vec<(RemoteVersion, RemoteVersion, ListOpMetrics)>,
     text_context: ListOperationCtx,
 }
 
@@ -476,8 +476,8 @@ pub struct SerializedOpsOwned {
     cg_changes: Vec<u8>,
 
     // The version of the op, and the name of the containing CRDT.
-    map_ops: Vec<(RemoteVersionOwned, RemoteVersionOwned, SmartString, CreateValue)>,
-    text_ops: Vec<(RemoteVersionOwned, RemoteVersionOwned, ListOpMetrics)>,
+    map_ops: Vec<(RemoteVersion, RemoteVersion, SmartString, CreateValue)>,
+    text_ops: Vec<(RemoteVersion, RemoteVersion, ListOpMetrics)>,
     text_context: ListOperationCtx,
 }
 

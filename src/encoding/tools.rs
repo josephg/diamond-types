@@ -1,5 +1,6 @@
 use crate::encoding::ChunkType;
 use bumpalo::collections::vec::Vec as BumpVec;
+use uuid::Uuid;
 use crate::encoding::varint::{push_u32, push_u64, push_usize, try_push_u32, try_push_u64, try_push_usize};
 
 pub(crate) trait TryExtendFromSlice {
@@ -94,6 +95,10 @@ pub(crate) fn push_str<V: ExtendFromSlice>(into: &mut V, val: &str) {
     let bytes = val.as_bytes();
     push_usize(into, bytes.len());
     into.extend_from_slice(bytes);
+}
+
+pub(crate) fn push_uuid<V: ExtendFromSlice>(into: &mut V, val: Uuid) {
+    into.extend_from_slice(val.as_bytes());
 }
 
 fn push_chunk_header<V: TryExtendFromSlice>(into: &mut V, chunk_type: ChunkType, len: usize) -> Result<(), ()> {

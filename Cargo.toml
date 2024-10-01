@@ -21,6 +21,7 @@ smartstring = "1.0.1"
 str_indices = "0.4.3"
 smallvec = "2.0.0-alpha.6"
 lazy_static = "1.4.0"
+uuid = { version = "1.10.0", features = ["v4", "v8"] }
 
 # Used by wasm module, CLI.
 serde = { version = "1.0.183", features = ["derive"], optional = true }
@@ -66,7 +67,7 @@ trace-alloc = { path = "crates/trace-alloc" }
 default = ["lz4", "storage"]
 memusage = ["trace-alloc/memusage"]
 lz4 = ["dep:lz4_flex"]
-serde = ["dep:serde", "smallvec/serde", "smartstring/serde"]
+serde = ["dep:serde", "smallvec/serde", "smartstring/serde", "uuid/serde"]
 dot_export = []
 wchar_conversion = ["jumprope/wchar_conversion"]
 merge_conflict_checks = []

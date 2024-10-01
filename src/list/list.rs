@@ -3,6 +3,7 @@ use humansize::{BINARY, format_size};
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
 use crate::{AgentId, Frontier, LV};
 use rle::HasLength;
+use crate::causalgraph::agent_assignment::{client_id_from_str, ClientID};
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::DTRange;
@@ -218,8 +219,12 @@ impl ListCRDT {
         self.oplog.print_stats(detailed);
     }
 
-    pub fn get_or_create_agent_id(&mut self, name: &str) -> AgentId {
+    pub fn get_or_create_agent_id(&mut self, name: ClientID) -> AgentId {
         self.oplog.get_or_create_agent_id(name)
+    }
+
+    pub fn get_or_create_agent_id_from_str(&mut self, name: &str) -> AgentId {
+        self.oplog.get_or_create_agent_id(client_id_from_str(name).unwrap())
     }
 }
 
@@ -231,7 +236,7 @@ mod tests {
     #[test]
     fn smoke() {
         let mut doc = ListCRDT::new();
-        doc.get_or_create_agent_id("seph"); // 0
+        doc.get_or_create_agent_id_from_str("seph"); // 0
         doc.insert(0, 0, "hi".into());
         doc.insert(0, 1, "yooo".into());
         // "hyoooi"

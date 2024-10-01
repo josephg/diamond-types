@@ -214,7 +214,8 @@ impl<'a> ChunkReader<'a> {
         let mut agent_map = Vec::new();
         while !agent_names_chunk.0.is_empty() {
             let name = agent_names_chunk.next_str()?;
-            let id = oplog.get_or_create_agent_id(name);
+            // let id = oplog.get_or_create_agent_id(name);
+            let id = todo!();
             agent_map.push((id, 0));
         }
 

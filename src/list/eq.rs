@@ -39,7 +39,7 @@ impl PartialEq<Self> for ListOpLog {
         for c in self.cg.agent_assignment.client_data.iter() {
             // If there's no corresponding client in other (and the agent is actually in use), the
             // oplogs don't match.
-            let other_agent = if let Some(other_agent) = other.get_agent_id(&c.name) {
+            let other_agent = if let Some(other_agent) = other.get_agent_id(c.name) {
                 if other.cg.agent_assignment.client_data[other_agent as usize].get_next_seq() != c.get_next_seq() {
                     // Make sure we have exactly the same number of edits for each agent.
                     return false;
@@ -207,16 +207,16 @@ mod test {
     fn eq_smoke_test() {
         let mut a = ListOpLog::new();
         assert!(is_eq(&a, &a));
-        a.get_or_create_agent_id("seph");
-        a.get_or_create_agent_id("mike");
+        a.get_or_create_agent_id_from_str("seph");
+        a.get_or_create_agent_id_from_str("mike");
         a.add_insert_at(0, &[], 0, "Aa");
         a.add_insert_at(1, &[], 0, "b");
         a.add_delete_at(0, &[1, 2], 0..2);
 
         // Same history, different order.
         let mut b = ListOpLog::new();
-        b.get_or_create_agent_id("mike");
-        b.get_or_create_agent_id("seph");
+        b.get_or_create_agent_id_from_str("mike");
+        b.get_or_create_agent_id_from_str("seph");
         b.add_insert_at(0, &[], 0, "b");
         b.add_insert_at(1, &[], 0, "Aa");
         b.add_delete_at(1, &[0, 2], 0..2);
@@ -225,8 +225,8 @@ mod test {
 
         // And now with the edits interleaved
         let mut c = ListOpLog::new();
-        c.get_or_create_agent_id("seph");
-        c.get_or_create_agent_id("mike");
+        c.get_or_create_agent_id_from_str("seph");
+        c.get_or_create_agent_id_from_str("mike");
         c.add_insert_at(0, &[], 0, "A");
         c.add_insert_at(1, &[], 0, "b");
         c.add_insert_at(0, &[0], 1, "a");

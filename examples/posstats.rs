@@ -19,7 +19,7 @@ use humansize::{DECIMAL, format_size};
 use diamond_types::list::encoding::EncodeOptions;
 
 pub fn apply_edits_direct(doc: &mut ListCRDT, txns: &Vec<TestTxn>) {
-    let id = doc.get_or_create_agent_id("jeremy");
+    let id = doc.get_or_create_agent_id_from_str("jeremy");
 
     for (_i, txn) in txns.iter().enumerate() {
         for TestPatch(pos, del_span, ins_content) in &txn.patches {

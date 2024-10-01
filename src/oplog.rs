@@ -15,6 +15,7 @@ use crate::encoding::cg_entry::{read_cg_entry_into_cg, write_cg_entry_iter};
 use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::parseerror::ParseError;
 use crate::branch::btree_range_for_crdt;
+use crate::causalgraph::agent_assignment::root_clientid;
 use crate::frontier::{is_sorted_iter_uniq, is_sorted_slice};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::TextOperation;
@@ -470,14 +471,14 @@ impl OpLog {
 impl OpLog {
     fn crdt_name_to_remote(&self, crdt: LVKey) -> RemoteVersion {
         if crdt == ROOT_CRDT_ID {
-            RemoteVersion("ROOT", 0)
+            RemoteVersion(root_clientid(), 0)
         } else {
             self.cg.agent_assignment.local_to_remote_version(crdt)
         }
     }
 
     fn remote_to_crdt_name(&self, crdt_rv: RemoteVersion) -> LVKey {
-        if crdt_rv.0 == "ROOT" { ROOT_CRDT_ID }
+        if crdt_rv.0.is_nil() { ROOT_CRDT_ID }
         else { self.cg.agent_assignment.remote_to_local_version(crdt_rv) }
     }
 
@@ -633,7 +634,7 @@ mod tests {
     fn smoke() {
         let mut oplog = OpLog::new();
 
-        let seph = oplog.cg.get_or_create_agent_id("seph");
+        let seph = oplog.cg.get_or_create_agent_id_from_str("seph");
         oplog.local_map_set(seph, ROOT_CRDT_ID, "hi", CreateValue::Primitive(Primitive::I64(123)));
         oplog.local_map_set(seph, ROOT_CRDT_ID, "hi", CreateValue::Primitive(Primitive::I64(321)));
 
@@ -645,7 +646,7 @@ mod tests {
     fn text() {
         let mut oplog = OpLog::new();
 
-        let seph = oplog.cg.get_or_create_agent_id("seph");
+        let seph = oplog.cg.get_or_create_agent_id_from_str("seph");
         let text = oplog.local_map_set(seph, ROOT_CRDT_ID, "content", CreateValue::NewCRDT(CRDTKind::Text));
         oplog.local_text_op(seph, text, TextOperation::new_insert(0, "Oh hai!"));
         oplog.local_text_op(seph, text, TextOperation::new_delete(0..3));
@@ -681,12 +682,12 @@ mod tests {
         let mut oplog2 = OpLog::new();
 
 
-        let seph = oplog1.cg.get_or_create_agent_id("seph");
+        let seph = oplog1.cg.get_or_create_agent_id_from_str("seph");
         let text = oplog1.local_map_set(seph, ROOT_CRDT_ID, "content", CreateValue::NewCRDT(CRDTKind::Text));
         oplog1.local_text_op(seph, text, TextOperation::new_insert(0, "Oh hai!"));
 
 
-        let kaarina = oplog2.cg.get_or_create_agent_id("kaarina");
+        let kaarina = oplog2.cg.get_or_create_agent_id_from_str("kaarina");
         let title = oplog2.local_map_set(kaarina, ROOT_CRDT_ID, "title", CreateValue::NewCRDT(CRDTKind::Text));
         oplog2.local_text_op(kaarina, title, TextOperation::new_insert(0, "Better keep it clean"));
 
@@ -713,7 +714,7 @@ mod tests {
     fn checkout() {
         let mut oplog = OpLog::new();
 
-        let seph = oplog.cg.get_or_create_agent_id("seph");
+        let seph = oplog.cg.get_or_create_agent_id_from_str("seph");
         oplog.local_map_set(seph, ROOT_CRDT_ID, "hi", CreateValue::Primitive(Primitive::I64(123)));
         let map = oplog.local_map_set(seph, ROOT_CRDT_ID, "yo", CreateValue::NewCRDT(CRDTKind::Map));
         oplog.local_map_set(seph, map, "yo", CreateValue::Primitive(Primitive::Str("blah".into())));
@@ -725,7 +726,7 @@ mod tests {
     #[test]
     fn overwrite_local() {
         let mut oplog = OpLog::new();
-        let seph = oplog.cg.get_or_create_agent_id("seph");
+        let seph = oplog.cg.get_or_create_agent_id_from_str("seph");
 
         let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Map));
         let text_item = oplog.local_map_set(seph, child_obj, "text_item", CreateValue::NewCRDT(CRDTKind::Text));
@@ -742,7 +743,7 @@ mod tests {
     #[test]
     fn overwrite_remote() {
         let mut oplog = OpLog::new();
-        let seph = oplog.cg.get_or_create_agent_id("seph");
+        let seph = oplog.cg.get_or_create_agent_id_from_str("seph");
 
         let child_obj = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Map));
         let text_item = oplog.local_map_set(seph, child_obj, "text_item", CreateValue::NewCRDT(CRDTKind::Text));
@@ -761,7 +762,7 @@ mod tests {
         // Regression.
         let mut oplog = OpLog::new();
         let mut oplog2 = OpLog::new();
-        let seph = oplog.cg.get_or_create_agent_id("seph");
+        let seph = oplog.cg.get_or_create_agent_id_from_str("seph");
 
         let text_item = oplog.local_map_set(seph, ROOT_CRDT_ID, "overwritten", CreateValue::NewCRDT(CRDTKind::Text));
         oplog.local_text_op(seph, text_item, TextOperation::new_insert(0, "a"));

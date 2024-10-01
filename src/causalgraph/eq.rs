@@ -36,7 +36,7 @@ impl PartialEq<Self> for CausalGraph {
         for c in self.agent_assignment.client_data.iter() {
             // If there's no corresponding client in other (and the agent is actually in use), the
             // oplogs don't match.
-            let other_agent = if let Some(other_agent) = other.agent_assignment.get_agent_id(&c.name) {
+            let other_agent = if let Some(other_agent) = other.agent_assignment.get_agent_id(c.name) {
                 if other.agent_assignment.client_data[other_agent as usize].get_next_seq() != c.get_next_seq() {
                     // Make sure we have exactly the same number of edits for each agent.
                     return false;

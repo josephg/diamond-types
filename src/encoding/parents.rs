@@ -4,11 +4,11 @@ use smallvec::SmallVec;
 use rle::Searchable;
 
 use crate::{Frontier, LV};
-use crate::causalgraph::agent_assignment::AgentAssignment;
+use crate::causalgraph::agent_assignment::{AgentAssignment, ClientID};
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::{ExtendFromSlice, push_str};
+use crate::encoding::tools::{ExtendFromSlice, push_str, push_uuid};
 use crate::encoding::varint::*;
 use crate::frontier::sort_frontier;
 
@@ -92,7 +92,7 @@ pub(crate) fn write_parents_raw<R: ExtendFromSlice>(result: &mut R, parents: &[L
                     }
                     Err(name) => {
                         write_parent_diff(result, 1, has_more, true);
-                        push_str(result, name);
+                        push_uuid(result, name);
                     }
                 }
                 // And the sequence number.
@@ -129,7 +129,7 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, aa: &mut A
                 },
                 1 => {
                     // This is a foreign (unknown) item.
-                    let agent_name = reader.next_str()?;
+                    let agent_name = reader.next_uuid()?;
                     let agent = aa.get_or_create_agent_id(agent_name);
                     if persist {
                         read_map.agent_map.push((agent, 0));
@@ -177,7 +177,7 @@ mod test {
         let mut result = vec![];
         let mut write_map = WriteMap::new();
         let mut aa = AgentAssignment::new();
-        let seph = aa.get_or_create_agent_id("seph");
+        let seph = aa.get_or_create_agent_id_from_str("seph");
         aa.assign_lv_to_client_next_seq(seph, (0..10).into());
         // Item 1: A ROOT item:
         write_parents_raw(&mut result, &[], 0, true, &mut write_map, &aa);
@@ -193,7 +193,7 @@ mod test {
         write_parents_raw(&mut result, &[3, 8], 30, true, &mut write_map, &aa);
 
         let mut aa_out = AgentAssignment::new();
-        let george = aa_out.get_or_create_agent_id("george");
+        let george = aa_out.get_or_create_agent_id_from_str("george");
         aa_out.assign_lv_to_client_next_seq(george, (0..100).into());
 
         let mut read_map = ReadMap::new();
@@ -205,7 +205,7 @@ mod test {
         assert!(frontier.is_root());
 
         // 2. Foreign agent
-        let seph = aa_out.get_or_create_agent_id("seph");
+        let seph = aa_out.get_or_create_agent_id_from_str("seph");
         aa_out.assign_lv_to_client_next_seq(seph, (100..110).into());
         let frontier = read_parents_raw(&mut reader, true, &mut aa_out, 10, &mut read_map).unwrap();
         assert_eq!(frontier.as_ref(), &[105, 106]);

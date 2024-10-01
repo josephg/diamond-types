@@ -184,12 +184,12 @@ impl ListOpLog {
         self.iter_range_simple(range).map(|pair| (pair.0.1, pair.1).into())
     }
 
-    pub fn iter_full(&self) -> impl Iterator<Item=(TextOperation, GraphEntrySimple, RemoteVersionSpan<'_>)> + '_ {
+    pub fn iter_full(&self) -> impl Iterator<Item=(TextOperation, GraphEntrySimple, RemoteVersionSpan)> + '_ {
         // self.iter_ops()
         rle_zip3(self.iter_ops(), self.iter_history(), self.iter_remote_mappings())
     }
 
-    pub fn iter_full_range(&self, range: DTRange) -> impl Iterator<Item=(TextOperation, GraphEntrySimple, RemoteVersionSpan<'_>)> + '_ {
+    pub fn iter_full_range(&self, range: DTRange) -> impl Iterator<Item=(TextOperation, GraphEntrySimple, RemoteVersionSpan)> + '_ {
         rle_zip3(self.iter_ops_range(range), self.iter_history_range(range), self.iter_remote_mappings_range(range))
     }
 }

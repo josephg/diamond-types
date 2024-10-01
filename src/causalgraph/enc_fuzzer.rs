@@ -32,7 +32,7 @@ fn fuzz_cg_flat(seed: u64, verbose: bool) {
 
     for c in &mut cgs {
         for a in &agents {
-            c.get_or_create_agent_id(*a);
+            c.get_or_create_agent_id_from_str(*a);
         }
     }
 
@@ -45,7 +45,7 @@ fn fuzz_cg_flat(seed: u64, verbose: bool) {
             let idx = rng.gen_range(0..cgs.len());
             let cg = &mut cgs[idx];
 
-            let agent_id = cg.get_or_create_agent_id(agents[idx]);
+            let agent_id = cg.get_or_create_agent_id_from_str(agents[idx]);
             let num = rng.gen_range(1..10);
             cg.assign_local_op(agent_id, num);
         }
