@@ -9,7 +9,7 @@ use uuid::Uuid;
 use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 use crate::dtrange::DTRange;
 use crate::{Frontier, LV};
-use crate::causalgraph::agent_assignment::{AgentAssignment, ClientID};
+use crate::causalgraph::agent_assignment::{AgentAssignment, ClientId};
 use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 
 // /// Remote IDs are IDs you can pass to a remote peer.
@@ -19,7 +19,7 @@ use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct RemoteVersion(pub ClientID, pub usize);
+pub struct RemoteVersion(pub ClientId, pub usize);
 
 // impl<'a> From<&'a RemoteVersionOwned> for RemoteVersion<'a> {
 //     fn from(rv: &'a RemoteVersionOwned) -> Self {

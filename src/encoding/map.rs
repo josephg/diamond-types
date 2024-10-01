@@ -1,7 +1,7 @@
 use uuid::Uuid;
 use rle::HasLength;
 use crate::{AgentId, DTRange, KVPair, RleVec, LV, Frontier, CausalGraph};
-use crate::causalgraph::agent_assignment::{ClientData, ClientID};
+use crate::causalgraph::agent_assignment::{ClientData, ClientId};
 use crate::causalgraph::graph::Graph;
 use crate::rle::RleSpanHelpers;
 
@@ -122,7 +122,7 @@ impl WriteMap {
         self.txn_map.insert(KVPair(local_range.start, output_range));
     }
 
-    pub(crate) fn map_mut(&mut self, client_data: &[ClientData], agent: AgentId, persist: bool) -> Result<AgentId, ClientID> {
+    pub(crate) fn map_mut(&mut self, client_data: &[ClientData], agent: AgentId, persist: bool) -> Result<AgentId, ClientId> {
         // debug_assert_ne!(agent, ROOT_AGENT);
 
         let agent = agent as usize;

@@ -8,21 +8,25 @@ use crate::rle::{KVPair, RleVec};
 
 pub mod remote_ids;
 
-pub type ClientID = Uuid;
+pub type ClientId = Uuid;
 
-pub fn root_clientid() -> ClientID {
+pub fn root_clientid() -> ClientId {
     Uuid::nil()
 }
 
 #[derive(Debug, Clone)]
-pub enum ClientIDConversionError {
+pub enum ClientIdConversionError {
     StringNotAscii,
     StringTooLong,
 }
 
-pub fn client_id_from_str(s: &str) -> Result<ClientID, ClientIDConversionError> {
+pub fn client_id_from_str(s: &str) -> Result<ClientId, ClientIdConversionError> {
     if !s.is_ascii() {
-        return Err(ClientIDConversionError::StringNotAscii);
+        return Err(ClientIdConversionError::StringNotAscii);
+    }
+
+    if s.len() > 14 {
+        return Err(ClientIdConversionError::StringTooLong);
     }
 
     // if s.len()
@@ -47,7 +51,7 @@ pub fn client_id_from_str(s: &str) -> Result<ClientID, ClientIDConversionError> 
 #[derive(Clone, Debug)]
 pub(crate) struct ClientData {
     /// Used to map from client's name / hash to its numerical ID.
-    pub(crate) name: ClientID,
+    pub(crate) name: ClientId,
 
     /// This is a packed RLE in-order list of all operations from this client.
     ///
@@ -121,13 +125,13 @@ pub const MAX_AGENT_NAME_LENGTH: usize = 50;
 impl AgentAssignment {
     pub fn new() -> Self { Self::default() }
 
-    pub fn get_agent_id(&self, name: ClientID) -> Option<AgentId> {
+    pub fn get_agent_id(&self, name: ClientId) -> Option<AgentId> {
         self.client_data.iter()
             .position(|client_data| client_data.name == name)
             .map(|id| id as AgentId)
     }
 
-    pub fn get_or_create_agent_id(&mut self, name: ClientID) -> AgentId {
+    pub fn get_or_create_agent_id(&mut self, name: ClientId) -> AgentId {
         // TODO: -> Result or something so this can be handled.
         if name == Uuid::nil() { panic!("Nil agent ID is reserved"); }
 

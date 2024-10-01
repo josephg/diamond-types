@@ -5,7 +5,7 @@ use rle::zip::rle_zip;
 
 use crate::{AgentId, CausalGraph, LV};
 use crate::causalgraph::*;
-use crate::causalgraph::agent_assignment::ClientID;
+use crate::causalgraph::agent_assignment::ClientId;
 use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier};
 use crate::causalgraph::agent_span::AgentSpan;
 use crate::causalgraph::entry::CGEntry;
@@ -19,7 +19,7 @@ impl CausalGraph {
 
     // There's a lot of methods in agent_assignment that we could wrap here. This is my one
     // admission to practicality.
-    pub fn get_or_create_agent_id(&mut self, name: ClientID) -> AgentId {
+    pub fn get_or_create_agent_id(&mut self, name: ClientId) -> AgentId {
         self.agent_assignment.get_or_create_agent_id(name)
     }
     pub fn get_or_create_agent_id_from_str(&mut self, name: &str) -> AgentId {

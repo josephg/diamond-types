@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 use rle::Searchable;
 
 use crate::{Frontier, LV};
-use crate::causalgraph::agent_assignment::{AgentAssignment, ClientID};
+use crate::causalgraph::agent_assignment::{AgentAssignment, ClientId};
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::parseerror::ParseError;

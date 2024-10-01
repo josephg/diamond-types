@@ -3,7 +3,7 @@ use humansize::{BINARY, format_size};
 use crate::list::{ListBranch, ListCRDT, ListOpLog};
 use crate::{AgentId, Frontier, LV};
 use rle::HasLength;
-use crate::causalgraph::agent_assignment::{client_id_from_str, ClientID};
+use crate::causalgraph::agent_assignment::{client_id_from_str, ClientId};
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::dtrange::DTRange;
@@ -219,7 +219,7 @@ impl ListCRDT {
         self.oplog.print_stats(detailed);
     }
 
-    pub fn get_or_create_agent_id(&mut self, name: ClientID) -> AgentId {
+    pub fn get_or_create_agent_id(&mut self, name: ClientId) -> AgentId {
         self.oplog.get_or_create_agent_id(name)
     }
 

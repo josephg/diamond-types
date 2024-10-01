@@ -15,7 +15,7 @@ use crate::unicount::{chars_to_bytes, count_chars};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::causalgraph::agent_assignment::{client_id_from_str, ClientID};
+use crate::causalgraph::agent_assignment::{client_id_from_str, ClientId};
 use crate::rle::rle_vec::RleStats;
 
 impl Default for ListOpLog {
@@ -47,18 +47,18 @@ impl ListOpLog {
         branch
     }
 
-    pub fn get_or_create_agent_id(&mut self, name: ClientID) -> AgentId {
+    pub fn get_or_create_agent_id(&mut self, name: ClientId) -> AgentId {
         self.cg.agent_assignment.get_or_create_agent_id(name)
     }
     pub fn get_or_create_agent_id_from_str(&mut self, name: &str) -> AgentId {
         self.cg.agent_assignment.get_or_create_agent_id(client_id_from_str(name).unwrap())
     }
 
-    pub(crate) fn get_agent_id(&self, name: ClientID) -> Option<AgentId> {
+    pub(crate) fn get_agent_id(&self, name: ClientId) -> Option<AgentId> {
         self.cg.agent_assignment.get_agent_id(name)
     }
 
-    pub fn get_agent_name(&self, agent: AgentId) -> ClientID {
+    pub fn get_agent_name(&self, agent: AgentId) -> ClientId {
         self.cg.agent_assignment.get_agent_name(agent)
     }
 
