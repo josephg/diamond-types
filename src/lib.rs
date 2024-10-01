@@ -197,7 +197,7 @@ pub use ::rle::HasLength;
 use causalgraph::graph::Graph;
 pub use frontier::Frontier;
 
-use crate::causalgraph::agent_assignment::remote_ids::RemoteVersion;
+use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontierOwned, RemoteVersion, RemoteVersionOwned};
 use crate::causalgraph::agent_span::AgentVersion;
 pub use crate::causalgraph::CausalGraph;
 pub use crate::dtrange::DTRange;
@@ -446,6 +446,38 @@ pub struct SerializedOps<'a> {
     #[cfg_attr(feature = "serde", serde(borrow))]
     map_ops: Vec<(RemoteVersion<'a>, RemoteVersion<'a>, &'a str, CreateValue)>,
     text_ops: Vec<(RemoteVersion<'a>, RemoteVersion<'a>, ListOpMetrics)>,
+    text_context: ListOperationCtx,
+}
+
+impl<'a> From<SerializedOps<'a>> for SerializedOpsOwned {
+    fn from(ops: SerializedOps<'a>) -> Self {
+        Self {
+            cg_changes: ops.cg_changes,
+            map_ops: ops.map_ops.into_iter().map(|(crdt_name, rv, key, val)| {
+                (crdt_name.to_owned(), rv.to_owned(), SmartString::from(key), val)
+            }).collect(),
+            text_ops: ops.text_ops.into_iter().map(|(crdt_name, rv, metrics)| {
+                (crdt_name.to_owned(), rv.to_owned(), metrics)
+            }).collect(),
+            text_context: ops.text_context,
+        }
+    }
+}
+
+impl<'a> SerializedOps<'a> {
+    fn to_owned(self) -> SerializedOpsOwned {
+        self.into()
+    }
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct SerializedOpsOwned {
+    cg_changes: Vec<u8>,
+
+    // The version of the op, and the name of the containing CRDT.
+    map_ops: Vec<(RemoteVersionOwned, RemoteVersionOwned, SmartString, CreateValue)>,
+    text_ops: Vec<(RemoteVersionOwned, RemoteVersionOwned, ListOpMetrics)>,
     text_context: ListOperationCtx,
 }
 
