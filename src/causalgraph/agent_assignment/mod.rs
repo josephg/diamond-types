@@ -16,15 +16,10 @@ pub fn root_clientid() -> ClientId {
 
 #[derive(Debug, Clone)]
 pub enum ClientIdConversionError {
-    StringNotAscii,
     StringTooLong,
 }
 
 pub fn client_id_from_str(s: &str) -> Result<ClientId, ClientIdConversionError> {
-    if !s.is_ascii() {
-        return Err(ClientIdConversionError::StringNotAscii);
-    }
-
     if s.len() > 14 {
         return Err(ClientIdConversionError::StringTooLong);
     }
@@ -238,4 +233,38 @@ impl AgentAssignment {
             )
         }
     }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::causalgraph::agent_assignment::client_id_from_str;
+
+    #[test]
+    fn uuids_from_string_are_ordered_correctly() {
+        let strings = &[
+            "",
+            "a",
+            "b",
+            "c",
+            "aa",
+            "ab",
+            "ba",
+            "bc",
+            " a",
+            "aaa",
+        ];
+        
+        for a in strings.iter() {
+            for b in strings.iter() {
+                let str_cmp = a.cmp(b);
+                
+                let aa = client_id_from_str(*a).unwrap();
+                let bb = client_id_from_str(*b).unwrap();
+                let uuid_cmp = aa.cmp(&bb);
+                
+                assert_eq!(str_cmp, uuid_cmp, "Ordering invalid: '{a}' / '{b}'");
+            }
+        }
+    }
+    
 }

@@ -41,6 +41,7 @@ mod serde_encoding {
     use crate::causalgraph::summary::{VersionSummary, VersionSummaryFlat, VSEntry};
     use crate::DTRange;
     use smartstring::alias::String as SmartString;
+    use uuid::Uuid;
 
     impl Serialize for VersionSummary {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
@@ -64,7 +65,7 @@ mod serde_encoding {
         fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'de> {
             let mut vs = VersionSummary(Vec::with_capacity(map.size_hint().unwrap_or(0)));
 
-            while let Some((k, v)) = map.next_entry::<SmartString, SmallVec<DTRange, 2>>()? {
+            while let Some((k, v)) = map.next_entry::<Uuid, SmallVec<DTRange, 2>>()? {
                 vs.0.push(VSEntry {
                     name: k,
                     seq_ranges: v,
@@ -102,7 +103,7 @@ mod serde_encoding {
         fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'de> {
             let mut vs = VersionSummaryFlat(Vec::with_capacity(map.size_hint().unwrap_or(0)));
 
-            while let Some((k, v)) = map.next_entry::<SmartString, usize>()? {
+            while let Some((k, v)) = map.next_entry::<Uuid, usize>()? {
                 vs.0.push((k, v))
             }
             Ok(vs)
