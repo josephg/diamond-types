@@ -35,6 +35,23 @@ impl<A, B> Remainder<A, B> {
             }
         })
     }
+    
+    pub(crate) fn take_from_either<AI, BI>(&mut self, ai: &mut AI, bi: &mut BI) -> (Option<A>, Option<B>)
+        where AI: Iterator<Item=A>, BI: Iterator<Item=B>
+    {
+        match take(self) {
+            Remainder::Nothing => {
+                // Fetch from both.
+                (ai.next(), bi.next())
+            }
+            Remainder::SomeA(a) => {
+                (Some(a), bi.next())
+            }
+            Remainder::SomeB(b) => {
+                (ai.next(), Some(b))
+            }
+        }
+    }
 }
 
 /// A RleZip is a zip iterator over 2 SplitableSpan iterators. Each item it yields contains the

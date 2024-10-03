@@ -12,6 +12,7 @@ pub mod zip;
 pub mod take_max_iter;
 pub mod intersect;
 pub mod rlerun;
+pub mod subtract;
 // mod gapbuffer;
 // pub mod iter_ctx;
 

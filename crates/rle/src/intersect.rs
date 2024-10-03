@@ -1,6 +1,7 @@
 use crate::{HasRleKey, HasLength, SplitableSpan};
 use crate::zip::Remainder;
 
+/// An intersection iterator returns the sub-items which are contained in both A and B. 
 #[derive(Debug, Clone)]
 pub struct RleIntersect<A, B, const FWD: bool = true> where A: Iterator, B: Iterator
 {
