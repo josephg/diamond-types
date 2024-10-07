@@ -16,6 +16,7 @@ use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::parseerror::ParseError;
 use crate::branch::btree_range_for_crdt;
 use crate::causalgraph::agent_assignment::root_clientid;
+use crate::causalgraph::agent_span::AgentSpan;
 use crate::frontier::{is_sorted_iter_uniq, is_sorted_slice};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::TextOperation;
@@ -228,6 +229,16 @@ impl OpLog {
 
     pub fn local_map_set(&mut self, agent: AgentId, crdt: LVKey, key: &str, value: CreateValue) -> LV {
         let v = self.cg.assign_local_op(agent, 1).start;
+        self.local_map_set_internal(v, crdt, key, value)
+    }
+
+    pub fn local_map_set2(&mut self, rv0: RemoteVersion, crdt: LVKey, key: &str, value: CreateValue) -> LV {
+        let v = self.cg.assign_local_known_span2(rv0.into()).start;
+        self.local_map_set_internal(v, crdt, key, value)
+    }
+    
+    /// Assumes version is already assigned.
+    fn local_map_set_internal(&mut self, v: LV, crdt: LVKey, key: &str, value: CreateValue) -> LV {
         if let CreateValue::NewCRDT(kind) = value {
             self.create_child_crdt(v, kind);
         }

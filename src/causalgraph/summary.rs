@@ -20,7 +20,7 @@ pub struct VSEntry {
 /// A full version summary names the ranges of known sequence numbers for each agent. This is useful
 /// when synchronizing changes.
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
-pub struct VersionSummary(Vec<VSEntry>);
+pub struct VersionSummary(pub Vec<VSEntry>);
 
 /// A flat version summary just names the **next** sequence number from each user agent. This is
 /// useful when the agent IDs are guaranteed to be sequential - that is, for graphs with the
@@ -212,6 +212,7 @@ impl AgentAssignment {
 }
 
 impl CausalGraph {
+    /// Returns (common frontier, remainder).
     pub fn intersect_with_flat_summary(&self, summary: &VersionSummaryFlat, frontier: &[LV]) -> (Frontier, Option<VersionSummaryFlat>) {
         let mut remainder: Option<VersionSummaryFlat> = None;
         // We'll just accumulate all the versions we see and check for dominators.
@@ -234,6 +235,7 @@ impl CausalGraph {
         )
     }
 
+    /// Returns (common frontier, remainder).
     pub fn intersect_with_summary(&self, summary: &VersionSummary, frontier: &[LV]) -> (Frontier, Option<VersionSummary>) {
         let mut remainder: Option<VersionSummary> = None;
 

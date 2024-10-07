@@ -17,7 +17,7 @@ use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 // #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 // pub struct RemoteVersionOwned(pub ClientID, pub usize);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteVersion(pub ClientId, pub usize);
 
@@ -77,6 +77,18 @@ impl MergableSpan for RemoteVersionSpan {
 
     fn append(&mut self, other: Self) {
         self.1.append(other.1)
+    }
+}
+
+impl From<RemoteVersion> for RemoteVersionSpan {
+    fn from(v: RemoteVersion) -> Self {
+        RemoteVersionSpan(v.0, v.1.into())
+    }
+}
+
+impl From<&RemoteVersion> for RemoteVersionSpan {
+    fn from(v: &RemoteVersion) -> Self {
+        RemoteVersionSpan(v.0, v.1.into())
     }
 }
 

@@ -6,7 +6,7 @@ use rle::zip::rle_zip;
 use crate::{AgentId, CausalGraph, LV};
 use crate::causalgraph::*;
 use crate::causalgraph::agent_assignment::ClientId;
-use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier};
+use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersionSpan};
 use crate::causalgraph::agent_span::AgentSpan;
 use crate::causalgraph::entry::CGEntry;
 use crate::causalgraph::graph::GraphEntrySimple;
@@ -90,17 +90,41 @@ impl CausalGraph {
         if cfg!(debug_assertions) { self.check_flat(); }
 
         let start = self.len();
-        let span = (start .. start + num).into();
+        let lv_span = (start .. start + num).into();
 
-        self.agent_assignment.assign_lv_to_client_next_seq(agent, span);
-        self.graph.push(self.version.as_ref(), span);
-        self.version.replace_with_1(span.last());
-        span
+        self.agent_assignment.assign_lv_to_client_next_seq(agent, lv_span);
+        self.graph.push(self.version.as_ref(), lv_span);
+        self.version.replace_with_1(lv_span.last());
+        lv_span
+    }
+
+    /// This will panic if the span is already known / in use.
+    pub fn assign_local_known_span(&mut self, span: AgentSpan) -> DTRange {
+        let lv_span = self.merge_and_assign_nonoverlapping_internal(span);
+        self.graph.push(self.version.as_ref(), lv_span);
+        self.version.replace_with_1(lv_span.last());
+        lv_span
+    }
+
+    pub fn assign_local_known_span2(&mut self, span: RemoteVersionSpan) -> DTRange {
+        let agent = self.get_or_create_agent_id(span.0);
+        self.assign_local_known_span(AgentSpan {
+            agent,
+            seq_range: span.1,
+        })
     }
 
     /// An alternate variant of merge_and_assign which is slightly faster, but will panic if the
     /// specified span is already included in the causal graph.
     pub fn merge_and_assign_nonoverlapping(&mut self, parents: &[LV], span: AgentSpan) -> DTRange {
+        let lv_span = self.merge_and_assign_nonoverlapping_internal(span);
+        self.graph.push(parents, lv_span);
+        self.version.advance_by_known_run(parents, lv_span);
+        lv_span
+    }
+
+    /// Internal only. This function does not update self.version. Use one of the callers.
+    fn merge_and_assign_nonoverlapping_internal(&mut self, span: AgentSpan) -> DTRange {
         let time_start = self.len();
 
         // Agent ID must have already been assigned.
@@ -110,20 +134,18 @@ impl CausalGraph {
         // Note I only need to check the start of the seq_range.
         let (x, _offset) = client_data.lv_for_seq.find_sparse(span.seq_range.start);
         if let Err(range) = x {
-            assert!(range.end >= span.seq_range.end, "Time range already assigned");
+            assert!(range.end >= span.seq_range.end, "Seq range already assigned");
         } else {
-            panic!("Time range already assigned");
+            panic!("Seq range already assigned");
         }
 
-        let time_span = (time_start .. time_start + span.len()).into();
+        let lv_span = (time_start .. time_start + span.len()).into();
 
         // Almost always appending to the end but its possible for the same agent ID to be used on
         // two concurrent branches, then transmitted in a different order.
-        client_data.lv_for_seq.insert(KVPair(span.seq_range.start, time_span));
+        client_data.lv_for_seq.insert(KVPair(span.seq_range.start, lv_span));
         self.agent_assignment.client_with_lv.push(KVPair(time_start, span));
-        self.graph.push(parents, time_span);
-        self.version.advance_by_known_run(parents, time_span);
-        time_span
+        lv_span
     }
 
     /// This method merges the specified entry into the causal graph. The incoming data might

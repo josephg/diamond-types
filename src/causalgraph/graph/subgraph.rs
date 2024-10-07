@@ -41,6 +41,8 @@ impl Graph {
         self.subgraph_raw(filter_iter, parents)
     }
 
+    // pub fn subgraph_in(&self, cg:
+
     // The filter iterator must be reverse-sorted.
     pub(crate) fn subgraph_raw<I: Iterator<Item=DTRange>>(&self, rev_filter_iter: I, parents: &[LV]) -> (Graph, Frontier) {
         // This algorithm iterates backwards through the causal graph looking for regions which
@@ -232,8 +234,16 @@ impl Graph {
             root_child_indexes,
         }, filtered_frontier)
     }
+    
+    /// Project a frontier in the local graph (self) onto some other_graph
+    pub fn project_onto_other_graph(&self, frontier: &[LV], other_graph: &Graph) -> Frontier {
+        let filter_iter = other_graph.entries.iter()
+            .map(|e| e.span)
+            .rev();
+        self.project_onto_subgraph_raw(filter_iter, frontier)
+    }
 
-    pub(crate) fn project_onto_subgraph(&self, filter: &[DTRange], frontier: &[LV]) -> Frontier {
+    pub fn project_onto_subgraph(&self, filter: &[DTRange], frontier: &[LV]) -> Frontier {
         let filter_iter = filter.iter().copied().rev();
         self.project_onto_subgraph_raw(filter_iter, frontier)
     }
