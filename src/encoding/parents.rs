@@ -144,6 +144,10 @@ pub(crate) fn read_parents_raw(reader: &mut BufParser, persist: bool, aa: &mut A
             };
 
             let seq = reader.next_usize()?;
+
+            // dbg!(agent, seq, aa.try_agent_version_to_lv((agent, seq)));
+            // dbg!(&aa.client_data);
+
             aa.try_agent_version_to_lv((agent, seq))
                 .ok_or(ParseError::DataMissing)? // missing expected (agent, seq).
         };

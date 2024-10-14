@@ -229,8 +229,6 @@ mod listmerge;
 
 #[cfg(any(test, feature = "gen_test_data"))]
 mod list_fuzzer_tools;
-#[cfg(test)]
-mod fuzzer;
 mod branch;
 mod textinfo;
 mod oplog;
@@ -376,6 +374,8 @@ pub(crate) struct RegisterInfo {
     ops: Vec<ValPair>,
 
     /// Cached version(s) which together store the current HEAD for this register.
+    ///
+    /// The numbers here are indexes into the ops vec.
     supremum: SmallVec<usize, 2>,
 }
 

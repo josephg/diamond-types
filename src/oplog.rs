@@ -508,15 +508,15 @@ impl OpLog {
         let mut cg_changes = Vec::new();
         let mut text_crdts_to_send = BTreeSet::new();
         let mut map_crdts_to_send = BTreeSet::new();
-        for range_rev in diff_rev.iter() {
-            let iter = self.cg.iter_range(*range_rev);
+        for range in diff_rev.iter().rev() {
+            let iter = self.cg.iter_range(*range);
             write_cg_entry_iter(&mut cg_changes, iter, &mut write_map, &self.cg);
 
-            for (_, text_crdt) in self.text_index.range(*range_rev) {
+            for (_, text_crdt) in self.text_index.range(*range) {
                 text_crdts_to_send.insert(*text_crdt);
             }
 
-            for (_, (map_crdt, key)) in self.map_index.range(*range_rev) {
+            for (_, (map_crdt, key)) in self.map_index.range(*range) {
                 // dbg!(map_crdt, key);
                 map_crdts_to_send.insert((*map_crdt, key));
             }
@@ -528,7 +528,7 @@ impl OpLog {
             let crdt_name = self.crdt_name_to_remote(crdt);
             let entry = self.map_keys.get(&(crdt, key.clone()))
                 .unwrap();
-            for r in diff_rev.iter() {
+            for r in diff_rev.iter().rev() {
                 // Find all the unknown ops.
                 // TODO: Add a flag to trim this to only the most recent ops.
                 let start_idx = entry.ops
@@ -551,7 +551,7 @@ impl OpLog {
         for crdt in text_crdts_to_send {
             let crdt_name = self.crdt_name_to_remote(crdt);
             let info = &self.texts[&crdt];
-            for r in diff_rev.iter() {
+            for r in diff_rev.iter().rev() {
                 for KVPair(lv, op) in info.ops.iter_range_ctx(*r, &info.ctx) {
                     // dbg!(&op);
 

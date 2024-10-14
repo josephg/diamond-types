@@ -178,32 +178,32 @@ impl AgentAssignment {
     pub fn intersect_with_summary_full<V>(&self, summary: &VersionSummary, mut visitor: V)
         where V: FnMut(Uuid, DTRange, Option<LV>)
     {
-        for VSEntry { name, seq_ranges } in summary.0.iter() {
+        for VSEntry { name, seq_ranges: summ_seq_ranges } in summary.0.iter() {
             if let Some(agent_id) = self.get_agent_id(name.clone()) {
                 let client_data = &self.client_data[agent_id as usize];
 
-                for seq_range in seq_ranges {
+                for summ_seq_range in summ_seq_ranges {
                     // entries.iter_range skips missing entries, so we need to manually yield those.
-                    let mut expect_next_seq = seq_range.start;
-                    for entry in client_data.lv_for_seq.iter_range(*seq_range) {
-                        let seq_range = entry.range();
+                    let mut expect_next_seq = summ_seq_range.start;
+                    for entry in client_data.lv_for_seq.iter_range(*summ_seq_range) {
+                        let self_seq_range = entry.range();
 
-                        if seq_range.start > expect_next_seq {
-                            visitor(name.clone(), (expect_next_seq..seq_range.start).into(), None);
+                        if self_seq_range.start > expect_next_seq {
+                            visitor(name.clone(), (expect_next_seq..self_seq_range.start).into(), None);
                         }
 
-                        expect_next_seq = seq_range.end;
+                        expect_next_seq = self_seq_range.end;
 
-                        visitor(name.clone(), seq_range, Some(entry.1.start));
+                        visitor(name.clone(), self_seq_range, Some(entry.1.start));
                     }
 
-                    if expect_next_seq < seq_range.end {
-                        visitor(name.clone(), (expect_next_seq..seq_range.end).into(), None);
+                    if expect_next_seq < summ_seq_range.end {
+                        visitor(name.clone(), (expect_next_seq..summ_seq_range.end).into(), None);
                     }
                 }
             } else {
                 // We're missing all operations for this user agent. Yield back the data from vs.
-                for seq_range in seq_ranges {
+                for seq_range in summ_seq_ranges {
                     visitor(name.clone(), *seq_range, None);
                 }
             }

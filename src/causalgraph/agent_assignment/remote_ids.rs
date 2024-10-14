@@ -17,7 +17,7 @@ use crate::causalgraph::agent_span::{AgentVersion, AgentSpan};
 // #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 // pub struct RemoteVersionOwned(pub ClientID, pub usize);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteVersion(pub ClientId, pub usize);
 
