@@ -442,7 +442,7 @@ struct RegisterState {
 pub struct SerializedOps<'a> {
     cg_changes: Vec<u8>,
 
-    // The version of the op, and the name of the containing CRDT.
+    // The CRDT being edited, the remote version of the op, the key and the new value.
     #[cfg_attr(feature = "serde", serde(borrow))]
     map_ops: Vec<(RemoteVersion, RemoteVersion, &'a str, CreateValue)>,
     text_ops: Vec<(RemoteVersion, RemoteVersion, ListOpMetrics)>,
