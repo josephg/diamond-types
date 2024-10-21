@@ -67,7 +67,7 @@ pub(crate) fn write_cg_entry<R: ExtendFromSlice>(result: &mut R, data: &CGEntry,
     // Keep the txn map up to date. This is only needed for parents, and it maps from local time
     // values -> output time values (the order in the file). This lets the file be ordered
     // differently from the local time.
-    let next_output_time = write_map.txn_map.last_entry()
+    let next_output_lv = write_map.txn_map.last_entry()
         .map(|e| e.1.end())
         .unwrap_or(0);
 
@@ -76,7 +76,7 @@ pub(crate) fn write_cg_entry<R: ExtendFromSlice>(result: &mut R, data: &CGEntry,
 
     if persist {
         // This is a bit of an inefficient API. Might be better to pass start / len.
-        write_map.insert_known(data.time_span(), next_output_time);
+        write_map.insert_known(data.lv_range(), next_output_lv);
     }
 
     // We always write the agent assignment info.
@@ -85,7 +85,7 @@ pub(crate) fn write_cg_entry<R: ExtendFromSlice>(result: &mut R, data: &CGEntry,
     // And optionally write parents info.
     // Write the parents, if it makes sense to do so.
     if write_parents {
-        write_parents_raw(result, data.parents.as_ref(), next_output_time, persist, write_map, aa);
+        write_parents_raw(result, data.parents.as_ref(), next_output_lv, persist, write_map, aa);
     }
 }
 
@@ -216,7 +216,6 @@ pub(crate) fn write_cg_entry_iter<I: Iterator<Item=CGEntry>, R: ExtendFromSlice>
     // let mut last_seq_for_agent: LastSeqForAgent = bumpvec![in bump; 0; client_data.len()];
     Merger::new(|entry: CGEntry, _| {
         write_cg_entry(result, &entry, write_map, true, &cg.agent_assignment);
-        // write_agent_assignment_span(&mut result, None, span, map, true, client_data);
     }).flush_iter(iter);
 }
 

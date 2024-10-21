@@ -48,7 +48,7 @@ impl CGEntry {
             && self.parents[0] == self.start - 1
     }
 
-    pub fn time_span(&self) -> DTRange {
+    pub fn lv_range(&self) -> DTRange {
         (self.start..self.start + self.len()).into()
     }
 

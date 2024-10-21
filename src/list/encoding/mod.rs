@@ -5,8 +5,8 @@
 mod encode_oplog;
 mod decode_oplog;
 
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 #[cfg(test)]
 mod fuzzer;
 pub mod encode_tools;

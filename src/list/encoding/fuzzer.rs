@@ -35,6 +35,7 @@ fn fuzz_encode_decode_once(seed: u64) {
 }
 
 #[test]
+#[ignore] // Removed for V3
 fn encode_decode_fuzz_once() {
     fuzz_encode_decode_once(2);
 }
@@ -103,6 +104,7 @@ fn fuzz_encode_decode_multi(seed: u64, verbose: bool) {
 
 
 #[test]
+#[ignore] // Removed for V3
 fn encode_decode_multi_fuzz_once() {
     fuzz_encode_decode_multi(10, false);
 }

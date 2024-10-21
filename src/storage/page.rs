@@ -56,7 +56,7 @@ use crate::storage::*;
 /// - Pointer to the previous page (or 0 if none)
 /// - Cursor data
 #[derive(Clone)]
-pub(super) struct Page<const T: usize> {
+pub(super) struct Page<const PAGE_TYPE: usize> {
     // *** Mutable fields ***
 
     data: [u8; DEFAULT_PAGE_SIZE],

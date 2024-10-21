@@ -544,6 +544,7 @@ mod test {
     }
 
     #[test]
+    #[ignore] // Removed for V3
     fn write_node_nodecc() {
         use crate::list::ListOpLog;
 

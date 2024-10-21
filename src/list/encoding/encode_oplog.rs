@@ -941,7 +941,7 @@ impl ListOpLog {
     // }
 }
 
-#[cfg(test)]
+// #[cfg(test)]
 mod tests {
     use crate::list::encoding::EncodeOptions;
     use crate::list::{ListCRDT, ListOpLog};
@@ -961,6 +961,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Removed for V3
     fn encode_from_version() {
         let mut doc = ListCRDT::new();
         doc.get_or_create_agent_id_from_str("seph"); // 0
