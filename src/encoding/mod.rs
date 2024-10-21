@@ -49,6 +49,9 @@ pub(crate) enum ChunkType {
     CausalGraph = 21,
     Operations = 20,
     // OpTypeAndPosition = 22,
+    
+    CGClientIDs = 22,
+    CGEntries = 23,
 
     // PatchContent = 24,
     // /// ContentKnown is a RLE expressing which ranges of patches have known content

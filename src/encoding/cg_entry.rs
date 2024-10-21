@@ -1,19 +1,22 @@
 use rle::HasLength;
 
 use crate::{AgentId, CausalGraph, DTRange, Frontier, KVPair, LV};
-use crate::causalgraph::agent_assignment::AgentAssignment;
+use crate::causalgraph::agent_assignment::{AgentAssignment, ClientId};
+use crate::causalgraph::agent_assignment::remote_ids::VersionConversionError;
 use crate::causalgraph::agent_span::AgentSpan;
 // use bumpalo::collections::vec::Vec as BumpVec;
 use crate::causalgraph::entry::CGEntry;
 use crate::encoding::bufparser::BufParser;
 use crate::encoding::map::{ReadAgentMap, ReadMap, WriteMap};
-use crate::encoding::Merger;
+use crate::encoding::{ChunkType, Merger};
+use crate::encoding::chunk_reader::ChunkReader;
 use crate::encoding::parents::{read_parents_raw, write_parents_raw};
 use crate::encoding::parseerror::ParseError;
-use crate::encoding::tools::{ExtendFromSlice, push_str, push_uuid};
+use crate::encoding::tools::{ExtendFromSlice, push_chunk, push_str, push_uuid};
 use crate::encoding::varint::{mix_bit_u32, num_encode_zigzag_i64, push_u32, push_u64, push_usize, strip_bit_usize_2};
 
-pub(crate) fn write_cg_aa<R: ExtendFromSlice>(result: &mut R, write_parents: bool, span: AgentSpan,
+pub(crate) fn write_cg_aa(ids_out: &mut impl ExtendFromSlice, entries_out: &mut impl ExtendFromSlice,
+                          write_parents: bool, span: AgentSpan,
                           agent_map: &mut WriteMap, persist: bool, aa: &AgentAssignment) {
     // We only write the parents info if parents is non-trivial.
 
@@ -23,41 +26,29 @@ pub(crate) fn write_cg_aa<R: ExtendFromSlice>(result: &mut R, write_parents: boo
     // - Or the same agent made concurrent changes to multiple branches. The operations may
     //   be reordered to any order which obeys the time dag's partial order.
 
-    let mapped_agent = agent_map.map_mut(&aa.client_data, span.agent, persist);
+    let mapped_agent = agent_map.map_and_store(span.agent, &aa.client_data, ids_out);
+
     let delta = agent_map.seq_delta(span.agent, span.seq_range, persist);
+    let has_jump = delta != 0;
+
+    // The first stored number is the mapped agent, mixed with bits for whether we're storing
+    // parents & whether there's a seq jump before the start of this run.
+    let mut n = mix_bit_u32(mapped_agent, has_jump);
+    n = mix_bit_u32(n, write_parents);
+    push_u32(entries_out, n);
 
     // I tried adding an extra bit field to mark len != 1 - so we can skip encoding the
     // length. But in all the data sets I've looked at, len is so rarely 1 that it increased
     // filesize.
-    let has_jump = delta != 0;
-
-    let mut write_n = |mapped_agent: u32, is_known: bool| {
-        let mut n = mix_bit_u32(mapped_agent, has_jump);
-        n = mix_bit_u32(n, is_known);
-        n = mix_bit_u32(n, write_parents);
-        push_u32(result, n);
-    };
-
-    match mapped_agent {
-        Ok(mapped_agent) => {
-            // Agent is already known in the file. Just use its mapped ID.
-            write_n(mapped_agent, true);
-        }
-        Err(name) => {
-            write_n(0, false);
-            push_uuid(result, name);
-        }
-    }
-
-    push_usize(result, span.len());
+    push_usize(entries_out, span.len());
 
     if has_jump {
-        push_u64(result, num_encode_zigzag_i64(delta as i64));
+        push_u64(entries_out, num_encode_zigzag_i64(delta as i64));
     }
 }
 
-
-pub(crate) fn write_cg_entry<R: ExtendFromSlice>(result: &mut R, data: &CGEntry, write_map: &mut WriteMap,
+pub(crate) fn write_cg_entry(ids_out: &mut impl ExtendFromSlice, entries_out: &mut impl ExtendFromSlice,
+                             data: &CGEntry, write_map: &mut WriteMap,
                              persist: bool, aa: &AgentAssignment) {
     debug_assert_ne!(data.span.agent, AgentId::MAX, "Internal consistency error: ROOT showing up");
     let write_parents = !data.parents_are_trivial()
@@ -80,21 +71,32 @@ pub(crate) fn write_cg_entry<R: ExtendFromSlice>(result: &mut R, data: &CGEntry,
     }
 
     // We always write the agent assignment info.
-    write_cg_aa(result, write_parents, data.span, write_map, persist, aa);
+    write_cg_aa(ids_out, entries_out, write_parents, data.span, write_map, persist, aa);
 
     // And optionally write parents info.
     // Write the parents, if it makes sense to do so.
     if write_parents {
-        write_parents_raw(result, data.parents.as_ref(), next_output_lv, persist, write_map, aa);
+        write_parents_raw(ids_out, entries_out, data.parents.as_ref(), next_output_lv, write_map, aa);
     }
 }
 
-fn read_cg_aa(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, agent_map: &mut ReadAgentMap)
+/// Read the IDs from an ID chunk.
+pub(crate) fn read_ids(reader: &mut BufParser, agent_map: &mut ReadAgentMap, aa: &mut AgentAssignment) -> Result<(), ParseError> {
+    // IDs are just a series of packed UUIDs. Nothing to it.
+    while !reader.is_empty() {
+        let uuid = reader.next_uuid()?;
+        let agent = aa.get_or_create_agent_id(uuid);
+        agent_map.push((agent, 0));
+    }
+
+    Ok(())
+}
+
+fn read_cg_aa(reader: &mut BufParser, persist: bool, agent_map: &mut ReadAgentMap)
               -> Result<(bool, AgentSpan), ParseError>
 {
     // Bits are:
     // has_parents
-    // is_known
     // delta != 0 (has_jump)
     // (mapped agent)
 
@@ -102,36 +104,25 @@ fn read_cg_aa(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, a
     let mut n = reader.next_usize()?;
 
     let has_parents = strip_bit_usize_2(&mut n);
-    let is_known = strip_bit_usize_2(&mut n);
     let has_jump = strip_bit_usize_2(&mut n);
     let mapped_agent = n;
 
-    let (agent, last_seq, idx) = if !is_known {
-        if mapped_agent != 0 { return Err(ParseError::GenericInvalidData); }
-        let agent_name = reader.next_uuid()?;
-        let agent = aa.get_or_create_agent_id(agent_name);
-        let idx = agent_map.len();
-        if persist {
-            agent_map.push((agent, 0));
-        }
-        (agent, 0, idx)
-    } else {
-        let entry = agent_map[mapped_agent];
-        (entry.0, entry.1, mapped_agent)
+    let Some(entry) = agent_map.get_mut(mapped_agent) else {
+        return Err(ParseError::InvalidRemoteID(VersionConversionError::UnknownAgent));
     };
+    let (agent, last_seq) = *entry;
 
     let len = reader.next_usize()?;
 
-    let jump = if has_jump {
-        reader.next_zigzag_isize()?
-    } else { 0 };
+    let start = if has_jump {
+        let jump = reader.next_zigzag_isize()?;
+        isize_try_add(last_seq, jump).ok_or(ParseError::GenericInvalidData)?
+    } else { last_seq };
 
-    let start = isize_try_add(last_seq, jump)
-        .ok_or(ParseError::GenericInvalidData)?;
     let end = start + len;
 
     if persist {
-        agent_map[idx].1 = end;
+        entry.1 = end;
     }
 
     Ok((has_parents, AgentSpan {
@@ -150,7 +141,7 @@ fn isize_try_add(x: usize, y: isize) -> Option<usize> {
 /// NOTE: This does not put the returned data into the causal graph, or update read_map's txn_map.
 fn read_raw(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, next_file_time: LV, read_map: &mut ReadMap) -> Result<(Frontier, AgentSpan), ParseError> {
     // First we have agent assignment, then optional parents.
-    let (has_parents, span) = read_cg_aa(reader, persist, aa, &mut read_map.agent_map)?;
+    let (has_parents, span) = read_cg_aa(reader, persist, &mut read_map.agent_map)?;
 
     let parents = if has_parents {
         read_parents_raw(reader, persist, aa, next_file_time, read_map)?
@@ -166,9 +157,9 @@ fn read_raw(reader: &mut BufParser, persist: bool, aa: &mut AgentAssignment, nex
 ///
 /// On success, returns the new CG entry read. Note: the new entry's contents might not be
 /// contiguous in the causal graph.
-pub(crate) fn read_cg_entry_into_cg_nonoverlapping(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<CGEntry, ParseError> {
+pub(crate) fn read_cg_entry_into_cg_nonoverlapping(entry_reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<CGEntry, ParseError> {
     let next_file_time = read_map.len();
-    let (parents, span) = read_raw(reader, persist, &mut cg.agent_assignment, next_file_time, read_map)?;
+    let (parents, span) = read_raw(entry_reader, persist, &mut cg.agent_assignment, next_file_time, read_map)?;
     let merged_span = cg.merge_and_assign_nonoverlapping(parents.as_ref(), span);
 
     if persist {
@@ -182,9 +173,9 @@ pub(crate) fn read_cg_entry_into_cg_nonoverlapping(reader: &mut BufParser, persi
     })
 }
 
-pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<DTRange, ParseError> {
+pub(crate) fn read_cg_entry_into_cg(entry_reader: &mut BufParser, persist: bool, cg: &mut CausalGraph, read_map: &mut ReadMap) -> Result<DTRange, ParseError> {
     let mut next_file_lv = read_map.len();
-    let (parents, span) = read_raw(reader, persist, &mut cg.agent_assignment, next_file_lv, read_map)?;
+    let (parents, span) = read_raw(entry_reader, persist, &mut cg.agent_assignment, next_file_lv, read_map)?;
     // dbg!((&parents, span));
 
     // Save it into the causal graph, and update
@@ -212,44 +203,66 @@ pub(crate) fn read_cg_entry_into_cg(reader: &mut BufParser, persist: bool, cg: &
     Ok(merged_span)
 }
 
-pub(crate) fn write_cg_entry_iter<I: Iterator<Item=CGEntry>, R: ExtendFromSlice>(result: &mut R, iter: I, write_map: &mut WriteMap, cg: &CausalGraph) {
+pub(crate) fn write_cg_entry_iter<I: Iterator<Item=CGEntry>>(ids_out: &mut impl ExtendFromSlice, entries_out: &mut impl ExtendFromSlice, iter: I, write_map: &mut WriteMap, cg: &CausalGraph) {
     // let mut last_seq_for_agent: LastSeqForAgent = bumpvec![in bump; 0; client_data.len()];
     Merger::new(|entry: CGEntry, _| {
-        write_cg_entry(result, &entry, write_map, true, &cg.agent_assignment);
+        write_cg_entry(ids_out, entries_out, &entry, write_map, true, &cg.agent_assignment);
     }).flush_iter(iter);
 }
 
 impl CausalGraph {
     // TODO: Consider making a variant of this function which takes a to_version as well. Currently
     // this just serializes everything from frontier -> current version.
-    pub fn serialize_changes_since(&self, frontier: &[LV]) -> Vec<u8> {
-        let mut msg = vec![];
+    pub fn serialize_changes_since(&self, frontier: &[LV]) -> (Vec<u8>, Vec<u8>) {
+        let mut entries_chunk = vec![];
+        // let mut ids_chunk = vec![];
+        let mut ids_chunk = Vec::with_capacity(self.agent_assignment.client_data.len() * size_of::<ClientId>());
+
         let mut write_map = WriteMap::with_capacity_from(&self.agent_assignment.client_data);
         for range in self.diff_since(frontier) {
             let iter = self.iter_range(range);
-            write_cg_entry_iter(&mut msg, iter, &mut write_map, self);
+            write_cg_entry_iter(&mut ids_chunk, &mut entries_chunk, iter, &mut write_map, self);
         }
 
-        msg
+        (ids_chunk, entries_chunk)
     }
 
-    pub fn merge_serialized_changes(&mut self, msg: &[u8]) -> Result<DTRange, ParseError> {
-        self.merge_serialized_changes2(msg).map(|(range, _map)| range)
+    pub fn serialize_changes_since2(&self, frontier: &[LV]) -> Vec<u8> {
+        let (ids, entries) = self.serialize_changes_since(frontier);
+
+        let mut result = vec![];
+        push_chunk(&mut result, ChunkType::CGClientIDs, &ids).unwrap();
+        push_chunk(&mut result, ChunkType::CGEntries, &entries).unwrap();
+
+        result
     }
-    
-    pub fn merge_serialized_changes2(&mut self, msg: &[u8]) -> Result<(DTRange, ReadMap), ParseError> {
+
+    pub fn merge_serialized_changes_raw(&mut self, mut ids: BufParser, mut entries: BufParser) -> Result<(DTRange, ReadMap), ParseError> {
         let mut read_map = ReadMap::new();
-        let mut buf = BufParser(msg);
+        read_ids(&mut ids, &mut read_map.agent_map, &mut self.agent_assignment)?;
 
         let start = self.len();
-        while !buf.is_empty() {
-            read_cg_entry_into_cg(&mut buf, true, self, &mut read_map)?;
+
+        while !entries.is_empty() {
+            read_cg_entry_into_cg(&mut entries, true, self, &mut read_map)?;
         }
 
         Ok((
             (start..self.len()).into(),
             read_map,
        ))
+    }
+
+    pub fn merge_serialized_changes(&mut self, ids: &[u8], entries: &[u8]) -> Result<DTRange, ParseError> {
+        self.merge_serialized_changes_raw(BufParser(ids), BufParser(entries)).map(|(range, _map)| range)
+    }
+
+    pub fn merge_serialized_changes2(&mut self, data: &[u8]) -> Result<DTRange, ParseError> {
+        let mut chunks = ChunkReader(BufParser(data));
+        let ids = chunks.expect_chunk(ChunkType::CGClientIDs)?;
+        let entries = chunks.expect_chunk(ChunkType::CGEntries)?;
+
+        self.merge_serialized_changes_raw(ids, entries).map(|(range, _map)| range)
     }
 }
 
@@ -259,15 +272,15 @@ mod test {
     use crate::CausalGraph;
 
     fn check_merges_into_subset(mut dest: CausalGraph, from_cg: &CausalGraph) {
-        let serialized = from_cg.serialize_changes_since(&[]);
+        let serialized = from_cg.serialize_changes_since2(&[]);
 
-        let range = dest.merge_serialized_changes(serialized.as_slice()).unwrap();
+        let range = dest.merge_serialized_changes2(serialized.as_slice()).unwrap();
 
         assert_eq!(from_cg, &dest);
         assert_eq!(range, (0..from_cg.len()).into());
 
         // Merging is idempotent.
-        let range = dest.merge_serialized_changes(serialized.as_slice()).unwrap();
+        let range = dest.merge_serialized_changes2(serialized.as_slice()).unwrap();
         assert_eq!(from_cg, &dest);
         assert!(range.is_empty());
     }

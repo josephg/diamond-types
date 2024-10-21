@@ -16,10 +16,10 @@ fn merge_changes(from_cg: &CausalGraph, into_cg: &mut CausalGraph, from_root: bo
     };
 
     // Serialize the changes from from_frontier.
-    let msg = from_cg.serialize_changes_since(from_frontier.as_ref());
+    let msg = from_cg.serialize_changes_since2(from_frontier.as_ref());
 
     // And merge them in!
-    into_cg.merge_serialized_changes(&msg).unwrap();
+    into_cg.merge_serialized_changes2(&msg).unwrap();
 }
 
 /// This fuzzer variant creates linear timelines from 3 different user agents. We still end up with

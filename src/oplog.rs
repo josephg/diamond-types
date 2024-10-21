@@ -11,12 +11,15 @@ use rle::{HasLength, SplitableSpanCtx};
 use crate::causalgraph::agent_assignment::remote_ids::RemoteVersion;
 use crate::{AgentId, CRDTKind, CreateValue, DTRange, DTValue, OpLog, LV, LVKey, RegisterInfo, RegisterValue, ROOT_CRDT_ID, SerializedOps, ValPair};
 use crate::encoding::bufparser::BufParser;
-use crate::encoding::cg_entry::{read_cg_entry_into_cg, write_cg_entry_iter};
+use crate::encoding::cg_entry::{read_cg_entry_into_cg, read_ids, write_cg_aa, write_cg_entry_iter};
 use crate::encoding::map::{ReadMap, WriteMap};
 use crate::encoding::parseerror::ParseError;
 use crate::branch::btree_range_for_crdt;
 use crate::causalgraph::agent_assignment::root_clientid;
 use crate::causalgraph::agent_span::AgentSpan;
+use crate::encoding::chunk_reader::ChunkReader;
+use crate::encoding::ChunkType;
+use crate::encoding::tools::{push_chunk, push_uuid};
 use crate::frontier::{is_sorted_iter_uniq, is_sorted_slice};
 use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
 use crate::list::operation::TextOperation;
@@ -499,18 +502,99 @@ impl OpLog {
     //     crdt.iter_xf_operations_from(&sel)
     // }
 
+    // pub fn ops_since_old(&self, since_frontier: &[LV]) -> SerializedOps {
+    //     let mut write_map = WriteMap::with_capacity_from(&self.cg.agent_assignment.client_data);
+    //
+    //     let diff_rev = self.cg.diff_since_rev(since_frontier);
+    //     // let bump = Bump::new();
+    //     // let mut result = bumpalo::collections::Vec::new_in(&bump);
+    //     let mut cg_changes = Vec::new();
+    //     let mut text_crdts_to_send = BTreeSet::new();
+    //     let mut map_crdts_to_send = BTreeSet::new();
+    //     for range in diff_rev.iter().rev() {
+    //         let iter = self.cg.iter_range(*range);
+    //         write_cg_entry_iter(&mut cg_changes, iter, &mut write_map, &self.cg);
+    //
+    //         for (_, text_crdt) in self.text_index.range(*range) {
+    //             text_crdts_to_send.insert(*text_crdt);
+    //         }
+    //
+    //         for (_, (map_crdt, key)) in self.map_index.range(*range) {
+    //             // dbg!(map_crdt, key);
+    //             map_crdts_to_send.insert((*map_crdt, key));
+    //         }
+    //     }
+    //
+    //     // Serialize map operations
+    //     let mut map_ops = Vec::new();
+    //     for (crdt, key) in map_crdts_to_send {
+    //         let crdt_name = self.crdt_name_to_remote(crdt);
+    //         let entry = self.map_keys.get(&(crdt, key.clone()))
+    //             .unwrap();
+    //         for r in diff_rev.iter().rev() {
+    //             // Find all the unknown ops.
+    //             // TODO: Add a flag to trim this to only the most recent ops.
+    //             let start_idx = entry.ops
+    //                 .binary_search_by_key(&r.start, |e| e.0)
+    //                 .unwrap_or_else(|idx| idx);
+    //
+    //             for pair in &entry.ops[start_idx..] {
+    //                 if pair.0 >= r.end { break; }
+    //
+    //                 // dbg!(pair);
+    //                 let rv = self.cg.agent_assignment.local_to_remote_version(pair.0);
+    //                 map_ops.push((crdt_name, rv, key.as_str(), pair.1.clone()));
+    //             }
+    //         }
+    //     }
+    //
+    //     // Serialize text operations
+    //     let mut text_context = ListOperationCtx::new();
+    //     let mut text_ops = Vec::new();
+    //     for crdt in text_crdts_to_send {
+    //         let crdt_name = self.crdt_name_to_remote(crdt);
+    //         let info = &self.texts[&crdt];
+    //         for r in diff_rev.iter().rev() {
+    //             for KVPair(lv, op) in info.ops.iter_range_ctx(*r, &info.ctx) {
+    //                 // dbg!(&op);
+    //
+    //                 let op_out = ListOpMetrics {
+    //                     loc: op.loc,
+    //                     kind: op.kind,
+    //                     content_pos: op.content_pos.map(|content_pos| {
+    //                         let content = info.ctx.get_str(op.kind, content_pos);
+    //                         text_context.push_str(op.kind, content)
+    //                     }),
+    //                 };
+    //                 let rv = self.cg.agent_assignment.local_to_remote_version(lv);
+    //                 text_ops.push((crdt_name, rv, op_out));
+    //             }
+    //         }
+    //     }
+    //
+    //     SerializedOps {
+    //         cg_changes,
+    //         map_ops,
+    //         text_ops,
+    //         text_context,
+    //     }
+    // }
+
     pub fn ops_since(&self, since_frontier: &[LV]) -> SerializedOps {
         let mut write_map = WriteMap::with_capacity_from(&self.cg.agent_assignment.client_data);
 
         let diff_rev = self.cg.diff_since_rev(since_frontier);
         // let bump = Bump::new();
         // let mut result = bumpalo::collections::Vec::new_in(&bump);
-        let mut cg_changes = Vec::new();
         let mut text_crdts_to_send = BTreeSet::new();
         let mut map_crdts_to_send = BTreeSet::new();
+
+        let mut ids = Vec::new();
+        let mut cg_entries = Vec::new();
+
         for range in diff_rev.iter().rev() {
             let iter = self.cg.iter_range(*range);
-            write_cg_entry_iter(&mut cg_changes, iter, &mut write_map, &self.cg);
+            write_cg_entry_iter(&mut ids, &mut cg_entries, iter, &mut write_map, &self.cg);
 
             for (_, text_crdt) in self.text_index.range(*range) {
                 text_crdts_to_send.insert(*text_crdt);
@@ -521,6 +605,15 @@ impl OpLog {
                 map_crdts_to_send.insert((*map_crdt, key));
             }
         }
+
+        // This is a bit inefficient, but its fine.
+        //
+        // Better to write the chunk header first, and use the "raw output" as the ids, and so on.
+        // - which would all avoid some allocations & copies.
+        let mut cg_changes = Vec::new();
+        push_chunk(&mut cg_changes, ChunkType::CGClientIDs, &ids).unwrap();
+        push_chunk(&mut cg_changes, ChunkType::CGEntries, &cg_entries).unwrap();
+
 
         // Serialize map operations
         let mut map_ops = Vec::new();
@@ -579,17 +672,7 @@ impl OpLog {
 
 
     pub fn merge_ops(&mut self, changes: SerializedOps) -> Result<DTRange, ParseError> {
-        let mut read_map = ReadMap::new();
-
-        let old_end = self.cg.len();
-
-        let mut buf = BufParser(&changes.cg_changes);
-        while !buf.is_empty() {
-            read_cg_entry_into_cg(&mut buf, true, &mut self.cg, &mut read_map)?;
-        }
-
-        let new_end = self.cg.len();
-        let new_range: DTRange = (old_end..new_end).into();
+        let new_range = self.cg.merge_serialized_changes2(&changes.cg_changes)?;
 
         // The code above will discard any operations we already know about. The new range could be empty, could
         // contain all of the new changes, or have some subset of them. We need to respect that in the code below

@@ -3,6 +3,7 @@ use rle::HasLength;
 use crate::{AgentId, DTRange, KVPair, RleVec, LV, Frontier, CausalGraph};
 use crate::causalgraph::agent_assignment::{ClientData, ClientId};
 use crate::causalgraph::graph::Graph;
+use crate::encoding::tools::{ExtendFromSlice, push_uuid};
 use crate::rle::RleSpanHelpers;
 
 pub(crate) type ReadAgentMap = Vec<(AgentId, usize)>;
@@ -122,26 +123,35 @@ impl WriteMap {
         self.txn_map.insert(KVPair(local_range.start, output_range));
     }
 
-    pub(crate) fn map_mut(&mut self, client_data: &[ClientData], agent: AgentId, persist: bool) -> Result<AgentId, ClientId> {
-        // debug_assert_ne!(agent, ROOT_AGENT);
-
+    /// Map the local agent ID into a "remote" agent ID (in the output file).
+    ///
+    /// If the agent ID isn't known, we add it to the passed ID output chunk.
+    ///
+    /// TODO: Consider making this return a Result for when the ID chunk is full.
+    pub(crate) fn map_and_store(&mut self, agent: AgentId,
+                                client_data: &[ClientData], ids_out: &mut impl ExtendFromSlice) -> AgentId {
         let agent = agent as usize;
-        self.ensure_capacity(agent + 1);
 
-        self.agent_map[agent].0.ok_or_else(|| {
-            // We'll quietly map it internally, but still return None because the caller needs to
-            // know to write the name itself to the file.
-            let mapped = self.next_mapped_agent;
+        // Resize would be better but this gives the compiler nice guarantees.
+        while self.agent_map.len() < agent {
+            self.agent_map.push((None, 0));
+        }
 
-            if persist {
+        match self.agent_map[agent].0 {
+            None => {
+                // println!("MAPPING {agent} -> {} (client {:?})", self.next_mapped_agent, client_data[agent].name);
+                let mapped = self.next_mapped_agent;
                 self.agent_map[agent] = (Some(mapped), 0);
-                // println!("Mapped agent {} -> {}", oplog.client_data[agent].name, mapped);
                 self.next_mapped_agent += 1;
+                push_uuid(ids_out, client_data[agent].name);
+                mapped
             }
-
-            client_data[agent].name
-        })
+            Some(agent) => {
+                agent
+            }
+        }
     }
+
 
     /// This is really gross.
     ///
@@ -157,6 +167,8 @@ impl WriteMap {
         })
     }
 
+    /// Get the delta from the last sequence number from this agent to the start of the specified
+    /// span. Stores the end of the span for the next seq_delta call.
     pub(super) fn seq_delta(&mut self, agent: AgentId, span: DTRange, persist: bool) -> isize {
         let agent = agent as usize;
         self.ensure_capacity(agent + 1);
