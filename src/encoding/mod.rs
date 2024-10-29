@@ -49,7 +49,7 @@ pub(crate) enum ChunkType {
     CausalGraph = 21,
     Operations = 20,
     // OpTypeAndPosition = 22,
-    
+
     CGClientIDs = 22,
     CGEntries = 23,
 
