@@ -6,7 +6,7 @@ use crate::dtrange::{debug_lv_raw, DTRange};
 
 pub mod rle_vec;
 // pub mod rle_packed_vec;
-// pub mod rle_packed_vec2;
+pub mod rle_vec_packed;
 
 pub trait RleSpanHelpers: HasRleKey + HasLength {
     fn end(&self) -> usize {

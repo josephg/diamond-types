@@ -53,3 +53,8 @@ impl HasRleKey for Range<u32> {
         self.start as _
     }
 }
+
+// This is sort of useful sometimes but ?? its a bit weird.
+// impl HasRleKey for usize {
+//     fn rle_key(&self) -> usize { *self }
+// }

@@ -1,5 +1,5 @@
 use std::ops::Range;
-use crate::{HasLength, MergableSpan, SplitableSpanHelpers};
+use crate::{HasLength, HasRleKey, MergableSpan, SplitableSpanHelpers};
 
 /// A splitablespan which contains a single element repeated N times. This is used in some examples.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq, Default)]
@@ -57,6 +57,10 @@ impl<T: Clone> RleDRun<T> {
             val,
         }
     }
+}
+
+impl<T> HasRleKey for RleDRun<T> {
+    fn rle_key(&self) -> usize { self.start }
 }
 
 impl<T: Clone> HasLength for RleDRun<T> {
