@@ -3,6 +3,7 @@ use std::fmt::{Debug, Formatter};
 use rle::{HasRleKey, HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanCtx};
 pub use rle_vec::RleVec;
 use crate::dtrange::{debug_lv_raw, DTRange};
+use crate::rle::rle_vec_packed::PackedRleItem;
 
 pub mod rle_vec;
 // pub mod rle_packed_vec;
@@ -127,6 +128,31 @@ impl<V: Default> Default for KVPair<V> {
         KVPair(0, V::default())
     }
 }
+
+
+// impl<V: AugmentWithEnd> PackedRleItem for KVPair<V> where V::Augmented: MergableSpan {
+//     type Packed = ();
+//
+//     fn pack(&self) -> (Self::Packed, usize) {
+//         todo!()
+//     }
+//
+//     fn unpack(packed: &Self::Packed, end: usize) -> Self {
+//         todo!()
+//     }
+//
+//     fn packed_key(packed: &Self::Packed) -> usize {
+//         todo!()
+//     }
+//
+//     fn can_append_packed(a: &Self::Packed, a_end: usize, b: &Self::Packed) -> bool {
+//         todo!()
+//     }
+//
+//     fn append_packed(item: &mut Self::Packed, item_end: usize, other: Self::Packed) {
+//         todo!()
+//     }
+// }
 
 #[allow(unused)]
 pub fn try_trim<V>(mut x: V, target_span: DTRange) -> Option<V>

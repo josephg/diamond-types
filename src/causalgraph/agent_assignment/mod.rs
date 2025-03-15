@@ -3,7 +3,8 @@ use smartstring::alias::String as SmartString;
 use rle::HasLength;
 use crate::causalgraph::agent_span::{AgentSpan, AgentVersion};
 use crate::{AgentId, DTRange, LV};
-use crate::rle::{KVPair, RleVec};
+use crate::rle::{KVPair, RleSpanHelpers, RleVec};
+use crate::rle::rle_vec_packed::{PackedRleItem, RlePackedVec};
 
 pub mod remote_ids;
 
@@ -26,6 +27,40 @@ pub(crate) struct ClientData {
     pub(crate) lv_for_seq: RleVec<KVPair<DTRange>>,
 }
 
+impl PackedRleItem for KVPair<AgentSpan> {
+    type Packed = KVPair<AgentVersion>;
+
+    fn pack(&self) -> (Self::Packed, usize) {
+        (KVPair(self.0, (self.1.agent, self.1.seq_range.start)), self.end())
+    }
+
+    fn unpack(packed: &Self::Packed, end: usize) -> Self {
+        let len = end - packed.0;
+        KVPair(
+            packed.0,
+            AgentSpan {
+                agent: packed.1.0,
+                seq_range: (packed.1.1 .. packed.1.1 + len).into()
+            }
+        )
+    }
+
+    fn packed_key(packed: &Self::Packed) -> usize {
+        packed.0
+    }
+
+    fn can_append_packed(a: &Self::Packed, a_end: usize, b: &Self::Packed) -> bool {
+        // self.agent == other.agent && self.seq_range.end == other.seq_range.start
+        let len = a_end - a.0;
+
+        a_end == b.0 // LVs line up
+            && a.1.0 == b.1.0 // Agents match. (urgh these tuples tho)
+            && (a.1.1 + len) == b.1.1 // a.seq_end == b.seq_start.
+    }
+
+    fn append_packed(_item: &mut Self::Packed, _item_end: usize, _other: Self::Packed) {}
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AgentAssignment {
 
@@ -35,8 +70,7 @@ pub struct AgentAssignment {
     /// This is used to map Local versions to remote CRDT IDs.
     ///
     /// List is packed.
-    pub(crate) client_with_lv: RleVec<KVPair<AgentSpan>>,
-    // pub(crate) client_with_lv: RlePackedVec<>
+    pub(crate) client_with_lv: RlePackedVec<KVPair<AgentSpan>>,
     
     /// For each client, we store some data (above). This is indexed by AgentId.
     ///
@@ -140,7 +174,7 @@ impl AgentAssignment {
     pub(crate) fn local_span_to_agent_span(&self, version: DTRange) -> AgentSpan {
         debug_assert_ne!(version.start, usize::MAX);
 
-        let (loc, offset) = self.client_with_lv.find_packed_with_offset(version.start);
+        let (loc, offset) = self.client_with_lv.find_with_offset(version.start).unwrap();
         let start = loc.1.seq_range.start + offset;
         let end = usize::min(loc.1.seq_range.end, start + version.len());
         AgentSpan {

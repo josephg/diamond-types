@@ -106,7 +106,7 @@ impl PartialEq<Self> for CausalGraph {
                 // Although op is contiguous, and all in a run from the same agent, the same isn't
                 // necessarily true of other_op! The max length we can consume here is limited by
                 // other_op's size in agent assignments.
-                let (run, offset) = other.agent_assignment.client_with_lv.find_packed_with_offset(other_time);
+                let (run, offset) = other.agent_assignment.client_with_lv.find_with_offset(other_time).unwrap();
                 let mut other_id = run.1;
                 if offset > 0 { other_id.truncate_keeping_right(offset); }
 

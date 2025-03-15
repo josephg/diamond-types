@@ -19,6 +19,7 @@ use crate::dtrange::DTRange;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use smallvec::{SmallVec, smallvec};
+use crate::rle::rle_vec_packed::{PackedRleItem, RlePackedVec};
 
 /// This type stores metadata for a run of transactions created by the users.
 ///
@@ -47,6 +48,7 @@ pub(crate) struct GraphEntryInternal {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Graph {
+    // TODO: Replace this with a RlePackedVec.
     pub(crate) entries: RleVec<GraphEntryInternal>,
 
     // The index of all items with ROOT as a direct parent.

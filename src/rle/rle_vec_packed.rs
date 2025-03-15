@@ -12,7 +12,7 @@ use crate::rle::{RleKeyedAndSplitable, RleSpanHelpers};
 /// This is a variant of RleVec which guarantees that all items are "packed". That is, there are
 /// no gaps between items.
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct RlePackedVec3<V: PackedRleItem>(pub Vec<V::Packed>, usize);
+pub struct RlePackedVec<V: PackedRleItem>(Vec<V::Packed>, usize);
 
 
 pub trait PackedRleItem: HasRleKey + MergableSpan {
@@ -51,7 +51,7 @@ pub trait PackedRleItem: HasRleKey + MergableSpan {
 //     fn append(&mut self, other: Self, at_key: usize);
 // }
 
-impl<V: PackedRleItem> RlePackedVec3<V> {
+impl<V: PackedRleItem> RlePackedVec<V> {
     pub fn new() -> Self { Self(Vec::new(), 0) }
 
     /// Append a new value to the end of the RLE list. This method is fast - O(1) average time.
@@ -74,6 +74,17 @@ impl<V: PackedRleItem> RlePackedVec3<V> {
 
         self.0.push(val_packed);
         false
+    }
+
+    pub fn pop_raw(&mut self) -> Option<(V::Packed, usize)> {
+        let raw_entry = self.0.pop()?;
+        let end = self.1;
+        self.1 = V::packed_key(&raw_entry);
+        Some((raw_entry, end))
+    }
+
+    pub fn pop(&mut self) -> Option<V> {
+        self.pop_raw().map(|(p, end)| V::unpack(&p, end))
     }
 
     // pub fn push2(&mut self, val: BoundItem<V>) -> bool {
@@ -102,14 +113,14 @@ impl<V: PackedRleItem> RlePackedVec3<V> {
         }
     }
 
-    pub fn get_raw(&self, idx: usize) -> Option<(&V::Packed, usize)> {
+    pub fn get_entry_raw(&self, idx: usize) -> Option<(&V::Packed, usize)> {
         let item = self.0.get(idx)?;
         let end = self.end_key_for_idx(idx);
         Some((item, end))
     }
 
-    pub fn get(&self, idx: usize) -> Option<V> {
-        self.get_raw(idx).map(V::unpack_tuple)
+    pub fn get_entry(&self, idx: usize) -> Option<V> {
+        self.get_entry_raw(idx).map(V::unpack_tuple)
     }
 
     // pub fn start_key_for_idx(&self, idx: usize) -> usize {
@@ -123,7 +134,13 @@ impl<V: PackedRleItem> RlePackedVec3<V> {
     // }
 
     // Forward to vec.
-    // pub fn last_entry_raw(&self) -> Option<&V> { self.0.last() }
+    pub fn last_entry_raw(&self) -> Option<(&V::Packed, usize)> {
+        self.0.last().map(|e| (e, self.1))
+    }
+    
+    pub fn last_entry_mut(&mut self) -> Option<(&mut V::Packed, &mut usize)> {
+        self.0.last_mut().map(|e| (e, &mut self.1))
+    }
 
     pub fn first_entry_raw(&self) -> Option<(&V::Packed, usize)> {
         // This is how [x].last() is implemented. Super cool.
@@ -155,31 +172,32 @@ impl<V: PackedRleItem> RlePackedVec3<V> {
 
     // pub fn iter_merged(&self) -> MergeIter<Cloned<std::slice::Iter<V>>> { self.0.iter().cloned().merge_spans() }
 
-    // pub fn get_stats(&self) -> RleStats {
-    //     RleStats {
-    //         entry_byte_size: size_of::<V>(),
-    //         len: self.0.len(),
-    //         capacity: self.0.capacity(),
-    //     }
-    // }
-    //
-    // pub fn print_stats(&self, name: &str, _detailed: bool) {
-    //     let size = size_of::<V>();
-    //     println!("-------- {} PACKED RLE 2 --------", name);
-    //     println!("number of {} byte entries: {}", size, self.0.len());
-    //     println!("allocated size: {}", format_size(
-    //         self.0.capacity() * size,
-    //         DECIMAL
-    //     ));
-    //     println!("(used size: {})", format_size(
-    //         self.0.len() * size,
-    //         DECIMAL
-    //     ));
-    //
-    //     // for item in self.0[..100].iter() {
-    //     //     println!("{:?}", item);
-    //     // }
-    // }
+    pub fn get_stats(&self) -> RleStats {
+        RleStats {
+            entry_byte_size: size_of::<V::Packed>(),
+            len: self.0.len(),
+            capacity: self.0.capacity(),
+        }
+    }
+
+    pub fn print_stats(&self, name: &str, _detailed: bool) {
+        let size = size_of::<V::Packed>();
+        println!("-------- {} PACKED RLE --------", name);
+        println!("number of {} byte packed entries: {}", size, self.0.len());
+        println!("allocated size: {}", format_size(
+            self.0.capacity() * size,
+            DECIMAL
+        ));
+        println!("(used size: {})", format_size(
+            self.0.len() * size,
+            DECIMAL
+        ));
+        println!("(Savings compared to unpacked: {} bytes)", self.0.len() * (size_of::<V>() - size));
+
+        // for item in self.0[..100].iter() {
+        //     println!("{:?}", item);
+        // }
+    }
 
     /// Find the index of the requested item via binary search. Returns None if the needle is past
     /// the end of the RLE vec.
@@ -233,28 +251,27 @@ impl<V: PackedRleItem> RlePackedVec3<V> {
         self.find_raw(needle).map(V::unpack_tuple)
     }
 
-    // /// Find the item at range, cloning and trimming it down to size. This is generally less
-    // /// efficient than using find_with_offset and friends, but its much more convenient.
-    // ///
-    // /// Note the returned value might be smaller than the passed range.
-    // ///
-    // /// The start of the item is the range start.
-    // #[allow(unused)]
-    // pub fn find_and_split(&self, range: DTRange) -> V where V: SplitableSpan {
-    //     self.find_and_split_ctx(range, &())
-    // }
-    //
-    // /// Returns None if the range start is past the end of the vec.
-    // #[allow(unused)]
-    // pub fn find_and_split_ctx(&self, range: DTRange, ctx: &V::Ctx) -> Option<V> where V: SplitableSpanCtx {
-    //     let (item, offset) = self.find_with_offset(range.start)?;
-    //     let mut item = item.clone();
-    //     item.truncate_keeping_right_ctx(offset, ctx);
-    //     if item.len() > range.len() {
-    //         item.truncate_ctx(range.len(), ctx);
-    //     }
-    //     item
-    // }
+    /// Find the item at range, cloning and trimming it down to size. This is generally less
+    /// efficient than using find_with_offset and friends, but its much more convenient.
+    ///
+    /// Note the returned value might be smaller than the passed range.
+    ///
+    /// The start of the item is the range start.
+    #[allow(unused)]
+    pub fn find_and_split(&self, range: DTRange) -> V where V: SplitableSpan + HasLength {
+        self.find_and_split_ctx(range, &())
+    }
+    
+    /// Returns None if the range start is past the end of the vec.
+    #[allow(unused)]
+    pub fn find_and_split_ctx(&self, range: DTRange, ctx: &V::Ctx) -> V where V: SplitableSpanCtx + HasLength {
+        let (mut item, offset) = self.find_with_offset(range.start).unwrap();
+        item.truncate_keeping_right_ctx(offset, ctx);
+        if item.len() > range.len() {
+            item.truncate_ctx(range.len(), ctx);
+        }
+        item
+    }
 
     /// Find an entry in the list with the specified key using binary search.
     ///
@@ -312,7 +329,7 @@ impl<V: PackedRleItem> RlePackedVec3<V> {
     // }
 }
 
-impl<X: HasLength, V: PackedRleItem> FromIterator<X> for RlePackedVec3<V> where V: From<X> {
+impl<X: HasLength, V: PackedRleItem> FromIterator<X> for RlePackedVec<V> where V: From<X> {
     fn from_iter<T: IntoIterator<Item=X>>(iter: T) -> Self {
         let mut rle = Self::new();
         for item in iter {
@@ -330,18 +347,18 @@ impl<X: HasLength, V: PackedRleItem> FromIterator<X> for RlePackedVec3<V> where 
 //     }
 // }
 
-impl<V: PackedRleItem> Default for RlePackedVec3<V> {
+impl<V: PackedRleItem> Default for RlePackedVec<V> {
     fn default() -> Self {
         Self(Vec::default(), 0)
     }
 }
 
-// impl<V: HasLength + MergableSpan + Searchable + HasRleKey> RlePackedVec<V> {
-//     pub fn get(&self, idx: usize) -> V::Item {
-//         let (v, offset) = self.find_packed_with_offset(idx);
-//         v.at_offset(offset)
-//     }
-// }
+impl<V: HasLength + Searchable + PackedRleItem> RlePackedVec<V> {
+    pub fn get(&self, idx: usize) -> V::Item {
+        let (v, offset) = self.find_with_offset(idx).unwrap();
+        v.at_offset(offset)
+    }
+}
 
 // // Seems kinda redundant but eh.
 // impl<V: HasLength + MergableSpan + Debug + Sized> AppendRle<V> for RlePackedVec<V> {
@@ -427,7 +444,7 @@ pub struct RlePackedVecRangeIter<'a, V: PackedRleItem, I: SplitableSpanCtx, F: F
     map_fn: F,
 }
 
-impl<V: PackedRleItem + SplitableSpanCtx> RlePackedVec3<V> {
+impl<V: PackedRleItem + SplitableSpanCtx> RlePackedVec<V> {
     pub fn iter_range(&self, range: DTRange) -> RlePackedVecRangeIter<V, V, impl Fn(&V::Packed, usize) -> V> where V: SplitableSpan {
         self.iter_range_ctx(range, &())
     }
@@ -437,7 +454,7 @@ impl<V: PackedRleItem + SplitableSpanCtx> RlePackedVec3<V> {
     }
 }
 
-impl<V: PackedRleItem> RlePackedVec3<V> {
+impl<V: PackedRleItem> RlePackedVec<V> {
     // Yeah these map functions are dirty, but only at compile time. At runtime they should be free.
     pub fn iter_range_map<I: SplitableSpan + HasLength, F: Fn(&V::Packed, usize) -> I>(&self, range: DTRange, map_fn: F) -> RlePackedVecRangeIter<V, I, F>
     {
@@ -562,7 +579,7 @@ mod tests {
 
     #[test]
     fn rle_iter_range() {
-        let mut rle: RlePackedVec3<DTRange> = RlePackedVec3::new();
+        let mut rle: RlePackedVec<DTRange> = RlePackedVec::new();
         rle.push((0..10).into());
 
         // This is a sad example.
@@ -572,7 +589,7 @@ mod tests {
 
     #[test]
     fn iter_empty() {
-        let rle: RlePackedVec3<DTRange> = RlePackedVec3::new();
+        let rle: RlePackedVec<DTRange> = RlePackedVec::new();
         let entries_a = rle.iter().collect::<Vec<_>>();
         // let entries_b = rle.iter_range_map((0..0).into(), |x, end| *x).collect::<Vec<_>>();
         let entries_c = rle.iter_range((0..0).into()).collect::<Vec<_>>();
@@ -583,7 +600,7 @@ mod tests {
 
     #[test]
     fn find_index_is_correct() {
-        let mut rle: RlePackedVec3<RleDRun<u8>> = RlePackedVec3::new();
+        let mut rle: RlePackedVec<RleDRun<u8>> = RlePackedVec::new();
         // rle.push_raw(RangeEnd)
         rle.push(RleDRun { val: 1, start: 0, end: 5 });
         rle.push(RleDRun { val: 1, start: 5, end: 10 }); // Should be merged.

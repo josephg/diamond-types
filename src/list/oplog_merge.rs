@@ -17,7 +17,7 @@ impl CausalGraph {
         //   method simply discards items as soon as we find them in self.
 
         // Much like diff(), this method could be optimized easily by checking for some common
-        // cases. I'm not sure how important is is though, since I doubt this method will be used
+        // cases. I'm not sure how important it is though, since I doubt this method will be used
         // much.
 
         let mut queue = BinaryHeap::new();
@@ -51,7 +51,7 @@ impl CausalGraph {
             }
 
             loop { // Add as much as we can from this txn.
-                let (other_span, offset) = other.agent_assignment.client_with_lv.find_packed_with_offset(ord);
+                let (other_span, offset) = other.agent_assignment.client_with_lv.find_with_offset(ord).unwrap();
                 let self_agent = agent_map[other_span.1.agent as usize];
                 let seq = other_span.1.seq_range.start + offset;
 
