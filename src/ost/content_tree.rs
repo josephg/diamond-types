@@ -440,6 +440,8 @@ impl<V: Content> ContentTree<V> {
     /// Mutate in-place up to replace_max items in the next entry pointed at by the cursor.
     ///
     /// The cursor ends up right after the modified item.
+    ///
+    /// Mutation function must not modify the item's length.
     pub(crate) fn mutate_entry<N, MapFn, R>(&mut self, dc: &mut DeltaCursor, replace_max: usize, notify: &mut N, map_fn: MapFn) -> (usize, R)
     where N: FnMut(V, LeafIdx), MapFn: FnOnce(&mut V) -> R
     {
@@ -828,7 +830,6 @@ impl<V: Content> ContentTree<V> {
         // The result is two nodes - old_leaf with items 0..N/2 and new_leaf with items N/2..N.
 
         let old_height = self.height;
-        // TODO: This doesn't currently use the pool of leaves that we have so carefully prepared.
 
         let new_leaf_idx = self.leaves.len(); // Weird instruction order for borrowck.
         let mut old_leaf = &mut self.leaves[old_idx.0];
@@ -1127,33 +1128,15 @@ impl<V: Content> ContentTree<V> {
         }
     }
 
+    // This function is useful because we can fetch a cursor without a delta, and the delta won't get
+    // flushed until later.
     pub(crate) fn emplace_cursor_unknown(&mut self, cursor: DeltaCursor) {
         assert!(self.cursor.is_none());
         self.cursor = Some((None, cursor));
     }
 
-    pub(crate) fn cursor_before_item(&self, id: V::Item, leaf_idx: LeafIdx) -> ContentCursor where V: Searchable {
-        // debug_assert!(self.cursor.is_none());
-
-        let leaf = &self[leaf_idx];
-
-        let mut elem_idx = usize::MAX;
-        let mut offset = usize::MAX;
-        for (idx, e) in leaf.children.iter().enumerate() {
-            if let Some(off) = e.get_offset(id) {
-                elem_idx = idx;
-                offset = off;
-                break;
-            }
-        }
-
-        assert_ne!(elem_idx, usize::MAX, "Could not find element in leaf");
-
-        ContentCursor { leaf_idx, elem_idx, offset }
-    }
-
     pub(crate) fn try_find_item(&mut self, id: V::Item) -> Option<DeltaCursor>
-        where V: Searchable
+    where V: Searchable
     {
         if let Some((_pos, cursor)) = self.cursor.take() {
             let leaf = &self[cursor.0.leaf_idx];
@@ -1175,6 +1158,18 @@ impl<V: Content> ContentTree<V> {
             cursor.flush(self);
         }
         None
+    }
+
+    pub(crate) fn cursor_before_item(&self, id: V::Item, leaf_idx: LeafIdx) -> ContentCursor where V: Searchable {
+        let leaf = &self[leaf_idx];
+
+        for (elem_idx, e) in leaf.children.iter().enumerate() {
+            if let Some(offset) = e.get_offset(id) {
+                return ContentCursor { leaf_idx, elem_idx, offset };
+            }
+        }
+
+        unreachable!("Could not find item in leaf");
     }
 
     pub(crate) fn mut_cursor_before_item(&mut self, id: V::Item, leaf_idx: LeafIdx) -> (DeltaCursor, Option<LenPair>)

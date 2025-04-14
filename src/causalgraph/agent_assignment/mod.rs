@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use smartstring::alias::String as SmartString;
-use rle::HasLength;
+use rle::{HasLength, Searchable};
 use crate::causalgraph::agent_span::{AgentSpan, AgentVersion};
 use crate::{AgentId, DTRange, LV};
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
@@ -27,6 +27,7 @@ pub(crate) struct ClientData {
     pub(crate) lv_for_seq: RleVec<KVPair<DTRange>>,
 }
 
+// TODO: Move this somewhere else. This should really work generically for all KVPair<X> for some X.
 impl PackedRleItem for KVPair<AgentSpan> {
     type Packed = KVPair<AgentVersion>;
 
@@ -59,6 +60,12 @@ impl PackedRleItem for KVPair<AgentSpan> {
     }
 
     fn append_packed(_item: &mut Self::Packed, _item_end: usize, _other: Self::Packed) {}
+
+    type PackedItem = AgentVersion;
+
+    fn at_offset_from_packed(packed: &Self::Packed, offset: usize) -> Self::PackedItem {
+        (packed.1.0, packed.1.1 + offset)
+    }
 }
 
 #[derive(Debug, Clone, Default)]

@@ -35,6 +35,9 @@ pub trait PackedRleItem: HasRleKey + MergableSpan {
     // - but that's more annoying to implement, and I need to pass a_end in somehow. Eh.
     fn can_append_packed(a: &Self::Packed, a_end: usize, b: &Self::Packed) -> bool;
     fn append_packed(item: &mut Self::Packed, item_end: usize, other: Self::Packed);
+
+    type PackedItem;
+    fn at_offset_from_packed(packed: &Self::Packed, offset: usize) -> Self::PackedItem;
 }
 
 
@@ -353,12 +356,18 @@ impl<V: PackedRleItem> Default for RlePackedVec<V> {
     }
 }
 
-impl<V: HasLength + Searchable + PackedRleItem> RlePackedVec<V> {
-    pub fn get(&self, idx: usize) -> V::Item {
-        let (v, offset) = self.find_with_offset(idx).unwrap();
-        v.at_offset(offset)
+impl<V: PackedRleItem> RlePackedVec<V> {
+    pub fn get(&self, idx: usize) -> V::PackedItem {
+        let (v, _, offset) = self.find_with_offset_raw(idx).unwrap();
+        V::at_offset_from_packed(v, offset)
     }
 }
+// impl<V: PackedRleItem> RlePackedVec<V> where V: Searchable {
+//     pub fn get(&self, idx: usize) -> V::Item {
+//         let (v, offset) = self.find_with_offset(idx).unwrap();
+//         v.at_offset(offset)
+//     }
+// }
 
 // // Seems kinda redundant but eh.
 // impl<V: HasLength + MergableSpan + Debug + Sized> AppendRle<V> for RlePackedVec<V> {
@@ -542,6 +551,12 @@ impl PackedRleItem for DTRange {
         // We do nothing here, since the only thing we would do is update the end position - but
         // thats taken care of for us.
     }
+
+    type PackedItem = usize;
+
+    fn at_offset_from_packed(packed: &Self::Packed, offset: usize) -> Self::PackedItem {
+        packed + offset
+    }
 }
 
 impl<T: Clone + Eq> PackedRleItem for RleDRun<T> {
@@ -568,7 +583,13 @@ impl<T: Clone + Eq> PackedRleItem for RleDRun<T> {
         a_end == b.0 && a.1 == b.1
     }
 
-    fn append_packed(_item: &mut Self::Packed, _item_end: usize, _other: Self::Packed) {} // Nothing to do here.
+    fn append_packed(_item: &mut Self::Packed, _item_end: usize, _other: Self::Packed) {}
+
+    type PackedItem = ();
+
+    fn at_offset_from_packed(packed: &Self::Packed, offset: usize) -> Self::PackedItem {
+        todo!()
+    } // Nothing to do here.
 }
 
 #[cfg(test)]

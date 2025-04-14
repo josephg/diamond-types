@@ -85,9 +85,6 @@ impl M2Tracker {
         // span state as an integer and just decrement it twice.
         while !range.is_empty() {
             if let Some(mut cursor) = self.range_tree.try_find_item(range.start) {
-                // crate::stats::marker_a();
-
-
                 // Try just modifying the item directly.
                 //
                 // The item will only exist in the range tree at all if it was an insert.
@@ -142,7 +139,11 @@ impl M2Tracker {
                         }
                     ).0;
 
-                    self.range_tree.emplace_cursor_unknown(cursor);
+                    if let Some(pos) = _pos {
+                        self.range_tree.emplace_cursor(pos, cursor);
+                    } else {
+                        self.range_tree.emplace_cursor_unknown(cursor);
+                    }
                 }
 
                 range.truncate_keeping_right(len);
