@@ -53,8 +53,9 @@ pub enum Marker {
     /// moved.
     InsPtr(LeafIdx),
 
-    /// For deletes we name the delete's target. Note this contains redundant information - since
-    /// we already have a length field.
+    /// For deletes we name the delete's target. Note the index tree stores the length of all items,
+    /// so the DelRange is just an LV for the start, and a field describing if we're going forwards
+    /// or backwards (backspace). 
     Del(DelRange),
 }
 

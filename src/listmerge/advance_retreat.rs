@@ -14,7 +14,6 @@ use crate::rev_range::RangeRev;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(super) struct QueryResult {
-    tag: ListOpKind,
     target: RangeRev,
     offset: usize,
     leaf_idx: LeafIdx,
@@ -43,7 +42,6 @@ impl M2Tracker {
                 // For inserts, the target is simply the range of the item.
                 // let start = lv - cursor.offset;
                 QueryResult {
-                    tag: Ins,
                     target: (start..end).into(),
                     offset,
                     leaf_idx,
@@ -59,7 +57,6 @@ impl M2Tracker {
                     fwd: target.fwd,
                 };
                 QueryResult {
-                    tag: Del,
                     target: rr,
                     offset,
                     leaf_idx: LeafIdx::default(),
@@ -112,7 +109,6 @@ impl M2Tracker {
                     target,
                     offset,
                     mut leaf_idx,
-                    ..
                 } = self.index_query(range.start);
 
                 let len = usize::min(target.len() - offset, range.len());
@@ -129,7 +125,7 @@ impl M2Tracker {
                         LeafIdx(usize::MAX) => self.marker_at(target_range.start),
                         x => x,
                     };
-                    let (mut cursor, _pos) = self.range_tree.mut_cursor_before_item(target_range.start, leaf_idx);
+                    let (mut cursor, pos) = self.range_tree.mut_cursor_before_item(target_range.start, leaf_idx);
                     target_range.start += self.range_tree.mutate_entry(
                         &mut cursor,
                         target_range.len(),
@@ -139,7 +135,10 @@ impl M2Tracker {
                         }
                     ).0;
 
-                    if let Some(pos) = _pos {
+                    // The position isn't actually used here, but if we know it, we can give it back
+                    // to the range_tree. This may help subsequent queries. Giving it back here gives
+                    // a 4% perf boost to one of the concurrent traces.
+                    if let Some(pos) = pos {
                         self.range_tree.emplace_cursor(pos, cursor);
                     } else {
                         self.range_tree.emplace_cursor_unknown(cursor);

@@ -1172,6 +1172,8 @@ impl<V: Content> ContentTree<V> {
         unreachable!("Could not find item in leaf");
     }
 
+    // This returns a LenPair when it can. Ideally, give this back when emplacing the returned
+    // cursor.
     pub(crate) fn mut_cursor_before_item(&mut self, id: V::Item, leaf_idx: LeafIdx) -> (DeltaCursor, Option<LenPair>)
         where V: Searchable
     {
@@ -1212,10 +1214,10 @@ impl<V: Content> ContentTree<V> {
                             pos.cur -= cur_offset;
                         }
                         if prev_elem.takes_up_space::<false>() {
-                            pos.end -= prev_elem.len() - actual_offset;
+                            pos.end += actual_offset - prev_elem.len();
                         }
                         if prev_elem.takes_up_space::<true>() {
-                            pos.cur -= prev_elem.len() - actual_offset;
+                            pos.cur += actual_offset - prev_elem.len();
                         }
                     }
 
@@ -1408,11 +1410,11 @@ impl<V: Content> ContentTree<V> {
             // The size is checked in dbg_check_walk().
 
             if leaf.is_last() { break; }
-            else {
-                let next_leaf = &self[leaf.next_leaf];
-                // assert!(next_leaf.bounds[0] > prev);
-                // assert_eq!(leaf.upper_bound, next_leaf.bounds[0]);
-            }
+            // else {
+            //     let next_leaf = &self[leaf.next_leaf];
+            //     // assert!(next_leaf.bounds[0] > prev);
+            //     // assert_eq!(leaf.upper_bound, next_leaf.bounds[0]);
+            // }
             leaf_idx = leaf.next_leaf;
         }
         assert_eq!(leaves_visited, self.leaves.len());
@@ -1748,12 +1750,6 @@ mod test {
         }
 
         fn mutate_entries_before_content<M>(&mut self, content_pos: usize, n: usize, mut mutate_fn: M) where M: FnMut(&mut V) {
-            // let mut idx = if content_pos == 0 { 0 } else {
-            //     self.idx_after_content_pos(content_pos - 1)
-            // };
-            // while self.0[idx].content_len_cur() == 0 { idx += 1; }
-            // let idx = if content_pos == 0 { 0 } else { self.idx_after_content_pos(content_pos - 1)
-
             let mut idx = self.idx_after_content_pos(content_pos);
             while self.0[idx].content_len_cur() == 0 { idx += 1; }
 
