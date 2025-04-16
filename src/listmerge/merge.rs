@@ -72,8 +72,7 @@ impl M2Tracker {
 
         // The list is initially populated with a dummy "underwater" item, which corresponds to
         // any characters that might exist in the document before the greatest common version.
-        let underwater = CRDTSpan::new_underwater();
-        result.range_tree.set_single_item_notify(underwater, notify_for(&mut result.index));
+        result.range_tree.set_single_item_notify(CRDTSpan::new_underwater(), notify_for(&mut result.index));
 
         result
     }
@@ -304,18 +303,18 @@ impl M2Tracker {
     fn apply_range(&mut self, aa: &AgentAssignment, op_ctx: &ListOperationCtx, ops: &RleVec<KVPair<ListOpMetrics>>, range: DTRange, mut to: Option<&mut JumpRopeBuf>) {
         if range.is_empty() { return; }
 
-        let mut iter = OpMetricsIter::new(ops, op_ctx, range);
-        // let mut iter = OpMetricsIter::new(&text_info.ops, &text_info.ctx, range);
-        while let Some(mut pair) = iter.next() {
+        for mut pair in OpMetricsIter::new(ops, op_ctx, range) {
             loop {
                 let span = aa.local_span_to_agent_span(pair.span());
 
                 let len = span.len();
-                let remainder = pair.trim_ctx(len, iter.ctx);
+                let remainder = pair.trim_ctx(len, op_ctx);
 
-                let content = iter.get_content(&pair);
+                let content = pair.1.content_pos.map(|pos| {
+                    op_ctx.get_str(pair.1.kind, pos)
+                });
 
-                self.apply_to(aa, op_ctx, span.agent, &pair, content, to.as_deref_mut());
+                self.apply_to(aa, op_ctx, span.agent, pair, content, to.as_deref_mut());
 
                 if let Some(r) = remainder {
                     pair = r;
@@ -324,9 +323,7 @@ impl M2Tracker {
         }
     }
 
-    fn apply_to(&mut self, aa: &AgentAssignment, ctx: &ListOperationCtx, agent: AgentId, op_pair: &KVPair<ListOpMetrics>, content: Option<&str>, mut to: Option<&mut JumpRopeBuf>) {
-        let mut op_pair = op_pair.clone();
-
+    fn apply_to(&mut self, aa: &AgentAssignment, ctx: &ListOperationCtx, agent: AgentId, mut op_pair: KVPair<ListOpMetrics>, content: Option<&str>, mut to: Option<&mut JumpRopeBuf>) {
         loop {
             let (len_here, transformed_pos) = self.apply(aa, ctx, &op_pair, usize::MAX, agent);
 
@@ -413,7 +410,7 @@ impl M2Tracker {
 
                 // UNDERWATER_START = 4611686018427387903
 
-                let (origin_left, end_pos, mut new_cursor) = if op.start() == 0 {
+                let (origin_left, end_pos, mut cursor) = if op.start() == 0 {
                     (usize::MAX, 0, self.range_tree.mut_cursor_at_start())
                 } else {
                     let (mut end_pos, mut cursor) = self.range_tree.mut_cursor_before_cur_pos(op.start() - 1);
@@ -426,17 +423,17 @@ impl M2Tracker {
                     (origin_left, end_pos, cursor)
                 };
                 let cursor_pos = LenPair::new(op.start(), end_pos);
-                debug_assert_eq!(new_cursor.0.get_pos(&self.range_tree), cursor_pos);
+                debug_assert_eq!(cursor.0.get_pos(&self.range_tree), cursor_pos);
 
                 // Origin_right should be the next item which isn't in the NotInsertedYet state.
                 // If we reach the end of the document before that happens, use usize::MAX.
 
-                let origin_right = if !new_cursor.roll_next_item(&mut self.range_tree) {
+                let origin_right = if !cursor.roll_next_item(&mut self.range_tree) {
                     // Because the list has underwater elements, this never happens in practice.
                     // unreachable!() would be equally valid here.
                     usize::MAX
                 } else {
-                    let mut c2 = new_cursor.0.clone();
+                    let mut c2 = cursor.0.clone();
 
                     // Just scan forward until we find the next item that exists at this point
                     // in time. This scan is O(n) but fast in the average case. It might be faster
@@ -464,7 +461,7 @@ impl M2Tracker {
                     end_state_ever_deleted: false,
                 };
 
-                let ins_xf_pos = self.integrate(aa, agent, item, new_cursor, cursor_pos);
+                let ins_xf_pos = self.integrate(aa, agent, item, cursor, cursor_pos);
                 (len, BaseMoved(ins_xf_pos))
             }
 
@@ -476,7 +473,7 @@ impl M2Tracker {
 
                 let fwd = op.loc.fwd;
 
-                let (cursor_pos, mut new_cursor, len) = if fwd {
+                let (cursor_pos, mut cursor, len) = if fwd {
                     let start_pos = op.start();
                     let (end_pos, cursor) = self.range_tree.mut_cursor_before_cur_pos(start_pos);
                     (LenPair::new(start_pos, end_pos), cursor, len)
@@ -507,9 +504,9 @@ impl M2Tracker {
 
                     (cursor_pos, cursor, len)
                 };
-                debug_assert_eq!(new_cursor.0.get_pos(&self.range_tree), cursor_pos);
+                debug_assert_eq!(cursor.0.get_pos(&self.range_tree), cursor_pos);
 
-                let (e, _offset) = new_cursor.0.get_item(&self.range_tree);
+                let (e, _offset) = cursor.0.get_item(&self.range_tree);
                 assert_eq!(e.current_state, INSERTED);
 
                 // If we've never been deleted locally, we'll need to do that.
@@ -518,10 +515,10 @@ impl M2Tracker {
                 // The transformed position that this delete is at. Only actually needed if we're
                 // modifying
                 // let del_start_xf = cursor_pos.end;
-                debug_assert_eq!(new_cursor.0.get_pos(&self.range_tree), cursor_pos);
+                debug_assert_eq!(cursor.0.get_pos(&self.range_tree), cursor_pos);
 
                 let (len2, target) = self.range_tree.mutate_entry(
-                    &mut new_cursor,
+                    &mut cursor,
                     len,
                     &mut notify_for(&mut self.index),
                     |e| {
@@ -533,7 +530,7 @@ impl M2Tracker {
 
                 // The cursor shouldn't have moved, since the item we traversed over was
                 // deleted.
-                self.range_tree.emplace_cursor(cursor_pos, new_cursor);
+                self.range_tree.emplace_cursor(cursor_pos, cursor);
 
                 // ContentTree should come to the same length conclusion as us.
                 if !fwd { debug_assert_eq!(len2, len); }
